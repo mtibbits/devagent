@@ -33,14 +33,14 @@
 Plugin scaffolding:
 - `.claude-plugin/marketplace.json`
 - `README.md` (one-paragraph stub; full docs deferred)
-- `commands/devagent:init.md`
-- `commands/devagent:doctor.md`
-- `commands/devagent:checklist-init.md`
-- `commands/devagent:checklist-advance.md`
-- `commands/devagent:checklist-mark.md`
-- `commands/devagent:checklist-log.md`
-- `commands/devagent:checklist-stuck.md`
-- `commands/devagent:checklist-unstuck.md`
+- `commands/init.md`
+- `commands/doctor.md`
+- `commands/checklist-init.md`
+- `commands/checklist-advance.md`
+- `commands/checklist-mark.md`
+- `commands/checklist-log.md`
+- `commands/checklist-stuck.md`
+- `commands/checklist-unstuck.md`
 - `skills/.gitkeep`
 
 Libraries:
@@ -2473,7 +2473,7 @@ Expected: 3/3 PASS.
 
 - [ ] **Step 10.10: Write slash-command wrappers**
 
-Create `commands/devagent:checklist-init.md`:
+Create `commands/checklist-init.md`:
 
 ```markdown
 ---
@@ -2490,15 +2490,15 @@ Forward all arguments verbatim. Surface stderr to the user.
 Repeat the same minimal three-line YAML body for the other five
 checklist commands, swapping name + script:
 
-- `commands/devagent:checklist-advance.md` → wraps `checklist-advance.sh <issue-dir>`
-- `commands/devagent:checklist-mark.md`    → wraps `checklist-mark.sh <issue-dir> <step-num> <glyph>`
-- `commands/devagent:checklist-log.md`     → wraps `checklist-log.sh <issue-dir> <step-name> <message...>`
-- `commands/devagent:checklist-stuck.md`   → wraps `checklist-stuck.sh <issue-dir> <reason...>`
-- `commands/devagent:checklist-unstuck.md` → wraps `checklist-unstuck.sh (--pending|--in-progress) <issue-dir>`
+- `commands/checklist-advance.md` → wraps `checklist-advance.sh <issue-dir>`
+- `commands/checklist-mark.md`    → wraps `checklist-mark.sh <issue-dir> <step-num> <glyph>`
+- `commands/checklist-log.md`     → wraps `checklist-log.sh <issue-dir> <step-name> <message...>`
+- `commands/checklist-stuck.md`   → wraps `checklist-stuck.sh <issue-dir> <reason...>`
+- `commands/checklist-unstuck.md` → wraps `checklist-unstuck.sh (--pending|--in-progress) <issue-dir>`
 
 For brevity, the exact text of each is:
 
-`commands/devagent:checklist-advance.md`:
+`commands/checklist-advance.md`:
 ```markdown
 ---
 name: devagent:checklist-advance
@@ -2509,7 +2509,7 @@ Run `scripts/checklist-advance.sh <issue-dir>`. Forward all arguments
 verbatim. Surface stderr to the user.
 ```
 
-`commands/devagent:checklist-mark.md`:
+`commands/checklist-mark.md`:
 ```markdown
 ---
 name: devagent:checklist-mark
@@ -2520,7 +2520,7 @@ Run `scripts/checklist-mark.sh <issue-dir> <step-num> <glyph>` where glyph
 is one of ' ', x, -, !, ~, ?, P. Forward all arguments verbatim.
 ```
 
-`commands/devagent:checklist-log.md`:
+`commands/checklist-log.md`:
 ```markdown
 ---
 name: devagent:checklist-log
@@ -2531,7 +2531,7 @@ Run `scripts/checklist-log.sh <issue-dir> <step-name> <message...>`.
 Forward all arguments verbatim.
 ```
 
-`commands/devagent:checklist-stuck.md`:
+`commands/checklist-stuck.md`:
 ```markdown
 ---
 name: devagent:checklist-stuck
@@ -2542,7 +2542,7 @@ Run `scripts/checklist-stuck.sh <issue-dir> <reason...>`. Forward all
 arguments verbatim.
 ```
 
-`commands/devagent:checklist-unstuck.md`:
+`commands/checklist-unstuck.md`:
 ```markdown
 ---
 name: devagent:checklist-unstuck
@@ -2556,12 +2556,12 @@ Forward all arguments verbatim.
 - [ ] **Step 10.11: Commit**
 
 ```bash
-git add scripts/checklist-*.sh tests/checklist-*.bats commands/devagent:checklist-*.md
+git add scripts/checklist-*.sh tests/checklist-*.bats commands/checklist-*.md
 git commit -s -m "$(cat <<'EOF'
 plan01: add checklist-{init,advance,mark,log,stuck,unstuck}.sh
 
 Six operator-facing scripts wrapping checklist.sh + log.sh, plus one
-slash command per script under commands/devagent:checklist-*.md.
+slash command per script under commands/checklist-*.md.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
@@ -2573,7 +2573,7 @@ EOF
 ## Task 11: `scripts/init.sh` and `/devagent:init`
 
 **Files:**
-- Create: `scripts/init.sh`, `templates/config.toml.skel`, `commands/devagent:init.md`
+- Create: `scripts/init.sh`, `templates/config.toml.skel`, `commands/init.md`
 - Test: `tests/init.bats`
 
 - [ ] **Step 11.1: Write the failing test**
@@ -2784,7 +2784,7 @@ Expected: 3/3 PASS.
 
 - [ ] **Step 11.6: Write slash-command wrapper**
 
-Create `commands/devagent:init.md`:
+Create `commands/init.md`:
 
 ```markdown
 ---
@@ -2803,7 +2803,7 @@ On success the script prints the paths it created and suggests
 - [ ] **Step 11.7: Commit**
 
 ```bash
-git add scripts/init.sh templates/config.toml.skel tests/init.bats commands/devagent:init.md
+git add scripts/init.sh templates/config.toml.skel tests/init.bats commands/init.md
 git commit -s -m "$(cat <<'EOF'
 plan01: add init.sh and /devagent:init bootstrap
 
@@ -2821,7 +2821,7 @@ EOF
 ## Task 12: `scripts/doctor.sh` and `/devagent:doctor`
 
 **Files:**
-- Create: `scripts/doctor.sh`, `commands/devagent:doctor.md`
+- Create: `scripts/doctor.sh`, `commands/doctor.md`
 - Test: `tests/doctor.bats`
 
 Doctor in Plan 1 validates structural concerns only:
@@ -3105,7 +3105,7 @@ Expected: 9/9 PASS.
 
 - [ ] **Step 12.5: Write slash-command wrapper**
 
-Create `commands/devagent:doctor.md`:
+Create `commands/doctor.md`:
 
 ```markdown
 ---
@@ -3128,7 +3128,7 @@ Forward arguments verbatim.
 - [ ] **Step 12.6: Commit**
 
 ```bash
-git add scripts/doctor.sh tests/doctor.bats commands/devagent:doctor.md
+git add scripts/doctor.sh tests/doctor.bats commands/doctor.md
 git commit -s -m "$(cat <<'EOF'
 plan01: add doctor.sh and /devagent:doctor
 

@@ -43,16 +43,16 @@
 - `scripts/park.sh` — Family D
 - `scripts/resume.sh` — Family D
 - `scripts/switch.sh` — Family D (sugar)
-- `commands/devagent:pull.md`
-- `commands/devagent:where.md`
-- `commands/devagent:next.md`
-- `commands/devagent:status.md`
-- `commands/devagent:catchup.md`
-- `commands/devagent:stuck.md`
-- `commands/devagent:unstuck.md`
-- `commands/devagent:park.md`
-- `commands/devagent:resume.md`
-- `commands/devagent:switch.md`
+- `commands/pull.md`
+- `commands/where.md`
+- `commands/next.md`
+- `commands/status.md`
+- `commands/catchup.md`
+- `commands/stuck.md`
+- `commands/unstuck.md`
+- `commands/park.md`
+- `commands/resume.md`
+- `commands/switch.md`
 - `templates/issue.md.skel` — empty-issue-dir skeleton
 - `tests/parse-args.bats`
 - `tests/issue-github.bats`
@@ -535,7 +535,7 @@ EOF
 - Create: `scripts/pull.sh`
 - Create: `templates/issue.md.skel`
 - Create: `tests/pull.bats`
-- Create: `commands/devagent:pull.md`
+- Create: `commands/pull.md`
 
 Spec §6.3 row 0: scaffolds the per-issue directory (spec §3.5), calls `issue/<backend>.sh fetch`, writes `issue.md`, marks step 0 done in checklist, logs.
 
@@ -744,7 +744,7 @@ Expected: 8 tests PASS.
 
 - [ ] **Step 3.6: Write the slash command wrapper**
 
-Create `commands/devagent:pull.md`:
+Create `commands/pull.md`:
 
 ```markdown
 ---
@@ -780,7 +780,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pull.sh" <project> <origin|fork> <num>
 - [ ] **Step 3.7: Commit**
 
 ```bash
-git add scripts/pull.sh templates/issue.md.skel tests/pull.bats commands/devagent:pull.md
+git add scripts/pull.sh templates/issue.md.skel tests/pull.bats commands/pull.md
 git commit -s -m "$(cat <<'EOF'
 feat(pull): add /devagent:pull workflow step 0
 
@@ -800,7 +800,7 @@ EOF
 **Files:**
 - Create: `scripts/where.sh`
 - Create: `tests/where.bats`
-- Create: `commands/devagent:where.md`
+- Create: `commands/where.md`
 
 Spec §6.5: "Reports active issue + last step + next step; offers 'Continue?' but does **not** execute." Plan 2's `where.sh` does the reporting; the "Continue?" prompt invites the operator to type `/devagent:next` — we do not auto-invoke it.
 
@@ -1048,7 +1048,7 @@ Expected: all PASS.
 
 - [ ] **Step 4.6: Write the slash command wrapper**
 
-Create `commands/devagent:where.md`:
+Create `commands/where.md`:
 
 ```markdown
 ---
@@ -1077,7 +1077,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/where.sh" <project>
 
 ```bash
 git add scripts/where.sh tests/where.bats tests/checklist-next-actionable.bats \
-        scripts/lib/checklist.sh commands/devagent:where.md
+        scripts/lib/checklist.sh commands/where.md
 git commit -s -m "$(cat <<'EOF'
 feat(where): add /devagent:where reporter
 
@@ -1096,7 +1096,7 @@ EOF
 **Files:**
 - Create: `scripts/next.sh`
 - Create: `tests/next.bats`
-- Create: `commands/devagent:next.md`
+- Create: `commands/next.md`
 
 Spec §6.5, §7 (chaining), §8 (permission gates). `next.sh` dispatches to per-step scripts/skills. Plan 2 dispatches by step name; for steps Plan 3 or Plan 4 own, it prints a deferral message and exits 0 without advancing. This lets `next` be tested today without faking the missing steps.
 
@@ -1327,7 +1327,7 @@ Expected: 7 tests PASS.
 
 - [ ] **Step 5.5: Write the slash command wrapper**
 
-Create `commands/devagent:next.md`:
+Create `commands/next.md`:
 
 ```markdown
 ---
@@ -1357,7 +1357,7 @@ Where `"$@"` is the verbatim CLI tail forwarded by the harness.
 - [ ] **Step 5.6: Commit**
 
 ```bash
-git add scripts/next.sh tests/next.bats commands/devagent:next.md
+git add scripts/next.sh tests/next.bats commands/next.md
 git commit -s -m "$(cat <<'EOF'
 feat(next): add /devagent:next dispatch + chain skeleton
 
@@ -1377,7 +1377,7 @@ EOF
 **Files:**
 - Create: `scripts/status.sh`
 - Create: `tests/status.bats`
-- Create: `commands/devagent:status.md`
+- Create: `commands/status.md`
 
 Spec §6.5: "Multi-project dashboard: active, stuck, parked, idle."
 
@@ -1562,7 +1562,7 @@ Expected: 6 tests PASS.
 
 - [ ] **Step 6.5: Write the slash command wrapper**
 
-Create `commands/devagent:status.md`:
+Create `commands/status.md`:
 
 ```markdown
 ---
@@ -1586,7 +1586,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/status.sh" "$@"
 - [ ] **Step 6.6: Commit**
 
 ```bash
-git add scripts/status.sh tests/status.bats commands/devagent:status.md
+git add scripts/status.sh tests/status.bats commands/status.md
 git commit -s -m "$(cat <<'EOF'
 feat(status): add /devagent:status multi-project dashboard
 
@@ -1605,7 +1605,7 @@ EOF
 **Files:**
 - Create: `scripts/catchup.sh`
 - Create: `tests/catchup.bats`
-- Create: `commands/devagent:catchup.md`
+- Create: `commands/catchup.md`
 
 Spec §6.5: "Synthesizes issue.md + imPlan + actualWork + last comments + last 5 log entries into one-screen rehydration."
 
@@ -1830,7 +1830,7 @@ Expected: 5 tests PASS.
 
 - [ ] **Step 7.5: Write the slash command wrapper**
 
-Create `commands/devagent:catchup.md`:
+Create `commands/catchup.md`:
 
 ```markdown
 ---
@@ -1854,7 +1854,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/catchup.sh" "$@"
 - [ ] **Step 7.6: Commit**
 
 ```bash
-git add scripts/catchup.sh tests/catchup.bats commands/devagent:catchup.md
+git add scripts/catchup.sh tests/catchup.bats commands/catchup.md
 git commit -s -m "$(cat <<'EOF'
 feat(catchup): add /devagent:catchup rehydration synth
 
@@ -1874,8 +1874,8 @@ EOF
 - Create: `scripts/stuck.sh`
 - Create: `scripts/unstuck.sh`
 - Create: `tests/stuck-unstuck.bats`
-- Create: `commands/devagent:stuck.md`
-- Create: `commands/devagent:unstuck.md`
+- Create: `commands/stuck.md`
+- Create: `commands/unstuck.md`
 
 Spec §5.3 (STUCK file format), §6.5.
 
@@ -2100,7 +2100,7 @@ Expected: 6 tests PASS.
 
 - [ ] **Step 8.6: Write slash command wrappers**
 
-Create `commands/devagent:stuck.md`:
+Create `commands/stuck.md`:
 
 ```markdown
 ---
@@ -2121,7 +2121,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/stuck.sh" "$@"
 ```
 ```
 
-Create `commands/devagent:unstuck.md`:
+Create `commands/unstuck.md`:
 
 ```markdown
 ---
@@ -2146,7 +2146,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/unstuck.sh" "$@"
 
 ```bash
 git add scripts/stuck.sh scripts/unstuck.sh tests/stuck-unstuck.bats \
-        commands/devagent:stuck.md commands/devagent:unstuck.md
+        commands/stuck.md commands/unstuck.md
 git commit -s -m "$(cat <<'EOF'
 feat(stuck): add /devagent:stuck and /devagent:unstuck
 
@@ -2168,9 +2168,9 @@ EOF
 - Create: `scripts/resume.sh`
 - Create: `scripts/switch.sh`
 - Create: `tests/park-resume-switch.bats`
-- Create: `commands/devagent:park.md`
-- Create: `commands/devagent:resume.md`
-- Create: `commands/devagent:switch.md`
+- Create: `commands/park.md`
+- Create: `commands/resume.md`
+- Create: `commands/switch.md`
 
 Spec §5.1 (`[P]`), §6.5.
 
@@ -2423,7 +2423,7 @@ Expected: 6 tests PASS.
 
 - [ ] **Step 9.7: Write slash command wrappers**
 
-Create `commands/devagent:park.md`:
+Create `commands/park.md`:
 
 ```markdown
 ---
@@ -2444,7 +2444,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/park.sh" "$@"
 ```
 ```
 
-Create `commands/devagent:resume.md`:
+Create `commands/resume.md`:
 
 ```markdown
 ---
@@ -2465,7 +2465,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/resume.sh" "$@"
 ```
 ```
 
-Create `commands/devagent:switch.md`:
+Create `commands/switch.md`:
 
 ```markdown
 ---
@@ -2490,7 +2490,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/switch.sh" "$@"
 ```bash
 git add scripts/park.sh scripts/resume.sh scripts/switch.sh \
         tests/park-resume-switch.bats \
-        commands/devagent:park.md commands/devagent:resume.md commands/devagent:switch.md
+        commands/park.md commands/resume.md commands/switch.md
 git commit -s -m "$(cat <<'EOF'
 feat(park): add /devagent:park /devagent:resume /devagent:switch
 
