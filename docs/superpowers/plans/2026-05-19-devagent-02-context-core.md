@@ -877,11 +877,17 @@ EOF
 
 @test "where reports parked issues" {
   cat >> "$DEVAGENT_HOME/state/volk.toml" <<'EOF'
-parked = ["Issue-203", "Issue-Fork-12"]
+
+[parked]
+"Issue-203"     = true
+"Issue-Fork-12" = true
 EOF
   run "$PLUGIN_ROOT/scripts/where.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Parked: Issue-203, Issue-Fork-12"* ]]
+  # Order of parked issues is not guaranteed (keys form, not array)
+  [[ "$output" == *"Parked:"* ]]
+  [[ "$output" == *"Issue-203"* ]]
+  [[ "$output" == *"Issue-Fork-12"* ]]
 }
 
 @test "where errors when project unknown" {
@@ -1405,7 +1411,9 @@ EOF
   cat > "$DEVAGENT_HOME/state/volk.toml" <<EOF
 active_issue = "Issue-1"
 issue_dir = "$DEVDOC1/Issue-1"
-parked = ["Issue-7"]
+
+[parked]
+"Issue-7" = true
 EOF
   cat > "$DEVDOC1/Issue-1/checklist.md" <<'EOF'
 - [x]  0. pull

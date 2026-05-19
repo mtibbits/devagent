@@ -164,8 +164,23 @@ mr_url         = "https://github.com/gnuradio/volk/pull/842"   # set after ship
 revision       = 1
 updated_at     = "2026-05-19T14:32:00-04:00"
 
-parked = ["Issue-Fork-12", "Issue-203"]   # explicitly parked, distinct from idle
+[parked]                                  # explicitly parked, distinct from idle
+"Issue-Fork-12" = true
+"Issue-203"     = true
 ```
+
+Parked issues are represented as boolean-true keys under a `[parked]`
+table rather than a TOML array. Rationale: per-issue add/remove is a
+direct key write/delete (no read-splice-write of an array), which
+composes better with future per-issue metadata (e.g.,
+`[parked."Issue-12"]` table with `parked_at`, `reason`, etc.) if we
+ever need it. Order is not preserved; v1 does not depend on order.
+
+All writes to state files go through `scripts/lib/_toml.py`, which
+holds an exclusive `fcntl.flock` on a sibling `.lock` file across the
+entire read-modify-write cycle and writes via tempfile + atomic
+`rename`. Readers do not need to lock — POSIX guarantees `rename`
+atomicity, so they see either the prior consistent state or the next.
 
 Adjacent state files:
 

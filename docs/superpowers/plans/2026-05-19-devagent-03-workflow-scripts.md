@@ -1779,7 +1779,8 @@ EOF
 active_issue = ""
 issue_dir = ""
 branch = ""
-parked = []
+
+[parked]
 EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" --all
     [ "$status" -eq 0 ]

@@ -515,6 +515,38 @@ teardown() { teardown_tmp_devagent_home; }
   run python3 "$TOML" validate "$DA_HOME/bad.toml"
   [ "$status" -ne 0 ]
 }
+
+@test "concurrent writes do not lose updates" {
+  # Launch 20 concurrent writers each setting a distinct key.
+  # Without flock, lost-update races would drop some keys.
+  local i pids=()
+  for i in $(seq 1 20); do
+    python3 "$TOML" set "$DA_HOME/config.toml" \
+      "project.volk.race_$i" "\"v$i\"" &
+    pids+=($!)
+  done
+  for pid in "${pids[@]}"; do wait "$pid"; done
+
+  # All 20 keys must be readable.
+  local missing=0
+  for i in $(seq 1 20); do
+    run python3 "$TOML" get "$DA_HOME/config.toml" "project.volk.race_$i"
+    [ "$status" -eq 0 ] || { missing=$((missing+1)); continue; }
+    [ "$output" = "v$i" ] || missing=$((missing+1))
+  done
+  [ "$missing" -eq 0 ]
+}
+
+@test "lock file is released on exception" {
+  # Force a malformed write (a bad value type) and verify the lock
+  # does not stick around blocking subsequent writers.
+  ! python3 "$TOML" set-bool "$DA_HOME/config.toml" \
+      project.volk.fork_first not-a-bool
+  # Now a normal write must still succeed.
+  run python3 "$TOML" set "$DA_HOME/config.toml" \
+      project.volk.after_error '"ok"'
+  [ "$status" -eq 0 ]
+}
 ```
 
 - [ ] **Step 2.2: Run tests to verify they fail**
@@ -523,7 +555,7 @@ teardown() { teardown_tmp_devagent_home; }
 cd /home/user/src/devAgent && bats tests/_toml.bats
 ```
 
-Expected: every test fails with `_toml.py: No such file or directory`.
+Expected: every test (10 total) fails with `_toml.py: No such file or directory`.
 
 - [ ] **Step 2.3: Write `_toml.py`**
 
@@ -536,17 +568,47 @@ Create `scripts/lib/_toml.py`:
 Reads via Python 3.11+ stdlib tomllib. Writes by emitting a conservative
 subset of TOML by hand — we only need: top-level tables, nested tables,
 string/bool/int scalars. Lists/dates/inline-tables are read-only.
+
+Mutation verbs (set, set-bool, set-int, unset) acquire an exclusive
+fcntl.flock on a sibling .lock file for the entire read-modify-write
+cycle and write via tempfile + atomic os.rename. Concurrent writers
+are serialized; readers do not need to lock (POSIX rename atomicity
+guarantees a consistent view).
 """
 
 from __future__ import annotations
+import fcntl
 import sys
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 
 
 def _load(path: Path) -> dict:
     with path.open("rb") as fh:
         return tomllib.load(fh)
+
+
+@contextmanager
+def _locked_rmw(path: Path):
+    """Exclusive-locked read-modify-write.
+
+    Usage:
+        with _locked_rmw(path) as data:
+            data["x"] = 1
+        # _dump(path, data) happens automatically on clean exit;
+        # lock is released even on exception.
+    """
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            data = _load(path)
+            yield data
+            _dump(path, data)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def _walk(data: dict, dotted: str):
@@ -690,21 +752,22 @@ def main(argv: list[str]) -> int:
         return 0
 
     if verb in {"set", "set-bool", "set-int", "unset"}:
-        data = _load(file)
-        if verb == "unset":
-            _unset_path(data, rest[0])
-        else:
-            key, raw = rest[0], rest[1]
-            if verb == "set-bool":
-                if raw not in ("true", "false"):
-                    print("_toml: set-bool wants true|false", file=sys.stderr)
-                    return 2
-                _set_path(data, key, raw == "true")
-            elif verb == "set-int":
-                _set_path(data, key, int(raw))
+        # Validate args BEFORE entering the lock so a bad invocation
+        # doesn't briefly hold the lock for no reason.
+        if verb == "set-bool" and rest[1] not in ("true", "false"):
+            print("_toml: set-bool wants true|false", file=sys.stderr)
+            return 2
+        with _locked_rmw(file) as data:
+            if verb == "unset":
+                _unset_path(data, rest[0])
             else:
-                _set_path(data, key, _parse_raw(raw))
-        _dump(file, data)
+                key, raw = rest[0], rest[1]
+                if verb == "set-bool":
+                    _set_path(data, key, raw == "true")
+                elif verb == "set-int":
+                    _set_path(data, key, int(raw))
+                else:
+                    _set_path(data, key, _parse_raw(raw))
         return 0
 
     print(f"_toml: unknown verb '{verb}'", file=sys.stderr)
@@ -723,7 +786,8 @@ chmod +x scripts/lib/_toml.py
 bats tests/_toml.bats
 ```
 
-Expected: all 8 tests PASS.
+Expected: all 10 tests PASS. The concurrent-writes test must finish
+without losing any of the 20 racing updates.
 
 - [ ] **Step 2.5: Commit**
 
@@ -734,6 +798,11 @@ plan01: add _toml.py CLI shim over Python tomllib
 
 Provides get/set/set-bool/set-int/unset/list-keys/list-tables/validate
 verbs used by scripts/lib/config.sh and scripts/lib/state.sh.
+
+Mutation verbs hold an exclusive fcntl.flock on a sibling .lock file
+across the entire read-modify-write cycle and write via tempfile +
+atomic rename. Concurrent writers are serialized; readers do not need
+to lock (POSIX rename atomicity guarantees a consistent view).
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
@@ -1150,12 +1219,18 @@ last_step_name = ""
 mr_url         = ""
 revision       = 1
 updated_at     = ""
-parked         = []
+
+[parked]
+# (no entries by default; populated as `"Issue-XYZ" = true` keys)
 ```
 
-Note: `parked = []` is a TOML array literal we never write back through
-`_toml.py` (which doesn't emit arrays). The state library stores parked
-issues in `parked.<issue>` boolean keys instead — see implementation.
+Note: `[parked]` is a TOML table with boolean-true keys, not an array.
+Per spec §3.3, this representation was chosen over the array form for
+two reasons: (1) per-issue add/remove is a direct key write/delete with
+no read-splice-write of an array body, and (2) the table form composes
+naturally with future per-issue metadata (`[parked."Issue-12"]` with
+`parked_at`, `reason`, …) if v2 ever needs it. Order is not preserved;
+v1 does not depend on order.
 
 - [ ] **Step 5.4: Implement `state.sh`**
 
@@ -3220,7 +3295,7 @@ If no fixes were needed, this step is a no-op.
 - Doctor's `auth/<backend>.sh status` and reachability checks → Plan 8
 - `where`, `next`, `status`, `catchup`, `stuck`/`unstuck` slash commands as workflow verbs (Family D) → Plan 2 (note: Plan 1's `checklist-stuck.sh` / `checklist-unstuck.sh` operate on an arbitrary issue dir and do not require a project state; Plan 2's `/devagent:stuck` will additionally update `<project>.toml`)
 - `pull.sh` / `branch.sh` / `commit.sh` / etc. → Plans 2, 3
-- `_toml.py` write support for arrays/dates → deliberately not implemented; state.sh works around by storing parked issues as `parked.<issue> = true` keys
+- `_toml.py` write support for arrays/dates → deliberately not implemented per spec §3.3 (parked is a `[parked]` table with boolean-true keys, not an array)
 - README full content → docs sweep at end of Plan 10
 - Symlink-back of cross-repo migrated templates → opted out; Step 0.5 leaves the original in place instead
 
@@ -3229,6 +3304,9 @@ If no fixes were needed, this step is a no-op.
 **Open questions for the operator:**
 
 1. **Cross-repo template migration:** Spec §12 calls for symlinks "for one release cycle". This plan opts for a one-way copy of `~/.claude/issue-redteam-prompt.md` → `templates/redteam_issue.md` and leaves the original in place. Confirm this is acceptable, or specify how to handle the cross-repo symlink (the in-repo three are `git mv`'d).
-2. **`parked` representation in state TOML:** Spec §3.3 shows `parked = ["Issue-X", "Issue-Y"]` (TOML array). The `_toml.py` shim deliberately does not emit array literals. This plan stores parked issues as `parked.<issue> = true` boolean keys, so `state_list_parked` returns the same set without needing an array writer. Confirm this is an acceptable internal representation, or commission the operator to extend `_toml.py` with array support.
-3. **Default permissions:** `init.sh` writes all `[project.<name>.permissions]` flags as `false`. The example in spec §3.2 shows volk with most flags `true`. Confirm new projects should default safe (all false) and require explicit opt-in, rather than mirroring volk's permissive defaults.
-4. **`bats` availability:** This plan requires `bats-core` locally and provides no fallback. If `bats` cannot be installed on the development machine, the plan needs to be reworked to either ship a vendored copy or to switch the test framework (pytest with shell-out would also work).
+2. **Default permissions:** `init.sh` writes all `[project.<name>.permissions]` flags as `false`. The example in spec §3.2 shows volk with most flags `true`. Confirm new projects should default safe (all false) and require explicit opt-in, rather than mirroring volk's permissive defaults.
+
+**Resolved during plan review (no action needed):**
+
+- **`parked` representation** — keys-form retained (`[parked]` table with `"Issue-X" = true` keys, not an array). Spec §3.3 updated to match. `_toml.py` extended in Task 2 with `fcntl.flock`-based atomic writes so that concurrent `state_add_parked` / `state_remove_parked` calls cannot lose updates regardless of representation.
+- **`bats` availability** — installed locally; no fallback needed.
