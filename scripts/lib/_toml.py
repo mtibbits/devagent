@@ -167,8 +167,7 @@ def main(argv: list[str]) -> int:
         if isinstance(v, dict):
             print(f"_toml: '{rest[0]}' is a table, not a value", file=sys.stderr)
             return 1
-        print(_emit_value(v).strip('"') if isinstance(v, str)
-              else _emit_value(v))
+        print(v if isinstance(v, str) else _emit_value(v))
         return 0
 
     if verb == "list-tables":
