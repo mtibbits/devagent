@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "devagent",
+  "description": "Workflow state preservation for multi-issue development across GitHub/GitLab/JIRA.",
+  "owner": {
+    "name": "Matt Tibbits",
+    "email": "tibbits@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "devagent",
+      "description": "Plugin that documents the state of in-progress development work so the operator can switch issues without losing context. v1: foundation only.",
+      "version": "0.1.0",
+      "source": "./",
+      "author": { "name": "Matt Tibbits" }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[defaults]
+checklist_template = "standard"
+ship_as_draft = false
+
+[project.{{PROJECT}}]
+source_dir       = "{{SOURCE_DIR}}"
+devdoc_dir       = "{{DEVDOC_DIR}}"
+fork_first       = false
+ship_as_draft    = false
+default_baseline = "origin/main"
+
+[project.{{PROJECT}}.permissions]
+push_mr            = false
+merge_mr           = false
+commit_devdoc      = false
+transition_issue   = false
+cleanup_on_merge   = false
+
+[project.{{PROJECT}}.issue_source]
+backend = "{{ISSUE_BACKEND}}"
+repo = "{{ISSUE_REPO}}"
+dir_prefix = "Issue-"
+
+[project.{{PROJECT}}.code_source]
+backend = "{{CODE_BACKEND}}"
+upstream = "{{CODE_UPSTREAM}}"
+fork = "{{CODE_FORK}}"
+
+[project.{{PROJECT}}.issue_workflow]
+on_draft_start = "In Progress"
+on_ship        = "In Review"
+on_merge       = "Done"

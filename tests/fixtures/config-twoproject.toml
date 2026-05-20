@@ -1,0 +1,32 @@
+[defaults]
+checklist_template = "standard"
+
+[project.volk]
+source_dir = "~/src/volk"
+devdoc_dir = "~/src/devDoc/volk"
+default_baseline = "origin/main"
+
+[project.volk.issue_source]
+backend = "github"
+repo = "gnuradio/volk"
+dir_prefix = "Issue-"
+
+[project.volk.code_source]
+backend = "github"
+upstream = "gnuradio/volk"
+fork = "mtibbits/volk"
+
+[project.toy]
+source_dir = "~/src/toy"
+devdoc_dir = "~/src/devDoc/toy"
+default_baseline = "origin/main"
+
+[project.toy.issue_source]
+backend = "github"
+repo = "me/toy"
+dir_prefix = "Issue-"
+
+[project.toy.code_source]
+backend = "github"
+upstream = "me/toy"
+fork = "me/toy"

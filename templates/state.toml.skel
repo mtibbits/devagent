@@ -1,0 +1,13 @@
+active_issue   = ""
+issue_dir      = ""
+branch         = ""
+baseline_sha   = ""
+worktree_path  = ""
+last_step      = 0
+last_step_name = ""
+mr_url         = ""
+revision       = 1
+updated_at     = ""
+
+[parked]
+# (no entries by default; populated as `"Issue-XYZ" = true` keys)
