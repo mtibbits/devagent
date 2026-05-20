@@ -1,0 +1,30 @@
+[defaults]
+checklist_template = "standard"
+ship_as_draft = false
+
+[project.volk]
+source_dir = "~/src/volk"
+source_remote = "git@gitlab.com:mtibbits/volk.git"
+upstream_remote = "https://github.com/gnuradio/volk"
+devdoc_dir = "~/src/devDoc/volk"
+fork_first = true
+ship_as_draft = true
+default_baseline = "origin/main"
+all_prs_branch = "dev/all-prs"
+
+[project.volk.permissions]
+push_mr = true
+merge_mr = true
+commit_devdoc = true
+transition_issue = true
+cleanup_on_merge = false
+
+[project.volk.issue_source]
+backend = "github"
+repo = "gnuradio/volk"
+dir_prefix = "Issue-"
+
+[project.volk.code_source]
+backend = "github"
+upstream = "gnuradio/volk"
+fork = "mtibbits/volk"
