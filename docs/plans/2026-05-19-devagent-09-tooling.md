@@ -2037,13 +2037,13 @@ EOF
 ## Task 14: Coordination doc + ship.sh integration spec
 
 **Files:**
-- Create: `docs/superpowers/plans/2026-05-19-devagent-09-tooling-COORDINATION.md`
+- Create: `docs/plans/2026-05-19-devagent-09-tooling-COORDINATION.md`
 
 This task records the one-line edit Plan 3's executor must make to `ship.sh`. It is a doc-only task; we do not modify Plan 3's files from here.
 
 - [ ] **Step 1: Write the coordination note**
 
-`docs/superpowers/plans/2026-05-19-devagent-09-tooling-COORDINATION.md`:
+`docs/plans/2026-05-19-devagent-09-tooling-COORDINATION.md`:
 ```markdown
 # Phase 9 → Phase 3 Coordination
 
@@ -2082,7 +2082,7 @@ point is up to Plan 2's executor; the function signature is stable.
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-05-19-devagent-09-tooling-COORDINATION.md
+git add docs/plans/2026-05-19-devagent-09-tooling-COORDINATION.md
 git commit -s -m "$(cat <<'EOF'
 docs: add Phase 9 coordination note for ship.sh integration
 

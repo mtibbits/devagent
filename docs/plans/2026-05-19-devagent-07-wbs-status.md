@@ -2395,7 +2395,7 @@ EOF
 ## Task 13: Cross-reference doctor wiring (documentation only)
 
 **Files:**
-- Create: `docs/superpowers/plans/2026-05-19-devagent-07-handoff.md`
+- Create: `docs/plans/2026-05-19-devagent-07-handoff.md`
 
 This task documents the integration surface phase 7 expects so other plan owners can wire it up without grepping. It is plain markdown — no code.
 
@@ -2454,7 +2454,7 @@ This task documents the integration surface phase 7 expects so other plan owners
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-05-19-devagent-07-handoff.md
+git add docs/plans/2026-05-19-devagent-07-handoff.md
 git commit -s -m "$(cat <<'EOF'
 docs(phase7): document interfaces consumed and exposed by phase 7
 

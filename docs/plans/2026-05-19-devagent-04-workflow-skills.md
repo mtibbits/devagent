@@ -478,7 +478,7 @@ that project.
    skill as additional user-intent context describing what the
    operator wants emphasised in the plan.
 4. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
-   `docs/superpowers/plans/`, despite the wrapped skill's default).
+   `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.
 5. On completion, append a log entry:
 
