@@ -81,3 +81,20 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [[ "$output" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]
 }
+
+@test "state_set round-trips a value containing embedded quotes" {
+  state_init volk
+  local original='say "hi" then go'
+  state_set volk weirdkey "$original"
+  run state_get volk weirdkey
+  [ "$status" -eq 0 ]
+  [ "$output" = "$original" ]
+}
+
+@test "state_init creates secrets dir at mode 700" {
+  # Remove the helper-created secrets dir to verify state_init creates it.
+  rmdir "$DA_HOME/secrets" 2>/dev/null || true
+  state_init volk
+  [ -d "$DA_HOME/secrets" ]
+  assert_file_mode "$DA_HOME/secrets" 700
+}

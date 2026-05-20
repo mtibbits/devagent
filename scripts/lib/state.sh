@@ -16,6 +16,8 @@ state_init() {
   f="$(state_path "$project")"
   mkdir -p "$(dirname "$f")"
   chmod 700 "$(dirname "$f")" 2>/dev/null || true
+  mkdir -p "$(secrets_dir)"
+  chmod 700 "$(secrets_dir)" 2>/dev/null || true
   if [[ ! -f "$f" ]]; then
     install -m 600 /dev/null "$f"
     _state_toml set     "$f" active_issue   '""'
@@ -48,9 +50,8 @@ state_set() {
   state_init "$project"
   local f
   f="$(state_path "$project")"
-  # Quote the value so _toml.py treats it as a string.
-  _state_toml set "$f" "$key" "\"${value//\"/\\\"}\""
-  _state_toml set "$f" updated_at "\"$(_state_now)\""
+  _state_toml set "$f" "$key" "$value"
+  _state_toml set "$f" updated_at "$(_state_now)"
 }
 
 state_unset() {
