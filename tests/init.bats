@@ -50,3 +50,10 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/init.sh" ""
   [ "$status" -ne 0 ]
 }
+
+@test "init refuses a project name containing dots" {
+  # Dots would produce nested TOML tables that break config discovery.
+  run "$PLUGIN_ROOT/scripts/init.sh" foo.bar
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"bad project name"* ]]
+}

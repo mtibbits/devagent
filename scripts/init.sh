@@ -14,8 +14,9 @@ usage() {
 [[ $# -eq 1 && -n "$1" ]] || usage
 project="$1"
 
-# Validate project name: lowercase alnum, dot, dash, underscore.
-[[ "$project" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "bad project name '$project' (must be lowercase alnum/./-/_)"
+# Validate project name: lowercase alnum, dash, underscore.
+# (Dots forbidden: they'd produce nested TOML tables, breaking config discovery.)
+[[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "bad project name '$project' (must be lowercase alnum/-/_)"
 
 cfg="$(config_path)"
 home="$(devagent_home)"
