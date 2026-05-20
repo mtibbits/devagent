@@ -114,3 +114,17 @@ checklist_advance() {
   checklist_mark "$file" "$cur" x
   checklist_current_step "$file"
 }
+
+# Returns the next step number whose state is one of [ ] [~] starting
+# AFTER the given step number. Skips [x] [-] [?] [P] [!]. Empty if none.
+checklist_next_actionable() {
+  local file="$1"
+  local after="${2:-0}"
+  awk -v after="$after" '
+    match($0, /^- \[(.)\] +([0-9]+)\./, m) {
+      n = m[2] + 0
+      g = m[1]
+      if (n > after && (g == " " || g == "~")) { print n; exit }
+    }
+  ' "$file"
+}
