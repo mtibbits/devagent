@@ -11,12 +11,15 @@ source "$PLUGIN_ROOT/scripts/lib/paths.sh"
 source "$PLUGIN_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/config.sh"
 
 main() {
   local project="${1:-}"
   local target="${2:-}"
   [[ -n "$project" ]] || die "switch.sh: project required"
   [[ -n "$target"  ]] || die "switch.sh: target issue required"
+  config_is_project "$project" || die "switch.sh: unknown project '$project'"
 
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"

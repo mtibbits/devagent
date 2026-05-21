@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # parse-args.sh — invocation grammar for /devagent:<verb> [project] [issue] [note...]
 # Spec §6.1. Sets DA_PROJECT, DA_ISSUE, DA_NOTE in caller's scope.
-# Requires scripts/lib/paths.sh, scripts/lib/io.sh, scripts/lib/config.sh,
-# and scripts/lib/state.sh sourced first.
+# Requires paths.sh and io.sh sourced first. config.sh and state.sh are
+# sourced internally — callers do not need to (and harmlessly may) re-source.
 
 _PA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
