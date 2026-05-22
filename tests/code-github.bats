@@ -29,3 +29,45 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     devagent_assert_logged "--draft"
 }
+
+@test "code/github.sh mr-state queries gh and prints state" {
+    devagent_stub gh "open"
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-state https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [ "$output" = "open" ]
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json state --jq .state"
+}
+
+@test "code/github.sh mr-comments prints markdown from gh" {
+    devagent_stub gh "## Comment from @reviewer\n\nLooks good"
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42"
+}
+
+@test "code/github.sh merge-mr defaults to squash" {
+    devagent_stub gh ""
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr merge https://github.com/acme/testproj/pull/42 --squash"
+}
+
+@test "code/github.sh merge-mr --method merge passes --merge" {
+    devagent_stub gh ""
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr https://github.com/acme/testproj/pull/42 --method merge
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr merge https://github.com/acme/testproj/pull/42 --merge"
+}
+
+@test "code/github.sh merge-mr --method rebase passes --rebase" {
+    devagent_stub gh ""
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr https://github.com/acme/testproj/pull/42 --method rebase
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr merge https://github.com/acme/testproj/pull/42 --rebase"
+}
+
+@test "code/github.sh merge-mr rejects unknown --method" {
+    devagent_stub gh ""
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr https://github.com/acme/testproj/pull/42 --method nonsense
+    [ "$status" -ne 0 ]
+}

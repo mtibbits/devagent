@@ -39,5 +39,30 @@ case "$verb" in
         "$DEVAGENT_GH" pr create --repo "$repo" --title "$title" \
             --body-file "$body" --head "$head" --base "$base" "${draft[@]}"
         ;;
+    mr-state)
+        [ $# -eq 1 ] || usage
+        "$DEVAGENT_GH" pr view "$1" --json state --jq .state
+        ;;
+    mr-comments)
+        [ $# -eq 1 ] || usage
+        "$DEVAGENT_GH" pr view "$1" --comments
+        ;;
+    merge-mr)
+        [ $# -ge 1 ] || usage
+        url="$1"; shift
+        method="squash"
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --method)
+                    case "${2:-}" in
+                        squash|merge|rebase) method="$2"; shift 2 ;;
+                        *) echo "code/github.sh: --method must be squash|merge|rebase" >&2; exit 2 ;;
+                    esac
+                    ;;
+                *) usage ;;
+            esac
+        done
+        "$DEVAGENT_GH" pr merge "$url" --"$method"
+        ;;
     *) usage ;;
 esac
