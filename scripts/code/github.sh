@@ -26,5 +26,18 @@ case "$verb" in
         [ $# -eq 2 ] || usage
         "$DEVAGENT_GIT" push --set-upstream "$1" "$2"
         ;;
+    create-mr)
+        [ $# -ge 5 ] || usage
+        repo="$1"; title="$2"; body="$3"; head="$4"; base="$5"; shift 5
+        draft=()
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --draft) draft=(--draft); shift ;;
+                *) usage ;;
+            esac
+        done
+        "$DEVAGENT_GH" pr create --repo "$repo" --title "$title" \
+            --body-file "$body" --head "$head" --base "$base" "${draft[@]}"
+        ;;
     *) usage ;;
 esac
