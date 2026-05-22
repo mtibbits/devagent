@@ -37,7 +37,10 @@ sync_one_project() {
     code_backend="$(config_get_project_field  "$project" code_source.backend)"
     issue_backend="$(config_get_project_field "$project" issue_source.backend)"
     issue_repo="$(config_get_project_field    "$project" issue_source.repo)"
-    issue_arg="$(state_get                    "$project" active_issue)"
+    issue_arg="$(state_get                    "$project" active_issue 2>/dev/null || true)"
+    # cleanup.sh clears active_issue but leaves issue_dir/mr_url for a session
+    # — without this guard, sync would fire on_merge with an empty issue number.
+    [ -n "$issue_arg" ] || return 0
     issue_num="${issue_arg#Issue-}"; issue_num="${issue_num#Fork-}"
 
     local code_sh issue_sh state

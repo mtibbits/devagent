@@ -48,12 +48,21 @@ template="$(artifact_resolve "$project" commit_template)" \
 
 body="$(mktemp)"
 trap 'rm -f "$body"' EXIT
-sed \
-    -e "s|{{type}}|$prefix|g" \
-    -e "s|{{title}}|$title|g" \
-    -e "s|{{issue}}|$issue_arg|g" \
-    -e "s|{{note}}|${NOTE:-}|g" \
-    "$template" > "$body"
+# Substitute placeholders via Python to avoid sed's & / | / \ pitfalls in
+# operator-supplied strings (title and NOTE in particular). Plain string
+# replace, no regex semantics on the replacement values.
+DEVAGENT_TYPE="$prefix" DEVAGENT_TITLE="$title" \
+DEVAGENT_ISSUE="$issue_arg" DEVAGENT_NOTE="${NOTE:-}" \
+python3 - "$template" "$body" <<'PY'
+import os, sys
+src, dst = sys.argv[1:]
+data = open(src).read()
+data = data.replace("{{type}}",  os.environ.get("DEVAGENT_TYPE",  ""))
+data = data.replace("{{title}}", os.environ.get("DEVAGENT_TITLE", ""))
+data = data.replace("{{issue}}", os.environ.get("DEVAGENT_ISSUE", ""))
+data = data.replace("{{note}}",  os.environ.get("DEVAGENT_NOTE",  ""))
+open(dst, "w").write(data)
+PY
 
 # Strip any "(1M context)" patterns (case-insensitive BRE; literal parens).
 # Trim trailing whitespace on each line.
