@@ -32,3 +32,23 @@ teardown() { devagent_test_teardown; }
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
+    sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
+    # No DA_YES → confirm returns 1 in non-tty → gate denies.
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    # No MR url recorded.
+    ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    # Checklist unchanged for step 15.
+    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    # Plan was printed (the permission gate text goes to stderr; bats merges it into $output).
+    [[ "$output" == *"ship plan"* ]]
+}
+
+@test "ship.sh proceeds when push_mr=false but DA_YES=1 bypasses" {
+    sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
+    DA_YES=1 run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
