@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Stub `gh` for tests. Honors GH_STUB_CASE env var.
+# Supported: standard, nocomments, fail.
+
+case "$GH_STUB_CASE" in
+  fail)
+    echo "stub-gh: simulated failure" >&2
+    exit 1
+    ;;
+  nocomments)
+    cat <<'JSON'
+{
+  "title": "Demo issue title",
+  "state": "OPEN",
+  "author": {"login": "alice"},
+  "labels": [{"name": "bug"}, {"name": "performance"}],
+  "url": "https://github.com/gnuradio/volk/issues/676",
+  "body": "Body line one.\n\nBody line two.",
+  "comments": []
+}
+JSON
+    ;;
+  *)
+    cat <<'JSON'
+{
+  "title": "Demo issue title",
+  "state": "OPEN",
+  "author": {"login": "alice"},
+  "labels": [{"name": "bug"}, {"name": "performance"}],
+  "url": "https://github.com/gnuradio/volk/issues/676",
+  "body": "Body line one.\n\nBody line two.",
+  "comments": [
+    {"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "First comment."}
+  ]
+}
+JSON
+    ;;
+esac
