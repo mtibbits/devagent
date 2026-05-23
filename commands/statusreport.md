@@ -1,0 +1,15 @@
+---
+description: Generate per-project status report, advance pin, optionally commit to devdoc
+allowed-tools: Bash
+---
+
+Run `scripts/statusreport.sh "$@"` with the user's arguments.
+
+Flags:
+- `--no-pin` — do not advance the pin (read-only report)
+- `--window-weeks N` — velocity window override (default 4)
+
+Positional arguments follow the standard devAgent invocation grammar
+(§6.1). The report is written to
+`<devdoc>/StatusReports/YYYY-MM-DD.md` and committed to the devdoc
+repo iff `permissions.commit_devdoc=true`.
