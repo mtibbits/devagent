@@ -26,8 +26,10 @@ teardown() { devagent_test_teardown; }
 
 @test "mergetoall.sh halts when merge_mr=false and non-interactive" {
     sed -i "s|^merge_mr *=.*|merge_mr = false|" "$HOME/.claude/devagent/config.toml"
-    # No DA_YES → non-tty → confirm returns 1 → gate denies.
-    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    # Force a closed stdin so confirm() sees non-tty regardless of how bats
+    # itself was invoked. Without </dev/null this hangs when bats is run
+    # from an interactive terminal (read -r -p blocks waiting for input).
+    run bash -c "'$DEVAGENT_ROOT/scripts/mergetoall.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
     grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }

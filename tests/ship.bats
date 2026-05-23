@@ -35,8 +35,10 @@ teardown() { devagent_test_teardown; }
 
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
     sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
-    # No DA_YES → confirm returns 1 in non-tty → gate denies.
-    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    # Force closed stdin so confirm() sees non-tty regardless of how bats
+    # itself was invoked. Without </dev/null this hangs when bats is run
+    # from an interactive terminal (read -r -p blocks waiting for input).
+    run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
     # No MR url recorded.
     ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
