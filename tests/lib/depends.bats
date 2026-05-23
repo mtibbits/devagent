@@ -38,3 +38,37 @@ teardown() { teardown_phase9_env; }
   echo "${deps}" | grep -q "Issue-101"
   echo "${deps}" | grep -q "Issue-102"
 }
+
+@test "depends_add rejects A->B when B->A already exists" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  run depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-101" "Issue-100"
+  [ "$status" -eq 4 ]
+  echo "$output" | grep -q "cycle"
+}
+
+@test "depends_add rejects transitive cycle A->B->C->A" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-101" "Issue-102"
+  run depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-102" "Issue-100"
+  [ "$status" -eq 4 ]
+}
+
+@test "depends_graph renders ascii tree" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-102"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-101" "Issue-102"
+  run depends_graph "${DEVAGENT_TEST_PROJECT}"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Issue-100"
+  echo "$output" | grep -q "└── Issue-102"
+}
+
+@test "depends_graph on empty project prints '(no dependencies)'" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  run depends_graph "${DEVAGENT_TEST_PROJECT}"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "no dependencies"
+}

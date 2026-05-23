@@ -125,8 +125,104 @@ depends_write_block() {
   mv "${tmp}" "${file}"
 }
 
-# Stub — implemented in Task 3.
-depends_would_cycle() { return 1; }
+# depends_would_cycle <project> <new-dependent> <new-dependency>
+# Returns 0 (true) if adding the edge would create a cycle.
+depends_would_cycle() {
+  local project="$1" a="$2" b="$3"
+  local visited_file
+  visited_file="$(mktemp)"
+  _depends_dfs "${project}" "${b}" "${a}" "${visited_file}"
+  local rc=$?
+  rm -f "${visited_file}"
+  return ${rc}
+}
+
+_depends_dfs() {
+  local project="$1" node="$2" target="$3" visited_file="$4"
+  if [ "${node}" = "${target}" ]; then
+    return 0
+  fi
+  if grep -Fxq "${node}" "${visited_file}" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\n' "${node}" >> "${visited_file}"
+  local children child
+  children="$(depends_list "${project}" "${node}")"
+  for child in ${children}; do
+    [ -z "${child}" ] && continue
+    if _depends_dfs "${project}" "${child}" "${target}" "${visited_file}"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# depends_all_dependents <project> — print every issue that has a [block].
+depends_all_dependents() {
+  local project="$1"
+  local file
+  file="$(depends_state_file "${project}")"
+  [ -f "${file}" ] || return 0
+  awk '/^\[/ { gsub(/^\[|\]$/, ""); print }' "${file}"
+}
+
+# depends_graph <project> — ASCII tree of the dependency graph.
+depends_graph() {
+  local project="$1"
+  local roots="" all
+  all="$(depends_all_dependents "${project}")"
+  if [ -z "${all}" ]; then
+    printf '(no dependencies recorded for project %s)\n' "${project}"
+    return 0
+  fi
+
+  local node is_child other deps dep
+  for node in ${all}; do
+    is_child=0
+    for other in ${all}; do
+      [ "${other}" = "${node}" ] && continue
+      deps="$(depends_list "${project}" "${other}")"
+      for dep in ${deps}; do
+        [ "${dep}" = "${node}" ] && is_child=1 && break
+      done
+      [ "${is_child}" -eq 1 ] && break
+    done
+    [ "${is_child}" -eq 0 ] && roots="${roots} ${node}"
+  done
+
+  if [ -z "${roots}" ]; then
+    roots="${all}"
+  fi
+
+  for node in ${roots}; do
+    printf '%s\n' "${node}"
+    _depends_graph_render "${project}" "${node}" "  "
+  done
+}
+
+_depends_graph_render() {
+  local project="$1" parent="$2" prefix="$3"
+  local children child count i
+  children="$(depends_list "${project}" "${parent}")"
+  count=0
+  for child in ${children}; do
+    [ -n "${child}" ] && count=$((count + 1))
+  done
+  [ "${count}" -eq 0 ] && return 0
+
+  i=0
+  for child in ${children}; do
+    [ -z "${child}" ] && continue
+    i=$((i + 1))
+    if [ "${i}" -eq "${count}" ]; then
+      printf '%s└── %s\n' "${prefix}" "${child}"
+      _depends_graph_render "${project}" "${child}" "${prefix}    "
+    else
+      printf '%s├── %s\n' "${prefix}" "${child}"
+      _depends_graph_render "${project}" "${child}" "${prefix}│   "
+    fi
+  done
+}
 
 # Stub — implemented in Task 5.
 depends_ship_preflight() { return 0; }
