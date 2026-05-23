@@ -19,3 +19,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 @test "draft.md instructs the model to append a checklist log entry" {
   grep -q 'checklist-log.sh' "$CMD_DIR/draft.md"
 }
+
+@test "scope.md exists, invokes devagent-scope, parses \$NOTE, logs" {
+  F="$CMD_DIR/scope.md"
+  [ -f "$F" ]
+  grep -q 'devagent-scope' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
