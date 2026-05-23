@@ -100,3 +100,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "impact.md exists, invokes devagent-impact, parses \$NOTE, logs" {
+  F="$CMD_DIR/impact.md"
+  [ -f "$F" ]
+  grep -q 'devagent-impact' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
