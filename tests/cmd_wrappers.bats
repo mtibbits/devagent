@@ -68,3 +68,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "document.md exists, invokes devagent-document-actual-work, parses \$NOTE, logs" {
+  F="$CMD_DIR/document.md"
+  [ -f "$F" ]
+  grep -q 'devagent-document-actual-work' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
