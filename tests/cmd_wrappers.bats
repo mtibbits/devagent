@@ -43,3 +43,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "tighten.md exists, invokes devagent-tighten, parses \$NOTE, logs" {
+  F="$CMD_DIR/tighten.md"
+  [ -f "$F" ]
+  grep -q 'devagent-tighten' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
