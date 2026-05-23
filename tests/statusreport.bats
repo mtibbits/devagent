@@ -74,3 +74,20 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Status Report"* ]] || [[ "$output" == *"testproj"* ]]
 }
+
+@test "statusreport commits to devdoc git repo iff commit_devdoc=true" {
+  ( cd "$TMPDEV" && git init -q && git config user.email "t@x" && git config user.name "t" )
+  export DEVAGENT_PERM_COMMIT_DEVDOC="true"
+  bash "$REPO/scripts/statusreport.sh"
+  run git -C "$TMPDEV" log --oneline -n1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"statusreport(testproj)"* ]]
+}
+
+@test "statusreport does not commit when commit_devdoc=false" {
+  ( cd "$TMPDEV" && git init -q && git config user.email "t@x" && git config user.name "t" )
+  export DEVAGENT_PERM_COMMIT_DEVDOC="false"
+  bash "$REPO/scripts/statusreport.sh"
+  run git -C "$TMPDEV" log --oneline -n1
+  [ "$status" -ne 0 ]
+}
