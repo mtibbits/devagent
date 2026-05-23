@@ -92,3 +92,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "redmr.md exists, invokes devagent-redmr, parses \$NOTE, logs" {
+  F="$CMD_DIR/redmr.md"
+  [ -f "$F" ]
+  grep -q 'devagent-redmr' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
