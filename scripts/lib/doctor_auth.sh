@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# scripts/lib/doctor_auth.sh
+#
+# Doctor hook for the auth subsystem. Phase 1's /devagent:doctor calls
+# this script as:
+#
+#     scripts/lib/doctor_auth.sh check <project> <backend> [<backend> ...]
+#
+# Contract:
+#   - Prints one line per backend in the form:
+#         <backend>: <STATUS> [key=value ...]
+#     where STATUS is one of: OK | WARN | MISSING | ERROR
+#   - Prints one summary line for the secrets dir:
+#         secrets_dir: <STATUS> secrets_dir_mode=<octal> [...]
+#   - NEVER prints the token value.
+#   - Exits 0 regardless of findings (this is advisory, not gating).
+#     Doctor aggregates statuses across all hooks and decides exit code.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/secrets.sh"
+
+_check_dir() {
+  if [ ! -d "${DEVAGENT_SECRETS_DIR}" ]; then
+    printf 'secrets_dir: MISSING path=%s\n' "${DEVAGENT_SECRETS_DIR}"
+    return
+  fi
+  local mode; mode="$(stat -c '%a' "${DEVAGENT_SECRETS_DIR}")"
+  if [ "${mode}" = "700" ]; then
+    printf 'secrets_dir: OK secrets_dir_mode=%s\n' "${mode}"
+  else
+    printf 'secrets_dir: WARN secrets_dir_mode=%s expected=700\n' "${mode}"
+  fi
+}
+
+_check_pat_backend() {
+  local proj="$1" backend="$2"
+  local f
+  f="$(secret_path "${proj}" "${backend}")" || { printf '%s: ERROR invalid_name\n' "${backend}"; return; }
+  if [ ! -f "${f}" ]; then
+    printf '%s: MISSING path=%s\n' "${backend}" "${f}"
+    return
+  fi
+  local mode; mode="$(stat -c '%a' "${f}")"
+  if [ "${mode}" != "600" ]; then
+    printf '%s: WARN mode=%s expected=600\n' "${backend}" "${mode}"
+    return
+  fi
+  local size; size="$(stat -c '%s' "${f}")"
+  printf '%s: OK mode=%s size_bytes=%s\n' "${backend}" "${mode}" "${size}"
+}
+
+_check_ssh_backend() {
+  local proj="$1"
+  local link="${DEVAGENT_SECRETS_DIR}/${proj}.ssh"
+  if [ ! -L "${link}" ]; then
+    printf 'ssh: MISSING path=%s\n' "${link}"
+    return
+  fi
+  local target; target="$(readlink "${link}")"
+  if [ ! -f "${target}" ]; then
+    printf 'ssh: ERROR dangling_symlink target=%s\n' "${target}"
+    return
+  fi
+  local mode; mode="$(stat -c '%a' "${target}")"
+  if [ "${mode}" != "600" ]; then
+    printf 'ssh: WARN mode=%s expected=600 target=%s\n' "${mode}" "${target}"
+    return
+  fi
+  printf 'ssh: OK target=%s\n' "${target}"
+}
+
+main() {
+  if [ "${1:-}" != "check" ]; then
+    echo "doctor_auth: usage: $0 check <project> <backend> [<backend> ...]" >&2
+    exit 1
+  fi
+  shift
+  local proj="${1:-}"; shift || true
+  if [ -z "${proj}" ]; then
+    echo "doctor_auth: project required" >&2
+    exit 1
+  fi
+  _check_dir
+  local b
+  for b in "$@"; do
+    case "${b}" in
+      ssh) _check_ssh_backend "${proj}" ;;
+      *)   _check_pat_backend "${proj}" "${b}" ;;
+    esac
+  done
+  exit 0
+}
+
+main "$@"
