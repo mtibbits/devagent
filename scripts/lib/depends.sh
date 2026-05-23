@@ -224,5 +224,54 @@ _depends_graph_render() {
   done
 }
 
-# Stub — implemented in Task 5.
-depends_ship_preflight() { return 0; }
+# depends_issue_is_merged <project> <issue> → exit 0 iff merged.
+#
+# v1 stub: presence of <issue-dir>/.merged marker file means merged.
+# A later phase (sync) will replace this with a state/<project>.toml lookup
+# of mr_url + code/<backend>.sh mr-state. Keeping it stubbed here means
+# Phase 9 doesn't take a hard dep on backend wiring being live.
+depends_issue_is_merged() {
+  local project="$1" issue="$2"
+  local devdoc
+  devdoc="$(_depends_devdoc_dir "${project}")"
+  [ -f "${devdoc}/${issue}/.merged" ]
+}
+
+_depends_devdoc_dir() {
+  local project="$1"
+  if [ -n "${DEVAGENT_TEST_DEVDOC:-}" ]; then
+    printf '%s\n' "${DEVAGENT_TEST_DEVDOC}"
+    return 0
+  fi
+  if command -v config_get_project_field >/dev/null 2>&1; then
+    config_get_project_field "${project}" "devdoc_dir"
+    return 0
+  fi
+  printf '%s/devdoc\n' "${HOME}"
+}
+
+# depends_ship_preflight <project> <issue> <strict>
+#   strict=0 → warn-only, exit 0
+#   strict=1 → block on any unmerged dep, exit 1
+depends_ship_preflight() {
+  local project="$1" issue="$2" strict="${3:-0}"
+  local deps dep open_deps=""
+  deps="$(depends_list "${project}" "${issue}")"
+  for dep in ${deps}; do
+    [ -z "${dep}" ] && continue
+    if ! depends_issue_is_merged "${project}" "${dep}"; then
+      open_deps="${open_deps} ${dep}"
+    fi
+  done
+  if [ -z "${open_deps}" ]; then
+    return 0
+  fi
+  if [ "${strict}" = "1" ]; then
+    printf 'depends: blocking ship of %s — open dependencies:%s\n' \
+      "${issue}" "${open_deps}" >&2
+    return 1
+  fi
+  printf 'WARNING: %s has unmerged dependencies:%s (use --strict-deps to block)\n' \
+    "${issue}" "${open_deps}"
+  return 0
+}

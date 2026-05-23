@@ -72,3 +72,36 @@ teardown() { teardown_phase9_env; }
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "no dependencies"
 }
+
+@test "depends_ship_preflight: no deps -> exit 0, silent" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  run depends_ship_preflight "${DEVAGENT_TEST_PROJECT}" "Issue-100" "0"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "depends_ship_preflight: open dep, non-strict -> warn, exit 0" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  run depends_ship_preflight "${DEVAGENT_TEST_PROJECT}" "Issue-100" "0"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "WARNING"
+  echo "$output" | grep -q "Issue-101"
+}
+
+@test "depends_ship_preflight: open dep, strict -> block, exit 1" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  run depends_ship_preflight "${DEVAGENT_TEST_PROJECT}" "Issue-100" "1"
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "blocking"
+}
+
+@test "depends_ship_preflight: merged dep -> silent, exit 0" {
+  source "${DEVAGENT_LIB}/depends.sh"
+  depends_add "${DEVAGENT_TEST_PROJECT}" "Issue-100" "Issue-101"
+  mkdir -p "${DEVAGENT_TEST_DEVDOC}/Issue-101"
+  touch "${DEVAGENT_TEST_DEVDOC}/Issue-101/.merged"
+  run depends_ship_preflight "${DEVAGENT_TEST_PROJECT}" "Issue-100" "1"
+  [ "$status" -eq 0 ]
+}
