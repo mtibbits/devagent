@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # scripts/lib/depends.sh — dependency CRUD, cycle detection, ship pre-flight.
 # Storage: <state_dir>/<project>.depends.toml with one table per dependent issue:
 #   [Issue-100]
@@ -69,6 +70,7 @@ depends_add() {
   fi
 
   local new_list="${existing} ${b}"
+  # shellcheck disable=SC2086  # intentional word-split on whitespace-separated list
   new_list="$(printf '%s\n' ${new_list} | sort -u | tr '\n' ' ')"
   depends_write_block "${file}" "${a}" "${new_list}"
 }

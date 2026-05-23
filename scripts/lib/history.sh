@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # scripts/lib/history.sh — chronological log merge across issues.
 #
 # Log line format (set by Plan 1's checklist library, see spec §5.2):

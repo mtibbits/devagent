@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # scripts/lib/template_resolve.sh — three-layer template resolution.
 # Order (per spec §12):
 #   1. [project.<name>.paths].<key>  → file path

@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="$2"; shift 2 ;;
     --project=*) PROJECT="${1#--project=}"; shift ;;
     -h|--help) usage ;;
-    Issue-*|Issue-Fork-*) ISSUE="$1"; shift ;;
+    Issue-*) ISSUE="$1"; shift ;;
     *) ISSUE="$1"; shift ;;
   esac
 done
