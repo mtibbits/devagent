@@ -70,3 +70,69 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]] || [[ "$stderr" == *"not found"* ]] || true
 }
+
+@test "wbs update appends a new entry for an active issue not yet in WBS" {
+  cat > "$TMPDEV/WBS.md" <<EOF
+# testproj WBS
+
+- [ ] Existing milestone {est: 2w, milestone: M1}
+  - [x] Old leaf {issue: Issue-1, est: 1w}
+EOF
+  cat > "$TMPSTATE/testproj.toml" <<EOF
+active_issue = "Issue-2"
+issue_dir = "$TMPDEV/Issue-2"
+last_step = 3
+last_step_name = "improve"
+EOF
+  mkdir -p "$TMPDEV/Issue-2"
+  cat > "$TMPDEV/Issue-2/checklist.md" <<EOF
+# Issue-2 — Workflow checklist
+Template: standard
+
+## Revision 1
+- [x] 0. pull
+- [~] 3. improve
+
+## Log
+- 2026-05-19 10:00  pull: fetched
+EOF
+  run bash "$REPO/scripts/wbs.sh" update
+  [ "$status" -eq 0 ]
+  grep -q "Issue-2" "$TMPDEV/WBS.md"
+}
+
+@test "wbs update is idempotent (running twice produces same file)" {
+  cp "$REPO/tests/fixtures/wbs/simple.md" "$TMPDEV/WBS.md"
+  cat > "$TMPSTATE/testproj.toml" <<EOF
+active_issue = "Issue-1"
+issue_dir = "$TMPDEV/Issue-1"
+last_step = 0
+last_step_name = "pull"
+EOF
+  mkdir -p "$TMPDEV/Issue-1"
+  echo "# Issue-1 — Workflow checklist" > "$TMPDEV/Issue-1/checklist.md"
+  bash "$REPO/scripts/wbs.sh" update
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+  bash "$REPO/scripts/wbs.sh" update
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+}
+
+@test "wbs update updates state glyph when active issue progresses" {
+  cat > "$TMPDEV/WBS.md" <<EOF
+# testproj WBS
+
+- [ ] Plan {est: 1w}
+  - [ ] Working leaf {issue: Issue-9, est: 1w}
+EOF
+  cat > "$TMPSTATE/testproj.toml" <<EOF
+active_issue = "Issue-9"
+issue_dir = "$TMPDEV/Issue-9"
+last_step = 7
+last_step_name = "implement"
+EOF
+  mkdir -p "$TMPDEV/Issue-9"
+  echo "# Issue-9 — Workflow checklist" > "$TMPDEV/Issue-9/checklist.md"
+  run bash "$REPO/scripts/wbs.sh" update
+  [ "$status" -eq 0 ]
+  grep -q "\[~\] Working leaf" "$TMPDEV/WBS.md"
+}
