@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# scripts/analyze-sanitizers.sh — run ASan, UBSan, TSan in separate build dirs.
+# Per spec §18: no sub-step tracking. analyze.sh (Task 10) sequences this and
+# writes the step-11 checklist mark.
+set -euo pipefail
+
+DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+. "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+. "$DEVAGENT_ROOT/scripts/lib/io.sh"
+. "$DEVAGENT_ROOT/scripts/lib/config.sh"
+. "$DEVAGENT_ROOT/scripts/lib/state.sh"
+
+: "${DEVAGENT_CMAKE:=cmake}"
+: "${DEVAGENT_CTEST:=ctest}"
+
+project="${1:-}"
+[ -n "$project" ] || die "analyze-sanitizers.sh: project required"
+config_is_project "$project" || die "analyze-sanitizers.sh: unknown project '$project'"
+
+issue_arg="${2:-}"
+[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+
+issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+[ -d "$issue_dir" ] || die "analyze-sanitizers.sh: issue_dir not set or missing"
+
+source_dir="$(config_get_project_field "$project" source_dir)"
+[ -d "$source_dir" ] || die "analyze-sanitizers.sh: source_dir missing: $source_dir"
+
+mkdir -p "$issue_dir/analysis"
+date_tag="$(date +%Y-%m-%d)"
+
+run_one() {
+    local tag="$1" flag="$2"
+    local out="$issue_dir/analysis/$date_tag-$tag.txt"
+    local build="$source_dir/build-$tag"
+    mkdir -p "$build"
+    {
+        echo "=== $tag ==="
+        "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build" \
+            "-DCMAKE_BUILD_TYPE=Debug" \
+            "-DCMAKE_C_FLAGS=-fsanitize=$flag" \
+            "-DCMAKE_CXX_FLAGS=-fsanitize=$flag" 2>&1 || true
+        "$DEVAGENT_CMAKE" --build "$build" 2>&1 || true
+        set +e
+        ( cd "$build" && "$DEVAGENT_CTEST" --output-on-failure )
+        local rc=$?
+        set -e
+        echo "exit=$rc"
+    } > "$out"
+}
+
+run_one asan  address
+run_one ubsan undefined
+run_one tsan  thread
