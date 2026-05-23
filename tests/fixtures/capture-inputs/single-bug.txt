@@ -1,0 +1,3 @@
+The convolution kernel emits NaN when the input length is exactly one
+less than a multiple of the simd width. Reproducible with the existing
+qa_volk_32fc_x2_dot_prod_32fc test by shrinking input by 1.
