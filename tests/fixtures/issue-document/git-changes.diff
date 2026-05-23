@@ -1,0 +1,11 @@
+diff --git a/foo_kernel.c b/foo_kernel.c
+index 1111..2222 100644
+--- a/foo_kernel.c
++++ b/foo_kernel.c
+@@ -140,3 +140,3 @@ void foo(int *a, int n) {
+-  for (int i = 0; i <= n; ++i) {
++  for (int i = 0; i < n; ++i) {
+     a[i] *= 2;
+diff --git a/test_foo.c b/test_foo.c
+new file mode 100644
++void test_foo_boundary(void) { /* ... */ }
