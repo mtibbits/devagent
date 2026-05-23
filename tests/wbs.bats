@@ -117,6 +117,11 @@ EOF
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
+@test "updatewbs.md command file exists and references wbs.sh update" {
+  [ -f "$REPO/commands/updatewbs.md" ]
+  grep -q "scripts/wbs.sh update" "$REPO/commands/updatewbs.md"
+}
+
 @test "wbs update updates state glyph when active issue progresses" {
   cat > "$TMPDEV/WBS.md" <<EOF
 # testproj WBS
