@@ -1,0 +1,4 @@
+We need to overhaul the project: rewrite the build system in CMake,
+migrate from autotools, add a Python wheels release pipeline, modernize
+the static analyzer setup, and replace the docs system. This is several
+months of work.
