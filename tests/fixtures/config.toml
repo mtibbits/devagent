@@ -1,0 +1,24 @@
+# Minimal config used by capture-family tests.
+# Scripts/capture/lib/paths.sh resolves devdoc_dir from this.
+
+[defaults]
+checklist_template = "standard"
+
+[project.fake]
+source_dir       = "/tmp/fake-src"
+devdoc_dir       = "TMP_DEVDOC_PLACEHOLDER"
+fork_first       = true
+
+[project.fake.permissions]
+push_mr          = false
+commit_devdoc    = false
+
+[project.fake.issue_source]
+backend     = "github"
+repo        = "fakeorg/fake"
+dir_prefix  = "Issue-"
+
+[project.fake.issue_source_fork]
+backend     = "github"
+repo        = "me/fake"
+dir_prefix  = "Issue-Fork-"
