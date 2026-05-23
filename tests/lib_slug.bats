@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load '../helpers'
+load 'helpers'
 
 setup() {
   source "${REPO_ROOT}/scripts/capture/lib/slug.sh"

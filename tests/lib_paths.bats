@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load '../helpers'
+load 'helpers'
 
 setup() {
   setup_tmp_devdoc
