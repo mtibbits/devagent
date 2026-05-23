@@ -84,3 +84,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "review.md exists, invokes superpowers:requesting-code-review, logs" {
+  F="$CMD_DIR/review.md"
+  [ -f "$F" ]
+  grep -q 'superpowers:requesting-code-review' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
