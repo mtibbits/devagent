@@ -51,3 +51,20 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+@test "implement.md exists, invokes superpowers:executing-plans, parses \$NOTE, logs" {
+  F="$CMD_DIR/implement.md"
+  [ -f "$F" ]
+  grep -q 'superpowers:executing-plans' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
+
+@test "quality.md exists, invokes simplify, references coding_standards.md, logs" {
+  F="$CMD_DIR/quality.md"
+  [ -f "$F" ]
+  grep -q 'simplify' "$F"
+  grep -q 'coding_standards' "$F"
+  grep -q '\$NOTE' "$F"
+  grep -q 'checklist-log.sh' "$F"
+}
