@@ -79,3 +79,4 @@ state_set "$project" last_step      "10"
 state_set "$project" last_step_name "commit"
 checklist_mark "$issue_dir/checklist.md" 10 x
 log_append "$issue_dir" commit "committed $("$DEVAGENT_GIT" rev-parse --short HEAD)${NOTE:+ — $NOTE}"
+checklist_print_next_hint "$issue_dir/checklist.md"

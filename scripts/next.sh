@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # scripts/next.sh — execute the next actionable step on the active issue.
 # Spec §6.5, §7 (chaining), §8 (gates).
-# Usage: next.sh <project> [--auto] [--through <step-name>] [-- <note...>]
+# Usage: next.sh [project] [--auto] [--through <step-name>] [-- <note...>]
+#
+# Authority is the issue's own checklist.md, not a hardcoded step table.
+# Each issue's checklist may include or omit steps (e.g. a planning-only
+# issue may have no "implement"/"analyze"); next.sh just looks at the
+# first unchecked step in *this* checklist.
+#
+# Dispatch: if scripts/<step-name>.sh exists and is executable, exec it.
+# Otherwise print "→ Run /devagent:<step-name>" so the calling model
+# invokes the slash command (skill-backed steps), then re-invokes
+# /devagent:next when the skill is done.
 
 set -euo pipefail
 
@@ -18,35 +28,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
-
-# Canonical step ordering (spec §5.2). Indexed 0..20.
-STEP_NAMES=(pull draft scope improve prune tighten branch implement
-            quality document commit analyze draftmr review redmr
-            ship mergetoall updatewbs impact lessonslearned cleanup)
-
-# Owner per step:
-#   script — has a shell script under scripts/<name>.sh; next.sh execs it.
-#   skill  — implemented as a Claude Code slash command under commands/<name>.md;
-#            next.sh prints "→ /devagent:<verb>" and exits 0, so the
-#            calling model invokes the slash command and then runs
-#            /devagent:next again to continue.
-declare -A STEP_OWNER=(
-  [pull]=script        [draft]=skill          [scope]=skill
-  [improve]=skill      [prune]=skill          [tighten]=skill
-  [branch]=script      [implement]=skill      [quality]=skill
-  [document]=skill     [commit]=script        [analyze]=script
-  [draftmr]=skill      [review]=skill         [redmr]=skill
-  [ship]=script        [mergetoall]=script    [updatewbs]=skill
-  [impact]=skill       [lessonslearned]=skill [cleanup]=script
-)
-
-_step_name_to_index() {
-  local target="$1" i
-  for i in "${!STEP_NAMES[@]}"; do
-    [[ "${STEP_NAMES[$i]}" == "$target" ]] && { echo "$i"; return 0; }
-  done
-  return 1
-}
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
 
 main() {
   local project="" auto=0 through="" note=""
@@ -65,29 +48,25 @@ main() {
     set --
   fi
 
-  project="${1:-}"
-  if [[ -z "$project" ]]; then
-    # Resolution order: positional arg → DEVAGENT_ACTIVE_PROJECT env var →
-    # single-project config (config_active_project dies with a helpful
-    # message when there are 0 or 2+ projects).
-    if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]]; then
-      project="$DEVAGENT_ACTIVE_PROJECT"
-    else
-      project="$(config_active_project)"
-    fi
-  fi
+  project="$(active_resolve_project "${1:-}")"
   config_is_project "$project" || die "next.sh: unknown project '$project'"
+  active_set_project "$project"
 
-  # Resolve chain target
-  local chain_target_idx=""
   if (( auto == 1 )) && [[ -z "$through" ]]; then
     through="cleanup"
   fi
+
+  # Validate --through against the actual checklist (the authority).
   if [[ -n "$through" ]]; then
-    if ! chain_target_idx="$(_step_name_to_index "$through")"; then
-      die "next.sh: unknown step '$through'"
+    local _ai _idir _cl
+    _ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+    if [[ -n "$_ai" && "$_ai" != "null" ]]; then
+      _idir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+      _cl="$_idir/checklist.md"
+      if [[ -f "$_cl" ]] && ! grep -qE "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$_cl"; then
+        die "next.sh: unknown step '$through' (not present in $_cl)"
+      fi
     fi
-    echo "chain target: $through (step $chain_target_idx)"
   fi
 
   local active issue_dir
@@ -99,67 +78,48 @@ main() {
   local checklist="$issue_dir/checklist.md"
   [[ -f "$checklist" ]] || die "next.sh: checklist.md missing at $checklist"
 
-  # Find current step. Plan 1's checklist_current_step returns "done" when
-  # all steps are complete, the step number otherwise.
-  local cur
-  cur="$(checklist_current_step "$checklist")"
-  if [[ "$cur" == "done" ]]; then
-    echo "All steps complete on $active."
-    return 0
-  fi
-  local cur_state
-  cur_state="$(checklist_step_state "$checklist" "$cur")"
-  if [[ "$cur_state" == "!" ]]; then
-    echo "STUCK: step $cur is marked [!]. Run /devagent:unstuck to clear." >&2
-    if [[ -f "$issue_dir/STUCK" ]]; then
-      sed 's/^/  /' "$issue_dir/STUCK" >&2
-    fi
-    return 1
-  fi
-  if [[ "$cur_state" == "?" ]]; then
-    warn "Step $cur is [?] blocked-on-external. Consider /devagent:park."
-    return 0
-  fi
-
-  # Dispatch loop
+  # Dispatch loop. Each iteration re-reads the checklist so script steps
+  # that mark themselves complete cause the next iteration to advance.
   while :; do
-    local name owner
-    name="${STEP_NAMES[$cur]:-}"
-    [[ -n "$name" ]] || die "next.sh: step index $cur out of range"
-    owner="${STEP_OWNER[$name]}"
+    local cur
+    cur="$(checklist_current_step "$checklist")"
+    if [[ "$cur" == "done" ]]; then
+      echo "All steps complete on $active."
+      return 0
+    fi
 
-    case "$owner" in
-      script)
-        local script_path="$PLUGIN_ROOT/scripts/$name.sh"
-        [[ -x "$script_path" ]] || die "next.sh: missing script $script_path for step $name"
-        # Run it. The script is responsible for marking the checkbox and
-        # logging. We pass project; the script reads issue from state.
-        "$script_path" "$project" ${note:+-- "$note"}
-        # Continue chaining if we have a target and haven't reached it.
-        if [[ -n "$chain_target_idx" && "$cur" -lt "$chain_target_idx" ]]; then
-          local next_cur
-          next_cur="$(checklist_current_step "$checklist")"
-          if [[ "$next_cur" == "done" || "$next_cur" -gt "$chain_target_idx" ]]; then
-            return 0
-          fi
-          cur="$next_cur"
-          continue
-        fi
+    local name
+    name="$(checklist_step_name "$checklist" "$cur")" \
+      || die "next.sh: could not read step name for $cur in $checklist"
+
+    local cur_state
+    cur_state="$(checklist_step_state "$checklist" "$cur")"
+    if [[ "$cur_state" == "!" ]]; then
+      echo "STUCK: step $cur ($name) is marked [!]. Run /devagent:unstuck to clear." >&2
+      [[ -f "$issue_dir/STUCK" ]] && sed 's/^/  /' "$issue_dir/STUCK" >&2
+      return 1
+    fi
+    if [[ "$cur_state" == "?" ]]; then
+      warn "Step $cur ($name) is [?] blocked-on-external. Consider /devagent:park."
+      return 0
+    fi
+
+    local script_path="$PLUGIN_ROOT/scripts/$name.sh"
+    if [[ -x "$script_path" ]]; then
+      # Script-backed step: exec it. The script marks the checkbox and logs.
+      "$script_path" "$project" ${note:+-- "$note"}
+      # If chaining and we've reached the target, stop.
+      if [[ -n "$through" && "$name" == "$through" ]]; then
         return 0
-        ;;
-      skill)
-        # Skill-backed step: print the slash command for the model to run.
-        # Don't mark the checkbox here — the skill instructs the model to
-        # call /devagent:checklist-log and /devagent:checklist-mark on
-        # successful completion.
-        echo "→ Run /devagent:$name"
-        echo "  (step $cur of the 21-step workflow; skill-backed)"
-        return 0
-        ;;
-      *)
-        die "next.sh: BUG — unknown owner '$owner' for step $name"
-        ;;
-    esac
+      fi
+      # Loop: re-read checklist and advance.
+      continue
+    else
+      # Skill-backed step: hand back to the model.
+      echo "→ Run /devagent:$name"
+      echo "  (step $cur on this issue's checklist; skill-backed)"
+      return 0
+    fi
   done
 }
 

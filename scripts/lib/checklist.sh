@@ -75,6 +75,42 @@ checklist_step_name() {
   return 1
 }
 
+# checklist_next_command <file>
+# Composes current-step + step-name to return the slash command the
+# operator should run next — e.g. "/devagent:scope". Prints "done" when
+# all steps are checked. The checklist itself is the authority for what
+# comes next; no central STEP_NAMES table is consulted.
+checklist_next_command() {
+  local file="$1" cur name
+  cur="$(checklist_current_step "$file")" || return 1
+  if [[ "$cur" == "done" ]]; then
+    echo "done"
+    return 0
+  fi
+  name="$(checklist_step_name "$file" "$cur")" || return 1
+  printf '/devagent:%s\n' "$name"
+}
+
+# checklist_print_next_hint <file>
+# Convenience for script-backed steps: prints "→ Next: /devagent:X" on
+# stderr after marking themselves complete, so the operator knows what
+# to run next without consulting the checklist by hand. Stderr keeps
+# stdout clean for scripts that produce a result (branch name, MR url).
+# Silent if no checklist or the helper errors.
+checklist_print_next_hint() {
+  local file="$1"
+  local next
+  next="$(checklist_next_command "$file" 2>/dev/null || true)"
+  if [[ -z "$next" ]]; then
+    return 0
+  fi
+  if [[ "$next" == "done" ]]; then
+    echo "→ Workflow complete on this issue." >&2
+  else
+    echo "→ Next: $next" >&2
+  fi
+}
+
 _checklist_valid_glyph() {
   case "$1" in
     ' '|x|-|'!'|'~'|'?'|P) return 0 ;;

@@ -20,6 +20,11 @@ EOF
 - [x]  1. draft
 - [ ]  2. scope
 - [ ]  3. improve
+- [ ]  4. prune
+- [ ]  5. tighten
+- [ ]  6. branch
+- [ ]  7. implement
+- [ ] 20. cleanup
 EOF
 }
 
@@ -48,19 +53,22 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"No active issue"* ]]
 }
 
-@test "--through accepts a step name" {
+@test "--through accepts a step name present in the checklist" {
+  # First skill-backed step (scope) is still emitted; chain doesn't run
+  # past it because we have no script for it. Just assert it doesn't error
+  # and we did get the slash-command pointer.
   run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
   [ "$status" -eq 0 ]
-  [[ "$output" == *"chain target: tighten"* ]]
+  [[ "$output" == *"/devagent:scope"* ]]
 }
 
 @test "--auto implies through cleanup" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
   [ "$status" -eq 0 ]
-  [[ "$output" == *"chain target: cleanup"* ]]
+  [[ "$output" == *"/devagent:scope"* ]]
 }
 
-@test "unknown --through step is rejected" {
+@test "unknown --through step is rejected against this issue's checklist" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk --through nonsense
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown step"* ]]
@@ -106,4 +114,18 @@ EOF
   run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"2 projects configured"* ]]
+}
+
+@test "next dispatches purely from THIS checklist, not a canonical step list" {
+  # A planning-only issue's checklist with non-canonical numbering and
+  # a custom skill-backed step that isn't in any global list. Authority
+  # is the checklist; next.sh just reads it.
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x]  1. draft
+- [ ]  9. brainstorm
+EOF
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:brainstorm"* ]]
 }

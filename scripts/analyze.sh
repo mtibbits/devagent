@@ -31,3 +31,4 @@ state_set "$project" last_step      "11"
 state_set "$project" last_step_name "analyze"
 checklist_mark "$issue_dir/checklist.md" 11 x
 log_append "$issue_dir" analyze "static + sanitizers complete${NOTE:+ — $NOTE}"
+checklist_print_next_hint "$issue_dir/checklist.md"

@@ -18,6 +18,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
 
 main() {
   local project="${1:-}"
@@ -75,9 +77,11 @@ main() {
 
   # Promote to active issue
   state_set "$project" active_issue "$issue_id"
+  active_set_project "$project"
   state_set "$project" issue_dir   "$issue_dir"
 
   info "pulled ${repo}#${num} into ${issue_dir}"
+  checklist_print_next_hint "$issue_dir/checklist.md"
 }
 
 main "$@"

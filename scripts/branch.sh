@@ -86,3 +86,4 @@ state_set "$project" last_step_name "branch"
 checklist_mark "$issue_dir/checklist.md" 6 x
 log_append "$issue_dir" branch "created $branch from $baseline ($baseline_sha)${NOTE:+ — $NOTE}"
 echo "$branch"
+checklist_print_next_hint "$issue_dir/checklist.md"

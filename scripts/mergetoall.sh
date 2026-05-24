@@ -55,3 +55,4 @@ state_set "$project" last_step      "16"
 state_set "$project" last_step_name "mergetoall"
 checklist_mark "$issue_dir/checklist.md" 16 x
 log_append "$issue_dir" mergetoall "squashed $branch → $all_prs${NOTE:+ — $NOTE}"
+checklist_print_next_hint "$issue_dir/checklist.md"
