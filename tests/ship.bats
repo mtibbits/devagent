@@ -54,3 +54,22 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "ship.sh warns on unmerged deps but proceeds without --strict-deps" {
+    DEVAGENT_STATE_DIR="$HOME/.claude/devagent/state" \
+        "$DEVAGENT_ROOT/scripts/depends.sh" --project "$TEST_PROJECT" Issue-1 on Issue-99
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARNING"* ]]
+    [[ "$output" == *"Issue-99"* ]]
+    grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "ship.sh blocks on unmerged deps when --strict-deps is set" {
+    DEVAGENT_STATE_DIR="$HOME/.claude/devagent/state" \
+        "$DEVAGENT_ROOT/scripts/depends.sh" --project "$TEST_PROJECT" Issue-1 on Issue-99
+    run "$DEVAGENT_ROOT/scripts/ship.sh" --strict-deps "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"blocking ship"* ]]
+    ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}

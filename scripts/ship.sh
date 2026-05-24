@@ -12,9 +12,21 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
+. "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
+
+# Strip --strict-deps from anywhere in argv before positional parsing.
+strict_deps=0
+filtered=()
+for arg in "$@"; do
+    case "$arg" in
+        --strict-deps) strict_deps=1 ;;
+        *) filtered+=("$arg") ;;
+    esac
+done
+set -- "${filtered[@]+"${filtered[@]}"}"
 
 project="${1:-}"
 [ -n "$project" ] || die "ship.sh: project required"
@@ -23,6 +35,12 @@ config_is_project "$project" || die "ship.sh: unknown project '$project'"
 issue_arg="${2:-}"
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
 [ -n "$issue_arg" ] || die "ship.sh: no active issue and no issue arg"
+
+# Phase 9 dependency pre-flight (warn unless --strict-deps was passed).
+export DEVAGENT_STATE_DIR="$(devagent_home)/state"
+if ! depends_ship_preflight "$project" "$issue_arg" "$strict_deps"; then
+    exit 2
+fi
 
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "ship.sh: issue_dir not set or missing"
