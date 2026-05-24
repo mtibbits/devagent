@@ -12,8 +12,15 @@ setup() {
   ISSUE_NUM_404="404"
   ISSUE_NUM_401="401"
   MR_URL_OK="https://github.com/foo/bar/pull/7"
+  # github.sh uses the gh CLI exclusively (not REST), so DEVAGENT_GITHUB_API
+  # has no effect today. Pointing the contract harness at a fixture HTTP
+  # server would require either (a) extending github.sh with a REST path
+  # alongside the gh path, or (b) building a comprehensive gh stub that
+  # responds to every verb's JSON shape. Both are real work; for now we
+  # skip the contract suite for github. tests/issue-github.bats already
+  # exercises the gh-stub path for the verbs we have today.
   if [ ! -d "${BATS_TEST_DIRNAME}/fixtures/github" ]; then
-    skip "GitHub fixtures (from Plan 2) not present in this checkout"
+    skip "github backend has no REST path; uses gh CLI. See tests/issue-github.bats."
   fi
   export GH_TOKEN="dummy-token"
   contract_load_fixtures
