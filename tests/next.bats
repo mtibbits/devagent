@@ -25,11 +25,11 @@ EOF
 
 teardown() { teardown_tmp_devagent_home; }
 
-@test "next on step owned by later plan prints deferral and exits 0" {
+@test "next on a skill-backed step prints the slash command to invoke" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"step 2 (scope)"* ]]
-  [[ "$output" == *"deferred"* ]] || [[ "$output" == *"not yet wired"* ]]
+  [[ "$output" == *"/devagent:scope"* ]]
+  [[ "$output" == *"skill-backed"* ]]
 }
 
 @test "next refuses to advance when current step is [!]" {
@@ -80,7 +80,7 @@ EOF
 @test "next with no project arg uses the only configured project" {
   run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"step 2 (scope)"* ]]
+  [[ "$output" == *"/devagent:scope"* ]]
 }
 
 @test "next with no project arg respects DEVAGENT_ACTIVE_PROJECT env var" {
@@ -93,7 +93,7 @@ devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
 EOF
   DEVAGENT_ACTIVE_PROJECT=volk run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"step 2 (scope)"* ]]
+  [[ "$output" == *"/devagent:scope"* ]]
 }
 
 @test "next with no project arg dies when multiple projects configured" {

@@ -24,12 +24,21 @@ STEP_NAMES=(pull draft scope improve prune tighten branch implement
             quality document commit analyze draftmr review redmr
             ship mergetoall updatewbs impact lessonslearned cleanup)
 
-# Steps owned by Plan 2 today (executed in-process here).
-# Today: none — Plan 2 implements pull separately (already step 0), and
-# all other workflow verbs ship in Plans 3/4. next.sh therefore prints a
-# deferral message for those. When Plans 3/4 land they replace this map.
-declare -A STEP_OWNER
-for n in "${STEP_NAMES[@]}"; do STEP_OWNER["$n"]="deferred"; done
+# Owner per step:
+#   script — has a shell script under scripts/<name>.sh; next.sh execs it.
+#   skill  — implemented as a Claude Code slash command under commands/<name>.md;
+#            next.sh prints "→ /devagent:<verb>" and exits 0, so the
+#            calling model invokes the slash command and then runs
+#            /devagent:next again to continue.
+declare -A STEP_OWNER=(
+  [pull]=script        [draft]=skill          [scope]=skill
+  [improve]=skill      [prune]=skill          [tighten]=skill
+  [branch]=script      [implement]=skill      [quality]=skill
+  [document]=skill     [commit]=script        [analyze]=script
+  [draftmr]=skill      [review]=skill         [redmr]=skill
+  [ship]=script        [mergetoall]=script    [updatewbs]=skill
+  [impact]=skill       [lessonslearned]=skill [cleanup]=script
+)
 
 _step_name_to_index() {
   local target="$1" i
@@ -120,9 +129,31 @@ main() {
     owner="${STEP_OWNER[$name]}"
 
     case "$owner" in
-      deferred)
-        echo "step $cur ($name): deferred — implemented in a later plan; not yet wired"
-        ( log_append "$issue_dir" "$name" "skipped by next.sh — owner plan not yet shipped${note:+ ($note)}" ) 2>/dev/null || true
+      script)
+        local script_path="$PLUGIN_ROOT/scripts/$name.sh"
+        [[ -x "$script_path" ]] || die "next.sh: missing script $script_path for step $name"
+        # Run it. The script is responsible for marking the checkbox and
+        # logging. We pass project; the script reads issue from state.
+        "$script_path" "$project" ${note:+-- "$note"}
+        # Continue chaining if we have a target and haven't reached it.
+        if [[ -n "$chain_target_idx" && "$cur" -lt "$chain_target_idx" ]]; then
+          local next_cur
+          next_cur="$(checklist_current_step "$checklist")"
+          if [[ "$next_cur" == "done" || "$next_cur" -gt "$chain_target_idx" ]]; then
+            return 0
+          fi
+          cur="$next_cur"
+          continue
+        fi
+        return 0
+        ;;
+      skill)
+        # Skill-backed step: print the slash command for the model to run.
+        # Don't mark the checkbox here — the skill instructs the model to
+        # call /devagent:checklist-log and /devagent:checklist-mark on
+        # successful completion.
+        echo "→ Run /devagent:$name"
+        echo "  (step $cur of the 21-step workflow; skill-backed)"
         return 0
         ;;
       *)
