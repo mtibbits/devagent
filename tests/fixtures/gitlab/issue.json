@@ -1,0 +1,10 @@
+{
+  "iid": 42,
+  "title": "Sample issue",
+  "description": "This is the body of the issue.\n\nSecond paragraph.",
+  "state": "opened",
+  "author": {"username": "alice"},
+  "labels": ["bug", "performance"],
+  "web_url": "https://gitlab.example/foo/bar/-/issues/42",
+  "user_notes_count": 1
+}
