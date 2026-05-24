@@ -1,0 +1,9 @@
+{
+  "iid": 7,
+  "title": "Sample MR",
+  "state": "opened",
+  "draft": false,
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/7",
+  "source_branch": "feat/x",
+  "target_branch": "main"
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# scripts/code/github.sh — github code backend (push-branch, create-mr, mr-state,
-# mr-comments, merge-mr). All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT
-# so tests can stub.
+# scripts/code/github.sh — github code backend.
+# Backend contract: implements all five code verbs per spec §9.2
+# (push-branch, create-mr, mr-state, mr-comments, merge-mr).
+# All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT so tests can stub.
 set -euo pipefail
 
 : "${DEVAGENT_GH:=gh}"
@@ -17,7 +18,7 @@ verbs:
   mr-comments  <mr-url>
   merge-mr     <mr-url> [--method squash|merge|rebase]
 EOF
-    exit 64
+    exit 2
 }
 
 verb="${1:-}"; shift || usage

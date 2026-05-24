@@ -74,3 +74,68 @@ and always exits 0; doctor aggregates statuses across hooks.
 Do not write code that bypasses `scripts/lib/secrets.sh` for read or
 write; direct file I/O against the secrets directory is a contract
 violation and will break the future `--keyring` migration.
+
+## Custom backends
+
+devAgent supports four issue backends out of the box: `github`,
+`gitlab`, `jira`, and a `custom` stub. The `custom` backend is a
+starting point for implementing a tracker that ships does not support
+(in-house Jira-likes, Redmine, Bugzilla, ServiceNow, etc.).
+
+To add a new backend:
+
+1. Copy `scripts/issue/custom.sh` to `scripts/issue/<yourname>.sh` and
+   replace each `bc_die_not_implemented` call with a real
+   implementation. Same for `scripts/code/custom.sh` if you also host
+   code.
+2. Set `backend = "<yourname>"` under `[project.<project>.issue_source]`
+   (and optionally `[project.<project>.code_source]`) in
+   `~/.claude/devagent/config.toml`.
+3. Confirm contract compliance by running the contract suite against
+   your backend. The harness is parametrized in
+   `tests/backend-<name>.bats`. Write a `tests/backend-<yourname>.bats`
+   modeled on `tests/backend-gitlab.bats` plus fixtures under
+   `tests/fixtures/<yourname>/`. Then:
+
+   ```
+   bats tests/backend-<yourname>.bats
+   ```
+
+   All tests must pass before the dispatcher (`pull.sh`, `ship.sh`,
+   etc.) will work reliably with your backend.
+
+### Contract summary
+
+Every issue backend MUST implement five verbs (spec §9.1):
+
+| Verb           | Args                                            | Output / exit       |
+|----------------|-------------------------------------------------|---------------------|
+| `fetch`        | `<repo> <num>`                                  | markdown to stdout  |
+| `create`       | `<repo> <title> <body-file> [--label X]…`       | new num to stdout   |
+| `transition`   | `<repo> <num> <semantic-stage>`                 | exit 0              |
+| `state`        | `<repo> <num>`                                  | backend state       |
+| `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
+
+Every code backend MUST implement five verbs (spec §9.2):
+
+| Verb          | Args                                                          | Output / exit          |
+|---------------|---------------------------------------------------------------|------------------------|
+| `push-branch` | `<remote> <branch>`                                           | exit 0                 |
+| `create-mr`   | `<repo> <title> <body-file> <head> <base> [--draft]`          | MR URL to stdout       |
+| `mr-state`    | `<mr-url>`                                                    | `open|merged|closed|draft` |
+| `mr-comments` | `<mr-url>`                                                    | markdown to stdout     |
+| `merge-mr`    | `<mr-url> [--method squash|merge|rebase]`                     | exit 0                 |
+
+Exit-code conventions across all backends:
+
+| Code | Meaning                                          |
+|------|--------------------------------------------------|
+| 0    | success                                          |
+| 1    | generic failure                                  |
+| 2    | usage error (bad/missing args, unknown verb)     |
+| 3    | auth failure (HTTP 401/403)                      |
+| 4    | not found (HTTP 404)                             |
+| 78   | not implemented (EX_CONFIG; reserved for stubs)  |
+
+The markdown shape produced by `fetch` and `comment-list` is fixed
+across backends (spec §9.3) — downstream code is backend-agnostic.
