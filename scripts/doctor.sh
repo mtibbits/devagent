@@ -81,6 +81,31 @@ check_one_project() {
   tpl="$(config_get_project_field "$project" checklist_template 2>/dev/null || true)"
   [[ -z "$tpl" ]] && tpl="$(config_get_default checklist_template 2>/dev/null || echo standard)"
   check_template_resolves "$tpl"
+
+  # Phase 8 auth hook.
+  local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
+  if [[ -x "$hook" ]]; then
+    local issue_backend code_backend backends=()
+    issue_backend="$(config_get_project_field "$project" issue_source.backend 2>/dev/null || true)"
+    code_backend="$(config_get_project_field "$project"  code_source.backend  2>/dev/null || true)"
+    [[ -n "$issue_backend" ]] && backends+=("$issue_backend")
+    [[ -n "$code_backend"  ]] && [[ "$code_backend" != "$issue_backend" ]] && backends+=("$code_backend")
+    backends+=(ssh)
+    local line
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      # Lines look like "<key>: <STATUS> <details>" — promote STATUS to our check().
+      local label="${line%%:*}" rest="${line#*: }"
+      local status="${rest%% *}"
+      local detail="${rest#* }"; [[ "$detail" == "$rest" ]] && detail=""
+      case "$status" in
+        OK)               check "auth/${label}" ok ;;
+        MISSING)          echo "  INFO auth/${label} — not configured (run /devagent:auth create $project ${label})" ;;
+        WARN|ERROR)       check "auth/${label}" fail "${status}${detail:+ — $detail}" ;;
+        *)                check "auth/${label}" fail "unparsed: $line" ;;
+      esac
+    done < <(DEVAGENT_SECRETS_DIR="$(secrets_dir)" "$hook" check "$project" "${backends[@]}")
+  fi
 }
 
 # ---- main ----------------------------------------------------------------
