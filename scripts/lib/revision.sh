@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Revision helpers for devAgent Phase 6.
 #
 # All functions are pure (no global mutation). Source-only file: do not
