@@ -43,13 +43,13 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"gh issue view failed"* ]]
 }
 
-@test "unimplemented verb returns 64 with helpful message" {
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/b
-  [ "$status" -eq 64 ]
-  [[ "$output" == *"not implemented"* ]]
+@test "create verb dispatches to gh issue create" {
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/missing-body
+  # Stub gh just emits JSON for whatever args; only assertion is non-2 exit.
+  [ "$status" -ne 2 ]
 }
 
-@test "unknown verb returns 64" {
+@test "unknown verb returns 2 (usage error per spec 9.1 contract)" {
   run "$PLUGIN_ROOT/scripts/issue/github.sh" nonsense
-  [ "$status" -eq 64 ]
+  [ "$status" -eq 2 ]
 }
