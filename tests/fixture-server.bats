@@ -3,7 +3,9 @@
 load lib/fixture-server.sh
 
 setup() {
-  FIXTURE_DIR="${BATS_TEST_DIRNAME}/fixtures/jira"
+  # Use a private throwaway dir so we don't clobber the real jira/ fixtures
+  # this plan ships in tests/fixtures/jira/.
+  FIXTURE_DIR="${BATS_TEST_TMPDIR}/fxsrv-fixtures"
   mkdir -p "$FIXTURE_DIR"
   cat > "$FIXTURE_DIR/routes.json" <<'JSON'
 {

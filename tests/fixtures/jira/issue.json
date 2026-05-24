@@ -1,0 +1,10 @@
+{
+  "key": "PROJ-42",
+  "fields": {
+    "summary": "Sample JIRA issue",
+    "description": "Body of the JIRA issue.\n\nSecond paragraph.",
+    "status": {"name": "In Progress"},
+    "reporter": {"name": "alice", "displayName": "Alice"},
+    "labels": ["bug", "performance"]
+  }
+}
