@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load _helpers
+load lib/_helpers
 
 setup() { setup_phase9_env; }
 teardown() { teardown_phase9_env; }
