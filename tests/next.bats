@@ -76,3 +76,34 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"All steps complete"* ]]
 }
+
+@test "next with no project arg uses the only configured project" {
+  run "$PLUGIN_ROOT/scripts/next.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 (scope)"* ]]
+}
+
+@test "next with no project arg respects DEVAGENT_ACTIVE_PROJECT env var" {
+  # Add a second project so single-project resolution would die.
+  cat >> "$DA_HOME/config.toml" <<EOF
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
+EOF
+  DEVAGENT_ACTIVE_PROJECT=volk run "$PLUGIN_ROOT/scripts/next.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 (scope)"* ]]
+}
+
+@test "next with no project arg dies when multiple projects configured" {
+  cat >> "$DA_HOME/config.toml" <<EOF
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
+EOF
+  run "$PLUGIN_ROOT/scripts/next.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"2 projects configured"* ]]
+}

@@ -57,7 +57,16 @@ main() {
   fi
 
   project="${1:-}"
-  [[ -n "$project" ]] || die "next.sh: project required"
+  if [[ -z "$project" ]]; then
+    # Resolution order: positional arg → DEVAGENT_ACTIVE_PROJECT env var →
+    # single-project config (config_active_project dies with a helpful
+    # message when there are 0 or 2+ projects).
+    if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]]; then
+      project="$DEVAGENT_ACTIVE_PROJECT"
+    else
+      project="$(config_active_project)"
+    fi
+  fi
   config_is_project "$project" || die "next.sh: unknown project '$project'"
 
   # Resolve chain target
