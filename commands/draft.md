@@ -31,13 +31,23 @@ that project.
 1. Resolve `project`, `issue-dir`, and `$NOTE` per the rules above.
 2. Read `<issue-dir>/issue.md`. If absent, halt and tell the operator
    to run `/devagent:pull` first.
-3. Invoke the `superpowers:writing-plans` skill. Pass `$NOTE` to the
-   skill as additional user-intent context describing what the
-   operator wants emphasised in the plan.
-4. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
+3. **Check for pending review comments (Phase 6 revision flow).**
+   Look up `pending_comments_file` in
+   `~/.claude/devagent/state/<project>.toml`. If set and the file
+   exists, read it and include its content as additional user-intent
+   context alongside `$NOTE`, framed as "Reviewer feedback from the
+   previous revision that the new plan must address:".
+4. Invoke the `superpowers:writing-plans` skill. Pass `$NOTE` (plus
+   the pending-comments block if any) as additional user-intent
+   context describing what the operator wants emphasised in the plan.
+5. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
    `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.
-5. On completion, append a log entry:
+6. Clear `pending_comments_file` from state after the plan is
+   written, so subsequent steps in the same revision don't re-surface
+   the comments. (The original `revisions/r<N>/comments.md` file is
+   left in place — it's the durable record.)
+7. On completion, append a log entry:
 
    ```bash
    scripts/checklist-log.sh "$ISSUE_DIR" draft "imPlan.md written ($N steps); note: $NOTE"
