@@ -123,7 +123,20 @@ main() {
     local script_path="$PLUGIN_ROOT/scripts/$name.sh"
     if [[ -x "$script_path" ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
-      "$script_path" "$project" ${note:+-- "$note"}
+      # When chaining (and not at the target), suppress the script's
+      # "Would you like to continue on to /devagent:X?" question so the
+      # dispatcher's loop can run the next step without operator input.
+      local chain_intends_continue=0
+      if (( auto == 1 )) || [[ -n "$through" ]]; then
+        if [[ -z "$through" || "$name" != "$through" ]]; then
+          chain_intends_continue=1
+        fi
+      fi
+      if (( chain_intends_continue == 1 )); then
+        DEVAGENT_CHAIN_ACTIVE=1 "$script_path" "$project" ${note:+-- "$note"}
+      else
+        "$script_path" "$project" ${note:+-- "$note"}
+      fi
       # If chaining and we've reached the target, stop.
       if [[ -n "$through" && "$name" == "$through" ]]; then
         return 0

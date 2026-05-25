@@ -92,11 +92,19 @@ checklist_next_command() {
 }
 
 # checklist_print_next_hint <file>
-# Convenience for script-backed steps: prints "→ Next: /devagent:X" on
-# stderr after marking themselves complete, so the operator knows what
-# to run next without consulting the checklist by hand. Stderr keeps
-# stdout clean for scripts that produce a result (branch name, MR url).
-# Silent if no checklist or the helper errors.
+# Convenience for script-backed steps: prints a "Would you like to
+# continue on to /devagent:X?" question on stderr after marking
+# themselves complete, so the operator can answer yes/no without
+# consulting the checklist by hand.
+#
+# Stderr keeps stdout clean for scripts that produce a result (branch
+# name, MR url).
+#
+# Suppressed when DEVAGENT_CHAIN_ACTIVE=1 (set by next.sh's dispatch
+# loop when it intends to run the next step immediately). Asking
+# inside an active chain would defeat the chain.
+#
+# Silent on missing checklist or helper error.
 checklist_print_next_hint() {
   local file="$1"
   local next
@@ -105,10 +113,18 @@ checklist_print_next_hint() {
     return 0
   fi
   if [[ "$next" == "done" ]]; then
-    echo "→ Workflow complete on this issue." >&2
-  else
-    echo "→ Next: $next" >&2
+    echo "" >&2
+    echo "Workflow complete on this issue." >&2
+    return 0
   fi
+  if [[ -n "${DEVAGENT_CHAIN_ACTIVE:-}" ]]; then
+    # Chain dispatcher will run the next step immediately; asking would
+    # break the autonomous flow. Caller sees chain progress in next.sh's
+    # output instead.
+    return 0
+  fi
+  echo "" >&2
+  echo "Would you like to continue on to ${next}?" >&2
 }
 
 _checklist_valid_glyph() {
