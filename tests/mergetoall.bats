@@ -24,12 +24,21 @@ teardown() { devagent_test_teardown; }
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
-@test "mergetoall.sh halts when merge_mr=false and non-interactive" {
-    sed -i "s|^merge_mr *=.*|merge_mr = false|" "$HOME/.claude/devagent/config.toml"
-    # Force a closed stdin so confirm() sees non-tty regardless of how bats
+@test "mergetoall.sh halts when merge_to_all_prs=false and non-interactive" {
+    sed -i "s|^merge_to_all_prs *=.*|merge_to_all_prs = false|" "$HOME/.claude/devagent/config.toml"
+    # Force closed stdin so confirm() sees non-tty regardless of how bats
     # itself was invoked. Without </dev/null this hangs when bats is run
     # from an interactive terminal (read -r -p blocks waiting for input).
     run bash -c "'$DEVAGENT_ROOT/scripts/mergetoall.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
     grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "mergetoall.sh backward-compat: legacy merge_mr=true still grants permission" {
+    # Remove the new name, add the old one.
+    sed -i "/^merge_to_all_prs *=/d" "$HOME/.claude/devagent/config.toml"
+    sed -i "/^push_mr *=/a merge_mr = true" "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }

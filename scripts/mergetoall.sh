@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # scripts/mergetoall.sh — step 16. Squash-merge active branch into the
-# all_prs_branch. Honors permissions.merge_mr.
+# all_prs_branch. Local-only operation: NO remote push, NO GitHub PR
+# closure. Honors permissions.merge_to_all_prs (fall back to legacy
+# permissions.merge_mr name for one-version backward compat).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -39,7 +41,13 @@ mergetoall plan
   in           $source_dir
 EOF
 )"
-permission_gate "$project" merge_mr "$plan"
+# Resolve permission gate name with one-version backward compat.
+gate_name="merge_to_all_prs"
+if [ -z "$(config_get_project_field "$project" "permissions.merge_to_all_prs" 2>/dev/null || true)" ] \
+   && [ -n "$(config_get_project_field "$project" "permissions.merge_mr" 2>/dev/null || true)" ]; then
+    gate_name="merge_mr"
+fi
+permission_gate "$project" "$gate_name" "$plan"
 
 cd "$source_dir"
 "$DEVAGENT_GIT" checkout "$all_prs"

@@ -14,7 +14,7 @@ all_prs_branch = "dev/all-prs"
 
 [project.volk.permissions]
 push_mr = true
-merge_mr = true
+merge_to_all_prs = true
 commit_devdoc = true
 transition_issue = true
 cleanup_on_merge = false

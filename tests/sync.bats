@@ -61,7 +61,7 @@ branch_prefix_map = { bug = "fix", feature = "feat" }
 
 [project.other.permissions]
 push_mr = true
-merge_mr = true
+merge_to_all_prs = true
 commit_devdoc = false
 transition_issue = true
 cleanup_on_merge = false
