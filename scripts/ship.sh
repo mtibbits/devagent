@@ -52,6 +52,13 @@ code_backend="$(config_get_project_field "$project" code_source.backend)"
 upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
 fork_repo="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
 fork_first="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
+fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
+
+# fork_only implies fork_first; validate the fork is configured.
+if [ "$fork_only" = "true" ]; then
+    [ -n "$fork_repo" ] || die "ship.sh: fork_only=true requires code_source.fork to be set"
+    fork_first=true
+fi
 ship_as_draft_global="$(config_get_default ship_as_draft 2>/dev/null || echo false)"
 ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/null || echo "$ship_as_draft_global")"
 
@@ -67,7 +74,9 @@ mr_body="$issue_dir/mr.md"
 
 # Permission gate.
 target_repo_for_plan="$upstream_repo"
-if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
+if [ "$fork_only" = "true" ]; then
+    target_repo_for_plan="$fork_repo (fork only — upstream not targeted)"
+elif [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo_for_plan="$fork_repo (fork)"
 fi
 plan="$(cat <<EOF
@@ -88,7 +97,7 @@ code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
 source_dir="$(config_get_project_field "$project" source_dir)"
 ( cd "$source_dir" && "$code_sh" push-branch "$push_remote" "$branch" )
 
-# Resolve target repo. fork_first → fork; else upstream.
+# Resolve target repo. fork_only or fork_first → fork; else upstream.
 target_repo="$upstream_repo"
 if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo="$fork_repo"
@@ -107,8 +116,12 @@ mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body" "$branch" "$ba
 [ -n "$mr_url" ] || die "ship.sh: create-mr returned empty URL"
 
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
+# Skipped under fork_only because the upstream issue tracker should not see
+# a "shipped" state when we only landed on the fork.
 issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/$issue_backend.sh"
-if [ -x "$issue_sh" ]; then
+if [ "$fork_only" = "true" ]; then
+    echo "fork-only mode: skipping on_ship transition on upstream tracker" >&2
+elif [ -x "$issue_sh" ]; then
     if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_ship; then
         echo "warning: issue transition failed — continuing per spec §11" >&2
     fi

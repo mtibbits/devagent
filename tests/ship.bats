@@ -73,3 +73,23 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"blocking ship"* ]]
     ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "ship.sh fork_only targets the fork and skips upstream transition" {
+    # Enable fork_only on the test project.
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # MR targets the fork
+    devagent_assert_logged "gh pr create --repo me/testproj"
+    # Upstream issue transition skipped (key fork_only invariant)
+    ! grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+    [[ "$output" == *"skipping on_ship transition"* ]]
+}
+
+@test "ship.sh fork_only without code_source.fork dies" {
+    sed -i '/^fork *=/d' "$HOME/.claude/devagent/config.toml"
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"fork_only=true requires code_source.fork"* ]]
+}
