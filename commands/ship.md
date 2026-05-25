@@ -17,4 +17,4 @@ By default it warns when the active issue has unmerged dependencies.
 Pass `--strict-deps` to escalate the warning to a hard block (exit 2,
 no MR opened).
 
-!`bash {{plugin_root}}/scripts/ship.sh $ARGUMENTS`
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" $ARGUMENTS`

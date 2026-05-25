@@ -12,4 +12,4 @@ The script honors all permission gates from `[project.<name>.permissions]`.
 With `--auto`, the chaining layer suppresses the inter-step prompt but does
 **not** suppress permission gates (spec §7.2).
 
-!`bash {{plugin_root}}/scripts/commit.sh $ARGUMENTS`
+!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/commit.sh" $ARGUMENTS`
