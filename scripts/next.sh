@@ -81,6 +81,22 @@ main() {
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
   while :; do
+    # Before identifying the current step, check whether the chain target
+    # is already complete. This guards skill-backed targets: after the
+    # skill marks itself [x], the model re-invokes next.sh and we must
+    # not advance into the next step. Script-backed targets stop below
+    # via the post-exec check, so this branch is mainly for skills.
+    if [[ -n "$through" ]]; then
+      local _ts
+      _ts="$(checklist_step_state "$checklist" \
+        "$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$checklist" \
+            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | head -n1)" 2>/dev/null || true)"
+      if [[ "$_ts" == "x" || "$_ts" == "-" ]]; then
+        echo "Chain target '$through' is complete; stopping."
+        return 0
+      fi
+    fi
+
     local cur
     cur="$(checklist_current_step "$checklist")"
     if [[ "$cur" == "done" ]]; then

@@ -129,6 +129,18 @@ EOF
   [[ "$output" == *"CHAIN: /devagent:next --through tighten"* ]]
 }
 
+@test "next --through stops once the target is marked done" {
+  # Simulate: tighten was the chain target and the skill marked it [x].
+  # The model re-invokes /devagent:next --through tighten. We must NOT
+  # advance into the next step (branch).
+  sed -i 's/^- \[ \]  5\. tighten/- [x]  5. tighten/' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"target 'tighten' is complete"* ]]
+  [[ "$output" != *"/devagent:branch"* ]]
+  [[ "$output" != *"CHAIN:"* ]]
+}
+
 @test "next without chain flags omits CHAIN: marker" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
