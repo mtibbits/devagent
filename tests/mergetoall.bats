@@ -42,3 +42,50 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "mergetoall.sh default does NOT push (local-only)" {
+    devagent_stub git ""
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    ! grep -qE "git push" "$DEVAGENT_STUB_LOG"
+    grep -q "local-only" "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "mergetoall.sh all_prs_auto_push=true pushes after local merge" {
+    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
+        "$HOME/.claude/devagent/config.toml"
+    devagent_stub git ""
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "git push origin dev/all-prs"
+    grep -q "pushed to origin/dev/all-prs" "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "mergetoall.sh all_prs_remote override targets a different remote" {
+    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true\nall_prs_remote = \"fork\"" \
+        "$HOME/.claude/devagent/config.toml"
+    devagent_stub git ""
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "git push fork dev/all-prs"
+}
+
+@test "mergetoall.sh tolerates push failure (local merge is load-bearing)" {
+    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
+        "$HOME/.claude/devagent/config.toml"
+    # Stub git that fails ONLY on push.
+    mkdir -p "$DEVAGENT_TMP/bin"
+    cat > "$DEVAGENT_TMP/bin/git" <<EOF
+#!/usr/bin/env bash
+echo "git \$*" >> "$DEVAGENT_STUB_LOG"
+if [ "\$1" = "push" ]; then exit 1; fi
+exec /usr/bin/git "\$@"
+EOF
+    chmod +x "$DEVAGENT_TMP/bin/git"
+    export DEVAGENT_GIT="$DEVAGENT_TMP/bin/git"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"push of dev/all-prs"*"failed"* ]]
+    grep -q "push failed (local commit retained)" "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}

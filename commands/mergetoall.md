@@ -14,10 +14,13 @@ Invokes `scripts/mergetoall.sh` with the parsed arguments per spec §6.1.
 3. `git commit` with the branch tip's subject
 
 **What it does NOT do:**
-- No `git push` — `<all_prs_branch>` is updated locally only
-- No `gh pr close` or `gh pr merge` — the upstream PR (if any) is
-  completely untouched
-- No GitHub interaction at all
+- No `gh pr close` or `gh pr merge` — the PR (if any) is untouched.
+- No `git push` of `<all_prs_branch>` UNLESS the per-project
+  `all_prs_auto_push = true` flag is set, in which case it does
+  `git push <all_prs_remote> <all_prs_branch>` after the local
+  merge. Push failure is non-fatal (warning, local commit retained).
+  `all_prs_remote` defaults to `source_remote` (which defaults to
+  `origin`).
 
 Honors `permissions.merge_to_all_prs` (falls back to the legacy
 `permissions.merge_mr` name for backward compat). With `--auto`, the
