@@ -54,6 +54,24 @@ Never auto-skip. If the diff is tiny (< 5 LOC) and no standards apply,
 surface "minimal diff; mark step `[-]` skipped?" for operator
 confirmation.
 
+## Do NOT commit yet
+
+You will be tempted to run `git commit` after this step finishes —
+'the work is done, capture it!' — but this is not the commit
+step. The 21-step workflow defers commit until AFTER static analysis
+(step 11: `/devagent:analyze`) so the commit captures verified work
+and you do not need to amend.
+
+If your work feels at risk in the working tree, you may:
+- `git stash` and unstash before the commit step
+- write an actualWork.md note describing what you built so it can be
+  reproduced if lost
+
+But do NOT `git commit`. The commit step (10) follows analyze (11)
+in the checklist order intentionally. If you commit early, the
+commit step has nothing to commit and the analyze step finds issues
+you must amend in, polluting your commit history.
+
 ## Completion handoff
 
 After marking the step `[x]` (or `[-]` if skipped) and logging:
