@@ -64,10 +64,18 @@ ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/n
 
 push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || echo origin)"
 
-issue_backend="$(config_get_project_field "$project" issue_source.backend)"
-issue_repo="$(config_get_project_field "$project" issue_source.repo)"
-issue_num="${issue_arg#Issue-}"
-issue_num="${issue_num#Fork-}"
+# Route to the right issue tracker based on the issue's origin:
+#   Issue-Fork-NNN -> issue_source_fork (the fork's tracker)
+#   Issue-NNN      -> issue_source       (the upstream tracker)
+if [[ "$issue_arg" == Issue-Fork-* ]]; then
+    issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
+    issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
+    issue_num="${issue_arg#Issue-Fork-}"
+else
+    issue_backend="$(config_get_project_field "$project" issue_source.backend)"
+    issue_repo="$(config_get_project_field    "$project" issue_source.repo)"
+    issue_num="${issue_arg#Issue-}"
+fi
 
 mr_body="$issue_dir/mr.md"
 [ -r "$mr_body" ] || die "ship.sh: missing $mr_body (run /devagent:draftmr first)"
@@ -116,11 +124,13 @@ mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body" "$branch" "$ba
 [ -n "$mr_url" ] || die "ship.sh: create-mr returned empty URL"
 
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
-# Skipped under fork_only because the upstream issue tracker should not see
-# a "shipped" state when we only landed on the fork.
-issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/$issue_backend.sh"
+# Skipped under fork_only. Also skipped if the routed backend/repo isn't
+# configured (e.g. Issue-Fork-* with no [issue_source_fork] block).
+issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
 if [ "$fork_only" = "true" ]; then
-    echo "fork-only mode: skipping on_ship transition on upstream tracker" >&2
+    echo "fork-only mode: skipping on_ship transition" >&2
+elif [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
+    echo "ship.sh: no issue tracker configured for $issue_arg; skipping transition" >&2
 elif [ -x "$issue_sh" ]; then
     if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_ship; then
         echo "warning: issue transition failed — continuing per spec §11" >&2

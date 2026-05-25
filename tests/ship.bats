@@ -93,3 +93,47 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"fork_only=true requires code_source.fork"* ]]
 }
+
+@test "ship.sh routes Issue-Fork-* transition to issue_source_fork tracker" {
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.issue_source_fork]
+backend = "github"
+repo    = "me/testproj"
+EOF
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
+    echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
+        "$DEVDOC_DIR/Issue-Fork-51"
+    sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
+            s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
+        && echo x >a.txt && git add a.txt \
+        && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
+    sed -i "s|^branch *=.*|branch = \"feat/fork-51\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
+    ! grep -q "issue/github transition acme/testproj" "$DEVAGENT_STUB_LOG"
+}
+
+@test "ship.sh skips transition for Issue-Fork-* with no issue_source_fork configured" {
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
+    echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
+        "$DEVDOC_DIR/Issue-Fork-51"
+    sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
+            s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
+        && echo x >a.txt && git add a.txt \
+        && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
+    sed -i "s|^branch *=.*|branch = \"feat/fork-51\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no issue tracker configured for Issue-Fork-51"* ]]
+    ! grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+}

@@ -35,22 +35,32 @@ sync_one_project() {
 
     local code_backend issue_backend issue_repo issue_arg issue_num
     code_backend="$(config_get_project_field  "$project" code_source.backend)"
-    issue_backend="$(config_get_project_field "$project" issue_source.backend)"
-    issue_repo="$(config_get_project_field    "$project" issue_source.repo)"
     issue_arg="$(state_get                    "$project" active_issue 2>/dev/null || true)"
     # cleanup.sh clears active_issue but leaves issue_dir/mr_url for a session
     # — without this guard, sync would fire on_merge with an empty issue number.
     [ -n "$issue_arg" ] || return 0
-    issue_num="${issue_arg#Issue-}"; issue_num="${issue_num#Fork-}"
+
+    # Route to the right issue tracker based on origin (mirror of ship.sh).
+    if [[ "$issue_arg" == Issue-Fork-* ]]; then
+        issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
+        issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
+        issue_num="${issue_arg#Issue-Fork-}"
+    else
+        issue_backend="$(config_get_project_field "$project" issue_source.backend 2>/dev/null || true)"
+        issue_repo="$(config_get_project_field    "$project" issue_source.repo    2>/dev/null || true)"
+        issue_num="${issue_arg#Issue-}"
+    fi
 
     local code_sh issue_sh state
     code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
-    issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/$issue_backend.sh"
+    issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
     [ -x "$code_sh" ] || return 0
     state="$("$code_sh" mr-state "$mr_url")"
     [ "$state" = "merged" ] || return 0
 
-    if [ -x "$issue_sh" ]; then
+    if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
+        echo "sync: no issue tracker configured for $issue_arg; skipping on_merge transition" >&2
+    elif [ -x "$issue_sh" ]; then
         if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_merge; then
             echo "warning: on_merge transition failed for $project/$issue_arg" >&2
         fi
