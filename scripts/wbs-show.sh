@@ -7,28 +7,42 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="${DEVAGENT_STUB_LIB:-$SCRIPT_DIR/lib}"
-
-# shellcheck source=/dev/null
-source "$LIB_DIR/log.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/config-loader.sh"
-devagent_load_config
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/io.sh
+source "$SCRIPT_DIR/lib/io.sh"
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/active.sh
+source "$SCRIPT_DIR/lib/active.sh"
 
 depth=""
 milestone=""
+project_arg=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --depth)     depth="$2"; shift 2 ;;
     --milestone) milestone="$2"; shift 2 ;;
-    *) devagent_log warn "wbs show: ignoring '$1'"; shift ;;
+    --*) warn "wbs show: ignoring unknown flag '$1'"; shift ;;
+    *)
+      if [[ -z "$project_arg" ]]; then
+        project_arg="$1"
+      else
+        warn "wbs show: ignoring extra arg '$1'"
+      fi
+      shift
+      ;;
   esac
 done
 
-src="$DEVAGENT_DEVDOC_DIR/WBS.md"
+project="$(active_resolve_project "$project_arg")"
+config_is_project "$project" || die "wbs show: unknown project '$project'"
+devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
+[[ -n "$devdoc_dir" ]] || die "wbs show: devdoc_dir not configured for $project"
+
+src="$devdoc_dir/WBS.md"
 if [[ ! -f "$src" ]]; then
-  devagent_log err "wbs show: $src not found; run /devagent:wbs init first"
-  exit 1
+  die "wbs show: $src not found; run /devagent:wbs init first"
 fi
 
 PARSER_PATH="$PLUGIN_ROOT/scripts/lib/wbs-parser.py" \
@@ -64,9 +78,6 @@ if milestone:
 
 
 def prune_depth(node, max_depth):
-    # Parser is 1-based: root nodes have depth 1. --depth N keeps N
-    # levels below root, so clear children when this node is already
-    # at depth > max_depth (its kids would be at max_depth + 2).
     if max_depth is None:
         return
     if node.get("depth", 0) > max_depth:

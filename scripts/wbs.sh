@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # /devagent:wbs dispatcher. Routes subcommand to wbs-<sub>.sh.
+#
+# Project resolution: each subcommand resolves the project via
+# active_resolve_project (arg -> env -> global pointer -> single-config).
+# The dispatcher itself doesn't resolve; it just routes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="${DEVAGENT_STUB_LIB:-$SCRIPT_DIR/lib}"
-
-# shellcheck source=/dev/null
-source "$LIB_DIR/log.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/config-loader.sh"
-devagent_load_config
 
 usage() {
   cat >&2 <<'EOF'
-usage: /devagent:wbs <init|update|show> [args]
+usage: /devagent:wbs <init|update|show> [project] [args]
 
   init [--force]                        scaffold <devdoc>/WBS.md
   update                                append/update entries from active issues

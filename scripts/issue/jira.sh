@@ -105,10 +105,14 @@ cmd_transition() {
 
   local var="DEVAGENT_JIRA_STAGE_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
   local target_name="${!var:-}"
-  if [ -z "$target_name" ] && [ -f "${SCRIPT_DIR}/../lib/config-loader.sh" ]; then
-    # shellcheck source=../lib/config-loader.sh
-    source "${SCRIPT_DIR}/../lib/config-loader.sh"
-    target_name="$(devagent_get_config "${DEVAGENT_PROJECT:-}" "issue_workflow.${stage}" 2>/dev/null || true)"
+  if [ -z "$target_name" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    # shellcheck source=../lib/paths.sh
+    source "${SCRIPT_DIR}/../lib/paths.sh"
+    # shellcheck source=../lib/io.sh
+    source "${SCRIPT_DIR}/../lib/io.sh"
+    # shellcheck source=../lib/config.sh
+    source "${SCRIPT_DIR}/../lib/config.sh"
+    target_name="$(config_get_project_field "$DEVAGENT_PROJECT" "issue_workflow.${stage}" 2>/dev/null || true)"
   fi
   if [ -z "$target_name" ]; then
     echo "no JIRA stage mapping for '$stage'" >&2; exit 2

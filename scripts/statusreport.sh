@@ -1,42 +1,65 @@
 #!/usr/bin/env bash
 # /devagent:statusreport — generate per-project status report (spec §14).
+#
+# Pin (last-report timestamp) lives in the project's state file under
+# the `statusreport_last_pin` key. (Pre-refactor versions used a
+# separate <project>.statusreport.toml file; that file is no longer
+# read or written. Operators with a pre-refactor pin file may delete
+# it manually.)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="${DEVAGENT_STUB_LIB:-$SCRIPT_DIR/lib}"
-
-# shellcheck source=/dev/null
-source "$LIB_DIR/log.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/config-loader.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/state.sh"
-devagent_load_config
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/io.sh
+source "$SCRIPT_DIR/lib/io.sh"
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh"
+# shellcheck source=lib/active.sh
+source "$SCRIPT_DIR/lib/active.sh"
 
 no_pin=0
 window_weeks=4
+project_arg=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-pin)       no_pin=1; shift ;;
     --window-weeks) window_weeks="$2"; shift 2 ;;
-    *)              devagent_log warn "statusreport: ignoring '$1'"; shift ;;
+    --*) warn "statusreport: ignoring unknown flag '$1'"; shift ;;
+    *)
+      if [[ -z "$project_arg" ]]; then
+        project_arg="$1"
+      else
+        warn "statusreport: ignoring extra arg '$1'"
+      fi
+      shift
+      ;;
   esac
 done
 
+project="$(active_resolve_project "$project_arg")"
+config_is_project "$project" || die "statusreport: unknown project '$project'"
+devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
+[[ -n "$devdoc_dir" ]] || die "statusreport: devdoc_dir not configured for $project"
+commit_devdoc="$(config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false)"
+
 template=""
 for cand in \
-  "$DEVAGENT_DEVDOC_DIR/templates/statusreport_template.md" \
+  "$devdoc_dir/templates/statusreport_template.md" \
   "$PLUGIN_ROOT/templates/statusreport_template.md"; do
   [[ -f "$cand" ]] && { template="$cand"; break; }
 done
-[[ -n "$template" ]] || { devagent_log err "no statusreport_template.md found"; exit 1; }
+[[ -n "$template" ]] || die "no statusreport_template.md found"
 
-pin_file="$DEVAGENT_STATE_DIR/${DEVAGENT_PROJECT}.statusreport.toml"
-prev_pin="$(state_get "$pin_file" last_pin || true)"
+# Ensure state file exists so state_get/set work even on first run.
+state_init "$project"
+prev_pin="$(state_get "$project" statusreport_last_pin 2>/dev/null || true)"
 now_iso="$(date -u +'%Y-%m-%dT%H:%M:%S+00:00')"
 report_date="$(date -u +'%Y-%m-%d')"
-report_dir="$DEVAGENT_DEVDOC_DIR/StatusReports"
+report_dir="$devdoc_dir/StatusReports"
 report_path="$report_dir/${report_date}.md"
 mkdir -p "$report_dir"
 
@@ -44,8 +67,8 @@ parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
 detect="$PLUGIN_ROOT/scripts/lib/statusreport-detect.py"
 velocity_lib="$PLUGIN_ROOT/scripts/lib/statusreport-velocity.py"
 
-DEVAGENT_DEVDOC_DIR="$DEVAGENT_DEVDOC_DIR" \
-DEVAGENT_PROJECT="$DEVAGENT_PROJECT" \
+DEVDOC_DIR="$devdoc_dir" \
+PROJECT="$project" \
 TEMPLATE_PATH="$template" \
 PREV_PIN="$prev_pin" \
 NOW_ISO="$now_iso" \
@@ -72,8 +95,8 @@ wbs_parser = load("wbs_parser", os.environ["PARSER_PATH"])
 detect = load("sr_detect", os.environ["DETECT_PATH"])
 velocity = load("sr_vel", os.environ["VELOCITY_PATH"])
 
-devdoc = Path(os.environ["DEVAGENT_DEVDOC_DIR"])
-project = os.environ["DEVAGENT_PROJECT"]
+devdoc = Path(os.environ["DEVDOC_DIR"])
+project = os.environ["PROJECT"]
 template = Path(os.environ["TEMPLATE_PATH"]).read_text(encoding="utf-8")
 prev_pin = os.environ["PREV_PIN"]
 now_iso = os.environ["NOW_ISO"]
@@ -185,19 +208,19 @@ print(filled, end="")
 PY
 
 if [[ $no_pin -eq 0 ]]; then
-  state_set "$pin_file" last_pin "$now_iso"
-  state_set "$pin_file" last_pin_by "${USER:-unknown}"
+  state_set "$project" statusreport_last_pin "$now_iso"
+  state_set "$project" statusreport_last_pin_by "${USER:-unknown}"
 fi
 
-if [[ "$DEVAGENT_PERM_COMMIT_DEVDOC" == "true" ]]; then
-  if command -v git >/dev/null && git -C "$DEVAGENT_DEVDOC_DIR" rev-parse >/dev/null 2>&1; then
-    git -C "$DEVAGENT_DEVDOC_DIR" add "StatusReports/${report_date}.md" || true
-    git -C "$DEVAGENT_DEVDOC_DIR" commit -s -m "statusreport(${DEVAGENT_PROJECT}): ${report_date}" || true
+if [[ "$commit_devdoc" == "true" ]]; then
+  if command -v git >/dev/null && git -C "$devdoc_dir" rev-parse >/dev/null 2>&1; then
+    git -C "$devdoc_dir" add "StatusReports/${report_date}.md" || true
+    git -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" || true
   else
-    devagent_log warn "statusreport: commit requested but devdoc is not a git repo"
+    warn "statusreport: commit requested but devdoc is not a git repo"
   fi
 fi
 
-echo "Status Report — $DEVAGENT_PROJECT — $report_date"
+echo "Status Report — $project — $report_date"
 echo "  Written to: $report_path"
 echo "  Pin: ${prev_pin:-(none)} → ${now_iso}"

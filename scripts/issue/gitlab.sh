@@ -117,13 +117,15 @@ cmd_transition() {
   add_label="${!var_add:-}"
   remove_prefix="${DEVAGENT_GITLAB_LABEL_NAMESPACE:-}"
 
-  if [ -z "$add_label" ]; then
-    if [ -f "${SCRIPT_DIR}/../lib/config-loader.sh" ]; then
-      # shellcheck source=../lib/config-loader.sh
-      source "${SCRIPT_DIR}/../lib/config-loader.sh"
-      add_label="$(devagent_get_config "${DEVAGENT_PROJECT:-}" "gitlab_labels.${stage}" 2>/dev/null || true)"
-      remove_prefix="$(devagent_get_config "${DEVAGENT_PROJECT:-}" "gitlab_labels.remove_others_in_namespace" 2>/dev/null || true)"
-    fi
+  if [ -z "$add_label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    # shellcheck source=../lib/paths.sh
+    source "${SCRIPT_DIR}/../lib/paths.sh"
+    # shellcheck source=../lib/io.sh
+    source "${SCRIPT_DIR}/../lib/io.sh"
+    # shellcheck source=../lib/config.sh
+    source "${SCRIPT_DIR}/../lib/config.sh"
+    add_label="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.${stage}" 2>/dev/null || true)"
+    remove_prefix="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.remove_others_in_namespace" 2>/dev/null || true)"
   fi
 
   local enc; enc="$(urlenc "$repo")"

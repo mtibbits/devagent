@@ -17,33 +17,51 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB_DIR="${DEVAGENT_STUB_LIB:-$SCRIPT_DIR/lib}"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/io.sh
+source "$SCRIPT_DIR/lib/io.sh"
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh"
+# shellcheck source=lib/active.sh
+source "$SCRIPT_DIR/lib/active.sh"
 
-# shellcheck source=/dev/null
-source "$LIB_DIR/log.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/config-loader.sh"
-# shellcheck source=/dev/null
-source "$LIB_DIR/state.sh"
-devagent_load_config
+project_arg=""
+for arg in "$@"; do
+  case "$arg" in
+    --*) warn "wbs update: ignoring unknown flag '$arg'" ;;
+    *)
+      if [[ -z "$project_arg" ]]; then
+        project_arg="$arg"
+      else
+        warn "wbs update: ignoring extra arg '$arg'"
+      fi
+      ;;
+  esac
+done
 
-state_file="$DEVAGENT_STATE_DIR/${DEVAGENT_PROJECT}.toml"
-active_issue="$(state_get "$state_file" active_issue)"
-last_step="$(state_get "$state_file" last_step)"
+project="$(active_resolve_project "$project_arg")"
+config_is_project "$project" || die "wbs update: unknown project '$project'"
+devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
+[[ -n "$devdoc_dir" ]] || die "wbs update: devdoc_dir not configured for $project"
 
-if [[ -z "$active_issue" ]]; then
-  devagent_log info "wbs update: no active issue; nothing to do"
+active_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
+last_step="$(state_get "$project" last_step 2>/dev/null || true)"
+
+if [[ -z "$active_issue" || "$active_issue" == "null" || "$active_issue" == '""' ]]; then
+  info "wbs update: no active issue; nothing to do"
   exit 0
 fi
 
-wbs="$DEVAGENT_DEVDOC_DIR/WBS.md"
+wbs="$devdoc_dir/WBS.md"
 if [[ ! -f "$wbs" ]]; then
-  devagent_log err "wbs update: $wbs missing; run /devagent:wbs init first"
-  exit 1
+  die "wbs update: $wbs missing; run /devagent:wbs init first"
 fi
 
 parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
-[[ -f "$parser" ]] || { devagent_log err "wbs-parser.py not found at $parser"; exit 1; }
+[[ -f "$parser" ]] || die "wbs-parser.py not found at $parser"
 
 WBS_PATH="$wbs" \
 PARSER_PATH="$parser" \
@@ -111,7 +129,6 @@ else:
             "source_line": 0,
         }
         tree["children"].append(unassigned)
-    # Skip if this issue is already under Unassigned (idempotence).
     already = any(
         c.get("meta", {}).get("issue") == active_issue
         for c in unassigned["children"]
@@ -131,4 +148,4 @@ else:
 Path(wbs_path).write_text(mod.render_markdown(tree), encoding="utf-8")
 PY
 
-devagent_log info "wbs update: refreshed $wbs for $active_issue (step $last_step)"
+info "wbs update: refreshed $wbs for $active_issue (step $last_step)"

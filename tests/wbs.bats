@@ -3,46 +3,97 @@
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
 setup() {
-  TMPDEV="$(mktemp -d)"
-  TMPSTATE="$(mktemp -d)"
-  export DEVAGENT_PROJECT="testproj"
-  export DEVAGENT_DEVDOC_DIR="$TMPDEV"
-  export DEVAGENT_STATE_DIR="$TMPSTATE"
-  export DEVAGENT_PERM_COMMIT_DEVDOC="false"
-  export DEVAGENT_STUB_LIB="$REPO/tests/fixtures/devagent_stubs"
+  TMPROOT="$(mktemp -d)"
+  TMPDEV="$TMPROOT/devdoc"
+  mkdir -p "$TMPDEV"
+  export HOME="$TMPROOT/home"
+  mkdir -p "$HOME/.claude/devagent/state" "$HOME/.claude/devagent/secrets"
+
+  # Minimum config: testproj points devdoc at $TMPDEV.
+  cat > "$HOME/.claude/devagent/config.toml" <<EOF
+[defaults]
+checklist_template = "standard"
+
+[project.testproj]
+source_dir = "$TMPROOT/src"
+devdoc_dir = "$TMPDEV"
+
+[project.testproj.issue_source]
+backend = "github"
+repo    = "acme/testproj"
+
+[project.testproj.code_source]
+backend  = "github"
+upstream = "acme/testproj"
+
+[project.testproj.permissions]
+push_mr            = true
+merge_to_all_prs   = true
+commit_devdoc      = false
+transition_issue   = true
+cleanup_on_merge   = false
+EOF
+  mkdir -p "$TMPROOT/src"
 }
 
 teardown() {
-  rm -rf "$TMPDEV" "$TMPSTATE"
+  rm -rf "$TMPROOT"
+}
+
+# Helper: write an arbitrary scalar to the project state via the
+# production toml helper (the script reads via state_get).
+_state_set() {
+  local key="$1" value="$2"
+  python3 "$REPO/scripts/lib/_toml.py" set \
+    "$HOME/.claude/devagent/state/testproj.toml" "$key" "\"$value\""
+}
+_state_set_int() {
+  local key="$1" value="$2"
+  python3 "$REPO/scripts/lib/_toml.py" set-int \
+    "$HOME/.claude/devagent/state/testproj.toml" "$key" "$value"
+}
+_init_state() {
+  # state_init from lib/state.sh handles the touch + initial keys.
+  bash -c "source $REPO/scripts/lib/paths.sh; \
+           source $REPO/scripts/lib/io.sh; \
+           source $REPO/scripts/lib/state.sh; \
+           state_init testproj"
 }
 
 @test "wbs init scaffolds WBS.md from template" {
-  run bash "$REPO/scripts/wbs.sh" init
+  run bash "$REPO/scripts/wbs.sh" init testproj
   [ "$status" -eq 0 ]
   [ -f "$TMPDEV/WBS.md" ]
   grep -q "# testproj WBS" "$TMPDEV/WBS.md"
   grep -q "Recognized keys" "$TMPDEV/WBS.md"
 }
 
-@test "wbs init is idempotent (refuses to overwrite without --force)" {
-  bash "$REPO/scripts/wbs.sh" init
-  echo "hand-edited content" >> "$TMPDEV/WBS.md"
+@test "wbs init resolves project from single-project config when no arg" {
   run bash "$REPO/scripts/wbs.sh" init
+  [ "$status" -eq 0 ]
+  [ -f "$TMPDEV/WBS.md" ]
+  grep -q "# testproj WBS" "$TMPDEV/WBS.md"
+}
+
+@test "wbs init is idempotent (refuses to overwrite without --force)" {
+  bash "$REPO/scripts/wbs.sh" init testproj
+  echo "hand-edited content" >> "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" init testproj
   [ "$status" -ne 0 ]
   grep -q "hand-edited content" "$TMPDEV/WBS.md"
 }
 
 @test "wbs init --force overwrites existing file" {
-  bash "$REPO/scripts/wbs.sh" init
+  bash "$REPO/scripts/wbs.sh" init testproj
   echo "hand-edited" >> "$TMPDEV/WBS.md"
-  run bash "$REPO/scripts/wbs.sh" init --force
+  run bash "$REPO/scripts/wbs.sh" init testproj --force
   [ "$status" -eq 0 ]
   ! grep -q "hand-edited" "$TMPDEV/WBS.md"
 }
 
 @test "wbs show prints WBS.md contents" {
   cp "$REPO/tests/fixtures/wbs/simple.md" "$TMPDEV/WBS.md"
-  run bash "$REPO/scripts/wbs.sh" show
+  run bash "$REPO/scripts/wbs.sh" show testproj
   [ "$status" -eq 0 ]
   [[ "$output" == *"Top"* ]]
   [[ "$output" == *"Leaf A"* ]]
@@ -51,7 +102,7 @@ teardown() {
 
 @test "wbs show --depth 1 hides children below depth 1" {
   cp "$REPO/tests/fixtures/wbs/nested.md" "$TMPDEV/WBS.md"
-  run bash "$REPO/scripts/wbs.sh" show --depth 1
+  run bash "$REPO/scripts/wbs.sh" show testproj --depth 1
   [ "$status" -eq 0 ]
   [[ "$output" == *"Root"* ]]
   [[ "$output" == *"Subgoal A"* ]]
@@ -60,15 +111,15 @@ teardown() {
 
 @test "wbs show --milestone M2 filters to that milestone subtree" {
   cp "$REPO/tests/fixtures/wbs/nested.md" "$TMPDEV/WBS.md"
-  run bash "$REPO/scripts/wbs.sh" show --milestone M2
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone M2
   [ "$status" -eq 0 ]
   [[ "$output" == *"Root"* ]]
 }
 
 @test "wbs show errors when WBS.md missing" {
-  run bash "$REPO/scripts/wbs.sh" show
+  run bash "$REPO/scripts/wbs.sh" show testproj
   [ "$status" -ne 0 ]
-  [[ "$output" == *"not found"* ]] || [[ "$stderr" == *"not found"* ]] || true
+  [[ "$output" == *"not found"* ]]
 }
 
 @test "wbs update appends a new entry for an active issue not yet in WBS" {
@@ -78,14 +129,13 @@ teardown() {
 - [ ] Existing milestone {est: 2w, milestone: M1}
   - [x] Old leaf {issue: Issue-1, est: 1w}
 EOF
-  cat > "$TMPSTATE/testproj.toml" <<EOF
-active_issue = "Issue-2"
-issue_dir = "$TMPDEV/Issue-2"
-last_step = 3
-last_step_name = "improve"
-EOF
+  _init_state
+  _state_set active_issue "Issue-2"
+  _state_set issue_dir "$TMPDEV/Issue-2"
+  _state_set_int last_step 3
+  _state_set last_step_name "improve"
   mkdir -p "$TMPDEV/Issue-2"
-  cat > "$TMPDEV/Issue-2/checklist.md" <<EOF
+  cat > "$TMPDEV/Issue-2/checklist.md" <<'EOF'
 # Issue-2 — Workflow checklist
 Template: standard
 
@@ -96,24 +146,23 @@ Template: standard
 ## Log
 - 2026-05-19 10:00  pull: fetched
 EOF
-  run bash "$REPO/scripts/wbs.sh" update
+  run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
   grep -q "Issue-2" "$TMPDEV/WBS.md"
 }
 
 @test "wbs update is idempotent (running twice produces same file)" {
   cp "$REPO/tests/fixtures/wbs/simple.md" "$TMPDEV/WBS.md"
-  cat > "$TMPSTATE/testproj.toml" <<EOF
-active_issue = "Issue-1"
-issue_dir = "$TMPDEV/Issue-1"
-last_step = 0
-last_step_name = "pull"
-EOF
+  _init_state
+  _state_set active_issue "Issue-1"
+  _state_set issue_dir "$TMPDEV/Issue-1"
+  _state_set_int last_step 0
+  _state_set last_step_name "pull"
   mkdir -p "$TMPDEV/Issue-1"
   echo "# Issue-1 — Workflow checklist" > "$TMPDEV/Issue-1/checklist.md"
-  bash "$REPO/scripts/wbs.sh" update
+  bash "$REPO/scripts/wbs.sh" update testproj
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
-  bash "$REPO/scripts/wbs.sh" update
+  bash "$REPO/scripts/wbs.sh" update testproj
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
@@ -129,15 +178,14 @@ EOF
 - [ ] Plan {est: 1w}
   - [ ] Working leaf {issue: Issue-9, est: 1w}
 EOF
-  cat > "$TMPSTATE/testproj.toml" <<EOF
-active_issue = "Issue-9"
-issue_dir = "$TMPDEV/Issue-9"
-last_step = 7
-last_step_name = "implement"
-EOF
+  _init_state
+  _state_set active_issue "Issue-9"
+  _state_set issue_dir "$TMPDEV/Issue-9"
+  _state_set_int last_step 7
+  _state_set last_step_name "implement"
   mkdir -p "$TMPDEV/Issue-9"
   echo "# Issue-9 — Workflow checklist" > "$TMPDEV/Issue-9/checklist.md"
-  run bash "$REPO/scripts/wbs.sh" update
+  run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
   grep -q "\[~\] Working leaf" "$TMPDEV/WBS.md"
 }
