@@ -83,3 +83,23 @@ scripts/checklist-log.sh "$ISSUE_DIR" lessonslearned \
 
 - `templates/lessonsLearned_template.md` (canonical entry format and
   tag taxonomy).
+
+## Completion handoff
+
+After marking the step `[x]` (or `[-]` if skipped) and logging:
+
+**STOP.** Do not invoke any other `/devagent:*` command on your own.
+Return control to the operator with a one-line summary of what was
+written and which step is next on the checklist.
+
+The only exception: if you were invoked under a `/devagent:next
+--auto` or `--through` chain (recognizable because the preceding
+turn's tool output contained a `CHAIN: /devagent:next ...` line),
+then after stopping, invoke that exact CHAIN: command verbatim to
+continue the chain.
+
+If the operator typed a one-off `/devagent:<name>` directly (no
+preceding CHAIN: line), DO NOT chain. Pause and wait for explicit
+instruction even if your internal TODO list still has steps after
+this one — the operator's last explicit instruction is the
+authoritative scope.
