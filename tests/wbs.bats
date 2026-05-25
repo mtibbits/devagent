@@ -171,21 +171,74 @@ EOF
   grep -q "scripts/wbs.sh update" "$REPO/commands/updatewbs.md"
 }
 
-@test "wbs update updates state glyph when active issue progresses" {
+@test "wbs update reconciles in-progress leaf from checklist truth" {
   cat > "$TMPDEV/WBS.md" <<EOF
 # testproj WBS
 
 - [ ] Plan {est: 1w}
   - [ ] Working leaf {issue: Issue-9, est: 1w}
 EOF
-  _init_state
-  _state_set active_issue "Issue-9"
-  _state_set issue_dir "$TMPDEV/Issue-9"
-  _state_set_int last_step 7
-  _state_set last_step_name "implement"
   mkdir -p "$TMPDEV/Issue-9"
-  echo "# Issue-9 — Workflow checklist" > "$TMPDEV/Issue-9/checklist.md"
+  cat > "$TMPDEV/Issue-9/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x]  1. draft
+- [~]  7. implement
+- [ ] 11. analyze
+EOF
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
   grep -q "\[~\] Working leaf" "$TMPDEV/WBS.md"
+}
+
+@test "wbs update reconciles done leaf when all steps complete (works AFTER active_issue cleared)" {
+  cat > "$TMPDEV/WBS.md" <<EOF
+# testproj WBS
+
+- [ ] Plan {est: 1w}
+  - [~] Working leaf {issue: Issue-9, est: 1w}
+EOF
+  mkdir -p "$TMPDEV/Issue-9"
+  cat > "$TMPDEV/Issue-9/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x]  1. draft
+- [x]  7. implement
+- [x] 11. analyze
+- [x] 20. cleanup
+EOF
+  # Note: NO active_issue set. Mimics the post-cleanup state where the
+  # operator runs wbs update and the issue's leaf must still flip to [x].
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  grep -q "\[x\] Working leaf" "$TMPDEV/WBS.md"
+}
+
+@test "wbs update is idempotent (no spurious diff on a fully-reconciled WBS)" {
+  cat > "$TMPDEV/WBS.md" <<EOF
+# testproj WBS
+
+- [ ] Plan {est: 1w}
+  - [x] Done leaf {issue: Issue-3, est: 1w}
+EOF
+  mkdir -p "$TMPDEV/Issue-3"
+  cat > "$TMPDEV/Issue-3/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x] 20. cleanup
+EOF
+  bash "$REPO/scripts/wbs.sh" update testproj
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+  bash "$REPO/scripts/wbs.sh" update testproj
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+}
+
+@test "wbs update --if-exists silently no-ops when WBS.md missing" {
+  # No WBS.md created.
+  run bash "$REPO/scripts/wbs.sh" update testproj --if-exists
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "wbs update (no --if-exists) errors when WBS.md missing" {
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing"* ]]
 }

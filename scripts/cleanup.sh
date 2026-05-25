@@ -42,6 +42,13 @@ state_set "$project" worktree_path  ""
 checklist_mark "$issue_dir/checklist.md" 20 x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"
 
+# Reconcile the WBS against the now-completed checklist so the leaf for
+# this issue flips to [x]. --if-exists silently no-ops if the project
+# has no WBS.md (it's an optional artifact). We pass project explicitly
+# because active_issue was just cleared above.
+"$DEVAGENT_ROOT/scripts/wbs-update.sh" --if-exists "$project" || \
+    warn "cleanup: wbs reconcile failed (non-fatal)"
+
 # Commit + push devdoc if permitted.
 commit_devdoc="$(config_get_project_field "$project" "permissions.commit_devdoc" 2>/dev/null || echo false)"
 if [ "$commit_devdoc" = "true" ]; then

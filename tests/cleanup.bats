@@ -34,3 +34,35 @@ teardown() { devagent_test_teardown; }
     n=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
     [ "$n" -eq 1 ]
 }
+
+@test "cleanup.sh reconciles the WBS leaf for the completed issue to [x]" {
+    # Mark every step except step 20 done in the seeded checklist;
+    # cleanup will mark step 20 itself, then call wbs update.
+    sed -i 's/^- \[ \]\([ ]*\([0-9]*\)\.\)/- [x]\1/' \
+        "$DEVDOC_DIR/Issue-1/checklist.md"
+    # Re-mark step 20 as pending so cleanup has work to do.
+    sed -i 's/^- \[x\]\([ ]*20\.\)/- [ ]\1/' \
+        "$DEVDOC_DIR/Issue-1/checklist.md"
+    # Seed a WBS with the issue's leaf in-progress.
+    cat > "$DEVDOC_DIR/WBS.md" <<EOF
+# $TEST_PROJECT WBS
+
+- [ ] Plan {est: 1w}
+  - [~] Working leaf {issue: Issue-1, est: 1w}
+EOF
+    ( cd "$DEVDOC_DIR" && git add -A && \
+        git -c user.email=t@x -c user.name=t commit -q -m "seed wbs" )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # cleanup marks its own step 20, then calls wbs update, which sees
+    # all checklist lines [x] and flips the leaf to [x].
+    grep -q "\[x\] Working leaf" "$DEVDOC_DIR/WBS.md"
+}
+
+@test "cleanup.sh soft-passes when no WBS.md exists (--if-exists)" {
+    # No WBS.md in this fixture by default — cleanup should not fail
+    # nor warn.
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"wbs reconcile failed"* ]]
+}
