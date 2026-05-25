@@ -116,6 +116,26 @@ EOF
   [[ "$output" == *"2 projects configured"* ]]
 }
 
+@test "next --auto emits CHAIN: marker on skill-backed steps" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:scope"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next --auto"* ]]
+}
+
+@test "next --through propagates into CHAIN: marker" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CHAIN: /devagent:next --through tighten"* ]]
+}
+
+@test "next without chain flags omits CHAIN: marker" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:scope"* ]]
+  [[ "$output" != *"CHAIN:"* ]]
+}
+
 @test "next dispatches purely from THIS checklist, not a canonical step list" {
   # A planning-only issue's checklist with non-canonical numbering and
   # a custom skill-backed step that isn't in any global list. Authority

@@ -118,6 +118,18 @@ main() {
       # Skill-backed step: hand back to the model.
       echo "→ Run /devagent:$name"
       echo "  (step $cur on this issue's checklist; skill-backed)"
+      # If chaining is in effect, emit a CHAIN: marker (Plan 6 convention)
+      # so the model knows to re-invoke /devagent:next after the skill
+      # completes, continuing the chain until the through-target or a
+      # checkpoint (stuck/blocked/permission gate). The skill itself is
+      # responsible for marking the step done on success; this script's
+      # next invocation re-reads the checklist and advances.
+      if (( auto == 1 )) || [[ -n "$through" ]]; then
+        local chain_cmd="/devagent:next"
+        (( auto == 1 )) && chain_cmd+=" --auto"
+        [[ -n "$through" ]] && chain_cmd+=" --through $through"
+        echo "CHAIN: $chain_cmd"
+      fi
       return 0
     fi
   done
