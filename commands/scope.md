@@ -1,11 +1,11 @@
 ---
-description: Run six-question scope evaluation on the active issue's plan. Invokes devagent-scope skill.
+description: Run six-question scope evaluation on the active issue's plan. Invokes core-scope skill.
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 
 # /devagent:scope
 
-Step 2 of the 21-step devAgent workflow. Invokes the `devagent-scope`
+Step 2 of the 21-step devAgent workflow. Invokes the `core-scope`
 skill to walk through six structured questions and append a
 `## Scope evaluation` section to `<issue-dir>/imPlan.md`.
 
@@ -20,7 +20,7 @@ spec §6.1 grammar. In one sentence: optional `project`, optional
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify `<issue-dir>/imPlan.md` exists. If not, halt: operator must
    run `/devagent:draft` first.
-3. Invoke the `devagent-scope` skill with `$ISSUE_DIR=<issue-dir>`
+3. Invoke the `core-scope` skill with `$ISSUE_DIR=<issue-dir>`
    and `$NOTE` as user intent.
 4. The skill appends `## Scope evaluation` to `imPlan.md`.
 5. The skill itself appends the log entry via

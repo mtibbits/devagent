@@ -13,7 +13,7 @@ Args: `<capture-slug>`
    not start with `# Epic:`, abort with a clear error suggesting
    `/devagent:capture epic`.
 
-2. Invoke the **devagent-scaffold** skill, passing `draft.md`. The
+2. Invoke the **core-scaffold** skill, passing `draft.md`. The
    skill returns an ordered list of child entries:
 
    ```

@@ -14,7 +14,7 @@ Args: `[issue|epic] <free-form text>`
    - If first token is exactly `epic`, force-type = epic; remainder = text.
    - Otherwise, force-type is unset and the model decides.
 
-2. Invoke the **devagent-capture** skill with the text and (if set) the
+2. Invoke the **core-capture** skill with the text and (if set) the
    forced type. The skill returns:
    - `type`: `issue` or `epic`
    - `subtype` (if issue): one of `bug feature docs perf chore`

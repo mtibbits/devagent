@@ -12,7 +12,7 @@ Args: `<capture-slug>`
 1. Locate `<devdoc>/Captures/<slug>/draft.md`. Abort if missing.
 2. Resolve `redteam_issue` template via the artifact resolution
    order (project paths → devdoc templates → plugin templates).
-3. Invoke the **devagent-redissue** skill with `draft_path` and the
+3. Invoke the **core-redissue** skill with `draft_path` and the
    contents of the red-team prompt.
 4. The skill writes findings to `<devdoc>/Captures/<slug>/redteam.md`
    structured with `### Blocking`, `### Recommended`, `### Nits`,

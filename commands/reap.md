@@ -11,7 +11,7 @@ Args: `[project]` (optional; defaults to active project)
 
 1. Run `scripts/capture/reap.sh --dry-run` to enumerate candidates.
 2. If candidates exist, ask the operator: review the list, optionally
-   trigger the **devagent-reap** skill to classify ambiguous ones
+   trigger the **core-reap** skill to classify ambiguous ones
    (e.g., is `STUCK` content really an issue or just operator pain?).
 3. Run `scripts/capture/reap.sh` (no `--dry-run`) to write drafts.
 4. Print the list of newly created `Captures/<slug>/` paths and

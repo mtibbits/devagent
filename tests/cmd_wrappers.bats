@@ -20,34 +20,34 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'checklist-log.sh' "$CMD_DIR/draft.md"
 }
 
-@test "scope.md exists, invokes devagent-scope, parses \$NOTE, logs" {
+@test "scope.md exists, invokes core-scope, parses \$NOTE, logs" {
   F="$CMD_DIR/scope.md"
   [ -f "$F" ]
-  grep -q 'devagent-scope' "$F"
+  grep -q 'core-scope' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "improve.md exists, invokes devagent-improve, parses \$NOTE, logs" {
+@test "improve.md exists, invokes core-improve, parses \$NOTE, logs" {
   F="$CMD_DIR/improve.md"
   [ -f "$F" ]
-  grep -q 'devagent-improve' "$F"
+  grep -q 'core-improve' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "prune.md exists, invokes devagent-prune, parses \$NOTE, logs" {
+@test "prune.md exists, invokes core-prune, parses \$NOTE, logs" {
   F="$CMD_DIR/prune.md"
   [ -f "$F" ]
-  grep -q 'devagent-prune' "$F"
+  grep -q 'core-prune' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "tighten.md exists, invokes devagent-tighten, parses \$NOTE, logs" {
+@test "tighten.md exists, invokes core-tighten, parses \$NOTE, logs" {
   F="$CMD_DIR/tighten.md"
   [ -f "$F" ]
-  grep -q 'devagent-tighten' "$F"
+  grep -q 'core-tighten' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
@@ -69,18 +69,18 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "document.md exists, invokes devagent-document-actual-work, parses \$NOTE, logs" {
+@test "document.md exists, invokes core-document-actual-work, parses \$NOTE, logs" {
   F="$CMD_DIR/document.md"
   [ -f "$F" ]
-  grep -q 'devagent-document-actual-work' "$F"
+  grep -q 'core-document-actual-work' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "draftmr.md exists, invokes devagent-draft-mr, parses \$NOTE, logs" {
+@test "draftmr.md exists, invokes core-draft-mr, parses \$NOTE, logs" {
   F="$CMD_DIR/draftmr.md"
   [ -f "$F" ]
-  grep -q 'devagent-draft-mr' "$F"
+  grep -q 'core-draft-mr' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
@@ -93,26 +93,26 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "redmr.md exists, invokes devagent-redmr, parses \$NOTE, logs" {
+@test "redmr.md exists, invokes core-redmr, parses \$NOTE, logs" {
   F="$CMD_DIR/redmr.md"
   [ -f "$F" ]
-  grep -q 'devagent-redmr' "$F"
+  grep -q 'core-redmr' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "impact.md exists, invokes devagent-impact, parses \$NOTE, logs" {
+@test "impact.md exists, invokes core-impact, parses \$NOTE, logs" {
   F="$CMD_DIR/impact.md"
   [ -f "$F" ]
-  grep -q 'devagent-impact' "$F"
+  grep -q 'core-impact' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
 
-@test "lessonslearned.md exists, invokes devagent-lessons-learned, parses \$NOTE, logs" {
+@test "lessonslearned.md exists, invokes core-lessons-learned, parses \$NOTE, logs" {
   F="$CMD_DIR/lessonslearned.md"
   [ -f "$F" ]
-  grep -q 'devagent-lessons-learned' "$F"
+  grep -q 'core-lessons-learned' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }

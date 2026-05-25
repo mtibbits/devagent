@@ -1,11 +1,11 @@
 ---
-description: Measure and record the real-world impact of a merged change. Invokes devagent-impact skill.
+description: Measure and record the real-world impact of a merged change. Invokes core-impact skill.
 argument-hint: "[project] [issue-dir] [free-form note: paths to evidence files]"
 ---
 
 # /devagent:impact
 
-Step 18 of the 21-step devAgent workflow. Invokes the `devagent-impact`
+Step 18 of the 21-step devAgent workflow. Invokes the `core-impact`
 skill to write `<issue-dir>/impact.md`.
 
 ## Argument parsing
@@ -20,7 +20,7 @@ operator-supplied evidence paths (e.g.,
 2. Verify state file shows the issue is merged (mr_url present and
    mr-state is `merged`). If not, halt — measuring impact on
    un-merged code is meaningless.
-3. Invoke `devagent-impact` with `$ISSUE_DIR` and `$NOTE`.
+3. Invoke `core-impact` with `$ISSUE_DIR` and `$NOTE`.
 4. Skill writes impact.md and calls `scripts/checklist-log.sh`.
 
 ## Halt and ask if
