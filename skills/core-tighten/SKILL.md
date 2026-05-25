@@ -71,7 +71,7 @@ scripts/checklist-log.sh "$ISSUE_DIR" tighten \
 
 ## Templates referenced
 
-- `templates/imPlan_template.md` (canonical structure including
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical structure including
   Definition of done section).
 
 ## Completion handoff

@@ -7,7 +7,7 @@ when-to-use: After /devagent:review and before /devagent:ship. Run as part of /d
 # devagent-redmr
 
 Step 14 of the devAgent 21-step workflow. Runs the project's MR
-red-team prompt (`templates/redteam_mr.md`, resolved per §12 registry)
+red-team prompt (`${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md`, resolved per §12 registry)
 against `<issue-dir>/mr.md` plus the branch diff. Produces a severity-
 classified findings report and refuses to silently advance past
 blocking findings.
@@ -26,7 +26,7 @@ the ship step will fire.
   - `<issue-dir>/mr.md` (the MR body under attack).
   - `<issue-dir>/imPlan.md`, `actualWork.md` (for context).
   - `git diff <baseline_sha>..HEAD` (the actual code change).
-  - Resolved `templates/redteam_mr.md` (per spec §12 registry).
+  - Resolved `${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md` (per spec §12 registry).
 - Writes: `<issue-dir>/analysis/YYYY-MM-DD-redmr.md`.
 
 ## Checklist
@@ -90,7 +90,7 @@ reports per spec §14.4.
 
 ## Templates referenced
 
-- `templates/redteam_mr.md` (the adversarial prompt itself).
+- `${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md` (the adversarial prompt itself).
 
 ## Completion handoff
 

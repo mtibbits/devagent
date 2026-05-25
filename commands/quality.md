@@ -12,7 +12,7 @@ changed code:
 2. A coding-standards conformance pass against the project's
    `coding_standards.md`, resolved per the spec §12 artifact registry
    (project paths → `<devdoc>/templates/` → plugin
-   `templates/coding_standards.md`).
+   `${CLAUDE_PLUGIN_ROOT}/templates/coding_standards.md`).
 
 ## Argument parsing
 

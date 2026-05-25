@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 # /devagent:draftmr
 
 Step 12 of the 21-step devAgent workflow. Invokes the
-`core-draft-mr` skill to fill `templates/mr_template.md` from the
+`core-draft-mr` skill to fill `${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md` from the
 issue's artifacts and write `<issue-dir>/mr.md`.
 
 ## Argument parsing

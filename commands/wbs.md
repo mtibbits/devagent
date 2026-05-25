@@ -6,7 +6,7 @@ allowed-tools: Bash
 Run `scripts/wbs.sh "$@"` with the user's arguments.
 
 Subcommands:
-- `init` — scaffold `<devdoc>/WBS.md` from `templates/wbs_template.md`
+- `init` — scaffold `<devdoc>/WBS.md` from `${CLAUDE_PLUGIN_ROOT}/templates/wbs_template.md`
 - `update` — append/update WBS entries from active and recently shipped issues
 - `show [--depth N] [--milestone X]` — render `<devdoc>/WBS.md` filtered
 

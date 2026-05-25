@@ -100,7 +100,7 @@ scripts/checklist-log.sh "$ISSUE_DIR" scope \
 
 ## Templates referenced
 
-- `templates/imPlan_template.md` (for the canonical section ordering
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (for the canonical section ordering
   if the plan needs restructuring during this step).
 
 ## Completion handoff

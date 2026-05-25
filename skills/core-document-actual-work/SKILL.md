@@ -29,7 +29,7 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
   - `git diff <baseline_sha>..HEAD` for the issue branch.
   - Per-task commit messages since baseline.
 - Writes: creates `<issue-dir>/actualWork.md` from
-  `templates/actualWork_template.md`.
+  `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md`.
 
 ## Checklist
 
@@ -103,7 +103,7 @@ scripts/checklist-log.sh "$ISSUE_DIR" document \
 
 ## Templates referenced
 
-- `templates/actualWork_template.md` (canonical structure with
+- `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md` (canonical structure with
   Deviations and Follow-up sub-headings).
 
 ## Completion handoff

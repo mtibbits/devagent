@@ -1,6 +1,6 @@
 ---
 name: core-redissue
-description: Adversarially review a capture draft using templates/redteam_issue.md; write findings to redteam.md. Triggers when /devagent:redissue is invoked.
+description: Adversarially review a capture draft using ${CLAUDE_PLUGIN_ROOT}/templates/redteam_issue.md; write findings to redteam.md. Triggers when /devagent:redissue is invoked.
 ---
 
 # devagent-redissue
@@ -8,7 +8,7 @@ description: Adversarially review a capture draft using templates/redteam_issue.
 ## Inputs
 
 - `draft_path` — absolute path to `Captures/<slug>/draft.md`.
-- `redteam_prompt` — resolved contents of `templates/redteam_issue.md`.
+- `redteam_prompt` — resolved contents of `${CLAUDE_PLUGIN_ROOT}/templates/redteam_issue.md`.
 
 ## Procedure
 
