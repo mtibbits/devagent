@@ -42,7 +42,16 @@ run_one() {
             "-DCMAKE_CXX_FLAGS=-fsanitize=$flag" 2>&1 || true
         "$DEVAGENT_CMAKE" --build "$build" 2>&1 || true
         set +e
-        ( cd "$build" && "$DEVAGENT_CTEST" --output-on-failure )
+        # ASLR + TSan are incompatible on Ubuntu 24.04+ (kernel changed
+        # mmap layout, TSan's shadow-memory mapping fails at process
+        # startup). Disable ASLR for the TSan tag only; ASan/UBSan are
+        # unaffected. Long form matches static_analysis_diff.py:697 for
+        # portability across older util-linux versions (RHEL/CentOS).
+        local -a launcher=()
+        if [ "$tag" = "tsan" ] && command -v setarch >/dev/null 2>&1; then
+            launcher=(setarch "$(uname -m)" --addr-no-randomize)
+        fi
+        ( cd "$build" && "${launcher[@]}" "$DEVAGENT_CTEST" --output-on-failure )
         local rc=$?
         set -e
         echo "exit=$rc"
