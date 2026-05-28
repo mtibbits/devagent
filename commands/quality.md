@@ -25,8 +25,28 @@ Per `commands/draft.md`.
    - `${config.project.<name>.paths.coding_standards}` if set
    - else `<devdoc_dir>/templates/coding_standards.md` if exists
    - else `<plugin_root>/templates/coding_standards.md`
-3. Verify the working tree is on the issue's branch and there are
-   changed files since the baseline SHA (from state file).
+3. **Zero-diff gate.** Verify the working tree is on the issue's branch,
+   then check for any change since the baseline SHA. Resolve
+   `baseline_sha` from `~/.claude/devagent/state/<project>.toml` and
+   `source_dir` from config, then:
+
+   ```bash
+   git -C "$source_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null
+   git -C "$source_dir" status --porcelain
+   ```
+
+   If both are empty — no commits ahead of baseline and no
+   working-tree changes (an artifact-only issue) — there is nothing to
+   review. Auto-mark step 8 `[-]`, log, and skip the rest of this
+   workflow WITHOUT asking the operator. This mirrors the script-level
+   zero-diff guards in commit/ship/mergetoall (#3):
+
+   ```bash
+   scripts/checklist-mark.sh "$ISSUE_DIR" 8 -
+   scripts/checklist-log.sh "$ISSUE_DIR" quality "auto-skipped: zero diff (artifact-only issue)"
+   ```
+
+   Otherwise, continue to the simplify pass.
 4. Invoke the `simplify` skill on the changed diff.
 5. Read the resolved `coding_standards.md` and check each rule
    against the changed files.
@@ -50,9 +70,13 @@ scripts/checklist-log.sh "$ISSUE_DIR" quality \
 
 ## Skipping policy
 
-Never auto-skip. If the diff is tiny (< 5 LOC) and no standards apply,
-surface "minimal diff; mark step `[-]` skipped?" for operator
-confirmation.
+Auto-skip ONLY on a true zero diff (artifact-only issue — see Workflow
+step 3): mark `[-]`, log, and advance without operator confirmation,
+matching the script-level guards from #3.
+
+For a tiny-but-nonzero diff (< 5 LOC) where no standards apply, do NOT
+auto-skip — surface "minimal diff; mark step `[-]` skipped?" for
+operator confirmation.
 
 ## Do NOT commit yet
 
