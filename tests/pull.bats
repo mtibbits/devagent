@@ -86,3 +86,12 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin notanumber
   [ "$status" -ne 0 ]
 }
+
+@test "pull rejects unknown project with recovery menu (no network)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" nosuchproj origin 1
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found in config.toml"* ]]
+  [[ "$output" == *"/devagent:init nosuchproj"* ]]
+  # AC6: no scaffold dir created for the bogus project.
+  [ ! -d "$BATS_TEST_TMPDIR/devDoc/nosuchproj" ]
+}

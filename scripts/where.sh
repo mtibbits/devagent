@@ -27,7 +27,7 @@ _report_parked() {
 main() {
   local project="${1:-}"
   [[ -n "$project" ]] || die "where.sh: project required"
-  config_is_project "$project" || die "where.sh: unknown project '$project'"
+  config_require_project "$project"
 
   echo "Project: $project"
 
