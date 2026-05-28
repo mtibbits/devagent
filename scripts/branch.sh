@@ -34,7 +34,7 @@ issue_num="${issue_num#Fork-}"
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "branch.sh: issue dir not found: $issue_dir"
 
-# Read issue type and title from marker files (Plan 4's draft skill writes these).
+# Read issue type and title from marker files (written by /devagent:draft, step 1).
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
 [ -r "$type_file" ]  || die "branch.sh: missing $type_file (issue type not classified)"

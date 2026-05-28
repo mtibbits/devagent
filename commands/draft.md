@@ -43,11 +43,41 @@ that project.
 5. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
    `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.
-6. Clear `pending_comments_file` from state after the plan is
+6. **Write issue-classification marker files.** After saving `imPlan.md`,
+   write two files into `<issue-dir>` that `branch.sh` (step 6) and
+   `commit.sh` (step 10) consume:
+
+   a. Read `~/.claude/devagent/config.toml` with the Read tool and
+      extract the `branch_prefix_map` keys from the active project's
+      section — e.g. `bug`, `feature`, `docs`, `perf`, `chore`.
+      These are the only legal values.
+   b. Based on the issue body and the plan just written, select the
+      single best-matching type key. If genuinely ambiguous, prefer
+      `feature` for new capabilities, `bug` for defect fixes, `perf`
+      for performance work, `chore` for maintenance.
+   c. Extract a short descriptive title (3–6 words) from the issue —
+      typically the H1 with boilerplate stripped.
+   d. Write the files:
+
+      ```bash
+      printf '%s' "<type>" > "<issue-dir>/.devagent-type"
+      printf '%s' "<title>" > "<issue-dir>/.devagent-title"
+      ```
+
+   If `.devagent-type` or `.devagent-title` already exist (e.g. on a
+   revision re-draft), overwrite them — the classification from the
+   current draft supersedes any prior value.
+
+   These files are consumed by `scripts/branch.sh` to compute the
+   branch name (`<prefix>/<num>-<slugified-title>`) and by
+   `scripts/commit.sh` for the commit-message prefix. The type
+   **must** be a key present in `branch_prefix_map` or `branch.sh`
+   will die at runtime.
+7. Clear `pending_comments_file` from state after the plan is
    written, so subsequent steps in the same revision don't re-surface
    the comments. (The original `revisions/r<N>/comments.md` file is
    left in place — it's the durable record.)
-7. On completion, append a log entry:
+8. On completion, append a log entry:
 
    ```bash
    scripts/checklist-log.sh "$ISSUE_DIR" draft "imPlan.md written ($N steps); note: $NOTE"
