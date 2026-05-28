@@ -45,6 +45,23 @@ the chain proceeds into redmr automatically. If review marks itself
 `[!]`, the chain halts and you'll need `/devagent:unstuck` before
 resuming.
 
+## Zero-diff (artifact-only) issues
+
+When the issue branch has zero commits ahead of `baseline_sha`,
+three script-backed steps auto-skip instead of erroring:
+
+- **Step 10 (commit):** marks `[-]`, exits 0.
+- **Step 15 (ship):** marks `[-]`, exits 0.
+- **Step 16 (mergetoall):** marks `[-]`, exits 0.
+
+Step 8 (quality) is skill-driven and must be manually marked `[-]`
+by the operator for artifact-only issues. A follow-up is tracked
+for skill-level zero-diff handling.
+
+The auto-skip fires at the script level — `next.sh` invokes the
+script normally and the script detects the zero-diff condition
+internally. No `--artifact-only` flag is needed.
+
 ## Run the script
 
 ```bash

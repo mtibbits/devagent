@@ -32,6 +32,16 @@ issue_arg="${2:-}"
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "commit.sh: issue dir not found: $issue_dir"
 
+# Zero-diff guard: artifact-only issues have no commits to commit.
+baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+source_dir="$(config_get_project_field "$project" source_dir)"
+if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null)" ]; then
+    info "commit.sh: no commits on branch — auto-marking step 10 [-] (zero-diff issue)"
+    checklist_mark "$issue_dir/checklist.md" 10 -
+    log_append "$issue_dir" commit "auto-skipped: zero commits on branch (artifact-only issue)"
+    exit 0
+fi
+
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
 [ -r "$type_file" ]  || die "commit.sh: missing $type_file"

@@ -30,6 +30,16 @@ issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 branch="$(state_get "$project" branch 2>/dev/null || true)"
 [ -n "$branch" ] || die "mergetoall.sh: no branch in state"
 
+# Zero-diff guard: artifact-only issues have nothing to squash-merge.
+baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+source_dir="$(config_get_project_field "$project" source_dir)"
+if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null)" ]; then
+    info "mergetoall.sh: no commits on branch — auto-marking step 16 [-] (zero-diff issue)"
+    checklist_mark "$issue_dir/checklist.md" 16 -
+    log_append "$issue_dir" mergetoall "auto-skipped: zero commits on branch (artifact-only issue)"
+    exit 0
+fi
+
 all_prs="$(config_get_project_field "$project" all_prs_branch)"
 [ -n "$all_prs" ] || die "mergetoall.sh: all_prs_branch not configured"
 
