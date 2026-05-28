@@ -8,6 +8,7 @@ setup() {
       && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
     sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "kernels: add NEONv8 FMA tier" > "$DEVDOC_DIR/Issue-1/.devagent-title"
     # Stubs (all log via devagent_stub so devagent_assert_logged finds them).
     devagent_stub git ""
     devagent_stub gh "https://github.com/acme/testproj/pull/77"
@@ -103,6 +104,7 @@ repo    = "me/testproj"
 EOF
     mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
     echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
     sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
@@ -122,6 +124,7 @@ EOF
 @test "ship.sh skips transition for Issue-Fork-* with no issue_source_fork configured" {
     mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
     echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
     sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
@@ -136,4 +139,10 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"no issue tracker configured for Issue-Fork-51"* ]]
     ! grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+}
+
+@test "ship.sh reads PR title from .devagent-title, not mr.md line 1" {
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "kernels: add NEONv8 FMA tier"
 }
