@@ -31,3 +31,13 @@ teardown() { devagent_test_teardown; }
     grep -q "FAIL: 1/2" "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-asan.txt"
     grep -q "exit=1" "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-asan.txt"
 }
+
+@test "tsan tag invokes setarch with --addr-no-randomize; asan/ubsan do not" {
+    devagent_stub setarch ""
+    run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # setarch invoked with --addr-no-randomize (the load-bearing flag)
+    grep -q "setarch .* --addr-no-randomize" "$DEVAGENT_STUB_LOG"
+    # setarch invoked exactly once (only for tsan tag, not asan/ubsan)
+    [ "$(grep -c '^setarch ' "$DEVAGENT_STUB_LOG")" -eq 1 ]
+}
