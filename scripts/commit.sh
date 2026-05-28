@@ -66,14 +66,18 @@ trap 'rm -f "$body"' EXIT
 DEVAGENT_TYPE="$prefix" DEVAGENT_TITLE="$title" \
 DEVAGENT_ISSUE="$issue_arg" DEVAGENT_NOTE="${NOTE:-}" \
 python3 - "$template" "$body" <<'PY'
-import os, sys
+import os, re, sys
 src, dst = sys.argv[1:]
 data = open(src).read()
+# Strip HTML comment blocks: template authoring notes (placeholder docs,
+# conventions pointers) must not leak into the commit message. git's -F
+# cleanup strips '#' lines but not '<!-- -->'.
+data = re.sub(r'<!--.*?-->\n?', '', data, flags=re.DOTALL)
 data = data.replace("{{type}}",  os.environ.get("DEVAGENT_TYPE",  ""))
 data = data.replace("{{title}}", os.environ.get("DEVAGENT_TITLE", ""))
 data = data.replace("{{issue}}", os.environ.get("DEVAGENT_ISSUE", ""))
 data = data.replace("{{note}}",  os.environ.get("DEVAGENT_NOTE",  ""))
-open(dst, "w").write(data)
+open(dst, "w").write(data.lstrip("\n"))
 PY
 
 # Strip any "(1M context)" patterns (case-insensitive BRE; literal parens).
