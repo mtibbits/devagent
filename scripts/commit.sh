@@ -61,6 +61,8 @@ trap 'rm -f "$body"' EXIT
 # Substitute placeholders via Python to avoid sed's & / | / \ pitfalls in
 # operator-supplied strings (title and NOTE in particular). Plain string
 # replace, no regex semantics on the replacement values.
+# Placeholder reference: see templates/commit_template.md header comment.
+# NB: {{issue}} = directory name (e.g. "Issue-Fork-62"), not bare number.
 DEVAGENT_TYPE="$prefix" DEVAGENT_TITLE="$title" \
 DEVAGENT_ISSUE="$issue_arg" DEVAGENT_NOTE="${NOTE:-}" \
 python3 - "$template" "$body" <<'PY'

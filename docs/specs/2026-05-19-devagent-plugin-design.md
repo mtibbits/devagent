@@ -255,6 +255,22 @@ Operators override artifacts at the project level by dropping a file
 into `<devdoc>/templates/`. The plugin-shipped versions provide working
 defaults so a new project is functional on day one.
 
+### 4.1 Template placeholders
+
+`commit_template.md` supports four placeholders, substituted by
+`scripts/commit.sh` at commit time:
+
+| Placeholder | Source | Example value |
+|-------------|--------|---------------|
+| `{{type}}` | `.devagent-type` → `branch_prefix_map` lookup | `perf` |
+| `{{title}}` | `.devagent-title` verbatim | `add AVX2+FMA tier to volk_32fc_magnitude_32f` |
+| `{{issue}}` | `active_issue` directory name (includes prefix) | `Issue-Fork-62` |
+| `{{note}}` | Operator `$NOTE` from slash-command tail | *(may be empty)* |
+
+**Caution:** `{{issue}}` is the full directory name, not the bare
+issue number. A template that writes `#{{issue}}` produces
+`#Issue-Fork-62`, not `#62`.
+
 ## 5. Checklist format
 
 ### 5.1 States
