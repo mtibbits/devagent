@@ -1,3 +1,12 @@
+<!--
+Placeholder semantics (substituted by commit.sh):
+  {{type}}   — branch prefix from .devagent-type via branch_prefix_map (e.g. "perf")
+  {{title}}  — the contents of .devagent-title verbatim
+  {{issue}}  — the active_issue directory name, including any "Issue-Fork-" prefix
+               (e.g. "Issue-Fork-62", NOT "62"). For URLs that need just the number,
+               author your template assuming the prefix is part of the substitution.
+  {{note}}   — operator-supplied $NOTE from the slash-command tail (may be empty)
+-->
 # VOLK Commit Message Conventions
 
 **Sources:** GREP1 coding guidelines, `docs/CONTRIBUTING.md`, analysis of the last 100 commits on `origin/main`, and reviewer feedback.
