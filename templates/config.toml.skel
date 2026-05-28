@@ -7,7 +7,8 @@ source_dir       = "{{SOURCE_DIR}}"
 devdoc_dir       = "{{DEVDOC_DIR}}"
 fork_first       = false
 ship_as_draft    = false
-default_baseline = "origin/main"
+default_baseline = "origin/{{DEFAULT_BRANCH}}"
+branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
 [project.{{PROJECT}}.permissions]
 push_mr            = false

@@ -56,6 +56,11 @@ ask code_backend  "code backend"    "$issue_backend" DA_INIT_CODE_BACKEND
 ask code_upstream "code upstream (org/name)" "$issue_repo" DA_INIT_CODE_UPSTREAM
 ask code_fork     "code fork (org/name)"     ""      DA_INIT_CODE_FORK
 
+# Detect upstream's default branch for default_baseline. Falls back to main
+# when gh is unavailable, unauthenticated, or offline.
+default_branch="$(gh api "repos/$code_upstream" --jq '.default_branch' 2>/dev/null || true)"
+[ -n "$default_branch" ] || default_branch="main"
+
 # Render skeleton.
 skel="$PLUGIN_ROOT/templates/config.toml.skel"
 rendered="$(mktemp)"
@@ -67,6 +72,7 @@ sed -e "s|{{PROJECT}}|$project|g" \
     -e "s|{{CODE_BACKEND}}|$code_backend|g" \
     -e "s|{{CODE_UPSTREAM}}|$code_upstream|g" \
     -e "s|{{CODE_FORK}}|$code_fork|g" \
+    -e "s|{{DEFAULT_BRANCH}}|$default_branch|g" \
     "$skel" > "$rendered"
 
 if [[ ! -f "$cfg" ]]; then
