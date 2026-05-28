@@ -41,6 +41,37 @@ teardown() { teardown_tmp_devagent_home; }
   [ -z "$output" ]
 }
 
+@test "state_set warns when active_issue changes between two issues" {
+  state_init volk
+  state_set volk active_issue Issue-61
+  run state_set volk active_issue Issue-55
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"active_issue is changing from 'Issue-61' to 'Issue-55'"* ]]
+}
+
+@test "state_set does NOT warn on first set (empty to issue)" {
+  state_init volk
+  run state_set volk active_issue Issue-61
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"active_issue is changing"* ]]
+}
+
+@test "state_set does NOT warn when clearing active_issue (issue to empty)" {
+  state_init volk
+  state_set volk active_issue Issue-61
+  run state_set volk active_issue ""
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"active_issue is changing"* ]]
+}
+
+@test "state_set does NOT warn when setting same issue (no change)" {
+  state_init volk
+  state_set volk active_issue Issue-61
+  run state_set volk active_issue Issue-61
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"active_issue is changing"* ]]
+}
+
 @test "parked list add/remove/list is idempotent" {
   state_init volk
   state_add_parked volk Issue-12
