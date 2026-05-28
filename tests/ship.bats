@@ -146,3 +146,10 @@ EOF
     [ "$status" -eq 0 ]
     devagent_assert_logged "kernels: add NEONv8 FMA tier"
 }
+
+@test "ship.sh opens draft PR when .devagent-draft marker is present" {
+    touch "$DEVDOC_DIR/Issue-1/.devagent-draft"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "--draft"
+}
