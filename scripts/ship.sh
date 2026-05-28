@@ -72,6 +72,8 @@ if [ "$fork_only" = "true" ]; then
 fi
 ship_as_draft_global="$(config_get_default ship_as_draft 2>/dev/null || echo false)"
 ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/null || echo "$ship_as_draft_global")"
+# Per-issue draft override: .devagent-draft forces draft state.
+[ -r "$issue_dir/.devagent-draft" ] && ship_as_draft_proj="true"
 
 push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || echo origin)"
 

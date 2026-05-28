@@ -35,4 +35,18 @@ you choose to flip the flag and re-engage. The upstream PR is then
 opened manually (e.g. `gh pr create --repo gnuradio/volk ...`)
 because the workflow can't infer when readiness has been reached.
 
+## Draft PRs
+
+`ship_as_draft` in `config.toml` controls whether PRs open as drafts
+(global default → project override). For per-issue draft state, create
+a marker file:
+
+```bash
+touch <issue-dir>/.devagent-draft
+```
+
+When present, `ship.sh` forces `--draft` on the PR regardless of
+project config. Remove the marker to resume normal (non-draft) behavior
+on the next ship invocation.
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" $ARGUMENTS`
