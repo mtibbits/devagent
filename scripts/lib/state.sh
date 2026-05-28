@@ -50,6 +50,16 @@ state_set() {
   state_init "$project"
   local f
   f="$(state_path "$project")"
+  # Warn on active_issue clobber: another session may be working a different
+  # issue concurrently. Only meaningful for active_issue; other keys
+  # (last_step, mr_url) change legitimately on every step.
+  if [ "$key" = "active_issue" ] && [ -n "$value" ]; then
+    local old_value
+    old_value="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
+    if [ -n "$old_value" ] && [ "$old_value" != "$value" ]; then
+      echo "warning: state_set: active_issue is changing from '$old_value' to '$value' — another session may be working a different issue concurrently" >&2
+    fi
+  fi
   _state_toml set "$f" "$key" "$value"
   _state_toml set "$f" updated_at "$(_state_now)"
 }

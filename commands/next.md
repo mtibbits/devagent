@@ -62,6 +62,20 @@ The auto-skip fires at the script level — `next.sh` invokes the
 script normally and the script detects the zero-diff condition
 internally. No `--artifact-only` flag is needed.
 
+## Concurrent sessions
+
+State lives in one file per project (`~/.claude/devagent/state/<project>.toml`).
+Running two sessions on different issues of the *same* project can clobber
+`active_issue` — last writer wins. `state_set` emits a stderr warning when
+`active_issue` flips between two different issues, but the warning is
+advisory, not a lock.
+
+Before any manual script invocation, confirm the active issue:
+
+```bash
+cat ~/.claude/devagent/state/<project>.toml | head -15
+```
+
 ## Run the script
 
 ```bash
