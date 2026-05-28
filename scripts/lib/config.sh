@@ -44,6 +44,29 @@ config_is_project() {
   return 1
 }
 
+# Guard for entry-point scripts: if the project is unknown, print a recovery
+# menu (configured projects + init suggestion) and exit 1. Reusable across
+# scripts that take a project as their first argument.
+config_require_project() {
+  local project="$1"
+  if config_is_project "$project"; then return 0; fi
+
+  echo "error: project '$project' not found in config.toml." >&2
+  echo "" >&2
+
+  local configured n
+  configured="$(config_list_projects 2>/dev/null || true)"
+  n="$(echo "$configured" | wc -w)"
+  if [ "$n" -eq 1 ]; then
+    echo "  hint: did you mean '$configured'?" >&2
+  elif [ "$n" -gt 1 ]; then
+    echo "  configured projects: $(echo "$configured" | tr '\n' ' ')" >&2
+  fi
+  echo "" >&2
+  echo "  to add '$project': /devagent:init $project" >&2
+  exit 1
+}
+
 config_active_project() {
   local count=0 only=""
   local p

@@ -27,6 +27,7 @@ main() {
   local num="${3:-}"
 
   [[ -n "$project" ]] || die "pull.sh: project required"
+  config_require_project "$project"
   [[ "$source" == "origin" || "$source" == "fork" ]] \
     || die "pull.sh: second arg must be origin|fork, got: '${source:-<none>}'"
   [[ "$num" =~ ^[0-9]+$ ]] \

@@ -60,3 +60,23 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [ "$output" = "volk" ]
 }
+
+@test "config_require_project lists projects and suggests init on unknown" {
+  run config_require_project nonexistent
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found in config.toml"* ]]
+  [[ "$output" == *"configured projects:"* ]]
+  [[ "$output" == *"/devagent:init nonexistent"* ]]
+}
+
+@test "config_require_project says 'did you mean' with one configured project" {
+  install_fixture_config config-onproject.toml
+  run config_require_project typo
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"did you mean 'volk'"* ]]
+}
+
+@test "config_require_project returns 0 for a known project" {
+  run config_require_project volk
+  [ "$status" -eq 0 ]
+}
