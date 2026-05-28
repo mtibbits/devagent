@@ -114,8 +114,9 @@ fi
 base_branch="$(config_get_project_field "$project" default_baseline | sed 's|^[^/]*/||')"
 [ -n "$base_branch" ] || base_branch="main"
 
-title="$(head -1 "$mr_body")"
-title="${title#\# }"
+title_file="$issue_dir/.devagent-title"
+[ -r "$title_file" ] || die "ship.sh: missing $title_file (run /devagent:branch first)"
+title="$(tr -d '\n' < "$title_file")"
 
 draft_flag=()
 [ "$ship_as_draft_proj" = "true" ] && draft_flag=(--draft)
