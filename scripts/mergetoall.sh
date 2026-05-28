@@ -40,8 +40,13 @@ if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list H
     exit 0
 fi
 
-all_prs="$(config_get_project_field "$project" all_prs_branch)"
-[ -n "$all_prs" ] || die "mergetoall.sh: all_prs_branch not configured"
+all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
+if [ -z "$all_prs" ]; then
+    info "mergetoall.sh: all_prs_branch not configured — auto-marking step 16 [-]"
+    checklist_mark "$issue_dir/checklist.md" 16 -
+    log_append "$issue_dir" mergetoall "auto-skipped: all_prs_branch not configured"
+    exit 0
+fi
 
 # Auto-push the all_prs branch to the remote after the local merge.
 # Defaults: auto_push=false; remote=source_remote (which itself defaults

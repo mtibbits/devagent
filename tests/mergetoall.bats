@@ -24,6 +24,15 @@ teardown() { devagent_test_teardown; }
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
+@test "mergetoall.sh auto-skips when all_prs_branch is not configured" {
+    sed -i "/^all_prs_branch *=/d" "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"all_prs_branch not configured"* ]]
+    grep -qE '^- \[-\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q "auto-skipped: all_prs_branch not configured" "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
 @test "mergetoall.sh halts when merge_to_all_prs=false and non-interactive" {
     sed -i "s|^merge_to_all_prs *=.*|merge_to_all_prs = false|" "$HOME/.claude/devagent/config.toml"
     # Force closed stdin so confirm() sees non-tty regardless of how bats
