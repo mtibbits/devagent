@@ -51,3 +51,20 @@ teardown() { devagent_test_teardown; }
         && mv "$DEVAGENT_ROOT/templates/commit_template.md.bak" \
               "$DEVAGENT_ROOT/templates/commit_template.md"
 }
+
+@test "commit.sh default template renders type-prefixed subject, not conventions doc" {
+    # Uses the SHIPPED default template (no swap). Verifies the placeholder
+    # render and that neither the conventions doc nor the authoring comment leak.
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
+    # Subject: type=feature → feat; title="add a.txt".
+    [ "$( echo "$msg" | head -1 )" = "feat: add a.txt" ]
+    # Conventions doc must NOT leak into the body.
+    ! echo "$msg" | grep -q "VOLK Commit Message Conventions"
+    # HTML authoring comment must NOT leak.
+    ! echo "$msg" | grep -q "Placeholder semantics"
+    ! echo "$msg" | grep -q '<!--'
+    # DCO trailer from git commit -s.
+    echo "$msg" | grep -q "^Signed-off-by:"
+}
