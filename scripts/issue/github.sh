@@ -87,11 +87,24 @@ cmd_create() {
   local title="${2:?title required}"
   local body_file="${3:-}"
   _need gh
+  local out
+  # Capture gh's STDOUT only — do NOT add 2>&1 here (unlike the other verbs):
+  # gh writes tips/notices/warnings to stderr, and they must not pollute the
+  # URL we parse the issue number from below (#27).
   if [ -n "${body_file}" ] && [ -f "${body_file}" ]; then
-    gh issue create --repo "$repo" --title "$title" --body-file "$body_file"
+    out="$(gh issue create --repo "$repo" --title "$title" --body-file "$body_file")" || return
   else
-    gh issue create --repo "$repo" --title "$title" --body "${body_file:-}"
+    out="$(gh issue create --repo "$repo" --title "$title" --body "${body_file:-}")" || return
   fi
+  # gh prints the new issue's URL (…/issues/N); the backend contract (file.sh,
+  # gitlab.sh, the mock) is a bare number. Emit the trailing path segment, but
+  # fail loudly if it isn't numeric so a future gh output change surfaces
+  # instead of silently corrupting filed.toml (the #27 bug class).
+  local num="${out##*/}"
+  case "$num" in
+    ''|*[!0-9]*) echo "github.sh: could not parse issue number from gh output: $out" >&2; return 1 ;;
+  esac
+  printf '%s\n' "$num"
 }
 
 # Semantic-stage to label map (overridable per project).

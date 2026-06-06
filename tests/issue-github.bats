@@ -43,10 +43,27 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"gh issue view failed"* ]]
 }
 
-@test "create verb dispatches to gh issue create" {
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/missing-body
-  # Stub gh just emits JSON for whatever args; only assertion is non-2 exit.
-  [ "$status" -ne 2 ]
+@test "create returns the bare issue number, not the URL (#27)" {
+  # Real gh prints the new issue's URL; the backend contract is a bare number.
+  echo body > "$BATS_TEST_TMPDIR/body.md"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = "85" ]
+}
+
+@test "create fails loudly when gh output has no parseable number (#27)" {
+  export GH_STUB_CREATE_URL="not-a-url"
+  echo body > "$BATS_TEST_TMPDIR/body.md"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"could not parse"* ]]   # pin to the numeric-guard branch, not any non-zero exit
+}
+
+@test "create returns the bare number via the inline-body path (no body file) (#27)" {
+  # Missing body file → cmd_create's else (--body) branch; still must return the number.
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/does-not-exist
+  [ "$status" -eq 0 ]
+  [ "$output" = "85" ]
 }
 
 @test "unknown verb returns 2 (usage error per spec 9.1 contract)" {
