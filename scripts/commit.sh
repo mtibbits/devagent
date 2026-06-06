@@ -32,13 +32,37 @@ issue_arg="${2:-}"
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "commit.sh: issue dir not found: $issue_dir"
 
-# Zero-diff guard: artifact-only issues have no commits to commit.
+# Zero-diff guard — decided on the WORKING TREE, not commits-ahead (issue #25).
+# commit.sh commits the staged index (`git commit -s -F` below), and the
+# implement step leaves work in the working tree (staged or not), so "no
+# commits ahead of baseline" does NOT mean "no work". Three cases:
+#   staged changes present     -> fall through and commit them (normal path)
+#   dirty but nothing staged   -> fail loudly; never silently skip real work
+#   clean tree AND no commits  -> genuine artifact-only, auto-mark [-] and exit
 baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
-if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null)" ]; then
-    info "commit.sh: no commits on branch — auto-marking step 10 [-] (zero-diff issue)"
+worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
+work_dir="${worktree:-$source_dir}"
+
+has_commits=""
+if [ -n "$baseline_sha" ]; then
+    has_commits="$("$DEVAGENT_GIT" -C "$work_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null || true)"
+fi
+staged=""
+# Fail-safe by direction: any git fault here (e.g. not-a-repo, exit >=2) takes
+# the `|| staged=1` branch, so the guard falls through to `git commit` below
+# which fails loudly — never a silent skip. `dirty`'s `|| true` masks the same
+# fault to "", but staged=1 has already won, so it can't re-introduce the skip.
+"$DEVAGENT_GIT" -C "$work_dir" diff --cached --quiet 2>/dev/null || staged=1
+dirty="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain 2>/dev/null || true)"
+
+if [ -z "$has_commits" ] && [ -z "$staged" ]; then
+    if [ -n "$dirty" ]; then
+        die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
+    fi
+    info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
     checklist_mark "$issue_dir/checklist.md" 10 -
-    log_append "$issue_dir" commit "auto-skipped: zero commits on branch (artifact-only issue)"
+    log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
     exit 0
 fi
 
@@ -84,10 +108,7 @@ PY
 # Trim trailing whitespace on each line.
 sed -i 's/[[:space:]]*(1M context)//gI; s/[[:space:]]\{1,\}$//' "$body"
 
-source_dir="$(config_get_project_field "$project" source_dir)"
-worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
-work_dir="${worktree:-$source_dir}"
-
+# work_dir was resolved by the zero-diff guard above; reuse it.
 cd "$work_dir"
 "$DEVAGENT_GIT" commit -s -F "$body"
 
