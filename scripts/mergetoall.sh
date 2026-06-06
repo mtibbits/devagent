@@ -48,6 +48,19 @@ if [ -z "$all_prs" ]; then
     exit 0
 fi
 
+# --- #26 Defect B: a stale all_prs base bundles the upstream delta into the
+# squash commit. FF is impossible (squash-divergent), so detect and refuse. ---
+. "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+up_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+if [ -n "$up_ref" ]; then
+    up_remote="${up_ref%%/*}"
+    upstream_fetch "$source_dir" "$up_remote"
+    behind="$(upstream_behind_count "$source_dir" "$all_prs" "$up_ref")"
+    if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
+        die "mergetoall.sh: $all_prs is $behind commits behind $up_ref — squashing now would bundle the upstream delta into the issue commit (#26). Integrate upstream first (merge $up_ref into $all_prs, or cherry-pick $branch's commit onto an up-to-date $all_prs), then re-run. Refusing to misrepresent the issue diff."
+    fi
+fi
+
 # Auto-push the all_prs branch to the remote after the local merge.
 # Defaults: auto_push=false; remote=source_remote (which itself defaults
 # to "origin"). Push is per-issue convenience — failure is non-fatal,
