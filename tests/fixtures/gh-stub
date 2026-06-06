@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 # Stub `gh` for tests. Honors GH_STUB_CASE env var.
 # Supported: standard, nocomments, fail.
+# `gh issue create` returns GH_STUB_CREATE_URL (default …/issues/85); see below.
+
+# `gh issue create` prints the new issue's URL to stdout (real gh behavior).
+# Override the URL via GH_STUB_CREATE_URL; GH_STUB_CASE=fail simulates failure.
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then
+  case "$GH_STUB_CASE" in
+    fail) echo "stub-gh: simulated create failure" >&2; exit 1 ;;
+    *)    printf '%s\n' "${GH_STUB_CREATE_URL:-https://github.com/gnuradio/volk/issues/85}" ;;
+  esac
+  exit 0
+fi
 
 case "$GH_STUB_CASE" in
   fail)
