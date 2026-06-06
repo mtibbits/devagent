@@ -77,6 +77,43 @@ ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/n
 
 push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || echo origin)"
 
+# --- #26 Defect A: a stale fork base pollutes the PR's three-dot diff. ------
+# Only when shipping against a fork whose default branch can lag upstream.
+ff_src=""; ff_dst=""; ff_plan=""
+if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
+    . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+    # || true to mirror the mergetoall guard: missing default_baseline no-ops
+    # the pre-flight rather than aborting ship (it's a required field in
+    # practice, but fail safe).
+    up_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+    if [ -n "$up_ref" ]; then
+        up_remote="${up_ref%%/*}"; base_br="${up_ref#*/}"
+        fork_base="$push_remote/$base_br"                              # e.g. fork/main
+        # Refresh BOTH refs: origin/main (upstream) and the fork base we may FF,
+        # so the behind/FF-ability checks use current refs (a stale fork ref
+        # could otherwise trigger a false hard-stop below).
+        upstream_fetch "$source_dir" "$up_remote"
+        upstream_fetch "$source_dir" "$push_remote"
+        behind="$(upstream_behind_count "$source_dir" "$fork_base" "$up_ref")"
+        if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
+            # Upstream advanced. Hard-stop if the fork base has DIVERGED (carries
+            # commits not on upstream) — it can't be fast-forwarded, so the PR
+            # would open against a polluted base; the operator must reconcile it.
+            if ! is_fast_forward "$source_dir" "$fork_base" "$up_ref"; then
+                die "ship.sh: fork base $fork_base has diverged from $up_ref (carries commits not on upstream) and cannot be fast-forwarded — the PR would open against a polluted base. Reconcile the fork's default branch with $up_ref (e.g. reset/merge $fork_base to $up_ref on the fork) before shipping (#26)."
+            fi
+            # Hard-stop if the branch conflicts with upstream — FFing the base
+            # would only surface the conflict on GitHub; rebase to resolve.
+            if branch_conflicts_upstream "$source_dir" "$branch" "$up_ref"; then
+                die "ship.sh: branch '$branch' conflicts with $up_ref — upstream changed files you touched. Rebase onto $up_ref and resolve before shipping (#26); refusing to ship a base that would conflict."
+            fi
+            ff_src="$up_ref"; ff_dst="refs/heads/$base_br"
+            ff_plan="
+  fast-forward: $fork_base → $up_ref ($behind commits behind)"
+        fi
+    fi
+fi
+
 # Route to the right issue tracker based on the issue's origin:
 #   Issue-Fork-NNN -> issue_source_fork (the fork's tracker)
 #   Issue-NNN      -> issue_source       (the upstream tracker)
@@ -106,7 +143,7 @@ ship plan
   push to:    $push_remote
   MR repo:    $target_repo_for_plan
   draft?:     $ship_as_draft_proj
-  issue:      $issue_arg → on_ship
+  issue:      $issue_arg → on_ship${ff_plan}
 EOF
 )"
 permission_gate "$project" push_mr "$plan"
@@ -117,6 +154,12 @@ code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
 # Push branch.
 source_dir="$(config_get_project_field "$project" source_dir)"
 ( cd "$source_dir" && "$code_sh" push-branch "$push_remote" "$branch" )
+
+# #26 Defect A: FF the fork base so the PR diff shows only this branch's work.
+if [ -n "$ff_src" ]; then
+    ( cd "$source_dir" && "$DEVAGENT_GIT" push "$push_remote" "$ff_src:$ff_dst" ) \
+        || warn "ship.sh: fast-forward of fork base failed (non-FF or push denied); PR diff may include upstream commits (#26)"
+fi
 
 # Resolve target repo. fork_only or fork_first → fork; else upstream.
 target_repo="$upstream_repo"
