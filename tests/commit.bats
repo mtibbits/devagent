@@ -68,3 +68,39 @@ teardown() { devagent_test_teardown; }
     # DCO trailer from git commit -s.
     echo "$msg" | grep -q "^Signed-off-by:"
 }
+
+# include_coauthor strip-guard (#31). Inject a Co-Authored-By line via a PER-TEST,
+# isolated template that artifact_resolve picks up at priority 2
+# (<devdoc>/templates/<key>.md). $DEVDOC_DIR lives under the per-test
+# $DEVAGENT_TMP, so this NEVER touches the live $DEVAGENT_ROOT/templates/ —
+# failure-safe, no .bak/restore dance (DEVAGENT_ROOT is the live repo, not a copy).
+@test "commit.sh strips Co-Authored-By when include_coauthor=false, keeps Signed-off-by" {
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
+        "$HOME/.claude/devagent/config.toml"
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '{{type}}: {{title}}' '' 'body line' \
+        'Co-Authored-By: Claude <noreply@anthropic.com>' \
+        > "$DEVDOC_DIR/templates/commit_template.md"
+
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
+    # NB: `! cmd | grep` is vacuous under bats (the `!` exempts it from the
+    # failure trap); use run + status so a leaked trailer actually fails.
+    run grep -qi "co-authored-by" <<<"$msg"
+    [ "$status" -ne 0 ]
+    echo "$msg" | grep -qx "body line"
+    echo "$msg" | grep -q "^Signed-off-by:"
+}
+
+@test "commit.sh keeps Co-Authored-By when include_coauthor is unset (default true)" {
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '{{type}}: {{title}}' '' 'body line' \
+        'Co-Authored-By: Claude <noreply@anthropic.com>' \
+        > "$DEVDOC_DIR/templates/commit_template.md"
+
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
+    echo "$msg" | grep -qi "co-authored-by"
+}

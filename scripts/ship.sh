@@ -13,6 +13,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
+. "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
 
 : "${DEVAGENT_GIT:=git}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
@@ -177,7 +178,29 @@ title="$(tr -d '\n' < "$title_file")"
 draft_flag=()
 [ "$ship_as_draft_proj" = "true" ] && draft_flag=(--draft)
 
-mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body" "$branch" "$base_branch" "${draft_flag[@]}")"
+# include_coauthor strip-guard (issue #31): hand create-mr a filtered COPY of the
+# PR body with any Co-Authored-By trailer removed, on opt-out projects. mr.md on
+# disk is the durable record and stays untouched. Default-true guard.
+# CRITICAL: the trap MUST stay inside this branch, paired with the mktemp — if it
+# were hoisted out while mr_body_send still aliases $mr_body, the EXIT trap would
+# delete mr.md itself. ship.sh has no other EXIT trap, so adding one here is safe.
+include_coauthor="$(config_get_project_field "$project" include_coauthor 2>/dev/null || echo true)"
+mr_body_send="$mr_body"
+if [ "$include_coauthor" = "false" ]; then
+    mr_body_send="$(mktemp)"
+    trap 'rm -f "$mr_body_send"' EXIT
+    cp "$mr_body" "$mr_body_send"
+    strip_coauthor "$mr_body_send"
+    # Fail closed: never ship a blank PR body (same class as the #25 zero-diff
+    # guard above). "Blank" = no non-whitespace content (a body of only trailers
+    # plus blank separators strips to whitespace, which is still non-zero bytes,
+    # so test content not size). Only the strip path can empty the body; the
+    # default path is left byte-identical, so this guard does not touch it.
+    grep -q '[^[:space:]]' "$mr_body_send" \
+        || die "ship.sh: PR body empty after Co-Authored-By strip (#31) — mr.md was all trailer/blank lines; nothing to ship."
+fi
+
+mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$branch" "$base_branch" "${draft_flag[@]}")"
 [ -n "$mr_url" ] || die "ship.sh: create-mr returned empty URL"
 
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
