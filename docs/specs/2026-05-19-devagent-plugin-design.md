@@ -105,6 +105,7 @@ devdoc_dir       = "~/src/devDoc/volk"
 devdoc_remote    = "git@gitlab.com:mtibbits/devDoc.git"  # optional
 fork_first       = true
 ship_as_draft    = true                  # always open MRs as draft on this project
+include_coauthor = false                 # strip Co-Authored-By from commit msg + PR body (default true)
 default_baseline = "origin/main"
 all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
@@ -147,6 +148,12 @@ coding_standards = "codingStandards.md"
 commit_template  = "commitMessageTemplate.md"
 # unspecified artifacts fall through to <devdoc>/templates/ then plugin templates/
 ```
+
+`include_coauthor` (per-project bool, default `true`) is a **strip-guard**, not a generator:
+devAgent never adds a `Co-Authored-By` trailer, but the driving model may. When set `false`,
+`commit.sh` and `ship.sh` remove any `Co-Authored-By:` line from the commit message and the PR
+body (case-insensitive); `Signed-off-by` (DCO) is always preserved. Per-project only — there is no
+`[defaults]` layer. Set `false` for AI-attribution-averse upstreams (e.g. `volk`).
 
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 

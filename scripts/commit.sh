@@ -18,6 +18,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 # shellcheck source=lib/artifact.sh
 . "$DEVAGENT_ROOT/scripts/lib/artifact.sh"
+# shellcheck source=lib/coauthor.sh
+. "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -107,6 +109,14 @@ PY
 # Strip any "(1M context)" patterns (case-insensitive BRE; literal parens).
 # Trim trailing whitespace on each line.
 sed -i 's/[[:space:]]*(1M context)//gI; s/[[:space:]]\{1,\}$//' "$body"
+
+# include_coauthor strip-guard (issue #31): on opt-out projects remove any
+# Co-Authored-By trailer the model/template emitted. Default-true guard — an
+# unset key must NOT abort under `set -e` (config_get_project_field exits 1).
+include_coauthor="$(config_get_project_field "$project" include_coauthor 2>/dev/null || echo true)"
+if [ "$include_coauthor" = "false" ]; then
+    strip_coauthor "$body"
+fi
 
 # work_dir was resolved by the zero-diff guard above; reuse it.
 cd "$work_dir"

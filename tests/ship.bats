@@ -153,3 +153,71 @@ EOF
     [ "$status" -eq 0 ]
     devagent_assert_logged "--draft"
 }
+
+# include_coauthor strip-guard (#31). The default `gh` stub records argv only, so
+# these install a body-capturing stub that also logs the --body-file CONTENTS,
+# bracketed by BODYSTART/BODYEND, so the test can assert on the PR body itself.
+# NB: `! cmd | grep` is vacuous under bats; use run + status for the negative.
+_install_body_capturing_gh_stub() {
+    cat > "$DEVAGENT_STUB_BIN/gh" <<STUB
+#!/usr/bin/env bash
+printf '%s' gh >> "$DEVAGENT_STUB_LOG"
+for a in "\$@"; do printf ' %s' "\$a" >> "$DEVAGENT_STUB_LOG"; done
+printf '\n' >> "$DEVAGENT_STUB_LOG"
+prev=""
+for a in "\$@"; do
+  [ "\$prev" = "--body-file" ] && printf 'BODYSTART\n%s\nBODYEND\n' "\$(cat "\$a")" >> "$DEVAGENT_STUB_LOG"
+  prev="\$a"
+done
+printf '%s' "https://github.com/acme/testproj/pull/77"
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+}
+
+@test "ship.sh strips Co-Authored-By from PR body when include_coauthor=false; mr.md untouched" {
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
+        "$HOME/.claude/devagent/config.toml"
+    printf '%s\n' 'PR summary' '' 'Co-Authored-By: Claude <noreply@anthropic.com>' \
+        > "$DEVDOC_DIR/Issue-1/mr.md"
+    _install_body_capturing_gh_stub
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    body_sent="$(sed -n '/BODYSTART/,/BODYEND/p' "$DEVAGENT_STUB_LOG")"
+    # The body handed to create-mr has NO co-author line...
+    run grep -qi "co-authored-by" <<<"$body_sent"
+    [ "$status" -ne 0 ]
+    echo "$body_sent" | grep -q "PR summary"
+    # ...but mr.md on disk is the durable record and stays untouched.
+    grep -qi "co-authored-by" "$DEVDOC_DIR/Issue-1/mr.md"
+}
+
+@test "ship.sh keeps Co-Authored-By in PR body when include_coauthor unset (default true)" {
+    printf '%s\n' 'PR summary' '' 'Co-Authored-By: Claude <noreply@anthropic.com>' \
+        > "$DEVDOC_DIR/Issue-1/mr.md"
+    _install_body_capturing_gh_stub
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    body_sent="$(sed -n '/BODYSTART/,/BODYEND/p' "$DEVAGENT_STUB_LOG")"
+    echo "$body_sent" | grep -qi "co-authored-by"
+}
+
+@test "ship.sh fails closed when the body is empty after coauthor strip (#31)" {
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
+        "$HOME/.claude/devagent/config.toml"
+    # Pathological: mr.md is ONLY a trailer + blank lines → empty after strip.
+    printf '%s\n' '' 'Co-Authored-By: Claude <noreply@anthropic.com>' '' \
+        > "$DEVDOC_DIR/Issue-1/mr.md"
+    _install_body_capturing_gh_stub
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"empty after Co-Authored-By strip"* ]]
+    # Fail-closed: no PR was created, no mr_url recorded. (run+status, not `! grep`,
+    # which is vacuous under bats — the `!` exempts it from the failure trap.)
+    run grep -q "gh pr create" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
+    run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
+}
