@@ -92,8 +92,35 @@ fi
 permission_gate "$project" "$gate_name" "$plan"
 
 cd "$source_dir"
+
+# Restore target if a genuine conflict forces us to bail — never leave the
+# operator on a half-applied all_prs (that silently breaks --auto, #33).
+# Detached HEAD → empty → not restored, but all_prs is still left clean.
+orig_branch="$("$DEVAGENT_GIT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+# Apply ONLY the issue branch's own delta (baseline_sha..branch) using baseline_sha
+# as the 3-way base — NOT git's merge-base, which collapses to the default base for
+# a child stacked on a squash-merged parent and re-derives the parent delta as
+# spurious conflicts (#33). cherry-pick bases on a commit's PARENT, so a synthetic
+# commit (branch's tree, parent = baseline_sha) makes baseline_sha the base
+# directly. Non-stacked: baseline_sha == git merge-base, so the staged tree and the
+# resulting squash commit are byte-identical to the old `git merge --squash`.
+base="$baseline_sha"
+[ -n "$base" ] || base="$("$DEVAGENT_GIT" merge-base "$all_prs" "$branch")"
+squash_commit="$(GIT_AUTHOR_NAME=devagent GIT_AUTHOR_EMAIL=devagent@local \
+    GIT_COMMITTER_NAME=devagent GIT_COMMITTER_EMAIL=devagent@local \
+    "$DEVAGENT_GIT" commit-tree "$branch^{tree}" -p "$base" -m squash)"
+
 "$DEVAGENT_GIT" checkout "$all_prs"
-"$DEVAGENT_GIT" merge --squash "$branch"
+if ! "$DEVAGENT_GIT" cherry-pick --no-commit "$squash_commit"; then
+    # Genuine overlap with already-integrated work. cherry-pick --no-commit sets no
+    # CHERRY_PICK_HEAD, so `--abort` would fail; reset --hard discards the conflicted
+    # index+worktree back to a clean all_prs. Restore the starting branch, then fail.
+    "$DEVAGENT_GIT" reset --hard --quiet
+    [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
+    die "mergetoall.sh: $branch's own delta conflicts with work already integrated into $all_prs (a genuine overlap, not the #33 stacked-parent artifact). Reconcile by merging/rebasing $all_prs into $branch (or applying the overlapping hunk by hand), then re-run. Refusing to leave a half-applied index."
+fi
+
 # Use the tip commit's subject so the squash commit is identifiable in log --oneline.
 # Falls back to a generic message if the branch tip has no subject.
 subject="$("$DEVAGENT_GIT" log -1 --pretty=%s "$branch")"

@@ -12,6 +12,14 @@ setup() {
 }
 teardown() { devagent_test_teardown; }
 
+# Point config + state at a test-built topology: all_prs_branch in config,
+# branch + baseline_sha in state. Shared by the #33 tests below.
+_set_baseline_branch() {
+    sed -i "s|^all_prs_branch *=.*|all_prs_branch = \"$1\"|" "$HOME/.claude/devagent/config.toml"
+    sed -i "s|^branch *=.*|branch = \"$2\"|; s|^baseline_sha *=.*|baseline_sha = \"$3\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
 @test "mergetoall.sh squash-merges branch into all_prs_branch" {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -96,5 +104,97 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"push of dev/all-prs"*"failed"* ]]
     grep -q "push failed (local commit retained)" "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+# #33: a child branch stacked on a squash-merged parent must integrate ONLY its
+# own delta (baseline_sha..HEAD), not re-derive the parent delta as conflicts.
+@test "mergetoall.sh stacked child integrates only its own delta, no parent conflict (#33)" {
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b feat/parent
+    printf 'L1\n' > shared.txt && git add shared.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "parent: add shared.txt"
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q -b feat/child
+    echo child > child.txt && git add child.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "child: add child.txt"
+    # all_prs = base + squash(parent) + an INDEPENDENT edit to shared.txt by another PR,
+    # so the OLD `git merge --squash feat/child` add/add-conflicts on shared.txt.
+    git checkout -q -b allprs main
+    git merge --squash feat/parent >/dev/null
+    git -c user.email=t@e.com -c user.name=T commit -q -m "squash: parent"
+    printf 'L1\nintegrated-by-another-pr\n' > shared.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -am "another PR edits shared.txt"
+    git checkout -q feat/child
+    _set_baseline_branch allprs feat/child "$parent_tip"
+
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    cd "$SOURCE_DIR"
+    git cat-file -e allprs:child.txt
+    git show allprs:shared.txt | grep -q "integrated-by-another-pr"
+    run grep -q '^<<<<<<<' <(git show allprs:shared.txt)
+    [ "$status" -ne 0 ]
+    [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
+    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+# #33: a GENUINE overlap (child's own delta collides with already-integrated work)
+# must fail closed — clean tree, restored branch, step 16 unmarked.
+@test "mergetoall.sh fails closed on genuine overlap, leaves no half-applied index (#33)" {
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b feat/parent
+    printf 'L1\n' > shared.txt && git add shared.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "parent: add shared.txt"
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q -b feat/child
+    printf 'L1-child\n' > shared.txt   # child itself EDITS shared.txt (real overlap)
+    git -c user.email=t@e.com -c user.name=T commit -q -am "child: edit shared.txt"
+    git checkout -q -b allprs main
+    git merge --squash feat/parent >/dev/null
+    git -c user.email=t@e.com -c user.name=T commit -q -m "squash: parent"
+    printf 'L1-allprs\n' > shared.txt  # all_prs has a DIFFERENT edit → real conflict
+    git -c user.email=t@e.com -c user.name=T commit -q -am "another PR edits shared.txt"
+    git checkout -q feat/child
+    _set_baseline_branch allprs feat/child "$parent_tip"
+
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"genuine overlap"* ]]
+    cd "$SOURCE_DIR"
+    [ -z "$(git status --porcelain)" ]
+    [ "$(git symbolic-ref --short HEAD)" = "feat/child" ]
+    [ "$(git log -1 --pretty=%s allprs)" = "another PR edits shared.txt" ]
+    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+# #33: the NON-STACKED production path (baseline_sha SET) must be byte-identical to
+# the old `git merge --squash`. The 7 existing tests ship baseline_sha="" so they only
+# exercise the merge-base FALLBACK, not this primary path — this closes that gap.
+# REGRESSION TRIPWIRE: do NOT "simplify" the fix back to `git merge --squash` — it
+# reintroduces #33 (this byte-identical guard alone won't catch that; tests 9/10 will).
+@test "mergetoall.sh non-stacked baseline_sha path is byte-identical to merge --squash (#33)" {
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b allprs
+    base_sha="$(git rev-parse HEAD)"
+    git checkout -q -b feat/solo
+    echo solo > solo.txt && git add solo.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "solo: add solo.txt"
+    git checkout -q -b ref-allprs allprs
+    git merge --squash feat/solo >/dev/null
+    git -c user.email=devagent@local -c user.name=devagent commit -q -m "solo: add solo.txt"
+    ref_tree="$(git rev-parse 'ref-allprs^{tree}')"
+    git checkout -q feat/solo
+    _set_baseline_branch allprs feat/solo "$base_sha"
+
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    cd "$SOURCE_DIR"
+    [ "$(git rev-parse 'allprs^{tree}')" = "$ref_tree" ]
+    [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
+    [ "$(git log -1 --pretty='%an|%cn' allprs)" = "devagent|devagent" ]
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
