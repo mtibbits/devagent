@@ -221,3 +221,41 @@ STUB
     run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
 }
+
+@test "ship.sh bases a stacked-child PR on the parent branch, not default_baseline (#34)" {
+    # Install a real-git-EXCEPT-push stub FIRST — setup() stubs git to "", which
+    # would make the topology-building git commands below no-ops. With this stub,
+    # for-each-ref/rev-list/checkout/commit run for real; only `push` is intercepted
+    # (no remote in the test repo). gh is stubbed to capture --base.
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "push" ]; then echo "git push \$*" >> "$DEVAGENT_STUB_LOG"; exit 0; fi
+exec /usr/bin/git "\$@"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+    devagent_stub gh "https://github.com/acme/testproj/pull/77"
+    # Topology: main → feat/parent → feat/child (stacked). main is the test repo's
+    # default branch (devagent_test_setup inits with init.defaultBranch=main).
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b feat/parent
+    echo p > p.txt && git add p.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m parent
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q -b feat/child
+    echo c > c.txt && git add c.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m child
+    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
+            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # PR opened against the parent branch ...
+    grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
+    # ... NOT the default base. (run+status, not vacuous `! grep`.)
+    run grep -qE "gh pr create .* --base main( |$)" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
+}
