@@ -116,3 +116,32 @@ _make_branch() {
     [ "$status" -eq 0 ]
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_before" ]   # no FF attempted
 }
+
+@test "fork_first stacked child skips the #26 pre-flight and bases on the parent (#34)" {
+    # Stacked topology: main(C0) → feat/parent → feat/child. The parent edits README;
+    # then origin/main advances editing README too. If #26 ran it would
+    # branch_conflicts_upstream the CHILD (which contains the parent commit) against
+    # origin/main → conflict → die. Because the child is stacked, #26 must be SKIPPED
+    # and the PR based on feat/parent (whose currency vs upstream is irrelevant here).
+    ( cd "$SOURCE_DIR"
+      git checkout -q -b feat/parent main
+      printf 'PARENT EDIT\n' > README.md && git add README.md
+      git -c user.email=i@e -c user.name=I commit -q -m "parent README"
+      git push -q fork feat/parent                 # parent branch exists on the fork (valid base)
+      git checkout -q -b feat/child
+      printf 'child\n' > c.txt && git add c.txt
+      git -c user.email=i@e -c user.name=I commit -q -m "child c.txt" )
+    parent_tip="$( cd "$SOURCE_DIR" && git rev-parse feat/parent )"
+    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
+            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    fork_main_before=$( git -C "$FORK" rev-parse main )
+    _advance_origin README.md UPSTREAM_EDIT        # origin/main now conflicts with the parent's README
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]                            # #26 skipped (stacked) → no conflict hard-stop
+    grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
+    # Fork base NOT fast-forwarded (the #26 FF was skipped).
+    [ "$( git -C "$FORK" rev-parse main )" = "$fork_main_before" ]
+    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+}

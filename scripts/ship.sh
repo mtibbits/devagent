@@ -14,6 +14,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
+. "$DEVAGENT_ROOT/scripts/lib/stacked.sh"
 
 : "${DEVAGENT_GIT:=git}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
@@ -78,10 +79,30 @@ ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/n
 
 push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || echo origin)"
 
+# Resolve the PR base branch. Default = the project's default baseline (remote
+# prefix stripped). #34: if baseline_sha is the tip of a local branch other than
+# the default base, the issue is stacked on an unmerged parent — base the PR on
+# that parent branch so its three-dot diff shows only the child's delta (GitHub
+# diffs against the merge-base, correct even if the parent advances). Set at create
+# time so no `gh pr edit --base` re-target (GraphQL-deprecation-prone) is needed.
+# Resolved here (before #26 and the gate) for two reasons: the chosen base appears
+# in the permission-gate plan, and the #26 fork-base pre-flight is skipped for a
+# stacked child — #26 keeps the FORK's default base current, which is irrelevant
+# when the PR bases on the parent, not the default base.
+base_branch="$(config_get_project_field "$project" default_baseline | sed 's|^[^/]*/||')"
+[ -n "$base_branch" ] || base_branch="main"
+parent_branch="$(stacked_parent_branch "$source_dir" "$baseline_sha" "$base_branch")"
+if [ -n "$parent_branch" ]; then
+    base_branch="$parent_branch"
+    info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+fi
+
 # --- #26 Defect A: a stale fork base pollutes the PR's three-dot diff. ------
-# Only when shipping against a fork whose default branch can lag upstream.
+# Only when shipping against a fork whose default branch can lag upstream — and
+# NOT for a stacked child (#34): its PR bases on the parent branch, so the fork's
+# default-base currency is irrelevant and #26's main-based checks/FF must not fire.
 ff_src=""; ff_dst=""; ff_plan=""
-if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
+if [ -z "$parent_branch" ] && [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
     # || true to mirror the mergetoall guard: missing default_baseline no-ops
     # the pre-flight rather than aborting ship (it's a required field in
@@ -143,6 +164,7 @@ ship plan
   branch:     $branch
   push to:    $push_remote
   MR repo:    $target_repo_for_plan
+  base:       $base_branch
   draft?:     $ship_as_draft_proj
   issue:      $issue_arg → on_ship${ff_plan}
 EOF
@@ -167,9 +189,6 @@ target_repo="$upstream_repo"
 if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo="$fork_repo"
 fi
-
-base_branch="$(config_get_project_field "$project" default_baseline | sed 's|^[^/]*/||')"
-[ -n "$base_branch" ] || base_branch="main"
 
 title_file="$issue_dir/.devagent-title"
 [ -r "$title_file" ] || die "ship.sh: missing $title_file (run /devagent:branch first)"
