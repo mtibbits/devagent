@@ -31,7 +31,8 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/park.sh" volk
   [ "$status" -eq 0 ]
   # active_issue should no longer be Issue-676 (key removed or empty)
-  ! grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
+  run grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
+  [ "$status" -ne 0 ]
   # Issue-676 must appear under [parked] table as `Issue-676 = true`
   grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
   # Either the [P] mark on step 1, or a "park: ..." log entry
@@ -52,7 +53,8 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
   [ "$status" -eq 0 ]
   grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
-  ! grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
+  run grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
+  [ "$status" -ne 0 ]
 }
 
 @test "resume errors when issue isn't parked" {

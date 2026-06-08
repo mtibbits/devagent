@@ -46,7 +46,8 @@ EOF
     chmod +x "$DEVAGENT_TMP/fake-code/github.sh"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    ! grep -q 'on_merge' "$DEVAGENT_STUB_LOG"
+    run grep -q 'on_merge' "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
 }
 
 @test "sync.sh --all iterates every configured project" {

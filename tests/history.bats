@@ -19,7 +19,8 @@ teardown() { teardown_phase9_env; }
     --project "${DEVAGENT_TEST_PROJECT}" Issue-100
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "Issue-100"
-  ! echo "$output" | grep -q "Issue-101"
+  run grep -q "Issue-101" <<<"$output"
+  [ "$status" -ne 0 ]
 }
 
 @test "history.sh output format is human-readable" {

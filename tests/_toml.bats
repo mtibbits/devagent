@@ -86,8 +86,9 @@ teardown() { teardown_tmp_devagent_home; }
 @test "lock file is released on exception" {
   # Force a malformed write (a bad value type) and verify the lock
   # does not stick around blocking subsequent writers.
-  ! python3 "$TOML" set-bool "$DA_HOME/config.toml" \
+  run python3 "$TOML" set-bool "$DA_HOME/config.toml" \
       project.volk.fork_first not-a-bool
+  [ "$status" -ne 0 ]
   # Now a normal write must still succeed.
   run python3 "$TOML" set "$DA_HOME/config.toml" \
       project.volk.after_error '"ok"'
