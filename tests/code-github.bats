@@ -71,3 +71,17 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr https://github.com/acme/testproj/pull/42 --method nonsense
     [ "$status" -ne 0 ]
 }
+
+@test "code/github.sh branch-exists returns 0 when present, 1 when absent (#41)" {
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+# args: api repos/<repo>/branches/<branch> — 0 iff the path ends in /present
+[[ "$*" == *"branches/present" ]] && exit 0
+exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo present
+    [ "$status" -eq 0 ]
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo absent
+    [ "$status" -eq 1 ]
+}
