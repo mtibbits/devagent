@@ -43,7 +43,8 @@ run_one() {
         # ASLR + TSan are incompatible on Ubuntu 24.04+ (kernel changed
         # mmap layout, TSan's shadow-memory mapping fails at process
         # startup). Disable ASLR for the TSan tag only; ASan/UBSan are
-        # unaffected. Long form matches static_analysis_diff.py:697 for
+        # unaffected. Long form matches static_analysis_diff.py (run_tsan /
+        # _build_sanitizer setarch launcher) for
         # portability across older util-linux versions (RHEL/CentOS).
         # Built BEFORE the build step: gtest_discover_tests execs the freshly
         # linked test binary at BUILD time, so TSan needs ASLR off there too —
