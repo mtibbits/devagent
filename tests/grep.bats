@@ -17,7 +17,8 @@ teardown() { teardown_phase9_env; }
   run bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" \
     --project "${DEVAGENT_TEST_PROJECT}" FOOBAR
   [ "$status" -eq 0 ]
-  ! echo "$output" | grep -q "Captures/"
+  run grep -q "Captures/" <<<"$output"
+  [ "$status" -ne 0 ]
 }
 
 @test "grep --captures includes Captures" {
@@ -39,7 +40,8 @@ teardown() { teardown_phase9_env; }
     --project "${DEVAGENT_TEST_PROJECT}" -l FOOBAR
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "issue.md"
-  ! echo "$output" | grep -q "FOOBAR"
+  run grep -q "FOOBAR" <<<"$output"
+  [ "$status" -ne 0 ]
 }
 
 @test "grep prints output in <issue-dir>:<file>:<line>: form" {

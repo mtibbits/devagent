@@ -88,7 +88,8 @@ _init_state() {
   echo "hand-edited" >> "$TMPDEV/WBS.md"
   run bash "$REPO/scripts/wbs.sh" init testproj --force
   [ "$status" -eq 0 ]
-  ! grep -q "hand-edited" "$TMPDEV/WBS.md"
+  run grep -q "hand-edited" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
 }
 
 @test "wbs show prints WBS.md contents" {

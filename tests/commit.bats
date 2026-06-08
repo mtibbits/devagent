@@ -45,7 +45,8 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
-    ! echo "$msg" | grep -q "1M context"
+    run grep -q "1M context" <<<"$msg"
+    [ "$status" -ne 0 ]
 
     [ -f "$DEVAGENT_ROOT/templates/commit_template.md.bak" ] \
         && mv "$DEVAGENT_ROOT/templates/commit_template.md.bak" \
@@ -61,10 +62,13 @@ teardown() { devagent_test_teardown; }
     # Subject: type=feature → feat; title="add a.txt".
     [ "$( echo "$msg" | head -1 )" = "feat: add a.txt" ]
     # Conventions doc must NOT leak into the body.
-    ! echo "$msg" | grep -q "VOLK Commit Message Conventions"
+    run grep -q "VOLK Commit Message Conventions" <<<"$msg"
+    [ "$status" -ne 0 ]
     # HTML authoring comment must NOT leak.
-    ! echo "$msg" | grep -q "Placeholder semantics"
-    ! echo "$msg" | grep -q '<!--'
+    run grep -q "Placeholder semantics" <<<"$msg"
+    [ "$status" -ne 0 ]
+    run grep -q '<!--' <<<"$msg"
+    [ "$status" -ne 0 ]
     # DCO trailer from git commit -s.
     echo "$msg" | grep -q "^Signed-off-by:"
 }

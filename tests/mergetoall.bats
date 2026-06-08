@@ -64,7 +64,8 @@ _set_baseline_branch() {
     devagent_stub git ""
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    ! grep -qE "git push" "$DEVAGENT_STUB_LOG"
+    run grep -qE "git push" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
     grep -q "local-only" "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 

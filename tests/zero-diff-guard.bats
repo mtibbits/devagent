@@ -36,7 +36,8 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"git add"* ]]
     # Must NOT have auto-marked the commit step as skipped.
-    ! grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
 }
 
 @test "commit.sh refuses to skip with modified-but-unstaged tracked work (#25)" {
@@ -46,7 +47,8 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"git add"* ]]
-    ! grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
 }
 
 @test "mergetoall.sh auto-skips on zero-diff branch" {

@@ -41,12 +41,13 @@ teardown() { devagent_test_teardown; }
     # from an interactive terminal (read -r -p blocks waiting for input).
     run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
-    # No MR url recorded.
-    ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     # Checklist unchanged for step 15.
     grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
     # Plan was printed (the permission gate text goes to stderr; bats merges it into $output).
     [[ "$output" == *"ship plan"* ]]
+    # No MR url recorded. (run+status, not vacuous `! grep`; checked after $output use.)
+    run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
 }
 
 @test "ship.sh proceeds when push_mr=false but DA_YES=1 bypasses" {
@@ -72,7 +73,8 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/ship.sh" --strict-deps "$TEST_PROJECT" Issue-1
     [ "$status" -eq 2 ]
     [[ "$output" == *"blocking ship"* ]]
-    ! grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
 }
 
 @test "ship.sh fork_only targets the fork and skips upstream transition" {
@@ -82,9 +84,10 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     # MR targets the fork
     devagent_assert_logged "gh pr create --repo me/testproj"
-    # Upstream issue transition skipped (key fork_only invariant)
-    ! grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
     [[ "$output" == *"skipping on_ship transition"* ]]
+    # Upstream issue transition skipped (key fork_only invariant; run+status, checked after $output use).
+    run grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
 }
 
 @test "ship.sh fork_only without code_source.fork dies" {
@@ -118,7 +121,8 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
-    ! grep -q "issue/github transition acme/testproj" "$DEVAGENT_STUB_LOG"
+    run grep -q "issue/github transition acme/testproj" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
 }
 
 @test "ship.sh skips transition for Issue-Fork-* with no issue_source_fork configured" {
@@ -138,7 +142,8 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     [[ "$output" == *"no issue tracker configured for Issue-Fork-51"* ]]
-    ! grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+    run grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
 }
 
 @test "ship.sh reads PR title from .devagent-title, not mr.md line 1" {
