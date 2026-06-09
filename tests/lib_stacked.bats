@@ -44,3 +44,31 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     [ -z "$output" ]
 }
+
+@test "stacked_parent_branch resolves the parent from the remote when the local branch is gone (#41)" {
+    ( cd "$REPO"
+      git init -q --bare "$DEVAGENT_TMP/remote.git"
+      git remote add origin "$DEVAGENT_TMP/remote.git"
+      git push -q origin feat/parent
+      git checkout -q feat/child
+      git branch -q -D feat/parent )            # local parent gone; origin/feat/parent remains
+    run stacked_parent_branch "$REPO" "$PARENT_TIP" main origin
+    [ "$status" -eq 0 ]
+    [ "$output" = "feat/parent" ]               # prefix stripped, not "origin/feat/parent"
+}
+
+@test "stacked_parent_branch prefers the local branch over the remote (#41)" {
+    ( cd "$REPO"
+      git init -q --bare "$DEVAGENT_TMP/remote.git"
+      git remote add origin "$DEVAGENT_TMP/remote.git"
+      git push -q origin feat/parent )          # both local feat/parent and origin/feat/parent exist
+    run stacked_parent_branch "$REPO" "$PARENT_TIP" main origin
+    [ "$status" -eq 0 ]
+    [ "$output" = "feat/parent" ]
+}
+
+@test "stacked_parent_branch without a remote arg keeps local-only behavior (#41 backward compat)" {
+    run stacked_parent_branch "$REPO" "$PARENT_TIP" main
+    [ "$status" -eq 0 ]
+    [ "$output" = "feat/parent" ]
+}

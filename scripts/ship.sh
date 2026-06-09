@@ -72,6 +72,16 @@ if [ "$fork_only" = "true" ]; then
     [ -n "$fork_repo" ] || die "ship.sh: fork_only=true requires code_source.fork to be set"
     fork_first=true
 fi
+
+# Resolved early (#41): code_sh and target_repo are needed to pre-validate the
+# stacked parent base on the target repo before the permission-gate plan and the
+# #26 pre-flight below.
+code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
+[ -x "$code_sh" ] || die "ship.sh: missing code backend $code_sh"
+target_repo="$upstream_repo"
+if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
+    target_repo="$fork_repo"
+fi
 ship_as_draft_global="$(config_get_default ship_as_draft 2>/dev/null || echo false)"
 ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/null || echo "$ship_as_draft_global")"
 # Per-issue draft override: .devagent-draft forces draft state.
@@ -91,10 +101,24 @@ push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || 
 # when the PR bases on the parent, not the default base.
 base_branch="$(config_get_project_field "$project" default_baseline | sed 's|^[^/]*/||')"
 [ -n "$base_branch" ] || base_branch="main"
-parent_branch="$(stacked_parent_branch "$source_dir" "$baseline_sha" "$base_branch")"
+parent_branch="$(stacked_parent_branch "$source_dir" "$baseline_sha" "$base_branch" "$push_remote")"
 if [ -n "$parent_branch" ]; then
-    base_branch="$parent_branch"
-    info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+    # #41: confirm the parent exists on the PR target repo before basing on it;
+    # otherwise `gh pr create --base` surfaces a raw "base not found". On an
+    # explicit rc==1 (absent) fall back to the default base + warn (which
+    # re-enables the #26 pre-flight below); rc==0 (exists) or rc>=2 (backend
+    # lacks the verb / network error) leaves the parent base unchanged.
+    set +e
+    "$code_sh" branch-exists "$target_repo" "$parent_branch" >/dev/null 2>&1
+    _be_rc=$?
+    set -e
+    if [ "$_be_rc" -eq 1 ]; then
+        warn "ship.sh: stacked parent '$parent_branch' not found on $target_repo — basing PR on default base '$base_branch' instead (#41)"
+        parent_branch=""
+    else
+        base_branch="$parent_branch"
+        info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+    fi
 fi
 
 # --- #26 Defect A: a stale fork base pollutes the PR's three-dot diff. ------
@@ -171,9 +195,6 @@ EOF
 )"
 permission_gate "$project" push_mr "$plan"
 
-code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
-[ -x "$code_sh" ] || die "ship.sh: missing code backend $code_sh"
-
 # Push branch.
 source_dir="$(config_get_project_field "$project" source_dir)"
 ( cd "$source_dir" && "$code_sh" push-branch "$push_remote" "$branch" )
@@ -182,12 +203,6 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 if [ -n "$ff_src" ]; then
     ( cd "$source_dir" && "$DEVAGENT_GIT" push "$push_remote" "$ff_src:$ff_dst" ) \
         || warn "ship.sh: fast-forward of fork base failed (non-FF or push denied); PR diff may include upstream commits (#26)"
-fi
-
-# Resolve target repo. fork_only or fork_first → fork; else upstream.
-target_repo="$upstream_repo"
-if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
-    target_repo="$fork_repo"
 fi
 
 title_file="$issue_dir/.devagent-title"

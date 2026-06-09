@@ -264,3 +264,43 @@ EOF
     run grep -qE "gh pr create .* --base main( |$)" "$DEVAGENT_STUB_LOG"
     [ "$status" -ne 0 ]
 }
+
+@test "ship.sh falls back to default base with a warning when the stacked parent is absent on the target repo (#41)" {
+    # Same topology as the #34 test, but gh's `api` (branch-exists) reports the
+    # parent ABSENT (exit 1) → ship must base on the default base + warn, not
+    # surface a raw gh error or base on the missing parent.
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "push" ]; then echo "git push \$*" >> "$DEVAGENT_STUB_LOG"; exit 0; fi
+exec /usr/bin/git "\$@"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+    cat > "$DEVAGENT_STUB_BIN/gh" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "api" ]; then exit 1; fi          # branch-exists → absent
+echo "gh \$*" >> "$DEVAGENT_STUB_LOG"
+printf '%s' "https://github.com/acme/testproj/pull/77"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b feat/parent
+    echo p > p.txt && git add p.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m parent
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q -b feat/child
+    echo c > c.txt && git add c.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m child
+    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
+            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"not found on"* ]]                                # the #41 warning fired
+    grep -qE "gh pr create .* --base main( |$)" "$DEVAGENT_STUB_LOG"   # fell back to the default base
+    run grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]                                                # NOT the absent parent
+}

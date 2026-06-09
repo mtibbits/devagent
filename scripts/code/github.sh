@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/code/github.sh — github code backend.
-# Backend contract: implements all five code verbs per spec §9.2
-# (push-branch, create-mr, mr-state, mr-comments, merge-mr).
+# Backend contract: the five §9.2 code verbs (push-branch, create-mr, mr-state,
+# mr-comments, merge-mr) plus an OPTIONAL branch-exists (#41, used by ship.sh's
+# stacked-base pre-validation; backends may omit it — ship.sh treats a non-1 exit
+# as "can't determine" and leaves the parent base unchanged).
 # All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT so tests can stub.
 set -euo pipefail
 
@@ -17,6 +19,7 @@ verbs:
   mr-state     <mr-url>
   mr-comments  <mr-url>
   merge-mr     <mr-url> [--method squash|merge|rebase]
+  branch-exists <repo> <branch>
 EOF
     exit 2
 }
@@ -64,6 +67,12 @@ case "$verb" in
             esac
         done
         "$DEVAGENT_GH" pr merge "$url" --"$method"
+        ;;
+    branch-exists)
+        [ $# -eq 2 ] || usage
+        # 0 = exists, 1 = absent. `gh api` exits non-zero (404) when the branch
+        # is missing. Slashed names (feat/parent) are valid in the path.
+        "$DEVAGENT_GH" api "repos/$1/branches/$2" >/dev/null 2>&1
         ;;
     *) usage ;;
 esac
