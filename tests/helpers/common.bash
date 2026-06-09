@@ -160,3 +160,16 @@ devagent_assert_logged() {
         return 1
     fi
 }
+
+# Negative counterpart of devagent_assert_logged (#44): fixed-string; fails if
+# the needle IS present. Plain grep (no `run`), so it does not clobber bats'
+# $output/$status.
+devagent_refute_logged() {
+    local needle="$1"
+    if grep -F -q -- "$needle" "$DEVAGENT_STUB_LOG"; then
+        echo "stub log unexpectedly contained: $needle" >&2
+        echo "--- stub log ---" >&2
+        cat "$DEVAGENT_STUB_LOG" >&2
+        return 1
+    fi
+}
