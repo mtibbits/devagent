@@ -1,0 +1,51 @@
+# devAgent's first CI workflow (#45).
+#
+# Gates against SC2314 — "In Bats, ! does not cause a test failure" — a class of
+# vacuous negative assertion that bats silently passes regardless of outcome
+# (#39 retrofitted 21 of them). This fails a PR when a NEW one appears in
+# tests/*.bats, making the bug unrepresentable going forward.
+#
+# Deliberately SC2314-SPECIFIC, not a blanket shellcheck: tests/*.bats has many
+# pre-existing non-SC2314 findings, so a plain `shellcheck` would fail the clean
+# tree. The job first self-tests that shellcheck actually emits SC2314 (a
+# pre-0.9.0 shellcheck would make the gate vacuous), then greps for it.
+#
+# Note: each `run:` executes under `bash -eo pipefail`, so shellcheck output is
+# captured to a file (`… || true`) and grepped — a `shellcheck | grep` pipe
+# would propagate shellcheck's non-zero exit (it always has some finding) and
+# mis-report.
+name: shellcheck SC2314 gate
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sc2314:
+    runs-on: ubuntu-24.04   # ships shellcheck >= 0.9.0 (has SC2314)
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck version
+        run: shellcheck --version
+      - name: Self-test — shellcheck must emit SC2314 (else the gate is vacuous)
+        run: |
+          printf '#!/usr/bin/env bats\n@test t { ! grep -q x /dev/null; }\n' > /tmp/sc2314_selftest.bats
+          shellcheck -f gcc -x /tmp/sc2314_selftest.bats > /tmp/sc_selftest.out 2>/dev/null || true
+          if ! grep -q SC2314 /tmp/sc_selftest.out; then
+            echo "::error::shellcheck does not emit SC2314 (need >= 0.9.0); the gate would be vacuous."
+            exit 1
+          fi
+          echo "self-test ok: shellcheck emits SC2314"
+      - name: SC2314 gate on tests/*.bats
+        run: |
+          shellcheck -f gcc -x tests/*.bats > /tmp/sc.out 2>/dev/null || true
+          if grep -q SC2314 /tmp/sc.out; then
+            echo "::error::SC2314 found — vacuous bats '!' assertion(s). Use 'run …; [ \"$status\" -ne 0 ]' or devagent_refute_logged."
+            grep SC2314 /tmp/sc.out
+            exit 1
+          fi
+          echo "✓ no SC2314 in tests/*.bats"
