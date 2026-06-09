@@ -86,8 +86,7 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "gh pr create --repo me/testproj"
     [[ "$output" == *"skipping on_ship transition"* ]]
     # Upstream issue transition skipped (key fork_only invariant; run+status, checked after $output use).
-    run grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
-    [ "$status" -ne 0 ]
+    devagent_refute_logged "issue/github transition"
 }
 
 @test "ship.sh fork_only without code_source.fork dies" {
@@ -121,8 +120,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
-    run grep -q "issue/github transition acme/testproj" "$DEVAGENT_STUB_LOG"
-    [ "$status" -ne 0 ]
+    devagent_refute_logged "issue/github transition acme/testproj"
 }
 
 @test "ship.sh skips transition for Issue-Fork-* with no issue_source_fork configured" {
@@ -142,8 +140,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     [[ "$output" == *"no issue tracker configured for Issue-Fork-51"* ]]
-    run grep -q "issue/github transition" "$DEVAGENT_STUB_LOG"
-    [ "$status" -ne 0 ]
+    devagent_refute_logged "issue/github transition"
 }
 
 @test "ship.sh reads PR title from .devagent-title, not mr.md line 1" {
@@ -221,8 +218,7 @@ STUB
     [[ "$output" == *"empty after Co-Authored-By strip"* ]]
     # Fail-closed: no PR was created, no mr_url recorded. (run+status, not `! grep`,
     # which is vacuous under bats — the `!` exempts it from the failure trap.)
-    run grep -q "gh pr create" "$DEVAGENT_STUB_LOG"
-    [ "$status" -ne 0 ]
+    devagent_refute_logged "gh pr create"
     run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
 }
