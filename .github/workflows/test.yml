@@ -1,0 +1,29 @@
+# Runs the full bats and pytest test suites on every push/PR.
+# bats 1.10.0-1 and python3-pytest 7.4.4 ship on ubuntu-24.04 via apt.
+# Tests are hermetic: stubs replace gh/glab/curl; HOME is redirected
+# per test; fixture HTTP server runs on a random port.
+name: test suite
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get install -y bats python3-pytest
+
+      - name: Run bats suite
+        run: bats tests/
+
+      - name: Run pytest suite
+        run: python3 -m pytest tests/ -v
