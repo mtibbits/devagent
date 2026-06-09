@@ -93,3 +93,18 @@ EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" --all
     [ "$status" -eq 0 ]
 }
+
+@test "sync.sh detects a MERGED (uppercase) state — github mr-state returns uppercase (#43)" {
+    # `gh pr view --json state` (via code/github.sh mr-state) returns "MERGED",
+    # not "merged"; sync must compare case-insensitively.
+    cat > "$DEVAGENT_CODE_BACKEND_DIR/github.sh" <<EOF
+#!/usr/bin/env bash
+echo "code/github \$@" >> "$DEVAGENT_STUB_LOG"
+[ "\$1" = "mr-state" ] && echo MERGED
+EOF
+    chmod +x "$DEVAGENT_CODE_BACKEND_DIR/github.sh"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_merge"
+    grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
