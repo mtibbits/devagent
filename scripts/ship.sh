@@ -101,7 +101,10 @@ push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || 
 # when the PR bases on the parent, not the default base.
 base_branch="$(config_get_project_field "$project" default_baseline | sed 's|^[^/]*/||')"
 [ -n "$base_branch" ] || base_branch="main"
-parent_branch="$(stacked_parent_branch "$source_dir" "$baseline_sha" "$base_branch" "$push_remote")"
+# #48: pass the issue branch as the child so advanced-parent (merge-base) and
+# multi-candidate (ancestor-of-child) resolution can engage. `branch` is the
+# state branch, resolvable in $source_dir even under a worktree (refs are shared).
+parent_branch="$(stacked_parent_branch "$source_dir" "$baseline_sha" "$base_branch" "$push_remote" "$branch")"
 if [ -n "$parent_branch" ]; then
     # #41: confirm the parent exists on the PR target repo before basing on it;
     # otherwise `gh pr create --base` surfaces a raw "base not found". On an
