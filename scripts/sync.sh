@@ -56,7 +56,7 @@ sync_one_project() {
     issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
     [ -x "$code_sh" ] || return 0
     state="$("$code_sh" mr-state "$mr_url")"
-    [ "$state" = "merged" ] || return 0
+    [ "${state,,}" = "merged" ] || return 0   # #43: gh returns "MERGED" (uppercase)
 
     if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
         echo "sync: no issue tracker configured for $issue_arg; skipping on_merge transition" >&2
