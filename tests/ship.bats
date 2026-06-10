@@ -261,6 +261,80 @@ EOF
     [ "$status" -ne 0 ]
 }
 
+# --- #148: modified-tracked-files gate -------------------------------------
+# Review (13) / redmr (14) fixes applied after commit (10) used to strand in
+# the working tree; ship.sh pushed the branch without them. The gate refuses
+# to push when tracked files are modified in work_dir; untracked-only noise
+# (build dirs, scratch files) still ships. Uses the real-git-except-push stub
+# so `git status --porcelain` reflects the actual tree.
+_install_real_git_except_push_stub() {
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "push" ]; then echo "git push \$*" >> "$DEVAGENT_STUB_LOG"; exit 0; fi
+exec /usr/bin/git "\$@"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+}
+
+@test "ship.sh refuses to push when tracked files are modified (#148)" {
+    _install_real_git_except_push_stub
+    echo "stranded review fix" >> "$SOURCE_DIR/a.txt"   # tracked, modified, uncommitted
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"modified tracked file"* ]]
+    # Fail-closed: no PR, no mr_url, step 15 untouched. (run+status, not
+    # vacuous `! grep` — see SC2314 gate.)
+    devagent_refute_logged "gh pr create"
+    run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
+    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "ship.sh ships clean when only untracked files are present (#148)" {
+    _install_real_git_except_push_stub
+    echo scratch > "$SOURCE_DIR/scratch.tmp"            # untracked-only noise
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo acme/testproj"
+    grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "ship.sh dies fail-closed when worktree_path points at a dead tree (#148)" {
+    _install_real_git_except_push_stub
+    # Stale worktree_path (state-race / pruned-worktree scenario): the gate must
+    # refuse loudly, not silently no-op against a path git cannot inspect.
+    state_file="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    if grep -q '^worktree_path' "$state_file"; then
+        sed -i "s|^worktree_path *=.*|worktree_path = \"$DEVAGENT_TMP/gone-worktree\"|" "$state_file"
+    else
+        # Insert BEFORE [parked] — a bare append would land inside that table
+        # (the exact key-placement bug class from the audit) and be invisible
+        # to a top-level state_get.
+        sed -i "/^\[parked\]/i worktree_path = \"$DEVAGENT_TMP/gone-worktree\"" "$state_file"
+    fi
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not a usable git tree"* ]]
+    devagent_refute_logged "gh pr create"
+    run grep -q '^mr_url' "$state_file"
+    [ "$status" -ne 0 ]
+}
+
+@test "ship.sh zero-diff auto-skip fires before the #148 gate (dirty tree, no commits)" {
+    _install_real_git_except_push_stub
+    # baseline = branch tip → rev-list empty → artifact-only auto-skip path,
+    # even though the tree is dirty (devdoc-style edits must not block it).
+    tip="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse HEAD)"
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$tip\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    echo "dirty" >> "$SOURCE_DIR/a.txt"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"zero-diff"* ]]
+    grep -qE '^- \[-\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_refute_logged "gh pr create"
+}
+
 @test "ship.sh falls back to default base with a warning when the stacked parent is absent on the target repo (#41)" {
     # Same topology as the #34 test, but gh's `api` (branch-exists) reports the
     # parent ABSENT (exit 1) → ship must base on the default base + warn, not

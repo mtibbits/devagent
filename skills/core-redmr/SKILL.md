@@ -60,6 +60,16 @@ the ship step will fire.
    non-zero status indicator and explicitly tells the operator to
    address findings before re-running, or mark `[!]` stuck via
    `/devagent:stuck`.
+7. **Commit applied fixes (#148).** If addressing findings modified
+   (or added) any tracked file in the project source repo — the issue
+   branch — `git add` + `git commit -s` them before marking step 14.
+   A new signed-off commit, not an amend (the fix delta stays
+   auditable; amending after a prior ship would force-push). ship.sh
+   (15) refuses to push when tracked files are modified. Committing
+   here also re-anchors this report to `baseline..HEAD`, so the report
+   and the pushed branch cannot diverge (the #101/#102 failure).
+   Devdoc artifacts (analysis/, mr.md) are NOT committed here; they
+   are governed by `commit_devdoc` at cleanup.
 
 ## Halt and ask if
 

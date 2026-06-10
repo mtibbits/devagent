@@ -23,7 +23,16 @@ Per `commands/draft.md`.
 4. Invoke `superpowers:requesting-code-review` with the diff scope
    = `baseline_sha..HEAD` on the issue's branch.
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`.
-6. Log:
+6. **Commit applied fixes (#148).** If addressing review findings
+   modified (or added) any tracked file in the project source repo —
+   the issue branch — `git add` the files and `git commit -s` them
+   BEFORE marking the step. A new signed-off commit, not an amend:
+   the review-fix delta stays auditable. The "Do NOT commit yet" rule
+   from steps 6–9 ends once step 10 has run; from this step on,
+   uncommitted fixes are a defect — ship.sh (15) refuses to push when
+   tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
+   NOT committed here; they are governed by `commit_devdoc` at cleanup.
+7. Log:
 
    ```bash
    scripts/checklist-log.sh "$ISSUE_DIR" review \

@@ -22,6 +22,11 @@ Per `commands/draft.md`.
 4. Skill writes the report and logs the finding counts in the
    parser-compatible format from spec §14.4. The skill itself calls
    `scripts/checklist-log.sh`.
+5. **Commit applied fixes (#148).** If addressing findings modified
+   (or added) any tracked file in the project source repo, `git add` +
+   `git commit -s` (new commit, not amend) before marking the step —
+   ship.sh (15) refuses to push when tracked files are modified.
+   Devdoc artifacts (analysis/, mr.md) stay under `commit_devdoc`.
 
 ## Halt and ask if
 
