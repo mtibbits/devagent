@@ -61,6 +61,20 @@ if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list H
     exit 0
 fi
 
+# #148: refuse to push a branch that differs from the working tree. Review (13)
+# and redmr (14) fixes applied after commit (10) land in the working tree; with
+# no commit step remaining, ship used to push without them (Issues #101/#102 →
+# recovery PR #147). Untracked paths are excluded deliberately (build dirs,
+# scratch files) — the review/redmr docs' git-add instruction covers the
+# new-untracked-file fix variant. Worktree-aware like commit.sh's work_dir.
+# Placed after the zero-diff guard so artifact-only issues still auto-skip.
+worktree_path="$(state_get "$project" worktree_path 2>/dev/null || true)"
+work_dir="${worktree_path:-$source_dir}"
+modified_count="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain --ignore-submodules=dirty 2>/dev/null | grep -cv '^??' || true)"
+if [ "$modified_count" -gt 0 ]; then
+    die "ship.sh: $modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
+fi
+
 code_backend="$(config_get_project_field "$project" code_source.backend)"
 upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
 fork_repo="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
