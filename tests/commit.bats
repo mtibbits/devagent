@@ -15,12 +15,9 @@ setup() {
 teardown() { devagent_test_teardown; }
 
 @test "commit.sh writes commit using commit_template body with -s" {
-    # Provide a minimal commit_template.md via plugin templates dir.
-    mkdir -p "$DEVAGENT_ROOT/templates"
-    cp "$DEVAGENT_ROOT/templates/commit_template.md" \
-       "$DEVAGENT_ROOT/templates/commit_template.md.bak" 2>/dev/null || true
+    mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' '' 'Issue: {{issue}}' \
-        > "$DEVAGENT_ROOT/templates/commit_template.md"
+        > "$DEVDOC_DIR/templates/commit_template.md"
 
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -29,28 +26,17 @@ teardown() { devagent_test_teardown; }
     echo "$msg" | grep -q "Issue: Issue-1"
     echo "$msg" | grep -q "^Signed-off-by:"
     grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
-
-    # Restore the original template so other tests don't see our edit.
-    [ -f "$DEVAGENT_ROOT/templates/commit_template.md.bak" ] \
-        && mv "$DEVAGENT_ROOT/templates/commit_template.md.bak" \
-              "$DEVAGENT_ROOT/templates/commit_template.md"
 }
 
 @test "commit.sh strips (1M context) substring from message" {
-    mkdir -p "$DEVAGENT_ROOT/templates"
-    cp "$DEVAGENT_ROOT/templates/commit_template.md" \
-       "$DEVAGENT_ROOT/templates/commit_template.md.bak" 2>/dev/null || true
+    mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}} (1M context)' '' 'body (1M context) trailing' \
-        > "$DEVAGENT_ROOT/templates/commit_template.md"
+        > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
     run grep -q "1M context" <<<"$msg"
     [ "$status" -ne 0 ]
-
-    [ -f "$DEVAGENT_ROOT/templates/commit_template.md.bak" ] \
-        && mv "$DEVAGENT_ROOT/templates/commit_template.md.bak" \
-              "$DEVAGENT_ROOT/templates/commit_template.md"
 }
 
 @test "commit.sh default template renders type-prefixed subject, not conventions doc" {
