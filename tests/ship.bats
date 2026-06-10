@@ -299,6 +299,27 @@ EOF
     grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
 
+@test "ship.sh dies fail-closed when worktree_path points at a dead tree (#148)" {
+    _install_real_git_except_push_stub
+    # Stale worktree_path (state-race / pruned-worktree scenario): the gate must
+    # refuse loudly, not silently no-op against a path git cannot inspect.
+    state_file="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    if grep -q '^worktree_path' "$state_file"; then
+        sed -i "s|^worktree_path *=.*|worktree_path = \"$DEVAGENT_TMP/gone-worktree\"|" "$state_file"
+    else
+        # Insert BEFORE [parked] — a bare append would land inside that table
+        # (the exact key-placement bug class from the audit) and be invisible
+        # to a top-level state_get.
+        sed -i "/^\[parked\]/i worktree_path = \"$DEVAGENT_TMP/gone-worktree\"" "$state_file"
+    fi
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not a usable git tree"* ]]
+    devagent_refute_logged "gh pr create"
+    run grep -q '^mr_url' "$state_file"
+    [ "$status" -ne 0 ]
+}
+
 @test "ship.sh zero-diff auto-skip fires before the #148 gate (dirty tree, no commits)" {
     _install_real_git_except_push_stub
     # baseline = branch tip → rev-list empty → artifact-only auto-skip path,

@@ -70,6 +70,11 @@ fi
 # Placed after the zero-diff guard so artifact-only issues still auto-skip.
 worktree_path="$(state_get "$project" worktree_path 2>/dev/null || true)"
 work_dir="${worktree_path:-$source_dir}"
+# Fail closed when git cannot inspect work_dir (stale worktree_path from a
+# clobbered/aborted session): a silent 0-count here would re-enable the exact
+# stranded-fix push this gate exists to prevent.
+"$DEVAGENT_GIT" -C "$work_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "ship.sh: work_dir $work_dir is not a usable git tree (stale worktree_path in state?) — refusing to ship unverified (#148)"
 modified_count="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain --ignore-submodules=dirty 2>/dev/null | grep -cv '^??' || true)"
 if [ "$modified_count" -gt 0 ]; then
     die "ship.sh: $modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
