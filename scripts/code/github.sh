@@ -88,7 +88,11 @@ case "$verb" in
         # same-repo. (Header-comment contract only; not in spec §9.2.)
         count="$("$DEVAGENT_GH" pr list --repo "$1" --head "$2" --state merged \
                     --json number --jq 'length')" || exit 2
-        [ "${count:-0}" -gt 0 ]
+        # A successful gh with empty/non-numeric stdout is NOT "no merged PR" (rc 1) —
+        # it is "can't determine" (exit 2), so ship leaves the base unchanged rather
+        # than trusting an unprovable parent as live (#154: rc 1 = none, rc >= 2 = unknown).
+        [[ "$count" =~ ^[0-9]+$ ]] || exit 2
+        [ "$count" -gt 0 ]
         ;;
     *) usage ;;
 esac

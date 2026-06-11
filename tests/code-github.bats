@@ -113,3 +113,16 @@ EOF
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo whatever
     [ "$status" -ge 2 ]
 }
+
+@test "code/github.sh merged-pr-head treats empty/non-numeric stdout as can't-determine, not none (#154)" {
+    # gh exits 0 but prints nothing (or a stray notice): an unparseable count is NOT
+    # "no merged PR" (rc 1) — it is "can't determine" (rc >= 2), so ship leaves the
+    # parent base unchanged rather than trusting an unprovable parent as live.
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+exit 0      # success, but no stdout at all
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo whatever
+    [ "$status" -ge 2 ]
+}
