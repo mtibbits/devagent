@@ -130,3 +130,91 @@ teardown() { devagent_test_teardown; }
     [ "$out" = "feat/aaa-sibling" ]              # refname-first among {feat/aaa-sibling, feat/parent}; NOT ancestor-resolved
     grep -q "refname order" "$errf"              # ambiguity is warned, never silent
 }
+
+@test "stacked_parent_branch (#154 Layer A) drops a candidate whose tip is an ancestor of the base (adds nothing)" {
+    # AC #4 / the stale-tip route of AC #1. A branch left pinned at the OLD base tip
+    # still qualifies via tip==baseline once the base advances past it, but it
+    # contributes nothing over the base (its tip is an ancestor of the base tip), so
+    # Layer A disqualifies it and ship falls back to the default base. Live: PR
+    # #152/#153 — a dead branch pinned at the old master tip.
+    ( cd "$REPO"
+      git checkout -q main
+      git branch -q stale/old main                                       # pinned at B0 (current base tip)
+      echo m1 > m1.txt && git add . && git commit -q -m m1 )             # base advances B0 -> B1
+    local B0; B0="$( git -C "$REPO" rev-parse stale/old )"               # baseline = the old base tip
+    local errf="$DEVAGENT_TMP/spb-154A.err"
+    out="$(stacked_parent_branch "$REPO" "$B0" main 2>"$errf")"
+    [ -z "$out" ]                                                         # not a parent -> default base
+    grep -q "154" "$errf"                                                 # the drop is warned, never silent
+}
+
+@test "stacked_parent_branch (#154 Layer A) keeps a legitimate parent that carries a commit absent from the advanced base" {
+    # No-false-drop companion: feat/parent has a real commit over B0; the base then
+    # advances on a DIFFERENT line, so the parent's tip is NOT an ancestor of the
+    # base tip. Layer A must keep it.
+    ( cd "$REPO" && git checkout -q main && echo m1 > m1.txt && git add . && git commit -q -m m1 )  # base advances independently
+    run stacked_parent_branch "$REPO" "$PARENT_TIP" main
+    [ "$status" -eq 0 ]
+    [ "$output" = "feat/parent" ]
+}
+
+@test "stacked_parent_branch (#154 Layer B) skips a stale local ref whose remote counterpart is strictly ahead (AC #1)" {
+    # Local stk/x sits at P1 (== baseline); origin/stk/x has advanced to P2 (remote
+    # strictly ahead). The local ref is stale, so Layer B skips it; with NO child,
+    # tier 2 has only the tip==baseline arm and the remote tip P2 != baseline, so
+    # nothing qualifies → default base + warn. (The with-child live route is AC #2 at
+    # ship level — see imPlan Task 2 fixture pin: a child would re-qualify P2 via
+    # merge-base and only Layer C catches that.)
+    ( cd "$REPO"
+      git init -q --bare "$DEVAGENT_TMP/remote.git"
+      git remote add origin "$DEVAGENT_TMP/remote.git"
+      git checkout -q -b stk/x main && echo p1 > p1.txt && git add . && git commit -q -m p1
+      P1="$( git rev-parse HEAD )"
+      git push -q origin stk/x                                       # origin/stk/x = P1
+      echo p2 > p2.txt && git add . && git commit -q -m p2           # local advances to P2
+      git push -q origin stk/x                                       # origin/stk/x = P2
+      git reset -q --hard "$P1"                                      # local stk/x back to P1 (now behind origin)
+      git checkout -q main && echo m1 > mm.txt && git add . && git commit -q -m m1
+      git push -q origin main )                                      # main advances (tier-0 won't fire; P1 not ancestor of main)
+    P1="$( git -C "$REPO" rev-parse stk/x )"
+    local errf="$DEVAGENT_TMP/spb-154B1.err"
+    out="$(stacked_parent_branch "$REPO" "$P1" main origin 2>"$errf")"
+    [ -z "$out" ]                                                    # stale local skipped, remote tip != baseline → default base
+    grep -q "154" "$errf"                                            # staleness warned, never silent
+}
+
+@test "stacked_parent_branch (#154 Layer B) keeps a LOCAL-ahead parent with unpushed commits (AC #3)" {
+    # feat/ahead has a local commit not yet pushed: local tip P2 is AHEAD of
+    # origin/feat/ahead (P1). The local ref is authoritative (unpushed review/redmr
+    # fixes) — Layer B must NOT skip it.
+    ( cd "$REPO"
+      git init -q --bare "$DEVAGENT_TMP/remote.git"
+      git remote add origin "$DEVAGENT_TMP/remote.git"
+      git checkout -q -b feat/ahead main && echo p1 > a1.txt && git add . && git commit -q -m p1
+      git push -q origin feat/ahead                                  # origin/feat/ahead = P1
+      echo p2 > a2.txt && git add . && git commit -q -m p2 )         # local advances to P2 (unpushed)
+    P2="$( git -C "$REPO" rev-parse feat/ahead )"
+    run stacked_parent_branch "$REPO" "$P2" main origin
+    [ "$status" -eq 0 ]
+    [ "$output" = "feat/ahead" ]                                     # local-ahead parent kept, no false disqualification
+}
+
+@test "stacked_parent_branch (#154 Layer B) keeps but loudly warns when local and remote have diverged" {
+    # local feat/div and origin/feat/div fork from the same point but neither tip is
+    # an ancestor of the other. Per tier-1 doctrine the local ref is authoritative
+    # (kept), but the divergence is surfaced so any mis-base is audible.
+    ( cd "$REPO"
+      git init -q --bare "$DEVAGENT_TMP/remote.git"
+      git remote add origin "$DEVAGENT_TMP/remote.git"
+      git checkout -q -b feat/div main && echo b > b.txt && git add . && git commit -q -m base-div
+      git push -q origin feat/div                                    # origin/feat/div = D0
+      echo r > r.txt && git add . && git commit -q -m remote-side
+      git push -q origin feat/div                                    # origin/feat/div = D1
+      git reset -q --hard HEAD~1                                     # local back to D0
+      echo l > l.txt && git add . && git commit -q -m local-side )   # local diverges to D2
+    D2="$( git -C "$REPO" rev-parse feat/div )"
+    local errf="$DEVAGENT_TMP/spb-154Bdiv.err"
+    out="$(stacked_parent_branch "$REPO" "$D2" main origin 2>"$errf")"
+    [ "$out" = "feat/div" ]                                          # local ref kept (authoritative)
+    grep -qi "diverged" "$errf"                                      # but the divergence is loud
+}

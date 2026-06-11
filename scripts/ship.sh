@@ -138,8 +138,27 @@ if [ -n "$parent_branch" ]; then
         warn "ship.sh: stacked parent '$parent_branch' not found on $target_repo — basing PR on default base '$base_branch' instead (#41)"
         parent_branch=""
     else
-        base_branch="$parent_branch"
-        info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+        # #154: branch-exists cannot tell a live parent from a DEAD one — a parent
+        # whose own PR already SQUASH-merged still exists on the remote and still
+        # satisfies the stacked topology, but basing a child PR on it strands the
+        # child (the work never reaches the default base; close-keywords never fire).
+        # Live: PR #152 based on PR #147's merged branch → reland #153. No git-only
+        # predicate distinguishes this from a legitimate advanced parent, so ask the
+        # forge. rc 0 = a merged PR has this head (dead) → fall back to the default
+        # base + warn (re-enabling the #26 pre-flight); rc 1 = none (live) → keep;
+        # rc >= 2 = verb absent / network error → leave unchanged (fail-open, exactly
+        # like branch-exists). set +e mirrors the #41 block (ship runs under set -e).
+        set +e
+        "$code_sh" merged-pr-head "$target_repo" "$parent_branch" >/dev/null 2>&1
+        _mph_rc=$?
+        set -e
+        if [ "$_mph_rc" -eq 0 ]; then
+            warn "ship.sh: stacked parent '$parent_branch' has an already-merged PR (dead branch) on $target_repo — basing PR on default base '$base_branch' instead (#154; live PR #152/#153)"
+            parent_branch=""
+        else
+            base_branch="$parent_branch"
+            info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+        fi
     fi
 fi
 

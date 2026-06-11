@@ -374,3 +374,56 @@ EOF
     run grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
     [ "$status" -ne 0 ]                                                # NOT the absent parent
 }
+
+@test "ship.sh falls back to the default base when the stacked parent's PR already merged (#154, live PR #152/#153)" {
+    # The live misfire route. A sibling whose PR SQUASH-merged is re-detected via
+    # refs/remotes: its real tip still satisfies the #48 merge-base predicate and is
+    # NOT an ancestor of the advanced base, so neither Layer A nor Layer B (tier-2,
+    # not tier-1) drops it, and branch-exists confirms it still exists (a merged PR
+    # does not delete its branch). Only the forge merged-PR-head check (Layer C)
+    # catches it. ship must base the child PR on the DEFAULT base + warn, never on
+    # the dead parent. THIS TEST FAILS with only Layers A+B applied — the
+    # load-bearing proof that the staleness fix alone does not close #154 (AC #2).
+    _install_real_git_except_push_stub
+    # Discriminating gh stub: branch-exists (api) → present (0); merged-pr-head
+    # (pr list) → 1 merged PR (the parent is dead); pr create → URL (logged).
+    cat > "$DEVAGENT_STUB_BIN/gh" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "api" ]; then exit 0; fi                                  # branch-exists → present
+if [ "\$1" = "pr" ] && [ "\$2" = "list" ]; then echo 1; exit 0; fi    # merged-pr-head → one merged PR
+echo "gh \$*" >> "$DEVAGENT_STUB_LOG"
+printf '%s' "https://github.com/acme/testproj/pull/77"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git branch -q -D feat/1-x                          # setup branch shares baseline B0 — drop to avoid a spurious sibling
+    B0="$(git rev-parse HEAD)"
+    git checkout -q -b dead/parent                      # the parent: real work off B0 (e90-like)
+    echo p > dp.txt && git add dp.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "parent work"
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q main                                # its PR squash-merges as a NEW commit; main advances past B0
+    echo sq > squash.txt && git add squash.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m "squash-merge of dead/parent (#147-like)"
+    git checkout -q -b feat/child "$B0"                 # child cut from main at B0
+    echo c > c.txt && git add c.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m child
+    # remote-tracking refs: origin/main advanced, origin/dead/parent at the real tip.
+    git update-ref refs/remotes/origin/main "$(git rev-parse main)"
+    git update-ref refs/remotes/origin/dead/parent "$parent_tip"
+    git branch -q -D dead/parent                        # detection is via refs/remotes (the live route)
+    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
+            s|^baseline_sha *=.*|baseline_sha = \"$B0\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"merged PR"* ]]                                   # the #154 Layer C warning fired
+    grep -qE "gh pr create .* --base main( |$)" "$DEVAGENT_STUB_LOG"   # based on the default base
+    run grep -qE "gh pr create .* --base dead/parent( |$)" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]                                                # NOT the dead parent
+}
