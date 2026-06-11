@@ -427,3 +427,33 @@ EOF
     run grep -qE "gh pr create .* --base dead/parent( |$)" "$DEVAGENT_STUB_LOG"
     [ "$status" -ne 0 ]                                                # NOT the dead parent
 }
+
+@test "ship.sh zero-diff guard rev-lists the issue branch, not source_dir HEAD (#68)" {
+    # The bug: rev-list HEAD ^baseline in source_dir, whose checkout need not be the
+    # issue branch (never is under a worktree). Here feat/1-x has a commit but
+    # source_dir HEAD is detached at the baseline, so HEAD ^baseline is empty → the
+    # guard wrongly marks step 15 [-] and the branch's work is never pushed.
+    _install_real_git_except_push_stub
+    base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
+    ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$base\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"zero-diff"* ]]                                    # NOT treated as artifact-only
+    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 done, not [-]
+    devagent_assert_logged "gh pr create"                              # the branch's work reaches a PR
+}
+
+@test "ship.sh zero-diff guard does not skip on a rev-list failure (#68)" {
+    # The trailing 2>/dev/null collapsed a rev-list FAILURE into empty → the
+    # destructive skip. A bogus baseline_sha makes rev-list fail; the guard must NOT
+    # silently mark step 15 [-] — it must proceed (fail-safe by direction, cf. #25).
+    _install_real_git_except_push_stub
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"0000000000000000000000000000000000000000\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"zero-diff"* ]]
+    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
