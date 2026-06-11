@@ -198,3 +198,18 @@ EOF
     [ "$(git log -1 --pretty='%an|%cn' allprs)" = "devagent|devagent" ]
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "mergetoall.sh zero-diff guard rev-lists the issue branch, not source_dir HEAD (#68)" {
+    # Same bug as ship.sh: rev-list HEAD ^baseline in source_dir. feat/1-x has a commit
+    # but source_dir HEAD is detached at the baseline → HEAD ^baseline is empty → the
+    # guard wrongly marks step 16 [-] and the branch is never squash-merged.
+    base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
+    ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$base\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"zero commits"* ]]                                 # NOT the zero-diff skip
+    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"   # merged, not [-]
+    ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
+}

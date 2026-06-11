@@ -30,10 +30,18 @@ issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 branch="$(state_get "$project" branch 2>/dev/null || true)"
 [ -n "$branch" ] || die "mergetoall.sh: no branch in state"
 
-# Zero-diff guard: artifact-only issues have nothing to squash-merge.
+# Zero-diff guard: artifact-only issues have nothing to squash-merge. rev-list the
+# ISSUE BRANCH by name — source_dir's own HEAD need not be the issue branch (never is
+# under a worktree); refs are shared, so "$branch" resolves regardless (#68). A
+# rev-list FAILURE must not collapse into the destructive skip (fail-safe by
+# direction, cf. commit.sh / #25): only skip when rev-list SUCCEEDED and was empty.
 baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
-if [ -n "$baseline_sha" ] && [ -z "$("$DEVAGENT_GIT" -C "$source_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null)" ]; then
+zd_commits=""; zd_ok=1
+if [ -n "$baseline_sha" ]; then
+    zd_commits="$("$DEVAGENT_GIT" -C "$source_dir" rev-list "$branch" "^$baseline_sha" 2>/dev/null)" || zd_ok=0
+fi
+if [ -n "$baseline_sha" ] && [ "$zd_ok" = 1 ] && [ -z "$zd_commits" ]; then
     info "mergetoall.sh: no commits on branch — auto-marking step 16 [-] (zero-diff issue)"
     checklist_mark "$issue_dir/checklist.md" 16 -
     log_append "$issue_dir" mergetoall "auto-skipped: zero commits on branch (artifact-only issue)"
