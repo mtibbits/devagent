@@ -19,6 +19,19 @@
 #      only when tier 1 is empty (#41).
 #   3. No match → empty → ship falls back to the default base (pre-#34, no regression).
 #
+# Two #154 guards run on every qualified candidate, in both tiers, BEFORE it is
+# collected (live regression: PR #152 based on PR #147's dead branch → reland #153):
+#   Layer A — degenerate drop: a candidate whose tip is an ancestor of the base tip
+#     adds nothing over the base → drop + warn (a stale ref pinned at an old base
+#     tip after the base advanced). base_tip is remote-preferred (see tier 0).
+#   Layer B — staleness: a LOCAL candidate strictly behind its remote-tracking
+#     counterpart is stale → skip (defer to the real remote tip in tier 2) + warn;
+#     local-ahead/equal (unpushed commits) is kept; diverged is kept + a loud warn.
+#     Remote-arg-gated — with no <remote> arg there is no counterpart, so Layer B is
+#     a no-op (Layer A still applies). Neither guard can see a sibling whose PR
+#     already squash-merged on its real tip; ship.sh's forge merged-PR-head check
+#     (#154 Layer C) is the decisive backstop for that route.
+#
 # Disambiguation (_spb_choose): one candidate → take it; several with a `child`
 # given → the unique ancestor of the child (the actual parent — a divergent
 # sibling is not an ancestor); otherwise → first by refname order + a stderr
@@ -69,6 +82,22 @@ _spb_choose() {
     printf '%s\n' "$out"
 }
 
+# _spb_adds_nothing <src> <candidate-objname> <base-tip>
+# True (exit 0) iff the candidate's tip is an ancestor of the base tip — i.e. it
+# contributes nothing over the default base, so it is not a stacked parent (#154
+# Layer A). Catches a stale local ref pinned at an old base tip after the base
+# advanced past it (live: PR #152 based on PR #147's dead branch → reland #153).
+# Empty base_tip, or any git error (`--is-ancestor` exits ≠0,1 on a bad ref), →
+# false (keep), failing toward the pre-#154 behaviour; ship.sh's forge merged-PR-head
+# check (#154 Layer C) is the decisive backstop for the squash-merged-sibling route
+# that no git-only predicate can see.
+_spb_adds_nothing() {
+    local src="$1" cand="$2" base_tip="$3"
+    local git="${DEVAGENT_GIT:-git}"
+    [ -n "$base_tip" ] || return 1
+    "$git" -C "$src" merge-base --is-ancestor "$cand" "$base_tip" 2>/dev/null
+}
+
 stacked_parent_branch() {
     local src="$1" baseline="$2" default_base="$3" remote="${4:-}" child="${5:-}"
     [ -n "$src" ] || die "stacked_parent_branch: source dir required"
@@ -81,13 +110,17 @@ stacked_parent_branch() {
     #    so a lagging LOCAL default base would slip past a local-only check and
     #    let the merge-base scan mis-match a sibling that merely forked from the
     #    same base. Checking <remote>/<default_base> closes that hole.
-    local def_ref d
+    # base_tip is captured here for Layer A (#154); the loop visits the local base
+    # first then <remote>/<base>, so base_tip ends remote-preferred (the ref
+    # branch.sh sets baseline_sha from), with a local fallback.
+    local def_ref d base_tip=""
     for def_ref in "$default_base" ${remote:+"$remote/$default_base"}; do
         d="$("$git" -C "$src" rev-parse --verify "${def_ref}^{commit}" 2>/dev/null)" || continue
+        base_tip="$d"
         [ "$d" = "$baseline" ] && return 0
     done
 
-    local cands=() objname short name mb
+    local cands=() objname short name mb q rtip
 
     # 1) Local branches (authoritative): tip == baseline, or (with a child)
     #    merge-base(child, B) == baseline.
@@ -95,12 +128,39 @@ stacked_parent_branch() {
         [ -n "$short" ] || continue
         [ "$short" = "$default_base" ] && continue
         [ "$short" = "$child" ] && continue
+        q=0
         if [ "$objname" = "$baseline" ]; then
-            cands+=("$short")
+            q=1
         elif [ -n "$child" ]; then
             mb="$("$git" -C "$src" merge-base "$child" "$short" 2>/dev/null)" || continue
-            [ "$mb" = "$baseline" ] && cands+=("$short")
+            [ "$mb" = "$baseline" ] && q=1
         fi
+        [ "$q" = 1 ] || continue
+        # Layer A (#154): a qualified candidate whose tip is an ancestor of the base
+        # adds nothing over it — drop + warn (never a silent mis-base).
+        if _spb_adds_nothing "$src" "$objname" "$base_tip"; then
+            warn "stacked_parent_branch: candidate '$short' tip is an ancestor of the base (adds nothing) — not a stacked parent; basing on the default base (#154; live PR #152/#153)"
+            continue
+        fi
+        # Layer B (#154): a LOCAL candidate strictly behind its remote-tracking
+        # counterpart is stale (the live bug: a local ref pinned at the old tip while
+        # the remote — and its merged PR — moved on). Skip it so resolution falls
+        # through to tier 2 on the real remote tip. Local-ahead/equal (unpushed
+        # review/redmr commits) is authoritative → keep silently. Diverged → keep but
+        # warn loudly (operator decides; never a silent default-base fallback).
+        # Remote-arg-gated: with no <remote> there is no counterpart to compare.
+        if [ -n "$remote" ]; then
+            rtip="$("$git" -C "$src" rev-parse --verify "refs/remotes/$remote/$short^{commit}" 2>/dev/null)" || rtip=""
+            if [ -n "$rtip" ] && [ "$rtip" != "$objname" ]; then
+                if "$git" -C "$src" merge-base --is-ancestor "$objname" "$rtip" 2>/dev/null; then
+                    warn "stacked_parent_branch: local '$short' is behind its remote counterpart (stale) — deferring to refs/remotes/$remote/$short (#154; live PR #152/#153)"
+                    continue
+                elif ! "$git" -C "$src" merge-base --is-ancestor "$rtip" "$objname" 2>/dev/null; then
+                    warn "stacked_parent_branch: local '$short' and refs/remotes/$remote/$short have diverged — using the local ref; verify the PR base (#154)"
+                fi
+            fi
+        fi
+        cands+=("$short")
     done < <("$git" -C "$src" for-each-ref \
                 --format='%(objectname)%0a%(refname:short)' refs/heads/)
     if [ "${#cands[@]}" -gt 0 ]; then
@@ -118,12 +178,21 @@ stacked_parent_branch() {
         short="${name#"$remote"/}"
         [ "$short" = "$default_base" ] && continue
         [ "$short" = "$child" ] && continue
+        q=0
         if [ "$objname" = "$baseline" ]; then
-            cands+=("$name")
+            q=1
         elif [ -n "$child" ]; then
             mb="$("$git" -C "$src" merge-base "$child" "$name" 2>/dev/null)" || continue
-            [ "$mb" = "$baseline" ] && cands+=("$name")
+            [ "$mb" = "$baseline" ] && q=1
         fi
+        [ "$q" = 1 ] || continue
+        # Layer A (#154): same degenerate-candidate drop as tier 1, on the full
+        # <remote>/<name> ref; warn with the stripped short name.
+        if _spb_adds_nothing "$src" "$objname" "$base_tip"; then
+            warn "stacked_parent_branch: candidate '$short' tip is an ancestor of the base (adds nothing) — not a stacked parent; basing on the default base (#154; live PR #152/#153)"
+            continue
+        fi
+        cands+=("$name")
     done < <("$git" -C "$src" for-each-ref \
                 --format='%(objectname)%0a%(refname:short)' "refs/remotes/$remote/")
     if [ "${#cands[@]}" -gt 0 ]; then

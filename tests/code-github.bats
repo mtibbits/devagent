@@ -85,3 +85,31 @@ EOF
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo absent
     [ "$status" -eq 1 ]
 }
+
+@test "code/github.sh merged-pr-head exits 0 when a merged PR has the head, 1 when none (#154)" {
+    # Stub gh's `pr list … --jq length`: echo the count of merged PRs for the head.
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+head=""
+while [ $# -gt 0 ]; do [ "$1" = "--head" ] && head="$2"; shift; done
+[ "$head" = "dead" ] && { echo 1; exit 0; }   # a merged PR has this head
+echo 0; exit 0                                  # no merged PR
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo dead
+    [ "$status" -eq 0 ]
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo live
+    [ "$status" -eq 1 ]
+}
+
+@test "code/github.sh merged-pr-head exits >=2 (can't determine) when gh errors (#154)" {
+    # gh failure (auth/network/bad repo) must NOT read as "no merged PR" — it is
+    # "can't determine", so ship.sh leaves the parent base unchanged (fail-open).
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "gh: network error" >&2; exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo whatever
+    [ "$status" -ge 2 ]
+}
