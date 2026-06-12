@@ -49,8 +49,10 @@ main() {
 
   state_add_parked "$project" "$issue"
   if [[ "$active" == "$issue" ]]; then
+    state_context_save "$project" "$issue"
     state_unset "$project" active_issue
     state_unset "$project" issue_dir
+    state_context_clear "$project"
   fi
   info "parked $issue"
 }

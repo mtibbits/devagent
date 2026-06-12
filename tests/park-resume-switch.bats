@@ -77,3 +77,56 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/park.sh" volk
   [ "$status" -ne 0 ]
 }
+
+@test "resume restores the parked issue's branch/baseline/mr_url, not the interloper's (#98)" {
+  # Issue-676 is active with a branch (parked after its branch step).
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "fix/676-foo"
+baseline_sha = "aaa111"
+mr_url = "https://example.com/pr/676"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk
+  [ "$status" -eq 0 ]
+  # Interloper issue 203 takes over and sets its own context.
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/203-bar"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" baseline_sha "bbb222"
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = "fix/676-foo"$'  "$DA_HOME/state/volk.toml"
+  grep -qE '^baseline_sha = "aaa111"$' "$DA_HOME/state/volk.toml"
+  grep -qE '^mr_url = "https://example.com/pr/676"$' "$DA_HOME/state/volk.toml"
+}
+
+@test "park clears per-issue keys so a new issue starts clean (#98)" {
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "fix/676-foo"
+mr_url = "https://example.com/pr/676"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = ""$' "$DA_HOME/state/volk.toml"
+  grep -qE '^mr_url = ""$' "$DA_HOME/state/volk.toml"
+}
+
+@test "park of a non-active issue leaves the active issue's context alone (#98)" {
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "fix/676-foo"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk Issue-203
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = "fix/676-foo"$' "$DA_HOME/state/volk.toml"
+}
+
+@test "resume of a legacy-parked issue (no snapshot) resets keys and warns (#98)" {
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "feat/203-bar"
+
+[parked]
+Issue-676 = true
+CTX
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/state/volk.toml" active_issue
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no saved context"* ]]   # bats `run` folds stderr into $output
+  grep -qE '^branch = ""$' "$DA_HOME/state/volk.toml"
+}

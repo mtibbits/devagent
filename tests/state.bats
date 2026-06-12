@@ -129,3 +129,47 @@ teardown() { teardown_tmp_devagent_home; }
   [ -d "$DA_HOME/secrets" ]
   assert_file_mode "$DA_HOME/secrets" 700
 }
+
+@test "state_context_save snapshots per-issue keys into [context.<issue>] (#98)" {
+  state_set volk branch "fix/676-foo"
+  state_set volk mr_url "https://example.com/pr/1"
+  state_context_save volk Issue-676
+  f="$(state_path volk)"
+  [ "$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-676.branch)" = "fix/676-foo" ]
+  [ "$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-676.mr_url)" = "https://example.com/pr/1" ]
+}
+
+@test "state_context_clear resets per-issue keys to defaults (#98)" {
+  state_set volk branch "fix/676-foo"
+  state_set volk pending_comments_file "/tmp/c.md"
+  state_context_clear volk
+  [ -z "$(state_get volk branch)" ]
+  run state_get volk pending_comments_file
+  [ -z "$output" ]
+  f="$(state_path volk)"
+  grep -qE '^revision = 1$' "$f"
+  grep -qE '^last_step = 0$' "$f"
+}
+
+@test "state_context_restore restores keys, deletes snapshot, ints unquoted (#98)" {
+  state_set volk branch "fix/676-foo"
+  state_set_int volk revision 3
+  state_context_save volk Issue-676
+  state_context_clear volk
+  state_set volk branch "fix/999-other"   # simulate another issue's residue
+  state_context_restore volk Issue-676
+  [ "$(state_get volk branch)" = "fix/676-foo" ]
+  f="$(state_path volk)"
+  grep -qE '^revision = 3$' "$f"
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" list-keys "$f" context.Issue-676
+  [ "$status" -ne 0 ]
+}
+
+@test "state_context_restore without snapshot clears keys and warns (#98)" {
+  state_set volk branch "fix/999-other"
+  run state_context_restore volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no saved context"* ]]
+  f="$(state_path volk)"
+  grep -qE '^branch = ""$' "$f"
+}

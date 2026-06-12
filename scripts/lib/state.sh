@@ -82,6 +82,70 @@ state_unset() {
   _state_toml unset "$(state_path "$project")" "$key"
 }
 
+# Canonical per-issue key set (#98). These travel with an issue across
+# park/resume and are cleared on pull/cleanup. Defaults mirror state_init.
+STATE_ISSUE_KEYS="branch baseline_sha worktree_path mr_url revision pending_comments_file last_step last_step_name"
+
+# state_context_save <project> <issue> — snapshot current top-level per-issue
+# keys into [context.<issue>]. Empty/absent keys are not snapshotted.
+state_context_save() {
+  local project="$1" issue="$2" f key v
+  [[ -n "$issue" ]] || die "state_context_save: issue required"
+  state_init "$project"
+  f="$(state_path "$project")"
+  for key in $STATE_ISSUE_KEYS; do
+    v="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
+    [[ -n "$v" ]] || continue
+    _state_toml set "$f" "context.${issue}.${key}" "$v"
+  done
+  _state_toml set "$f" updated_at "$(_state_now)"
+}
+
+# state_context_clear <project> — reset per-issue keys to state_init defaults.
+state_context_clear() {
+  local project="$1" f key
+  state_init "$project"
+  f="$(state_path "$project")"
+  for key in $STATE_ISSUE_KEYS; do
+    case "$key" in
+      revision)              _state_toml set-int "$f" revision 1 ;;
+      last_step)             _state_toml set-int "$f" last_step 0 ;;
+      pending_comments_file) _state_toml unset "$f" pending_comments_file ;;
+      *)                     _state_toml set "$f" "$key" '""' ;;
+    esac
+  done
+  _state_toml set "$f" updated_at "$(_state_now)"
+}
+
+# state_context_restore <project> <issue> — clear to defaults, then restore
+# any snapshotted keys from [context.<issue>] and delete the snapshot.
+# revision/last_step go back through set-int so the stored form stays an
+# unquoted int (#97). Missing snapshot (legacy park) → defaults + warning.
+state_context_restore() {
+  local project="$1" issue="$2" f key v
+  [[ -n "$issue" ]] || die "state_context_restore: issue required"
+  state_init "$project"
+  f="$(state_path "$project")"
+  state_context_clear "$project"
+  if ! _state_toml list-keys "$f" "context.${issue}" >/dev/null 2>&1; then
+    echo "warning: state_context_restore: no saved context for '$issue' — per-issue keys reset to defaults" >&2
+    return 0
+  fi
+  for key in $STATE_ISSUE_KEYS; do
+    v="$(_state_toml get "$f" "context.${issue}.${key}" 2>/dev/null || true)"
+    [[ -n "$v" ]] || continue
+    case "$key" in
+      revision|last_step)
+        [[ "$v" =~ ^[0-9]+$ ]] || v=1
+        _state_toml set-int "$f" "$key" "$v" ;;
+      *)
+        _state_toml set "$f" "$key" "$v" ;;
+    esac
+  done
+  _state_toml unset "$f" "context.${issue}"
+  _state_toml set "$f" updated_at "$(_state_now)"
+}
+
 state_add_parked() {
   local project="$1" issue="$2"
   state_init "$project"

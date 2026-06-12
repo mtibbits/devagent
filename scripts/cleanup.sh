@@ -33,11 +33,11 @@ base_branch="${baseline##*/}"
 ( cd "$source_dir" && "$DEVAGENT_GIT" checkout "$base_branch" )
 
 # Bookkeeping first — updates checklist.md so devdoc has something to commit.
+# Clear the per-issue context (#98), then record cleanup as the last step.
+state_context_clear "$project"
 state_set "$project" last_step      "20"
 state_set "$project" last_step_name "cleanup"
 state_set "$project" active_issue   ""
-state_set "$project" branch         ""
-state_set "$project" worktree_path  ""
 
 checklist_mark "$issue_dir/checklist.md" 20 x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"

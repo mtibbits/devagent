@@ -51,6 +51,7 @@ main() {
   state_remove_parked "$project" "$issue"
   state_set "$project" active_issue "$issue"
   state_set "$project" issue_dir   "$issue_dir"
+  state_context_restore "$project" "$issue"
   info "resumed $issue"
 }
 
