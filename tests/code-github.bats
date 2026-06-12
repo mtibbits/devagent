@@ -38,11 +38,48 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json state --jq .state"
 }
 
-@test "code/github.sh mr-comments prints markdown from gh" {
-    devagent_stub gh "## Comment from @reviewer\n\nLooks good"
+# #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON through real jq.
+_jq_gh_stub() {
+    cat > "$DEVAGENT_STUB_BIN/gh" <<STUB
+#!/usr/bin/env bash
+printf 'gh' >> "$DEVAGENT_STUB_LOG"
+for a in "\$@"; do printf ' %s' "\$a" >> "$DEVAGENT_STUB_LOG"; done
+printf '\n' >> "$DEVAGENT_STUB_LOG"
+filter=""; prev=""
+for a in "\$@"; do [ "\$prev" = "--jq" ] && filter="\$a"; prev="\$a"; done
+[ -n "\$filter" ] || { echo "stub-gh: no --jq filter seen" >&2; exit 1; }
+printf '%s' "\$GH_STUB_JSON" | jq -r "\$filter"
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+}
+
+@test "code/github.sh mr-comments emits §9.3 shape from --json comments (#84)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[{"author":{"login":"reviewer"},"createdAt":"2026-06-12T10:00:00Z","body":"Looks good"},{"author":{"login":"alice"},"createdAt":"2026-06-11T09:00:00Z","body":"One nit"}]}'
     run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
     [ "$status" -eq 0 ]
-    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42"
+    # Needle deliberately stops at --jq: the filter body is an implementation
+    # detail tests must not pin verbatim (multiline filter shares the log line).
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json comments --jq"
+    [[ "$output" == *"## Comments (2)"* ]]
+    [[ "$output" == *"### @reviewer · 2026-06-12"* ]]
+    [[ "$output" == *"### @alice · 2026-06-11"* ]]
+    [[ "$output" == *"Looks good"* ]]
+}
+
+@test "code/github.sh mr-comments emits empty header for zero comments (#84)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[]}'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"## Comments (0)"* ]]
+    [[ "$output" != *"### @"* ]]
+}
+
+@test "code/github.sh mr-comments propagates gh failure (#84)" {
+    devagent_stub gh "" 1
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -ne 0 ]
 }
 
 @test "code/github.sh merge-mr defaults to squash" {
