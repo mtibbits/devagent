@@ -143,3 +143,20 @@ CTX
   v="$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch)"
   [ "$v" = "fix/676-foo" ]
 }
+
+@test "resume of an already-active issue is a no-op on context (#98 redmr MAJ-1 legacy guard)" {
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "feat/676-NEW"
+
+[context.Issue-676]
+branch = "feat/676-OLD"
+
+[parked]
+Issue-676 = true
+CTX
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = "feat/676-NEW"$' "$DA_HOME/state/volk.toml"
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" parked.Issue-676
+  [ "$status" -ne 0 ]
+}

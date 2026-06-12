@@ -90,3 +90,12 @@ EOF
     run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
     [ "$status" -ne 0 ]
 }
+
+@test "cleanup.sh GCs the snapshot when \$2 is the issue-dir PATH (#98 redmr MIN-3)" {
+    f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" context.Issue-1.branch "feat/1-x"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1"
+    [ "$status" -eq 0 ]
+    run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
+    [ "$status" -ne 0 ]
+}

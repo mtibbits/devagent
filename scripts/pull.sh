@@ -83,12 +83,17 @@ main() {
   local prev
   prev="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [[ "$prev" != "$issue_id" ]]; then
-    [[ -n "$prev" ]] && state_context_save "$project" "$prev"
+    [[ -n "$prev" && "$prev" != "null" ]] && state_context_save "$project" "$prev"
     state_context_clear "$project"
   fi
   state_set "$project" active_issue "$issue_id"
   active_set_project "$project"
   state_set "$project" issue_dir   "$issue_dir"
+  # An active issue is by definition not parked: drop any stale parked flag
+  # and snapshot for it, so a later resume cannot restore pre-park context
+  # over live work (#98).
+  state_remove_parked "$project" "$issue_id"
+  state_unset "$project" "context.${issue_id}"
 
   info "pulled ${repo}#${num} into ${issue_dir}"
   checklist_print_next_hint "$issue_dir/checklist.md"

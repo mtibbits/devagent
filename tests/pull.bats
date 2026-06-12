@@ -130,3 +130,34 @@ CTX
   [ "$status" -eq 0 ]
   grep -qE '^branch = "fix/676-mid-flight"$' "$DA_HOME/state/volk.toml"
 }
+
+@test "pull of a parked issue drops the parked flag and GCs its stale snapshot (#98 redmr MAJ-1)" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = ""
+
+[context.Issue-676]
+branch = "feat/676-OLD"
+
+[parked]
+Issue-676 = true
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" parked.Issue-676
+  [ "$status" -ne 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch
+  [ "$status" -ne 0 ]
+}
+
+@test "park, re-pull, rebranch, resume cannot resurrect the pre-park context (#98 redmr MAJ-1 e2e)" {
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/676-OLD"
+  "$PLUGIN_ROOT/scripts/park.sh" volk
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/676-NEW"
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  # resume must NOT clobber the live branch with the stale snapshot,
+  # whatever its exit status (pull dropped the parked flag → refusal is fine).
+  grep -qE '^branch = "feat/676-NEW"$' "$DA_HOME/state/volk.toml"
+}

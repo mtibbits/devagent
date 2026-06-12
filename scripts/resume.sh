@@ -48,12 +48,21 @@ main() {
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi
 
-  # A different unparked issue may still be active; snapshot its context
-  # before restore clears the top level, mirroring pull.sh's displacement
-  # guard (#98).
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
-  if [[ -n "$active" && "$active" != "null" && "$active" != "$issue" ]]; then
+  if [[ "$active" == "$issue" ]]; then
+    # Already active (legacy parked+active state): restoring would clobber
+    # live context with a stale snapshot (#98). Drop the flag and the stale
+    # snapshot; leave live state untouched.
+    state_remove_parked "$project" "$issue"
+    state_unset "$project" "context.${issue}"
+    info "resumed $issue (already active; context unchanged)"
+    return 0
+  fi
+  # A different unparked issue may still be active; snapshot its context
+  # before restore clears the top level, matching pull.sh's displacement
+  # guard (#98).
+  if [[ -n "$active" && "$active" != "null" ]]; then
     state_context_save "$project" "$active"
   fi
 

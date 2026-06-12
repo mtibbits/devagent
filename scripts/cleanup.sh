@@ -36,8 +36,14 @@ base_branch="${baseline##*/}"
 # Clear the per-issue context and GC any leftover snapshot for this issue
 # (#98), then record cleanup as the last step.
 state_context_clear "$project"
-if [ -n "$issue_arg" ]; then
-    state_unset "$project" "context.${issue_arg}"
+# GC the snapshot by issue id: prefer state's active_issue ($2 may be an
+# issue-dir path per commands/cleanup.md, or "--" when chained with a note).
+gc_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
+if [ -z "$gc_issue" ] || [ "$gc_issue" = "null" ]; then
+    gc_issue="${issue_arg##*/}"
+fi
+if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
+    state_unset "$project" "context.${gc_issue}"
 fi
 state_set "$project" last_step      "20"
 state_set "$project" last_step_name "cleanup"
