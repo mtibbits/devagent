@@ -9,70 +9,24 @@ set -euo pipefail
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/io.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 
+# Private die() preserves the "revise:" message prefix; defined after the sources so
+# it shadows io.sh's die (state.sh's internal die calls then carry this prefix too).
 die() {
   printf 'revise: %s\n' "$*" >&2
   exit 1
 }
 
-state_value() {
-  local project="$1" key="$2"
-  local state="$HOME/.claude/devagent/state/${project}.toml"
-  [[ -f "$state" ]] || return 1
-  awk -F'=' -v key="$key" '
-    $1 ~ "^[[:space:]]*"key"[[:space:]]*$" {
-      sub(/^[^=]*=[[:space:]]*/, "")
-      gsub(/^"|"$/, "")
-      print
-      exit
-    }
-  ' "$state"
-}
-
-state_set() {
-  local project="$1" key="$2" value="$3"
-  local state="$HOME/.claude/devagent/state/${project}.toml"
-  local tmp
-  tmp="$(mktemp)"
-  local found=0
-  if [[ -f "$state" ]]; then
-    while IFS= read -r line; do
-      if [[ "$line" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
-        printf '%s = "%s"\n' "$key" "$value" >>"$tmp"
-        found=1
-      else
-        printf '%s\n' "$line" >>"$tmp"
-      fi
-    done <"$state"
-  fi
-  if [[ $found -eq 0 ]]; then
-    printf '%s = "%s"\n' "$key" "$value" >>"$tmp"
-  fi
-  mv "$tmp" "$state"
-}
-
-state_set_int() {
-  local project="$1" key="$2" value="$3"
-  local state="$HOME/.claude/devagent/state/${project}.toml"
-  local tmp
-  tmp="$(mktemp)"
-  local found=0
-  if [[ -f "$state" ]]; then
-    while IFS= read -r line; do
-      if [[ "$line" =~ ^[[:space:]]*${key}[[:space:]]*= ]]; then
-        printf '%s = %s\n' "$key" "$value" >>"$tmp"
-        found=1
-      else
-        printf '%s\n' "$line" >>"$tmp"
-      fi
-    done <"$state"
-  fi
-  if [[ $found -eq 0 ]]; then
-    printf '%s = %s\n' "$key" "$value" >>"$tmp"
-  fi
-  mv "$tmp" "$state"
-}
+# #97: state read/write now goes through lib/state.sh (state_get / state_set /
+# state_set_int). The private section-ignorant helpers that appended a not-found key
+# at EOF — corrupting the [parked] table — have been removed.
 
 # Parse argv
 PROJECT=""
@@ -92,7 +46,7 @@ for arg in "$@"; do
 done
 [[ -n "$PROJECT" ]] || PROJECT="${DEVAGENT_PROJECT:-default}"
 
-issue_dir=$(state_value "$PROJECT" issue_dir) \
+issue_dir=$(state_get "$PROJECT" issue_dir) \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 

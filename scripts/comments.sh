@@ -13,26 +13,24 @@ set -euo pipefail
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/io.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 
+# Private die() preserves the "comments:" prefix; defined after the sources so it
+# shadows io.sh's die.
 die() {
   printf 'comments: %s\n' "$*" >&2
   exit 1
 }
 
-state_value() {
-  local project="$1" key="$2"
-  local state="$HOME/.claude/devagent/state/${project}.toml"
-  [[ -f "$state" ]] || return 1
-  awk -F'=' -v key="$key" '
-    $1 ~ "^[[:space:]]*"key"[[:space:]]*$" {
-      sub(/^[^=]*=[[:space:]]*/, "")
-      gsub(/^"|"$/, "")
-      print
-      exit
-    }
-  ' "$state"
-}
+# #97: state reads go through lib/state.sh (state_get) instead of a private
+# section-ignorant awk reader. (config_value below reads CONFIG, is section-aware,
+# and is out of scope.)
 
 config_value() {
   local project="$1" key="$2"
@@ -76,7 +74,7 @@ main() {
   local issue_arg="${1:-}"
 
   local issue_dir
-  issue_dir=$(state_value "$project" issue_dir) \
+  issue_dir=$(state_get "$project" issue_dir) \
     || die "no active_issue for project '$project' (state file missing or empty)"
   [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$project'"
 
@@ -88,7 +86,7 @@ main() {
   fi
 
   local mr_url
-  mr_url=$(state_value "$project" mr_url) || true
+  mr_url=$(state_get "$project" mr_url) || true
   [[ -n "$mr_url" ]] || die "mr_url not set in state — run /devagent:ship first"
 
   local n

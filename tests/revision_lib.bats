@@ -21,6 +21,15 @@ setup() {
   [ "$output" = "1" ]
 }
 
+@test "revision_current reads the top-level revision with a [parked] table present (#97)" {
+  # The replaced reader is now section-aware (state_get): a [parked] table must not
+  # perturb the top-level revision read (the reader-side analog of the writer repro).
+  printf 'revision = 4\n\n[parked]\nIssue-999 = "2026-06-01T00:00:00Z"\n' >"$FIX_STATE_FILE"
+  run revision_current volk
+  [ "$status" -eq 0 ]
+  [ "$output" = "4" ]
+}
+
 @test "revision_dir composes <issue-dir>/revisions/r<N>" {
   run revision_dir "$FIX_ISSUE_DIR" 3
   [ "$status" -eq 0 ]
