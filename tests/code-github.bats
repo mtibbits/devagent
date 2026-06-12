@@ -39,6 +39,8 @@ teardown() { devagent_test_teardown; }
 }
 
 # #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON through real jq.
+# jq 1.7 is a valid proxy for gh's built-in gojq here: output byte-identical
+# for this filter, validated against real gh 2.45.0 (see Issue-84 analysis/).
 _jq_gh_stub() {
     cat > "$DEVAGENT_STUB_BIN/gh" <<STUB
 #!/usr/bin/env bash
