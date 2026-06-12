@@ -94,3 +94,24 @@ teardown() { devagent_test_teardown; }
     msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
     echo "$msg" | grep -qi "co-authored-by"
 }
+
+@test "commit.sh refuses to commit when HEAD differs from state.branch (#69)" {
+    # mergetoall/cleanup can leave source_dir on another branch; state.branch is still
+    # the issue branch. Committing here would land the work on the wrong branch and
+    # re-ship would push the unchanged issue branch — the revision silently lost.
+    ( cd "$SOURCE_DIR" && git checkout -q -b dev/all-prs )   # HEAD now on the wrong branch; a.txt still staged
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing to commit"* ]]
+    [[ "$output" == *"feat/1-x"* ]]                          # names the expected issue branch
+    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 10 NOT marked done
+}
+
+@test "commit.sh refuses to commit on a detached HEAD (#69)" {
+    ( cd "$SOURCE_DIR" && git checkout -q --detach )         # detached; a.txt still staged
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing to commit"* ]]
+    [[ "$output" == *"detached HEAD"* ]]
+    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+}

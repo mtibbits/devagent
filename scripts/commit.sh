@@ -118,6 +118,18 @@ if [ "$include_coauthor" = "false" ]; then
     strip_coauthor "$body"
 fi
 
+# #69: commit on the issue branch only. `git commit` lands on whatever HEAD points at;
+# after mergetoall (HEAD left on all_prs) or cleanup (base branch) the revision flow
+# (comments → revise → implement → commit) would commit onto the wrong branch and
+# re-ship would push the unchanged issue branch — the revision silently never reaches
+# the PR. Refuse loudly on mismatch; a detached HEAD yields an empty name and is also
+# refused. Checked on work_dir, whose HEAD IS the issue branch under a worktree too.
+branch="$(state_get "$project" branch 2>/dev/null || true)"
+cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
+if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
+    die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
+fi
+
 # work_dir was resolved by the zero-diff guard above; reuse it.
 cd "$work_dir"
 "$DEVAGENT_GIT" commit -s -F "$body"
