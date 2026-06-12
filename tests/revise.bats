@@ -99,3 +99,24 @@ run_revise() {
   grep -q '^revision[[:space:]]*=[[:space:]]*3$' "$FIX_STATE_FILE"
   [ "$(grep -c '^## Revision ' "$FIX_ISSUE_DIR/checklist.md")" -eq 3 ]
 }
+
+@test "revise writes pending_comments_file top-level, not under [parked] (#97)" {
+  # Append a [parked] table. The old EOF-append writer lands a not-found key INSIDE it
+  # → pending_comments_file becomes parked.pending_comments_file (a bogus parked issue
+  # to status/where/resume). The canonical state_set must place it top-level.
+  cat >>"$FIX_STATE_FILE" <<'PARKED'
+
+[parked]
+Issue-999 = "2026-06-01T00:00:00Z"
+PARKED
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  # pending_comments_file is a TOP-LEVEL key: it appears BEFORE the [parked] header.
+  pcf=$(grep -n '^pending_comments_file' "$FIX_STATE_FILE" | head -1 | cut -d: -f1)
+  parked=$(grep -n '^\[parked\]' "$FIX_STATE_FILE" | head -1 | cut -d: -f1)
+  [ -n "$pcf" ]
+  [ -n "$parked" ]
+  [ "$pcf" -lt "$parked" ]
+  # the real parked entry survives; nothing masquerades inside [parked].
+  grep -q '^Issue-999 = ' "$FIX_STATE_FILE"
+}

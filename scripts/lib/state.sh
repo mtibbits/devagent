@@ -64,6 +64,18 @@ state_set() {
   _state_toml set "$f" updated_at "$(_state_now)"
 }
 
+# state_set_int <project> <key> <int> — write an unquoted integer value, placed in
+# the top-level table (section-correct, locked) like state_set. Used for the revision
+# counter; mirrors state_init's `set-int` so the stored form stays an int (#97).
+state_set_int() {
+  local project="$1" key="$2" value="$3"
+  state_init "$project"
+  local f
+  f="$(state_path "$project")"
+  _state_toml set-int "$f" "$key" "$value"
+  _state_toml set "$f" updated_at "$(_state_now)"
+}
+
 state_unset() {
   local project="$1" key="$2"
   state_exists "$project" || return 0

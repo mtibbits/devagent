@@ -6,23 +6,22 @@
 
 : "${DEVAGENT_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
+# #97: read state through the canonical, section-aware layer instead of a private
+# awk reader (paths+io must precede state). Self-sourced so callers that source only
+# this file (e.g. revision_lib.bats) still get state_get; sourcing is idempotent.
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/io.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+
 # revision_current <project>
 revision_current() {
   local project="$1"
-  local state="$HOME/.claude/devagent/state/${project}.toml"
   local n
-  if [[ -f "$state" ]]; then
-    n=$(awk -F'=' '
-      $1 ~ /^[[:space:]]*revision[[:space:]]*$/ {
-        gsub(/[[:space:]"]/, "", $2)
-        print $2
-        exit
-      }
-    ' "$state")
-  fi
-  if [[ -z "$n" ]]; then
-    n=1
-  fi
+  n="$(state_get "$project" revision 2>/dev/null || true)"
+  [[ -n "$n" ]] || n=1
   printf '%s\n' "$n"
 }
 
