@@ -173,3 +173,16 @@ teardown() { teardown_tmp_devagent_home; }
   f="$(state_path volk)"
   grep -qE '^branch = ""$' "$f"
 }
+
+@test "state_context_save replaces a stale snapshot instead of merging (#98 review M1)" {
+  state_set volk branch "fix/676-foo"
+  state_set volk mr_url "https://example.com/pr/OLD"
+  state_context_save volk Issue-676
+  state_context_clear volk
+  state_set volk branch "fix/676-v2"   # re-branched; no MR yet
+  state_context_save volk Issue-676
+  f="$(state_path volk)"
+  [ "$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-676.branch)" = "fix/676-v2" ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-676.mr_url
+  [ "$status" -ne 0 ]   # stale mr_url must NOT survive the re-save
+}

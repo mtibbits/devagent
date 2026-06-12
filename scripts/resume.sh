@@ -48,6 +48,15 @@ main() {
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi
 
+  # A different unparked issue may still be active; snapshot its context
+  # before restore clears the top level, mirroring pull.sh's displacement
+  # guard (#98).
+  local active
+  active="$(state_get "$project" active_issue 2>/dev/null || true)"
+  if [[ -n "$active" && "$active" != "null" && "$active" != "$issue" ]]; then
+    state_context_save "$project" "$active"
+  fi
+
   state_remove_parked "$project" "$issue"
   state_set "$project" active_issue "$issue"
   state_set "$project" issue_dir   "$issue_dir"

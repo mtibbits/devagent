@@ -130,3 +130,16 @@ CTX
   [[ "$output" == *"no saved context"* ]]   # bats `run` folds stderr into $output
   grep -qE '^branch = ""$' "$DA_HOME/state/volk.toml"
 }
+
+@test "resume over a live unparked issue snapshots the displaced issue's context (#98 review M2)" {
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "fix/676-foo"
+CTX
+  # Park 203 (non-active), then resume it while 676 is still active+unparked.
+  run "$PLUGIN_ROOT/scripts/park.sh" volk Issue-203
+  [ "$status" -eq 0 ]
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-203
+  [ "$status" -eq 0 ]
+  v="$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch)"
+  [ "$v" = "fix/676-foo" ]
+}

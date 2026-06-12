@@ -87,12 +87,15 @@ state_unset() {
 STATE_ISSUE_KEYS="branch baseline_sha worktree_path mr_url revision pending_comments_file last_step last_step_name"
 
 # state_context_save <project> <issue> — snapshot current top-level per-issue
-# keys into [context.<issue>]. Empty/absent keys are not snapshotted.
+# keys into [context.<issue>], replacing any stale snapshot for the same issue
+# (a merge would resurrect keys the issue no longer has, e.g. an old mr_url).
+# Empty/absent keys are not snapshotted.
 state_context_save() {
   local project="$1" issue="$2" f key v
   [[ -n "$issue" ]] || die "state_context_save: issue required"
   state_init "$project"
   f="$(state_path "$project")"
+  _state_toml unset "$f" "context.${issue}"
   for key in $STATE_ISSUE_KEYS; do
     v="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
     [[ -n "$v" ]] || continue

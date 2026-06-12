@@ -81,3 +81,12 @@ EOF
     # state_set AFTER the clear, preserving today's stored form exactly.
     grep -qE '^last_step = "20"$' "$f"
 }
+
+@test "cleanup.sh garbage-collects the issue's [context] snapshot (#98 review m4)" {
+    f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" context.Issue-1.branch "feat/1-x"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
+    [ "$status" -ne 0 ]
+}
