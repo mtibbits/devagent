@@ -105,6 +105,11 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"feat/1-x"* ]]                          # names the expected issue branch
     grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 10 NOT marked done
+    # The work-loss is actually prevented: nothing was committed anywhere — a.txt is
+    # still staged-but-uncommitted, not landed on the wrong branch.
+    ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt
+    run bash -c "cd '$SOURCE_DIR' && git log --all --oneline | grep -c 'add a.txt'"
+    [ "$output" -eq 0 ]
 }
 
 @test "commit.sh refuses to commit on a detached HEAD (#69)" {
@@ -114,4 +119,5 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"detached HEAD"* ]]
     grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt   # work preserved, not committed
 }
