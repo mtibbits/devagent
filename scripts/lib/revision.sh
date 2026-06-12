@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Revision helpers for devAgent Phase 6.
 #
-# All functions are pure (no global mutation). Source-only file: do not
-# execute directly.
+# This file's own functions are read-only (no global mutation). Source-only file:
+# do not execute directly. Note: it sources lib/{paths,io,state}.sh (#97) so
+# revision_current can read state through the canonical, section-aware layer.
 
 : "${DEVAGENT_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
