@@ -95,3 +95,69 @@ teardown() { teardown_tmp_devagent_home; }
   # AC6: no scaffold dir created for the bogus project.
   [ ! -d "$BATS_TEST_TMPDIR/devDoc/nosuchproj" ]
 }
+
+@test "pull of a new issue clears the previous issue's per-issue keys (#98)" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-1"
+issue_dir = "$DEVDOC/Issue-1"
+branch = "fix/1-old"
+mr_url = "https://example.com/pr/1"
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = ""$' "$DA_HOME/state/volk.toml"
+  grep -qE '^mr_url = ""$' "$DA_HOME/state/volk.toml"
+}
+
+@test "pull snapshots the displaced unparked issue's context (#98)" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-1"
+issue_dir = "$DEVDOC/Issue-1"
+branch = "fix/1-old"
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  v="$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-1.branch)"
+  [ "$v" = "fix/1-old" ]
+}
+
+@test "re-pull of the active issue preserves its in-flight context (#98)" {
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "fix/676-mid-flight"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^branch = "fix/676-mid-flight"$' "$DA_HOME/state/volk.toml"
+}
+
+@test "pull of a parked issue drops the parked flag and GCs its stale snapshot (#98 redmr MAJ-1)" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = ""
+
+[context.Issue-676]
+branch = "feat/676-OLD"
+
+[parked]
+Issue-676 = true
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" parked.Issue-676
+  [ "$status" -ne 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch
+  [ "$status" -ne 0 ]
+}
+
+@test "park, re-pull, rebranch, resume cannot resurrect the pre-park context (#98 redmr MAJ-1 e2e)" {
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/676-OLD"
+  "$PLUGIN_ROOT/scripts/park.sh" volk
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/676-NEW"
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  # resume must NOT clobber the live branch with the stale snapshot,
+  # whatever its exit status (pull dropped the parked flag → refusal is fine).
+  grep -qE '^branch = "feat/676-NEW"$' "$DA_HOME/state/volk.toml"
+}

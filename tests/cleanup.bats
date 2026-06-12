@@ -66,3 +66,36 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" != *"wbs reconcile failed"* ]]
 }
+
+@test "cleanup.sh clears per-issue keys (mr_url/baseline_sha/revision) (#98)" {
+    f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" mr_url "https://example.com/pr/9"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" baseline_sha "abc123"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set-int "$f" revision 3
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE '^mr_url = ""$' "$f"
+    grep -qE '^baseline_sha = ""$' "$f"
+    grep -qE '^revision = 1$' "$f"
+    # Quoted "20" is deliberate: cleanup re-sets last_step via the string-typed
+    # state_set AFTER the clear, preserving today's stored form exactly.
+    grep -qE '^last_step = "20"$' "$f"
+}
+
+@test "cleanup.sh garbage-collects the issue's [context] snapshot (#98 review m4)" {
+    f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" context.Issue-1.branch "feat/1-x"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
+    [ "$status" -ne 0 ]
+}
+
+@test "cleanup.sh GCs the snapshot when \$2 is the issue-dir PATH (#98 redmr MIN-3)" {
+    f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$f" context.Issue-1.branch "feat/1-x"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1"
+    [ "$status" -eq 0 ]
+    run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
+    [ "$status" -ne 0 ]
+}

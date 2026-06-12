@@ -183,6 +183,21 @@ composes better with future per-issue metadata (e.g.,
 `[parked."Issue-12"]` table with `parked_at`, `reason`, etc.) if we
 ever need it. Order is not preserved; v1 does not depend on order.
 
+Per-issue context (#98): the keys `branch`, `baseline_sha`,
+`worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
+`last_step`, `last_step_name` belong to the active issue, not the
+project. `park` snapshots them into a `[context.<issue>]` sub-table and
+resets the top level to defaults; `resume` restores the snapshot and
+deletes it; `pull` snapshots a displaced unparked issue and starts the
+new issue from defaults (re-pull of the active issue is a no-op on
+context); `cleanup` resets to defaults. The canonical key list and the
+save/restore/clear helpers live in `scripts/lib/state.sh`
+(`STATE_ISSUE_KEYS`, `state_context_{save,restore,clear}`). `[context]`
+is deliberately separate from `[parked]`: saved context is orthogonal
+to parked-ness, and `state_list_parked` lists only scalar keys. A
+future full `[issues.<id>]` nesting (Epic #61 end state) would re-point
+these helpers without changing callers.
+
 All writes to state files go through `scripts/lib/_toml.py`, which
 holds an exclusive `fcntl.flock` on a sibling `.lock` file across the
 entire read-modify-write cycle and writes via tempfile + atomic

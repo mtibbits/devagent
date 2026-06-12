@@ -76,10 +76,24 @@ main() {
   checklist_mark "$issue_dir/checklist.md" 0 x
   log_append "$issue_dir" "pull" "fetched ${repo}#${num}, scaffold created"
 
-  # Promote to active issue
+  # Promote to active issue. If this displaces a different in-flight issue,
+  # snapshot its per-issue context first (it may not have been parked), then
+  # start the new issue from clean defaults. Re-pull of the same issue must
+  # not disturb in-flight context (#98).
+  local prev
+  prev="$(state_get "$project" active_issue 2>/dev/null || true)"
+  if [[ "$prev" != "$issue_id" ]]; then
+    [[ -n "$prev" && "$prev" != "null" ]] && state_context_save "$project" "$prev"
+    state_context_clear "$project"
+  fi
   state_set "$project" active_issue "$issue_id"
   active_set_project "$project"
   state_set "$project" issue_dir   "$issue_dir"
+  # An active issue is by definition not parked: drop any stale parked flag
+  # and snapshot for it, so a later resume cannot restore pre-park context
+  # over live work (#98).
+  state_remove_parked "$project" "$issue_id"
+  state_unset "$project" "context.${issue_id}"
 
   info "pulled ${repo}#${num} into ${issue_dir}"
   checklist_print_next_hint "$issue_dir/checklist.md"
