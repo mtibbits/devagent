@@ -85,9 +85,23 @@ case "$verb" in
         ;;
     branch-exists)
         [ $# -eq 2 ] || usage
-        # 0 = exists, 1 = absent. `gh api` exits non-zero (404) when the branch
-        # is missing. Slashed names (feat/parent) are valid in the path.
-        "$DEVAGENT_GH" api "repos/$1/branches/$2" >/dev/null 2>&1
+        # #85: 0 = exists (HTTP 200); 1 = CONFIRMED absent (a real HTTP 404);
+        # 2 = can't determine (network / 403 rate-limit / any other gh error).
+        # `gh api` exits 1 for all of those, so map only a "HTTP 404" in the
+        # captured stderr to absent — everything else is exit 2 so ship.sh's
+        # stacked logic (rc 1 = drop the parent base) does NOT discard a live
+        # parent on a transient failure. Mirrors merged-pr-head's three-state
+        # contract below. Slashed names (feat/parent) are valid in the path.
+        # The `if err=$(...)` form is load-bearing under `set -euo pipefail`:
+        # a bare assignment would propagate gh's non-zero status and abort
+        # before we could inspect the error text.
+        if err="$("$DEVAGENT_GH" api "repos/$1/branches/$2" 2>&1 >/dev/null)"; then
+            exit 0
+        fi
+        case "$err" in
+            *"HTTP 404"*) exit 1 ;;
+            *)            exit 2 ;;
+        esac
         ;;
     merged-pr-head)
         [ $# -eq 2 ] || usage

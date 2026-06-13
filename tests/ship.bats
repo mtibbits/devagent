@@ -347,7 +347,7 @@ EOF
     chmod +x "$DEVAGENT_STUB_BIN/git"
     cat > "$DEVAGENT_STUB_BIN/gh" <<EOF
 #!/usr/bin/env bash
-if [ "\$1" = "api" ]; then exit 1; fi          # branch-exists → absent
+if [ "\$1" = "api" ]; then echo "gh: Branch not found (HTTP 404)" >&2; exit 1; fi   # branch-exists → absent (real gh 404; #85 maps only HTTP 404 → rc 1)
 echo "gh \$*" >> "$DEVAGENT_STUB_LOG"
 printf '%s' "https://github.com/acme/testproj/pull/77"
 EOF

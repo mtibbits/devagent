@@ -111,11 +111,13 @@ STUB
     [ "$status" -ne 0 ]
 }
 
-@test "code/github.sh branch-exists returns 0 when present, 1 when absent (#41)" {
+@test "code/github.sh branch-exists returns 0 when present, 1 on a real HTTP 404 (#41, #85)" {
     cat > "$DEVAGENT_TMP/gh" <<'EOF'
 #!/usr/bin/env bash
-# args: api repos/<repo>/branches/<branch> — 0 iff the path ends in /present
+# args: api repos/<repo>/branches/<branch> — 0 iff the path ends in /present;
+# a missing branch is a real 404 (real gh 2.45.0: "Branch not found (HTTP 404)").
 [[ "$*" == *"branches/present" ]] && exit 0
+echo "gh: Branch not found (HTTP 404)" >&2
 exit 1
 EOF
     chmod +x "$DEVAGENT_TMP/gh"
@@ -123,6 +125,30 @@ EOF
     [ "$status" -eq 0 ]
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo absent
     [ "$status" -eq 1 ]
+}
+
+@test "code/github.sh branch-exists exits 2 (can't determine) on a network failure, not 1 (#85)" {
+    # A transient (no "HTTP 404" in the error) must NOT read as "absent" (1) —
+    # ship.sh treats rc 1 as confirmed-absent and would discard the parent base.
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "gh: error connecting to api.github.com" >&2
+exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo whatever
+    [ "$status" -eq 2 ]
+}
+
+@test "code/github.sh branch-exists exits 2 on a 403 rate-limit, not 1 (#85)" {
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "gh: API rate limit exceeded (HTTP 403)" >&2
+exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo whatever
+    [ "$status" -eq 2 ]
 }
 
 @test "code/github.sh merged-pr-head exits 0 when a merged PR has the head, 1 when none (#154)" {
