@@ -115,9 +115,9 @@ STUB
     cat > "$DEVAGENT_TMP/gh" <<'EOF'
 #!/usr/bin/env bash
 # args: api repos/<repo>/branches/<branch> — 0 iff the path ends in /present;
-# a missing branch is a real 404 (gh writes "Not Found (HTTP 404)" to stderr).
+# a missing branch is a real 404 (real gh 2.45.0: "Branch not found (HTTP 404)").
 [[ "$*" == *"branches/present" ]] && exit 0
-echo "gh: Not Found (HTTP 404)" >&2
+echo "gh: Branch not found (HTTP 404)" >&2
 exit 1
 EOF
     chmod +x "$DEVAGENT_TMP/gh"
