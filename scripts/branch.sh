@@ -57,13 +57,43 @@ branch="$prefix/$issue_num-$slug"
 baseline="$(config_get_project_field "$project" default_baseline)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 
+# Per-issue baseline override (#162). A .devagent-baseline marker in the issue
+# dir (mirroring .devagent-type/.devagent-title) cuts the branch from a
+# non-default base, for issues whose targets live only on an integration branch
+# (e.g. a fork-only harness on dev/all-prs). It is INTENTIONAL: unlike the
+# default-baseline path below it must not silently fall back to HEAD (cf. #72).
+baseline_file="$issue_dir/.devagent-baseline"
+baseline_override=0
+if [ -r "$baseline_file" ]; then
+    # Strip all whitespace: a git ref carries none, and this collapses an
+    # all-whitespace marker to empty so it is rejected rather than passed on.
+    override_ref="$(tr -d '[:space:]' < "$baseline_file")"
+    [ -n "$override_ref" ] || die "branch.sh: $baseline_file is empty (no baseline ref)"
+    # Treat strictly as a git ref: reject anything outside the ref charset so a
+    # marker can never inject shell metacharacters into the git invocations.
+    case "$override_ref" in
+    *[!A-Za-z0-9._/-]*) die "branch.sh: invalid baseline ref '$override_ref' in $baseline_file (allowed: A-Za-z0-9 . _ / -)" ;;
+    esac
+    baseline="$override_ref"
+    baseline_override=1
+fi
+
 cd "$source_dir"
-# Fetch baseline; absorb network failure as "already up to date" for offline tests.
+# Fetch the remote implied by a remote/branch baseline; a harmless no-op for a
+# local-branch baseline (e.g. dev/all-prs → "dev" is not a remote). Network
+# failure is absorbed as "already up to date" for offline tests.
 "$DEVAGENT_GIT" fetch --quiet "$(echo "$baseline" | cut -d/ -f1)" 2>/dev/null || true
-# Resolve baseline ref; fall back to HEAD for offline/no-remote fixtures.
+# Resolve baseline ref.
 if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
     :
+elif [ "$baseline_override" -eq 1 ]; then
+    # An explicit per-issue override that does not resolve is a hard error —
+    # NEVER silently fall back to HEAD or default_baseline (that is the #72
+    # mis-base hazard). Fail before any branch is created.
+    die "branch.sh: per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
 else
+    # Default-baseline path only: fall back to HEAD for offline/no-remote
+    # fixtures (#72 tracks making this fallback loud).
     baseline_sha="$("$DEVAGENT_GIT" rev-parse HEAD)"
 fi
 
@@ -84,6 +114,6 @@ state_set "$project" last_step      "6"
 state_set "$project" last_step_name "branch"
 
 checklist_mark "$issue_dir/checklist.md" 6 x
-log_append "$issue_dir" branch "created $branch from $baseline ($baseline_sha)${NOTE:+ — $NOTE}"
+log_append "$issue_dir" branch "created $branch from $baseline$([ "$baseline_override" -eq 1 ] && printf ' (per-issue override)') ($baseline_sha)${NOTE:+ — $NOTE}"
 echo "$branch"
 checklist_print_next_hint "$issue_dir/checklist.md"
