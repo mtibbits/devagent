@@ -51,7 +51,20 @@ case "$verb" in
         ;;
     mr-comments)
         [ $# -eq 1 ] || usage
-        "$DEVAGENT_GH" pr view "$1" --comments
+        # §9.3 shape via gh's built-in jq (no external jq dependency here).
+        # Same filter as issue/github.sh cmd_comment_list. The old
+        # `pr view --comments` human view fails on gh 2.45.0 and has no
+        # `### @` lines for comments.sh to count (#84).
+        "$DEVAGENT_GH" pr view "$1" --json comments --jq '
+          def comment_block:
+            .comments | map(
+              "### @" + (.author.login // "unknown")
+              + " · " + ((.createdAt // "") | split("T")[0])
+              + "\n\n" + (.body // "")
+            ) | join("\n\n");
+          "## Comments (" + ((.comments | length) | tostring) + ")\n"
+          + (if (.comments | length) > 0 then "\n" + comment_block + "\n" else "" end)
+        '
         ;;
     merge-mr)
         [ $# -ge 1 ] || usage
