@@ -6,7 +6,14 @@ setup() {
 #!/usr/bin/env bash
 printf 'glab %s\n' "$*" >>"${STUB_LOG}"
 case "$1 $2" in
-  "auth status")
+  "api user")                              # attributable validity probe (#91): 2xx
+    exit 0
+    ;;
+  "api personal_access_tokens/self")       # scopes readout (already --jq joined)
+    printf 'api, read_repository, write_repository\n'
+    exit 0
+    ;;
+  "auth status")                           # legacy path (pre-#91), kept harmless
     printf 'Token scopes: api, read_repository, write_repository\n'
     exit 0
     ;;
@@ -59,4 +66,58 @@ teardown() { auth_teardown_common; }
   run scripts/auth/gitlab.sh status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"present=false"* ]]
+}
+
+# --- #91: attributable validation, fail closed -----------------------------
+
+@test "gitlab store fails closed on an invalid token — no secret written (#91)" {
+  cat >"${STUB_BIN}/glab" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "api user") printf 'HTTP/2 401 Unauthorized\r\n'; exit 1 ;;
+esac
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/glab"
+  local tf="${BATS_TEST_TMPDIR}/tok"; printf 'glpat-0123456789abcdef0123\n' >"${tf}"
+  run scripts/auth/gitlab.sh store volk "${tf}"
+  [ "${status}" -ne 0 ]
+  [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat" ]
+}
+
+@test "gitlab rotate fails closed on an invalid new token — old token kept (#91)" {
+  # store a valid token (setup stub), then rotate to an invalid one
+  local old="${BATS_TEST_TMPDIR}/old"; printf 'glpat-oldoldoldoldoldold\n' >"${old}"
+  scripts/auth/gitlab.sh store volk "${old}"
+  cat >"${STUB_BIN}/glab" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "api user") printf 'HTTP/2 401 Unauthorized\r\n'; exit 1 ;;
+esac
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/glab"
+  local new="${BATS_TEST_TMPDIR}/new"; printf 'glpat-badbadbadbadbadbad\n' >"${new}"
+  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" scripts/auth/gitlab.sh rotate volk
+  [ "${status}" -ne 0 ]
+  [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat")" = "glpat-oldoldoldoldoldold" ]  # old kept, no half-swap
+}
+
+@test "gitlab scopes line is not truncated at an 'n' (#95)" {
+  cat >"${STUB_BIN}/glab" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "api user") exit 0 ;;
+  "api personal_access_tokens/self") printf 'admin_mode, api, write_repository\n'; exit 0 ;;
+  "auth status") printf 'Token scopes: admin_mode, api, write_repository\n'; exit 0 ;;
+esac
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/glab"
+  local tf="${BATS_TEST_TMPDIR}/tok"; printf 'glpat-0123456789abcdef0123\n' >"${tf}"
+  scripts/auth/gitlab.sh store volk "${tf}"
+  run scripts/auth/gitlab.sh status volk
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"admin_mode"* ]]        # not truncated at the 'n' in admin_mode
+  [[ "${output}" == *"write_repository"* ]]  # the tail survives
 }
