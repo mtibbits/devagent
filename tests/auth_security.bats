@@ -72,3 +72,17 @@ teardown() { auth_teardown_common; }
   rm -f "${tf}"
   [ "${status}" -eq 0 ]
 }
+
+@test "a proven-invalid token is never written to disk (#91 fail-closed)" {
+  # gh reports the candidate is unauthorized (401) and exits non-zero.
+  cat >"${STUB_BIN}/gh" <<'EOF'
+#!/usr/bin/env bash
+printf 'HTTP/2 401 Unauthorized\r\n'
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/gh"
+  local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
+  run scripts/auth/github.sh store volk "${tf}"
+  [ "${status}" -ne 0 ]
+  [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]   # the security invariant
+}

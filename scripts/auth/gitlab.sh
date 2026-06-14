@@ -15,13 +15,40 @@ readonly BACKEND="gitlab"
 readonly ENV_VAR="GITLAB_TOKEN"
 readonly PAT_URL="https://gitlab.com/-/profile/personal_access_tokens?name=devAgent&scopes=api,read_repository,write_repository"
 
-_gl_validate_scopes() {
-  if ! command -v glab >/dev/null 2>&1; then
-    echo "auth/gitlab: glab CLI not installed; skipping scope validation" >&2
+_gl_validate_token() {
+  # Attributable validation via `glab api user` (#91); same 0/1/2 three-state
+  # contract as github (0=valid / 1=proven-bad → fail closed / 2=can't tell).
+  # Unlike `glab auth status` it never borrows the keyring login's scopes.
+  # Scopes (best-effort, GitLab >=16) from personal_access_tokens/self.
+  # #95: scopes joined by glab's jq, not the truncating `[^\n]` grep.
+  command -v glab >/dev/null 2>&1 || return 2
+  local out
+  if out="$(GITLAB_TOKEN="$1" glab api user -i 2>&1)"; then
+    GITLAB_TOKEN="$1" glab api personal_access_tokens/self \
+        --jq '.scopes | join(", ")' 2>/dev/null | tr -d '\r' | head -n1 || true
     return 0
   fi
-  GITLAB_TOKEN="$1" glab auth status 2>&1 \
-    | grep -oE 'Token scopes:[^\n]*' | head -n1 || true
+  printf '%s\n' "${out}" | grep -qiE 'HTTP/[0-9.]+ [45][0-9][0-9]' && return 1
+  return 2
+}
+
+_gl_validate_and_store() {
+  local proj="$1" token="$2"
+  local scopes rc
+  scopes="$(_gl_validate_token "${token}")" && rc=0 || rc=$?
+  if [ "${rc}" -eq 1 ]; then
+    echo "auth/gitlab: token rejected — GitLab reports it is invalid; not stored (#91)" >&2
+    return 1
+  fi
+  if [ "${rc}" -eq 0 ] && [ -n "${scopes}" ] && ! printf '%s' "${scopes}" | grep -q 'api'; then
+    echo "auth/gitlab: token missing required scope 'api': ${scopes}" >&2
+    return 1
+  fi
+  if [ "${rc}" -eq 2 ]; then
+    echo "auth/gitlab: could not validate token (glab unavailable or network error); storing anyway" >&2
+  fi
+  secret_write "${proj}" "${BACKEND}" "${token}"
+  echo "auth/gitlab: stored token for ${proj} (${scopes:-scopes unknown})" >&2
 }
 
 _gl_strip_token_file() {
@@ -42,30 +69,29 @@ _gl_create_interactive() {
   if   command -v xdg-open >/dev/null 2>&1; then xdg-open "${PAT_URL}" >/dev/null 2>&1 || true
   elif command -v open     >/dev/null 2>&1; then open      "${PAT_URL}" >/dev/null 2>&1 || true
   fi
-  local token=""
+  local token="" from_clipboard=0
   if [ -n "${DEVAGENT_CREATE_TOKEN_FILE:-}" ]; then
     token="$(_gl_strip_token_file "${DEVAGENT_CREATE_TOKEN_FILE}")"
-  elif command -v xclip   >/dev/null 2>&1; then token="$(xclip -selection clipboard -o 2>/dev/null || true)"
-  elif command -v pbpaste >/dev/null 2>&1; then token="$(pbpaste 2>/dev/null || true)"
+  elif command -v xclip   >/dev/null 2>&1; then token="$(xclip -selection clipboard -o 2>/dev/null || true)"; from_clipboard=1
+  elif command -v pbpaste >/dev/null 2>&1; then token="$(pbpaste 2>/dev/null || true)"; from_clipboard=1
   fi
   if [ -z "${token}" ]; then
     printf 'Paste token (input hidden): ' >&2
     read -rs token; printf '\n' >&2
+    from_clipboard=0
   fi
   [ -n "${token}" ] || { echo "auth/gitlab: no token provided" >&2; return 1; }
-  local scopes; scopes="$(_gl_validate_scopes "${token}")"
-  if [ -n "${scopes}" ] && ! printf '%s' "${scopes}" | grep -q 'api'; then
-    echo "auth/gitlab: token missing required scope 'api': ${scopes}" >&2
-    return 1
+  if [ "${from_clipboard}" -eq 1 ]; then
+    # Masked-prefix confirmation for the silent clipboard grab, never the whole secret (#91).
+    echo "auth/gitlab: using clipboard token ${token:0:8}… (${#token} chars)" >&2
   fi
-  secret_write "${proj}" "${BACKEND}" "${token}"
-  echo "auth/gitlab: stored token for ${proj} (${scopes:-scopes unknown})" >&2
+  _gl_validate_and_store "${proj}" "${token}"
 }
 
 _gl_store() {
   local proj="$1" tokfile="$2"
   local val; val="$(_gl_strip_token_file "${tokfile}")"
-  secret_write "${proj}" "${BACKEND}" "${val}"
+  _gl_validate_and_store "${proj}" "${val}"   # #91: validate + fail closed
 }
 
 _gl_rotate() {
@@ -73,10 +99,10 @@ _gl_rotate() {
   local new_file="${DEVAGENT_ROTATE_TOKEN_FILE:-}"
   if [ -z "${new_file}" ]; then
     _gl_create_interactive "${proj}"
-    return 0
+    return            # propagate create's exit (fail-closed on a bad new token)
   fi
   local new_val; new_val="$(_gl_strip_token_file "${new_file}")"
-  secret_write "${proj}" "${BACKEND}" "${new_val}"
+  _gl_validate_and_store "${proj}" "${new_val}"   # #91: a proven-bad new token leaves the old in place
 }
 
 _gl_status() {
@@ -86,10 +112,11 @@ _gl_status() {
   printf '%s' "${meta}"
   if [[ "${meta}" == *"present=false"* ]]; then printf '\n'; return 0; fi
   local tok; tok="$(secret_read "${proj}" "${BACKEND}")"
-  local scopes; scopes="$(_gl_validate_scopes "${tok}")"
+  # informational: tolerate proven-bad (rc 1) / can't-determine (rc 2) (#91)
+  local scopes; scopes="$(_gl_validate_token "${tok}")" || true
   unset tok
   if [ -n "${scopes}" ]; then
-    scopes="$(printf '%s' "${scopes}" | sed -e 's/^Token scopes: *//' -e "s/'//g")"
+    scopes="$(printf '%s' "${scopes}" | sed -e "s/'//g")"
     printf ' scopes=%s' "${scopes}"
   fi
   printf ' last_used=unknown\n'
