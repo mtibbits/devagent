@@ -175,6 +175,21 @@ EOF
   [[ "${output}" == *"could not validate"* ]]              # but loudly warned
 }
 
+@test "github stores with a warning on a 503/429 transient, not refuse (#91 review)" {
+  # A rate-limit / server error is NOT proof the token is invalid (only 401 is).
+  cat >"${STUB_BIN}/gh" <<'EOF'
+#!/usr/bin/env bash
+printf 'HTTP/2 503 Service Unavailable\r\n'
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/gh"
+  local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
+  run scripts/auth/github.sh store volk "${tf}"
+  [ "${status}" -eq 0 ]                                # stored, not refused
+  [ -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
+  [[ "${output}" == *"could not validate"* ]]
+}
+
 @test "github create masks a clipboard-sourced token, never prints it whole (#91)" {
   cat >"${STUB_BIN}/gh" <<'EOF'
 #!/usr/bin/env bash

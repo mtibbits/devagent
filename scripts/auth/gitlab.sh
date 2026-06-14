@@ -18,7 +18,9 @@ readonly PAT_URL="https://gitlab.com/-/profile/personal_access_tokens?name=devAg
 _gl_validate_token() {
   # Attributable validation via `glab api user` (#91); same 0/1/2 three-state
   # contract as github (0=valid / 1=proven-bad → fail closed / 2=can't tell).
-  # Unlike `glab auth status` it never borrows the keyring login's scopes.
+  # Only HTTP 401 is proven-bad; 403/429/5xx/network → rc 2 (valid-but-throttled
+  # tokens must not be refused during an outage). Unlike `glab auth status` it
+  # never borrows the keyring login's scopes.
   # Scopes (best-effort, GitLab >=16) from personal_access_tokens/self.
   # #95: scopes joined by glab's jq, not the truncating `[^\n]` grep.
   command -v glab >/dev/null 2>&1 || return 2
@@ -28,7 +30,7 @@ _gl_validate_token() {
         --jq '.scopes | join(", ")' 2>/dev/null | tr -d '\r' | head -n1 || true
     return 0
   fi
-  printf '%s\n' "${out}" | grep -qiE 'HTTP/[0-9.]+ [45][0-9][0-9]' && return 1
+  printf '%s\n' "${out}" | grep -qiE 'HTTP/[0-9.]+ 401([^0-9]|$)' && return 1
   return 2
 }
 
@@ -45,7 +47,7 @@ _gl_validate_and_store() {
     return 1
   fi
   if [ "${rc}" -eq 2 ]; then
-    echo "auth/gitlab: could not validate token (glab unavailable or network error); storing anyway" >&2
+    echo "auth/gitlab: could not validate token (glab unavailable, network error, rate limit, or server error); storing anyway" >&2
   fi
   secret_write "${proj}" "${BACKEND}" "${token}"
   echo "auth/gitlab: stored token for ${proj} (${scopes:-scopes unknown})" >&2

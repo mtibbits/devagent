@@ -85,6 +85,24 @@ EOF
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat" ]
 }
 
+@test "gitlab rotate fails closed on an invalid new token — old token kept (#91)" {
+  # store a valid token (setup stub), then rotate to an invalid one
+  local old="${BATS_TEST_TMPDIR}/old"; printf 'glpat-oldoldoldoldoldold\n' >"${old}"
+  scripts/auth/gitlab.sh store volk "${old}"
+  cat >"${STUB_BIN}/glab" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "api user") printf 'HTTP/2 401 Unauthorized\r\n'; exit 1 ;;
+esac
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/glab"
+  local new="${BATS_TEST_TMPDIR}/new"; printf 'glpat-badbadbadbadbadbad\n' >"${new}"
+  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" scripts/auth/gitlab.sh rotate volk
+  [ "${status}" -ne 0 ]
+  [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat")" = "glpat-oldoldoldoldoldold" ]  # old kept, no half-swap
+}
+
 @test "gitlab scopes line is not truncated at an 'n' (#95)" {
   cat >"${STUB_BIN}/glab" <<'EOF'
 #!/usr/bin/env bash

@@ -29,8 +29,11 @@ _gh_validate_token() {
   # Validate <token> ATTRIBUTABLY via `gh api user` (#91). Prints the token's
   # scopes on stdout when known. Exit codes (the repo's #85/#154 three-state):
   #   0 = valid       — HTTP 2xx for THIS token.
-  #   1 = proven bad  — a non-2xx HTTP status (401/403/…); callers FAIL CLOSED.
-  #   2 = can't tell  — gh absent / network error / no HTTP status; store + warn.
+  #   1 = proven bad  — HTTP 401 (bad credentials) for THIS token; FAIL CLOSED.
+  #   2 = can't tell  — gh absent / network / 403 / 429 / 5xx / no status; warn.
+  # Only 401 is "proven bad": on the /user endpoint a valid token is 200, an
+  # invalid/revoked one is 401, and 403/429 are rate-limit (valid-but-throttled)
+  # — rejecting those would refuse a good token during an outage.
   # Unlike the old `gh auth status`, `gh api user` never falls back to the
   # keyring login, so an invalid candidate can no longer borrow another
   # account's scopes as false confirmation.
@@ -43,7 +46,7 @@ _gh_validate_token() {
       | sed -E 's/^[Xx]-[Oo]auth-[Ss]copes:[[:space:]]*//' || true
     return 0
   fi
-  printf '%s\n' "${out}" | grep -qiE 'HTTP/[0-9.]+ [45][0-9][0-9]' && return 1
+  printf '%s\n' "${out}" | grep -qiE 'HTTP/[0-9.]+ 401([^0-9]|$)' && return 1
   return 2
 }
 
@@ -62,7 +65,7 @@ _gh_validate_and_store() {
     return 1
   fi
   if [ "${rc}" -eq 2 ]; then
-    echo "auth/github: could not validate token (gh unavailable or network error); storing anyway" >&2
+    echo "auth/github: could not validate token (gh unavailable, network error, rate limit, or server error); storing anyway" >&2
   fi
   secret_write "${proj}" "${BACKEND}" "${token}"
   echo "auth/github: stored token for ${proj} (${scopes:-scopes unknown})" >&2
