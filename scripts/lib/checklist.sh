@@ -167,8 +167,11 @@ checklist_advance() {
   checklist_current_step "$file"
 }
 
-# Returns the next step number whose state is one of [ ] [~] starting
-# AFTER the given step number. Skips [x] [-] [?] [P] [!]. Empty if none.
+# Returns the next step number whose state is one of [ ] [~], in FILE ORDER,
+# on a line after the `after` step's line. Skips [x] [-] [?] [P] [!]. Empty if
+# none. #77: the checklist's authority is file order, not the step number — a
+# `n > after` comparison silently skips e.g. commit (10) under the deliberate
+# 11-before-10 layout. `after=0` (default) returns the first pending step.
 checklist_next_actionable() {
   local file="$1"
   local after="${2:-0}"
@@ -176,7 +179,9 @@ checklist_next_actionable() {
     match($0, /^- \[(.)\] +([0-9]+)\./, m) {
       n = m[2] + 0
       g = m[1]
-      if (n > after && (g == " " || g == "~")) { print n; exit }
+      # Skip every line up to and including the `after` step (file order).
+      if (after > 0 && !seen) { if (n == after) seen = 1; next }
+      if (g == " " || g == "~") { print n; exit }
     }
   ' "$file"
 }
