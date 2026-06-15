@@ -111,3 +111,33 @@ PY
     [ -d "$DEVAGENT_TMP/wtroot/issue-1/.git" ] || [ -f "$DEVAGENT_TMP/wtroot/issue-1/.git" ]
     grep -q "worktree_path *= *\"$DEVAGENT_TMP/wtroot/issue-1\"" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "branch.sh warns loudly when the default baseline falls back to HEAD (missing remote) [#72]" {
+    # Fixture default_baseline is origin/main with no 'origin' remote → the
+    # default path genuinely can't resolve and falls back to HEAD. That must be LOUD.
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "warn me" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]                                          # offline-fixture behavior preserved
+    echo "$output" | grep -qi "falling back to HEAD"            # the #72 loud warning
+    ( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD ) | grep -qx "feat/1-warn-me"
+}
+
+@test "branch.sh refuses HEAD fallback when the remote exists but the ref is missing [#72]" {
+    # origin now EXISTS (empty bare → no 'main' ref): an unresolvable origin/main
+    # is a pruned/typo'd ref, NOT a missing remote — must die, never stack on HEAD.
+    local remote="$DEVAGENT_TMP/origin.git"
+    git init -q --bare "$remote"
+    ( cd "$SOURCE_DIR" && git remote add origin "$remote" )
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "ref gone" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -qi "refusing to fall back"
+    # No branch created: still on main, state branch not a feat/ branch.
+    ( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD ) | grep -qx "main"
+    run grep -q '^branch *= *"feat/' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
+}

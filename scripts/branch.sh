@@ -92,8 +92,17 @@ elif [ "$baseline_override" -eq 1 ]; then
     # mis-base hazard). Fail before any branch is created.
     die "branch.sh: per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
 else
-    # Default-baseline path only: fall back to HEAD for offline/no-remote
-    # fixtures (#72 tracks making this fallback loud).
+    # Default-baseline path. Distinguish a genuinely-missing remote (offline /
+    # no-remote fixture — fall back to HEAD, but LOUDLY) from a configured remote
+    # whose ref simply did not resolve (pruned or typo'd ref). The latter is the
+    # #72 mis-base hazard: a silent HEAD fallback stacks the branch on whatever is
+    # checked out (often the previous issue's branch) and ship later bases the PR
+    # on the wrong parent — so refuse it rather than fall back.
+    base_remote="$(echo "$baseline" | cut -d/ -f1)"
+    if "$DEVAGENT_GIT" remote get-url "$base_remote" >/dev/null 2>&1; then
+        die "branch.sh: default_baseline '$baseline' does not resolve though remote '$base_remote' exists (pruned or typo'd ref?); refusing to fall back to HEAD — fix default_baseline or fetch the ref (#72)"
+    fi
+    warn "branch.sh: default_baseline '$baseline' unresolvable and remote '$base_remote' is not configured; falling back to HEAD ($("$DEVAGENT_GIT" rev-parse --short HEAD)) — the new branch will stack on the current checkout (#72)"
     baseline_sha="$("$DEVAGENT_GIT" rev-parse HEAD)"
 fi
 
