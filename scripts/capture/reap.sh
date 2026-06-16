@@ -168,6 +168,10 @@ if [[ "${DRY}" -eq 1 ]]; then
   exit 0
 fi
 
+# Write atomically: a bare > redirect truncates the state file in place, so a
+# crash mid-write leaves it truncated. Stage into a temp file in the same dir
+# (same filesystem → atomic rename) then mv into place, like lib/secrets.sh.
+tmp="$(mktemp "${STATE_DIR}/.${DEVAGENT_PROJECT}.reaped.XXXXXX")"
 {
   printf '# Written by scripts/capture/reap.sh\n'
   printf '# project = %s\n' "${DEVAGENT_PROJECT}"
@@ -175,7 +179,8 @@ fi
   for h in "${!SEEN[@]}"; do
     printf '%s = "seen"\n' "${h}"
   done
-} >"${STATE_FILE}"
+} >"${tmp}"
+mv -f "${tmp}" "${STATE_FILE}"
 
 printf 'reap: %d new draft(s)\n' "${new_count}"
 for t in "${NEW_LABELS[@]}"; do
