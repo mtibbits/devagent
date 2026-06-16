@@ -19,6 +19,10 @@ _LOG_RE = re.compile(
 )
 _BLOCKING_RE = re.compile(r"(?P<count>\d+)\s+blocking", re.IGNORECASE)
 _RECS_RE = re.compile(r"(?P<count>\d+)\s+recommendations?", re.IGNORECASE)
+# #132: match a count + the "ambiguit" stem so both "1 ambiguity" and the
+# canonical "N ambiguities" plural line are detected. Count-gated (see
+# poorly_scoped) so a low count does not mis-flag a well-scoped issue.
+_AMBIG_RE = re.compile(r"(?P<count>\d+)\s+ambiguit\w*", re.IGNORECASE)
 
 
 def _now() -> datetime:
@@ -72,7 +76,10 @@ def poorly_scoped(issue_dir: Path | str) -> bool:
     for e in entries:
         if e["step"] != "scope":
             continue
-        if "ambiguity" in e["message"].lower():
+        # #132: flag when more than 3 ambiguities surface — the same threshold
+        # core-scope's "More than 3 ambiguities" halt rule uses (SKILL.md).
+        m = _AMBIG_RE.search(e["message"])
+        if m and int(m.group("count")) > 3:
             return True
         m = _RECS_RE.search(e["message"])
         if m and int(m.group("count")) >= 3:
