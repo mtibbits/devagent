@@ -28,7 +28,19 @@ config_get_project_field() {
     echo "config_get_project_field: project and field required" >&2
     return 2
   }
-  config_get "project.${project}.${field}"
+  local val
+  # Preserve config_get's exit code so callers' `|| true` / `|| echo <fallback>`
+  # still fire on a missing field (#82).
+  val="$(config_get "project.${project}.${field}")" || return $?
+  # #82: path-typed fields are tilde-expanded at the source, so every consumer
+  # gets a usable path (previously left literal at 21 call sites). This whitelist
+  # is the single source of truth for which project fields are filesystem paths.
+  case "$field" in
+    source_dir|devdoc_dir|worktree_root|build_dir|paths.*)
+      expand_tilde "$val" ;;
+    *)
+      printf '%s\n' "$val" ;;
+  esac
 }
 
 config_list_projects() {
