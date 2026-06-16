@@ -56,6 +56,11 @@ if [[ -f "${STATE_FILE}" ]]; then
   done < <(grep -E '^[0-9a-f]{12} = ' "${STATE_FILE}" || true)
 fi
 
+# #109: flatten internal tabs/newlines to single spaces so a literal tab in a
+# source bullet (pasted code, aligned text) can't shift the TAB-separated fields
+# the consumer reads. Applied to EVERY emitted title/body, not just STUCK.
+_rf() { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' '; }
+
 # emit_candidates prints TAB-separated rows: subtype \t title \t source \t body
 # body has internal whitespace flattened to spaces (so the hash and the
 # capture title don't accidentally contain literal tabs/newlines).
@@ -78,7 +83,7 @@ emit_candidates() {
           local body="${BASH_REMATCH[1]}"
           local title="${body%%.*}"
           printf 'feature\t%s\t%s/imPlan-potentialFutureEnhancements.md line %d\t%s\n' \
-            "${title}" "${issue_name}" "${lineno}" "${body}"
+            "$(_rf "${title}")" "${issue_name}" "${lineno}" "$(_rf "${body}")"
         fi
       done <"${f}"
     fi
@@ -92,7 +97,7 @@ emit_candidates() {
       local body
       body="$(tr '\n' ' ' <"${s}" | tr -s ' ')"
       printf 'chore\t%s\t%s/STUCK\t%s\n' \
-        "STUCK: ${reason}" "${issue_name}" "${body}"
+        "STUCK: $(_rf "${reason}")" "${issue_name}" "$(_rf "${body}")"
     fi
 
     # 3a. actualWork.md ### Follow-up
@@ -103,6 +108,7 @@ emit_candidates() {
         /^### / && inflw { inflw = 0 }
         inflw && /^- / {
           line=$0; sub(/^- */,"",line);
+          gsub(/\t/, " ", line); gsub(/  +/, " ", line);   # #109: flatten tabs
           title=line; sub(/\..*$/,"",title);
           printf "feature\t%s\t%s/actualWork.md (### Follow-up)\t%s\n", title, iss, line;
         }
@@ -113,7 +119,7 @@ emit_candidates() {
         trimmed="${trimmed#- }"
         local title="${trimmed%%.*}"
         printf 'feature\t%s\t%s/actualWork.md line %s\t%s\n' \
-          "${title}" "${issue_name}" "${lineno}" "${trimmed}"
+          "$(_rf "${title}")" "${issue_name}" "${lineno}" "$(_rf "${trimmed}")"
       done
     fi
 
@@ -126,7 +132,7 @@ emit_candidates() {
         trimmed="${trimmed#\[actionable\] }"
         local title="${trimmed%%.*}"
         printf 'chore\t%s\t%s/lessonsLearned.md line %s\t%s\n' \
-          "${title}" "${issue_name}" "${lineno}" "${trimmed}"
+          "$(_rf "${title}")" "${issue_name}" "${lineno}" "$(_rf "${trimmed}")"
       done
     fi
   done
