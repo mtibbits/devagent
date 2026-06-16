@@ -838,21 +838,27 @@ def main():
 
     os.chdir(repo_root)
 
-    print(f"Base ref: {args.base_ref}")
-    print(f"Build dir: {args.build_dir}")
+    # #119: under --json, stdout must carry only the JSON document, so all human
+    # progress goes to stderr. In markdown mode progress stays on stdout.
+    progress = sys.stderr if args.json else sys.stdout
+
+    print(f"Base ref: {args.base_ref}", file=progress)
+    print(f"Build dir: {args.build_dir}", file=progress)
 
     # Get changed line ranges
     ranges = get_changed_ranges(args.base_ref, args.files)
     if not ranges:
-        print("No changed files found in diff.")
+        print("No changed files found in diff.", file=progress)
+        if args.json:
+            print(json.dumps([], indent=2))
         sys.exit(0)
 
     changed_files = get_changed_files(ranges)
-    print(f"Changed files: {', '.join(changed_files)}")
+    print(f"Changed files: {', '.join(changed_files)}", file=progress)
     for f, rs in ranges.items():
         range_strs = [f"{r.start}-{r.end}" if r.count > 1 else str(r.start) for r in rs]
-        print(f"  {f}: lines {', '.join(range_strs)}")
-    print()
+        print(f"  {f}: lines {', '.join(range_strs)}", file=progress)
+    print(file=progress)
 
     # Run tools: read-only tools in parallel, build tools sequentially after
     results: list[ToolResult] = []
@@ -898,7 +904,7 @@ def main():
 
     if read_only_tasks:
         names = ", ".join(name for name, _, _ in read_only_tasks)
-        print(f"Running read-only tools in parallel: {names}", flush=True)
+        print(f"Running read-only tools in parallel: {names}", flush=True, file=progress)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(read_only_tasks)) as pool:
             futures = {
@@ -913,19 +919,19 @@ def main():
                         r.findings = filter_novel(r.findings, ranges)
                     results.append(r)
                     novel = sum(1 for f in r.findings if f.novel)
-                    print(f"  {name}: done ({len(r.findings)} total, {novel} novel)", flush=True)
+                    print(f"  {name}: done ({len(r.findings)} total, {novel} novel)", flush=True, file=progress)
                 except Exception as e:
                     results.append(ToolResult(tool=name, error=str(e), passed=False))
-                    print(f"  {name}: FAILED ({e})", flush=True)
+                    print(f"  {name}: FAILED ({e})", flush=True, file=progress)
 
     # -- Phase 2: build tools (sequential, no parallel compilation) --
     if "scanbuild" not in skip:
-        print("Running scan-build-18 (build pass)...", flush=True)
+        print("Running scan-build-18 (build pass)...", flush=True, file=progress)
         r = run_scan_build(args.build_dir)
         results.append(r)
 
     if "compiler" not in skip:
-        print("Running compiler warning check (build pass)...", flush=True)
+        print("Running compiler warning check (build pass)...", flush=True, file=progress)
         r = run_compiler_warnings(args.build_dir, changed_files, repo_root)
         r.findings = filter_novel(r.findings, ranges)
         results.append(r)
@@ -935,12 +941,12 @@ def main():
     tsan_dir = args.tsan_build_dir or (args.build_dir + "-tsan")
 
     if "asan" not in skip and "asanubsan" not in skip:
-        print(f"Running ASan+UBSan (build dir: {asan_dir})...", flush=True)
+        print(f"Running ASan+UBSan (build dir: {asan_dir})...", flush=True, file=progress)
         r = run_asan_ubsan(repo_root, asan_dir, args.test_kernel)
         results.append(r)
 
     if "tsan" not in skip:
-        print(f"Running TSan (build dir: {tsan_dir})...", flush=True)
+        print(f"Running TSan (build dir: {tsan_dir})...", flush=True, file=progress)
         r = run_tsan(repo_root, tsan_dir, args.test_kernel)
         results.append(r)
 
