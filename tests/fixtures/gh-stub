@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stub `gh` for tests. Honors GH_STUB_CASE env var.
-# Supported: standard, nocomments, fail.
+# Supported: standard, nocomments, fail, noisy.
 # `gh issue create` returns GH_STUB_CREATE_URL (default …/issues/85); see below.
 
 # `gh issue create` prints the new issue's URL to stdout (real gh behavior).
