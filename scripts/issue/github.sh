@@ -87,15 +87,31 @@ cmd_create() {
   local title="${2:?title required}"
   local body_file="${3:-}"
   _need gh
+  if [ "$#" -ge 3 ]; then shift 3; else shift "$#"; fi
+  local args=(--repo "$repo" --title "$title")
+  # #89: a non-empty body_file must exist — otherwise gh would file the literal
+  # path string as the body. Empty body_file keeps github's inline-body leniency.
+  if [ -n "${body_file}" ]; then
+    [ -f "${body_file}" ] || { echo "github.sh: body file not found: ${body_file}" >&2; return 2; }
+    args+=(--body-file "${body_file}")
+  else
+    args+=(--body "")
+  fi
+  # #89: honor repeatable --label (custom.sh contract; gitlab/jira parity) and
+  # reject unknown args instead of silently dropping them.
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --label)
+        [ -n "${2:-}" ] || { echo "github.sh: --label needs a value" >&2; return 2; }
+        args+=(--label "$2"); shift 2 ;;
+      *) echo "github.sh: unknown create arg: $1" >&2; return 2 ;;
+    esac
+  done
   local out
   # Capture gh's STDOUT only — do NOT add 2>&1 here (unlike the other verbs):
   # gh writes tips/notices/warnings to stderr, and they must not pollute the
   # URL we parse the issue number from below (#27).
-  if [ -n "${body_file}" ] && [ -f "${body_file}" ]; then
-    out="$(gh issue create --repo "$repo" --title "$title" --body-file "$body_file")" || return
-  else
-    out="$(gh issue create --repo "$repo" --title "$title" --body "${body_file:-}")" || return
-  fi
+  out="$(gh issue create "${args[@]}")" || return
   # gh prints the new issue's URL (…/issues/N); the backend contract (file.sh,
   # gitlab.sh, the mock) is a bare number. Emit the trailing path segment, but
   # fail loudly if it isn't numeric so a future gh output change surfaces

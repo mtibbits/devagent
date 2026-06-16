@@ -59,11 +59,33 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"could not parse"* ]]   # pin to the numeric-guard branch, not any non-zero exit
 }
 
-@test "create returns the bare number via the inline-body path (no body file) (#27)" {
-  # Missing body file → cmd_create's else (--body) branch; still must return the number.
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/does-not-exist
+@test "create returns the bare number via the inline-body path (empty body file) (#27)" {
+  # Empty body_file → cmd_create's inline --body "" branch; still returns the number.
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" ""
   [ "$status" -eq 0 ]
   [ "$output" = "85" ]
+}
+
+@test "create fails when a non-empty body file does not exist (#89)" {
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" /tmp/does-not-exist-89
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"body file not found"* ]]
+}
+
+@test "create forwards --label to gh (#89)" {
+  echo body > "$BATS_TEST_TMPDIR/body.md"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" "$BATS_TEST_TMPDIR/body.md" --label audit --label priority
+  [ "$status" -eq 0 ]
+  [ "$output" = "85" ]
+  grep -q -- '--label audit' "$GH_STUB_ARGS_LOG"
+  grep -q -- '--label priority' "$GH_STUB_ARGS_LOG"
+}
+
+@test "create rejects an unknown arg (#89)" {
+  echo body > "$BATS_TEST_TMPDIR/body.md"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" create gnuradio/volk "title" "$BATS_TEST_TMPDIR/body.md" --bogus x
+  [ "$status" -eq 2 ]
 }
 
 @test "unknown verb returns 2 (usage error per spec 9.1 contract)" {
