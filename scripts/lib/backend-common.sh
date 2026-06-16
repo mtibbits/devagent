@@ -73,3 +73,43 @@ bc_curl() {
     *) return 1 ;;
   esac
 }
+
+# Fetch every page of a GitLab list endpoint and emit one concatenated JSON
+# array (#137). GitLab defaults to 20 items/page; without paging, notes past the
+# first page are silently dropped. bc_curl exposes only the body (not the
+# X-Next-Page header), so we page-loop with per_page=100 and stop at the first
+# short page (a page with < 100 items is the last).
+#   Usage: bc_gitlab_paginate <url-without-query> [extra curl args…]
+bc_gitlab_paginate() {
+  local url="$1"; shift
+  local page=1 acc="[]" pg n
+  while :; do
+    pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
+    n="$(printf '%s' "$pg" | jq 'length')"
+    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')"
+    [ "$n" -lt 100 ] && break
+    page=$((page + 1))
+  done
+  printf '%s' "$acc"
+}
+
+# Fetch every page of a Jira /comment endpoint and emit one concatenated JSON
+# array of comment objects (#137). Jira caps the body at maxResults while
+# reporting the true count in .total; without paging the body under-delivers the
+# promised comments. Loop startAt+=page-length until a page is empty or we have
+# reached .total.
+#   Usage: bc_jira_paginate <url-without-query> [extra curl args…]
+bc_jira_paginate() {
+  local url="$1"; shift
+  local start=0 acc="[]" resp pg got total
+  while :; do
+    resp="$(bc_curl GET "${url}?startAt=${start}&maxResults=100" "$@")" || return
+    pg="$(printf '%s' "$resp" | jq '.comments // []')"
+    got="$(printf '%s' "$pg" | jq 'length')"
+    total="$(printf '%s' "$resp" | jq '.total // 0')"
+    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')"
+    start=$((start + got))
+    { [ "$got" -eq 0 ] || [ "$start" -ge "$total" ]; } && break
+  done
+  printf '%s' "$acc"
+}

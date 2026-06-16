@@ -109,7 +109,7 @@ cmd_mr_comments() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_curl GET "${base}/projects/${enc}/merge_requests/${iid}/notes" \
+  resp="$(bc_gitlab_paginate "${base}/projects/${enc}/merge_requests/${iid}/notes" \
     -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"

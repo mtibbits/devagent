@@ -1,13 +1,13 @@
 {
   "GET /api/v4/projects/foo%2Fbar/issues/42": {"status": 200, "body_file": "issue.json"},
-  "GET /api/v4/projects/foo%2Fbar/issues/42/notes": {"status": 200, "body_file": "comments.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/42/notes?per_page=100&page=1": {"status": 200, "body_file": "comments.json"},
   "POST /api/v4/projects/foo%2Fbar/issues": {"status": 201, "body_file": "issue-created.json"},
   "PUT /api/v4/projects/foo%2Fbar/issues/42": {"status": 200, "body_file": "issue.json"},
   "GET /api/v4/projects/foo%2Fbar/issues/404": {"status": 404, "body": "{\"message\":\"404 Not Found\"}"},
   "GET /api/v4/projects/foo%2Fbar/issues/401": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"},
 
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7": {"status": 200, "body_file": "mr.json"},
-  "GET /api/v4/projects/foo%2Fbar/merge_requests/7/notes": {"status": 200, "body_file": "mr-notes.json"},
+  "GET /api/v4/projects/foo%2Fbar/merge_requests/7/notes?per_page=100&page=1": {"status": 200, "body_file": "mr-notes.json"},
   "POST /api/v4/projects/foo%2Fbar/merge_requests": {"status": 201, "body_file": "mr-created.json"},
   "PUT /api/v4/projects/foo%2Fbar/merge_requests/7/merge": {"status": 200, "body": "{\"state\":\"merged\"}"}
 }

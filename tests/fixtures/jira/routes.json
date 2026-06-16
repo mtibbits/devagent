@@ -1,6 +1,6 @@
 {
   "GET /rest/api/2/issue/PROJ-42": {"status": 200, "body_file": "issue.json"},
-  "GET /rest/api/2/issue/PROJ-42/comment": {"status": 200, "body_file": "comments.json"},
+  "GET /rest/api/2/issue/PROJ-42/comment?startAt=0&maxResults=100": {"status": 200, "body_file": "comments.json"},
   "GET /rest/api/2/issue/PROJ-42/transitions": {"status": 200, "body_file": "transitions.json"},
   "POST /rest/api/2/issue/PROJ-42/transitions": {"status": 204, "body": ""},
   "POST /rest/api/2/issue": {"status": 201, "body_file": "issue-created.json"},

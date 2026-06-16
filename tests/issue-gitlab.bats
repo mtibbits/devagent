@@ -76,3 +76,35 @@ teardown() {
   run "$SCRIPT" frobnicate foo/bar 42
   [ "$status" -eq 2 ]
 }
+
+@test "issue/gitlab.sh fetch pages through ALL notes, not just page 1 (#137)" {
+  # Build a temp fixture: page 1 full (100 notes) → forces a page-2 fetch (2 notes).
+  tmpfix="$(mktemp -d)"
+  cp "${BATS_TEST_DIRNAME}/fixtures/gitlab/issue.json" "$tmpfix/"
+  python3 - "$tmpfix" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+def notes(rng):
+    return [{"id": i, "author": {"username": "u%d" % i},
+             "created_at": "2026-05-12T00:00:00Z", "body": "c%d" % i,
+             "system": False} for i in rng]
+open(os.path.join(d, "p1.json"), "w").write(json.dumps(notes(range(100))))
+open(os.path.join(d, "p2.json"), "w").write(json.dumps(notes(range(100, 102))))
+routes = {
+    "GET /api/v4/projects/foo%2Fbar/issues/42": {"status": 200, "body_file": "issue.json"},
+    "GET /api/v4/projects/foo%2Fbar/issues/42/notes?per_page=100&page=1": {"status": 200, "body_file": "p1.json"},
+    "GET /api/v4/projects/foo%2Fbar/issues/42/notes?per_page=100&page=2": {"status": 200, "body_file": "p2.json"},
+}
+open(os.path.join(d, "routes.json"), "w").write(json.dumps(routes))
+PY
+  fixture_stop
+  fixture_start "$tmpfix"
+  export DEVAGENT_GITLAB_API="$FIXTURE_URL/api/v4"
+  run "$SCRIPT" fetch foo/bar 42
+  [ "$status" -eq 0 ]
+  # Header counts BOTH pages (100 + 2), not the truncated first page.
+  [[ "$output" == *"## Comments (102)"* ]]
+  # And the second page was actually requested.
+  grep -q "GET /api/v4/projects/foo%2Fbar/issues/42/notes?per_page=100&page=2" "$FIXTURE_REQUEST_LOG"
+  rm -rf "$tmpfix"
+}
