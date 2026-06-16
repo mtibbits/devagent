@@ -140,17 +140,26 @@ checklist_mark() {
   _checklist_valid_glyph "$glyph" || die "checklist_mark: bad glyph '$glyph'"
   local tmp
   tmp="$(mktemp)"
-  awk -v target="$target" -v glyph="$glyph" '
+  if awk -v target="$target" -v glyph="$glyph" '
     {
-      if (match($0, /^- \[(.)\]([ \t]+)([0-9]+)\./, m)) {
-        if (m[3] == target) {
+      # POSIX 2-arg match() (gawk 3-arg capture array is non-portable: mawk
+      # parse-errors on it). Extract the step number with substr()/sub().
+      if (match($0, /^- \[.\][ \t]+[0-9]+\./)) {
+        num = substr($0, RSTART, RLENGTH)
+        sub(/^- \[.\][ \t]+/, "", num)
+        sub(/\.$/, "", num)
+        if (num == target) {
           sub(/^- \[.\]/, "- [" glyph "]")
         }
       }
       print
     }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
+  ' "$file" > "$tmp"; then
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    die "checklist_mark: awk failed processing '$file' (file left intact)"
+  fi
   # Sanity: did we actually find the step?
   checklist_step_state "$file" "$target" >/dev/null \
     || die "checklist_mark: step $target not found in '$file'"
@@ -176,9 +185,13 @@ checklist_next_actionable() {
   local file="$1"
   local after="${2:-0}"
   awk -v after="$after" '
-    match($0, /^- \[(.)\] +([0-9]+)\./, m) {
-      n = m[2] + 0
-      g = m[1]
+    match($0, /^- \[.\] +[0-9]+\./) {
+      # POSIX 2-arg match() + substr() (mawk has no 3-arg capture array).
+      g = substr($0, 4, 1)
+      num = substr($0, RSTART, RLENGTH)
+      sub(/^- \[.\] +/, "", num)
+      sub(/\.$/, "", num)
+      n = num + 0
       # Skip every line up to and including the `after` step (file order).
       if (after > 0 && !seen) { if (n == after) seen = 1; next }
       if (g == " " || g == "~") { print n; exit }
