@@ -101,7 +101,9 @@ cmd_create() {
   # reject unknown args instead of silently dropping them.
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --label) args+=(--label "${2:?github.sh: --label needs a value}"); shift 2 ;;
+      --label)
+        [ -n "${2:-}" ] || { echo "github.sh: --label needs a value" >&2; return 2; }
+        args+=(--label "$2"); shift 2 ;;
       *) echo "github.sh: unknown create arg: $1" >&2; return 2 ;;
     esac
   done
