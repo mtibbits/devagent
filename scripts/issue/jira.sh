@@ -45,7 +45,7 @@ cmd_fetch() {
   local title state author labels url body
   title="$(echo "$issue_json"   | jq -r '.fields.summary')"
   state="$(echo "$issue_json"   | jq -r '.fields.status.name')"
-  author="$(echo "$issue_json"  | jq -r '.fields.reporter.name')"
+  author="$(echo "$issue_json"  | jq -r '.fields.reporter.displayName // .fields.reporter.name // "unknown"')"
   labels="$(echo "$issue_json"  | jq -r '.fields.labels | join(",")')"
   body="$(echo "$issue_json"    | jq -r '.fields.description // ""')"
   url="$(base)/browse/${num}"
@@ -58,7 +58,7 @@ cmd_fetch() {
   bc_emit_comments_header "$count"
   echo "$comments_json" | jq -c '.[]' | while read -r row; do
     local a d b
-    a="$(echo "$row" | jq -r '.author.name')"
+    a="$(echo "$row" | jq -r '.author.displayName // .author.name // "unknown"')"
     d="$(trim_date "$(echo "$row" | jq -r '.created')")"
     b="$(echo "$row" | jq -r '.body')"
     bc_emit_comment "$a" "$d" "$b"
@@ -157,7 +157,7 @@ cmd_comment_list() {
   bc_emit_comments_header "$count"
   echo "$resp" | jq -c '.[]' | while read -r row; do
     local a d b
-    a="$(echo "$row" | jq -r '.author.name')"
+    a="$(echo "$row" | jq -r '.author.displayName // .author.name // "unknown"')"
     d="$(trim_date "$(echo "$row" | jq -r '.created')")"
     b="$(echo "$row" | jq -r '.body')"
     bc_emit_comment "$a" "$d" "$b"
