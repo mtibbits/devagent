@@ -39,7 +39,7 @@ cmd_fetch() {
   local issue_json comments_json
   issue_json="$(bc_curl GET "$(base)/rest/api/2/issue/${num}" \
     -H "$(auth_header)" -H 'Accept: application/json')" || return
-  comments_json="$(bc_curl GET "$(base)/rest/api/2/issue/${num}/comment" \
+  comments_json="$(bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" \
     -H "$(auth_header)" -H 'Accept: application/json')" || return
 
   local title state author labels url body
@@ -54,9 +54,9 @@ cmd_fetch() {
   bc_emit_body_and_separator "$body"
 
   local count
-  count="$(echo "$comments_json" | jq '.total')"
+  count="$(echo "$comments_json" | jq 'length')"
   bc_emit_comments_header "$count"
-  echo "$comments_json" | jq -c '.comments[]' | while read -r row; do
+  echo "$comments_json" | jq -c '.[]' | while read -r row; do
     local a d b
     a="$(echo "$row" | jq -r '.author.name')"
     d="$(trim_date "$(echo "$row" | jq -r '.created')")"
@@ -150,12 +150,12 @@ cmd_comment_list() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
   local resp
-  resp="$(bc_curl GET "$(base)/rest/api/2/issue/${num}/comment" \
+  resp="$(bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" \
     -H "$(auth_header)" -H 'Accept: application/json')" || return
   local count
-  count="$(echo "$resp" | jq '.total')"
+  count="$(echo "$resp" | jq 'length')"
   bc_emit_comments_header "$count"
-  echo "$resp" | jq -c '.comments[]' | while read -r row; do
+  echo "$resp" | jq -c '.[]' | while read -r row; do
     local a d b
     a="$(echo "$row" | jq -r '.author.name')"
     d="$(trim_date "$(echo "$row" | jq -r '.created')")"

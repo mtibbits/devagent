@@ -50,7 +50,7 @@ cmd_fetch() {
   local issue_json comments_json
   issue_json="$(bc_curl GET "${base}/projects/${enc}/issues/${num}" \
     -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
-  comments_json="$(bc_curl GET "${base}/projects/${enc}/issues/${num}/notes" \
+  comments_json="$(bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes" \
     -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
 
   local title state author labels url body
@@ -156,7 +156,7 @@ cmd_comment_list() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_curl GET "${base}/projects/${enc}/issues/${num}/notes" \
+  resp="$(bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes" \
     -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"
