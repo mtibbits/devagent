@@ -62,6 +62,13 @@ teardown() {
   [ "$status" -eq 4 ]
 }
 
+@test "issue/gitlab.sh fetch surfaces the API error body on failure (#138)" {
+  run "$SCRIPT" fetch foo/bar 404
+  [ "$status" -eq 4 ]
+  # bc_curl must echo the error body (not swallow it) so set -e failures aren't silent.
+  [[ "$output" == *"404 Not Found"* ]]
+}
+
 @test "issue/gitlab.sh fetch on 401 exits 3" {
   run "$SCRIPT" fetch foo/bar 401
   [ "$status" -eq 3 ]
