@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # scripts/lib/template_resolve.sh — three-layer template resolution.
 # Order (per spec §12):
-#   1. [project.<name>.paths].<key>  → file path
+#   1. [project.<name>.paths].<key>  → file path (abs, or relative to devdoc_dir)
 #   2. <devdoc>/templates/<key>.md
-#   3. <plugin>/templates/<key>.md   (DEVAGENT_PLUGIN_TEMPLATES env)
+#   3. <plugin>/templates/<key>.md
+#
+# #81: self-sources paths/io/config (DEVAGENT_ROOT from BASH_SOURCE, like
+# revision.sh) so the resolver works regardless of how the caller is wired —
+# template.sh sources only this file, so config_get_project_field / plugin_root
+# would otherwise be undefined and every layer would fail (everything MISSING).
+
+: "${DEVAGENT_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/io.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/config.sh"
 
 DEVAGENT_TEMPLATE_KEYS=(
   coding_standards
@@ -25,8 +38,9 @@ DEVAGENT_TEMPLATE_KEYS=(
 )
 
 # template_project_paths_override <project> <key>
-# Returns absolute path from [project.<P>.paths].<key>, or empty.
-# Tests can short-circuit via TEMPLATE_PATHS_OVERRIDE_<key> env var.
+# Returns the path from [project.<P>.paths].<key>, or empty. Absolute paths are
+# used directly; relative paths are taken under the project's devdoc_dir (mirrors
+# artifact.sh:21). Tests can short-circuit via TEMPLATE_PATHS_OVERRIDE_<key>.
 template_project_paths_override() {
   local project="$1" key="$2"
   local env_name="TEMPLATE_PATHS_OVERRIDE_${key//-/_}"
@@ -34,8 +48,15 @@ template_project_paths_override() {
     printf '%s\n' "${!env_name}"
     return 0
   fi
-  if command -v config_get_project_paths_field >/dev/null 2>&1; then
-    config_get_project_paths_field "${project}" "${key}" || true
+  local override
+  override="$(config_get_project_field "${project}" "paths.${key}" 2>/dev/null || true)"
+  [ -n "${override}" ] || return 0
+  if [ "${override#/}" != "${override}" ]; then
+    printf '%s\n' "${override}"           # absolute
+  else
+    local devdoc
+    devdoc="$(template_devdoc_dir "${project}")"
+    [ -n "${devdoc}" ] && printf '%s/%s\n' "${devdoc%/}" "${override}"
   fi
 }
 
@@ -44,11 +65,13 @@ template_devdoc_dir() {
   if [ -n "${DEVAGENT_TEST_DEVDOC:-}" ]; then
     printf '%s\n' "${DEVAGENT_TEST_DEVDOC}"; return 0
   fi
-  if command -v config_get_project_field >/dev/null 2>&1; then
-    config_get_project_field "${project}" "devdoc_dir"
-    return 0
-  fi
-  printf '%s/devdoc\n' "${HOME}"
+  config_get_project_field "${project}" "devdoc_dir" 2>/dev/null || true
+}
+
+# template_plugin_dir — plugin template dir. #81: derive from plugin_root
+# (BASH_SOURCE-based) so it works in prod; keep the env override for tests.
+template_plugin_dir() {
+  printf '%s\n' "${DEVAGENT_PLUGIN_TEMPLATES:-$(plugin_root)/templates}"
 }
 
 # template_resolve <project> <key>
@@ -68,13 +91,15 @@ template_resolve() {
 
   local devdoc
   devdoc="$(template_devdoc_dir "${project}")"
-  path="${devdoc}/templates/${key}.md"
-  if [ -f "${path}" ]; then
-    printf 'path=%s\nlayer=devdoc\n' "${path}"
-    return 0
+  if [ -n "${devdoc}" ]; then
+    path="${devdoc%/}/templates/${key}.md"
+    if [ -f "${path}" ]; then
+      printf 'path=%s\nlayer=devdoc\n' "${path}"
+      return 0
+    fi
   fi
 
-  path="${DEVAGENT_PLUGIN_TEMPLATES:-${DEVAGENT_REPO_ROOT:-}/templates}/${key}.md"
+  path="$(template_plugin_dir)/${key}.md"
   if [ -f "${path}" ]; then
     printf 'path=%s\nlayer=plugin\n' "${path}"
     return 0
