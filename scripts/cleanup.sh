@@ -65,7 +65,10 @@ if [ "$commit_devdoc" = "true" ]; then
     plan="cleanup plan: commit + push devdoc updates for $issue_arg"
     permission_gate "$project" commit_devdoc "$plan"
     cd "$devdoc_dir"
-    if ! "$DEVAGENT_GIT" diff --quiet || ! "$DEVAGENT_GIT" diff --cached --quiet; then
+    # #140: --porcelain reports untracked files too. A fresh Issue-NNN/ dir from
+    # pull.sh this cycle is entirely untracked; the old `git diff` guard saw only
+    # tracked modifications and silently skipped the commit.
+    if [ -n "$("$DEVAGENT_GIT" status --porcelain)" ]; then
         "$DEVAGENT_GIT" add -A
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
             commit -m "devdoc: $issue_arg cleanup"
