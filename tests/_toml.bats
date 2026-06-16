@@ -94,3 +94,29 @@ teardown() { teardown_tmp_devagent_home; }
       project.volk.after_error '"ok"'
   [ "$status" -eq 0 ]
 }
+
+@test "mutation refuses a comment-bearing file, leaving it intact (#100)" {
+  local f="$BATS_TEST_TMPDIR/commented.toml"
+  printf '# hand-written rationale\nkey = "v"  # inline note\n' > "$f"
+  run python3 "$TOML" set "$f" key '"new"'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to mutate"* ]]
+  grep -q '# hand-written rationale' "$f"   # comment preserved
+  grep -q 'key = "v"' "$f"                  # value untouched
+}
+
+@test "mutation proceeds on a comment-free file (#100)" {
+  local f="$BATS_TEST_TMPDIR/plain.toml"
+  printf 'key = "v"\n' > "$f"
+  run python3 "$TOML" set "$f" key '"new"'
+  [ "$status" -eq 0 ]
+  run python3 "$TOML" get "$f" key
+  [ "$output" = "new" ]
+}
+
+@test "a # inside a quoted string is not treated as a comment (#100)" {
+  local f="$BATS_TEST_TMPDIR/hashval.toml"
+  printf 'url = "http://x/y#frag"\n' > "$f"
+  run python3 "$TOML" set "$f" k '"v"'
+  [ "$status" -eq 0 ]   # the # is in a string, not a comment → mutation allowed
+}
