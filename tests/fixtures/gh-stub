@@ -1,59 +1,117 @@
 #!/usr/bin/env bash
-# Stub `gh` for tests. Honors GH_STUB_CASE env var.
-# Supported: standard, nocomments, fail, noisy.
-# `gh issue create` returns GH_STUB_CREATE_URL (default …/issues/85); see below.
+# Verb-aware stub `gh` for tests (#90). It asserts the subcommand and required
+# flags and returns per-case payloads, so a wrong subcommand/flag/repo in a
+# backend exits non-zero (exit 3) — the regression net for the §9 github
+# contract suite. Wrong invocations no longer pass silently.
+#
+# Knobs (unchanged from the pre-#90 stub):
+#   GH_STUB_CASE   standard | nocomments | fail | noisy   (issue-view payload)
+#   GH_STUB_CREATE_URL   URL printed by `gh issue create` (default …/issues/85)
+#   GH_STUB_ARGS_LOG     if set, `gh issue create` appends its argv here (#89)
+#
+# Contract-suite HTTP simulation (number-driven, used by backend-github.bats):
+#   issue number 404 → "HTTP 404" on stderr, exit 1
+#   issue number 401 → "HTTP 401" on stderr, exit 1
 
-# `gh issue create` prints the new issue's URL to stdout (real gh behavior).
-# Override the URL via GH_STUB_CREATE_URL; GH_STUB_CASE=fail simulates failure.
-if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then
-  # Opt-in argv capture so tests can assert forwarded flags (e.g. --label) (#89).
+set -u
+
+# exit 3 = stub assertion failure (distinct from a simulated gh failure, exit 1).
+_assert_fail() { echo "stub-gh: $*" >&2; exit 3; }
+
+_has_flag() {
+  # _has_flag <flag> -- "$@"  → 0 if <flag> appears as a standalone arg
+  local want="$1"; shift; shift
+  local a
+  for a in "$@"; do [ "$a" = "$want" ] && return 0; done
+  return 1
+}
+
+_issue_json() {
+  local comments
+  case "${GH_STUB_CASE:-standard}" in
+    nocomments) comments='[]' ;;
+    *) comments='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "First comment."}]' ;;
+  esac
+  cat <<JSON
+{
+  "title": "Demo issue title",
+  "state": "OPEN",
+  "author": {"login": "alice"},
+  "labels": [{"name": "bug"}, {"name": "performance"}],
+  "url": "https://github.com/gnuradio/volk/issues/676",
+  "body": "Body line one.\n\nBody line two.",
+  "comments": $comments
+}
+JSON
+}
+
+sub="${1:-}"
+sub2="${2:-}"
+
+# `gh issue create` — preserve prior behavior (argv log, URL, fail case).
+if [ "$sub" = "issue" ] && [ "$sub2" = "create" ]; then
   [ -n "${GH_STUB_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_ARGS_LOG"
-  case "$GH_STUB_CASE" in
+  case "${GH_STUB_CASE:-}" in
     fail) echo "stub-gh: simulated create failure" >&2; exit 1 ;;
     *)    printf '%s\n' "${GH_STUB_CREATE_URL:-https://github.com/gnuradio/volk/issues/85}" ;;
   esac
   exit 0
 fi
 
-# #86: emit a notice on stderr (like gh's update-nag/deprecation warnings) and
-# otherwise behave as the standard success case, so tests can prove the backend
-# keeps gh's stderr out of the JSON it pipes to jq.
-if [ "${GH_STUB_CASE:-}" = "noisy" ]; then
-  echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2
-  GH_STUB_CASE="standard"
-fi
+case "$sub $sub2" in
+  "issue view")
+    num="${3:-}"
+    [ -n "$num" ] || _assert_fail "issue view: missing issue number"
+    _has_flag --repo -- "$@" || _assert_fail "issue view: missing --repo"
+    _has_flag --json -- "$@" || _assert_fail "issue view: missing --json"
+    case "$num" in
+      404) echo "gh: HTTP 404: Not Found (issue $num)" >&2; exit 1 ;;
+      401) echo "gh: HTTP 401: Bad credentials" >&2; exit 1 ;;
+    esac
+    case "${GH_STUB_CASE:-standard}" in
+      fail)  echo "stub-gh: simulated failure" >&2; exit 1 ;;
+      noisy) echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2 ;;
+    esac
+    _issue_json
+    ;;
 
-case "$GH_STUB_CASE" in
-  fail)
-    echo "stub-gh: simulated failure" >&2
-    exit 1
+  "issue edit")
+    num="${3:-}"
+    [ -n "$num" ] || _assert_fail "issue edit: missing issue number"
+    _has_flag --repo -- "$@" || _assert_fail "issue edit: missing --repo"
+    _has_flag --add-label -- "$@" || _assert_fail "issue edit: missing --add-label"
+    exit 0
     ;;
-  nocomments)
-    cat <<'JSON'
-{
-  "title": "Demo issue title",
-  "state": "OPEN",
-  "author": {"login": "alice"},
-  "labels": [{"name": "bug"}, {"name": "performance"}],
-  "url": "https://github.com/gnuradio/volk/issues/676",
-  "body": "Body line one.\n\nBody line two.",
-  "comments": []
-}
-JSON
+
+  "pr view")
+    _has_flag --json -- "$@" || _assert_fail "pr view: missing --json"
+    # gh runs --jq internally; the stub returns the already-filtered output.
+    if _has_flag state -- "$@"; then
+      echo "open"
+    elif _has_flag comments -- "$@"; then
+      printf '## Comments (1)\n\n### @bob · 2026-05-12\n\nFirst comment.\n'
+    else
+      _assert_fail "pr view: unexpected --json selection: $*"
+    fi
     ;;
+
+  "pr merge") exit 0 ;;
+
+  "pr create")
+    printf '%s\n' "${GH_STUB_CREATE_URL:-https://github.com/foo/bar/pull/7}"
+    ;;
+
+  "pr list")
+    # code/github.sh merged-pr-head: --json number --jq length
+    echo "0"
+    ;;
+
+  "api "*)
+    # code/github.sh branch-exists: `gh api repos/<repo>/branches/<branch>`
+    echo "{}"
+    ;;
+
   *)
-    cat <<'JSON'
-{
-  "title": "Demo issue title",
-  "state": "OPEN",
-  "author": {"login": "alice"},
-  "labels": [{"name": "bug"}, {"name": "performance"}],
-  "url": "https://github.com/gnuradio/volk/issues/676",
-  "body": "Body line one.\n\nBody line two.",
-  "comments": [
-    {"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "First comment."}
-  ]
-}
-JSON
+    _assert_fail "unknown subcommand: '$sub $sub2'"
     ;;
 esac
