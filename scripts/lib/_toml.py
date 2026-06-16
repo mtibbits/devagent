@@ -143,6 +143,26 @@ def _parse_raw(raw: str):
     return raw
 
 
+def _has_comment(raw: str) -> bool:
+    """True if the TOML text contains a real comment (a '#' outside a string).
+
+    #100: mutation rewrites from the parsed tree and drops comments, so the
+    mutation verbs refuse comment-bearing files. A '#' inside a "..."/'...'
+    string value is not a comment.
+    """
+    for line in raw.splitlines():
+        quote = None
+        for ch in line:
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ('"', "'"):
+                quote = ch
+            elif ch == '#':
+                return True
+    return False
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print("usage: _toml.py <verb> <file> [args...]", file=sys.stderr)
@@ -192,6 +212,15 @@ def main(argv: list[str]) -> int:
         if verb == "set-bool" and rest[1] not in ("true", "false"):
             print("_toml: set-bool wants true|false", file=sys.stderr)
             return 2
+        # #100: mutation rewrites the file from the parsed tree, dropping comments
+        # and reformatting inline tables. Refuse a comment-bearing file (e.g. the
+        # hand-commented config.toml) so a mis-pointed mutation can't destroy it.
+        # Machine-written state files have no comments; new files don't exist yet.
+        if file.exists() and _has_comment(file.read_text()):
+            print(f"_toml: refusing to mutate comment-bearing file {file} "
+                  "(mutation drops comments; it is for comment-free state files)",
+                  file=sys.stderr)
+            return 1
         with _locked_rmw(file) as data:
             if verb == "unset":
                 _unset_path(data, rest[0])
