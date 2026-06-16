@@ -14,7 +14,6 @@ case "${verb}" in
     # Test hook (#113): simulate a create that fails after being invoked.
     [[ "${MOCK_FORCE_FAIL:-0}" = "1" ]] && { echo "mock: forced create failure" >&2; exit 1; }
     : "${MOCK_RESPONSE_NUM:=4242}"
-    : "${MOCK_RESPONSE_URL:=https://github.com/${repo}/issues/${MOCK_RESPONSE_NUM}}"
     # Record for assertions.
     {
       echo "verb=create"
