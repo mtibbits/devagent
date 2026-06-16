@@ -35,6 +35,24 @@ teardown() { devagent_test_teardown; }
     [ "$n" -eq 1 ]
 }
 
+@test "cleanup.sh commits an entirely-untracked (fresh) issue dir (#140)" {
+    # A fresh Issue-2 dir created this cycle is fully untracked; with
+    # commit_devdoc=true the auto-commit must still see it (the old tracked-only
+    # diff guard was blind to untracked files).
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    sed -i "s|^active_issue *=.*|active_issue   = \"Issue-2\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    sed -i "s|^issue_dir *=.*|issue_dir      = \"$DEVDOC_DIR/Issue-2\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-2
+    [ "$status" -eq 0 ]
+    after=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
+    [ "$after" -eq $((before + 1)) ]
+    # the previously-untracked dir is now tracked and the tree is clean
+    ( cd "$DEVDOC_DIR" && git ls-files --error-unmatch Issue-2/checklist.md )
+    [ -z "$( cd "$DEVDOC_DIR" && git status --porcelain )" ]
+}
+
 @test "cleanup.sh reconciles the WBS leaf for the completed issue to [x]" {
     # Mark every step except step 20 done in the seeded checklist;
     # cleanup will mark step 20 itself, then call wbs update.
