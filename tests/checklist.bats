@@ -137,3 +137,65 @@ _shim_awk() {
   [ "$status" -ne 0 ]
   [ "$(cat "$ISSUE_DIR/checklist.md")" = "$before" ]
 }
+
+# --- #74: scope mark/read to the active `## Revision` block ---
+
+# Append a second revision block reusing step numbers 1-15.
+_append_rev2() {
+  cat >> "$1" <<'EOF'
+
+## Revision 2
+
+- [ ]  1. draft
+- [ ]  2. scope
+- [ ]  7. implement
+EOF
+}
+
+@test "checklist_mark scopes to the active revision block" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  checklist_mark "$f" 7 x          # revision 1, step 7 -> done
+  _append_rev2 "$f"
+  checklist_mark "$f" 7 '~'        # must land in revision 2 only
+  run grep -c '^- \[x\]  7\.' "$f"
+  [ "$output" = "1" ]             # revision 1 still done
+  run grep -c '^- \[~\]  7\.' "$f"
+  [ "$output" = "1" ]             # revision 2 now in-progress
+}
+
+@test "checklist_step_state reads the active revision block" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  checklist_mark "$f" 7 x
+  _append_rev2 "$f"
+  run checklist_step_state "$f" 7
+  [ "$output" = " " ]             # revision 2's glyph, not revision 1's x
+}
+
+@test "checklist_current_step reflects the active revision block" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"
+  checklist_mark "$f" 1 x         # rev 2 step 1 done
+  run checklist_current_step "$f"
+  [ "$output" = "2" ]            # first non-x in rev 2, not rev 1's step 0
+}
+
+@test "checklist_next_actionable reflects the active revision block" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"
+  checklist_mark "$f" 1 x
+  run checklist_next_actionable "$f"
+  [ "$output" = "2" ]
+}
+
+@test "checklist_mark falls back to whole file for steps not in active revision" {
+  checklist_init "$ISSUE_DIR" standard   # standard has steps 0..20 in rev 1
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"                       # rev 2 has only 1-15
+  checklist_mark "$f" 20 x                # 20 lives only in revision 1
+  run checklist_step_state "$f" 20
+  [ "$output" = "x" ]
+}
