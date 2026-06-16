@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Mock github issue backend. Records invocations so tests can assert.
+# Mock gitlab issue backend. Returns a bare iid like the real gitlab.sh create
+# contract, so file.sh's per-backend URL construction (#113) can be exercised
+# without a live GitLab.
 set -euo pipefail
 
 verb="${1:-}"
@@ -11,24 +13,16 @@ case "${verb}" in
     title="${2:?title required}"
     body_file="${3:?body file required}"
     [[ -f "${body_file}" ]] || { echo "body file not found" >&2; exit 2; }
-    # Test hook (#113): simulate a create that fails after being invoked.
-    [[ "${MOCK_FORCE_FAIL:-0}" = "1" ]] && { echo "mock: forced create failure" >&2; exit 1; }
     : "${MOCK_RESPONSE_NUM:=4242}"
-    : "${MOCK_RESPONSE_URL:=https://github.com/${repo}/issues/${MOCK_RESPONSE_NUM}}"
-    # Record for assertions.
     {
       echo "verb=create"
       echo "repo=${repo}"
       echo "title=${title}"
-      echo "body_file=${body_file}"
-      printf 'body=<<<\n'
-      cat "${body_file}"
-      printf '>>>\n'
     } >>"${MOCK_INVOCATION_LOG:-/tmp/devagent-mock.log}"
     printf '%s\n' "${MOCK_RESPONSE_NUM}"
     ;;
   *)
-    echo "mock github: unknown verb ${verb}" >&2
+    echo "mock gitlab: unknown verb ${verb}" >&2
     exit 2
     ;;
 esac
