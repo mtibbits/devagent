@@ -20,6 +20,8 @@ source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/log.sh"
 
 # Private die() preserves the "comments:" prefix; defined after the sources so it
 # shadows io.sh's die.
@@ -117,10 +119,9 @@ main() {
   local k
   k=$(grep -c '^### @' "$out" || true)
 
-  local stamp
-  stamp=$(date '+%Y-%m-%d %H:%M')
-  printf -- '- %s  comments: fetched %s comments\n' "$stamp" "$k" \
-    >>"$issue_dir/checklist.md"
+  # #75: route through log_append so the entry lands inside the `## Log` section
+  # even when a later `## Revision N` block follows it.
+  log_append "$issue_dir" comments "fetched $k comments"
 
   printf 'comments: wrote %s (%s comments)\n' "$out" "$k"
 }
