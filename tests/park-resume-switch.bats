@@ -72,6 +72,27 @@ teardown() { teardown_tmp_devagent_home; }
   grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
 }
 
+@test "switch refuses an unparked target WITHOUT parking the current issue (#142)" {
+  # Issue-203 exists but is NOT parked → switch must die before parking 676,
+  # leaving no half-applied switch.
+  run "$PLUGIN_ROOT/scripts/switch.sh" volk Issue-203
+  [ "$status" -ne 0 ]
+  # current issue still active and NOT freshly parked
+  grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
+  run grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
+  [ "$status" -ne 0 ]
+}
+
+@test "switch refuses a parked target whose dir is missing, leaving current intact (#142)" {
+  "$PLUGIN_ROOT/scripts/park.sh" volk Issue-203
+  rm -rf "$DEVDOC/Issue-203"
+  run "$PLUGIN_ROOT/scripts/switch.sh" volk Issue-203
+  [ "$status" -ne 0 ]
+  grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
+  run grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
+  [ "$status" -ne 0 ]
+}
+
 @test "park errors when no active issue and no arg" {
   rm "$DA_HOME/state/volk.toml"
   run "$PLUGIN_ROOT/scripts/park.sh" volk
