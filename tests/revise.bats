@@ -69,6 +69,16 @@ run_revise() {
   grep -q 'revise: revision 2 started, 3 comments to address' "$FIX_ISSUE_DIR/checklist.md"
 }
 
+@test "revise start entry lands inside the Log section, not after the new block (#75)" {
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  local logln revln
+  logln="$(grep -n 'revise: revision 2 started' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  revln="$(grep -n '^## Revision 2' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  [ -n "$logln" ]
+  [ "$logln" -lt "$revln" ]
+}
+
 @test "revise errors when revisions/r<N>/comments.md is missing" {
   rm -f "$FIX_ISSUE_DIR/revisions/r1/comments.md"
   run_revise volk Issue-676 --no-chain

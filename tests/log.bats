@@ -54,3 +54,43 @@ teardown() { teardown_tmp_devagent_home; }
   run log_append "$ISSUE_DIR" pull $'line1\nline2'
   [ "$status" -ne 0 ]
 }
+
+# --- #75: log entries must land inside the ## Log section ---
+
+_append_rev2_block() {
+  cat >> "$1" <<'EOF'
+
+## Revision 2
+
+- [ ]  1. draft
+- [ ] 15. ship
+EOF
+}
+
+@test "log_append inserts inside the Log section when a revision block follows" {
+  log_append "$ISSUE_DIR" pull "first"
+  _append_rev2_block "$ISSUE_DIR/checklist.md"
+  log_append "$ISSUE_DIR" cleanup "issue complete"
+  local f="$ISSUE_DIR/checklist.md"
+  local logln revln
+  logln="$(grep -n 'cleanup: issue complete' "$f" | head -1 | cut -d: -f1)"
+  revln="$(grep -n '^## Revision 2' "$f" | head -1 | cut -d: -f1)"
+  [ -n "$logln" ]
+  [ "$logln" -lt "$revln" ]   # entry is above the revision heading => in-section
+}
+
+@test "history_parse_log sees a log entry appended after a revision block" {
+  source "$PLUGIN_ROOT/scripts/lib/history.sh"
+  log_append "$ISSUE_DIR" pull "first"
+  _append_rev2_block "$ISSUE_DIR/checklist.md"
+  log_append "$ISSUE_DIR" cleanup "ISSUE COMPLETE"
+  run history_parse_log "$ISSUE_DIR/checklist.md" Issue-1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"|cleanup|ISSUE COMPLETE"* ]]
+}
+
+@test "log_append still works when ## Log is the last section" {
+  log_append "$ISSUE_DIR" pull "only entry"
+  run grep -E '^- [0-9]{4}.* +pull: only entry' "$ISSUE_DIR/checklist.md"
+  [ "$status" -eq 0 ]
+}

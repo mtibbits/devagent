@@ -77,6 +77,22 @@ EOF
   grep -q 'comments: fetched' "$FIX_ISSUE_DIR/checklist.md"
 }
 
+@test "comments log entry lands inside the Log section after a revision block (#75)" {
+  # A later revision block sits after ## Log; the log entry must still go in-section.
+  cat >> "$FIX_ISSUE_DIR/checklist.md" <<'EOF'
+
+## Revision 2
+
+- [ ]  1. draft
+EOF
+  run_comments volk Issue-676
+  [ "$status" -eq 0 ]
+  local logln revln
+  logln="$(grep -n 'comments: fetched' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  revln="$(grep -n '^## Revision 2' "$FIX_ISSUE_DIR/checklist.md" | head -1 | cut -d: -f1)"
+  [ "$logln" -lt "$revln" ]
+}
+
 @test "comments cleans up the partial file when backend exits non-zero" {
   cat >"$DEVAGENT_CODE_BACKEND_CMD" <<'EOF'
 #!/usr/bin/env bash

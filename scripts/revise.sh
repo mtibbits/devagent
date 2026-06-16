@@ -16,6 +16,8 @@ source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/log.sh"
 
 # Private die() preserves the "revise:" message prefix; defined after the sources so
 # it shadows io.sh's die (state.sh's internal die calls then carry this prefix too).
@@ -75,9 +77,9 @@ state_set_int "$PROJECT" revision "$n_new"
 state_set "$PROJECT" pending_comments_file "$prev_comments"
 
 k=$(grep -c '^### @' "$prev_comments" || true)
-stamp=$(date '+%Y-%m-%d %H:%M')
-printf -- '- %s  revise: revision %s started, %s comments to address\n' \
-  "$stamp" "$n_new" "$k" >>"$issue_dir/checklist.md"
+# #75: route through log_append so the entry lands inside the `## Log` section,
+# not at EOF after the just-appended `## Revision N` block.
+log_append "$issue_dir" revise "revision $n_new started, $k comments to address"
 
 printf 'revise: advanced to revision %s (%s comments pending)\n' "$n_new" "$k"
 

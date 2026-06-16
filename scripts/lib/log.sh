@@ -20,9 +20,42 @@ log_append() {
   if ! grep -q '^## Log' "$file"; then
     die "log_append: '## Log' section missing in $file"
   fi
-  local line
+  local line tmp
   line="- $(_log_now)  ${step}: ${msg}"
-  printf '%s\n' "$line" >> "$file"
+  # #75: insert at the END of the `## Log` section (before the next `## `
+  # heading, or EOF if Log is last), not at EOF — revise.sh appends
+  # `## Revision N` blocks after `## Log`, and the log parsers stop at the next
+  # heading, so an EOF append would be lost. Trailing blank lines inside the
+  # section are buffered so the new entry sits with the other log lines.
+  tmp="$(mktemp)"
+  if awk -v line="$line" '
+    /^## / {
+      if (in_log && !inserted) { print line; inserted = 1 }
+      for (i = 1; i <= nb; i++) print blanks[i]
+      nb = 0
+      print
+      in_log = ($0 ~ /^## Log/) ? 1 : 0
+      next
+    }
+    {
+      if (in_log && !inserted && $0 ~ /^[[:space:]]*$/) {
+        blanks[++nb] = $0
+        next
+      }
+      for (i = 1; i <= nb; i++) print blanks[i]
+      nb = 0
+      print
+    }
+    END {
+      if (in_log && !inserted) print line
+      for (i = 1; i <= nb; i++) print blanks[i]
+    }
+  ' "$file" > "$tmp"; then
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    die "log_append: failed to update $file (file left intact)"
+  fi
 }
 
 log_tail() {
