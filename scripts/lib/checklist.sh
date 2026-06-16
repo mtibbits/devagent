@@ -28,10 +28,46 @@ checklist_init() {
 # Matches valid step lines into BASH_REMATCH: glyph=1 num=2 name=3
 _checklist_line_re='^- \[(.)\][[:space:]]+([0-9]+)\.[[:space:]]+([A-Za-z][A-Za-z0-9_-]*)'
 
+# #74: revision blocks (templates/revision_block.md, appended by revise.sh) reuse
+# step numbers 1-15. The ACTIVE revision is the LAST `## Revision N` block in the
+# file; mark/read must be scoped to it or revision-2 work corrupts revision-1's
+# recorded glyphs (and status/where/next read the stale block).
+#
+# _checklist_active_start: line number of the last `## Revision` heading, or 0
+# when the checklist has no revision headings (legacy/none → operate file-wide).
+_checklist_active_start() {
+  awk '/^## Revision / { last = NR } END { print last + 0 }' "$1"
+}
+
+# _checklist_scope_start: the active-block start line IF the target step appears
+# in that block, else 0 (whole file). Steps unique to revision 1 — 0 (pull) and
+# 16-20 (mergetoall/updatewbs/impact/lessonslearned/cleanup) — are never reused,
+# so they correctly resolve file-wide when a later revision is active, keeping
+# cleanup.sh/mergetoall.sh/etc. working after a revision.
+_checklist_scope_start() {
+  local file="$1" target="$2" start
+  start="$(_checklist_active_start "$file")"
+  if (( start > 0 )) && awk -v start="$start" -v t="$target" '
+      NR > start && match($0, /^- \[.\][ \t]+[0-9]+\./) {
+        num = substr($0, RSTART, RLENGTH)
+        sub(/^- \[.\][ \t]+/, "", num); sub(/\.$/, "", num)
+        if (num == t) { found = 1; exit }
+      }
+      END { exit (found ? 0 : 1) }
+    ' "$file"; then
+    printf '%s\n' "$start"
+  else
+    printf '0\n'
+  fi
+}
+
 checklist_current_step() {
-  local file="$1" line glyph num found=""
+  local file="$1" line glyph num found="" start ln=0
   [[ -f "$file" ]] || die "checklist_current_step: no such file '$file'"
+  start="$(_checklist_active_start "$file")"
   while IFS= read -r line; do
+    ln=$((ln + 1))
+    (( ln > start )) || continue
     if [[ "$line" =~ $_checklist_line_re ]]; then
       glyph="${BASH_REMATCH[1]}"
       num="${BASH_REMATCH[2]}"
@@ -50,8 +86,11 @@ checklist_current_step() {
 }
 
 checklist_step_state() {
-  local file="$1" target="$2" line
+  local file="$1" target="$2" line start ln=0
+  start="$(_checklist_scope_start "$file" "$target")"
   while IFS= read -r line; do
+    ln=$((ln + 1))
+    (( ln > start )) || continue
     if [[ "$line" =~ $_checklist_line_re ]]; then
       if [[ "${BASH_REMATCH[2]}" == "$target" ]]; then
         echo "${BASH_REMATCH[1]}"
@@ -63,8 +102,11 @@ checklist_step_state() {
 }
 
 checklist_step_name() {
-  local file="$1" target="$2" line
+  local file="$1" target="$2" line start ln=0
+  start="$(_checklist_scope_start "$file" "$target")"
   while IFS= read -r line; do
+    ln=$((ln + 1))
+    (( ln > start )) || continue
     if [[ "$line" =~ $_checklist_line_re ]]; then
       if [[ "${BASH_REMATCH[2]}" == "$target" ]]; then
         echo "${BASH_REMATCH[3]}"
@@ -138,13 +180,15 @@ checklist_mark() {
   local file="$1" target="$2" glyph="$3"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
   _checklist_valid_glyph "$glyph" || die "checklist_mark: bad glyph '$glyph'"
-  local tmp
+  local tmp start
+  start="$(_checklist_scope_start "$file" "$target")"
   tmp="$(mktemp)"
-  if awk -v target="$target" -v glyph="$glyph" '
+  if awk -v target="$target" -v glyph="$glyph" -v start="$start" '
     {
       # POSIX 2-arg match() (gawk 3-arg capture array is non-portable: mawk
       # parse-errors on it). Extract the step number with substr()/sub().
-      if (match($0, /^- \[.\][ \t]+[0-9]+\./)) {
+      # #74: only act inside the active revision block (NR > start).
+      if (NR > start && match($0, /^- \[.\][ \t]+[0-9]+\./)) {
         num = substr($0, RSTART, RLENGTH)
         sub(/^- \[.\][ \t]+/, "", num)
         sub(/\.$/, "", num)
@@ -184,8 +228,10 @@ checklist_advance() {
 checklist_next_actionable() {
   local file="$1"
   local after="${2:-0}"
-  awk -v after="$after" '
-    match($0, /^- \[.\] +[0-9]+\./) {
+  local start
+  start="$(_checklist_active_start "$file")"
+  awk -v after="$after" -v start="$start" '
+    NR > start && match($0, /^- \[.\] +[0-9]+\./) {
       # POSIX 2-arg match() + substr() (mawk has no 3-arg capture array).
       g = substr($0, 4, 1)
       num = substr($0, RSTART, RLENGTH)
