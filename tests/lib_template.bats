@@ -6,26 +6,20 @@ setup() {
   setup_tmp_devdoc
   source "${REPO_ROOT}/scripts/capture/lib/template.sh"
   export DEVAGENT_DEVDOC_DIR="${TMP_DEVDOC}"
-  export DEVAGENT_PLUGIN_DIR="${REPO_ROOT}"
-  mkdir -p "${REPO_ROOT}/templates"
-  if [[ ! -f "${REPO_ROOT}/templates/issue_template-bug.md" ]]; then
-    SEEDED_PLUGIN_TEMPLATE=1
-    printf '# Bug template (plugin fallback)\n' \
-      >"${REPO_ROOT}/templates/issue_template-bug.md"
-  fi
+  # #107/F8: seed the plugin fallback in a TMP dir, never the real checkout's
+  # templates/ (the old REPO_ROOT path raced under bats --jobs and leaked on SIGKILL).
+  export DEVAGENT_PLUGIN_DIR="${TMP_DEVDOC}/plugin"
+  mkdir -p "${DEVAGENT_PLUGIN_DIR}/templates"
+  printf '# Bug template (plugin fallback)\n' \
+    >"${DEVAGENT_PLUGIN_DIR}/templates/issue_template-bug.md"
 }
 
-teardown() {
-  if [[ "${SEEDED_PLUGIN_TEMPLATE:-0}" -eq 1 ]]; then
-    rm -f "${REPO_ROOT}/templates/issue_template-bug.md"
-  fi
-  teardown_tmp_devdoc
-}
+teardown() { teardown_tmp_devdoc; }
 
 @test "template: falls through to plugin templates dir when nothing else exists" {
   run devagent_resolve_template issue_template-bug
   [ "$status" -eq 0 ]
-  [ "$output" = "${REPO_ROOT}/templates/issue_template-bug.md" ]
+  [ "$output" = "${DEVAGENT_PLUGIN_DIR}/templates/issue_template-bug.md" ]
 }
 
 @test "template: devdoc templates dir wins over plugin" {
