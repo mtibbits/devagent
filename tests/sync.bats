@@ -81,16 +81,24 @@ on_draft_start = "In Progress"
 on_ship        = "In Review"
 on_merge       = "Done"
 EOF
-    mkdir -p "$DEVAGENT_TMP/devdoc/other"
+    # #107/F7: give 'other' a SHIPPED issue too, so --all has real per-project
+    # work — otherwise the test passes even when --all iterates ZERO projects.
+    mkdir -p "$DEVAGENT_TMP/devdoc/other/Issue-1"
+    printf -- '- [x] 15. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
     cat > "$HOME/.claude/devagent/state/other.toml" <<EOF
-active_issue = ""
-issue_dir = ""
+active_issue = "Issue-1"
+issue_dir = "$DEVAGENT_TMP/devdoc/other/Issue-1"
+mr_url = "https://github.com/acme/other/pull/88"
 branch = ""
 
 [parked]
 EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" --all
     [ "$status" -eq 0 ]
+    # --all must process EVERY configured project — assert the per-project
+    # mr-state call for both, not merely rc 0 (the old vacuous assertion).
+    devagent_assert_logged "code/github mr-state https://github.com/acme/testproj/pull/77"
+    devagent_assert_logged "code/github mr-state https://github.com/acme/other/pull/88"
 }
 
 @test "sync.sh detects a MERGED (uppercase) state — github mr-state returns uppercase (#43)" {
