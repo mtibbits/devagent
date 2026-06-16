@@ -43,6 +43,31 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"gh issue view failed"* ]]
 }
 
+@test "fetch ignores gh stderr notices on success (#86)" {
+  export GH_STUB_CASE="noisy"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" fetch gnuradio/volk 676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"# gnuradio/volk#676 — Demo issue title"* ]]
+  [[ "$output" == *"## Comments (1)"* ]]
+  [[ "$output" != *"new release of gh"* ]]   # notice must not leak into output
+}
+
+@test "state ignores gh stderr notices on success (#86)" {
+  export GH_STUB_CASE="noisy"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state gnuradio/volk 676
+  [ "$status" -eq 0 ]
+  [ "$output" = "open" ]
+}
+
+@test "comment-list ignores gh stderr notices on success (#86)" {
+  export GH_STUB_CASE="noisy"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" comment-list gnuradio/volk 676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"## Comments (1)"* ]]
+  [[ "$output" == *"First comment."* ]]
+  [[ "$output" != *"new release of gh"* ]]
+}
+
 @test "create returns the bare issue number, not the URL (#27)" {
   # Real gh prints the new issue's URL; the backend contract is a bare number.
   echo body > "$BATS_TEST_TMPDIR/body.md"
