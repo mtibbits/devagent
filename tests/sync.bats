@@ -149,6 +149,8 @@ EOF
     # Both projects were attempted despite the mr-state failures.
     devagent_assert_logged "code/github mr-state https://github.com/acme/testproj/pull/77"
     devagent_assert_logged "code/github mr-state https://github.com/acme/other/pull/88"
+    # and the per-project failure is surfaced, not swallowed.
+    [[ "$output" == *"mr-state failed"* ]]
 }
 
 @test "sync.sh detects a MERGED (uppercase) state — github mr-state returns uppercase (#43)" {
