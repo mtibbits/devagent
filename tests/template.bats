@@ -15,6 +15,18 @@ teardown() { teardown_phase9_env; }
   echo "$output" | grep -q "layer=plugin"
 }
 
+@test "template.sh list resolves plugin layer without env injection (#81)" {
+  # Drop the test-only env vars that previously masked broken resolution;
+  # config_get_project_field + plugin_root (self-sourced) must carry it.
+  run env -u DEVAGENT_PLUGIN_TEMPLATES -u DEVAGENT_REPO_ROOT -u DEVAGENT_TEST_DEVDOC \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" \
+    --project "${DEVAGENT_TEST_PROJECT}" list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "layer=plugin"
+  # mr_template resolved (it reported MISSING in real use before the fix)
+  echo "$output" | grep mr_template | grep -vq MISSING
+}
+
 @test "template.sh show prints layer banner and content" {
   run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" \
     --project "${DEVAGENT_TEST_PROJECT}" show coding_standards
