@@ -81,6 +81,8 @@ def poorly_scoped(issue_dir: Path | str) -> bool:
         m = _AMBIG_RE.search(e["message"])
         if m and int(m.group("count")) > 3:
             return True
+        # Pre-existing recs signal: >= 3 (not > 3 like ambiguities above — recs
+        # has no "more than 3" skill rule; the asymmetry is intentional).
         m = _RECS_RE.search(e["message"])
         if m and int(m.group("count")) >= 3:
             return True
