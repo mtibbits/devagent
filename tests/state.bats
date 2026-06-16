@@ -105,6 +105,20 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
+@test "_state_list_projects filters _* and dotted sidecar files (#83)" {
+  state_init devagent
+  state_init volk
+  : > "$DA_HOME/state/_active.toml"          # global pointer (phantom 'project')
+  : > "$DA_HOME/state/volk.depends.toml"     # deps sidecar  (phantom 'project')
+  : > "$DA_HOME/state/devagent.toml.lock"    # lock sidecar  (not a *.toml match)
+  run _state_list_projects
+  [ "$status" -eq 0 ]
+  [[ "$output" == *devagent* ]]
+  [[ "$output" == *volk* ]]
+  [[ "$output" != *_active* ]]               # filtered
+  [[ "$output" != *volk.depends* ]]          # filtered
+}
+
 @test "state_set updates updated_at field automatically" {
   state_init volk
   state_set volk active_issue Issue-1

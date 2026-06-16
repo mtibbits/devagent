@@ -46,3 +46,16 @@ setup() {
   [[ "$output" != *"16. mergetoall"* ]]
   [[ "$output" != *"20. cleanup"* ]]
 }
+
+@test "revision_current honors DA_HOME, not \$HOME (#83 guard for the #97 fix)" {
+  # Point DA_HOME at a fresh state dir with revision=7. revision_current must
+  # read from there (via state_get -> state_path -> devagent_home), not a
+  # hardcoded \$HOME/.claude/devagent/state. Guards against a regression to B14.
+  local alt; alt="$(mktemp -d)"
+  mkdir -p "$alt/state"
+  printf 'active_issue = "Issue-1"\nrevision = 7\n' >"$alt/state/volk.toml"
+  DA_HOME="$alt" run revision_current volk
+  rm -rf "$alt"
+  [ "$status" -eq 0 ]
+  [ "$output" = "7" ]
+}

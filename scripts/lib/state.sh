@@ -190,6 +190,12 @@ _state_list_projects() {
   [[ -d "$dir" ]] || return 0
   ( cd "$dir" && for f in *.toml; do
       [[ -e "$f" ]] || continue
+      # #83/B11: only real projects. Skip global pointers (`_active`) and dotted
+      # sidecars (`volk.depends`); real project names are simple identifiers.
+      # (`*.toml.lock` sidecars never match the `*.toml` glob.)
+      case "${f%.toml}" in
+        _*|*.*) continue ;;
+      esac
       echo "${f%.toml}"
     done )
 }
