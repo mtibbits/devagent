@@ -98,6 +98,13 @@ scripts/checklist-log.sh "$ISSUE_DIR" scope \
   "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
 ```
 
+The format above is contract: `statusreport.sh` (via
+`scripts/lib/statusreport-detect.py:poorly_scoped`) parses the `scope:` entry for an
+integer followed by the `ambiguit` stem (so both `1 ambiguity` and the plural
+`N ambiguities` match) and flags the issue as poorly scoped when that count is **> 3** —
+the same "More than 3 ambiguities" threshold as the halt-and-ask rule above. Keep the count
+adjacent to the word `ambiguit…` so the detector stays in sync.
+
 ## Templates referenced
 
 - `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (for the canonical section ordering
