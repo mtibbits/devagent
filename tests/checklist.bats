@@ -91,3 +91,49 @@ teardown() { teardown_tmp_devagent_home; }
   run checklist_current_step "$ISSUE_DIR/checklist.md"
   [ "$output" = "2" ]
 }
+
+# --- #73: gawk-only 3-arg match() and unguarded mv ---
+
+# Shim `awk` -> a chosen real interpreter so the checklist awk runs under it.
+_shim_awk() {
+  local impl="$1"
+  SHIM_DIR="$BATS_TEST_TMPDIR/awkshim"
+  mkdir -p "$SHIM_DIR"
+  printf '#!/usr/bin/env bash\nexec %s "$@"\n' "$impl" > "$SHIM_DIR/awk"
+  chmod +x "$SHIM_DIR/awk"
+}
+
+@test "checklist_mark runs under mawk (no gawk-only 3-arg match)" {
+  command -v mawk >/dev/null || skip "mawk not installed"
+  checklist_init "$ISSUE_DIR" standard
+  _shim_awk mawk
+  PATH="$SHIM_DIR:$PATH" checklist_mark "$ISSUE_DIR/checklist.md" 7 '~'
+  run checklist_step_state "$ISSUE_DIR/checklist.md" 7
+  [ "$output" = "~" ]
+}
+
+@test "checklist_next_actionable runs under mawk (no gawk-only 3-arg match)" {
+  command -v mawk >/dev/null || skip "mawk not installed"
+  checklist_init "$ISSUE_DIR" standard
+  checklist_mark "$ISSUE_DIR/checklist.md" 0 x
+  _shim_awk mawk
+  run env PATH="$SHIM_DIR:$PATH" bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/checklist.sh'; checklist_next_actionable '$ISSUE_DIR/checklist.md'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+}
+
+@test "checklist_mark does not truncate the file when awk fails" {
+  checklist_init "$ISSUE_DIR" standard
+  local before
+  before="$(cat "$ISSUE_DIR/checklist.md")"
+  # awk shim that fails with empty output, simulating a parse error / ENOSPC.
+  SHIM_DIR="$BATS_TEST_TMPDIR/awkshim"
+  mkdir -p "$SHIM_DIR"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$SHIM_DIR/awk"
+  chmod +x "$SHIM_DIR/awk"
+  run env PATH="$SHIM_DIR:$PATH" bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/checklist.sh'; checklist_mark '$ISSUE_DIR/checklist.md' 7 x"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$ISSUE_DIR/checklist.md")" = "$before" ]
+}
