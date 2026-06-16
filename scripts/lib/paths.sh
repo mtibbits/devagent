@@ -25,6 +25,28 @@ secrets_dir() {
 }
 
 expand_tilde() {
+  # ~ / ~/...  → $HOME (env var). ~user / ~user/... → that user's passwd home
+  # (#82: the old `${p/#\~/$HOME}` mis-expanded ~user to ${HOME}user). An unknown
+  # user (or no getent) leaves the value untouched rather than mangling it.
+  # Anything not starting with a leading ~ is returned verbatim.
   local p="$1"
-  echo "${p/#\~/$HOME}"
+  # SC2088: the quoted ~ here is a case PATTERN matching a literal leading tilde
+  # in the input — intentionally not an expansion.
+  # shellcheck disable=SC2088
+  case "$p" in
+    "~"|"~/"*)
+      printf '%s\n' "${p/#\~/$HOME}" ;;
+    "~"*)
+      local rest user home
+      rest="${p#\~}"            # user[/...]
+      user="${rest%%/*}"        # user
+      home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)"
+      if [ -n "$home" ]; then
+        printf '%s\n' "${home}${rest#"$user"}"
+      else
+        printf '%s\n' "$p"
+      fi ;;
+    *)
+      printf '%s\n' "$p" ;;
+  esac
 }

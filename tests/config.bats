@@ -80,3 +80,47 @@ teardown() { teardown_tmp_devagent_home; }
   run config_require_project volk
   [ "$status" -eq 0 ]
 }
+
+# --- #82: tilde expansion ---------------------------------------------------
+
+@test "expand_tilde: ~/x -> \$HOME/x [#82]" {
+  run expand_tilde '~/x'
+  [ "$output" = "$HOME/x" ]
+}
+@test "expand_tilde: bare ~ -> \$HOME [#82]" {
+  run expand_tilde '~'
+  [ "$output" = "$HOME" ]
+}
+@test "expand_tilde: ~root/x -> root's passwd home + /x (not \${HOME}root) [#82]" {
+  local rh; rh="$(getent passwd root | cut -d: -f6)"
+  run expand_tilde '~root/x'
+  [ "$output" = "${rh}/x" ]
+}
+@test "expand_tilde: unknown user left untouched, never mangled [#82]" {
+  run expand_tilde '~no_such_user_zzq/x'
+  [ "$output" = '~no_such_user_zzq/x' ]
+}
+@test "expand_tilde: absolute path untouched [#82]" {
+  run expand_tilde '/a/b'
+  [ "$output" = '/a/b' ]
+}
+@test "expand_tilde: mid-string tilde untouched (only leading) [#82]" {
+  run expand_tilde '/a/~b'
+  [ "$output" = '/a/~b' ]
+}
+
+@test "config_get_project_field expands ~ in a path field (devdoc_dir) [#82]" {
+  run config_get_project_field volk devdoc_dir
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/src/devDoc/volk" ]   # fixture has '~/src/devDoc/volk'
+}
+@test "config_get_project_field expands ~ in source_dir too [#82]" {
+  run config_get_project_field volk source_dir
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/src/volk" ]
+}
+@test "config_get_project_field does NOT expand a non-path field [#82]" {
+  run config_get_project_field volk default_baseline
+  [ "$status" -eq 0 ]
+  [ "$output" = "origin/main" ]             # git ref, untouched
+}
