@@ -65,9 +65,17 @@ bc_curl() {
     -o "$body_file" -w '%{http_code}' \
     "$@" "$url" 2>/dev/null || true)"
   cat "$body_file"
+  case "$http_status" in
+    2*) rm -f "$body_file"; return 0 ;;
+  esac
+  # #138: non-2xx — surface the status and error body to stderr. Callers capture
+  # stdout into a var and discard it on `|| return`, and bc_curl suppresses
+  # curl's own stderr, so without this an expired token kills /devagent:file and
+  # /devagent:ship under set -e with no diagnostic at all.
+  { printf 'bc_curl: %s %s -> HTTP %s\n' "$method" "$url" "${http_status:-000}"
+    cat "$body_file"; } >&2
   rm -f "$body_file"
   case "$http_status" in
-    2*) return 0 ;;
     401|403) return 3 ;;
     404) return 4 ;;
     *) return 1 ;;

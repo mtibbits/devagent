@@ -68,6 +68,12 @@ teardown() {
   [ "$status" -eq 3 ]
 }
 
+@test "issue/jira.sh fetch surfaces the API error body on failure (#138)" {
+  run "$SCRIPT" fetch PROJ PROJ-401
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"Unauthorized"* ]]
+}
+
 @test "issue/jira.sh unknown verb exits 2" {
   run "$SCRIPT" frob
   [ "$status" -eq 2 ]
