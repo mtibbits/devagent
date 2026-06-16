@@ -84,3 +84,16 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"DEVAGENT_PROJECT"* ]]
 }
+
+@test "reap: a literal tab in a source bullet does not corrupt the TSV fields (#109)" {
+  # A future-enhancements bullet with a literal tab (pasted/aligned text). On the
+  # raw (unflattened) emitter the tab shifts the TAB-separated fields, corrupting
+  # the source citation; the flatten must keep it intact. Fresh Issue-999 so the
+  # bullet's draft is the only thing that can cite Issue-999.
+  mkdir -p "${TMP_DEVDOC}/Issue-999"
+  printf -- '- Refactor\tthe widget cache for clarity. Some detail.\n' \
+    > "${TMP_DEVDOC}/Issue-999/imPlan-potentialFutureEnhancements.md"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  grep -rqE 'Issue-999/imPlan-potentialFutureEnhancements\.md' "${TMP_DEVDOC}/Captures"/*/draft.md
+}
