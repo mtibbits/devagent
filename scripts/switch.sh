@@ -21,6 +21,17 @@ main() {
   [[ -n "$target"  ]] || die "switch.sh: target issue required"
   config_is_project "$project" || die "switch.sh: unknown project '$project'"
 
+  # #142: validate the target BEFORE parking the current issue, mirroring
+  # resume.sh's two preconditions — otherwise a bad target parks the current
+  # issue then dies, leaving a half-applied switch (no active issue, previous
+  # freshly [P]-marked) for the operator to repair by hand.
+  local parked devdoc target_dir
+  parked="$(state_list_parked "$project")"
+  grep -qxF "$target" <<<"$parked" || die "switch.sh: '$target' not parked for $project"
+  devdoc="$(config_get_project_field "$project" devdoc_dir)"
+  target_dir="${devdoc%/}/$target"
+  [[ -d "$target_dir" ]] || die "switch.sh: issue dir missing: $target_dir"
+
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [[ -n "$active" && "$active" != "null" && "$active" != "$target" ]]; then
