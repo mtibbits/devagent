@@ -4,7 +4,7 @@
     "summary": "Sample JIRA issue",
     "description": "Body of the JIRA issue.\n\nSecond paragraph.",
     "status": {"name": "In Progress"},
-    "reporter": {"name": "alice", "displayName": "Alice"},
+    "reporter": {"accountId": "5b10a2844c20165700ede21g", "displayName": "Alice"},
     "labels": ["bug", "performance"]
   }
 }

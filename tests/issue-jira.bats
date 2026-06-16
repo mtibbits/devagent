@@ -19,11 +19,12 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"# PROJ#PROJ-42 — Sample JIRA issue"* ]]
   [[ "$output" == *"- State: In Progress"* ]]
-  [[ "$output" == *"- Author: @alice"* ]]
+  # #139: Cloud user objects have no .name — author comes from displayName.
+  [[ "$output" == *"- Author: @Alice"* ]]
   [[ "$output" == *"- Labels: bug,performance"* ]]
   [[ "$output" == *"Body of the JIRA issue."* ]]
   [[ "$output" == *"## Comments (1)"* ]]
-  [[ "$output" == *"### @reviewer · 2026-05-12"* ]]
+  [[ "$output" == *"### @Reviewer · 2026-05-12"* ]]
 }
 
 @test "issue/jira.sh create POSTs and prints new key" {
@@ -54,8 +55,36 @@ teardown() {
 @test "issue/jira.sh comment-list prints spec-shape comments" {
   run "$SCRIPT" comment-list PROJ PROJ-42
   [ "$status" -eq 0 ]
-  [[ "$output" == *"### @reviewer · 2026-05-12"* ]]
+  [[ "$output" == *"### @Reviewer · 2026-05-12"* ]]
   [[ "$output" == *"Looks good"* ]]
+}
+
+@test "issue/jira.sh comment authors fall back displayName→unknown, never @null (#139)" {
+  tmpfix="$(mktemp -d)"
+  cp "${BATS_TEST_DIRNAME}/fixtures/jira/issue.json" "$tmpfix/"
+  python3 - "$tmpfix" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+comments = {"total": 2, "startAt": 0, "maxResults": 100, "comments": [
+    {"author": {"accountId": "acc-1", "displayName": "Cloud User"}, "created": "2026-05-12T00:00:00.000+0000", "body": "from cloud"},
+    {"author": {"accountId": "acc-2"}, "created": "2026-05-12T00:00:00.000+0000", "body": "anonymous"},
+]}
+open(os.path.join(d, "comments.json"), "w").write(json.dumps(comments))
+routes = {
+    "GET /rest/api/2/issue/PROJ-42": {"status": 200, "body_file": "issue.json"},
+    "GET /rest/api/2/issue/PROJ-42/comment?startAt=0&maxResults=100": {"status": 200, "body_file": "comments.json"},
+}
+open(os.path.join(d, "routes.json"), "w").write(json.dumps(routes))
+PY
+  fixture_stop
+  fixture_start "$tmpfix"
+  export DEVAGENT_JIRA_BASE="$FIXTURE_URL"
+  run "$SCRIPT" fetch PROJ PROJ-42
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"### @Cloud User · 2026-05-12"* ]]   # displayName, not null
+  [[ "$output" == *"### @unknown · 2026-05-12"* ]]       # neither field → unknown
+  [[ "$output" != *"@null"* ]]
+  rm -rf "$tmpfix"
 }
 
 @test "issue/jira.sh fetch on 404 exits 4" {
