@@ -25,14 +25,12 @@ baseline="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
 [ -n "$baseline" ] || die "analyze-static.sh: no baseline_sha in state and no default_baseline in config"
 
+source_dir="$(config_get_project_field "$project" source_dir)"
 build_dir="$(config_get_project_field "$project" build_dir 2>/dev/null || true)"
-if [ -z "$build_dir" ]; then
-    source_dir="$(config_get_project_field "$project" source_dir)"
-    build_dir="$source_dir/build"
-fi
+[ -n "$build_dir" ] || build_dir="$source_dir/build"
 
 mkdir -p "$issue_dir/analysis"
 out="$issue_dir/analysis/$(date +%Y-%m-%d)-static.txt"
 
-"$DEVAGENT_PYTHON" "$DEVAGENT_ROOT/static_analysis_diff.py" "$baseline" "$build_dir" \
+"$DEVAGENT_PYTHON" "$DEVAGENT_ROOT/static_analysis_diff.py" --repo "$source_dir" "$baseline" "$build_dir" \
     | tee "$out"

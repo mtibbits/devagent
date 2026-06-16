@@ -21,7 +21,8 @@ teardown() { devagent_test_teardown; }
 @test "analyze-static.sh invokes static_analysis_diff.py with baseline + build dir" {
     run "$DEVAGENT_ROOT/scripts/analyze-static.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    devagent_assert_logged "$DEVAGENT_ROOT/static_analysis_diff.py HEAD"
+    devagent_assert_logged "$DEVAGENT_ROOT/static_analysis_diff.py --repo $SOURCE_DIR"
+    devagent_assert_logged "--repo $SOURCE_DIR HEAD"
     out_file="$(ls "$DEVDOC_DIR/Issue-1/analysis"/*-static.txt | head -1)"
     [ -s "$out_file" ]
     grep -q "cppcheck: clean" "$out_file"
