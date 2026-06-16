@@ -13,7 +13,7 @@ printf '{"accountId":"abc"}\n'
 exit 0
 EOF
   chmod +x "${STUB_BIN}/curl"
-  export DEVAGENT_JIRA_BASE_URL="https://example.atlassian.net"
+  export DEVAGENT_JIRA_BASE="https://example.atlassian.net"
   export DEVAGENT_JIRA_EMAIL="dev@example.com"
 }
 teardown() { auth_teardown_common; }

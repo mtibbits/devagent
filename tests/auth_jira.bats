@@ -2,7 +2,7 @@ load 'helpers/auth_setup'
 
 setup() {
   auth_setup_common
-  export DEVAGENT_JIRA_BASE_URL="https://example.atlassian.net"
+  export DEVAGENT_JIRA_BASE="https://example.atlassian.net"
   export DEVAGENT_JIRA_EMAIL="dev@example.com"
   cat >"${STUB_BIN}/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -29,13 +29,22 @@ teardown() { auth_teardown_common; }
   [[ "${output}" != *"ATATT3xFfGF0jiraToken12345"* ]]
 }
 
-@test "jira exec sets JIRA_TOKEN" {
+@test "jira exec sets JIRA_TOKEN and JIRA_USER (#94)" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"
   scripts/auth/jira.sh store volk "${tf}"
   run scripts/auth/jira.sh exec volk -- env
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"JIRA_TOKEN=ATATT3xFfGF0jiraToken12345"* ]]
+  [[ "${output}" == *"JIRA_USER=dev@example.com"* ]]   # #94: from DEVAGENT_JIRA_EMAIL, for Basic auth
+}
+
+@test "jira create validates the token and reports the result (#94)" {
+  local tf="${BATS_TEST_TMPDIR}/tok"
+  printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"
+  run env DEVAGENT_CREATE_TOKEN_FILE="${tf}" scripts/auth/jira.sh create volk
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"accountId=abc"* ]]               # #94: _ji_validate ran in create
 }
 
 @test "jira destroy removes file" {
@@ -55,12 +64,12 @@ teardown() { auth_teardown_common; }
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.jira.pat")" = "BBBB" ]
 }
 
-@test "jira status without DEVAGENT_JIRA_BASE_URL warns and omits validation" {
-  unset DEVAGENT_JIRA_BASE_URL
+@test "jira status without DEVAGENT_JIRA_BASE warns and omits validation (#94)" {
+  unset DEVAGENT_JIRA_BASE
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'jiratoken\n' >"${tf}"
   scripts/auth/jira.sh store volk "${tf}"
   run scripts/auth/jira.sh status volk
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"validation_skipped=DEVAGENT_JIRA_BASE_URL_unset"* ]]
+  [[ "${output}" == *"validation_skipped=DEVAGENT_JIRA_BASE_unset"* ]]
 }

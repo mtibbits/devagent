@@ -27,8 +27,8 @@ _ji_strip_token_file() {
 
 _ji_validate() {
   local tok="$1"
-  if [ -z "${DEVAGENT_JIRA_BASE_URL:-}" ]; then
-    printf 'validation_skipped=DEVAGENT_JIRA_BASE_URL_unset'
+  if [ -z "${DEVAGENT_JIRA_BASE:-}" ]; then
+    printf 'validation_skipped=DEVAGENT_JIRA_BASE_unset'
     return 0
   fi
   if [ -z "${DEVAGENT_JIRA_EMAIL:-}" ]; then
@@ -42,7 +42,7 @@ _ji_validate() {
   local resp
   resp="$(curl -sS -u "${DEVAGENT_JIRA_EMAIL}:${tok}" \
     -H 'Accept: application/json' \
-    "${DEVAGENT_JIRA_BASE_URL}/rest/api/3/myself" || true)"
+    "${DEVAGENT_JIRA_BASE}/rest/api/3/myself" || true)"
   local id
   id="$(printf '%s' "${resp}" | sed -n 's/.*"accountId":"\([^"]*\)".*/\1/p')"
   if [ -n "${id}" ]; then
@@ -68,8 +68,11 @@ _ji_create_interactive() {
     read -rs token; printf '\n' >&2
   fi
   [ -n "${token}" ] || { echo "auth/jira: no token provided" >&2; return 1; }
+  # #94: validate before storing and report the result (accountId / skip reason),
+  # like _ji_status — the file header advertises validation on create.
+  local v; v="$(_ji_validate "${token}")"
   secret_write "${proj}" "${BACKEND}" "${token}"
-  echo "auth/jira: stored token for ${proj}" >&2
+  echo "auth/jira: stored token for ${proj}${v:+ (${v})}" >&2
 }
 
 _ji_store() {
@@ -110,7 +113,10 @@ main() {
     rotate)  _ji_rotate             "${AUTH_PROJECT}" ;;
     destroy) secret_destroy         "${AUTH_PROJECT}" "${BACKEND}" ;;
     status)  _ji_status             "${AUTH_PROJECT}" ;;
-    exec)    auth_run_exec          "${AUTH_PROJECT}" "${BACKEND}" "${ENV_VAR}" "${AUTH_EXEC_CMD[@]}" ;;
+    exec)    # #94: also export JIRA_USER so the exec'd issue/jira.sh can Basic-auth
+             # (JIRA_USER:JIRA_TOKEN); the identity is DEVAGENT_JIRA_EMAIL.
+             export JIRA_USER="${DEVAGENT_JIRA_EMAIL:-}"
+             auth_run_exec          "${AUTH_PROJECT}" "${BACKEND}" "${ENV_VAR}" "${AUTH_EXEC_CMD[@]}" ;;
   esac
 }
 
