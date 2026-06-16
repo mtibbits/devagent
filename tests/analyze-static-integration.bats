@@ -31,3 +31,22 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"Changed files: README.md"* ]]
     [[ "$output" == *"README.md: lines"* ]]
 }
+
+@test "static_analysis_diff.py: --json keeps progress off stdout so | jq works (#119)" {
+    base="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
+    printf 'line1\nline2_changed\n' > "$SOURCE_DIR/README.md"
+    ( cd "$SOURCE_DIR" && git add README.md && git commit -q -m "change README" )
+
+    skip_tools="cppcheck cpplint clang-tidy iwyu clang-format codespell cmake-lint ruff flake8 bandit mypy scan-build compiler asan tsan"
+
+    cd "$DEVAGENT_TMP"
+    # Capture STDOUT only — progress must have gone to stderr.
+    run bash -c "python3 '$DEVAGENT_ROOT/static_analysis_diff.py' --json --repo '$SOURCE_DIR' '$base' '$SOURCE_DIR/build' --skip $skip_tools 2>/dev/null"
+    [ "$status" -eq 0 ]
+    # stdout must be a valid JSON document (no leading progress lines).
+    echo "$output" | python3 -c 'import sys, json; json.load(sys.stdin)'
+    # and must contain none of the progress text.
+    [[ "$output" != *"Base ref:"* ]]
+    [[ "$output" != *"Changed files:"* ]]
+    [[ "$output" != *"Running"* ]]
+}
