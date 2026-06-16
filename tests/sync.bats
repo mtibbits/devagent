@@ -101,6 +101,56 @@ EOF
     devagent_assert_logged "code/github mr-state https://github.com/acme/other/pull/88"
 }
 
+@test "sync.sh --all continues past a project whose mr-state fails (#141)" {
+    # Second project, also shipped with an mr_url.
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.other]
+source_dir       = "$DEVAGENT_TMP/src/other"
+devdoc_dir       = "$DEVAGENT_TMP/devdoc/other"
+default_baseline = "origin/main"
+all_prs_branch   = "dev/all-prs"
+branch_prefix_map = { bug = "fix", feature = "feat" }
+
+[project.other.issue_source]
+backend = "github"
+repo    = "acme/other"
+dir_prefix = "Issue-"
+
+[project.other.code_source]
+backend  = "github"
+upstream = "acme/other"
+fork     = "me/other"
+
+[project.other.issue_workflow]
+on_merge = "Done"
+EOF
+    mkdir -p "$DEVAGENT_TMP/devdoc/other/Issue-1"
+    printf -- '- [x] 15. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
+    cat > "$HOME/.claude/devagent/state/other.toml" <<EOF
+active_issue = "Issue-1"
+issue_dir = "$DEVAGENT_TMP/devdoc/other/Issue-1"
+mr_url = "https://github.com/acme/other/pull/88"
+branch = ""
+
+[parked]
+EOF
+    # Make EVERY mr-state call FAIL (network/auth-style). The call is still
+    # logged before the non-zero exit. Order-independent: pre-fix the first
+    # project's failure aborts the loop so the second is never reached.
+    cat > "$DEVAGENT_TMP/fake-code/github.sh" <<EOF
+#!/usr/bin/env bash
+echo "code/github \$@" >> "$DEVAGENT_STUB_LOG"
+[ "\$1" = "mr-state" ] && { echo "mr-state: boom" >&2; exit 1; }
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-code/github.sh"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" --all
+    [ "$status" -eq 0 ]
+    # Both projects were attempted despite the mr-state failures.
+    devagent_assert_logged "code/github mr-state https://github.com/acme/testproj/pull/77"
+    devagent_assert_logged "code/github mr-state https://github.com/acme/other/pull/88"
+}
+
 @test "sync.sh detects a MERGED (uppercase) state — github mr-state returns uppercase (#43)" {
     # `gh pr view --json state` (via code/github.sh mr-state) returns "MERGED",
     # not "merged"; sync must compare case-insensitively.

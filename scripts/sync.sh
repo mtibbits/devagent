@@ -55,7 +55,12 @@ sync_one_project() {
     code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
     issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
     [ -x "$code_sh" ] || return 0
-    state="$("$code_sh" mr-state "$mr_url")"
+    # #141: guard the network call so a per-project mr-state failure (auth/network)
+    # warns and skips instead of aborting the whole --all loop under set -e.
+    if ! state="$("$code_sh" mr-state "$mr_url")"; then
+        echo "warning: mr-state failed for $project/$issue_arg; skipping" >&2
+        return 0
+    fi
     [ "${state,,}" = "merged" ] || return 0   # #43: gh returns "MERGED" (uppercase)
 
     if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
