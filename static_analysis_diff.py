@@ -813,6 +813,9 @@ def main():
     parser.add_argument("base_ref", help="Git ref to diff against (e.g. origin/main)")
     parser.add_argument("build_dir", help="CMake build directory (must have compile_commands.json)")
     parser.add_argument("--files", nargs="*", help="Limit to specific files (default: all changed)")
+    parser.add_argument("--repo", default=None,
+                        help="Target project repo (default: ambient CWD's git toplevel). "
+                             "Pins all git operations to this repo so analyze is CWD-independent.")
     parser.add_argument("--skip", nargs="*", default=[], help="Tools to skip (e.g. --skip scan-build asan tsan)")
     parser.add_argument("--json", action="store_true", help="Output as JSON instead of markdown")
     parser.add_argument("--test-kernel", default="volk_32f_x2_add_32f",
@@ -823,13 +826,14 @@ def main():
                         help="TSan build dir (default: <build_dir>-tsan)")
     args = parser.parse_args()
 
-    repo_root = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True
-    ).stdout.strip()
+    rev_parse = ["git", "rev-parse", "--show-toplevel"]
+    if args.repo:
+        rev_parse = ["git", "-C", args.repo] + rev_parse[1:]
+    repo_root = subprocess.run(rev_parse, capture_output=True, text=True).stdout.strip()
 
     if not repo_root:
-        print("error: not in a git repository", file=sys.stderr)
+        target = args.repo or "the current directory"
+        print(f"error: {target} is not inside a git repository", file=sys.stderr)
         sys.exit(1)
 
     os.chdir(repo_root)
