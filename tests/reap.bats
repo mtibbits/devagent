@@ -97,3 +97,21 @@ teardown() {
   [ "$status" -eq 0 ]
   grep -rqE 'Issue-999/imPlan-potentialFutureEnhancements\.md' "${TMP_DEVDOC}/Captures"/*/draft.md
 }
+
+@test "reap: state file is written atomically via rename (#110)" {
+  # A bare > redirect truncates the state file in place (same inode); a crash
+  # mid-write leaves it truncated, and the next reap re-captures everything. The
+  # mktemp+mv idiom replaces the file by atomic rename, so it is never observed
+  # partial. Proxy for atomicity: the inode must change across a rewrite, and no
+  # temp leftovers may remain.
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  state="${DEVAGENT_STATE_DIR}/fake.reaped.toml"
+  [ -f "${state}" ]
+  ino_before="$(stat -c %i "${state}")"
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ -f "${state}" ]
+  ino_after="$(stat -c %i "${state}")"
+  [ "${ino_before}" != "${ino_after}" ]
+  run find "${DEVAGENT_STATE_DIR}" -name '.fake.reaped.*'
+  [ -z "${output}" ]
+}
