@@ -47,9 +47,23 @@ cap_dir="$(devagent_capture_dir "${SLUG}")"
 draft="${cap_dir}/draft.md"
 filed="${cap_dir}/filed.toml"
 
+pending="${cap_dir}/.pending"
+
 [[ -f "${draft}" ]] || { echo "missing draft.md at ${draft}" >&2; exit 3; }
 if [[ -e "${filed}" && "${REFILE}" -ne 1 ]]; then
   echo "already filed: ${filed} (use --refile to re-file)" >&2
+  exit 3
+fi
+# #113: a .pending marker with no filed.toml means a prior run died between the
+# remote create and the filed.toml write — the remote issue may already exist.
+# Refuse rather than file a duplicate.
+if [[ -e "${pending}" && ! -e "${filed}" && "${REFILE}" -ne 1 ]]; then
+  cat >&2 <<EOF
+A previous filing left a pending marker but no filed.toml:
+  ${pending}
+The remote issue may already exist. Verify the tracker, then re-run with
+--refile (or remove the marker) to proceed.
+EOF
   exit 3
 fi
 
@@ -87,10 +101,23 @@ backend="${DEVAGENT_ISSUE_BACKEND:-github}"
 backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set}/${backend}.sh"
 [[ -x "${backend_script}" ]] || { echo "backend not executable: ${backend_script}" >&2; exit 3; }
 
+# #113: mark the create→filed.toml window. If the script dies after the remote
+# create but before filed.toml is written, this marker survives and blocks a
+# duplicate re-file (see the guard above). Cleared once filed.toml is written.
+: >"${pending}"
+
 issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")"
 [[ -n "${issue_num}" ]] || { echo "backend returned empty issue number" >&2; exit 3; }
 
-url="${MOCK_RESPONSE_URL:-https://github.com/${repo}/issues/${issue_num}}"
+# #113: build the canonical URL from the active backend instead of hardcoding
+# github for every backend (which recorded dead links for gitlab/jira).
+case "${backend}" in
+  github) url="https://github.com/${repo}/issues/${issue_num}" ;;
+  gitlab) url="${DEVAGENT_GITLAB_API:-https://gitlab.com/api/v4}"
+          url="${url%/api/v4}/${repo}/-/issues/${issue_num}" ;;
+  jira)   url="${DEVAGENT_JIRA_BASE:-https://jira.example}/browse/${issue_num}" ;;
+  *)      url="https://github.com/${repo}/issues/${issue_num}" ;;
+esac
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat >"${filed}" <<TOML
@@ -102,5 +129,8 @@ target = "${TARGET}"
 backend = "${backend}"
 filed_at = "${now}"
 TOML
+
+# #113: filing committed — clear the in-flight marker.
+rm -f "${pending}"
 
 printf '%s\n' "${url}"

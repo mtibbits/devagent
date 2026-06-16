@@ -93,3 +93,50 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"draft.md"* ]]
 }
+
+@test "file: a stale .pending marker blocks a re-file with no duplicate create (#113)" {
+  # A prior filing died after the remote create but before filed.toml — the
+  # .pending marker survives. A re-run must refuse rather than file a duplicate.
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  export DEVAGENT_REPO_ORIGIN="fakeorg/fake"
+  : >"${CAP_DIR}/.pending"
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pending"* ]]
+  # the backend create must NOT have run (no duplicate remote issue)
+  run grep -c "^verb=create$" "${MOCK_INVOCATION_LOG}"
+  [ "$output" -eq 0 ]
+  [ ! -f "${CAP_DIR}/filed.toml" ]
+}
+
+@test "file: a successful filing clears the .pending marker (#113)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  export DEVAGENT_REPO_ORIGIN="fakeorg/fake"
+  "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ -f "${CAP_DIR}/filed.toml" ]
+  [ ! -e "${CAP_DIR}/.pending" ]
+}
+
+@test "file: a backend create failure retains .pending (#113)" {
+  # create fails after being invoked → file.sh aborts before filed.toml; the
+  # window stays guarded so a re-run cannot silently duplicate.
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  export DEVAGENT_REPO_ORIGIN="fakeorg/fake"
+  export MOCK_FORCE_FAIL=1
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -ne 0 ]
+  [ -e "${CAP_DIR}/.pending" ]
+  [ ! -f "${CAP_DIR}/filed.toml" ]
+}
+
+@test "file: records the per-backend canonical URL for gitlab, not github (#113)" {
+  # file.sh must build the URL from the active backend, not hardcode github.
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  export DEVAGENT_ISSUE_BACKEND=gitlab
+  export DEVAGENT_GITLAB_API="https://gitlab.example.com/api/v4"
+  export DEVAGENT_REPO_ORIGIN="grp/proj"
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -eq 0 ]
+  assert_file_grep "${CAP_DIR}/filed.toml" '^url = "https://gitlab.example.com/grp/proj/-/issues/4242"$'
+  ! grep -q 'github\.com' "${CAP_DIR}/filed.toml"
+}
