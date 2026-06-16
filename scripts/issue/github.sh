@@ -9,6 +9,25 @@ set -euo pipefail
 _die() { echo "$*" >&2; exit 1; }
 _need() { command -v "$1" >/dev/null 2>&1 || _die "$1 not found on PATH"; }
 
+# _gh_view <repo> <num> <json-fields>
+# Runs `gh issue view` and prints ONLY its stdout (the JSON). gh writes notices
+# (update nags, deprecation warnings) to stderr even on success; capturing them
+# with 2>&1 would prefix the JSON and break the downstream jq (#86, same class as
+# the #27 fix in cmd_create). Stderr is kept separate and surfaced only when gh
+# exits non-zero.
+_gh_view() {
+  local repo="$1" num="$2" fields="$3"
+  local out err
+  err="$(mktemp)"
+  if ! out="$(gh issue view "$num" --repo "$repo" --json "$fields" 2>"$err")"; then
+    echo "gh issue view failed: $(cat "$err")" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+  printf '%s' "$out"
+}
+
 cmd_fetch() {
   local repo="${1:?repo required}"
   local num="${2:?issue number required}"
@@ -16,11 +35,7 @@ cmd_fetch() {
   _need jq
 
   local json
-  if ! json="$(gh issue view "$num" --repo "$repo" --json \
-    title,state,author,labels,url,body,comments 2>&1)"; then
-    echo "gh issue view failed: $json" >&2
-    return 1
-  fi
+  json="$(_gh_view "$repo" "$num" 'title,state,author,labels,url,body,comments')" || return 1
 
   printf '%s' "$json" | jq -r --arg repo "$repo" --arg num "$num" '
     def label_csv:
@@ -53,10 +68,7 @@ cmd_state() {
   _need gh
   _need jq
   local json
-  json="$(gh issue view "$num" --repo "$repo" --json state 2>&1)" || {
-    echo "gh issue view failed: $json" >&2
-    return 1
-  }
+  json="$(_gh_view "$repo" "$num" 'state')" || return 1
   printf '%s' "$json" | jq -r '.state | ascii_downcase'
 }
 
@@ -66,10 +78,7 @@ cmd_comment_list() {
   _need gh
   _need jq
   local json
-  json="$(gh issue view "$num" --repo "$repo" --json comments 2>&1)" || {
-    echo "gh issue view failed: $json" >&2
-    return 1
-  }
+  json="$(_gh_view "$repo" "$num" 'comments')" || return 1
   printf '%s' "$json" | jq -r '
     def comment_block:
       .comments | map(

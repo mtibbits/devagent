@@ -15,6 +15,14 @@ if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then
   exit 0
 fi
 
+# #86: emit a notice on stderr (like gh's update-nag/deprecation warnings) and
+# otherwise behave as the standard success case, so tests can prove the backend
+# keeps gh's stderr out of the JSON it pipes to jq.
+if [ "${GH_STUB_CASE:-}" = "noisy" ]; then
+  echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2
+  GH_STUB_CASE="standard"
+fi
+
 case "$GH_STUB_CASE" in
   fail)
     echo "stub-gh: simulated failure" >&2
