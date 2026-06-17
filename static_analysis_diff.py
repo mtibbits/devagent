@@ -556,7 +556,12 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
                 os.utime(generated)
 
     cmd = ["cmake", "--build", build_dir, "-j" + str(os.cpu_count() or 4)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        result.error = "timed out after 300s"
+        result.passed = False
+        return result
     output = proc.stderr + proc.stdout
 
     for line in output.splitlines():
@@ -595,33 +600,42 @@ def _build_sanitizer(repo_root: str, build_dir: str, flags: str,
     launch = launcher or []
     if os.path.isfile(os.path.join(build_dir, "build.ninja")):
         # Already configured — just rebuild
-        proc = subprocess.run(
-            launch + ["cmake", "--build", build_dir, "-j" + str(os.cpu_count() or 4)],
-            capture_output=True, text=True, timeout=600,
-        )
+        try:
+            proc = subprocess.run(
+                launch + ["cmake", "--build", build_dir, "-j" + str(os.cpu_count() or 4)],
+                capture_output=True, text=True, timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            return "build timed out after 600s"
         if proc.returncode != 0:
             return f"build failed: {proc.stderr[-500:]}"
         return None
 
     os.makedirs(build_dir, exist_ok=True)
     # Configure
-    proc = subprocess.run(
-        ["cmake", "-S", repo_root, "-B", build_dir,
-         "-DCMAKE_BUILD_TYPE=Debug",
-         f"-DCMAKE_C_FLAGS={flags}",
-         f"-DCMAKE_CXX_FLAGS={flags}",
-         f"-DCMAKE_EXE_LINKER_FLAGS={flags}",
-         "-GNinja"],
-        capture_output=True, text=True, timeout=120,
-    )
+    try:
+        proc = subprocess.run(
+            ["cmake", "-S", repo_root, "-B", build_dir,
+             "-DCMAKE_BUILD_TYPE=Debug",
+             f"-DCMAKE_C_FLAGS={flags}",
+             f"-DCMAKE_CXX_FLAGS={flags}",
+             f"-DCMAKE_EXE_LINKER_FLAGS={flags}",
+             "-GNinja"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return "cmake configure timed out after 120s"
     if proc.returncode != 0:
         return f"cmake configure failed: {proc.stderr[-500:]}"
 
     # Build
-    proc = subprocess.run(
-        launch + ["cmake", "--build", build_dir, "-j" + str(os.cpu_count() or 4)],
-        capture_output=True, text=True, timeout=600,
-    )
+    try:
+        proc = subprocess.run(
+            launch + ["cmake", "--build", build_dir, "-j" + str(os.cpu_count() or 4)],
+            capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return "build timed out after 600s"
     if proc.returncode != 0:
         return f"build failed: {proc.stderr[-500:]}"
 
@@ -636,7 +650,12 @@ def _run_test_kernel(build_dir: str, kernel: str, env: Optional[dict] = None,
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=full_env)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=full_env)
+    except subprocess.TimeoutExpired:
+        # 124 = conventional timeout exit code; the marker stderr lets the callers
+        # surface "timed out" rather than a misleading "exited with code 124".
+        return 124, "", "timed out after 120s"
     return proc.returncode, proc.stdout, proc.stderr
 
 
@@ -678,7 +697,10 @@ def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
             ))
     elif rc != 0:
         result.passed = False
-        result.error = f"exited with code {rc} (no sanitizer output captured)"
+        if "timed out" in stderr:
+            result.error = stderr.strip()
+        else:
+            result.error = f"exited with code {rc} (no sanitizer output captured)"
     else:
         result.passed = True
 
@@ -737,7 +759,10 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
             ))
     elif rc != 0:
         result.passed = False
-        result.error = f"exited with code {rc} (no sanitizer output captured)"
+        if "timed out" in stderr:
+            result.error = stderr.strip()
+        else:
+            result.error = f"exited with code {rc} (no sanitizer output captured)"
     else:
         result.passed = True
 
