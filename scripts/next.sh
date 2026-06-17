@@ -120,6 +120,13 @@ main() {
       return 0
     fi
 
+    # #150: advisory model-tier hint for the dispatched step. Prints only when the
+    # optional [project.<name>.step_models] table resolves a tier; absent ⇒ silent.
+    local _tier
+    if _tier="$(step_models_tier "$project" "$cur")"; then
+      echo "step $cur ($name) wants tier: $_tier"
+    fi
+
     local script_path="$PLUGIN_ROOT/scripts/$name.sh"
     if [[ -x "$script_path" ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.

@@ -67,6 +67,11 @@ main() {
     else
       cur_name="$(checklist_step_name "$issue_dir/checklist.md" "$cur")"
       echo "Current step: $cur ($cur_name)"
+      # #150: advisory model-tier for the current step (only when configured).
+      local _tier
+      if _tier="$(step_models_tier "$project" "$cur")"; then
+        echo "  wants tier: $_tier"
+      fi
     fi
   fi
 

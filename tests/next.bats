@@ -161,3 +161,39 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:brainstorm"* ]]
 }
+
+@test "next prints the step_models advisory tier for the dispatched step (#150)" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+default  = "sonnet"
+thinking = "opus"
+checking = "fable"
+EOF
+  # current step is 2 (scope) → default class → sonnet
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 (scope) wants tier: sonnet"* ]]
+}
+
+@test "next prints NO advisory when step_models table is absent (#150)" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"wants tier"* ]]
+}
+
+@test "next per-step override beats the class tier (#150)" {
+  # make step 7 (implement, thinking class) the current step
+  sed -i -E 's/^- \[ \]  ([23456])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+default  = "sonnet"
+thinking = "opus"
+"7"      = "fable"
+EOF
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 7 (implement) wants tier: fable"* ]]
+  [[ "$output" != *"wants tier: opus"* ]]
+}
