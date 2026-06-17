@@ -47,9 +47,22 @@ job of `/devagent:file` and requires the `permissions.push_mr` gate.
 
 ## Env contract
 
-The slash command relies on these env vars (set by the Phase 1
-config loader; for now the operator sets them in their shell):
+The capture/reap scripts hard-require these env vars and exit 2 if any
+is unset. There is no automatic loader yet, so for now the operator
+exports them in their shell; each derives from an existing source:
 
-- `DEVAGENT_DEVDOC_DIR`
-- `DEVAGENT_PLUGIN_DIR`
-- `DEVAGENT_PROJECT`
+| Var                   | Source                                                              |
+|-----------------------|--------------------------------------------------------------------|
+| `DEVAGENT_PLUGIN_DIR` | `CLAUDE_PLUGIN_ROOT` — the harness-set plugin root (the same value the command wrappers already use to invoke `scripts/...`). |
+| `DEVAGENT_PROJECT`    | `active_project` in `~/.claude/devagent/state/_active.toml`.        |
+| `DEVAGENT_DEVDOC_DIR` | `[project.<name>].devdoc_dir` in `~/.claude/devagent/config.toml`. |
+
+Example:
+
+```bash
+export DEVAGENT_PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT}"
+export DEVAGENT_PROJECT="$(sed -n 's/^active_project = "\(.*\)"/\1/p' \
+  ~/.claude/devagent/state/_active.toml)"
+export DEVAGENT_DEVDOC_DIR="$(sed -n "/^\[project.${DEVAGENT_PROJECT}\]/,/^\[/s/^devdoc_dir *= *\"\(.*\)\"/\1/p" \
+  ~/.claude/devagent/config.toml)"
+```
