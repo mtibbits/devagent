@@ -64,9 +64,16 @@ bc_curl() {
   # the token never reaches any external process's argv. Non-secret flags/data
   # stay in "$@". With no auth header, no --config is added and curl's stdin (an
   # empty pipe) is ignored.
-  local cfg=()
-  [ -n "${BC_AUTH_HEADER:-}" ] && cfg=(--config -)
-  http_status="$( { [ -n "${BC_AUTH_HEADER:-}" ] && printf 'header = "%s"\n' "$BC_AUTH_HEADER"; :; } \
+  local cfg=() auth_cfg=""
+  if [ -n "${BC_AUTH_HEADER:-}" ]; then
+    cfg=(--config -)
+    # curl --config quoted-value syntax: escape \ then " so a token with those
+    # chars can't break out of the quotes (real GitLab PAT / Jira base64 charsets
+    # never contain them; this is defensive).
+    auth_cfg="${BC_AUTH_HEADER//\\/\\\\}"
+    auth_cfg="${auth_cfg//\"/\\\"}"
+  fi
+  http_status="$( { [ -n "${BC_AUTH_HEADER:-}" ] && printf 'header = "%s"\n' "$auth_cfg"; :; } \
     | curl --silent --show-error \
     --connect-timeout 5 --max-time 30 \
     --retry 2 --retry-connrefused \

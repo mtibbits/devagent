@@ -56,6 +56,15 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" != *"--config"* ]]
 }
 
+@test "bc_curl_auth escapes quotes/backslashes in the config value (#92)" {
+  run bc_curl_auth 'PRIVATE-TOKEN: ab"c\d' GET https://x.example/api
+  [ "$status" -eq 0 ]
+  # the raw token must not break out of the quoted config value
+  grep -q 'header = "PRIVATE-TOKEN: ab\\"c\\\\d"' "$STDIN_FILE"
+  run cat "$ARGV_FILE"
+  [[ "$output" != *'ab"c'* ]]   # still never in argv
+}
+
 @test "gitlab issue backend never puts GITLAB_TOKEN in curl argv (#92)" {
   export GITLAB_TOKEN="glpat-INTEGRATION-SECRET"
   export DEVAGENT_GITLAB_API="https://gitlab.example/api/v4"
