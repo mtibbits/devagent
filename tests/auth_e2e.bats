@@ -25,21 +25,21 @@ _full_cycle() {
   printf 'tok-AAAA-%s-AAAA\n' "${backend}" >"${tf1}"
   printf 'tok-BBBB-%s-BBBB\n' "${backend}" >"${tf2}"
 
-  scripts/auth/${backend}.sh store volk "${tf1}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/${backend}.sh" store volk "${tf1}"
   assert_mode "${DEVAGENT_SECRETS_DIR}/volk.${backend}.pat" 600
 
-  run scripts/auth/${backend}.sh status volk
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/${backend}.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"backend=${backend}"* ]]
 
-  run scripts/auth/${backend}.sh exec volk -- env
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/${backend}.sh" exec volk -- env
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"${envvar}=tok-AAAA-${backend}-AAAA"* ]]
 
-  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" scripts/auth/${backend}.sh rotate volk
+  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" "${BATS_TEST_DIRNAME}/../scripts/auth/${backend}.sh" rotate volk
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.${backend}.pat")" = "tok-BBBB-${backend}-BBBB" ]
 
-  scripts/auth/${backend}.sh destroy volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/${backend}.sh" destroy volk
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.${backend}.pat" ]
 }
 

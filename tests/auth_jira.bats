@@ -21,8 +21,8 @@ teardown() { auth_teardown_common; }
 @test "jira store + status validates via curl, never prints token" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"
-  scripts/auth/jira.sh store volk "${tf}"
-  run scripts/auth/jira.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"backend=jira"* ]]
   [[ "${output}" == *"accountId=abc"* ]]
@@ -40,8 +40,8 @@ EOF
   chmod +x "${STUB_BIN}/curl"
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xSECRETtoken9\n' >"${tf}"
-  scripts/auth/jira.sh store volk "${tf}"
-  run scripts/auth/jira.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" status volk
   [ "${status}" -eq 0 ]
   run grep -q 'ATATT3xSECRETtoken9' "${STUB_LOG}"
   [ "${status}" -ne 0 ]                            # token NOT in curl argv
@@ -52,8 +52,8 @@ EOF
 @test "jira exec sets JIRA_TOKEN and JIRA_USER (#94)" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"
-  scripts/auth/jira.sh store volk "${tf}"
-  run scripts/auth/jira.sh exec volk -- env
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" exec volk -- env
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"JIRA_TOKEN=ATATT3xFfGF0jiraToken12345"* ]]
   [[ "${output}" == *"JIRA_USER=dev@example.com"* ]]   # #94: from DEVAGENT_JIRA_EMAIL, for Basic auth
@@ -62,7 +62,7 @@ EOF
 @test "jira create validates the token and reports the result (#94)" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"
-  run env DEVAGENT_CREATE_TOKEN_FILE="${tf}" scripts/auth/jira.sh create volk
+  run env DEVAGENT_CREATE_TOKEN_FILE="${tf}" "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" create volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"accountId=abc"* ]]               # #94: _ji_validate ran in create
 }
@@ -70,8 +70,8 @@ EOF
 @test "jira destroy removes file" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'jiratoken\n' >"${tf}"
-  scripts/auth/jira.sh store volk "${tf}"
-  scripts/auth/jira.sh destroy volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" destroy volk
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.jira.pat" ]
 }
 
@@ -79,8 +79,8 @@ EOF
   local tf1="${BATS_TEST_TMPDIR}/t1" tf2="${BATS_TEST_TMPDIR}/t2"
   printf 'AAAA\n' >"${tf1}"
   printf 'BBBB\n' >"${tf2}"
-  scripts/auth/jira.sh store volk "${tf1}"
-  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" scripts/auth/jira.sh rotate volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf1}"
+  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" rotate volk
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.jira.pat")" = "BBBB" ]
 }
 
@@ -88,8 +88,8 @@ EOF
   unset DEVAGENT_JIRA_BASE
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'jiratoken\n' >"${tf}"
-  scripts/auth/jira.sh store volk "${tf}"
-  run scripts/auth/jira.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/jira.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"validation_skipped=DEVAGENT_JIRA_BASE_unset"* ]]
 }

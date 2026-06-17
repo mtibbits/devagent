@@ -12,6 +12,14 @@ setup() {
 
 teardown() { teardown_tmp_devdoc; }
 
+@test "capture-family setup redirects HOME to a throwaway tree (#106 F12)" {
+  # setup_tmp_devdoc must point HOME at a tmp dir so a capture script that fell back
+  # to paths.sh defaults ($HOME/.claude/devagent) can never touch real user state.
+  [ -n "${TMP_HOME:-}" ]
+  [ "${HOME}" = "${TMP_HOME}" ]
+  [ -d "${HOME}" ]
+}
+
 @test "capture: --type issue writes draft.md with bug template by default" {
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting"

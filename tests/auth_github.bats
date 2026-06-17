@@ -25,7 +25,7 @@ teardown() { auth_teardown_common; }
 @test "github store ingests a token from file and sets mode 600" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -eq 0 ]
   assert_mode "${DEVAGENT_SECRETS_DIR}/volk.github.pat" 600
 }
@@ -33,7 +33,7 @@ teardown() { auth_teardown_common; }
 @test "github store strips trailing newlines" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ghp_0123456789abcdef0123456789abcdef0123\n\n\n' >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -eq 0 ]
   local stored
   stored="$(cat "${DEVAGENT_SECRETS_DIR}/volk.github.pat")"
@@ -43,12 +43,12 @@ teardown() { auth_teardown_common; }
 @test "github store rejects empty file" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   : >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -ne 0 ]
 }
 
 @test "github status with no token says present=false" {
-  run scripts/auth/github.sh status volk
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"present=false"* ]]
 }
@@ -56,8 +56,8 @@ teardown() { auth_teardown_common; }
 @test "github status with token prints scopes from gh, never the token" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
-  run scripts/auth/github.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"backend=github"* ]]
   [[ "${output}" == *"scopes=repo, workflow, read:org"* ]]
@@ -67,9 +67,9 @@ teardown() { auth_teardown_common; }
 @test "github destroy removes the token file" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ -f "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
-  run scripts/auth/github.sh destroy volk
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" destroy volk
   [ "${status}" -eq 0 ]
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
 }
@@ -79,8 +79,8 @@ teardown() { auth_teardown_common; }
   local tf2="${BATS_TEST_TMPDIR}/tok2"
   printf 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' >"${tf1}"
   printf 'ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' >"${tf2}"
-  scripts/auth/github.sh store volk "${tf1}"
-  run env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" scripts/auth/github.sh rotate volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf1}"
+  run env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" rotate volk
   [ "${status}" -eq 0 ]
   local stored
   stored="$(cat "${DEVAGENT_SECRETS_DIR}/volk.github.pat")"
@@ -93,14 +93,14 @@ teardown() { auth_teardown_common; }
 @test "github exec sets GH_TOKEN and execs given command" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
-  run scripts/auth/github.sh exec volk -- env
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" exec volk -- env
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"GH_TOKEN=ghp_0123456789abcdef"* ]]
 }
 
 @test "github exec returns 2 when no token stored" {
-  run scripts/auth/github.sh exec volk -- env
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" exec volk -- env
   [ "${status}" -eq 2 ]
 }
 
@@ -119,7 +119,7 @@ EOF
 @test "github create fails closed on an invalid token — no secret written (#91)" {
   _gh_stub_invalid
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  run env DEVAGENT_CREATE_TOKEN_FILE="${tf}" scripts/auth/github.sh create volk
+  run env DEVAGENT_CREATE_TOKEN_FILE="${tf}" "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" create volk
   [ "${status}" -ne 0 ]
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
 }
@@ -127,7 +127,7 @@ EOF
 @test "github store fails closed on an invalid token — no secret written (#91)" {
   _gh_stub_invalid
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -ne 0 ]
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
 }
@@ -135,11 +135,11 @@ EOF
 @test "github rotate fails closed on an invalid new token — old token kept (#91)" {
   # store a valid token first (setup stub is valid), then rotate to an invalid one
   local old="${BATS_TEST_TMPDIR}/old"; synthetic_token >"${old}"
-  scripts/auth/github.sh store volk "${old}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${old}"
   _gh_stub_invalid
   local new="${BATS_TEST_TMPDIR}/new"
   printf 'ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' >"${new}"
-  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" scripts/auth/github.sh rotate volk
+  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" rotate volk
   [ "${status}" -ne 0 ]
   # the old, valid token must still be the stored one (rotate refused the swap)
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.github.pat")" = "$(synthetic_token)" ]
@@ -154,8 +154,8 @@ exit 0
 EOF
   chmod +x "${STUB_BIN}/gh"
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
-  run scripts/auth/github.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"admin:org"* ]]   # not truncated at the 'n' in admin
   [[ "${output}" == *"workflow"* ]]    # the tail of the line survives
@@ -169,7 +169,7 @@ exit 1
 EOF
   chmod +x "${STUB_BIN}/gh"
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -eq 0 ]                                     # stored, not refused
   [ -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
   [[ "${output}" == *"could not validate"* ]]              # but loudly warned
@@ -184,7 +184,7 @@ exit 1
 EOF
   chmod +x "${STUB_BIN}/gh"
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -eq 0 ]                                # stored, not refused
   [ -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]
   [[ "${output}" == *"could not validate"* ]]
@@ -199,7 +199,7 @@ exit 0
 EOF
   chmod +x "${STUB_BIN}/gh"
   install_stub xclip "ghp_0123456789abcdef0123456789abcdef0123"
-  run scripts/auth/github.sh create volk
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" create volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"ghp_0123"* ]]                                            # masked prefix shown
   [[ "${output}" != *"ghp_0123456789abcdef0123456789abcdef0123"* ]]           # full token never shown

@@ -28,8 +28,8 @@ teardown() { auth_teardown_common; }
 @test "gitlab store + status reports scopes from glab" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'glpat-0123456789abcdef0123\n' >"${tf}"
-  scripts/auth/gitlab.sh store volk "${tf}"
-  run scripts/auth/gitlab.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"backend=gitlab"* ]]
   [[ "${output}" == *"scopes=api, read_repository, write_repository"* ]]
@@ -39,8 +39,8 @@ teardown() { auth_teardown_common; }
 @test "gitlab exec sets GITLAB_TOKEN" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'glpat-0123456789abcdef0123\n' >"${tf}"
-  scripts/auth/gitlab.sh store volk "${tf}"
-  run scripts/auth/gitlab.sh exec volk -- env
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" exec volk -- env
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"GITLAB_TOKEN=glpat-0123456789abcdef0123"* ]]
 }
@@ -48,8 +48,8 @@ teardown() { auth_teardown_common; }
 @test "gitlab destroy removes file" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'glpat-token\n' >"${tf}"
-  scripts/auth/gitlab.sh store volk "${tf}"
-  scripts/auth/gitlab.sh destroy volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" destroy volk
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat" ]
 }
 
@@ -57,13 +57,13 @@ teardown() { auth_teardown_common; }
   local tf1="${BATS_TEST_TMPDIR}/t1" tf2="${BATS_TEST_TMPDIR}/t2"
   printf 'glpat-AAAA\n' >"${tf1}"
   printf 'glpat-BBBB\n' >"${tf2}"
-  scripts/auth/gitlab.sh store volk "${tf1}"
-  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" scripts/auth/gitlab.sh rotate volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf1}"
+  env DEVAGENT_ROTATE_TOKEN_FILE="${tf2}" "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" rotate volk
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat")" = "glpat-BBBB" ]
 }
 
 @test "gitlab status with no token says present=false" {
-  run scripts/auth/gitlab.sh status volk
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"present=false"* ]]
 }
@@ -80,7 +80,7 @@ exit 1
 EOF
   chmod +x "${STUB_BIN}/glab"
   local tf="${BATS_TEST_TMPDIR}/tok"; printf 'glpat-0123456789abcdef0123\n' >"${tf}"
-  run scripts/auth/gitlab.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf}"
   [ "${status}" -ne 0 ]
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat" ]
 }
@@ -88,7 +88,7 @@ EOF
 @test "gitlab rotate fails closed on an invalid new token — old token kept (#91)" {
   # store a valid token (setup stub), then rotate to an invalid one
   local old="${BATS_TEST_TMPDIR}/old"; printf 'glpat-oldoldoldoldoldold\n' >"${old}"
-  scripts/auth/gitlab.sh store volk "${old}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${old}"
   cat >"${STUB_BIN}/glab" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
@@ -98,7 +98,7 @@ exit 1
 EOF
   chmod +x "${STUB_BIN}/glab"
   local new="${BATS_TEST_TMPDIR}/new"; printf 'glpat-badbadbadbadbadbad\n' >"${new}"
-  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" scripts/auth/gitlab.sh rotate volk
+  run env DEVAGENT_ROTATE_TOKEN_FILE="${new}" "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" rotate volk
   [ "${status}" -ne 0 ]
   [ "$(cat "${DEVAGENT_SECRETS_DIR}/volk.gitlab.pat")" = "glpat-oldoldoldoldoldold" ]  # old kept, no half-swap
 }
@@ -115,8 +115,8 @@ exit 0
 EOF
   chmod +x "${STUB_BIN}/glab"
   local tf="${BATS_TEST_TMPDIR}/tok"; printf 'glpat-0123456789abcdef0123\n' >"${tf}"
-  scripts/auth/gitlab.sh store volk "${tf}"
-  run scripts/auth/gitlab.sh status volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/gitlab.sh" status volk
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"admin_mode"* ]]        # not truncated at the 'n' in admin_mode
   [[ "${output}" == *"write_repository"* ]]  # the tail survives
