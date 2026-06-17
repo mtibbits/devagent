@@ -79,7 +79,7 @@ typo fix), surface the skip request rather than silently advancing:
 ## Logging
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" improve \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" improve \
   "Improvements appended; B bugs, S side-effects, A ambiguities; note: $NOTE"
 ```
 

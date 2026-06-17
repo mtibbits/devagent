@@ -93,7 +93,7 @@ notes still have value for lessons-learned.
 ## Logging
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" impact \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" impact \
   "impact.md written: Q quantifiable claims, L qualitative notes; note: $NOTE"
 ```
 

@@ -65,7 +65,7 @@ skipped?" for operator confirmation.
 ## Logging
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" tighten \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" tighten \
   "Tightened; N tasks, M depend-edges, Definition of done has S criteria; note: $NOTE"
 ```
 
