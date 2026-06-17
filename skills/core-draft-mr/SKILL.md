@@ -48,8 +48,8 @@ re-typed.
    - Benchmarks if performance issue (path to evidence plot from
      `tools/plot_pr_evidence.R` if present in repo).
 5. **Fill Reviewer notes section.** Anything from actualWork's
-   `## Deviations`. If none, write "Plan executed as written; see
-   imPlan.md for task list."
+   `## Deviations from plan`. If none, write "Plan executed as written;
+   see imPlan.md for task list."
 6. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.

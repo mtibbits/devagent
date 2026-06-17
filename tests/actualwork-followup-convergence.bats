@@ -16,6 +16,14 @@ load 'helpers'
 REPO="${BATS_TEST_DIRNAME}/.."
 TEMPLATE="${REPO}/templates/actualWork_template.md"
 SKILL="${REPO}/skills/core-document-actual-work/SKILL.md"
+DRAFTMR_SKILL="${REPO}/skills/core-draft-mr/SKILL.md"
+
+# Clean up the reap test's tmp trees even if an assertion fails mid-test
+# (in-body teardown would be skipped on failure → leaked /tmp dirs).
+teardown() {
+  [ -n "${TMP_DEVDOC:-}" ] && teardown_tmp_devdoc || true
+  [ -n "${TMP_STATE:-}" ] && teardown_tmp_state || true
+}
 
 # --- B: template structural contract --------------------------------------
 
@@ -79,7 +87,23 @@ EOF
   [[ "$output" == *"FollowupHarvestMe"* ]]
   # ...and the Verification bullets are NOT mis-harvested as follow-ups.
   [[ "$output" != *"VERIFYBULLET"* ]]
+}
 
-  teardown_tmp_devdoc
-  teardown_tmp_state
+# --- D: consumer + terse-case convergence (review findings) ---------------
+
+@test "draft-mr consumer skill names the post-rename '## Deviations from plan' (#115)" {
+  # The canonical heading was renamed from '## Deviations'; the consumer that
+  # reads it must name the new heading, else the convergence leaks a stale ref.
+  grep -q 'Deviations from plan' "$DRAFTMR_SKILL"
+}
+
+@test "skill terse (no-deviation) case is a reduction of the canonical structure (#115)" {
+  # The terse example must use the canonical '## Summary' heading (not a
+  # headingless 3-line blob), so terse is a strict subset of the canonical
+  # structure rather than a competing shape. Both the deviation example and
+  # the terse example carry '## Summary' → at least 2 occurrences (the pre-fix
+  # headingless terse case had only the deviation one).
+  [ "$(grep -cE '^[[:space:]]*## Summary$' "$SKILL")" -ge 2 ]
+  # And the template documents the same no-deviation reduction.
+  grep -qi 'no-deviation case' "$TEMPLATE"
 }

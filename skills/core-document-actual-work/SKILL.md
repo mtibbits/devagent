@@ -44,11 +44,14 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
    ```markdown
    # Actual Work — {{ISSUE_ID}}
 
+   ## Summary
    Plan executed as written. See `imPlan.md` for tasks; see
    `git log <baseline>..HEAD` for commits.
    ```
 
-   No further sections. No "summary of what was built". No filler.
+   This is the canonical structure reduced to just `## Summary` — omit
+   `## Deviations from plan`, `## Verification`, and `### Follow-up`. No
+   "summary of what was built", no filler.
 
 3. **Deviation = explain.** For each `[deviation]`, `[skipped]`, or
    `[discovered]`, write one paragraph under the template's

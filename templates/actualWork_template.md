@@ -3,6 +3,9 @@
 > Written by `/devagent:document` after `/devagent:implement`. Be terse:
 > when implementation followed `imPlan.md` exactly, say so in one line.
 > Document deviations only.
+>
+> No-deviation case: reduce to the title + a one-line `## Summary`; omit
+> `## Deviations from plan`, `## Verification`, and `### Follow-up`.
 
 **Branch:** `{{BRANCH}}` based on `{{BASELINE_REF}}` (`{{BASELINE_SHA}}`)
 
