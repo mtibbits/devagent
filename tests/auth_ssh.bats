@@ -81,3 +81,41 @@ teardown() { auth_teardown_common; }
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"present=false"* ]]
 }
+
+@test "ssh rotate failure leaves the old key intact (#93)" {
+  scripts/auth/ssh.sh create volk
+  local link="${DEVAGENT_SECRETS_DIR}/volk.ssh"
+  local old_target; old_target="$(readlink "${link}")"
+  # Make ssh-keygen fail so the new key can't be created.
+  cat >"${STUB_BIN}/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+  chmod +x "${STUB_BIN}/ssh-keygen"
+  run scripts/auth/ssh.sh rotate volk
+  [ "${status}" -ne 0 ]
+  # Old key + link must survive — the project is never left key-less.
+  [ -L "${link}" ]
+  [ "$(readlink "${link}")" = "${old_target}" ]
+  [ -f "${old_target}" ]
+}
+
+@test "ssh create over an existing key shreds the old one — no orphan (#93)" {
+  scripts/auth/ssh.sh create volk
+  local link="${DEVAGENT_SECRETS_DIR}/volk.ssh"
+  local old_target; old_target="$(readlink "${link}")"
+  scripts/auth/ssh.sh create volk
+  local new_target; new_target="$(readlink "${link}")"
+  [ "${new_target}" != "${old_target}" ]
+  [ ! -e "${old_target}" ]       # old private key shredded, not orphaned
+  [ ! -e "${old_target}.pub" ]
+  [ -f "${new_target}" ]
+}
+
+@test "ssh destroy removes the key from the agent via ssh-add -d (#93)" {
+  scripts/auth/ssh.sh create volk
+  : > "${STUB_LOG}"              # only capture destroy's agent calls
+  run scripts/auth/ssh.sh destroy volk
+  [ "${status}" -eq 0 ]
+  grep -q 'ssh-add -d' "${STUB_LOG}"
+}
