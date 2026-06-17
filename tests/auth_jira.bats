@@ -29,6 +29,25 @@ teardown() { auth_teardown_common; }
   [[ "${output}" != *"ATATT3xFfGF0jiraToken12345"* ]]
 }
 
+@test "jira validate sends the credential via --config stdin, not argv (#92)" {
+  local stdin_log="${BATS_TEST_TMPDIR}/curl.stdin"
+  cat >"${STUB_BIN}/curl" <<EOF
+#!/usr/bin/env bash
+printf 'curl %s\n' "\$*" >>"${STUB_LOG}"
+cat >>"${stdin_log}"
+printf '{"accountId":"abc"}\n'
+EOF
+  chmod +x "${STUB_BIN}/curl"
+  local tf="${BATS_TEST_TMPDIR}/tok"
+  printf 'ATATT3xSECRETtoken9\n' >"${tf}"
+  scripts/auth/jira.sh store volk "${tf}"
+  run scripts/auth/jira.sh status volk
+  [ "${status}" -eq 0 ]
+  ! grep -q 'ATATT3xSECRETtoken9' "${STUB_LOG}"   # token NOT in curl argv
+  grep -q -- '--config' "${STUB_LOG}"             # used --config
+  grep -q 'ATATT3xSECRETtoken9' "${stdin_log}"    # delivered via stdin
+}
+
 @test "jira exec sets JIRA_TOKEN and JIRA_USER (#94)" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   printf 'ATATT3xFfGF0jiraToken12345\n' >"${tf}"

@@ -48,10 +48,9 @@ cmd_fetch() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local issue_json comments_json
-  issue_json="$(bc_curl GET "${base}/projects/${enc}/issues/${num}" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
-  comments_json="$(bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
+  issue_json="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/issues/${num}")" || return
+  comments_json="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return
 
   local title state author labels url body
   title="$(echo "$issue_json" | jq -r '.title')"
@@ -101,8 +100,7 @@ cmd_create() {
   payload="$(jq -n --arg t "$title" --rawfile d "$body_file" --arg l "$labels_csv" \
     '{title:$t, description:$d} + (if $l == "" then {} else {labels:$l} end)')"
   local resp
-  resp="$(bc_curl POST "${base}/projects/${enc}/issues" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+  resp="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" POST "${base}/projects/${enc}/issues" \
     -H "Content-Type: application/json" \
     --data "$payload")" || return
   echo "$resp" | jq -r '.iid'
@@ -133,8 +131,7 @@ cmd_transition() {
   local payload
   payload="$(jq -n --arg add "$add_label" --arg rmprefix "$remove_prefix" \
     '{add_labels:$add} + (if $rmprefix=="" then {} else {remove_labels:$rmprefix} end)')"
-  bc_curl PUT "${base}/projects/${enc}/issues/${num}" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+  bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" PUT "${base}/projects/${enc}/issues/${num}" \
     -H "Content-Type: application/json" \
     --data "$payload" >/dev/null
 }
@@ -145,8 +142,7 @@ cmd_state() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_curl GET "${base}/projects/${enc}/issues/${num}" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
+  resp="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/issues/${num}")" || return
   echo "$resp" | jq -r '.state'
 }
 
@@ -156,8 +152,8 @@ cmd_comment_list() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
+  resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"
   bc_emit_comments_header "$count"

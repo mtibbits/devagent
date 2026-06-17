@@ -40,9 +40,12 @@ _ji_validate() {
     return 0
   fi
   local resp
-  resp="$(curl -sS -u "${DEVAGENT_JIRA_EMAIL}:${tok}" \
-    -H 'Accept: application/json' \
-    "${DEVAGENT_JIRA_BASE}/rest/api/3/myself" || true)"
+  # #92: feed the basic-auth credential via curl --config on stdin (printf is a
+  # bash builtin) so email:token never appears in argv (/proc/<pid>/cmdline).
+  resp="$(printf 'user = "%s:%s"\n' "${DEVAGENT_JIRA_EMAIL}" "${tok}" \
+    | curl -sS --config - \
+      -H 'Accept: application/json' \
+      "${DEVAGENT_JIRA_BASE}/rest/api/3/myself" || true)"
   local id
   id="$(printf '%s' "${resp}" | sed -n 's/.*"accountId":"\([^"]*\)".*/\1/p')"
   if [ -n "${id}" ]; then

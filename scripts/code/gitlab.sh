@@ -74,8 +74,7 @@ cmd_create_mr() {
     --arg h "$head"  --arg b "$base" \
     '{title:$t, description:$d, source_branch:$h, target_branch:$b}')"
   local resp
-  resp="$(bc_curl POST "${base_url}/projects/${enc}/merge_requests" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+  resp="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" POST "${base_url}/projects/${enc}/merge_requests" \
     -H "Content-Type: application/json" \
     --data "$payload")" || return
   echo "$resp" | jq -r '.web_url'
@@ -88,8 +87,7 @@ cmd_mr_state() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_curl GET "${base}/projects/${enc}/merge_requests/${iid}" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
+  resp="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/merge_requests/${iid}")" || return
   local s d
   s="$(echo "$resp" | jq -r '.state')"
   d="$(echo "$resp" | jq -r '.draft // false')"
@@ -109,8 +107,8 @@ cmd_mr_comments() {
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
   local resp
-  resp="$(bc_gitlab_paginate "${base}/projects/${enc}/merge_requests/${iid}/notes" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}")" || return
+  resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_gitlab_paginate "${base}/projects/${enc}/merge_requests/${iid}/notes")" || return
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"
   bc_emit_comments_header "$count"
@@ -143,8 +141,7 @@ cmd_merge_mr() {
     merge|"") payload='{}' ;;
     *) echo "unknown --method: $method" >&2; exit 2 ;;
   esac
-  bc_curl PUT "${base}/projects/${enc}/merge_requests/${iid}/merge" \
-    -H "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+  bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" PUT "${base}/projects/${enc}/merge_requests/${iid}/merge" \
     -H "Content-Type: application/json" \
     --data "$payload" >/dev/null
 }

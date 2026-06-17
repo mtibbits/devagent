@@ -58,12 +58,28 @@ bc_curl() {
   local method="$1" url="$2"; shift 2
   local body_file http_status
   body_file="$(mktemp)"
-  http_status="$(curl --silent --show-error \
+  # #92: when BC_AUTH_HEADER is set, feed it to curl as a --config read from
+  # stdin rather than an argv `-H` — argv is world-readable via
+  # /proc/<pid>/cmdline for the life of the request. printf is a bash builtin, so
+  # the token never reaches any external process's argv. Non-secret flags/data
+  # stay in "$@". With no auth header, no --config is added and curl's stdin (an
+  # empty pipe) is ignored.
+  local cfg=() auth_cfg=""
+  if [ -n "${BC_AUTH_HEADER:-}" ]; then
+    cfg=(--config -)
+    # curl --config quoted-value syntax: escape \ then " so a token with those
+    # chars can't break out of the quotes (real GitLab PAT / Jira base64 charsets
+    # never contain them; this is defensive).
+    auth_cfg="${BC_AUTH_HEADER//\\/\\\\}"
+    auth_cfg="${auth_cfg//\"/\\\"}"
+  fi
+  http_status="$( { [ -n "${BC_AUTH_HEADER:-}" ] && printf 'header = "%s"\n' "$auth_cfg"; :; } \
+    | curl --silent --show-error \
     --connect-timeout 5 --max-time 30 \
     --retry 2 --retry-connrefused \
     -X "$method" \
     -o "$body_file" -w '%{http_code}' \
-    "$@" "$url" 2>/dev/null || true)"
+    "${cfg[@]}" "$@" "$url" 2>/dev/null || true)"
   cat "$body_file"
   case "$http_status" in
     2*) rm -f "$body_file"; return 0 ;;
@@ -80,6 +96,16 @@ bc_curl() {
     404) return 4 ;;
     *) return 1 ;;
   esac
+}
+
+# bc_curl_auth <auth-header> <method> <url> [extra curl args…]
+# Like bc_curl, but delivers <auth-header> (e.g. "PRIVATE-TOKEN: <token>" or
+# "Authorization: Basic <b64>") to curl via stdin --config instead of argv, so
+# the token is never exposed in /proc/<pid>/cmdline (#92). Honors the same exit
+# conventions as bc_curl.
+bc_curl_auth() {
+  local header="$1"; shift
+  BC_AUTH_HEADER="$header" bc_curl "$@"
 }
 
 # Fetch every page of a GitLab list endpoint and emit one concatenated JSON
