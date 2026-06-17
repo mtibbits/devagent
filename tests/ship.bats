@@ -52,9 +52,10 @@ EOF
     [ "$status" -ne 0 ]
     # push was attempted, but create-mr must never run after it fails
     devagent_assert_logged "git push --set-upstream origin feat/1-x"
-    ! grep -F -q "gh pr create" "$DEVAGENT_STUB_LOG"
+    devagent_refute_logged "gh pr create"
     # no mr_url recorded, step 15 left unmarked
-    ! grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
     grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
