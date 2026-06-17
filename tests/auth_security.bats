@@ -10,14 +10,14 @@ teardown() { auth_teardown_common; }
 @test "token file mode is exactly 600" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   assert_mode "${DEVAGENT_SECRETS_DIR}/volk.github.pat" 600
 }
 
 @test "secrets directory mode is exactly 700" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   assert_mode "${DEVAGENT_SECRETS_DIR}" 700
 }
 
@@ -26,15 +26,15 @@ teardown() { auth_teardown_common; }
   synthetic_token >"${tf}"
   mkdir -p "${DEVAGENT_SECRETS_DIR}"
   chmod 755 "${DEVAGENT_SECRETS_DIR}"
-  scripts/auth/github.sh store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   assert_mode "${DEVAGENT_SECRETS_DIR}" 700
 }
 
 @test "exec never puts the token on the command line" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
-  scripts/auth/github.sh exec volk -- sleep 5 &
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" exec volk -- sleep 5 &
   local pid=$!
   sleep 1
   local snapshot
@@ -48,7 +48,7 @@ teardown() { auth_teardown_common; }
 }
 
 @test "secret_read prints only the value, no trailing log noise" {
-  source scripts/lib/secrets.sh
+  source "${BATS_TEST_DIRNAME}/../scripts/lib/secrets.sh"
   secret_write volk github "$(synthetic_token)"
   local got
   got="$(secret_read volk github)"
@@ -58,8 +58,8 @@ teardown() { auth_teardown_common; }
 @test "destroy leaves no traces of the token on disk" {
   local tf="${BATS_TEST_TMPDIR}/tok"
   synthetic_token >"${tf}"
-  scripts/auth/github.sh store volk "${tf}"
-  scripts/auth/github.sh destroy volk
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
+  "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" destroy volk
   run grep -RIl 'ghp_0123456789abcdef' "${DEVAGENT_SECRETS_DIR}" 2>/dev/null
   [ "${status}" -ne 0 ]
   [ -z "${output}" ]
@@ -68,7 +68,7 @@ teardown() { auth_teardown_common; }
 @test "store accepts token files outside HOME (only mode on stored file is enforced)" {
   local tf="/tmp/devagent-tok-$$"
   synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   rm -f "${tf}"
   [ "${status}" -eq 0 ]
 }
@@ -82,7 +82,7 @@ exit 1
 EOF
   chmod +x "${STUB_BIN}/gh"
   local tf="${BATS_TEST_TMPDIR}/tok"; synthetic_token >"${tf}"
-  run scripts/auth/github.sh store volk "${tf}"
+  run "${BATS_TEST_DIRNAME}/../scripts/auth/github.sh" store volk "${tf}"
   [ "${status}" -ne 0 ]
   [ ! -e "${DEVAGENT_SECRETS_DIR}/volk.github.pat" ]   # the security invariant
 }

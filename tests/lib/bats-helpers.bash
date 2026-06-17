@@ -12,7 +12,11 @@ setup_tmp_devagent_home() {
 }
 
 teardown_tmp_devagent_home() {
-  if [[ -n "${DA_HOME:-}" && -d "$DA_HOME" && "$DA_HOME" == /tmp/* ]]; then
+  # #106 (F10): mktemp -d honors $TMPDIR, so on macOS / sandboxed TMPDIR the temp
+  # home is not under /tmp and would leak. Accept ${TMPDIR:-/tmp} too (normalized).
+  local tmp="${TMPDIR:-/tmp}"; tmp="${tmp%/}"
+  if [[ -n "${DA_HOME:-}" && -d "$DA_HOME" \
+        && ( "$DA_HOME" == /tmp/* || "$DA_HOME" == "$tmp"/* ) ]]; then
     rm -rf "$DA_HOME"
   fi
 }

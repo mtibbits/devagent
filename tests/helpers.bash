@@ -10,11 +10,20 @@ setup_tmp_devdoc() {
   TMP_DEVDOC="$(mktemp -d -t devagent-devdoc.XXXXXX)"
   mkdir -p "${TMP_DEVDOC}/Captures"
   mkdir -p "${TMP_DEVDOC}/templates"
+  # #106 (F12): redirect HOME to a throwaway tree so any capture script that falls
+  # back to paths.sh defaults ($HOME/.claude/devagent) can never touch real user
+  # state under test. Defensive — current scripts receive their dirs explicitly.
+  export TMP_HOME
+  TMP_HOME="$(mktemp -d -t devagent-home.XXXXXX)"
+  export HOME="${TMP_HOME}"
 }
 
 teardown_tmp_devdoc() {
   if [[ -n "${TMP_DEVDOC:-}" && -d "${TMP_DEVDOC}" ]]; then
     rm -rf "${TMP_DEVDOC}"
+  fi
+  if [[ -n "${TMP_HOME:-}" && -d "${TMP_HOME}" ]]; then
+    rm -rf "${TMP_HOME}"
   fi
 }
 
