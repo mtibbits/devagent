@@ -34,6 +34,7 @@ teardown() { devagent_test_teardown; }
     local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
+    [[ "$output" == *"commit.sh: requested issue"* ]]   # pin THIS script's guard
     [[ "$output" == *"does not match"* ]]
     # Load-bearing: nothing was committed (HEAD unchanged) — died before commit.
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
@@ -54,6 +55,16 @@ teardown() { devagent_test_teardown; }
 @test "mergetoall.sh dies when explicit issue arg mismatches active state (#70)" {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
+    [[ "$output" == *"mergetoall.sh: requested issue"* ]]   # pin THIS script's guard
+    [[ "$output" == *"does not match"* ]]
+}
+
+@test "mergetoall.sh rejects a bare-number arg — anchored suffix match, not substring (#70)" {
+    # active issue is Issue-1; arg "1" must NOT match ".../Issue-1". This pins the
+    # leading `*/` path-component anchor: a loosened `*"$arg"` pattern would wrongly
+    # accept "1" (".../Issue-1" ends in "1"). Mutation-lock against that regression.
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" 1
+    [ "$status" -ne 0 ]
     [[ "$output" == *"does not match"* ]]
 }
 
@@ -62,6 +73,7 @@ teardown() { devagent_test_teardown; }
 @test "ship.sh dies when explicit issue arg mismatches active state (#70)" {
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
+    [[ "$output" == *"ship.sh: requested issue"* ]]   # pin THIS script's guard
     [[ "$output" == *"does not match"* ]]
     # Load-bearing: ship did not complete — step 15 is not marked done on the
     # active issue's checklist (it aborted at the cross-check, before push).
