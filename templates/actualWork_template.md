@@ -24,3 +24,12 @@ list the deviations.)
 - Build: …
 - Tests: …
 - Smoke: …
+
+### Follow-up
+
+(Future work discovered while implementing — one `- ` bullet each.
+`/devagent:reap` harvests every bullet under this exact `### Follow-up` heading,
+so delete this guidance line and add real bullets, or leave the section empty if
+there are none. Keep this section LAST: reap harvests until the next `### `
+heading or end of file, so a bulleted section placed after it would be
+mis-harvested.)

@@ -34,15 +34,15 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
 ## Checklist
 
 1. **Compare plan to diff.** For each task in `imPlan.md`, find the
-   commit(s) that implemented it. Mark each task as
-   `[done as planned]`, `[done with deviation: <one-line reason>]`,
+   commit(s) that implemented it. Mark each task — under `## Summary` —
+   as `[done as planned]`, `[done with deviation: <one-line reason>]`,
    `[skipped: <reason>]`, or `[discovered: <one-line description>]`
    for work done that wasn't in the plan.
 2. **No deviation = terse.** If every task is `[done as planned]`,
    the actualWork.md is exactly this:
 
    ```markdown
-   # Issue-NNNN — Actual work
+   # Actual Work — {{ISSUE_ID}}
 
    Plan executed as written. See `imPlan.md` for tasks; see
    `git log <baseline>..HEAD` for commits.
@@ -51,29 +51,41 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
    No further sections. No "summary of what was built". No filler.
 
 3. **Deviation = explain.** For each `[deviation]`, `[skipped]`, or
-   `[discovered]`, write one paragraph under a `## Deviations` heading:
-   what changed, why, what the operator should know later.
+   `[discovered]`, write one paragraph under the template's
+   `## Deviations from plan` heading: what changed, why, what the
+   operator should know later.
 
 4. **Follow-ups.** Any `[discovered]` items that suggest future work
    get a `### Follow-up` sub-heading (the `/devagent:reap` skill
-   harvests these by exactly this heading).
+   harvests bullets under exactly this heading). It is the **last**
+   section — reap harvests until the next `### ` heading or end of
+   file, so anything bulleted after it would be mis-harvested.
 
 ## Output template (deviation case)
 
-```markdown
-# Issue-NNNN — Actual work
+Follows `actualWork_template.md` exactly: the per-task list lands in
+`## Summary`, and `### Follow-up` is last (after `## Verification`).
 
-## Plan vs actual
+```markdown
+# Actual Work — {{ISSUE_ID}}
+
+**Branch:** `{{BRANCH}}` based on `{{BASELINE_REF}}` (`{{BASELINE_SHA}}`)
+
+## Summary
 - Task 1: [done as planned]
 - Task 2: [done with deviation: boundary test extended to cover
   negative n after discovering related bug]
 - Task 3: [discovered: foo_kernel callers in bar.c had matching
   off-by-one; not fixed here per surgical-diffs principle]
 
-## Deviations
+## Deviations from plan
 ### Task 2 deviation
 The plan called for a single boundary test at n=N. While writing it,
 n=-1 also failed the assertion. Extended to cover that case.
+
+## Verification
+- Build: clean
+- Tests: 712/712
 
 ### Follow-up
 - bar.c callers should be audited; file as separate issue per
