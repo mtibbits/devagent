@@ -22,10 +22,21 @@ project="${1:-}"
 config_is_project "$project" || die "mergetoall.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
+explicit_issue="$issue_arg"   # remember the explicit arg before the fallback (#70)
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
 
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "mergetoall.sh: issue_dir not set or missing"
+
+# #70: an explicit issue arg must name the active issue — mergetoall squashes the
+# active branch from state, so a mismatched arg would silently ignore the named
+# issue. Mirrors comments.sh / revise.sh.
+if [ -n "$explicit_issue" ]; then
+    case "$issue_dir" in
+        */"$explicit_issue") : ;;
+        *) die "mergetoall.sh: requested issue '$explicit_issue' does not match active issue_dir '$issue_dir'" ;;
+    esac
+fi
 
 branch="$(state_get "$project" branch 2>/dev/null || true)"
 [ -n "$branch" ] || die "mergetoall.sh: no branch in state"
