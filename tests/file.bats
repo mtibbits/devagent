@@ -138,5 +138,6 @@ teardown() {
   run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
   [ "$status" -eq 0 ]
   assert_file_grep "${CAP_DIR}/filed.toml" '^url = "https://gitlab.example.com/grp/proj/-/issues/4242"$'
-  ! grep -q 'github\.com' "${CAP_DIR}/filed.toml"
+  run grep -q 'github\.com' "${CAP_DIR}/filed.toml"
+  [ "$status" -ne 0 ]
 }

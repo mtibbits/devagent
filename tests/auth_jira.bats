@@ -43,7 +43,8 @@ EOF
   scripts/auth/jira.sh store volk "${tf}"
   run scripts/auth/jira.sh status volk
   [ "${status}" -eq 0 ]
-  ! grep -q 'ATATT3xSECRETtoken9' "${STUB_LOG}"   # token NOT in curl argv
+  run grep -q 'ATATT3xSECRETtoken9' "${STUB_LOG}"
+  [ "${status}" -ne 0 ]                            # token NOT in curl argv
   grep -q -- '--config' "${STUB_LOG}"             # used --config
   grep -q 'ATATT3xSECRETtoken9' "${stdin_log}"    # delivered via stdin
 }

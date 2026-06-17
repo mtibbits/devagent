@@ -71,6 +71,7 @@ teardown() { teardown_tmp_devagent_home; }
   # Exit/parse status is irrelevant; the security property is what matters.
   run "$PLUGIN_ROOT/scripts/issue/gitlab.sh" fetch foo/bar 42
   grep -q . "$ARGV_FILE"                              # curl was actually invoked
-  ! grep -q 'glpat-INTEGRATION-SECRET' "$ARGV_FILE"   # token NEVER in argv
+  run grep -q 'glpat-INTEGRATION-SECRET' "$ARGV_FILE"
+  [ "$status" -ne 0 ]                                 # token NEVER in argv
   grep -q 'glpat-INTEGRATION-SECRET' "$STDIN_FILE"    # delivered via stdin config
 }
