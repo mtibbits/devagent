@@ -133,3 +133,25 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   F="$CMD_DIR/file.md"
   grep -q 'DEVAGENT_PERMISSION_PUSH_MR' "$F"
 }
+
+# #133: a prerequisite whose producing step is absent from the issue's checklist
+# must be treated as N/A, not halted on (docs-only omits analyze → draftmr; research
+# omits branch → document).
+@test "draftmr.md treats absent analyze step as N/A, not a halt (#133)" {
+  F="$CMD_DIR/draftmr.md"
+  grep -q 'absent from the issue' "$F"
+  grep -q 'N/A' "$F"
+  grep -qi 'docs-only' "$F"
+}
+
+@test "document.md treats absent branch step as N/A, not a halt (#133)" {
+  F="$CMD_DIR/document.md"
+  grep -q 'absent from the issue' "$F"
+  grep -q 'N/A' "$F"
+  grep -qi 'research' "$F"
+}
+
+@test "core-draft-mr and core-document-actual-work mirror the N/A carve-out (#133)" {
+  grep -q 'absent from the issue' "$BATS_TEST_DIRNAME/../skills/core-draft-mr/SKILL.md"
+  grep -q 'absent from the issue' "$BATS_TEST_DIRNAME/../skills/core-document-actual-work/SKILL.md"
+}

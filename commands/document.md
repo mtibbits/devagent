@@ -17,14 +17,20 @@ Per `commands/draft.md`.
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify state file has a `baseline_sha` (needed to diff actual
-   against plan). If absent, halt — operator must run branch first.
+   against plan). If absent, halt — operator must run branch first —
+   UNLESS the issue's `checklist.md` does not contain the branch step
+   (step 6), as in the research checklist. A prerequisite whose
+   producing step is absent from the issue's checklist is **N/A**:
+   skip this check and proceed without a diff baseline, do not halt.
 3. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
    `$NOTE`.
 4. The skill writes actualWork.md and calls `scripts/checklist-log.sh`.
 
 ## Halt and ask if
 
-- State file lacks `baseline_sha`.
+- State file lacks `baseline_sha` **and** the branch step (6) is present in the
+  issue's checklist. If the checklist omits branch (research), the baseline is
+  N/A — do not halt.
 - imPlan.md lacks `## Definition of done` section.
 
 ## Skipping policy

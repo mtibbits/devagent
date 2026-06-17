@@ -16,14 +16,20 @@ Per `commands/draft.md`.
 ## Workflow
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
-2. Verify analyze step completed (`<issue-dir>/analysis/` exists).
+2. Verify analyze step completed (`<issue-dir>/analysis/` exists) — UNLESS the
+   issue's `checklist.md` does not contain the analyze step (step 11), as in the
+   docs-only checklist. A prerequisite whose producing step is
+   absent from the issue's checklist is **N/A**: skip this check and proceed,
+   do not halt.
 3. Verify actualWork.md exists.
 4. Invoke `core-draft-mr`. The skill calls
    `scripts/checklist-log.sh`.
 
 ## Halt and ask if
 
-- analyze step did not run (no analysis/ dir).
+- analyze step did not run (no analysis/ dir) **and** the analyze step (11) is
+  present in the issue's checklist. If the checklist omits analyze (docs-only),
+  analyze is N/A — do not halt.
 - actualWork.md missing.
 - mr.md already exists with content (overwrite? revise? abort?).
 
