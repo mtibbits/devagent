@@ -106,6 +106,15 @@ cd "$source_dir"
 # Detached HEAD → empty → not restored, but all_prs is still left clean.
 orig_branch="$("$DEVAGENT_GIT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 
+# #71: require a clean tree before the checkout. `git checkout "$all_prs"` would
+# carry compatible uncommitted TRACKED changes over, and the cherry-pick-conflict
+# recovery below runs `git reset --hard`, destroying them. Untracked files (e.g.
+# build dirs) are not at risk from reset --hard and would over-block, so they are
+# excluded from the check.
+if [ -n "$("$DEVAGENT_GIT" status --porcelain --untracked-files=no)" ]; then
+    die "mergetoall.sh: working tree in $source_dir has uncommitted tracked changes — commit, stash, or discard them first (mergetoall checks out $all_prs and a conflict recovery would reset --hard)."
+fi
+
 # Apply ONLY the issue branch's own delta (baseline_sha..branch) using baseline_sha
 # as the 3-way base — NOT git's merge-base, which collapses to the default base for
 # a child stacked on a squash-merged parent and re-derives the parent delta as
@@ -147,6 +156,11 @@ if [ "$all_prs_auto_push" = "true" ]; then
         push_status="push failed (local commit retained)"
     fi
 fi
+
+# #71: restore the operator's original branch on success too (the failure path
+# already does). Leaving HEAD on all_prs is the enabling condition for the
+# wrong-branch commit bug (#33 class). Detached HEAD → orig_branch empty → skip.
+[ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
 
 state_set "$project" last_step      "16"
 state_set "$project" last_step_name "mergetoall"

@@ -24,12 +24,33 @@ _set_baseline_branch() {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     cur="$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )"
-    [ "$cur" = "dev/all-prs" ]
+    [ "$cur" = "feat/1-x" ]   # #71: success restores the original branch
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
     # Squash merges land as a single new commit, parent count == 1.
     parents=$( cd "$SOURCE_DIR" && git log -1 --pretty=%P dev/all-prs | wc -w )
     [ "$parents" -eq 1 ]
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "mergetoall.sh refuses a dirty tracked tree and leaves it untouched (#71)" {
+    # An uncommitted tracked change would ride onto all_prs and be destroyed by
+    # the conflict-recovery reset --hard.
+    ( cd "$SOURCE_DIR" && echo "operator wip" >> a.txt )
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"uncommitted"* ]] || [[ "$output" == *"clean"* ]]
+    # the operator's change is intact and we're still on feat/1-x
+    ( cd "$SOURCE_DIR" && grep -q "operator wip" a.txt )
+    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
+    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "mergetoall.sh restores the original branch on success (#71)" {
+    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
+    ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
 }
 
 @test "mergetoall.sh auto-skips when all_prs_branch is not configured" {

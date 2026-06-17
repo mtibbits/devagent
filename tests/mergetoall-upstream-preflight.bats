@@ -43,7 +43,7 @@ _advance_origin() {   # push one upstream commit so origin/main is ahead of all_
     # origin/main == all_prs (no drift) → behind 0 → squash as normal.
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "dev/all-prs" ]
+    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]  # #71: success restores orig branch
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
