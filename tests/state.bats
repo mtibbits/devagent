@@ -41,6 +41,15 @@ teardown() { teardown_tmp_devagent_home; }
   [ -z "$output" ]
 }
 
+@test "state_get on an unparseable state file errors loudly, not silently absent (#99)" {
+  state_init volk
+  # Corrupt the state file so tomllib can't parse it.
+  printf 'this is = not = valid toml\n' > "$DA_HOME/state/volk.toml"
+  run state_get volk active_issue
+  [ "$status" -eq 2 ]                          # distinct from key-absent
+  [[ "$output" == *"unparseable"* ]] || [[ "$output" == *"repair"* ]]
+}
+
 @test "state_set warns when active_issue changes between two issues" {
   state_init volk
   state_set volk active_issue Issue-61
