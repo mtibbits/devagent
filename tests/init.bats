@@ -111,3 +111,12 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"bad project name"* ]]
 }
+
+@test "config.toml.skel carries the commented step_models advisory example (#150)" {
+  local skel="$PLUGIN_ROOT/templates/config.toml.skel"
+  run grep -q 'step_models' "$skel"
+  [ "$status" -eq 0 ]
+  # it must be commented (advisory, opt-in) — no live step_models table
+  run grep -qE '^\[project\..*\.step_models\]' "$skel"
+  [ "$status" -ne 0 ]
+}

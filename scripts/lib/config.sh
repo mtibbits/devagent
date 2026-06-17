@@ -92,3 +92,32 @@ config_active_project() {
   fi
   die "config_active_project: $count projects configured; pass project explicitly"
 }
+
+# step_models_tier <project> <step-num>
+# #150: advisory only. Echoes the model tier for a workflow step from the optional
+# [project.<name>.step_models] table, or returns 1 (prints nothing) when no tier
+# resolves — so an absent table yields byte-identical output to before.
+# Resolution: a per-step override (step_models.<N>) wins over the step's class.
+# The step→class map is fixed (advisory): thinking = 1 7 8 9 12, checking = 3 13 14,
+# everything else = default. A class with no tier set falls back to the default tier.
+step_models_tier() {
+  local project="$1" step="$2" tier=""
+  [[ -n "$project" && -n "$step" ]] || return 1
+  # 1. per-step override wins
+  tier="$(config_get_project_field "$project" "step_models.${step}" 2>/dev/null || true)"
+  if [[ -z "$tier" ]]; then
+    # 2. class tier (fixed step→class map)
+    local class="default"
+    # shellcheck disable=SC2194 # constant subject; space-padded membership test
+    case " 1 7 8 9 12 " in *" $step "*) class="thinking" ;; esac
+    # shellcheck disable=SC2194 # constant subject; space-padded membership test
+    case " 3 13 14 "    in *" $step "*) class="checking" ;; esac
+    tier="$(config_get_project_field "$project" "step_models.${class}" 2>/dev/null || true)"
+    # 3. fall back to the default tier when the class tier is unset
+    if [[ -z "$tier" && "$class" != "default" ]]; then
+      tier="$(config_get_project_field "$project" "step_models.default" 2>/dev/null || true)"
+    fi
+  fi
+  [[ -n "$tier" ]] || return 1
+  printf '%s\n' "$tier"
+}

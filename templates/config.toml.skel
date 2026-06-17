@@ -10,6 +10,17 @@ ship_as_draft    = false
 default_baseline = "origin/{{DEFAULT_BRANCH}}"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
+# Optional advisory model-tier map (#150). next.sh prints one hint at dispatch and
+# catchup shows the current step's tier; tier names (not model IDs) are
+# forward-compatible. Advisory only — no enforcement, and an absent table changes
+# nothing. Classes: thinking = steps 1 7 8 9 12, checking = 3 13 14, else default;
+# a per-step override (numeric key) wins over its class.
+# [project.{{PROJECT}}.step_models]
+# default  = "sonnet"
+# thinking = "opus"     # draft, implement, quality, document, draftmr
+# checking = "fable"    # improve, review, redmr
+# "7"      = "fable"    # per-step override (implement) beats the class tier
+
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false

@@ -91,3 +91,22 @@ EOF
   run "$PLUGIN_ROOT/scripts/catchup.sh" volk
   [ "$status" -ne 0 ]
 }
+
+@test "catchup shows the step_models tier for the current step when configured (#150)" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+default  = "sonnet"
+thinking = "opus"
+EOF
+  # current step is 1 (draft) → thinking class → opus
+  run "$PLUGIN_ROOT/scripts/catchup.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"wants tier: opus"* ]]
+}
+
+@test "catchup shows no tier line when step_models is absent (#150)" {
+  run "$PLUGIN_ROOT/scripts/catchup.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"wants tier"* ]]
+}
