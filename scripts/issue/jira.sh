@@ -37,10 +37,10 @@ cmd_fetch() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
   local issue_json comments_json
-  issue_json="$(bc_curl GET "$(base)/rest/api/2/issue/${num}" \
-    -H "$(auth_header)" -H 'Accept: application/json')" || return
-  comments_json="$(bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" \
-    -H "$(auth_header)" -H 'Accept: application/json')" || return
+  issue_json="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}" \
+    -H 'Accept: application/json')" || return
+  comments_json="$(BC_AUTH_HEADER="$(auth_header)" \
+    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return
 
   local title state author labels url body
   title="$(echo "$issue_json"   | jq -r '.fields.summary')"
@@ -92,8 +92,7 @@ cmd_create() {
     --argjson labels "$labels_json" \
     '{fields:{project:{key:$pk},summary:$t,description:$d,issuetype:{name:$it},labels:$labels}}')"
   local resp
-  resp="$(bc_curl POST "$(base)/rest/api/2/issue" \
-    -H "$(auth_header)" \
+  resp="$(bc_curl_auth "$(auth_header)" POST "$(base)/rest/api/2/issue" \
     -H 'Content-Type: application/json' \
     --data "$payload")" || return
   echo "$resp" | jq -r '.key'
@@ -119,8 +118,8 @@ cmd_transition() {
   fi
 
   local tr_json
-  tr_json="$(bc_curl GET "$(base)/rest/api/2/issue/${num}/transitions" \
-    -H "$(auth_header)" -H 'Accept: application/json')" || return
+  tr_json="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}/transitions" \
+    -H 'Accept: application/json')" || return
   local id
   id="$(echo "$tr_json" | jq -r --arg n "$target_name" \
     '.transitions[] | select(.to.name==$n) | .id' | head -n1)"
@@ -131,8 +130,7 @@ cmd_transition() {
   fi
   local payload
   payload="$(jq -nc --arg id "$id" '{transition:{id:$id}}')"
-  bc_curl POST "$(base)/rest/api/2/issue/${num}/transitions" \
-    -H "$(auth_header)" \
+  bc_curl_auth "$(auth_header)" POST "$(base)/rest/api/2/issue/${num}/transitions" \
     -H 'Content-Type: application/json' \
     --data "$payload" >/dev/null
 }
@@ -141,8 +139,8 @@ cmd_state() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
   local resp
-  resp="$(bc_curl GET "$(base)/rest/api/2/issue/${num}" \
-    -H "$(auth_header)" -H 'Accept: application/json')" || return
+  resp="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}" \
+    -H 'Accept: application/json')" || return
   echo "$resp" | jq -r '.fields.status.name'
 }
 
@@ -150,8 +148,8 @@ cmd_comment_list() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
   local resp
-  resp="$(bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" \
-    -H "$(auth_header)" -H 'Accept: application/json')" || return
+  resp="$(BC_AUTH_HEADER="$(auth_header)" \
+    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return
   local count
   count="$(echo "$resp" | jq 'length')"
   bc_emit_comments_header "$count"
