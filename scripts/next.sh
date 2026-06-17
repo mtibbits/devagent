@@ -139,10 +139,15 @@ main() {
           chain_intends_continue=1
         fi
       fi
+      # Notes travel via the NOTE env var — the protocol the dispatched
+      # workflow scripts already read (${NOTE:+...}). Passing the note
+      # positionally as `-- "$note"` would land in the script's $2, which
+      # every script parses as the issue arg (#123). NOTE="$note" is one
+      # token regardless of spaces; empty when no note (downstream-safe).
       if (( chain_intends_continue == 1 )); then
-        DEVAGENT_CHAIN_ACTIVE=1 "$script_path" "$project" ${note:+-- "$note"}
+        DEVAGENT_CHAIN_ACTIVE=1 NOTE="$note" "$script_path" "$project"
       else
-        "$script_path" "$project" ${note:+-- "$note"}
+        NOTE="$note" "$script_path" "$project"
       fi
       # If chaining and we've reached the target, stop.
       if [[ -n "$through" && "$name" == "$through" ]]; then
