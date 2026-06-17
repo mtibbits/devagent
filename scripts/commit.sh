@@ -28,11 +28,22 @@ project="${1:-}"
 config_is_project "$project" || die "commit.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
+explicit_issue="$issue_arg"   # remember the explicit arg before the fallback (#70)
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
 [ -n "$issue_arg" ] || die "commit.sh: no active issue and no issue arg"
 
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "commit.sh: issue dir not found: $issue_dir"
+
+# #70: an explicit issue arg must name the active issue — issue_dir/branch come
+# from state, so a mismatched arg would commit the active branch but stamp the
+# wrong {{issue}} into the message. Mirrors comments.sh / revise.sh.
+if [ -n "$explicit_issue" ]; then
+    case "$issue_dir" in
+        */"$explicit_issue") : ;;
+        *) die "commit.sh: requested issue '$explicit_issue' does not match active issue_dir '$issue_dir'" ;;
+    esac
+fi
 
 # Zero-diff guard — decided on the WORKING TREE, not commits-ahead (issue #25).
 # commit.sh commits the staged index (`git commit -s -F` below), and the
