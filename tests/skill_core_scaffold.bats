@@ -29,3 +29,14 @@ CMD="${REPO_ROOT:-$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)}/commands
 @test "core-scaffold: slash command requires --force when children/ exists" {
   grep -qF -- '--force' "${CMD}" || { echo "missing --force in command"; false; }
 }
+
+@test "core-scaffold: no workflow handoff boilerplate (#130)" {
+  # Captures live in Captures/<slug>/ with no checklist.md and no step, so the
+  # copied numbered-workflow handoff block is wrong here and must be deleted.
+  run grep -q '## Completion handoff' "${SKILL}"
+  [ "$status" -ne 0 ]
+  run grep -q 'continue on to /devagent' "${SKILL}"
+  [ "$status" -ne 0 ]
+  run grep -q 'checklist\.md' "${SKILL}"
+  [ "$status" -ne 0 ]
+}
