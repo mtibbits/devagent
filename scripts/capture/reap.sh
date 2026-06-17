@@ -124,16 +124,32 @@ emit_candidates() {
     fi
 
     # 4. lessonsLearned.md [actionable]
+    # #112: the canonical format is a '### <claim>' heading + '- Tags: [actionable]'
+    # bullet, so grepping the tag line titled every draft 'Tags: [actionable]' and
+    # lost the claim; commented <!-- example --> tag lines were harvested too. Lift
+    # the enclosing heading for tag-list lines, skip comment blocks, and keep the
+    # flat inline '- [actionable] <claim>' path (byte-identical body → same hash).
     local l="${d}/lessonsLearned.md"
     if [[ -f "${l}" ]]; then
-      grep -nE '\[actionable\]' "${l}" 2>/dev/null | while IFS=: read -r lineno line; do
-        local trimmed="${line# }"
-        trimmed="${trimmed#- }"
-        trimmed="${trimmed#\[actionable\] }"
-        local title="${trimmed%%.*}"
-        printf 'chore\t%s\t%s/lessonsLearned.md line %s\t%s\n' \
-          "$(_rf "${title}")" "${issue_name}" "${lineno}" "$(_rf "${trimmed}")"
-      done
+      awk -v iss="${issue_name}" '
+        /<!--/ { incomment = 1 }
+        incomment { if ($0 ~ /-->/) incomment = 0; next }
+        /^### / { heading = $0; sub(/^### */, "", heading); next }
+        /\[actionable\]/ {
+          line = $0; sub(/^[ \t]*-[ \t]*/, "", line);   # strip a leading bullet
+          if (line ~ /^\[actionable\]/) {               # flat inline: "- [actionable] <claim>"
+            sub(/^\[actionable\][ ]*/, "", line); claim = line;
+          } else if (line ~ /^Tags:/ || line ~ /^\[/) { # tag-list line → use the heading
+            claim = heading;
+          } else {                                      # actionable embedded mid-line
+            claim = (heading != "" ? heading : line);
+          }
+          if (claim == "") next;
+          gsub(/\t/, " ", claim); gsub(/  +/, " ", claim);
+          title = claim; sub(/\..*$/, "", title);
+          printf "chore\t%s\t%s/lessonsLearned.md line %d\t%s\n", title, iss, NR, claim;
+        }
+      ' "${l}"
     fi
   done
 }

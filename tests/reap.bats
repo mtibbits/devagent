@@ -134,3 +134,36 @@ teardown() {
   grep -rqE 'imPlan-potentialFutureEnhancements\.md line 1\b' "${TMP_DEVDOC}/Captures"/*/draft.md
   grep -rqE 'imPlan-potentialFutureEnhancements\.md line 2\b' "${TMP_DEVDOC}/Captures"/*/draft.md
 }
+
+@test "reap: structured [actionable] lesson is titled by its heading, not 'Tags' (#112)" {
+  # Canonical lessonsLearned: '### <claim>' heading + '- Tags: [actionable]'. reap
+  # used to grep the tag line and title the draft 'Tags: [actionable]', losing the
+  # claim. It must now lift the enclosing heading. A commented <!-- example --> with
+  # [actionable] must NOT be harvested. Fresh Issue-997 isolates the assertion.
+  mkdir -p "${TMP_DEVDOC}/Issue-997"
+  cat > "${TMP_DEVDOC}/Issue-997/lessonsLearned.md" <<'LL'
+# Issue-997 — Lessons learned
+
+## Entries
+
+### Pre-commit hook would catch the SC2314 gate before push
+- Evidence: PR #201 sc2314 failure
+- Consequence: add a local hook.
+- Tags: [actionable]
+
+<!--
+Examples (delete before saving):
+### bogus commented example must not be harvested
+- Tags: [actionable]
+-->
+LL
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  # the real claim heading becomes a draft, titled by the claim (not "Tags")
+  grep -rqF 'Pre-commit hook would catch the SC2314 gate before push' "${TMP_DEVDOC}/Captures"/*/draft.md
+  run grep -rl 'Tags: \[actionable\]' "${TMP_DEVDOC}/Captures"/*/draft.md
+  [ "$status" -ne 0 ]
+  # the commented example was not harvested
+  run grep -rl 'bogus commented example' "${TMP_DEVDOC}/Captures"/*/draft.md
+  [ "$status" -ne 0 ]
+}
