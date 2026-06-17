@@ -141,3 +141,17 @@ teardown() {
   run grep -q 'github\.com' "${CAP_DIR}/filed.toml"
   [ "$status" -ne 0 ]
 }
+
+@test "file: rejects a backend that returns a non-id (URL) and writes no filed.toml (#199)" {
+  # A contract-violating backend that emits a full URL instead of a bare number must
+  # be caught at the consumer boundary: fail closed, no corrupt filed.toml, and the
+  # .pending marker preserved (#113 — the remote create already ran, may exist).
+  export DEVAGENT_PERMISSION_PUSH_MR=true
+  export DEVAGENT_REPO_ORIGIN="fakeorg/fake"
+  export MOCK_RESPONSE_NUM="https://github.com/fakeorg/fake/issues/4242"
+  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"malformed"* ]]
+  [ ! -f "${CAP_DIR}/filed.toml" ]
+  [ -e "${CAP_DIR}/.pending" ]
+}
