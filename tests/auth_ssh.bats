@@ -64,7 +64,7 @@ teardown() { auth_teardown_common; }
   [ ! -e "${target}.pub" ]
 }
 
-@test "ssh rotate destroys old then creates new with different filename" {
+@test "ssh rotate replaces the key with a new filename and retires the old (#93)" {
   scripts/auth/ssh.sh create volk
   local link="${DEVAGENT_SECRETS_DIR}/volk.ssh"
   local old_target; old_target="$(readlink "${link}")"
