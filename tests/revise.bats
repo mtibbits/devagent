@@ -35,6 +35,19 @@ run_revise() {
   grep -q '^revision[[:space:]]*=[[:space:]]*2$' "$FIX_STATE_FILE"
 }
 
+@test "revise with no project arg resolves the active project, not 'default' (#124)" {
+  # Bare revise must route through active_resolve_project, not the literal 'default'.
+  run env \
+    HOME="$HOME" \
+    DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+    DEVAGENT_CHAIN_CMD="$DEVAGENT_CHAIN_CMD" \
+    DEVAGENT_ACTIVE_PROJECT=volk \
+    bash "$DEVAGENT_ROOT/scripts/revise.sh" --no-chain
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"project 'default'"* ]]
+  grep -q '^revision[[:space:]]*=[[:space:]]*2$' "$FIX_STATE_FILE"
+}
+
 @test "revise creates revisions/r2 directory" {
   run_revise volk Issue-676 --no-chain
   [ "$status" -eq 0 ]

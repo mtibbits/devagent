@@ -17,7 +17,11 @@ source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 # shellcheck source=/dev/null
@@ -62,11 +66,10 @@ PY
 }
 
 resolve_project_arg() {
-  if [[ $# -ge 1 && -n "${1:-}" ]]; then
-    printf '%s\n' "$1"
-    return
-  fi
-  printf '%s\n' "${DEVAGENT_PROJECT:-default}"
+  # #124: route the bare-invocation default through the active-project chain
+  # (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured
+  # project) instead of the literal string 'default', matching next.sh / wbs.
+  active_resolve_project "${1:-}"
 }
 
 main() {
