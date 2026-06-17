@@ -13,10 +13,11 @@ ship step later uses `mr.md` verbatim as the MR body.
 
 ## Overview
 
-The MR body is the only artifact a reviewer reads first. It must
-explain (1) what the change does, (2) why now, (3) what evidence
-exists it works, (4) what the reviewer should pay attention to.
-The skill fills the template from existing artifacts so nothing is
+The MR body is the only artifact a reviewer reads first. Filling the
+template's sections, it must convey: what changed and why now
+(**Summary**), which issue it closes (**Related issues** —
+`Closes #NNN`), and what evidence exists it works (**Testing**). The
+skill fills the template from existing artifacts so nothing is
 re-typed.
 
 ## Inputs
@@ -37,23 +38,25 @@ re-typed.
 
 1. **Resolve template.** Walk the §12 artifact registry to find
    `mr_template.md`. Halt if unresolvable.
-2. **Fill Summary section.** One paragraph from the issue's problem
-   statement + the actualWork's outcome. No marketing.
-3. **Fill Motivation section.** Why now, drawn from `issue.md`
-   labels, related issues, and any operator $NOTE.
-4. **Fill Evidence section.** Bullet list:
+2. **Fill Summary section.** One paragraph: what changed **and why now**
+   (the template's Summary is literally "What changed and why?"), from
+   the issue's problem statement + the actualWork's outcome + any
+   operator $NOTE. Note any deviations from actualWork's
+   `## Deviations from plan`. No marketing.
+3. **Fill Related issues section.** Add `Closes #<issue-number>` (taken
+   from `issue.md`) so the issue **auto-closes on merge** — this is the
+   load-bearing line; without it the MR merges but the issue stays open.
+   Use `Related: #NNN` for context-only links that should not close.
+4. **Fill Testing section.** How the change was verified — bullet list:
    - Tests added (from actualWork).
    - Analyzer results (one line per tool with finding counts from
      `analysis/*.txt`).
    - Benchmarks if performance issue (path to evidence plot from
      `tools/plot_pr_evidence.R` if present in repo).
-5. **Fill Reviewer notes section.** Anything from actualWork's
-   `## Deviations from plan`. If none, write "Plan executed as written;
-   see imPlan.md for task list."
-6. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
+5. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.
-7. **Write `<issue-dir>/mr.md`.**
+6. **Write `<issue-dir>/mr.md`.**
 
 ## Halt and ask if
 
