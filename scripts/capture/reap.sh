@@ -152,11 +152,31 @@ while IFS=$'\t' read -r subtype title source body; do
     continue
   fi
 
-  if ! "${SCRIPT_DIR}/capture.sh" \
-        --type issue --subtype "${subtype}" \
-        --title "${title}" --source "${source}" --force \
-        >/dev/null; then
-    echo "warn: capture.sh failed for: ${title}" >&2
+  # #108: do NOT pass --force. capture.sh exit 3 means a draft already exists at
+  # this slug (a same-day title-kebab collision, or a pre-existing hand-edited
+  # draft). Forcing would silently overwrite it AND mark this body seen, losing
+  # the other candidate permanently. Instead retry once with a short hash suffix
+  # appended to the title, which slugs to a distinct dir. ${h} is the body hash,
+  # already computed above; distinct bodies → distinct suffixes, and identical
+  # bodies are deduped by SEEN before we ever reach here.
+  rc=0
+  "${SCRIPT_DIR}/capture.sh" \
+    --type issue --subtype "${subtype}" \
+    --title "${title}" --source "${source}" \
+    >/dev/null 2>&1 || rc=$?
+  if [[ "${rc}" -eq 3 ]]; then
+    rc=0
+    # A title whose kebab already exceeds slug.sh's 60-char cap truncates the
+    # suffix away, so the retry can still collide → falls through to the warn
+    # path below and is deferred (not lost), to be retried next run.
+    "${SCRIPT_DIR}/capture.sh" \
+      --type issue --subtype "${subtype}" \
+      --title "${title} ${h:0:6}" --source "${source}" \
+      >/dev/null 2>&1 || rc=$?
+  fi
+  if [[ "${rc}" -ne 0 ]]; then
+    # Leave the body unmarked so it is retried on the next reap run.
+    echo "warn: capture.sh failed (rc=${rc}) for: ${title}" >&2
     continue
   fi
   SEEN["${h}"]=1

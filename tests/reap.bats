@@ -115,3 +115,22 @@ teardown() {
   run find "${DEVAGENT_STATE_DIR}" -name '.fake.reaped.*'
   [ -z "${output}" ]
 }
+
+@test "reap: slug-collision candidates do not clobber each other (#108)" {
+  # Two future-enhancement bullets whose first-sentence titles kebab to the same
+  # slug on the same day, but whose bodies differ (so both pass the seen-hash
+  # gate). With --force the second capture overwrote the first's draft while both
+  # hashes were recorded seen, so the first was permanently lost. Dropping --force
+  # and retrying capture.sh exit 3 with a short hash suffix must yield TWO distinct
+  # drafts, both citing the source issue. Fresh Issue-998 isolates the assertion.
+  mkdir -p "${TMP_DEVDOC}/Issue-998"
+  printf -- '- Tune the widget cache eviction policy. First variant detail alpha.\n- Tune the widget cache eviction policy. Second variant detail beta.\n' \
+    > "${TMP_DEVDOC}/Issue-998/imPlan-potentialFutureEnhancements.md"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  mapfile -t drafts < <(grep -rlE 'Issue-998/imPlan-potentialFutureEnhancements\.md' "${TMP_DEVDOC}/Captures"/*/draft.md)
+  [ "${#drafts[@]}" -eq 2 ]
+  # both source lines survive — line 1 (first candidate) and line 2 (second).
+  grep -rqE 'imPlan-potentialFutureEnhancements\.md line 1\b' "${TMP_DEVDOC}/Captures"/*/draft.md
+  grep -rqE 'imPlan-potentialFutureEnhancements\.md line 2\b' "${TMP_DEVDOC}/Captures"/*/draft.md
+}
