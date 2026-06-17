@@ -13,7 +13,11 @@ source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 # shellcheck source=/dev/null
@@ -46,7 +50,10 @@ for arg in "$@"; do
       ;;
   esac
 done
-[[ -n "$PROJECT" ]] || PROJECT="${DEVAGENT_PROJECT:-default}"
+# #124: route the bare-invocation default through the active-project chain
+# (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured project)
+# instead of the literal string 'default', matching next.sh / statusreport.sh / wbs.
+PROJECT="$(active_resolve_project "$PROJECT")"
 
 issue_dir=$(state_get "$PROJECT" issue_dir) \
   || die "no active_issue for project '$PROJECT'"

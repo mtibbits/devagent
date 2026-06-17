@@ -36,6 +36,19 @@ run_comments() {
   grep -q "bob"   "$FIX_ISSUE_DIR/revisions/r1/comments.md"
 }
 
+@test "comments with no project arg resolves the active project, not 'default' (#124)" {
+  # Bare comments must route through active_resolve_project, not the literal 'default'.
+  run env \
+    HOME="$HOME" \
+    DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+    DEVAGENT_CODE_BACKEND_CMD="$DEVAGENT_CODE_BACKEND_CMD" \
+    DEVAGENT_ACTIVE_PROJECT=volk \
+    bash "$DEVAGENT_ROOT/scripts/comments.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"project 'default'"* ]]
+  [ -f "$FIX_ISSUE_DIR/revisions/r1/comments.md" ]
+}
+
 @test "comments does NOT increment the revision counter" {
   run_comments volk Issue-676
   [ "$status" -eq 0 ]
