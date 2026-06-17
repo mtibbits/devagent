@@ -109,6 +109,29 @@ backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set
 issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")"
 [[ -n "${issue_num}" ]] || { echo "backend returned empty issue number" >&2; exit 3; }
 
+# #199: validate the identifier's SHAPE at the consumer boundary (defense-in-depth
+# complementing #27's producer-side github fix). A backend that violates its contract
+# — e.g. returns a full URL — would otherwise be written verbatim into filed.toml
+# (malformed issue_num, doubled url) and break downstream parsers silently. Fail
+# closed instead. The .pending marker is intentionally NOT cleared here: the remote
+# create already ran, so the issue may exist, and #113's marker must keep blocking a
+# silent duplicate re-file.
+case "${backend}" in
+  github|gitlab) [[ "${issue_num}" =~ ^[0-9]+$ ]] ;;
+  jira)          [[ "${issue_num}" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] ;;
+  *)             # custom/unknown: reject a URL-shaped value, accept an opaque token
+                 [[ "${issue_num}" != *[/:[:space:]]* && "${issue_num}" != http* ]] ;;
+esac || {
+  cat >&2 <<EOF
+backend '${backend}' returned a malformed issue identifier:
+  '${issue_num}'
+Expected a bare issue id (numeric for github/gitlab; KEY-123 for jira). Refusing to
+write a corrupt filed.toml. The remote issue may already have been created — verify
+the tracker, then re-run with --refile if appropriate (.pending marker left in place).
+EOF
+  exit 3
+}
+
 # #113: build the canonical URL from the active backend instead of hardcoding
 # github for every backend (which recorded dead links for gitlab/jira).
 case "${backend}" in
