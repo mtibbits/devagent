@@ -116,3 +116,20 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
+
+# #114: the capture family must document a REAL env-derivation path, not a
+# non-existent "Phase 1 config loader".
+@test "capture.md documents the env-derivation sources, not a phantom loader (#114)" {
+  F="$CMD_DIR/capture.md"
+  grep -q 'CLAUDE_PLUGIN_ROOT' "$F"            # DEVAGENT_PLUGIN_DIR source
+  grep -q 'config\.toml' "$F"                  # DEVAGENT_DEVDOC_DIR source
+  grep -q 'devdoc_dir' "$F"
+  grep -q 'active_project' "$F"                # DEVAGENT_PROJECT source (state)
+  run grep -q 'Phase 1' "$F"                   # the phantom loader claim is gone
+  [ "$status" -ne 0 ]
+}
+
+@test "file.md names the real push_mr env gate the script reads (#114)" {
+  F="$CMD_DIR/file.md"
+  grep -q 'DEVAGENT_PERMISSION_PUSH_MR' "$F"
+}

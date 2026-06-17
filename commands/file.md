@@ -19,9 +19,11 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    scripts/capture/file.sh --slug <slug> --target <origin|fork>
    ```
 
-   The script enforces the `permissions.push_mr` gate. If the gate
-   is closed, the script prints the plan and exits non-zero; the
-   operator re-invokes with `--yes` to confirm.
+   The script reads the env var `DEVAGENT_PERMISSION_PUSH_MR` (which
+   mirrors config `[project.<name>.permissions].push_mr` once exported),
+   defaulting to `false`. When the gate is `false`, the script prints
+   the plan and exits non-zero; the operator re-invokes with `--yes`
+   to confirm.
 
 4. On success, print the returned URL and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.
@@ -39,8 +41,13 @@ the upstream organization.
 
 ## Env contract
 
-Same as `/devagent:capture`, plus the backend env vars consumed by
-`file.sh`.
+Same as `/devagent:capture` (see its derivation table), plus the
+backend env vars `file.sh` consumes:
+
+- `DEVAGENT_PERMISSION_PUSH_MR` — the push gate (default `false`);
+  mirrors config `[project.<name>.permissions].push_mr`.
+- the tracker backend/repo vars from `[project.<name>.issue_source]`
+  (and `issue_source_fork` for `--target fork`).
 
 ## Non-goals
 
