@@ -20,9 +20,11 @@ this same step forever:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
-skill/command defines one).
+`<N>` is this step's number on the issue's checklist (17 for `updatewbs`);
+`$ISSUE_DIR` is the active issue's directory (resolve it from project
+state if not already bound). Use `-` instead of `x` if the step was
+skipped. This step is backed by `wbs.sh`, which does NOT self-mark, so the
+mark above is the only thing advancing step 17.
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.
 End your final message with this exact question (substituting the
