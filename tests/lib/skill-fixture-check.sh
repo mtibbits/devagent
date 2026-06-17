@@ -45,6 +45,14 @@ if ! grep -q "checklist-log.sh" "$skill_md"; then
   exit 1
 fi
 
+# #131: the cwd at invocation is the target project, so a bare relative
+# scripts/checklist-log.sh misses. Every invocation must be plugin-root-prefixed.
+if grep -nE 'scripts/checklist-log\.sh' "$skill_md" \
+    | grep -vqE '\$\{CLAUDE_PLUGIN_ROOT\}/scripts/checklist-log\.sh'; then
+  echo "checklist-log.sh invocation not prefixed with \${CLAUDE_PLUGIN_ROOT} (#131)" >&2
+  exit 1
+fi
+
 if [[ -d "$fixture_dir" ]]; then
   : # caller-specific fixture checks run in the bats test, not here
 fi

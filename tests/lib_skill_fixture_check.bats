@@ -76,8 +76,28 @@ description: Use when y
 ## Halt
 If unsure, halt and ask the operator.
 ## Logging
-Run scripts/checklist-log.sh "$ISSUE_DIR" stepname "msg"
+Run ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" stepname "msg"
 EOF
   run bash "$HARNESS" "$TMP/skill" "$TMP/fixture"
   [ "$status" -eq 0 ]
+}
+
+@test "harness rejects an unprefixed checklist-log invocation (#131)" {
+  mkdir -p "$TMP/skill" "$TMP/fixture"
+  cat > "$TMP/skill/SKILL.md" <<'EOF'
+---
+name: x
+description: Use when y
+---
+# Skill
+## Checklist
+1. do thing
+## Halt
+If unsure, halt and ask the operator.
+## Logging
+Run scripts/checklist-log.sh "$ISSUE_DIR" stepname "msg"
+EOF
+  run bash "$HARNESS" "$TMP/skill" "$TMP/fixture"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CLAUDE_PLUGIN_ROOT"* ]]
 }

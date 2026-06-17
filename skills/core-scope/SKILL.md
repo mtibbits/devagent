@@ -94,7 +94,7 @@ docs/chore and the questions don't apply, surface that explicitly:
 After completion:
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" scope \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" scope \
   "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
 ```
 

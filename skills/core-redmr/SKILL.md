@@ -90,7 +90,7 @@ acknowledgement.
 ## Logging
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" redmr \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" redmr \
   "Red-team: B blocking, M major, m minor, I info (template: $TEMPLATE_PATH); note: $NOTE"
 ```
 

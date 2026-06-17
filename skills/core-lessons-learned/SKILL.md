@@ -75,7 +75,7 @@ to learn; mark step `[-]` skipped?" for operator confirmation.
 ## Logging
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" lessonslearned \
+${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" lessonslearned \
   "lessonsLearned.md written: L entries (A actionable, R reference, N norm, P pattern); note: $NOTE"
 ```
 
