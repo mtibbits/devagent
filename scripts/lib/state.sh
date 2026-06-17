@@ -40,9 +40,18 @@ state_exists() {
 }
 
 state_get() {
-  local project="$1" key="$2"
+  local project="$1" key="$2" out rc
   state_exists "$project" || return 1
-  _state_toml get "$(state_path "$project")" "$key" 2>/dev/null
+  out="$(_state_toml get "$(state_path "$project")" "$key" 2>/dev/null)"; rc=$?
+  # #99: _toml get returns 2 when the file is unparseable (vs 1 for a missing
+  # key). Surface that loudly instead of letting the old 2>/dev/null masquerade
+  # a corrupt state file as "no active issue", which silently bricks the project.
+  if [ "$rc" -eq 2 ]; then
+    echo "state_get: state file for '$project' is unparseable and needs repair: $(state_path "$project")" >&2
+    return 2
+  fi
+  [ "$rc" -eq 0 ] || return "$rc"
+  printf '%s\n' "$out"
 }
 
 state_set() {

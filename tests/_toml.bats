@@ -27,6 +27,38 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
+# --- #99: control-char escaping, legal-type emit, parse-error exit code ---
+
+@test "set of a value with a newline keeps the file valid TOML (#99)" {
+  local f="$DA_HOME/st.toml"; printf 'a = "x"\n' > "$f"
+  run python3 "$TOML" set "$f" msg "$(printf 'line1\nline2')"
+  [ "$status" -eq 0 ]
+  run python3 "$TOML" validate "$f"
+  [ "$status" -eq 0 ]                       # file is still parseable
+  run python3 "$TOML" get "$f" msg
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf 'line1\nline2')" ] # newline round-trips
+}
+
+@test "mutating a file that contains a float and an array does not crash (#99)" {
+  local f="$DA_HOME/ff.toml"
+  printf 'ratio = 1.5\narr = [1, 2, 3]\n' > "$f"
+  run python3 "$TOML" set "$f" added "ok"
+  [ "$status" -eq 0 ]
+  run python3 "$TOML" get "$f" ratio
+  [ "$output" = "1.5" ]
+  run python3 "$TOML" get "$f" added
+  [ "$output" = "ok" ]
+  run python3 "$TOML" validate "$f"
+  [ "$status" -eq 0 ]
+}
+
+@test "get on an unparseable file exits 2, distinct from key-absent (#99)" {
+  local f="$DA_HOME/bad.toml"; printf 'this is = not valid = toml\n' > "$f"
+  run python3 "$TOML" get "$f" some.key
+  [ "$status" -eq 2 ]                        # parse error, not 1 (absent)
+}
+
 @test "list-tables enumerates project subtable names" {
   run python3 "$TOML" list-tables "$DA_HOME/config.toml"
   [ "$status" -eq 0 ]

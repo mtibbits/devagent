@@ -13,6 +13,7 @@ guarantees a consistent view).
 """
 
 from __future__ import annotations
+import datetime
 import fcntl
 import sys
 import tomllib
@@ -56,15 +57,44 @@ def _walk(data: dict, dotted: str):
     return cur
 
 
+def _emit_str(s: str) -> str:
+    # #99: escape \ " and control chars so a value containing a newline (or any
+    # control char) can't produce invalid TOML that bricks every later load.
+    out = []
+    for c in s:
+        o = ord(c)
+        if c == "\\":
+            out.append("\\\\")
+        elif c == '"':
+            out.append('\\"')
+        elif c == "\n":
+            out.append("\\n")
+        elif c == "\t":
+            out.append("\\t")
+        elif c == "\r":
+            out.append("\\r")
+        elif o < 0x20 or o == 0x7F:
+            out.append(f"\\u{o:04X}")
+        else:
+            out.append(c)
+    return '"' + "".join(out) + '"'
+
+
 def _emit_value(v) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, int):
         return str(v)
     if isinstance(v, str):
-        # quote double-quotes and backslashes
-        esc = v.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{esc}"'
+        return _emit_str(v)
+    # #99: emit the remaining legal-to-read types so mutating a file that already
+    # contains them does not die with a raw TypeError mid-rewrite.
+    if isinstance(v, float):
+        return repr(v)
+    if isinstance(v, (datetime.datetime, datetime.date, datetime.time)):
+        return v.isoformat()
+    if isinstance(v, list):
+        return "[" + ", ".join(_emit_value(x) for x in v) + "]"
     raise TypeError(f"cannot emit type {type(v).__name__}")
 
 
@@ -179,7 +209,14 @@ def main(argv: list[str]) -> int:
         return 0
 
     if verb == "get":
-        data = _load(file)
+        # #99: distinguish an unparseable file (exit 2) from a missing key
+        # (exit 1) so state_get does not silently report "no active issue" on a
+        # corrupted state file.
+        try:
+            data = _load(file)
+        except Exception as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
         try:
             v = _walk(data, rest[0])
         except KeyError:
