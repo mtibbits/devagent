@@ -29,16 +29,57 @@ _ssh_new_key_path() {
   printf '%s/.ssh/devagent_%s_%s_%s\n' "${HOME}" "${proj}" "${ts}" "${rand}"
 }
 
+# #93(c): drop the key from a running ssh-agent so a loaded agent stops
+# authenticating with it. Best-effort: no agent / not loaded / no ssh-add are all
+# fine. ssh-add -d removes by public key.
+_ssh_forget_agent() {
+  local target="$1"
+  command -v ssh-add >/dev/null 2>&1 || return 0
+  if [ -f "${target}.pub" ]; then
+    ssh-add -d "${target}.pub" >/dev/null 2>&1 || true
+  else
+    ssh-add -d "${target}" >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
+# Retire a key target: forget it from the agent, shred the private key, remove
+# the pubkey. Used by destroy and by create's old-key cleanup.
+_ssh_shred_key() {
+  local target="$1"
+  [ -n "${target}" ] || return 0
+  _ssh_forget_agent "${target}"
+  if [ -f "${target}" ]; then
+    if command -v shred >/dev/null 2>&1; then
+      shred -u -- "${target}" || rm -f -- "${target}"
+    else
+      rm -f -- "${target}"
+    fi
+  fi
+  [ -f "${target}.pub" ] && rm -f -- "${target}.pub"
+  return 0
+}
+
 _ssh_create() {
   local proj="$1"
   _secret_validate_name project "${proj}" || return 1
   _secret_ensure_dir
   mkdir -p "${HOME}/.ssh"
   chmod 700 "${HOME}/.ssh"
+  local link; link="$(_ssh_link_path "${proj}")"
+  # #93(a,b): capture the existing key BEFORE creating the new one, so we can
+  # retire it only AFTER the new key is live + linked (create-new → repoint →
+  # shred-old). ssh-keygen failure aborts here under set -e, leaving the old key
+  # and link untouched — the project is never left key-less.
+  local old_target=""
+  [ -L "${link}" ] && old_target="$(readlink "${link}")"
   local key_path; key_path="$(_ssh_new_key_path "${proj}")"
   ssh-keygen -t ed25519 -N '' -C "devagent-${proj}" -f "${key_path}" >/dev/null
-  local link; link="$(_ssh_link_path "${proj}")"
   ln -sfn "${key_path}" "${link}"
+  # New key is live; now retire the previous one (no orphan in ~/.ssh).
+  if [ -n "${old_target}" ] && [ "${old_target}" != "${key_path}" ]; then
+    _ssh_shred_key "${old_target}"
+  fi
   echo "auth/ssh: created ${key_path} (linked at ${link})" >&2
 }
 
@@ -48,24 +89,16 @@ _ssh_destroy() {
   local link; link="$(_ssh_link_path "${proj}")"
   if [ -L "${link}" ]; then
     local target; target="$(readlink "${link}")"
-    if [ -f "${target}" ]; then
-      if command -v shred >/dev/null 2>&1; then
-        shred -u -- "${target}" || rm -f -- "${target}"
-      else
-        rm -f -- "${target}"
-      fi
-    fi
-    if [ -f "${target}.pub" ]; then
-      rm -f -- "${target}.pub"
-    fi
+    _ssh_shred_key "${target}"
     rm -f -- "${link}"
   fi
 }
 
 _ssh_rotate() {
-  local proj="$1"
-  _ssh_destroy "${proj}"
-  _ssh_create  "${proj}"
+  # #93(a): create now does create-new → repoint → shred-old with a real overlap
+  # window (ssh-keygen failure aborts before the old key is touched), so rotate is
+  # exactly create.
+  _ssh_create "$1"
 }
 
 _ssh_status() {
