@@ -34,6 +34,30 @@ teardown() { devagent_test_teardown; }
     grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
+@test "ship.sh fails closed when the branch push fails — no MR, step 15 unmarked (#104)" {
+    # git stub that fails ONLY on push (no-op success otherwise, like the default
+    # stub). Guards against a refactor that wraps the push in `|| warn` and would
+    # then create the PR, store mr_url, and mark step 15 after a failed push.
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+printf 'git' >> "$DEVAGENT_STUB_LOG"
+for a in "\$@"; do printf ' %s' "\$a" >> "$DEVAGENT_STUB_LOG"; done
+printf '\n' >> "$DEVAGENT_STUB_LOG"
+[ "\$1" = "push" ] && exit 1
+exit 0
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    # push was attempted, but create-mr must never run after it fails
+    devagent_assert_logged "git push --set-upstream origin feat/1-x"
+    ! grep -F -q "gh pr create" "$DEVAGENT_STUB_LOG"
+    # no mr_url recorded, step 15 left unmarked
+    ! grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
     sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
     # Force closed stdin so confirm() sees non-tty regardless of how bats
