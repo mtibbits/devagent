@@ -65,6 +65,6 @@ The slash command parses this block and calls `capture.sh` per row.
 
 ## Verification
 
-This skill is verified by `tests/skill_devagent_capture.bats`, which
+This skill is verified by `tests/skill_core_capture.bats`, which
 checks the SKILL.md file for the required output-format block. Live
 model execution is not part of CI.

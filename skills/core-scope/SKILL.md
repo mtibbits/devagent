@@ -107,8 +107,9 @@ adjacent to the word `ambiguit…` so the detector stays in sync.
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (for the canonical section ordering
-  if the plan needs restructuring during this step).
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical section ordering
+  if the plan needs restructuring; this step appends a `## Scope evaluation`
+  section, which the template does not define).
 
 ## Completion handoff
 

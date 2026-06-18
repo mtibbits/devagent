@@ -71,8 +71,9 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" tighten \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical structure including
-  Definition of done section).
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical base sections:
+  Goal, Approach, Tasks, Validation, Out of scope, Open questions — this step
+  appends the `## Definition of done` section, which the template does not define).
 
 ## Completion handoff
 
