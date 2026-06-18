@@ -63,6 +63,21 @@ sync_one_project() {
     fi
     [ "${state,,}" = "merged" ] || return 0   # #43: gh returns "MERGED" (uppercase)
 
+    # #219: gate the remote on_merge transition. This is an outward, autonomous
+    # mutation of tracker state — sync runs --all batch/non-interactive and must
+    # continue-on-failure (#141), so read the gate directly and FAIL CLOSED
+    # (skip + warn) rather than calling permission_gate (which would prompt or
+    # die and abort the loop). Deliberately do NOT write the "merged" idempotence
+    # marker when gated off, so enabling transition_issue later still fires.
+    # (ship's on_ship is NOT gated here — it is already behind ship's push_mr
+    # gate + an explicit interactive ship; see ship.sh.)
+    local allow_transition
+    allow_transition="$(config_get_project_field "$project" permissions.transition_issue 2>/dev/null || echo false)"
+    if [ "$allow_transition" != "true" ]; then
+        echo "sync: on_merge transition for $project/$issue_arg skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)" >&2
+        return 0
+    fi
+
     if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
         echo "sync: no issue tracker configured for $issue_arg; skipping on_merge transition" >&2
     elif [ -x "$issue_sh" ]; then

@@ -38,6 +38,22 @@ teardown() { devagent_test_teardown; }
     grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
+@test "sync.sh fail-closes the on_merge transition when transition_issue is off (#219)" {
+    # Default test config sets transition_issue=true; turn it off for this project.
+    sed -i 's|^transition_issue *=.*|transition_issue = false|' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    # The merge is still detected (mr-state queried) ...
+    devagent_assert_logged "code/github mr-state https://github.com/acme/testproj/pull/77"
+    # ... but NO remote transition is fired without the gate.
+    devagent_refute_logged "transition"
+    # The operator is told why.
+    [[ "$output" == *"transition_issue"* ]]
+    # And the idempotence marker is NOT written, so enabling the gate later still fires.
+    run grep 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+}
+
 @test "sync.sh skips issues whose MR is still open" {
     cat > "$DEVAGENT_TMP/fake-code/github.sh" <<'EOF'
 #!/usr/bin/env bash

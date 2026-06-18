@@ -301,6 +301,11 @@ mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$branch"
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
 # Skipped under fork_only. Also skipped if the routed backend/repo isn't
 # configured (e.g. Issue-Fork-* with no [issue_source_fork] block).
+# #219 audit: this transition is intentionally NOT gated by permissions.
+# transition_issue (which gates sync's autonomous on_merge). on_ship fires only
+# inside an explicit, interactive ship that already passed the push_mr gate
+# above — the consent is the ship action itself — so it is not the ungated
+# autonomous mutation sync was.
 issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
 if [ "$fork_only" = "true" ]; then
     echo "fork-only mode: skipping on_ship transition" >&2
