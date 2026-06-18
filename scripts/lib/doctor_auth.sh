@@ -59,7 +59,10 @@ _check_ssh_backend() {
     printf 'ssh: MISSING path=%s\n' "${link}"
     return
   fi
-  local target; target="$(readlink "${link}")"
+  # -f canonicalizes a relative target against the symlink's own directory; a
+  # bare `readlink` returned it raw and the existence check below resolved it
+  # against the caller's CWD, falsely reporting a valid key as dangling.
+  local target; target="$(readlink -f "${link}")"
   if [ ! -f "${target}" ]; then
     printf 'ssh: ERROR dangling_symlink target=%s\n' "${target}"
     return

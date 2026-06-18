@@ -47,3 +47,18 @@ teardown() { auth_teardown_common; }
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"ssh: MISSING"* ]]
 }
+
+@test "doctor_auth resolves a relative ssh symlink target (B13: not against CWD)" {
+  mkdir -p "${DEVAGENT_SECRETS_DIR}"
+  chmod 700 "${DEVAGENT_SECRETS_DIR}"
+  # A real key referenced by a RELATIVE symlink target. The old `readlink`
+  # returned "volk.ssh.key" and the existence check resolved it against the
+  # caller's CWD (the repo root here), falsely reporting a dangling symlink.
+  printf 'KEY\n' > "${DEVAGENT_SECRETS_DIR}/volk.ssh.key"
+  chmod 600 "${DEVAGENT_SECRETS_DIR}/volk.ssh.key"
+  ln -s volk.ssh.key "${DEVAGENT_SECRETS_DIR}/volk.ssh"
+  run scripts/lib/doctor_auth.sh check volk ssh
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"ssh: OK"* ]]
+  [[ "${output}" != *"dangling_symlink"* ]]
+}
