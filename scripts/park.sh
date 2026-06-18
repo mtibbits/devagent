@@ -35,16 +35,18 @@ main() {
   fi
 
   local issue_dir="${devdoc%/}/$issue"
-  if [[ -d "$issue_dir" ]]; then
-    local checklist="$issue_dir/checklist.md"
-    if [[ -f "$checklist" ]]; then
-      local cur
-      cur="$(checklist_current_step "$checklist")"
-      if [[ -n "$cur" && "$cur" != "done" ]]; then
-        checklist_mark "$checklist" "$cur" "P"
-      fi
-      ( log_append "$issue_dir" "park" "issue parked" ) 2>/dev/null || true
+  # A21: refuse a typo'd issue id. Parking a non-existent dir used to skip the
+  # checklist mark but still write a [parked] entry, stranding junk that resume
+  # can never satisfy. Dir-existence is now a precondition, not an optional branch.
+  [[ -d "$issue_dir" ]] || die "park.sh: issue dir not found: $issue_dir (typo in issue id?)"
+  local checklist="$issue_dir/checklist.md"
+  if [[ -f "$checklist" ]]; then
+    local cur
+    cur="$(checklist_current_step "$checklist")"
+    if [[ -n "$cur" && "$cur" != "done" ]]; then
+      checklist_mark "$checklist" "$cur" "P"
     fi
+    ( log_append "$issue_dir" "park" "issue parked" ) 2>/dev/null || true
   fi
 
   state_add_parked "$project" "$issue"

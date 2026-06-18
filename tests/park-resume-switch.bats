@@ -99,6 +99,17 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
+@test "park refuses a typo'd issue id whose dir is missing (A21)" {
+  # A non-existent issue dir used to be parked anyway: marking was skipped but
+  # the parked entry was still written, stranding junk in [parked].
+  run "$PLUGIN_ROOT/scripts/park.sh" volk Issue-99999
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+  # No stranded parked entry was written.
+  run grep -qE '^Issue-99999 *= *true' "$DA_HOME/state/volk.toml"
+  [ "$status" -ne 0 ]
+}
+
 @test "resume restores the parked issue's branch/baseline/mr_url, not the interloper's (#98)" {
   # Issue-676 is active with a branch (parked after its branch step).
   cat >> "$DA_HOME/state/volk.toml" <<'CTX'
