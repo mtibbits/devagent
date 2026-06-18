@@ -1,5 +1,5 @@
 ---
-description: Step 11: run static analysis then sanitizers against changed-line scope.
+description: "Step 11: run static analysis then sanitizers against changed-line scope."
 allowed-tools: Bash
 argument-hint: "[project] [issue-dir] [free-form note words ...]"
 ---

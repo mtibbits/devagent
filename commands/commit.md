@@ -1,5 +1,5 @@
 ---
-description: Step 10: commit staged changes with DCO sign-off using commit_template.
+description: "Step 10: commit staged changes with DCO sign-off using commit_template."
 allowed-tools: Bash
 argument-hint: "[project] [issue-dir] [free-form note words ...]"
 ---
