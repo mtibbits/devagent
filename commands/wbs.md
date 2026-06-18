@@ -3,7 +3,7 @@ description: WBS authoring and rendering (init | update | show)
 allowed-tools: Bash
 ---
 
-Run `scripts/wbs.sh "$@"` with the user's arguments.
+Run `scripts/wbs.sh $ARGUMENTS` with the user's arguments.
 
 Subcommands:
 - `init` — scaffold `<devdoc>/WBS.md` from `${CLAUDE_PLUGIN_ROOT}/templates/wbs_template.md`

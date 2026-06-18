@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-init
 description: Initialize the per-issue checklist.md (default template: standard).
 ---
 

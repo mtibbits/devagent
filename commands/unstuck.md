@@ -12,5 +12,5 @@ Removes STUCK file and flips `[!]` back to `[~]` (default) or `[ ]`
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/unstuck.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/unstuck.sh" $ARGUMENTS
 ```

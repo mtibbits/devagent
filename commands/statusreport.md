@@ -3,7 +3,7 @@ description: Generate per-project status report, advance pin, optionally commit 
 allowed-tools: Bash
 ---
 
-Run `scripts/statusreport.sh "$@"` with the user's arguments.
+Run `scripts/statusreport.sh $ARGUMENTS` with the user's arguments.
 
 Flags:
 - `--no-pin` — do not advance the pin (read-only report)

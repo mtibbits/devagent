@@ -12,5 +12,5 @@ operation. Equivalent to `/devagent:park` followed by `/devagent:resume`.
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/switch.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/switch.sh" $ARGUMENTS
 ```

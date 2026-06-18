@@ -79,7 +79,7 @@ cat ~/.claude/devagent/state/<project>.toml | head -15
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" $ARGUMENTS
 ```
 
-Where `"$@"` is the verbatim CLI tail forwarded by the harness.
+Where `$ARGUMENTS` is the verbatim CLI tail forwarded by the harness.

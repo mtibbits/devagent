@@ -12,5 +12,5 @@ actualWork, last 2 comments, last 5 log entries (spec §6.5).
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/catchup.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/catchup.sh" $ARGUMENTS
 ```

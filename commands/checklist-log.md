@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-log
 description: Append a timestamped entry to the checklist log.
 ---
 
