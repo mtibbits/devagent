@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-advance
 description: Mark the current checklist step done and report the next step.
 ---
 

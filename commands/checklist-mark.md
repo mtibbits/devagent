@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-mark
 description: Set the glyph on a specific checklist step.
 ---
 

@@ -1,5 +1,4 @@
 ---
-name: devagent:doctor
 description: Validate config, state, paths, and template resolution.
 ---
 

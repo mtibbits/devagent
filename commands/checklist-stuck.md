@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-stuck
 description: Mark the current step stuck and write a STUCK file with a reason.
 ---
 

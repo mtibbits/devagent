@@ -1,5 +1,4 @@
 ---
-name: devagent:init
 description: Interactive bootstrap of a new project under ~/.claude/devagent/.
 ---
 

@@ -1,5 +1,4 @@
 ---
-name: devagent:checklist-unstuck
 description: Clear STUCK, flip the [!] step to either pending or in-progress.
 ---
 
