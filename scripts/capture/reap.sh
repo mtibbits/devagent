@@ -15,12 +15,22 @@ source "${SCRIPT_DIR}/lib/hash.sh"
 
 usage() {
   cat <<'USAGE' >&2
-Usage: reap.sh [--dry-run]
+Usage: reap.sh [--dry-run] [--decisions <file>]
 
 Scans <devdoc>/Issue-*/ and <devdoc>/Issue-Fork-*/ for follow-up
 candidates and drafts them into <devdoc>/Captures/<slug>/draft.md.
 Idempotent via content hashes in
 ${DEVAGENT_STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml.
+
+  --dry-run        enumerate candidates without writing; each row is
+                   "<hash>\t<subtype>\t<source>\t<title>".
+  --decisions <f>  apply per-candidate decisions (#111). TSV rows keyed by the
+                   dry-run <hash>: "<hash>\t<action>\t<subtype>\t<title>" where
+                   action is keep|discard. keep applies the subtype/title
+                   overrides (empty ⇒ heuristic); discard is not drafted and is
+                   recorded in the [discarded] table (skipped on future runs,
+                   re-triageable by deleting its line). No decision for a
+                   candidate ⇒ keep (so a plain run drafts everything).
 
 Sources:
   imPlan-potentialFutureEnhancements.md  — every "- " bullet
@@ -32,9 +42,11 @@ USAGE
 }
 
 DRY=0
+DECISIONS_FILE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
+    --decisions) DECISIONS_FILE="${2:?--decisions requires a file}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -48,12 +60,68 @@ STATE_DIR="${DEVAGENT_STATE_DIR:-${HOME}/.claude/devagent/state}"
 mkdir -p "${STATE_DIR}"
 STATE_FILE="${STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml"
 
-declare -A SEEN
+# SEEN = every hash to skip on the scan (drafted OR discarded). DRAFTED feeds the
+# [hashes] table, DISCARDED the [discarded] table (#111) — both preserved across
+# runs so a discard stays remembered (not re-drafted) yet is re-triageable by
+# deleting its [discarded] line.
+declare -A SEEN DRAFTED DISCARDED
 if [[ -f "${STATE_FILE}" ]]; then
-  while IFS= read -r line; do
+  _section=""
+  # `|| [[ -n "${line}" ]]` so a final line with no trailing newline (e.g. a
+  # hand edit during re-triage) is still processed, not silently dropped.
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    case "${line}" in
+      "[hashes]")    _section="hashes";    continue ;;
+      "[discarded]") _section="discarded"; continue ;;
+      "["*"]")        _section="";          continue ;;
+    esac
     h="${line%% *}"
-    [[ "${h}" =~ ^[0-9a-f]{12}$ ]] && SEEN["${h}"]=1
-  done < <(grep -E '^[0-9a-f]{12} = ' "${STATE_FILE}" || true)
+    [[ "${h}" =~ ^[0-9a-f]{12}$ ]] || continue
+    SEEN["${h}"]=1
+    case "${_section}" in
+      discarded) DISCARDED["${h}"]=1 ;;
+      *)         DRAFTED["${h}"]=1 ;;   # [hashes] or legacy section-less line
+    esac
+  done < "${STATE_FILE}"
+fi
+
+# #111: load per-candidate decisions (TSV keyed by body hash). Tab is an
+# IFS-whitespace char, so `IFS=$'\t' read` would COALESCE consecutive tabs and
+# drop empty interior fields (an empty subtype with a title override would slide
+# the title into the subtype slot). Split each line manually to preserve empty
+# fields; `|| [[ -n "$line" ]]` keeps an unterminated last line.
+declare -A DEC_ACTION DEC_SUBTYPE DEC_TITLE
+_VALID_SUBTYPES=" bug feature docs perf chore "
+if [[ -n "${DECISIONS_FILE}" ]]; then
+  [[ -f "${DECISIONS_FILE}" ]] || { echo "decisions file not found: ${DECISIONS_FILE}" >&2; exit 2; }
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    _s="${line}"
+    dh="${_s%%$'\t'*}";      _s="${_s#"${dh}"}";      _s="${_s#$'\t'}"
+    daction="${_s%%$'\t'*}"; _s="${_s#"${daction}"}"; _s="${_s#$'\t'}"
+    dsub="${_s%%$'\t'*}";    _s="${_s#"${dsub}"}";    _s="${_s#$'\t'}"
+    dtitle="${_s}"
+    [[ "${dh}" =~ ^[0-9a-f]{12}$ ]] || continue
+    # Normalize the action: trim surrounding spaces, lowercase, fail-loud (not
+    # fail-open) on anything that isn't keep|discard so a typo can't silently
+    # turn a discard into a draft.
+    daction="${daction#"${daction%%[![:space:]]*}"}"
+    daction="${daction%"${daction##*[![:space:]]}"}"
+    daction="${daction,,}"
+    case "${daction}" in
+      keep|discard) ;;
+      *) echo "warn: unknown action '${daction}' for ${dh}; treating as keep" >&2; daction="keep" ;;
+    esac
+    # Drop a bogus subtype override rather than letting capture.sh reject it and
+    # lose the candidate; the heuristic subtype is used instead.
+    if [[ -n "${dsub}" && "${_VALID_SUBTYPES}" != *" ${dsub} "* ]]; then
+      echo "warn: ignoring invalid subtype override '${dsub}' for ${dh}" >&2
+      dsub=""
+    fi
+    DEC_ACTION["${dh}"]="${daction}"
+    DEC_SUBTYPE["${dh}"]="${dsub}"
+    DEC_TITLE["${dh}"]="${dtitle}"
+  done < "${DECISIONS_FILE}"
 fi
 
 # #109: flatten internal tabs/newlines to single spaces so a literal tab in a
@@ -163,10 +231,22 @@ while IFS=$'\t' read -r subtype title source body; do
     continue
   fi
   if [[ "${DRY}" -eq 1 ]]; then
-    printf '%s\t%s\t%s\n' "${subtype}" "${source}" "${title}"
+    printf '%s\t%s\t%s\t%s\n' "${h}" "${subtype}" "${source}" "${title}"
     SEEN["${h}"]=1
     continue
   fi
+
+  # #111: honor the operator's per-candidate decision. No decision (or no
+  # --decisions file) ⇒ keep, so a plain run drafts everything (back-compat).
+  if [[ "${DEC_ACTION[${h}]:-keep}" == "discard" ]]; then
+    DISCARDED["${h}"]=1
+    SEEN["${h}"]=1
+    continue
+  fi
+  # keep: apply subtype/title overrides when the decision supplies them. Flatten
+  # the title override through _rf for parity with the harvested fields (#109).
+  [[ -n "${DEC_SUBTYPE[${h}]:-}" ]] && subtype="${DEC_SUBTYPE[${h}]}"
+  [[ -n "${DEC_TITLE[${h}]:-}" ]] && title="$(_rf "${DEC_TITLE[${h}]}")"
 
   # #108: do NOT pass --force. capture.sh exit 3 means a draft already exists at
   # this slug (a same-day title-kebab collision, or a pre-existing hand-edited
@@ -196,6 +276,7 @@ while IFS=$'\t' read -r subtype title source body; do
     continue
   fi
   SEEN["${h}"]=1
+  DRAFTED["${h}"]=1
   NEW_LABELS+=("${title}")
   new_count=$((new_count + 1))
 done < <(emit_candidates "${DEVAGENT_DEVDOC_DIR%/}")
@@ -212,8 +293,12 @@ tmp="$(mktemp "${STATE_DIR}/.${DEVAGENT_PROJECT}.reaped.XXXXXX")"
   printf '# Written by scripts/capture/reap.sh\n'
   printf '# project = %s\n' "${DEVAGENT_PROJECT}"
   printf '[hashes]\n'
-  for h in "${!SEEN[@]}"; do
+  for h in "${!DRAFTED[@]}"; do
     printf '%s = "seen"\n' "${h}"
+  done
+  printf '[discarded]\n'
+  for h in "${!DISCARDED[@]}"; do
+    printf '%s = "discarded"\n' "${h}"
   done
 } >"${tmp}"
 mv -f "${tmp}" "${STATE_FILE}"

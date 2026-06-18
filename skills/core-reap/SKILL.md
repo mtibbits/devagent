@@ -13,10 +13,13 @@ drafts are written.
 
 ## Inputs
 
-A list of candidates, each:
+A list of candidates from `reap.sh --dry-run`, each row
+`<hash>\t<subtype>\t<source>\t<title>`:
 
-- `source` — e.g., `Issue-101/STUCK`
-- `body`   — the harvested text
+- `hash`    — the 12-char body hash; the **stable candidate key** (`source` is
+  NOT unique — several `### Follow-up` bullets share one source)
+- `source`  — e.g., `Issue-101/STUCK` (for your judgment only)
+- `body`/`title` — the harvested text
 
 ## For each candidate
 
@@ -33,18 +36,25 @@ A list of candidates, each:
 
 ## Output
 
-Emit a YAML-ish block parsed by the slash command:
+Emit a YAML-ish block keyed by `hash`, parsed by the slash command (which
+translates it into the `reap.sh --decisions` TSV). Key by `hash`, not `source`:
 
 ```
 DECISIONS:
-- source: Issue-101/STUCK
+- hash: 9e1033f0a1b2       # the candidate's dry-run hash
   action: keep            # keep | discard
-  subtype: chore          # only required when overriding
-  title:   <better title> # only required when overriding
-- source: Issue-100/imPlan-potentialFutureEnhancements.md line 2
+  subtype: chore          # only when overriding the heuristic
+  title:   <better title> # only when overriding the heuristic
+- hash: 4da061d3c4e5
   action: discard
-  reason: already covered by Issue-200
+  reason: already covered by Issue-200   # informational; not persisted
 ```
+
+A candidate with no entry defaults to **keep** (drafted with the heuristic
+subtype/title). `discard` is not drafted and is recorded so it is not
+re-surfaced — but it is re-triageable, not a permanent burn: clearing the
+candidate's line from the `[discarded]` table re-surfaces it (a later `keep`
+decision alone does nothing — a discarded hash is skipped before decisions run).
 
 ## Anti-patterns
 
