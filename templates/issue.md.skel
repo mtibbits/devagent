@@ -1,4 +1,0 @@
-# (issue.md placeholder)
-
-This file is replaced by `scripts/pull.sh` with the fetched issue body.
-If you are reading this, `pull` failed mid-flight; rerun `/devagent:pull`.
