@@ -105,3 +105,38 @@ teardown() { teardown_phase9_env; }
   run depends_ship_preflight "${DEVAGENT_TEST_PROJECT}" "Issue-100" "1"
   [ "$status" -eq 0 ]
 }
+
+# --- #78: fail-loud devdoc resolution (no silent $HOME/devdoc fallback) ---
+# Each runs _depends_devdoc_dir in a fresh `bash -c` with a hermetic tmp DA_HOME
+# so config resolves against that dir's config.toml (the suite's
+# DEVAGENT_CONFIG_OVERRIDE is wired to nothing). DEVAGENT_TEST_DEVDOC is stripped
+# for the required/config legs so the real resolution path is exercised.
+
+@test "#78: _depends_devdoc_dir dies loudly when devdoc_dir cannot be resolved" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  printf '[project.otherproj]\ndevdoc_dir = "%s/x"\n' "${tmp_home}" > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir missingproj"
+  rm -rf "${tmp_home}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"devdoc_dir"* ]]
+}
+
+@test "#78: _depends_devdoc_dir resolves devdoc_dir from config (self-sourced, no command -v)" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  mkdir -p "${tmp_home}/devdoc-target"
+  printf '[project.cfgproj]\ndevdoc_dir = "%s/devdoc-target"\n' "${tmp_home}" > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir cfgproj"
+  local expected="${tmp_home}/devdoc-target"
+  rm -rf "${tmp_home}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${expected}" ]
+}
+
+@test "#78: _depends_devdoc_dir honors DEVAGENT_TEST_DEVDOC override (tolerant leg)" {
+  run env DEVAGENT_TEST_DEVDOC=/tmp/devdoc-override-xyz \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir anyproj"
+  [ "$status" -eq 0 ]
+  [ "$output" = "/tmp/devdoc-override-xyz" ]
+}
