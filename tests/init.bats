@@ -156,15 +156,15 @@ EOF
   [ "$status" -ne 0 ]
 }
 
-@test "config.toml.skel ships live merge_to_all_prs, not the dead gating keys (E11)" {
+@test "config.toml.skel ships the live gating keys, not the dead one (E11 / #219)" {
   local skel="$PLUGIN_ROOT/templates/config.toml.skel"
   # merge_to_all_prs is read by mergetoall.sh — it must be present (live).
   run grep -qE '^[[:space:]]*merge_to_all_prs[[:space:]]*=' "$skel"
   [ "$status" -eq 0 ]
-  # transition_issue / cleanup_on_merge are read by nothing — must not ship as
-  # live keys (they gave a false sense of gating).
+  # transition_issue became live in #219 (gates sync's remote on_merge) — present.
   run grep -qE '^[[:space:]]*transition_issue[[:space:]]*=' "$skel"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
+  # cleanup_on_merge is still read by nothing — must not ship as a live key.
   run grep -qE '^[[:space:]]*cleanup_on_merge[[:space:]]*=' "$skel"
   [ "$status" -ne 0 ]
 }

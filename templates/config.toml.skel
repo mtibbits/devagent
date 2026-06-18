@@ -43,6 +43,7 @@ push_mr            = false
 merge_mr           = false
 merge_to_all_prs   = false
 commit_devdoc      = false
+transition_issue   = false   # (#219) allow sync to fire the remote on_merge tracker transition; fail-closed
 
 [project.{{PROJECT}}.issue_source]
 backend = "{{ISSUE_BACKEND}}"
