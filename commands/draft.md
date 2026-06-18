@@ -1,5 +1,6 @@
 ---
 description: Draft an implementation plan for the active issue. Wraps superpowers:writing-plans.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

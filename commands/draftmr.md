@@ -1,5 +1,6 @@
 ---
 description: Draft the MR body for the active issue. Invokes core-draft-mr skill.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 
