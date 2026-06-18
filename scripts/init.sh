@@ -61,19 +61,48 @@ ask code_fork     "code fork (org/name)"     ""      DA_INIT_CODE_FORK
 default_branch="$(gh api "repos/$code_upstream" --jq '.default_branch' 2>/dev/null || true)"
 [ -n "$default_branch" ] || default_branch="main"
 
-# Render skeleton.
+# Render skeleton. Substitute placeholders with literal string replacement in
+# Python: operator answers (paths, repo slugs) can contain sed metacharacters
+# such as `&` (means "the matched text") or the `|` delimiter, which silently
+# corrupted the rendered config under the old sed pipeline (audit A20).
 skel="$PLUGIN_ROOT/templates/config.toml.skel"
 rendered="$(mktemp)"
-sed -e "s|{{PROJECT}}|$project|g" \
-    -e "s|{{SOURCE_DIR}}|$source_dir|g" \
-    -e "s|{{DEVDOC_DIR}}|$devdoc_dir|g" \
-    -e "s|{{ISSUE_BACKEND}}|$issue_backend|g" \
-    -e "s|{{ISSUE_REPO}}|$issue_repo|g" \
-    -e "s|{{CODE_BACKEND}}|$code_backend|g" \
-    -e "s|{{CODE_UPSTREAM}}|$code_upstream|g" \
-    -e "s|{{CODE_FORK}}|$code_fork|g" \
-    -e "s|{{DEFAULT_BRANCH}}|$default_branch|g" \
-    "$skel" > "$rendered"
+DA_RENDER_PROJECT="$project" \
+DA_RENDER_SOURCE_DIR="$source_dir" \
+DA_RENDER_DEVDOC_DIR="$devdoc_dir" \
+DA_RENDER_ISSUE_BACKEND="$issue_backend" \
+DA_RENDER_ISSUE_REPO="$issue_repo" \
+DA_RENDER_CODE_BACKEND="$code_backend" \
+DA_RENDER_CODE_UPSTREAM="$code_upstream" \
+DA_RENDER_CODE_FORK="$code_fork" \
+DA_RENDER_DEFAULT_BRANCH="$default_branch" \
+python3 - "$skel" "$rendered" <<'PY'
+import os, sys
+src, dst = sys.argv[1], sys.argv[2]
+subst = {
+    "{{PROJECT}}":        os.environ["DA_RENDER_PROJECT"],
+    "{{SOURCE_DIR}}":     os.environ["DA_RENDER_SOURCE_DIR"],
+    "{{DEVDOC_DIR}}":     os.environ["DA_RENDER_DEVDOC_DIR"],
+    "{{ISSUE_BACKEND}}":  os.environ["DA_RENDER_ISSUE_BACKEND"],
+    "{{ISSUE_REPO}}":     os.environ["DA_RENDER_ISSUE_REPO"],
+    "{{CODE_BACKEND}}":   os.environ["DA_RENDER_CODE_BACKEND"],
+    "{{CODE_UPSTREAM}}":  os.environ["DA_RENDER_CODE_UPSTREAM"],
+    "{{CODE_FORK}}":      os.environ["DA_RENDER_CODE_FORK"],
+    "{{DEFAULT_BRANCH}}": os.environ["DA_RENDER_DEFAULT_BRANCH"],
+}
+text = open(src, encoding="utf-8").read()
+for k, v in subst.items():
+    text = text.replace(k, v)
+open(dst, "w", encoding="utf-8").write(text)
+PY
+
+# Validate the rendered TOML before touching the real config: an answer that
+# breaks TOML quoting (e.g. a literal " in a repo/path) must fail loudly here
+# rather than installing a corrupt config (audit A20).
+if ! python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" validate "$rendered"; then
+  rm -f "$rendered"
+  die "init.sh: rendered config is not valid TOML (bad character in an answer?); nothing installed"
+fi
 
 if [[ ! -f "$cfg" ]]; then
   install -m 644 "$rendered" "$cfg"
