@@ -155,3 +155,25 @@ EOF
   run grep -qE '^\[project\..*\.step_models\]' "$skel"
   [ "$status" -ne 0 ]
 }
+
+@test "config.toml.skel ships live merge_to_all_prs, not the dead gating keys (E11)" {
+  local skel="$PLUGIN_ROOT/templates/config.toml.skel"
+  # merge_to_all_prs is read by mergetoall.sh — it must be present (live).
+  run grep -qE '^[[:space:]]*merge_to_all_prs[[:space:]]*=' "$skel"
+  [ "$status" -eq 0 ]
+  # transition_issue / cleanup_on_merge are read by nothing — must not ship as
+  # live keys (they gave a false sense of gating).
+  run grep -qE '^[[:space:]]*transition_issue[[:space:]]*=' "$skel"
+  [ "$status" -ne 0 ]
+  run grep -qE '^[[:space:]]*cleanup_on_merge[[:space:]]*=' "$skel"
+  [ "$status" -ne 0 ]
+}
+
+@test "config.toml.skel documents the fork-workflow keys as commented examples (E14)" {
+  local skel="$PLUGIN_ROOT/templates/config.toml.skel"
+  local key
+  for key in source_remote all_prs_branch all_prs_auto_push fork_only use_worktree include_coauthor issue_source_fork; do
+    run grep -qE "^#.*${key}" "$skel"
+    [ "$status" -eq 0 ] || { echo "E14: missing commented fork key '${key}'"; return 1; }
+  done
+}

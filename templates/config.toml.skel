@@ -10,6 +10,23 @@ ship_as_draft    = false
 default_baseline = "origin/{{DEFAULT_BRANCH}}"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
+# --- Fork workflow (optional; uncomment + set to enable; defaults shown). ---
+# fork_first above is the master switch; these tune the fork / all-prs plumbing.
+# fork_only         = false              # never reference upstream (fork is the only remote)
+# source_remote     = "origin"           # git remote that branches/PRs push to (e.g. "fork")
+# all_prs_branch    = "dev/all-prs"      # local integration branch for step-16 squash-merges
+# all_prs_auto_push = false              # push all_prs_branch after each merge-to-all
+# all_prs_remote    = "origin"           # remote for all_prs_branch (defaults to source_remote)
+# use_worktree      = false              # cut issue branches in a git worktree
+# worktree_root     = "<source_dir>-wt"  # parent dir for per-issue worktrees
+# include_coauthor  = true               # false strips Co-Authored-By from commits + PR bodies
+#
+# Fork-side tracker (Issue-Fork-NNN), when issues are filed on the fork:
+# [project.{{PROJECT}}.issue_source_fork]
+# backend    = "github"
+# repo       = "you/your-fork"
+# dir_prefix = "Issue-Fork-"
+
 # Optional advisory model-tier map (#150). next.sh prints one hint at dispatch and
 # catchup shows the current step's tier; tier names (not model IDs) are
 # forward-compatible. Advisory only — no enforcement, and an absent table changes
@@ -24,9 +41,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false
+merge_to_all_prs   = false
 commit_devdoc      = false
-transition_issue   = false
-cleanup_on_merge   = false
 
 [project.{{PROJECT}}.issue_source]
 backend = "{{ISSUE_BACKEND}}"
