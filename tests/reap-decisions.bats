@@ -84,6 +84,48 @@ _hash_for() {  # $1 = title substring → its 12-char hash from dry-run
   [[ "$output" == *"Alpha candidate body one"* ]]
 }
 
+@test "reap --decisions: title override with EMPTY subtype keeps heuristic subtype (#111 tab-coalesce)" {
+  # Empty interior field: `<hash>\tkeep\t\t<title>`. A naive `IFS=$'\t' read`
+  # coalesces the tabs and slides the title into the subtype slot → capture
+  # rejects it and the candidate is lost. The override title must apply while the
+  # heuristic subtype (feature, from imPlan-*) is retained.
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  printf '%s\tkeep\t\tAlpha better title\n' "$alpha" > "$dec"
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  grep -rqF 'Alpha better title' "${TMP_DEVDOC}/Captures"        # override title applied
+  grep -rqF '## Motivation' "${TMP_DEVDOC}/Captures"             # heuristic subtype (feature) kept
+  run grep -rl '## Reproduction' "${TMP_DEVDOC}/Captures"        # NOT bug
+  [ "$status" -ne 0 ]
+}
+
+@test "reap --decisions: a last line with no trailing newline is still honored (#111)" {
+  # The decisions file is LLM-generated; a missing final newline must not drop
+  # the last (only) decision. Discard with NO trailing newline → not drafted.
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  printf '%s\tdiscard\t\t' "$alpha" > "$dec"   # NOTE: no trailing \n
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  run grep -rl 'Alpha candidate body one' "${TMP_DEVDOC}/Captures"
+  [ "$status" -ne 0 ]
+  awk '/^\[discarded\]/{d=1;next} /^\[/{d=0} d' "$STATE_FILE" | grep -qF "$alpha"
+}
+
+@test "reap --decisions: an unknown action fails loud (warns) and defaults to keep (#111)" {
+  local beta dec
+  beta="$(_hash_for 'Beta candidate body two')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  printf '%s\tDISCARD?typo\t\t\n' "$beta" > "$dec"
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unknown action"* ]]            # warned, not silent
+  grep -rqF 'Beta candidate body two' "${TMP_DEVDOC}/Captures"   # fail-safe: kept
+}
+
 @test "reap back-compat: plain run with no --decisions drafts every candidate (#111)" {
   run "${REPO_ROOT}/scripts/capture/reap.sh"
   [ "$status" -eq 0 ]

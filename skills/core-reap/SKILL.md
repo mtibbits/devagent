@@ -52,7 +52,9 @@ DECISIONS:
 
 A candidate with no entry defaults to **keep** (drafted with the heuristic
 subtype/title). `discard` is not drafted and is recorded so it is not
-re-surfaced — but it is re-triageable, not a permanent burn.
+re-surfaced — but it is re-triageable, not a permanent burn: clearing the
+candidate's line from the `[discarded]` table re-surfaces it (a later `keep`
+decision alone does nothing — a discarded hash is skipped before decisions run).
 
 ## Anti-patterns
 

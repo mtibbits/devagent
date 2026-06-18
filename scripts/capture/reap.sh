@@ -67,7 +67,9 @@ STATE_FILE="${STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml"
 declare -A SEEN DRAFTED DISCARDED
 if [[ -f "${STATE_FILE}" ]]; then
   _section=""
-  while IFS= read -r line; do
+  # `|| [[ -n "${line}" ]]` so a final line with no trailing newline (e.g. a
+  # hand edit during re-triage) is still processed, not silently dropped.
+  while IFS= read -r line || [[ -n "${line}" ]]; do
     case "${line}" in
       "[hashes]")    _section="hashes";    continue ;;
       "[discarded]") _section="discarded"; continue ;;
@@ -83,13 +85,39 @@ if [[ -f "${STATE_FILE}" ]]; then
   done < "${STATE_FILE}"
 fi
 
-# #111: load per-candidate decisions (TSV keyed by body hash).
+# #111: load per-candidate decisions (TSV keyed by body hash). Tab is an
+# IFS-whitespace char, so `IFS=$'\t' read` would COALESCE consecutive tabs and
+# drop empty interior fields (an empty subtype with a title override would slide
+# the title into the subtype slot). Split each line manually to preserve empty
+# fields; `|| [[ -n "$line" ]]` keeps an unterminated last line.
 declare -A DEC_ACTION DEC_SUBTYPE DEC_TITLE
+_VALID_SUBTYPES=" bug feature docs perf chore "
 if [[ -n "${DECISIONS_FILE}" ]]; then
   [[ -f "${DECISIONS_FILE}" ]] || { echo "decisions file not found: ${DECISIONS_FILE}" >&2; exit 2; }
-  while IFS=$'\t' read -r dh daction dsub dtitle; do
-    [[ -z "${dh}" || "${dh}" == \#* ]] && continue
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    _s="${line}"
+    dh="${_s%%$'\t'*}";      _s="${_s#"${dh}"}";      _s="${_s#$'\t'}"
+    daction="${_s%%$'\t'*}"; _s="${_s#"${daction}"}"; _s="${_s#$'\t'}"
+    dsub="${_s%%$'\t'*}";    _s="${_s#"${dsub}"}";    _s="${_s#$'\t'}"
+    dtitle="${_s}"
     [[ "${dh}" =~ ^[0-9a-f]{12}$ ]] || continue
+    # Normalize the action: trim surrounding spaces, lowercase, fail-loud (not
+    # fail-open) on anything that isn't keep|discard so a typo can't silently
+    # turn a discard into a draft.
+    daction="${daction#"${daction%%[![:space:]]*}"}"
+    daction="${daction%"${daction##*[![:space:]]}"}"
+    daction="${daction,,}"
+    case "${daction}" in
+      keep|discard) ;;
+      *) echo "warn: unknown action '${daction}' for ${dh}; treating as keep" >&2; daction="keep" ;;
+    esac
+    # Drop a bogus subtype override rather than letting capture.sh reject it and
+    # lose the candidate; the heuristic subtype is used instead.
+    if [[ -n "${dsub}" && "${_VALID_SUBTYPES}" != *" ${dsub} "* ]]; then
+      echo "warn: ignoring invalid subtype override '${dsub}' for ${dh}" >&2
+      dsub=""
+    fi
     DEC_ACTION["${dh}"]="${daction}"
     DEC_SUBTYPE["${dh}"]="${dsub}"
     DEC_TITLE["${dh}"]="${dtitle}"
@@ -215,9 +243,10 @@ while IFS=$'\t' read -r subtype title source body; do
     SEEN["${h}"]=1
     continue
   fi
-  # keep: apply subtype/title overrides when the decision supplies them.
+  # keep: apply subtype/title overrides when the decision supplies them. Flatten
+  # the title override through _rf for parity with the harvested fields (#109).
   [[ -n "${DEC_SUBTYPE[${h}]:-}" ]] && subtype="${DEC_SUBTYPE[${h}]}"
-  [[ -n "${DEC_TITLE[${h}]:-}" ]] && title="${DEC_TITLE[${h}]}"
+  [[ -n "${DEC_TITLE[${h}]:-}" ]] && title="$(_rf "${DEC_TITLE[${h}]}")"
 
   # #108: do NOT pass --force. capture.sh exit 3 means a draft already exists at
   # this slug (a same-day title-kebab collision, or a pre-existing hand-edited

@@ -19,10 +19,19 @@ Args: `[project]` (optional; defaults to active project)
 3. Apply the result:
    - **With decisions** — translate the skill's `DECISIONS:` block into a TSV
      decisions file (one `"<hash>\t<action>\t<subtype>\t<title>"` row per
-     candidate; `subtype`/`title` empty unless overriding; tabs literal), then run
-     `scripts/capture/reap.sh --decisions <file>`. Kept candidates are drafted
-     (with overrides); discarded ones are not drafted and are recorded in the
-     `[discarded]` table (skipped next run, but re-triageable by deleting the line).
+     candidate; `subtype`/`title` empty unless overriding; tabs literal), e.g.
+
+     ```
+     9e1033f0a1b2	keep	bug	Better title here
+     4da061d3c4e5	discard
+     ```
+
+     then run `scripts/capture/reap.sh --decisions <file>`. Kept candidates are
+     drafted (with overrides); discarded ones are not drafted and are recorded in
+     the `[discarded]` table (skipped next run). To **re-triage** a discarded
+     candidate you must delete its line from the `[discarded]` table in
+     `<project>.reaped.toml` — a later `keep` decision alone has no effect, because
+     a hash already in `[discarded]` is skipped before decisions are read.
    - **No triage pass** — run `scripts/capture/reap.sh` (no flags); every
      candidate is kept and drafted (back-compat).
 4. Print the list of newly created `Captures/<slug>/` paths and
