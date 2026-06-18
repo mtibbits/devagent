@@ -1,6 +1,6 @@
 ---
 description: Record or list issue dependencies (Issue-A depends on Issue-B).
-allowed-tools: [Bash]
+allowed-tools: Bash
 ---
 
 # /devagent:depends

@@ -1,5 +1,6 @@
 ---
 description: One-screen rehydration of an issue
+allowed-tools: Bash
 ---
 
 # /devagent:catchup

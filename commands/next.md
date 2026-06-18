@@ -1,5 +1,6 @@
 ---
 description: Execute the next actionable step on the active issue
+allowed-tools: Bash
 ---
 
 # /devagent:next

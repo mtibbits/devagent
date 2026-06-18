@@ -1,5 +1,6 @@
 ---
 description: Multi-project dashboard of active issues, STUCK, and parked
+allowed-tools: Bash
 ---
 
 # /devagent:status

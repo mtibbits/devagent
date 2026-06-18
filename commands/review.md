@@ -1,5 +1,6 @@
 ---
 description: Run code review on the active issue's branch. Wraps superpowers:requesting-code-review.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

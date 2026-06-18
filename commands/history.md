@@ -1,6 +1,6 @@
 ---
 description: Show chronological log across a project or single issue.
-allowed-tools: [Bash]
+allowed-tools: Bash
 ---
 
 # /devagent:history

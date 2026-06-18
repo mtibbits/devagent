@@ -1,5 +1,6 @@
 ---
 description: Measure and record the real-world impact of a merged change. Invokes core-impact skill.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note: paths to evidence files]"
 ---
 

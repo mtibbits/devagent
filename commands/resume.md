@@ -1,5 +1,6 @@
 ---
 description: Reactivate a parked issue, flipping [P] back to [~]
+allowed-tools: Bash
 ---
 
 # /devagent:resume

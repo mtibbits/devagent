@@ -1,5 +1,6 @@
 ---
 description: Show active issue, current/next step, parked issues, and STUCK status
+allowed-tools: Bash
 ---
 
 # /devagent:where

@@ -1,5 +1,6 @@
 ---
 description: Extract reusable lessons from a completed issue. Invokes core-lessons-learned skill.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

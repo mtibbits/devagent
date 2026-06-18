@@ -1,5 +1,6 @@
 ---
 description: Execute the active issue's plan task-by-task. Wraps superpowers:executing-plans.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

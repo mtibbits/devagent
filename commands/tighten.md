@@ -1,5 +1,6 @@
 ---
 description: Final review pass on the active issue's pruned plan. Invokes core-tighten skill.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

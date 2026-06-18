@@ -1,5 +1,6 @@
 ---
 description: Validate config, state, paths, and template resolution.
+allowed-tools: Bash
 ---
 
 Run `scripts/doctor.sh [project]`. With no argument, doctor runs against

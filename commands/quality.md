@@ -1,5 +1,6 @@
 ---
 description: Review and tighten code quality on the active issue's branch. Wraps simplify skill + project coding standards.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

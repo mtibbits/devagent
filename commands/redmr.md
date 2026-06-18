@@ -1,5 +1,6 @@
 ---
 description: Run red-team adversarial review of the MR before shipping. Invokes core-redmr skill.
+allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

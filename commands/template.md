@@ -1,6 +1,6 @@
 ---
 description: Inspect resolved artifact templates (list or show).
-allowed-tools: [Bash]
+allowed-tools: Bash
 ---
 
 # /devagent:template
