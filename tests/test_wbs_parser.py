@@ -50,6 +50,38 @@ def test_unknown_keys_preserved():
     assert "custom_field" in leaf["meta_unknown_keys"]
 
 
+def test_meta_block_only_trailing_braces():
+    """Braces in item text must not be swallowed into the meta block (B12).
+
+    A `{...}` inside the item text before the real trailing `{issue: ...}` block
+    used to be matched from the *first* brace, corrupting issue linkage.
+    """
+    tree = wbs_parser.parse_text(
+        "# t\n- [ ] Refactor {foo} helper {issue: Issue-9, est: 1w}\n"
+    )
+    node = tree["children"][0]
+    assert node["text"] == "Refactor {foo} helper"
+    assert node["meta"]["issue"] == "Issue-9"
+    assert node["meta"]["est"] == "1w"
+
+
+def test_tab_indent_nests_not_flattened():
+    """A tab-indented child must nest under its parent, not flatten (B12).
+
+    A leading tab counted as a single indent char, so depth collapsed and the
+    child became a sibling of its parent.
+    """
+    tree = wbs_parser.parse_text(
+        "# t\n- [ ] Parent\n\t- [ ] Child {issue: Issue-5}\n"
+    )
+    parent = tree["children"][0]
+    assert parent["text"] == "Parent"
+    assert len(parent["children"]) == 1, "tab-indented child flattened to a sibling"
+    child = parent["children"][0]
+    assert child["depth"] == 2
+    assert child["meta"]["issue"] == "Issue-5"
+
+
 def test_dependency_edges():
     tree = wbs_parser.parse_file(FIX / "depends.md")
     edges = wbs_parser.dependency_edges(tree)
