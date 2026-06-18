@@ -123,6 +123,22 @@ _init_state() {
   [[ "$output" == *"not found"* ]]
 }
 
+@test "wbs show --depth with no value fails with a clear message (A22)" {
+  cp "$REPO/tests/fixtures/wbs/nested.md" "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" show testproj --depth
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"--depth"* ]]
+}
+
+@test "wbs show --milestone with no value fails with a clear message (A22)" {
+  cp "$REPO/tests/fixtures/wbs/nested.md" "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"--milestone"* ]]
+}
+
 @test "wbs update appends a new entry for an active issue not yet in WBS" {
   cat > "$TMPDEV/WBS.md" <<EOF
 # testproj WBS

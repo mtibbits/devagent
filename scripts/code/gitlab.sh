@@ -123,7 +123,9 @@ cmd_mr_comments() {
 
 cmd_merge_mr() {
   local url="${1:-}"; shift || usage
-  local method="merge"
+  # C18: default to squash to match code/github.sh, so switching backends does
+  # not silently change merge semantics.
+  local method="squash"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --method) method="$2"; shift 2 ;;

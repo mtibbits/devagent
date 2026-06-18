@@ -61,6 +61,14 @@ teardown() {
   grep -q "PUT /api/v4/projects/foo%2Fbar/merge_requests/7/merge" "$FIXTURE_REQUEST_LOG"
 }
 
+@test "code/gitlab.sh merge-mr defaults to squash, matching github (C18)" {
+  run "$SCRIPT" merge-mr "https://gitlab.example/foo/bar/-/merge_requests/7"
+  [ "$status" -eq 0 ]
+  grep -q "PUT /api/v4/projects/foo%2Fbar/merge_requests/7/merge" "$FIXTURE_REQUEST_LOG"
+  # default method is squash (not a plain merge); payload carries squash:true
+  grep -q '"squash":true' "$FIXTURE_REQUEST_LOG"
+}
+
 @test "code/gitlab.sh with unknown verb exits 2" {
   run "$SCRIPT" wat
   [ "$status" -eq 2 ]

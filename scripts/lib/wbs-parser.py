@@ -50,7 +50,9 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
 _BULLET_RE = re.compile(
     r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$"
 )
-_META_BLOCK_RE = re.compile(r"\s*\{(?P<body>.*)\}\s*$")
+# Match only a *trailing* `{...}` block. `[^{}]` (not `.*`) stops a brace in the
+# item text from swallowing the real meta block, which corrupted issue linkage.
+_META_BLOCK_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
 _TITLE_RE = re.compile(r"^#\s+(?P<title>.+)$")
 
 
@@ -73,7 +75,10 @@ def parse_text(text: str) -> dict:
         m = _BULLET_RE.match(raw)
         if not m:
             continue
-        indent = m.group("indent")
+        # Expand tabs before measuring: the format is 2-space indents, so a
+        # leading tab is one level (tabsize 2). Counting a raw tab as one char
+        # flattened tab-indented children into siblings.
+        indent = m.group("indent").expandtabs(2)
         glyph = m.group("glyph")
         rest = m.group("rest").rstrip()
         depth = len(indent) // 2 + 1

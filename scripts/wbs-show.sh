@@ -21,8 +21,8 @@ milestone=""
 project_arg=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --depth)     depth="$2"; shift 2 ;;
-    --milestone) milestone="$2"; shift 2 ;;
+    --depth)     depth="${2:?wbs show: --depth needs a value}"; shift 2 ;;
+    --milestone) milestone="${2:?wbs show: --milestone needs a value}"; shift 2 ;;
     --*) warn "wbs show: ignoring unknown flag '$1'"; shift ;;
     *)
       if [[ -z "$project_arg" ]]; then

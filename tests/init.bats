@@ -112,6 +112,41 @@ EOF
   [[ "$output" == *"bad project name"* ]]
 }
 
+@test "init substitutes answers literally (A20: & in a path is not a sed metachar)" {
+  # An '&' in the replacement was treated by sed as "the matched text", so the
+  # placeholder leaked back into the rendered value. Substitution is now literal.
+  DA_INIT_SOURCE_DIR='/tmp/a&b/src' \
+  DA_INIT_DEVDOC_DIR="/tmp/devd" \
+  DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="gnuradio/volk" \
+  DA_INIT_CODE_BACKEND="github" \
+  DA_INIT_CODE_UPSTREAM="gnuradio/volk" \
+  DA_INIT_CODE_FORK="mtibbits/volk" \
+  DA_YES=1 \
+  run "$PLUGIN_ROOT/scripts/init.sh" amp
+  [ "$status" -eq 0 ]
+  run grep -F '"/tmp/a&b/src"' "$DA_HOME/config.toml"
+  [ "$status" -eq 0 ]
+}
+
+@test "init validates the rendered config and refuses a value that breaks TOML (A20)" {
+  # A literal double-quote in an answer makes the rendered string invalid TOML.
+  # _toml.py validate must catch it before anything is installed.
+  DA_INIT_SOURCE_DIR="/tmp/src" \
+  DA_INIT_DEVDOC_DIR="/tmp/devd" \
+  DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="gnuradio/volk" \
+  DA_INIT_CODE_BACKEND="github" \
+  DA_INIT_CODE_UPSTREAM="gnuradio/volk" \
+  DA_INIT_CODE_FORK='mtibbits/"bad' \
+  DA_YES=1 \
+  run "$PLUGIN_ROOT/scripts/init.sh" badtoml
+  [ "$status" -ne 0 ]
+  # nothing installed: no [project.badtoml] block exists
+  run grep -q '^\[project.badtoml\]' "$DA_HOME/config.toml"
+  [ "$status" -ne 0 ]
+}
+
 @test "config.toml.skel carries the commented step_models advisory example (#150)" {
   local skel="$PLUGIN_ROOT/templates/config.toml.skel"
   run grep -q 'step_models' "$skel"
