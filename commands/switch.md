@@ -1,5 +1,6 @@
 ---
 description: Park current issue and resume a different one in one step
+allowed-tools: Bash
 ---
 
 # /devagent:switch

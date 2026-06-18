@@ -1,5 +1,6 @@
 ---
 description: Mark the current step stuck and write a STUCK file
+allowed-tools: Bash
 ---
 
 # /devagent:stuck

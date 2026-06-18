@@ -1,5 +1,6 @@
 ---
 description: Clear the STUCK file and resume the previously-stuck step
+allowed-tools: Bash
 ---
 
 # /devagent:unstuck

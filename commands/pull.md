@@ -1,5 +1,6 @@
 ---
 description: Fetch an issue from origin or fork and scaffold its workflow directory
+allowed-tools: Bash
 ---
 
 # /devagent:pull

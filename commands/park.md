@@ -1,5 +1,6 @@
 ---
 description: Park the active issue (or a named issue), marking it [P]
+allowed-tools: Bash
 ---
 
 # /devagent:park
