@@ -12,5 +12,5 @@ project name, prints that one. With `--all`, same as no args.
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/status.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/status.sh" $ARGUMENTS
 ```

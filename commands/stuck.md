@@ -12,5 +12,5 @@ Halts `next` until cleared via `/devagent:unstuck`.
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/stuck.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/stuck.sh" $ARGUMENTS
 ```

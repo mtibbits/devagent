@@ -13,5 +13,5 @@ state when the parked issue was the active one.
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/park.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/park.sh" $ARGUMENTS
 ```

@@ -12,5 +12,5 @@ removes it from the `[parked]` table, and promotes it to `active_issue`.
 ## Run the script
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/resume.sh" "$@"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/resume.sh" $ARGUMENTS
 ```
