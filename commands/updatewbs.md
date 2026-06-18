@@ -12,7 +12,19 @@ reference a single verb.
 
 ## Completion handoff
 
-After marking the step `[x]` (or `[-]` if skipped) and logging:
+First, **mark this step done** — `next.sh` keys off the checklist mark
+(not the log), so without it an `--auto`/`--through` chain re-dispatches
+this same step forever:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+```
+
+`<N>` is this step's number on the issue's checklist (17 for `updatewbs`);
+`$ISSUE_DIR` is the active issue's directory (resolve it from project
+state if not already bound). Use `-` instead of `x` if the step was
+skipped. This step is backed by `wbs.sh`, which does NOT self-mark, so the
+mark above is the only thing advancing step 17.
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.
 End your final message with this exact question (substituting the
@@ -20,8 +32,8 @@ correct next-step slash command from the checklist):
 
 > Would you like to continue on to /devagent:<next-step-name>?
 
-The next-step name is the first line in the issue's checklist.md
-that starts with `- [ ]` -- read that, take the verb after the
+The next-step name is the first step in the issue's checklist.md not
+marked `[x]` or `[-]` -- read that line, take the verb after the
 step number, and substitute it into the question.
 
 The only exception: if you were invoked under a `/devagent:next
