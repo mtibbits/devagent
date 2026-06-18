@@ -27,7 +27,7 @@ project_arg=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-pin)       no_pin=1; shift ;;
-    --window-weeks) window_weeks="$2"; shift 2 ;;
+    --window-weeks) window_weeks="${2:?statusreport: --window-weeks needs a value}"; shift 2 ;;
     --*) warn "statusreport: ignoring unknown flag '$1'"; shift ;;
     *)
       if [[ -z "$project_arg" ]]; then

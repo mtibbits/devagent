@@ -95,6 +95,13 @@ _flip_commit_devdoc_true() {
   [ "$pin" = "2026-05-01T00:00:00+00:00" ]
 }
 
+@test "statusreport --window-weeks with no value fails with a clear message (A22)" {
+  run bash "$REPO/scripts/statusreport.sh" testproj --window-weeks
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"--window-weeks"* ]]
+}
+
 @test "statusreport reports velocity and estimate sections" {
   bash "$REPO/scripts/statusreport.sh" testproj
   report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
