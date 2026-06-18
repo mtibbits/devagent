@@ -85,7 +85,8 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" improve \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical section ordering).
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical section ordering;
+  this step appends an `## Improvements` section, which the template does not define).
 
 ## Completion handoff
 

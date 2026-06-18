@@ -93,7 +93,9 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" prune \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (target structure for the pruned plan).
+- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (target structure for the pruned
+  plan; the Improvements and Scope-evaluation sections pruned here are appended by
+  earlier steps, not defined by the template).
 
 ## Completion handoff
 
