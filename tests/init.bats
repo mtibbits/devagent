@@ -172,7 +172,7 @@ EOF
 @test "config.toml.skel documents the fork-workflow keys as commented examples (E14)" {
   local skel="$PLUGIN_ROOT/templates/config.toml.skel"
   local key
-  for key in source_remote all_prs_branch all_prs_auto_push fork_only use_worktree include_coauthor issue_source_fork; do
+  for key in source_remote all_prs_branch all_prs_auto_push all_prs_remote fork_only use_worktree worktree_root include_coauthor issue_source_fork; do
     run grep -qE "^#.*${key}" "$skel"
     [ "$status" -eq 0 ] || { echo "E14: missing commented fork key '${key}'"; return 1; }
   done

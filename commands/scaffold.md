@@ -29,9 +29,11 @@ Args: `<capture-slug>`
    The body is the resolved `issue_template-<subtype>.md` with
    `{{title}}`, `{{project}}`, and `{{source}}` substituted. `{{source}}`
    becomes `Captures/<slug>/draft.md (scaffolded)`. Write the skill's
-   `summary` for this child into the template's `## Scope` section, replacing
-   its `<…>` placeholder — that section is where the per-child summary lands
-   (the skill forbids authoring the rest of the body).
+   `summary` for this child into the template's first section — the `<…>`
+   placeholder under the `# {{title}}` heading, whose name varies by subtype
+   (`## Summary` for bug, `## Motivation` for feature, `## Affected docs` for
+   docs, `## Hot path` for perf, `## Scope` for chore). That is where the
+   per-child summary lands (the skill forbids authoring the rest of the body).
 
 4. Print the list of created child paths.
 
