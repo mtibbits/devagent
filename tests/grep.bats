@@ -59,3 +59,28 @@ teardown() { teardown_phase9_env; }
   run bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh"
   [ "$status" -eq 2 ]
 }
+
+# --- #79: grep.sh devdoc resolution comes from config, end-to-end (locks #78) ---
+# These strip DEVAGENT_TEST_DEVDOC so the real config path runs, with a hermetic
+# DA_HOME. On pre-#78 code grep.sh (sourcing only depends.sh) would resolve
+# $HOME/devdoc and miss the fixture / search the wrong tree.
+
+@test "#79: grep.sh resolves devdoc via config, not \$HOME/devdoc" {
+  local th; th="$(mktemp -d)"
+  printf '[project.p79]\ndevdoc_dir = "%s"\n' "${DEVAGENT_TEST_DEVDOC}" > "${th}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${th}" \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" --project p79 -l FOOBAR
+  rm -rf "${th}"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Issue-100/issue.md"* ]]
+}
+
+@test "#79: grep.sh fails loud on unresolvable project (no silent \$HOME/devdoc)" {
+  local th; th="$(mktemp -d)"
+  printf '[project.other]\ndevdoc_dir = "%s/x"\n' "${th}" > "${th}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${th}" \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" --project missing79 FOOBAR
+  rm -rf "${th}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot resolve devdoc_dir"* ]]
+}
