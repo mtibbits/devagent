@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 _die() { echo "$*" >&2; exit 1; }
 _need() { command -v "$1" >/dev/null 2>&1 || _die "$1 not found on PATH"; }
 
@@ -132,29 +134,59 @@ cmd_create() {
   printf '%s\n' "$num"
 }
 
-# Semantic-stage to label map (overridable per project).
-#   in_progress → "in progress"  (lowercase, conventional GitHub label)
-#   done        → "done"
-#   blocked     → "blocked"
-# Override via DEVAGENT_GITHUB_LABEL_<STAGE>=label-name in the env.
-cmd_transition() {
-  local repo="${1:?repo required}"
-  local num="${2:?issue number required}"
-  local stage="${3:?semantic stage required}"
-  _need gh
+# Resolve the GitHub label for a semantic stage, or empty if the stage has none.
+# Precedence (parity with gitlab.sh / jira.sh):
+#   1. DEVAGENT_GITHUB_LABEL_<STAGE> env override
+#   2. per-project `github_labels.<stage>` config (gitlab/jira parity)
+#   3. built-in defaults: in_progress → "in progress", done → "done",
+#      blocked → "blocked"
+#   4. otherwise empty — the stage has no mapped label (e.g. on_ship / on_merge
+#      with nothing configured). Empty is the fail-safe-skip signal for
+#      cmd_transition; it is also the Option-3 seam where a default label name
+#      would be resolved later (#87).
+_stage_label() {
+  local stage="$1"
   local var="DEVAGENT_GITHUB_LABEL_${stage^^}"
   local label="${!var:-}"
+  if [ -z "$label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    # shellcheck source=../lib/paths.sh
+    source "${SCRIPT_DIR}/../lib/paths.sh"
+    # shellcheck source=../lib/io.sh
+    source "${SCRIPT_DIR}/../lib/io.sh"
+    # shellcheck source=../lib/config.sh
+    source "${SCRIPT_DIR}/../lib/config.sh"
+    label="$(config_get_project_field "$DEVAGENT_PROJECT" "github_labels.${stage}" 2>/dev/null || true)"
+  fi
   if [ -z "$label" ]; then
     case "$stage" in
       in_progress) label="in progress" ;;
       done)        label="done" ;;
       blocked)     label="blocked" ;;
-      *)           label="$stage" ;;
     esac
   fi
-  # gh accepts repeated --add-label; idempotent because GitHub silently
-  # ignores re-adding the same label.
-  gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null
+  printf '%s' "$label"
+}
+
+cmd_transition() {
+  local repo="${1:?repo required}"
+  local num="${2:?issue number required}"
+  local stage="${3:?semantic stage required}"
+  _need gh
+  local label
+  label="$(_stage_label "$stage")"
+  # Fail-safe skip (#87): a stage with no env/config/built-in label (e.g.
+  # on_ship / on_merge unconfigured) skips the label step entirely — no
+  # `gh issue edit` call. Previously this fell through to `--add-label <stage>`,
+  # which failed on every ship/sync because no such label exists in the repo
+  # (degraded to warning-spam). Option-3 seam: a default name resolves in
+  # _stage_label above.
+  [ -n "$label" ] || return 0
+  # gh accepts repeated --add-label; idempotent because GitHub silently ignores
+  # re-adding the same label. A configured-but-missing label makes gh fail;
+  # treat that as a fail-safe skip (not a hard error) so ship/sync still succeed
+  # without warning-spam. Option-3 seam: `gh label create "$label"` + retry
+  # slots into this failure branch later.
+  gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null 2>&1 || return 0
 }
 
 main() {

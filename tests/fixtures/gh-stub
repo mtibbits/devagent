@@ -80,6 +80,21 @@ case "$sub $sub2" in
     [ -n "$num" ] || _assert_fail "issue edit: missing issue number"
     _has_flag --repo -- "$@" || _assert_fail "issue edit: missing --repo"
     _has_flag --add-label -- "$@" || _assert_fail "issue edit: missing --add-label"
+    # #87: log the invocation (parity with `issue create`) so a test can assert
+    # whether the label step ran at all, and simulate labels that are absent
+    # from the repo so the fail-safe-skip path is observable.
+    [ -n "${GH_STUB_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_ARGS_LOG"
+    if [ -n "${GH_STUB_MISSING_LABEL:-}" ]; then
+      _prev=""
+      for _a in "$@"; do
+        if [ "$_prev" = "--add-label" ]; then
+          for _m in ${GH_STUB_MISSING_LABEL}; do
+            [ "$_a" = "$_m" ] && { echo "gh: could not add label: '$_a' not found" >&2; exit 1; }
+          done
+        fi
+        _prev="$_a"
+      done
+    fi
     exit 0
     ;;
 
