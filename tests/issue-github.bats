@@ -153,12 +153,28 @@ TOML
   [ "$status" -eq 0 ]
 }
 
+@test "transition: unconfigured on_merge makes no gh issue edit call (#87)" {
+  export DEVAGENT_PROJECT="testproj"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_merge
+  [ "$status" -eq 0 ]
+  [ ! -s "$GH_STUB_ARGS_LOG" ]
+}
+
 @test "transition: configured-but-missing label skips cleanly, exit 0 (#87)" {
   export DEVAGENT_PROJECT="testproj"
   _write_github_labels_config
   # "shipped" (configured) and "on_ship" (the old bug's fallthrough) both absent
   export GH_STUB_MISSING_LABEL="shipped on_ship"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
   run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+  # the configured label WAS attempted (gh called) then failed → fail-safe skip;
+  # this isolates the gh-failure branch from the empty-label early return, so the
+  # test fails if the config fallback regresses (not just if `|| return 0` is dropped)
+  run grep -q -- '--add-label shipped' "$GH_STUB_ARGS_LOG"
   [ "$status" -eq 0 ]
 }
 
@@ -182,4 +198,12 @@ TOML
   [ "$status" -eq 0 ]
   run grep -q -- '--add-label in progress' "$GH_STUB_ARGS_LOG"
   [ "$status" -eq 0 ]
+}
+
+@test "transition: no executable 'gh label create' introduced (#87 scope guard)" {
+  # Option-3 (default names + label auto-creation) is deferred; the only allowed
+  # mention of `gh label create` is the seam comment. Lock criterion 4 vs drift.
+  run grep -nE '^[[:space:]]*gh[[:space:]]+label[[:space:]]+create' \
+    "$PLUGIN_ROOT/scripts/issue/github.sh"
+  [ "$status" -ne 0 ]
 }
