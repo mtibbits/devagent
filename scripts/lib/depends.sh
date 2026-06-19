@@ -21,6 +21,13 @@ source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/config.sh"
 
+# #80: default the state dir in the lib (only ship.sh exported it, so the
+# /devagent:depends entry — set -u — hit an unbound variable: list reported a
+# false "(no dependencies)" and add crashed on `mkdir -p ""`). Uses devagent_home
+# (from the self-sourced paths.sh), which honors DA_HOME — not a hardcoded $HOME
+# (cf. #83) — and matches ship.sh's own value, so it is idempotent when set.
+: "${DEVAGENT_STATE_DIR:=$(devagent_home)/state}"
+
 depends_state_file() {
   printf '%s/%s.depends.toml\n' "${DEVAGENT_STATE_DIR}" "$1"
 }
