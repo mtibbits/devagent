@@ -117,3 +117,69 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/issue/github.sh" nonsense
   [ "$status" -eq 2 ]
 }
+
+# ---- #87: github_labels config fallback + fail-safe skip for transitions ----
+# These exercise cmd_transition's stage→label resolution. The gh-stub logs every
+# `gh issue edit` to GH_STUB_ARGS_LOG, so "the label step ran / did not run" is
+# directly observable, and GH_STUB_MISSING_LABEL simulates a label absent from
+# the repo.
+
+# Write a per-project github_labels config into the temp DA_HOME (#87).
+_write_github_labels_config() {
+  cat > "$DA_HOME/config.toml" <<TOML
+[project.testproj.github_labels]
+on_ship = "shipped"
+TOML
+}
+
+@test "transition: unconfigured on_ship makes no gh issue edit call (#87)" {
+  export DEVAGENT_PROJECT="testproj"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+  # fail-safe skip: the stub logged no `gh issue edit` invocation at all
+  [ ! -s "$GH_STUB_ARGS_LOG" ]
+}
+
+@test "transition: configured github_labels.on_ship is applied (#87)" {
+  export DEVAGENT_PROJECT="testproj"
+  _write_github_labels_config
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+  run grep -q -- '--add-label shipped' "$GH_STUB_ARGS_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "transition: configured-but-missing label skips cleanly, exit 0 (#87)" {
+  export DEVAGENT_PROJECT="testproj"
+  _write_github_labels_config
+  # "shipped" (configured) and "on_ship" (the old bug's fallthrough) both absent
+  export GH_STUB_MISSING_LABEL="shipped on_ship"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+}
+
+@test "transition: DEVAGENT_GITHUB_LABEL_ON_SHIP env overrides config (#87)" {
+  export DEVAGENT_PROJECT="testproj"
+  _write_github_labels_config
+  export DEVAGENT_GITHUB_LABEL_ON_SHIP="env-ship"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+  run grep -q -- '--add-label env-ship' "$GH_STUB_ARGS_LOG"
+  [ "$status" -eq 0 ]
+}
+
+@test "transition: built-in in_progress default still applies (#87 regression)" {
+  export DEVAGENT_PROJECT="testproj"
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
+  : > "$GH_STUB_ARGS_LOG"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 in_progress
+  [ "$status" -eq 0 ]
+  run grep -q -- '--add-label in progress' "$GH_STUB_ARGS_LOG"
+  [ "$status" -eq 0 ]
+}
