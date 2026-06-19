@@ -34,6 +34,17 @@ teardown() {
   grep -q "POST /api/v4/projects/foo%2Fbar/merge_requests" "$FIXTURE_REQUEST_LOG"
 }
 
+@test "code/gitlab.sh create-mr dies on a cross-project (owner:branch) head, no POST (#88 B1)" {
+  body=$(mktemp); echo "MR body" > "$body"
+  run "$SCRIPT" create-mr foo/bar "Sample MR" "$body" me:feat/x main
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not supported"* ]]
+  rm -f "$body"
+  # must die BEFORE posting — no merge_requests POST hit the fixture server
+  run grep -q "POST /api/v4/projects/.*/merge_requests" "$FIXTURE_REQUEST_LOG"
+  [ "$status" -ne 0 ]
+}
+
 @test "code/gitlab.sh create-mr --draft sets draft prefix" {
   body=$(mktemp); echo "MR body" > "$body"
   run "$SCRIPT" create-mr foo/bar "Sample MR" "$body" feat/x main --draft

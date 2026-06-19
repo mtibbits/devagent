@@ -114,6 +114,36 @@ EOF
     devagent_refute_logged "issue/github transition"
 }
 
+# ---- #88: cross-repo create-mr head qualification (A1) ----
+# Default project: fork_first=false, upstream=acme/testproj, fork=me/testproj →
+# the MR target (acme) owner differs from the fork/push-remote owner (me), so a
+# bare head is unresolvable by gh; ship.sh must qualify it as <fork_owner>:<branch>.
+
+@test "ship.sh qualifies the PR head as <fork_owner>:<branch> for a cross-repo MR (#88)" {
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo acme/testproj"
+    grep -qE "gh pr create .* --head me:feat/1-x( |$)" "$DEVAGENT_STUB_LOG"
+}
+
+@test "ship.sh keeps a bare PR head under fork_only (target owner == fork owner) (#88)" {
+    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo me/testproj"
+    grep -qE "gh pr create .* --head feat/1-x( |$)" "$DEVAGENT_STUB_LOG"
+    run grep -qE "gh pr create .* --head me:feat/1-x" "$DEVAGENT_STUB_LOG"
+    [ "$status" -ne 0 ]
+}
+
+@test "ship.sh keeps a bare PR head when fork owner == target owner (same-repo) (#88)" {
+    # fork == upstream → no cross-repo, head stays bare.
+    sed -i 's|^fork *=.*|fork = "acme/testproj"|' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE "gh pr create .* --head feat/1-x( |$)" "$DEVAGENT_STUB_LOG"
+}
+
 @test "ship.sh fork_only without code_source.fork dies" {
     sed -i '/^fork *=/d' "$HOME/.claude/devagent/config.toml"
     sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
@@ -284,6 +314,37 @@ EOF
     # ... NOT the default base. (run+status, not vacuous `! grep`.)
     run grep -qE "gh pr create .* --base main( |$)" "$DEVAGENT_STUB_LOG"
     [ "$status" -ne 0 ]
+}
+
+@test "ship.sh qualifies the head AND bases on the parent for a stacked cross-repo child (#88)" {
+    # head-qualification (#88) and stacked-base (#34) are orthogonal: a cross-repo
+    # stacked child must get BOTH a qualified head and the parent base.
+    cat > "$DEVAGENT_STUB_BIN/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "push" ]; then echo "git push \$*" >> "$DEVAGENT_STUB_LOG"; exit 0; fi
+exec /usr/bin/git "\$@"
+EOF
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+    devagent_stub gh "https://github.com/acme/testproj/pull/77"
+    cd "$SOURCE_DIR"
+    git checkout -q main
+    git checkout -q -b feat/parent
+    echo p > p.txt && git add p.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m parent
+    parent_tip="$(git rev-parse HEAD)"
+    git checkout -q -b feat/child
+    echo c > c.txt && git add c.txt
+    git -c user.email=t@e.com -c user.name=T commit -q -m child
+    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
+            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE "gh pr create .* --head me:feat/child( |$)" "$DEVAGENT_STUB_LOG"
+    grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
 }
 
 # --- #148: modified-tracked-files gate -------------------------------------
