@@ -132,3 +132,26 @@ _hash_for() {  # $1 = title substring → its 12-char hash from dry-run
   grep -rqF 'Alpha candidate body one' "${TMP_DEVDOC}/Captures"
   grep -rqF 'Beta candidate body two' "${TMP_DEVDOC}/Captures"
 }
+
+@test "reap --decisions: breadcrumb names only kept candidates, not discarded (#229)" {
+  # Give Issue-900 a checklist journal so a breadcrumb COULD be written.
+  cat > "${TMP_DEVDOC}/Issue-900/checklist.md" <<'CL'
+# Issue-900
+
+## Log
+- 2026-05-19 09:00  pull: scaffolded
+CL
+  local alpha beta dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  beta="$(_hash_for 'Beta candidate body two')"
+  [ -n "$alpha" ] && [ -n "$beta" ]
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  # discard alpha, keep beta → breadcrumb must name exactly ONE follow-up.
+  printf '%s\tdiscard\t\t\n%s\tkeep\t\t\n' "$alpha" "$beta" > "$dec"
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  local cl="${TMP_DEVDOC}/Issue-900/checklist.md"
+  [ "$(grep -cE ' reap: harvested ' "$cl")" -eq 1 ]
+  run grep -E ' reap: harvested 1 follow-up' "$cl"
+  [ "$status" -eq 0 ]
+}

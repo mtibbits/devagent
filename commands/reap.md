@@ -36,6 +36,11 @@ Args: `[project]` (optional; defaults to active project)
      candidate is kept and drafted (back-compat).
 4. Print the list of newly created `Captures/<slug>/` paths and
    suggest `/devagent:redissue <slug>` for each.
+5. For each source issue that yielded new drafts, `reap.sh` appends one
+   timestamped `reap:` entry to that issue's `checklist.md` `## Log`
+   naming the new `Captures/<slug>`(s), so the harvest is traceable from
+   the issue itself. Best-effort: an issue with no checklist (or no
+   `## Log` section) is skipped, and `--dry-run` writes none.
 
 ## Idempotence
 
