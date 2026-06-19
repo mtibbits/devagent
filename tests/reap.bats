@@ -218,3 +218,17 @@ LL
                   "${TMP_DEVDOC}"/Issue-101/STUCK)"
   [ "${before}" = "${after}" ]
 }
+
+@test "reap: one run stamps each source issue separately (fan-out) (#229)" {
+  # Issue-100 has a checklist fixture; give Issue-102 one too, so a single run
+  # must leave exactly one breadcrumb on EACH (per-issue, not global).
+  cat > "${TMP_DEVDOC}/Issue-102/checklist.md" <<'CL'
+# Issue-102
+
+## Log
+- 2026-05-19 09:00  pull: scaffolded
+CL
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$(grep -cE ' reap: harvested ' "${TMP_DEVDOC}/Issue-100/checklist.md")" -eq 1 ]
+  [ "$(grep -cE ' reap: harvested ' "${TMP_DEVDOC}/Issue-102/checklist.md")" -eq 1 ]
+}
