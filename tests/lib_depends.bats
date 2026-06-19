@@ -119,7 +119,20 @@ teardown() { teardown_phase9_env; }
     bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir missingproj"
   rm -rf "${tmp_home}"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"devdoc_dir"* ]]
+  # match the missing-field leg specifically (distinct from the empty-field leg)
+  [[ "$output" == *"cannot resolve devdoc_dir"* ]]
+}
+
+@test "#78: _depends_devdoc_dir dies loudly when devdoc_dir resolves empty" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  # field present but empty string: config_get_project_field returns rc 0 + empty,
+  # so this exercises the second die leg, not the missing-field leg above.
+  printf '[project.emptyproj]\ndevdoc_dir = ""\n' > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir emptyproj"
+  rm -rf "${tmp_home}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"resolved empty"* ]]
 }
 
 @test "#78: _depends_devdoc_dir resolves devdoc_dir from config (self-sourced, no command -v)" {
