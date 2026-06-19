@@ -12,6 +12,12 @@ source "${SCRIPT_DIR}/lib/paths.sh"
 source "${SCRIPT_DIR}/lib/template.sh"
 # shellcheck source=lib/hash.sh
 source "${SCRIPT_DIR}/lib/hash.sh"
+# #229: breadcrumb support. io.sh + log.sh live in the shared scripts/lib (not
+# capture/lib); io.sh (die) must precede log.sh, which calls die at runtime.
+# shellcheck source=../lib/io.sh
+source "${SCRIPT_DIR}/../lib/io.sh"
+# shellcheck source=../lib/log.sh
+source "${SCRIPT_DIR}/../lib/log.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -224,6 +230,7 @@ emit_candidates() {
 
 new_count=0
 declare -a NEW_LABELS
+declare -A NEW_BY_ISSUE   # #229: source issue-name -> space-separated new slugs
 while IFS=$'\t' read -r subtype title source body; do
   [[ -z "${body}" ]] && continue
   h="$(devagent_hash_text "${body}")"
@@ -256,19 +263,17 @@ while IFS=$'\t' read -r subtype title source body; do
   # already computed above; distinct bodies → distinct suffixes, and identical
   # bodies are deduped by SEEN before we ever reach here.
   rc=0
-  "${SCRIPT_DIR}/capture.sh" \
+  slug_out="$("${SCRIPT_DIR}/capture.sh" \
     --type issue --subtype "${subtype}" \
-    --title "${title}" --source "${source}" \
-    >/dev/null 2>&1 || rc=$?
+    --title "${title}" --source "${source}" 2>/dev/null)" || rc=$?
   if [[ "${rc}" -eq 3 ]]; then
     rc=0
     # A title whose kebab already exceeds slug.sh's 60-char cap truncates the
     # suffix away, so the retry can still collide → falls through to the warn
     # path below and is deferred (not lost), to be retried next run.
-    "${SCRIPT_DIR}/capture.sh" \
+    slug_out="$("${SCRIPT_DIR}/capture.sh" \
       --type issue --subtype "${subtype}" \
-      --title "${title} ${h:0:6}" --source "${source}" \
-      >/dev/null 2>&1 || rc=$?
+      --title "${title} ${h:0:6}" --source "${source}" 2>/dev/null)" || rc=$?
   fi
   if [[ "${rc}" -ne 0 ]]; then
     # Leave the body unmarked so it is retried on the next reap run.
@@ -278,6 +283,8 @@ while IFS=$'\t' read -r subtype title source body; do
   SEEN["${h}"]=1
   DRAFTED["${h}"]=1
   NEW_LABELS+=("${title}")
+  # #229: record the actual slug (post-collision-suffix) for this issue's breadcrumb.
+  [[ -n "${slug_out}" ]] && NEW_BY_ISSUE["${source%%/*}"]+=" ${slug_out}"
   new_count=$((new_count + 1))
 done < <(emit_candidates "${DEVAGENT_DEVDOC_DIR%/}")
 
@@ -302,6 +309,21 @@ tmp="$(mktemp "${STATE_DIR}/.${DEVAGENT_PROJECT}.reaped.XXXXXX")"
   done
 } >"${tmp}"
 mv -f "${tmp}" "${STATE_FILE}"
+
+# #229: stamp each source issue's checklist ## Log with what was harvested.
+# Best-effort + read-only-on-sources: only the append-only ## Log journal is
+# touched; a missing checklist or '## Log' heading is skipped; log_append runs in
+# a subshell so its die() cannot abort the harvest under `set -e`.
+for issue_name in "${!NEW_BY_ISSUE[@]}"; do
+  issue_dir="${DEVAGENT_DEVDOC_DIR%/}/${issue_name}"
+  [[ -f "${issue_dir}/checklist.md" ]] || continue
+  grep -q '^## Log' "${issue_dir}/checklist.md" || continue
+  read -ra _slugs <<< "${NEW_BY_ISSUE[${issue_name}]}"
+  msg="harvested ${#_slugs[@]} follow-up(s) ->"
+  for s in "${_slugs[@]}"; do msg="${msg} Captures/${s},"; done
+  msg="${msg%,}"
+  ( log_append "${issue_dir}" reap "${msg}" ) || true
+done
 
 printf 'reap: %d new draft(s)\n' "${new_count}"
 for t in "${NEW_LABELS[@]}"; do

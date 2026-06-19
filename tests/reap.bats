@@ -167,3 +167,54 @@ LL
   run grep -rl 'bogus commented example' "${TMP_DEVDOC}/Captures"/*/draft.md
   [ "$status" -ne 0 ]
 }
+
+@test "reap: stamps source issue checklist ## Log naming harvested slugs (#229)" {
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  cl="${TMP_DEVDOC}/Issue-100/checklist.md"
+  run grep -E '^- .* reap: harvested [0-9]+ follow-up\(s\) -> Captures/' "${cl}"
+  [ "$status" -eq 0 ]
+}
+
+@test "reap: one aggregated breadcrumb per issue, not one per candidate (#229)" {
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  cl="${TMP_DEVDOC}/Issue-100/checklist.md"
+  # Issue-100 yields several candidates but must produce exactly ONE reap line...
+  [ "$(grep -cE ' reap: harvested ' "${cl}")" -eq 1 ]
+  # ...that names more than one Captures/<slug>.
+  run grep -E ' reap: .*Captures/.*, *Captures/' "${cl}"
+  [ "$status" -eq 0 ]
+}
+
+@test "reap: --dry-run writes no breadcrumb (#229)" {
+  "${REPO_ROOT}/scripts/capture/reap.sh" --dry-run >/dev/null
+  run grep -E ' reap: ' "${TMP_DEVDOC}/Issue-100/checklist.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "reap: re-run adds no duplicate breadcrumb (#229)" {
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$(grep -cE ' reap: harvested ' "${TMP_DEVDOC}/Issue-100/checklist.md")" -eq 1 ]
+}
+
+@test "reap: issue without a checklist is harvested normally, exit 0 (#229)" {
+  [ ! -f "${TMP_DEVDOC}/Issue-101/checklist.md" ]   # Issue-101 has STUCK only
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  run grep -rl 'Issue-101' "${TMP_DEVDOC}/Captures"
+  [ "$status" -eq 0 ]                                # its STUCK still drafted
+}
+
+@test "reap: does not modify source artifacts -- read-only on sources (#229)" {
+  local before after
+  before="$(md5sum "${TMP_DEVDOC}"/Issue-100/imPlan-potentialFutureEnhancements.md \
+                   "${TMP_DEVDOC}"/Issue-100/actualWork.md \
+                   "${TMP_DEVDOC}"/Issue-100/lessonsLearned.md \
+                   "${TMP_DEVDOC}"/Issue-101/STUCK)"
+  "${REPO_ROOT}/scripts/capture/reap.sh"
+  after="$(md5sum "${TMP_DEVDOC}"/Issue-100/imPlan-potentialFutureEnhancements.md \
+                  "${TMP_DEVDOC}"/Issue-100/actualWork.md \
+                  "${TMP_DEVDOC}"/Issue-100/lessonsLearned.md \
+                  "${TMP_DEVDOC}"/Issue-101/STUCK)"
+  [ "${before}" = "${after}" ]
+}
