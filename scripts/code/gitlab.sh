@@ -54,6 +54,15 @@ cmd_push_branch() {
 cmd_create_mr() {
   local repo="${1:-}" title="${2:-}" body_file="${3:-}" head="${4:-}" base="${5:-}"
   { [ -z "$repo" ] || [ -z "$title" ] || [ -z "$body_file" ] || [ -z "$head" ] || [ -z "$base" ]; } && usage
+  # #88 (B1): a qualified `owner:branch` head denotes a cross-project MR (the
+  # source branch lives in a different project). GitLab needs target_project_id
+  # to express that, which this backend does not implement — fail loudly here,
+  # BEFORE any POST, rather than file a same-project MR with a malformed
+  # source_branch. Deferred to the backend-parity epic; use the github backend
+  # for cross-fork MRs. (A git branch name cannot contain ':'.)
+  case "$head" in
+    *:*) echo "gitlab.sh: cross-project MR (head '$head') not supported — GitLab requires target_project_id; deferred to backend-parity. File within one project, or use the github backend." >&2; exit 2 ;;
+  esac
   [ -r "$body_file" ] || { echo "body file unreadable: $body_file" >&2; exit 2; }
   shift 5 || true
   local draft=0
