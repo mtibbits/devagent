@@ -153,3 +153,36 @@ teardown() { teardown_phase9_env; }
   [ "$status" -eq 0 ]
   [ "$output" = "/tmp/devdoc-override-xyz" ]
 }
+
+# --- #80: DEVAGENT_STATE_DIR defaults in the lib (no caller export needed) ---
+# Only ship.sh exported it; the /devagent:depends entry (set -u) hit an unbound
+# variable. The lib now defaults it to <devagent_home>/state, honoring DA_HOME.
+
+@test "#80: depends.sh defaults DEVAGENT_STATE_DIR to <devagent_home>/state (honors DA_HOME)" {
+  run env -u DEVAGENT_STATE_DIR DA_HOME=/tmp/da80home \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; printf '%s\n' \"\${DEVAGENT_STATE_DIR:-UNSET}\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "/tmp/da80home/state" ]
+}
+
+@test "#80: depends.sh list works with DEVAGENT_STATE_DIR unset (no unbound error)" {
+  local th; th="$(mktemp -d)"
+  mkdir -p "${th}/state"
+  printf '[Issue-100]\ndepends_on = ["Issue-101"]\n' > "${th}/state/p80.depends.toml"
+  run env -u DEVAGENT_STATE_DIR DA_HOME="${th}" DEVAGENT_ACTIVE_PROJECT=p80 \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/depends.sh" list
+  rm -rf "${th}"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"Issue-100"* ]]
+  [[ "$output" == *"Issue-101"* ]]
+}
+
+@test "#80: depends_add works with DEVAGENT_STATE_DIR unset (creates default dir)" {
+  local th; th="$(mktemp -d)"
+  run env -u DEVAGENT_STATE_DIR DA_HOME="${th}" \
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; depends_add p80b Issue-200 Issue-201 && cat \"\$(depends_state_file p80b)\""
+  rm -rf "${th}"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Issue-201"* ]]
+}
