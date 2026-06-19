@@ -172,6 +172,7 @@ teardown() { teardown_phase9_env; }
   run env -u DEVAGENT_STATE_DIR DA_HOME="${th}" DEVAGENT_ACTIVE_PROJECT=p80 \
     bash "${DEVAGENT_REPO_ROOT}/scripts/depends.sh" list
   rm -rf "${th}"
+  [ "$status" -eq 0 ]
   [[ "$output" != *"unbound variable"* ]]
   [[ "$output" == *"Issue-100"* ]]
   [[ "$output" == *"Issue-101"* ]]
