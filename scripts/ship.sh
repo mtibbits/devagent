@@ -300,13 +300,15 @@ fi
 # owner from --repo, so a fork-branch → upstream-repo MR needs the explicit owner
 # or the head is unresolvable. Same-repo and fork_only (target_repo == fork_repo)
 # keep a bare head. Orthogonal to base_branch, so the stacked-parent base logic
-# (#34/#41/#154) is untouched. The branch owner is code_source.fork's owner.
-head="$branch"
+# (#34/#41/#154) is untouched. The branch owner is code_source.fork's owner —
+# this assumes source_remote (where the branch is pushed, line ~261) and
+# code_source.fork share an owner, which holds for every configured project.
+pr_head="$branch"
 if [ -n "$fork_repo" ] && [ "${target_repo%%/*}" != "${fork_repo%%/*}" ]; then
-    head="${fork_repo%%/*}:$branch"
+    pr_head="${fork_repo%%/*}:$branch"
 fi
 
-mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$head" "$base_branch" "${draft_flag[@]}")"
+mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$pr_head" "$base_branch" "${draft_flag[@]}")"
 [ -n "$mr_url" ] || die "ship.sh: create-mr returned empty URL"
 
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
