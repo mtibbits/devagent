@@ -188,7 +188,12 @@ emit_candidates() {
         }
       ' "${a}"
       # 3b. "should be its own issue"
-      grep -nE 'should be its own issue' "${a}" 2>/dev/null | while IFS=: read -r lineno line; do
+      # #233: grep exits 1 on no-match; under `set -euo pipefail` that exit-1
+      # becomes the pipeline status and `set -e` aborts emit_candidates mid-scan,
+      # silently dropping every later source block and issue dir. `|| [ "$?" -eq 1 ]`
+      # absorbs the benign no-match while letting a real grep error (exit >=2)
+      # propagate. Any future `cmd | while` added to this scan needs the same guard.
+      { grep -nE 'should be its own issue' "${a}" 2>/dev/null || [ "$?" -eq 1 ]; } | while IFS=: read -r lineno line; do
         local trimmed="${line# }"
         trimmed="${trimmed#- }"
         local title="${trimmed%%.*}"
