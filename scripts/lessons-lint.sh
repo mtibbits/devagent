@@ -17,15 +17,22 @@ awk '
     if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
     in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^### */,"",etext); next
   }
-  # a tag-bearing bullet: "- Tags: [..]", "- [tag] ..", or "- [..]"
+  # A tag-bearing bullet: "- Tags: [..]", "- [tag] ..", or "- [..]". The bracket
+  # must LEAD the bullet (after an optional "Tags:") — intentionally STRICTER
+  # than reap.sh block 4 (which matches a bare [actionable] anywhere on the line),
+  # to force the canonical leading-bracket form. #232.
   /^[ \t]*-[ \t]+(Tags:[ \t]*)?\[[^]]*\]/ {
     if (match($0, /\[[^]]*\]/)) {
       toks=substr($0, RSTART+1, RLENGTH-2)
       n=split(toks, a, /[ ,]+/)
-      for (i=1;i<=n;i++) if (a[i] != "" && !(a[i] in valid)) {
-        printf "  line %d: off-taxonomy tag [%s]: %s\n", NR, a[i], $0; bad=1
+      hastok=0
+      for (i=1;i<=n;i++) if (a[i] != "") {
+        hastok=1
+        if (!(a[i] in valid)) { printf "  line %d: off-taxonomy tag [%s]: %s\n", NR, a[i], $0; bad=1 }
       }
-      tagged=1
+      # An empty bracket "[]" carries no tag — leave the entry untagged so the
+      # missing-tag check fires rather than silently passing (#232 review L1).
+      if (hastok) tagged=1
     }
     next
   }

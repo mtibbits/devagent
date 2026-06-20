@@ -66,3 +66,27 @@ LL
   run bash "$LINT" "$BATS_TEST_TMPDIR/nope.md"
   [ "$status" -eq 2 ]
 }
+
+@test "lessons-lint: an empty bracket [] does not satisfy the tag requirement (#232 review L1)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+## Entries
+### claim
+- []
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lessons-lint: a multi-tag line flags only the off-taxonomy token (#232)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+## Entries
+### claim
+- Tags: [norm, bogus]
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"tag [bogus]"* ]]
+  [[ "$output" != *"tag [norm]"* ]]
+}
