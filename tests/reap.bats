@@ -232,3 +232,23 @@ CL
   [ "$(grep -cE ' reap: harvested ' "${TMP_DEVDOC}/Issue-100/checklist.md")" -eq 1 ]
   [ "$(grep -cE ' reap: harvested ' "${TMP_DEVDOC}/Issue-102/checklist.md")" -eq 1 ]
 }
+
+@test "reap: scan survives a first issue dir whose actualWork lacks the trigger phrase (#233)" {
+  # #233: block 3b ran `grep 'should be its own issue' | while` with no guard.
+  # Under set -euo pipefail, grep's exit-1 on no-match aborted the entire scan
+  # after the FIRST issue dir that has an actualWork.md. The bundled fixture
+  # masks it because Issue-100/actualWork.md happens to contain the phrase.
+  # Inject a lexically-FIRST dir whose actualWork lacks the phrase, then assert
+  # a LATER dir's candidates (incl. a lessonsLearned [actionable]) still surface.
+  mkdir -p "${TMP_DEVDOC}/Issue-099"
+  cat > "${TMP_DEVDOC}/Issue-099/actualWork.md" <<'AW'
+# Issue-099 — Actual work
+
+## What changed
+Nothing notable; no follow-ups here.
+AW
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Issue-100/lessonsLearned.md"* ]]
+  [[ "$output" == *"Issue-102"* ]]
+}
