@@ -199,3 +199,18 @@ EOF
   run checklist_step_state "$f" 20
   [ "$output" = "x" ]
 }
+
+@test "checklist_step_state_by_name returns the glyph for a named step" {
+  checklist_init "$ISSUE_DIR" standard
+  checklist_mark "$ISSUE_DIR/checklist.md" 19 x
+  run checklist_step_state_by_name "$ISSUE_DIR/checklist.md" lessonslearned
+  [ "$status" -eq 0 ]
+  [ "$output" = "x" ]
+}
+
+@test "checklist_step_state_by_name returns non-zero for an absent step name" {
+  checklist_init "$ISSUE_DIR" standard
+  run checklist_step_state_by_name "$ISSUE_DIR/checklist.md" nonexistentstep
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
