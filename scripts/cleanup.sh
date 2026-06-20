@@ -24,6 +24,18 @@ issue_arg="${2:-}"
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "cleanup.sh: issue_dir not set or missing"
 
+# #231: refuse to close while lessonslearned (step 19) is unfinished — it is the
+# producer of the [actionable] -> reap pipeline, so an out-of-order close
+# silently drops follow-ups. Resolve BY NAME (step numbers vary by template);
+# an absent step => no gate. Runs before any side effect (the tree restore below).
+ll_glyph="$(checklist_step_state_by_name "$issue_dir/checklist.md" lessonslearned 2>/dev/null || true)"
+if [ -n "$ll_glyph" ]; then
+    case "$ll_glyph" in
+        x|-) : ;;
+        *) die "cleanup.sh: lessonslearned is '[$ll_glyph]', not done — run /devagent:lessonslearned (or mark it [-] if there is genuinely nothing to learn) before cleanup" ;;
+    esac
+fi
+
 source_dir="$(config_get_project_field "$project" source_dir)"
 devdoc_dir="$(config_get_project_field "$project" devdoc_dir)"
 baseline="$(config_get_project_field "$project" default_baseline)"

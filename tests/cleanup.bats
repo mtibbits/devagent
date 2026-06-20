@@ -3,6 +3,10 @@ load 'helpers/common'
 
 setup() {
     devagent_test_setup
+    # #231: a valid close requires lessonslearned terminal; mark it [x] so the
+    # pre-existing cleanup tests exercise the allowed path. Whitespace-robust:
+    # key on the line content, edit the glyph in place (don't assume spacing).
+    sed -i -E '/19\. lessonslearned/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     ( cd "$DEVDOC_DIR" \
@@ -116,4 +120,26 @@ EOF
     [ "$status" -eq 0 ]
     run python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-1.branch
     [ "$status" -ne 0 ]
+}
+
+@test "cleanup.sh blocks when lessonslearned is pending (#231)" {
+    sed -i -E '/19\. lessonslearned/ s/\[.\]/[ ]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *lessonslearned* ]]
+    # fail-closed: no side effects — step 20 still pending, branch unchanged
+    grep -qE '^- \[ \] +20\. cleanup' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
+}
+
+@test "cleanup.sh proceeds when lessonslearned is skipped [-] (#231)" {
+    sed -i -E '/19\. lessonslearned/ s/\[.\]/[-]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
+@test "cleanup.sh proceeds when the checklist has no lessonslearned step (#231)" {
+    sed -i '/19\. lessonslearned/d' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
 }

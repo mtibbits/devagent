@@ -101,6 +101,25 @@ checklist_step_state() {
   return 1
 }
 
+# checklist_step_state_by_name <file> <name>
+# Prints the glyph of the step whose NAME matches <name> (returns 0), or
+# returns 1 if no such step exists. Resolves by name, not number, so callers
+# survive cross-template step renumbering. File-wide: the only by-name caller
+# (cleanup's lessonslearned gate, #231) targets a step that is unique and never
+# reused across revision blocks, so revision scoping is unnecessary.
+checklist_step_state_by_name() {
+  local file="$1" target="$2" line
+  while IFS= read -r line; do
+    if [[ "$line" =~ $_checklist_line_re ]]; then
+      if [[ "${BASH_REMATCH[3]}" == "$target" ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+      fi
+    fi
+  done < "$file"
+  return 1
+}
+
 checklist_step_name() {
   local file="$1" target="$2" line start ln=0
   start="$(_checklist_scope_start "$file" "$target")"
