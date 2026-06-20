@@ -273,12 +273,14 @@ while IFS=$'\t' read -r subtype title source body; do
     --title "${title}" --source "${source}" 2>/dev/null)" || rc=$?
   if [[ "${rc}" -eq 3 ]]; then
     rc=0
-    # A title whose kebab already exceeds slug.sh's 60-char cap truncates the
-    # suffix away, so the retry can still collide → falls through to the warn
-    # path below and is deferred (not lost), to be retried next run.
+    # #252: disambiguate with the body hash via --slug-suffix, which devagent_slug
+    # appends AFTER its 60-char cap. Appending to the title instead (pre-#252)
+    # let the cap slice the suffix off when the title already kebabbed to >=60
+    # chars, so two long identical-prefix titles collided forever and the 2nd was
+    # deferred. The suffix now always survives, guaranteeing distinct slugs.
     slug_out="$("${SCRIPT_DIR}/capture.sh" \
       --type issue --subtype "${subtype}" \
-      --title "${title} ${h:0:6}" --source "${source}" 2>/dev/null)" || rc=$?
+      --title "${title}" --slug-suffix "${h:0:6}" --source "${source}" 2>/dev/null)" || rc=$?
   fi
   if [[ "${rc}" -ne 0 ]]; then
     # Leave the body unmarked so it is retried on the next reap run.

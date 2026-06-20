@@ -49,3 +49,26 @@ setup() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"empty"* ]]
 }
+
+@test "slug: an optional suffix survives the 60-char cap (#252)" {
+  # The #108 collision retry's disambiguator must not be sliced off by the cap.
+  long="$(printf 'word %.0s' {1..40})"   # kebabs to far more than 60 chars
+  run devagent_slug "${long}" "ab12cd"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *-ab12cd ]]            # suffix present despite the cap
+  kebab="${output#2026-05-19-}"
+  [ "${#kebab}" -le 60 ]                 # total kebab still within the cap
+}
+
+@test "slug: a suffix on a short title is appended verbatim (#252)" {
+  run devagent_slug "Corn planting" "ab12cd"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting-ab12cd" ]
+}
+
+@test "slug: no/empty suffix leaves the slug byte-identical (#252 back-compat)" {
+  run devagent_slug "Corn planting"
+  [ "$output" = "2026-05-19-corn-planting" ]
+  run devagent_slug "Corn planting" ""
+  [ "$output" = "2026-05-19-corn-planting" ]
+}
