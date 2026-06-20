@@ -54,3 +54,17 @@ teardown() { teardown_phase9_env; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"cannot resolve devdoc_dir"* ]]
 }
+
+@test "#239: history.sh prints ONE error line (no redundant empty 'devdoc dir not found') on unresolvable project" {
+  # die in the $(...) capture exits only the subshell; the parent used to fall
+  # through to '[ ! -d "" ]' and print a 2nd, empty-path line. '|| exit 2' must
+  # collapse it to a single message with rc 2.
+  local th; th="$(mktemp -d)"
+  printf '[project.other]\ndevdoc_dir = "%s/x"\n' "${th}" > "${th}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${th}" \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/history.sh" --project missing239
+  rm -rf "${th}"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot resolve devdoc_dir"* ]]
+  [[ "$output" != *"devdoc dir not found"* ]]   # no redundant second line
+}
