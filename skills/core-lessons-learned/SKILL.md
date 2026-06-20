@@ -50,10 +50,15 @@ issues, not at the end of the current one.
    - Tags: [actionable | reference | norm | pattern]
    ```
 
-6. **Tag `actionable`** when the lesson implies a follow-up issue
-   should exist (`/devagent:reap` harvests these). Tag `reference`
-   when it's a fact to remember. Tag `norm` when it changes operator
-   working style. Tag `pattern` when it generalises beyond this issue.
+6. **Classify every entry — mandatory.** Each entry MUST carry ≥1 tag
+   from the closed set `actionable | reference | norm | pattern` (no
+   other tag is legal — `scripts/lessons-lint.sh` rejects ad-hoc tags).
+   For each entry, explicitly decide `actionable` vs not: an entry that
+   names an unfiled follow-up — cues like "should file", "found but not
+   fixed", "candidate follow-up", "its own issue" — is `actionable`
+   (`/devagent:reap` harvests these). Tag `reference` for a fact to
+   remember, `norm` for an operator-working-style change, `pattern` for
+   something that generalises beyond this issue.
 7. **Brevity check.** If an entry is more than 4 lines total, split
    it or trim. Long lessons are unread lessons.
 
@@ -86,7 +91,15 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" lessonslearned \
 
 ## Completion handoff
 
-First, **mark this step done** — `next.sh` keys off the checklist mark
+First, **validate the taxonomy** — run the lint and fix any offender it prints
+before proceeding (an off-taxonomy or untagged entry is drift; retag to the
+closed set rather than inventing a tag):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-lint.sh" "$ISSUE_DIR/lessonsLearned.md"
+```
+
+Then **mark this step done** — `next.sh` keys off the checklist mark
 (not the log), so without it an `--auto`/`--through` chain re-dispatches
 this same step forever:
 
