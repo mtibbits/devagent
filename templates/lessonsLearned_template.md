@@ -10,6 +10,10 @@
 > - `reference` — fact to remember; no action
 > - `norm` — changes operator working style
 > - `pattern` — generalises beyond this issue
+>
+> These four are the ONLY legal tags. Any other tag (e.g. `[process]`,
+> `[testing]`) is rejected by `scripts/lessons-lint.sh`. Every entry must
+> carry at least one.
 
 ## Entries
 
