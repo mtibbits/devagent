@@ -36,11 +36,13 @@ ${DEVAGENT_STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml.
   --dry-run        enumerate candidates without writing; each row is
                    "<hash>\t<subtype>\t<source>\t<title>".
   --decisions <f>  apply per-candidate decisions (#111). TSV rows keyed by the
-                   dry-run <hash>: "<hash>\t<action>\t<subtype>\t<title>" where
-                   action is keep|discard. keep applies the subtype/title
+                   dry-run <hash>: "<hash>\t<action>\t<subtype>\t<title>\t<reason>"
+                   where action is keep|discard. keep applies the subtype/title
                    overrides (empty ⇒ heuristic); discard is not drafted and is
                    recorded in the [discarded] table (skipped on future runs,
-                   re-triageable by deleting its line). No decision for a
+                   re-triageable by deleting its line). The optional 5th field is
+                   a free-text discard reason persisted in the [discarded] entry
+                   (#245); omit it (4-field row) for no reason. No decision for a
                    candidate ⇒ keep (so a plain run drafts everything).
 
 Sources:
@@ -78,7 +80,11 @@ STATE_FILE="${STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml"
 # [hashes] table, DISCARDED the [discarded] table (#111) — both preserved across
 # runs so a discard stays remembered (not re-drafted) yet is re-triageable by
 # deleting its [discarded] line.
-declare -A SEEN DRAFTED DISCARDED
+# DISCARD_REASON (#245): per-hash discard reason, stored as the already-escaped
+# TOML basic-string BODY (no surrounding quotes). Populated from an old/new state
+# file on load and overridden by a fresh --decisions reason; re-emitted verbatim
+# so a reason survives plain re-runs without double-escaping.
+declare -A SEEN DRAFTED DISCARDED DISCARD_REASON
 if [[ -f "${STATE_FILE}" ]]; then
   _section=""
   # `|| [[ -n "${line}" ]]` so a final line with no trailing newline (e.g. a
@@ -93,7 +99,15 @@ if [[ -f "${STATE_FILE}" ]]; then
     [[ "${h}" =~ ^[0-9a-f]{12}$ ]] || continue
     SEEN["${h}"]=1
     case "${_section}" in
-      discarded) DISCARDED["${h}"]=1 ;;
+      discarded)
+        DISCARDED["${h}"]=1
+        # #245: preserve the existing reason verbatim. reap writes exactly
+        # `<hash> = "<body>"`, so strip the `<hash> = ` prefix (first ` = `,
+        # safe because the hash has no spaces) and the surrounding quotes. The
+        # body is kept escaped so the writer can re-emit it without re-escaping.
+        _v="${line#* = }"; _v="${_v#\"}"; _v="${_v%\"}"
+        DISCARD_REASON["${h}"]="${_v}"
+        ;;
       *)         DRAFTED["${h}"]=1 ;;   # [hashes] or legacy section-less line
     esac
   done < "${STATE_FILE}"
@@ -104,7 +118,7 @@ fi
 # drop empty interior fields (an empty subtype with a title override would slide
 # the title into the subtype slot). Split each line manually to preserve empty
 # fields; `|| [[ -n "$line" ]]` keeps an unterminated last line.
-declare -A DEC_ACTION DEC_SUBTYPE DEC_TITLE
+declare -A DEC_ACTION DEC_SUBTYPE DEC_TITLE DEC_REASON
 _VALID_SUBTYPES=" bug feature docs perf chore "
 if [[ -n "${DECISIONS_FILE}" ]]; then
   [[ -f "${DECISIONS_FILE}" ]] || { echo "decisions file not found: ${DECISIONS_FILE}" >&2; exit 2; }
@@ -114,7 +128,11 @@ if [[ -n "${DECISIONS_FILE}" ]]; then
     dh="${_s%%$'\t'*}";      _s="${_s#"${dh}"}";      _s="${_s#$'\t'}"
     daction="${_s%%$'\t'*}"; _s="${_s#"${daction}"}"; _s="${_s#$'\t'}"
     dsub="${_s%%$'\t'*}";    _s="${_s#"${dsub}"}";    _s="${_s#$'\t'}"
-    dtitle="${_s}"
+    # #245: title stops at the next tab; an optional 5th field is the discard
+    # reason. A 4-field line (no trailing tab) ⇒ dtitle = whole remainder,
+    # dreason = "" — byte-identical to the pre-#245 behavior.
+    dtitle="${_s%%$'\t'*}";  _s="${_s#"${dtitle}"}";  _s="${_s#$'\t'}"
+    dreason="${_s}"
     [[ "${dh}" =~ ^[0-9a-f]{12}$ ]] || continue
     # Normalize the action: trim surrounding spaces, lowercase, fail-loud (not
     # fail-open) on anything that isn't keep|discard so a typo can't silently
@@ -135,6 +153,7 @@ if [[ -n "${DECISIONS_FILE}" ]]; then
     DEC_ACTION["${dh}"]="${daction}"
     DEC_SUBTYPE["${dh}"]="${dsub}"
     DEC_TITLE["${dh}"]="${dtitle}"
+    DEC_REASON["${dh}"]="${dreason}"
   done < "${DECISIONS_FILE}"
 fi
 
@@ -142,6 +161,20 @@ fi
 # source bullet (pasted code, aligned text) can't shift the TAB-separated fields
 # the consumer reads. Applied to EVERY emitted title/body, not just STUCK.
 _rf() { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' '; }
+
+# #245: render operator free text as a single-line, injection-safe TOML
+# basic-string BODY (callers add the surrounding quotes). Escape backslash then
+# double-quote per TOML, and flatten any newline/CR/tab to a space so a reason
+# can never forge a second `<hash> = ...` line in the [discarded] table. The
+# loader keys discards off the leading 12-hex hash and never trusts the value,
+# so even an un-flattened hostile reason could not inject a remembered discard;
+# the flatten + escape additionally keep the file parseable by a strict reader.
+_toml_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "${s}" | tr '\n\r\t' '   '
+}
 
 # emit_candidates prints TAB-separated rows: subtype \t title \t source \t body
 # body has internal whitespace flattened to spaces (so the hash and the
@@ -261,6 +294,10 @@ while IFS=$'\t' read -r subtype title source body; do
   if [[ "${DEC_ACTION[${h}]:-keep}" == "discard" ]]; then
     DISCARDED["${h}"]=1
     SEEN["${h}"]=1
+    # #245: record the reason (escaped) when the decision supplies one. Only
+    # override on a non-empty reason so a reasonless re-discard can't wipe a
+    # reason already stored from a prior run.
+    [[ -n "${DEC_REASON[${h}]:-}" ]] && DISCARD_REASON["${h}"]="$(_toml_str "${DEC_REASON[${h}]}")"
     continue
   fi
   # keep: apply subtype/title overrides when the decision supplies them. Flatten
@@ -318,7 +355,10 @@ tmp="$(mktemp "${STATE_DIR}/.${DEVAGENT_PROJECT}.reaped.XXXXXX")"
   done
   printf '[discarded]\n'
   for h in "${!DISCARDED[@]}"; do
-    printf '%s = "discarded"\n' "${h}"
+    # #245: emit the recorded reason (already escaped); fall back to the
+    # pre-#245 "discarded" literal when none was given, so reasonless discards
+    # are byte-identical to before.
+    printf '%s = "%s"\n' "${h}" "${DISCARD_REASON[${h}]:-discarded}"
   done
 } >"${tmp}"
 mv -f "${tmp}" "${STATE_FILE}"

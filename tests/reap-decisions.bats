@@ -155,3 +155,85 @@ CL
   run grep -E ' reap: harvested 1 follow-up' "$cl"
   [ "$status" -eq 0 ]
 }
+
+# Helper: extract a discarded entry's reason (TOML value) for a given hash.
+_discarded_value_for() {  # $1 = hash → inner text between the surrounding quotes
+  awk -v h="$1" '/^\[discarded\]/{d=1;next} /^\[/{d=0} d && $1==h {
+    s=$0; sub(/^[^=]*= *"/,"",s); sub(/"[ \t]*$/,"",s); print s; exit }' "$STATE_FILE"
+}
+
+@test "reap --decisions: a discard reason is persisted in the [discarded] entry (#245)" {
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  [ -n "$alpha" ]
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  # 5th field = reason.
+  printf '%s\tdiscard\t\t\talready covered by 96\n' "$alpha" > "$dec"
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  [ "$(_discarded_value_for "$alpha")" = "already covered by 96" ]
+}
+
+@test "reap --decisions: a reasonless discard still writes the back-compat literal (#245)" {
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  printf '%s\tdiscard\t\t\n' "$alpha" > "$dec"   # 4 fields, no reason
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  [ "$(_discarded_value_for "$alpha")" = "discarded" ]
+}
+
+@test "reap --decisions: a TOML-significant reason round-trips without corrupting state (#245)" {
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  # quotes, =, brackets, # — must not inject keys/sections or break re-load.
+  printf '%s\tdiscard\t\t\tdup of #96 = [x] "really"\n' "$alpha" > "$dec"
+  run "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  [ "$status" -eq 0 ]
+  # Exactly ONE valid 12-hex hash line under [discarded] — no phantom entry.
+  local n
+  n="$(awk '/^\[discarded\]/{d=1;next} /^\[/{d=0} d && $1 ~ /^[0-9a-f]{12}$/' "$STATE_FILE" | wc -l)"
+  [ "$n" -eq 1 ]
+  # Re-load (plain re-run) still remembers exactly alpha and re-emits cleanly.
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  awk '/^\[discarded\]/{d=1;next} /^\[/{d=0} d' "$STATE_FILE" | grep -qF "$alpha"
+  [ "$(awk '/^\[discarded\]/{d=1;next} /^\[/{d=0} d && $1 ~ /^[0-9a-f]{12}$/' "$STATE_FILE" | wc -l)" -eq 1 ]
+  # The reason text survives the round-trip.
+  awk '/^\[discarded\]/{d=1;next} /^\[/{d=0} d' "$STATE_FILE" | grep -qF 'dup of #96'
+}
+
+@test "reap --decisions: a recorded reason survives a plain re-run (#245)" {
+  local alpha dec
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  dec="${BATS_TEST_TMPDIR}/dec.tsv"
+  printf '%s\tdiscard\t\t\ttoo speculative\n' "$alpha" > "$dec"
+  "${REPO_ROOT}/scripts/capture/reap.sh" --decisions "$dec"
+  # Plain re-run with NO --decisions must preserve the stored reason.
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  [ "$(_discarded_value_for "$alpha")" = "too speculative" ]
+}
+
+@test "reap: an old-format state file (= \"discarded\") still remembers the discard (#245)" {
+  local alpha
+  alpha="$(_hash_for 'Alpha candidate body one')"
+  [ -n "$alpha" ]
+  # Pre-seed a pre-#245 state file: discarded entry with the fixed literal.
+  mkdir -p "${DEVAGENT_STATE_DIR}"
+  cat > "$STATE_FILE" <<EOF2
+# Written by scripts/capture/reap.sh
+# project = fake
+[hashes]
+[discarded]
+${alpha} = "discarded"
+EOF2
+  # Plain re-run: alpha stays remembered (not re-drafted) and value preserved.
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  run grep -rl 'Alpha candidate body one' "${TMP_DEVDOC}/Captures"
+  [ "$status" -ne 0 ]
+  [ "$(_discarded_value_for "$alpha")" = "discarded" ]
+}
