@@ -25,6 +25,51 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 : "${DEVAGENT_GIT:=git}"
 
+# #251 — opt-in scoped auto-staging. Stage EXACTLY the issue's declared in-scope
+# paths (from a .devagent-scope manifest), never "everything dirty". Returns 0
+# iff it staged at least one in-scope path; returns non-zero (caller falls back to
+# the #25 die-loud guard) when scope can't be reliably determined or nothing was
+# staged. Safety: per-path validation rejects the `git add -A`/`.`/`*`/flag
+# vectors, and `git add --` stops a leading-dash path from being read as a flag.
+#   autostage_in_scope <git> <work_dir> <scope_file>
+autostage_in_scope() {
+    local git="$1" work_dir="$2" scope_file="$3"
+    [ -r "$scope_file" ] || return 1
+    local line paths=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+        line="${line%"${line##*[![:space:]]}"}"    # rtrim
+        [ -n "$line" ] || continue                # skip blank / whitespace-only lines
+        # Reject every over-capture / injection vector → caller dies loud. Each
+        # accepted entry must name a single in-repo FILE; anything that could make
+        # `git add` match more than that one path is rejected:
+        case "$line" in
+            -*)                 return 1 ;;  # flag injection (-A, --all, ...)
+            :*)                 return 1 ;;  # pathspec magic (:(top), :/) = whole-repo
+            /*)                 return 1 ;;  # absolute path
+            .|..|../*|*/..|*/../*) return 1 ;;  # cwd / parent-traversal
+            *'*'*|*'?'*|*'['*)  return 1 ;;  # glob metacharacters
+        esac
+        # A directory entry would make `git add -- dir/` recurse and stage every
+        # untracked sibling under it (the exact over-capture the feature forbids).
+        # Require a file: reject anything that resolves to a directory. A staged
+        # deletion (path gone from disk) is not a dir, so that legit case passes.
+        [ -d "$work_dir/$line" ] && return 1
+        paths+=("$line")
+    done < "$scope_file"
+    [ "${#paths[@]}" -gt 0 ] || return 1
+    # Stage only the declared file paths (`--` ends option parsing; the validation
+    # above guarantees each is a single in-repo file). A failure here (bad
+    # pathspec) must not auto-skip — return non-zero so the caller dies loud.
+    "$git" -C "$work_dir" add -- "${paths[@]}" 2>/dev/null || return 1
+    # The manifest paths may not have been dirty (typo / already committed): if the
+    # index is still empty, nothing was staged → do NOT proceed to an empty commit.
+    if "$git" -C "$work_dir" diff --cached --quiet 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 project="${1:-}"
 [ -n "$project" ] || die "commit.sh: project required"
 config_is_project "$project" || die "commit.sh: unknown project '$project'"
@@ -75,12 +120,30 @@ dirty="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain 2>/dev/null || true)"
 
 if [ -z "$has_commits" ] && [ -z "$staged" ]; then
     if [ -n "$dirty" ]; then
-        die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
+        # #251: opt-in scoped auto-staging. When commit_autostage=true AND the
+        # issue declares an in-scope manifest, stage exactly those paths and fall
+        # through to the commit below — instead of forcing a manual `git add`.
+        # Default off, or any can't-determine/nothing-staged case, → the #25
+        # die-loud guard. Out-of-scope dirty files are never in the manifest, so
+        # they are never staged (provably absent from the commit).
+        autostage="$(config_get_project_field "$project" commit_autostage 2>/dev/null || echo false)"
+        if [ "$autostage" = "true" ]; then
+            # Autostage requested: stage exactly the manifest's files, or die with a
+            # manifest-specific message (never the silent skip, never over-capture).
+            if autostage_in_scope "$DEVAGENT_GIT" "$work_dir" "$issue_dir/.devagent-scope"; then
+                info "commit.sh: auto-staged in-scope files from .devagent-scope (commit_autostage=true, #251)"
+            else
+                die "commit.sh: commit_autostage=true but no in-scope file was staged from $issue_dir/.devagent-scope — the manifest is missing/empty, has an invalid entry (only single in-repo FILE paths are allowed; no '.', '..', absolute, ':' pathspec-magic, glob, or directory entries), or its paths are not dirty. Fix .devagent-scope or stage manually ('git add ...'). Refusing to silently skip (#25/#251)."
+            fi
+        else
+            die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
+        fi
+    else
+        info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
+        checklist_mark "$issue_dir/checklist.md" 10 -
+        log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
+        exit 0
     fi
-    info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
-    checklist_mark "$issue_dir/checklist.md" 10 -
-    log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
-    exit 0
 fi
 
 type_file="$issue_dir/.devagent-type"
