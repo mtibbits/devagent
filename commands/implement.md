@@ -67,7 +67,17 @@ you must amend in, polluting your commit history.
 
 ## Completion handoff
 
-First, **mark this step done** — `next.sh` keys off the checklist mark
+First, **record the in-scope manifest** — only when the active project sets
+`commit_autostage=true`, run record-scope so step 10's #251 autostage can stage
+exactly this issue's edited files with no hand-written `.devagent-scope`. It is a
+no-op for projects without `commit_autostage=true`, and it preserves an
+operator-authored `.devagent-scope` (it only regenerates manifests it created):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/record-scope.sh"
+```
+
+Then **mark this step done** — `next.sh` keys off the checklist mark
 (not the log), so without it an `--auto`/`--through` chain re-dispatches
 this same step forever:
 
