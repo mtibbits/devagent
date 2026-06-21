@@ -80,10 +80,16 @@ main() {
   # snapshot its per-issue context first (it may not have been parked), then
   # start the new issue from clean defaults. Re-pull of the same issue must
   # not disturb in-flight context (#98).
-  local prev
+  local prev displaced=""
   prev="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [[ "$prev" != "$issue_id" ]]; then
-    [[ -n "$prev" && "$prev" != "null" ]] && state_context_save "$project" "$prev"
+    if [[ -n "$prev" && "$prev" != "null" ]]; then
+      state_context_save "$project" "$prev"
+      # #247: remember the displaced issue ONLY if a non-empty snapshot was
+      # actually taken (it was genuinely in-flight). Re-pull (prev == issue_id),
+      # no-prev, and nothing-to-save cases leave $displaced empty and stay silent.
+      state_context_has "$project" "$prev" && displaced="$prev"
+    fi
     state_context_clear "$project"
   fi
   state_set "$project" active_issue "$issue_id"
@@ -94,6 +100,15 @@ main() {
   # over live work (#98).
   state_remove_parked "$project" "$issue_id"
   state_unset "$project" "context.${issue_id}"
+
+  # #247: targeted feedback when this pull set aside a different in-flight issue.
+  # The #98 snapshot already preserved it; without this the operator only sees
+  # the generic state_set concurrency warning (about suspected concurrent
+  # sessions) and may believe their work was discarded. Distinct from that
+  # warning via "context preserved" + a resume pointer.
+  if [[ -n "$displaced" ]]; then
+    warn "displaced in-flight issue ${displaced}: its context (branch, step, MR) was preserved, not discarded — return to it with /devagent:resume ${project} ${displaced} (or /devagent:switch)"
+  fi
 
   info "pulled ${repo}#${num} into ${issue_dir}"
   checklist_print_next_hint "$issue_dir/checklist.md"

@@ -161,3 +161,58 @@ CTX
   # whatever its exit status (pull dropped the parked flag → refusal is fine).
   grep -qE '^branch = "feat/676-NEW"$' "$DA_HOME/state/volk.toml"
 }
+
+@test "#247: pull displacing an in-flight unparked issue notifies that its context was preserved" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-1"
+issue_dir = "$DEVDOC/Issue-1"
+branch = "fix/1-old"
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  # Targeted notice: names the displaced issue, says preserved, points to resume.
+  [[ "$output" == *"Issue-1"* ]]
+  [[ "$output" == *"preserved"* ]]
+  [[ "$output" == *"resume"* ]]
+}
+
+@test "#247: the displacement notice is distinct from the generic state_set concurrency warning" {
+  mkdir -p "$DA_HOME/state"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-1"
+issue_dir = "$DEVDOC/Issue-1"
+branch = "fix/1-old"
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  # The #247 notice carries "preserved"; the generic warning does not.
+  echo "$output" | grep -i 'preserved' | grep -qi 'Issue-1'
+}
+
+@test "#247: re-pull of the same active issue prints NO displacement notice" {
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "fix/676-mid"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"preserved"* ]]
+}
+
+@test "#247: pull with no prior active issue prints NO displacement notice" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"preserved"* ]]
+}
+
+@test "#247: pull displacing an issue with no in-flight context prints NO notice (nothing set aside)" {
+  mkdir -p "$DA_HOME/state"
+  # active_issue set, but NO in-flight keys (branch/baseline/etc all empty) →
+  # state_context_save snapshots nothing → no notice.
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-1"
+issue_dir = "$DEVDOC/Issue-1"
+CTX
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"preserved"* ]]
+}
