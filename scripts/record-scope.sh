@@ -88,6 +88,9 @@ fi
 
 # Atomic rewrite: one validated file path per line, paths only (no marker — see above).
 # Full regenerate so the manifest converges on the current edited set across re-runs.
+# Note: #251's reader ltrims/rtrims each line, so a pathological filename with leading/
+# trailing whitespace would die loud at autostage (fail-safe — never a silent skip),
+# not stage; acceptable for such exotic names.
 tmp="$(mktemp)"
 if [ "${#paths[@]}" -gt 0 ]; then printf '%s\n' "${paths[@]}" > "$tmp"; else : > "$tmp"; fi
 mv "$tmp" "$scope_file"
