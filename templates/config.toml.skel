@@ -31,6 +31,11 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #                                        #   empty/invalid manifest (or paths that
 #                                        #   aren't dirty) falls back to die-loud, so
 #                                        #   out-of-scope work is never committed.
+#                                        #   When set, the implement step (#268)
+#                                        #   auto-populates .devagent-scope from the
+#                                        #   edited files (sentinel .devagent-scope.auto
+#                                        #   marks it auto-generated; a hand-written
+#                                        #   manifest is preserved, not clobbered).
 #
 # Fork-side tracker (Issue-Fork-NNN), when issues are filed on the fork:
 # [project.{{PROJECT}}.issue_source_fork]
