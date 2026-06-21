@@ -16,6 +16,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=lib/log.sh
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
+# shellcheck source=lib/conn-diag.sh
+. "$DEVAGENT_ROOT/scripts/lib/conn-diag.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -90,7 +92,10 @@ base_remote="$(echo "$baseline" | cut -d/ -f1)"
 # ref is absent — the post-fetch resolution block below uses fetch_failed to tell
 # those apart. stderr is still suppressed so offline tests stay quiet.
 fetch_failed=0
-"$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>/dev/null || fetch_failed=1
+# #269: capture the fetch stderr (into a var, not the terminal — offline tests stay
+# quiet) so the unreachable-remote die below can classify auth vs network. Order is
+# load-bearing: 2>&1 binds stderr to the capture, THEN 1>/dev/null drops stdout.
+fetch_err="$("$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>&1 1>/dev/null)" || fetch_failed=1
 # Resolve baseline ref.
 if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
     :
@@ -114,7 +119,11 @@ else
     # issue's branch) so ship later bases the PR on the wrong parent.
     if "$DEVAGENT_GIT" remote get-url "$base_remote" >/dev/null 2>&1; then
         if [ "$fetch_failed" -eq 1 ]; then
-            die "branch.sh: default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable (the fetch failed: offline, host down, auth, or transient network error); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244)"
+            # #269: classify the captured fetch stderr (auth vs network vs rate-limit).
+            # Ambiguous/unrecognized ⇒ keep today's grouped wording (never mis-assert).
+            cause="$(conn_diag_message "$fetch_err" || true)"
+            [ -n "$cause" ] || cause="the fetch failed: offline, host down, auth, or transient network error"
+            die "branch.sh: default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable ($cause); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244, #269)"
         fi
         die "branch.sh: default_baseline '$baseline' does not resolve though remote '$base_remote' was reached and fetched (pruned, typo'd, or deleted ref?); refusing to fall back to HEAD — fix default_baseline or restore the ref (#72)"
     fi
