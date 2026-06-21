@@ -159,9 +159,11 @@ EOF
     chmod +x "$DEVAGENT_TMP/gh"
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo whatever
     [ "$status" -eq 2 ]
+    # #269: rc 2 carries a network-classified diagnostic on stderr.
+    echo "$output" | grep -qi "network"
 }
 
-@test "code/github.sh branch-exists exits 2 on a 403 rate-limit, not 1 (#85)" {
+@test "code/github.sh branch-exists exits 2 on a 403 rate-limit, not 1 (#85); rate-limit diagnosed (#269)" {
     cat > "$DEVAGENT_TMP/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "gh: API rate limit exceeded (HTTP 403)" >&2
@@ -170,6 +172,26 @@ EOF
     chmod +x "$DEVAGENT_TMP/gh"
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo whatever
     [ "$status" -eq 2 ]
+    # #269: a 403 that names a rate limit must read as rate-limit, never auth.
+    echo "$output" | grep -qi "rate-limited"
+    run grep -qi "authentication" <<<"$output"
+    [ "$status" -ne 0 ]
+}
+
+@test "code/github.sh branch-exists exits 2 on an auth failure, distinctly diagnosed (#269)" {
+    # A 401/403 with NO rate-limit text is an auth/authz problem (bad/under-scoped
+    # token). Both the branch probe and the repo probe fail the same way.
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "gh: HTTP 401: Bad credentials" >&2
+exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo whatever
+    [ "$status" -eq 2 ]
+    echo "$output" | grep -qi "authentication"
+    run grep -qi "network" <<<"$output"
+    [ "$status" -ne 0 ]
 }
 
 @test "code/github.sh merged-pr-head exits 0 when a merged PR has the head, 1 when none (#154)" {

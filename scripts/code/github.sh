@@ -11,6 +11,10 @@ set -euo pipefail
 : "${DEVAGENT_GH:=gh}"
 : "${DEVAGENT_GIT:=git}"
 
+# #269: classify the rc-2 "can't determine" cause (auth vs network vs rate-limit).
+# shellcheck source=../lib/conn-diag.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/conn-diag.sh"
+
 usage() {
     cat >&2 <<'EOF'
 usage: code/github.sh <verb> [args...]
@@ -88,7 +92,10 @@ case "$verb" in
         # #85/#243: 0 = exists (HTTP 200); 1 = CONFIRMED absent (a real HTTP 404
         # on a repo the token CAN read); 2 = can't determine (network / 403
         # rate-limit / any other gh error, OR a 404 that masks an unreadable
-        # private repo). `gh api` exits 1 for all error cases, so map only a
+        # private repo). #269: rc 2 is unchanged for callers (ship.sh keys on rc),
+        # but now also carries a classified diagnostic on stderr (auth vs network
+        # vs rate-limit) when the captured error is recognizable. `gh api` exits 1
+        # for all error cases, so map only a
         # "HTTP 404" in the captured stderr toward absent — but rc 1 is emitted
         # ONLY once repo-readability is established (#243). GitHub returns HTTP
         # 404 for an authorization failure on a private repo (it hides existence
@@ -110,12 +117,23 @@ case "$verb" in
                 # A 404 here means "branch absent" only if the repo is readable.
                 # Probe the repo root: readable → genuinely absent (rc 1);
                 # otherwise the 404 masks an unreadable private repo → rc 2 (#243).
-                if "$DEVAGENT_GH" api "repos/$1" >/dev/null 2>&1; then
+                # #269: capture the repo-probe error (it carries the auth-vs-network
+                # signal, unlike the branch-endpoint 404) and surface a classified
+                # cause on stderr; rc 2 unchanged. `if assign` keeps set -e happy.
+                if repoerr="$("$DEVAGENT_GH" api "repos/$1" 2>&1 >/dev/null)"; then
                     exit 1
+                fi
+                if msg="$(conn_diag_message "$repoerr")"; then
+                    echo "code/github.sh: branch-exists can't determine '$2' on '$1' — $msg" >&2
                 fi
                 exit 2
                 ;;
-            *)            exit 2 ;;
+            *)
+                # #269: any other gh error (network/403/etc). Classify $err; rc 2.
+                if msg="$(conn_diag_message "$err")"; then
+                    echo "code/github.sh: branch-exists can't determine '$2' on '$1' — $msg" >&2
+                fi
+                exit 2 ;;
         esac
         ;;
     merged-pr-head)

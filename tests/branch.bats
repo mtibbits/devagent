@@ -116,6 +116,49 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
 }
 
+@test "branch.sh diagnoses an AUTH fetch failure distinctly, still no wrong-base (#269)" {
+    # origin is configured; the fetch fails with an auth-class stderr. The
+    # unreachable-remote diagnostic must name auth (not network), and must still
+    # refuse the HEAD fallback (#72 invariant unchanged).
+    ( cd "$SOURCE_DIR" && git remote add origin "$DEVAGENT_TMP/does-not-exist.git" )
+    cat > "$DEVAGENT_TMP/fakegit-auth" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = fetch ]; then echo "fatal: could not read Username: HTTP 403: Bad credentials" >&2; exit 1; fi
+exec git "$@"
+EOF
+    chmod +x "$DEVAGENT_TMP/fakegit-auth"
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "auth base" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    DEVAGENT_GIT="$DEVAGENT_TMP/fakegit-auth" run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    out="$output"                                       # snapshot: `run` below clobbers $output
+    echo "$out" | grep -qi "authentication"             # #269 auth-classified
+    echo "$out" | grep -qi "refusing to fall back"      # #72 invariant preserved
+    run grep -qi "network/availability" <<<"$out"       # NOT the network message
+    [ "$status" -ne 0 ]
+}
+
+@test "branch.sh diagnoses a NETWORK fetch failure distinctly, still no wrong-base (#269)" {
+    ( cd "$SOURCE_DIR" && git remote add origin "$DEVAGENT_TMP/does-not-exist.git" )
+    cat > "$DEVAGENT_TMP/fakegit-net" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = fetch ]; then echo "fatal: unable to access: Could not resolve host: github.com" >&2; exit 1; fi
+exec git "$@"
+EOF
+    chmod +x "$DEVAGENT_TMP/fakegit-net"
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "net base" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    DEVAGENT_GIT="$DEVAGENT_TMP/fakegit-net" run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    out="$output"                                       # snapshot: `run` below clobbers $output
+    echo "$out" | grep -qi "network/availability"       # #269 network-classified
+    echo "$out" | grep -qi "refusing to fall back"
+    run grep -qi "authentication" <<<"$out"              # NOT the auth message
+    [ "$status" -ne 0 ]
+}
+
 @test "branch.sh creates a git worktree when use_worktree=true" {
     # Insert use_worktree + worktree_root into the [project.testproj] block.
     python3 - "$HOME/.claude/devagent/config.toml" "$TEST_PROJECT" "$DEVAGENT_TMP/wtroot" <<'PY'
