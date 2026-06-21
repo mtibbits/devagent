@@ -433,7 +433,16 @@ EOF
     chmod +x "$DEVAGENT_STUB_BIN/git"
     cat > "$DEVAGENT_STUB_BIN/gh" <<EOF
 #!/usr/bin/env bash
-if [ "\$1" = "api" ]; then echo "gh: Branch not found (HTTP 404)" >&2; exit 1; fi   # branch-exists → absent (real gh 404; #85 maps only HTTP 404 → rc 1)
+# branch-exists makes two api calls (#243): the branch probe 404s (parent
+# absent) but the repo-readability probe succeeds (the repo IS readable), so
+# branch-exists returns rc 1 = confirmed-absent — not rc 2 — and ship falls
+# back to the default base + warns.
+if [ "\$1" = "api" ]; then
+  case "\$*" in
+    *"/branches/"*) echo "gh: Branch not found (HTTP 404)" >&2; exit 1 ;;   # branch absent
+    *)              exit 0 ;;                                                # repo readable
+  esac
+fi
 echo "gh \$*" >> "$DEVAGENT_STUB_LOG"
 printf '%s' "https://github.com/acme/testproj/pull/77"
 EOF
