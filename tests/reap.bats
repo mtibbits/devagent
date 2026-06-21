@@ -252,3 +252,35 @@ AW
   [[ "$output" == *"Issue-100/lessonsLearned.md"* ]]
   [[ "$output" == *"Issue-102"* ]]
 }
+
+@test "reap: state dir honors DA_HOME when DEVAGENT_STATE_DIR is unset (#237)" {
+  # #237: reap.sh:65 hardcoded ${HOME}, ignoring DA_HOME — the lone holdout vs
+  # depends.sh (#80). With DEVAGENT_STATE_DIR unset, the reaped ledger must
+  # resolve under $DA_HOME (devagent_home() returns DA_HOME as-is, so state is
+  # $DA_HOME/state — matching state_path()). Point HOME and DA_HOME at distinct
+  # tmp dirs so a regression writes to neither the real $HOME nor where we
+  # assert success.
+  unset DEVAGENT_STATE_DIR
+  local fake_home da_home
+  fake_home="$(mktemp -d -t devagent-home.XXXXXX)"
+  da_home="$(mktemp -d -t devagent-dahome.XXXXXX)"
+  export HOME="${fake_home}" DA_HOME="${da_home}"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  [ -f "${da_home}/state/fake.reaped.toml" ]
+  [ ! -e "${fake_home}/.claude/devagent/state/fake.reaped.toml" ]
+  rm -rf "${fake_home}" "${da_home}"
+}
+
+@test "reap: explicit DEVAGENT_STATE_DIR overrides DA_HOME (#237)" {
+  # AC #2: an explicit DEVAGENT_STATE_DIR still wins over DA_HOME.
+  local da_home explicit
+  da_home="$(mktemp -d -t devagent-dahome.XXXXXX)"
+  explicit="$(mktemp -d -t devagent-explicit.XXXXXX)"
+  export DA_HOME="${da_home}" DEVAGENT_STATE_DIR="${explicit}"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  [ -f "${explicit}/fake.reaped.toml" ]
+  [ ! -e "${da_home}/.claude/devagent/state/fake.reaped.toml" ]
+  rm -rf "${da_home}" "${explicit}"
+}

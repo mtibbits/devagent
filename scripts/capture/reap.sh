@@ -18,6 +18,11 @@ source "${SCRIPT_DIR}/lib/hash.sh"
 source "${SCRIPT_DIR}/../lib/io.sh"
 # shellcheck source=../lib/log.sh
 source "${SCRIPT_DIR}/../lib/log.sh"
+# #237: shared scripts/lib/paths.sh provides devagent_home() (DA_HOME-aware
+# state resolution). capture/lib/paths.sh holds only capture-slug helpers — no
+# name overlap. Needed for the STATE_DIR default below.
+# shellcheck source=../lib/paths.sh
+source "${SCRIPT_DIR}/../lib/paths.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -62,7 +67,10 @@ done
 [[ -n "${DEVAGENT_DEVDOC_DIR:-}" ]] || { echo "DEVAGENT_DEVDOC_DIR not set" >&2; exit 2; }
 [[ -n "${DEVAGENT_PLUGIN_DIR:-}" ]] || { echo "DEVAGENT_PLUGIN_DIR not set" >&2; exit 2; }
 
-STATE_DIR="${DEVAGENT_STATE_DIR:-${HOME}/.claude/devagent/state}"
+# Default honors DA_HOME via devagent_home() (paths.sh, sourced above), matching
+# depends.sh (#80) — not a hardcoded $HOME (#237). Explicit DEVAGENT_STATE_DIR
+# still wins.
+STATE_DIR="${DEVAGENT_STATE_DIR:-$(devagent_home)/state}"
 mkdir -p "${STATE_DIR}"
 STATE_FILE="${STATE_DIR}/${DEVAGENT_PROJECT}.reaped.toml"
 
