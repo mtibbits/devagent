@@ -15,6 +15,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
 . "$DEVAGENT_ROOT/scripts/lib/stacked.sh"
+# shellcheck source=lib/zerodiff.sh
+. "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
 
 : "${DEVAGENT_GIT:=git}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
@@ -63,18 +65,15 @@ fi
 branch="$(state_get "$project" branch 2>/dev/null || true)"
 [ -n "$branch" ] || die "ship.sh: no branch in state (run /devagent:branch first)"
 
-# Zero-diff guard: artifact-only issues have no commits to push/PR. rev-list the
-# ISSUE BRANCH by name — source_dir's own HEAD need not be the issue branch (never is
-# under a worktree); refs are shared, so "$branch" resolves regardless (#68). A
-# rev-list FAILURE must not collapse into the destructive skip (fail-safe by
-# direction, cf. commit.sh / #25): only skip when rev-list SUCCEEDED and was empty.
+# Zero-diff guard (shared core, #241): artifact-only issues have no commits to
+# push/PR. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's own
+# HEAD need not be the issue branch (never is under a worktree); refs are shared,
+# so "$branch" resolves regardless (#68). Only the 'empty' verdict authorizes the
+# auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE) never collapses
+# into the destructive skip (fail-safe by direction, #25/#68).
 baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
-zd_commits=""; zd_ok=1
-if [ -n "$baseline_sha" ]; then
-    zd_commits="$("$DEVAGENT_GIT" -C "$source_dir" rev-list "$branch" "^$baseline_sha" 2>/dev/null)" || zd_ok=0
-fi
-if [ -n "$baseline_sha" ] && [ "$zd_ok" = 1 ] && [ -z "$zd_commits" ]; then
+if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "ship.sh: no commits on branch — auto-marking step 15 [-] (zero-diff issue)"
     checklist_mark "$issue_dir/checklist.md" 15 -
     log_append "$issue_dir" ship "auto-skipped: zero commits on branch (artifact-only issue)"
