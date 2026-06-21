@@ -20,6 +20,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/artifact.sh"
 # shellcheck source=lib/coauthor.sh
 . "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
+# shellcheck source=lib/zerodiff.sh
+. "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -57,10 +59,12 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
 
+# Commits-ahead via the shared classifier (#241). Only a confirmed 'commits'
+# verdict counts as work-via-commits; 'empty', a missing baseline, and a rev-list
+# fault all leave has_commits unset (matching the prior `|| true`→"" behavior) —
+# the working-tree checks below (staged/dirty) carry commit.sh's own fail-safe.
 has_commits=""
-if [ -n "$baseline_sha" ]; then
-    has_commits="$("$DEVAGENT_GIT" -C "$work_dir" rev-list HEAD "^$baseline_sha" 2>/dev/null || true)"
-fi
+[ "$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")" = commits ] && has_commits=1
 staged=""
 # Fail-safe by direction: any git fault here (e.g. not-a-repo, exit >=2) takes
 # the `|| staged=1` branch, so the guard falls through to `git commit` below
