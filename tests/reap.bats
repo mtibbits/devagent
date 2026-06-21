@@ -135,6 +135,32 @@ teardown() {
   grep -rqE 'imPlan-potentialFutureEnhancements\.md line 2\b' "${TMP_DEVDOC}/Captures"/*/draft.md
 }
 
+@test "reap: a long-title (>=60 char) slug collision still yields two distinct drafts (#252)" {
+  # #252: the #108 retry appends the disambiguator to the TITLE, but devagent_slug
+  # caps the kebab at 60 chars and slices the suffix off — so two long titles with
+  # an identical first-60-char kebab collide forever and the 2nd is deferred, never
+  # drafted. The suffix must survive the cap. Two bullets: identical long prefix,
+  # the distinguishing token (alpha/beta) sits past kebab char 60, distinct bodies.
+  # Fresh Issue-996 isolates the assertion. (The #108 short-title test above passes
+  # WITHOUT this fix, so it does not cover this gap.)
+  mkdir -p "${TMP_DEVDOC}/Issue-996"
+  printf -- '- Allocate the reap slug suffix so that it survives the sixty character truncation cap alpha. Extra alpha body detail.\n- Allocate the reap slug suffix so that it survives the sixty character truncation cap beta. Extra beta body detail.\n' \
+    > "${TMP_DEVDOC}/Issue-996/imPlan-potentialFutureEnhancements.md"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"capture.sh failed"* ]]   # neither candidate deferred
+  mapfile -t drafts < <(grep -rlE 'Issue-996/imPlan-potentialFutureEnhancements\.md' "${TMP_DEVDOC}/Captures"/*/draft.md)
+  [ "${#drafts[@]}" -eq 2 ]
+  grep -rqE 'imPlan-potentialFutureEnhancements\.md line 1\b' "${TMP_DEVDOC}/Captures"/*/draft.md
+  grep -rqE 'imPlan-potentialFutureEnhancements\.md line 2\b' "${TMP_DEVDOC}/Captures"/*/draft.md
+  # Idempotent: a second run drafts nothing new (both hashes now seen).
+  local before
+  before="$(find "${TMP_DEVDOC}/Captures" -name draft.md | wc -l)"
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  [ "$(find "${TMP_DEVDOC}/Captures" -name draft.md | wc -l)" -eq "${before}" ]
+}
+
 @test "reap: structured [actionable] lesson is titled by its heading, not 'Tags' (#112)" {
   # Canonical lessonsLearned: '### <claim>' heading + '- Tags: [actionable]'. reap
   # used to grep the tag line and title the draft 'Tags: [actionable]', losing the

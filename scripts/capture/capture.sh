@@ -14,7 +14,7 @@ source "${SCRIPT_DIR}/lib/template.sh"
 usage() {
   cat <<'USAGE' >&2
 Usage: capture.sh --type {issue|epic} [--subtype {bug|feature|docs|perf|chore}]
-                  --title <title> [--source <citation>] [--force]
+                  --title <title> [--source <citation>] [--slug-suffix <s>] [--force]
 
 Writes <devdoc>/Captures/<slug>/draft.md from the resolved template.
 Prints the slug on stdout.
@@ -27,13 +27,15 @@ Env:
 USAGE
 }
 
-TYPE=""; SUBTYPE="bug"; TITLE=""; SOURCE=""; FORCE=0
+TYPE=""; SUBTYPE="bug"; TITLE=""; SOURCE=""; FORCE=0; SLUG_SUFFIX=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --type) TYPE="${2:?}"; shift 2 ;;
     --subtype) SUBTYPE="${2:?}"; shift 2 ;;
     --title) TITLE="${2:?}"; shift 2 ;;
     --source) SOURCE="${2:?}"; shift 2 ;;
+    # #252: optional disambiguator appended past devagent_slug's 60-char cap.
+    --slug-suffix) SLUG_SUFFIX="${2:?}"; shift 2 ;;
     --force) FORCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -56,7 +58,7 @@ case "${TYPE}" in
   *) echo "--type must be issue|epic" >&2; exit 2 ;;
 esac
 
-slug="$(devagent_slug "${TITLE}")"
+slug="$(devagent_slug "${TITLE}" "${SLUG_SUFFIX}")"
 dir="$(devagent_ensure_capture_dir "${slug}")"
 draft="${dir}/draft.md"
 if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
