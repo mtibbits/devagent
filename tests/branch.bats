@@ -93,6 +93,29 @@ teardown() { devagent_test_teardown; }
     echo "$output" | grep -qi "empty"
 }
 
+@test "branch.sh reports an unreachable configured remote distinctly, never wrong-bases [#244]" {
+    # origin is CONFIGURED but UNREACHABLE: its URL points at a path that does
+    # not exist, so `git fetch origin` fails. default_baseline (origin/main)
+    # then can't resolve. This must be diagnosed as the remote being unreachable
+    # (offline/transient) — NOT as a pruned/typo'd ref — and must never fall back
+    # to HEAD (no wrong-base).
+    ( cd "$SOURCE_DIR" && git remote add origin "$DEVAGENT_TMP/does-not-exist.git" )
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "offline base" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    export NOTE=""
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -qi "unreachable"                     # the new offline/transient diagnosis
+    echo "$output" | grep -qi "refusing to fall back"           # still no HEAD fallback (#72 invariant)
+    # The unreachable case must NOT be mislabeled as a pruned/typo'd ref.
+    run grep -qi "pruned" <<<"$output"
+    [ "$status" -ne 0 ]
+    # No branch created: still on main, state branch not a feat/ branch.
+    ( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD ) | grep -qx "main"
+    run grep -q '^branch *= *"feat/' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ "$status" -ne 0 ]
+}
+
 @test "branch.sh creates a git worktree when use_worktree=true" {
     # Insert use_worktree + worktree_root into the [project.testproj] block.
     python3 - "$HOME/.claude/devagent/config.toml" "$TEST_PROJECT" "$DEVAGENT_TMP/wtroot" <<'PY'
