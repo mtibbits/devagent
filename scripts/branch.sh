@@ -79,10 +79,17 @@ if [ -r "$baseline_file" ]; then
 fi
 
 cd "$source_dir"
-# Fetch the remote implied by a remote/branch baseline; a harmless no-op for a
-# local-branch baseline (e.g. dev/all-prs → "dev" is not a remote). Network
-# failure is absorbed as "already up to date" for offline tests.
-"$DEVAGENT_GIT" fetch --quiet "$(echo "$baseline" | cut -d/ -f1)" 2>/dev/null || true
+# First path component of a remote/branch baseline names the remote to fetch; for
+# a purely local-branch baseline (e.g. dev/all-prs → "dev") it is not a configured
+# remote and the fetch is an expected no-op failure.
+base_remote="$(echo "$baseline" | cut -d/ -f1)"
+# Fetch that remote, but CAPTURE the outcome rather than uniformly absorbing it as
+# "already up to date" (#244). A failed fetch against a *configured* remote means
+# the remote was unreachable (offline, host down, auth, transient), not that the
+# ref is absent — the post-fetch resolution block below uses fetch_failed to tell
+# those apart. stderr is still suppressed so offline tests stay quiet.
+fetch_failed=0
+"$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>/dev/null || fetch_failed=1
 # Resolve baseline ref.
 if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
     :
@@ -92,15 +99,23 @@ elif [ "$baseline_override" -eq 1 ]; then
     # mis-base hazard). Fail before any branch is created.
     die "branch.sh: per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
 else
-    # Default-baseline path. Distinguish a genuinely-missing remote (offline /
-    # no-remote fixture — fall back to HEAD, but LOUDLY) from a configured remote
-    # whose ref simply did not resolve (pruned or typo'd ref). The latter is the
-    # #72 mis-base hazard: a silent HEAD fallback stacks the branch on whatever is
-    # checked out (often the previous issue's branch) and ship later bases the PR
-    # on the wrong parent — so refuse it rather than fall back.
-    base_remote="$(echo "$baseline" | cut -d/ -f1)"
+    # Default-baseline path. Three outcomes, not two (#244):
+    #  (a) remote NOT configured (offline / no-remote fixture) → fall back to
+    #      HEAD, but LOUDLY.
+    #  (b) remote configured but the fetch FAILED → the remote was unreachable
+    #      (offline, host down, auth, transient). The ref may legitimately exist
+    #      remotely; we just never reached it. Do NOT call it pruned/typo'd, and
+    #      do NOT fall back to HEAD (would wrong-base on a network blip).
+    #  (c) remote configured and the fetch SUCCEEDED but the ref still does not
+    #      resolve → genuinely pruned/typo'd/deleted ref.
+    # (b) and (c) both refuse a silent HEAD fallback — that is the #72 mis-base
+    # hazard: stacking the branch on whatever is checked out (often the previous
+    # issue's branch) so ship later bases the PR on the wrong parent.
     if "$DEVAGENT_GIT" remote get-url "$base_remote" >/dev/null 2>&1; then
-        die "branch.sh: default_baseline '$baseline' does not resolve though remote '$base_remote' exists (pruned or typo'd ref?); refusing to fall back to HEAD — fix default_baseline or fetch the ref (#72)"
+        if [ "$fetch_failed" -eq 1 ]; then
+            die "branch.sh: default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable (the fetch failed: offline, host down, auth, or transient network error); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244)"
+        fi
+        die "branch.sh: default_baseline '$baseline' does not resolve though remote '$base_remote' was reached and fetched (pruned, typo'd, or deleted ref?); refusing to fall back to HEAD — fix default_baseline or restore the ref (#72)"
     fi
     warn "branch.sh: default_baseline '$baseline' unresolvable and remote '$base_remote' is not configured; falling back to HEAD ($("$DEVAGENT_GIT" rev-parse --short HEAD)) — the new branch will stack on the current checkout (#72)"
     baseline_sha="$("$DEVAGENT_GIT" rev-parse HEAD)"
