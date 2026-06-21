@@ -18,7 +18,7 @@ conn_diag_message() {
         *"HTTP 429"*|*"rate limit"*|*"rate-limit"*|*"abuse detection"*)
             echo "rate-limited (transient) — wait and retry"
             return 0 ;;
-        *"HTTP 401"*|*"HTTP 403"*|*"Bad credentials"*|*"Resource not accessible"*|*"must have admin"*|*"requires authentication"*|*"Authentication failed"*|*"Permission denied"*)
+        *"HTTP 401"*|*"HTTP 403"*|*"returned error: 401"*|*"returned error: 403"*|*"Bad credentials"*|*"Resource not accessible"*|*"must have admin"*|*"requires authentication"*|*"Authentication failed"*|*"Permission denied"*)
             echo "authentication/authorization failure (bad, expired, or under-scoped token) — re-authenticate or check the token's scope"
             return 0 ;;
         *"could not resolve"*|*"Could not resolve"*|*"no such host"*|*"Temporary failure in name resolution"*|*"Connection refused"*|*"Connection reset"*|*"network is unreachable"*|*"Network is unreachable"*|*"Couldn't connect"*|*"Could not connect"*|*"Failed to connect"*|*"error connecting"*|*"dial tcp"*|*"Operation timed out"*|*"i/o timeout"*|*"TLS handshake"*|*"unable to access"*)

@@ -52,6 +52,12 @@ setup() { . "$BATS_TEST_DIRNAME/../scripts/lib/conn-diag.sh"; }
     [[ "$output" == *rate-limited* ]]
 }
 
+@test "auth: git smart-HTTP 'returned error: 403' → auth, not network (#269 L1)" {
+    run conn_diag_message "fatal: unable to access 'https://github.com/me/r.git/': The requested URL returned error: 403"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *authentication* ]]
+}
+
 @test "network: gh dial-tcp/no-such-host → network message (#269)" {
     run conn_diag_message "error connecting to api.github.com: dial tcp: lookup api.github.com: no such host"
     [ "$status" -eq 0 ]
