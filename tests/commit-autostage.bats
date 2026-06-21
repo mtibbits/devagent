@@ -68,9 +68,50 @@ _enable_autostage() {
     ( cd "$SOURCE_DIR" && echo edit >> README.md )
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
-    [[ "$output" == *"git add"* ]] || [[ "$output" == *".devagent-scope"* ]]
+    [[ "$output" == *".devagent-scope"* ]]
     run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
+}
+
+@test "autostage ON + DIRECTORY entry: die-loud, untracked sibling NEVER staged (over-capture guard, AC3)" {
+    # A bare directory in the manifest would make `git add -- sub/` recurse and
+    # capture untracked siblings the issue never touched. Must be rejected.
+    _enable_autostage
+    ( cd "$SOURCE_DIR" && mkdir -p sub && echo wanted > sub/wanted.txt \
+        && echo unrelated > sub/UNRELATED.txt )
+    printf 'sub\n' > "$DEVDOC_DIR/Issue-1/.devagent-scope"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]   # nothing staged
+}
+
+@test "autostage ON + pathspec-magic entry (:/): die-loud, whole-repo NOT staged (AC3)" {
+    # ':/'/':(top)' are git pathspec magic that stage the entire repo — the banned
+    # `git add -A` equivalent. Must be rejected (leading ':' guard).
+    _enable_autostage
+    ( cd "$SOURCE_DIR" && echo edit >> README.md && echo x > UNRELATED.txt )
+    printf ':/\n' > "$DEVDOC_DIR/Issue-1/.devagent-scope"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]
+}
+
+@test "autostage ON + absolute-path entry: die-loud, nothing staged" {
+    _enable_autostage
+    ( cd "$SOURCE_DIR" && echo edit >> README.md )
+    printf '%s\n' "$SOURCE_DIR/README.md" > "$DEVDOC_DIR/Issue-1/.devagent-scope"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]
+}
+
+@test "autostage ON + parent-traversal entry (../x): die-loud, nothing staged" {
+    _enable_autostage
+    ( cd "$SOURCE_DIR" && echo edit >> README.md )
+    printf '../escape.txt\n' > "$DEVDOC_DIR/Issue-1/.devagent-scope"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]
 }
 
 @test "autostage ON + invalid manifest entry ('.') : die-loud, nothing staged (AC4, no over-capture)" {

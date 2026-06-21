@@ -21,14 +21,16 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # worktree_root     = "<source_dir>-wt"  # parent dir for per-issue worktrees
 # include_coauthor  = true               # false strips Co-Authored-By from commits + PR bodies
 # commit_autostage  = false              # true: step 10 auto-stages the issue's
-#                                        #   in-scope files (listed one-per-line in
+#                                        #   in-scope FILES (one file path per line in
 #                                        #   <issue-dir>/.devagent-scope) on a
 #                                        #   dirty-but-nothing-staged tree instead of
 #                                        #   the #25 die-loud guard. Stages ONLY those
-#                                        #   exact paths — never `git add -A`/`.`; an
-#                                        #   absent/empty/invalid manifest (or paths
-#                                        #   that aren't dirty) falls back to die-loud,
-#                                        #   so out-of-scope work is never committed.
+#                                        #   exact files — never `git add -A`/`.`, and
+#                                        #   directory / ':' pathspec / absolute / '..'
+#                                        #   / glob entries are rejected. An absent/
+#                                        #   empty/invalid manifest (or paths that
+#                                        #   aren't dirty) falls back to die-loud, so
+#                                        #   out-of-scope work is never committed.
 #
 # Fork-side tracker (Issue-Fork-NNN), when issues are filed on the fork:
 # [project.{{PROJECT}}.issue_source_fork]

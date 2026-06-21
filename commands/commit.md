@@ -15,14 +15,16 @@ dies loud and asks you to `git add` your files (the #25 safeguard against shippi
 an empty PR). Setting `commit_autostage = true` (project or default config) makes
 the step stage the issue's declared in-scope files itself instead:
 
-- List the in-scope paths, one repo-relative path per line, in
-  `<issue-dir>/.devagent-scope`.
-- Only those exact paths are staged (`git add -- <paths>`); there is **no**
+- List the in-scope **files**, one repo-relative *file* path per line, in
+  `<issue-dir>/.devagent-scope`. **Directories are not allowed** — list each file
+  explicitly (a directory entry would recursively capture untracked siblings).
+- Only those exact files are staged (`git add -- <paths>`); there is **no**
   `git add -A`/`.`/glob — an out-of-scope dirty/untracked file is never staged and
   is provably absent from the commit.
 - A missing/empty `.devagent-scope`, an invalid entry (`.`, `..`, a leading `-`,
-  or a glob char), or paths that aren't actually dirty all fall back to the
-  die-loud guard — auto-staging never guesses.
+  a `:` pathspec-magic prefix, an absolute path, a glob char, or a directory), or
+  paths that aren't actually dirty all fall back to the die-loud guard —
+  auto-staging never guesses.
 
 With `commit_autostage` unset/false the behavior is unchanged.
 
