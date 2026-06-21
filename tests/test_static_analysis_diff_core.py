@@ -157,12 +157,19 @@ def test_parse_file_line_clang_tidy_gcc_style():
 
 
 def test_parse_file_line_col_optional():
-    # file:line:: form (no column digits before the second colon).
+    # file:line: form with no column digits. NOTE: this matches the FIRST regex
+    # (`...:\d*:?\s` with \d* empty and :? absent), not the second — the first
+    # regex's optional column already covers it. Result is identical either way.
     f, ln = sad.parse_file_line("lib/foo.cc:13: warning: msg")
     assert (f, ln) == ("lib/foo.cc", 13)
 
 
 def test_parse_file_line_cpplint_style():
+    # cpplint emits `file:line:  msg  [cat] [sev]`. This too is absorbed by the
+    # FIRST regex (\d* matches the empty column), so the dedicated cpplint regex
+    # (the second branch) is effectively unreachable given the first's
+    # permissiveness — see imPlan-potentialFutureEnhancements.md. The parsed
+    # (file, line) is correct regardless, which is what this asserts.
     f, ln = sad.parse_file_line("file.cc:88:  Missing space  [whitespace] [4]")
     assert (f, ln) == ("file.cc", 88)
 
