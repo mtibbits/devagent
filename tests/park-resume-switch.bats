@@ -192,3 +192,38 @@ CTX
   run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" parked.Issue-676
   [ "$status" -ne 0 ]
 }
+
+@test "resume warns when the restored worktree_path no longer exists on disk (#248)" {
+  # Issue-676 parked with a worktree that is removed out-of-band before resume.
+  local dead="$BATS_TEST_TMPDIR/gone-worktree"
+  cat >> "$DA_HOME/state/volk.toml" <<CTX
+branch = "fix/676-foo"
+worktree_path = "$dead"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk
+  [ "$status" -eq 0 ]
+  # The worktree dir never exists ($dead) — resume must warn, naming path + issue,
+  # and still resume (rc 0).
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"$dead"* ]]        # names the dead path
+  [[ "$output" == *"Issue-676"* ]]    # names the issue
+  [[ "$output" == *"worktree"* ]]     # signals the worktree is the problem
+}
+
+@test "resume does NOT warn when worktree_path points at a live git tree (#248)" {
+  local live="$BATS_TEST_TMPDIR/live-worktree"
+  mkdir -p "$live"
+  git -C "$live" init -q
+  cat >> "$DA_HOME/state/volk.toml" <<CTX
+branch = "fix/676-foo"
+worktree_path = "$live"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk
+  [ "$status" -eq 0 ]
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"WARNING"* ]]      # live tree → no spurious warning
+  [[ "$output" == *"resumed Issue-676"* ]]
+}

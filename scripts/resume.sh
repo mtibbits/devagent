@@ -70,7 +70,25 @@ main() {
   state_set "$project" active_issue "$issue"
   state_set "$project" issue_dir   "$issue_dir"
   state_context_restore "$project" "$issue"
-  info "resumed $issue"
+
+  # #248: liveness-check the restored worktree_path. A git worktree removed
+  # out-of-band (git worktree prune, rm -rf, disk cleanup, worktree-root
+  # relocation) between park and resume leaves a dead path active. Without this,
+  # resume reports clean success and the dead path only surfaces later at the
+  # unguarded commit.sh:57-58 as a raw git error that doesn't name the cause.
+  # Warn now (naming path + issue) and qualify the success line; leave the value
+  # active so the issue still resumes (recreating/clearing it is out of scope).
+  # Mirrors ship.sh's #148 `--is-inside-work-tree` check (catches a missing dir
+  # AND a path that exists but is not a git tree). Empty worktree_path
+  # (non-worktree projects) and live trees resume silently.
+  local worktree_path resume_note=""
+  worktree_path="$(state_get "$project" worktree_path 2>/dev/null || true)"
+  if [[ -n "$worktree_path" ]] \
+     && ! "${DEVAGENT_GIT:-git}" -C "$worktree_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    warn "$issue: worktree_path is no longer a usable git working tree: $worktree_path (removed out-of-band? left active — recreate it or re-run /devagent:branch before committing)"
+    resume_note=" (worktree_path stale — see warning)"
+  fi
+  info "resumed $issue${resume_note}"
 }
 
 main "$@"
