@@ -107,9 +107,9 @@ teardown() { teardown_phase9_env; }
 }
 
 # --- #78: fail-loud devdoc resolution (no silent $HOME/devdoc fallback) ---
-# Each runs _depends_devdoc_dir in a fresh `bash -c` with a hermetic tmp DA_HOME
-# so config resolves against that dir's config.toml (the suite's
-# DEVAGENT_CONFIG_OVERRIDE is wired to nothing). DEVAGENT_TEST_DEVDOC is stripped
+# Each runs _depends_devdoc_dir in a fresh `bash -c` with its own hermetic tmp
+# DA_HOME so config resolves against that dir's config.toml (overriding the
+# suite-wide DA_HOME the helper now sets, #238). DEVAGENT_TEST_DEVDOC is stripped
 # for the required/config legs so the real resolution path is exercised.
 
 @test "#78: _depends_devdoc_dir dies loudly when devdoc_dir cannot be resolved" {
@@ -185,4 +185,25 @@ teardown() { teardown_phase9_env; }
   rm -rf "${th}"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Issue-201"* ]]
+}
+
+@test "#238: the test harness resolves config hermetically, never the operator's real ~/.claude/devagent" {
+  # The helper used to export a vestigial DEVAGENT_CONFIG_OVERRIDE (read by no
+  # script) and never set DA_HOME, so config_path() fell through to the operator's
+  # real ~/.claude/devagent/config.toml. DEVAGENT_TEST_DEVDOC only short-circuits
+  # the devdoc_dir lookup, NOT arbitrary config reads. Assert hermeticity on a
+  # non-devdoc field. Strip DEVAGENT_TEST_DEVDOC to prove the config path itself
+  # (not the short-circuit) is what's isolated.
+  source "${DEVAGENT_LIB}/paths.sh"
+  source "${DEVAGENT_LIB}/config.sh"
+  run env -u DEVAGENT_TEST_DEVDOC bash -c \
+    "source '${DEVAGENT_LIB}/paths.sh'; config_path"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${TEST_TMP}/config.toml" ]
+  [ "$output" != "${HOME}/.claude/devagent/config.toml" ]
+  # A non-devdoc field reads from the temp config, not the operator's real one.
+  run env -u DEVAGENT_TEST_DEVDOC bash -c \
+    "source '${DEVAGENT_LIB}/paths.sh'; source '${DEVAGENT_LIB}/config.sh'; config_get_project_field ${DEVAGENT_TEST_PROJECT} source_dir"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${TEST_TMP}/src" ]
 }

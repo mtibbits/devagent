@@ -17,10 +17,18 @@ setup_phase9_env() {
   export DEVAGENT_TEST_DEVDOC="${TEST_TMP}/devdoc"
   export DEVAGENT_TEST_PROJECT="testproj"
 
-  export DEVAGENT_CONFIG_OVERRIDE="${TEST_TMP}/config.toml"
-  cat > "${DEVAGENT_CONFIG_OVERRIDE}" <<EOF
+  # #238: make config resolution hermetic. config_path() resolves to
+  # $(devagent_home)/config.toml = $DA_HOME/config.toml, so pointing DA_HOME at the
+  # per-test tmp keeps EVERY config read off the operator's real
+  # ~/.claude/devagent/config.toml — not just the devdoc_dir lookup that
+  # DEVAGENT_TEST_DEVDOC short-circuits. Replaces the vestigial
+  # DEVAGENT_CONFIG_OVERRIDE export, which no script ever read. source_dir is a
+  # non-devdoc field so a test can prove general (not devdoc-only) hermeticity.
+  export DA_HOME="${TEST_TMP}"
+  cat > "${TEST_TMP}/config.toml" <<EOF
 [project.testproj]
 devdoc_dir = "${TEST_TMP}/devdoc"
+source_dir = "${TEST_TMP}/src"
 EOF
 
   DEVAGENT_REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
