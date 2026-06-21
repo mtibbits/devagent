@@ -124,3 +124,47 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [ "$output" = "origin/main" ]             # git ref, untouched
 }
+
+# --- #246: public project_devdoc_dir resolver (moved here from depends.sh) ---
+# Sourcing ONLY the config trio (paths/io/config, per setup) proves the resolver
+# genuinely lives in config.sh — not depends.sh. Preserves the #78 fail-loud +
+# DEVAGENT_TEST_DEVDOC behavior. Hermetic bash -c with its own DA_HOME.
+
+@test "project_devdoc_dir resolves from config via config.sh alone [#246]" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  mkdir -p "${tmp_home}/devdoc-target"
+  printf '[project.cfgproj]\ndevdoc_dir = "%s/devdoc-target"\n' "${tmp_home}" > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/config.sh'; project_devdoc_dir cfgproj"
+  local expected="${tmp_home}/devdoc-target"
+  rm -rf "${tmp_home}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${expected}" ]
+}
+
+@test "project_devdoc_dir honors DEVAGENT_TEST_DEVDOC override [#246]" {
+  run env DEVAGENT_TEST_DEVDOC=/tmp/devdoc-override-xyz bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/config.sh'; project_devdoc_dir anyproj"
+  [ "$status" -eq 0 ]
+  [ "$output" = "/tmp/devdoc-override-xyz" ]
+}
+
+@test "project_devdoc_dir dies loudly when devdoc_dir cannot be resolved [#246/#78]" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  printf '[project.otherproj]\ndevdoc_dir = "%s/x"\n' "${tmp_home}" > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/config.sh'; project_devdoc_dir missingproj"
+  rm -rf "${tmp_home}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot resolve devdoc_dir"* ]]
+}
+
+@test "project_devdoc_dir dies loudly when devdoc_dir resolves empty [#246/#78]" {
+  local tmp_home; tmp_home="$(mktemp -d)"
+  printf '[project.emptyproj]\ndevdoc_dir = ""\n' > "${tmp_home}/config.toml"
+  run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" bash -c \
+    "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/config.sh'; project_devdoc_dir emptyproj"
+  rm -rf "${tmp_home}"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"resolved empty"* ]]
+}

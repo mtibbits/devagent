@@ -256,30 +256,13 @@ _depends_graph_render() {
 depends_issue_is_merged() {
   local project="$1" issue="$2"
   local devdoc
-  devdoc="$(_depends_devdoc_dir "${project}")"
+  devdoc="$(project_devdoc_dir "${project}")"
   [ -f "${devdoc}/${issue}/.merged" ]
 }
 
-# Resolve a project's devdoc dir, or die loudly. The DEVAGENT_TEST_DEVDOC
-# override is the one legitimately-optional (tolerant) leg; otherwise the path
-# is genuinely required by every caller (ship preflight, grep.sh, history.sh),
-# so #78 fails loud instead of the old silent $HOME/devdoc fallback. config.sh
-# is self-sourced above, so config_get_project_field is always defined — no
-# `command -v` feature-detection — and it already returns non-zero on a missing
-# field (#82), which we no longer mask with an unconditional `return 0`.
-_depends_devdoc_dir() {
-  local project="$1"
-  if [ -n "${DEVAGENT_TEST_DEVDOC:-}" ]; then
-    printf '%s\n' "${DEVAGENT_TEST_DEVDOC}"
-    return 0
-  fi
-  local devdoc
-  devdoc="$(config_get_project_field "${project}" "devdoc_dir")" \
-    || die "cannot resolve devdoc_dir for project '${project}' — set it in config.toml (or export DEVAGENT_TEST_DEVDOC)"
-  [ -n "${devdoc}" ] \
-    || die "devdoc_dir for project '${project}' resolved empty — check config.toml"
-  printf '%s\n' "${devdoc}"
-}
+# #246: the devdoc-dir resolver moved to the public config.sh:project_devdoc_dir
+# (config.sh is sourced above). The former private _depends_devdoc_dir is gone —
+# entry points (grep.sh, history.sh) and this library now share one public path.
 
 # depends_ship_preflight <project> <issue> <strict>
 #   strict=0 → warn-only, exit 0

@@ -8,8 +8,14 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/depends.sh
-. "${SCRIPT_DIR}/lib/depends.sh"
+# Only needs devdoc-dir resolution (#246) — source the config trio directly
+# instead of the whole dependency-CRUD library.
+# shellcheck source=lib/paths.sh
+. "${SCRIPT_DIR}/lib/paths.sh"
+# shellcheck source=lib/io.sh
+. "${SCRIPT_DIR}/lib/io.sh"
+# shellcheck source=lib/config.sh
+. "${SCRIPT_DIR}/lib/config.sh"
 # shellcheck source=lib/history.sh
 . "${SCRIPT_DIR}/lib/history.sh"
 
@@ -44,7 +50,7 @@ fi
 
 # #239: propagate the resolver's die (it exits only the $(...) subshell, leaving
 # the parent with DEVDOC="" → a redundant second 'devdoc dir not found:' line).
-DEVDOC="$(_depends_devdoc_dir "${PROJECT}")" || exit 2
+DEVDOC="$(project_devdoc_dir "${PROJECT}")" || exit 2
 # Retained for the distinct configured-but-missing-on-disk case (resolver returns
 # a non-empty path with rc 0, so the line above does not fire).
 if [ ! -d "${DEVDOC}" ]; then

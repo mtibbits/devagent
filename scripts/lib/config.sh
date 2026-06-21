@@ -121,3 +121,24 @@ step_models_tier() {
   [[ -n "$tier" ]] || return 1
   printf '%s\n' "$tier"
 }
+
+# project_devdoc_dir <project> — resolve a project's devdoc directory, or die
+# loudly (#246; logic moved here from the former depends.sh:_depends_devdoc_dir).
+# The DEVAGENT_TEST_DEVDOC override is the one legitimately-optional (tolerant)
+# leg; otherwise the path is genuinely required by every caller (ship preflight,
+# grep.sh, history.sh), so #78 fails loud instead of the old silent $HOME/devdoc
+# fallback. config_get_project_field already returns non-zero on a missing field
+# (#82), which we no longer mask. Requires io.sh (die) sourced by the caller.
+project_devdoc_dir() {
+  local project="$1"
+  if [ -n "${DEVAGENT_TEST_DEVDOC:-}" ]; then
+    printf '%s\n' "${DEVAGENT_TEST_DEVDOC}"
+    return 0
+  fi
+  local devdoc
+  devdoc="$(config_get_project_field "${project}" "devdoc_dir")" \
+    || die "cannot resolve devdoc_dir for project '${project}' — set it in config.toml (or export DEVAGENT_TEST_DEVDOC)"
+  [ -n "${devdoc}" ] \
+    || die "devdoc_dir for project '${project}' resolved empty — check config.toml"
+  printf '%s\n' "${devdoc}"
+}
