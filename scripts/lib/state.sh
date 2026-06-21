@@ -113,6 +113,17 @@ state_context_save() {
   _state_toml set "$f" updated_at "$(_state_now)"
 }
 
+# state_context_has <project> <issue> — exit 0 iff a non-empty [context.<issue>]
+# snapshot exists. state_context_save only snapshots non-empty keys, so this
+# tells a caller whether anything was actually set aside (e.g. so pull.sh can
+# notify on a real displacement but stay silent when nothing was in-flight, #247).
+state_context_has() {
+  local project="$1" issue="$2" f
+  [[ -n "$issue" ]] || return 2
+  f="$(state_path "$project")"
+  _state_toml list-keys "$f" "context.${issue}" >/dev/null 2>&1
+}
+
 # state_context_clear <project> — reset per-issue keys to state_init defaults.
 state_context_clear() {
   local project="$1" f key
