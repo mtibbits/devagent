@@ -107,49 +107,49 @@ teardown() { teardown_phase9_env; }
 }
 
 # --- #78: fail-loud devdoc resolution (no silent $HOME/devdoc fallback) ---
-# Each runs _depends_devdoc_dir in a fresh `bash -c` with its own hermetic tmp
+# Each runs project_devdoc_dir in a fresh `bash -c` with its own hermetic tmp
 # DA_HOME so config resolves against that dir's config.toml (overriding the
 # suite-wide DA_HOME the helper now sets, #238). DEVAGENT_TEST_DEVDOC is stripped
 # for the required/config legs so the real resolution path is exercised.
 
-@test "#78: _depends_devdoc_dir dies loudly when devdoc_dir cannot be resolved" {
+@test "#78/#246: project_devdoc_dir (resolver moved to config.sh) dies loudly when devdoc_dir cannot be resolved" {
   local tmp_home; tmp_home="$(mktemp -d)"
   printf '[project.otherproj]\ndevdoc_dir = "%s/x"\n' "${tmp_home}" > "${tmp_home}/config.toml"
   run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
-    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir missingproj"
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; project_devdoc_dir missingproj"
   rm -rf "${tmp_home}"
   [ "$status" -ne 0 ]
   # match the missing-field leg specifically (distinct from the empty-field leg)
   [[ "$output" == *"cannot resolve devdoc_dir"* ]]
 }
 
-@test "#78: _depends_devdoc_dir dies loudly when devdoc_dir resolves empty" {
+@test "#78/#246: project_devdoc_dir (resolver moved to config.sh) dies loudly when devdoc_dir resolves empty" {
   local tmp_home; tmp_home="$(mktemp -d)"
   # field present but empty string: config_get_project_field returns rc 0 + empty,
   # so this exercises the second die leg, not the missing-field leg above.
   printf '[project.emptyproj]\ndevdoc_dir = ""\n' > "${tmp_home}/config.toml"
   run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
-    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir emptyproj"
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; project_devdoc_dir emptyproj"
   rm -rf "${tmp_home}"
   [ "$status" -ne 0 ]
   [[ "$output" == *"resolved empty"* ]]
 }
 
-@test "#78: _depends_devdoc_dir resolves devdoc_dir from config (self-sourced, no command -v)" {
+@test "#78/#246: project_devdoc_dir (resolver moved to config.sh) resolves devdoc_dir from config (self-sourced, no command -v)" {
   local tmp_home; tmp_home="$(mktemp -d)"
   mkdir -p "${tmp_home}/devdoc-target"
   printf '[project.cfgproj]\ndevdoc_dir = "%s/devdoc-target"\n' "${tmp_home}" > "${tmp_home}/config.toml"
   run env -u DEVAGENT_TEST_DEVDOC DA_HOME="${tmp_home}" \
-    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir cfgproj"
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; project_devdoc_dir cfgproj"
   local expected="${tmp_home}/devdoc-target"
   rm -rf "${tmp_home}"
   [ "$status" -eq 0 ]
   [ "$output" = "${expected}" ]
 }
 
-@test "#78: _depends_devdoc_dir honors DEVAGENT_TEST_DEVDOC override (tolerant leg)" {
+@test "#78/#246: project_devdoc_dir (resolver moved to config.sh) honors DEVAGENT_TEST_DEVDOC override (tolerant leg)" {
   run env DEVAGENT_TEST_DEVDOC=/tmp/devdoc-override-xyz \
-    bash -c "source '${DEVAGENT_LIB}/depends.sh'; _depends_devdoc_dir anyproj"
+    bash -c "source '${DEVAGENT_LIB}/depends.sh'; project_devdoc_dir anyproj"
   [ "$status" -eq 0 ]
   [ "$output" = "/tmp/devdoc-override-xyz" ]
 }
