@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — opt-in local mirror of the CI SC2314 bats gate (#250).
+#
+# Runs the same SC2314 ("In bats, '!' does not cause a test failure") check that
+# .github/workflows/shellcheck.yml enforces, BEFORE a push, so a vacuous `! cmd`
+# bats assertion is caught in the dev loop instead of after a push/CI/force-push
+# cycle. CI remains the authoritative, enforcing gate — this is a faster mirror.
+#
+# Enable with:  scripts/install-git-hooks.sh   (sets core.hooksPath -> .githooks)
+# Bypass once with:  git push --no-verify
+#
+# Deliberately SC2314-SPECIFIC, not a blanket shellcheck: tests/*.bats has known
+# non-SC2314 findings that the CI gate tolerates. Verdict matches CI in both
+# directions for this dimension.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+# Non-recursive, mirrors the CI gate's `tests/*.bats` glob.
+shopt -s nullglob
+bats_files=(tests/*.bats)
+if [ "${#bats_files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "pre-push: shellcheck not found — cannot run the SC2314 bats gate." >&2
+  echo "pre-push: install shellcheck >= 0.9.0, or bypass once with 'git push --no-verify'." >&2
+  exit 1
+fi
+
+selftest="$(mktemp --suffix=.bats)"
+out="$(mktemp)"
+trap 'rm -f "$selftest" "$out"' EXIT
+
+# Self-test: a pre-0.9.0 shellcheck does not emit SC2314, which would make the
+# gate vacuous (silently pass). Refuse rather than pass blind. (Capture to a file
+# then grep — never `shellcheck | grep`: shellcheck exits non-zero on any finding,
+# which a pipe under `set -o pipefail` would misreport.)
+printf '#!/usr/bin/env bats\n@test t { ! grep -q x /dev/null; }\n' > "$selftest"
+shellcheck -f gcc -x "$selftest" > "$out" 2>/dev/null || true
+if ! grep -q SC2314 "$out"; then
+  echo "pre-push: this shellcheck does not emit SC2314 (need >= 0.9.0); the gate" >&2
+  echo "pre-push: would be vacuous — refusing to pass silently. Upgrade shellcheck." >&2
+  exit 1
+fi
+
+# The gate itself.
+shellcheck -f gcc -x "${bats_files[@]}" > "$out" 2>/dev/null || true
+if grep -q SC2314 "$out"; then
+  echo "pre-push: SC2314 — vacuous bats '!' assertion(s) found in tests/*.bats." >&2
+  echo "pre-push: a bare '! cmd' never fails a bats test. Use one of:" >&2
+  echo "pre-push:   run cmd; [ \"\$status\" -ne 0 ]      (or devagent_refute_logged)" >&2
+  grep SC2314 "$out" >&2
+  exit 1
+fi
+
+echo "pre-push: ✓ no SC2314 in tests/*.bats" >&2
+exit 0

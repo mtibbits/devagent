@@ -204,3 +204,28 @@ Exit-code conventions across all backends:
 
 The markdown shape produced by `fetch` and `comment-list` is fixed
 across backends (spec §9.3) — downstream code is backend-agnostic.
+
+## Git hooks (opt-in)
+
+CI gates `tests/*.bats` against shellcheck **SC2314** — "In bats, `!` does
+not cause a test failure", a vacuous negative assertion (`! grep -q x foo`)
+that `bats` silently passes. The failure only shows up in GitHub Actions,
+*after* a push.
+
+To catch it in the dev loop instead, enable the tracked pre-push hook:
+
+```sh
+scripts/install-git-hooks.sh   # sets core.hooksPath -> .githooks
+```
+
+`.githooks/pre-push` runs the same SC2314 check locally before every push
+(SC2314-specific, like the CI gate — it ignores the other findings the gate
+tolerates). It is **opt-in**: a fresh clone runs no hooks until you run the
+installer. Requires `shellcheck >= 0.9.0`; it fails loudly (never silently
+passes) if shellcheck is missing or too old.
+
+- Bypass once: `git push --no-verify`
+- Disable: `git config --unset core.hooksPath`
+
+CI (`.github/workflows/shellcheck.yml`) remains the authoritative, enforcing
+gate; the hook is a faster local mirror, not a replacement.
