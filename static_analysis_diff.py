@@ -95,12 +95,10 @@ def get_changed_files(ranges: dict[str, list[LineRange]]) -> list[str]:
 
 def parse_file_line(text: str) -> tuple[Optional[str], Optional[int]]:
     """Extract file:line from a diagnostic message. Handles multiple formats."""
-    # clang-tidy / cppcheck / gcc style: /path/file.cc:42:5: warning: ...
+    # One regex covers both gcc/clang-tidy/cppcheck (file:line:col:) and cpplint
+    # (file:line:) — the optional column group `\d*:?` degenerates to the
+    # column-less form, so a separate cpplint branch would be unreachable (#267).
     m = re.match(r"^(.+?):(\d+):\d*:?\s", text)
-    if m:
-        return m.group(1), int(m.group(2))
-    # cpplint style: file.cc:42:  message  [category] [severity]
-    m = re.match(r"^(.+?):(\d+):\s", text)
     if m:
         return m.group(1), int(m.group(2))
     return None, None
