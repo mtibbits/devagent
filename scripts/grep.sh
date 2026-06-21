@@ -66,7 +66,11 @@ fi
 
 PATTERN="${ARGS[0]}"
 
-DEVDOC="$(_depends_devdoc_dir "${PROJECT}")"
+# #239: propagate the resolver's die (it exits only the $(...) subshell, leaving
+# the parent with DEVDOC="" → a redundant second 'devdoc dir not found:' line).
+DEVDOC="$(_depends_devdoc_dir "${PROJECT}")" || exit 2
+# Retained for the distinct configured-but-missing-on-disk case (resolver returns
+# a non-empty path with rc 0, so the line above does not fire).
 if [ ! -d "${DEVDOC}" ]; then
   printf 'grep: devdoc dir not found: %s\n' "${DEVDOC}" >&2
   exit 2
