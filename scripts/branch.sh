@@ -81,7 +81,8 @@ fi
 cd "$source_dir"
 # First path component of a remote/branch baseline names the remote to fetch; for
 # a purely local-branch baseline (e.g. dev/all-prs → "dev") it is not a configured
-# remote and the fetch is an expected no-op failure.
+# remote, so the fetch fails harmlessly — the baseline still resolves locally and
+# fetch_failed is never consulted on that path (see the resolution block below).
 base_remote="$(echo "$baseline" | cut -d/ -f1)"
 # Fetch that remote, but CAPTURE the outcome rather than uniformly absorbing it as
 # "already up to date" (#244). A failed fetch against a *configured* remote means
