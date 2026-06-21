@@ -85,13 +85,20 @@ case "$verb" in
         ;;
     branch-exists)
         [ $# -eq 2 ] || usage
-        # #85: 0 = exists (HTTP 200); 1 = CONFIRMED absent (a real HTTP 404);
-        # 2 = can't determine (network / 403 rate-limit / any other gh error).
-        # `gh api` exits 1 for all of those, so map only a "HTTP 404" in the
-        # captured stderr to absent — everything else is exit 2 so ship.sh's
-        # stacked logic (rc 1 = drop the parent base) does NOT discard a live
-        # parent on a transient failure. Mirrors merged-pr-head's three-state
-        # contract below. Slashed names (feat/parent) are valid in the path.
+        # #85/#243: 0 = exists (HTTP 200); 1 = CONFIRMED absent (a real HTTP 404
+        # on a repo the token CAN read); 2 = can't determine (network / 403
+        # rate-limit / any other gh error, OR a 404 that masks an unreadable
+        # private repo). `gh api` exits 1 for all error cases, so map only a
+        # "HTTP 404" in the captured stderr toward absent — but rc 1 is emitted
+        # ONLY once repo-readability is established (#243). GitHub returns HTTP
+        # 404 for an authorization failure on a private repo (it hides existence
+        # rather than 403), so a branch-endpoint 404 is indistinguishable from an
+        # absent branch until we confirm the repo itself reads. If it does not,
+        # fail closed to rc 2 so ship.sh's stacked logic (rc 1 = drop the parent
+        # base) does NOT discard a live parent on a broken-auth or transient
+        # failure. merged-pr-head below is unaffected by this 404-masks-403 case:
+        # it fails closed via `|| exit 2` when `gh pr list` errors on an
+        # unreadable repo. Slashed names (feat/parent) are valid in the path.
         # The `if err=$(...)` form is load-bearing under `set -euo pipefail`:
         # a bare assignment would propagate gh's non-zero status and abort
         # before we could inspect the error text.
@@ -99,7 +106,15 @@ case "$verb" in
             exit 0
         fi
         case "$err" in
-            *"HTTP 404"*) exit 1 ;;
+            *"HTTP 404"*)
+                # A 404 here means "branch absent" only if the repo is readable.
+                # Probe the repo root: readable → genuinely absent (rc 1);
+                # otherwise the 404 masks an unreadable private repo → rc 2 (#243).
+                if "$DEVAGENT_GH" api "repos/$1" >/dev/null 2>&1; then
+                    exit 1
+                fi
+                exit 2
+                ;;
             *)            exit 2 ;;
         esac
         ;;
@@ -113,6 +128,9 @@ case "$verb" in
         # fork-first head is `owner:branch` and a bare name can miss → counted as
         # none (fail-open, no worse than pre-#154). devagent — where this fired — is
         # same-repo. (Header-comment contract only; not in spec §9.2.)
+        # #243: unaffected by the 404-masks-403 private-repo case — an unreadable
+        # repo makes `gh pr list` exit non-zero, so `|| exit 2` already fails
+        # closed (rc 2 = can't determine); rc 1 is never reached on an auth failure.
         count="$("$DEVAGENT_GH" pr list --repo "$1" --head "$2" --state merged \
                     --json number --jq 'length')" || exit 2
         # A successful gh with empty/non-numeric stdout is NOT "no merged PR" (rc 1) —

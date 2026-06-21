@@ -114,17 +114,38 @@ STUB
 @test "code/github.sh branch-exists returns 0 when present, 1 on a real HTTP 404 (#41, #85)" {
     cat > "$DEVAGENT_TMP/gh" <<'EOF'
 #!/usr/bin/env bash
-# args: api repos/<repo>/branches/<branch> — 0 iff the path ends in /present;
-# a missing branch is a real 404 (real gh 2.45.0: "Branch not found (HTTP 404)").
-[[ "$*" == *"branches/present" ]] && exit 0
-echo "gh: Branch not found (HTTP 404)" >&2
-exit 1
+# Two endpoints (#243): the branch probe `api repos/<repo>/branches/<branch>`
+# (0 iff it ends in /present, else a real "Branch not found (HTTP 404)"), and
+# the repo-readability probe `api repos/<repo>` (no /branches/) which succeeds
+# here — this repo IS readable, so an absent branch is a genuine rc 1, not rc 2.
+case "$*" in
+  *"branches/present") exit 0 ;;
+  *"branches/"*)       echo "gh: Branch not found (HTTP 404)" >&2; exit 1 ;;
+  *)                   exit 0 ;;   # repo-readability probe: readable
+esac
 EOF
     chmod +x "$DEVAGENT_TMP/gh"
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo present
     [ "$status" -eq 0 ]
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/repo absent
     [ "$status" -eq 1 ]
+}
+
+@test "code/github.sh branch-exists exits 2 when a 404 masks an unreadable private repo (#243)" {
+    # GitHub returns HTTP 404 for an AUTHORIZATION failure on a private repo (it
+    # hides existence rather than 403). A branch-endpoint 404 is "branch absent"
+    # only if the repo itself is readable; when the repo probe also 404s (token
+    # can't read the repo at all), branch-exists must fail closed to rc 2 — never
+    # rc 1 — so ship.sh does not silently drop a live parent base.
+    cat > "$DEVAGENT_TMP/gh" <<'EOF'
+#!/usr/bin/env bash
+# Token cannot read the repo: every endpoint (branch probe AND repo probe) 404s.
+echo "gh: Not Found (HTTP 404)" >&2
+exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/gh"
+    DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" branch-exists me/private feat/x
+    [ "$status" -eq 2 ]
 }
 
 @test "code/github.sh branch-exists exits 2 (can't determine) on a network failure, not 1 (#85)" {
