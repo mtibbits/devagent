@@ -148,9 +148,18 @@ if ! "$DEVAGENT_GIT" cherry-pick --no-commit "$squash_commit"; then
     die "mergetoall.sh: $branch's own delta conflicts with work already integrated into $all_prs (a genuine overlap, not the #33 stacked-parent artifact). Reconcile by merging/rebasing $all_prs into $branch (or applying the overlapping hunk by hand), then re-run. Refusing to leave a half-applied index."
 fi
 
-# Use the tip commit's subject so the squash commit is identifiable in log --oneline.
-# Falls back to a generic message if the branch tip has no subject.
-subject="$("$DEVAGENT_GIT" log -1 --pretty=%s "$branch")"
+# Prefer the PR title (.devagent-title — the same source ship.sh uses for the
+# GitHub PR title) so the squash subject on $all_prs matches the PR, not an
+# arbitrary per-commit subject (#274). Fall back to the branch tip subject, then a
+# generic message — both byte-identical to the pre-#274 behavior. A blank/whitespace
+# title yields an empty subject and falls through to the tip subject, not the generic.
+subject=""
+title_file="$issue_dir/.devagent-title"
+[ -r "$title_file" ] && subject="$(tr -d '\n' < "$title_file")"
+# Treat an empty or whitespace-only title as absent so it falls through to the tip
+# subject (not the generic message): match only when a non-whitespace char exists.
+case "$subject" in *[![:space:]]*) ;; *) subject="" ;; esac
+[ -n "$subject" ] || subject="$("$DEVAGENT_GIT" log -1 --pretty=%s "$branch")"
 subject="${subject:-"merge $branch into $all_prs"}"
 "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
     commit -m "$subject"
