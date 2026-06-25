@@ -20,7 +20,8 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     [ -f "$SCOPE" ]
     [ -f "$SCOPE.auto" ]                 # auto-generated sentinel (not an in-file marker)
-    ! grep -q '^#' "$SCOPE"              # manifest is pure paths (no comment line)
+    run grep -q '^#' "$SCOPE"            # manifest is pure paths (no comment line)
+    [ "$status" -ne 0 ]
     grep -qx 'README.md' "$SCOPE"
     grep -qx 'z_new.txt' "$SCOPE"
 }
