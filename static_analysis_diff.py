@@ -51,8 +51,14 @@ class ToolResult:
 
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
-    """Get changed line ranges from git diff. Returns {filepath: [LineRange, ...]}."""
-    cmd = ["git", "diff", "--unified=0", f"{base_ref}..HEAD"]
+    """Get changed line ranges from git diff. Returns {filepath: [LineRange, ...]}.
+
+    Diffs base_ref against the *working tree* (not base_ref..HEAD) so the analyze
+    step inspects uncommitted edits — it runs before commit in the workflow, so a
+    HEAD-anchored diff would be empty and every linter would skip vacuously. On a
+    clean committed tree `git diff base_ref` equals `base_ref..HEAD`.
+    """
+    cmd = ["git", "diff", "--unified=0", base_ref]
     if files:
         cmd += ["--"] + files
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -323,8 +329,10 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
     if not src_files:
         return result
 
-    # git clang-format shows what would change between base_ref and HEAD
-    cmd = ["git", "clang-format", "--diff", base_ref, "HEAD", "--"] + src_files
+    # git clang-format shows what would change between base_ref and the working
+    # tree (no HEAD endpoint) — so uncommitted edits are checked pre-commit; on a
+    # clean committed tree this matches the prior `base_ref HEAD` two-commit form.
+    cmd = ["git", "clang-format", "--diff", base_ref, "--"] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout.strip()
 

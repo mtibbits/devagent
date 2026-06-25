@@ -146,6 +146,42 @@ def test_get_changed_ranges_passes_files_filter(monkeypatch):
     assert captured["cmd"][captured["cmd"].index("--") + 1:] == ["lib/x.cc"]
 
 
+def test_get_changed_ranges_diffs_working_tree_not_head(monkeypatch):
+    # #273: the diff must be scoped to the working tree (bare base_ref), NOT
+    # base_ref..HEAD. The analyze step runs before commit, so a HEAD-anchored
+    # diff is empty on uncommitted edits and every linter skips vacuously.
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    sad.get_changed_ranges("origin/main")
+    assert "origin/main..HEAD" not in captured["cmd"]
+    assert "origin/main" in captured["cmd"]
+    assert "HEAD" not in captured["cmd"]
+
+
+def test_run_clang_format_diffs_working_tree_not_head(monkeypatch):
+    # #273: run_clang_format must likewise scope to the working tree — drop the
+    # `HEAD` endpoint so `git clang-format --diff base_ref -- <files>` checks
+    # uncommitted edits. src_files must be non-empty or the function returns
+    # early before building the command.
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    sad.run_clang_format("origin/main", ["lib/x.cc"], repo_root="/repo")
+    assert "HEAD" not in captured["cmd"]
+    assert "origin/main" in captured["cmd"]
+    assert "--" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--") + 1:] == ["lib/x.cc"]
+
+
 # --------------------------------------------------------------------------
 # parse_file_line
 # --------------------------------------------------------------------------
