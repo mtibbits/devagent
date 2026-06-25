@@ -38,7 +38,7 @@ build_dir="$(config_get_project_field "$project" build_dir 2>/dev/null || true)"
 if [ -f "$source_dir/CMakeLists.txt" ]; then
     if ! "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build_dir" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DENABLE_TESTING=ON >/dev/null; then
-        echo "warning: analyze-static.sh: cmake configure of $build_dir failed; static analysis may be incomplete" >&2
+        echo "warning: analyze-static.sh: cmake configure of $build_dir failed; compile_commands.json may be stale/absent and static analysis incomplete or vacuous — verify the build dir's generator/source matches" >&2
     fi
 fi
 
