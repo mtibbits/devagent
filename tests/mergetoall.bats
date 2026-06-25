@@ -234,3 +234,35 @@ EOF
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"   # merged, not [-]
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
 }
+
+@test "mergetoall.sh squash subject uses .devagent-title (PR title) when present (#274)" {
+    # The branch tip subject is "feat: x"; the PR title differs. The squash subject
+    # on dev/all-prs must equal the PR title, not the per-commit tip subject.
+    printf '%s' "remove six undiscriminated arch entries (#1)" \
+        > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    subj="$( cd "$SOURCE_DIR" && git log -1 --pretty=%s dev/all-prs )"
+    [ "$subj" = "remove six undiscriminated arch entries (#1)" ]
+    [ "$subj" != "feat: x" ]
+}
+
+@test "mergetoall.sh squash subject falls back to tip subject when no .devagent-title (#274)" {
+    # No .devagent-title (fixture default) → byte-identical pre-#274 behavior:
+    # the squash subject equals the branch tip commit subject.
+    [ ! -e "$DEVDOC_DIR/Issue-1/.devagent-title" ]
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    subj="$( cd "$SOURCE_DIR" && git log -1 --pretty=%s dev/all-prs )"
+    [ "$subj" = "feat: x" ]
+}
+
+@test "mergetoall.sh blank .devagent-title falls through to tip subject, not generic (#274)" {
+    # A whitespace-only title must NOT short-circuit to the generic message; it
+    # falls through to the tip subject (the empty-after-strip edge).
+    printf '   \n' > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    subj="$( cd "$SOURCE_DIR" && git log -1 --pretty=%s dev/all-prs )"
+    [ "$subj" = "feat: x" ]
+}
