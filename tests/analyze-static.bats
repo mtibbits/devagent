@@ -27,3 +27,23 @@ teardown() { devagent_test_teardown; }
     [ -s "$out_file" ]
     grep -q "cppcheck: clean" "$out_file"
 }
+
+@test "analyze-static.sh configures build dir for a test-inclusive compile DB when CMakeLists present (#275)" {
+    # A CMake project: the static phase must reconfigure the build dir with the two
+    # flags so test-only TUs land in compile_commands.json.
+    : > "$SOURCE_DIR/CMakeLists.txt"
+    devagent_stub cmake
+    run "$DEVAGENT_ROOT/scripts/analyze-static.sh" "$TEST_PROJECT" Issue-1
+    # Gate on the captured cmake argv, not the script's exit status (#275).
+    devagent_assert_logged "cmake -S $SOURCE_DIR -B"
+    devagent_assert_logged "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    devagent_assert_logged "-DENABLE_TESTING=ON"
+}
+
+@test "analyze-static.sh does NOT invoke cmake when no CMakeLists (non-CMake project) (#275)" {
+    # The devagent-self path: no CMakeLists.txt → the configure must be skipped clean.
+    [ ! -e "$SOURCE_DIR/CMakeLists.txt" ]
+    devagent_stub cmake
+    run "$DEVAGENT_ROOT/scripts/analyze-static.sh" "$TEST_PROJECT" Issue-1
+    devagent_refute_logged "cmake -S"
+}
