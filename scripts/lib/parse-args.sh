@@ -9,6 +9,8 @@ _PA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_PA_LIB_DIR/config.sh"
 # shellcheck source=/dev/null
 source "$_PA_LIB_DIR/state.sh"
+# shellcheck source=/dev/null
+source "$_PA_LIB_DIR/active.sh"
 
 parse_devagent_args() {
   DA_PROJECT=""
@@ -62,21 +64,16 @@ parse_devagent_args() {
     DA_NOTE="${note_tokens[*]}"
   fi
 
-  # Default project when omitted — #282: honor the env pin first, then the
-  # REAL pointer file (_active.toml; the old _global.toml read was a dangling
-  # refactor artifact nothing ever wrote), matching active_resolve_project
-  # precedence. NB: value used unvalidated, matching this chain's existing
-  # behavior (active.sh's config_is_project guard is deliberately not added).
+  # Default project when omitted — #282: env pin first, then the _active.toml
+  # pointer via active_get_project (matches active_resolve_project precedence).
+  # Value deliberately unvalidated (no config_is_project), matching this
+  # chain's prior behavior.
   if [[ -z "$DA_PROJECT" ]]; then
     local active=""
     if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]]; then
       active="$DEVAGENT_ACTIVE_PROJECT"
     else
-      local pf
-      pf="$(devagent_home)/state/_active.toml"
-      if [[ -f "$pf" ]]; then
-        active="$(awk -F' *= *' '$1=="active_project" { gsub(/"/, "", $2); print $2; exit }' "$pf")"
-      fi
+      active="$(active_get_project 2>/dev/null || true)"
     fi
     if [[ -n "$active" ]]; then
       DA_PROJECT="$active"

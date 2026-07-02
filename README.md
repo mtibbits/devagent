@@ -74,18 +74,11 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 
 ## Concurrent sessions
 
-Two sessions on DIFFERENT projects are safe as of #282: the global pointer
-(`state/_active.toml`) is only written when it was actually consulted, so an
-arg- or env-pinned session never clobbers it. Pin a session to a project via
-Claude Code `settings.local.json` in the project directory:
-
-```json
-{ "env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" } }
-```
-
-On multi-project installs the pointer's value effectively freezes — switch
-projects with the env pin or by editing `_active.toml`. Two sessions on the
-SAME project still race `active_issue` (see #240).
+Two sessions on DIFFERENT projects are safe as of #282 — pin each session via
+`"env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" }` in that directory's Claude
+Code `settings.local.json`; the shared pointer is only written when actually
+consulted. Same-project sessions still race `active_issue` (#240). Details:
+"Concurrent sessions" in `commands/next.md`.
 
 ## Auth subsystem
 

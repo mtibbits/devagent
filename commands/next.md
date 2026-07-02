@@ -73,12 +73,10 @@ an arg- or env-pinned session never touches it, and `pull.sh` never writes
 it (its project is always an explicit positional). Consequence: on a
 multi-project install the pointer's VALUE effectively freezes — running
 `next.sh <other-project>` no longer moves it; switch projects via the env
-pin or by editing `_active.toml` directly. (Nuance: a pointer naming a
-project absent from config dies at resolution with 2+ projects rather
-than being rewritten.)
+pin or by editing `_active.toml` directly.
 
-The supported per-session read-half is a Claude Code `settings.local.json`
-env pin in the project directory:
+The supported per-session pin is a Claude Code `settings.local.json`
+env entry in the project directory:
 
 ```json
 { "env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" } }

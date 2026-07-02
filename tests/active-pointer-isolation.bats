@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # #282: arg/env-resolved invocations must leave the global pointer untouched.
 # Two simulated sessions (env-pinned vs arg-pinned) interleave; neither
-# observes the other's project and neither rewrites _active.toml.
+# invocation rewrites _active.toml (fingerprint = mtime + content).
 load 'lib/bats-helpers'
 
 setup() {
@@ -51,11 +51,10 @@ _pointer_fingerprint() {
   grep -q 'last_active_at' "$DA_HOME/state/_active.toml"
 }
 
-@test "interleaved sessions do not observe each other's project (#282)" {
+@test "interleaved pinned sessions leave the seeded fingerprint intact (#282)" {
+  before="$(_pointer_fingerprint)"
   run env -u DEVAGENT_ACTIVE_PROJECT "$PLUGIN_ROOT/scripts/next.sh" gnuradio
   DEVAGENT_ACTIVE_PROJECT=gnuradio run "$PLUGIN_ROOT/scripts/next.sh"
-  # Pointer still names volk with the seeded fingerprint (no write happened).
-  grep -q 'active_project = "volk"' "$DA_HOME/state/_active.toml"
-  run grep -q 'last_active_at' "$DA_HOME/state/_active.toml"
-  [ "$status" -ne 0 ]
+  after="$(_pointer_fingerprint)"
+  [ "$before" = "$after" ]
 }

@@ -73,9 +73,7 @@ active_resolve_project_src() {
 }
 
 # active_resolve_project [arg]
-# Echo wrapper over the setter — keeps the existing $(...) callers
-# byte-compatible (their subshell copies of the vars are discarded; none of
-# them write the pointer — verified 2026-07-02).
+# Echo wrapper over the setter — keeps existing $(...) callers byte-compatible.
 active_resolve_project() {
   active_resolve_project_src "${1:-}" || return $?
   printf '%s\n' "$ACTIVE_RESOLVED_PROJECT"
