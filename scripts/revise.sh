@@ -78,7 +78,7 @@ n_new=$((n_cur + 1))
 new_rdir=$(revision_dir "$issue_dir" "$n_new")
 mkdir -p "$new_rdir"
 
-revision_block_text "$n_new" >>"$issue_dir/checklist.md"
+revision_block_text "$n_new" "$PROJECT" >>"$issue_dir/checklist.md"
 
 # #96: int + str in one transaction.
 state_set_many "$PROJECT" int revision "$n_new" str pending_comments_file "$prev_comments"

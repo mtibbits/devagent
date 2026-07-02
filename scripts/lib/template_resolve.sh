@@ -35,6 +35,11 @@ DEVAGENT_TEMPLATE_KEYS=(
   lessonsLearned_template
   wbs_template
   statusreport_template
+  checklist-standard
+  checklist-perf
+  checklist-docs-only
+  checklist-research
+  revision_block
 )
 
 # template_project_paths_override <project> <key>

@@ -20,6 +20,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 
 main() {
   local project="${1:-}"
@@ -69,7 +71,7 @@ main() {
 
   # Scaffold checklist if missing; do not stomp on user edits
   if [[ ! -f "$issue_dir/checklist.md" ]]; then
-    ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template"
+    ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template" "$project"
   fi
 
   # Mark step 0 done; log

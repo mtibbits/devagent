@@ -4,6 +4,8 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/lib/paths.sh"
 source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 
@@ -31,12 +33,13 @@ require_field() {
 }
 
 check_template_resolves() {
-  local name="$1" path
-  path="$PLUGIN_ROOT/templates/checklist-${name}.md"
+  # #120: §12 registry (an override is exactly what this check must bless).
+  local name="$1" project="$2" path
+  path="$(artifact_resolve_or "$project" "checklist-${name}")"
   if [[ -f "$path" ]]; then
     check "checklist template '$name'" ok
   else
-    check "checklist template '$name'" fail "no such file: $path"
+    check "checklist template '$name'" fail "not resolvable via registry or plugin: $path"
   fi
 }
 
@@ -80,7 +83,7 @@ check_one_project() {
   local tpl
   tpl="$(config_get_project_field "$project" checklist_template 2>/dev/null || true)"
   [[ -z "$tpl" ]] && tpl="$(config_get_default checklist_template 2>/dev/null || echo standard)"
-  check_template_resolves "$tpl"
+  check_template_resolves "$tpl" "$project"
 
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"

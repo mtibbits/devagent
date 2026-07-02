@@ -143,3 +143,13 @@ PARKED
   # the real parked entry survives; nothing masquerades inside [parked].
   grep -q '^Issue-999 = ' "$FIX_STATE_FILE"
 }
+
+@test "revision block resolves via a devdoc override (#120)" {
+  local devdoc="${FIX_ISSUE_DIR%/*}"
+  mkdir -p "$devdoc/templates"
+  printf '## Revision {{N}} REVISED-OVERRIDE-#120\n\n- [ ]  1. draft\n' \
+    > "$devdoc/templates/revision_block.md"
+  run_revise volk
+  [ "$status" -eq 0 ]
+  grep -q 'REVISED-OVERRIDE-#120' "$FIX_ISSUE_DIR/checklist.md"
+}

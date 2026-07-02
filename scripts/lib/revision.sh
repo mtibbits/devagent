@@ -13,6 +13,10 @@
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 # shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/artifact.sh"
+# shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
@@ -33,10 +37,12 @@ revision_dir() {
   printf '%s/revisions/r%s\n' "$issue_dir" "$n"
 }
 
-# revision_block_text <N>
+# revision_block_text <N> [project] — #120: §12 registry with plugin-default
+# fallback; return-1 (not die) semantics preserved.
 revision_block_text() {
   local n="$1"
-  local tmpl="$DEVAGENT_ROOT/templates/revision_block.md"
+  local tmpl
+  tmpl="$(artifact_resolve_or "${2:-}" revision_block)"
   if [[ ! -f "$tmpl" ]]; then
     printf 'revision_block_text: template not found: %s\n' "$tmpl" >&2
     return 1

@@ -63,6 +63,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # (like .devagent-baseline, #162) — never a silent fallback. Non-checking
 # steps ignore the marker. Remove the marker at issue cleanup.
 
+# Per-project WORKFLOW override (#120): any checklist template resolves via
+# the §12 registry — drop a checklist-<name>.md in <devdoc>/templates/ or pin
+# an explicit path (quote the hyphenated key):
+#   [project.{{PROJECT}}.paths]
+#   "checklist-standard" = "templates/my-standard.md"   # devdoc-relative
+# NB: an override path that does not exist falls through SILENTLY to the
+# plugin default. Custom-workflow authoring rules (gate step names, required
+# steps, custom commands): see commands/template.md.
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false
