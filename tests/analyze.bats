@@ -58,6 +58,16 @@ _stub_shellcheck_analyzer() {
     grep -q 'analyze: shellcheck' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
+@test "analyze = shellcheck execs the REAL analyzer (no bash/stub crutch) (#55 preship)" {
+    # Pins the committed exec bit: the dispatch runs the script directly, so a
+    # 100644 mode dies with exit 126 — invisible to every `bash ...` invocation.
+    _set_analyze shellcheck
+    run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -f "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.txt" ]
+    grep -qE '^- \[x\] +11\. analyze' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
 @test "analyze = none self-marks step 11 [-] with a logged reason (#55)" {
     _set_analyze none
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
