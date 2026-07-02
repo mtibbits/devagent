@@ -20,8 +20,10 @@ dir, remainder = `$NOTE`; `--` halts positional consumption.
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify `imPlan.md` exists AND contains a `## Scope evaluation`
    section. If not, halt and tell the operator to run scope first.
-3. Invoke `core-improve` with `$ISSUE_DIR` and `$NOTE`.
-4. The skill appends `## Improvements` and calls
+3. Invoke `core-improve` with `$ISSUE_DIR`, `$NOTE`, and the resolved
+   project (the skill's dispatch contract needs it for step-model.sh).
+4. The skill writes `analysis/YYYY-MM-DD-improve.md` (subagent-authored
+   under dispatch), appends the triaged `## Improvements`, and calls
    `scripts/checklist-log.sh`.
 
 ## Halt and ask if

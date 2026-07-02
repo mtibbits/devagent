@@ -43,10 +43,11 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # repo       = "you/your-fork"
 # dir_prefix = "Issue-Fork-"
 
-# Optional advisory model-tier map (#150). next.sh prints one hint at dispatch and
+# Optional model-tier map (#150 surfacing, #151 dispatch consumer). next.sh prints one hint at dispatch and
 # catchup shows the current step's tier; tier names (not model IDs) are
-# forward-compatible. Advisory only — no enforcement, and an absent table changes
-# nothing. Classes: thinking = steps 1 7 8 9 12, checking = 3 13 14, else default;
+# forward-compatible. An absent table changes nothing; when set, next/catchup
+# surface the tier and checking-class steps also consume it as their subagent
+# dispatch model override (#151). Classes: thinking = steps 1 7 8 9 12, checking = 3 13 14, else default;
 # a per-step override (numeric key) wins over its class.
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"

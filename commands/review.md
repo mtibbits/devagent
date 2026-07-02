@@ -22,8 +22,17 @@ Per `commands/draft.md`.
 3. Resolve coding_standards artifact per spec §12 and pass its path
    to the wrapped skill as context.
 4. Invoke `superpowers:requesting-code-review` with the diff scope
-   = `baseline_sha..HEAD` on the issue's branch.
-5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`.
+   = `baseline_sha..HEAD` on the issue's branch. This wrapper already
+   dispatches a fresh-context subagent; per #151, resolve the model
+   override first —
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 13 || true)"`
+   — and pass it on the dispatch (omit when empty ⇒ inherit the session
+   model; if the tier is unavailable, retry once with no override and
+   record the degradation in the artifact header).
+5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`,
+   headed by the #151 artifact lines: `context: subagent` (or
+   `context: inline` when no subagent mechanism exists) and
+   `model: <tier>|inherit|inherit (fallback from <tier>)`.
 6. **Commit applied fixes (#148).** If addressing review findings
    modified (or added) any tracked file in the project source repo —
    the issue branch — `git add` the files and `git commit -s` them

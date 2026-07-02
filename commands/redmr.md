@@ -19,7 +19,8 @@ Per `commands/draft.md`.
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify mr.md exists.
-3. Invoke `core-redmr`.
+3. Invoke `core-redmr` with `$ISSUE_DIR`, `$NOTE`, and the resolved
+   project (the skill's dispatch contract needs it for step-model.sh).
 4. Skill writes the report and logs the finding counts in the
    parser-compatible format from spec §14.4. The skill itself calls
    `scripts/checklist-log.sh`.
