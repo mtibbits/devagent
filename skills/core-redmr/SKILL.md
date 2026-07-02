@@ -45,7 +45,13 @@ model override is conditional; fresh context is not.
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14 || true)"`.
    Pass the CANONICAL step number (14) even on a renumbered checklist —
    the class map is keyed to canonical numbers (config.sh). Empty ⇒
-   dispatch with NO model override (inherit the session model).
+   dispatch with NO model override (inherit the session model). A
+   per-issue `.devagent-step-models` marker (#291) may supply the tier —
+   a stderr `per-issue` provenance line means record
+   `model: <tier> (per-issue)` (or `inherit (per-issue)`) in the
+   artifact header. A nonzero exit WITH an error on stderr (stderr
+   WITHOUT a `per-issue` provenance line) is a bad marker: STOP and fix
+   or remove it — do NOT dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `mr.md`, `imPlan.md`,
    `actualWork.md`, the RESOLVED red-team template
@@ -68,7 +74,9 @@ model override is conditional; fresh context is not.
    records it un-tagged in the artifact instead of asking.
 5. **Mandatory artifact header.** First lines of the artifact:
    `context: subagent` (or `context: inline`), and `model: <tier>` (or
-   `model: inherit`, or `model: inherit (fallback from <tier>)`).
+   `model: inherit`, or `model: inherit (fallback from <tier>)`, or the
+   per-issue forms `model: <tier> (per-issue)` /
+   `model: inherit (per-issue)`).
 6. **Inline fallback.** When no subagent mechanism exists, run inline as
    before; the artifact MUST record `context: inline`.
 

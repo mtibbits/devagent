@@ -28,11 +28,16 @@ Per `commands/draft.md`.
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 13 || true)"`
    — and pass it on the dispatch (omit when empty ⇒ inherit the session
    model; if the tier is unavailable, retry once with no override and
-   record the degradation in the artifact header).
+   record the degradation in the artifact header). A per-issue
+   `.devagent-step-models` marker (#291) may supply the tier — a stderr
+   `per-issue` provenance line means record the `(per-issue)` header
+   form. A nonzero exit WITH an error on stderr (stderr WITHOUT a
+   `per-issue` provenance line) is a bad marker: STOP and fix or remove
+   it — do NOT dispatch on inherit.
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`,
    headed by the #151 artifact lines: `context: subagent` (or
    `context: inline` when no subagent mechanism exists) and
-   `model: <tier>|inherit|inherit (fallback from <tier>)`.
+   `model: <tier>|inherit|inherit (fallback from <tier>)|<tier> (per-issue)|inherit (per-issue)`.
 6. **Commit applied fixes (#148).** If addressing review findings
    modified (or added) any tracked file in the project source repo —
    the issue branch — `git add` the files and `git commit -s` them

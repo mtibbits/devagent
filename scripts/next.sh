@@ -125,8 +125,10 @@ main() {
 
     # #150: advisory model-tier hint for the dispatched step. Prints only when the
     # optional [project.<name>.step_models] table resolves a tier; absent ⇒ silent.
+    # #291: issue_dir passed so the hint agrees with the per-issue marker the
+    # checking-class dispatch will actually resolve.
     local _tier
-    if _tier="$(step_models_tier "$project" "$cur")"; then
+    if _tier="$(step_models_tier "$project" "$cur" "$issue_dir")"; then
       echo "step $cur ($name) wants tier: $_tier"
     fi
 

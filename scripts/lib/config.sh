@@ -93,26 +93,60 @@ config_active_project() {
   die "config_active_project: $count projects configured; pass project explicitly"
 }
 
-# step_models_tier <project> <step-num>
+# step_models_tier <project> <step-num> [issue_dir]
 # #150 surfacing + #151 dispatch consumer. Echoes the model tier for a workflow
 # step from the optional [project.<name>.step_models] table, or returns 1
 # (prints nothing) when no tier
 # resolves — so an absent table yields byte-identical output to before.
-# Resolution: a per-step override (step_models.<N>) wins over the step's class.
-# The step→class map is fixed (canonical step numbers): thinking = 1 7 8 9 12, checking = 3 13 14 21,
-# everything else = default. A class with no tier set falls back to the default tier.
+# Resolution: a per-issue marker (#291, checking-class steps only) wins over
+# the whole table; then a per-step override (step_models.<N>) wins over the
+# step's class. The step→class map is fixed (canonical step numbers):
+# thinking = 1 7 8 9 12, checking = 3 13 14 21, everything else = default.
+# A class with no tier set falls back to the default tier.
+#
+# Per-issue marker (#291): <issue_dir>/.devagent-step-models holds ONE tier
+# token. Like .devagent-baseline (#162) it must not fall back silently — an
+# empty or non-token marker dies. The reserved token `inherit` forces
+# session-model inheritance (return 1, distinct stderr note), escaping a
+# project `checking` pin. Provenance goes to stderr; stdout stays a bare tier.
 step_models_tier() {
-  local project="$1" step="$2" tier=""
+  local project="$1" step="$2" issue_dir="${3:-}" tier=""
   [[ -n "$project" && -n "$step" ]] || return 1
+  # Fixed step→class map — computed once; the per-issue layer is gated on it.
+  local class="default"
+  # shellcheck disable=SC2194 # constant subject; space-padded membership test
+  case " 1 7 8 9 12 " in *" $step "*) class="thinking" ;; esac
+  # shellcheck disable=SC2194 # constant subject; space-padded membership test
+  case " 3 13 14 21 " in *" $step "*) class="checking" ;; esac
+  # 0. per-issue marker (checking class only)
+  local marker="${issue_dir%/}/.devagent-step-models"
+  if [[ "$class" == "checking" && -n "$issue_dir" && -e "$marker" ]]; then
+    # An existing marker that cannot be read as a file must not silently
+    # fall back to the project tier (AC3's silent-wrong-tier class).
+    [[ -f "$marker" ]] || die "step_models_tier: $marker exists but is not a regular file"
+    [[ -r "$marker" ]] || die "step_models_tier: $marker exists but is not readable"
+  fi
+  if [[ "$class" == "checking" && -n "$issue_dir" && -r "$marker" ]]; then
+    local raw
+    raw="$(cat "$marker")"
+    # One token, nothing else: reject BEFORE stripping so `fable opus` cannot
+    # collapse into a plausible-looking `fableopus`.
+    tier="$(tr -d '[:space:]' <<<"$raw")"
+    [[ -n "$tier" ]] || die "step_models_tier: $marker is empty (no tier token)"
+    [[ "$raw" =~ ^[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$ ]] \
+      || die "step_models_tier: $marker must hold exactly one tier token (allowed: A-Za-z0-9 . _ -), got: '$raw'"
+    if [[ "$tier" == "inherit" ]]; then
+      echo "step_models_tier: per-issue 'inherit' from $marker — forcing session-model inheritance" >&2
+      return 1
+    fi
+    echo "step_models_tier: per-issue tier '$tier' from $marker" >&2
+    printf '%s\n' "$tier"
+    return 0
+  fi
   # 1. per-step override wins
   tier="$(config_get_project_field "$project" "step_models.${step}" 2>/dev/null || true)"
   if [[ -z "$tier" ]]; then
-    # 2. class tier (fixed step→class map)
-    local class="default"
-    # shellcheck disable=SC2194 # constant subject; space-padded membership test
-    case " 1 7 8 9 12 " in *" $step "*) class="thinking" ;; esac
-    # shellcheck disable=SC2194 # constant subject; space-padded membership test
-    case " 3 13 14 21 " in *" $step "*) class="checking" ;; esac
+    # 2. class tier
     tier="$(config_get_project_field "$project" "step_models.${class}" 2>/dev/null || true)"
     # 3. fall back to the default tier when the class tier is unset
     if [[ -z "$tier" && "$class" != "default" ]]; then
