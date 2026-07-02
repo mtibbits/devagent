@@ -28,7 +28,7 @@ Per `commands/draft.md`.
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 13 || true)"`
    — and pass it on the dispatch (omit when empty ⇒ inherit the session
    model; if the tier is unavailable, retry once with no override and
-   record the degradation).
+   record the degradation in the artifact header).
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`,
    headed by the #151 artifact lines: `context: subagent` (or
    `context: inline` when no subagent mechanism exists) and

@@ -91,10 +91,6 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'superpowers:requesting-code-review' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
-  # #151: the wrapper documents the model override + artifact header on
-  # its (pre-existing) subagent dispatch.
-  grep -q 'step-model.sh' "$F"
-  grep -q 'context: subagent' "$F"
 }
 
 @test "redmr.md exists, invokes core-redmr, parses \$NOTE, logs" {

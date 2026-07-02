@@ -56,17 +56,16 @@ model override is conditional; fresh context is not.
    change, or prior findings into the prompt — the checker must derive
    everything from disk, which is exactly how it catches a report/branch
    divergence.
-3. **Dispatch** one subagent with the resolved model override (omit when
-   empty). If dispatch fails because the tier is unavailable, retry once
-   with NO override and record the degradation in the artifact header.
+3. **Dispatch** one subagent with the resolved override (per step 1).
+   If dispatch fails because the tier is unavailable, retry once with NO
+   override and record the degradation in the artifact header.
 4. **The subagent authors the artifact** (severity-classified findings
    per the Checklist below) and returns only counts + verdict. The main
    session triages, applies fixes, and commits them per #148 — it never
-   rewrites the subagent's findings in place. The Checklist's B>0
-   refuse-advance gate and the Halt-and-ask rules bind the MAIN session,
-   which enforces them on the returned counts; a dispatched checker that
-   cannot classify a finding records it un-tagged in the artifact instead
-   of asking.
+   rewrites the subagent's findings in place. Checklist item 6's B>0
+   gate and the Halt-and-ask rules bind the MAIN session (enforced on the
+   returned counts); a dispatched checker that cannot classify a finding
+   records it un-tagged in the artifact instead of asking.
 5. **Mandatory artifact header.** First lines of the artifact:
    `context: subagent` (or `context: inline`), and `model: <tier>` (or
    `model: inherit`, or `model: inherit (fallback from <tier>)`).
@@ -100,10 +99,11 @@ model override is conditional; fresh context is not.
    <evidence: file:line, quote, why this blocks>
    <suggested remediation>
    ```
-6. **Refuse silent advance.** If B > 0, the skill exits with a
-   non-zero status indicator and explicitly tells the operator to
-   address findings before re-running, or mark `[!]` stuck via
-   `/devagent:stuck`.
+6. **Refuse silent advance.** If B > 0, the MAIN session refuses to
+   advance: report the failure and tell the operator to address findings
+   before re-running, or mark `[!]` stuck via `/devagent:stuck`. (Under
+   dispatch the subagent only returns counts — this gate is the main
+   session's to enforce.)
 7. **Commit applied fixes (#148).** If addressing findings modified
    (or added) any tracked file in the project source repo — the issue
    branch — `git add` + `git commit -s` them before marking step 14.

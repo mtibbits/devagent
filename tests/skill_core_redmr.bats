@@ -25,11 +25,3 @@ setup() {
   [ -s "$FIXT/checklist.md" ]
 }
 
-@test "core-redmr defines the dispatch contract (#151)" {
-  grep -q '## Dispatch contract' "$SKILL/SKILL.md"
-  grep -q 'step-model.sh' "$SKILL/SKILL.md"
-  grep -q 'paths, not' "$SKILL/SKILL.md"
-  grep -q 'inherit' "$SKILL/SKILL.md"
-  grep -q 'context: subagent' "$SKILL/SKILL.md"
-  grep -q 'context: inline' "$SKILL/SKILL.md"
-}

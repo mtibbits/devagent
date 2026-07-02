@@ -44,7 +44,7 @@ not.
    Pass the CANONICAL step number (3) even if this issue's checklist
    renumbers steps — the class map is keyed to canonical numbers
    (config.sh). Empty ⇒ dispatch with NO model override (the subagent
-   inherits the session model — fresh context alone still pays).
+   inherits the session model).
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md` and `imPlan.md`
    (including its Scope evaluation), the project source repo directory,
@@ -54,16 +54,15 @@ not.
    missing — pull scaffolds only the issue dir). Do NOT paste plan
    summaries or your own assessment into the prompt — that re-imports
    the author bias the dispatch exists to shed.
-3. **Dispatch** one subagent with the resolved model override (omit the
-   parameter entirely when no tier resolved). If dispatch fails because
-   the tier is unavailable (e.g. a model the current plan does not
-   include), retry once with NO override and record the degradation in
-   the artifact header (below).
+3. **Dispatch** one subagent with the resolved override (per step 1).
+   If dispatch fails because the tier is unavailable (e.g. a model the
+   current plan does not include), retry once with NO override and
+   record the degradation in the artifact header (below).
 4. **The subagent authors the artifact** and returns only a short
-   summary (finding counts). The main session then triages — assigning
-   `[merge]`/`[defer]`/`[dismiss]` per the Checklist below is the main
-   session's judgment — and appends the tagged `## Improvements` section
-   to imPlan.md citing the artifact. Never rewrite the subagent's
+   summary (finding counts). The main session then triages per the
+   Checklist below (tag assignment is the main session's judgment) and
+   appends the tagged `## Improvements` section to imPlan.md citing the
+   artifact. Never rewrite the subagent's
    findings file in place. The Halt-and-ask rules in this skill bind the
    MAIN session; a dispatched checker that hits one cannot ask — it
    records the halt condition in its artifact and returns, and the main
