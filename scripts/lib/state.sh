@@ -63,14 +63,60 @@ state_set() {
   # issue concurrently. Only meaningful for active_issue; other keys
   # (last_step, mr_url) change legitimately on every step.
   if [ "$key" = "active_issue" ] && [ -n "$value" ]; then
+    # #96: read the old value from INSIDE the write lock (--print-old) — the
+    # previous get-then-set could interleave with another session and miss.
     local old_value
-    old_value="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
+    old_value="$(_state_toml set --print-old "$f" "$key" "$value")"
     if [ -n "$old_value" ] && [ "$old_value" != "$value" ]; then
       echo "warning: state_set: active_issue is changing from '$old_value' to '$value' — another session may be working a different issue concurrently" >&2
     fi
+  else
+    _state_toml set "$f" "$key" "$value"
   fi
-  _state_toml set "$f" "$key" "$value"
   _state_toml set "$f" updated_at "$(_state_now)"
+}
+
+# state_set_many <project> <str|int|bool> <key> <value> [...] — one locked
+# transaction for N typed keys + updated_at (#96): multi-key transitions can
+# no longer tear across sessions (active_issue from A + issue_dir from B).
+# Carries the active_issue clobber-warn (exact predicate: old and new both
+# non-empty and different) when the transaction includes that key.
+state_set_many() {
+  local project="$1"; shift
+  state_init "$project"
+  local f
+  f="$(state_path "$project")"
+  # Clobber-warn input: pre-read is advisory only (the WRITE is atomic either
+  # way; a racing writer can still change the value between this read and the
+  # transaction, but the transaction itself cannot tear).
+  local i new_active="" old_active=""
+  local -a args=("$@")
+  for ((i = 0; i + 2 < ${#args[@]}; i += 3)); do
+    if [ "${args[i+1]}" = "active_issue" ]; then new_active="${args[i+2]}"; fi
+  done
+  if [ -n "$new_active" ]; then
+    old_active="$(_state_toml get "$f" active_issue 2>/dev/null || true)"
+  fi
+  _state_toml set-many "$f" "$@" str updated_at "$(_state_now)"
+  if [ -n "$new_active" ] && [ -n "$old_active" ] && [ "$old_active" != "$new_active" ]; then
+    echo "warning: state_set: active_issue is changing from '$old_active' to '$new_active' — another session may be working a different issue concurrently" >&2
+  fi
+}
+
+# state_set_if <project> <key> <expected|--absent> <new> — CAS (#96). Exit 0
+# on swap; exit 3 with the actual value on stdout on compare-fail. Callers
+# under `set -e` must invoke in a condition. Zero production callers today
+# (the #240 consumer); tested + documented for that arrival.
+state_set_if() {
+  local project="$1" key="$2" expected="$3" new="$4"
+  state_init "$project"
+  local f rc
+  f="$(state_path "$project")"
+  _state_toml set-if "$f" "$key" "$expected" "$new" && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    _state_toml set "$f" updated_at "$(_state_now)"
+  fi
+  return "$rc"
 }
 
 # state_set_int <project> <key> <int> — write an unquoted integer value, placed in
@@ -105,12 +151,19 @@ state_context_save() {
   state_init "$project"
   f="$(state_path "$project")"
   _state_toml unset "$f" "context.${issue}"
+  # #96: gather then write the whole snapshot in ONE transaction — a torn
+  # snapshot (half of session A's keys, half of B's) was the #98 failure
+  # class. (The unset above remains a separate transaction; see the issue's
+  # scoping note — the SET loop is the atomic part.)
+  local -a triplets=()
   for key in $STATE_ISSUE_KEYS; do
     v="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
     [[ -n "$v" ]] || continue
-    _state_toml set "$f" "context.${issue}.${key}" "$v"
+    triplets+=(str "context.${issue}.${key}" "$v")
   done
-  _state_toml set "$f" updated_at "$(_state_now)"
+  if [[ ${#triplets[@]} -gt 0 ]]; then
+    _state_toml set-many "$f" "${triplets[@]}" str updated_at "$(_state_now)"
+  fi
 }
 
 # state_context_has <project> <issue> — exit 0 iff a non-empty [context.<issue>]
