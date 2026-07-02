@@ -48,9 +48,12 @@ main() {
     set --
   fi
 
-  project="$(active_resolve_project "${1:-}")"
+  active_resolve_project_src "${1:-}"
+  project="$ACTIVE_RESOLVED_PROJECT"
   config_is_project "$project" || die "next.sh: unknown project '$project'"
-  active_set_project "$project"
+  # #282: only pointer/fallback-resolved runs refresh the pointer (rationale
+  # at active_resolve_project_src).
+  case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac
 
   if (( auto == 1 )) && [[ -z "$through" ]]; then
     through="cleanup"

@@ -107,3 +107,34 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "Issue-3" ]
 }
+
+# --- #282: source-aware resolution -----------------------------------------
+
+@test "active_resolve_project_src reports source=arg (#282)" {
+  unset DEVAGENT_ACTIVE_PROJECT
+  active_resolve_project_src volk
+  [ "$ACTIVE_RESOLVED_PROJECT" = "volk" ]
+  [ "$ACTIVE_RESOLVED_FROM" = "arg" ]
+}
+
+@test "active_resolve_project_src reports source=env (#282)" {
+  export DEVAGENT_ACTIVE_PROJECT=gnuradio
+  active_resolve_project_src ""
+  [ "$ACTIVE_RESOLVED_PROJECT" = "gnuradio" ]
+  [ "$ACTIVE_RESOLVED_FROM" = "env" ]
+}
+
+@test "active_resolve_project_src reports source=pointer (#282)" {
+  unset DEVAGENT_ACTIVE_PROJECT
+  active_set_project gnuradio
+  active_resolve_project_src ""
+  [ "$ACTIVE_RESOLVED_PROJECT" = "gnuradio" ]
+  [ "$ACTIVE_RESOLVED_FROM" = "pointer" ]
+}
+
+@test "active_resolve_project echo wrapper stays byte-compatible (#282)" {
+  unset DEVAGENT_ACTIVE_PROJECT
+  active_set_project volk
+  [ "$(active_resolve_project)" = "volk" ]
+  [ "$(active_resolve_project gnuradio)" = "gnuradio" ]
+}

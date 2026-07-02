@@ -216,3 +216,15 @@ CTX
   [ "$status" -eq 0 ]
   [[ "$output" != *"preserved"* ]]
 }
+
+@test "pull.sh never writes the global pointer (#282)" {
+  # pull's project is always an explicit positional; its old unconditional
+  # active_set_project was the banned arg-clobber. Seed + fingerprint.
+  echo 'active_project = "other"' > "$DA_HOME/state/_active.toml"
+  touch -d '2026-01-01 00:00:00' "$DA_HOME/state/_active.toml"
+  before="$(stat -c '%Y' "$DA_HOME/state/_active.toml"; cat "$DA_HOME/state/_active.toml")"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 7
+  [ "$status" -eq 0 ]
+  after="$(stat -c '%Y' "$DA_HOME/state/_active.toml"; cat "$DA_HOME/state/_active.toml")"
+  [ "$before" = "$after" ]
+}

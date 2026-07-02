@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # parse-args.sh — invocation grammar for /devagent:<verb> [project] [issue] [note...]
 # Spec §6.1. Sets DA_PROJECT, DA_ISSUE, DA_NOTE in caller's scope.
-# Requires paths.sh and io.sh sourced first. config.sh and state.sh are
-# sourced internally — callers do not need to (and harmlessly may) re-source.
+# Requires paths.sh and io.sh sourced first. config.sh, state.sh, and
+# active.sh are sourced internally — callers do not need to (and harmlessly
+# may) re-source.
 
 _PA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$_PA_LIB_DIR/config.sh"
 # shellcheck source=/dev/null
 source "$_PA_LIB_DIR/state.sh"
+# shellcheck source=/dev/null
+source "$_PA_LIB_DIR/active.sh"
 
 parse_devagent_args() {
   DA_PROJECT=""
@@ -62,10 +65,17 @@ parse_devagent_args() {
     DA_NOTE="${note_tokens[*]}"
   fi
 
-  # Default project when omitted
+  # Default project when omitted — #282: env pin first, then the _active.toml
+  # pointer via active_get_project (matches active_resolve_project precedence).
+  # Value deliberately unvalidated (no config_is_project), matching this
+  # chain's prior behavior.
   if [[ -z "$DA_PROJECT" ]]; then
-    local active
-    active="$(state_global_active_project 2>/dev/null || true)"
+    local active=""
+    if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]]; then
+      active="$DEVAGENT_ACTIVE_PROJECT"
+    else
+      active="$(active_get_project 2>/dev/null || true)"
+    fi
     if [[ -n "$active" ]]; then
       DA_PROJECT="$active"
     else

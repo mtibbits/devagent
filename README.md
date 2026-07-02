@@ -72,6 +72,14 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 > The 21 numbered step commands above, plus `next` / `revise` / `comments`,
 > together with the tables in this section, are the full set of 53 commands.
 
+## Concurrent sessions
+
+Two sessions on DIFFERENT projects are safe as of #282 — pin each session via
+`"env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" }` in that directory's Claude
+Code `settings.local.json`; the shared pointer is only written when actually
+consulted. Same-project sessions still race `active_issue` (#240). Details:
+"Concurrent sessions" in `commands/next.md`.
+
 ## Auth subsystem
 
 The auth subsystem manages personal access tokens (PATs) and SSH

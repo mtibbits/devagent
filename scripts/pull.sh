@@ -93,7 +93,7 @@ main() {
     state_context_clear "$project"
   fi
   state_set "$project" active_issue "$issue_id"
-  active_set_project "$project"
+  # #282: no pointer write — pull's project is always an explicit positional.
   state_set "$project" issue_dir   "$issue_dir"
   # An active issue is by definition not parked: drop any stale parked flag
   # and snapshot for it, so a later resume cannot restore pre-park context

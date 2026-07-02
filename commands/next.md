@@ -67,11 +67,30 @@ internally. No `--artifact-only` flag is needed.
 
 ## Concurrent sessions
 
-State lives in one file per project (`~/.claude/devagent/state/<project>.toml`).
-Running two sessions on different issues of the *same* project can clobber
-`active_issue` — last writer wins. `state_set` emits a stderr warning when
-`active_issue` flips between two different issues, but the warning is
-advisory, not a lock.
+The global project pointer (`~/.claude/devagent/state/_active.toml`) is
+written ONLY by pointer/fallback-resolved `next.sh` invocations (#282) —
+an arg- or env-pinned session never touches it, and `pull.sh` never writes
+it (its project is always an explicit positional). Consequence: on a
+multi-project install the pointer's VALUE effectively freezes — running
+`next.sh <other-project>` no longer moves it; switch projects via the env
+pin or by editing `_active.toml` directly.
+
+The supported per-session pin is a Claude Code `settings.local.json`
+env entry in the project directory:
+
+```json
+{ "env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" } }
+```
+
+The harness injects the variable into every shell, so resolution through
+the standard chain (arg → env → pointer) is pinned for that session
+without consulting or touching the shared pointer. (Tooling that edits
+`_active.toml` directly — e.g. capture.md's recipe — bypasses the pin.)
+
+Per-PROJECT state is still one file (`state/<project>.toml`): two sessions
+on different issues of the *same* project can clobber `active_issue` —
+last writer wins; `state_set` emits an advisory stderr warning, not a
+lock. That race is #240's remit.
 
 Before any manual script invocation, confirm the active issue:
 
