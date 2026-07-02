@@ -80,8 +80,8 @@ mkdir -p "$new_rdir"
 
 revision_block_text "$n_new" >>"$issue_dir/checklist.md"
 
-state_set_int "$PROJECT" revision "$n_new"
-state_set "$PROJECT" pending_comments_file "$prev_comments"
+# #96: int + str in one transaction.
+state_set_many "$PROJECT" int revision "$n_new" str pending_comments_file "$prev_comments"
 
 k=$(grep -c '^### @' "$prev_comments" || true)
 # #75: route through log_append so the entry lands inside the `## Log` section,

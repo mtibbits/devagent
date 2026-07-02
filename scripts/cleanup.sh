@@ -61,9 +61,10 @@ fi
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
 fi
-state_set "$project" last_step      "20"
-state_set "$project" last_step_name "cleanup"
-state_set "$project" active_issue   ""
+state_set_many "$project" \
+  str last_step      "20" \
+  str last_step_name "cleanup" \
+  str active_issue   ""
 
 checklist_mark "$issue_dir/checklist.md" 20 x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"

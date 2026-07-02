@@ -181,8 +181,7 @@ fi
 # wrong-branch commit bug (#33 class). Detached HEAD → orig_branch empty → skip.
 [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
 
-state_set "$project" last_step      "16"
-state_set "$project" last_step_name "mergetoall"
+state_set_many "$project" str last_step "16" str last_step_name "mergetoall"
 checklist_mark "$issue_dir/checklist.md" 16 x
 log_append "$issue_dir" mergetoall "squashed $branch → $all_prs; $push_status${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

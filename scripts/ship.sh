@@ -339,9 +339,10 @@ elif [ -x "$issue_sh" ]; then
     fi
 fi
 
-state_set "$project" mr_url         "$mr_url"
-state_set "$project" last_step      "15"
-state_set "$project" last_step_name "ship"
+state_set_many "$project" \
+  str mr_url         "$mr_url" \
+  str last_step      "15" \
+  str last_step_name "ship"
 checklist_mark "$issue_dir/checklist.md" 15 x
 log_append "$issue_dir" ship "MR $mr_url${NOTE:+ — $NOTE}"
 echo "$mr_url"

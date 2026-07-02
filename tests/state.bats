@@ -209,3 +209,45 @@ teardown() { teardown_tmp_devagent_home; }
   run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$f" context.Issue-676.mr_url
   [ "$status" -ne 0 ]   # stale mr_url must NOT survive the re-save
 }
+
+# --- #96: state_set_many / state_set_if / race-free warn --------------------
+
+@test "state_set_many writes typed keys + one updated_at in one transaction (#96)" {
+  state_init volk
+  state_set_many volk str branch "feat/9-x" str baseline_sha "abc123" int revision 2
+  [ "$(state_get volk branch)" = "feat/9-x" ]
+  [ "$(state_get volk baseline_sha)" = "abc123" ]
+  grep -qE '^revision = 2$' "$(state_path volk)"
+  grep -cE '^updated_at = ' "$(state_path volk)" | grep -qx 1
+}
+
+@test "state_set_many warns on active_issue clobber, silent on clear/first-set (#96)" {
+  state_init volk
+  run state_set_many volk str active_issue "Issue-1" str issue_dir "/tmp/i1"
+  [[ "$output" != *"active_issue is changing"* ]]
+  state_set_many volk str active_issue "Issue-1" str issue_dir "/tmp/i1"
+  run state_set_many volk str active_issue "Issue-2" str issue_dir "/tmp/i2"
+  [[ "$output" == *"active_issue is changing from 'Issue-1' to 'Issue-2'"* ]]
+  run state_set_many volk str active_issue "" str issue_dir ""
+  [[ "$output" != *"active_issue is changing"* ]]
+}
+
+@test "state_set_if passes through exit 3 + actual value (#96)" {
+  state_init volk
+  state_set volk branch "feat/a"
+  run state_set_if volk branch "feat/WRONG" "feat/b"
+  [ "$status" -eq 3 ]
+  [ "$output" = "feat/a" ]
+  run state_set_if volk branch "feat/a" "feat/b"
+  [ "$status" -eq 0 ]
+  [ "$(state_get volk branch)" = "feat/b" ]
+}
+
+@test "state_set clobber-warn reads old value in-lock via --print-old (#96)" {
+  state_init volk
+  state_set volk active_issue "Issue-1"
+  run state_set volk active_issue "Issue-2"
+  [[ "$output" == *"active_issue is changing from 'Issue-1' to 'Issue-2'"* ]]
+  # stdout leak check: the old value must NOT appear alone on stdout
+  [[ "$output" != "Issue-1" ]]
+}

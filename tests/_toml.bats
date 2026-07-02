@@ -152,3 +152,79 @@ teardown() { teardown_tmp_devagent_home; }
   run python3 "$TOML" set "$f" k '"v"'
   [ "$status" -eq 0 ]   # the # is in a string, not a comment → mutation allowed
 }
+
+# --- #96: set-many / set-if / --print-old -----------------------------------
+
+_seed96() {
+  F="$BATS_TEST_TMPDIR/s.toml"
+  printf 'a = "1"\nb = 2\nactive_issue = "Issue-1"\n' > "$F"
+}
+
+@test "set-many writes typed keys + exactly one updated_at-free transaction (#96)" {
+  _seed96
+  run python3 "$TOML" set-many "$F" str a "x" int b 7 bool c true
+  [ "$status" -eq 0 ]
+  [ "$(python3 "$TOML" get "$F" a)" = "x" ]
+  grep -qE '^b = 7$' "$F"
+  grep -qE '^c = true$' "$F"
+}
+
+@test "set-many is all-or-nothing on a bad triplet (#96)" {
+  _seed96
+  before="$(stat -c '%Y %s' "$F"; cat "$F")"
+  run python3 "$TOML" set-many "$F" str a "x" int b notanint
+  [ "$status" -eq 2 ]
+  after="$(stat -c '%Y %s' "$F"; cat "$F")"
+  [ "$before" = "$after" ]
+}
+
+@test "set-if swaps on match, exit 0 (#96)" {
+  _seed96
+  run python3 "$TOML" set-if "$F" a "1" "2"
+  [ "$status" -eq 0 ]
+  [ "$(python3 "$TOML" get "$F" a)" = "2" ]
+}
+
+@test "set-if refuses on mismatch: exit 3, actual on stdout, file untouched (#96)" {
+  _seed96
+  before="$(stat -c '%Y %s' "$F"; cat "$F")"
+  run python3 "$TOML" set-if "$F" a "999" "2"
+  [ "$status" -eq 3 ]
+  [ "$output" = "1" ]
+  after="$(stat -c '%Y %s' "$F"; cat "$F")"
+  [ "$before" = "$after" ]
+}
+
+@test "set-if --absent matches only a missing key (#96)" {
+  _seed96
+  run python3 "$TOML" set-if "$F" newkey --absent "v"
+  [ "$status" -eq 0 ]
+  [ "$(python3 "$TOML" get "$F" newkey)" = "v" ]
+  run python3 "$TOML" set-if "$F" a --absent "v"
+  [ "$status" -eq 3 ]
+}
+
+@test "set --print-old prints prior value; nothing when absent (#96)" {
+  _seed96
+  run python3 "$TOML" set --print-old "$F" a "9"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+  run python3 "$TOML" set --print-old "$F" ghostkey "9"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "set-if exit 2 on unparseable file (#96/#99)" {
+  F="$BATS_TEST_TMPDIR/bad.toml"
+  printf 'a = "1\nb == 2\n' > "$F"
+  run python3 "$TOML" set-if "$F" a "1" "2"
+  [ "$status" -eq 2 ]
+}
+
+@test "set-if on a table key: clean exit 2, no traceback (#96 review L1)" {
+  _seed96
+  printf '[tbl]\nx = "1"\n' >> "$F"
+  run python3 "$TOML" set-if "$F" tbl "1" "2"
+  [ "$status" -eq 2 ]
+  [[ "$output" != *Traceback* ]]
+}

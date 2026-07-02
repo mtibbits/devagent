@@ -141,11 +141,14 @@ else
     "$DEVAGENT_GIT" checkout -b "$branch" "$baseline_sha"
 fi
 
-state_set "$project" branch        "$branch"
-state_set "$project" baseline_sha  "$baseline_sha"
-state_set "$project" worktree_path "$worktree_dir"
-state_set "$project" last_step      "6"
-state_set "$project" last_step_name "branch"
+# #96: one atomic transaction — a concurrent session can no longer observe
+# branch from this issue paired with baseline_sha from another.
+state_set_many "$project" \
+  str branch         "$branch" \
+  str baseline_sha   "$baseline_sha" \
+  str worktree_path  "$worktree_dir" \
+  str last_step      "6" \
+  str last_step_name "branch"
 
 checklist_mark "$issue_dir/checklist.md" 6 x
 log_append "$issue_dir" branch "created $branch from $baseline$([ "$baseline_override" -eq 1 ] && printf ' (per-issue override)') ($baseline_sha)${NOTE:+ — $NOTE}"

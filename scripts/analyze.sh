@@ -27,8 +27,7 @@ issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 "$DEVAGENT_ANALYZE_STATIC"     "$project" "$issue_arg"
 "$DEVAGENT_ANALYZE_SANITIZERS" "$project" "$issue_arg"
 
-state_set "$project" last_step      "11"
-state_set "$project" last_step_name "analyze"
+state_set_many "$project" str last_step "11" str last_step_name "analyze"
 checklist_mark "$issue_dir/checklist.md" 11 x
 log_append "$issue_dir" analyze "static + sanitizers complete${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"
