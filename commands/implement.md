@@ -47,23 +47,19 @@ Never auto-skip individual tasks; the wrapped skill's task-level
 prompting handles that. At the step level, never auto-skip implement
 itself — without code change the rest of the pipeline is meaningless.
 
-## Do NOT commit yet
+## Commit discipline
 
-You will be tempted to run `git commit` after this step finishes —
-'the work is done, capture it!' — but this is not the commit
-step. The 21-step workflow defers commit until AFTER static analysis
-(step 11: `/devagent:analyze`) so the commit captures verified work
-and you do not need to amend.
+Each task commits its own work as it completes — the wrapped skill's
+default; keep it. Two rules make commit (10) and ship (15) safe:
 
-If your work feels at risk in the working tree, you may:
-- `git stash` and unstash before the commit step
-- write an actualWork.md note describing what you built so it can be
-  reproduced if lost
-
-But do NOT `git commit`. The commit step (10) follows analyze (11)
-in the checklist order intentionally. If you commit early, the
-commit step has nothing to commit and the analyze step finds issues
-you must amend in, polluting your commit history.
+- `git add` NEW files in the same task commit that creates them; an
+  untracked file that never gets added ships an empty PR (#25).
+- Leave nothing uncommitted at the end of this step. The commit step
+  (10) verifies everything is on the branch — it succeeds as a no-op
+  when per-task commits already captured all work, and fails loudly
+  on a dirty tree. Analyze (11) then runs against the committed work;
+  post-analyze fixes are new signed-off commits (squash-on-merge
+  absorbs the noise — spec §11).
 
 ## Completion handoff
 

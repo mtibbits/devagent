@@ -51,7 +51,11 @@ resuming.
 When the issue branch has zero commits ahead of `baseline_sha`,
 three script-backed steps auto-skip instead of erroring:
 
-- **Step 10 (commit):** marks `[-]`, exits 0.
+- **Step 10 (commit):** marks `[-]`, exits 0. When the branch DOES have
+  commits ahead of `baseline_sha` and the tree is clean (per-task commits
+  captured everything), it instead marks `[x]` and exits 0 as a no-op
+  success (#116). Either way the #69 branch-identity guard runs first —
+  a wrong-branch HEAD dies loud rather than marking the step.
 - **Step 15 (ship):** marks `[-]`, exits 0.
 - **Step 16 (mergetoall):** marks `[-]`, exits 0.
 
