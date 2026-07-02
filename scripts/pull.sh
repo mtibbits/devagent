@@ -92,9 +92,10 @@ main() {
     fi
     state_context_clear "$project"
   fi
-  state_set "$project" active_issue "$issue_id"
-  # #282: no pointer write — pull's project is always an explicit positional.
-  state_set "$project" issue_dir   "$issue_dir"
+  # #96: active_issue + issue_dir in ONE transaction — the issue's canonical
+  # tearing example (A's issue with B's dir). Clobber-warn carried inside.
+  # (#282: no pointer write — pull's project is always an explicit positional.)
+  state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
   # An active issue is by definition not parked: drop any stale parked flag
   # and snapshot for it, so a later resume cannot restore pre-park context
   # over live work (#98).

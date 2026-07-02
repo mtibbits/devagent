@@ -110,8 +110,7 @@ work_dir="${worktree:-$source_dir}"
 # Success epilogue for step 10 — shared by the real-commit tail and the #116
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
-    state_set "$project" last_step      "10"
-    state_set "$project" last_step_name "commit"
+    state_set_many "$project" str last_step "10" str last_step_name "commit"
     checklist_mark "$issue_dir/checklist.md" 10 x
     log_append "$issue_dir" commit "$1"
     checklist_print_next_hint "$issue_dir/checklist.md"

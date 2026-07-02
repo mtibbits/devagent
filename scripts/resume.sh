@@ -67,8 +67,8 @@ main() {
   fi
 
   state_remove_parked "$project" "$issue"
-  state_set "$project" active_issue "$issue"
-  state_set "$project" issue_dir   "$issue_dir"
+  # #96: same tearing pair as pull.sh — one transaction.
+  state_set_many "$project" str active_issue "$issue" str issue_dir "$issue_dir"
   state_context_restore "$project" "$issue"
 
   # #248: liveness-check the restored worktree_path. A git worktree removed

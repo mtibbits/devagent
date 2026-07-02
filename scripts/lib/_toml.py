@@ -5,7 +5,8 @@ Reads via Python 3.11+ stdlib tomllib. Writes by emitting a conservative
 subset of TOML by hand — we only need: top-level tables, nested tables,
 string/bool/int scalars. Lists/dates/inline-tables are read-only.
 
-Mutation verbs (set, set-bool, set-int, unset) acquire an exclusive
+Mutation verbs (set [--print-old], set-bool, set-int, unset, set-many,
+set-if) acquire an exclusive
 fcntl.flock on a sibling .lock file for the entire read-modify-write
 cycle and write via tempfile + atomic os.rename. Concurrent writers
 are serialized; readers do not need to lock (POSIX rename atomicity

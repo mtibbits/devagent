@@ -92,7 +92,10 @@ without consulting or touching the shared pointer. (Tooling that edits
 Per-PROJECT state is still one file (`state/<project>.toml`): two sessions
 on different issues of the *same* project can clobber `active_issue` —
 last writer wins; `state_set` emits an advisory stderr warning, not a
-lock. That race is #240's remit.
+lock. As of #96 all multi-key transitions are single atomic transactions
+(`state_set_many`) — state can no longer TEAR (A's issue with B's dir) and
+the clobber-warn reads in-lock — but the last-writer-wins PICK itself is
+#240's remit.
 
 Before any manual script invocation, confirm the active issue:
 

@@ -208,8 +208,7 @@ print(filled, end="")
 PY
 
 if [[ $no_pin -eq 0 ]]; then
-  state_set "$project" statusreport_last_pin "$now_iso"
-  state_set "$project" statusreport_last_pin_by "${USER:-unknown}"
+  state_set_many "$project" str statusreport_last_pin "$now_iso" str statusreport_last_pin_by "${USER:-unknown}"
 fi
 
 if [[ "$commit_devdoc" == "true" ]]; then
