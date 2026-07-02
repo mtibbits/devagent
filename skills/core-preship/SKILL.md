@@ -49,7 +49,12 @@ context is not.
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21 || true)"`.
    Pass the CANONICAL step number (21) even on a renumbered checklist —
    the class map is keyed to canonical numbers (config.sh). Empty ⇒
-   dispatch with NO model override (inherit the session model).
+   dispatch with NO model override (inherit the session model). A
+   per-issue `.devagent-step-models` marker (#291) may supply the tier —
+   a stderr `per-issue` provenance line means record
+   `model: <tier> (per-issue)` (or `inherit (per-issue)`) in the
+   artifact header. A nonzero exit WITH an error on stderr is a bad
+   marker: STOP and fix or remove it — do NOT dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md`, `mr.md`, the
    latest-dated review/redmr artifacts, the repo directory plus the

@@ -44,7 +44,12 @@ not.
    Pass the CANONICAL step number (3) even if this issue's checklist
    renumbers steps — the class map is keyed to canonical numbers
    (config.sh). Empty ⇒ dispatch with NO model override (the subagent
-   inherits the session model).
+   inherits the session model). A per-issue `.devagent-step-models`
+   marker (#291) may supply the tier — a stderr `per-issue` provenance
+   line means record `model: <tier> (per-issue)` (or
+   `inherit (per-issue)`) in the artifact header. A nonzero exit WITH an
+   error on stderr is a bad marker: STOP and fix or remove it — do NOT
+   dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md` and `imPlan.md`
    (including its Scope evaluation), the project source repo directory,
