@@ -51,3 +51,11 @@ teardown() { teardown_phase9_env; }
   echo "$output" | grep -q "layer=project"
   echo "$output" | grep -q "project layer override"
 }
+
+@test "template list includes the checklist + revision_block keys (#120)" {
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh"     --project "${DEVAGENT_TEST_PROJECT}" list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *checklist-standard* ]]
+  [[ "$output" == *checklist-research* ]]
+  [[ "$output" == *revision_block* ]]
+}

@@ -7,14 +7,26 @@
 #   - [x]  7. implement
 # A single-space step number is allowed for steps 0-9.
 
+# _checklist_template_path <template> [project] — #120: with a project, walk
+# the §12 registry (artifact_resolve, key "checklist-<template>") so projects
+# can override their workflow; empty project or total miss falls back to the
+# plugin default, preserving the pre-#120 behavior and die message byte-for-byte.
+# Callers must have artifact.sh (and its deps) sourced when passing a project.
 _checklist_template_path() {
-  echo "$(plugin_root)/templates/checklist-${1}.md"
+  local template="$1" project="${2:-}" tpl=""
+  if [[ -n "$project" ]]; then
+    if ! tpl="$(artifact_resolve "$project" "checklist-${template}" 2>/dev/null)"; then
+      tpl=""
+    fi
+  fi
+  [[ -n "$tpl" ]] || tpl="$(plugin_root)/templates/checklist-${template}.md"
+  echo "$tpl"
 }
 
 checklist_init() {
-  local issue_dir="$1" template="${2:-standard}" tpl
+  local issue_dir="$1" template="${2:-standard}" project="${3:-}" tpl
   [[ -n "$issue_dir" ]] || die "checklist_init: issue-dir required"
-  tpl="$(_checklist_template_path "$template")"
+  tpl="$(_checklist_template_path "$template" "$project")"
   [[ -f "$tpl" ]] || die "checklist_init: unknown template '$template' (no $tpl)"
   mkdir -p "$issue_dir"
   local issue_id="${ISSUE_ID:-$(basename "$issue_dir")}"

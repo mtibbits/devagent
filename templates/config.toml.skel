@@ -55,6 +55,16 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # checking = "fable"    # improve, review, redmr, preship
 # "7"      = "fable"    # per-step override (implement) beats the class tier
 
+# Per-project WORKFLOW override (#120): any checklist template resolves via
+# the §12 registry — drop a checklist-<name>.md in <devdoc>/templates/ or pin
+# an explicit path (quote the hyphenated key):
+#   [project.{{PROJECT}}.paths]
+#   "checklist-standard" = "templates/my-standard.md"   # devdoc-relative
+# NB: an override path that does not exist falls through SILENTLY to the
+# plugin default. Gates resolve step NAMES (absent => no gate): keep
+# updatewbs/impact/lessonslearned/preship named if you want their gates;
+# cleanup (20) is required. A custom step name needs its own /devagent:<name>
+# command (operator-provided).
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false

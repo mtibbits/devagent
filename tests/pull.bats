@@ -228,3 +228,12 @@ CTX
   after="$(stat -c '%Y' "$DA_HOME/state/_active.toml"; cat "$DA_HOME/state/_active.toml")"
   [ "$before" = "$after" ]
 }
+
+@test "pull.sh applies a devdoc checklist-template override (#120)" {
+  mkdir -p "$DEVDOC/templates"
+  printf '# PULL OVERRIDE MARKER #120\n- [ ]  0. pull\n- [ ] 20. cleanup\n\n## Log\n' \
+    > "$DEVDOC/templates/checklist-standard.md"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 7
+  [ "$status" -eq 0 ]
+  grep -q 'PULL OVERRIDE MARKER #120' "$DEVDOC/Issue-7/checklist.md"
+}
