@@ -41,8 +41,5 @@ Rules:
 ## No commit happens here
 
 The branch step only creates the working branch (`scripts/branch.sh`).
-It does NOT commit. Implementation commits begin in step 7 — each
-task commits its own work per executing-plans defaults — then quality
-(8) and document (9) commit their deltas, commit (10) verifies
-everything is on the branch, and analyze (11) runs against the
-committed work.
+It does NOT commit. Per-task commits begin in step 7 (see
+`/devagent:implement`).

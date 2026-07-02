@@ -103,13 +103,22 @@ fi
 #   clean tree AND commits     -> per-task commits captured everything;
 #                                 no-op success, mark [x] and exit (#116)
 #   clean tree AND no commits  -> genuine artifact-only, auto-mark [-] and exit
-baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
 
-# #69: commit on the issue branch only — hoisted ABOVE the zero-diff guard
-# (#116) so no early-exit path (no-op success, artifact-only skip) can mark
+# Success epilogue for step 10 — shared by the real-commit tail and the #116
+# no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
+finish_step() {
+    state_set "$project" last_step      "10"
+    state_set "$project" last_step_name "commit"
+    checklist_mark "$issue_dir/checklist.md" 10 x
+    log_append "$issue_dir" commit "$1"
+    checklist_print_next_hint "$issue_dir/checklist.md"
+}
+
+# #69: commit on the issue branch only. This guard runs BEFORE the zero-diff
+# guard so no early-exit path (no-op success, artifact-only skip) can mark
 # step 10 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
 # or the base branch after cleanup, in the revision flow). A detached HEAD
 # yields an empty name and is also refused. Checked on work_dir, whose HEAD
@@ -120,12 +129,6 @@ if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
     die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
 fi
 
-# Commits-ahead via the shared classifier (#241). Only a confirmed 'commits'
-# verdict counts as work-via-commits; 'empty', a missing baseline, and a rev-list
-# fault all leave has_commits unset (matching the prior `|| true`→"" behavior) —
-# the working-tree checks below (staged/dirty) carry commit.sh's own fail-safe.
-has_commits=""
-[ "$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")" = commits ] && has_commits=1
 staged=""
 # Fail-safe by direction: any git fault here (e.g. not-a-repo, exit >=2) takes
 # the `|| staged=1` branch, so the guard falls through to `git commit` below
@@ -141,7 +144,9 @@ if [ -z "$staged" ]; then
         # through to the commit below — instead of forcing a manual `git add`.
         # Default off, or any can't-determine/nothing-staged case, → the #25
         # die-loud guard. Out-of-scope dirty files are never in the manifest, so
-        # they are never staged (provably absent from the commit).
+        # they are never staged (provably absent from the commit). Reached even
+        # when commits exist ahead of baseline (#116): a dirty-unstaged
+        # remainder on top of per-task commits is forgotten work.
         autostage="$(config_get_project_field "$project" commit_autostage 2>/dev/null || echo false)"
         if [ "$autostage" = "true" ]; then
             # Autostage requested: stage exactly the manifest's files, or die with a
@@ -154,25 +159,26 @@ if [ -z "$staged" ]; then
         else
             die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
         fi
-    elif [ -n "$has_commits" ]; then
-        # #116: per-task commits during implement are the norm — a clean tree
-        # with commits ahead of baseline means the work is already committed.
-        # NB (A1): the dirty-unstaged branch above now runs even when commits
-        # exist ahead of baseline — under commit_autostage=true that widens
-        # autostage's reach to revision-flow remainders (previously a raw
-        # `git commit` failure). Intentional; called out in the #116 MR.
-        info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
-        state_set "$project" last_step      "10"
-        state_set "$project" last_step_name "commit"
-        checklist_mark "$issue_dir/checklist.md" 10 x
-        log_append "$issue_dir" commit "no-op: work already committed per-task (#116)"
-        checklist_print_next_hint "$issue_dir/checklist.md"
-        exit 0
     else
-        info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
-        checklist_mark "$issue_dir/checklist.md" 10 -
-        log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
-        exit 0
+        # Tree is clean — consult the commits-ahead classifier (#241) only now,
+        # off the normal commit path. Only a confirmed 'commits' verdict counts
+        # as work-via-commits; a missing baseline or rev-list fault reads as
+        # no-commits here, and the staged/dirty checks above already carried
+        # commit.sh's own fail-safe for real work.
+        baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+        if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")" = commits ]; then
+            # #116: per-task commits during implement are the norm — a clean
+            # tree with commits ahead of baseline means the work is already
+            # committed. Full success, not a skip.
+            info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
+            finish_step "no-op: work already committed per-task (#116)${NOTE:+ — $NOTE}"
+            exit 0
+        else
+            info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
+            checklist_mark "$issue_dir/checklist.md" 10 -
+            log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
+            exit 0
+        fi
     fi
 fi
 
@@ -226,13 +232,8 @@ if [ "$include_coauthor" = "false" ]; then
     strip_coauthor "$body"
 fi
 
-# The #69 branch-identity guard already ran above the zero-diff guard (#116).
 # work_dir was resolved by the zero-diff guard above; reuse it.
 cd "$work_dir"
 "$DEVAGENT_GIT" commit -s -F "$body"
 
-state_set "$project" last_step      "10"
-state_set "$project" last_step_name "commit"
-checklist_mark "$issue_dir/checklist.md" 10 x
-log_append "$issue_dir" commit "committed $("$DEVAGENT_GIT" rev-parse --short HEAD)${NOTE:+ — $NOTE}"
-checklist_print_next_hint "$issue_dir/checklist.md"
+finish_step "committed $("$DEVAGENT_GIT" rev-parse --short HEAD)${NOTE:+ — $NOTE}"

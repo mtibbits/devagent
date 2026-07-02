@@ -49,8 +49,8 @@ itself — without code change the rest of the pipeline is meaningless.
 
 ## Commit discipline
 
-Each task commits its own work as it completes — the wrapped skill's
-default; keep it. Two rules make commit (10) and ship (15) safe:
+Per-task commits (Workflow step 5 above) are the norm. Two rules make
+commit (10) and ship (15) safe:
 
 - `git add` NEW files in the same task commit that creates them; an
   untracked file that never gets added ships an empty PR (#25).

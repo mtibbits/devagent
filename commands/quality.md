@@ -62,8 +62,9 @@ scripts/checklist-log.sh "$ISSUE_DIR" quality \
 
 ## Halt and ask if
 
-- Working tree has uncommitted changes that aren't from the implement
-  step (operator may have stray edits — confirm before reformatting).
+- Working tree has uncommitted changes at entry (implement commits
+  per-task, so these are stray operator edits — confirm before
+  reformatting).
 - Coding-standards file cannot be resolved from any of the three
   registry layers.
 - Simplify proposes a refactor that would touch files outside the
