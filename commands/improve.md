@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:improve
 
-Step 3 of the 21-step devAgent workflow. Invokes the `core-improve`
+Step 3 of the 22-step devAgent workflow. Invokes the `core-improve`
 skill to read `<issue-dir>/imPlan.md` and append an `## Improvements`
 section flagging concrete defects.
 

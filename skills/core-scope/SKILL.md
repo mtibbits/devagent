@@ -6,7 +6,7 @@ when-to-use: After /devagent:draft has produced an imPlan.md and before /devagen
 
 # devagent-scope
 
-Step 2 of the devAgent 21-step workflow. Walks the operator through
+Step 2 of the devAgent 22-step workflow. Walks the operator through
 six scope questions and appends the answers to `<issue-dir>/imPlan.md`
 as a new `## Scope evaluation` section.
 

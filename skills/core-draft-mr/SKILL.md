@@ -6,7 +6,7 @@ when-to-use: After /devagent:analyze and before /devagent:review. Run as part of
 
 # devagent-draft-mr
 
-Step 12 of the devAgent 21-step workflow. Fills in
+Step 12 of the devAgent 22-step workflow. Fills in
 `${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md` from the issue's plan, actualWork, and
 analyzer findings, writing the result to `<issue-dir>/mr.md`. The
 ship step later uses `mr.md` verbatim as the MR body.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "devagent",
-  "description": "A Claude Code plugin that runs development through a fixed 21-step issue workflow with on-disk state preservation, across GitHub/GitLab/JIRA.",
+  "description": "A Claude Code plugin that runs development through a fixed 22-step issue workflow with on-disk state preservation, across GitHub/GitLab/JIRA.",
   "owner": {
     "name": "Matt Tibbits",
     "email": "tibbits@gmail.com"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "devagent",
-      "description": "Drives 53 slash commands over a 21-step issue workflow, preserving all state on disk so you can switch issues without losing context. Works against GitHub/GitLab/JIRA, with capture + issue red-team, revision, WBS, and status-report subsystems.",
+      "description": "Drives 54 slash commands over a 22-step issue workflow, preserving all state on disk so you can switch issues without losing context. Works against GitHub/GitLab/JIRA, with capture + issue red-team, revision, WBS, and status-report subsystems.",
       "version": "0.1.0",
       "source": "./",
       "author": { "name": "Matt Tibbits" }

@@ -6,7 +6,7 @@ when-to-use: After /devagent:quality and before /devagent:commit. Run as part of
 
 # devagent-document-actual-work
 
-Step 9 of the devAgent 21-step workflow. Writes
+Step 9 of the devAgent 22-step workflow. Writes
 `<issue-dir>/actualWork.md` recording what was actually built. The
 contract: **be terse when there is no deviation from `imPlan.md`**.
 Most of the time, the plan is the work; the actualWork file is short.

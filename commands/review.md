@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:review
 
-Step 13 of the 21-step devAgent workflow. Invokes the upstream
+Step 13 of the 22-step devAgent workflow. Invokes the upstream
 `superpowers:requesting-code-review` skill against the issue's
 branch diff. Produces a review report that the operator addresses
 before the red-team step (14).

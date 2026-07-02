@@ -347,6 +347,7 @@ Active revision: 1
 - [ ] 12. draftmr
 - [ ] 13. review
 - [ ] 14. redmr
+- [ ] 21. preship
 - [ ] 15. ship
 - [ ] 16. mergetoall
 - [ ] 17. updatewbs
@@ -429,7 +430,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (the 21 steps)
+### 6.3 Family B — Workflow (the 22 steps)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
@@ -448,6 +449,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 12 | `/devagent:draftmr` | skill | `devagent-draft-mr`, fills `mr_template.md` |
 | 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
 | 14 | `/devagent:redmr` | skill | `devagent-redmr` using `templates/redteam_mr.md` |
+| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification; ordering enforced by next.sh dispatch (advisory), not a ship.sh gate (#149) |
 | 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
 | 16 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
 | 17 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |

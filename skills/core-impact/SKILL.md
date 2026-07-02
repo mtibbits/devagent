@@ -6,7 +6,7 @@ when-to-use: After /devagent:updatewbs (step 17) and before /devagent:lessonslea
 
 # devagent-impact
 
-Step 18 of the devAgent 21-step workflow. Captures the *measurable*
+Step 18 of the devAgent 22-step workflow. Captures the *measurable*
 outcome of a shipped change so future status reports, velocity
 estimates, and lessons-learned have ground truth to refer to.
 
