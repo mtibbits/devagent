@@ -16,7 +16,7 @@ With `--auto`, the chaining layer suppresses the inter-step prompt but does
 
 `cleanup.sh` refuses to complete while ANY closeout step — `updatewbs`,
 `impact`, or `lessonslearned` (each resolved by name) — is in a non-terminal
-glyph (`[ ]`, `[~]`, `[!]`, `[?]`). The die names every offender at once.
+glyph (`[ ]`, `[~]`, `[!]`, `[?]`, `[P]`). The die names every offender at once.
 Finish each step, or mark it `[-]` (skip) if genuinely empty — the per-step
 skip is the escape hatch and stays auditable in the checklist.
 `lessonslearned` is the highest-stakes gate (producer of the `[actionable]` →
