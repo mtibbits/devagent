@@ -20,6 +20,10 @@ teardown() { auth_teardown_common; }
 }
 
 @test "doctor_auth check with stored token but bad mode reports WARN" {
+  # #289: WARN-on-drift only applies where chmod takes effect; on a no-op-chmod
+  # filesystem doctor_auth correctly emits SKIP instead, so skip the test there.
+  _c="${BATS_TEST_TMPDIR}/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   source scripts/lib/secrets.sh
   secret_write volk github "$(synthetic_token)"
   chmod 644 "${DEVAGENT_SECRETS_DIR}/volk.github.pat"
@@ -30,6 +34,8 @@ teardown() { auth_teardown_common; }
 }
 
 @test "doctor_auth check with bad secrets-dir mode reports WARN globally" {
+  _c="${BATS_TEST_TMPDIR}/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   mkdir -p "${DEVAGENT_SECRETS_DIR}"
   chmod 755 "${DEVAGENT_SECRETS_DIR}"
   run scripts/lib/doctor_auth.sh check volk github

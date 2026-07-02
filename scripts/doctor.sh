@@ -77,7 +77,7 @@ check_one_project() {
     if [[ "$mode" == "600" ]]; then
       check "state file ($mode)" ok
     elif ! posix_modes_representable "$(dirname "$(state_path "$project")")"; then
-      check "state file ($mode)" skip "filesystem can't represent POSIX modes (ACLs govern)"
+      check "state file ($mode)" skip "filesystem can't represent POSIX modes — verify access control by other means"
     else
       check "state file ($mode)" fail "expected mode 600"
     fi
@@ -140,7 +140,7 @@ if [[ -d "$(secrets_dir)" ]]; then
   if ! posix_modes_representable "$(secrets_dir)"; then
     # secrets_audit would skip-and-pass here; say so visibly rather than
     # printing a bare OK that implies the 700/600 invariant was verified (#289).
-    check "secrets dir clean" skip "filesystem can't represent POSIX modes (ACLs govern)"
+    check "secrets dir clean" skip "filesystem can't represent POSIX modes — verify access control by other means"
   elif secrets_audit 2>/dev/null; then
     check "secrets dir clean" ok
   else

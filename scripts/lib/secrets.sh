@@ -158,11 +158,12 @@ secrets_bootstrap() {
   chmod 700 "$dir"
 }
 
-# posix_modes_representable <dir> — true when the filesystem under <dir>
-# honors chmod. On Windows/NTFS (MSYS/Cygwin "noacl" mounts) chmod is a
-# no-op and every mode reads back 755/644, so 700/600 invariants can never
-# hold; mode checks are meaningless there (the NTFS ACL on the user profile
-# is the effective protection) and callers skip them. Fail-safe by
+# posix_modes_representable <dir> — true when a file under <dir> can carry a
+# distinct POSIX mode (specifically, reads back as 600). On "noacl" mounts
+# (MSYS/Cygwin NTFS, vfat/exfat) chmod is a no-op and every mode reads back
+# 755/644, so 700/600 invariants can never hold; mode checks are meaningless
+# there (filesystem/OS access control governs instead) and callers skip them.
+# Fail-safe by
 # direction: EVERY uncertainty (can't create a probe, chmod fails, stat
 # fails) returns true so a real audit still runs — only a probe that was
 # created and chmod'd yet reads back != 600 declares modes unrepresentable.
