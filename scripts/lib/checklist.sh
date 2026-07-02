@@ -16,7 +16,10 @@
 # that the production path really resolves).
 _checklist_template_path() {
   local template="$1" project="${2:-}"
-  if [[ -n "$project" ]] && command -v artifact_resolve_or >/dev/null 2>&1; then
+  if [[ -n "$project" ]]; then
+    # #78 fail-loud: a project-passing caller that forgot to source
+    # artifact.sh is a bug — dying beats silently ignoring the override.
+    command -v artifact_resolve_or >/dev/null 2>&1       || die "_checklist_template_path: caller passed a project but artifact.sh is not sourced (#120)"
     artifact_resolve_or "$project" "checklist-${template}"
   else
     echo "$(plugin_root)/templates/checklist-${template}.md"
