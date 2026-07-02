@@ -7,7 +7,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 # /devagent:draft
 
 Drafts `<issue-dir>/imPlan.md` for the active issue by invoking the
-upstream `superpowers:writing-plans` skill. Step 1 of the 21-step
+upstream `superpowers:writing-plans` skill. Step 1 of the 22-step
 devAgent workflow (spec §6.3).
 
 ## Argument parsing (spec §6.1)

@@ -15,6 +15,7 @@ Active revision: 1
 - [ ] 10. commit
 - [ ] 12. draftmr
 - [ ] 13. review
+- [ ] 21. preship
 - [ ] 15. ship
 - [ ] 16. mergetoall
 - [ ] 20. cleanup

@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:prune
 
-Step 4 of the 21-step devAgent workflow. Invokes the `core-prune`
+Step 4 of the 22-step devAgent workflow. Invokes the `core-prune`
 skill to migrate non-load-bearing items from `imPlan.md` into
 `imPlan-potentialFutureEnhancements.md`.
 

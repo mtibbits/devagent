@@ -6,7 +6,7 @@ when-to-use: After /devagent:review and before /devagent:ship. Run as part of /d
 
 # devagent-redmr
 
-Step 14 of the devAgent 21-step workflow. Runs the project's MR
+Step 14 of the devAgent 22-step workflow. Runs the project's MR
 red-team prompt (`${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md`, resolved per §12 registry)
 against `<issue-dir>/mr.md` plus the branch diff. Produces a severity-
 classified findings report and refuses to silently advance past

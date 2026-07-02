@@ -6,7 +6,7 @@ when-to-use: After /devagent:improve has tagged items and before /devagent:tight
 
 # devagent-prune
 
-Step 4 of the devAgent 21-step workflow. Walks the Improvements section
+Step 4 of the devAgent 22-step workflow. Walks the Improvements section
 of `<issue-dir>/imPlan.md`, the Out-of-scope section of the Scope
 evaluation, and any task whose value is not load-bearing for the
 issue, and migrates them to

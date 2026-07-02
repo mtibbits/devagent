@@ -52,7 +52,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"
 # thinking = "opus"     # draft, implement, quality, document, draftmr
-# checking = "fable"    # improve, review, redmr
+# checking = "fable"    # improve, review, redmr, preship
 # "7"      = "fable"    # per-step override (implement) beats the class tier
 
 [project.{{PROJECT}}.permissions]

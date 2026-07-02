@@ -54,6 +54,8 @@ three script-backed steps auto-skip instead of erroring:
 - **Step 10 (commit):** marks `[-]`, exits 0. (A clean tree *with* commits
   ahead of baseline is instead a `[x]` no-op success — see `/devagent:commit`,
   #116.)
+- **Step 21 (preship):** skill-level `[-]` on a zero-diff branch (see
+  `/devagent:preship`; `indeterminate` never auto-skips).
 - **Step 15 (ship):** marks `[-]`, exits 0.
 - **Step 16 (mergetoall):** marks `[-]`, exits 0.
 

@@ -197,3 +197,34 @@ EOF
   [[ "$output" == *"step 7 (implement) wants tier: fable"* ]]
   [[ "$output" != *"wants tier: opus"* ]]
 }
+
+# --- #149: preship dispatch order + halt (regression locks — existing
+# next.sh machinery over the new template line; born green by design) -------
+
+@test "next dispatches preship after redmr, before ship (#149)" {
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+# Issue-676 — Workflow checklist
+
+- [x] 14. redmr
+- [ ] 21. preship
+- [ ] 15. ship
+EOC
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:preship"* ]]
+}
+
+@test "next halts on preship [!] — ship unreached (#149)" {
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+# Issue-676 — Workflow checklist
+
+- [x] 14. redmr
+- [!] 21. preship
+- [ ] 15. ship
+EOC
+  echo "preship: planted failure list" > "$DEVDOC/Issue-676/STUCK"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"STUCK"* ]]
+  grep -qE '^- \[ \] +15\. ship' "$DEVDOC/Issue-676/checklist.md"
+}

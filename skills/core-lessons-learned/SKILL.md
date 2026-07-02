@@ -6,7 +6,7 @@ when-to-use: After /devagent:impact and before /devagent:cleanup. Run as part of
 
 # devagent-lessons-learned
 
-Step 19 of the devAgent 21-step workflow. Writes
+Step 19 of the devAgent 22-step workflow. Writes
 `<issue-dir>/lessonsLearned.md` capturing what to do differently next
 time. Entries tagged `actionable` are harvested by `/devagent:reap`
 into new captures.

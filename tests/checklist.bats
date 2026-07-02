@@ -75,8 +75,8 @@ teardown() { teardown_tmp_devagent_home; }
 
 @test "checklist_current_step echoes 'done' when all done" {
   checklist_init "$ISSUE_DIR" docs-only
-  # docs-only has 10 steps; mark them all done
-  for s in 0 1 6 9 10 12 13 15 16 20; do
+  # docs-only has 11 steps; mark them all done
+  for s in 0 1 6 9 10 12 13 21 15 16 20; do
     checklist_mark "$ISSUE_DIR/checklist.md" "$s" x
   done
   run checklist_current_step "$ISSUE_DIR/checklist.md"
@@ -192,7 +192,7 @@ EOF
 }
 
 @test "checklist_mark falls back to whole file for steps not in active revision" {
-  checklist_init "$ISSUE_DIR" standard   # standard has steps 0..20 in rev 1
+  checklist_init "$ISSUE_DIR" standard   # standard rev 1 tops out at 21 (preship, #149)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only 1-15
   checklist_mark "$f" 20 x                # 20 lives only in revision 1

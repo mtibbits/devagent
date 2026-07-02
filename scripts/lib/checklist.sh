@@ -41,7 +41,7 @@ _checklist_active_start() {
 
 # _checklist_scope_start: the active-block start line IF the target step appears
 # in that block, else 0 (whole file). Steps unique to revision 1 — 0 (pull) and
-# 16-20 (mergetoall/updatewbs/impact/lessonslearned/cleanup) — are never reused,
+# 16-21 (mergetoall/updatewbs/impact/lessonslearned/cleanup/preship) — are never reused,
 # so they correctly resolve file-wide when a later revision is active, keeping
 # cleanup.sh/mergetoall.sh/etc. working after a revision.
 _checklist_scope_start() {
@@ -105,8 +105,9 @@ checklist_step_state() {
 # Prints the glyph of the step whose NAME matches <name> (returns 0), or
 # returns 1 if no such step exists. Resolves by name, not number, so callers
 # survive cross-template step renumbering. File-wide: the by-name callers
-# (cleanup's closeout gate, #231/#242) target steps in the never-reused 16-20
-# band (see _checklist_scope_start), so revision scoping is unnecessary.
+# (cleanup's closeout gate #231/#242, ship's preship gate #149) target steps
+# in the never-reused 16-21 band (see _checklist_scope_start), so revision
+# scoping is unnecessary.
 checklist_step_state_by_name() {
   local file="$1" target="$2" line
   while IFS= read -r line; do

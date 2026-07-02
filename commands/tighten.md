@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:tighten
 
-Step 5 of the 21-step devAgent workflow. Invokes the `core-tighten`
+Step 5 of the 22-step devAgent workflow. Invokes the `core-tighten`
 skill for the last pre-implementation review of `imPlan.md`: task
 ordering, dependencies, absolute file paths, per-task test plan,
 Definition of done.

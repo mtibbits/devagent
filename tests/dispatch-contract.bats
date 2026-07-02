@@ -28,9 +28,9 @@ _contract_carriers() {
     done
   done
   # Guard against a vacuous pass on FILTERED carriers (not merely discovered
-  # files): core-improve + core-redmr + review.md is today's floor — a skill
-  # silently dropping out of the sweep must fail here.
-  [ "$full" -ge 3 ]
+  # files): core-improve + core-redmr + core-preship + review.md is today's
+  # floor — a skill silently dropping out of the sweep must fail here.
+  [ "$full" -ge 4 ]
   if [ "${#missing[@]}" -ne 0 ]; then
     printf 'missing contract token: %s\n' "${missing[@]}" >&2
   fi

@@ -6,7 +6,7 @@ when-to-use: After /devagent:prune has produced a minimal plan and before /devag
 
 # devagent-tighten
 
-Step 5 of the devAgent 21-step workflow. The last review pass on
+Step 5 of the devAgent 22-step workflow. The last review pass on
 `<issue-dir>/imPlan.md` before any code is written. Locks down the
 plan so the implementing engineer (often a fresh subagent in a fresh
 session) needs zero context-discovery to start.

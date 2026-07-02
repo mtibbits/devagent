@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:implement
 
-Step 7 of the 21-step devAgent workflow. Invokes the upstream
+Step 7 of the 22-step devAgent workflow. Invokes the upstream
 `superpowers:executing-plans` skill against `<issue-dir>/imPlan.md`.
 
 ## Argument parsing

@@ -6,7 +6,7 @@ when-to-use: After /devagent:scope has appended scope evaluation and before /dev
 
 # devagent-improve
 
-Step 3 of the devAgent 21-step workflow. Reads `<issue-dir>/imPlan.md`
+Step 3 of the devAgent 22-step workflow. Reads `<issue-dir>/imPlan.md`
 (including the Scope evaluation section) and appends an `## Improvements`
 section that flags concrete plan defects in three categories: bugs,
 side effects, ambiguities.

@@ -1,14 +1,17 @@
 ---
-description: Draft the MR body for the active issue. Invokes core-draft-mr skill.
+description: "Step 21: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship. Wraps core-preship."
 allowed-tools: Bash, Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 
-# /devagent:draftmr
+# /devagent:preship
 
-Step 12 of the 22-step devAgent workflow. Invokes the
-`core-draft-mr` skill to fill `${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md` from the
-issue's artifacts and write `<issue-dir>/mr.md`.
+Step 21 of the devAgent 22-step workflow (file-ordered between redmr (14)
+and ship (15); the number is unique — file order is execution authority).
+Invokes the `core-preship` skill, which dispatches a fresh-context
+verification subagent (model via `step-model.sh <project> 21`, else
+inherit — see the skill's dispatch contract) and writes
+`<issue-dir>/preship.md`.
 
 ## Argument parsing
 
@@ -17,26 +20,30 @@ Per `commands/draft.md`.
 ## Workflow
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
-2. Verify analyze step completed (`<issue-dir>/analysis/` exists) — UNLESS the
-   issue's `checklist.md` does not contain the analyze step (step 11), as in the
-   docs-only checklist. A prerequisite whose producing step is
-   absent from the issue's checklist is **N/A**: skip this check and proceed,
-   do not halt.
-3. Verify actualWork.md exists.
-4. Invoke `core-draft-mr`. The skill calls
-   `scripts/checklist-log.sh`.
+2. Verify `mr.md` exists (draftmr ran) and the redmr artifact exists —
+   UNLESS the issue's checklist does not contain step 14 (docs-only): a
+   prerequisite whose producing step is absent is **N/A**, and the review
+   report alone is the findings input. Do not halt on the absent step;
+   DO halt when the step is present but its artifact is missing.
+3. Invoke `core-preship` with `$ISSUE_DIR`, `$NOTE`, and the resolved
+   project (the skill's dispatch contract needs it for step-model.sh).
+4. The skill writes `preship.md` (subagent-authored under dispatch). Any
+   failed verification: the skill's failure protocol marks the step `[!]`
+   via `checklist-stuck.sh` — next.sh halts there; recovery is
+   `/devagent:unstuck` after addressing the failures.
 
 ## Halt and ask if
 
-- analyze step did not run (no analysis/ dir) **and** the analyze step (11) is
-  present in the issue's checklist. If the checklist omits analyze (docs-only),
-  analyze is N/A — do not halt.
-- actualWork.md missing.
-- mr.md already exists with content (overwrite? revise? abort?).
+- `mr.md` missing (run draftmr first).
+- Step 14 present in the checklist but no `analysis/*-redmr.md` (and the
+  docs-only inverse: step 13 present but no review artifact).
+- State lacks `baseline_sha`/`branch` (preship cannot identify the push
+  content).
 
 ## Skipping policy
 
-Never auto-skip.
+Zero-diff auto-skip only, per the skill's Zero-diff section (`empty` ⇒
+`[-]`; `indeterminate` never auto-skips). Never skip otherwise.
 
 ## Completion handoff
 
