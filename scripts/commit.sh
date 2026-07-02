@@ -93,16 +93,32 @@ if [ -n "$explicit_issue" ]; then
 fi
 
 # Zero-diff guard — decided on the WORKING TREE, not commits-ahead (issue #25).
-# commit.sh commits the staged index (`git commit -s -F` below), and the
-# implement step leaves work in the working tree (staged or not), so "no
-# commits ahead of baseline" does NOT mean "no work". Three cases:
+# commit.sh commits the staged index (`git commit -s -F` below); the implement
+# step commits per-task and may leave a remainder in the working tree (#116).
+# Four cases:
 #   staged changes present     -> fall through and commit them (normal path)
-#   dirty but nothing staged   -> fail loudly; never silently skip real work
+#   dirty but nothing staged   -> fail loudly (or #251 autostage); never
+#                                 silently skip real work — even when commits
+#                                 already exist ahead of baseline
+#   clean tree AND commits     -> per-task commits captured everything;
+#                                 no-op success, mark [x] and exit (#116)
 #   clean tree AND no commits  -> genuine artifact-only, auto-mark [-] and exit
 baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
+
+# #69: commit on the issue branch only — hoisted ABOVE the zero-diff guard
+# (#116) so no early-exit path (no-op success, artifact-only skip) can mark
+# step 10 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
+# or the base branch after cleanup, in the revision flow). A detached HEAD
+# yields an empty name and is also refused. Checked on work_dir, whose HEAD
+# IS the issue branch under a worktree too.
+branch="$(state_get "$project" branch 2>/dev/null || true)"
+cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
+if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
+    die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
+fi
 
 # Commits-ahead via the shared classifier (#241). Only a confirmed 'commits'
 # verdict counts as work-via-commits; 'empty', a missing baseline, and a rev-list
@@ -118,7 +134,7 @@ staged=""
 "$DEVAGENT_GIT" -C "$work_dir" diff --cached --quiet 2>/dev/null || staged=1
 dirty="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain 2>/dev/null || true)"
 
-if [ -z "$has_commits" ] && [ -z "$staged" ]; then
+if [ -z "$staged" ]; then
     if [ -n "$dirty" ]; then
         # #251: opt-in scoped auto-staging. When commit_autostage=true AND the
         # issue declares an in-scope manifest, stage exactly those paths and fall
@@ -138,6 +154,20 @@ if [ -z "$has_commits" ] && [ -z "$staged" ]; then
         else
             die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
         fi
+    elif [ -n "$has_commits" ]; then
+        # #116: per-task commits during implement are the norm — a clean tree
+        # with commits ahead of baseline means the work is already committed.
+        # NB (A1): the dirty-unstaged branch above now runs even when commits
+        # exist ahead of baseline — under commit_autostage=true that widens
+        # autostage's reach to revision-flow remainders (previously a raw
+        # `git commit` failure). Intentional; called out in the #116 MR.
+        info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
+        state_set "$project" last_step      "10"
+        state_set "$project" last_step_name "commit"
+        checklist_mark "$issue_dir/checklist.md" 10 x
+        log_append "$issue_dir" commit "no-op: work already committed per-task (#116)"
+        checklist_print_next_hint "$issue_dir/checklist.md"
+        exit 0
     else
         info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
         checklist_mark "$issue_dir/checklist.md" 10 -
@@ -196,18 +226,7 @@ if [ "$include_coauthor" = "false" ]; then
     strip_coauthor "$body"
 fi
 
-# #69: commit on the issue branch only. `git commit` lands on whatever HEAD points at;
-# after mergetoall (HEAD left on all_prs) or cleanup (base branch) the revision flow
-# (comments → revise → implement → commit) would commit onto the wrong branch and
-# re-ship would push the unchanged issue branch — the revision silently never reaches
-# the PR. Refuse loudly on mismatch; a detached HEAD yields an empty name and is also
-# refused. Checked on work_dir, whose HEAD IS the issue branch under a worktree too.
-branch="$(state_get "$project" branch 2>/dev/null || true)"
-cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
-if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
-    die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
-fi
-
+# The #69 branch-identity guard already ran above the zero-diff guard (#116).
 # work_dir was resolved by the zero-diff guard above; reuse it.
 cd "$work_dir"
 "$DEVAGENT_GIT" commit -s -F "$body"
