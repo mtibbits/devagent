@@ -82,8 +82,10 @@ env entry in the project directory:
 { "env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" } }
 ```
 
-The harness injects the variable into every shell, so all resolution in
-that session is pinned without consulting or touching the shared pointer.
+The harness injects the variable into every shell, so resolution through
+the standard chain (arg → env → pointer) is pinned for that session
+without consulting or touching the shared pointer. (Tooling that edits
+`_active.toml` directly — e.g. capture.md's recipe — bypasses the pin.)
 
 Per-PROJECT state is still one file (`state/<project>.toml`): two sessions
 on different issues of the *same* project can clobber `active_issue` —
