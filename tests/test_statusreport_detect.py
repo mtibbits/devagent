@@ -101,3 +101,39 @@ def test_completed_detection():
 def test_completion_timestamp_returns_log_ts_of_step_20():
     ts = sr.completion_timestamp(ISSUES / "Issue-104")
     assert ts.year == 2026 and ts.month == 5 and ts.day == 15
+
+
+# ---- #134: the `N blocking` log-line contract that single-sources the ----
+# ---- red-team output format (core-redmr's documented log line is the ----
+# ---- machine-parsed surface; template vocabulary must never replace it) ----
+
+def _one_entry_checklist(tmp_path, msg):
+    cl = tmp_path / "checklist.md"
+    cl.write_text(
+        "# x\n"
+        "## Log\n"
+        f"- 2026-07-02 12:00  redmr: {msg}\n",
+        encoding="utf-8",
+    )
+    # Parse guard: a malformed fixture would make negative asserts vacuous.
+    assert len(sr._parse_log_entries(cl)) == 1, "fixture failed _LOG_RE"
+    return tmp_path
+
+
+def test_skill_log_format_with_blocking_flags(tmp_path):
+    # core-redmr SKILL.md's documented format, nonzero count.
+    d = _one_entry_checklist(tmp_path, "Red-team: 3 blocking, 1 major, 2 minor, 0 info")
+    assert sr.failed_redteam(d)
+
+
+def test_skill_log_format_zero_blocking_does_not_flag(tmp_path):
+    d = _one_entry_checklist(tmp_path, "Red-team: 0 blocking, 1 major, 2 minor, 0 info")
+    assert not sr.failed_redteam(d)
+
+
+def test_template_vocabulary_is_invisible_to_the_parser(tmp_path):
+    # redteam_mr.md's OLD vocabulary ("3 block") does NOT satisfy
+    # `\d+\s+blocking` — a real failure logged this way would silently
+    # never flag. This is WHY the skill's format is the single source.
+    d = _one_entry_checklist(tmp_path, "Red-team: 3 block, 1 request-changes, 2 nit")
+    assert not sr.failed_redteam(d)

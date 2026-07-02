@@ -2,7 +2,12 @@
 
 Red-team this PR from the maintainer's perspective. The maintainer is [name/context].
 
-For each finding, rate severity as: **block** (must fix before merge), **request-changes** (should fix, would accept a follow-up), or **nit** (take it or leave it).
+This template defines WHAT to attack. Severity taxonomy, summary counts,
+verdict vocabulary, and the checklist log line are the invoking skill's
+contract (core-redmr: `[BLOCKING]` / `[MAJOR]` / `[MINOR]` / `[INFO]`) — if
+any resolved copy of this template says otherwise, the skill's format wins.
+(Historical mapping for pre-#134 artifacts: block≡BLOCKING,
+request-changes≡MAJOR, nit≡MINOR.)
 
 ## Review order
 
@@ -57,7 +62,7 @@ For each finding, rate severity as: **block** (must fix before merge), **request
 ## I. Hidden Coupling
 - Does this change make assumptions about other parts of the codebase that could silently break?
 - Any implicit ordering, shared state, or undocumented contracts?
-- **Chain analysis**: Review all findings together. Could two "minor" issues (e.g., an integer truncation + an unchecked return value) combine into a real vulnerability?
+- **Chain analysis**: Review all findings together. Could two `[MINOR]` findings (e.g., an integer truncation + an unchecked return value) combine into a real vulnerability?
 
 ## J. Maintenance Burden
 - Am I adding something the maintainer now has to support? Is that burden proportional to the value?
