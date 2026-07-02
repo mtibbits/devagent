@@ -64,8 +64,14 @@ EOF
   [ -z "$DA_PROJECT" ]
 }
 
-@test "no args with global active project uses it" {
-  echo 'active_project = "toy"' > "$DA_HOME/state/_global.toml"
+@test "no args with global active pointer (_active.toml) uses it (#282)" {
+  echo 'active_project = "toy"' > "$DA_HOME/state/_active.toml"
   parse_devagent_args
   [ "$DA_PROJECT" = "toy" ]
+}
+
+@test "no args: DEVAGENT_ACTIVE_PROJECT wins over the pointer (#282)" {
+  echo 'active_project = "toy"' > "$DA_HOME/state/_active.toml"
+  DEVAGENT_ACTIVE_PROJECT=volk parse_devagent_args
+  [ "$DA_PROJECT" = "volk" ]
 }

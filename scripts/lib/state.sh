@@ -220,12 +220,3 @@ _state_list_projects() {
     done )
 }
 
-# Active *project* set explicitly in state/_global.toml (distinct from
-# state_active_project which infers from most-recent updated_at).
-# Plan 2 helpers use this for the parse-args default-project resolution.
-state_global_active_project() {
-  local f
-  f="$(devagent_home)/state/_global.toml"
-  [[ -f "$f" ]] || return 0
-  _state_toml get "$f" active_project 2>/dev/null || true
-}

@@ -62,10 +62,22 @@ parse_devagent_args() {
     DA_NOTE="${note_tokens[*]}"
   fi
 
-  # Default project when omitted
+  # Default project when omitted — #282: honor the env pin first, then the
+  # REAL pointer file (_active.toml; the old _global.toml read was a dangling
+  # refactor artifact nothing ever wrote), matching active_resolve_project
+  # precedence. NB: value used unvalidated, matching this chain's existing
+  # behavior (active.sh's config_is_project guard is deliberately not added).
   if [[ -z "$DA_PROJECT" ]]; then
-    local active
-    active="$(state_global_active_project 2>/dev/null || true)"
+    local active=""
+    if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]]; then
+      active="$DEVAGENT_ACTIVE_PROJECT"
+    else
+      local pf
+      pf="$(devagent_home)/state/_active.toml"
+      if [[ -f "$pf" ]]; then
+        active="$(awk -F' *= *' '$1=="active_project" { gsub(/"/, "", $2); print $2; exit }' "$pf")"
+      fi
+    fi
     if [[ -n "$active" ]]; then
       DA_PROJECT="$active"
     else
