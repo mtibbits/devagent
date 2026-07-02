@@ -43,20 +43,42 @@ active_get_project() {
   awk -F' *= *' '$1=="active_project" { gsub(/"/, "", $2); print $2; exit }' "$f"
 }
 
-# active_resolve_project [arg]
-# Implements the priority chain above. Echoes the project name on stdout.
-active_resolve_project() {
+# active_resolve_project_src [arg]
+# Resolution engine (#282). Sets, in the CALLING shell (no stdout — callers
+# must NOT command-substitute this, or the variables die in the subshell):
+#   ACTIVE_RESOLVED_PROJECT  the resolved project name
+#   ACTIVE_RESOLVED_FROM     arg | env | pointer | fallback
+# Writers gate the pointer write on the source so an arg/env-pinned session
+# never clobbers the pointer another session relies on. NB: `fallback` also
+# fires when the pointer names a project failing config_is_project — with
+# 2+ projects config_active_project then dies, so no write happens there.
+active_resolve_project_src() {
   local arg="${1:-}"
-  if [ -n "$arg" ]; then printf '%s\n' "$arg"; return 0; fi
+  ACTIVE_RESOLVED_PROJECT=""
+  ACTIVE_RESOLVED_FROM=""
+  if [ -n "$arg" ]; then
+    ACTIVE_RESOLVED_FROM="arg"; ACTIVE_RESOLVED_PROJECT="$arg"; return 0
+  fi
   if [ -n "${DEVAGENT_ACTIVE_PROJECT:-}" ]; then
-    printf '%s\n' "$DEVAGENT_ACTIVE_PROJECT"; return 0
+    ACTIVE_RESOLVED_FROM="env"; ACTIVE_RESOLVED_PROJECT="$DEVAGENT_ACTIVE_PROJECT"; return 0
   fi
   local p
   p="$(active_get_project 2>/dev/null || true)"
   if [ -n "$p" ] && config_is_project "$p"; then
-    printf '%s\n' "$p"; return 0
+    ACTIVE_RESOLVED_FROM="pointer"; ACTIVE_RESOLVED_PROJECT="$p"; return 0
   fi
-  config_active_project
+  # shellcheck disable=SC2034  # consumed by callers (next.sh gate), not here
+  ACTIVE_RESOLVED_FROM="fallback"
+  ACTIVE_RESOLVED_PROJECT="$(config_active_project)"
+}
+
+# active_resolve_project [arg]
+# Echo wrapper over the setter — keeps the existing $(...) callers
+# byte-compatible (their subshell copies of the vars are discarded; none of
+# them write the pointer — verified 2026-07-02).
+active_resolve_project() {
+  active_resolve_project_src "${1:-}" || return $?
+  printf '%s\n' "$ACTIVE_RESOLVED_PROJECT"
 }
 
 # active_scan_recent_incomplete <project>
