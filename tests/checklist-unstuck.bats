@@ -31,3 +31,11 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -ne 0 ]
 }
+
+@test "checklist-unstuck clears a step-21 [!] (#149)" {
+  # The pre-#149 loop bound (0..20) stranded step 21 permanently.
+  sed -i -E '/21\. preship/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
+  run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] +21\. preship' "$ISSUE_DIR/checklist.md"
+}

@@ -41,7 +41,7 @@ _checklist_active_start() {
 
 # _checklist_scope_start: the active-block start line IF the target step appears
 # in that block, else 0 (whole file). Steps unique to revision 1 — 0 (pull) and
-# 16-20 (mergetoall/updatewbs/impact/lessonslearned/cleanup) — are never reused,
+# 16-21 (mergetoall/updatewbs/impact/lessonslearned/cleanup/preship) — are never reused,
 # so they correctly resolve file-wide when a later revision is active, keeping
 # cleanup.sh/mergetoall.sh/etc. working after a revision.
 _checklist_scope_start() {

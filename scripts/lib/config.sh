@@ -99,7 +99,7 @@ config_active_project() {
 # (prints nothing) when no tier
 # resolves — so an absent table yields byte-identical output to before.
 # Resolution: a per-step override (step_models.<N>) wins over the step's class.
-# The step→class map is fixed (canonical step numbers): thinking = 1 7 8 9 12, checking = 3 13 14,
+# The step→class map is fixed (canonical step numbers): thinking = 1 7 8 9 12, checking = 3 13 14 21,
 # everything else = default. A class with no tier set falls back to the default tier.
 step_models_tier() {
   local project="$1" step="$2" tier=""
@@ -112,7 +112,7 @@ step_models_tier() {
     # shellcheck disable=SC2194 # constant subject; space-padded membership test
     case " 1 7 8 9 12 " in *" $step "*) class="thinking" ;; esac
     # shellcheck disable=SC2194 # constant subject; space-padded membership test
-    case " 3 13 14 "    in *" $step "*) class="checking" ;; esac
+    case " 3 13 14 21 " in *" $step "*) class="checking" ;; esac
     tier="$(config_get_project_field "$project" "step_models.${class}" 2>/dev/null || true)"
     # 3. fall back to the default tier when the class tier is unset
     if [[ -z "$tier" && "$class" != "default" ]]; then

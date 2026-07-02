@@ -24,7 +24,8 @@ file="$issue_dir/checklist.md"
 
 # Find the step currently marked [!]
 target=""
-for ((i = 0; i <= 20; i++)); do
+# 21 = preship (#149); keep the bound in step with the templates' highest step.
+for ((i = 0; i <= 21; i++)); do
   st="$(checklist_step_state "$file" "$i" 2>/dev/null || true)"
   if [[ "$st" == '!' ]]; then
     target="$i"

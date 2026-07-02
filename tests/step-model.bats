@@ -31,3 +31,10 @@ _add_step_models() {  # $1 = TOML lines for the table body
     [ "$status" -ne 0 ]
     [ -z "$output" ]
 }
+
+@test "step-model.sh resolves checking tier for preship (21) (#149)" {
+    _add_step_models 'checking = "fable"'
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21
+    [ "$status" -eq 0 ]
+    [ "$output" = "fable" ]
+}
