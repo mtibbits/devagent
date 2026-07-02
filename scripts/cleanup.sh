@@ -24,16 +24,20 @@ issue_arg="${2:-}"
 issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "cleanup.sh: issue_dir not set or missing"
 
-# #231: refuse to close while lessonslearned (step 19) is unfinished — it is the
-# producer of the [actionable] -> reap pipeline, so an out-of-order close
-# silently drops follow-ups. Resolve BY NAME (step numbers vary by template);
-# an absent step => no gate. Runs before any side effect (the tree restore below).
-ll_glyph="$(checklist_step_state_by_name "$issue_dir/checklist.md" lessonslearned 2>/dev/null || true)"
-if [ -n "$ll_glyph" ]; then
-    case "$ll_glyph" in
-        x|-) : ;;
-        *) die "cleanup.sh: lessonslearned is '[$ll_glyph]', not done — run /devagent:lessonslearned (or mark it [-] if there is genuinely nothing to learn) before cleanup" ;;
-    esac
+# #242 (generalizes #231): refuse to close while ANY prior closeout step is
+# non-terminal — updatewbs/impact/lessonslearned are exactly the steps skipped
+# when "the code is merged, I'm done" (Issue-78/79/80), and lessonslearned is
+# the [actionable]->reap producer whose loss is silent and unrecoverable.
+# Design A1+B1+C2 per the issue: block (die) on all three, naming every
+# offender at once; the per-step escape is marking [-] (skip), auditable in
+# the checklist. BY NAME (numbers vary by template), absent step => no gate.
+# Runs before any side effect (the tree restore below).
+offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" updatewbs impact lessonslearned)"
+if [ -n "$offenders" ]; then
+    # Derive the remediation commands from the offender list itself — one
+    # authoritative name list (the helper args above).
+    fix_cmds="$(printf '%s\n' "$offenders" | sed 's/:.*$//; s|^|/devagent:|' | tr '\n' ' ')"
+    die "cleanup.sh: closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
 source_dir="$(config_get_project_field "$project" source_dir)"

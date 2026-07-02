@@ -3,9 +3,12 @@ load 'helpers/common'
 
 setup() {
     devagent_test_setup
-    # #231: a valid close requires lessonslearned terminal; mark it [x] so the
-    # pre-existing cleanup tests exercise the allowed path. Whitespace-robust:
-    # key on the line content, edit the glyph in place (don't assume spacing).
+    # #231/#242: a valid close requires the closeout steps terminal; mark
+    # updatewbs/impact/lessonslearned [x] so the pre-existing cleanup tests
+    # exercise the allowed path. Whitespace-robust: key on the line content,
+    # edit the glyph in place (don't assume spacing).
+    sed -i -E '/17\. updatewbs/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    sed -i -E '/18\. impact/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
     sed -i -E '/19\. lessonslearned/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -141,5 +144,33 @@ EOF
 @test "cleanup.sh proceeds when the checklist has no lessonslearned step (#231)" {
     sed -i '/19\. lessonslearned/d' "$DEVDOC_DIR/Issue-1/checklist.md"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
+# --- #242: generalized closeout gate ----------------------------------------
+
+@test "cleanup dies naming ALL non-terminal closeout steps (#242)" {
+    # Re-pend 17 and 18 (setup marked them [x]); 19 stays [x].
+    sed -i -E '/17\. updatewbs/ s/\[.\]/[ ]/'  "$DEVDOC_DIR/Issue-1/checklist.md"
+    sed -i -E '/18\. impact/ s/\[.\]/[ ]/'     "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"updatewbs:[ ]"* ]]
+    [[ "$output" == *"impact:[ ]"* ]]
+    # No side effect ran: step 20 unmarked, source repo still on the branch.
+    grep -qE '^- \[ \] +20\. cleanup' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
+}
+
+@test "cleanup proceeds when closeout steps are [x]/[-] mixed (#242)" {
+    sed -i -E '/17\. updatewbs/ s/\[.\]/[-]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+}
+
+@test "cleanup: absent closeout steps do not gate (#242)" {
+    sed -i '/17\. updatewbs/d;/18\. impact/d;/19\. lessonslearned/d' \
+        "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
 }

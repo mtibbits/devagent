@@ -104,9 +104,9 @@ checklist_step_state() {
 # checklist_step_state_by_name <file> <name>
 # Prints the glyph of the step whose NAME matches <name> (returns 0), or
 # returns 1 if no such step exists. Resolves by name, not number, so callers
-# survive cross-template step renumbering. File-wide: the only by-name caller
-# (cleanup's lessonslearned gate, #231) targets a step that is unique and never
-# reused across revision blocks, so revision scoping is unnecessary.
+# survive cross-template step renumbering. File-wide: the by-name callers
+# (cleanup's closeout gate, #231/#242) target steps in the never-reused 16-20
+# band (see _checklist_scope_start), so revision scoping is unnecessary.
 checklist_step_state_by_name() {
   local file="$1" target="$2" line
   while IFS= read -r line; do
@@ -118,6 +118,26 @@ checklist_step_state_by_name() {
     fi
   done < "$file"
   return 1
+}
+
+# checklist_nonterminal_by_names <file> [name ...]
+# #242: prints one "name:[glyph]" line per named step that exists in the
+# checklist and is NOT terminal ([x] done / [-] skipped). Absent names print
+# nothing (absent step => no gate, the #231 pattern). Always returns 0; the
+# caller decides what a non-empty result means. Resolution is BY NAME
+# (step numbers vary across the four templates).
+checklist_nonterminal_by_names() {
+  local file="$1"; shift
+  local name glyph
+  for name in "$@"; do
+    glyph="$(checklist_step_state_by_name "$file" "$name" 2>/dev/null || true)"
+    [ -n "$glyph" ] || continue
+    case "$glyph" in
+      x|-) : ;;
+      *) printf '%s:[%s]\n' "$name" "$glyph" ;;
+    esac
+  done
+  return 0
 }
 
 checklist_step_name() {
