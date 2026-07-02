@@ -20,9 +20,61 @@ defer (move to potentialFutureEnhancements), or dismiss (note why).
 
 ## Inputs
 
-- `$ISSUE_DIR`, `$NOTE`.
+- `$ISSUE_DIR`, `$NOTE`, and the active PROJECT name — resolved by the
+  command wrapper per spec §6.1; when the skill is invoked directly,
+  default to state's `active_project`. If no project resolves, treat the
+  tier as unconfigured (dispatch with no override).
 - Reads: `<issue-dir>/imPlan.md`, `<issue-dir>/issue.md`.
-- Writes: appends `## Improvements` to `<issue-dir>/imPlan.md`.
+- Writes: `<issue-dir>/analysis/YYYY-MM-DD-improve.md` (the checker's
+  findings, subagent-authored under dispatch — see Dispatch contract) and
+  appends the triaged `## Improvements` section to `<issue-dir>/imPlan.md`.
+
+## Dispatch contract (#151)
+
+Run this check in FRESH CONTEXT whenever the harness provides a subagent
+mechanism (Claude Code's Agent/Task tool does). Fresh context — a checker
+that reads the artifacts from disk instead of inheriting this
+conversation — is what makes the check adversarial; the #101/#102
+incident (a check approved work it had itself just edited) is the failure
+class this prevents. The model override is conditional; fresh context is
+not.
+
+1. **Resolve the model tier** (optional):
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 3 || true)"`.
+   Pass the CANONICAL step number (3) even if this issue's checklist
+   renumbers steps — the class map is keyed to canonical numbers
+   (config.sh). Empty ⇒ dispatch with NO model override (the subagent
+   inherits the session model — fresh context alone still pays).
+2. **Package inputs as paths, not conversation.** The dispatch prompt
+   contains only: the absolute paths of `issue.md` and `imPlan.md`
+   (including its Scope evaluation), the project source repo directory,
+   the three finding categories (bugs / side effects / ambiguities), and
+   the output artifact path
+   `<issue-dir>/analysis/YYYY-MM-DD-improve.md` (create `analysis/` if
+   missing — pull scaffolds only the issue dir). Do NOT paste plan
+   summaries or your own assessment into the prompt — that re-imports
+   the author bias the dispatch exists to shed.
+3. **Dispatch** one subagent with the resolved model override (omit the
+   parameter entirely when no tier resolved). If dispatch fails because
+   the tier is unavailable (e.g. a model the current plan does not
+   include), retry once with NO override and record the degradation in
+   the artifact header (below).
+4. **The subagent authors the artifact** and returns only a short
+   summary (finding counts). The main session then triages — assigning
+   `[merge]`/`[defer]`/`[dismiss]` per the Checklist below is the main
+   session's judgment — and appends the tagged `## Improvements` section
+   to imPlan.md citing the artifact. Never rewrite the subagent's
+   findings file in place. The Halt-and-ask rules in this skill bind the
+   MAIN session; a dispatched checker that hits one cannot ask — it
+   records the halt condition in its artifact and returns, and the main
+   session resolves it (re-dispatch or inline).
+5. **Mandatory artifact header.** The artifact's first lines record:
+   `context: subagent` (or `context: inline`), and `model: <tier>` (or
+   `model: inherit`, or `model: inherit (fallback from <tier>)`).
+6. **Inline fallback.** When no subagent mechanism exists (headless run,
+   cron, degraded harness), run the check inline as before — and the
+   artifact MUST record `context: inline` so the reduced independence
+   stays visible in the record.
 
 ## Checklist
 
@@ -47,6 +99,8 @@ operator decides; the skill proposes a default tag based on severity.
 
 ```markdown
 ## Improvements
+
+(triaged from analysis/2026-05-19-improve.md — context: subagent)
 
 ### Bugs
 - [merge] Task 2: strncpy with bound = strlen(src) is equivalent to
