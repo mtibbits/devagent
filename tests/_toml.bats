@@ -220,3 +220,11 @@ _seed96() {
   run python3 "$TOML" set-if "$F" a "1" "2"
   [ "$status" -eq 2 ]
 }
+
+@test "set-if on a table key: clean exit 2, no traceback (#96 review L1)" {
+  _seed96
+  printf '[tbl]\nx = "1"\n' >> "$F"
+  run python3 "$TOML" set-if "$F" tbl "1" "2"
+  [ "$status" -eq 2 ]
+  [[ "$output" != *Traceback* ]]
+}

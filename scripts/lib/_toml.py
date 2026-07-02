@@ -373,6 +373,10 @@ def main(argv: list[str]) -> int:
             with _locked_rmw(file) as data:
                 try:
                     cur = _walk(data, key)
+                    if isinstance(cur, dict):
+                        # A table is not CAS-able (review L1: keep the exit
+                        # contract — 0/2/3 — instead of a traceback).
+                        raise _NoWrite(2, "")
                     cur_str = cur if isinstance(cur, str) else _emit_value(cur)
                     absent = False
                 except KeyError:
