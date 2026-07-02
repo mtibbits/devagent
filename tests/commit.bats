@@ -163,3 +163,15 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     run grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
+
+@test "commit.sh dies loud on indeterminate baseline instead of guessing (#116 review fix)" {
+    # Clean tree, one commit ahead, but baseline_sha left empty ("" is the
+    # fixture default) → classifier says indeterminate → must die, not mark
+    # [-] artifact-only (which would misrecord real work) nor [x] no-op.
+    ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1" )
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot classify"* ]]
+    run grep -qE '^- \[(x|-)\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+}

@@ -53,7 +53,8 @@ Per-task commits (Workflow step 5 above) are the norm. Two rules make
 commit (10) and ship (15) safe:
 
 - `git add` NEW files in the same task commit that creates them; an
-  untracked file that never gets added ships an empty PR (#25).
+  untracked file that never gets added ships an incomplete PR (#25's
+  failure class).
 - Leave nothing uncommitted at the end of this step. The commit step
   (10) verifies everything is on the branch — it succeeds as a no-op
   when per-task commits already captured all work, and fails loudly

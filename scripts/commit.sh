@@ -161,24 +161,32 @@ if [ -z "$staged" ]; then
         fi
     else
         # Tree is clean — consult the commits-ahead classifier (#241) only now,
-        # off the normal commit path. Only a confirmed 'commits' verdict counts
-        # as work-via-commits; a missing baseline or rev-list fault reads as
-        # no-commits here, and the staged/dirty checks above already carried
-        # commit.sh's own fail-safe for real work.
+        # off the normal commit path. Three-way per the zerodiff.sh contract:
+        # 'empty' is the only skip-authorizing verdict, and 'indeterminate'
+        # (missing baseline / rev-list fault) must never collapse into either
+        # outcome — with per-task commits the clean tree is the mainline end
+        # state, so a stale baseline would misrecord real work as artifact-only.
         baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
-        if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")" = commits ]; then
-            # #116: per-task commits during implement are the norm — a clean
-            # tree with commits ahead of baseline means the work is already
-            # committed. Full success, not a skip.
-            info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
-            finish_step "no-op: work already committed per-task (#116)${NOTE:+ — $NOTE}"
-            exit 0
-        else
-            info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
-            checklist_mark "$issue_dir/checklist.md" 10 -
-            log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
-            exit 0
-        fi
+        verdict="$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")"
+        case "$verdict" in
+            commits)
+                # #116: per-task commits during implement are the norm — a clean
+                # tree with commits ahead of baseline means the work is already
+                # committed. Full success, not a skip.
+                info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
+                finish_step "no-op: work already committed per-task (#116)${NOTE:+ — $NOTE}"
+                exit 0
+                ;;
+            empty)
+                info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
+                checklist_mark "$issue_dir/checklist.md" 10 -
+                log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
+                exit 0
+                ;;
+            *)
+                die "commit.sh: cannot classify commits-ahead (verdict: ${verdict:-unknown}, baseline_sha: '${baseline_sha:-unset}') — refusing to guess between no-op success and artifact-only skip. Fix the state file's baseline_sha then re-run (#116)."
+                ;;
+        esac
     fi
 fi
 
