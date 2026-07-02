@@ -13,12 +13,14 @@ declare -i ERRORS=0
 
 check() {
   local label="$1" status="$2" detail="${3:-}"
-  if [[ "$status" == "ok" ]]; then
-    echo "  OK   $label"
-  else
-    echo "  FAIL $label${detail:+ — $detail}"
-    ERRORS=$((ERRORS + 1))
-  fi
+  case "$status" in
+    ok)   echo "  OK   $label" ;;
+    # skip: a check that does not apply on this platform (e.g. a POSIX
+    # mode audit on a filesystem that can't represent modes). Visible and
+    # non-fatal — never report a skipped 644/755 as a bare OK (#289).
+    skip) echo "  SKIP $label${detail:+ — $detail}" ;;
+    *)    echo "  FAIL $label${detail:+ — $detail}"; ERRORS=$((ERRORS + 1)) ;;
+  esac
 }
 
 # Sets global _FIELD_VALUE; writes check output directly to stdout of calling shell.
@@ -70,7 +72,9 @@ check_one_project() {
   if state_exists "$project"; then
     local mode
     mode="$(stat -c '%a' "$(state_path "$project")")"
-    if [[ "$mode" == "600" ]]; then
+    if ! posix_modes_representable "$(dirname "$(state_path "$project")")"; then
+      check "state file ($mode)" skip "filesystem can't represent POSIX modes; NTFS ACLs govern"
+    elif [[ "$mode" == "600" ]]; then
       check "state file ($mode)" ok
     else
       check "state file ($mode)" fail "expected mode 600"
@@ -103,6 +107,7 @@ check_one_project() {
       local detail="${rest#* }"; [[ "$detail" == "$rest" ]] && detail=""
       case "$status" in
         OK)               check "auth/${label}" ok ;;
+        SKIP)             check "auth/${label}" skip "${detail:-mode audit skipped (modes unrepresentable)}" ;;
         MISSING)          echo "  INFO auth/${label} — not configured (run /devagent:auth create $project ${label})" ;;
         WARN|ERROR)       check "auth/${label}" fail "${status}${detail:+ — $detail}" ;;
         *)                check "auth/${label}" fail "unparsed: $line" ;;
@@ -130,7 +135,11 @@ else
 fi
 
 if [[ -d "$(secrets_dir)" ]]; then
-  if secrets_audit 2>/dev/null; then
+  if ! posix_modes_representable "$(secrets_dir)"; then
+    # secrets_audit would skip-and-pass here; say so visibly rather than
+    # printing a bare OK that implies the 700/600 invariant was verified (#289).
+    check "secrets dir clean" skip "filesystem can't represent POSIX modes; NTFS ACLs govern"
+  elif secrets_audit 2>/dev/null; then
     check "secrets dir clean" ok
   else
     check "secrets dir clean" fail "mode drift — see warnings (re-run secrets_audit)"
