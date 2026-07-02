@@ -19,9 +19,11 @@ Per `commands/draft.md`.
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify analyze step completed (`<issue-dir>/analysis/` exists) — UNLESS the
    issue's `checklist.md` does not contain the analyze step (step 11), as in the
-   docs-only checklist. A prerequisite whose producing step is
-   absent from the issue's checklist is **N/A**: skip this check and proceed,
-   do not halt.
+   docs-only checklist, OR step 11 is marked `[-]` (self-skipped: the project
+   sets `analyze = "none"`, #55 — the skip reason is in the checklist log). A
+   prerequisite whose producing step is absent from the issue's checklist or
+   legitimately self-skipped is **N/A**: skip this check and proceed, do not
+   halt.
 3. Verify actualWork.md exists.
 4. Invoke `core-draft-mr`. The skill calls
    `scripts/checklist-log.sh`.
@@ -29,7 +31,8 @@ Per `commands/draft.md`.
 ## Halt and ask if
 
 - analyze step did not run (no analysis/ dir) **and** the analyze step (11) is
-  present in the issue's checklist. If the checklist omits analyze (docs-only),
+  present in the issue's checklist **and** not marked `[-]`. If the checklist
+  omits analyze (docs-only) or step 11 self-skipped (`analyze = "none"`, #55),
   analyze is N/A — do not halt.
 - actualWork.md missing.
 - mr.md already exists with content (overwrite? revise? abort?).

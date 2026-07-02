@@ -64,8 +64,9 @@ re-typed.
 - `actualWork.md` is missing — operator must run document first.
 - Any `analysis/*.txt` reports unaddressed findings — surface them
   before filing the MR. (The analyze step is N/A when its step is
-  absent from the issue's checklist, e.g. docs-only — then there is
-  no `analysis/` and that is expected, not a halt.)
+  absent from the issue's checklist, e.g. docs-only, or when step 11
+  is marked `[-]` — the `analyze = "none"` self-skip, #55 — then there
+  is no `analysis/` and that is expected, not a halt.)
 - `<issue-dir>/mr.md` already exists with substantive content —
   ask whether to overwrite, append a revision section, or abort.
 
