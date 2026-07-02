@@ -8,11 +8,19 @@
 # A single-space step number is allowed for steps 0-9.
 
 # _checklist_template_path <template> [project] — #120: §12 registry with
-# plugin-default fallback (empty project or miss ⇒ pre-#120 behavior and die
-# message byte-for-byte). Callers passing a project must have artifact.sh
-# (and its deps) sourced.
+# plugin-default fallback. checklist.sh's contract is "paths.sh + io.sh
+# sourced" and MANY minimal sourcers honor exactly that, so the registry
+# helper is touched ONLY when a project is passed (project-passing callers —
+# pull.sh, checklist-init.sh — source artifact.sh; the guard keeps a missing
+# helper from killing minimal sourcers, and the pull-path override test pins
+# that the production path really resolves).
 _checklist_template_path() {
-  artifact_resolve_or "${2:-}" "checklist-${1}"
+  local template="$1" project="${2:-}"
+  if [[ -n "$project" ]] && command -v artifact_resolve_or >/dev/null 2>&1; then
+    artifact_resolve_or "$project" "checklist-${template}"
+  else
+    echo "$(plugin_root)/templates/checklist-${template}.md"
+  fi
 }
 
 checklist_init() {
