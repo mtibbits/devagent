@@ -38,14 +38,8 @@ Rules:
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/branch.sh" $ARGUMENTS`
 
-## Do NOT commit yet
+## No commit happens here
 
 The branch step only creates the working branch (`scripts/branch.sh`).
-It does NOT commit. Implementation comes in step 7, then quality (8),
-document (9), analyze (11), and finally commit (10). The commit step
-intentionally follows analyze so the commit captures verified work.
-
-If your subsequent implement/quality work feels at risk in the working
-tree, use `git stash` rather than `git commit`. Premature commits
-force `git commit --amend` after analyze finds issues, which is
-fine locally but clutters reasoning and breaks if you'd already pushed.
+It does NOT commit. Per-task commits begin in step 7 (see
+`/devagent:implement`).

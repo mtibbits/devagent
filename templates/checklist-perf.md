@@ -18,8 +18,8 @@ Active revision: 1
 - [ ]  7. implement
 - [ ]  8. quality
 - [ ]  9. document
-- [ ] 11. analyze
 - [ ] 10. commit
+- [ ] 11. analyze
 - [ ] 12. draftmr
 - [ ] 13. review
 - [ ] 14. redmr

@@ -121,3 +121,57 @@ teardown() { devagent_test_teardown; }
     grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt   # work preserved, not committed
 }
+
+# --- #116: per-task-commit flow --------------------------------------------
+
+_set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
+    # would create a duplicate top-level key and tomllib rejects the file (B1).
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$1\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "commit.sh no-op success when work is already committed per-task (#116)" {
+    base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1: add a.txt" )
+    _set_baseline "$base"
+    head_before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already committed"* ]]
+    # No new commit was created.
+    [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$head_before" ]
+    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "commit.sh dies loud on dirty-unstaged tree even with commits ahead (#116/#25)" {
+    base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1" && echo more >> a.txt )
+    _set_baseline "$base"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"nothing is staged"* ]]
+}
+
+@test "commit.sh refuses the no-op mark when HEAD is not the issue branch (#116/#69 interaction lock)" {
+    base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1" && git checkout -q -b other )
+    _set_baseline "$base"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing to commit"* ]]
+    # Step 10 must NOT be marked done.
+    run grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+}
+
+@test "commit.sh dies loud on indeterminate baseline instead of guessing (#116 review fix)" {
+    # Clean tree, one commit ahead, but baseline_sha left empty ("" is the
+    # fixture default) → classifier says indeterminate → must die, not mark
+    # [-] artifact-only (which would misrecord real work) nor [x] no-op.
+    ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1" )
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cannot classify"* ]]
+    run grep -qE '^- \[(x|-)\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+}
