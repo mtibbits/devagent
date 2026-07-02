@@ -94,11 +94,12 @@ config_active_project() {
 }
 
 # step_models_tier <project> <step-num>
-# #150: advisory only. Echoes the model tier for a workflow step from the optional
-# [project.<name>.step_models] table, or returns 1 (prints nothing) when no tier
+# #150 surfacing + #151 dispatch consumer. Echoes the model tier for a workflow
+# step from the optional [project.<name>.step_models] table, or returns 1
+# (prints nothing) when no tier
 # resolves — so an absent table yields byte-identical output to before.
 # Resolution: a per-step override (step_models.<N>) wins over the step's class.
-# The step→class map is fixed (advisory): thinking = 1 7 8 9 12, checking = 3 13 14,
+# The step→class map is fixed (canonical step numbers): thinking = 1 7 8 9 12, checking = 3 13 14,
 # everything else = default. A class with no tier set falls back to the default tier.
 step_models_tier() {
   local project="$1" step="$2" tier=""
