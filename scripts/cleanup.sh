@@ -34,7 +34,10 @@ issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 # Runs before any side effect (the tree restore below).
 offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" updatewbs impact lessonslearned)"
 if [ -n "$offenders" ]; then
-    die "cleanup.sh: closeout steps not terminal: $(printf '%s' "$offenders" | tr '\n' ' ') — finish each (/devagent:updatewbs, /devagent:impact, /devagent:lessonslearned) or mark it [-] (checklist-mark.sh <issue-dir> <N> -) if genuinely empty, then re-run (#242)"
+    # Derive the remediation commands from the offender list itself — one
+    # authoritative name list (the helper args above).
+    fix_cmds="$(printf '%s\n' "$offenders" | sed 's/:.*$//; s|^|/devagent:|' | tr '\n' ' ')"
+    die "cleanup.sh: closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
 source_dir="$(config_get_project_field "$project" source_dir)"
