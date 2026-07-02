@@ -70,14 +70,20 @@ findings="$(cd "$source_dir" && shellcheck --severity=warning -f gcc "${files[@]
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).
 new_findings=""
 for f in "${files[@]}"; do
+    # The count-0 skip must be an `if` — a `[ ... ] &&` tail on the LAST hunk
+    # (pure deletion, `+c,0`) would exit the $() nonzero and set -e kills us.
     ranges="$(git -C "$source_dir" diff -U0 "$baseline" -- "$f" \
         | sed -n 's/^@@ -[0-9,]* +\([0-9][0-9,]*\) @@.*/\1/p' \
         | while IFS=, read -r start count; do
               count="${count:-1}"
-              [ "$count" -gt 0 ] && echo "$start $((start + count - 1))"
+              if [ "$count" -gt 0 ]; then
+                  echo "$start $((start + count - 1))"
+              fi
           done)"
     [ -n "$ranges" ] || continue
-    file_hits="$(printf '%s\n' "$findings" | grep "^${f}:" || true)"
+    # Fixed-string prefix match: the filename must not act as a regex
+    # (`a.b.sh` would cross-match `axb.sh` and inflate NEW).
+    file_hits="$(printf '%s\n' "$findings" | awk -v p="${f}:" 'index($0, p) == 1' || true)"
     [ -n "$file_hits" ] || continue
     while IFS= read -r hit; do
         line="$(printf '%s' "$hit" | cut -d: -f2)"

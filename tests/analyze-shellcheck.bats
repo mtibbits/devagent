@@ -75,6 +75,31 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.tx
     grep -qE 'NEW findings: [1-9]' "$(_artifact)"
 }
 
+@test "trailing pure-deletion hunk does not kill the run (#55 review HIGH)" {
+    # Deleting the LAST line makes the file's final hunk `+c,0` — the range
+    # loop's tail status must not propagate through set -e.
+    sed -i '$d' "$SOURCE_DIR/tool.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'NEW findings: 0' "$(_artifact)"
+}
+
+@test "dot-sibling filename does not cross-match findings (#55 review MED)" {
+    # a.b.sh is changed with ranges covering line 2; axb.sh's warning sits on
+    # its UNtouched line 2. A regex-y `grep ^a.b.sh:` would claim axb.sh:2.
+    printf '#!/usr/bin/env bash\ncd /pre\necho ok\n' > "$SOURCE_DIR/axb.sh"
+    ( cd "$SOURCE_DIR" && git add axb.sh && git commit -q -m axb )
+    BASELINE_SHA="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
+    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$BASELINE_SHA\"|" \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    printf '#!/usr/bin/env bash\necho two\necho three\n' > "$SOURCE_DIR/a.b.sh"
+    ( cd "$SOURCE_DIR" && git add a.b.sh )
+    printf 'echo touched-tail\n' >> "$SOURCE_DIR/axb.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'NEW findings: 0' "$(_artifact)"
+}
+
 @test "missing shellcheck binary dies loud without a success artifact (#55)" {
     stub="$DEVAGENT_TMP/no-shellcheck-path"
     mkdir -p "$stub"
