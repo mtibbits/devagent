@@ -184,7 +184,7 @@ if [ -z "$staged" ]; then
                 exit 0
                 ;;
             *)
-                die "commit.sh: cannot classify commits-ahead (verdict: ${verdict:-unknown}, baseline_sha: '${baseline_sha:-unset}') — refusing to guess between no-op success and artifact-only skip. Fix the state file's baseline_sha then re-run (#116)."
+                die "commit.sh: cannot classify commits-ahead (verdict: ${verdict:-unknown}, baseline_sha: '${baseline_sha:-unset}') — refusing to guess between no-op success and artifact-only skip. Recover the baseline (e.g. 'git -C $work_dir merge-base <default_baseline> HEAD') and set it in the state file, then re-run (#116)."
                 ;;
         esac
     fi

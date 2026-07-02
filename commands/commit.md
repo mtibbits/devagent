@@ -10,8 +10,9 @@ Invokes `scripts/commit.sh` with the parsed arguments per spec §6.1.
 
 Per-task commits during implement are the norm (#116): a clean tree with
 commits ahead of baseline is a no-op success (step marked `[x]`), a dirty
-tree with nothing staged dies loud (#25), and the branch-identity guard
-(#69) precedes every path.
+tree with nothing staged dies loud (#25), a clean tree whose commits-ahead
+state cannot be classified (missing/stale `baseline_sha`) dies loud rather
+than guessing, and the branch-identity guard (#69) precedes every path.
 
 ## Opt-in scoped auto-staging (#251)
 
