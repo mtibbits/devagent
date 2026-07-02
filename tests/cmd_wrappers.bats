@@ -155,3 +155,15 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'absent from the issue' "$BATS_TEST_DIRNAME/../skills/core-draft-mr/SKILL.md"
   grep -q 'absent from the issue' "$BATS_TEST_DIRNAME/../skills/core-document-actual-work/SKILL.md"
 }
+
+@test "preship.md exists, invokes core-preship, documents stuck + tier resolution (#149)" {
+  F="$CMD_DIR/preship.md"
+  [ -s "$F" ]
+  grep -q 'core-preship' "$F"
+  grep -q 'checklist-stuck.sh' "$F"
+  grep -q 'step-model.sh' "$F"
+  # Must NOT be a full dispatch-contract carrier (that lives in the skill);
+  # the sweep filters carriers by this heading.
+  run grep -q '^## Dispatch contract' "$F"
+  [ "$status" -ne 0 ]
+}
