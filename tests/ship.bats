@@ -561,7 +561,9 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"preship is non-terminal"* ]]
-    # Absent step (pre-#149 checklist) => no gate at this check.
+    # Absent step (pre-#149 checklist) => no gate at this check; ship then
+    # proceeds past it (fixture dies later at push, which is fine — assert
+    # only that THIS gate did not fire and the run got past it).
     sed -i '/21\. preship/d' "$DEVDOC_DIR/Issue-1/checklist.md"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" != *"preship is non-terminal"* ]]

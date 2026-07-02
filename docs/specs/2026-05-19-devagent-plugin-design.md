@@ -449,7 +449,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 12 | `/devagent:draftmr` | skill | `devagent-draft-mr`, fills `mr_template.md` |
 | 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
 | 14 | `/devagent:redmr` | skill | `devagent-redmr` using `templates/redteam_mr.md` |
-| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification; ordering enforced by next.sh dispatch (advisory), not a ship.sh gate (#149) |
+| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification; ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
 | 16 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
 | 17 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
