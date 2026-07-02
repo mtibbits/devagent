@@ -120,6 +120,12 @@ step_models_tier() {
   case " 3 13 14 21 " in *" $step "*) class="checking" ;; esac
   # 0. per-issue marker (checking class only)
   local marker="${issue_dir%/}/.devagent-step-models"
+  if [[ "$class" == "checking" && -n "$issue_dir" && -e "$marker" ]]; then
+    # An existing marker that cannot be read as a file must not silently
+    # fall back to the project tier (AC3's silent-wrong-tier class).
+    [[ -f "$marker" ]] || die "step_models_tier: $marker exists but is not a regular file"
+    [[ -r "$marker" ]] || die "step_models_tier: $marker exists but is not readable"
+  fi
   if [[ "$class" == "checking" && -n "$issue_dir" && -r "$marker" ]]; then
     local raw
     raw="$(cat "$marker")"

@@ -31,8 +31,9 @@ Per `commands/draft.md`.
    record the degradation in the artifact header). A per-issue
    `.devagent-step-models` marker (#291) may supply the tier — a stderr
    `per-issue` provenance line means record the `(per-issue)` header
-   form. A nonzero exit WITH an error on stderr is a bad marker: STOP
-   and fix or remove it — do NOT dispatch on inherit.
+   form. A nonzero exit WITH an error on stderr (stderr WITHOUT a
+   `per-issue` provenance line) is a bad marker: STOP and fix or remove
+   it — do NOT dispatch on inherit.
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`,
    headed by the #151 artifact lines: `context: subagent` (or
    `context: inline` when no subagent mechanism exists) and

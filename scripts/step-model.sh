@@ -21,8 +21,10 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 project="${1:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 step="${2:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 issue_dir="${3:-}"
-if [[ -z "$issue_dir" ]] \
-   && [[ -n "$(state_get "$project" active_issue 2>/dev/null || true)" ]]; then
-  issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+if [[ -z "$issue_dir" ]]; then
+  ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+  if [[ -n "$ai" && "$ai" != "null" ]]; then
+    issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+  fi
 fi
 step_models_tier "$project" "$step" "$issue_dir"

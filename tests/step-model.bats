@@ -117,3 +117,46 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [ "$status" -eq 0 ]
     [ "$output" = "haiku" ]
 }
+
+@test "cleared active_issue suppresses the stale marker (S2 guard) (#291)" {
+    _add_step_models 'checking = "opus"'
+    _marker 'fable'
+    # cleanup clears active_issue but NOT issue_dir — the leftover marker
+    # must not steer post-cleanup runs.
+    sed -i 's/^active_issue   = .*/active_issue   = ""/' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -eq 0 ]
+    [ "$output" = "opus" ]
+    [ -z "$stderr" ]
+}
+
+@test "legacy 'null' active_issue suppresses the stale marker too (#291)" {
+    _add_step_models 'checking = "opus"'
+    _marker 'fable'
+    sed -i 's/^active_issue   = .*/active_issue   = "null"/' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -eq 0 ]
+    [ "$output" = "opus" ]
+}
+
+@test "exists-but-unreadable marker fails loud, not silent fallback (#291)" {
+    if [ "$(id -u)" -eq 0 ]; then skip "root reads anything"; fi
+    _add_step_models 'checking = "opus"'
+    _marker 'fable'
+    chmod 000 "$DEVDOC_DIR/Issue-1/.devagent-step-models"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"not readable"* ]]
+}
+
+@test "marker that is a directory fails loud (#291)" {
+    _add_step_models 'checking = "opus"'
+    mkdir -p "$DEVDOC_DIR/Issue-1/.devagent-step-models"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"not a regular file"* ]]
+}

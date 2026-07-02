@@ -53,8 +53,9 @@ context is not.
    per-issue `.devagent-step-models` marker (#291) may supply the tier —
    a stderr `per-issue` provenance line means record
    `model: <tier> (per-issue)` (or `inherit (per-issue)`) in the
-   artifact header. A nonzero exit WITH an error on stderr is a bad
-   marker: STOP and fix or remove it — do NOT dispatch on inherit.
+   artifact header. A nonzero exit WITH an error on stderr (stderr
+   WITHOUT a `per-issue` provenance line) is a bad marker: STOP and fix
+   or remove it — do NOT dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md`, `mr.md`, the
    latest-dated review/redmr artifacts, the repo directory plus the
@@ -72,7 +73,9 @@ context is not.
    records it as FAIL with the reason instead of asking.
 5. **Mandatory artifact header.** First lines of the artifact:
    `context: subagent` (or `context: inline`), and `model: <tier>` (or
-   `model: inherit`, or `model: inherit (fallback from <tier>)`).
+   `model: inherit`, or `model: inherit (fallback from <tier>)`, or the
+   per-issue forms `model: <tier> (per-issue)` /
+   `model: inherit (per-issue)`).
 6. **Inline fallback.** When no subagent mechanism exists, run inline as
    before; the artifact MUST record `context: inline`.
 

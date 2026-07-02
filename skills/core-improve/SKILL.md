@@ -48,8 +48,8 @@ not.
    marker (#291) may supply the tier — a stderr `per-issue` provenance
    line means record `model: <tier> (per-issue)` (or
    `inherit (per-issue)`) in the artifact header. A nonzero exit WITH an
-   error on stderr is a bad marker: STOP and fix or remove it — do NOT
-   dispatch on inherit.
+   error on stderr (stderr WITHOUT a `per-issue` provenance line) is a
+   bad marker: STOP and fix or remove it — do NOT dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md` and `imPlan.md`
    (including its Scope evaluation), the project source repo directory,
@@ -74,7 +74,9 @@ not.
    session resolves it (re-dispatch or inline).
 5. **Mandatory artifact header.** The artifact's first lines record:
    `context: subagent` (or `context: inline`), and `model: <tier>` (or
-   `model: inherit`, or `model: inherit (fallback from <tier>)`).
+   `model: inherit`, or `model: inherit (fallback from <tier>)`, or the
+   per-issue forms `model: <tier> (per-issue)` /
+   `model: inherit (per-issue)`).
 6. **Inline fallback.** When no subagent mechanism exists (headless run,
    cron, degraded harness), run the check inline as before — and the
    artifact MUST record `context: inline` so the reduced independence
