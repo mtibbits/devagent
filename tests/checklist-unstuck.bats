@@ -33,7 +33,9 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "checklist-unstuck clears a step-21 [!] (#149)" {
-  # The pre-#149 loop bound (0..20) stranded step 21 permanently.
+  # The pre-#149 loop bound (0..20) stranded step 21 permanently. Clear the
+  # fixture's step-1 [!] first so 21 is the only stuck step.
+  "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
   sed -i -E '/21\. preship/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
