@@ -192,7 +192,7 @@ EOF
 }
 
 @test "checklist_mark falls back to whole file for steps not in active revision" {
-  checklist_init "$ISSUE_DIR" standard   # standard has steps 0..20 in rev 1
+  checklist_init "$ISSUE_DIR" standard   # standard rev 1 tops out at 21 (preship, #149)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only 1-15
   checklist_mark "$f" 20 x                # 20 lives only in revision 1

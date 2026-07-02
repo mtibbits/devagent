@@ -14,8 +14,9 @@ See `docs/specs/2026-05-19-devagent-plugin-design.md` for the design spec and
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
 Run them one at a time with `/devagent:next` (which advances to the next
-unmarked step), or invoke any step command directly. Steps are numbered 0–21 (21 sits between 14 and 15 in execution order —
-file order in the checklist is the authority, numbers are stable identities):
+unmarked step), or invoke any step command directly. Steps are numbered 0–21; numbers are permanent IDs, not positions — the
+checklist's file order sets execution order, so `21 preship` runs between
+14 and 15:
 
 - **Plan** — `0 pull` · `1 draft` · `2 scope` · `3 improve` · `4 prune` · `5 tighten`
 - **Implement** — `6 branch` · `7 implement` · `8 quality` · `9 document` · `10 commit` · `11 analyze`
@@ -70,7 +71,7 @@ Low-level building blocks the workflow commands use; you rarely call them
 directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
-> The 21 numbered step commands above, plus `next` / `revise` / `comments`,
+> The 22 numbered step commands above, plus `next` / `revise` / `comments`,
 > together with the tables in this section, are the full set of 54 commands.
 
 ## Concurrent sessions

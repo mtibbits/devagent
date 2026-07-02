@@ -8,8 +8,7 @@ when-to-use: After /devagent:redmr and before /devagent:ship. Run as part of /de
 
 Step 21 of the devAgent 22-step workflow (file-ordered between redmr and
 ship; the number is unique, not sequential — file order is execution
-authority). Verifies that what ship is about to push — the COMMITTED branch,
-not the working tree — is actually right, and writes
+authority). Verifies the branch as-committed and writes
 `<issue-dir>/preship.md` with evidence.
 
 ## Overview
@@ -48,9 +47,9 @@ context is not.
 
 1. **Resolve the model tier** (optional):
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21 || true)"`.
-   Pass the CANONICAL step number (21) — the class map is keyed to
-   canonical numbers (config.sh; 21 is checking-class). Empty ⇒ dispatch
-   with NO model override (inherit the session model).
+   Pass the CANONICAL step number (21) even on a renumbered checklist —
+   the class map is keyed to canonical numbers (config.sh). Empty ⇒
+   dispatch with NO model override (inherit the session model).
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md`, `mr.md`, the
    latest-dated review/redmr artifacts, the repo directory plus the
@@ -106,10 +105,10 @@ with evidence, never "looks done":
 
 ## Zero-diff (artifact-only) issues
 
-When `zero_diff_classify` (lib/zerodiff.sh) returns `empty` for
-`baseline..HEAD`, there is nothing to ship — mark step 21 `[-]` and log.
-An `indeterminate` verdict (missing/stale baseline) NEVER auto-skips:
-fail loud and let the operator fix the state (the #116/#242 discipline).
+Detected via `zero_diff_classify` (lib/zerodiff.sh) on `baseline..HEAD`:
+`empty` means nothing ships (see Skipping policy); `indeterminate`
+(missing/stale baseline) NEVER auto-skips — fail loud and let the
+operator fix the state (the #116/#242 discipline).
 
 ## Halt and ask if
 

@@ -99,6 +99,16 @@ if [ "$modified_count" -gt 0 ]; then
     die "ship.sh: $modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
 fi
 
+# #149: refuse to push while preship (21) is non-terminal — the fresh-context
+# verification is the semantic half of #148's gate, and a direct /devagent:ship
+# is exactly the ad-hoc path where the #101/#102 stranded-fix incidents lived.
+# By name; absent step (pre-#149 checklists, research template) => no gate —
+# the #231/#242 pattern.
+preship_open="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" preship)"
+if [ -n "$preship_open" ]; then
+    die "ship.sh: preship is non-terminal ($preship_open) — run /devagent:preship (or mark it [-] only for a genuinely unverifiable ship) before shipping (#149)"
+fi
+
 code_backend="$(config_get_project_field "$project" code_source.backend)"
 upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
 fork_repo="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"

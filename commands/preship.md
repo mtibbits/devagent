@@ -35,16 +35,15 @@ Per `commands/draft.md`.
 ## Halt and ask if
 
 - `mr.md` missing (run draftmr first).
-- Step 14 present in the checklist but no `analysis/*-redmr.md`.
+- Step 14 present in the checklist but no `analysis/*-redmr.md` (and the
+  docs-only inverse: step 13 present but no review artifact).
 - State lacks `baseline_sha`/`branch` (preship cannot identify the push
   content).
 
 ## Skipping policy
 
-Zero-diff auto-skip only: when the branch has no commits ahead of
-baseline (`zero_diff_classify` = `empty`), mark `[-]` and log — nothing
-ships, so there is nothing to verify. `indeterminate` never auto-skips.
-Never skip otherwise.
+Zero-diff auto-skip only, per the skill's Zero-diff section (`empty` ⇒
+`[-]`; `indeterminate` never auto-skips). Never skip otherwise.
 
 ## Completion handoff
 

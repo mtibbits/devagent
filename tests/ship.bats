@@ -164,6 +164,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
+    sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
     sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
             s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -184,6 +185,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
+    sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
     sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
             s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -551,4 +553,16 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]
     grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "ship refuses while preship (21) is non-terminal; absent step ungated (#149)" {
+    # The common fixture predates #149 (no 21 line) — add a pending one.
+    printf -- '- [ ] 21. preship\n' >> "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"preship is non-terminal"* ]]
+    # Absent step (pre-#149 checklist) => no gate at this check.
+    sed -i '/21\. preship/d' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [[ "$output" != *"preship is non-terminal"* ]]
 }
