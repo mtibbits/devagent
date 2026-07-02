@@ -72,6 +72,21 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 > The 21 numbered step commands above, plus `next` / `revise` / `comments`,
 > together with the tables in this section, are the full set of 53 commands.
 
+## Concurrent sessions
+
+Two sessions on DIFFERENT projects are safe as of #282: the global pointer
+(`state/_active.toml`) is only written when it was actually consulted, so an
+arg- or env-pinned session never clobbers it. Pin a session to a project via
+Claude Code `settings.local.json` in the project directory:
+
+```json
+{ "env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" } }
+```
+
+On multi-project installs the pointer's value effectively freezes — switch
+projects with the env pin or by editing `_active.toml`. Two sessions on the
+SAME project still race `active_issue` (see #240).
+
 ## Auth subsystem
 
 The auth subsystem manages personal access tokens (PATs) and SSH
