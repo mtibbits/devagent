@@ -21,4 +21,3 @@ setup() {
   [ -s "$FIXT/imPlan.md" ]
   [ -s "$FIXT/checklist.md" ]
 }
-

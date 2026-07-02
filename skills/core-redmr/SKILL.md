@@ -89,6 +89,9 @@ model override is conditional; fresh context is not.
    in this format:
 
    ```markdown
+   context: subagent
+   model: inherit
+
    # Red-team review — <date>
 
    ## Summary

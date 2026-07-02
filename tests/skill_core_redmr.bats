@@ -24,4 +24,3 @@ setup() {
   [ -s "$FIXT/mr.md" ]
   [ -s "$FIXT/checklist.md" ]
 }
-

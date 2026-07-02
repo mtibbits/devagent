@@ -6,7 +6,8 @@
 # and the mandatory context:/model: artifact-header grammar. Discovering
 # carriers by grep (not a hardcoded list) means a future carrier — a new
 # checking-class skill, or review gaining its own core- skill — is covered
-# the day it appears, and a vacuous-pass guard pins today's floor.
+# the day it appears, and a vacuous-pass guard pins today's floor of three
+# full-contract carriers.
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
@@ -16,18 +17,20 @@ _contract_carriers() {
 
 @test "every dispatch-contract carrier states the full contract (#151)" {
   local files; mapfile -t files < <(_contract_carriers)
-  # Guard against a vacuous pass: core-improve, core-redmr, review.md,
-  # plus the improve/redmr wrappers that name the resolver.
-  [ "${#files[@]}" -ge 3 ]
-  local f p missing=()
+  local f p missing=() full=0
   for f in "${files[@]}"; do
     # Wrappers that merely hand the project through only need the pointer;
     # full-contract carriers are the files defining a dispatch.
     grep -qE '## Dispatch contract|requesting-code-review' "$f" || continue
+    full=$((full + 1))
     for p in 'step-model.sh' 'inherit' 'context: subagent' 'context: inline'; do
       grep -qF "$p" "$f" || missing+=("$f:$p")
     done
   done
+  # Guard against a vacuous pass on FILTERED carriers (not merely discovered
+  # files): core-improve + core-redmr + review.md is today's floor — a skill
+  # silently dropping out of the sweep must fail here.
+  [ "$full" -ge 3 ]
   if [ "${#missing[@]}" -ne 0 ]; then
     printf 'missing contract token: %s\n' "${missing[@]}" >&2
   fi
