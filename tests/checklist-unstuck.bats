@@ -37,6 +37,7 @@ teardown() { teardown_tmp_devagent_home; }
   # fixture's step-1 [!] first so 21 is the only stuck step.
   "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
   sed -i -E '/21\. preship/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
+  echo "preship: planted failure" > "$ISSUE_DIR/STUCK"
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   grep -qE '^- \[ \] +21\. preship' "$ISSUE_DIR/checklist.md"
