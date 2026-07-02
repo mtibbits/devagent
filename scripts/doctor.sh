@@ -72,10 +72,12 @@ check_one_project() {
   if state_exists "$project"; then
     local mode
     mode="$(stat -c '%a' "$(state_path "$project")")"
-    if ! posix_modes_representable "$(dirname "$(state_path "$project")")"; then
-      check "state file ($mode)" skip "filesystem can't represent POSIX modes; NTFS ACLs govern"
-    elif [[ "$mode" == "600" ]]; then
+    # Mode-first (probe only on mismatch): matches doctor_auth.sh and avoids a
+    # probe file on the healthy 600 path.
+    if [[ "$mode" == "600" ]]; then
       check "state file ($mode)" ok
+    elif ! posix_modes_representable "$(dirname "$(state_path "$project")")"; then
+      check "state file ($mode)" skip "filesystem can't represent POSIX modes (ACLs govern)"
     else
       check "state file ($mode)" fail "expected mode 600"
     fi
@@ -138,7 +140,7 @@ if [[ -d "$(secrets_dir)" ]]; then
   if ! posix_modes_representable "$(secrets_dir)"; then
     # secrets_audit would skip-and-pass here; say so visibly rather than
     # printing a bare OK that implies the 700/600 invariant was verified (#289).
-    check "secrets dir clean" skip "filesystem can't represent POSIX modes; NTFS ACLs govern"
+    check "secrets dir clean" skip "filesystem can't represent POSIX modes (ACLs govern)"
   elif secrets_audit 2>/dev/null; then
     check "secrets dir clean" ok
   else

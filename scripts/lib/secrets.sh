@@ -170,12 +170,15 @@ secrets_bootstrap() {
 # guessable path in a world-writable secrets dir could otherwise suppress
 # the very audit that would flag it, or redirect the chmod (TOCTOU).
 posix_modes_representable() {
-  local dir="$1" probe mode rc
+  local dir="$1" probe mode
   probe="$(mktemp "$dir/.mode-probe.XXXXXX" 2>/dev/null)" || return 0
+  # Each failure is handled with an explicit `if !` (not `cmd; rc=$?`) so the
+  # fail-safe holds even if a future caller invokes this bare under `set -e`
+  # (today every call site is an `if !` condition, which already suppresses
+  # errexit — but the guarantee must not depend on that).
   if ! chmod 600 "$probe" 2>/dev/null; then rm -f "$probe"; return 0; fi
-  mode="$(stat -c '%a' "$probe" 2>/dev/null)"; rc=$?
+  if ! mode="$(stat -c '%a' "$probe" 2>/dev/null)"; then rm -f "$probe"; return 0; fi
   rm -f "$probe"
-  [ "$rc" -eq 0 ] || return 0
   [ "$mode" = "600" ]
 }
 
