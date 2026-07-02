@@ -21,13 +21,57 @@ the ship step will fire.
 
 ## Inputs
 
-- `$ISSUE_DIR`, `$NOTE`.
+- `$ISSUE_DIR`, `$NOTE`, and the active PROJECT name — resolved by the
+  command wrapper per spec §6.1; when the skill is invoked directly,
+  default to state's `active_project`. If no project resolves, treat the
+  tier as unconfigured (dispatch with no override).
 - Reads:
   - `<issue-dir>/mr.md` (the MR body under attack).
   - `<issue-dir>/imPlan.md`, `actualWork.md` (for context).
   - `git diff <baseline_sha>..HEAD` (the actual code change).
   - Resolved `${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md` (per spec §12 registry).
 - Writes: `<issue-dir>/analysis/YYYY-MM-DD-redmr.md`.
+
+## Dispatch contract (#151)
+
+Run this red-team in FRESH CONTEXT whenever the harness provides a
+subagent mechanism (Claude Code's Agent/Task tool does). Fresh context is
+what makes the attack real: the #101/#102 incident — redmr evaluated the
+working tree it had itself just edited and recorded "0 blocking" against
+a branch that lacked the fixes — is the failure class this prevents. The
+model override is conditional; fresh context is not.
+
+1. **Resolve the model tier** (optional):
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14 || true)"`.
+   Pass the CANONICAL step number (14) even on a renumbered checklist —
+   the class map is keyed to canonical numbers (config.sh). Empty ⇒
+   dispatch with NO model override (inherit the session model).
+2. **Package inputs as paths, not conversation.** The dispatch prompt
+   contains only: the absolute paths of `mr.md`, `imPlan.md`,
+   `actualWork.md`, the RESOLVED red-team template
+   (`redteam_mr.md` per the §12 registry walk), the repo directory plus
+   the literal diff spec `<baseline_sha>..HEAD`, and the output artifact
+   path `<issue-dir>/analysis/YYYY-MM-DD-redmr.md` (create `analysis/`
+   if missing). Do NOT paste the MR summary, your recollection of the
+   change, or prior findings into the prompt — the checker must derive
+   everything from disk, which is exactly how it catches a report/branch
+   divergence.
+3. **Dispatch** one subagent with the resolved model override (omit when
+   empty). If dispatch fails because the tier is unavailable, retry once
+   with NO override and record the degradation in the artifact header.
+4. **The subagent authors the artifact** (severity-classified findings
+   per the Checklist below) and returns only counts + verdict. The main
+   session triages, applies fixes, and commits them per #148 — it never
+   rewrites the subagent's findings in place. The Checklist's B>0
+   refuse-advance gate and the Halt-and-ask rules bind the MAIN session,
+   which enforces them on the returned counts; a dispatched checker that
+   cannot classify a finding records it un-tagged in the artifact instead
+   of asking.
+5. **Mandatory artifact header.** First lines of the artifact:
+   `context: subagent` (or `context: inline`), and `model: <tier>` (or
+   `model: inherit`, or `model: inherit (fallback from <tier>)`).
+6. **Inline fallback.** When no subagent mechanism exists, run inline as
+   before; the artifact MUST record `context: inline`.
 
 ## Checklist
 
