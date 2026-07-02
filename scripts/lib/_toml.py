@@ -6,16 +6,27 @@ subset of TOML by hand — we only need: top-level tables, nested tables,
 string/bool/int scalars. Lists/dates/inline-tables are read-only.
 
 Mutation verbs (set [--print-old], set-bool, set-int, unset, set-many,
-set-if) acquire an exclusive
-fcntl.flock on a sibling .lock file for the entire read-modify-write
-cycle and write via tempfile + atomic os.rename. Concurrent writers
-are serialized; readers do not need to lock (POSIX rename atomicity
-guarantees a consistent view).
+set-if) acquire an exclusive lock on a sibling .lock file for the entire
+read-modify-write cycle and write via tempfile + atomic os.rename.
+Concurrent writers are serialized. The lock uses fcntl.flock on POSIX
+and falls back to msvcrt.locking on Windows (where fcntl does not
+exist); read-only verbs never touch the lock, so a missing fcntl must
+not break them (that was #288).
+
+On POSIX, readers do not need to lock: rename atomicity guarantees a
+consistent view. That guarantee is weaker on Windows — a concurrent
+reader holding the file open can make a writer's os.replace raise
+PermissionError — a pre-existing gap this module does not yet close on
+Windows (tracked in #293); it is not introduced here.
 """
 
 from __future__ import annotations
 import datetime
-import fcntl
+try:
+    import fcntl
+except ImportError:   # Windows / any interpreter without fcntl
+    fcntl = None      # _locked_rmw falls back to msvcrt (imported there,
+                      # so read-only verbs never depend on either module)
 import sys
 import tomllib
 from contextlib import contextmanager
@@ -48,14 +59,46 @@ def _locked_rmw(path: Path):
     """
     lock_path = path.with_suffix(path.suffix + ".lock")
     lock_path.touch(exist_ok=True)
-    with lock_path.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    # Open with "a" (never "w"): msvcrt byte-range locks are mandatory, and a
+    # truncating open of a .lock another process holds can fail. "a" never
+    # truncates and is equivalent for advisory flock. Content is never used.
+    with lock_path.open("a") as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        else:
+            import errno
+            import msvcrt
+            # msvcrt.locking(LK_LOCK) waits ~10×1s then raises OSError with
+            # errno EDEADLOCK when the region is held elsewhere; flock(LOCK_EX)
+            # instead blocks indefinitely. Retry ONLY that contention error to
+            # match flock semantics (each attempt blocks internally, so this is
+            # not a busy-spin); any other OSError (bad fd, invalid arg) is a
+            # real failure and must propagate rather than spin. Lock 1 byte
+            # at a fixed offset (0).
+            lock.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError as e:
+                    if e.errno != errno.EDEADLOCK:
+                        raise
         try:
             data = _load(path)
             yield data
             _dump(path, data)
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            else:
+                # Best-effort unlock: the OS drops the lock at handle close
+                # regardless, so a raising seek/LK_UNLCK here must never mask
+                # an exception propagating from the with-block body.
+                try:
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
 
 
 def _walk(data: dict, dotted: str):

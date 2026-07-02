@@ -228,3 +228,101 @@ _seed96() {
   [ "$status" -eq 2 ]
   [[ "$output" != *Traceback* ]]
 }
+
+# --- #288: _toml.py must run on a no-fcntl interpreter (Windows) ---
+#
+# Simulate a fcntl-less CPython on ANY platform: a sitecustomize.py on
+# PYTHONPATH sets sys.modules['fcntl']=None at interpreter startup (before
+# _toml.py loads), so `import fcntl` raises ImportError even on Linux, forcing
+# the msvcrt branch. A stub msvcrt.py satisfies that branch's lazy `import
+# msvcrt` on Linux; on Windows the builtin msvcrt shadows the stub (real
+# locking there — the concurrency test above attests actual exclusion). These
+# tests therefore assert on exit code / output value ONLY, never on stub
+# side-effects, so they mean the same thing on both platforms. The stub proves
+# the branch is *wired*, not that it mutually excludes.
+_nofcntl_shim() {   # create shim dir, echo its path for PYTHONPATH
+  local d="$BATS_TEST_TMPDIR/nofcntl"
+  mkdir -p "$d"
+  printf "import sys\nsys.modules['fcntl'] = None\n" > "$d/sitecustomize.py"
+  printf "LK_LOCK = 1\nLK_UNLCK = 0\ndef locking(fd, mode, nbytes):\n    pass\n" \
+    > "$d/msvcrt.py"
+  printf '%s' "$d"
+}
+
+@test "no-fcntl shim actually forces fcntl absent (#288 canary)" {
+  # If the shim ever stops applying (exotic site config, -S launch), the
+  # sibling fcntl-absent tests would silently pass against the REAL fcntl
+  # path — a false green of the exact regression they guard. This canary
+  # fails loudly in that case: under the shim, `import fcntl` MUST raise.
+  local shim; shim="$(_nofcntl_shim)"
+  run env PYTHONPATH="$shim" python3 -c "import fcntl"
+  [ "$status" -ne 0 ]
+}
+
+@test "read-only verb works when fcntl is absent (#288)" {
+  local shim; shim="$(_nofcntl_shim)"
+  printf 'k = "v"\n' > "$BATS_TEST_TMPDIR/n.toml"
+  # The literal #288 symptom: import no longer dies before the verb runs.
+  run env PYTHONPATH="$shim" python3 "$TOML" get "$BATS_TEST_TMPDIR/n.toml" k
+  [ "$status" -eq 0 ]
+  [ "$output" = "v" ]
+}
+
+@test "mutation verb works when fcntl is absent (#288 msvcrt lock path)" {
+  local shim; shim="$(_nofcntl_shim)"
+  printf 'k = "v"\n' > "$BATS_TEST_TMPDIR/n.toml"
+  # Exercises the msvcrt lock+unlock branch: LK_LOCK/LK_UNLCK resolve,
+  # fileno()/seek(0) work, value round-trips.
+  run env PYTHONPATH="$shim" python3 "$TOML" set "$BATS_TEST_TMPDIR/n.toml" k2 '"w"'
+  [ "$status" -eq 0 ]
+  run env PYTHONPATH="$shim" python3 "$TOML" get "$BATS_TEST_TMPDIR/n.toml" k2
+  [ "$status" -eq 0 ]
+  [ "$output" = "w" ]
+}
+
+@test "unlock runs after an exception inside the lock, fcntl absent (#288)" {
+  local shim; shim="$(_nofcntl_shim)"
+  printf 'k = "v"\n' > "$BATS_TEST_TMPDIR/n.toml"
+  # `set k.sub` treats scalar k as a table → _set_path raises ValueError
+  # INSIDE the with-block (after the lock is held), exercising the finally/
+  # unlock path. (The "lock released on exception" test, and set-int/set-bool
+  # bad values which #96 validates PRE-lock, all reject before locking — so
+  # none of them cover this branch.)
+  run env PYTHONPATH="$shim" python3 "$TOML" set "$BATS_TEST_TMPDIR/n.toml" k.sub "x"
+  [ "$status" -ne 0 ]
+  # A subsequent write still succeeds. Process exit alone would drop the lock,
+  # so this asserts the finally/unlock branch EXECUTES cleanly (no hang, no
+  # wiring break) after an in-lock exception — not cross-process release.
+  run env PYTHONPATH="$shim" python3 "$TOML" set "$BATS_TEST_TMPDIR/n.toml" k4 '"ok"'
+  [ "$status" -eq 0 ]
+}
+
+@test "acquire retries on EDEADLOCK contention, fcntl absent (#288)" {
+  # The retry-on-EDEADLOCK loop is the only novel control flow in the fix, and
+  # neither the no-op stub (Linux) nor a fast uncontended real lock (Windows)
+  # forces it to iterate. A stateful stub whose LK_LOCK raises EDEADLOCK twice
+  # then succeeds proves the loop retries the contention error and completes.
+  # (On Windows the builtin msvcrt shadows this stub, so the mutation just
+  # takes the real lock uncontended — still exit 0; the coverage is on Linux.)
+  local d="$BATS_TEST_TMPDIR/retry"
+  mkdir -p "$d"
+  printf "import sys\nsys.modules['fcntl'] = None\n" > "$d/sitecustomize.py"
+  cat > "$d/msvcrt.py" <<'PY'
+import errno
+LK_LOCK = 1
+LK_UNLCK = 0
+_n = [0]
+def locking(fd, mode, nbytes):
+    if mode == LK_LOCK:
+        _n[0] += 1
+        if _n[0] <= 2:                       # first two acquires "contend"
+            raise OSError(errno.EDEADLOCK, "simulated contention")
+    # third LK_LOCK and every LK_UNLCK succeed
+PY
+  printf 'k = "v"\n' > "$BATS_TEST_TMPDIR/r.toml"
+  run env PYTHONPATH="$d" python3 "$TOML" set "$BATS_TEST_TMPDIR/r.toml" k2 '"w"'
+  [ "$status" -eq 0 ]
+  run env PYTHONPATH="$d" python3 "$TOML" get "$BATS_TEST_TMPDIR/r.toml" k2
+  [ "$status" -eq 0 ]
+  [ "$output" = "w" ]
+}
