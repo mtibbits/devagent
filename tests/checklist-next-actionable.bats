@@ -29,7 +29,8 @@ EOF
 }
 
 @test "follows file order not step number: after 11 (listed before 10) returns 10 [#77]" {
-  # The deliberate 11-before-10 layout (analyze before commit). The next
+  # The pre-#116 11-before-10 layout (analyze before commit), still live in
+  # checklists cut before the reorder. The next
   # actionable after 11 is 10 on the NEXT line — not 12, which a step-number
   # comparison (n > 11) would wrongly pick while silently skipping commit.
   cat > "$F" <<'EOF'
