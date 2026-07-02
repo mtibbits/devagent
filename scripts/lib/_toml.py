@@ -26,6 +26,15 @@ def _load(path: Path) -> dict:
         return tomllib.load(fh)
 
 
+class _NoWrite(Exception):
+    """Sentinel: escape _locked_rmw WITHOUT dumping (#96 — a compare-fail or
+    rejected transaction must leave the file byte-identical; the clean-exit
+    path always rewrites)."""
+    def __init__(self, code: int, msg: str = ""):
+        self.code = code
+        self.msg = msg
+
+
 @contextmanager
 def _locked_rmw(path: Path):
     """Exclusive-locked read-modify-write.
@@ -197,6 +206,13 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print("usage: _toml.py <verb> <file> [args...]", file=sys.stderr)
         return 2
+    # #96: `set --print-old <file> <key> <value>` — strip the flag before
+    # positional parsing (it sits between verb and file).
+    print_old = False
+    if argv[0] == "set" and len(argv) >= 2 and argv[1] == "--print-old":
+        print_old = True
+        argv = [argv[0]] + argv[2:]
+
     verb, file = argv[0], Path(argv[1])
     rest = argv[2:]
 
@@ -244,6 +260,9 @@ def main(argv: list[str]) -> int:
         return 0
 
     if verb in {"set", "set-bool", "set-int", "unset"}:
+        # #96: print_old (set --print-old) emits the pre-write value from
+        # INSIDE the lock (race-free clobber-warn input): the old value line
+        # if the key existed (empty line for empty string), nothing if absent.
         # Validate args BEFORE entering the lock so a bad invocation
         # doesn't briefly hold the lock for no reason.
         if verb == "set-bool" and rest[1] not in ("true", "false"):
@@ -268,8 +287,80 @@ def main(argv: list[str]) -> int:
                 elif verb == "set-int":
                     _set_path(data, key, int(raw))
                 else:
+                    if print_old:
+                        try:
+                            prev = _walk(data, key)
+                            print(prev if isinstance(prev, str) else _emit_value(prev))
+                        except KeyError:
+                            pass
                     _set_path(data, key, _parse_raw(raw))
         return 0
+
+    if verb in {"set-many", "set-if"}:
+        # #96 transactional verbs. Both catch parse errors as exit 2 (the #99
+        # convention `get` already follows) and escape the RMW without a dump
+        # on any rejection path (see _NoWrite).
+        if file.exists() and _has_comment(file.read_text()):
+            print(f"_toml: refusing to mutate comment-bearing file {file}", file=sys.stderr)
+            return 1
+        try:
+            if verb == "set-many":
+                # Triplets: <str|int|bool> <key> <value> ... Validate ALL
+                # before any write (all-or-nothing).
+                if not rest or len(rest) % 3 != 0:
+                    print("_toml: set-many wants <str|int|bool> <key> <value> triplets", file=sys.stderr)
+                    return 2
+                triplets = []
+                for i in range(0, len(rest), 3):
+                    typ, key, raw = rest[i], rest[i + 1], rest[i + 2]
+                    if typ == "str":
+                        triplets.append((key, _parse_raw(raw)))
+                    elif typ == "int":
+                        try:
+                            triplets.append((key, int(raw)))
+                        except ValueError:
+                            print(f"_toml: set-many: '{raw}' is not an int for key '{key}'", file=sys.stderr)
+                            return 2
+                    elif typ == "bool":
+                        if raw not in ("true", "false"):
+                            print(f"_toml: set-many: '{raw}' is not true|false for key '{key}'", file=sys.stderr)
+                            return 2
+                        triplets.append((key, raw == "true"))
+                    else:
+                        print(f"_toml: set-many: unknown type '{typ}'", file=sys.stderr)
+                        return 2
+                with _locked_rmw(file) as data:
+                    for key, value in triplets:
+                        _set_path(data, key, value)
+                return 0
+            # set-if <file> <key> <expected|--absent> <new>
+            if len(rest) != 3:
+                print("_toml: set-if wants <key> <expected|--absent> <new>", file=sys.stderr)
+                return 2
+            key, expected, new_raw = rest
+            try:
+                with _locked_rmw(file) as data:
+                    try:
+                        cur = _walk(data, key)
+                        cur_str = cur if isinstance(cur, str) else _emit_value(cur)
+                        absent = False
+                    except KeyError:
+                        cur_str, absent = None, True
+                    if expected == "--absent":
+                        ok = absent
+                    else:
+                        ok = (not absent) and cur_str == expected
+                    if not ok:
+                        raise _NoWrite(3, "" if absent else cur_str)
+                    _set_path(data, key, _parse_raw(new_raw))
+                return 0
+            except _NoWrite as nw:
+                if nw.msg:
+                    print(nw.msg)
+                return nw.code
+        except tomllib.TOMLDecodeError as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
 
     print(f"_toml: unknown verb '{verb}'", file=sys.stderr)
     return 2
