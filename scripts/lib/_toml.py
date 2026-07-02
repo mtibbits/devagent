@@ -330,7 +330,8 @@ def main(argv: list[str]) -> int:
                     if print_old:
                         try:
                             prev = _walk(data, key)
-                            print(prev if isinstance(prev, str) else _emit_value(prev))
+                            if not isinstance(prev, dict):
+                                print(prev if isinstance(prev, str) else _emit_value(prev))
                         except KeyError:
                             pass
                     _set_path(data, key, _parse_raw(raw))
@@ -359,7 +360,8 @@ def main(argv: list[str]) -> int:
                     if sm_print_old is not None:
                         try:
                             prev = _walk(data, sm_print_old)
-                            print(prev if isinstance(prev, str) else _emit_value(prev))
+                            if not isinstance(prev, dict):
+                                print(prev if isinstance(prev, str) else _emit_value(prev))
                         except KeyError:
                             pass
                     for key, value in triplets:
