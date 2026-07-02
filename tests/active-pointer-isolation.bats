@@ -54,6 +54,8 @@ _pointer_fingerprint() {
 @test "interleaved pinned sessions leave the seeded fingerprint intact (#282)" {
   before="$(_pointer_fingerprint)"
   run env -u DEVAGENT_ACTIVE_PROJECT "$PLUGIN_ROOT/scripts/next.sh" gnuradio
+  # The arg-pinned session resolved ITS project, not the pointer's.
+  [[ "$output" != *volk* ]]
   DEVAGENT_ACTIVE_PROJECT=gnuradio run "$PLUGIN_ROOT/scripts/next.sh"
   after="$(_pointer_fingerprint)"
   [ "$before" = "$after" ]
