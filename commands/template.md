@@ -30,3 +30,14 @@ by a banner indicating which layer it came from.
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" $ARGUMENTS
 ```
+
+## Custom workflow templates (#120)
+
+Checklist templates (`checklist-<name>`) and `revision_block` resolve via
+the §12 registry, so a project may override its workflow. Authoring rules:
+gates resolve step NAMES with absent ⇒ no gate — keep
+`updatewbs`/`impact`/`lessonslearned`/`preship` named for the gates you
+want; `cleanup` (20) is required (hardcoded self-mark). Dispatch is
+checklist FILE ORDER; numbers are permanent IDs. A custom step name needs
+its own `/devagent:<name>` command (operator-provided). An override path
+that does not exist falls through silently to the plugin default.

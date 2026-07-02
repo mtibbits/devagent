@@ -37,17 +37,12 @@ revision_dir() {
   printf '%s/revisions/r%s\n' "$issue_dir" "$n"
 }
 
-# revision_block_text <N>
-# revision_block_text <N> [project] — #120: with a project, the block template
-# resolves via the §12 registry (key "revision_block"); empty project or miss
-# keeps today's $DEVAGENT_ROOT path and return-1 (not die) semantics.
+# revision_block_text <N> [project] — #120: §12 registry with plugin-default
+# fallback; return-1 (not die) semantics preserved.
 revision_block_text() {
   local n="$1"
-  local project="${2:-}" tmpl=""
-  if [[ -n "$project" ]]; then
-    tmpl="$(artifact_resolve "$project" revision_block 2>/dev/null || true)"
-  fi
-  [[ -n "$tmpl" ]] || tmpl="$DEVAGENT_ROOT/templates/revision_block.md"
+  local tmpl
+  tmpl="$(artifact_resolve_or "${2:-}" revision_block)"
   if [[ ! -f "$tmpl" ]]; then
     printf 'revision_block_text: template not found: %s\n' "$tmpl" >&2
     return 1

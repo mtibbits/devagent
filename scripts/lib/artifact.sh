@@ -9,6 +9,20 @@
 #   echoes the resolved path on stdout, returns 0 on success, 1 if no match.
 # Requires paths.sh, io.sh, config.sh sourced first by the caller.
 
+# artifact_resolve_or <project> <key> — tolerant face of artifact_resolve
+# (#120): echoes the resolved path, or the L3 plugin default when project is
+# empty or resolution misses. Always rc 0 — callers keep their own
+# [[ -f ]] check + die/fail message. The core artifact_resolve stays strict
+# (empty project = caller bug); tolerance lives only here.
+artifact_resolve_or() {
+  local project="$1" key="$2" path=""
+  if [[ -n "$project" ]]; then
+    path="$(artifact_resolve "$project" "$key" 2>/dev/null || true)"
+  fi
+  [[ -n "$path" ]] || path="$(plugin_root)/templates/${key}.md"
+  echo "$path"
+}
+
 artifact_resolve() {
   local project="$1" key="$2"
   [[ -n "$project" && -n "$key" ]] || {

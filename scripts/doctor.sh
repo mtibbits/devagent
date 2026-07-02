@@ -33,13 +33,9 @@ require_field() {
 }
 
 check_template_resolves() {
-  # #120: resolve via the §12 registry (a devdoc/[paths] override is exactly
-  # what this check must bless); plugin default remains the L3 fallback.
-  local name="$1" project="${2:-}" path=""
-  if [[ -n "$project" ]]; then
-    path="$(artifact_resolve "$project" "checklist-${name}" 2>/dev/null || true)"
-  fi
-  [[ -n "$path" ]] || path="$PLUGIN_ROOT/templates/checklist-${name}.md"
+  # #120: §12 registry (an override is exactly what this check must bless).
+  local name="$1" project="$2" path
+  path="$(artifact_resolve_or "$project" "checklist-${name}")"
   if [[ -f "$path" ]]; then
     check "checklist template '$name'" ok
   else

@@ -61,10 +61,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #   [project.{{PROJECT}}.paths]
 #   "checklist-standard" = "templates/my-standard.md"   # devdoc-relative
 # NB: an override path that does not exist falls through SILENTLY to the
-# plugin default. Gates resolve step NAMES (absent => no gate): keep
-# updatewbs/impact/lessonslearned/preship named if you want their gates;
-# cleanup (20) is required. A custom step name needs its own /devagent:<name>
-# command (operator-provided).
+# plugin default. Custom-workflow authoring rules (gate step names, required
+# steps, custom commands): see commands/template.md.
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false
