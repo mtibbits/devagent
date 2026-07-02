@@ -172,6 +172,24 @@ def _list_keys(data: dict, table: str | None) -> list[str]:
     return [k for k, v in cur.items() if not isinstance(v, dict)]
 
 
+def _coerce(typ: str, key: str, raw: str):
+    """Coerce a typed CLI value (#96). Raises ValueError with a clean message
+    (callers map it to exit 2) — shared by set-many and the set-int path so
+    typing policy cannot diverge."""
+    if typ == "str":
+        return _parse_raw(raw)
+    if typ == "int":
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(f"'{raw}' is not an int for key '{key}'")
+    if typ == "bool":
+        if raw not in ("true", "false"):
+            raise ValueError(f"'{raw}' is not true|false for key '{key}'")
+        return raw == "true"
+    raise ValueError(f"unknown type '{typ}'")
+
+
 def _parse_raw(raw: str):
     """Parse a raw CLI-supplied scalar.
 
@@ -213,6 +231,18 @@ def main(argv: list[str]) -> int:
     if argv[0] == "set" and len(argv) >= 2 and argv[1] == "--print-old":
         print_old = True
         argv = [argv[0]] + argv[2:]
+        if len(argv) < 2:
+            print("usage: _toml.py set --print-old <file> <key> <value>", file=sys.stderr)
+            return 2
+    # #96: set-many --print-old <key> — emit that key's pre-write value from
+    # inside the lock (the race-free clobber-warn input for transactions).
+    sm_print_old = None
+    if argv[0] == "set-many" and len(argv) >= 3 and argv[1] == "--print-old":
+        sm_print_old = argv[2]
+        argv = [argv[0]] + argv[3:]
+        if len(argv) < 2:
+            print("usage: _toml.py set-many --print-old <key> <file> <triplets...>", file=sys.stderr)
+            return 2
 
     verb, file = argv[0], Path(argv[1])
     rest = argv[2:]
@@ -260,6 +290,18 @@ def main(argv: list[str]) -> int:
             return 1
         return 0
 
+    # #100: mutation rewrites the file from the parsed tree, dropping comments
+    # and reformatting inline tables. Refuse a comment-bearing file (e.g. the
+    # hand-commented config.toml) so a mis-pointed mutation can't destroy it.
+    # Machine-written state files have no comments; new files don't exist yet.
+    # Shared by ALL mutation verbs (#96 hoisted the duplicate).
+    if verb in {"set", "set-bool", "set-int", "unset", "set-many", "set-if"}:
+        if file.exists() and _has_comment(file.read_text()):
+            print(f"_toml: refusing to mutate comment-bearing file {file} "
+                  "(mutation drops comments; it is for comment-free state files)",
+                  file=sys.stderr)
+            return 1
+
     if verb in {"set", "set-bool", "set-int", "unset"}:
         # #96: print_old (set --print-old) emits the pre-write value from
         # INSIDE the lock (race-free clobber-warn input): the old value line
@@ -269,15 +311,12 @@ def main(argv: list[str]) -> int:
         if verb == "set-bool" and rest[1] not in ("true", "false"):
             print("_toml: set-bool wants true|false", file=sys.stderr)
             return 2
-        # #100: mutation rewrites the file from the parsed tree, dropping comments
-        # and reformatting inline tables. Refuse a comment-bearing file (e.g. the
-        # hand-commented config.toml) so a mis-pointed mutation can't destroy it.
-        # Machine-written state files have no comments; new files don't exist yet.
-        if file.exists() and _has_comment(file.read_text()):
-            print(f"_toml: refusing to mutate comment-bearing file {file} "
-                  "(mutation drops comments; it is for comment-free state files)",
-                  file=sys.stderr)
-            return 1
+        if verb == "set-int":
+            try:
+                _coerce("int", rest[0], rest[1])
+            except ValueError as e:
+                print(f"_toml: set-int: {e}", file=sys.stderr)
+                return 2
         with _locked_rmw(file) as data:
             if verb == "unset":
                 _unset_path(data, rest[0])
@@ -286,7 +325,7 @@ def main(argv: list[str]) -> int:
                 if verb == "set-bool":
                     _set_path(data, key, raw == "true")
                 elif verb == "set-int":
-                    _set_path(data, key, int(raw))
+                    _set_path(data, key, int(raw))  # pre-validated above
                 else:
                     if print_old:
                         try:
@@ -301,9 +340,6 @@ def main(argv: list[str]) -> int:
         # #96 transactional verbs. Both catch parse errors as exit 2 (the #99
         # convention `get` already follows) and escape the RMW without a dump
         # on any rejection path (see _NoWrite).
-        if file.exists() and _has_comment(file.read_text()):
-            print(f"_toml: refusing to mutate comment-bearing file {file}", file=sys.stderr)
-            return 1
         try:
             if verb == "set-many":
                 # Triplets: <str|int|bool> <key> <value> ... Validate ALL
@@ -314,23 +350,18 @@ def main(argv: list[str]) -> int:
                 triplets = []
                 for i in range(0, len(rest), 3):
                     typ, key, raw = rest[i], rest[i + 1], rest[i + 2]
-                    if typ == "str":
-                        triplets.append((key, _parse_raw(raw)))
-                    elif typ == "int":
-                        try:
-                            triplets.append((key, int(raw)))
-                        except ValueError:
-                            print(f"_toml: set-many: '{raw}' is not an int for key '{key}'", file=sys.stderr)
-                            return 2
-                    elif typ == "bool":
-                        if raw not in ("true", "false"):
-                            print(f"_toml: set-many: '{raw}' is not true|false for key '{key}'", file=sys.stderr)
-                            return 2
-                        triplets.append((key, raw == "true"))
-                    else:
-                        print(f"_toml: set-many: unknown type '{typ}'", file=sys.stderr)
+                    try:
+                        triplets.append((key, _coerce(typ, key, raw)))
+                    except ValueError as e:
+                        print(f"_toml: set-many: {e}", file=sys.stderr)
                         return 2
                 with _locked_rmw(file) as data:
+                    if sm_print_old is not None:
+                        try:
+                            prev = _walk(data, sm_print_old)
+                            print(prev if isinstance(prev, str) else _emit_value(prev))
+                        except KeyError:
+                            pass
                     for key, value in triplets:
                         _set_path(data, key, value)
                 return 0
@@ -339,26 +370,22 @@ def main(argv: list[str]) -> int:
                 print("_toml: set-if wants <key> <expected|--absent> <new>", file=sys.stderr)
                 return 2
             key, expected, new_raw = rest
-            try:
-                with _locked_rmw(file) as data:
-                    try:
-                        cur = _walk(data, key)
-                        cur_str = cur if isinstance(cur, str) else _emit_value(cur)
-                        absent = False
-                    except KeyError:
-                        cur_str, absent = None, True
-                    if expected == "--absent":
-                        ok = absent
-                    else:
-                        ok = (not absent) and cur_str == expected
-                    if not ok:
-                        raise _NoWrite(3, "" if absent else cur_str)
-                    _set_path(data, key, _parse_raw(new_raw))
-                return 0
-            except _NoWrite as nw:
-                if nw.msg:
-                    print(nw.msg)
-                return nw.code
+            with _locked_rmw(file) as data:
+                try:
+                    cur = _walk(data, key)
+                    cur_str = cur if isinstance(cur, str) else _emit_value(cur)
+                    absent = False
+                except KeyError:
+                    cur_str, absent = None, True
+                ok = absent if expected == "--absent" else ((not absent) and cur_str == expected)
+                if not ok:
+                    raise _NoWrite(3, "" if absent else cur_str)
+                _set_path(data, key, _parse_raw(new_raw))
+            return 0
+        except _NoWrite as nw:
+            if nw.msg:
+                print(nw.msg)
+            return nw.code
         except tomllib.TOMLDecodeError as e:
             print(f"_toml: {file}: {e}", file=sys.stderr)
             return 2

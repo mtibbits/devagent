@@ -63,17 +63,25 @@ state_set() {
   # issue concurrently. Only meaningful for active_issue; other keys
   # (last_step, mr_url) change legitimately on every step.
   if [ "$key" = "active_issue" ] && [ -n "$value" ]; then
-    # #96: read the old value from INSIDE the write lock (--print-old) — the
-    # previous get-then-set could interleave with another session and miss.
+    # #96: old value read from INSIDE the write lock (set-many --print-old) —
+    # a get-then-set could interleave with another session and miss the clobber.
     local old_value
-    old_value="$(_state_toml set --print-old "$f" "$key" "$value")"
-    if [ -n "$old_value" ] && [ "$old_value" != "$value" ]; then
-      echo "warning: state_set: active_issue is changing from '$old_value' to '$value' — another session may be working a different issue concurrently" >&2
-    fi
+    old_value="$(_state_toml set-many --print-old "$key" "$f" str "$key" "$value" str updated_at "$(_state_now)")"
+    _state_warn_active_clobber "$old_value" "$value"
   else
-    _state_toml set "$f" "$key" "$value"
+    # Single transaction: value + timestamp atomic, one spawn (was two).
+    _state_toml set-many "$f" str "$key" "$value" str updated_at "$(_state_now)"
   fi
-  _state_toml set "$f" updated_at "$(_state_now)"
+}
+
+# _state_warn_active_clobber <old> <new> — the advisory concurrency warning
+# (#96: one predicate + message shared by state_set and state_set_many;
+# fires only when old and new are both non-empty and different).
+_state_warn_active_clobber() {
+  local old="$1" new="$2"
+  if [ -n "$old" ] && [ -n "$new" ] && [ "$old" != "$new" ]; then
+    echo "warning: state_set: active_issue is changing from '$old' to '$new' — another session may be working a different issue concurrently" >&2
+  fi
 }
 
 # state_set_many <project> <str|int|bool> <key> <value> [...] — one locked
@@ -86,20 +94,21 @@ state_set_many() {
   state_init "$project"
   local f
   f="$(state_path "$project")"
-  # Clobber-warn input: pre-read is advisory only (the WRITE is atomic either
-  # way; a racing writer can still change the value between this read and the
-  # transaction, but the transaction itself cannot tear).
-  local i new_active="" old_active=""
+  # #96 (quality F10): when the transaction includes active_issue, the old
+  # value is emitted from INSIDE the same lock (set-many --print-old) — the
+  # clobber-warn cannot interleave-miss on the path that owns all production
+  # active_issue writes.
+  local i new_active=""
   local -a args=("$@")
   for ((i = 0; i + 2 < ${#args[@]}; i += 3)); do
     if [ "${args[i+1]}" = "active_issue" ]; then new_active="${args[i+2]}"; fi
   done
   if [ -n "$new_active" ]; then
-    old_active="$(_state_toml get "$f" active_issue 2>/dev/null || true)"
-  fi
-  _state_toml set-many "$f" "$@" str updated_at "$(_state_now)"
-  if [ -n "$new_active" ] && [ -n "$old_active" ] && [ "$old_active" != "$new_active" ]; then
-    echo "warning: state_set: active_issue is changing from '$old_active' to '$new_active' — another session may be working a different issue concurrently" >&2
+    local old_active
+    old_active="$(_state_toml set-many --print-old active_issue "$f" "$@" str updated_at "$(_state_now)")"
+    _state_warn_active_clobber "$old_active" "$new_active"
+  else
+    _state_toml set-many "$f" "$@" str updated_at "$(_state_now)"
   fi
 }
 
