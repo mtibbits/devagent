@@ -214,3 +214,38 @@ EOF
   [ "$status" -ne 0 ]
   [ -z "$output" ]
 }
+
+# --- #242: checklist_nonterminal_by_names ----------------------------------
+
+_seed_242() {
+  checklist_init "$ISSUE_DIR" standard
+  F="$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_nonterminal_by_names lists offenders with glyphs (#242)" {
+  _seed_242
+  checklist_mark "$F" 18 '~'
+  checklist_mark "$F" 19 x
+  run checklist_nonterminal_by_names "$F" updatewbs impact lessonslearned
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"updatewbs:[ ]"* ]]
+  [[ "$output" == *"impact:[~]"* ]]
+  [[ "$output" != *lessonslearned* ]]
+}
+
+@test "checklist_nonterminal_by_names: [-] is terminal, absent is no-gate (#242)" {
+  _seed_242
+  sed -i '/17\. updatewbs/d' "$F"
+  checklist_mark "$F" 18 -
+  checklist_mark "$F" 19 x
+  run checklist_nonterminal_by_names "$F" updatewbs impact lessonslearned
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "checklist_nonterminal_by_names: empty name list is empty output (#242)" {
+  _seed_242
+  run checklist_nonterminal_by_names "$F"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}

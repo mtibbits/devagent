@@ -120,6 +120,26 @@ checklist_step_state_by_name() {
   return 1
 }
 
+# checklist_nonterminal_by_names <file> [name ...]
+# #242: prints one "name:[glyph]" line per named step that exists in the
+# checklist and is NOT terminal ([x] done / [-] skipped). Absent names print
+# nothing (absent step => no gate, the #231 pattern). Always returns 0; the
+# caller decides what a non-empty result means. Resolution is BY NAME
+# (step numbers vary across the four templates).
+checklist_nonterminal_by_names() {
+  local file="$1"; shift
+  local name glyph
+  for name in "$@"; do
+    glyph="$(checklist_step_state_by_name "$file" "$name" 2>/dev/null || true)"
+    [ -n "$glyph" ] || continue
+    case "$glyph" in
+      x|-) : ;;
+      *) printf '%s:[%s]\n' "$name" "$glyph" ;;
+    esac
+  done
+  return 0
+}
+
 checklist_step_name() {
   local file="$1" target="$2" line start ln=0
   start="$(_checklist_scope_start "$file" "$target")"
