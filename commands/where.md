@@ -1,11 +1,12 @@
 ---
 description: Show active issue, current/next step, parked issues, and STUCK status
 allowed-tools: Bash
+argument-hint: "<project>"
 ---
 
 # /devagent:where
 
-**Usage:** `/devagent:where [project]`
+**Usage:** `/devagent:where <project>`
 
 Reports the active issue, the current step, the next actionable step,
 any STUCK file contents, and any parked issues for the project. Does

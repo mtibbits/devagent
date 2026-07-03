@@ -1,6 +1,7 @@
 ---
 description: Record or list issue dependencies (Issue-A depends on Issue-B).
 allowed-tools: Bash
+argument-hint: "[--project P] <A> on <B> | list"
 ---
 
 # /devagent:depends
@@ -11,7 +12,7 @@ Record or display dependencies between issues.
 
 - `/devagent:depends <A> on <B>` — record that Issue A depends on Issue B.
 - `/devagent:depends list` — print the dependency graph for the active project.
-- `/devagent:depends <project> list` — print the graph for a named project.
+- `/devagent:depends --project P list` — print the graph for a named project (`--project` is the ONLY way to name a non-active project; a bare first token is parsed as Issue A).
 
 ## Behavior
 

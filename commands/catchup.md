@@ -1,11 +1,12 @@
 ---
 description: One-screen rehydration of an issue
 allowed-tools: Bash
+argument-hint: "<project> [issue]"
 ---
 
 # /devagent:catchup
 
-**Usage:** `/devagent:catchup [project] [issue]`
+**Usage:** `/devagent:catchup <project> [issue]`
 
 Synthesises issue title, current step, STUCK, head of imPlan, tail of
 actualWork, last 2 comments, last 5 log entries (spec §6.5).

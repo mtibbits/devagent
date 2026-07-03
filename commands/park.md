@@ -1,11 +1,12 @@
 ---
 description: Park the active issue (or a named issue), marking it [P]
 allowed-tools: Bash
+argument-hint: "<project> [issue-id]"
 ---
 
 # /devagent:park
 
-**Usage:** `/devagent:park [issue-id]`
+**Usage:** `/devagent:park <project> [issue-id]`
 
 Parks the active issue (or `issue-id` if given), marking its current step
 `[P]` and recording it in the `[parked]` table. Clears `active_issue` from

@@ -1,11 +1,12 @@
 ---
 description: Mark the current step stuck and write a STUCK file
 allowed-tools: Bash
+argument-hint: "<project> "<reason>""
 ---
 
 # /devagent:stuck
 
-**Usage:** `/devagent:stuck "<reason>"`
+**Usage:** `/devagent:stuck <project> "<reason>"`
 
 Marks current step `[!]` and writes `<issue-dir>/STUCK` per spec §5.3.
 Halts `next` until cleared via `/devagent:unstuck`.

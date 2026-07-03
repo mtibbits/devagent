@@ -59,9 +59,10 @@ three script-backed steps auto-skip instead of erroring:
 - **Step 15 (ship):** marks `[-]`, exits 0.
 - **Step 16 (mergetoall):** marks `[-]`, exits 0.
 
-Step 8 (quality) is skill-driven and must be manually marked `[-]`
-by the operator for artifact-only issues. A follow-up is tracked
-for skill-level zero-diff handling.
+Step 8 (quality) also auto-skips: on a true zero-diff (artifact-only)
+issue the quality skill auto-marks step 8 `[-]`, logs, and advances
+without operator confirmation (see `/devagent:quality`, #116) — no
+manual mark, no `--artifact-only` flag.
 
 The auto-skip fires at the script level — `next.sh` invokes the
 script normally and the script detects the zero-diff condition

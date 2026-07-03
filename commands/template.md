@@ -1,6 +1,7 @@
 ---
 description: Inspect resolved artifact templates (list or show).
 allowed-tools: Bash
+argument-hint: "[--project P] list|show <key>"
 ---
 
 # /devagent:template
@@ -15,8 +16,8 @@ key, using the three-layer resolution order from spec §12:
 ## Usage
 
 ```
-/devagent:template [project] list
-/devagent:template [project] show <key>
+/devagent:template [--project P] list
+/devagent:template [--project P] show <key>
 ```
 
 `list` prints a table of every known artifact key, the winning
