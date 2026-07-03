@@ -50,7 +50,9 @@ finding — so the verdict cannot be `ship` (core-redissue forbids `ship`
 with any Blocking finding). Two or more :orange_circle: scores are a
 strong signal to `revise` — reviewer's judgment — but the verdict
 contract is the skill's: the Blocking count governs. Only
-:yellow_circle:/:green_circle: scores and zero Blocking findings ⇒ `ship`.
+:yellow_circle:/:green_circle:/:white_circle: scores and zero Blocking
+findings ⇒ `ship`. (Orange-score findings are typically **Recommended**;
+yellow-score findings, **Nits**.)
 
 ### 1. Clarity
 Can a stranger — someone with no shared context from this conversation —

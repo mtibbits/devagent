@@ -43,3 +43,11 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     run grep -q 'checklist\.md' "$REPO/skills/core-redissue/SKILL.md"
     [ "$status" -ne 0 ]
 }
+
+@test "core-redmr's documented log line keeps the parsed token (#134 review MED)" {
+    # The one machine-parsed surface: rewording "B blocking" (e.g. to
+    # "B blockers") would silently blind statusreport while every other
+    # test stays green — empirically confirmed during review.
+    grep -qF '"Red-team: B blocking, M major, m minor, I info' \
+        "$REPO/skills/core-redmr/SKILL.md"
+}

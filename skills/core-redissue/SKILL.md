@@ -33,8 +33,9 @@ description: Adversarially review a capture draft using ${CLAUDE_PLUGIN_ROOT}/te
 Write to `<devdoc>/Captures/<slug>/redteam.md` in this shape —
 ADDITIONALLY including the resolved template's check structure verbatim
 (review-tier line, 16-dimension scorecard with per-dimension scores and
-Clean/N-A caption, adversarial questions): those are adopted output,
-not competing format.
+Clean/N-A caption, adversarial questions, and the Required Changes /
+Suggested Improvements sections): those are adopted output, not
+competing format.
 
 ```markdown
 # Red-team — <slug>
