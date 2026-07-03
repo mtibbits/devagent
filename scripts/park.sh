@@ -18,6 +18,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
 
 main() {
   local project="${1:-}"
@@ -29,9 +31,17 @@ main() {
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   if [[ -z "$issue" ]]; then
-    [[ -n "$active" && "$active" != "null" ]] \
-      || die "park.sh: no active issue and no issue arg"
-    issue="$active"
+    # #240: a pinned session's bare park means ITS issue, not the shared one
+    # (the active == issue gate below then naturally skips the shared-slot
+    # writes when they are not its own).
+    if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+      issue="$(active_resolve_issue "$project")" \
+        || die "park.sh: could not resolve the pinned issue"
+    else
+      [[ -n "$active" && "$active" != "null" ]] \
+        || die "park.sh: no active issue and no issue arg"
+      issue="$active"
+    fi
   fi
 
   local issue_dir="${devdoc%/}/$issue"

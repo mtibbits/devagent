@@ -48,6 +48,23 @@ main() {
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi
 
+  # #240: a pinned session resumes WITHOUT touching the shared slot. The
+  # [context.<issue>] table is the live home — there is nothing to restore
+  # and deleting it (state_context_restore's tail) would destroy the very
+  # data the session is about to use. Flag-flip only.
+  if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    state_remove_parked "$project" "$issue"
+    local wt_pin note_pin=""
+    wt_pin="$(state_issue_get "$project" "$issue" worktree_path 2>/dev/null || true)"
+    if [[ -n "$wt_pin" ]] \
+       && ! "${DEVAGENT_GIT:-git}" -C "$wt_pin" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      warn "$issue: worktree_path is no longer a usable git working tree: $wt_pin (removed out-of-band? left recorded — recreate it or re-run /devagent:branch before committing)"
+      note_pin=" (worktree_path stale — see warning)"
+    fi
+    info "resumed $issue (issue-pinned session; shared active_issue untouched)${note_pin}"
+    return 0
+  fi
+
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [[ "$active" == "$issue" ]]; then
