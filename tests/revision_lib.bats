@@ -64,6 +64,8 @@ setup() {
   std_steps="$(grep -oE '\[ \] +[0-9]+\. [a-z]+' "$repo/templates/checklist-standard.md")"
   rev_steps="$(grep -oE '\[ \] +[0-9]+\. [a-z]+' "$repo/templates/revision_block.md")"
   expected="$(printf '%s\n' "$std_steps" | grep -v ' 0\. pull')"
+  # Non-vacuous guard: a broken regex would make both empty and pass "" = "".
+  [ "$(printf '%s\n' "$rev_steps" | grep -c .)" -ge 20 ]
   [ "$rev_steps" = "$expected" ]
 }
 

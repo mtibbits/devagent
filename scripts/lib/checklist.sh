@@ -54,11 +54,12 @@ _checklist_active_start() {
   awk '/^## Revision / { last = NR } END { print last + 0 }' "$1"
 }
 
-# _checklist_scope_start: the active-block start line IF the target step appears
-# in that block, else 0 (whole file). Steps unique to revision 1 — 0 (pull) and
-# 16-21 (mergetoall/updatewbs/impact/lessonslearned/cleanup/preship) — are never reused,
-# so they correctly resolve file-wide when a later revision is active, keeping
-# cleanup.sh/mergetoall.sh/etc. working after a revision.
+# _checklist_scope_start: the active-block start line IF the target step NUMBER
+# appears in that block, else 0 (whole file). Resolution is membership-based:
+# step 0 (pull) is unique to revision 1 and resolves file-wide, while the
+# closeout steps 16-21 ARE reused in every revision block (#76) and therefore
+# resolve to the active block once a revision is present. (The by-NAME analog
+# used by the #149/#242 gates is _checklist_scope_start_by_name, below.)
 _checklist_scope_start() {
   local file="$1" target="$2" start
   start="$(_checklist_active_start "$file")"
@@ -67,6 +68,32 @@ _checklist_scope_start() {
         num = substr($0, RSTART, RLENGTH)
         sub(/^- \[.\][ \t]+/, "", num); sub(/\.$/, "", num)
         if (num == t) { found = 1; exit }
+      }
+      END { exit (found ? 0 : 1) }
+    ' "$file"; then
+    printf '%s\n' "$start"
+  else
+    printf '0\n'
+  fi
+}
+
+# _checklist_scope_start_by_name: the active-block start line IF the target step
+# NAME appears in that block, else 0 (whole file). The name-keyed analog of
+# _checklist_scope_start (#76): revision blocks now reuse the closeout step
+# names 16-21, so the by-name gates (#149 preship, #242 closeout) must scope to
+# the active revision like the number-keyed reads do — else they read revision
+# 1's stale glyph and a revised cleanup sticks (gate reads rev1's pending copy;
+# marks land in rev2; no CLI escape). Uses match+substr (not gawk match(s,r,arr))
+# to stay mawk-safe (#73). start=0 (no revision headings, or the name is absent
+# from the active block) preserves the legacy file-wide first-match.
+_checklist_scope_start_by_name() {
+  local file="$1" target="$2" start
+  start="$(_checklist_active_start "$file")"
+  if (( start > 0 )) && awk -v start="$start" -v t="$target" '
+      NR > start && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/) {
+        seg = substr($0, RSTART, RLENGTH)
+        sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", seg)
+        if (seg == t) { found = 1; exit }
       }
       END { exit (found ? 0 : 1) }
     ' "$file"; then
@@ -119,13 +146,17 @@ checklist_step_state() {
 # checklist_step_state_by_name <file> <name>
 # Prints the glyph of the step whose NAME matches <name> (returns 0), or
 # returns 1 if no such step exists. Resolves by name, not number, so callers
-# survive cross-template step renumbering. File-wide: the by-name callers
-# (cleanup's closeout gate #231/#242, ship's preship gate #149) target steps
-# in the never-reused 16-21 band (see _checklist_scope_start), so revision
-# scoping is unnecessary.
+# survive cross-template step renumbering. Revision-scoped (#76): the by-name
+# callers (cleanup's closeout gate #231/#242, ship's preship gate #149) target
+# steps 16-21, which revision blocks now REUSE — so the lookup scopes to the
+# active revision block when the name is present there, else falls back
+# file-wide (legacy checklists / names unique to revision 1).
 checklist_step_state_by_name() {
-  local file="$1" target="$2" line
+  local file="$1" target="$2" line ln=0 start
+  start="$(_checklist_scope_start_by_name "$file" "$target")"
   while IFS= read -r line; do
+    ln=$((ln + 1))
+    (( ln > start )) || continue
     if [[ "$line" =~ $_checklist_line_re ]]; then
       if [[ "${BASH_REMATCH[3]}" == "$target" ]]; then
         echo "${BASH_REMATCH[1]}"
