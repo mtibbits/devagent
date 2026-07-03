@@ -120,7 +120,11 @@ conversation".
    dispatched planner cannot ask the operator anything. If packaged
    intent leaves a load-bearing gap, the planner writes the plan with
    an `## Open questions (dispatch round N)` section INSTEAD of
-   guessed content for the affected parts. The main session answers
+   guessed content for the affected parts. A discovery that FALSIFIES
+   an intent.md premise is an open question too — correct the record,
+   but route the decision the correction opens back to the operator
+   rather than resolving it unilaterally (live-fired in the #284
+   dogfood: a false "guard already exists" premise). The main session answers
    into intent.md's `## Answers` and re-dispatches. Bounded: at most
    two rounds; if questions remain, fall back to INLINE drafting
    (the operator is one message away there), reading intent.md — the
