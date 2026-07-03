@@ -108,19 +108,46 @@ active_scan_recent_incomplete() {
   printf '%s\n' "$best"
 }
 
-# active_resolve_issue <project> [arg]
-# Implements the issue priority chain.
-active_resolve_issue() {
+# active_resolve_issue_src <project> [arg]
+# Issue resolution engine (#240, mirroring #282's project _src). Sets, in the
+# CALLING shell (no stdout — callers must NOT command-substitute this, or the
+# variables die in the subshell):
+#   ACTIVE_RESOLVED_ISSUE      the resolved issue id
+#   ACTIVE_ISSUE_RESOLVED_FROM arg | env | state | scan
+# Writers gate shared-pointer writes on the source: an env-pinned session's
+# pin IS its pointer — writing the shared one is the same-project clobber.
+# The env pin is validated here (the choke point): ids become TOML table
+# names ([context.<issue>]), so dots (table nesting), '#' (comment-guard
+# brick), and any non-token character are rejected before they can touch
+# the state file.
+active_resolve_issue_src() {
   local project="$1" arg="${2:-}"
-  [ -n "$project" ] || { echo "active_resolve_issue: project required" >&2; return 2; }
-  if [ -n "$arg" ]; then printf '%s\n' "$arg"; return 0; fi
+  [ -n "$project" ] || { echo "active_resolve_issue_src: project required" >&2; return 2; }
+  ACTIVE_RESOLVED_ISSUE=""
+  ACTIVE_ISSUE_RESOLVED_FROM=""
+  if [ -n "$arg" ]; then
+    ACTIVE_ISSUE_RESOLVED_FROM="arg"; ACTIVE_RESOLVED_ISSUE="$arg"; return 0
+  fi
   if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
-    printf '%s\n' "$DEVAGENT_ACTIVE_ISSUE"; return 0
+    case "$DEVAGENT_ACTIVE_ISSUE" in
+    *[!A-Za-z0-9_-]*)
+      die "active_resolve_issue_src: DEVAGENT_ACTIVE_ISSUE '$DEVAGENT_ACTIVE_ISSUE' is not a valid issue id (allowed: A-Za-z0-9 _ - ; no dots — they nest TOML tables)" ;;
+    esac
+    ACTIVE_ISSUE_RESOLVED_FROM="env"; ACTIVE_RESOLVED_ISSUE="$DEVAGENT_ACTIVE_ISSUE"; return 0
   fi
   local ai
   ai="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [ -n "$ai" ] && [ "$ai" != "null" ] && [ "$ai" != '""' ]; then
-    printf '%s\n' "$ai"; return 0
+    ACTIVE_ISSUE_RESOLVED_FROM="state"; ACTIVE_RESOLVED_ISSUE="$ai"; return 0
   fi
-  active_scan_recent_incomplete "$project"
+  # shellcheck disable=SC2034  # consumed by callers, not here
+  ACTIVE_ISSUE_RESOLVED_FROM="scan"
+  ACTIVE_RESOLVED_ISSUE="$(active_scan_recent_incomplete "$project")" || return 1
+}
+
+# active_resolve_issue <project> [arg]
+# Echo wrapper over the setter — keeps existing $(...) callers byte-compatible.
+active_resolve_issue() {
+  active_resolve_issue_src "$@" || return $?
+  printf '%s\n' "$ACTIVE_RESOLVED_ISSUE"
 }

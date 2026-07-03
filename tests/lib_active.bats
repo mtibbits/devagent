@@ -138,3 +138,49 @@ EOF
   [ "$(active_resolve_project)" = "volk" ]
   [ "$(active_resolve_project gnuradio)" = "gnuradio" ]
 }
+
+# ---- #240: active_resolve_issue_src + env-pin validation --------------------
+
+@test "active_resolve_issue_src reports src=arg in the calling shell (#240)" {
+  state_init volk
+  active_resolve_issue_src volk Issue-9
+  [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "arg" ]
+  [ "$ACTIVE_RESOLVED_ISSUE" = "Issue-9" ]
+}
+
+@test "active_resolve_issue_src reports src=env under a pin (#240)" {
+  state_init volk
+  DEVAGENT_ACTIVE_ISSUE=Issue-7 active_resolve_issue_src volk
+  [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "env" ]
+  [ "$ACTIVE_RESOLVED_ISSUE" = "Issue-7" ]
+}
+
+@test "active_resolve_issue_src reports src=state from the shared pointer (#240)" {
+  state_init volk
+  state_set volk active_issue Issue-40
+  active_resolve_issue_src volk
+  [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "state" ]
+  [ "$ACTIVE_RESOLVED_ISSUE" = "Issue-40" ]
+}
+
+@test "env pin with an invalid id shape dies before any state touch (#240)" {
+  # ']'/' ' corrupt the state file on first table write; '#' bricks the
+  # comment-guard — empirically confirmed at plan time. Resolver = choke point.
+  state_init volk
+  DEVAGENT_ACTIVE_ISSUE='Issue 2]' run active_resolve_issue_src volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DEVAGENT_ACTIVE_ISSUE"* ]]
+}
+
+@test "env pin with a dotted id dies — dots nest TOML tables (#240)" {
+  state_init volk
+  DEVAGENT_ACTIVE_ISSUE='Issue.2' run active_resolve_issue_src volk
+  [ "$status" -ne 0 ]
+}
+
+@test "active_resolve_issue echo wrapper honors the pin unchanged (#240 regression)" {
+  state_init volk
+  DEVAGENT_ACTIVE_ISSUE=Issue-7 run active_resolve_issue volk
+  [ "$status" -eq 0 ]
+  [ "$output" = "Issue-7" ]
+}
