@@ -20,6 +20,7 @@ import importlib.util
 import io
 import os
 import subprocess
+import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -134,10 +135,12 @@ def test_setarch_prefix_empty_when_setarch_absent():
 
 
 def test_setarch_prefix_present_when_setarch_available():
-    # Only meaningful where os.uname exists (POSIX / Linux CI). On Windows this
-    # branch is skipped — the point of the guard is that it is never reached.
+    # Only meaningful where os.uname exists (POSIX / Linux CI). On Windows it is
+    # a genuine SkipTest (not a silent vacuous PASS): pytest reports it skipped,
+    # and the bare runner prints SKIP — the guard's whole point is that this
+    # branch is never reached where os.uname is absent.
     if not hasattr(os, "uname"):
-        return
+        raise unittest.SkipTest("os.uname absent (non-POSIX); guarded branch unreachable here")
     with _patch(sad.shutil, "which", lambda _n: "/usr/bin/setarch"):
         pref = sad._setarch_prefix()
     assert pref[0] == "setarch" and pref[-1] == "--addr-no-randomize"
@@ -167,6 +170,39 @@ def test_present_compiler_warning_still_reported():
         r = sad.run_compiler_warnings("/build", [], "/repo")
     assert r.skipped is False
     assert any(f.line == 42 and "unused variable" in f.message for f in r.findings)
+
+
+# --------------------------------------------------------------------------
+# The parallel pool: absent executable → skipped, real error → FAILED
+# --------------------------------------------------------------------------
+
+def test_finalize_pool_absent_tool_skips():
+    def produce():
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+    r = sad._finalize_pool_result("codespell", produce, {}, io.StringIO())
+    assert r.skipped is True and r.passed is True   # absence is not failure
+    assert r.error == "codespell not found"
+
+
+def test_finalize_pool_real_error_fails_not_skips():
+    def produce():
+        raise ValueError("boom")                    # a genuine tool error
+    r = sad._finalize_pool_result("cppcheck", produce, {}, io.StringIO())
+    assert r.skipped is False and r.passed is False
+    assert "boom" in r.error
+
+
+def test_finalize_pool_success_filters_findings():
+    # A present tool returning a finding passes through and gets diff-filtered.
+    def produce():
+        res = sad.ToolResult(tool="ruff")
+        res.findings = [sad.Finding(tool="ruff", severity="E", file="a.py",
+                                    line=11, message="x")]
+        return res
+    ranges = {"a.py": [sad.LineRange(10, 3)]}        # 10..12 → line 11 is novel
+    r = sad._finalize_pool_result("ruff", produce, ranges, io.StringIO())
+    assert r.skipped is False and r.passed is True
+    assert r.findings[0].novel is True
 
 
 # --------------------------------------------------------------------------
@@ -200,13 +236,17 @@ if __name__ == "__main__":
     tests = sorted(
         (n, o) for n, o in globals().items() if n.startswith("test_") and callable(o)
     )
-    failures = 0
+    failures = skipped = 0
     for name, fn in tests:
         try:
             fn()
             print(f"PASS {name}")
+        except unittest.SkipTest as e:
+            skipped += 1
+            print(f"SKIP {name}: {e}")
         except Exception as e:  # noqa: BLE001 — test runner surfaces any failure
             failures += 1
             print(f"FAIL {name}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failures}/{len(tests)} passed")
+    passed = len(tests) - failures - skipped
+    print(f"\n{passed} passed, {skipped} skipped, {failures} failed")
     sys.exit(1 if failures else 0)

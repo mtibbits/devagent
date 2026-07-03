@@ -62,6 +62,12 @@ class ToolResult:
 # output locale (the whole point of #295 is to not crash).
 _SKIP_MARK = " -- skipped"
 
+# The exact string _build_sanitizer() returns to signal build-tool absence.
+# _build_skipped() matches it by EQUALITY (not suffix) so a genuine
+# "build failed: <stderr>" whose tail happened to end in _SKIP_MARK can never be
+# misclassified as a skip.
+_BUILD_ABSENT = "cmake not found" + _SKIP_MARK
+
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
     """Get changed line ranges from git diff. Returns {filepath: [LineRange, ...]}.
@@ -643,7 +649,7 @@ def _build_sanitizer(repo_root: str, build_dir: str, flags: str,
         except subprocess.TimeoutExpired:
             return "build timed out after 600s"
         except FileNotFoundError:
-            return "cmake not found" + _SKIP_MARK
+            return _BUILD_ABSENT
         if proc.returncode != 0:
             return f"build failed: {proc.stderr[-500:]}"
         return None
@@ -721,10 +727,10 @@ def _setarch_prefix() -> list[str]:
 
 
 def _build_skipped(result: ToolResult, err: Optional[str]) -> bool:
-    """If `err` (a _build_sanitizer return) carries the build-tool-absence
-    marker, record it as skipped on `result` and return True (the caller should
-    then return). Otherwise return False so the caller handles a real failure."""
-    if err and err.endswith(_SKIP_MARK):
+    """If `err` (a _build_sanitizer return) is the build-tool-absence sentinel,
+    record it as skipped on `result` and return True (the caller should then
+    return). Otherwise return False so the caller handles a real failure."""
+    if err == _BUILD_ABSENT:
         result.error = err.removesuffix(_SKIP_MARK)
         result.skipped = True
         return True
@@ -770,7 +776,9 @@ def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
             ))
     elif rc != 0:
         result.passed = False
-        if "timed out" in stderr:
+        if "timed out" in stderr or "volk_profile not found" in stderr:
+            # _run_test_kernel crafts these; surface them rather than a generic
+            # "exited with code N" that discards the diagnostic.
             result.error = stderr.strip()
         else:
             result.error = f"exited with code {rc} (no sanitizer output captured)"
@@ -833,7 +841,9 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
             ))
     elif rc != 0:
         result.passed = False
-        if "timed out" in stderr:
+        if "timed out" in stderr or "volk_profile not found" in stderr:
+            # _run_test_kernel crafts these; surface them rather than a generic
+            # "exited with code N" that discards the diagnostic.
             result.error = stderr.strip()
         else:
             result.error = f"exited with code {rc} (no sanitizer output captured)"
@@ -907,6 +917,29 @@ def print_summary(results: list[ToolResult], ranges: dict[str, list[LineRange]])
             print(f"| {f.tool} | {f.severity} | {f.file} | {line_str} | {f.message} |")
     else:
         print("\n**No novel findings in changed lines.**")
+
+
+def _finalize_pool_result(name, produce, ranges, progress) -> ToolResult:
+    """Run one read-only pool tool (`produce()` returns its ToolResult or raises)
+    and classify the outcome: FileNotFoundError (the executable is absent —
+    subprocess.run only raises it when cmd[0] is missing) → skipped, any other
+    exception → FAILED (a real error), success → findings filtered to the diff.
+    Extracted from main()'s pool loop so the absence→skip classification is
+    unit-testable (#295)."""
+    try:
+        r = produce()
+    except FileNotFoundError:
+        print(f"  {name}: skipped (not found)", flush=True, file=progress)
+        return ToolResult(tool=name, error=f"{name} not found", passed=True, skipped=True)
+    except Exception as e:  # noqa: BLE001 — a tool failing must not abort the run
+        print(f"  {name}: FAILED ({e})", flush=True, file=progress)
+        return ToolResult(tool=name, error=str(e), passed=False)
+    # IWYU findings are pre-marked novel=False (not diff-gatable)
+    if r.tool != "iwyu":
+        r.findings = filter_novel(r.findings, ranges)
+    novel = sum(1 for f in r.findings if f.novel)
+    print(f"  {name}: done ({len(r.findings)} total, {novel} novel)", flush=True, file=progress)
+    return r
 
 
 def main():
@@ -1017,24 +1050,7 @@ def main():
             }
             for future in concurrent.futures.as_completed(futures):
                 name = futures[future]
-                try:
-                    r = future.result()
-                    # IWYU findings are pre-marked novel=False (not diff-gatable)
-                    if r.tool != "iwyu":
-                        r.findings = filter_novel(r.findings, ranges)
-                    results.append(r)
-                    novel = sum(1 for f in r.findings if f.novel)
-                    print(f"  {name}: done ({len(r.findings)} total, {novel} novel)", flush=True, file=progress)
-                except FileNotFoundError:
-                    # The tool's executable is absent (subprocess.run only raises
-                    # FileNotFoundError when cmd[0] itself is missing). Absence is
-                    # a skip, not a failure — don't mark the run FAILED.
-                    results.append(ToolResult(tool=name, error=f"{name} not found",
-                                              passed=True, skipped=True))
-                    print(f"  {name}: skipped (not found)", flush=True, file=progress)
-                except Exception as e:
-                    results.append(ToolResult(tool=name, error=str(e), passed=False))
-                    print(f"  {name}: FAILED ({e})", flush=True, file=progress)
+                results.append(_finalize_pool_result(name, future.result, ranges, progress))
 
     # -- Phase 2: build tools (sequential, no parallel compilation) --
     if "scanbuild" not in skip:
