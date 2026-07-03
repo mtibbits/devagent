@@ -85,7 +85,11 @@ model override is conditional; fresh context is not.
 1. **Resolve template.** Walk §12 registry to locate `redteam_mr.md`.
    Halt if unresolvable.
 2. **Load the prompt.** Read the resolved redteam_mr.md verbatim;
-   it is the contract for what to attack and how.
+   it is the contract for WHAT to attack. Format precedence (#134): the
+   template defines the checks; THIS skill defines the output — severity
+   taxonomy, summary counts, verdict vocabulary, and the checklist log
+   line, nothing else. If a resolved template (including a project
+   override) specifies a different output format, this skill's output contract wins.
 3. **Apply prompt to mr.md + diff.** Run every adversarial check the
    template specifies. Produce one finding per identified concern.
 4. **Classify every finding** with one of these severity tags:
@@ -148,6 +152,10 @@ acknowledgement.
 ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" redmr \
   "Red-team: B blocking, M major, m minor, I info (template: $TEMPLATE_PATH); note: $NOTE"
 ```
+
+The `N blocking` token is machine-parsed by statusreport
+(`failed_redteam`, regex `\d+\s+blocking`) — never reword it; the old
+template vocabulary ("N block") is invisible to that parser.
 
 The format above is contract: `statusreport.sh` parses for the word
 `blocking` and an integer to surface failed red-teams in status

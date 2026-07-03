@@ -45,9 +45,14 @@ this severity scale:
 | :green_circle: | **Clean** | No concerns on this dimension. | No action needed. |
 | :white_circle: | **N/A** | Dimension does not apply to this issue type/tier. | Skip. |
 
-An issue with any :red_circle: score is not ready to post.
-An issue with two or more :orange_circle: scores should be revised.
-An issue with only :yellow_circle: and :green_circle: scores is ready to post.
+Any :red_circle:-scored dimension must yield at least one **Blocking**
+finding — so the verdict cannot be `ship` (core-redissue forbids `ship`
+with any Blocking finding). Two or more :orange_circle: scores are a
+strong signal to `revise` — reviewer's judgment — but the verdict
+contract is the skill's: the Blocking count governs. Only
+:yellow_circle:/:green_circle:/:white_circle: scores and zero Blocking
+findings ⇒ `ship`. (Orange-score findings are typically **Recommended**;
+yellow-score findings, **Nits**.)
 
 ### 1. Clarity
 Can a stranger — someone with no shared context from this conversation —
@@ -368,8 +373,18 @@ After scoring the dimensions, answer these five questions:
 | 15 | Backward compatibility | ... | ... |
 | 16 | Security | ... | ... |
 
-**Summary:** X Blocking, X Major, X Minor, X Clean, X N/A
-**Verdict:** <READY TO POST / REVISE (Major) / NOT READY (Blocking)>
+**Summary:** Blocking (N) / Recommended (N) / Nits (N) — counts are
+FINDINGS, not dimensions (a dimension may contribute 0..n findings;
+every :red_circle: dimension contributes at least one Blocking).
+**Scorecard caption:** X dimensions Clean, X N/A (the tier-audit signal).
+**Verdict:** ship | revise | split
+
+Output format is core-redissue's contract (#134) — this template defines
+the checks; if any resolved copy says otherwise, the skill's format wins.
+(Historical mapping for pre-#134 artifacts: READY TO POST≡ship,
+REVISE (Major)≡revise, NOT READY (Blocking)≡revise with Blocking
+findings; `split` is reached via the Specificity dimension's
+compound-issue signal.)
 
 ## Adversarial Questions
 
@@ -380,13 +395,13 @@ After scoring the dimensions, answer these five questions:
 5. **Scope creep:** ...
 6. **Regression check:** ...
 
-## Required Changes (Blocking/Major)
+## Required Changes (Blocking)
 
-<Specific, actionable edits to resolve every Blocking and Major score.
+<Specific, actionable edits to resolve every Blocking finding.
 Each item must reference the dimension number and state exactly what
 to change in the issue text.>
 
-## Suggested Improvements (Minor)
+## Suggested Improvements (Recommended/Nits)
 
-<Optional improvements for Minor scores. Fix if easy, skip if not.>
+<Optional improvements for Recommended/Nits findings. Fix if easy, skip if not.>
 ```
