@@ -35,7 +35,7 @@ You are turning a free-form capture into structured input for
 
 4. **Pick a title.** Imperative mood, ≤60 characters after slugification.
    - Bug: `fix conv kernel NaN at simd-1 length`
-   - Feature: `add CSV export to volk_profile`
+   - Feature: `add CSV export to the profiler`
    - Epic: `Performance overhaul`
 
 ## Output format (REQUIRED)

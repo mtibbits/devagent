@@ -4,7 +4,7 @@
 <which kernel/function/loop; how to find it>
 
 ## Baseline measurement
-- Tool: <volk_profile / perf stat / criterion / ...>
+- Tool: <your profiler / perf stat / criterion / ...>
 - Workload: <inputs, sizes, repetitions>
 - Result: <number ± noise>
 
@@ -16,7 +16,7 @@
 
 ## Acceptance criteria
 - [ ] Benchmark script checked in (or referenced)
-- [ ] Plot from tools/plot_pr_evidence.R-style script attached
+- [ ] Plot from an evidence-plot script attached (if the project has one)
 - [ ] No regression on adjacent kernels
 
 ## Source

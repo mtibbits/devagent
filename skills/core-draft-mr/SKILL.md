@@ -51,8 +51,8 @@ re-typed.
    - Tests added (from actualWork).
    - Analyzer results (one line per tool with finding counts from
      `analysis/*.txt`).
-   - Benchmarks if performance issue (path to evidence plot from
-     `tools/plot_pr_evidence.R` if present in repo).
+   - Benchmarks if performance issue (path to the project's
+     evidence-plot output if it has one).
 5. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.

@@ -28,7 +28,7 @@ numbers are not available or honest).
     `docs` → operator-facing clarity).
   - `<issue-dir>/actualWork.md`.
   - Pre/post evidence the operator points to (benchmark CSV, plot
-    PNG from `tools/plot_pr_evidence.R`, etc.) — surfaced via `$NOTE`.
+    PNG from the project's evidence-plot script, etc.) — via `$NOTE`.
 - Writes: `<issue-dir>/impact.md`.
 
 ## Checklist
@@ -65,8 +65,8 @@ numbers are not available or honest).
 
 ## Quantifiable
 - Throughput on RPi4: 1.84 GB/s → 2.31 GB/s (+25.5%, N=30, σ=0.04)
-  evidence: tools/plot_pr_evidence.R output at
-  ~/src/devDoc/volk/Issue-1007/evidence/2026-05-19-rpi4.png
+  evidence: evidence-plot output at
+  <issue-dir>/evidence/<date>-<host>.png
 - Build time: unchanged.
 
 ## Qualitative
@@ -99,7 +99,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" impact \
 
 ## Templates referenced
 
-- None directly. References `tools/plot_pr_evidence.R` outputs when
+- None directly. References the project's evidence-plot outputs when
   performance evidence exists.
 
 ## Completion handoff
