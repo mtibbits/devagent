@@ -20,6 +20,10 @@ teardown() { auth_teardown_common; }
 }
 
 @test "doctor_auth check with stored token but bad mode reports WARN" {
+  # #289: WARN-on-drift only applies where chmod takes effect; on a no-op-chmod
+  # filesystem doctor_auth correctly emits SKIP instead, so skip the test there.
+  _c="${BATS_TEST_TMPDIR}/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   source scripts/lib/secrets.sh
   secret_write volk github "$(synthetic_token)"
   chmod 644 "${DEVAGENT_SECRETS_DIR}/volk.github.pat"
@@ -30,6 +34,8 @@ teardown() { auth_teardown_common; }
 }
 
 @test "doctor_auth check with bad secrets-dir mode reports WARN globally" {
+  _c="${BATS_TEST_TMPDIR}/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   mkdir -p "${DEVAGENT_SECRETS_DIR}"
   chmod 755 "${DEVAGENT_SECRETS_DIR}"
   run scripts/lib/doctor_auth.sh check volk github
@@ -46,6 +52,27 @@ teardown() { auth_teardown_common; }
   run scripts/lib/doctor_auth.sh check volk ssh
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"ssh: MISSING"* ]]
+}
+
+@test "doctor_auth SKIPs mode checks where chmod is a no-op (#289 SKIP emission)" {
+  # Force the probe false INSIDE the doctor_auth subprocess by PATH-stubbing
+  # chmod (no-op) + stat (always 755) — a function override can't cross the
+  # exec boundary. Covers the SKIP-token emission (secrets_dir + per-backend)
+  # that Linux CI never reaches otherwise (the real probe is always true here).
+  local stub="${BATS_TEST_TMPDIR}/stub"; mkdir -p "$stub"
+  printf '#!/usr/bin/env bash\nexit 0\n'  > "$stub/chmod"
+  printf '#!/usr/bin/env bash\necho 755\n' > "$stub/stat"
+  chmod +x "$stub/chmod" "$stub/stat"        # real chmod — stub not on PATH yet
+  # Create the PAT directly (not via secret_write, whose install -m 0700 is
+  # itself a no-op-chmod casualty on the very filesystems this test simulates).
+  mkdir -p "${DEVAGENT_SECRETS_DIR}"
+  printf 'tok\n' > "${DEVAGENT_SECRETS_DIR}/volk.github.pat"
+  PATH="$stub:$PATH" run scripts/lib/doctor_auth.sh check volk github
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"secrets_dir: SKIP"* ]]
+  [[ "${output}" == *"github: SKIP"* ]]
+  [[ "${output}" == *"modes-unrepresentable"* ]]
+  [[ "${output}" != *"WARN"* ]]
 }
 
 @test "doctor_auth resolves a relative ssh symlink target (B13: not against CWD)" {

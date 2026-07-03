@@ -9,7 +9,9 @@
 # Contract:
 #   - Prints one line per backend in the form:
 #         <backend>: <STATUS> [key=value ...]
-#     where STATUS is one of: OK | WARN | MISSING | ERROR
+#     where STATUS is one of: OK | WARN | SKIP | MISSING | ERROR
+#     (SKIP = a mode check that can't apply because the filesystem does
+#      not represent POSIX modes — Windows/noacl NTFS, #289.)
 #   - Prints one summary line for the secrets dir:
 #         secrets_dir: <STATUS> secrets_dir_mode=<octal> [...]
 #   - NEVER prints the token value.
@@ -30,6 +32,8 @@ _check_dir() {
   local mode; mode="$(stat -c '%a' "${DEVAGENT_SECRETS_DIR}")"
   if [ "${mode}" = "700" ]; then
     printf 'secrets_dir: OK secrets_dir_mode=%s\n' "${mode}"
+  elif ! posix_modes_representable "${DEVAGENT_SECRETS_DIR}"; then
+    printf 'secrets_dir: SKIP secrets_dir_mode=%s reason=modes-unrepresentable\n' "${mode}"
   else
     printf 'secrets_dir: WARN secrets_dir_mode=%s expected=700\n' "${mode}"
   fi
@@ -45,7 +49,12 @@ _check_pat_backend() {
   fi
   local mode; mode="$(stat -c '%a' "${f}")"
   if [ "${mode}" != "600" ]; then
-    printf '%s: WARN mode=%s expected=600\n' "${backend}" "${mode}"
+    # #289: a 644 read-back on noacl NTFS is not real drift — skip, don't WARN.
+    if ! posix_modes_representable "$(dirname "${f}")"; then
+      printf '%s: SKIP mode=%s reason=modes-unrepresentable\n' "${backend}" "${mode}"
+    else
+      printf '%s: WARN mode=%s expected=600\n' "${backend}" "${mode}"
+    fi
     return
   fi
   local size; size="$(stat -c '%s' "${f}")"
@@ -69,7 +78,12 @@ _check_ssh_backend() {
   fi
   local mode; mode="$(stat -c '%a' "${target}")"
   if [ "${mode}" != "600" ]; then
-    printf 'ssh: WARN mode=%s expected=600 target=%s\n' "${mode}" "${target}"
+    # #289: skip rather than WARN when the filesystem can't represent modes.
+    if ! posix_modes_representable "$(dirname "${target}")"; then
+      printf 'ssh: SKIP mode=%s reason=modes-unrepresentable target=%s\n' "${mode}" "${target}"
+    else
+      printf 'ssh: WARN mode=%s expected=600 target=%s\n' "${mode}" "${target}"
+    fi
     return
   fi
   printf 'ssh: OK target=%s\n' "${target}"

@@ -133,7 +133,7 @@ storage layer is `scripts/lib/secrets.sh`. Both are stable v1 APIs.
 ### Doctor integration
 
 `/devagent:doctor` calls `scripts/lib/doctor_auth.sh check <project>
-<backend>...` and reports OK / WARN / MISSING / ERROR per backend
+<backend>...` and reports OK / WARN / SKIP / MISSING / ERROR per backend
 plus the secrets-dir mode. The script never prints the token value
 and always exits 0; doctor aggregates statuses across hooks.
 

@@ -158,6 +158,31 @@ secrets_bootstrap() {
   chmod 700 "$dir"
 }
 
+# posix_modes_representable <dir> — true when a file under <dir> can carry a
+# distinct POSIX mode (specifically, reads back as 600). On "noacl" mounts
+# (MSYS/Cygwin NTFS, vfat/exfat) chmod is a no-op and every mode reads back
+# 755/644, so 700/600 invariants can never hold; mode checks are meaningless
+# there (filesystem/OS access control governs instead) and callers skip them.
+# Fail-safe by
+# direction: EVERY uncertainty (can't create a probe, chmod fails, stat
+# fails) returns true so a real audit still runs — only a probe that was
+# created and chmod'd yet reads back != 600 declares modes unrepresentable.
+# Uses mktemp (not a predictable $$ name): a pre-planted file/symlink at a
+# guessable path in a world-writable secrets dir could otherwise suppress
+# the very audit that would flag it, or redirect the chmod (TOCTOU).
+posix_modes_representable() {
+  local dir="$1" probe mode
+  probe="$(mktemp "$dir/.mode-probe.XXXXXX" 2>/dev/null)" || return 0
+  # Each failure is handled with an explicit `if !` (not `cmd; rc=$?`) so the
+  # fail-safe holds even if a future caller invokes this bare under `set -e`
+  # (today every call site is an `if !` condition, which already suppresses
+  # errexit — but the guarantee must not depend on that).
+  if ! chmod 600 "$probe" 2>/dev/null; then rm -f "$probe"; return 0; fi
+  if ! mode="$(stat -c '%a' "$probe" 2>/dev/null)"; then rm -f "$probe"; return 0; fi
+  rm -f "$probe"
+  [ "$mode" = "600" ]
+}
+
 secrets_audit() {
   local dir mode f ok=1
   if command -v secrets_dir >/dev/null 2>&1; then
@@ -172,6 +197,14 @@ secrets_audit() {
       echo "secrets dir missing: $dir (run secrets_bootstrap)" >&2
     fi
     return 1
+  fi
+  if ! posix_modes_representable "$dir"; then
+    if command -v warn >/dev/null 2>&1; then
+      warn "filesystem does not represent POSIX modes; skipping 700/600 audit: $dir"
+    else
+      echo "filesystem does not represent POSIX modes; skipping 700/600 audit: $dir" >&2
+    fi
+    return 0
   fi
   mode="$(stat -c '%a' "$dir")"
   if [[ "$mode" != "700" ]]; then

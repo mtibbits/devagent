@@ -25,6 +25,10 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "secrets_audit warns when dir mode drifts" {
+  # #289: drift is only representable where chmod takes effect; on a
+  # no-op-chmod filesystem the audit correctly skips, so skip the test there.
+  _c="$DA_HOME/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   secrets_bootstrap
   chmod 755 "$DA_HOME/secrets"
   run secrets_audit
@@ -33,6 +37,8 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "secrets_audit warns when a file mode drifts" {
+  _c="$DA_HOME/.cg"; :>"$_c"; chmod 600 "$_c"
+  [ "$(stat -c '%a' "$_c" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here (Windows/noacl)"
   secrets_bootstrap
   echo dummy >"$DA_HOME/secrets/volk.github.pat"
   chmod 644 "$DA_HOME/secrets/volk.github.pat"
