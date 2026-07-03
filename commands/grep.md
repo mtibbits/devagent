@@ -1,6 +1,7 @@
 ---
 description: Grep across all per-issue artifact files in a project's devdoc.
 allowed-tools: Bash
+argument-hint: "[--project P] [-i] [-l] [--captures] <pattern>"
 ---
 
 # /devagent:grep
@@ -13,7 +14,7 @@ canonical artifact files: `issue.md`, `imPlan.md`,
 ## Usage
 
 ```
-/devagent:grep [project] [-i] [-l] [--captures] <pattern>
+/devagent:grep [--project P] [-i] [-l] [--captures] <pattern>
 ```
 
 - `-i` — case-insensitive (pass-through to grep)

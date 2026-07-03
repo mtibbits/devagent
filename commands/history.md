@@ -1,6 +1,7 @@
 ---
 description: Show chronological log across a project or single issue.
 allowed-tools: Bash
+argument-hint: "[--project P] [Issue-NNN]"
 ---
 
 # /devagent:history
@@ -11,7 +12,7 @@ section of each issue's `checklist.md`.
 ## Usage
 
 ```
-/devagent:history [project] [Issue-NNN]
+/devagent:history [--project P] [Issue-NNN]
 ```
 
 Without an issue, prints every project log entry ascending. With an

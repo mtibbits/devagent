@@ -1,11 +1,12 @@
 ---
 description: Fetch an issue from origin or fork and scaffold its workflow directory
 allowed-tools: Bash
+argument-hint: "<project> origin|fork <issue-num>"
 ---
 
 # /devagent:pull
 
-**Usage:** `/devagent:pull [project] origin|fork <issue-num>`
+**Usage:** `/devagent:pull <project> origin|fork <issue-num>`
 
 Runs `scripts/pull.sh` to fetch issue `<num>` from the configured
 backend, write `<devdoc>/<dir_prefix><num>/issue.md`, initialise

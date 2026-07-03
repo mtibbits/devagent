@@ -1,11 +1,12 @@
 ---
 description: Clear the STUCK file and resume the previously-stuck step
 allowed-tools: Bash
+argument-hint: "<project> [--pending]"
 ---
 
 # /devagent:unstuck
 
-**Usage:** `/devagent:unstuck [project] [--pending]`
+**Usage:** `/devagent:unstuck <project> [--pending]`
 
 Removes STUCK file and flips `[!]` back to `[~]` (default) or `[ ]`
 (with `--pending`). Spec §5.3.
