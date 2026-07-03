@@ -51,7 +51,7 @@ main() {
     issue="$issue_arg"
     issue_dir="${devdoc%/}/$issue"
   else
-    issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+    issue="$(active_resolve_issue "$project" || true)"
     issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
     [[ -n "$issue" && "$issue" != "null" ]] \
       || die "catchup.sh: No active issue for $project; pass one explicitly."

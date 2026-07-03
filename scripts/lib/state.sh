@@ -218,7 +218,9 @@ state_issue_get() {
     echo "state_issue_get: state file for '$project' is unparseable and needs repair: $f" >&2
     return 2
   fi
-  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  # rc 0 = table HIT, even for an empty value (the truth table's "table hit
+  # wins"); only rc 1 (key absent) falls through to fallback/defaults.
+  if [ "$rc" -eq 0 ]; then printf '%s\n' "$out"; return 0; fi
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [ "$active" = "$issue" ]; then
@@ -231,6 +233,8 @@ state_issue_get() {
 # state_issue_set_many <project> <issue> <type key value>...
 # One locked transaction: table triplets always; top-level mirror triplets
 # iff <issue> is the active_issue AT WRITE TIME (predicate inside the lock).
+# NB: values may not be the literal strings "--then"/"--also" (set-many-if's
+# reserved bucket tokens — rejected loudly, never silently corrupted).
 state_issue_set_many() {
   local project="$1" issue="$2"; shift 2
   [[ $# -gt 0 && $(( $# % 3 )) -eq 0 ]] || die "state_issue_set_many: <type key value> triplets required"

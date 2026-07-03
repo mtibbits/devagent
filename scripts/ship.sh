@@ -39,7 +39,15 @@ project="${1:-}"
 config_is_project "$project" || die "ship.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(active_resolve_issue "$project" 2>/dev/null || true)"
+if [ -z "$issue_arg" ]; then
+    # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
+    # can adopt a parked issue's checklist) — pin/state only, else die.
+    active_resolve_issue_src "$project" 2>/dev/null || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "ship.sh: no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
+fi
 [ -n "$issue_arg" ] || die "ship.sh: no active issue and no issue arg"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"

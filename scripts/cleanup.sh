@@ -22,8 +22,12 @@ issue_arg="${2:-}"
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
 
 # #240: a pinned session cleans up ITS issue — derive the dir instead of
-# trusting the shared slot (which belongs to the other session).
+# trusting the shared slot (which belongs to the other session). The pin is
+# VALIDATED first (review MED: a traversal pin like Issue-2/../Issue-1 would
+# otherwise run the full cleanup against another issue's dir).
 if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
+    _state_issue_id_ok "${DEVAGENT_ACTIVE_ISSUE}" \
+        || die "cleanup.sh: invalid DEVAGENT_ACTIVE_ISSUE '${DEVAGENT_ACTIVE_ISSUE}' (allowed: A-Za-z0-9 _ -)"
     issue_dir="$(issue_dir_for "$project" "${DEVAGENT_ACTIVE_ISSUE}")"
 else
     issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"

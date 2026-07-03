@@ -36,7 +36,7 @@ main() {
   # #240: session view — a pinned session's `where` reports ITS issue.
   local active issue_dir
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
-    active="$(active_resolve_issue "$project" 2>/dev/null || true)"
+    active="$(active_resolve_issue "$project" || true)"
   else
     active="$(state_get "$project" active_issue 2>/dev/null || true)"
   fi

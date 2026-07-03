@@ -23,10 +23,13 @@ step="${2:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 issue_dir="${3:-}"
 if [[ -z "$issue_dir" ]]; then
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
-    # #240: pinned session — derive ITS dir (the active_issue gate below is
-    # the SHARED session's leak guard and doesn't apply to a pin).
+    # #240: pinned session — derive ITS dir, gated on the issue's TABLE
+    # existing (plan v2 rule 12): after cleanup GCs the table, a leftover
+    # .devagent-step-models marker must not keep steering dispatches.
     . "$DEVAGENT_ROOT/scripts/lib/active.sh"
-    issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
+    if state_context_has "$project" "${DEVAGENT_ACTIVE_ISSUE}" 2>/dev/null; then
+      issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
+    fi
   else
     ai="$(state_get "$project" active_issue 2>/dev/null || true)"
     if [[ -n "$ai" && "$ai" != "null" ]]; then

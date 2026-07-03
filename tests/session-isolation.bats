@@ -157,3 +157,39 @@ _shared_view() {  # A's shared slot, as another session would read it
   # And B never observes A's keys.
   [ "$(state_issue_get volk Issue-2 baseline_sha)" = "bbb222" ]
 }
+
+@test "pinned RE-pull preserves the session's own live table (#240 review CRIT)" {
+  DEVAGENT_ACTIVE_ISSUE=Issue-2 run bash "$PLUGIN_ROOT/scripts/pull.sh" volk origin 2
+  [ "$status" -eq 0 ]
+  state_issue_set_many volk Issue-2 str branch "feat/2-b" int last_step 6
+  # The documented refresh flow: re-pull the same issue.
+  DEVAGENT_ACTIVE_ISSUE=Issue-2 run bash "$PLUGIN_ROOT/scripts/pull.sh" volk origin 2
+  [ "$status" -eq 0 ]
+  [ "$(state_get volk context.Issue-2.branch)" = "feat/2-b" ]
+}
+
+@test "bare mutating command refuses a scan-guessed issue (#240 review MED)" {
+  # Post-cleanup state: no active issue; an incomplete checklist exists that
+  # the scan tier would adopt. Mutating scripts must die, not guess.
+  state_set volk active_issue ""
+  run bash "$PLUGIN_ROOT/scripts/commit.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no active issue"* ]]
+}
+
+@test "cleanup rejects an invalid pin before touching any dir (#240 review MED)" {
+  DEVAGENT_ACTIVE_ISSUE='Issue-2/../Issue-1' run bash "$PLUGIN_ROOT/scripts/cleanup.sh" volk
+  [ "$status" -ne 0 ]
+  # Issue-1's checklist untouched (the traversal previously ran cleanup there).
+  run grep -qE '^- \[x\] +20\. cleanup' "$DEVDOC/Issue-1/checklist.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "pinned step-model honors the leak gate: no tier after cleanup GC (#240 review MED)" {
+  printf '[project.volk.step_models]\nchecking = "opus"\n' >> "$DA_HOME/config.toml"
+  printf 'fable' > "$DEVDOC/Issue-2/.devagent-step-models"
+  # Issue-2 has NO table (as after cleanup GC) — the marker must not leak.
+  DEVAGENT_ACTIVE_ISSUE=Issue-2 run bash "$PLUGIN_ROOT/scripts/step-model.sh" volk 13
+  [ "$status" -eq 0 ]
+  [ "$output" = "opus" ]
+}

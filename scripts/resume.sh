@@ -53,6 +53,8 @@ main() {
   # and deleting it (state_context_restore's tail) would destroy the very
   # data the session is about to use. Flag-flip only.
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    state_context_has "$project" "$issue" 2>/dev/null \
+      || warn "$issue: no per-issue context recorded (legacy park or fresh issue) — reads start from defaults; run /devagent:branch if a branch existed"
     state_remove_parked "$project" "$issue"
     local wt_pin note_pin=""
     wt_pin="$(state_issue_get "$project" "$issue" worktree_path 2>/dev/null || true)"

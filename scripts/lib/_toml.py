@@ -390,6 +390,9 @@ def main(argv: list[str]) -> int:
         # one" race-free — a read-then-set-many pair has a TOCTOU window.
         # All triplets (both lists) validate before any write; exit 2 on any
         # validation/parse error with the file untouched (_NoWrite).
+        # RESERVED: a triplet VALUE can never be the literal "--then"/"--also"
+        # (it would switch buckets; the count/type validation then fails loud
+        # — a write-DoS on those two values, never silent corruption).
         try:
             if len(rest) < 2:
                 print("_toml: set-many-if wants <pred-key> <expected> --then ... --also ...", file=sys.stderr)

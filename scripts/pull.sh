@@ -106,10 +106,14 @@ main() {
     state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
   fi
   # An active issue is by definition not parked: drop any stale parked flag
-  # and snapshot for it, so a later resume cannot restore pre-park context
-  # over live work (#98). Per-issue writes — safe under a pin.
-  state_remove_parked "$project" "$issue_id"
-  state_unset "$project" "context.${issue_id}"
+  # and PRE-PARK snapshot, so a later resume cannot restore stale context over
+  # live work (#98). The snapshot GC is gated on the parked flag — under #240
+  # the [context.<issue>] table is a pinned session's LIVE home, and an
+  # unconditional unset on re-pull would delete the only copy (review CRIT).
+  if state_list_parked "$project" | grep -qxF "$issue_id"; then
+    state_remove_parked "$project" "$issue_id"
+    state_unset "$project" "context.${issue_id}"
+  fi
 
   # #247: targeted feedback when this pull set aside a different in-flight issue.
   # The #98 snapshot already preserved it; without this the operator only sees
