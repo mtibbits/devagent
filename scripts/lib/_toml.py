@@ -15,13 +15,16 @@ not break them (that was #288).
 
 On POSIX, readers do not need to lock: rename atomicity guarantees a
 consistent view. That guarantee is weaker on Windows — a concurrent
-reader holding the file open can make a writer's os.replace raise
-PermissionError — a pre-existing gap this module does not yet close on
-Windows (tracked in #293); it is not introduced here.
+reader holding the file open can make a writer's os.replace (or the
+reader's own open) raise a transient sharing violation. On Windows the
+racing sites bounded-retry that transient error via _retry_windows_share
+(#293); on POSIX the helper is a passthrough, so behavior is unchanged.
 """
 
 from __future__ import annotations
 import datetime
+import os
+import time
 try:
     import fcntl
 except ImportError:   # Windows / any interpreter without fcntl
@@ -32,10 +35,48 @@ import tomllib
 from contextlib import contextmanager
 from pathlib import Path
 
+_RETRY_ATTEMPTS = 10
 
-def _load(path: Path) -> dict:
-    with path.open("rb") as fh:
-        return tomllib.load(fh)
+
+def _retry_windows_share(fn, *, also_missing=False):
+    """Run fn(), retrying a transient Windows sharing violation.
+
+    POSIX-invariant: on non-Windows, call fn() exactly once — the
+    replace-under-open / read-during-replace races this guards do not
+    occur there, and retrying a genuine ENOENT/EACCES would only add
+    latency to the common absent/unreadable path. On Windows, a
+    concurrent unlocked reader vs the atomic replace surfaces as
+    PermissionError (CPython maps the SHARING_VIOLATION/ACCESS_DENIED
+    winerrors to EACCES → PermissionError; no winerror inspection
+    needed). Bounded retry with escalating backoff, then fail loud —
+    never silently drop a write. `also_missing` additionally retries
+    FileNotFoundError; use it ONLY where existence is already
+    established (a later miss is then a genuine mid-replace transient).
+    """
+    if os.name != "nt":
+        return fn()
+    exc = (PermissionError, FileNotFoundError) if also_missing else (PermissionError,)
+    delay = 0.001
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            return fn()
+        except exc:
+            if attempt == _RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
+
+
+def _load(path: Path, retry: bool = False) -> dict:
+    # retry=True only for the LOCK-FREE readers (get/validate/list-*): a
+    # transient sharing violation from a concurrent writer's replace is
+    # worth retrying there. Under _locked_rmw (retry=False) writers are
+    # serialized, so a miss is genuine and retrying would only stall the
+    # queue. A TOMLDecodeError is not an OSError, so it never retries.
+    def _open_and_load() -> dict:
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    return _retry_windows_share(_open_and_load) if retry else _open_and_load()
 
 
 class _NoWrite(Exception):
@@ -175,7 +216,15 @@ def _dump(path: Path, data: dict) -> None:
     text = "\n".join(out).rstrip() + "\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text)
-    tmp.replace(path)
+    # PermissionError only: a concurrent unlocked reader holding `path` open
+    # makes the replace fail transiently on Windows — retry. A
+    # FileNotFoundError here would mean `tmp` itself vanished (unrecoverable),
+    # so it is NOT retried. Clean up the orphan tmp if we exhaust the retries.
+    try:
+        _retry_windows_share(lambda: tmp.replace(path))
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _set_path(data: dict, dotted: str, value) -> None:
@@ -292,7 +341,7 @@ def main(argv: list[str]) -> int:
 
     if verb == "validate":
         try:
-            _load(file)
+            _load(file, retry=True)
         except Exception as e:
             print(f"_toml: {e}", file=sys.stderr)
             return 1
@@ -303,7 +352,7 @@ def main(argv: list[str]) -> int:
         # (exit 1) so state_get does not silently report "no active issue" on a
         # corrupted state file.
         try:
-            data = _load(file)
+            data = _load(file, retry=True)
         except Exception as e:
             print(f"_toml: {file}: {e}", file=sys.stderr)
             return 2
@@ -318,13 +367,13 @@ def main(argv: list[str]) -> int:
         return 0
 
     if verb == "list-tables":
-        data = _load(file)
+        data = _load(file, retry=True)
         for t in _list_tables(data):
             print(t)
         return 0
 
     if verb == "list-keys":
-        data = _load(file)
+        data = _load(file, retry=True)
         table = rest[0] if rest else None
         try:
             for k in _list_keys(data, table):
@@ -339,7 +388,12 @@ def main(argv: list[str]) -> int:
     # Machine-written state files have no comments; new files don't exist yet.
     # Shared by ALL mutation verbs (#96 hoisted the duplicate).
     if verb in {"set", "set-bool", "set-int", "unset", "set-many", "set-if"}:
-        if file.exists() and _has_comment(file.read_text()):
+        # #293: this unlocked pre-lock read races a concurrent writer's replace
+        # on Windows. Retry the transient sharing violation; also_missing=True
+        # is safe because file.exists() just passed, so a later miss is a
+        # genuine mid-replace transient (not a permanently-absent file).
+        if file.exists() and _has_comment(
+                _retry_windows_share(lambda: file.read_text(), also_missing=True)):
             print(f"_toml: refusing to mutate comment-bearing file {file} "
                   "(mutation drops comments; it is for comment-free state files)",
                   file=sys.stderr)

@@ -199,10 +199,15 @@ future full `[issues.<id>]` nesting (Epic #61 end state) would re-point
 these helpers without changing callers.
 
 All writes to state files go through `scripts/lib/_toml.py`, which
-holds an exclusive `fcntl.flock` on a sibling `.lock` file across the
-entire read-modify-write cycle and writes via tempfile + atomic
-`rename`. Readers do not need to lock — POSIX guarantees `rename`
-atomicity, so they see either the prior consistent state or the next.
+holds an exclusive lock (`fcntl.flock` on POSIX, `msvcrt.locking` on
+Windows) on a sibling `.lock` file across the entire read-modify-write
+cycle and writes via tempfile + atomic `rename`. Readers do not need to
+lock — POSIX guarantees `rename` atomicity, so they see either the prior
+consistent state or the next. Windows lacks that guarantee (a reader
+holding the file open makes the replace, or its own open, raise a
+transient sharing violation), so the racing sites bounded-retry that
+transient error on Windows only (`_retry_windows_share`, #293); on POSIX
+the retry is a passthrough.
 
 Adjacent state files:
 
