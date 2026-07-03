@@ -720,6 +720,17 @@ def _setarch_prefix() -> list[str]:
     return ["setarch", os.uname().machine, "--addr-no-randomize"]
 
 
+def _build_skipped(result: ToolResult, err: Optional[str]) -> bool:
+    """If `err` (a _build_sanitizer return) carries the build-tool-absence
+    marker, record it as skipped on `result` and return True (the caller should
+    then return). Otherwise return False so the caller handles a real failure."""
+    if err and err.endswith(_SKIP_MARK):
+        result.error = err.removesuffix(_SKIP_MARK)
+        result.skipped = True
+        return True
+    return False
+
+
 def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     """Build with ASan+UBSan, run a test kernel, check for sanitizer output."""
     result = ToolResult(tool="asan+ubsan")
@@ -727,10 +738,7 @@ def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
 
     err = _build_sanitizer(repo_root, build_dir, flags)
     if err:
-        if err.endswith(_SKIP_MARK):
-            result.error = err.removesuffix(_SKIP_MARK)
-            result.skipped = True
-        else:
+        if not _build_skipped(result, err):
             result.error = err
             result.passed = False
         return result
@@ -785,9 +793,7 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     build_launcher = _setarch_prefix()
     err = _build_sanitizer(repo_root, build_dir, flags, launcher=build_launcher)
     volk_profile = os.path.join(build_dir, "apps", "volk_profile")
-    if err and err.endswith(_SKIP_MARK):
-        result.error = err.removesuffix(_SKIP_MARK)
-        result.skipped = True
+    if _build_skipped(result, err):
         return result
     if err and not os.path.isfile(volk_profile):
         result.error = err
