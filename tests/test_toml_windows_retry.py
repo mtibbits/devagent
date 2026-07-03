@@ -13,6 +13,7 @@ exercised deterministically on a POSIX CI runner, and vice-versa.
 import importlib.util
 import pathlib
 import tempfile
+import types
 from contextlib import contextmanager
 
 _TOML_PATH = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "lib" / "_toml.py"
@@ -23,15 +24,22 @@ _spec.loader.exec_module(toml)
 
 @contextmanager
 def _patched(os_name, no_sleep=True):
-    """Force toml.os.name (and silence backoff sleeps) for the duration."""
-    saved_name, saved_sleep = toml.os.name, toml.time.sleep
-    toml.os.name = os_name
-    if no_sleep:
-        toml.time.sleep = lambda _d: None
+    """Force _toml's view of os.name (and silence backoff) for the duration.
+
+    Swap the module *references* on `toml` — do NOT mutate the shared `os`
+    module's `name` (that is process-wide and would make `pathlib.Path`
+    build the foreign flavor, e.g. WindowsPath on Linux → NotImplemented/
+    UnsupportedOperation). `_toml.py` only touches `os.name` and
+    `time.sleep`, so tiny stand-ins cover it while pathlib/tempfile keep
+    using the real os.
+    """
+    saved_os, saved_time = toml.os, toml.time
+    toml.os = types.SimpleNamespace(name=os_name)
+    toml.time = types.SimpleNamespace(sleep=(lambda _d: None) if no_sleep else saved_time.sleep)
     try:
         yield
     finally:
-        toml.os.name, toml.time.sleep = saved_name, saved_sleep
+        toml.os, toml.time = saved_os, saved_time
 
 
 def _raiser(n_fail, exc=PermissionError, ret="ok"):
@@ -117,6 +125,31 @@ def test_dump_survives_transient_replace():
                 assert reloaded == {"k": "v", "n": 7}
         finally:
             pathlib.Path.replace = real_replace
+
+
+def test_load_retry_wiring():
+    # Pin the improve-pass decision: lock-free readers load with retry=True;
+    # the mutation path's load (under _locked_rmw) loads with retry=False —
+    # retrying under the exclusive lock would only stall serialized writers.
+    # (os.name="posix" so the retry is a harmless passthrough; we inspect the
+    # kwarg, not the retry behavior.)
+    with _patched("posix"):
+        seen = []
+        real_load = toml._load
+        def spy(path, retry=False):
+            seen.append(retry)
+            return real_load(path, retry=retry)
+        toml._load = spy
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                f = pathlib.Path(d) / "s.toml"
+                f.write_text('k = "v"\n')
+                seen.clear(); toml.main(["get", str(f), "k"])
+                assert seen == [True], f"get must _load(retry=True); saw {seen}"
+                seen.clear(); toml.main(["set", str(f), "k2", '"w"'])
+                assert seen == [False], f"locked mutation must _load(retry=False); saw {seen}"
+        finally:
+            toml._load = real_load
 
 
 if __name__ == "__main__":

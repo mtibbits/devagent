@@ -18,7 +18,9 @@ consistent view. That guarantee is weaker on Windows — a concurrent
 reader holding the file open can make a writer's os.replace (or the
 reader's own open) raise a transient sharing violation. On Windows the
 racing sites bounded-retry that transient error via _retry_windows_share
-(#293); on POSIX the helper is a passthrough, so behavior is unchanged.
+(#293); on POSIX the helper is a passthrough (the retry machinery is
+unreachable — the only POSIX-visible delta is _dump cleaning up an orphan
+.tmp if a replace ever fails).
 """
 
 from __future__ import annotations
@@ -223,7 +225,10 @@ def _dump(path: Path, data: dict) -> None:
     try:
         _retry_windows_share(lambda: tmp.replace(path))
     except OSError:
-        tmp.unlink(missing_ok=True)
+        try:
+            tmp.unlink(missing_ok=True)   # best-effort: don't let a cleanup
+        except OSError:                   # failure mask the real replace error
+            pass
         raise
 
 
