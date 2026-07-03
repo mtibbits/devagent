@@ -20,7 +20,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # slot is the default, not legacy; pre-existing state migrates
 # adopt-on-first-write. Two UNpinned sessions on one project remain the #7
 # advisory-warning case. Invalid pin ids fail loud (they would become TOML
-# table names).
+# table names). Upgrade note: pre-#240 plugin code GCs a pinned session's
+# live table on pull — update ALL long-lived sessions/caches before pinning.
 #
 # analyze: step-11 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
 # compile_commands.json + ASan/UBSan/TSan — the pre-#55 behavior). "shellcheck"

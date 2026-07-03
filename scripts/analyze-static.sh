@@ -20,7 +20,8 @@ issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
     # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
     # can adopt a parked issue's checklist) — pin/state only, else die.
-    active_resolve_issue_src "$project" 2>/dev/null || true
+    # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
+    active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
         die "analyze-static.sh: no active issue and no issue arg"
     fi

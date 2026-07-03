@@ -126,6 +126,10 @@ active_resolve_issue_src() {
   ACTIVE_RESOLVED_ISSUE=""
   ACTIVE_ISSUE_RESOLVED_FROM=""
   if [ -n "$arg" ]; then
+    case "$arg" in
+    *[!A-Za-z0-9_-]*)
+      die "active_resolve_issue_src: issue arg '$arg' is not a valid issue id (allowed: A-Za-z0-9 _ -)" ;;
+    esac
     ACTIVE_ISSUE_RESOLVED_FROM="arg"; ACTIVE_RESOLVED_ISSUE="$arg"; return 0
   fi
   if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then

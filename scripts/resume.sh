@@ -53,6 +53,8 @@ main() {
   # and deleting it (state_context_restore's tail) would destroy the very
   # data the session is about to use. Flag-flip only.
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    [[ "$issue" == "$DEVAGENT_ACTIVE_ISSUE" ]] \
+      || die "resume.sh: session is pinned to ${DEVAGENT_ACTIVE_ISSUE} — a pinned resume resumes the PINNED issue (got '$issue'); unset the pin to manage other issues"
     state_context_has "$project" "$issue" 2>/dev/null \
       || warn "$issue: no per-issue context recorded (legacy park or fresh issue) — reads start from defaults; run /devagent:branch if a branch existed"
     state_remove_parked "$project" "$issue"

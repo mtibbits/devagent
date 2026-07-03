@@ -193,3 +193,21 @@ _shared_view() {  # A's shared slot, as another session would read it
   [ "$status" -eq 0 ]
   [ "$output" = "opus" ]
 }
+
+@test "invalid pin dies LOUDLY at a bare mutating command (#240 redmr MAJOR)" {
+  state_set volk active_issue ""
+  DEVAGENT_ACTIVE_ISSUE='Issue 2]' run bash "$PLUGIN_ROOT/scripts/commit.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DEVAGENT_ACTIVE_ISSUE"* ]]
+}
+
+@test "pinned resume refuses a foreign arg (#240 redmr MINOR)" {
+  _mk_checklist "$DEVDOC/Issue-2"
+  state_add_parked volk Issue-2
+  DEVAGENT_ACTIVE_ISSUE=Issue-9 run bash "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-2
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pinned"* ]]
+  # Nothing half-applied: Issue-2 still parked.
+  run state_list_parked volk
+  [[ "$output" == *"Issue-2"* ]]
+}

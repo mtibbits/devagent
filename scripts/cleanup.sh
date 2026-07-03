@@ -25,10 +25,13 @@ issue_arg="${2:-}"
 # trusting the shared slot (which belongs to the other session). The pin is
 # VALIDATED first (review MED: a traversal pin like Issue-2/../Issue-1 would
 # otherwise run the full cleanup against another issue's dir).
-if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
-    _state_issue_id_ok "${DEVAGENT_ACTIVE_ISSUE}" \
-        || die "cleanup.sh: invalid DEVAGENT_ACTIVE_ISSUE '${DEVAGENT_ACTIVE_ISSUE}' (allowed: A-Za-z0-9 _ -)"
-    issue_dir="$(issue_dir_for "$project" "${DEVAGENT_ACTIVE_ISSUE}")"
+cleanup_target="${2:-}"; cleanup_target="${cleanup_target##*/}"
+[ "$cleanup_target" != "--" ] || cleanup_target=""
+[ -n "$cleanup_target" ] || cleanup_target="${DEVAGENT_ACTIVE_ISSUE:-}"
+if [ -n "$cleanup_target" ]; then
+    _state_issue_id_ok "$cleanup_target" \
+        || die "cleanup.sh: invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
+    issue_dir="$(issue_dir_for "$project" "$cleanup_target")"
 else
     issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 fi
@@ -65,7 +68,11 @@ base_branch="${baseline##*/}"
 # issue owns it. A pinned session finishing Issue-2 while the shared pointer
 # says Issue-1 must GC context.Issue-2 — not Issue-1's live table — and must
 # not wipe the other session's top-level keys or pointer.
-gc_issue="${DEVAGENT_ACTIVE_ISSUE:-}"
+# Precedence: explicit arg (the arg IS the issue) → pin → shared state.
+gc_issue="${2:-}"
+gc_issue="${gc_issue##*/}"
+[ "$gc_issue" != "--" ] || gc_issue=""
+[ -n "$gc_issue" ] || gc_issue="${DEVAGENT_ACTIVE_ISSUE:-}"
 if [ -z "$gc_issue" ]; then
     gc_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
 fi
