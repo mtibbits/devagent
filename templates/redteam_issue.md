@@ -194,8 +194,7 @@ Consider separately:
 - **CPU cost:** Does this add work to the critical path? A 2% regression
   may be acceptable for correctness. A 200% regression is not.
 - **Memory footprint:** Does this increase static or dynamic memory
-  usage? On embedded targets (Raspberry Pi, resource-constrained SDR
-  hardware), memory is scarce.
+  usage? On embedded / resource-constrained targets, memory is scarce.
 - **Binary size:** Does this add significant code (new ISA tiers,
   template expansion) that inflates the shared library?
 
@@ -240,7 +239,7 @@ belong where the bug lives. Enhancements and new features are where
 this dimension matters most.
 
 Watch for: feature requests that drift outside the project's mission
-(vectorized SHA-256 in a DSP library), fixes that belong in a
+(a cryptographic routine in a numeric-compute library), fixes that belong in a
 dependency or a consumer rather than this library, enhancements that
 duplicate functionality available in a sibling project, changes that
 would make this library responsible for concerns it currently delegates.
@@ -264,10 +263,9 @@ license implications, changes that affect SPDX headers or copyright
 notices, contributions that need CLA/DCO sign-off the reporter may
 not be aware of.
 
-Check the project's own license and contribution policy: an
-incompatibly-licensed import (e.g. copyleft code into a
-permissively-licensed project) or an unsigned commit where a DCO/CLA is
-required is a non-starter regardless of technical merit.
+Check the project's own license and contribution policy: such an
+import, or an unsigned commit where a DCO/CLA is required, is a
+non-starter regardless of technical merit.
 
 ### 15. Backward compatibility
 Will this break existing users?

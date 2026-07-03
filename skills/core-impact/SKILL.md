@@ -64,7 +64,7 @@ numbers are not available or honest).
 # Issue-NNNN — Impact
 
 ## Quantifiable
-- Throughput on RPi4: 1.84 GB/s → 2.31 GB/s (+25.5%, N=30, σ=0.04)
+- Throughput on the target board: 1.84 GB/s → 2.31 GB/s (+25.5%, N=30, σ=0.04)
   evidence: evidence-plot output at
   <issue-dir>/evidence/<date>-<host>.png
 - Build time: unchanged.
