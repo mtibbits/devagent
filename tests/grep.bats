@@ -98,3 +98,11 @@ teardown() { teardown_phase9_env; }
   [[ "$output" == *"cannot resolve devdoc_dir"* ]]
   [[ "$output" != *"devdoc dir not found"* ]]   # no redundant second line
 }
+
+@test "grep searches intent.md (#284)" {
+  echo "FOOBAR needle in intent" > "${DEVAGENT_TEST_DEVDOC}/Issue-100/intent.md"
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" \
+    --project "${DEVAGENT_TEST_PROJECT}" FOOBAR
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Issue-100/intent.md"
+}

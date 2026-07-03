@@ -237,6 +237,7 @@ Caller contract unchanged.
 Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
+├── intent.md            # #284: operator-intent digest for dispatched planning
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -440,7 +441,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | # | Command | Type | Implementation |
 |---|---|---|---|
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
-| 1 | `/devagent:draft` | skill | `superpowers:writing-plans`; writes `imPlan.md`; triggers `on_draft_start` |
+| 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start` |
 | 2 | `/devagent:scope` | skill | `devagent-scope` — 6-question evaluation, edits imPlan |
 | 3 | `/devagent:improve` | skill | `devagent-improve` — bugs, side effects, ambiguities |
 | 4 | `/devagent:prune` | skill | `devagent-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
@@ -853,7 +854,7 @@ across revisions for chronological readability.
 
 | Step / command | Skill |
 |---|---|
-| draft | `superpowers:writing-plans` |
+| draft | `superpowers:writing-plans` (or dispatched planner, #284) |
 | branch | `superpowers:using-git-worktrees` |
 | implement | `superpowers:executing-plans` |
 | quality | `simplify` |

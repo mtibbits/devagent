@@ -6,8 +6,8 @@
 # and the mandatory context:/model: artifact-header grammar. Discovering
 # carriers by grep (not a hardcoded list) means a future carrier — a new
 # checking-class skill, or review gaining its own core- skill — is covered
-# the day it appears, and a vacuous-pass guard pins today's floor of three
-# full-contract carriers.
+# the day it appears, and a vacuous-pass guard pins today's floor of five
+# full-contract carriers (4 checking-class + the #284 draft planner).
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
@@ -28,9 +28,10 @@ _contract_carriers() {
     done
   done
   # Guard against a vacuous pass on FILTERED carriers (not merely discovered
-  # files): core-improve + core-redmr + core-preship + review.md is today's
-  # floor — a skill silently dropping out of the sweep must fail here.
-  [ "$full" -ge 4 ]
+  # files): core-improve + core-redmr + core-preship + review.md + draft.md
+  # (#284) is today's floor — a carrier silently dropping out of the sweep
+  # must fail here.
+  [ "$full" -ge 5 ]
   if [ "${#missing[@]}" -ne 0 ]; then
     printf 'missing contract token: %s\n' "${missing[@]}" >&2
   fi
@@ -43,4 +44,17 @@ _contract_carriers() {
     grep -q '## Dispatch contract' "$f"
     grep -q 'paths, not' "$f"
   done
+}
+
+@test "draft.md defines the thinking-class planner contract (#284)" {
+  # The planner carrier's OWN tokens (the generic sweep above covers the
+  # shared four): intent packaging, question-return, the round bound, and
+  # the Phase-6 required input.
+  local f="$REPO/commands/draft.md"
+  grep -q '## Dispatch contract' "$f"
+  grep -qF 'intent.md' "$f"
+  grep -qF 'Open questions' "$f"
+  grep -qF 'pending_comments_file' "$f"
+  grep -qF 'two rounds' "$f"
+  grep -qF 'intent_template' "$f"
 }

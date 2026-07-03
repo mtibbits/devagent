@@ -40,6 +40,7 @@ DEVAGENT_TEMPLATE_KEYS=(
   checklist-docs-only
   checklist-research
   revision_block
+  intent_template
 )
 
 # template_project_paths_override <project> <key>

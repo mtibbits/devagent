@@ -59,3 +59,12 @@ teardown() { teardown_phase9_env; }
   [[ "$output" == *checklist-research* ]]
   [[ "$output" == *revision_block* ]]
 }
+
+@test "intent_template key resolves at the plugin layer (#284)" {
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh"     --project "${DEVAGENT_TEST_PROJECT}" list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *intent_template* ]]
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh"     --project "${DEVAGENT_TEST_PROJECT}" show intent_template
+  [ "$status" -eq 0 ]
+  [[ "$output" != *MISSING* ]]
+}
