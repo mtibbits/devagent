@@ -15,4 +15,10 @@
 - [ ] 12. draftmr
 - [ ] 13. review
 - [ ] 14. redmr
+- [ ] 21. preship
 - [ ] 15. ship
+- [ ] 16. mergetoall
+- [ ] 17. updatewbs
+- [ ] 18. impact
+- [ ] 19. lessonslearned
+- [ ] 20. cleanup

@@ -215,6 +215,50 @@ EOF
   [ -z "$output" ]
 }
 
+# --- #76: by-name gate helpers scope to the ACTIVE revision block -----------
+# revision_block.md now reuses the closeout names 16-21 (#76), so the #149/#242
+# gates must read the active revision's copy, not revision 1's stale glyph.
+
+_append_real_rev2() {   # append the SHIPPED revision_block.md (N=2) to $1
+  local repo; repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  sed 's/{{N}}/2/' "$repo/templates/revision_block.md" >> "$1"
+}
+
+@test "the #242 gate reads the ACTIVE revision's closeout, not revision 1's stale copy (#76)" {
+  checklist_init "$ISSUE_DIR" standard          # rev1 closeout still [ ] (MR open — why we revise)
+  local f="$ISSUE_DIR/checklist.md"
+  _append_real_rev2 "$f"
+  checklist_mark "$f" 17 x                       # active=rev2 → rev2 closeout done
+  checklist_mark "$f" 18 x
+  checklist_mark "$f" 19 x
+  # Gate must see rev2 (terminal) → empty, NOT rev1's pending copies.
+  run checklist_nonterminal_by_names "$f" updatewbs impact lessonslearned
+  [ -z "$output" ]
+}
+
+@test "the #242 gate FIRES on the active revision's own pending closeout, ignoring a done rev1 (#76)" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  checklist_mark "$f" 17 x                       # active=rev1 → rev1 closeout done
+  checklist_mark "$f" 18 x
+  checklist_mark "$f" 19 x
+  _append_real_rev2 "$f"                          # rev2 closeout pending
+  # Gate must report rev2's pending steps (not read rev1's done copy first).
+  run checklist_nonterminal_by_names "$f" updatewbs impact lessonslearned
+  [[ "$output" == *"updatewbs:[ ]"* ]]
+  [[ "$output" == *"impact:[ ]"* ]]
+  [[ "$output" == *"lessonslearned:[ ]"* ]]
+}
+
+@test "the #149 preship gate reads the active revision's preship (#76)" {
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  checklist_mark "$f" 21 x                       # rev1 preship done (as at ship time)
+  _append_real_rev2 "$f"                          # rev2 preship pending
+  run checklist_nonterminal_by_names "$f" preship
+  [[ "$output" == *"preship:[ ]"* ]]              # gate fires on rev2, not rev1's [x]
+}
+
 # --- #242: checklist_nonterminal_by_names ----------------------------------
 
 _seed_242() {
