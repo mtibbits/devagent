@@ -36,15 +36,35 @@ setup() {
   [ "$output" = "$FIX_ISSUE_DIR/revisions/r3" ]
 }
 
-@test "revision_block_text substitutes {{N}} and lists steps 1-15 as pending" {
+@test "revision_block_text substitutes {{N}} and lists the full workflow (no pull) as pending (#76)" {
   run revision_block_text 2
   [ "$status" -eq 0 ]
   [[ "$output" == *"## Revision 2"* ]]
   [[ "$output" == *"[ ]  1. draft"* ]]
+  [[ "$output" == *"[ ] 14. redmr"* ]]
+  # #76: the revision block must carry preship + the full closeout, else a
+  # revised MR never re-merges/re-cleanups and bypasses the #149/#242 gates.
+  [[ "$output" == *"[ ] 21. preship"* ]]
   [[ "$output" == *"[ ] 15. ship"* ]]
+  [[ "$output" == *"[ ] 16. mergetoall"* ]]
+  [[ "$output" == *"[ ] 17. updatewbs"* ]]
+  [[ "$output" == *"[ ] 18. impact"* ]]
+  [[ "$output" == *"[ ] 19. lessonslearned"* ]]
+  [[ "$output" == *"[ ] 20. cleanup"* ]]
+  # A revision never re-pulls.
   [[ "$output" != *"0. pull"* ]]
-  [[ "$output" != *"16. mergetoall"* ]]
-  [[ "$output" != *"20. cleanup"* ]]
+}
+
+@test "revision_block.md matches checklist-standard's steps minus '0. pull' (#76 parity)" {
+  # Static invariant: the two templates must never drift. Extract the
+  # "- [ ] NN. name" step lines from each; the revision block is the standard
+  # checklist with the pull step removed, same order.
+  local repo; repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  local std_steps rev_steps expected
+  std_steps="$(grep -oE '\[ \] +[0-9]+\. [a-z]+' "$repo/templates/checklist-standard.md")"
+  rev_steps="$(grep -oE '\[ \] +[0-9]+\. [a-z]+' "$repo/templates/revision_block.md")"
+  expected="$(printf '%s\n' "$std_steps" | grep -v ' 0\. pull')"
+  [ "$rev_steps" = "$expected" ]
 }
 
 @test "revision_current honors DA_HOME, not \$HOME (#83 guard for the #97 fix)" {

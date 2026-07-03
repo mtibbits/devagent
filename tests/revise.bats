@@ -60,6 +60,11 @@ run_revise() {
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
   grep -q '\[ \]  1\. draft' "$FIX_ISSUE_DIR/checklist.md"
   grep -q '\[ \] 15\. ship' "$FIX_ISSUE_DIR/checklist.md"
+  # #76: the appended block carries preship + the full closeout, so a revised
+  # MR re-runs preship/mergetoall/updatewbs/impact/lessonslearned/cleanup.
+  grep -q '\[ \] 21\. preship' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 16\. mergetoall' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 20\. cleanup' "$FIX_ISSUE_DIR/checklist.md"
 }
 
 @test "revise preserves the original ## Revision 1 block" {
