@@ -101,3 +101,22 @@ _stub_shellcheck_analyzer() {
     grep -q '^san ' "$DEVAGENT_STUB_LOG"
     grep -q 'analyze: static + sanitizers complete' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "a failing sanitizer leg leaves step 11 UNMARKED through analyze.sh (#117 e2e)" {
+    # End-to-end through the REAL sanitizers script (no fake crutch): a ctest
+    # failure must exit analyze.sh nonzero BEFORE the state write / step-11
+    # mark / completion log — so an --auto chain (next.sh set -e) halts.
+    touch "$SOURCE_DIR/CMakeLists.txt"                 # pass the loud-skip guard
+    export DEVAGENT_ANALYZE_SANITIZERS="$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh"
+    devagent_stub cmake ""                             # configure + build succeed
+    devagent_stub ctest "FAIL: 1/2" 1                  # ctest fails every leg
+    run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"ctest exit=1"* ]]
+    [[ "$output" == *"$DEVDOC_DIR/Issue-1/analysis/"* ]]
+    # Step 11 stays [ ]; no completion log; state's last_step never advanced.
+    grep -qE '^- \[ \] +11\. analyze' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -q 'analyze: static + sanitizers complete' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+    grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
