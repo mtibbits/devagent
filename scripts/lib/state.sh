@@ -175,6 +175,85 @@ state_context_save() {
   fi
 }
 
+# ---- #240: issue-keyed live state -------------------------------------------
+# [context.<issue>] is the AUTHORITATIVE home of an issue's STATE_ISSUE_KEYS;
+# the top-level copies are a compatibility MIRROR maintained only while that
+# issue is the shared active_issue. Per-key truth table for reads:
+#   table hit                        → table value (always wins)
+#   table miss + issue == active     → top-level value (adopt-on-first-write
+#                                      migration for pre-#240 state)
+#   table miss + issue != active     → per-key state_init default
+# The mirror predicate is evaluated INSIDE the write lock (set-many-if, #240)
+# — a read-then-write pair would let a concurrent pull flip active_issue in
+# between and launder one issue's keys into another via the fallback.
+
+# _state_issue_default <key> — the state_init default for a per-issue key.
+_state_issue_default() {
+  case "$1" in
+    revision)  printf '1\n' ;;
+    last_step) printf '0\n' ;;
+    *)         printf '\n' ;;
+  esac
+}
+
+# _state_issue_id_ok <issue> — defensive shape check (dots nest TOML tables;
+# '#'/']' corrupt or brick the file). The env resolver validates too
+# (active_resolve_issue_src); this guards direct callers.
+_state_issue_id_ok() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# state_issue_get <project> <issue> <key>
+state_issue_get() {
+  local project="$1" issue="$2" key="$3" f out rc
+  [[ -n "$issue" && -n "$key" ]] || { echo "state_issue_get: issue and key required" >&2; return 2; }
+  _state_issue_id_ok "$issue" || die "state_issue_get: invalid issue id '$issue'"
+  state_exists "$project" || { _state_issue_default "$key"; return 0; }
+  f="$(state_path "$project")"
+  out="$(_state_toml get "$f" "context.${issue}.${key}" 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    echo "state_issue_get: state file for '$project' is unparseable and needs repair: $f" >&2
+    return 2
+  fi
+  # rc 0 = table HIT, even for an empty value (the truth table's "table hit
+  # wins"); only rc 1 (key absent) falls through to fallback/defaults.
+  if [ "$rc" -eq 0 ]; then printf '%s\n' "$out"; return 0; fi
+  local active
+  active="$(state_get "$project" active_issue 2>/dev/null || true)"
+  if [ "$active" = "$issue" ]; then
+    out="$(state_get "$project" "$key" 2>/dev/null || true)"
+    if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+  fi
+  _state_issue_default "$key"
+}
+
+# state_issue_set_many <project> <issue> <type key value>...
+# One locked transaction: table triplets always; top-level mirror triplets
+# iff <issue> is the active_issue AT WRITE TIME (predicate inside the lock).
+# NB: values may not be the literal strings "--then"/"--also" (set-many-if's
+# reserved bucket tokens — rejected loudly, never silently corrupted).
+state_issue_set_many() {
+  local project="$1" issue="$2"; shift 2
+  [[ $# -gt 0 && $(( $# % 3 )) -eq 0 ]] || die "state_issue_set_many: <type key value> triplets required"
+  _state_issue_id_ok "$issue" || die "state_issue_set_many: invalid issue id '$issue'"
+  state_init "$project"
+  local f; f="$(state_path "$project")"
+  local -a table=() mirror=()
+  local typ key val
+  while [ $# -gt 0 ]; do
+    typ="$1"; key="$2"; val="$3"; shift 3
+    table+=("$typ" "context.${issue}.${key}" "$val")
+    mirror+=("$typ" "$key" "$val")
+  done
+  _state_toml set-many-if "$f" active_issue "$issue" \
+      --then "${mirror[@]}" \
+      --also "${table[@]}" str updated_at "$(_state_now)" \
+    || die "state_issue_set_many: write failed for '$project'"
+}
+
 # state_context_has <project> <issue> — exit 0 iff a non-empty [context.<issue>]
 # snapshot exists. state_context_save only snapshots non-empty keys, so this
 # tells a caller whether anything was actually set aside (e.g. so pull.sh can

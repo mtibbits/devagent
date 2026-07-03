@@ -11,6 +11,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
@@ -24,23 +25,25 @@ project="${1:-}"
 config_is_project "$project" || die "mergetoall.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-explicit_issue="$issue_arg"   # remember the explicit arg before the fallback (#70)
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
-
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "mergetoall.sh: issue_dir not set or missing"
-
-# #70: an explicit issue arg must name the active issue — mergetoall squashes the
-# active branch from state, so a mismatched arg would silently ignore the named
-# issue. Mirrors comments.sh / revise.sh.
-if [ -n "$explicit_issue" ]; then
-    case "$issue_dir" in
-        */"$explicit_issue") : ;;
-        *) die "mergetoall.sh: requested issue '$explicit_issue' does not match active issue_dir '$issue_dir'" ;;
-    esac
+if [ -z "$issue_arg" ]; then
+    # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
+    # can adopt a parked issue's checklist) — pin/state only, else die.
+    # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
+    active_resolve_issue_src "$project" || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "mergetoall.sh: no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
-branch="$(state_get "$project" branch 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
+[ -d "$issue_dir" ] || die "mergetoall.sh: issue_dir not set or missing"
+
+# (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
+# issue — the branch to squash now reads ITS [context] table; an issue with
+# no recorded branch dies loudly below.)
+
+branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 [ -n "$branch" ] || die "mergetoall.sh: no branch in state"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have nothing to
@@ -49,7 +52,7 @@ branch="$(state_get "$project" branch 2>/dev/null || true)"
 # shared, so "$branch" resolves regardless (#68). Only the 'empty' verdict
 # authorizes the auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE)
 # never collapses into the destructive skip (fail-safe by direction, #25/#68).
-baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "mergetoall.sh: no commits on branch — auto-marking step 16 [-] (zero-diff issue)"
@@ -181,7 +184,7 @@ fi
 # wrong-branch commit bug (#33 class). Detached HEAD → orig_branch empty → skip.
 [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
 
-state_set_many "$project" str last_step "16" str last_step_name "mergetoall"
+state_ctx_set_many "$project" "$issue_arg" str last_step "16" str last_step_name "mergetoall"
 checklist_mark "$issue_dir/checklist.md" 16 x
 log_append "$issue_dir" mergetoall "squashed $branch → $all_prs; $push_status${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

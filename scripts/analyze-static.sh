@@ -8,6 +8,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 
 : "${DEVAGENT_PYTHON:=python3}"
 
@@ -16,12 +17,21 @@ project="${1:-}"
 config_is_project "$project" || die "analyze-static.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+if [ -z "$issue_arg" ]; then
+    # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
+    # can adopt a parked issue's checklist) — pin/state only, else die.
+    # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
+    active_resolve_issue_src "$project" || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "analyze-static.sh: no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
+fi
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "analyze-static.sh: issue_dir not set or missing"
 
-baseline="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
 [ -n "$baseline" ] || die "analyze-static.sh: no baseline_sha in state and no default_baseline in config"
 

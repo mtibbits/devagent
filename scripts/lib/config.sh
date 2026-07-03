@@ -157,6 +157,18 @@ step_models_tier() {
   printf '%s\n' "$tier"
 }
 
+# issue_dir_for <project> <issue> — derive an issue's devdoc directory (#240).
+# Byte-matches pull.sh's stored value: ${devdoc%/}/<issue>. Dies loudly via
+# project_devdoc_dir when devdoc_dir is unresolvable; display readers that
+# must tolerate misconfiguration wrap with 2>/dev/null || true (their existing
+# idiom). Pinned sessions derive instead of reading the shared issue_dir slot.
+issue_dir_for() {
+  local project="$1" issue="$2" devdoc
+  [ -n "$issue" ] || die "issue_dir_for: issue required"
+  devdoc="$(project_devdoc_dir "$project")"
+  printf '%s/%s\n' "${devdoc%/}" "$issue"
+}
+
 # project_devdoc_dir <project> — resolve a project's devdoc directory, or die
 # loudly (#246; logic moved here from the former depends.sh:_depends_devdoc_dir).
 # The DEVAGENT_TEST_DEVDOC override is the one legitimately-optional (tolerant)

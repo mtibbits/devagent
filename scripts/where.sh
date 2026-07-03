@@ -14,6 +14,8 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 
 _report_parked() {
@@ -31,9 +33,14 @@ main() {
 
   echo "Project: $project"
 
+  # #240: session view — a pinned session's `where` reports ITS issue.
   local active issue_dir
-  active="$(state_get "$project" active_issue 2>/dev/null || true)"
-  issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+  if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    active="$(active_resolve_issue "$project" || true)"
+  else
+    active="$(state_get "$project" active_issue 2>/dev/null || true)"
+  fi
+  issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 
   if [[ -z "$active" || "$active" == "null" ]]; then
     echo "Active issue: (none)"

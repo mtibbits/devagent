@@ -65,7 +65,7 @@ fi
 parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
 [[ -f "$parser" ]] || die "wbs-parser.py not found at $parser"
 
-active_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
+active_issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
 if [[ "$active_issue" == "null" || "$active_issue" == '""' ]]; then
   active_issue=""
 fi

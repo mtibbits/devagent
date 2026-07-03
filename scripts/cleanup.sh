@@ -21,7 +21,20 @@ config_is_project "$project" || die "cleanup.sh: unknown project '$project'"
 issue_arg="${2:-}"
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+# #240: a pinned session cleans up ITS issue — derive the dir instead of
+# trusting the shared slot (which belongs to the other session). The pin is
+# VALIDATED first (review MED: a traversal pin like Issue-2/../Issue-1 would
+# otherwise run the full cleanup against another issue's dir).
+cleanup_target="${2:-}"; cleanup_target="${cleanup_target##*/}"
+[ "$cleanup_target" != "--" ] || cleanup_target=""
+[ -n "$cleanup_target" ] || cleanup_target="${DEVAGENT_ACTIVE_ISSUE:-}"
+if [ -n "$cleanup_target" ]; then
+    _state_issue_id_ok "$cleanup_target" \
+        || die "cleanup.sh: invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
+    issue_dir="$(issue_dir_for "$project" "$cleanup_target")"
+else
+    issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+fi
 [ -d "$issue_dir" ] || die "cleanup.sh: issue_dir not set or missing"
 
 # #242 (generalizes #231): refuse to close while ANY prior closeout step is
@@ -51,20 +64,34 @@ base_branch="${baseline##*/}"
 # Bookkeeping first — updates checklist.md so devdoc has something to commit.
 # Clear the per-issue context and GC any leftover snapshot for this issue
 # (#98), then record cleanup as the last step.
-state_context_clear "$project"
-# GC the snapshot by issue id: prefer state's active_issue ($2 may be an
-# issue-dir path per commands/cleanup.md, or "--" when chained with a note).
-gc_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
+# #240: GC the ISSUE BEING CLEANED, and touch the shared slot only when that
+# issue owns it. A pinned session finishing Issue-2 while the shared pointer
+# says Issue-1 must GC context.Issue-2 — not Issue-1's live table — and must
+# not wipe the other session's top-level keys or pointer.
+# Precedence: explicit arg (the arg IS the issue) → pin → shared state.
+gc_issue="${2:-}"
+gc_issue="${gc_issue##*/}"
+[ "$gc_issue" != "--" ] || gc_issue=""
+[ -n "$gc_issue" ] || gc_issue="${DEVAGENT_ACTIVE_ISSUE:-}"
+if [ -z "$gc_issue" ]; then
+    gc_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
+fi
 if [ -z "$gc_issue" ] || [ "$gc_issue" = "null" ]; then
     gc_issue="${issue_arg##*/}"
 fi
+shared_active="$(state_get "$project" active_issue 2>/dev/null || true)"
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
 fi
-state_set_many "$project" \
-  str last_step      "20" \
-  str last_step_name "cleanup" \
-  str active_issue   ""
+if [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ "$shared_active" = "$gc_issue" ]; then
+    state_context_clear "$project"
+    state_set_many "$project" \
+      str last_step      "20" \
+      str last_step_name "cleanup" \
+      str active_issue   ""
+else
+    info "cleanup: session is issue-pinned (${gc_issue}) — shared active_issue (${shared_active}) untouched"
+fi
 
 checklist_mark "$issue_dir/checklist.md" 20 x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"

@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=lib/checklist.sh
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=lib/log.sh
@@ -75,22 +76,24 @@ project="${1:-}"
 config_is_project "$project" || die "commit.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-explicit_issue="$issue_arg"   # remember the explicit arg before the fallback (#70)
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+if [ -z "$issue_arg" ]; then
+    # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
+    # can adopt a parked issue's checklist) — pin/state only, else die.
+    # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
+    active_resolve_issue_src "$project" || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "commit.sh: no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
+fi
 [ -n "$issue_arg" ] || die "commit.sh: no active issue and no issue arg"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "commit.sh: issue dir not found: $issue_dir"
-
-# #70: an explicit issue arg must name the active issue — issue_dir/branch come
-# from state, so a mismatched arg would commit the active branch but stamp the
-# wrong {{issue}} into the message. Mirrors comments.sh / revise.sh.
-if [ -n "$explicit_issue" ]; then
-    case "$issue_dir" in
-        */"$explicit_issue") : ;;
-        *) die "commit.sh: requested issue '$explicit_issue' does not match active issue_dir '$issue_dir'" ;;
-    esac
-fi
+# (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
+# issue — branch/keys now come from ITS [context] table, so a mismatched arg
+# can no longer commit the active branch under the wrong {{issue}}; an issue
+# with no recorded branch dies loudly at the #69 guard below.)
 
 # Zero-diff guard — decided on the WORKING TREE, not commits-ahead (issue #25).
 # commit.sh commits the staged index (`git commit -s -F` below); the implement
@@ -104,13 +107,13 @@ fi
 #                                 no-op success, mark [x] and exit (#116)
 #   clean tree AND no commits  -> genuine artifact-only, auto-mark [-] and exit
 source_dir="$(config_get_project_field "$project" source_dir)"
-worktree="$(state_get "$project" worktree_path 2>/dev/null || true)"
+worktree="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
 
 # Success epilogue for step 10 — shared by the real-commit tail and the #116
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
-    state_set_many "$project" str last_step "10" str last_step_name "commit"
+    state_ctx_set_many "$project" "$issue_arg" str last_step "10" str last_step_name "commit"
     checklist_mark "$issue_dir/checklist.md" 10 x
     log_append "$issue_dir" commit "$1"
     checklist_print_next_hint "$issue_dir/checklist.md"
@@ -122,7 +125,13 @@ finish_step() {
 # or the base branch after cleanup, in the revision flow). A detached HEAD
 # yields an empty name and is also refused. Checked on work_dir, whose HEAD
 # IS the issue branch under a worktree too.
-branch="$(state_get "$project" branch 2>/dev/null || true)"
+branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
+# #240: an issue-keyed session (env pin / explicit arg) with no recorded
+# branch must die loudly, not fall through the empty-branch tolerance below —
+# that tolerance exists for legacy bare flows only.
+if [ -z "$branch" ] && { [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "${2:-}" ]; }; then
+    die "commit.sh: no branch recorded for '$issue_arg' — run /devagent:branch first"
+fi
 cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
 if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
     die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
@@ -165,7 +174,7 @@ if [ -z "$staged" ]; then
         # (missing baseline / rev-list fault) must never collapse into either
         # outcome — with per-task commits the clean tree is the mainline end
         # state, so a stale baseline would misrecord real work as artifact-only.
-        baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+        baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
         verdict="$(zero_diff_classify "$DEVAGENT_GIT" "$work_dir" HEAD "$baseline_sha")"
         case "$verdict" in
             commits)

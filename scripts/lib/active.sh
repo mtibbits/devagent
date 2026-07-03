@@ -108,19 +108,88 @@ active_scan_recent_incomplete() {
   printf '%s\n' "$best"
 }
 
-# active_resolve_issue <project> [arg]
-# Implements the issue priority chain.
-active_resolve_issue() {
+# active_resolve_issue_src <project> [arg]
+# Issue resolution engine (#240, mirroring #282's project _src). Sets, in the
+# CALLING shell (no stdout — callers must NOT command-substitute this, or the
+# variables die in the subshell):
+#   ACTIVE_RESOLVED_ISSUE      the resolved issue id
+#   ACTIVE_ISSUE_RESOLVED_FROM arg | env | state | scan
+# Writers gate shared-pointer writes on the source: an env-pinned session's
+# pin IS its pointer — writing the shared one is the same-project clobber.
+# The env pin is validated here (the choke point): ids become TOML table
+# names ([context.<issue>]), so dots (table nesting), '#' (comment-guard
+# brick), and any non-token character are rejected before they can touch
+# the state file.
+active_resolve_issue_src() {
   local project="$1" arg="${2:-}"
-  [ -n "$project" ] || { echo "active_resolve_issue: project required" >&2; return 2; }
-  if [ -n "$arg" ]; then printf '%s\n' "$arg"; return 0; fi
+  [ -n "$project" ] || { echo "active_resolve_issue_src: project required" >&2; return 2; }
+  ACTIVE_RESOLVED_ISSUE=""
+  ACTIVE_ISSUE_RESOLVED_FROM=""
+  if [ -n "$arg" ]; then
+    case "$arg" in
+    *[!A-Za-z0-9_-]*)
+      die "active_resolve_issue_src: issue arg '$arg' is not a valid issue id (allowed: A-Za-z0-9 _ -)" ;;
+    esac
+    ACTIVE_ISSUE_RESOLVED_FROM="arg"; ACTIVE_RESOLVED_ISSUE="$arg"; return 0
+  fi
   if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
-    printf '%s\n' "$DEVAGENT_ACTIVE_ISSUE"; return 0
+    case "$DEVAGENT_ACTIVE_ISSUE" in
+    *[!A-Za-z0-9_-]*)
+      die "active_resolve_issue_src: DEVAGENT_ACTIVE_ISSUE '$DEVAGENT_ACTIVE_ISSUE' is not a valid issue id (allowed: A-Za-z0-9 _ - ; no dots — they nest TOML tables)" ;;
+    esac
+    ACTIVE_ISSUE_RESOLVED_FROM="env"; ACTIVE_RESOLVED_ISSUE="$DEVAGENT_ACTIVE_ISSUE"; return 0
   fi
   local ai
   ai="$(state_get "$project" active_issue 2>/dev/null || true)"
   if [ -n "$ai" ] && [ "$ai" != "null" ] && [ "$ai" != '""' ]; then
-    printf '%s\n' "$ai"; return 0
+    ACTIVE_ISSUE_RESOLVED_FROM="state"; ACTIVE_RESOLVED_ISSUE="$ai"; return 0
   fi
-  active_scan_recent_incomplete "$project"
+  # shellcheck disable=SC2034  # consumed by callers, not here
+  ACTIVE_ISSUE_RESOLVED_FROM="scan"
+  ACTIVE_RESOLVED_ISSUE="$(active_scan_recent_incomplete "$project")" || return 1
+}
+
+# active_resolve_issue <project> [arg]
+# Echo wrapper over the setter — keeps existing $(...) callers byte-compatible.
+active_resolve_issue() {
+  active_resolve_issue_src "$@" || return $?
+  printf '%s\n' "$ACTIVE_RESOLVED_ISSUE"
+}
+
+# ---- #240 session-view accessors --------------------------------------------
+# Step scripts act on "the session's issue": the env pin or an explicit arg
+# routes reads/writes to that issue's [context] table; an unpinned bare
+# invocation keeps today's shared-slot behavior byte-for-byte (including the
+# stale-issue_dir edge after cleanup — deliberately unchanged).
+
+# state_ctx_get <project> <key> [issue-arg] — session-view read.
+state_ctx_get() {
+  local project="$1" key="$2" arg="${3:-}"
+  if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
+    local issue
+    issue="$(active_resolve_issue "$project" "$arg")" || return 1
+    state_issue_get "$project" "$issue" "$key"
+  else
+    state_get "$project" "$key"
+  fi
+}
+
+# state_ctx_set_many <project> <issue> <type key value>... — session-view
+# write: always issue-keyed (the in-lock mirror keeps the unpinned shared
+# view identical; see state_issue_set_many).
+state_ctx_set_many() {
+  state_issue_set_many "$@"
+}
+
+# issue_context_dir <project> [issue-arg] — the issue dir a step script acts
+# on: derived from the resolved issue when pinned/arg'd, else the shared slot.
+issue_context_dir() {
+  local project="$1" arg="${2:-}"
+  if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
+    local issue
+    issue="$(active_resolve_issue "$project" "$arg")" || return 1
+    issue_dir_for "$project" "$issue"
+  else
+    state_get "$project" issue_dir
+  fi
 }

@@ -82,27 +82,38 @@ main() {
   # snapshot its per-issue context first (it may not have been parked), then
   # start the new issue from clean defaults. Re-pull of the same issue must
   # not disturb in-flight context (#98).
+  # #240: an env-pinned session's pin IS its pointer — the WHOLE displacement/
+  # promote block is skipped (not just the pointer write): running the
+  # save/clear here would wipe the other session's live top-level keys.
   local prev displaced=""
-  prev="$(state_get "$project" active_issue 2>/dev/null || true)"
-  if [[ "$prev" != "$issue_id" ]]; then
-    if [[ -n "$prev" && "$prev" != "null" ]]; then
-      state_context_save "$project" "$prev"
-      # #247: remember the displaced issue ONLY if a non-empty snapshot was
-      # actually taken (it was genuinely in-flight). Re-pull (prev == issue_id),
-      # no-prev, and nothing-to-save cases leave $displaced empty and stay silent.
-      state_context_has "$project" "$prev" && displaced="$prev"
+  if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    info "pull: session is issue-pinned (${DEVAGENT_ACTIVE_ISSUE}) — shared active_issue untouched"
+  else
+    prev="$(state_get "$project" active_issue 2>/dev/null || true)"
+    if [[ "$prev" != "$issue_id" ]]; then
+      if [[ -n "$prev" && "$prev" != "null" ]]; then
+        state_context_save "$project" "$prev"
+        # #247: remember the displaced issue ONLY if a non-empty snapshot was
+        # actually taken (it was genuinely in-flight). Re-pull (prev == issue_id),
+        # no-prev, and nothing-to-save cases leave $displaced empty and stay silent.
+        state_context_has "$project" "$prev" && displaced="$prev"
+      fi
+      state_context_clear "$project"
     fi
-    state_context_clear "$project"
+    # #96: active_issue + issue_dir in ONE transaction — the issue's canonical
+    # tearing example (A's issue with B's dir). Clobber-warn carried inside.
+    # (#282: no pointer write — pull's project is always an explicit positional.)
+    state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
   fi
-  # #96: active_issue + issue_dir in ONE transaction — the issue's canonical
-  # tearing example (A's issue with B's dir). Clobber-warn carried inside.
-  # (#282: no pointer write — pull's project is always an explicit positional.)
-  state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
   # An active issue is by definition not parked: drop any stale parked flag
-  # and snapshot for it, so a later resume cannot restore pre-park context
-  # over live work (#98).
-  state_remove_parked "$project" "$issue_id"
-  state_unset "$project" "context.${issue_id}"
+  # and PRE-PARK snapshot, so a later resume cannot restore stale context over
+  # live work (#98). The snapshot GC is gated on the parked flag — under #240
+  # the [context.<issue>] table is a pinned session's LIVE home, and an
+  # unconditional unset on re-pull would delete the only copy (review CRIT).
+  if state_list_parked "$project" | grep -qxF "$issue_id"; then
+    state_remove_parked "$project" "$issue_id"
+    state_unset "$project" "context.${issue_id}"
+  fi
 
   # #247: targeted feedback when this pull set aside a different in-flight issue.
   # The #98 snapshot already preserved it; without this the operator only sees

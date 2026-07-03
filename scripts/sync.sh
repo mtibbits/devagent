@@ -16,6 +16,9 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
 
+# #240: sync iterates PROJECTS and reports the SHARED view by definition —
+# raw state_get reads are deliberate here (a session pin must not leak into
+# every project's iteration).
 sync_one_project() {
     local project="$1"
     local state_file

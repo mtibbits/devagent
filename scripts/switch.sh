@@ -25,6 +25,11 @@ main() {
   # resume.sh's two preconditions — otherwise a bad target parks the current
   # issue then dies, leaving a half-applied switch (no active issue, previous
   # freshly [P]-marked) for the operator to repair by hand.
+  # #240: a pinned session has no business moving the SHARED pointer — its
+  # pin is its issue. Refusing beats a half-applied park+suppressed-resume.
+  [[ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]] \
+    || die "switch.sh: session is issue-pinned (DEVAGENT_ACTIVE_ISSUE=${DEVAGENT_ACTIVE_ISSUE}) — switch manages the shared pointer; unset the pin or use pull/resume"
+
   local parked devdoc target_dir
   parked="$(state_list_parked "$project")"
   grep -qxF "$target" <<<"$parked" || die "switch.sh: '$target' not parked for $project"

@@ -326,3 +326,53 @@ PY
   [ "$status" -eq 0 ]
   [ "$output" = "w" ]
 }
+
+# --- #240: set-many-if — conditional mirror triplets inside the lock --------
+
+@test "set-many-if writes --also always, --then only on predicate match (#240)" {
+  _seed96
+  run python3 "$TOML" set-many-if "$F" active_issue "Issue-1" \
+      --then str branch "feat/x" --also str "context.Issue-1.branch" "feat/x"
+  [ "$status" -eq 0 ]
+  [ "$(python3 "$TOML" get "$F" branch)" = "feat/x" ]
+  [ "$(python3 "$TOML" get "$F" context.Issue-1.branch)" = "feat/x" ]
+}
+
+@test "set-many-if drops --then on predicate mismatch, still writes --also (#240)" {
+  _seed96
+  run python3 "$TOML" set-many-if "$F" active_issue "Issue-2" \
+      --then str branch "feat/x" --also str "context.Issue-2.branch" "feat/x"
+  [ "$status" -eq 0 ]
+  run python3 "$TOML" get "$F" branch
+  [ "$status" -ne 0 ]
+  [ "$(python3 "$TOML" get "$F" context.Issue-2.branch)" = "feat/x" ]
+}
+
+@test "set-many-if predicate on absent key = mismatch (#240)" {
+  _seed96
+  run python3 "$TOML" set-many-if "$F" nope "whatever" \
+      --then str branch "feat/x" --also str ok "y"
+  [ "$status" -eq 0 ]
+  run python3 "$TOML" get "$F" branch
+  [ "$status" -ne 0 ]
+  [ "$(python3 "$TOML" get "$F" ok)" = "y" ]
+}
+
+@test "set-many-if is all-or-nothing across BOTH triplet lists (#240)" {
+  _seed96
+  before="$(stat -c '%Y %s' "$F"; cat "$F")"
+  run python3 "$TOML" set-many-if "$F" active_issue "Issue-1" \
+      --then str branch "feat/x" --also int b notanint
+  [ "$status" -eq 2 ]
+  after="$(stat -c '%Y %s' "$F"; cat "$F")"
+  [ "$before" = "$after" ]
+}
+
+@test "set-many-if exit 2 on unparseable file, no dump (#240)" {
+  F="$BATS_TEST_TMPDIR/bad.toml"
+  printf 'not [ toml\n' > "$F"
+  before="$(cat "$F")"
+  run python3 "$TOML" set-many-if "$F" a "1" --then str x "y" --also str z "w"
+  [ "$status" -eq 2 ]
+  [ "$(cat "$F")" = "$before" ]
+}

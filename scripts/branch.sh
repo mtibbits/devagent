@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=lib/checklist.sh
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=lib/log.sh
@@ -26,14 +27,23 @@ project="${1:-}"
 config_is_project "$project" || die "branch.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+if [ -z "$issue_arg" ]; then
+    # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
+    # can adopt a parked issue's checklist) — pin/state only, else die.
+    # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
+    active_resolve_issue_src "$project" || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "branch.sh: no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
+fi
 [ -n "$issue_arg" ] || die "branch.sh: no active issue and no issue arg"
 
 # Extract numeric portion: Issue-676 → 676 ; Issue-Fork-42 → 42
 issue_num="${issue_arg#Issue-}"
 issue_num="${issue_num#Fork-}"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "branch.sh: issue dir not found: $issue_dir"
 
 # Read issue type and title from marker files (written by /devagent:draft, step 1).
@@ -143,7 +153,7 @@ fi
 
 # #96: one atomic transaction — a concurrent session can no longer observe
 # branch from this issue paired with baseline_sha from another.
-state_set_many "$project" \
+state_ctx_set_many "$project" "$issue_arg" \
   str branch         "$branch" \
   str baseline_sha   "$baseline_sha" \
   str worktree_path  "$worktree_dir" \
