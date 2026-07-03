@@ -217,7 +217,10 @@ def _dump(path: Path, data: dict) -> None:
     _emit_table("", data, out)
     text = "\n".join(out).rstrip() + "\n"
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text)
+    # #294: newline="" (LF, not Windows CRLF) + explicit UTF-8 to match the
+    # tomllib binary read — else a non-ASCII value writes cp1252 and the next
+    # read raises TOMLDecodeError (a bricked state file).
+    tmp.write_text(text, newline="", encoding="utf-8")
     # PermissionError only: a concurrent unlocked reader holding `path` open
     # makes the replace fail transiently on Windows — retry. A
     # FileNotFoundError here would mean `tmp` itself vanished (unrecoverable),
@@ -319,6 +322,24 @@ def _has_comment(raw: str) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    # #294: force UTF-8 + no newline translation on the console. Windows
+    # text-mode stdout otherwise rewrites a value's `\n`→`\r\n` (corrupting
+    # multiline output and leaving a trailing `\r` on single-line values for
+    # every caller), and encodes in the locale code page (cp1252) rather than
+    # the UTF-8 the tomllib read path assumes. Both streams, first thing, so
+    # every `print()` below is covered; identity on POSIX. Guarded: a
+    # replaced/detached stream (StringIO in in-process tests) is left alone.
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            # Preserve the stream's existing errors handler — reconfigure()
+            # silently resets it to "strict" otherwise, which on POSIX would
+            # flip stderr from backslashreplace to strict and make an error
+            # message with an undecodable (surrogateescape'd) path raise
+            # instead of printing. errors=_s.errors keeps this identity on
+            # POSIX (encoding is already utf-8 there); only newline changes.
+            _s.reconfigure(newline="", encoding="utf-8", errors=_s.errors)
+        except (AttributeError, ValueError, OSError):
+            pass
     if len(argv) < 2:
         print("usage: _toml.py <verb> <file> [args...]", file=sys.stderr)
         return 2
@@ -398,7 +419,7 @@ def main(argv: list[str]) -> int:
         # is safe because file.exists() just passed, so a later miss is a
         # genuine mid-replace transient (not a permanently-absent file).
         if file.exists() and _has_comment(
-                _retry_windows_share(lambda: file.read_text(), also_missing=True)):
+                _retry_windows_share(lambda: file.read_text(encoding="utf-8"), also_missing=True)):
             print(f"_toml: refusing to mutate comment-bearing file {file} "
                   "(mutation drops comments; it is for comment-free state files)",
                   file=sys.stderr)
