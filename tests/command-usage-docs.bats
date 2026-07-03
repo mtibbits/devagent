@@ -44,8 +44,14 @@ C="$REPO/commands"
 }
 
 # --- No command doc references the DELETED bash §6.1 parser (#121/#122) ------
-# The correct "Invokes scripts/X.sh with the parsed arguments per spec §6.1"
-# wording (the MODEL parses) stays; only a reference to the deleted parser fails.
+# This is the precise, false-positive-free form of the #121 comment's "no
+# command doc implies a BASH-level §6.1 parser": the concrete bash parser that
+# existed was parse_devagent_args (deleted in #122), so banning its name is the
+# testable assertion. A blanket "parses"/"parser" word-ban is WRONG — it would
+# false-fire on legitimate non-§6.1 uses (redmr.md's §14.4 "parser-compatible"
+# format, doctor.md's "config parses" TOML check). The correct "Invokes
+# scripts/X.sh with the parsed arguments per spec §6.1" wording (the MODEL
+# parses, then invokes) stays — the regex below does not match it.
 @test "no command doc references the deleted parse-args parser (#125/#121)" {
   run grep -rEl 'parse_devagent_args|parse-args\.sh' "$C"
   [ "$status" -ne 0 ]

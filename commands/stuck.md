@@ -1,7 +1,7 @@
 ---
 description: Mark the current step stuck and write a STUCK file
 allowed-tools: Bash
-argument-hint: "<project> "<reason>""
+argument-hint: '<project> "<reason>"'
 ---
 
 # /devagent:stuck
