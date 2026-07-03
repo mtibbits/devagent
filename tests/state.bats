@@ -301,7 +301,6 @@ teardown() { teardown_tmp_devagent_home; }
 @test "state_issue_set_many is ONE transaction (single updated_at bump) (#240)" {
   state_init volk
   state_set volk active_issue Issue-1
-  before="$(state_get volk updated_at)"
   state_issue_set_many volk Issue-1 str branch "x" str baseline_sha "y" int revision 2
   # No torn intermediate observable: all three landed.
   [ "$(state_get volk branch)" = "x" ]
