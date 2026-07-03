@@ -9,6 +9,19 @@ fork_first       = false
 ship_as_draft    = false
 default_baseline = "origin/{{DEFAULT_BRANCH}}"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# Session isolation (#240): state is keyed by ISSUE, not by session — a
+# session is identified by its issue pin. Two concurrent sessions on this
+# project pin one issue each (export DEVAGENT_ACTIVE_ISSUE=Issue-N per
+# worktree, e.g. via .claude/settings.local.json env, next to
+# DEVAGENT_ACTIVE_PROJECT). A pinned session reads/writes its own
+# [context.<issue>] table and NEVER touches the shared active_issue slot
+# (pull/park skip it; switch refuses; cleanup GCs only its own table).
+# Unpinned single-session behavior is unchanged and permanent — the shared
+# slot is the default, not legacy; pre-existing state migrates
+# adopt-on-first-write. Two UNpinned sessions on one project remain the #7
+# advisory-warning case. Invalid pin ids fail loud (they would become TOML
+# table names).
+#
 # analyze: step-11 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
 # compile_commands.json + ASan/UBSan/TSan — the pre-#55 behavior). "shellcheck"
 # = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash;
