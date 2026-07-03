@@ -151,3 +151,41 @@ active_resolve_issue() {
   active_resolve_issue_src "$@" || return $?
   printf '%s\n' "$ACTIVE_RESOLVED_ISSUE"
 }
+
+# ---- #240 session-view accessors --------------------------------------------
+# Step scripts act on "the session's issue": the env pin or an explicit arg
+# routes reads/writes to that issue's [context] table; an unpinned bare
+# invocation keeps today's shared-slot behavior byte-for-byte (including the
+# stale-issue_dir edge after cleanup — deliberately unchanged).
+
+# state_ctx_get <project> <key> [issue-arg] — session-view read.
+state_ctx_get() {
+  local project="$1" key="$2" arg="${3:-}"
+  if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
+    local issue
+    issue="$(active_resolve_issue "$project" "$arg")" || return 1
+    state_issue_get "$project" "$issue" "$key"
+  else
+    state_get "$project" "$key"
+  fi
+}
+
+# state_ctx_set_many <project> <issue> <type key value>... — session-view
+# write: always issue-keyed (the in-lock mirror keeps the unpinned shared
+# view identical; see state_issue_set_many).
+state_ctx_set_many() {
+  state_issue_set_many "$@"
+}
+
+# issue_context_dir <project> [issue-arg] — the issue dir a step script acts
+# on: derived from the resolved issue when pinned/arg'd, else the shared slot.
+issue_context_dir() {
+  local project="$1" arg="${2:-}"
+  if [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "$arg" ]; then
+    local issue
+    issue="$(active_resolve_issue "$project" "$arg")" || return 1
+    issue_dir_for "$project" "$issue"
+  else
+    state_get "$project" issue_dir
+  fi
+}

@@ -33,9 +33,9 @@ config_is_project "$project" || die "record-scope.sh: unknown project '$project'
 autostage="$(config_get_project_field "$project" commit_autostage 2>/dev/null || echo false)"
 [ "$autostage" = "true" ] || exit 0
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "record-scope.sh: issue_dir not set or missing"
-baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+baseline_sha="$(state_ctx_get "$project" baseline_sha 2>/dev/null || true)"
 [ -n "$baseline_sha" ] || die "record-scope.sh: baseline_sha not set (run branch first)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 

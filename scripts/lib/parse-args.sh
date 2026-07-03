@@ -87,10 +87,12 @@ parse_devagent_args() {
     fi
   fi
 
-  # Default issue from active_issue for the resolved project
+  # Default issue from the session view: env pin first (#240, mirroring the
+  # #282 project-pin block above), then the shared active_issue.
   if [[ -z "$DA_ISSUE" && -n "$DA_PROJECT" ]]; then
     local ai
-    ai="$(state_get "$DA_PROJECT" active_issue 2>/dev/null || true)"
+    ai="${DEVAGENT_ACTIVE_ISSUE:-}"
+    [[ -n "$ai" ]] || ai="$(state_get "$DA_PROJECT" active_issue 2>/dev/null || true)"
     if [[ -n "$ai" && "$ai" != "null" ]]; then DA_ISSUE="$ai"; fi
   fi
 }

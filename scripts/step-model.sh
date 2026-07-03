@@ -22,9 +22,16 @@ project="${1:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 step="${2:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 issue_dir="${3:-}"
 if [[ -z "$issue_dir" ]]; then
-  ai="$(state_get "$project" active_issue 2>/dev/null || true)"
-  if [[ -n "$ai" && "$ai" != "null" ]]; then
-    issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+  if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    # #240: pinned session — derive ITS dir (the active_issue gate below is
+    # the SHARED session's leak guard and doesn't apply to a pin).
+    . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+    issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
+  else
+    ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+    if [[ -n "$ai" && "$ai" != "null" ]]; then
+      issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+    fi
   fi
 fi
 step_models_tier "$project" "$step" "$issue_dir"

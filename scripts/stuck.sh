@@ -14,6 +14,8 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
@@ -26,7 +28,7 @@ main() {
   config_is_project "$project" || die "stuck.sh: unknown project '$project'"
 
   local issue_dir
-  issue_dir="$(state_get "$project" issue_dir)"
+  issue_dir="$(issue_context_dir "$project")"
   [[ -d "$issue_dir" ]] || die "stuck.sh: no issue_dir; nothing to mark stuck"
 
   local checklist="$issue_dir/checklist.md"

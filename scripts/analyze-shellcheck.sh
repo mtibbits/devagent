@@ -15,21 +15,22 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 
 project="${1:-}"
 [ -n "$project" ] || die "analyze-shellcheck.sh: project required"
 config_is_project "$project" || die "analyze-shellcheck.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+[ -n "$issue_arg" ] || issue_arg="$(active_resolve_issue "$project" 2>/dev/null || true)"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "analyze-shellcheck.sh: issue_dir not set or missing"
 
 command -v shellcheck >/dev/null 2>&1 \
     || die "analyze-shellcheck.sh: shellcheck not found on PATH"
 
-baseline="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
 [ -n "$baseline" ] || die "analyze-shellcheck.sh: no baseline_sha in state and no default_baseline in config"
 

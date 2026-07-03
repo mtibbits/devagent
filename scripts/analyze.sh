@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 
@@ -24,9 +25,9 @@ project="${1:-}"
 config_is_project "$project" || die "analyze.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+[ -n "$issue_arg" ] || issue_arg="$(active_resolve_issue "$project" 2>/dev/null || true)"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "analyze.sh: issue_dir not set or missing"
 
 # #55: analyzer family. Absent or explicitly empty ⇒ cmake (byte-compatible
@@ -46,7 +47,7 @@ shellcheck)
     log_line="shellcheck (diff-scoped) complete; sanitizers skipped: none exist for bash (bats suite is the dynamic coverage)"
     ;;
 none)
-    state_set_many "$project" str last_step "11" str last_step_name "analyze"
+    state_ctx_set_many "$project" "$issue_arg" str last_step "11" str last_step_name "analyze"
     checklist_mark "$issue_dir/checklist.md" 11 -
     log_append "$issue_dir" analyze "skipped: analyze = \"none\" for project '$project' — no analyzer family applies${NOTE:+ — $NOTE}"
     checklist_print_next_hint "$issue_dir/checklist.md"
@@ -57,7 +58,7 @@ none)
     ;;
 esac
 
-state_set_many "$project" str last_step "11" str last_step_name "analyze"
+state_ctx_set_many "$project" "$issue_arg" str last_step "11" str last_step_name "analyze"
 checklist_mark "$issue_dir/checklist.md" 11 x
 log_append "$issue_dir" analyze "${log_line}${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

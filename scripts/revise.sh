@@ -55,18 +55,16 @@ done
 # instead of the literal string 'default', matching next.sh / statusreport.sh / wbs.
 PROJECT="$(active_resolve_project "$PROJECT")"
 
-issue_dir=$(state_get "$PROJECT" issue_dir) \
+# #240: the session's issue (arg → env pin → shared state); reads/writes are
+# keyed to it. (Supersedes the #70 arg-vs-state crosscheck: an explicit arg
+# IS the issue.)
+ISSUE="$(active_resolve_issue "$PROJECT" "$ISSUE" 2>/dev/null || true)"
+issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
+[[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
 
-if [[ -n "$ISSUE" ]]; then
-  case "$issue_dir" in
-    */"$ISSUE") : ;;
-    *) die "requested issue '$ISSUE' does not match active issue_dir '$issue_dir'" ;;
-  esac
-fi
-
-n_cur=$(revision_current "$PROJECT")
+n_cur=$(revision_current "$PROJECT" "$ISSUE")
 prev_rdir=$(revision_dir "$issue_dir" "$n_cur")
 prev_comments="$prev_rdir/comments.md"
 
@@ -80,8 +78,8 @@ mkdir -p "$new_rdir"
 
 revision_block_text "$n_new" "$PROJECT" >>"$issue_dir/checklist.md"
 
-# #96: int + str in one transaction.
-state_set_many "$PROJECT" int revision "$n_new" str pending_comments_file "$prev_comments"
+# #96: int + str in one transaction (#240: issue-keyed, mirror inside the lock).
+state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" str pending_comments_file "$prev_comments"
 
 k=$(grep -c '^### @' "$prev_comments" || true)
 # #75: route through log_append so the entry lands inside the `## Log` section,

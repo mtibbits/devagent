@@ -14,6 +14,8 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
@@ -49,8 +51,8 @@ main() {
     issue="$issue_arg"
     issue_dir="${devdoc%/}/$issue"
   else
-    issue="$(state_get "$project" active_issue 2>/dev/null || true)"
-    issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+    issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+    issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
     [[ -n "$issue" && "$issue" != "null" ]] \
       || die "catchup.sh: No active issue for $project; pass one explicitly."
   fi

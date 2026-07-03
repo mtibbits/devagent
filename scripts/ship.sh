@@ -9,6 +9,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+. "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
@@ -38,23 +39,15 @@ project="${1:-}"
 config_is_project "$project" || die "ship.sh: unknown project '$project'"
 
 issue_arg="${2:-}"
-explicit_issue="$issue_arg"   # remember the explicit arg before the fallback (#70)
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+[ -n "$issue_arg" ] || issue_arg="$(active_resolve_issue "$project" 2>/dev/null || true)"
 [ -n "$issue_arg" ] || die "ship.sh: no active issue and no issue arg"
 
-issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "ship.sh: issue_dir not set or missing"
 
-# #70: an explicit issue arg must name the active issue. issue_dir/branch/baseline
-# always come from state, so a mismatched arg would push the active issue's branch
-# but route on_ship (and Fork/non-Fork backend) to a different issue. Die before
-# the dependency pre-flight / push. Mirrors comments.sh / revise.sh.
-if [ -n "$explicit_issue" ]; then
-    case "$issue_dir" in
-        */"$explicit_issue") : ;;
-        *) die "ship.sh: requested issue '$explicit_issue' does not match active issue_dir '$issue_dir'" ;;
-    esac
-fi
+# (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
+# issue — branch/mr routing now read ITS [context] table; an issue with no
+# recorded branch dies loudly below.)
 
 # Phase 9 dependency pre-flight (warn unless --strict-deps was passed).
 export DEVAGENT_STATE_DIR="$(devagent_home)/state"
@@ -62,7 +55,7 @@ if ! depends_ship_preflight "$project" "$issue_arg" "$strict_deps"; then
     exit 2
 fi
 
-branch="$(state_get "$project" branch 2>/dev/null || true)"
+branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 [ -n "$branch" ] || die "ship.sh: no branch in state (run /devagent:branch first)"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have no commits to
@@ -71,7 +64,7 @@ branch="$(state_get "$project" branch 2>/dev/null || true)"
 # so "$branch" resolves regardless (#68). Only the 'empty' verdict authorizes the
 # auto-skip; 'indeterminate' (no baseline or a rev-list FAILURE) never collapses
 # into the destructive skip (fail-safe by direction, #25/#68).
-baseline_sha="$(state_get "$project" baseline_sha 2>/dev/null || true)"
+baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "ship.sh: no commits on branch — auto-marking step 15 [-] (zero-diff issue)"
@@ -87,7 +80,7 @@ fi
 # scratch files) — the review/redmr docs' git-add instruction covers the
 # new-untracked-file fix variant. Worktree-aware like commit.sh's work_dir.
 # Placed after the zero-diff guard so artifact-only issues still auto-skip.
-worktree_path="$(state_get "$project" worktree_path 2>/dev/null || true)"
+worktree_path="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
 work_dir="${worktree_path:-$source_dir}"
 # Fail closed when git cannot inspect work_dir (stale worktree_path from a
 # clobbered/aborted session): a silent 0-count here would re-enable the exact
@@ -339,7 +332,7 @@ elif [ -x "$issue_sh" ]; then
     fi
 fi
 
-state_set_many "$project" \
+state_ctx_set_many "$project" "$issue_arg" \
   str mr_url         "$mr_url" \
   str last_step      "15" \
   str last_step_name "ship"

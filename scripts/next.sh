@@ -62,9 +62,9 @@ main() {
   # Validate --through against the actual checklist (the authority).
   if [[ -n "$through" ]]; then
     local _ai _idir _cl
-    _ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+    _ai="$(active_resolve_issue "$project" 2>/dev/null || true)"
     if [[ -n "$_ai" && "$_ai" != "null" ]]; then
-      _idir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+      _idir="$(issue_context_dir "$project" 2>/dev/null || true)"
       _cl="$_idir/checklist.md"
       if [[ -f "$_cl" ]] && ! grep -qE "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$_cl"; then
         die "next.sh: unknown step '$through' (not present in $_cl)"
@@ -72,12 +72,17 @@ main() {
     fi
   fi
 
+  # #240: session view — an env-pinned session's bare `next` drives ITS issue.
   local active issue_dir
-  active="$(state_get "$project" active_issue 2>/dev/null || true)"
+  if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
+    active="$(active_resolve_issue "$project" 2>/dev/null || true)"
+  else
+    active="$(state_get "$project" active_issue 2>/dev/null || true)"
+  fi
   if [[ -z "$active" || "$active" == "null" ]]; then
     die "next.sh: No active issue for project '$project'"
   fi
-  issue_dir="$(state_get "$project" issue_dir)"
+  issue_dir="$(issue_context_dir "$project")"
   local checklist="$issue_dir/checklist.md"
   [[ -f "$checklist" ]] || die "next.sh: checklist.md missing at $checklist"
 

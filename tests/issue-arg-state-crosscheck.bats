@@ -29,13 +29,16 @@ teardown() { devagent_test_teardown; }
 
 # --- commit.sh -------------------------------------------------------------
 
-@test "commit.sh dies when explicit issue arg mismatches active state (#70)" {
+@test "commit.sh dies loudly for an arg'd issue with no recorded branch (#70→#240)" {
+    # #240 supersedes the arg-vs-state crosscheck: an explicit arg IS the
+    # issue; its keys come from its own [context] table. Issue-2 has no
+    # recorded branch → loud die, nothing committed (same protection, new
+    # contract: the active branch can no longer be stamped with the wrong id).
     ( cd "$SOURCE_DIR" && echo more >> a.txt && git add a.txt )
     local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
-    [[ "$output" == *"commit.sh: requested issue"* ]]   # pin THIS script's guard
-    [[ "$output" == *"does not match"* ]]
+    [[ "$output" == *"no branch recorded"* ]]
     # Load-bearing: nothing was committed (HEAD unchanged) — died before commit.
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
 }
@@ -52,29 +55,27 @@ teardown() { devagent_test_teardown; }
 
 # --- mergetoall.sh ---------------------------------------------------------
 
-@test "mergetoall.sh dies when explicit issue arg mismatches active state (#70)" {
+@test "mergetoall.sh dies loudly for an arg'd issue with no recorded branch (#70→#240)" {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
-    [[ "$output" == *"mergetoall.sh: requested issue"* ]]   # pin THIS script's guard
-    [[ "$output" == *"does not match"* ]]
+    [[ "$output" == *"no branch in state"* ]]
 }
 
-@test "mergetoall.sh rejects a bare-number arg — anchored suffix match, not substring (#70)" {
-    # active issue is Issue-1; arg "1" must NOT match ".../Issue-1". This pins the
-    # leading `*/` path-component anchor: a loosened `*"$arg"` pattern would wrongly
-    # accept "1" (".../Issue-1" ends in "1"). Mutation-lock against that regression.
+@test "mergetoall.sh rejects a bare-number arg — it is not an issue dir (#70→#240)" {
+    # arg "1" resolves as issue id "1" → derived dir <devdoc>/1 does not
+    # exist → loud die (the old suffix-anchor pin is superseded: the arg no
+    # longer matches against the ACTIVE issue's dir at all).
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" 1
     [ "$status" -ne 0 ]
-    [[ "$output" == *"does not match"* ]]
+    [[ "$output" == *"issue_dir not set or missing"* ]]
 }
 
 # --- ship.sh ---------------------------------------------------------------
 
-@test "ship.sh dies when explicit issue arg mismatches active state (#70)" {
+@test "ship.sh dies loudly for an arg'd issue with no recorded branch (#70→#240)" {
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -ne 0 ]
-    [[ "$output" == *"ship.sh: requested issue"* ]]   # pin THIS script's guard
-    [[ "$output" == *"does not match"* ]]
+    [[ "$output" == *"no branch in state"* ]]
     # Load-bearing: ship did not complete — step 15 is not marked done on the
     # active issue's checklist (it aborted at the cross-check, before push).
     run grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"

@@ -23,9 +23,14 @@ source "$DEVAGENT_ROOT/scripts/lib/state.sh"
 
 # revision_current <project>
 revision_current() {
-  local project="$1"
+  local project="$1" issue="${2:-}"
   local n
-  n="$(state_get "$project" revision 2>/dev/null || true)"
+  if [[ -n "$issue" ]] && command -v state_issue_get >/dev/null 2>&1; then
+    # #240: issue-keyed read (state.sh's fallback keeps unpinned identical).
+    n="$(state_issue_get "$project" "$issue" revision 2>/dev/null || true)"
+  else
+    n="$(state_get "$project" revision 2>/dev/null || true)"
+  fi
   [[ -n "$n" ]] || n=1
   printf '%s\n' "$n"
 }

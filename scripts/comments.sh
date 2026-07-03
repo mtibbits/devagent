@@ -79,19 +79,15 @@ main() {
   local issue_arg="${1:-}"
 
   local issue_dir
-  issue_dir=$(state_get "$project" issue_dir) \
+  issue_dir=$(issue_context_dir "$project" "$issue_arg") \
     || die "no active_issue for project '$project' (state file missing or empty)"
   [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$project'"
-
-  if [[ -n "$issue_arg" ]]; then
-    case "$issue_dir" in
-      */"$issue_arg") : ;;
-      *) die "requested issue '$issue_arg' does not match active issue_dir '$issue_dir'" ;;
-    esac
-  fi
+  [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+  # (#240 supersedes the #70 crosscheck: an explicit arg IS the issue —
+  # mr_url now reads ITS [context] table.)
 
   local mr_url
-  mr_url=$(state_get "$project" mr_url) || true
+  mr_url=$(state_ctx_get "$project" mr_url "$issue_arg") || true
   [[ -n "$mr_url" ]] || die "mr_url not set in state — run /devagent:ship first"
 
   local n
