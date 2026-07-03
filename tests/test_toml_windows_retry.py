@@ -10,7 +10,9 @@ save/restore patching.
 exercised deterministically on a POSIX CI runner, and vice-versa.
 """
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import tempfile
 import types
@@ -141,7 +143,8 @@ def test_load_retry_wiring():
             return real_load(path, retry=retry)
         toml._load = spy
         try:
-            with tempfile.TemporaryDirectory() as d:
+            with tempfile.TemporaryDirectory() as d, \
+                 contextlib.redirect_stdout(io.StringIO()):  # swallow get's value print
                 f = pathlib.Path(d) / "s.toml"
                 f.write_text('k = "v"\n')
                 seen.clear(); toml.main(["get", str(f), "k"])
