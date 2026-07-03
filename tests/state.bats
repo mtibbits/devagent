@@ -251,3 +251,90 @@ teardown() { teardown_tmp_devagent_home; }
   # stdout leak check: the old value must NOT appear alone on stdout
   [[ "$output" != "Issue-1" ]]
 }
+
+# ---- #240: issue-keyed state API (table authoritative + conditional mirror) --
+
+@test "state_issue_set_many mirrors top-level when issue IS active (#240)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_issue_set_many volk Issue-1 str branch "feat/a" int last_step 7
+  [ "$(state_get volk context.Issue-1.branch)" = "feat/a" ]
+  [ "$(state_get volk branch)" = "feat/a" ]
+  [ "$(state_get volk last_step)" = "7" ]
+}
+
+@test "state_issue_set_many writes table ONLY when issue is not active (#240 AC2)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_set volk branch "feat/a"
+  state_issue_set_many volk Issue-2 str branch "feat/b" int last_step 3
+  [ "$(state_get volk context.Issue-2.branch)" = "feat/b" ]
+  # The other session's shared view is untouched.
+  [ "$(state_get volk branch)" = "feat/a" ]
+  [ "$(state_get volk active_issue)" = "Issue-1" ]
+}
+
+@test "state_issue_get: table hit wins over top-level (#240)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_set volk branch "top-level-stale"
+  state_issue_set_many volk Issue-1 str branch "table-fresh"
+  [ "$(state_issue_get volk Issue-1 branch)" = "table-fresh" ]
+}
+
+@test "state_issue_get: miss + active issue falls back to top-level (migration) (#240 AC5)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_set volk branch "pre-existing"
+  [ "$(state_issue_get volk Issue-1 branch)" = "pre-existing" ]
+}
+
+@test "state_issue_get: miss + NON-active issue returns the per-key default (#240)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_set volk branch "not-yours"
+  [ -z "$(state_issue_get volk Issue-2 branch)" ]
+  [ "$(state_issue_get volk Issue-2 revision)" = "1" ]
+  [ "$(state_issue_get volk Issue-2 last_step)" = "0" ]
+}
+
+@test "state_issue_set_many is ONE transaction (single updated_at bump) (#240)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  before="$(state_get volk updated_at)"
+  state_issue_set_many volk Issue-1 str branch "x" str baseline_sha "y" int revision 2
+  # No torn intermediate observable: all three landed.
+  [ "$(state_get volk branch)" = "x" ]
+  [ "$(state_get volk baseline_sha)" = "y" ]
+  [ "$(state_get volk revision)" = "2" ]
+}
+
+@test "state_issue_set_many rejects an invalid issue id defensively (#240)" {
+  state_init volk
+  run state_issue_set_many volk 'Issue 2]' str branch "x"
+  [ "$status" -ne 0 ]
+  run state_get volk active_issue
+  [ "$status" -eq 0 ]
+}
+
+@test "mixed-generation read: adopted key from table, unadopted from top-level (#240 A3)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  state_set volk branch "old-branch"
+  state_set volk mr_url "old-url"
+  state_issue_set_many volk Issue-1 str branch "new-branch"
+  [ "$(state_issue_get volk Issue-1 branch)" = "new-branch" ]
+  [ "$(state_issue_get volk Issue-1 mr_url)" = "old-url" ]
+}
+
+@test "issue_dir_for derivation byte-matches pull.sh's stored computation (#240)" {
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  cat > "$DA_HOME/config.toml" <<CFG
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/src"
+devdoc_dir = "$BATS_TEST_TMPDIR/devdoc/volk/"
+CFG
+  devdoc="$(config_get_project_field volk devdoc_dir)"
+  expected="${devdoc%/}/Issue-9"
+  [ "$(issue_dir_for volk Issue-9)" = "$expected" ]
+}
