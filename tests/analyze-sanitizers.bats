@@ -54,7 +54,7 @@ teardown() { devagent_test_teardown; }
     # cmake succeeds on configure (-S/-B) but fails on --build.
     cat > "$DEVAGENT_STUB_BIN/cmake" <<'STUB'
 #!/usr/bin/env bash
-printf 'cmake'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n' >> "$DEVAGENT_STUB_LOG"
+{ printf 'cmake'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'; } >> "$DEVAGENT_STUB_LOG"
 for a in "$@"; do [ "$a" = "--build" ] && exit 1; done
 exit 0
 STUB

@@ -111,9 +111,11 @@ run_one() {
     elif [ "$ran_ctest" -eq 1 ] && [ "$test_rc" -ne 0 ]; then
         fail_summaries+=("$tag (ctest exit=$test_rc) → $out")
     fi
-    # AC3-improve L1: explicit success return — under set -e a run_one whose
-    # last evaluated test is false would return nonzero and abort the sequence
-    # at the first leg (the all-green regression test pins this).
+    # Explicit success return (belt-and-suspenders): the if/elif/fi above
+    # already returns 0 on every path (no-branch-taken → 0; each taken branch
+    # ends in a 0-returning array append), so this is NOT test-pinned — it
+    # guards a future refactor that appends a trailing test/&&-chain (whose
+    # false result would otherwise abort the leg sequence under set -e).
     return 0
 }
 
