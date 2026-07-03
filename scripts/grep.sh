@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ARTIFACT_FILES=(
   "issue.md"
+  "intent.md"
   "imPlan.md"
   "imPlan-potentialFutureEnhancements.md"
   "actualWork.md"
@@ -33,8 +34,9 @@ usage() {
 Usage:
   /devagent:grep [project] [-i] [-l] [--captures] <pattern>
 
-Searches: issue.md, imPlan.md, imPlan-potentialFutureEnhancements.md,
-          actualWork.md, mr.md, checklist.md across all issue dirs.
+Searches: issue.md, intent.md, imPlan.md,
+          imPlan-potentialFutureEnhancements.md, actualWork.md, mr.md,
+          checklist.md across all issue dirs.
 
 Output: <issue-dir>:<file>:<line-num>: <matching-line>
 EOF

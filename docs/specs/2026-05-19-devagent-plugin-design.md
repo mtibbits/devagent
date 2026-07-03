@@ -237,6 +237,7 @@ Caller contract unchanged.
 Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
+├── intent.md            # #284: operator-intent digest for dispatched planning
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
