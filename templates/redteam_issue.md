@@ -181,9 +181,9 @@ disproportionate to the defect.
 ### 11. Runtime cost
 Will the fix degrade performance or increase resource consumption?
 
-VOLK is a performance library. Kernels run billions of iterations. A
-branch added to the hot path matters. A static allocation that persists
-for the process lifetime matters on embedded targets.
+For a performance-sensitive library, hot code may run at enormous
+scale — a branch added to the hot path matters, and a static allocation
+that persists for the process lifetime matters on embedded targets.
 
 Watch for: validation added to hot paths (should be at initialization,
 not per-call), allocations that grow with input size without bounds,
@@ -194,8 +194,7 @@ Consider separately:
 - **CPU cost:** Does this add work to the critical path? A 2% regression
   may be acceptable for correctness. A 200% regression is not.
 - **Memory footprint:** Does this increase static or dynamic memory
-  usage? On embedded targets (Raspberry Pi, resource-constrained SDR
-  hardware), memory is scarce.
+  usage? On embedded / resource-constrained targets, memory is scarce.
 - **Binary size:** Does this add significant code (new ISA tiers,
   template expansion) that inflates the shared library?
 
@@ -240,16 +239,16 @@ belong where the bug lives. Enhancements and new features are where
 this dimension matters most.
 
 Watch for: feature requests that drift outside the project's mission
-(vectorized SHA-256 in a DSP library), fixes that belong in a
+(a cryptographic routine in a numeric-compute library), fixes that belong in a
 dependency or a consumer rather than this library, enhancements that
 duplicate functionality available in a sibling project, changes that
 would make this library responsible for concerns it currently delegates.
 
-For VOLK specifically: new kernels should serve DSP/SDR workloads.
-Infrastructure changes should serve the existing kernel ecosystem.
-Tools should serve VOLK developers and integrators. Anything outside
-that scope — however well-implemented — is a better fit for a
-different project.
+Anchor scope to the project's stated domain: features should serve
+that domain, infrastructure changes should serve the existing feature
+set, and tooling should serve the project's developers and integrators.
+Anything outside that scope — however well-implemented — is a better
+fit for a different project.
 
 The test: would the project's maintainers say "yes, we should own
 this" or "that's interesting, but it belongs in [other project]"?
@@ -258,25 +257,24 @@ this" or "that's interesting, but it belongs in [other project]"?
 Are there any licensing, copyright, or policy concerns?
 
 Watch for: proposed implementations that copy code from incompatibly
-licensed projects (GPL code into an LGPL library), algorithms covered
+licensed projects (e.g. copyleft code into a permissively-licensed one), algorithms covered
 by patents, features that require adding new dependencies with
 license implications, changes that affect SPDX headers or copyright
 notices, contributions that need CLA/DCO sign-off the reporter may
 not be aware of.
 
-For VOLK specifically: the project is LGPL-3.0-or-later and requires
-DCO sign-off (`Signed-off-by`) on all commits. Any proposed change
-that introduces code from a GPL-only, BSD-with-advertising-clause, or
-proprietary source is a non-starter regardless of technical merit.
+Check the project's own license and contribution policy: such an
+import, or an unsigned commit where a DCO/CLA is required, is a
+non-starter regardless of technical merit.
 
 ### 15. Backward compatibility
 Will this break existing users?
 
 A change can be correct, well-scoped, and high-value and still be
-rejected because it breaks downstream code. VOLK is a shared library
-consumed by GNU Radio and other projects — an API change, a behavioral
-change in a kernel's output, a renamed symbol, or a changed default
-can silently break every program linked against it.
+rejected because it breaks downstream code. A shared library is
+consumed by other projects — an API change, a behavioral change in a
+function's output, a renamed symbol, or a changed default can silently
+break every program linked against it.
 
 Watch for: changes to function signatures or return types, changes to
 kernel numerical output (even "more correct" results break users who
@@ -286,8 +284,9 @@ a deprecation period, changes to config file format or path that
 orphan existing configs, changes to build system defaults that break
 existing build scripts.
 
-The test: if a user upgrades VOLK without reading the changelog, does
-their existing code still compile, link, and produce the same results?
+The test: if a user upgrades this library without reading the
+changelog, does their existing code still compile, link, and produce
+the same results?
 If not, the issue must explicitly acknowledge the compatibility break
 and justify why it's worth the cost. Most breaking changes require a
 major version bump or a deprecation period — the issue should state
@@ -296,8 +295,8 @@ which approach it expects.
 ### 16. Security
 Does this fix, introduce, or ignore a security concern?
 
-Most VOLK issues have no security implications — it's a math library
-processing caller-provided buffers. But code that reads from environment
+Many issues in a compute library have no security implications — it
+processes caller-provided buffers. But code that reads from environment
 variables, config files, or network input is attack surface.
 
 Watch for: buffer overflows from unsanitized external input (environment
@@ -307,9 +306,9 @@ use of attacker-controllable paths without validation, `sscanf`/`sprintf`
 without width limits on data from external sources.
 
 Also consider the inverse: does *not* fixing this issue leave a security
-hole? The `strncpy`/`strcat` buffer overflow in `volk_prefs.c` reads
-from `$VOLK_CONFIGPATH` — an environment variable a local attacker on a
-shared system could set. Not exploitable in most deployments, but a
+hole? For example, a `strncpy`/`strcat` buffer overflow reading a
+config path from an environment variable a local attacker on a shared
+system could set. Not exploitable in most deployments, but a
 static analysis tool or distro security audit would flag it.
 
 For most kernel-level issues (SIMD implementations, algorithm fixes),

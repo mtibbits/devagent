@@ -1,6 +1,6 @@
 # PR Red Team Review Prompt
 
-Red-team this PR from the maintainer's perspective. The maintainer is [name/context].
+Red-team this PR from the maintainer's perspective — apply the project's own standards, priorities, and contribution policy.
 
 This template defines WHAT to attack. Severity taxonomy, summary counts,
 verdict vocabulary, and the checklist log line are the invoking skill's
