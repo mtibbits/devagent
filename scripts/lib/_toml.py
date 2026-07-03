@@ -380,6 +380,66 @@ def main(argv: list[str]) -> int:
                     _set_path(data, key, _parse_raw(raw))
         return 0
 
+    if verb == "set-many-if":
+        # #240: conditional-mirror transaction. Usage:
+        #   set-many-if <file> <pred-key> <expected> --then <triplets> --also <triplets>
+        # --also triplets are written unconditionally; --then triplets are
+        # included iff <pred-key>'s CURRENT value == <expected>, evaluated
+        # INSIDE the lock (an absent pred-key is a mismatch). This is the
+        # primitive that makes "mirror top-level iff this issue is the active
+        # one" race-free — a read-then-set-many pair has a TOCTOU window.
+        # All triplets (both lists) validate before any write; exit 2 on any
+        # validation/parse error with the file untouched (_NoWrite).
+        try:
+            if len(rest) < 2:
+                print("_toml: set-many-if wants <pred-key> <expected> --then ... --also ...", file=sys.stderr)
+                return 2
+            pred_key, expected = rest[0], rest[1]
+            then_raw: list[str] = []
+            also_raw: list[str] = []
+            bucket = None
+            for tok in rest[2:]:
+                if tok == "--then":
+                    bucket = then_raw
+                elif tok == "--also":
+                    bucket = also_raw
+                elif bucket is None:
+                    print(f"_toml: set-many-if: unexpected '{tok}' before --then/--also", file=sys.stderr)
+                    return 2
+                else:
+                    bucket.append(tok)
+
+            def _triplets(raw: list[str], label: str):
+                if len(raw) % 3 != 0:
+                    raise ValueError(f"{label} wants <str|int|bool> <key> <value> triplets")
+                out = []
+                for i in range(0, len(raw), 3):
+                    out.append((raw[i + 1], _coerce(raw[i], raw[i + 1], raw[i + 2])))
+                return out
+
+            try:
+                then_triplets = _triplets(then_raw, "--then")
+                also_triplets = _triplets(also_raw, "--also")
+            except ValueError as e:
+                print(f"_toml: set-many-if: {e}", file=sys.stderr)
+                return 2
+            with _locked_rmw(file) as data:
+                try:
+                    cur = _walk(data, pred_key)
+                    cur_str = cur if isinstance(cur, str) else _emit_value(cur)
+                    matched = (not isinstance(cur, dict)) and cur_str == expected
+                except KeyError:
+                    matched = False
+                for key, value in also_triplets:
+                    _set_path(data, key, value)
+                if matched:
+                    for key, value in then_triplets:
+                        _set_path(data, key, value)
+            return 0
+        except tomllib.TOMLDecodeError as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
+
     if verb in {"set-many", "set-if"}:
         # #96 transactional verbs. Both catch parse errors as exit 2 (the #99
         # convention `get` already follows) and escape the RMW without a dump
