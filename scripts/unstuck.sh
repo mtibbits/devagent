@@ -43,11 +43,10 @@ main() {
   fi
 
   local checklist="$issue_dir/checklist.md"
-  # Find the [!] step
-  local stuck_step
-  stuck_step="$(awk '
-    match($0, /^- \[!\] +([0-9]+)\./, m) { print m[1]; exit }
-  ' "$checklist")"
+  # Find the [!] step (the first one). mawk-safe via checklist_steps_with_glyph.
+  local stuck_steps stuck_step
+  stuck_steps="$(checklist_steps_with_glyph "$checklist" '!')"
+  stuck_step="${stuck_steps%%$'\n'*}"
   [[ -n "$stuck_step" ]] || die "unstuck.sh: STUCK file present but no [!] step in checklist"
 
   local glyph=" "

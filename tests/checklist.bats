@@ -59,6 +59,32 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$output" = "x" ]
 }
 
+# --- checklist_steps_with_glyph (#313): mawk-safe glyph→number scan ---------
+@test "checklist_steps_with_glyph lists step numbers for a glyph, in file order" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x]  1. draft
+- [~]  2. scope
+- [ ]  3. improve
+- [P] 14. redmr
+- [!] 21. preship
+EOF
+  run checklist_steps_with_glyph "$ISSUE_DIR/checklist.md" x
+  [ "$output" = "0
+1" ]                                    # both [x] steps, in order
+  run checklist_steps_with_glyph "$ISSUE_DIR/checklist.md" P
+  [ "$output" = "14" ]                     # double-digit extracted correctly
+  run checklist_steps_with_glyph "$ISSUE_DIR/checklist.md" '!'
+  [ "$output" = "21" ]
+  run checklist_steps_with_glyph "$ISSUE_DIR/checklist.md" Z
+  [ -z "$output" ]                         # no such glyph → empty
+}
+
+@test "checklist_steps_with_glyph dies on a missing file" {
+  run checklist_steps_with_glyph "$ISSUE_DIR/nope.md" x
+  [ "$status" -ne 0 ]
+}
+
 @test "checklist_mark refuses an unknown glyph" {
   checklist_init "$ISSUE_DIR" standard
   run checklist_mark "$ISSUE_DIR/checklist.md" 0 Q

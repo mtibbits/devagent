@@ -262,6 +262,28 @@ _checklist_valid_glyph() {
   esac
 }
 
+# checklist_steps_with_glyph <file> <glyph>
+# Prints the step NUMBER of every checklist line whose box holds exactly
+# <glyph> (e.g. 'x' '!' 'P' '~' ' '), one per line in file order. mawk-safe:
+# POSIX 2-arg match() + substr()/sub(), NOT gawk's 3-arg capture-array form
+# match(s, r, arr), which mawk parse-errors on (#73/#313). Callers apply
+# their own first/last/bound logic. Deliberately NOT revision-scoped: the
+# recovery callers (stuck/unstuck/resume) act on raw glyphs across the whole
+# file — a [!]/[P] mark is unique and a revision block never re-introduces one.
+checklist_steps_with_glyph() {
+  local file="$1" glyph="$2"
+  [[ -f "$file" ]] || die "checklist_steps_with_glyph: no such file '$file'"
+  awk -v glyph="$glyph" '
+    match($0, /^- \[.\][ \t]+[0-9]+\./) {
+      if (substr($0, 4, 1) != glyph) next    # box char is column 4: "- [G]"
+      num = substr($0, RSTART, RLENGTH)
+      sub(/^- \[.\][ \t]+/, "", num)
+      sub(/\.$/, "", num)
+      print num + 0
+    }
+  ' "$file"
+}
+
 checklist_mark() {
   local file="$1" target="$2" glyph="$3"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
