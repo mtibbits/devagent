@@ -40,10 +40,10 @@ main() {
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
-    local parked_step
-    parked_step="$(awk '
-      match($0, /^- \[P\] +([0-9]+)\./, m) { print m[1]; exit }
-    ' "$checklist")"
+    # First [P] step number, mawk-safe via checklist_steps_with_glyph.
+    local parked_steps parked_step
+    parked_steps="$(checklist_steps_with_glyph "$checklist" P)"
+    parked_step="${parked_steps%%$'\n'*}"
     [[ -n "$parked_step" ]] && checklist_mark "$checklist" "$parked_step" "~"
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi

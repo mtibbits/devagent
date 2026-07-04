@@ -38,14 +38,14 @@ main() {
     || die "stuck.sh: no current step to mark stuck (issue is complete or empty)"
   cur_name="$(checklist_step_name "$checklist" "$cur")"
 
-  # Walk back for "last good" — last [x] step before cur
-  last_good="$(awk -v cur="$cur" '
-    match($0, /^- \[x\] +([0-9]+)\./, m) {
-      n = m[1] + 0
-      if (n < cur) last = n
-    }
-    END { if (last != "") print last }
-  ' "$checklist")"
+  # Walk back for "last good" — the last [x] step number strictly before cur.
+  # (checklist_steps_with_glyph is mawk-safe; the < cur bound stays in bash.)
+  local good_steps n
+  good_steps="$(checklist_steps_with_glyph "$checklist" x)"
+  while read -r n; do
+    [[ -n "$n" ]] || continue
+    (( n < cur )) && last_good="$n"
+  done <<< "$good_steps"
   if [[ -n "$last_good" ]]; then
     last_good_name="$(checklist_step_name "$checklist" "$last_good")"
   fi
