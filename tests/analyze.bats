@@ -120,3 +120,22 @@ _stub_shellcheck_analyzer() {
     [ "$status" -ne 0 ]
     grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "an unresolvable baseline leaves step 11 UNMARKED through analyze.sh (#314 e2e)" {
+    # analyze = shellcheck + the REAL analyzer + a bad baseline: analyze.sh must
+    # exit nonzero BEFORE the step-11 mark / state write (so an --auto chain
+    # halts), not mark step 11 [x] on a vacuous empty scope.
+    command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+    _set_analyze shellcheck
+    export DEVAGENT_ANALYZE_SHELLCHECK="$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh"
+    sed -i 's|^baseline_sha *=.*|baseline_sha = "no-such-baseline-ref-314"|' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"baseline"* ]]
+    # Step 11 stays [ ]; completion log absent; last_step never advanced past 5.
+    grep -qE '^- \[ \] +11\. analyze' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -q 'shellcheck (diff-scoped) complete' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -ne 0 ]
+    grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
