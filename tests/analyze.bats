@@ -132,7 +132,7 @@ _stub_shellcheck_analyzer() {
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
-    [[ "$output" == *"baseline"* ]]
+    [[ "$output" == *"unresolvable"* ]]     # die-only fragment (#314 review)
     # Step 11 stays [ ]; completion log absent; last_step never advanced past 5.
     grep -qE '^- \[ \] +11\. analyze' "$DEVDOC_DIR/Issue-1/checklist.md"
     run grep -q 'shellcheck (diff-scoped) complete' "$DEVDOC_DIR/Issue-1/checklist.md"

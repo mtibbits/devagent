@@ -109,7 +109,10 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.tx
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     run_shellcheck_analyzer
     [ "$status" -ne 0 ]
-    [[ "$output" == *"baseline"* ]]        # die names the offending baseline
+    # A die-only fragment: "baseline:" also prints on the empty-scope artifact,
+    # so pin the failure path with a phrase that never appears on a pass (#314 review).
+    [[ "$output" == *"unresolvable"* ]]
+    [[ "$output" == *"no-such-baseline-ref-314"* ]]   # names the offending baseline
     [ ! -f "$(_artifact)" ]                # no success artifact was written
 }
 
