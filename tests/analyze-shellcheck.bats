@@ -100,6 +100,22 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.tx
     grep -q 'NEW findings: 0' "$(_artifact)"
 }
 
+@test "an unresolvable baseline dies loud without a vacuous empty-scope pass (#314)" {
+    # A bad baseline ref makes `git diff` fail. The pre-#314 code ran that diff
+    # inside a process substitution whose non-zero exit was invisible → files=()
+    # → the "empty scope" branch → exit 0: a VACUOUS pass that let analyze.sh
+    # mark step 11 [x] with zero analysis. It must die loud instead.
+    sed -i 's|^baseline_sha *=.*|baseline_sha = "no-such-baseline-ref-314"|' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run_shellcheck_analyzer
+    [ "$status" -ne 0 ]
+    # A die-only fragment: "baseline:" also prints on the empty-scope artifact,
+    # so pin the failure path with a phrase that never appears on a pass (#314 review).
+    [[ "$output" == *"unresolvable"* ]]
+    [[ "$output" == *"no-such-baseline-ref-314"* ]]   # names the offending baseline
+    [ ! -f "$(_artifact)" ]                # no success artifact was written
+}
+
 @test "missing shellcheck binary dies loud without a success artifact (#55)" {
     stub="$DEVAGENT_TMP/no-shellcheck-path"
     mkdir -p "$stub"

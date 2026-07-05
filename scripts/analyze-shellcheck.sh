@@ -52,11 +52,22 @@ out="$issue_dir/analysis/$(date +%Y-%m-%d)-shellcheck.txt"
 # Scope: shell files changed baseline→working tree. --diff-filter=d drops
 # deletions (shellcheck on a missing path is a hard exit-2); the -f filter is
 # belt-and-braces for rename halves and races.
+#
+# #314: capture the diff EXPLICITLY — not via `< <(...)`, whose non-zero exit is
+# invisible — so an unresolvable baseline DIES loud instead of yielding an empty
+# scope and a vacuous "0 findings" pass (the #117 class, in the shellcheck family
+# devagent itself runs). Plain `git diff` (no --exit-code) exits non-zero only on
+# ERROR, never merely because diffs exist, so `|| die` fires on exactly the
+# bad-ref case; an empty result (no shell files changed) falls through to the
+# legitimate empty-scope path below.
+diff_list="$(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
+                 -- '*.sh' '*.bats' '*.bash')" \
+    || die "analyze-shellcheck.sh: git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 11 left unmarked, fix the baseline and re-run)"
 files=()
 while IFS= read -r f; do
+    [ -n "$f" ] || continue
     [ -f "$source_dir/$f" ] && files+=("$f")
-done < <(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
-             -- '*.sh' '*.bats' '*.bash')
+done <<< "$diff_list"
 
 {
     echo "=== shellcheck (diff-scoped) ==="
