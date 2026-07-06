@@ -285,6 +285,10 @@ state_context_clear() {
 # any snapshotted keys from [context.<issue>] and delete the snapshot.
 # revision/last_step go back through set-int so the stored form stays an
 # unquoted int (#97). Missing snapshot (legacy park) → defaults + warning.
+# NO PRODUCTION CALLERS since #317 (resume — its last caller — uses the
+# single-transaction state_resume_promote_restore below; calling THIS from
+# resume would reopen the promote/restore window). Kept for #327's re-homing
+# into a restore-for-all-callers verb; tests still pin its behavior.
 state_context_restore() {
   local project="$1" issue="$2" f key v
   [[ -n "$issue" ]] || die "state_context_restore: issue required"
@@ -330,10 +334,13 @@ state_context_restore() {
 # "" ≡ absent), and corrupt non-numeric snapshot ints fall back per-key
 # (revision→1, last_step→0) rather than uniformly 1.
 #
-# The trailing snapshot delete stays a separate, BENIGN second write: before
-# it, table-hit-wins returns the same values the set-many just landed; after
-# it, the issue==active fallback reads them from the top level. A crash in
-# between leaves only a redundant identical snapshot.
+# The trailing snapshot delete stays a separate second write, BENIGN for
+# readers and crashes: before it, table-hit-wins returns the same values the
+# set-many just landed; after it, the issue==active fallback reads them from
+# the top level; a crash in between leaves only a redundant identical
+# snapshot. Concurrent-WRITER choreography (a displacement save landing in
+# the gap loses its fresh snapshot to this unset — HEAD-equal, and strictly
+# better than HEAD's mid-restore variant) is #327's remit.
 state_resume_promote_restore() {
   local project="$1" issue="$2" issue_dir="$3" f key v have_snapshot=0
   [[ -n "$issue" && -n "$issue_dir" ]] || die "state_resume_promote_restore: issue and issue_dir required"
