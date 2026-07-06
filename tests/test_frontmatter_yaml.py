@@ -27,3 +27,9 @@ def test_frontmatter_is_strict_yaml(path):
         pytest.skip("no frontmatter block")
     frontmatter = text.split("---", 2)[1]
     yaml.safe_load(frontmatter)  # raises yaml.YAMLError on a strict violation
+
+
+def test_frontmatter_sweep_is_not_vacuous():
+    # Fail loud if discovery breaks: an empty glob would make the parametrized
+    # sweep collect zero cases and false-green instead of guarding anything.
+    assert _FILES, "no commands/*.md or skills/*/SKILL.md discovered — check repo layout"
