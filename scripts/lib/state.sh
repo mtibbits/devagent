@@ -350,7 +350,7 @@ state_pull_promote() {
   local -a snap=()
   if [[ -n "$prev" ]]; then
     _state_issue_id_ok "$prev" || die "state_pull_promote: invalid issue id '$prev'"
-    # shellcheck disable=SC2086  # STATE_ISSUE_KEYS is a deliberate word list
+    # shellcheck disable=SC2206  # STATE_ISSUE_KEYS is a deliberate word list
     snap=(--snapshot "context.${prev}" $STATE_ISSUE_KEYS)
   fi
   old_active="$(_state_toml transact "$f" --print-old active_issue \
