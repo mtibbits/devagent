@@ -211,8 +211,9 @@ EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     devagent_assert_logged "issue/github transition acme/testproj 1 on_merge"
-    # A fresh marker was appended after the revise boundary.
-    grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    # A FRESH marker was appended (rev-1's seeded marker + the new one = 2),
+    # proving the fire logged its own idempotence marker past the revise boundary.
+    [ "$(grep -c 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md")" -eq 2 ]
     # Exactly once: a SECOND sync must not re-fire (marker now after the boundary).
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
