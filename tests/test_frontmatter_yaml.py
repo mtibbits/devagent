@@ -21,7 +21,8 @@ _FILES = sorted(glob.glob(os.path.join(_REPO, "commands", "*.md"))) + sorted(
     "path", _FILES, ids=[os.path.relpath(p, _REPO) for p in _FILES]
 )
 def test_frontmatter_is_strict_yaml(path):
-    text = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
     if not text.startswith("---"):
         pytest.skip("no frontmatter block")
     frontmatter = text.split("---", 2)[1]
