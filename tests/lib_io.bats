@@ -43,3 +43,12 @@ EOF
   [ "$status" -eq 1 ]
   [ "$output" = "deep.sh: inner boom" ]
 }
+
+@test "no executed script die/warn/info redundantly prefixes its own name (#320 harmonization)" {
+  # io.sh now auto-prefixes $0 (the entry script); a literal "<script>.sh:" prefix
+  # in an executed script (scripts/*.sh, not lib/) would double it. This canary
+  # keeps the harmonized state — grep must find NO such prefix outside lib/.
+  local offenders
+  offenders="$(grep -rEn '(die|info|warn) "[a-z_-]+\.sh: ' "$REPO_ROOT/scripts" --include='*.sh' | grep -v '/lib/' || true)"
+  [ -z "$offenders" ] || { printf 'redundant self-prefixes (io.sh already adds the script name):\n%s\n' "$offenders" >&2; false; }
+}

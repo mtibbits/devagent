@@ -24,8 +24,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"
 main() {
   local project="${1:-}"
   local issue="${2:-}"
-  [[ -n "$project" ]] || die "park.sh: project required"
-  config_is_project "$project" || die "park.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  config_is_project "$project" || die "unknown project '$project'"
 
   local active devdoc
   active="$(state_get "$project" active_issue 2>/dev/null || true)"
@@ -36,10 +36,10 @@ main() {
     # writes when they are not its own).
     if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
       issue="$(active_resolve_issue "$project")" \
-        || die "park.sh: could not resolve the pinned issue"
+        || die "could not resolve the pinned issue"
     else
       [[ -n "$active" && "$active" != "null" ]] \
-        || die "park.sh: no active issue and no issue arg"
+        || die "no active issue and no issue arg"
       issue="$active"
     fi
   fi
@@ -48,7 +48,7 @@ main() {
   # A21: refuse a typo'd issue id. Parking a non-existent dir used to skip the
   # checklist mark but still write a [parked] entry, stranding junk that resume
   # can never satisfy. Dir-existence is now a precondition, not an optional branch.
-  [[ -d "$issue_dir" ]] || die "park.sh: issue dir not found: $issue_dir (typo in issue id?)"
+  [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir (typo in issue id?)"
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
     local cur

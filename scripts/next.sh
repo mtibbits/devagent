@@ -50,7 +50,7 @@ main() {
 
   active_resolve_project_src "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
-  config_is_project "$project" || die "next.sh: unknown project '$project'"
+  config_is_project "$project" || die "unknown project '$project'"
   # #282: only pointer/fallback-resolved runs refresh the pointer (rationale
   # at active_resolve_project_src).
   case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac
@@ -67,7 +67,7 @@ main() {
       _idir="$(issue_context_dir "$project" 2>/dev/null || true)"
       _cl="$_idir/checklist.md"
       if [[ -f "$_cl" ]] && ! grep -qE "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+${through}([[:space:]]|$)" "$_cl"; then
-        die "next.sh: unknown step '$through' (not present in $_cl)"
+        die "unknown step '$through' (not present in $_cl)"
       fi
     fi
   fi
@@ -80,11 +80,11 @@ main() {
     active="$(state_get "$project" active_issue 2>/dev/null || true)"
   fi
   if [[ -z "$active" || "$active" == "null" ]]; then
-    die "next.sh: No active issue for project '$project'"
+    die "No active issue for project '$project'"
   fi
   issue_dir="$(issue_context_dir "$project")"
   local checklist="$issue_dir/checklist.md"
-  [[ -f "$checklist" ]] || die "next.sh: checklist.md missing at $checklist"
+  [[ -f "$checklist" ]] || die "checklist.md missing at $checklist"
 
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
@@ -114,7 +114,7 @@ main() {
 
     local name
     name="$(checklist_step_name "$checklist" "$cur")" \
-      || die "next.sh: could not read step name for $cur in $checklist"
+      || die "could not read step name for $cur in $checklist"
 
     local cur_state
     cur_state="$(checklist_step_state "$checklist" "$cur")"

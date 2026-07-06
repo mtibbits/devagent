@@ -23,8 +23,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_GIT:=git}"
 
 project="${1:-}"
-[ -n "$project" ] || die "branch.sh: project required"
-config_is_project "$project" || die "branch.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -33,24 +33,24 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "branch.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
-[ -n "$issue_arg" ] || die "branch.sh: no active issue and no issue arg"
+[ -n "$issue_arg" ] || die "no active issue and no issue arg"
 
 # Extract numeric portion: Issue-676 → 676 ; Issue-Fork-42 → 42
 issue_num="${issue_arg#Issue-}"
 issue_num="${issue_num#Fork-}"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "branch.sh: issue dir not found: $issue_dir"
+[ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
 
 # Read issue type and title from marker files (written by /devagent:draft, step 1).
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
-[ -r "$type_file" ]  || die "branch.sh: missing $type_file (issue type not classified)"
-[ -r "$title_file" ] || die "branch.sh: missing $title_file (issue title not captured)"
+[ -r "$type_file" ]  || die "missing $type_file (issue type not classified)"
+[ -r "$title_file" ] || die "missing $title_file (issue title not captured)"
 issue_type="$(tr -d '\n' < "$type_file")"
 title="$(tr -d '\n' < "$title_file")"
 
@@ -63,7 +63,7 @@ slug="$(printf '%s' "$title" \
 
 # Prefix lookup via direct dotted-key walk into the inline branch_prefix_map table.
 prefix="$(config_get_project_field "$project" "branch_prefix_map.$issue_type" 2>/dev/null || true)"
-[ -n "$prefix" ] || die "branch.sh: no prefix mapped for type '$issue_type'"
+[ -n "$prefix" ] || die "no prefix mapped for type '$issue_type'"
 
 branch="$prefix/$issue_num-$slug"
 baseline="$(config_get_project_field "$project" default_baseline)"
@@ -80,11 +80,11 @@ if [ -r "$baseline_file" ]; then
     # Strip all whitespace: a git ref carries none, and this collapses an
     # all-whitespace marker to empty so it is rejected rather than passed on.
     override_ref="$(tr -d '[:space:]' < "$baseline_file")"
-    [ -n "$override_ref" ] || die "branch.sh: $baseline_file is empty (no baseline ref)"
+    [ -n "$override_ref" ] || die "$baseline_file is empty (no baseline ref)"
     # Treat strictly as a git ref: reject anything outside the ref charset so a
     # marker can never inject shell metacharacters into the git invocations.
     case "$override_ref" in
-    *[!A-Za-z0-9._/-]*) die "branch.sh: invalid baseline ref '$override_ref' in $baseline_file (allowed: A-Za-z0-9 . _ / -)" ;;
+    *[!A-Za-z0-9._/-]*) die "invalid baseline ref '$override_ref' in $baseline_file (allowed: A-Za-z0-9 . _ / -)" ;;
     esac
     baseline="$override_ref"
     baseline_override=1
@@ -113,7 +113,7 @@ elif [ "$baseline_override" -eq 1 ]; then
     # An explicit per-issue override that does not resolve is a hard error —
     # NEVER silently fall back to HEAD or default_baseline (that is the #72
     # mis-base hazard). Fail before any branch is created.
-    die "branch.sh: per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
+    die "per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
 else
     # Default-baseline path. Three outcomes, not two (#244):
     #  (a) remote NOT configured (offline / no-remote fixture) → fall back to
@@ -133,11 +133,11 @@ else
             # Ambiguous/unrecognized ⇒ keep today's grouped wording (never mis-assert).
             cause="$(conn_diag_message "$fetch_err" || true)"
             [ -n "$cause" ] || cause="the fetch failed: offline, host down, auth, or transient network error"
-            die "branch.sh: default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable ($cause); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244, #269)"
+            die "default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable ($cause); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244, #269)"
         fi
-        die "branch.sh: default_baseline '$baseline' does not resolve though remote '$base_remote' was reached and fetched (pruned, typo'd, or deleted ref?); refusing to fall back to HEAD — fix default_baseline or restore the ref (#72)"
+        die "default_baseline '$baseline' does not resolve though remote '$base_remote' was reached and fetched (pruned, typo'd, or deleted ref?); refusing to fall back to HEAD — fix default_baseline or restore the ref (#72)"
     fi
-    warn "branch.sh: default_baseline '$baseline' unresolvable and remote '$base_remote' is not configured; falling back to HEAD ($("$DEVAGENT_GIT" rev-parse --short HEAD)) — the new branch will stack on the current checkout (#72)"
+    warn "default_baseline '$baseline' unresolvable and remote '$base_remote' is not configured; falling back to HEAD ($("$DEVAGENT_GIT" rev-parse --short HEAD)) — the new branch will stack on the current checkout (#72)"
     baseline_sha="$("$DEVAGENT_GIT" rev-parse HEAD)"
 fi
 

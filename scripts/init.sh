@@ -101,7 +101,7 @@ PY
 # rather than installing a corrupt config (audit A20).
 if ! python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" validate "$rendered"; then
   rm -f "$rendered"
-  die "init.sh: rendered config is not valid TOML (bad character in an answer?); nothing installed"
+  die "rendered config is not valid TOML (bad character in an answer?); nothing installed"
 fi
 
 if [[ ! -f "$cfg" ]]; then

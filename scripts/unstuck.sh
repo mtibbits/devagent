@@ -27,15 +27,15 @@ main() {
   case "${2:-}" in
     --pending) mode="pending" ;;
     "")        ;;
-    *)         die "unstuck.sh: unknown flag '$2'" ;;
+    *)         die "unknown flag '$2'" ;;
   esac
 
-  [[ -n "$project" ]] || die "unstuck.sh: project required"
-  config_is_project "$project" || die "unstuck.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  config_is_project "$project" || die "unknown project '$project'"
 
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
-  [[ -d "$issue_dir" ]] || die "unstuck.sh: no issue_dir"
+  [[ -d "$issue_dir" ]] || die "no issue_dir"
 
   if [[ ! -f "$issue_dir/STUCK" ]]; then
     info "no STUCK file at $issue_dir/STUCK — nothing to clear"
@@ -47,7 +47,7 @@ main() {
   local stuck_steps stuck_step
   stuck_steps="$(checklist_steps_with_glyph "$checklist" '!')"
   stuck_step="${stuck_steps%%$'\n'*}"
-  [[ -n "$stuck_step" ]] || die "unstuck.sh: STUCK file present but no [!] step in checklist"
+  [[ -n "$stuck_step" ]] || die "STUCK file present but no [!] step in checklist"
 
   local glyph=" "
   [[ "$mode" == "inprogress" ]] && glyph="~"

@@ -15,8 +15,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_GIT:=git}"
 
 project="${1:-}"
-[ -n "$project" ] || die "cleanup.sh: project required"
-config_is_project "$project" || die "cleanup.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 [ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
@@ -30,12 +30,12 @@ cleanup_target="${2:-}"; cleanup_target="${cleanup_target##*/}"
 [ -n "$cleanup_target" ] || cleanup_target="${DEVAGENT_ACTIVE_ISSUE:-}"
 if [ -n "$cleanup_target" ]; then
     _state_issue_id_ok "$cleanup_target" \
-        || die "cleanup.sh: invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
+        || die "invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
     issue_dir="$(issue_dir_for "$project" "$cleanup_target")"
 else
     issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 fi
-[ -d "$issue_dir" ] || die "cleanup.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 # #242 (generalizes #231): refuse to close while ANY prior closeout step is
 # non-terminal — updatewbs/impact/lessonslearned are exactly the steps skipped
@@ -50,7 +50,7 @@ if [ -n "$offenders" ]; then
     # Derive the remediation commands from the offender list itself — one
     # authoritative name list (the helper args above).
     fix_cmds="$(printf '%s\n' "$offenders" | sed 's/:.*$//; s|^|/devagent:|' | tr '\n' ' ')"
-    die "cleanup.sh: closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
+    die "closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
 source_dir="$(config_get_project_field "$project" source_dir)"

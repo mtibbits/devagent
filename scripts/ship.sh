@@ -35,8 +35,8 @@ done
 set -- "${filtered[@]+"${filtered[@]}"}"
 
 project="${1:-}"
-[ -n "$project" ] || die "ship.sh: project required"
-config_is_project "$project" || die "ship.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -45,14 +45,14 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "ship.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
-[ -n "$issue_arg" ] || die "ship.sh: no active issue and no issue arg"
+[ -n "$issue_arg" ] || die "no active issue and no issue arg"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "ship.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — branch/mr routing now read ITS [context] table; an issue with no
@@ -65,7 +65,7 @@ if ! depends_ship_preflight "$project" "$issue_arg" "$strict_deps"; then
 fi
 
 branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
-[ -n "$branch" ] || die "ship.sh: no branch in state (run /devagent:branch first)"
+[ -n "$branch" ] || die "no branch in state (run /devagent:branch first)"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have no commits to
 # push/PR. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's own
@@ -76,7 +76,7 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
-    info "ship.sh: no commits on branch — auto-marking step 15 [-] (zero-diff issue)"
+    info "no commits on branch — auto-marking step 15 [-] (zero-diff issue)"
     checklist_mark "$issue_dir/checklist.md" 15 -
     log_append "$issue_dir" ship "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
@@ -95,10 +95,10 @@ work_dir="${worktree_path:-$source_dir}"
 # clobbered/aborted session): a silent 0-count here would re-enable the exact
 # stranded-fix push this gate exists to prevent.
 "$DEVAGENT_GIT" -C "$work_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || die "ship.sh: work_dir $work_dir is not a usable git tree (stale worktree_path in state?) — refusing to ship unverified (#148)"
+    || die "work_dir $work_dir is not a usable git tree (stale worktree_path in state?) — refusing to ship unverified (#148)"
 modified_count="$("$DEVAGENT_GIT" -C "$work_dir" status --porcelain --ignore-submodules=dirty 2>/dev/null | grep -cv '^??' || true)"
 if [ "$modified_count" -gt 0 ]; then
-    die "ship.sh: $modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
+    die "$modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
 fi
 
 # #149: refuse to push while preship (21) is non-terminal — the fresh-context
@@ -108,7 +108,7 @@ fi
 # the #231/#242 pattern.
 preship_open="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" preship)"
 if [ -n "$preship_open" ]; then
-    die "ship.sh: preship is non-terminal ($preship_open) — run /devagent:preship (or mark it [-] only for a genuinely unverifiable ship) before shipping (#149)"
+    die "preship is non-terminal ($preship_open) — run /devagent:preship (or mark it [-] only for a genuinely unverifiable ship) before shipping (#149)"
 fi
 
 code_backend="$(config_get_project_field "$project" code_source.backend)"
@@ -119,7 +119,7 @@ fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo f
 
 # fork_only implies fork_first; validate the fork is configured.
 if [ "$fork_only" = "true" ]; then
-    [ -n "$fork_repo" ] || die "ship.sh: fork_only=true requires code_source.fork to be set"
+    [ -n "$fork_repo" ] || die "fork_only=true requires code_source.fork to be set"
     fork_first=true
 fi
 
@@ -127,7 +127,7 @@ fi
 # stacked parent base on the target repo before the permission-gate plan and the
 # #26 pre-flight below.
 code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
-[ -x "$code_sh" ] || die "ship.sh: missing code backend $code_sh"
+[ -x "$code_sh" ] || die "missing code backend $code_sh"
 target_repo="$upstream_repo"
 if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo="$fork_repo"
@@ -166,7 +166,7 @@ if [ -n "$parent_branch" ]; then
     _be_rc=$?
     set -e
     if [ "$_be_rc" -eq 1 ]; then
-        warn "ship.sh: stacked parent '$parent_branch' not found on $target_repo — basing PR on default base '$base_branch' instead (#41)"
+        warn "stacked parent '$parent_branch' not found on $target_repo — basing PR on default base '$base_branch' instead (#41)"
         parent_branch=""
     else
         # #154: branch-exists cannot tell a live parent from a DEAD one — a parent
@@ -184,11 +184,11 @@ if [ -n "$parent_branch" ]; then
         _mph_rc=$?
         set -e
         if [ "$_mph_rc" -eq 0 ]; then
-            warn "ship.sh: stacked parent '$parent_branch' has an already-merged PR (dead branch) on $target_repo — basing PR on default base '$base_branch' instead (#154; live PR #152/#153)"
+            warn "stacked parent '$parent_branch' has an already-merged PR (dead branch) on $target_repo — basing PR on default base '$base_branch' instead (#154; live PR #152/#153)"
             parent_branch=""
         else
             base_branch="$parent_branch"
-            info "ship.sh: stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
+            info "stacked child (baseline ${baseline_sha:0:12}) → basing PR on parent branch '$parent_branch' (#34)"
         fi
     fi
 fi
@@ -218,12 +218,12 @@ if [ -z "$parent_branch" ] && [ "$fork_first" = "true" ] && [ -n "$fork_repo" ];
             # commits not on upstream) — it can't be fast-forwarded, so the PR
             # would open against a polluted base; the operator must reconcile it.
             if ! is_fast_forward "$source_dir" "$fork_base" "$up_ref"; then
-                die "ship.sh: fork base $fork_base has diverged from $up_ref (carries commits not on upstream) and cannot be fast-forwarded — the PR would open against a polluted base. Reconcile the fork's default branch with $up_ref (e.g. reset/merge $fork_base to $up_ref on the fork) before shipping (#26)."
+                die "fork base $fork_base has diverged from $up_ref (carries commits not on upstream) and cannot be fast-forwarded — the PR would open against a polluted base. Reconcile the fork's default branch with $up_ref (e.g. reset/merge $fork_base to $up_ref on the fork) before shipping (#26)."
             fi
             # Hard-stop if the branch conflicts with upstream — FFing the base
             # would only surface the conflict on GitHub; rebase to resolve.
             if branch_conflicts_upstream "$source_dir" "$branch" "$up_ref"; then
-                die "ship.sh: branch '$branch' conflicts with $up_ref — upstream changed files you touched. Rebase onto $up_ref and resolve before shipping (#26); refusing to ship a base that would conflict."
+                die "branch '$branch' conflicts with $up_ref — upstream changed files you touched. Rebase onto $up_ref and resolve before shipping (#26); refusing to ship a base that would conflict."
             fi
             ff_src="$up_ref"; ff_dst="refs/heads/$base_br"
             ff_plan="
@@ -246,7 +246,7 @@ else
 fi
 
 mr_body="$issue_dir/mr.md"
-[ -r "$mr_body" ] || die "ship.sh: missing $mr_body (run /devagent:draftmr first)"
+[ -r "$mr_body" ] || die "missing $mr_body (run /devagent:draftmr first)"
 
 # Permission gate.
 target_repo_for_plan="$upstream_repo"
@@ -274,11 +274,11 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 # #26 Defect A: FF the fork base so the PR diff shows only this branch's work.
 if [ -n "$ff_src" ]; then
     ( cd "$source_dir" && "$DEVAGENT_GIT" push "$push_remote" "$ff_src:$ff_dst" ) \
-        || warn "ship.sh: fast-forward of fork base failed (non-FF or push denied); PR diff may include upstream commits (#26)"
+        || warn "fast-forward of fork base failed (non-FF or push denied); PR diff may include upstream commits (#26)"
 fi
 
 title_file="$issue_dir/.devagent-title"
-[ -r "$title_file" ] || die "ship.sh: missing $title_file (run /devagent:branch first)"
+[ -r "$title_file" ] || die "missing $title_file (run /devagent:branch first)"
 title="$(tr -d '\n' < "$title_file")"
 
 draft_flag=()
@@ -303,7 +303,7 @@ if [ "$include_coauthor" = "false" ]; then
     # so test content not size). Only the strip path can empty the body; the
     # default path is left byte-identical, so this guard does not touch it.
     grep -q '[^[:space:]]' "$mr_body_send" \
-        || die "ship.sh: PR body empty after Co-Authored-By strip (#31) — mr.md was all trailer/blank lines; nothing to ship."
+        || die "PR body empty after Co-Authored-By strip (#31) — mr.md was all trailer/blank lines; nothing to ship."
 fi
 
 # #88: qualify the PR head as <fork_owner>:<branch> when the MR target repo's
@@ -320,7 +320,7 @@ if [ -n "$fork_repo" ] && [ "${target_repo%%/*}" != "${fork_repo%%/*}" ]; then
 fi
 
 mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$pr_head" "$base_branch" "${draft_flag[@]}")"
-[ -n "$mr_url" ] || die "ship.sh: create-mr returned empty URL"
+[ -n "$mr_url" ] || die "create-mr returned empty URL"
 
 # Fire on_ship transition. Tolerate missing transition verb / failures per §11.
 # Skipped under fork_only. Also skipped if the routed backend/repo isn't

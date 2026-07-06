@@ -72,8 +72,8 @@ autostage_in_scope() {
 }
 
 project="${1:-}"
-[ -n "$project" ] || die "commit.sh: project required"
-config_is_project "$project" || die "commit.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -82,14 +82,14 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "commit.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
-[ -n "$issue_arg" ] || die "commit.sh: no active issue and no issue arg"
+[ -n "$issue_arg" ] || die "no active issue and no issue arg"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "commit.sh: issue dir not found: $issue_dir"
+[ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — branch/keys now come from ITS [context] table, so a mismatched arg
 # can no longer commit the active branch under the wrong {{issue}}; an issue
@@ -130,7 +130,7 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 # branch must die loudly, not fall through the empty-branch tolerance below —
 # that tolerance exists for legacy bare flows only.
 if [ -z "$branch" ] && { [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "${2:-}" ]; }; then
-    die "commit.sh: no branch recorded for '$issue_arg' — run /devagent:branch first"
+    die "no branch recorded for '$issue_arg' — run /devagent:branch first"
 fi
 # #316: an empty recorded branch with a COMPLETED branch step (6) is state
 # corruption — the branch step ran (a branch existed) but the recorded branch is
@@ -144,12 +144,12 @@ fi
 if [ -z "$branch" ]; then
     branch_step="$(checklist_step_state_by_name "$issue_dir/checklist.md" branch 2>/dev/null || true)"
     if [ "$branch_step" = "x" ]; then
-        die "commit.sh: branch step is complete but no branch is recorded for '$issue_arg' — state is incoherent (resume-after-cleanup? run /devagent:doctor). Restore the issue's branch ('/devagent:branch') before committing (#316)."
+        die "branch step is complete but no branch is recorded for '$issue_arg' — state is incoherent (resume-after-cleanup? run /devagent:doctor). Restore the issue's branch ('/devagent:branch') before committing (#316)."
     fi
 fi
 cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
 if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
-    die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
+    die "refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
 fi
 
 staged=""
@@ -175,12 +175,12 @@ if [ -z "$staged" ]; then
             # Autostage requested: stage exactly the manifest's files, or die with a
             # manifest-specific message (never the silent skip, never over-capture).
             if autostage_in_scope "$DEVAGENT_GIT" "$work_dir" "$issue_dir/.devagent-scope"; then
-                info "commit.sh: auto-staged in-scope files from .devagent-scope (commit_autostage=true, #251)"
+                info "auto-staged in-scope files from .devagent-scope (commit_autostage=true, #251)"
             else
-                die "commit.sh: commit_autostage=true but no in-scope file was staged from $issue_dir/.devagent-scope — the manifest is missing/empty, has an invalid entry (only single in-repo FILE paths are allowed; no '.', '..', absolute, ':' pathspec-magic, glob, or directory entries), or its paths are not dirty. Fix .devagent-scope or stage manually ('git add ...'). Refusing to silently skip (#25/#251)."
+                die "commit_autostage=true but no in-scope file was staged from $issue_dir/.devagent-scope — the manifest is missing/empty, has an invalid entry (only single in-repo FILE paths are allowed; no '.', '..', absolute, ':' pathspec-magic, glob, or directory entries), or its paths are not dirty. Fix .devagent-scope or stage manually ('git add ...'). Refusing to silently skip (#25/#251)."
             fi
         else
-            die "commit.sh: working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
+            die "working tree has uncommitted changes but nothing is staged — stage your in-scope files ('git add ...') then re-run. Refusing to silently skip the commit step (would ship an empty PR; see issue #25)."
         fi
     else
         # Tree is clean — consult the commits-ahead classifier (#241) only now,
@@ -196,18 +196,18 @@ if [ -z "$staged" ]; then
                 # #116: per-task commits during implement are the norm — a clean
                 # tree with commits ahead of baseline means the work is already
                 # committed. Full success, not a skip.
-                info "commit.sh: work already committed on the branch — nothing further to commit (#116)"
+                info "work already committed on the branch — nothing further to commit (#116)"
                 finish_step "no-op: work already committed per-task (#116)${NOTE:+ — $NOTE}"
                 exit 0
                 ;;
             empty)
-                info "commit.sh: clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
+                info "clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
                 checklist_mark "$issue_dir/checklist.md" 10 -
                 log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
                 exit 0
                 ;;
             *)
-                die "commit.sh: cannot classify commits-ahead (verdict: ${verdict:-unknown}, baseline_sha: '${baseline_sha:-unset}') — refusing to guess between no-op success and artifact-only skip. Recover the baseline (e.g. 'git -C $work_dir merge-base <default_baseline> HEAD') and set it in the state file, then re-run (#116)."
+                die "cannot classify commits-ahead (verdict: ${verdict:-unknown}, baseline_sha: '${baseline_sha:-unset}') — refusing to guess between no-op success and artifact-only skip. Recover the baseline (e.g. 'git -C $work_dir merge-base <default_baseline> HEAD') and set it in the state file, then re-run (#116)."
                 ;;
         esac
     fi
@@ -215,8 +215,8 @@ fi
 
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
-[ -r "$type_file" ]  || die "commit.sh: missing $type_file"
-[ -r "$title_file" ] || die "commit.sh: missing $title_file"
+[ -r "$type_file" ]  || die "missing $type_file"
+[ -r "$title_file" ] || die "missing $title_file"
 issue_type="$(tr -d '\n' < "$type_file")"
 title="$(tr -d '\n' < "$title_file")"
 
@@ -225,7 +225,7 @@ prefix="$(config_get_project_field "$project" "branch_prefix_map.$issue_type" 2>
 [ -n "$prefix" ] || prefix="$issue_type"
 
 template="$(artifact_resolve "$project" commit_template)" \
-    || die "commit.sh: commit_template not resolvable"
+    || die "commit_template not resolvable"
 
 body="$(mktemp)"
 trap 'rm -f "$body"' EXIT

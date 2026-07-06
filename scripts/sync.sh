@@ -97,7 +97,7 @@ if [ "${1:-}" = "--all" ]; then
     done < <(config_list_projects)
 else
     project="${1:-}"
-    [ -n "$project" ] || die "sync.sh: project or --all required"
-    config_is_project "$project" || die "sync.sh: unknown project '$project'"
+    [ -n "$project" ] || die "project or --all required"
+    config_is_project "$project" || die "unknown project '$project'"
     sync_one_project "$project"
 fi

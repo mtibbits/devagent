@@ -25,8 +25,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # Default to the active project when no arg, so the implement step can call us bare.
 project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
-[ -n "$project" ] || die "record-scope.sh: project required (no arg and no active project)"
-config_is_project "$project" || die "record-scope.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required (no arg and no active project)"
+config_is_project "$project" || die "unknown project '$project'"
 
 # Opt-in: no-op unless commit_autostage=true (the #251 consumer flag — recording is
 # pointless, and must change nothing, when autostage is off).
@@ -34,9 +34,9 @@ autostage="$(config_get_project_field "$project" commit_autostage 2>/dev/null ||
 [ "$autostage" = "true" ] || exit 0
 
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "record-scope.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 baseline_sha="$(state_ctx_get "$project" baseline_sha 2>/dev/null || true)"
-[ -n "$baseline_sha" ] || die "record-scope.sh: baseline_sha not set (run branch first)"
+[ -n "$baseline_sha" ] || die "baseline_sha not set (run branch first)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 
 scope_file="$issue_dir/.devagent-scope"
@@ -50,7 +50,7 @@ sentinel="$scope_file.auto"
 # sentinel is operator-authored → leave it untouched (auto-population augments hand
 # authoring, it does not silently overwrite it).
 if [ -e "$scope_file" ] && [ ! -e "$sentinel" ]; then
-    warn "record-scope.sh: $scope_file is operator-authored (no auto-scope sentinel) — leaving it untouched"
+    warn "$scope_file is operator-authored (no auto-scope sentinel) — leaving it untouched"
     exit 0
 fi
 
@@ -73,11 +73,11 @@ for p in "${raw[@]}"; do
     # A genuinely-edited path that is a #251 reject vector must FAIL LOUD (never be
     # dropped). Mirrors commit.sh:autostage_in_scope so producer ⊆ consumer-accepts.
     case "$p" in
-        -*)                    die "record-scope.sh: edited path '$p' starts with '-' (flag-injection vector) — cannot record as an in-scope entry; stage manually." ;;
-        :*)                    die "record-scope.sh: edited path '$p' starts with ':' (pathspec-magic) — cannot record." ;;
-        /*)                    die "record-scope.sh: edited path '$p' is absolute — cannot record." ;;
-        .|..|../*|*/..|*/../*) die "record-scope.sh: edited path '$p' has parent-traversal — cannot record." ;;
-        *'*'*|*'?'*|*'['*)     die "record-scope.sh: edited path '$p' contains a glob metacharacter — cannot record; stage manually." ;;
+        -*)                    die "edited path '$p' starts with '-' (flag-injection vector) — cannot record as an in-scope entry; stage manually." ;;
+        :*)                    die "edited path '$p' starts with ':' (pathspec-magic) — cannot record." ;;
+        /*)                    die "edited path '$p' is absolute — cannot record." ;;
+        .|..|../*|*/..|*/../*) die "edited path '$p' has parent-traversal — cannot record." ;;
+        *'*'*|*'?'*|*'['*)     die "edited path '$p' contains a glob metacharacter — cannot record; stage manually." ;;
     esac
     paths+=("$p")
 done
@@ -95,4 +95,4 @@ tmp="$(mktemp)"
 if [ "${#paths[@]}" -gt 0 ]; then printf '%s\n' "${paths[@]}" > "$tmp"; else : > "$tmp"; fi
 mv "$tmp" "$scope_file"
 : > "$sentinel"   # authorship marker (sibling file, never a path line in the manifest)
-info "record-scope.sh: recorded ${#paths[@]} in-scope path(s) → $scope_file"
+info "recorded ${#paths[@]} in-scope path(s) → $scope_file"

@@ -13,8 +13,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_PYTHON:=python3}"
 
 project="${1:-}"
-[ -n "$project" ] || die "analyze-static.sh: project required"
-config_is_project "$project" || die "analyze-static.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -23,17 +23,17 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "analyze-static.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "analyze-static.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-[ -n "$baseline" ] || die "analyze-static.sh: no baseline_sha in state and no default_baseline in config"
+[ -n "$baseline" ] || die "no baseline_sha in state and no default_baseline in config"
 
 source_dir="$(config_get_project_field "$project" source_dir)"
 build_dir="$(config_get_project_field "$project" build_dir 2>/dev/null || true)"
