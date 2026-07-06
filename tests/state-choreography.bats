@@ -96,7 +96,9 @@ SH
   # set -e mirrors production (every step script runs set -euo pipefail), so
   # the killed mutation's 137 propagates out of the command substitution.
   run bash -c "set -euo pipefail; PATH='$KILL':\$PATH; source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/state.sh'; state_pull_promote volk Issue-2 '$DA_HOME/new-dir' Issue-1"
-  [ "$status" -ne 0 ]
+  # Exactly the kill-shim's 137 (review NIT: a broken re-source would also be
+  # nonzero and pass vacuously — the old state trivially intact).
+  [ "$status" -eq 137 ]
   # Old state fully intact: active still Issue-1 with its branch; NO snapshot,
   # NO half-clear. (On the HEAD choreography a crash mid-sequence left
   # active_issue=prev with branch="" — the torn #316 shape.)

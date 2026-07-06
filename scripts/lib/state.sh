@@ -266,19 +266,24 @@ state_context_clear() {
   state_init "$project"
   f="$(state_path "$project")"
   # #327: ONE transaction (was ~8 — mid-sequence readers saw half-cleared
-  # state). pending_comments_file's default is a REAL unset again (its absent
-  # form), riding the same transaction.
+  # state). The defaults are _STATE_RESTORE_SPECS (single source of truth —
+  # review MINOR: literal copies would drift when STATE_ISSUE_KEYS grows);
+  # the fixed set→unset order inside transact makes pending_comments_file's
+  # "" land and then be deleted — its default is a REAL unset (absent form).
   _state_toml transact "$f" \
-      --set str branch '""' str baseline_sha '""' str worktree_path '""' \
-            str mr_url '""' int revision 1 int last_step 0 \
-            str last_step_name '""' str updated_at "$(_state_now)" \
+      --set "${_STATE_RESTORE_SPECS[@]}" str updated_at "$(_state_now)" \
       --unset pending_comments_file
 }
 
-# _state_restore_specs — the shared --restore triplet list (typed defaults
-# mirror state_init; #327). pending_comments_file's default lands as "" here
-# (transact's restore can't conditionally unset); consumers treat "" ≡ absent
-# (verified #317) and state_context_clear's default path is a real unset.
+# _STATE_RESTORE_SPECS — the shared <type key default> triplet list (typed
+# defaults mirror state_init; #327). SINGLE SOURCE OF TRUTH for the per-issue
+# defaults: --restore specs in restore/resume AND the --set defaults in
+# clear/pull_promote all use it — keep in lockstep with STATE_ISSUE_KEYS
+# (a key added there but not here would be snapshotted yet never reset — a
+# cross-issue value leak; review MINOR). pending_comments_file's default
+# lands as "" on the RESTORE paths (restore can't conditionally unset);
+# consumers treat "" ≡ absent (verified #317); the clear/displace paths
+# re-delete it via --unset in the same transaction.
 _STATE_RESTORE_SPECS=(str branch '""' str baseline_sha '""'
                       str worktree_path '""' str mr_url '""'
                       int revision 1 int last_step 0
@@ -353,11 +358,11 @@ state_pull_promote() {
     # shellcheck disable=SC2206  # STATE_ISSUE_KEYS is a deliberate word list
     snap=(--snapshot "context.${prev}" $STATE_ISSUE_KEYS)
   fi
+  # Defaults from _STATE_RESTORE_SPECS (lockstep source of truth); the
+  # set→unset order deletes the pending_comments_file "" again (absent form).
   old_active="$(_state_toml transact "$f" --print-old active_issue \
       "${snap[@]}" \
-      --set str branch '""' str baseline_sha '""' str worktree_path '""' \
-            str mr_url '""' int revision 1 int last_step 0 \
-            str last_step_name '""' \
+      --set "${_STATE_RESTORE_SPECS[@]}" \
             str active_issue "$issue" str issue_dir "$issue_dir" \
             str updated_at "$(_state_now)" \
       --unset pending_comments_file)"

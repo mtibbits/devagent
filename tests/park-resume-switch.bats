@@ -260,12 +260,16 @@ SH
   #    still pins that it lands.)
   fused="$(grep ' active_issue ' "$BATS_TEST_TMPDIR/toml-calls.log" | grep ' transact ')"
   [ -n "$fused" ]
+  # The PROMOTE pair must ride the same transact (review MINOR: a bare
+  # ' active_issue ' grep is also satisfied by --print-old active_issue, so a
+  # de-fused regression — promote in a separate set-many — needs this pair
+  # assert plus the exact ≤2 cap to stay caught).
+  [[ "$fused" == *" active_issue Issue-676"* ]]
   [[ "$fused" == *"--restore context.Issue-676"* ]]
   [[ "$fused" == *"--unset context.Issue-676"* ]]
-  # 2. Cap: remove_parked + the one transact = 2 mutations (#317's cap was ≤6
-  #    over the pre-#327 shape; tightened now the choreography is gone).
+  # 2. Cap: remove_parked + the one transact = exactly 2 mutations.
   muts="$(awk '{print $2}' "$BATS_TEST_TMPDIR/toml-calls.log" | grep -cE '^(set|set-int|set-bool|set-many|set-many-if|set-if|unset|transact)$')"
-  [ "$muts" -le 3 ]
+  [ "$muts" -le 2 ]
   # 3. Behavioral: the branch is restored.
   grep -qE '^branch = "fix/676-foo"$' "$DA_HOME/state/volk.toml"
 }

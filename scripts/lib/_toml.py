@@ -612,9 +612,17 @@ def main(argv: list[str]) -> int:
                 "--print-old": [], "--snapshot": [], "--restore": [],
                 "--set": [], "--unset": [],
             }
+            seen: set[str] = set()
             bucket = None
             for tok in rest:
                 if tok in groups:
+                    # A repeated group flag silently appending to the first
+                    # occurrence would mis-parent its args (review NIT) —
+                    # reject loudly instead.
+                    if tok in seen:
+                        print(f"_toml: transact: duplicate group flag '{tok}'", file=sys.stderr)
+                        return 2
+                    seen.add(tok)
                     bucket = groups[tok]
                 elif bucket is None:
                     print(f"_toml: transact: unexpected '{tok}' before a group flag", file=sys.stderr)
@@ -625,7 +633,10 @@ def main(argv: list[str]) -> int:
                 print("_toml: transact wants at least one of --snapshot/--restore/--set/--unset", file=sys.stderr)
                 return 2
             print_old = None
-            if groups["--print-old"]:
+            if "--print-old" in seen:
+                # Flag-seen check (review NIT): an EMPTY --print-old group
+                # would otherwise be silently ignored and disable a caller's
+                # clobber-warn without a trace.
                 if len(groups["--print-old"]) != 1:
                     print("_toml: transact: --print-old wants exactly one key", file=sys.stderr)
                     return 2

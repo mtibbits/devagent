@@ -131,3 +131,26 @@ def test_no_groups_is_a_usage_error(tmp_path):
     write(f, 'a = "1"\n')
     r = run("transact", str(f))
     assert r.returncode == 2
+
+
+def test_empty_print_old_group_fails_loud(tmp_path):
+    # A silently-ignored empty --print-old would disable a caller's
+    # clobber-warn without a trace (review NIT).
+    f = tmp_path / "po.toml"
+    write(f, 'a = "1"\n')
+    r = run("transact", str(f), "--print-old", "--set", "str", "a", "2")
+    assert r.returncode == 2
+    assert "print-old" in r.stderr
+    assert 'a = "1"' in f.read_text()          # untouched
+
+
+def test_duplicate_group_flag_fails_loud(tmp_path):
+    # '--snapshot A k1 --snapshot B k2' would silently treat B/k2 as keys of A
+    # (review NIT) — duplicates are rejected before any write.
+    f = tmp_path / "dup.toml"
+    write(f, 'a = "1"\n')
+    r = run("transact", str(f),
+            "--snapshot", "ctx.A", "a", "--snapshot", "ctx.B", "a")
+    assert r.returncode == 2
+    assert "duplicate" in r.stderr
+    assert 'a = "1"' in f.read_text()          # untouched
