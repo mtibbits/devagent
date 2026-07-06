@@ -6,8 +6,8 @@ subset of TOML by hand — we only need: top-level tables, nested tables,
 string/bool/int scalars. Lists/dates/inline-tables are read-only.
 
 Mutation verbs (set [--print-old], set-bool, set-int, unset, set-many,
-set-if) acquire an exclusive lock on a sibling .lock file for the entire
-read-modify-write cycle and write via tempfile + atomic os.rename.
+set-if, transact) acquire an exclusive lock on a sibling .lock file for the
+entire read-modify-write cycle and write via tempfile + atomic os.rename.
 Concurrent writers are serialized. The lock uses fcntl.flock on POSIX
 and falls back to msvcrt.locking on Windows (where fcntl does not
 exist); read-only verbs never touch the lock, so a missing fcntl must
@@ -422,7 +422,7 @@ def main(argv: list[str]) -> int:
     # hand-commented config.toml) so a mis-pointed mutation can't destroy it.
     # Machine-written state files have no comments; new files don't exist yet.
     # Shared by ALL mutation verbs (#96 hoisted the duplicate).
-    if verb in {"set", "set-bool", "set-int", "unset", "set-many", "set-if"}:
+    if verb in {"set", "set-bool", "set-int", "unset", "set-many", "set-if", "transact"}:
         # #293: this unlocked pre-lock read races a concurrent writer's replace
         # on Windows. Retry the transient sharing violation; also_missing=True
         # is safe because file.exists() just passed, so a later miss is a
@@ -587,6 +587,135 @@ def main(argv: list[str]) -> int:
             if nw.msg:
                 print(nw.msg)
             return nw.code
+        except tomllib.TOMLDecodeError as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
+
+    if verb == "transact":
+        # #327: ONE locked transaction composing the context choreography's
+        # moves in FIXED order — snapshot (top-level → table, replace-stale),
+        # restore (table → top-level with typed defaults), set (plain typed
+        # triplets), unset (idempotent deletes) — plus --print-old <key>
+        # emitting the pre-write value in-lock (the #96 clobber-warn input).
+        # Replaces the save/clear/restore/displacement multi-transaction
+        # choreography whose crash/interleave windows were the #98/#316/#317
+        # bug class: with one _locked_rmw + atomic replace, a reader or crash
+        # sees whole-old or whole-new, never a mix. Validation is
+        # all-or-nothing before the lock (exit 2, file untouched).
+        # RESERVED: a value can never be a literal group token (--print-old/
+        # --snapshot/--restore/--set/--unset) — it would switch buckets and
+        # the count/type validation then fails loud (exit 2), never silent
+        # corruption (set-many-if's #240 reservation, same class; values on
+        # this path are machine-controlled state keys/defaults).
+        try:
+            groups: dict[str, list[str]] = {
+                "--print-old": [], "--snapshot": [], "--restore": [],
+                "--set": [], "--unset": [],
+            }
+            seen: set[str] = set()
+            bucket = None
+            for tok in rest:
+                if tok in groups:
+                    # A repeated group flag silently appending to the first
+                    # occurrence would mis-parent its args (review NIT) —
+                    # reject loudly instead.
+                    if tok in seen:
+                        print(f"_toml: transact: duplicate group flag '{tok}'", file=sys.stderr)
+                        return 2
+                    seen.add(tok)
+                    bucket = groups[tok]
+                elif bucket is None:
+                    print(f"_toml: transact: unexpected '{tok}' before a group flag", file=sys.stderr)
+                    return 2
+                else:
+                    bucket.append(tok)
+            if not (groups["--snapshot"] or groups["--restore"] or groups["--set"] or groups["--unset"]):
+                print("_toml: transact wants at least one of --snapshot/--restore/--set/--unset", file=sys.stderr)
+                return 2
+            print_old = None
+            if "--print-old" in seen:
+                # Flag-seen check (review NIT): an EMPTY --print-old group
+                # would otherwise be silently ignored and disable a caller's
+                # clobber-warn without a trace.
+                if len(groups["--print-old"]) != 1:
+                    print("_toml: transact: --print-old wants exactly one key", file=sys.stderr)
+                    return 2
+                print_old = groups["--print-old"][0]
+            snap = groups["--snapshot"]
+            if snap and len(snap) < 2:
+                print("_toml: transact: --snapshot wants <table> <key>...", file=sys.stderr)
+                return 2
+            snap_table, snap_keys = (snap[0], snap[1:]) if snap else (None, [])
+            res = groups["--restore"]
+            restore_table = None
+            restore_specs: list[tuple[str, str, object]] = []
+            if res:
+                if len(res) < 4 or (len(res) - 1) % 3 != 0:
+                    print("_toml: transact: --restore wants <table> then <str|int|bool> <key> <default> triplets", file=sys.stderr)
+                    return 2
+                restore_table = res[0]
+                for i in range(1, len(res), 3):
+                    typ, key, dflt = res[i], res[i + 1], res[i + 2]
+                    restore_specs.append((typ, key, _coerce(typ, key, dflt)))
+            set_triplets = []
+            sraw = groups["--set"]
+            if sraw:
+                if len(sraw) % 3 != 0:
+                    print("_toml: transact: --set wants <str|int|bool> <key> <value> triplets", file=sys.stderr)
+                    return 2
+                for i in range(0, len(sraw), 3):
+                    set_triplets.append((sraw[i + 1], _coerce(sraw[i], sraw[i + 1], sraw[i + 2])))
+            with _locked_rmw(file) as data:
+                if print_old is not None:
+                    try:
+                        prev = _walk(data, print_old)
+                        if not isinstance(prev, dict):
+                            print(prev if isinstance(prev, str) else _emit_value(prev))
+                    except KeyError:
+                        pass
+                if snap_table is not None:
+                    # Replace-stale + in-lock gather: the crash-after-unset
+                    # hazard and the torn lock-free gather are both gone.
+                    _unset_path(data, snap_table)
+                    for k in snap_keys:
+                        v = data.get(k)
+                        if isinstance(v, dict) or v is None or v == "":
+                            continue          # skip absent/empty (the old [[ -n ]])
+                        _set_path(data, f"{snap_table}.{k}", v)
+                if restore_table is not None:
+                    for typ, key, dflt in restore_specs:
+                        try:
+                            raw = _walk(data, f"{restore_table}.{key}")
+                        except KeyError:
+                            raw = None
+                        if isinstance(raw, dict):
+                            raw = None
+                        val = dflt
+                        if raw is not None:
+                            if typ == "int":
+                                # legacy snapshots stored ints as digit STRINGS
+                                if isinstance(raw, bool):
+                                    pass
+                                elif isinstance(raw, int):
+                                    val = raw
+                                elif isinstance(raw, str) and raw.isdigit():
+                                    val = int(raw)
+                            elif typ == "bool":
+                                if isinstance(raw, bool):
+                                    val = raw
+                                elif raw in ("true", "false"):
+                                    val = raw == "true"
+                            else:
+                                val = raw if isinstance(raw, str) else _emit_value(raw)
+                        _set_path(data, key, val)
+                for key, value in set_triplets:
+                    _set_path(data, key, value)
+                for k in groups["--unset"]:
+                    _unset_path(data, k)
+            return 0
+        except ValueError as e:
+            print(f"_toml: transact: {e}", file=sys.stderr)
+            return 2
         except tomllib.TOMLDecodeError as e:
             print(f"_toml: {file}: {e}", file=sys.stderr)
             return 2
