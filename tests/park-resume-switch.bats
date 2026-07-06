@@ -227,3 +227,43 @@ CTX
   [[ "$output" != *"WARNING"* ]]      # live tree → no spurious warning
   [[ "$output" == *"resumed Issue-676"* ]]
 }
+
+@test "resume promotes and restores in ONE state transaction (#317)" {
+  # The promote-before-restore window: HEAD flipped active_issue first, then
+  # state_context_restore repopulated the top level across ~12 more
+  # transactions — a crash (or the table-miss fallback under a concurrent
+  # reader) inside the window pairs the NEW active_issue with the OLD issue's
+  # top-level keys. Pin the fix by observing the _toml.py traffic itself:
+  # the mutation that writes active_issue must carry the restored per-issue
+  # keys in the SAME transaction.
+  cat >> "$DA_HOME/state/volk.toml" <<'CTX'
+branch = "fix/676-foo"
+CTX
+  run "$PLUGIN_ROOT/scripts/park.sh" volk          # snapshot + park (no shim)
+  [ "$status" -eq 0 ]
+  # Shim python3 to log every _toml.py argv, then exec the real interpreter.
+  REAL_PY="$(command -v python3)"
+  mkdir -p "$BATS_TEST_TMPDIR/shim"
+  cat > "$BATS_TEST_TMPDIR/shim/python3" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$BATS_TEST_TMPDIR/toml-calls.log"
+exec "$REAL_PY" "\$@"
+SH
+  chmod +x "$BATS_TEST_TMPDIR/shim/python3"
+  : > "$BATS_TEST_TMPDIR/toml-calls.log"
+  PATH="$BATS_TEST_TMPDIR/shim:$PATH" run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  # 1. The fused transaction: the mutation carrying active_issue also carries
+  #    the restored branch and the rest of the per-issue keys.
+  fused="$(grep ' active_issue ' "$BATS_TEST_TMPDIR/toml-calls.log" | grep ' set-many ')"
+  [ -n "$fused" ]
+  [[ "$fused" == *" branch fix/676-foo"* ]]
+  [[ "$fused" == *" worktree_path "* ]]
+  # 2. Coarse cap: the whole unpinned resume stays a handful of mutations
+  #    (HEAD's choreography was ~12+: promote, clear x7, per-key sets, unset,
+  #    updated_at). Generous headroom so refactors don't flake.
+  muts="$(awk '{print $2}' "$BATS_TEST_TMPDIR/toml-calls.log" | grep -cE '^(set|set-int|set-bool|set-many|set-many-if|set-if|unset)$')"
+  [ "$muts" -le 6 ]
+  # 3. Behavioral: the branch is restored.
+  grep -qE '^branch = "fix/676-foo"$' "$DA_HOME/state/volk.toml"
+}

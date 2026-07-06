@@ -88,9 +88,12 @@ main() {
   fi
 
   state_remove_parked "$project" "$issue"
-  # #96: same tearing pair as pull.sh — one transaction.
-  state_set_many "$project" str active_issue "$issue" str issue_dir "$issue_dir"
-  state_context_restore "$project" "$issue"
+  # #317: promote + restore in ONE transaction (was: a #96 set_many promote
+  # followed by state_context_restore's multi-transaction choreography — a
+  # window where active_issue = NEW while the top level still held the OLD
+  # issue's keys, laundered by the table-miss fallback under a concurrent
+  # reader, or persisted by a crash).
+  state_resume_promote_restore "$project" "$issue" "$issue_dir"
 
   # #248: liveness-check the restored worktree_path. A git worktree removed
   # out-of-band (git worktree prune, rm -rf, disk cleanup, worktree-root
