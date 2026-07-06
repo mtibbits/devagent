@@ -1,5 +1,5 @@
 ---
-description: Async merge detection: fires on_merge for shipped issues that merged outside this session.
+description: "Async merge detection: fires on_merge for shipped issues that merged outside this session."
 allowed-tools: Bash
 argument-hint: "--all | <project>"
 ---
