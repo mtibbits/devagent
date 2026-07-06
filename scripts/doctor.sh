@@ -8,7 +8,9 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
-source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: state-coherence check
+source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the coherence check
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 
 declare -i ERRORS=0

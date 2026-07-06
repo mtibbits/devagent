@@ -204,3 +204,16 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [ "$status" -eq 0 ]
     grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "commit does NOT refuse a healthy recorded branch with the branch step done, bare flow (#316 regression)" {
+    # Guard silence on the healthy axis: a NON-EMPTY recorded branch + branch
+    # step [x] on the bare path must commit normally (the #316 guard fires only
+    # on an EMPTY branch). Mirrors the doctor healthy regression. setup already
+    # recorded branch=feat/1-x and staged a.txt on feat/1-x.
+    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+}

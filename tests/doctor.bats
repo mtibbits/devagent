@@ -123,3 +123,16 @@ CL
   [ "$status" -eq 0 ]
   [[ "$output" != *"316"* ]]
 }
+
+@test "doctor does NOT flag a HEALTHY branched issue (recorded branch + branch step done) (#316 regression)" {
+  # The false-positive axis the first cut missed: a normal in-progress issue has
+  # a NON-EMPTY recorded branch AND branch step [x]. The #316 check must pass it.
+  # (Catches doctor calling state_ctx_get without sourcing active.sh — that made
+  # the branch read empty always and flagged every healthy issue.)
+  _seed_316_active_issue x
+  state_set volk branch "fix/1-real"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"316"* ]]
+  [[ "$output" == *"state coherence"*"OK"* ]] || [[ "$output" == *"OK"*"state coherence"* ]] || [[ "$output" == *"coherence (Issue-1) OK"* ]]
+}
