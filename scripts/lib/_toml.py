@@ -26,6 +26,7 @@ unreachable — the only POSIX-visible delta is _dump cleaning up an orphan
 from __future__ import annotations
 import datetime
 import os
+import stat
 import time
 try:
     import fcntl
@@ -221,6 +222,14 @@ def _dump(path: Path, data: dict) -> None:
     # tomllib binary read — else a non-ASCII value writes cp1252 and the next
     # read raises TOMLDecodeError (a bricked state file).
     tmp.write_text(text, newline="", encoding="utf-8")
+    # #315: tmp.write_text created tmp at 0666 & ~umask; the replace below would
+    # carry that onto path, discarding the 0600 state_init sets. Preserve the
+    # destination's mode (or 0600 on a fresh create) so doctor's 600 check holds.
+    try:
+        _mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        _mode = 0o600
+    tmp.chmod(_mode)
     # PermissionError only: a concurrent unlocked reader holding `path` open
     # makes the replace fail transiently on Windows — retry. A
     # FileNotFoundError here would mean `tmp` itself vanished (unrecoverable),
