@@ -95,3 +95,31 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"config"* ]]
 }
+
+_seed_316_active_issue() {   # $1 = branch-step glyph (x = corrupt, ' ' = fresh)
+  mkdir -p "$DA_HOME/fake-devdoc/Issue-1"
+  cat > "$DA_HOME/fake-devdoc/Issue-1/checklist.md" <<CL
+## Revision 1
+
+- [x]  0. pull
+- [$1]  6. branch
+- [ ] 10. commit
+CL
+  state_set volk active_issue Issue-1
+  state_set volk issue_dir "$DA_HOME/fake-devdoc/Issue-1"
+  # branch key left absent => empty (the resume-after-cleanup state)
+}
+
+@test "doctor flags an active issue whose branch step is done but has no branch (#316)" {
+  _seed_316_active_issue x
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"316"* ]]
+}
+
+@test "doctor does NOT flag a fresh active issue (branch step pending, empty branch) (#316)" {
+  _seed_316_active_issue ' '
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"316"* ]]
+}

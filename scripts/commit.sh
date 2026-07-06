@@ -132,6 +132,21 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 if [ -z "$branch" ] && { [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "${2:-}" ]; }; then
     die "commit.sh: no branch recorded for '$issue_arg' — run /devagent:branch first"
 fi
+# #316: an empty recorded branch with a COMPLETED branch step (6) is state
+# corruption — the branch step ran (a branch existed) but the recorded branch is
+# now gone. This is the resume-after-cleanup kill chain: cleanup GC'd the issue's
+# [context.<issue>] table but left it parked, so a later BARE resume (no pin, no
+# arg — which the #240 guard above does NOT cover) restored defaults (branch="").
+# Without this, the empty-branch tolerance below would commit staged work onto
+# whatever HEAD is on (the base branch post-cleanup) and mark step 10 [x]. Gate
+# on the branch step being DONE ([x]) — not skipped ([-]) or pending ([ ]/[~]) —
+# so the legitimate never-branched legacy flow keeps its empty-branch tolerance.
+if [ -z "$branch" ]; then
+    branch_step="$(checklist_step_state_by_name "$issue_dir/checklist.md" branch 2>/dev/null || true)"
+    if [ "$branch_step" = "x" ]; then
+        die "commit.sh: branch step is complete but no branch is recorded for '$issue_arg' — state is incoherent (resume-after-cleanup? run /devagent:doctor). Restore the issue's branch ('/devagent:branch') before committing (#316)."
+    fi
+fi
 cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
 if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
     die "commit.sh: refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."

@@ -175,3 +175,32 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     run grep -qE '^- \[(x|-)\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
+
+@test "commit refuses an empty branch when the branch step is done — resume-after-cleanup (#316)" {
+    # The state resume-after-cleanup leaves behind: active_issue set, the issue's
+    # recorded branch reset to "", but the branch step (6) still [x] — a branch
+    # DID exist and was lost. A BARE commit (no arg, no pin) must refuse: the
+    # #240 guard only covers pinned/arg sessions, so without #316 the bare flow
+    # would commit staged work onto whatever HEAD is on and mark step 10 [x].
+    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
+    local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"      # BARE: no Issue-1 arg
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"316"* ]]
+    # Nothing committed (HEAD unchanged).
+    [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
+    # Step 10 stays pending.
+    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "commit still tolerates an empty branch when the branch step is NOT done — legacy bare flow (#316)" {
+    # branch step [ ] (never branched) + empty branch = the legitimate legacy
+    # tolerance; the #316 guard must NOT fire (it gates on branch-step == x).
+    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
