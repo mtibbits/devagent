@@ -95,3 +95,44 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"config"* ]]
 }
+
+_seed_316_active_issue() {   # $1 = branch-step glyph (x = corrupt, ' ' = fresh)
+  mkdir -p "$DA_HOME/fake-devdoc/Issue-1"
+  cat > "$DA_HOME/fake-devdoc/Issue-1/checklist.md" <<CL
+## Revision 1
+
+- [x]  0. pull
+- [$1]  6. branch
+- [ ] 10. commit
+CL
+  state_set volk active_issue Issue-1
+  state_set volk issue_dir "$DA_HOME/fake-devdoc/Issue-1"
+  # branch key left absent => empty (the resume-after-cleanup state)
+}
+
+@test "doctor flags an active issue whose branch step is done but has no branch (#316)" {
+  _seed_316_active_issue x
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"316"* ]]
+}
+
+@test "doctor does NOT flag a fresh active issue (branch step pending, empty branch) (#316)" {
+  _seed_316_active_issue ' '
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"316"* ]]
+}
+
+@test "doctor does NOT flag a HEALTHY branched issue (recorded branch + branch step done) (#316 regression)" {
+  # The false-positive axis the first cut missed: a normal in-progress issue has
+  # a NON-EMPTY recorded branch AND branch step [x]. The #316 check must pass it.
+  # (Catches doctor calling state_ctx_get without sourcing active.sh — that made
+  # the branch read empty always and flagged every healthy issue.)
+  _seed_316_active_issue x
+  state_set volk branch "fix/1-real"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"316"* ]]
+  [[ "$output" == *"state coherence"*"OK"* ]] || [[ "$output" == *"OK"*"state coherence"* ]] || [[ "$output" == *"coherence (Issue-1) OK"* ]]
+}

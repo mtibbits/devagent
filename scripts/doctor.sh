@@ -7,6 +7,10 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the coherence check
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 
 declare -i ERRORS=0
@@ -80,6 +84,27 @@ check_one_project() {
       check "state file ($mode)" skip "filesystem can't represent POSIX modes — verify access control by other means"
     else
       check "state file ($mode)" fail "expected mode 600"
+    fi
+    # #316: state coherence — an ACTIVE issue whose branch step (6) is DONE but
+    # whose recorded branch is empty is the resume-after-cleanup corruption
+    # (cleanup GC'd the [context.<issue>] table but left the issue parked; a
+    # later bare resume restored defaults, branch=""). Gate on branch-step == x
+    # so a fresh issue between pull and branch — where an empty branch is
+    # legitimate — is not flagged. Active issue only; the broader last_step vs
+    # checklist audit is the state epic's remit.
+    local ai ai_dir ai_branch ai_bstep
+    ai="$(state_get "$project" active_issue 2>/dev/null || true)"
+    if [[ -n "$ai" && "$ai" != "null" ]]; then
+      ai_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+      ai_branch="$(state_ctx_get "$project" branch "$ai" 2>/dev/null || true)"
+      if [[ -n "$ai_dir" && -f "$ai_dir/checklist.md" ]]; then
+        ai_bstep="$(checklist_step_state_by_name "$ai_dir/checklist.md" branch 2>/dev/null || true)"
+        if [[ -z "$ai_branch" && "$ai_bstep" == "x" ]]; then
+          check "state coherence ($ai)" fail "branch step complete but no branch recorded — resume-after-cleanup corruption (#316); re-run /devagent:branch"
+        else
+          check "state coherence ($ai)" ok
+        fi
+      fi
     fi
   else
     check "state file" fail "missing — run /devagent:init $project"
