@@ -254,16 +254,18 @@ SH
   PATH="$BATS_TEST_TMPDIR/shim:$PATH" run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
   [ "$status" -eq 0 ]
   # 1. The fused transaction: the mutation carrying active_issue also carries
-  #    the restored branch and the rest of the per-issue keys.
-  fused="$(grep ' active_issue ' "$BATS_TEST_TMPDIR/toml-calls.log" | grep ' set-many ')"
+  #    the restore AND its table delete in the SAME invocation. (#327 evolution
+  #    of the #317 pin: restored VALUES now move in-lock via --restore, so the
+  #    branch value no longer appears in argv — the behavioral assert below
+  #    still pins that it lands.)
+  fused="$(grep ' active_issue ' "$BATS_TEST_TMPDIR/toml-calls.log" | grep ' transact ')"
   [ -n "$fused" ]
-  [[ "$fused" == *" branch fix/676-foo"* ]]
-  [[ "$fused" == *" worktree_path "* ]]
-  # 2. Coarse cap: the whole unpinned resume stays a handful of mutations
-  #    (HEAD's choreography was ~12+: promote, clear x7, per-key sets, unset,
-  #    updated_at). Generous headroom so refactors don't flake.
-  muts="$(awk '{print $2}' "$BATS_TEST_TMPDIR/toml-calls.log" | grep -cE '^(set|set-int|set-bool|set-many|set-many-if|set-if|unset)$')"
-  [ "$muts" -le 6 ]
+  [[ "$fused" == *"--restore context.Issue-676"* ]]
+  [[ "$fused" == *"--unset context.Issue-676"* ]]
+  # 2. Cap: remove_parked + the one transact = 2 mutations (#317's cap was ≤6
+  #    over the pre-#327 shape; tightened now the choreography is gone).
+  muts="$(awk '{print $2}' "$BATS_TEST_TMPDIR/toml-calls.log" | grep -cE '^(set|set-int|set-bool|set-many|set-many-if|set-if|unset|transact)$')"
+  [ "$muts" -le 3 ]
   # 3. Behavioral: the branch is restored.
   grep -qE '^branch = "fix/676-foo"$' "$DA_HOME/state/volk.toml"
 }

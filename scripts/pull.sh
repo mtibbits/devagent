@@ -90,20 +90,27 @@ main() {
     info "pull: session is issue-pinned (${DEVAGENT_ACTIVE_ISSUE}) — shared active_issue untouched"
   else
     prev="$(state_get "$project" active_issue 2>/dev/null || true)"
-    if [[ "$prev" != "$issue_id" ]]; then
-      if [[ -n "$prev" && "$prev" != "null" ]]; then
-        state_context_save "$project" "$prev"
+    if [[ "$prev" == "$issue_id" ]]; then
+      # Re-pull of the live issue: refresh the pair only — NEVER clear live
+      # context. (#96: one transaction; #282: no pointer write — pull's
+      # project is always an explicit positional.)
+      state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
+    else
+      local snap_prev=""
+      [[ -n "$prev" && "$prev" != "null" ]] && snap_prev="$prev"
+      # #327: snapshot(displaced) + clear-to-defaults + promote as ONE locked
+      # transaction (was save→clear→set_many — 3 compound calls whose
+      # mid-sequence crash left active_issue=prev over defaults, the #316
+      # branch="" shape). Clobber-warn carried inside (--print-old).
+      state_pull_promote "$project" "$issue_id" "$issue_dir" "$snap_prev"
+      if [[ -n "$snap_prev" ]]; then
         # #247: remember the displaced issue ONLY if a non-empty snapshot was
-        # actually taken (it was genuinely in-flight). Re-pull (prev == issue_id),
-        # no-prev, and nothing-to-save cases leave $displaced empty and stay silent.
-        state_context_has "$project" "$prev" && displaced="$prev"
+        # actually taken (genuinely in-flight); reads the table the
+        # transaction above just wrote. No-prev and nothing-to-save cases
+        # leave $displaced empty and stay silent.
+        state_context_has "$project" "$snap_prev" && displaced="$snap_prev"
       fi
-      state_context_clear "$project"
     fi
-    # #96: active_issue + issue_dir in ONE transaction — the issue's canonical
-    # tearing example (A's issue with B's dir). Clobber-warn carried inside.
-    # (#282: no pointer write — pull's project is always an explicit positional.)
-    state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
   fi
   # An active issue is by definition not parked: drop any stale parked flag
   # and PRE-PARK snapshot, so a later resume cannot restore stale context over

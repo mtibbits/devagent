@@ -155,24 +155,19 @@ STATE_ISSUE_KEYS="branch baseline_sha worktree_path mr_url revision pending_comm
 # (a merge would resurrect keys the issue no longer has, e.g. an old mr_url).
 # Empty/absent keys are not snapshotted.
 state_context_save() {
-  local project="$1" issue="$2" f key v
+  local project="$1" issue="$2" f
   [[ -n "$issue" ]] || die "state_context_save: issue required"
   state_init "$project"
   f="$(state_path "$project")"
-  _state_toml unset "$f" "context.${issue}"
-  # #96: gather then write the whole snapshot in ONE transaction — a torn
-  # snapshot (half of session A's keys, half of B's) was the #98 failure
-  # class. (The unset above remains a separate transaction; see the issue's
-  # scoping note — the SET loop is the atomic part.)
-  local -a triplets=()
-  for key in $STATE_ISSUE_KEYS; do
-    v="$(_state_toml get "$f" "$key" 2>/dev/null || true)"
-    [[ -n "$v" ]] || continue
-    triplets+=(str "context.${issue}.${key}" "$v")
-  done
-  if [[ ${#triplets[@]} -gt 0 ]]; then
-    _state_toml set-many "$f" "${triplets[@]}" str updated_at "$(_state_now)"
-  fi
+  # #327: ONE locked transaction — the stale-table replace AND the gather now
+  # happen inside the same lock (transact --snapshot), so the #98 torn-gather
+  # class and the old crash-after-unset hazard (a crash between the unset and
+  # the set-many destroyed the only snapshot) are both structurally gone.
+  # Empty/absent keys are skipped in-verb (the old [[ -n "$v" ]]); int values
+  # keep their type (the old path stringified them; restore coerces both).
+  # shellcheck disable=SC2086  # STATE_ISSUE_KEYS is a deliberate word list
+  _state_toml transact "$f" --snapshot "context.${issue}" $STATE_ISSUE_KEYS \
+      --set str updated_at "$(_state_now)"
 }
 
 # ---- #240: issue-keyed live state -------------------------------------------
@@ -267,110 +262,106 @@ state_context_has() {
 
 # state_context_clear <project> — reset per-issue keys to state_init defaults.
 state_context_clear() {
-  local project="$1" f key
+  local project="$1" f
   state_init "$project"
   f="$(state_path "$project")"
-  for key in $STATE_ISSUE_KEYS; do
-    case "$key" in
-      revision)              _state_toml set-int "$f" revision 1 ;;
-      last_step)             _state_toml set-int "$f" last_step 0 ;;
-      pending_comments_file) _state_toml unset "$f" pending_comments_file ;;
-      *)                     _state_toml set "$f" "$key" '""' ;;
-    esac
-  done
-  _state_toml set "$f" updated_at "$(_state_now)"
+  # #327: ONE transaction (was ~8 — mid-sequence readers saw half-cleared
+  # state). pending_comments_file's default is a REAL unset again (its absent
+  # form), riding the same transaction.
+  _state_toml transact "$f" \
+      --set str branch '""' str baseline_sha '""' str worktree_path '""' \
+            str mr_url '""' int revision 1 int last_step 0 \
+            str last_step_name '""' str updated_at "$(_state_now)" \
+      --unset pending_comments_file
 }
 
-# state_context_restore <project> <issue> — clear to defaults, then restore
-# any snapshotted keys from [context.<issue>] and delete the snapshot.
-# revision/last_step go back through set-int so the stored form stays an
-# unquoted int (#97). Missing snapshot (legacy park) → defaults + warning.
-# NO PRODUCTION CALLERS since #317 (resume — its last caller — uses the
-# single-transaction state_resume_promote_restore below; calling THIS from
-# resume would reopen the promote/restore window). Kept for #327's re-homing
-# into a restore-for-all-callers verb; tests still pin its behavior.
+# _state_restore_specs — the shared --restore triplet list (typed defaults
+# mirror state_init; #327). pending_comments_file's default lands as "" here
+# (transact's restore can't conditionally unset); consumers treat "" ≡ absent
+# (verified #317) and state_context_clear's default path is a real unset.
+_STATE_RESTORE_SPECS=(str branch '""' str baseline_sha '""'
+                      str worktree_path '""' str mr_url '""'
+                      int revision 1 int last_step 0
+                      str last_step_name '""' str pending_comments_file '""')
+
+# state_context_restore <project> <issue> — restore the snapshotted keys from
+# [context.<issue>] (defaults for missing keys), delete the snapshot — ONE
+# locked transaction (#327: was clear+per-key sets+unset, ~12; the in-lock
+# table→top-level copy replaces the lock-free gather). Ints stay unquoted
+# (#97; digit-string legacy snapshots are coerced in-verb). Missing snapshot
+# (legacy park) → defaults + warning (advisory, lock-free — the transaction
+# is uniform either way). The plain non-promoting form; resume's
+# state_resume_promote_restore rides the same verb with its promote triplets.
 state_context_restore() {
-  local project="$1" issue="$2" f key v
+  local project="$1" issue="$2" f
   [[ -n "$issue" ]] || die "state_context_restore: issue required"
   state_init "$project"
   f="$(state_path "$project")"
-  state_context_clear "$project"
-  if ! _state_toml list-keys "$f" "context.${issue}" >/dev/null 2>&1; then
+  if ! state_context_has "$project" "$issue"; then
     echo "warning: state_context_restore: no saved context for '$issue' — per-issue keys reset to defaults" >&2
-    return 0
   fi
-  for key in $STATE_ISSUE_KEYS; do
-    v="$(_state_toml get "$f" "context.${issue}.${key}" 2>/dev/null || true)"
-    [[ -n "$v" ]] || continue
-    case "$key" in
-      revision|last_step)
-        [[ "$v" =~ ^[0-9]+$ ]] || v=1
-        _state_toml set-int "$f" "$key" "$v" ;;
-      *)
-        _state_toml set "$f" "$key" "$v" ;;
-    esac
-  done
-  _state_toml unset "$f" "context.${issue}"
-  _state_toml set "$f" updated_at "$(_state_now)"
+  _state_toml transact "$f" \
+      --restore "context.${issue}" "${_STATE_RESTORE_SPECS[@]}" \
+      --set str updated_at "$(_state_now)" \
+      --unset "context.${issue}"
 }
 
 # state_resume_promote_restore <project> <issue> <issue_dir> — #317: resume's
 # promote (active_issue/issue_dir) and per-issue restore land in ONE locked
-# transaction. HEAD's pair (set_many promote, then state_context_restore's
-# ~12-transaction choreography) left a window where active_issue = NEW while
-# the top level still held the OLD issue's keys — state_issue_get's table-miss
-# fallback (three lock-free reads, :224-229) would launder the old branch into
-# the new issue for a concurrent reader, and a crash persisted the pairing.
-# (The window is live only on a context-table MISS — a normal park's snapshot
-# masks it via table-hit-wins; legacy parks and the cleanup-GC'd case, #316,
-# hit it.)
-#
-# Snapshot values (or state_init defaults on miss) are gathered LOCK-FREE
-# before the write — the same exposure state_context_save's gather has; the
-# atomic snapshot verb, and re-homing this into a restore-for-all-callers verb,
-# are #327's remit. Deliberate small deltas vs state_context_restore, both
-# documented in Issue-317: pending_comments_file's absent-default lands as ""
-# (set-many cannot unset; sole producer revise.sh, and the read fallback treats
-# "" ≡ absent), and corrupt non-numeric snapshot ints fall back per-key
-# (revision→1, last_step→0) rather than uniformly 1.
-#
-# The trailing snapshot delete stays a separate second write, BENIGN for
-# readers and crashes: before it, table-hit-wins returns the same values the
-# set-many just landed; after it, the issue==active fallback reads them from
-# the top level; a crash in between leaves only a redundant identical
-# snapshot. Concurrent-WRITER choreography (a displacement save landing in
-# the gap loses its fresh snapshot to this unset — HEAD-equal, and strictly
-# better than HEAD's mid-restore variant) is #327's remit.
+# transaction, closing the promote-before-restore window (active_issue = NEW
+# paired with the OLD issue's top-level keys; the table-miss fallback
+# laundered them for concurrent readers, a crash persisted them).
+# #327 re-home: the gather now happens IN-LOCK (transact --restore) and the
+# snapshot delete rides the SAME transaction — #317's lock-free-gather and
+# benign-second-write caveats are retired. Clobber-warn preserved in-lock via
+# --print-old (#96).
 state_resume_promote_restore() {
-  local project="$1" issue="$2" issue_dir="$3" f key v have_snapshot=0
+  local project="$1" issue="$2" issue_dir="$3" f old_active
   [[ -n "$issue" && -n "$issue_dir" ]] || die "state_resume_promote_restore: issue and issue_dir required"
   _state_issue_id_ok "$issue" || die "state_resume_promote_restore: invalid issue id '$issue'"
   state_init "$project"
   f="$(state_path "$project")"
-  if _state_toml list-keys "$f" "context.${issue}" >/dev/null 2>&1; then
-    have_snapshot=1
-  else
+  if ! state_context_has "$project" "$issue"; then
     echo "warning: resume: no saved context for '$issue' — per-issue keys reset to defaults" >&2
   fi
-  local -a triplets=(str active_issue "$issue" str issue_dir "$issue_dir")
-  for key in $STATE_ISSUE_KEYS; do
-    v=""
-    if [[ "$have_snapshot" -eq 1 ]]; then
-      v="$(_state_toml get "$f" "context.${issue}.${key}" 2>/dev/null || true)"
-    fi
-    case "$key" in
-      revision|last_step)
-        [[ "$v" =~ ^[0-9]+$ ]] || v="$(_state_issue_default "$key")"
-        triplets+=(int "$key" "$v") ;;
-      *)
-        triplets+=(str "$key" "$v") ;;
-    esac
-  done
-  # One transaction: promote + restore (clobber-warn included via state_set_many).
-  state_set_many "$project" "${triplets[@]}"
-  if [[ "$have_snapshot" -eq 1 ]]; then
-    _state_toml unset "$f" "context.${issue}"
+  old_active="$(_state_toml transact "$f" --print-old active_issue \
+      --restore "context.${issue}" "${_STATE_RESTORE_SPECS[@]}" \
+      --set str active_issue "$issue" str issue_dir "$issue_dir" \
+            str updated_at "$(_state_now)" \
+      --unset "context.${issue}")"
+  _state_warn_active_clobber "$old_active" "$issue"
+}
+
+# state_pull_promote <project> <issue> <issue_dir> [prev_issue] — #327: pull's
+# displacement as ONE locked transaction: snapshot the displaced issue's keys
+# (when prev given), reset the per-issue keys to defaults, and promote
+# active_issue/issue_dir — was save→clear→set_many (3 compound calls, ~12
+# locks), whose mid-sequence crash left active_issue=prev over defaults (the
+# #316 branch="" shape). Now a crash lands old-complete or new-complete,
+# nothing between. Clobber-warn preserved in-lock via --print-old. NOT for
+# re-pull of the live issue (never clear live context) — pull.sh keeps that
+# branch on plain state_set_many.
+state_pull_promote() {
+  local project="$1" issue="$2" issue_dir="$3" prev="${4:-}" f old_active
+  [[ -n "$issue" && -n "$issue_dir" ]] || die "state_pull_promote: issue and issue_dir required"
+  _state_issue_id_ok "$issue" || die "state_pull_promote: invalid issue id '$issue'"
+  state_init "$project"
+  f="$(state_path "$project")"
+  local -a snap=()
+  if [[ -n "$prev" ]]; then
+    _state_issue_id_ok "$prev" || die "state_pull_promote: invalid issue id '$prev'"
+    # shellcheck disable=SC2086  # STATE_ISSUE_KEYS is a deliberate word list
+    snap=(--snapshot "context.${prev}" $STATE_ISSUE_KEYS)
   fi
+  old_active="$(_state_toml transact "$f" --print-old active_issue \
+      "${snap[@]}" \
+      --set str branch '""' str baseline_sha '""' str worktree_path '""' \
+            str mr_url '""' int revision 1 int last_step 0 \
+            str last_step_name '""' \
+            str active_issue "$issue" str issue_dir "$issue_dir" \
+            str updated_at "$(_state_now)" \
+      --unset pending_comments_file)"
+  _state_warn_active_clobber "$old_active" "$issue"
 }
 
 state_add_parked() {
