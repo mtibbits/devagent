@@ -14,8 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF' >&2
 Usage:
-  /devagent:template [project] list
-  /devagent:template [project] show <key>
+  /devagent:template [--project P] list
+  /devagent:template [--project P] show <key>
 EOF
   exit 2
 }
