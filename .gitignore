@@ -1,3 +1,11 @@
 __pycache__/
 *.pyc
 *.lock
+
+# #324: analyze-owned build dirs + known local clutter — was a 9-issue manual-mark tax
+build-asan/
+build-tsan/
+build-ubsan/
+err
+.claire/
+.claude/
