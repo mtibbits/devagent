@@ -18,7 +18,7 @@ SH
       && git add tool.sh && git commit -q -m baseline )
     BASELINE_SHA="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
     ( cd "$SOURCE_DIR" && git checkout -q -b fix/1-x )
-    sed -i "s|^branch *=.*|branch = \"fix/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "fix/1-x"
     sed -i "s|^baseline_sha *=.*|baseline_sha = \"$BASELINE_SHA\"|" \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }

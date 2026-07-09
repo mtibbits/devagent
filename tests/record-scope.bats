@@ -28,7 +28,7 @@ teardown() { devagent_test_teardown; }
 
 @test "end-to-end: produced manifest drives #251 commit.sh autostage (#268 AC1+AC2)" {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x && echo x >> README.md && echo new > z_new.txt )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     echo feature > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo scope-test > "$DEVDOC_DIR/Issue-1/.devagent-title"
     mkdir -p "$DEVDOC_DIR/templates"

@@ -122,7 +122,7 @@ _add_vacuous_test() {   # green at baseline (never red)
 }
 
 @test "born-red: knob on + no baseline_sha → die, no artifact (#362 AC7)" {
-    sed -i 's|^baseline_sha.*|baseline_sha   = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha ""
     _add_real_test
     _run_br
     [ "$status" -ne 0 ]
@@ -143,7 +143,7 @@ _add_vacuous_test() {   # green at baseline (never red)
     printf '#!/usr/bin/env bats\n@test "seed" { true; }\n' > "$SOURCE_DIR/tests/mod.bats"
     ( cd "$SOURCE_DIR" && git add tests/mod.bats && git commit -q -m "seed test" )
     local nb; nb="$( git -C "$SOURCE_DIR" rev-parse HEAD )"
-    sed -i "s|^baseline_sha.*|baseline_sha   = \"$nb\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$nb"
     printf '@test "new block" { true; }\n' >> "$SOURCE_DIR/tests/mod.bats"
     mkdir -p "$DEVAGENT_TMP/binstub"
     printf '#!/usr/bin/env bash\necho "1..0"\n' > "$DEVAGENT_TMP/binstub/bats"

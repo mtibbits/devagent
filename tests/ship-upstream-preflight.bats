@@ -44,7 +44,7 @@ _make_branch() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x origin/main~0 2>/dev/null || git checkout -q -b feat/1-x \
       ; printf '%s\n' "$2" > "$1" && git add "$1" \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue $1" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 
 @test "ship FFs the stale fork base when branch is clean vs upstream" {
@@ -52,7 +52,7 @@ _make_branch() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x main \
       && printf 'issue\n' > a.txt && git add a.txt \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue a.txt" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     _advance_origin up.txt UPSTREAM_NEW          # C1 touches a different file → no conflict
     up_tip=$( cd "$SOURCE_DIR" && git rev-parse origin/main )
 
@@ -67,7 +67,7 @@ _make_branch() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x main \
       && printf 'ISSUE EDIT\n' > README.md && git add README.md \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue README" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     fork_before=$( git -C "$FORK" rev-parse main )
     _advance_origin README.md UPSTREAM_EDIT       # C1 edits same file/line → conflict
 
@@ -84,7 +84,7 @@ _make_branch() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x main \
       && printf 'issue\n' > a.txt && git add a.txt \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue a.txt" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     # Diverge the fork base with a fork-ONLY commit off C0 (main still at C0),
     # BEFORE upstream advances — so neither is an ancestor of the other.
     ( cd "$SOURCE_DIR" && git checkout -q -b forktmp main \
@@ -108,7 +108,7 @@ _make_branch() {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x main \
       && printf 'issue\n' > a.txt && git add a.txt \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue a.txt" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     fork_before=$( git -C "$FORK" rev-parse main )
     _advance_origin up.txt UPSTREAM_NEW
 

@@ -8,7 +8,7 @@ setup() {
       && git checkout -q -b feat/1-x \
       && echo hi > a.txt && git add a.txt \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m "feat: x" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 teardown() { devagent_test_teardown; }
 

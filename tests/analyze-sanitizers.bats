@@ -7,8 +7,8 @@ setup() {
       && touch CMakeLists.txt \
       && echo a > a.cc && git add a.cc \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m base )
-    sed -i "s|^branch *=.*|branch = \"fix/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"HEAD~0\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "fix/1-x"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "HEAD~0"
     devagent_stub cmake ""
     devagent_stub ctest "PASS: 2/2"
 }

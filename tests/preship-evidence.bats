@@ -78,7 +78,7 @@ _run() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-
 }
 
 @test "preship-evidence: unset baseline_sha → die (#359)" {
-    sed -i 's|^baseline_sha.*|baseline_sha   = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha ""
     _artifact "$HEAD_SHA" no 100 100 0 20 0
     _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
     _run

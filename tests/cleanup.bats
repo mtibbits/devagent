@@ -11,7 +11,7 @@ setup() {
     sed -i -E '/18\. impact/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
     sed -i -E '/19\. lessonslearned/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     ( cd "$DEVDOC_DIR" \
       && git -c init.defaultBranch=main init -q \
       && git config user.email t@example.com \
@@ -61,8 +61,8 @@ teardown() { devagent_test_teardown; }
     # diff guard was blind to untracked files).
     mkdir -p "$DEVDOC_DIR/Issue-2"
     sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
-    sed -i "s|^active_issue *=.*|active_issue   = \"Issue-2\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^issue_dir *=.*|issue_dir      = \"$DEVDOC_DIR/Issue-2\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-2"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-2"
     before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-2
     [ "$status" -eq 0 ]

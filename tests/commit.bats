@@ -10,7 +10,7 @@ setup() {
     echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo "add a.txt" > "$DEVDOC_DIR/Issue-1/.devagent-title"
     # Pre-populate state.branch via direct edit (simulates branch.sh having run).
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 teardown() { devagent_test_teardown; }
 
@@ -219,7 +219,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # DID exist and was lost. A BARE commit (no arg, no pin) must refuse: the
     # #240 guard only covers pinned/arg sessions, so without #316 the bare flow
     # would commit staged work onto whatever HEAD is on and mark step 10 [x].
-    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch ""
     bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
     local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"      # BARE: no Issue-1 arg
@@ -234,7 +234,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
 @test "commit still tolerates an empty branch when the branch step is NOT done — legacy bare flow (#316)" {
     # branch step [ ] (never branched) + empty branch = the legitimate legacy
     # tolerance; the #316 guard must NOT fire (it gates on branch-step == x).
-    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch ""
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
