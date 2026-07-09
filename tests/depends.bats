@@ -14,6 +14,11 @@ teardown() { teardown_phase9_env; }
   grep -q '\[Issue-100\]' "${state_file}"
 }
 
+@test "depends resolves the project via the documented chain with no --project/env (#331)" {
+  DEVAGENT_ACTIVE_PROJECT='' run bash "${DEVAGENT_REPO_ROOT}/scripts/depends.sh" list
+  [ "$status" -eq 0 ]
+}
+
 @test "depends.sh list prints graph" {
   bash "${DEVAGENT_REPO_ROOT}/scripts/depends.sh" \
     --project "${DEVAGENT_TEST_PROJECT}" Issue-100 on Issue-101

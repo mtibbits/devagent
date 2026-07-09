@@ -42,6 +42,19 @@ teardown() { devagent_test_teardown; }
     [ "$n" -eq 1 ]
 }
 
+@test "cleanup names the PINNED issue (not the shared slot) in the devdoc commit (#331)" {
+    # Shared slot stays Issue-1; a pinned session cleans up Issue-2. The devdoc
+    # commit message (from issue_arg) must name Issue-2 — before the fix issue_arg
+    # was arg→SHARED state = Issue-1, naming the other session's issue.
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    msg="$( cd "$DEVDOC_DIR" && git log -1 --format='%s' )"
+    [[ "$msg" == *"Issue-2"* ]]
+    [[ "$msg" != *"Issue-1 cleanup"* ]]
+}
+
 @test "cleanup.sh commits an entirely-untracked (fresh) issue dir (#140)" {
     # A fresh Issue-2 dir created this cycle is fully untracked; with
     # commit_devdoc=true the auto-commit must still see it (the old tracked-only

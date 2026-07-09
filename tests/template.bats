@@ -15,6 +15,12 @@ teardown() { teardown_phase9_env; }
   echo "$output" | grep -q "layer=plugin"
 }
 
+@test "template resolves the project via the documented chain with no --project/env (#331)" {
+  DEVAGENT_ACTIVE_PROJECT='' run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "coding_standards"
+}
+
 @test "template.sh list resolves plugin layer without env injection (#81)" {
   # Drop the test-only env vars that previously masked broken resolution;
   # config_get_project_field + plugin_root (self-sourced) must carry it.
