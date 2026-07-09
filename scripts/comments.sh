@@ -108,11 +108,14 @@ main() {
   fi
 
   local tmp
-  tmp="$(mktemp)"
+  # #329: same-dir temp → atomic rename (a cross-fs mv can truncate $out).
+  tmp="$(mktemp "$(dirname "$out")/.tmp.XXXXXX")"
   if ! "$backend_cmd" mr-comments "$mr_url" >"$tmp"; then
     rm -f "$tmp"
     die "backend mr-comments failed for $mr_url"
   fi
+  # #329: preserve the target's mode (mktemp is 0600) when replacing an existing file.
+  [ -e "$out" ] && chmod --reference="$out" "$tmp"
   mv "$tmp" "$out"
 
   local k

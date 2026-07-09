@@ -124,6 +124,35 @@ CL
   [[ "$output" != *"316"* ]]
 }
 
+_seed_329_active_issue() {   # $1 = commit-step glyph (' ' = divergent, x = coherent)
+  mkdir -p "$DA_HOME/fake-devdoc/Issue-1"
+  cat > "$DA_HOME/fake-devdoc/Issue-1/checklist.md" <<CL
+## Revision 1
+
+- [x]  0. pull
+- [x]  6. branch
+- [$1] 10. commit
+CL
+  state_set volk active_issue Issue-1
+  state_set volk issue_dir "$DA_HOME/fake-devdoc/Issue-1"
+  state_set volk branch "fix/1-real"      # so the #316 coherence check passes
+  state_set volk last_step_name "commit"  # state claims commit is the last step
+}
+
+@test "doctor flags last_step vs checklist divergence (#329)" {
+  _seed_329_active_issue ' '   # state says commit done; checklist commit unmarked
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"step coherence"*"last_step_name=commit"* ]]
+}
+
+@test "doctor does NOT flag when last_step matches the checklist (#329)" {
+  _seed_329_active_issue x     # commit step [x] agrees with state
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step coherence (Issue-1)"*"OK"* ]] || [[ "$output" == *"OK"*"step coherence"* ]]
+}
+
 @test "doctor does NOT flag a HEALTHY branched issue (recorded branch + branch step done) (#316 regression)" {
   # The false-positive axis the first cut missed: a normal in-progress issue has
   # a NON-EMPTY recorded branch AND branch step [x]. The #316 check must pass it.
