@@ -46,6 +46,22 @@ that project.
    and a transition failure warns rather than dies. The `|| true` is
    belt-and-suspenders — the helper never exits non-zero — so drafting
    proceeds regardless of tracker state.
+
+   **Pre-plan inputs — re-derive the issue's named inputs at HEAD (#361).**
+   Then run the rederive prober and let its artifact inform the plan:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/rederive.sh" "$project"
+   ```
+
+   It writes `<issue-dir>/analysis/<date>-rederive.txt`: per named file
+   exists-at-HEAD ✓/✗, cited-line drift, and commits that landed touching
+   those files since the tracker filing date. ADVISORY — but **every ✗ is a
+   falsified premise**: the plan's `## Preconditions` MUST dispose of each one
+   (correct the record + route the decision back per the #284 question-return
+   path, or state an explicit plan delta). A "0 named inputs found" line means
+   derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
+   for premise-freshness checks; #286's pothole register appends here.)
 3. **Check for pending review comments (Phase 6 revision flow).**
    Look up `pending_comments_file` in
    `~/.claude/devagent/state/<project>.toml`. If set and the file
