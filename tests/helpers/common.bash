@@ -192,15 +192,12 @@ _devagent_toml() {
 }
 
 # State toml (flat keys). String scalar, quoted for _toml.py's `set`.
-devagent_state_set()     { _devagent_toml set     "$1" "$2" "\"$3\""; }
-devagent_state_set_int() { _devagent_toml set-int "$1" "$2" "$3"; }
-devagent_state_unset()   { _devagent_toml unset   "$1" "$2"; }
+devagent_state_set()  { _devagent_toml set "$1" "$2" "\"$3\""; }
 
 # Config toml. Dotted keys address nested tables, e.g.
 # project.<proj>.permissions.push_mr.
 devagent_config_set()      { _devagent_toml set      "$1" "$2" "\"$3\""; }
 devagent_config_set_bool() { _devagent_toml set-bool "$1" "$2" "$3"; }
-devagent_config_set_int()  { _devagent_toml set-int  "$1" "$2" "$3"; }
 devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
 
 # --- #335: checklist step helpers --------------------------------------------

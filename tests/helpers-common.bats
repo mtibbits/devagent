@@ -26,12 +26,6 @@ CL()    { echo "$DEVDOC_DIR/Issue-1/checklist.md"; }
   [ "$output" = "" ]
 }
 
-@test "devagent_state_set_int writes an int scalar" {
-  devagent_state_set_int "$(STATE)" last_step 11
-  run python3 "$(TOML)" get "$(STATE)" last_step
-  [ "$output" = "11" ]
-}
-
 @test "devagent_config_set_bool addresses a nested key" {
   devagent_config_set_bool "$(CFG)" "project.$TEST_PROJECT.permissions.push_mr" false
   run python3 "$(TOML)" get "$(CFG)" "project.$TEST_PROJECT.permissions.push_mr"
