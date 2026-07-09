@@ -27,7 +27,8 @@ log_append() {
   # `## Revision N` blocks after `## Log`, and the log parsers stop at the next
   # heading, so an EOF append would be lost. Trailing blank lines inside the
   # section are buffered so the new entry sits with the other log lines.
-  tmp="$(mktemp)"
+  # #329: same-dir temp → atomic rename (a cross-fs mv can truncate the log).
+  tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
   if awk -v line="$line" '
     /^## / {
       if (in_log && !inserted) { print line; inserted = 1 }
@@ -51,6 +52,8 @@ log_append() {
       for (i = 1; i <= nb; i++) print blanks[i]
     }
   ' "$file" > "$tmp"; then
+    # #329: preserve the target's mode (mktemp is 0600) before replacing it.
+    [ -e "$file" ] && chmod --reference="$file" "$tmp"
     mv "$tmp" "$file"
   else
     rm -f "$tmp"

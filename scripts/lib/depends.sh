@@ -100,7 +100,8 @@ depends_add() {
 depends_write_block() {
   local file="$1" issue="$2" deps="$3"
   local tmp
-  tmp="$(mktemp)"
+  # #329: same-dir temp → atomic rename (a cross-fs mv can truncate the graph).
+  tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
   awk -v want="${issue}" -v deps="${deps}" '
     BEGIN { in_block = 0; replaced = 0 }
     /^\[/ {
@@ -145,6 +146,8 @@ depends_write_block() {
       }
     }
   ' "${file}" > "${tmp}"
+  # #329: preserve the target's mode (mktemp is 0600) before replacing it.
+  [ -e "${file}" ] && chmod --reference="${file}" "${tmp}"
   mv "${tmp}" "${file}"
 }
 

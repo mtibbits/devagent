@@ -290,7 +290,9 @@ checklist_mark() {
   _checklist_valid_glyph "$glyph" || die "checklist_mark: bad glyph '$glyph'"
   local tmp start
   start="$(_checklist_scope_start "$file" "$target")"
-  tmp="$(mktemp)"
+  # #329: same-dir temp → mv is an atomic rename on one filesystem (a bare
+  # tmpfs mktemp + cross-fs mv can leave a TRUNCATED checklist on a mid-mv crash).
+  tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
   if awk -v target="$target" -v glyph="$glyph" -v start="$start" '
     {
       # POSIX 2-arg match() (gawk 3-arg capture array is non-portable: mawk
@@ -307,6 +309,8 @@ checklist_mark() {
       print
     }
   ' "$file" > "$tmp"; then
+    # #329: preserve the target's mode (mktemp is 0600) before replacing it.
+    [ -e "$file" ] && chmod --reference="$file" "$tmp"
     mv "$tmp" "$file"
   else
     rm -f "$tmp"

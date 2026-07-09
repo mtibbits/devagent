@@ -92,7 +92,7 @@ check_one_project() {
     # so a fresh issue between pull and branch — where an empty branch is
     # legitimate — is not flagged. Active issue only; the broader last_step vs
     # checklist audit is the state epic's remit.
-    local ai ai_dir ai_branch ai_bstep
+    local ai ai_dir ai_branch ai_bstep ai_lstep ai_lstep_glyph
     ai="$(state_get "$project" active_issue 2>/dev/null || true)"
     if [[ -n "$ai" && "$ai" != "null" ]]; then
       ai_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
@@ -103,6 +103,21 @@ check_one_project() {
           check "state coherence ($ai)" fail "branch step complete but no branch recorded — resume-after-cleanup corruption (#316); re-run /devagent:branch"
         else
           check "state coherence ($ai)" ok
+        fi
+      fi
+      # #329: broader last_step vs checklist cross-check. Each step writes state
+      # (last_step_name=X) THEN marks checklist step X — two files, no ordering
+      # contract; a crash between leaves state claiming a step the checklist
+      # doesn't reflect. last_step_name always names the last COMPLETED step, so
+      # a healthy in-progress issue (step N [x], step N+1 [ ]) stays coherent;
+      # only the crash-between window diverges. [-] (skipped) counts as done.
+      ai_lstep="$(state_ctx_get "$project" last_step_name "$ai" 2>/dev/null || true)"
+      if [[ -n "$ai_lstep" && "$ai_lstep" != "null" && -n "$ai_dir" && -f "$ai_dir/checklist.md" ]]; then
+        ai_lstep_glyph="$(checklist_step_state_by_name "$ai_dir/checklist.md" "$ai_lstep" 2>/dev/null || true)"
+        if [[ "$ai_lstep_glyph" == "x" || "$ai_lstep_glyph" == "-" ]]; then
+          check "step coherence ($ai)" ok
+        else
+          check "step coherence ($ai)" fail "state records last_step_name=$ai_lstep but that checklist step is '${ai_lstep_glyph:-unmarked}' — likely a crash between the state write and the checklist mark (the checklist is authoritative); re-run the step or mark it"
         fi
       fi
     fi
