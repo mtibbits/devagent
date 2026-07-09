@@ -31,7 +31,7 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "issue/github transition acme/testproj 1 on_ship"
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
 }
 
 @test "ship.sh fails closed when the branch push fails — no MR, step 15 unmarked (#104)" {
@@ -56,7 +56,7 @@ EOF
     # no mr_url recorded, step 15 left unmarked
     run grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
-    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
 }
 
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
@@ -67,7 +67,7 @@ EOF
     run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
     # Checklist unchanged for step 15.
-    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
     # Plan was printed (the permission gate text goes to stderr; bats merges it into $output).
     [[ "$output" == *"ship plan"* ]]
     # No MR url recorded. (run+status, not vacuous `! grep`; checked after $output use.)
@@ -164,7 +164,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
-    sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 21 x
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
@@ -183,7 +183,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
-    sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 21 x
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
@@ -367,7 +367,7 @@ EOF
     devagent_refute_logged "gh pr create"
     run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
-    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
 }
 
 @test "ship.sh ships clean when only untracked files are present (#148)" {
@@ -384,14 +384,10 @@ EOF
     # Stale worktree_path (state-race / pruned-worktree scenario): the gate must
     # refuse loudly, not silently no-op against a path git cannot inspect.
     state_file="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    if grep -q '^worktree_path' "$state_file"; then
-        sed -i "s|^worktree_path *=.*|worktree_path = \"$DEVAGENT_TMP/gone-worktree\"|" "$state_file"
-    else
-        # Insert BEFORE [parked] — a bare append would land inside that table
-        # (the exact key-placement bug class from the audit) and be invisible
-        # to a top-level state_get.
-        sed -i "/^\[parked\]/i worktree_path = \"$DEVAGENT_TMP/gone-worktree\"" "$state_file"
-    fi
+    # devagent_state_set adds-or-replaces a top-level key (emitted before the
+    # [parked] table), so it cannot land the key inside [parked] the way a bare
+    # sed-append would — the if/else the old sed pair needed collapses to one call.
+    devagent_state_set "$state_file" worktree_path "$DEVAGENT_TMP/gone-worktree"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"not a usable git tree"* ]]
@@ -410,7 +406,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"zero-diff"* ]]
-    grep -qE '^- \[-\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 '-' ship
     devagent_refute_logged "gh pr create"
 }
 
@@ -526,7 +522,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]                                    # NOT treated as artifact-only
-    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 done, not [-]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
     devagent_assert_logged "gh pr create"                              # the branch's work reaches a PR
 }
 
@@ -539,7 +535,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]
-    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
 }
 
 @test "ship refuses while preship (21) is non-terminal; absent step ungated (#149)" {
@@ -551,7 +547,7 @@ EOF
     # Absent step (pre-#149 checklist) => no gate at this check; ship then
     # proceeds past it (fixture dies later at push, which is fine — assert
     # only that THIS gate did not fire and the run got past it).
-    sed -i '/21\. preship/d' "$DEVDOC_DIR/Issue-1/checklist.md"
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 21
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" != *"preship is non-terminal"* ]]
 }

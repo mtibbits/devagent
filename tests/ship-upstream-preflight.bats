@@ -60,7 +60,7 @@ _make_branch() {
     [ "$status" -eq 0 ]
     # Fork base was fast-forwarded to the upstream tip.
     [ "$( git -C "$FORK" rev-parse main )" = "$up_tip" ]
-    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
 }
 
 @test "ship hard-stops when the branch conflicts with upstream (no FF, no PR)" {
@@ -76,7 +76,7 @@ _make_branch() {
     [[ "$output" == *"Rebase onto"* ]]
     # Fork base untouched; ship did not proceed to create a PR or mark step 15.
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_before" ]
-    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
 }
 
 @test "ship hard-stops when the fork base has diverged (non-FF)" {
@@ -100,7 +100,7 @@ _make_branch() {
     [[ "$output" == *"diverged"* ]]
     [[ "$output" == *"cannot be fast-forwarded"* ]]
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_div" ]    # fork base untouched
-    grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # no PR opened
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
 }
 
 @test "fork_first=false leaves the pre-flight inert (no FF) despite drift" {
@@ -142,5 +142,5 @@ _make_branch() {
     grep -qE "gh pr create .* --base feat/parent( |$)" "$DEVAGENT_STUB_LOG"
     # Fork base NOT fast-forwarded (the #26 FF was skipped).
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_main_before" ]
-    grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
 }

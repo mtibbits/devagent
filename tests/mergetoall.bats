@@ -29,7 +29,7 @@ _set_baseline_branch() {
     # Squash merges land as a single new commit, parent count == 1.
     parents=$( cd "$SOURCE_DIR" && git log -1 --pretty=%P dev/all-prs | wc -w )
     [ "$parents" -eq 1 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh refuses a dirty tracked tree and leaves it untouched (#71)" {
@@ -42,7 +42,7 @@ _set_baseline_branch() {
     # the operator's change is intact and we're still on feat/1-x
     ( cd "$SOURCE_DIR" && grep -q "operator wip" a.txt )
     [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 @test "mergetoall.sh restores the original branch on success (#71)" {
@@ -58,7 +58,7 @@ _set_baseline_branch() {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"all_prs_branch not configured"* ]]
-    grep -qE '^- \[-\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 '-' mergetoall
     grep -q "auto-skipped: all_prs_branch not configured" "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -69,7 +69,7 @@ _set_baseline_branch() {
     # from an interactive terminal (read -r -p blocks waiting for input).
     run bash -c "'$DEVAGENT_ROOT/scripts/mergetoall.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 @test "mergetoall.sh backward-compat: legacy merge_mr=true still grants permission" {
@@ -78,7 +78,7 @@ _set_baseline_branch() {
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_mr" true
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh default does NOT push (local-only)" {
@@ -123,7 +123,7 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"push of dev/all-prs"*"failed"* ]]
     grep -q "push failed (local commit retained)" "$DEVDOC_DIR/Issue-1/checklist.md"
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 # #33: a child branch stacked on a squash-merged parent must integrate ONLY its
@@ -156,7 +156,7 @@ EOF
     run grep -q '^<<<<<<<' <(git show allprs:shared.txt)
     [ "$status" -ne 0 ]
     [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 # #33: a GENUINE overlap (child's own delta collides with already-integrated work)
@@ -186,7 +186,7 @@ EOF
     [ -z "$(git status --porcelain)" ]
     [ "$(git symbolic-ref --short HEAD)" = "feat/child" ]
     [ "$(git log -1 --pretty=%s allprs)" = "another PR edits shared.txt" ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 # #33: the NON-STACKED production path (baseline_sha SET) must be byte-identical to
@@ -215,7 +215,7 @@ EOF
     [ "$(git rev-parse 'allprs^{tree}')" = "$ref_tree" ]
     [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
     [ "$(git log -1 --pretty='%an|%cn' allprs)" = "devagent|devagent" ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh zero-diff guard rev-lists the issue branch, not source_dir HEAD (#68)" {
@@ -228,7 +228,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero commits"* ]]                                 # NOT the zero-diff skip
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"   # merged, not [-]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
 }
 

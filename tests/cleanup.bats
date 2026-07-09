@@ -7,9 +7,9 @@ setup() {
     # updatewbs/impact/lessonslearned [x] so the pre-existing cleanup tests
     # exercise the allowed path. Whitespace-robust: key on the line content,
     # edit the glyph in place (don't assume spacing).
-    sed -i -E '/17\. updatewbs/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
-    sed -i -E '/18\. impact/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
-    sed -i -E '/19\. lessonslearned/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 17 x
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     ( cd "$DEVDOC_DIR" \
@@ -31,7 +31,7 @@ teardown() { devagent_test_teardown; }
     n=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
     [ "$n" -ge 2 ]
     grep -q '^active_issue *= *""' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    grep -qE '^- \[x\] +20\. cleanup' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x cleanup
 }
 
 @test "cleanup.sh skips devdoc commit when commit_devdoc=false" {
@@ -79,8 +79,7 @@ teardown() { devagent_test_teardown; }
     sed -i 's/^- \[ \]\([ ]*\([0-9]*\)\.\)/- [x]\1/' \
         "$DEVDOC_DIR/Issue-1/checklist.md"
     # Re-mark step 20 as pending so cleanup has work to do.
-    sed -i 's/^- \[x\]\([ ]*20\.\)/- [ ]\1/' \
-        "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 ' '
     # Seed a WBS with the issue's leaf in-progress.
     cat > "$DEVDOC_DIR/WBS.md" <<EOF
 # $TEST_PROJECT WBS
@@ -139,23 +138,23 @@ EOF
 }
 
 @test "cleanup.sh blocks when lessonslearned is pending (#231)" {
-    sed -i -E '/19\. lessonslearned/ s/\[.\]/[ ]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' '
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *lessonslearned* ]]
     # fail-closed: no side effects — step 20 still pending, branch unchanged
-    grep -qE '^- \[ \] +20\. cleanup' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 ' ' cleanup
     [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
 }
 
 @test "cleanup.sh proceeds when lessonslearned is skipped [-] (#231)" {
-    sed -i -E '/19\. lessonslearned/ s/\[.\]/[-]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '-'
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
 
 @test "cleanup.sh proceeds when the checklist has no lessonslearned step (#231)" {
-    sed -i '/19\. lessonslearned/d' "$DEVDOC_DIR/Issue-1/checklist.md"
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 19
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
@@ -164,26 +163,27 @@ EOF
 
 @test "cleanup dies naming ALL non-terminal closeout steps (#242)" {
     # Re-pend 17 and 18 (setup marked them [x]); 19 stays [x].
-    sed -i -E '/17\. updatewbs/ s/\[.\]/[ ]/'  "$DEVDOC_DIR/Issue-1/checklist.md"
-    sed -i -E '/18\. impact/ s/\[.\]/[ ]/'     "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 17 ' '
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' '
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -ne 0 ]
     [[ "$output" == *"updatewbs:[ ]"* ]]
     [[ "$output" == *"impact:[ ]"* ]]
     # No side effect ran: step 20 unmarked, source repo still on the branch.
-    grep -qE '^- \[ \] +20\. cleanup' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 ' ' cleanup
     [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
 }
 
 @test "cleanup proceeds when closeout steps are [x]/[-] mixed (#242)" {
-    sed -i -E '/17\. updatewbs/ s/\[.\]/[-]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 17 '-'
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
 }
 
 @test "cleanup: absent closeout steps do not gate (#242)" {
-    sed -i '/17\. updatewbs/d;/18\. impact/d;/19\. lessonslearned/d' \
-        "$DEVDOC_DIR/Issue-1/checklist.md"
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 17
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 18
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 19
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
 }

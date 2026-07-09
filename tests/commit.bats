@@ -25,7 +25,7 @@ teardown() { devagent_test_teardown; }
     echo "$msg" | grep -qx "feat: add a.txt"
     echo "$msg" | grep -q "Issue: Issue-1"
     echo "$msg" | grep -q "^Signed-off-by:"
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit.sh dies when the latest born-red artifact is FLAGGED (#362)" {
@@ -123,7 +123,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"feat/1-x"* ]]                          # names the expected issue branch
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 10 NOT marked done
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
     # The work-loss is actually prevented: nothing was committed anywhere — a.txt is
     # still staged-but-uncommitted, not landed on the wrong branch.
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt
@@ -137,7 +137,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"detached HEAD"* ]]
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt   # work preserved, not committed
 }
 
@@ -158,7 +158,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [[ "$output" == *"already committed"* ]]
     # No new commit was created.
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$head_before" ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit.sh dies loud on dirty-unstaged tree even with commits ahead (#116/#25)" {
@@ -195,7 +195,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     # Step 10 must NOT be marked done.
-    run grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
     [ "$status" -ne 0 ]
 }
 
@@ -226,7 +226,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # Nothing committed (HEAD unchanged).
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
     # Step 10 stays pending.
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
 }
 
 @test "commit still tolerates an empty branch when the branch step is NOT done — legacy bare flow (#316)" {
@@ -237,7 +237,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit does NOT refuse a healthy recorded branch with the branch step done, bare flow (#316 regression)" {
@@ -250,5 +250,5 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
