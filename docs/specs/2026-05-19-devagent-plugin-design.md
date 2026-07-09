@@ -490,7 +490,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:grep <pattern> [project]` | Greps across all issue dirs (issue.md, imPlan, actualWork, mr, checklist) |
 | `/devagent:history [project] [issue]` | Concatenated log view |
 | `/devagent:template list\|show <name>` | Inspect resolved artifact templates |
-| `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session |
+| `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session, unblocks `[?]` closeout steps, and prints a `CLOSEOUT:` nudge routing to `/devagent:next --auto` (#363; executes no closeout steps itself) |
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
 | `/devagent:wbs <init\|update\|show>` | WBS authoring/render (see §13) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |

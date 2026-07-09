@@ -321,6 +321,36 @@ checklist_mark() {
     || die "checklist_mark: step $target not found in '$file'"
 }
 
+# checklist_mark_by_name <file> <name> <glyph> — set the glyph of the step whose
+# NAME matches, scoped to the ACTIVE revision block (#76). The name-keyed WRITER
+# (#363): the existing by-name funcs are readers, and checklist_mark is keyed by
+# NUMBER; sync needs to flip closeout steps by name (numbers vary by template).
+# No-op-safe: an absent name leaves the file byte-identical. Same-dir atomic write
+# + mode-preserve (#329).
+checklist_mark_by_name() {
+  local file="$1" target="$2" glyph="$3" tmp start
+  [[ -f "$file" ]] || die "checklist_mark_by_name: no such file '$file'"
+  _checklist_valid_glyph "$glyph" || die "checklist_mark_by_name: bad glyph '$glyph'"
+  start="$(_checklist_scope_start_by_name "$file" "$target")"
+  tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
+  if awk -v target="$target" -v glyph="$glyph" -v start="$start" '
+    {
+      if (NR > start && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/)) {
+        name = substr($0, RSTART, RLENGTH)
+        sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", name)
+        if (name == target) sub(/^- \[.\]/, "- [" glyph "]")
+      }
+      print
+    }
+  ' "$file" > "$tmp"; then
+    [ -e "$file" ] && chmod --reference="$file" "$tmp"
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    die "checklist_mark_by_name: awk failed processing '$file' (file left intact)"
+  fi
+}
+
 checklist_advance() {
   local file="$1" cur
   cur="$(checklist_current_step "$file")"
