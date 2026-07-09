@@ -178,3 +178,63 @@ devagent_refute_logged() {
         return 1
     fi
 }
+
+# --- #335: shared .toml mutation helpers -------------------------------------
+# All delegate to the production _toml.py shim (parses via tomllib; unlike
+# `sed -i`, it CANNOT silently no-op on a regex miss). Resolve _toml.py from
+# this file's own location so the helpers work under any fixture setup (not
+# just devagent_test_setup, which is the only thing that sets $DEVAGENT_ROOT).
+_DEVAGENT_TOML_PY="$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib/_toml.py"
+
+_devagent_toml() {
+    # <verb> <toml-file> <key> [value]
+    python3 "$_DEVAGENT_TOML_PY" "$@"
+}
+
+# State toml (flat keys). String scalar, quoted for _toml.py's `set`.
+devagent_state_set()     { _devagent_toml set     "$1" "$2" "\"$3\""; }
+devagent_state_set_int() { _devagent_toml set-int "$1" "$2" "$3"; }
+devagent_state_unset()   { _devagent_toml unset   "$1" "$2"; }
+
+# Config toml. Dotted keys address nested tables, e.g.
+# project.<proj>.permissions.push_mr.
+devagent_config_set()      { _devagent_toml set      "$1" "$2" "\"$3\""; }
+devagent_config_set_bool() { _devagent_toml set-bool "$1" "$2" "$3"; }
+devagent_config_set_int()  { _devagent_toml set-int  "$1" "$2" "$3"; }
+devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
+
+# --- #335: checklist step helpers --------------------------------------------
+# checklist.md is not a toml, so sed is allowed internally (outside the AC
+# canary); the grep guard supplies the fail-loud property a bare `sed -i` lacks.
+mark_step() {
+    # <checklist-md> <step-num> <glyph>
+    local file="$1" step="$2" glyph="$3"
+    if ! grep -qE "^- \[.\] +${step}\. " "$file"; then
+        echo "mark_step: no step ${step} in $file" >&2; return 1
+    fi
+    sed -i -E "/^- \[.\] +${step}\. / s/\[.\]/[${glyph}]/" "$file"
+}
+
+assert_step() {
+    # <checklist-md> <step-num> <glyph> [name]
+    # Glyph wrapped in a bracket CLASS so regex-special glyphs match
+    # literally: [?] [.] [!] [ ] [-] [~] are all safe inside []. (A bare
+    # \[${glyph}\] would make glyph='?' optional-quantify the '[' and make
+    # glyph='.' match any glyph.)
+    local file="$1" step="$2" glyph="$3" name="${4:-}"
+    local pat="^- \[[${glyph}]\] +${step}\. ${name}"
+    if ! grep -qE "$pat" "$file"; then
+        echo "assert_step: step ${step} not [${glyph}] ${name} in $file" >&2
+        echo "--- checklist ---" >&2; cat "$file" >&2
+        return 1
+    fi
+}
+
+delete_step() {
+    # <checklist-md> <step-num>
+    local file="$1" step="$2"
+    if ! grep -qE "^- \[.\] +${step}\. " "$file"; then
+        echo "delete_step: no step ${step} in $file" >&2; return 1
+    fi
+    sed -i -E "/^- \[.\] +${step}\. /d" "$file"
+}
