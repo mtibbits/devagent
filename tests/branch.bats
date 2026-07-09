@@ -178,6 +178,33 @@ PY
     grep -q "worktree_path *= *\"$DEVAGENT_TMP/wtroot/issue-1\"" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
 
+@test "branch.sh gives Issue-N and Issue-Fork-N distinct worktree leaves (#332)" {
+    python3 - "$HOME/.claude/devagent/config.toml" "$TEST_PROJECT" "$DEVAGENT_TMP/wtroot" <<'PY'
+import sys, re
+path, proj, root = sys.argv[1:]
+text = open(path).read()
+insert = f'use_worktree   = true\nworktree_root  = "{root}"\n'
+text = re.sub(rf'(\[project\.{re.escape(proj)}\]\n)', r'\1' + insert, text, count=1)
+open(path, 'w').write(text)
+PY
+    # Origin twin and its fork twin share the number 42; distinct titles keep the
+    # branch NAMES apart so this isolates the worktree-LEAF collision.
+    mkdir -p "$DEVDOC_DIR/Issue-42" "$DEVDOC_DIR/Issue-Fork-42"
+    echo feature > "$DEVDOC_DIR/Issue-42/.devagent-type";      echo "origin work" > "$DEVDOC_DIR/Issue-42/.devagent-title"
+    echo feature > "$DEVDOC_DIR/Issue-Fork-42/.devagent-type"; echo "fork work"   > "$DEVDOC_DIR/Issue-Fork-42/.devagent-title"
+    cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-42/checklist.md"
+    cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-Fork-42/checklist.md"
+
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-42
+    [ "$status" -eq 0 ]
+    # Born-red: the fork twin collapsed onto issue-42 → `git worktree add` "already exists".
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-Fork-42
+    [ "$status" -eq 0 ]
+
+    [ -e "$DEVAGENT_TMP/wtroot/issue-42/.git" ]
+    [ -e "$DEVAGENT_TMP/wtroot/issue-fork-42/.git" ]
+}
+
 @test "branch.sh warns loudly when the default baseline falls back to HEAD (missing remote) [#72]" {
     # Fixture default_baseline is origin/main with no 'origin' remote → the
     # default path genuinely can't resolve and falls back to HEAD. That must be LOUD.

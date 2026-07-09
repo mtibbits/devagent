@@ -145,7 +145,12 @@ worktree_dir=""
 use_worktree="$(config_get_project_field "$project" use_worktree 2>/dev/null || echo false)"
 if [ "$use_worktree" = "true" ]; then
     worktree_root="$(config_get_project_field "$project" worktree_root 2>/dev/null || echo "$source_dir-wt")"
-    worktree_dir="$worktree_root/issue-$issue_num"
+    # #332: leaf from the FULL issue arg (lowercased) so Issue-42 and
+    # Issue-Fork-42 get distinct worktrees (issue-42 vs issue-fork-42). The bare
+    # $issue_num strips "Fork-" and collapsed the twins onto one dir → the fork
+    # twin's `git worktree add` failed "already exists". Non-fork leaf is
+    # unchanged (Issue-42 → issue-42), so existing worktrees/state are intact.
+    worktree_dir="$worktree_root/$(printf '%s' "$issue_arg" | tr '[:upper:]' '[:lower:]')"
     "$DEVAGENT_GIT" worktree add -b "$branch" "$worktree_dir" "$baseline_sha"
 else
     "$DEVAGENT_GIT" checkout -b "$branch" "$baseline_sha"
