@@ -8,6 +8,9 @@
 #     all install fake commands first on PATH
 #   - assert_mode <file> <mode> — POSIX mode assertion via stat
 
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+
 auth_setup_common() {
   export HOME="${BATS_TEST_TMPDIR}/home"
   mkdir -p "${HOME}"

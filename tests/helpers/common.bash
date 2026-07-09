@@ -6,10 +6,12 @@
 #   setup() { devagent_test_setup; }
 #   teardown() { devagent_test_teardown; }
 
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+
 devagent_test_setup() {
     # #240: a developer shell may pin project/issue (settings.local.json);
     # fixtures must be hermetic against both.
-    unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
     DEVAGENT_TMP="$(mktemp -d -t devagent-bats-XXXXXX)"
     export DEVAGENT_TMP
     export HOME="$DEVAGENT_TMP/home"

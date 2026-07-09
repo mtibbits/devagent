@@ -2,6 +2,9 @@
 
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
+
 setup() {
   TMPROOT="$(mktemp -d)"
   TMPDEV="$TMPROOT/devdoc"

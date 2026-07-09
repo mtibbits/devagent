@@ -3,6 +3,8 @@
 
 PLUGIN_ROOT="${PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 export PLUGIN_ROOT
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"
 
 setup_tmp_devagent_home() {
   DA_HOME="$(mktemp -d)"

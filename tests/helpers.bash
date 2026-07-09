@@ -3,6 +3,8 @@
 
 # REPO_ROOT is the devAgent plugin checkout.
 export REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/lib/hermetic-env.bash"
 
 # Create a clean temp devdoc tree for each test.
 setup_tmp_devdoc() {
