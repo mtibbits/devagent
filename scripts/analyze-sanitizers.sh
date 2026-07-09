@@ -15,8 +15,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_CTEST:=ctest}"
 
 project="${1:-}"
-[ -n "$project" ] || die "analyze-sanitizers.sh: project required"
-config_is_project "$project" || die "analyze-sanitizers.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -25,16 +25,16 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "analyze-sanitizers.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "analyze-sanitizers.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 source_dir="$(config_get_project_field "$project" source_dir)"
-[ -d "$source_dir" ] || die "analyze-sanitizers.sh: source_dir missing: $source_dir"
+[ -d "$source_dir" ] || die "source_dir missing: $source_dir"
 
 # #117: non-CMake source loud-skips the sanitizer legs. A project under the
 # default `analyze = "cmake"` knob with no CMakeLists.txt is a misconfiguration
@@ -44,7 +44,7 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 # issue exists to kill) and name the fix. exit 0 lets analyze.sh mark step 11
 # [x], mirroring the analyze-static.sh:48 guard.
 if [ ! -f "$source_dir/CMakeLists.txt" ]; then
-    warn "analyze-sanitizers.sh: no CMakeLists.txt in $source_dir — skipping sanitizer legs (not a CMake project; set analyze = \"none\" or \"shellcheck\" per #55 so step 11 is meaningful)"
+    warn "no CMakeLists.txt in $source_dir — skipping sanitizer legs (not a CMake project; set analyze = \"none\" or \"shellcheck\" per #55 so step 11 is meaningful)"
     exit 0
 fi
 
@@ -129,5 +129,5 @@ run_one tsan  thread
 # every failing leg, its failing phase, and the artifact to read.
 if [ "${#fail_summaries[@]}" -gt 0 ]; then
     joined="$(printf '%s; ' "${fail_summaries[@]}")"
-    die "analyze-sanitizers.sh: sanitizer leg(s) FAILED: ${joined%; }"
+    die "sanitizer leg(s) FAILED: ${joined%; }"
 fi

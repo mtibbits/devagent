@@ -42,8 +42,8 @@ _print_last_two_comments() {
 main() {
   local project="${1:-}"
   local issue_arg="${2:-}"
-  [[ -n "$project" ]] || die "catchup.sh: project required"
-  config_is_project "$project" || die "catchup.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  config_is_project "$project" || die "unknown project '$project'"
 
   local issue issue_dir devdoc
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
@@ -54,9 +54,9 @@ main() {
     issue="$(active_resolve_issue "$project" || true)"
     issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
     [[ -n "$issue" && "$issue" != "null" ]] \
-      || die "catchup.sh: No active issue for $project; pass one explicitly."
+      || die "No active issue for $project; pass one explicitly."
   fi
-  [[ -d "$issue_dir" ]] || die "catchup.sh: missing $issue_dir"
+  [[ -d "$issue_dir" ]] || die "missing $issue_dir"
 
   echo "═══ Catchup: $project / $issue ═══"
   echo "Title: $(_print_issue_title "$issue_dir/issue.md")"

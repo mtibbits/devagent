@@ -28,12 +28,12 @@ main() {
   local source="${2:-}"
   local num="${3:-}"
 
-  [[ -n "$project" ]] || die "pull.sh: project required"
+  [[ -n "$project" ]] || die "project required"
   config_require_project "$project"
   [[ "$source" == "origin" || "$source" == "fork" ]] \
-    || die "pull.sh: second arg must be origin|fork, got: '${source:-<none>}'"
+    || die "second arg must be origin|fork, got: '${source:-<none>}'"
   [[ "$num" =~ ^[0-9]+$ ]] \
-    || die "pull.sh: issue number must be numeric, got: '${num:-<none>}'"
+    || die "issue number must be numeric, got: '${num:-<none>}'"
 
   local section
   if [[ "$source" == "origin" ]]; then
@@ -51,10 +51,10 @@ main() {
   [[ -n "$template" ]] || template="$(config_get_default checklist_template 2>/dev/null || echo standard)"
   [[ -n "$template" ]] || template="standard"
 
-  [[ -n "$backend" ]]    || die "pull.sh: $section.backend not configured for $project"
-  [[ -n "$repo" ]]       || die "pull.sh: $section.repo not configured for $project"
-  [[ -n "$dir_prefix" ]] || die "pull.sh: $section.dir_prefix not configured for $project"
-  [[ -n "$devdoc" ]]     || die "pull.sh: devdoc_dir not configured for $project"
+  [[ -n "$backend" ]]    || die "$section.backend not configured for $project"
+  [[ -n "$repo" ]]       || die "$section.repo not configured for $project"
+  [[ -n "$dir_prefix" ]] || die "$section.dir_prefix not configured for $project"
+  [[ -n "$devdoc" ]]     || die "devdoc_dir not configured for $project"
 
   local issue_id="${dir_prefix}${num}"
   local issue_dir="${devdoc%/}/${issue_id}"
@@ -62,10 +62,10 @@ main() {
 
   # Fetch issue body
   local backend_script="$PLUGIN_ROOT/scripts/issue/${backend}.sh"
-  [[ -x "$backend_script" ]] || die "pull.sh: backend script not executable: $backend_script"
+  [[ -x "$backend_script" ]] || die "backend script not executable: $backend_script"
   if ! "$backend_script" fetch "$repo" "$num" > "$issue_dir/issue.md.tmp"; then
     rm -f "$issue_dir/issue.md.tmp"
-    die "pull.sh: ${backend}.sh fetch failed for ${repo}#${num}"
+    die "${backend}.sh fetch failed for ${repo}#${num}"
   fi
   mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
 

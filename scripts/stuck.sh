@@ -23,19 +23,19 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 main() {
   local project="${1:-}"
   local reason="${2:-}"
-  [[ -n "$project" ]] || die "stuck.sh: project required"
-  [[ -n "$reason"  ]] || die "stuck.sh: reason required (quote it)"
-  config_is_project "$project" || die "stuck.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  [[ -n "$reason"  ]] || die "reason required (quote it)"
+  config_is_project "$project" || die "unknown project '$project'"
 
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
-  [[ -d "$issue_dir" ]] || die "stuck.sh: no issue_dir; nothing to mark stuck"
+  [[ -d "$issue_dir" ]] || die "no issue_dir; nothing to mark stuck"
 
   local checklist="$issue_dir/checklist.md"
   local cur cur_name last_good last_good_name
   cur="$(checklist_current_step "$checklist")"
   [[ -n "$cur" && "$cur" != "done" ]] \
-    || die "stuck.sh: no current step to mark stuck (issue is complete or empty)"
+    || die "no current step to mark stuck (issue is complete or empty)"
   cur_name="$(checklist_step_name "$checklist" "$cur")"
 
   # Walk back for "last good" — the last [x] step number strictly before cur.

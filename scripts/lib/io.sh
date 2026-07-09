@@ -2,7 +2,9 @@
 # scripts/lib/io.sh — small io helpers. Safe to source multiple times.
 
 _io_progname() {
-  basename "${BASH_SOURCE[1]:-${0}}"
+  # #320: name the ENTRY script ($0), not BASH_SOURCE[1] — which from inside
+  # die/warn/info is io.sh's own frame, so every diagnostic was prefixed "io.sh:".
+  basename "$0"
 }
 
 die() {

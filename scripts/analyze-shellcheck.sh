@@ -18,8 +18,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 
 project="${1:-}"
-[ -n "$project" ] || die "analyze-shellcheck.sh: project required"
-config_is_project "$project" || die "analyze-shellcheck.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -28,23 +28,23 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "analyze-shellcheck.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "analyze-shellcheck.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 command -v shellcheck >/dev/null 2>&1 \
-    || die "analyze-shellcheck.sh: shellcheck not found on PATH"
+    || die "shellcheck not found on PATH"
 
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
-[ -n "$baseline" ] || die "analyze-shellcheck.sh: no baseline_sha in state and no default_baseline in config"
+[ -n "$baseline" ] || die "no baseline_sha in state and no default_baseline in config"
 
 source_dir="$(config_get_project_field "$project" source_dir)"
-[ -d "$source_dir" ] || die "analyze-shellcheck.sh: source_dir missing: $source_dir"
+[ -d "$source_dir" ] || die "source_dir missing: $source_dir"
 
 mkdir -p "$issue_dir/analysis"
 out="$issue_dir/analysis/$(date +%Y-%m-%d)-shellcheck.txt"
@@ -62,7 +62,7 @@ out="$issue_dir/analysis/$(date +%Y-%m-%d)-shellcheck.txt"
 # legitimate empty-scope path below.
 diff_list="$(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
                  -- '*.sh' '*.bats' '*.bash')" \
-    || die "analyze-shellcheck.sh: git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 11 left unmarked, fix the baseline and re-run)"
+    || die "git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 11 left unmarked, fix the baseline and re-run)"
 files=()
 while IFS= read -r f; do
     [ -n "$f" ] || continue

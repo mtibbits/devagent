@@ -71,7 +71,7 @@ main() {
 
   case "$mode" in
     one)
-      config_is_project "$project" || die "status.sh: unknown project '$project'"
+      config_is_project "$project" || die "unknown project '$project'"
       _print_one "$project"
       ;;
     all)

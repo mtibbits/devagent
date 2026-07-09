@@ -17,9 +17,9 @@ source "$PLUGIN_ROOT/scripts/lib/config.sh"
 main() {
   local project="${1:-}"
   local target="${2:-}"
-  [[ -n "$project" ]] || die "switch.sh: project required"
-  [[ -n "$target"  ]] || die "switch.sh: target issue required"
-  config_is_project "$project" || die "switch.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  [[ -n "$target"  ]] || die "target issue required"
+  config_is_project "$project" || die "unknown project '$project'"
 
   # #142: validate the target BEFORE parking the current issue, mirroring
   # resume.sh's two preconditions — otherwise a bad target parks the current
@@ -28,14 +28,14 @@ main() {
   # #240: a pinned session has no business moving the SHARED pointer — its
   # pin is its issue. Refusing beats a half-applied park+suppressed-resume.
   [[ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]] \
-    || die "switch.sh: session is issue-pinned (DEVAGENT_ACTIVE_ISSUE=${DEVAGENT_ACTIVE_ISSUE}) — switch manages the shared pointer; unset the pin or use pull/resume"
+    || die "session is issue-pinned (DEVAGENT_ACTIVE_ISSUE=${DEVAGENT_ACTIVE_ISSUE}) — switch manages the shared pointer; unset the pin or use pull/resume"
 
   local parked devdoc target_dir
   parked="$(state_list_parked "$project")"
-  grep -qxF "$target" <<<"$parked" || die "switch.sh: '$target' not parked for $project"
+  grep -qxF "$target" <<<"$parked" || die "'$target' not parked for $project"
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   target_dir="${devdoc%/}/$target"
-  [[ -d "$target_dir" ]] || die "switch.sh: issue dir missing: $target_dir"
+  [[ -d "$target_dir" ]] || die "issue dir missing: $target_dir"
 
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"

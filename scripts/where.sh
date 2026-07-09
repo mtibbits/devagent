@@ -28,7 +28,7 @@ _report_parked() {
 
 main() {
   local project="${1:-}"
-  [[ -n "$project" ]] || die "where.sh: project required"
+  [[ -n "$project" ]] || die "project required"
   config_require_project "$project"
 
   echo "Project: $project"
@@ -50,9 +50,9 @@ main() {
   fi
 
   echo "Active issue: $active"
-  [[ -n "$issue_dir" ]] || die "where.sh: state.issue_dir missing for active issue"
+  [[ -n "$issue_dir" ]] || die "state.issue_dir missing for active issue"
   local checklist="$issue_dir/checklist.md"
-  [[ -f "$checklist" ]] || die "where.sh: checklist.md missing at $checklist"
+  [[ -f "$checklist" ]] || die "checklist.md missing at $checklist"
 
   local cur_step cur_state cur_name next_step next_name
   cur_step="$(checklist_current_step "$checklist")"

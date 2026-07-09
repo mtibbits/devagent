@@ -21,21 +21,21 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 main() {
   local project="${1:-}"
   local issue="${2:-}"
-  [[ -n "$project" ]] || die "resume.sh: project required"
-  [[ -n "$issue"   ]] || die "resume.sh: issue id required"
-  config_is_project "$project" || die "resume.sh: unknown project '$project'"
+  [[ -n "$project" ]] || die "project required"
+  [[ -n "$issue"   ]] || die "issue id required"
+  config_is_project "$project" || die "unknown project '$project'"
 
   # Refuse if not parked
   local parked
   parked="$(state_list_parked "$project")"
   if ! grep -qxF "$issue" <<<"$parked"; then
-    die "resume.sh: '$issue' not parked for $project"
+    die "'$issue' not parked for $project"
   fi
 
   local devdoc issue_dir
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   issue_dir="${devdoc%/}/$issue"
-  [[ -d "$issue_dir" ]] || die "resume.sh: issue dir missing: $issue_dir"
+  [[ -d "$issue_dir" ]] || die "issue dir missing: $issue_dir"
 
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"
@@ -54,7 +54,7 @@ main() {
   # data the session is about to use. Flag-flip only.
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
     [[ "$issue" == "$DEVAGENT_ACTIVE_ISSUE" ]] \
-      || die "resume.sh: session is pinned to ${DEVAGENT_ACTIVE_ISSUE} — a pinned resume resumes the PINNED issue (got '$issue'); unset the pin to manage other issues"
+      || die "session is pinned to ${DEVAGENT_ACTIVE_ISSUE} — a pinned resume resumes the PINNED issue (got '$issue'); unset the pin to manage other issues"
     state_context_has "$project" "$issue" 2>/dev/null \
       || warn "$issue: no per-issue context recorded (legacy park or fresh issue) — reads start from defaults; run /devagent:branch if a branch existed"
     state_remove_parked "$project" "$issue"

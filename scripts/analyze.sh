@@ -21,8 +21,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_ANALYZE_SHELLCHECK:=$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh}"
 
 project="${1:-}"
-[ -n "$project" ] || die "analyze.sh: project required"
-config_is_project "$project" || die "analyze.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -31,13 +31,13 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "analyze.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "analyze.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 # #55: analyzer family. Absent or explicitly empty ⇒ cmake (byte-compatible
 # with pre-knob behavior); anything else unknown dies before any analyzer,
@@ -63,7 +63,7 @@ none)
     exit 0
     ;;
 *)
-    die "analyze.sh: unknown analyze value '$mode' for project '$project' (legal: cmake | shellcheck | none)"
+    die "unknown analyze value '$mode' for project '$project' (legal: cmake | shellcheck | none)"
     ;;
 esac
 

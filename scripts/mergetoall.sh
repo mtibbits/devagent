@@ -21,8 +21,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_GIT:=git}"
 
 project="${1:-}"
-[ -n "$project" ] || die "mergetoall.sh: project required"
-config_is_project "$project" || die "mergetoall.sh: unknown project '$project'"
+[ -n "$project" ] || die "project required"
+config_is_project "$project" || die "unknown project '$project'"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -31,20 +31,20 @@ if [ -z "$issue_arg" ]; then
     # (stderr NOT suppressed: an invalid pin must die loudly here, F6.)
     active_resolve_issue_src "$project" || true
     if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "mergetoall.sh: no active issue and no issue arg"
+        die "no active issue and no issue arg"
     fi
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "mergetoall.sh: issue_dir not set or missing"
+[ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — the branch to squash now reads ITS [context] table; an issue with
 # no recorded branch dies loudly below.)
 
 branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
-[ -n "$branch" ] || die "mergetoall.sh: no branch in state"
+[ -n "$branch" ] || die "no branch in state"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have nothing to
 # squash-merge. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's
@@ -55,7 +55,7 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
-    info "mergetoall.sh: no commits on branch — auto-marking step 16 [-] (zero-diff issue)"
+    info "no commits on branch — auto-marking step 16 [-] (zero-diff issue)"
     checklist_mark "$issue_dir/checklist.md" 16 -
     log_append "$issue_dir" mergetoall "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
@@ -63,7 +63,7 @@ fi
 
 all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
 if [ -z "$all_prs" ]; then
-    info "mergetoall.sh: all_prs_branch not configured — auto-marking step 16 [-]"
+    info "all_prs_branch not configured — auto-marking step 16 [-]"
     checklist_mark "$issue_dir/checklist.md" 16 -
     log_append "$issue_dir" mergetoall "auto-skipped: all_prs_branch not configured"
     exit 0
@@ -78,7 +78,7 @@ if [ -n "$up_ref" ]; then
     upstream_fetch "$source_dir" "$up_remote"
     behind="$(upstream_behind_count "$source_dir" "$all_prs" "$up_ref")"
     if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
-        die "mergetoall.sh: $all_prs is $behind commits behind $up_ref — squashing now would bundle the upstream delta into the issue commit (#26). Integrate upstream first (merge $up_ref into $all_prs, or cherry-pick $branch's commit onto an up-to-date $all_prs), then re-run. Refusing to misrepresent the issue diff."
+        die "$all_prs is $behind commits behind $up_ref — squashing now would bundle the upstream delta into the issue commit (#26). Integrate upstream first (merge $up_ref into $all_prs, or cherry-pick $branch's commit onto an up-to-date $all_prs), then re-run. Refusing to misrepresent the issue diff."
     fi
 fi
 
@@ -91,7 +91,7 @@ all_prs_remote="$(config_get_project_field "$project" all_prs_remote 2>/dev/null
 [ -n "$all_prs_remote" ] || all_prs_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || echo origin)"
 
 source_dir="$(config_get_project_field "$project" source_dir)"
-[ -d "$source_dir" ] || die "mergetoall.sh: source_dir missing: $source_dir"
+[ -d "$source_dir" ] || die "source_dir missing: $source_dir"
 
 push_line=""
 if [ "$all_prs_auto_push" = "true" ]; then
@@ -125,7 +125,7 @@ orig_branch="$("$DEVAGENT_GIT" symbolic-ref --quiet --short HEAD 2>/dev/null || 
 # build dirs) are not at risk from reset --hard and would over-block, so they are
 # excluded from the check.
 if [ -n "$("$DEVAGENT_GIT" status --porcelain --untracked-files=no)" ]; then
-    die "mergetoall.sh: working tree in $source_dir has uncommitted tracked changes — commit, stash, or discard them first (mergetoall checks out $all_prs and a conflict recovery would reset --hard)."
+    die "working tree in $source_dir has uncommitted tracked changes — commit, stash, or discard them first (mergetoall checks out $all_prs and a conflict recovery would reset --hard)."
 fi
 
 # Apply ONLY the issue branch's own delta (baseline_sha..branch) using baseline_sha
@@ -148,7 +148,7 @@ if ! "$DEVAGENT_GIT" cherry-pick --no-commit "$squash_commit"; then
     # index+worktree back to a clean all_prs. Restore the starting branch, then fail.
     "$DEVAGENT_GIT" reset --hard --quiet
     [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
-    die "mergetoall.sh: $branch's own delta conflicts with work already integrated into $all_prs (a genuine overlap, not the #33 stacked-parent artifact). Reconcile by merging/rebasing $all_prs into $branch (or applying the overlapping hunk by hand), then re-run. Refusing to leave a half-applied index."
+    die "$branch's own delta conflicts with work already integrated into $all_prs (a genuine overlap, not the #33 stacked-parent artifact). Reconcile by merging/rebasing $all_prs into $branch (or applying the overlapping hunk by hand), then re-run. Refusing to leave a half-applied index."
 fi
 
 # Prefer the PR title (.devagent-title — the same source ship.sh uses for the
