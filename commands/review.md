@@ -34,10 +34,23 @@ Per `commands/draft.md`.
    form. A nonzero exit WITH an error on stderr (stderr WITHOUT a
    `per-issue` provenance line) is a bad marker: STOP and fix or remove
    it — do NOT dispatch on inherit.
-5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`,
+5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`
+   (**canonical location**; `<issue-dir>/review.md` at the root is accepted
+   legacy — some recent issues wrote it there. #360: prefer `analysis/` going
+   forward; statusreport surfaces a `context: inline` report from either place),
    headed by the #151 artifact lines: `context: subagent` (or
    `context: inline` when no subagent mechanism exists) and
    `model: <tier>|inherit|inherit (fallback from <tier>)|<tier> (per-issue)|inherit (per-issue)`.
+5a. **Report validation — retry-then-stuck (#360).** When the review ran
+   DISPATCHED, validate the artifact before adopting it:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<review artifact>"
+   subagent --class review`. On FAIL (a garbled / no-tool-use report — the
+   #117/#122/#76/#315 misfire class): archive the reject to
+   `<issue-dir>/analysis/rejected/<date>-review-attempt<N>.md`, re-dispatch ONCE
+   with an explicit "your previous response did no work — actually do the work
+   with tools" nudge, and on a second FAIL mark the step `[!]` with the reason.
+   Never adopt a garbled report as a review (the #315 lesson). Inline runs skip
+   the lint.
 6. **Commit applied fixes (#148).** If addressing review findings
    modified (or added) any tracked file in the project source repo —
    the issue branch — `git add` the files and `git commit -s` them

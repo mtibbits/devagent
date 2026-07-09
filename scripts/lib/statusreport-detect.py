@@ -110,3 +110,27 @@ def completion_timestamp(issue_dir: Path | str) -> Optional[datetime]:
         if e["step"] == "cleanup":
             return e["ts"]
     return None
+
+
+def inline_artifacts(issue_dir: Path | str) -> list[str]:
+    """Checking-step artifacts whose FIRST line is 'context: inline' — a check
+    run without a fresh context, invisible to the operator unless surfaced (#360).
+    Scans BOTH the issue-dir root (preship.md by spec, review.md in recent
+    practice live there) AND analysis/ — an analysis/-only scan would be vacuous.
+    Returns dir-relative paths, sorted, deduped."""
+    d = Path(issue_dir)
+    seen: set = set()
+    hits: list[str] = []
+    for f in sorted(d.glob("*.md")) + sorted((d / "analysis").glob("*.md")):
+        rel = str(f.relative_to(d))
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            with f.open(encoding="utf-8", errors="replace") as fh:
+                first = fh.readline().strip()
+        except OSError:
+            continue
+        if first == "context: inline":
+            hits.append(rel)
+    return hits

@@ -80,6 +80,21 @@ model override is conditional; fresh context is not.
 6. **Inline fallback.** When no subagent mechanism exists, run inline as
    before; the artifact MUST record `context: inline`.
 
+## Report validation — retry-then-stuck (#360)
+
+When this red-team ran DISPATCHED, validate the returned artifact before adopting it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<artifact>" subagent --class redmr
+```
+
+On FAIL (a garbled / no-tool-use report — the #117/#122/#76/#315 misfire class):
+archive the reject to `<issue-dir>/analysis/rejected/<date>-redmr-attempt<N>.md`,
+re-dispatch ONCE with an explicit "your previous response did no work — actually do
+the work with tools" nudge, and if it FAILs again mark the step `[!]` with the lint
+reason. Never adopt a garbled report as a verdict (the #315 lesson). Inline runs
+skip the lint (the operator sees the artifact directly).
+
 ## Checklist
 
 1. **Resolve template.** Walk §12 registry to locate `redteam_mr.md`.
