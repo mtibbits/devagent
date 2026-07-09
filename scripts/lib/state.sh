@@ -112,38 +112,29 @@ state_set_many() {
   fi
 }
 
-# state_set_if <project> <key> <expected|--absent> <new> — CAS (#96). Exit 0
-# on swap; exit 3 with the actual value on stdout on compare-fail. Callers
-# under `set -e` must invoke in a condition. Zero production callers today
-# (the #240 consumer); tested + documented for that arrival.
-state_set_if() {
-  local project="$1" key="$2" expected="$3" new="$4"
-  state_init "$project"
-  local f rc
-  f="$(state_path "$project")"
-  _state_toml set-if "$f" "$key" "$expected" "$new" && rc=0 || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    _state_toml set "$f" updated_at "$(_state_now)"
-  fi
-  return "$rc"
-}
-
-# state_set_int <project> <key> <int> — write an unquoted integer value, placed in
-# the top-level table (section-correct, locked) like state_set. Used for the revision
-# counter; mirrors state_init's `set-int` so the stored form stays an int (#97).
+# state_set_int <project> <key> <int> — write an unquoted integer value in one
+# locked transaction, folding the updated_at bump in (#330: was two _toml calls,
+# so a reader could see the new int with a stale timestamp). set-many takes typed
+# <str|int|bool> triplets. NB: currently uncalled — the revision counter uses
+# state_ctx_set_many (revise.sh) — kept as a correct primitive for future use.
 state_set_int() {
   local project="$1" key="$2" value="$3"
   state_init "$project"
   local f
   f="$(state_path "$project")"
-  _state_toml set-int "$f" "$key" "$value"
-  _state_toml set "$f" updated_at "$(_state_now)"
+  _state_toml set-many "$f" int "$key" "$value" str updated_at "$(_state_now)"
 }
 
+# state_unset <project> <key> — delete a key and bump updated_at in ONE locked
+# transaction (#330: previously never bumped updated_at, so live callers —
+# park/resume/cleanup/pull — left a mutated state with a stale timestamp). The
+# #327 transact verb composes the unset + set in one _locked_rmw + atomic replace.
 state_unset() {
   local project="$1" key="$2"
   state_exists "$project" || return 0
-  _state_toml unset "$(state_path "$project")" "$key"
+  _state_toml transact "$(state_path "$project")" \
+    --set str updated_at "$(_state_now)" \
+    --unset "$key"
 }
 
 # Canonical per-issue key set (#98). These travel with an issue across
@@ -387,22 +378,8 @@ state_list_parked() {
   _state_toml list-keys "$(state_path "$project")" parked 2>/dev/null || true
 }
 
-state_active_project() {
-  local best="" best_ts=""
-  local p ts ai
-  while IFS= read -r p; do
-    [[ -z "$p" ]] && continue
-    ai="$(state_get "$p" active_issue 2>/dev/null || true)"
-    [[ -z "$ai" ]] && continue
-    ts="$(state_get "$p" updated_at 2>/dev/null || true)"
-    if [[ -z "$best_ts" || "$ts" > "$best_ts" ]]; then
-      best="$p"
-      best_ts="$ts"
-    fi
-  done < <(_state_list_projects)
-  [[ -n "$best" ]] || return 1
-  echo "$best"
-}
+# (#330: state_active_project deleted — zero production callers; project
+# resolution is active.sh's job now. _state_list_projects stays: live via sync.)
 
 _state_list_projects() {
   local dir

@@ -97,22 +97,7 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" == *"Issue-34"* ]]
 }
 
-@test "state_active_project returns the most recently updated" {
-  state_init volk
-  state_init toy
-  state_set toy  active_issue Issue-1
-  sleep 1
-  state_set volk active_issue Issue-2
-  run state_active_project
-  [ "$status" -eq 0 ]
-  [ "$output" = "volk" ]
-}
-
-@test "state_active_project ignores projects with null active_issue" {
-  state_init toy
-  run state_active_project
-  [ "$status" -ne 0 ]
-}
+# (#330: state_active_project deleted — dead, zero production callers.)
 
 @test "_state_list_projects filters _* and dotted sidecar files (#83)" {
   state_init devagent
@@ -210,7 +195,7 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]   # stale mr_url must NOT survive the re-save
 }
 
-# --- #96: state_set_many / state_set_if / race-free warn --------------------
+# --- #96: state_set_many / race-free warn (#330: state_set_if deleted, dead) ---
 
 @test "state_set_many writes typed keys + one updated_at in one transaction (#96)" {
   state_init volk
@@ -232,15 +217,35 @@ teardown() { teardown_tmp_devagent_home; }
   [[ "$output" != *"active_issue is changing"* ]]
 }
 
-@test "state_set_if passes through exit 3 + actual value (#96)" {
+# --- #330: state API hygiene — one-transaction folding + updated_at on unset ---
+
+@test "state_unset bumps updated_at (#330)" {
   state_init volk
-  state_set volk branch "feat/a"
-  run state_set_if volk branch "feat/WRONG" "feat/b"
-  [ "$status" -eq 3 ]
-  [ "$output" = "feat/a" ]
-  run state_set_if volk branch "feat/a" "feat/b"
-  [ "$status" -eq 0 ]
-  [ "$(state_get volk branch)" = "feat/b" ]
+  state_set volk active_issue Issue-1
+  # Force a known-old timestamp; the old state_unset never touched updated_at.
+  _state_toml set "$(state_path volk)" updated_at "2000-01-01T00:00:00+00:00"
+  state_unset volk active_issue
+  [ -z "$(state_get volk active_issue)" ]
+  [ "$(state_get volk updated_at)" != "2000-01-01T00:00:00+00:00" ]
+}
+
+@test "state_unset is ONE _toml transaction (#330)" {
+  state_init volk
+  state_set volk active_issue Issue-1
+  local _TOML_CALLS=0
+  _state_toml() { _TOML_CALLS=$((_TOML_CALLS + 1)); python3 "$(plugin_root)/scripts/lib/_toml.py" "$@"; }
+  state_unset volk active_issue
+  [ "$_TOML_CALLS" -eq 1 ]
+}
+
+@test "state_set_int folds updated_at into ONE _toml transaction (#330)" {
+  state_init volk
+  local _TOML_CALLS=0
+  _state_toml() { _TOML_CALLS=$((_TOML_CALLS + 1)); python3 "$(plugin_root)/scripts/lib/_toml.py" "$@"; }
+  state_set_int volk revision 4
+  [ "$_TOML_CALLS" -eq 1 ]
+  grep -qE '^revision = 4$' "$(state_path volk)"
+  grep -cE '^updated_at = ' "$(state_path volk)" | grep -qx 1
 }
 
 @test "state_set clobber-warn reads old value in-lock via --print-old (#96)" {
