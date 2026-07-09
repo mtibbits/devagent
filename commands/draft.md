@@ -32,7 +32,20 @@ that project.
 
 1. Resolve `project`, `issue-dir`, and `$NOTE` per the rules above.
 2. Read `<issue-dir>/issue.md`. If absent, halt and tell the operator
-   to run `/devagent:pull` first.
+   to run `/devagent:pull` first. Once the issue is confirmed, drafting
+   has begun, so **fire `on_draft_start`** (§11) — the tracker learns
+   work started:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/transition-draft-start.sh" "$project" || true
+   ```
+
+   Best-effort and gated: the helper fires the backend `transition`
+   for `on_draft_start` only when `permissions.transition_issue = true`
+   (fail-closed skip-warn otherwise, mirroring sync's `on_merge`, #219),
+   and a transition failure warns rather than dies. The `|| true` is
+   belt-and-suspenders — the helper never exits non-zero — so drafting
+   proceeds regardless of tracker state.
 3. **Check for pending review comments (Phase 6 revision flow).**
    Look up `pending_comments_file` in
    `~/.claude/devagent/state/<project>.toml`. If set and the file
