@@ -56,7 +56,23 @@ re-typed.
 5. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.
-6. **Write `<issue-dir>/mr.md`.**
+6. **Fill the `## Evidence` block** (#359), if the resolved template has one.
+   Generate a fresh suite-count artifact and fill the two machine-checked
+   lines from it — never by hand (hand-written counts shipped wrong 8×;
+   #120/#85/#284):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh"   # writes analysis/<date>-suite-count.txt
+   ```
+
+   From the newest `analysis/<date>-suite-count.txt`, write exactly
+   `suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <head-sha>`
+   and `files: <n> changed` (n = `git diff --name-only <baseline_sha>..HEAD |
+   wc -l`). If an `analysis/<date>-born-red.txt` exists, add
+   `born-red: <its verdict>`. preship's verification #4 (#359) hard-checks
+   these against the artifact + git, so they must be exact. (No Evidence block
+   in the template ⇒ skip — the checker warns and passes for back-compat.)
+7. **Write `<issue-dir>/mr.md`.**
 
 ## Halt and ask if
 
