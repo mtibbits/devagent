@@ -257,7 +257,11 @@ emit_candidates() {
         /^### / { heading = $0; sub(/^### */, "", heading); next }
         /\[actionable\]/ {
           line = $0; sub(/^[ \t]*-[ \t]*/, "", line);   # strip a leading bullet
-          if (line ~ /^\[actionable\]/) {               # flat inline: "- [actionable] <claim>"
+          if (line ~ /^[0-9]+\.[ \t]+/) {               # #323: numbered bold list "1. **[actionable] <claim>.**"
+            sub(/^[0-9]+\.[ \t]+/, "", line);           #   drop the ordered-list marker
+            gsub(/\*\*/, "", line);                     #   drop ** emphasis (scoped to numbered lines: flat body/hash stays byte-identical, #112)
+          }
+          if (line ~ /^\[actionable\]/) {               # flat inline (now also the reduced numbered form)
             sub(/^\[actionable\][ ]*/, "", line); claim = line;
           } else if (line ~ /^Tags:/ || line ~ /^\[/) { # tag-list line → use the heading
             claim = heading;

@@ -194,6 +194,30 @@ LL
   [ "$status" -ne 0 ]
 }
 
+@test "reap: numbered-bold [actionable] lesson is titled by its claim, not the list number (#323)" {
+  # Fable-era lessons use a NUMBERED bold list: '1. **[actionable] <claim>.** ...'.
+  # reap's bullet strip did not match '1.', so the title truncated at the period
+  # after the number → junk "1"/"2" titles. The extractor now strips the ordered
+  # marker + ** first, reducing the line to the flat-inline form.
+  mkdir -p "${TMP_DEVDOC}/Issue-996"
+  cat > "${TMP_DEVDOC}/Issue-996/lessonsLearned.md" <<'LL'
+# Issue-996 — Lessons learned
+
+## Entries
+
+1. **[actionable] Verify linter fixture severity before writing tests.** SC2086 is info-level, below the cutoff.
+2. **[actionable] Test the committed exec bit via the real dispatch path.** The 100644 mode never mattered until the real exec.
+LL
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  # titled by the real claim (up to the first period after the tag), not the number
+  grep -rqF 'Verify linter fixture severity before writing tests' "${TMP_DEVDOC}/Captures"/*/draft.md
+  grep -rqF 'Test the committed exec bit via the real dispatch path' "${TMP_DEVDOC}/Captures"/*/draft.md
+  # NO draft is titled by just the list number (the #323 bug)
+  run grep -rlE '^# [0-9]+$' "${TMP_DEVDOC}/Captures"/*/draft.md
+  [ "$status" -ne 0 ]
+}
+
 @test "reap: stamps source issue checklist ## Log naming harvested slugs (#229)" {
   "${REPO_ROOT}/scripts/capture/reap.sh"
   cl="${TMP_DEVDOC}/Issue-100/checklist.md"
