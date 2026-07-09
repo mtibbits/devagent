@@ -664,7 +664,7 @@ Three semantic events trigger backend transitions:
 
 | Event | Stage | Hook |
 |---|---|---|
-| Start of `draft` (step 1) | `on_draft_start` | `draft.sh` calls `issue/<backend>.sh transition` *before* invoking the writing-plans skill |
+| Start of `draft` (step 1) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
 | End of `ship` (step 15) | `on_ship` | `ship.sh` after successful MR creation |
 | MR merged upstream (async) | `on_merge` | `/devagent:sync` |
 
