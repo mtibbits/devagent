@@ -28,6 +28,26 @@ teardown() { devagent_test_teardown; }
     grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
+@test "commit.sh dies when the latest born-red artifact is FLAGGED (#362)" {
+    printf 'verdict: FLAGGED (1 green-at-baseline)\n' \
+        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"born-red gate"* ]]
+}
+
+@test "commit.sh commits normally with a PASS born-red artifact (#362)" {
+    printf 'verdict: PASS\n' > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
+@test "commit.sh commits normally with a NO-NEW-TESTS born-red artifact (#362)" {
+    printf 'verdict: NO-NEW-TESTS\n' > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
 @test "commit.sh strips (1M context) substring from message" {
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}} (1M context)' '' 'body (1M context) trailing' \

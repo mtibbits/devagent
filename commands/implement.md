@@ -74,6 +74,20 @@ operator-authored `.devagent-scope` (it only regenerates manifests it created):
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/record-scope.sh"
 ```
 
+Next, **run the born-red check** — only when the active project sets
+`born_red=true`, run born-red so each NEW test is proven to fail at
+`baseline_sha` before it can be committed (#362). It runs the new-test set in an
+ephemeral worktree at baseline (never mutating your tree) and writes
+`<issue-dir>/analysis/<date>-born-red.txt`. A **nonzero exit means FLAGGED** — a
+new test was green at baseline (never-red / vacuous); fix it to fail without the
+change, or allowlist it with a reason in `<issue-dir>/.devagent-born-red-allow`,
+before marking this step. No-op for projects without `born_red=true` (and for
+non-bats/pytest work). commit.sh (step 10) also hard-blocks on a FLAGGED artifact.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh"
+```
+
 Then **mark this step done** — `next.sh` keys off the checklist mark
 (not the log), so without it an `--auto`/`--through` chain re-dispatches
 this same step forever:
