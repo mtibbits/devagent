@@ -5,6 +5,8 @@
 #   setup() { fixture_init volk Issue-676; }
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
 
 # fixture_init <project> <issue-dir-name>
 fixture_init() {

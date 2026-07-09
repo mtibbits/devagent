@@ -6,6 +6,8 @@
 #   fixture_start <fixture-dir>
 #   fixture_stop
 
+# #322: hermetic env (pins / git config / TZ / locale)
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"
 _fixture_pid=""
 
 fixture_start() {
