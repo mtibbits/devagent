@@ -27,7 +27,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "draft start fires no transition when transition_issue=false (#325)" {
-    sed -i 's|^transition_issue *=.*|transition_issue = false|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
     run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     devagent_refute_logged "transition"

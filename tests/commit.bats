@@ -85,8 +85,7 @@ teardown() { devagent_test_teardown; }
 # $DEVAGENT_TMP, so this NEVER touches the live $DEVAGENT_ROOT/templates/ —
 # failure-safe, no .bak/restore dance (DEVAGENT_ROOT is the live repo, not a copy).
 @test "commit.sh strips Co-Authored-By when include_coauthor=false, keeps Signed-off-by" {
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.include_coauthor" false
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' '' 'body line' \
         'Co-Authored-By: Claude <noreply@anthropic.com>' \
@@ -146,8 +145,7 @@ teardown() { devagent_test_teardown; }
 
 _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # would create a duplicate top-level key and tomllib rejects the file (B1).
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$1\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$1"
 }
 
 @test "commit.sh no-op success when work is already committed per-task (#116)" {

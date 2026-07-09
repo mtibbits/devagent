@@ -4,6 +4,10 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
 # #322: hermetic env (pins / git config / TZ / locale)
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
+# #335: pull in the shared _toml.py-backed config helpers. This file keeps its
+# own hermetic setup(); `load` only defines the helper functions (and re-sources
+# the idempotent hermetic-env guard).
+load 'helpers/common'
 
 setup() {
   TMPROOT="$(mktemp -d)"
@@ -60,8 +64,7 @@ teardown() {
 }
 
 _flip_commit_devdoc_true() {
-  sed -i "s|^commit_devdoc *=.*|commit_devdoc      = true|" \
-    "$HOME/.claude/devagent/config.toml"
+  devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.testproj.permissions.commit_devdoc" true
 }
 
 @test "statusreport writes a dated report to <devdoc>/StatusReports/" {

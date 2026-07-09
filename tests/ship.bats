@@ -60,7 +60,7 @@ EOF
 }
 
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
-    sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
     # Force closed stdin so confirm() sees non-tty regardless of how bats
     # itself was invoked. Without </dev/null this hangs when bats is run
     # from an interactive terminal (read -r -p blocks waiting for input).
@@ -76,7 +76,7 @@ EOF
 }
 
 @test "ship.sh proceeds when push_mr=false but DA_YES=1 bypasses" {
-    sed -i "s|^push_mr *=.*|push_mr = false|" "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
     DA_YES=1 run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -104,7 +104,7 @@ EOF
 
 @test "ship.sh fork_only targets the fork and skips upstream transition" {
     # Enable fork_only on the test project.
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     # MR targets the fork
@@ -127,7 +127,7 @@ EOF
 }
 
 @test "ship.sh keeps a bare PR head under fork_only (target owner == fork owner) (#88)" {
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     devagent_assert_logged "gh pr create --repo me/testproj"
@@ -138,15 +138,15 @@ EOF
 
 @test "ship.sh keeps a bare PR head when fork owner == target owner (same-repo) (#88)" {
     # fork == upstream → no cross-repo, head stays bare.
-    sed -i 's|^fork *=.*|fork = "acme/testproj"|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.code_source.fork" "acme/testproj"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -qE "gh pr create .* --head feat/1-x( |$)" "$DEVAGENT_STUB_LOG"
 }
 
 @test "ship.sh fork_only without code_source.fork dies" {
-    sed -i '/^fork *=/d' "$HOME/.claude/devagent/config.toml"
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a fork_only = true' "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.code_source.fork"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"fork_only=true requires code_source.fork"* ]]
@@ -165,14 +165,12 @@ EOF
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
     sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
-    sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
-            s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
         && echo x >a.txt && git add a.txt \
         && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
-    sed -i "s|^branch *=.*|branch = \"feat/fork-51\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/fork-51"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
@@ -186,14 +184,12 @@ EOF
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
     sed -i -E '/21\. preship/ s/\[.\]/[x]/' "$DEVDOC_DIR/Issue-Fork-51/checklist.md"
-    sed -i "s|^active_issue *=.*|active_issue = \"Issue-Fork-51\"|; \
-            s|^issue_dir *=.*|issue_dir    = \"$DEVDOC_DIR/Issue-Fork-51\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
         && echo x >a.txt && git add a.txt \
         && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
-    sed -i "s|^branch *=.*|branch = \"feat/fork-51\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/fork-51"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
     [ "$status" -eq 0 ]
     [[ "$output" == *"no issue tracker configured for Issue-Fork-51"* ]]
@@ -234,8 +230,7 @@ STUB
 }
 
 @test "ship.sh strips Co-Authored-By from PR body when include_coauthor=false; mr.md untouched" {
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.include_coauthor" false
     printf '%s\n' 'PR summary' '' 'Co-Authored-By: Claude <noreply@anthropic.com>' \
         > "$DEVDOC_DIR/Issue-1/mr.md"
     _install_body_capturing_gh_stub
@@ -263,8 +258,7 @@ STUB
 }
 
 @test "ship.sh fails closed when the body is empty after coauthor strip (#31)" {
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.include_coauthor" false
     # Pathological: mr.md is ONLY a trailer + blank lines → empty after strip.
     printf '%s\n' '' 'Co-Authored-By: Claude <noreply@anthropic.com>' '' \
         > "$DEVDOC_DIR/Issue-1/mr.md"
@@ -303,9 +297,8 @@ EOF
     git checkout -q -b feat/child
     echo c > c.txt && git add c.txt
     git -c user.email=t@e.com -c user.name=T commit -q -m child
-    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
-            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/child"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent_tip"
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
     echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 
@@ -337,9 +330,8 @@ EOF
     git checkout -q -b feat/child
     echo c > c.txt && git add c.txt
     git -c user.email=t@e.com -c user.name=T commit -q -m child
-    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
-            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/child"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent_tip"
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
     echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 
@@ -413,8 +405,7 @@ EOF
     # baseline = branch tip → rev-list empty → artifact-only auto-skip path,
     # even though the tree is dirty (devdoc-style edits must not block it).
     tip="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse HEAD)"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$tip\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$tip"
     echo "dirty" >> "$SOURCE_DIR/a.txt"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -458,9 +449,8 @@ EOF
     git checkout -q -b feat/child
     echo c > c.txt && git add c.txt
     git -c user.email=t@e.com -c user.name=T commit -q -m child
-    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
-            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/child"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent_tip"
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
     echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 
@@ -511,9 +501,8 @@ EOF
     git update-ref refs/remotes/origin/main "$(git rev-parse main)"
     git update-ref refs/remotes/origin/dead/parent "$parent_tip"
     git branch -q -D dead/parent                        # detection is via refs/remotes (the live route)
-    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
-            s|^baseline_sha *=.*|baseline_sha = \"$B0\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/child"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$B0"
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
     echo "child title" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 
@@ -533,8 +522,7 @@ EOF
     _install_real_git_except_push_stub
     base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
     ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$base\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$base"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]                                    # NOT treated as artifact-only
@@ -547,8 +535,7 @@ EOF
     # destructive skip. A bogus baseline_sha makes rev-list fail; the guard must NOT
     # silently mark step 15 [-] — it must proceed (fail-safe by direction, cf. #25).
     _install_real_git_except_push_stub
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"0000000000000000000000000000000000000000\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "0000000000000000000000000000000000000000"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]

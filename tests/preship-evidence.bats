@@ -11,8 +11,7 @@ setup() {
     BASELINE="$(git rev-parse HEAD)"
     echo two > f2.txt && git add -A && git commit -q -m two   # 1 file changed vs baseline
     HEAD_SHA="$(git rev-parse HEAD)"
-    sed -i "s|^baseline_sha.*|baseline_sha   = \"$BASELINE\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASELINE"
     mkdir -p "$DEVDOC_DIR/Issue-1/analysis"
 }
 teardown() { devagent_test_teardown; }

@@ -13,18 +13,15 @@ setup() {
     local sha
     sha="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-autostage )
-    sed -i "s|^branch *=.*|branch = \"feat/1-autostage\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$sha\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-autostage"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$sha"
     echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo "autostage feature" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 }
 teardown() { devagent_test_teardown; }
 
 _enable_autostage() {
-    sed -i "/^\[project\.$TEST_PROJECT\]/a commit_autostage = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.commit_autostage" true
 }
 
 @test "autostage OFF (default): dirty-but-unstaged still dies loud (#25, AC1)" {

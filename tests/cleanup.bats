@@ -35,7 +35,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "cleanup.sh skips devdoc commit when commit_devdoc=false" {
-    sed -i "s|^commit_devdoc *=.*|commit_devdoc = false|" "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     n=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )

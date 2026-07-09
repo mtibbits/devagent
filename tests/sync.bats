@@ -5,8 +5,7 @@ setup() {
     devagent_test_setup
     # Pretend Issue-1 was shipped and has an MR URL stored.
     # Insert mr_url before [parked] so it is a top-level TOML key.
-    sed -i 's|\[parked\]|mr_url = "https://github.com/acme/testproj/pull/77"\n[parked]|' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "https://github.com/acme/testproj/pull/77"
     # Mark step 15 done so sync considers this issue.
     sed -i 's|^- \[ \] 15. ship.*|- [x] 15. ship|' "$DEVDOC_DIR/Issue-1/checklist.md"
 
@@ -40,7 +39,7 @@ teardown() { devagent_test_teardown; }
 
 @test "sync.sh fail-closes the on_merge transition when transition_issue is off (#219)" {
     # Default test config sets transition_issue=true; turn it off for this project.
-    sed -i 's|^transition_issue *=.*|transition_issue = false|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     # The merge is still detected (mr-state queried) ...
@@ -278,7 +277,7 @@ EOF
 }
 
 @test "sync unblocks+nudges with transition_issue off; #219 preserved (#363)" {
-    sed -i 's/^transition_issue *=.*/transition_issue = false/' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
     sed -i 's/^- \[ \] 18\. impact/- [?] 18. impact/' "$DEVDOC_DIR/Issue-1/checklist.md"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]

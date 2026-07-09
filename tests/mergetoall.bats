@@ -15,9 +15,9 @@ teardown() { devagent_test_teardown; }
 # Point config + state at a test-built topology: all_prs_branch in config,
 # branch + baseline_sha in state. Shared by the #33 tests below.
 _set_baseline_branch() {
-    sed -i "s|^all_prs_branch *=.*|all_prs_branch = \"$1\"|" "$HOME/.claude/devagent/config.toml"
-    sed -i "s|^branch *=.*|branch = \"$2\"|; s|^baseline_sha *=.*|baseline_sha = \"$3\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch" "$1"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "$2"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$3"
 }
 
 @test "mergetoall.sh squash-merges branch into all_prs_branch" {
@@ -54,7 +54,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh auto-skips when all_prs_branch is not configured" {
-    sed -i "/^all_prs_branch *=/d" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch"
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"all_prs_branch not configured"* ]]
@@ -63,7 +63,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh halts when merge_to_all_prs=false and non-interactive" {
-    sed -i "s|^merge_to_all_prs *=.*|merge_to_all_prs = false|" "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_to_all_prs" false
     # Force closed stdin so confirm() sees non-tty regardless of how bats
     # itself was invoked. Without </dev/null this hangs when bats is run
     # from an interactive terminal (read -r -p blocks waiting for input).
@@ -74,8 +74,8 @@ _set_baseline_branch() {
 
 @test "mergetoall.sh backward-compat: legacy merge_mr=true still grants permission" {
     # Remove the new name, add the old one.
-    sed -i "/^merge_to_all_prs *=/d" "$HOME/.claude/devagent/config.toml"
-    sed -i "/^push_mr *=/a merge_mr = true" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_to_all_prs"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_mr" true
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
@@ -90,8 +90,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh all_prs_auto_push=true pushes after local merge" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
     devagent_stub git ""
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -100,8 +99,8 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh all_prs_remote override targets a different remote" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true\nall_prs_remote = \"fork\"" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_remote" "fork"
     devagent_stub git ""
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -109,8 +108,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh tolerates push failure (local merge is load-bearing)" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
     # Stub git that fails ONLY on push.
     mkdir -p "$DEVAGENT_TMP/bin"
     cat > "$DEVAGENT_TMP/bin/git" <<EOF
@@ -226,8 +224,7 @@ EOF
     # guard wrongly marks step 16 [-] and the branch is never squash-merged.
     base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
     ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$base\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$base"
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero commits"* ]]                                 # NOT the zero-diff skip

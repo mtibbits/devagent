@@ -16,8 +16,8 @@ setup() {
       git push -q origin main          # origin/main = C0
       git push -q fork   main          # fork/main   = C0
       git fetch -q origin; git fetch -q fork )
-    sed -i 's|^source_remote *=.*|source_remote = "fork"|; s|^fork_first *=.*|fork_first = true|' \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_remote" "fork"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_first" true
     echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
     echo "behind-upstream guard" > "$DEVDOC_DIR/Issue-1/.devagent-title"
     devagent_stub gh "https://github.com/me/testproj/pull/99"
@@ -104,7 +104,7 @@ _make_branch() {
 }
 
 @test "fork_first=false leaves the pre-flight inert (no FF) despite drift" {
-    sed -i 's|^fork_first *=.*|fork_first = false|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_first" false
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x main \
       && printf 'issue\n' > a.txt && git add a.txt \
       && git -c user.email=i@e -c user.name=I commit -q -m "issue a.txt" )
@@ -132,9 +132,8 @@ _make_branch() {
       printf 'child\n' > c.txt && git add c.txt
       git -c user.email=i@e -c user.name=I commit -q -m "child c.txt" )
     parent_tip="$( cd "$SOURCE_DIR" && git rev-parse feat/parent )"
-    sed -i "s|^branch *=.*|branch = \"feat/child\"|; \
-            s|^baseline_sha *=.*|baseline_sha = \"$parent_tip\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/child"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent_tip"
     fork_main_before=$( git -C "$FORK" rev-parse main )
     _advance_origin README.md UPSTREAM_EDIT        # origin/main now conflicts with the parent's README
 

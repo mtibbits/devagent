@@ -27,8 +27,7 @@ PY
     echo 'answer() { echo 0; }' > lib.sh          # baseline: WRONG answer
     git add -A && git commit -q -m "baseline"
     BASELINE="$(git rev-parse HEAD)"
-    sed -i "s|^baseline_sha.*|baseline_sha   = \"$BASELINE\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASELINE"
     # HEAD (working tree): fix the product so a correct test is GREEN at HEAD.
     echo 'answer() { echo 42; }' > lib.sh
     # Deterministic `bats` stub: feature.bats → RED at baseline / GREEN at HEAD
@@ -114,7 +113,7 @@ _add_vacuous_test() {   # green at baseline (never red)
 }
 
 @test "born-red: knob off → exit 0, no artifact (#362 AC6)" {
-    sed -i 's|^born_red = true|born_red = false|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.born_red" false
     _add_vacuous_test
     _run_br
     [ "$status" -eq 0 ]

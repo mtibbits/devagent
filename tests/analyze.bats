@@ -35,8 +35,7 @@ teardown() { devagent_test_teardown; }
 
 _set_analyze() {  # $1 = knob value; inserted INSIDE [project.X] (an append would
                   # land in [..issue_workflow] and silently test the cmake path)
-    sed -i "/^\[project.$TEST_PROJECT\]/a analyze = \"$1\"" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.analyze" "$1"
 }
 
 _stub_shellcheck_analyzer() {
@@ -128,8 +127,7 @@ _stub_shellcheck_analyzer() {
     command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
     _set_analyze shellcheck
     export DEVAGENT_ANALYZE_SHELLCHECK="$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh"
-    sed -i 's|^baseline_sha *=.*|baseline_sha = "no-such-baseline-ref-314"|' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "no-such-baseline-ref-314"
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"unresolvable"* ]]     # die-only fragment (#314 review)

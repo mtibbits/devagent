@@ -7,8 +7,7 @@ setup() {
     python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
     # opt-in: commit_autostage=true in the project section
-    sed -i "/^\[project.$TEST_PROJECT\]$/a commit_autostage = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.commit_autostage" true
     REC="$DEVAGENT_ROOT/scripts/record-scope.sh"
     SCOPE="$DEVDOC_DIR/Issue-1/.devagent-scope"
 }
@@ -67,7 +66,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "recording off (commit_autostage unset) writes no manifest (#268 AC6)" {
-    sed -i "/^commit_autostage = true$/d" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.commit_autostage"
     ( cd "$SOURCE_DIR" && echo x >> README.md )
     run "$REC" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
