@@ -32,6 +32,39 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$mode" = "600" ]
 }
 
+# --- #328: atomic pointer write (tmp+rename, lock, mode-on-create) -----------
+
+@test "active_set_project writes atomically — pointer inode changes across a write (#328)" {
+  # tmp+rename ⇒ a fresh inode each write; the old in-place `printf >` kept it
+  # (the O_TRUNC window a concurrent reader could catch empty). Deterministic
+  # born-red: ino1 == ino2 before the fix.
+  active_set_project volk
+  local ino1 ino2
+  ino1="$(stat -c '%i' "$(active_pointer_path)")"
+  active_set_project volk
+  ino2="$(stat -c '%i' "$(active_pointer_path)")"
+  [ "$ino1" != "$ino2" ]
+}
+
+@test "active_set_project creates the pointer 0600 with no umask window (#328)" {
+  # The atomic path chmods the tmp BEFORE the rename, so the pointer is 0600 the
+  # instant it exists — closing the window the old post-hoc chmod left open.
+  ( umask 022; active_set_project volk )
+  [ "$(stat -c '%a' "$(active_pointer_path)")" = "600" ]
+}
+
+@test "active_set_project: concurrent writers never expose a partial pointer (#328)" {
+  # Belt-and-braces hammer (racy by nature): while writers churn, a reader must
+  # always see a whole, valid project name — never empty/partial.
+  active_set_project volk
+  for _ in $(seq 1 20); do active_set_project volk & active_set_project gnuradio & done
+  for _ in $(seq 1 40); do
+    local v; v="$(active_get_project)"
+    [ "$v" = "volk" ] || [ "$v" = "gnuradio" ]
+  done
+  wait
+}
+
 @test "active_resolve_project: explicit arg wins" {
   active_set_project volk
   export DEVAGENT_ACTIVE_PROJECT=gnuradio

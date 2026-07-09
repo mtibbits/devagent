@@ -29,9 +29,21 @@ active_set_project() {
   local f
   f="$(active_pointer_path)"
   mkdir -p "$(dirname "$f")"
-  printf 'active_project = "%s"\nlast_active_at = "%s"\n' \
-    "$project" "$(date -Iseconds)" > "$f"
-  chmod 600 "$f"
+  # _toml.py mutates in place and requires the file to exist (like state_init's
+  # first write) — create an empty 0600 file only when absent. `-f` guard keeps
+  # this from truncating an existing pointer (install copies /dev/null).
+  [ -f "$f" ] || install -m 600 /dev/null "$f"
+  # #328: atomic write — route through _toml.py set-many, which takes the sibling
+  # .lock for the whole RMW and writes via tmp + same-dir atomic rename with mode
+  # 0600 on create. The prior truncating `printf >` (no lock, O_TRUNC window,
+  # post-hoc chmod) let a concurrent reader see an empty/partial pointer → false
+  # fallback → config_active_project die with 2+ projects. Safe: _state_list_projects
+  # skips _* files (state.sh), and active_get_project's awk parses the same
+  # `key = "value"` output. Requires state.sh sourced first (this file's header
+  # contract; next.sh, the sole production caller, complies).
+  _state_toml set-many "$f" \
+    str active_project "$project" \
+    str last_active_at "$(date -Iseconds)"
 }
 
 # active_get_project
