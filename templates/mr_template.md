@@ -10,6 +10,15 @@
 <!-- How did you verify this? For kernel changes, include benchmark output if available. -->
 
 
+## Evidence
+<!-- Filled by /devagent:draftmr from the newest analysis/<date>-suite-count.txt
+     (run /devagent:run-suite first). Machine-checked by preship (#359) — do not
+     hand-edit the two lines below. The optional 'born-red:' line is filled from a
+     born-red artifact (#362) when present. -->
+suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
+files: <n> changed
+
+
 ## Checklist
 - [ ] Builds cleanly (`cmake --build`)
 - [ ] Tests pass (`ctest`)

@@ -81,7 +81,7 @@ context is not.
 
 ## Checklist
 
-The three verifications — each recorded in `preship.md` as PASS or FAIL
+The verifications — each recorded in `preship.md` as PASS or FAIL
 with evidence, never "looks done":
 
 1. **Acceptance criteria executed.** Each criterion from issue.md is RUN
@@ -98,6 +98,19 @@ with evidence, never "looks done":
    literal content ship will push; any mismatch with the working tree
    (uncommitted tracked changes) is reported. mr.md's claims (commit
    count, test counts) are cross-checked against the preview.
+4. **Evidence cross-check (#359).** Run the mechanized checker; a nonzero
+   exit is a FAIL recorded in preship.md (with its stderr):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh"
+   ```
+
+   It verifies mr.md's `## Evidence` block against the newest
+   `analysis/<date>-suite-count.txt` + git (artifact head == HEAD, tree
+   clean, suite green, the `suite:` line exact, `files:` == the
+   baseline..HEAD diff count). An mr.md with NO Evidence block warns and
+   passes (back-compat). This mechanizes the hand cross-check verification 3
+   was doing for suite/file numbers.
 
 ## Failure protocol
 
