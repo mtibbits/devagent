@@ -1,5 +1,5 @@
 ---
-description: Initialize the per-issue checklist.md (default template: standard).
+description: "Initialize the per-issue checklist.md (default template: standard)."
 allowed-tools: Bash
 ---
 
