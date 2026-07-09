@@ -13,6 +13,14 @@ teardown() { teardown_phase9_env; }
   echo "$output" | grep -q "Issue-100/imPlan.md"
 }
 
+@test "grep resolves the project via the documented chain with no --project/env (#331)" {
+  # Env-only resolution errored here; active_resolve_project's single-project
+  # fallback resolves it. DEVAGENT_ACTIVE_PROJECT= defeats any inherited pin.
+  DEVAGENT_ACTIVE_PROJECT='' run bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" FOOBAR
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Issue-100/issue.md"
+}
+
 @test "grep does NOT search Captures by default" {
   run bash "${DEVAGENT_REPO_ROOT}/scripts/grep.sh" \
     --project "${DEVAGENT_TEST_PROJECT}" FOOBAR

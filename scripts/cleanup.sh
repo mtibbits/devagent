@@ -18,13 +18,14 @@ project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
 
-issue_arg="${2:-}"
-[ -n "$issue_arg" ] || issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
-
 # #240: a pinned session cleans up ITS issue — derive the dir instead of
 # trusting the shared slot (which belongs to the other session). The pin is
 # VALIDATED first (review MED: a traversal pin like Issue-2/../Issue-1 would
 # otherwise run the full cleanup against another issue's dir).
+# #331: resolve the target issue ONCE (arg → pin → shared state) and let
+# issue_arg follow it — previously issue_arg was arg → SHARED state (skipping the
+# pin), so a pinned session's devdoc commit + permission plan named the OTHER
+# session's issue. gc_issue (below) already uses the arg→pin→state chain.
 cleanup_target="${2:-}"; cleanup_target="${cleanup_target##*/}"
 [ "$cleanup_target" != "--" ] || cleanup_target=""
 [ -n "$cleanup_target" ] || cleanup_target="${DEVAGENT_ACTIVE_ISSUE:-}"
@@ -33,8 +34,10 @@ if [ -n "$cleanup_target" ]; then
         || die "invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
     issue_dir="$(issue_dir_for "$project" "$cleanup_target")"
 else
+    cleanup_target="$(state_get "$project" active_issue 2>/dev/null || true)"
     issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
 fi
+issue_arg="$cleanup_target"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 # #242 (generalizes #231): refuse to close while ANY prior closeout step is

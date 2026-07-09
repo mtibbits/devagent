@@ -10,6 +10,12 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/template_resolve.sh
 . "${SCRIPT_DIR}/lib/template_resolve.sh"
+# #331: state.sh + active.sh for the documented arg→env→pointer→fallback resolver
+# (lib/template_resolve.sh already sources paths/io/config).
+# shellcheck source=lib/state.sh
+. "${SCRIPT_DIR}/lib/state.sh"
+# shellcheck source=lib/active.sh
+. "${SCRIPT_DIR}/lib/active.sh"
 
 usage() {
   cat <<'EOF' >&2
@@ -32,11 +38,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# #331: documented arg→env→pointer→fallback chain (was env-only).
+PROJECT="$(active_resolve_project "${PROJECT}" 2>/dev/null || true)"
 if [ -z "${PROJECT}" ]; then
-  PROJECT="${DEVAGENT_ACTIVE_PROJECT:-}"
-fi
-if [ -z "${PROJECT}" ]; then
-  printf 'template: no project specified\n' >&2
+  printf 'template: no project (pass --project, set DEVAGENT_ACTIVE_PROJECT, or configure one)\n' >&2
   usage
 fi
 if [ "${#ARGS[@]}" -eq 0 ]; then

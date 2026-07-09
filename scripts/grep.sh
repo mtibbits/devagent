@@ -18,6 +18,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "${SCRIPT_DIR}/lib/config.sh"
+# #331: state.sh + active.sh for the documented arg→env→pointer→fallback resolver.
+# shellcheck source=lib/state.sh
+. "${SCRIPT_DIR}/lib/state.sh"
+# shellcheck source=lib/active.sh
+. "${SCRIPT_DIR}/lib/active.sh"
 
 ARTIFACT_FILES=(
   "issue.md"
@@ -61,11 +66,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# #331: resolve through the documented arg→env→pointer→fallback chain (was
+# env-only) — a set --project is the arg (wins); else env/pointer/single-project.
+PROJECT="$(active_resolve_project "${PROJECT}" 2>/dev/null || true)"
 if [ -z "${PROJECT}" ]; then
-  PROJECT="${DEVAGENT_ACTIVE_PROJECT:-}"
-fi
-if [ -z "${PROJECT}" ]; then
-  printf 'grep: no project specified and DEVAGENT_ACTIVE_PROJECT unset\n' >&2
+  printf 'grep: no project (pass --project, set DEVAGENT_ACTIVE_PROJECT, or configure one)\n' >&2
   usage
 fi
 if [ "${#ARGS[@]}" -eq 0 ]; then

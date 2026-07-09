@@ -14,6 +14,12 @@ teardown() { teardown_phase9_env; }
   echo "$output" | grep -q "Issue-102"
 }
 
+@test "history resolves the project via the documented chain with no --project/env (#331)" {
+  DEVAGENT_ACTIVE_PROJECT='' run bash "${DEVAGENT_REPO_ROOT}/scripts/history.sh"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Issue-100"
+}
+
 @test "history.sh issue scoped prints one issue only" {
   run bash "${DEVAGENT_REPO_ROOT}/scripts/history.sh" \
     --project "${DEVAGENT_TEST_PROJECT}" Issue-100
