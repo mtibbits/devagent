@@ -31,10 +31,28 @@ sync_one_project() {
     [ -n "$issue_dir" ] && [ -d "$issue_dir" ] || return 0
     [ -n "$mr_url" ] || return 0
 
-    # Has step 15 been marked done?
-    grep -q '^- \[x\] 15. ship'   "$issue_dir/checklist.md" 2>/dev/null || return 0
-    # Has on_merge already fired? (Idempotence — log entry would exist.)
-    grep -q 'sync: .* merged'     "$issue_dir/checklist.md" 2>/dev/null && return 0
+    # Has the ACTIVE revision's ship step been marked done? (#318) — a file-wide
+    # grep matched revision 1's [x] 15 after a revise and fired on a revision that
+    # had not re-shipped; checklist_step_state_by_name scopes to the active
+    # revision block (#76), file-wide only when there are no revision headings.
+    [ "$(checklist_step_state_by_name "$issue_dir/checklist.md" ship 2>/dev/null || true)" = "x" ] || return 0
+    # Has on_merge already fired FOR THIS REVISION? (#318) — the idempotence marker
+    # is a `## Log` entry and revise.sh appends `## Revision N` AFTER `## Log`
+    # (log.sh #75), so the marker sits BEFORE the active revision block: a file-wide
+    # grep matched revision 1's stale marker (suppressing a re-shipped revision-2
+    # merge forever), and scoping to the active block would exclude the log and
+    # re-fire every run. Correct scope = the log's own revision boundary: a merge
+    # marker counts only at/after the last `revise:` entry.
+    if awk '
+        /^## Log/            { inlog=1; next }
+        /^## /               { inlog=0 }
+        !inlog               { next }
+        /  revise: /         { fired=0; next }
+        /  sync: .* merged/  { fired=1 }
+        END                  { exit (fired ? 0 : 1) }
+      ' "$issue_dir/checklist.md" 2>/dev/null; then
+        return 0
+    fi
 
     local code_backend issue_backend issue_repo issue_arg issue_num
     code_backend="$(config_get_project_field  "$project" code_source.backend)"

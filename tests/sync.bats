@@ -183,3 +183,66 @@ EOF
     devagent_assert_logged "issue/github transition acme/testproj 1 on_merge"
     grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+@test "sync.sh fires on_merge for a re-shipped revision despite revision 1's stale sync marker (#318)" {
+    # Post-revise: revision 1 shipped and synced (marker in ## Log), revision 2
+    # re-shipped. The file-wide idempotence grep matched revision 1's stale marker
+    # and suppressed revision 2's merge forever. Revision-scoped read must fire.
+    cat > "$DEVDOC_DIR/Issue-1/checklist.md" <<'EOF'
+# Issue-1 — Workflow checklist
+
+## Revision 1
+
+- [x]  0. pull
+- [x] 15. ship
+- [x] 20. cleanup
+
+## Log
+- 2026-05-19 14:00  pull: fixture seed
+- 2026-05-19 15:00  sync: Issue-1 merged → on_merge fired
+- 2026-05-19 16:00  revise: revision 2 started, 2 comments to address
+
+## Revision 2
+
+- [ ]  1. draft
+- [x] 15. ship
+- [ ] 20. cleanup
+EOF
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_merge"
+    # A FRESH marker was appended (rev-1's seeded marker + the new one = 2),
+    # proving the fire logged its own idempotence marker past the revise boundary.
+    [ "$(grep -c 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md")" -eq 2 ]
+    # Exactly once: a SECOND sync must not re-fire (marker now after the boundary).
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    run bash -c "grep -c 'transition acme/testproj 1 on_merge' '$DEVAGENT_STUB_LOG'"
+    [ "$output" -eq 1 ]
+}
+
+@test "sync.sh does not fire on_merge while the active revision is unshipped (#318)" {
+    # Revision 1 shipped (historical [x] 15); operator revised to revision 2, not
+    # yet shipped. A merged mr-state must NOT fire — the file-wide ship grep
+    # matched revision 1's [x] 15 and fired prematurely.
+    cat > "$DEVDOC_DIR/Issue-1/checklist.md" <<'EOF'
+# Issue-1 — Workflow checklist
+
+## Revision 1
+
+- [x]  0. pull
+- [x] 15. ship
+
+## Log
+- 2026-05-19 14:00  pull: fixture seed
+- 2026-05-19 16:00  revise: revision 2 started, 1 comments to address
+
+## Revision 2
+
+- [ ]  1. draft
+- [ ] 15. ship
+EOF
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_refute_logged "on_merge"
+}
