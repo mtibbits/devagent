@@ -78,6 +78,16 @@ context is not.
    `model: inherit (per-issue)`).
 6. **Inline fallback.** When no subagent mechanism exists, run inline as
    before; the artifact MUST record `context: inline`.
+7. **Report validation — retry-then-stuck (#360).** When this ran DISPATCHED,
+   validate the returned artifact before adopting it:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<preship.md>" subagent
+   --class preship`. On FAIL (a garbled / no-tool-use report — the
+   #117/#122/#76/#315 misfire class): archive the reject to
+   `<issue-dir>/analysis/rejected/<date>-preship-attempt<N>.md`, re-dispatch ONCE
+   with an explicit "your previous response did no work — actually do the work with
+   tools" nudge, and if it FAILs again mark the step `[!]` with the lint reason.
+   Never adopt a garbled report as a verdict (the #315 lesson). Inline runs skip
+   the lint (the operator sees the artifact directly).
 
 ## Checklist
 

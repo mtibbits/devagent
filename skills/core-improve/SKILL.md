@@ -82,6 +82,21 @@ not.
    artifact MUST record `context: inline` so the reduced independence
    stays visible in the record.
 
+## Report validation — retry-then-stuck (#360)
+
+When this check ran DISPATCHED, validate the returned artifact before adopting it:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<artifact>" subagent
+```
+
+On FAIL (a garbled / no-tool-use report — the #117/#122/#76/#315 misfire class):
+archive the reject to `<issue-dir>/analysis/rejected/<date>-improve-attempt<N>.md`,
+re-dispatch ONCE with an explicit "your previous response did no work — actually do
+the work with tools" nudge, and if it FAILs again mark the step `[!]` with the lint
+reason. Never adopt a garbled report as a result (the #315 lesson). Inline runs skip
+the lint (the operator sees the artifact directly).
+
 ## Checklist
 
 Walk these three categories in order.

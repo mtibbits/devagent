@@ -137,3 +137,24 @@ def test_template_vocabulary_is_invisible_to_the_parser(tmp_path):
     # never flag. This is WHY the skill's format is the single source.
     d = _one_entry_checklist(tmp_path, "Red-team: 3 block, 1 request-changes, 2 nit")
     assert not sr.failed_redteam(d)
+
+
+def test_inline_artifacts_scans_root_and_analysis(tmp_path):
+    (tmp_path / "analysis").mkdir()
+    (tmp_path / "preship.md").write_text(
+        "context: inline\nmodel: opus\nverdict SHIP\n", encoding="utf-8")
+    (tmp_path / "analysis" / "2026-07-09-review.md").write_text(
+        "context: inline\nmodel: opus\nbody\n", encoding="utf-8")
+    (tmp_path / "analysis" / "2026-07-09-improve.md").write_text(
+        "context: subagent\nmodel: opus\nbody\n", encoding="utf-8")
+    (tmp_path / "mr.md").write_text("## Summary\nx\n", encoding="utf-8")
+    hits = sr.inline_artifacts(tmp_path)
+    assert "preship.md" in hits                          # #360: root is where inline lives
+    assert "analysis/2026-07-09-review.md" in hits       # and analysis/
+    assert "analysis/2026-07-09-improve.md" not in hits  # subagent, not inline
+    assert "mr.md" not in hits                            # not a context: header
+
+
+def test_inline_artifacts_empty_when_none(tmp_path):
+    (tmp_path / "mr.md").write_text("## Summary\nx\n", encoding="utf-8")
+    assert sr.inline_artifacts(tmp_path) == []

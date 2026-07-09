@@ -108,6 +108,7 @@ issue_dirs = sorted(
 )
 
 stuck, failed_rt, idle_list, poorly, completed = [], [], [], [], []
+inline_arts = []
 completion_ts = []
 for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
@@ -128,6 +129,9 @@ for d in issue_dirs:
         ts = detect.completion_timestamp(d)
         if ts:
             completion_ts.append(ts)
+    ia = detect.inline_artifacts(d)
+    if ia:
+        inline_arts.append(f"{d.name}: " + ", ".join(ia))
 
 wbs_path = devdoc / "WBS.md"
 remaining_leaves = 0
@@ -196,6 +200,8 @@ filled = (
     .replace("{{IDLE_LIST}}", render_list(idle_list))
     .replace("{{POORLY_SCOPED_COUNT}}", str(len(poorly)))
     .replace("{{POORLY_SCOPED_LIST}}", render_list(poorly))
+    .replace("{{INLINE_ARTIFACTS_COUNT}}", str(len(inline_arts)))
+    .replace("{{INLINE_ARTIFACTS_LIST}}", render_list(inline_arts))
     .replace("{{WBS_ROLLUP}}", wbs_rollup)
     .replace("{{VELOCITY_WINDOW_WEEKS}}", str(window_weeks))
     .replace("{{VELOCITY_PER_WEEK}}", f"{v:.1f}")
