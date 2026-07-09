@@ -152,6 +152,23 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [[ "$output" == *"nothing is staged"* ]]
 }
 
+@test "commit.sh no-op ignores analyze-owned clutter via .gitignore (#324)" {
+    # The #25 guard fires on analyze-owned clutter (build-asan/, err, .claude/)
+    # left in the tree, forcing a manual mark (9 issues paid this). devagent's
+    # own .gitignore must cover it, so the step-10 no-op path passes untouched.
+    base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
+    # devagent's REAL .gitignore, tracked so it doesn't itself dirty the tree.
+    cp "${BATS_TEST_DIRNAME}/../.gitignore" "$SOURCE_DIR/.gitignore"
+    ( cd "$SOURCE_DIR" && git add .gitignore && git commit -q -s -m "task 1: a.txt + gitignore" )
+    _set_baseline "$base"
+    # analyze-owned clutter appears untracked at commit time
+    ( cd "$SOURCE_DIR" && mkdir -p build-asan build-tsan build-ubsan .claude \
+      && touch build-asan/o err .claude/settings.local.json )
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already committed"* ]]   # no-op success, NOT the #25 dirty die
+}
+
 @test "commit.sh refuses the no-op mark when HEAD is not the issue branch (#116/#69 interaction lock)" {
     base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     ( cd "$SOURCE_DIR" && git commit -q -s -m "task 1" && git checkout -q -b other )
