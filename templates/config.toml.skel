@@ -58,6 +58,15 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #                                        #   edited files (sentinel .devagent-scope.auto
 #                                        #   marks it auto-generated; a hand-written
 #                                        #   manifest is preserved, not clobbered).
+# born_red          = false              # (#362) true: the implement step + commit.sh
+#                                        #   run each NEW test at baseline_sha in an
+#                                        #   ephemeral worktree and FLAG any that pass
+#                                        #   there (never-red / vacuous). Writes
+#                                        #   <issue-dir>/analysis/<date>-born-red.txt;
+#                                        #   commit.sh dies on a FLAGGED verdict. Never
+#                                        #   mutates your tree. Allowlist a legitimate
+#                                        #   green-at-baseline in .devagent-born-red-allow
+#                                        #   ("<file> :: <test> — <reason>"). bats+pytest.
 #
 # Fork-side tracker (Issue-Fork-NNN), when issues are filed on the fork:
 # [project.{{PROJECT}}.issue_source_fork]

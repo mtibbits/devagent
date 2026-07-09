@@ -147,6 +147,17 @@ if [ -z "$branch" ]; then
         die "branch step is complete but no branch is recorded for '$issue_arg' — state is incoherent (resume-after-cleanup? run /devagent:doctor). Restore the issue's branch ('/devagent:branch') before committing (#316)."
     fi
 fi
+
+# #362: born-red gate — die iff the LATEST born-red artifact is FLAGGED (a new test
+# that was GREEN at baseline, i.e. never-red / vacuous). Absent / PASS / PASS
+# (allowed) / NO-NEW-TESTS never fire: projects without born_red=true write no
+# artifact, so non-bats projects (volk) and artifact-only issues are untouched
+# (the #316 fire-precisely lesson).
+_br_latest="$(ls -1 "$issue_dir/analysis/"*-born-red.txt 2>/dev/null | sort | tail -1 || true)"
+if [ -n "$_br_latest" ] && grep -q '^verdict: FLAGGED' "$_br_latest"; then
+    die "born-red gate: $_br_latest reports FLAGGED — a new test is green at baseline (never-red / vacuous). Make it fail without the change, or allowlist it (with a reason) in $issue_dir/.devagent-born-red-allow, then re-run /devagent:born-red (#362)."
+fi
+
 cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
 if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
     die "refusing to commit — $work_dir is on '${cur_branch:-(detached HEAD)}' but the issue branch is '$branch'. Check out '$branch' ('git -C $work_dir checkout $branch') then re-run (#69)."
