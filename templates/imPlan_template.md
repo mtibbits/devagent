@@ -26,6 +26,12 @@ How will we verify the change works? (Tests, manual smoke, etc.)
 
 What this change deliberately does NOT do.
 
+## Preconditions
+
+What must already be true at HEAD for this plan to make sense. **Dispose of every
+`✗` row from the rederive artifact** (`analysis/<date>-rederive.txt`, #361) here —
+a named input absent at HEAD is a falsified premise.
+
 ## Open questions
 
 (Anything the operator needs to resolve before execution.)

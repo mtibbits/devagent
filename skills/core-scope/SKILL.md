@@ -7,12 +7,12 @@ when-to-use: After /devagent:draft has produced an imPlan.md and before /devagen
 # devagent-scope
 
 Step 2 of the devAgent 22-step workflow. Walks the operator through
-six scope questions and appends the answers to `<issue-dir>/imPlan.md`
+seven scope questions and appends the answers to `<issue-dir>/imPlan.md`
 as a new `## Scope evaluation` section.
 
 ## Overview
 
-A draft plan often over- or under-reaches. Six structured questions
+A draft plan often over- or under-reaches. Seven structured questions
 catch the common failure modes (scope creep, missing preconditions,
 no success criterion) before any code is written. The answers become
 part of the plan so reviewers see them too.
@@ -26,7 +26,7 @@ part of the plan so reviewers see them too.
 
 ## Checklist
 
-Walk these six questions, one section per question, answer in the
+Walk these seven questions, one section per question, answer in the
 operator's voice. Do not invent answers — when uncertain, halt and
 ask.
 
@@ -48,6 +48,13 @@ ask.
 6. **Success criteria.** How will the operator know this plan
    succeeded? Concrete pass/fail tests. "Works on my machine" is
    not an answer.
+7. **Premise freshness (#361).** Is the rederive artifact
+   (`<issue-dir>/analysis/<date>-rederive.txt`, written by the draft step)
+   present, and are all its `✗` rows (named inputs absent at HEAD) disposed of
+   in the plan's `## Preconditions`? If the artifact is **absent**, do NOT
+   silently pass — mark this step `[!]` with reason "no rederive artifact" (the
+   chain-safe halt `next.sh` honors; run `/devagent:draft`'s rederive, then
+   re-scope). If a `✗` is unaddressed, that is an unresolved ambiguity.
 
 ## Output format (append to imPlan.md)
 

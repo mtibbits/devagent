@@ -37,7 +37,7 @@ cmd_fetch() {
   _need jq
 
   local json
-  json="$(_gh_view "$repo" "$num" 'title,state,author,labels,url,body,comments')" || return 1
+  json="$(_gh_view "$repo" "$num" 'title,state,author,labels,url,body,comments,createdAt')" || return 1
 
   printf '%s' "$json" | jq -r --arg repo "$repo" --arg num "$num" '
     def label_csv:
@@ -55,7 +55,8 @@ cmd_fetch() {
     + "- State: " + ((.state // "unknown") | ascii_downcase) + "\n"
     + "- Author: @" + (.author.login // "unknown") + "\n"
     + "- Labels: " + label_csv + "\n"
-    + "- URL: " + (.url // "") + "\n\n"
+    + "- URL: " + (.url // "") + "\n"
+    + "- Created: " + ((.createdAt // "") | split("T")[0]) + "\n\n"
     + "---\n\n"
     + (.body // "") + "\n\n"
     + "---\n\n"
