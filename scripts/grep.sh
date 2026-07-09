@@ -32,7 +32,7 @@ ARTIFACT_FILES=(
 usage() {
   cat <<'EOF' >&2
 Usage:
-  /devagent:grep [project] [-i] [-l] [--captures] <pattern>
+  /devagent:grep [--project P] [-i] [-l] [--captures] <pattern>
 
 Searches: issue.md, intent.md, imPlan.md,
           imPlan-potentialFutureEnhancements.md, actualWork.md, mr.md,

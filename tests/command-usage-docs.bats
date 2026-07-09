@@ -57,3 +57,14 @@ C="$REPO/commands"
   [ "$status" -ne 0 ]
   [ -z "$output" ]
 }
+
+# --- #321: the SCRIPTS' own usage() heredocs (the surface #125 missed) must show
+# [--project P], not the positional [project] their parsers reject. -----------
+@test "--project scripts' usage() show [--project P], not a positional [project] (#321)" {
+  local f
+  for f in depends grep history template; do
+    grep -qF -- '[--project' "$REPO/scripts/$f.sh" || { echo "$f.sh usage missing [--project" >&2; return 1; }
+    run grep -F '[project]' "$REPO/scripts/$f.sh"
+    [ "$status" -ne 0 ] || { echo "$f.sh still shows positional [project]" >&2; return 1; }
+  done
+}

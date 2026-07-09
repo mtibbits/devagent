@@ -17,11 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF' >&2
 Usage:
-  /devagent:depends [project] <A> on <B>
-  /devagent:depends [project] list
+  /devagent:depends [--project P] <A> on <B>
+  /devagent:depends [--project P] list
 
 Examples:
-  /devagent:depends volk Issue-676 on Issue-Fork-12
+  /devagent:depends --project volk Issue-676 on Issue-Fork-12
   /devagent:depends list
 EOF
   exit 2
