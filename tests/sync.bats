@@ -246,3 +246,107 @@ EOF
     [ "$status" -eq 0 ]
     devagent_refute_logged "on_merge"
 }
+
+# --- #363: sync unblocks + queues the closeout ------------------------------
+
+@test "sync unblocks a [?] closeout step to [ ] on merge, logs it (#363)" {
+    sed -i 's/^- \[ \] 18\. impact/- [?] 18. impact/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[ \] +18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q 'unblocked .* closeout step' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "sync prints CLOSEOUT nudge naming pending + the next command (#363)" {
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [[ "$output" == *"CLOSEOUT: $TEST_PROJECT/Issue-1 merged"* ]]
+    [[ "$output" == *"pending:"* ]]
+    [[ "$output" == *"run /devagent:next $TEST_PROJECT --auto"* ]]
+}
+
+@test "sync re-nudges on a second run w/o extra log lines; silent after cleanup (#363)" {
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [[ "$output" == *"CLOSEOUT:"* ]]
+    local n1; n1="$(grep -c '  sync:' "$DEVDOC_DIR/Issue-1/checklist.md")"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"     # marker present now
+    [[ "$output" == *"CLOSEOUT:"* ]]
+    local n2; n2="$(grep -c '  sync:' "$DEVDOC_DIR/Issue-1/checklist.md")"
+    [ "$n1" -eq "$n2" ]                                       # no extra log on marker-present path
+    sed -i -E 's/^- \[ \] (1[6-9]|20)\./- [x] \1./' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [[ "$output" != *"CLOSEOUT:"* ]]                          # all closeout terminal → silent
+}
+
+@test "sync unblocks+nudges with transition_issue off; #219 preserved (#363)" {
+    sed -i 's/^transition_issue *=.*/transition_issue = false/' "$HOME/.claude/devagent/config.toml"
+    sed -i 's/^- \[ \] 18\. impact/- [?] 18. impact/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[ \] +18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"    # unblocked
+    [[ "$output" == *"CLOSEOUT:"* ]]                                       # nudged
+    [[ "$output" == *"transition_issue"* ]]                               # #219 skip-warn
+    run grep 'merged .* on_merge fired' "$DEVDOC_DIR/Issue-1/checklist.md" # marker NOT written
+    [ "$status" -ne 0 ]
+}
+
+@test "sync leaves a NON-closeout [?] untouched (#363)" {
+    # single-digit steps are space-aligned ("  7."), so match flexibly.
+    sed -i -E 's/^- \[ \]([[:space:]]+7\. implement)/- [?]\1/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qE '^- \[\?\][[:space:]]+7\. implement' "$DEVDOC_DIR/Issue-1/checklist.md"  # precondition
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[\?\][[:space:]]+7\. implement' "$DEVDOC_DIR/Issue-1/checklist.md"  # still [?]
+}
+
+@test "sync does nothing (no CLOSEOUT) when the MR is still open (#363)" {
+    cat > "$DEVAGENT_TMP/fake-code/github.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "mr-state" ] && echo open
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-code/github.sh"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"CLOSEOUT:"* ]]
+}
+
+@test "sync warns+skips on mr-state failure, checklist byte-identical (#363)" {
+    cat > "$DEVAGENT_TMP/fake-code/github.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "mr-state" ] && exit 1
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-code/github.sh"
+    before="$(md5sum "$DEVDOC_DIR/Issue-1/checklist.md")"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"mr-state failed"* ]]
+    after="$(md5sum "$DEVDOC_DIR/Issue-1/checklist.md")"
+    [ "$before" = "$after" ]
+}
+
+@test "sync closeout flip lands in the ACTIVE revision block (#363)" {
+    # Revision 1 (above ## Log) has closeout [x]; the active revision-2 block has [?].
+    cat > "$DEVDOC_DIR/Issue-1/checklist.md" <<'CL'
+# Issue-1 — checklist
+
+- [x] 15. ship
+- [x] 18. impact
+
+## Log
+- 2026-05-19 10:00  ship: MR
+- 2026-05-19 11:00  revise: round 2
+
+## Revision 2
+- [x] 15. ship
+- [?] 18. impact
+CL
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    # The rev-1 line stays [x]; the active rev-2 line flips to [ ].
+    grep -qE '^- \[x\] 18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"    # rev-1 untouched
+    awk '/## Revision 2/{f=1} f && /18\. impact/{print}' "$DEVDOC_DIR/Issue-1/checklist.md" | grep -qE '^- \[ \] 18\. impact'
+}
+
+@test "sync.md carries the Closeout-handoff (CLOSEOUT) section (#363)" {
+    grep -q 'Closeout handoff' "$DEVAGENT_ROOT/commands/sync.md"
+    grep -q 'CLOSEOUT:' "$DEVAGENT_ROOT/commands/sync.md"
+}

@@ -16,6 +16,40 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
 
+# #363: the checklist IS the closeout queue. Sync executes NO closeout steps —
+# on a merge it just makes the checklist truthful (unblock) and reminds the
+# operator (nudge). Both are local, gate-free, prompt-free (safe in a cron --all).
+_SYNC_CLOSEOUT_STEPS="mergetoall updatewbs impact lessonslearned cleanup"
+
+# Flip any closeout step stuck at [?] (the impact "not merged" halt) → [ ], so
+# post-merge /devagent:next proceeds instead of "blocked-external, consider park".
+# Only [?] (never [x]/[-]/[!]/[P]); revision-scoped; ≥1 flip → one log line.
+_sync_closeout_unblock() {
+    local issue_dir="$1" name flips=0 g
+    for name in $_SYNC_CLOSEOUT_STEPS; do
+        g="$(checklist_step_state_by_name "$issue_dir/checklist.md" "$name" 2>/dev/null || true)"
+        if [ "$g" = "?" ]; then
+            checklist_mark_by_name "$issue_dir/checklist.md" "$name" " "
+            flips=$((flips + 1))
+        fi
+    done
+    [ "$flips" -gt 0 ] && log_append "$issue_dir" sync "unblocked $flips closeout step(s) after merge ([?]->[ ])"
+    return 0
+}
+
+# Print the derived CLOSEOUT nudge while any closeout step is non-terminal.
+# Derived from checklist state (not stored) → re-prints every sync until cleanup
+# lands, silences itself after. No network, no prompt.
+_sync_closeout_nudge() {
+    local project="$1" issue_dir="$2" issue_arg="$3" pending
+    [ -n "$issue_arg" ] || return 0
+    # shellcheck disable=SC2086
+    pending="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" $_SYNC_CLOSEOUT_STEPS \
+                | sed 's/:.*//' | paste -sd, - )"
+    [ -n "$pending" ] || return 0
+    echo "CLOSEOUT: $project/$issue_arg merged — pending: $pending — run /devagent:next $project --auto"
+}
+
 # #240: sync iterates PROJECTS and reports the SHARED view by definition —
 # raw state_get reads are deliberate here (a session pin must not leak into
 # every project's iteration).
@@ -51,6 +85,11 @@ sync_one_project() {
         /  sync: .* merged/  { fired=1 }
         END                  { exit (fired ? 0 : 1) }
       ' "$issue_dir/checklist.md" 2>/dev/null; then
+        # #363: on_merge already fired for this revision — re-print the closeout
+        # nudge (derived, ZERO network: this sits before the mr-state call) while
+        # closeout is still pending; silent once cleanup lands.
+        _sync_closeout_nudge "$project" "$issue_dir" \
+            "$(state_get "$project" active_issue 2>/dev/null || true)"
         return 0
     fi
 
@@ -83,6 +122,14 @@ sync_one_project() {
         return 0
     fi
     [ "${state,,}" = "merged" ] || return 0   # #43: gh returns "MERGED" (uppercase)
+
+    # #363: the merge is a local fact — unblock the closeout queue and nudge
+    # BEFORE the #219 remote-transition gate (which returns early when
+    # transition_issue is off). So an operator with the gate off still gets an
+    # unblocked, truthful checklist + the nudge; #219's no-marker-when-gated
+    # behavior below is untouched.
+    _sync_closeout_unblock "$issue_dir"
+    _sync_closeout_nudge "$project" "$issue_dir" "$issue_arg"
 
     # #219: gate the remote on_merge transition. This is an outward, autonomous
     # mutation of tracker state — sync runs --all batch/non-interactive and must
