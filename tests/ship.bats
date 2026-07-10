@@ -551,3 +551,24 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" != *"preship is non-terminal"* ]]
 }
+
+@test "ship.sh dies fail-closed when create-mr returns an empty URL — no mr_url, step 15 unmarked (#337)" {
+  # ship.sh:323 `[ -n "$mr_url" ] || die` is the only OUTPUT-validation die in
+  # ship.sh with no pin. Stub gh to emit an empty PR URL on `pr create`; push
+  # succeeds, create-mr returns "", ship must die BEFORE storing mr_url / marking.
+  cat > "$DEVAGENT_STUB_BIN/gh" <<EOF
+#!/usr/bin/env bash
+printf 'gh' >> "$DEVAGENT_STUB_LOG"
+for a in "\$@"; do printf ' %s' "\$a" >> "$DEVAGENT_STUB_LOG"; done
+printf '\n' >> "$DEVAGENT_STUB_LOG"
+exit 0
+EOF
+  chmod +x "$DEVAGENT_STUB_BIN/gh"
+
+  run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"empty URL"* ]]                                    # the fail-closed die fired
+  run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+  [ "$status" -ne 0 ]                                                 # no mr_url stored
+  grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 unmarked
+}
