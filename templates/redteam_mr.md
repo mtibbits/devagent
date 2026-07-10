@@ -36,13 +36,13 @@ request-changes≡MAJOR, nit≡MINOR.)
 - Any dead code, over-documented comments, unused imports, or defensive checks for impossible states?
 
 ## E. Memory & Type Safety (C/C++ specific)
-- **Buffer bounds**: Do loops processing arrays stop at array bounds? Do SIMD kernels handle tail elements safely when `num_points` is not a multiple of the vector width?
+- **Buffer bounds**: Do loops processing arrays stop at array bounds? Do block-processing loops handle tail/remainder elements safely when the element count is not a multiple of the block/stride width?
 - **Integer overflow in size calculations**: Can `n * sizeof(T)` or similar expressions wrap? Are allocations checked?
 - **Pointer lifetime & ownership**: Are bare pointers justified? Is nullptr handled at boundaries? Is ownership documented?
 - **Const correctness**: Could more arguments, locals, or methods be `const`?
 - **Initialization**: Are all plain-old-data fields initialized (use `{}` to avoid undefined values)?
 - **Dangerous functions**: Grep the diff for `alloca`, `gets`, `sprintf`, `strcpy`, `atoi`, `system()`, `reinterpret_cast`. Each needs justification.
-- **Alignment & portability**: Does the change assume a specific alignment, endianness, or SIMD register width that could break on another architecture?
+- **Alignment & portability**: Does the change assume a specific alignment, endianness, or platform-width detail (word size, register/lane width) that could break on another architecture?
 
 ## F. Build System & Supply Chain
 - Do any new `FetchContent`, `ExternalProject`, or submodule additions pin versions and verify integrity (checksums or signatures)?
@@ -52,7 +52,7 @@ request-changes≡MAJOR, nit≡MINOR.)
 ## G. Test Coverage
 - Does the PR include tests proportional to the change?
 - Are the tests verifying behavior or implementation details? Will they break on unrelated refactors?
-- For kernel changes: are edge cases tested (num_points=0, num_points=1, unaligned buffers, max values)?
+- For hot loops / numeric routines: are boundary-size inputs tested (count=0, count=1, unaligned buffers, max values)?
 
 ## H. Error Paths
 - What happens when this fails? Are errors surfaced or swallowed?

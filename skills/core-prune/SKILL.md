@@ -59,13 +59,13 @@ Each entry preserves the source citation so it can be promoted to
 its own issue later via /devagent:reap.
 
 ## Source: Tasks (pruned 2026-05-19)
-- Refactor adjacent bar_kernel for style consistency.
+- Refactor adjacent bar_helper for style consistency.
 
 ## Source: Improvements [defer] (2026-05-19)
 - README update is not load-bearing for this fix.
 
 ## Source: Scope > Out of scope (2026-05-19)
-- ARM NEON path for foo_kernel.
+- Platform-specific fast path for foo_helper.
 ```
 
 ## Halt and ask if

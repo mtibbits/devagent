@@ -7,14 +7,14 @@ REPO="${BATS_TEST_DIRNAME}/.."
 
 @test "no VOLK-specific token in the plugin templates (#136)" {
   # Case-insensitive VOLK project markers that must NOT ship in the defaults.
-  run grep -rniE 'volk|lgpl|\bdsp\b|\bsdr\b|gnu ?radio|plot_pr_evidence|VOLK_CONFIGPATH' "$REPO/templates"
+  run grep -rniE 'volk|lgpl|\bdsp\b|\bsdr\b|gnu ?radio|plot_pr_evidence|VOLK_CONFIGPATH|num_points|\bsimd\b|dechirp|\bneon\b|kernel|warmup|vector length' "$REPO/templates"
   # #337: rc-precise. grep rc 1 = clean no-match; rc 2 = error (dir renamed/
   # unreadable) which `-ne 0` would false-pass, blinding the canary.
   [ "$status" -eq 1 ] || { echo "VOLK token in templates/ (or grep error):" >&2; echo "$output" >&2; return 1; }
 }
 
 @test "no VOLK-specific token in the shipped skills (#136)" {
-  run grep -rniE 'volk|lgpl|\bdsp\b|\bsdr\b|gnu ?radio|plot_pr_evidence|VOLK_CONFIGPATH|src/devDoc/volk' "$REPO/skills"
+  run grep -rniE 'volk|lgpl|\bdsp\b|\bsdr\b|gnu ?radio|plot_pr_evidence|VOLK_CONFIGPATH|src/devDoc/volk|num_points|\bsimd\b|dechirp|\bneon\b|kernel|warmup|vector length' "$REPO/skills"
   # #337: rc-precise (see the templates canary above).
   [ "$status" -eq 1 ] || { echo "VOLK token in skills/ (or grep error):" >&2; echo "$output" >&2; return 1; }
 }

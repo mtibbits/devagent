@@ -35,8 +35,8 @@ After prune, the plan is minimal. Tighten makes it executable:
 2. **Task dependencies.** Mark explicit cross-references with
    `(depends on task N)` notation. If a cycle appears, halt.
 3. **File paths.** Every task names the absolute file path(s) it
-   modifies or creates. "Update the kernel" → "Update
-   `/abs/path/to/foo_kernel.c:142-160`".
+   modifies or creates. "Update the parser" → "Update
+   `/abs/path/to/foo_module.c:142-160`".
 4. **Test plan.** Every task has a one-line test plan or an explicit
    "no test, because…" justification. Halt if any task lacks both.
 5. **Definition of done.** Append `## Definition of done` mapping

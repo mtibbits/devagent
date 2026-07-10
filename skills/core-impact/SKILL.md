@@ -70,8 +70,8 @@ numbers are not available or honest).
 - Build time: unchanged.
 
 ## Qualitative
-- Unblocks fusion of post-dechirp kernels (separate issue).
-- Pattern documented for future kernel-pair fusions.
+- Unblocks fusion of post-processing stages (separate issue).
+- Pattern documented for future stage-pair fusions.
 ```
 
 ## Halt and ask if
