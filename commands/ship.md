@@ -1,7 +1,7 @@
 ---
 description: "Step 15: push branch and open MR, fire on_ship issue transition."
 allowed-tools: Bash
-argument-hint: "[project] [issue-dir] [--strict-deps] [free-form note words ...]"
+argument-hint: "[project] [issue-dir] [--strict-deps]"
 ---
 
 # /devagent:ship

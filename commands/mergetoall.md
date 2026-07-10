@@ -1,7 +1,7 @@
 ---
 description: "Step 16: squash-merge the issue branch into the local all_prs_branch (e.g. dev/all-prs). Local only — does not close the PR."
 allowed-tools: Bash
-argument-hint: "[project] [issue-dir] [free-form note words ...]"
+argument-hint: "[project] [issue-dir]"
 ---
 
 # /devagent:mergetoall

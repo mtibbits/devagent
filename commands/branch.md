@@ -1,7 +1,7 @@
 ---
 description: "Step 6: create issue branch from default_baseline (or a per-issue baseline override)."
 allowed-tools: Bash
-argument-hint: "[project] [issue-dir] [free-form note words ...]"
+argument-hint: "[project] [issue-dir]"
 ---
 
 # /devagent:branch
