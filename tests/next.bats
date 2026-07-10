@@ -228,3 +228,19 @@ EOC
   [[ "$output" == *"STUCK"* ]]
   grep -qE '^- \[ \] +15\. ship' "$DEVDOC/Issue-676/checklist.md"
 }
+
+@test "next --auto halts (nonzero, no advance) when a dispatched script step exits nonzero (#337)" {
+  # next.sh dispatches script steps with NO rc check (next.sh:~158) — halt-on-
+  # failure exists ONLY via the file's `set -euo pipefail`. Pin it: mark 2-5 done
+  # so step 6 (branch, a SCRIPT step) is current; branch.sh dies on the absent
+  # .devagent-type; --auto must propagate nonzero and NOT advance. A refactor
+  # wrapping the dispatch in `|| …` / an `if` converts halt into loop-past-failure.
+  sed -i -E 's/^- \[ \]  ([2-5])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -ne 0 ]                                                  # halted nonzero
+  grep -qE '^- \[ \]  6\. branch' "$DEVDOC/Issue-676/checklist.md"     # step 6 still pending
+  # Non-vacuous "did not advance": next.sh emits `→ Run /devagent:implement` when
+  # it reaches step 7 (skill-backed). Its ABSENCE proves the chain halted at 6.
+  [[ "$output" != *"/devagent:implement"* ]]
+  [[ "$output" != *"CHAIN:"* ]]                                       # no chain-continue emitted
+}
