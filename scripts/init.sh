@@ -56,6 +56,10 @@ ask code_backend  "code backend"    "$issue_backend" DA_INIT_CODE_BACKEND
 ask code_upstream "code upstream (org/name)" "$issue_repo" DA_INIT_CODE_UPSTREAM
 ask code_fork     "code fork (org/name)"     ""      DA_INIT_CODE_FORK
 
+# #352: offer the opt-in git-reflex guard (a global [defaults] flag). Per-flag
+# typed approval — default stays OFF; only an explicit yes enables it.
+ask git_guard_ans "Enable the git-reflex guard? (blocks reflexive stash/checkout--/restore/clean on a dirty tree; default off)" "n" DA_INIT_GIT_GUARD
+
 # Detect upstream's default branch for default_baseline. Falls back to main
 # when gh is unavailable, unauthenticated, or offline.
 default_branch="$(gh api "repos/$code_upstream" --jq '.default_branch' 2>/dev/null || true)"
@@ -112,6 +116,25 @@ else
   awk 'BEGIN{p=0} /^\[project\./{p=1} p{print}' "$rendered" >> "$cfg"
 fi
 rm -f "$rendered"
+
+# #352: if the operator opted in, set `git_guard = true` in the config's [defaults]
+# section. A text-edit (NOT _toml.py, which refuses to mutate the comment-bearing
+# config): replace an existing git_guard line, else insert one at the end of
+# [defaults]. Works for both the fresh-install and append-to-existing paths.
+# shellcheck disable=SC2154  # set indirectly by ask() via `printf -v` (like the other DA_INIT_* answers)
+case "$git_guard_ans" in
+  [yY]|[yY][eE][sS])
+    gg_tmp="$(mktemp)"
+    awk '
+      /^\[defaults\]/ { print; in_def=1; next }
+      /^\[/ { if (in_def && !done) { print "git_guard = true"; done=1 } in_def=0; print; next }
+      in_def && /^[[:space:]]*git_guard[[:space:]]*=/ { print "git_guard = true"; done=1; next }
+      { print }
+      END { if (in_def && !done) print "git_guard = true" }
+    ' "$cfg" > "$gg_tmp" && mv "$gg_tmp" "$cfg"
+    echo "git-reflex guard: ENABLED ([defaults] git_guard = true)"
+    ;;
+esac
 
 state_init "$project"
 
