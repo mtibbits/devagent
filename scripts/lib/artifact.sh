@@ -18,8 +18,9 @@ artifact_resolve_or() {
   local project="$1" key="$2" path=""
   if [[ -n "$project" ]]; then
     # No 2>/dev/null (#341): artifact_resolve's only stderr here is the
-    # dead-override warn (project is non-empty, so the rc-2 message can't fire);
-    # swallowing it re-hid the diagnostic from the tolerant-face callers.
+    # dead-override warn — the rc-2 "project+key required" message needs an empty
+    # project (guarded above) or empty key (all callers pass a literal key), so it
+    # can't fire; swallowing stderr re-hid the diagnostic from tolerant-face callers.
     path="$(artifact_resolve "$project" "$key" || true)"
   fi
   [[ -n "$path" ]] || path="$(plugin_root)/templates/${key}.md"
