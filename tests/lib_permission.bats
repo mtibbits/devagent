@@ -49,6 +49,12 @@ teardown() { devagent_test_teardown; }
     # without DA_YES; DA_YES=1 makes confirm() return 0 → gate passes.
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" \
         "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    # Self-pinning (#336 redmr): first prove it DENIES without DA_YES, so the
+    # rc-0 below is attributable to the bypass, not to the gate allowing anyway.
+    run bash -c ". '$DEVAGENT_ROOT/scripts/lib/paths.sh'; . '$DEVAGENT_ROOT/scripts/lib/io.sh'; \
+        . '$DEVAGENT_ROOT/scripts/lib/config.sh'; . '$DEVAGENT_ROOT/scripts/lib/permission.sh'; \
+        permission_gate '$TEST_PROJECT' commit_devdoc 'PLAN' </dev/null"
+    [ "$status" -ne 0 ]
     DA_YES=1 run permission_gate "$TEST_PROJECT" commit_devdoc "PLAN"
     [ "$status" -eq 0 ]
 }
