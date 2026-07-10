@@ -22,9 +22,10 @@ _loaded_layers() {
 @test "every loaded test setup layer sources the hermetic-env guard (#338)" {
   local missing=() layer
   while read -r layer; do
-    # Match an actual source directive, not a mere mention in a comment
-    # (#338 improve S1): `. …/hermetic-env.bash` or `source …/hermetic-env.bash`.
-    grep -qE '(^|[[:space:]])(\.|source)[[:space:]].*hermetic-env' "$layer" || missing+=("$layer")
+    # Match an actual source directive at line start, not a mention in a comment
+    # (#338 improve S1 / redmr MAJOR: a `# … source the hermetic-env guard`
+    # comment defeats an unanchored match — anchor to `^\s*(.|source)\s`).
+    grep -qE '^[[:space:]]*(\.|source)[[:space:]].*hermetic-env' "$layer" || missing+=("$layer")
   done < <(_loaded_layers)
   [ ${#missing[@]} -eq 0 ] || {
     printf 'unguarded setup layer(s) — add `. …/hermetic-env.bash`:\n%s\n' "${missing[@]}" >&2
