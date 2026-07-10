@@ -547,6 +547,12 @@ Defined per project in `[project.<name>.permissions]`. Each gate:
 - `false` → print plan + prompt `y/N` before each remote-visible action
 - unset → treat as `false`
 
+Exception — `transition_issue`: a `false` value does **not** prompt
+`y/N`. The outward transitions it gates (`on_draft_start`, `on_merge`)
+fire in autonomous/batch contexts where no operator is present to
+answer, so `false` means **skip + warn (fail-closed)** instead
+(#219/#141/#325).
+
 Gates enforced by the script that performs the gated action, not by
 the chaining layer. `--auto` cannot suppress a gate. `$NOTE` cannot
 override a gate. The only way to change a gate is to edit
@@ -559,7 +565,7 @@ Gate set:
 | `push_mr` | `ship.sh` |
 | `merge_mr` | `mergetoall.sh` |
 | `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
-| `transition_issue` | every step that fires an `issue_workflow` transition |
+| `transition_issue` | the autonomous outward transitions: `on_draft_start` (`transition-draft-start.sh`, #325) and `on_merge` (`sync.sh`, #219). **Not** `on_ship` — `ship.sh` fires it ungated (consent rides the ship action, #219). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 
 ## 9. Backend abstraction
@@ -665,7 +671,7 @@ Three semantic events trigger backend transitions:
 | Event | Stage | Hook |
 |---|---|---|
 | Start of `draft` (step 1) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
-| End of `ship` (step 15) | `on_ship` | `ship.sh` after successful MR creation |
+| End of `ship` (step 15) | `on_ship` | `ship.sh` after successful MR creation; **not** gated by `transition_issue` (consent-by-ship-action, #219), and a failing transition degrades to a warn — ship still completes |
 | MR merged upstream (async) | `on_merge` | `/devagent:sync` |
 
 The `commit` → `analyze` ordering (steps 10 → 11) exists because

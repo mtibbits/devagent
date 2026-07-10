@@ -114,6 +114,32 @@ EOF
     devagent_refute_logged "issue/github transition"
 }
 
+@test "ship.sh warns and completes when a non-fork_only on_ship transition fails (#344 graceful degrade)" {
+    # Non-fork_only project (default setup): the configured tracker IS called, so a
+    # rejecting backend exercises the tolerate path (spec §11; ship.sh:339-340).
+    # Override the issue stub to reject ONLY the transition verb (exit 1).
+    cat > "$DEVAGENT_TMP/fake-issue/github.sh" <<EOF
+#!/usr/bin/env bash
+echo "issue/github \$@" >> "$DEVAGENT_STUB_LOG"
+[ "\$1" = "transition" ] && exit 1
+exit 0
+EOF
+    chmod +x "$DEVAGENT_TMP/fake-issue/github.sh"
+
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    # ship degrades to a warn and still succeeds.
+    [ "$status" -eq 0 ]
+    # The transition WAS attempted (proves we hit the real path, not fork_only skip)...
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_ship"
+    # ...and its failure produced a warn on stderr (merged into $output by `run`),
+    # not a die. Substring match: the real message has a `warning: ` prefix.
+    [[ "$output" == *"issue transition failed"* ]]
+    # ship completed regardless: mr_url stored and step 15 marked.
+    grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+}
+
 # ---- #88: cross-repo create-mr head qualification (A1) ----
 # Default project: fork_first=false, upstream=acme/testproj, fork=me/testproj →
 # the MR target (acme) owner differs from the fork/push-remote owner (me), so a
