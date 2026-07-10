@@ -63,6 +63,25 @@ The slash command parses this block and calls `capture.sh` per row.
 - Do not silently expand a single capture into many. If you see
   multi-epic, surface the recommendation and let the operator decide.
 
+## Draft lifecycle — archive on land
+
+`Captures/<slug>/` is a *live* backlog: its top level should signal only
+candidates that still need work. Once a draft's content has LANDED — the
+issue was filed and its PR merged, or the idea was absorbed into another
+change — retire the draft so the directory keeps signalling accurately:
+
+- Move the draft directory into `Captures/archive/` (never delete it — the
+  record is the point).
+- Append a one-line disposition to `Captures/archive/LEDGER.md`:
+  `<slug> — landed as <PR/issue/mechanism> (<date>)`.
+- A draft whose content did NOT land stays at the top level; if it is stale
+  but unresolved, ledger it `OPEN — re-file candidate` rather than archiving.
+- A capture filed under the wrong project belongs in that project's
+  `Captures/` — relocate it (ledger the move target).
+
+This keeps `grep --captures` and human/audit browsing reading a clean live
+corpus instead of a mix of pending and already-shipped ideas.
+
 ## Verification
 
 This skill is verified by `tests/skill_core_capture.bats`, which
