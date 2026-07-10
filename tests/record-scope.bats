@@ -7,8 +7,7 @@ setup() {
     python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
     # opt-in: commit_autostage=true in the project section
-    sed -i "/^\[project.$TEST_PROJECT\]$/a commit_autostage = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.commit_autostage" true
     REC="$DEVAGENT_ROOT/scripts/record-scope.sh"
     SCOPE="$DEVDOC_DIR/Issue-1/.devagent-scope"
 }
@@ -28,7 +27,7 @@ teardown() { devagent_test_teardown; }
 
 @test "end-to-end: produced manifest drives #251 commit.sh autostage (#268 AC1+AC2)" {
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x && echo x >> README.md && echo new > z_new.txt )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     echo feature > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo scope-test > "$DEVDOC_DIR/Issue-1/.devagent-title"
     mkdir -p "$DEVDOC_DIR/templates"
@@ -67,7 +66,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "recording off (commit_autostage unset) writes no manifest (#268 AC6)" {
-    sed -i "/^commit_autostage = true$/d" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.commit_autostage"
     ( cd "$SOURCE_DIR" && echo x >> README.md )
     run "$REC" "$TEST_PROJECT"
     [ "$status" -eq 0 ]

@@ -15,7 +15,7 @@ setup() {
       git checkout -q -b feat/1-x \
         && echo hi > a.txt && git add a.txt \
         && git -c user.email=t@e -c user.name=T commit -q -m "feat: x" )   # C2
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 teardown() { devagent_test_teardown; }
 
@@ -36,7 +36,7 @@ _advance_origin() {   # push one upstream commit so origin/main is ahead of all_
     [[ "$output" == *"cherry-pick"* ]]
     # No squash landed; step 16 not marked done.
     [ "$( cd "$SOURCE_DIR" && git rev-parse dev/all-prs )" = "$all_prs_before" ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 @test "mergetoall proceeds when all_prs is current with upstream" {
@@ -45,5 +45,5 @@ _advance_origin() {   # push one upstream commit so origin/main is ahead of all_
     [ "$status" -eq 0 ]
     [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]  # #71: success restores orig branch
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }

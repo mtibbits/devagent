@@ -21,7 +21,7 @@ setup() {
       && git checkout -q -b feat/1-x \
       && echo hi > a.txt && git add a.txt \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m "feat: x" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo "active work" > "$DEVDOC_DIR/Issue-1/.devagent-title"
 }
@@ -78,6 +78,6 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"no branch in state"* ]]
     # Load-bearing: ship did not complete — step 15 is not marked done on the
     # active issue's checklist (it aborted at the cross-check, before push).
-    run grep -qE '^- \[x\] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
     [ "$status" -ne 0 ]
 }

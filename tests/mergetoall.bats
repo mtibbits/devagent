@@ -8,16 +8,16 @@ setup() {
       && git checkout -q -b feat/1-x \
       && echo hi > a.txt && git add a.txt \
       && git -c user.email=t@example.com -c user.name=Test commit -q -m "feat: x" )
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 teardown() { devagent_test_teardown; }
 
 # Point config + state at a test-built topology: all_prs_branch in config,
 # branch + baseline_sha in state. Shared by the #33 tests below.
 _set_baseline_branch() {
-    sed -i "s|^all_prs_branch *=.*|all_prs_branch = \"$1\"|" "$HOME/.claude/devagent/config.toml"
-    sed -i "s|^branch *=.*|branch = \"$2\"|; s|^baseline_sha *=.*|baseline_sha = \"$3\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch" "$1"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "$2"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$3"
 }
 
 @test "mergetoall.sh squash-merges branch into all_prs_branch" {
@@ -29,7 +29,7 @@ _set_baseline_branch() {
     # Squash merges land as a single new commit, parent count == 1.
     parents=$( cd "$SOURCE_DIR" && git log -1 --pretty=%P dev/all-prs | wc -w )
     [ "$parents" -eq 1 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh refuses a dirty tracked tree and leaves it untouched (#71)" {
@@ -42,7 +42,7 @@ _set_baseline_branch() {
     # the operator's change is intact and we're still on feat/1-x
     ( cd "$SOURCE_DIR" && grep -q "operator wip" a.txt )
     [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 @test "mergetoall.sh restores the original branch on success (#71)" {
@@ -54,31 +54,31 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh auto-skips when all_prs_branch is not configured" {
-    sed -i "/^all_prs_branch *=/d" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch"
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"all_prs_branch not configured"* ]]
-    grep -qE '^- \[-\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 '-' mergetoall
     grep -q "auto-skipped: all_prs_branch not configured" "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
 @test "mergetoall.sh halts when merge_to_all_prs=false and non-interactive" {
-    sed -i "s|^merge_to_all_prs *=.*|merge_to_all_prs = false|" "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_to_all_prs" false
     # Force closed stdin so confirm() sees non-tty regardless of how bats
     # itself was invoked. Without </dev/null this hangs when bats is run
     # from an interactive terminal (read -r -p blocks waiting for input).
     run bash -c "'$DEVAGENT_ROOT/scripts/mergetoall.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 @test "mergetoall.sh backward-compat: legacy merge_mr=true still grants permission" {
     # Remove the new name, add the old one.
-    sed -i "/^merge_to_all_prs *=/d" "$HOME/.claude/devagent/config.toml"
-    sed -i "/^push_mr *=/a merge_mr = true" "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_to_all_prs"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_mr" true
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh default does NOT push (local-only)" {
@@ -90,8 +90,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh all_prs_auto_push=true pushes after local merge" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
     devagent_stub git ""
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -100,8 +99,8 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh all_prs_remote override targets a different remote" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true\nall_prs_remote = \"fork\"" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_remote" "fork"
     devagent_stub git ""
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -109,8 +108,7 @@ _set_baseline_branch() {
 }
 
 @test "mergetoall.sh tolerates push failure (local merge is load-bearing)" {
-    sed -i "/^all_prs_branch *=/a all_prs_auto_push = true" \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_auto_push" true
     # Stub git that fails ONLY on push.
     mkdir -p "$DEVAGENT_TMP/bin"
     cat > "$DEVAGENT_TMP/bin/git" <<EOF
@@ -125,7 +123,7 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"push of dev/all-prs"*"failed"* ]]
     grep -q "push failed (local commit retained)" "$DEVDOC_DIR/Issue-1/checklist.md"
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 # #33: a child branch stacked on a squash-merged parent must integrate ONLY its
@@ -158,7 +156,7 @@ EOF
     run grep -q '^<<<<<<<' <(git show allprs:shared.txt)
     [ "$status" -ne 0 ]
     [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 # #33: a GENUINE overlap (child's own delta collides with already-integrated work)
@@ -188,7 +186,7 @@ EOF
     [ -z "$(git status --porcelain)" ]
     [ "$(git symbolic-ref --short HEAD)" = "feat/child" ]
     [ "$(git log -1 --pretty=%s allprs)" = "another PR edits shared.txt" ]
-    grep -qE '^- \[ \] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 ' ' mergetoall
 }
 
 # #33: the NON-STACKED production path (baseline_sha SET) must be byte-identical to
@@ -217,7 +215,7 @@ EOF
     [ "$(git rev-parse 'allprs^{tree}')" = "$ref_tree" ]
     [ "$(git log -1 --pretty=%P allprs | wc -w)" -eq 1 ]
     [ "$(git log -1 --pretty='%an|%cn' allprs)" = "devagent|devagent" ]
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
 }
 
 @test "mergetoall.sh zero-diff guard rev-lists the issue branch, not source_dir HEAD (#68)" {
@@ -226,12 +224,11 @@ EOF
     # guard wrongly marks step 16 [-] and the branch is never squash-merged.
     base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
     ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$base\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$base"
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero commits"* ]]                                 # NOT the zero-diff skip
-    grep -qE '^- \[x\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"   # merged, not [-]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 16 x mergetoall
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
 }
 

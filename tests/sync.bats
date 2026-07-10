@@ -5,10 +5,9 @@ setup() {
     devagent_test_setup
     # Pretend Issue-1 was shipped and has an MR URL stored.
     # Insert mr_url before [parked] so it is a top-level TOML key.
-    sed -i 's|\[parked\]|mr_url = "https://github.com/acme/testproj/pull/77"\n[parked]|' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "https://github.com/acme/testproj/pull/77"
     # Mark step 15 done so sync considers this issue.
-    sed -i 's|^- \[ \] 15. ship.*|- [x] 15. ship|' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x
 
     # Stub code/github.sh mr-state to return "merged".
     mkdir -p "$DEVAGENT_TMP/fake-code"
@@ -40,7 +39,7 @@ teardown() { devagent_test_teardown; }
 
 @test "sync.sh fail-closes the on_merge transition when transition_issue is off (#219)" {
     # Default test config sets transition_issue=true; turn it off for this project.
-    sed -i 's|^transition_issue *=.*|transition_issue = false|' "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     # The merge is still detected (mr-state queried) ...
@@ -250,10 +249,10 @@ EOF
 # --- #363: sync unblocks + queues the closeout ------------------------------
 
 @test "sync unblocks a [?] closeout step to [ ] on merge, logs it (#363)" {
-    sed -i 's/^- \[ \] 18\. impact/- [?] 18. impact/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[ \] +18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
     grep -q 'unblocked .* closeout step' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -278,11 +277,11 @@ EOF
 }
 
 @test "sync unblocks+nudges with transition_issue off; #219 preserved (#363)" {
-    sed -i 's/^transition_issue *=.*/transition_issue = false/' "$HOME/.claude/devagent/config.toml"
-    sed -i 's/^- \[ \] 18\. impact/- [?] 18. impact/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[ \] +18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"    # unblocked
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
     [[ "$output" == *"CLOSEOUT:"* ]]                                       # nudged
     [[ "$output" == *"transition_issue"* ]]                               # #219 skip-warn
     run grep 'merged .* on_merge fired' "$DEVDOC_DIR/Issue-1/checklist.md" # marker NOT written
@@ -291,11 +290,11 @@ EOF
 
 @test "sync leaves a NON-closeout [?] untouched (#363)" {
     # single-digit steps are space-aligned ("  7."), so match flexibly.
-    sed -i -E 's/^- \[ \]([[:space:]]+7\. implement)/- [?]\1/' "$DEVDOC_DIR/Issue-1/checklist.md"
-    grep -qE '^- \[\?\][[:space:]]+7\. implement' "$DEVDOC_DIR/Issue-1/checklist.md"  # precondition
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?'
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?' implement
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[\?\][[:space:]]+7\. implement' "$DEVDOC_DIR/Issue-1/checklist.md"  # still [?]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?' implement
 }
 
 @test "sync does nothing (no CLOSEOUT) when the MR is still open (#363)" {

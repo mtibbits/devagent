@@ -123,8 +123,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     _marker 'fable'
     # cleanup clears active_issue but NOT issue_dir — the leftover marker
     # must not steer post-cleanup runs.
-    sed -i 's/^active_issue   = .*/active_issue   = ""/' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue ""
     run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
@@ -134,8 +133,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "legacy 'null' active_issue suppresses the stale marker too (#291)" {
     _add_step_models 'checking = "opus"'
     _marker 'fable'
-    sed -i 's/^active_issue   = .*/active_issue   = "null"/' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "null"
     run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]

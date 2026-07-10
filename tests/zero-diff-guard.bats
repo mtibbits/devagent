@@ -8,10 +8,8 @@ setup() {
     sha="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     ( cd "$SOURCE_DIR" && git checkout -q -b chore/1-baseline )
     # Set state as if branch.sh ran: branch set, baseline_sha = HEAD.
-    sed -i "s|^branch *=.*|branch = \"chore/1-baseline\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$sha\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "chore/1-baseline"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$sha"
     # Marker files (commit.sh reads these if it gets past the guard).
     echo "chore" > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo "baseline" > "$DEVDOC_DIR/Issue-1/.devagent-title"

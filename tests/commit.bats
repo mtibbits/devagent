@@ -10,7 +10,7 @@ setup() {
     echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
     echo "add a.txt" > "$DEVDOC_DIR/Issue-1/.devagent-title"
     # Pre-populate state.branch via direct edit (simulates branch.sh having run).
-    sed -i "s|^branch *=.*|branch = \"feat/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
 }
 teardown() { devagent_test_teardown; }
 
@@ -25,7 +25,7 @@ teardown() { devagent_test_teardown; }
     echo "$msg" | grep -qx "feat: add a.txt"
     echo "$msg" | grep -q "Issue: Issue-1"
     echo "$msg" | grep -q "^Signed-off-by:"
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit.sh dies when the latest born-red artifact is FLAGGED (#362)" {
@@ -85,8 +85,7 @@ teardown() { devagent_test_teardown; }
 # $DEVAGENT_TMP, so this NEVER touches the live $DEVAGENT_ROOT/templates/ —
 # failure-safe, no .bak/restore dance (DEVAGENT_ROOT is the live repo, not a copy).
 @test "commit.sh strips Co-Authored-By when include_coauthor=false, keeps Signed-off-by" {
-    sed -i '/^\[project\.'"$TEST_PROJECT"'\]/a include_coauthor = false' \
-        "$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.include_coauthor" false
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' '' 'body line' \
         'Co-Authored-By: Claude <noreply@anthropic.com>' \
@@ -124,7 +123,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"feat/1-x"* ]]                          # names the expected issue branch
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 10 NOT marked done
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
     # The work-loss is actually prevented: nothing was committed anywhere — a.txt is
     # still staged-but-uncommitted, not landed on the wrong branch.
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt
@@ -138,7 +137,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"detached HEAD"* ]]
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt   # work preserved, not committed
 }
 
@@ -146,8 +145,7 @@ teardown() { devagent_test_teardown; }
 
 _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # would create a duplicate top-level key and tomllib rejects the file (B1).
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$1\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$1"
 }
 
 @test "commit.sh no-op success when work is already committed per-task (#116)" {
@@ -160,7 +158,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [[ "$output" == *"already committed"* ]]
     # No new commit was created.
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$head_before" ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit.sh dies loud on dirty-unstaged tree even with commits ahead (#116/#25)" {
@@ -197,7 +195,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     # Step 10 must NOT be marked done.
-    run grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
     [ "$status" -ne 0 ]
 }
 
@@ -219,7 +217,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # DID exist and was lost. A BARE commit (no arg, no pin) must refuse: the
     # #240 guard only covers pinned/arg sessions, so without #316 the bare flow
     # would commit staged work onto whatever HEAD is on and mark step 10 [x].
-    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch ""
     bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
     local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"      # BARE: no Issue-1 arg
@@ -228,18 +226,18 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # Nothing committed (HEAD unchanged).
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
     # Step 10 stays pending.
-    grep -qE '^- \[ \] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
 }
 
 @test "commit still tolerates an empty branch when the branch step is NOT done — legacy bare flow (#316)" {
     # branch step [ ] (never branched) + empty branch = the legitimate legacy
     # tolerance; the #316 guard must NOT fire (it gates on branch-step == x).
-    sed -i 's|^branch *=.*|branch = ""|' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch ""
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
 
 @test "commit does NOT refuse a healthy recorded branch with the branch step done, bare flow (#316 regression)" {
@@ -252,5 +250,5 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    grep -qE '^- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }

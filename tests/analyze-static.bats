@@ -4,8 +4,8 @@ load 'helpers/common'
 setup() {
     devagent_test_setup
     ( cd "$SOURCE_DIR" && git checkout -q -b fix/1-x )
-    sed -i "s|^branch *=.*|branch = \"fix/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"HEAD\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "fix/1-x"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "HEAD"
     cat > "$DEVAGENT_STUB_BIN/fake-python" <<EOF
 #!/usr/bin/env bash
 printf 'python' >> "$DEVAGENT_STUB_LOG"

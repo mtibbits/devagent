@@ -18,9 +18,8 @@ SH
       && git add tool.sh && git commit -q -m baseline )
     BASELINE_SHA="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
     ( cd "$SOURCE_DIR" && git checkout -q -b fix/1-x )
-    sed -i "s|^branch *=.*|branch = \"fix/1-x\"|" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$BASELINE_SHA\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "fix/1-x"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASELINE_SHA"
 }
 teardown() { devagent_test_teardown; }
 
@@ -90,8 +89,7 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.tx
     printf '#!/usr/bin/env bash\ncd /pre\necho ok\n' > "$SOURCE_DIR/axb.sh"
     ( cd "$SOURCE_DIR" && git add axb.sh && git commit -q -m axb )
     BASELINE_SHA="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
-    sed -i "s|^baseline_sha *=.*|baseline_sha = \"$BASELINE_SHA\"|" \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASELINE_SHA"
     printf '#!/usr/bin/env bash\necho two\necho three\n' > "$SOURCE_DIR/a.b.sh"
     ( cd "$SOURCE_DIR" && git add a.b.sh )
     printf 'echo touched-tail\n' >> "$SOURCE_DIR/axb.sh"
@@ -105,8 +103,7 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.tx
     # inside a process substitution whose non-zero exit was invisible → files=()
     # → the "empty scope" branch → exit 0: a VACUOUS pass that let analyze.sh
     # mark step 11 [x] with zero analysis. It must die loud instead.
-    sed -i 's|^baseline_sha *=.*|baseline_sha = "no-such-baseline-ref-314"|' \
-        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "no-such-baseline-ref-314"
     run_shellcheck_analyzer
     [ "$status" -ne 0 ]
     # A die-only fragment: "baseline:" also prints on the empty-scope artifact,
