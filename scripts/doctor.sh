@@ -172,6 +172,14 @@ if [[ -f "$(config_path)" ]]; then
   else
     check "config is valid TOML" fail "tomllib failed to parse $(config_path)"
   fi
+  # #352: report the opt-in git-reflex guard state. Never a failure — off is the
+  # default and a valid choice; this just surfaces which mode is active. (State is
+  # in the label, not the detail arg — the `check ok` path prints only the label.)
+  if [[ "$(config_get_default git_guard 2>/dev/null || true)" == "true" ]]; then
+    check "git-reflex guard: ON (blocks reflexive stash/checkout--/restore/clean on a dirty tree)" ok
+  else
+    check "git-reflex guard: off (opt-in; set [defaults] git_guard = true to enable)" ok
+  fi
 else
   check "config exists" fail "no $(config_path) — run /devagent:init"
 fi

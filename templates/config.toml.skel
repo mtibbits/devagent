@@ -1,6 +1,14 @@
 [defaults]
 checklist_template = "standard"
 ship_as_draft = false
+# git_guard (#352): opt-in backstop. When true, the plugin's PreToolUse Bash hook
+# (hooks/git-guard.sh) DENIES reflexive destructive git on a DIRTY tree — `git
+# checkout … -- <path>`, `git restore <path>`, stash-creating `git stash`/`push`/
+# `save`, and `git clean -f` — so an agentic run can't silently wipe uncommitted
+# work. `git stash pop|apply` and a clean tree are always allowed. Override one
+# call with a `DEVAGENT_GIT_GUARD_OVERRIDE=1` prefix. Default off; fail-open (a
+# guard error never blocks a call). `/devagent:init` offers to enable it.
+# git_guard = false
 
 [project.{{PROJECT}}]
 source_dir       = "{{SOURCE_DIR}}"

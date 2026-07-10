@@ -165,3 +165,14 @@ CL
   [[ "$output" != *"316"* ]]
   [[ "$output" == *"state coherence"*"OK"* ]] || [[ "$output" == *"OK"*"state coherence"* ]] || [[ "$output" == *"coherence (Issue-1) OK"* ]]
 }
+
+@test "doctor reports the git-reflex guard state, never failing on off then ON (#352)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"git-reflex guard"* ]]
+  [[ "$output" == *"off"* ]]
+  # Enabling it in [defaults] flips the report to ON — still not a failure.
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" defaults.git_guard true
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"git-reflex guard"* ]]
+  [[ "$output" == *"ON"* ]]
+}

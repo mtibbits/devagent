@@ -177,3 +177,26 @@ EOF
     [ "$status" -eq 0 ] || { echo "E14: missing commented fork key '${key}'"; return 1; }
   done
 }
+
+@test "init offers the git-reflex guard: DA_INIT_GIT_GUARD=y enables it in [defaults] (#352)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="y" \
+    run "$PLUGIN_ROOT/scripts/init.sh" ggon
+  [ "$status" -eq 0 ]
+  # config_get_default resolves it true (i.e. it landed in [defaults], section-scoped)
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  [ "$(config_get_default git_guard)" = "true" ]
+}
+
+@test "init default leaves the git-reflex guard OFF (#352)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="n" \
+    run "$PLUGIN_ROOT/scripts/init.sh" ggoff
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  [ "$(config_get_default git_guard 2>/dev/null || true)" != "true" ]
+}
