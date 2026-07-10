@@ -3,6 +3,7 @@ load 'helpers/common'
 
 setup() {
     devagent_test_setup
+    export DEVAGENT_DATE_OVERRIDE=1999-01-02   # #338: freeze the analyze date
     ( cd "$SOURCE_DIR" && git checkout -q -b fix/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "fix/1-x"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "HEAD"
@@ -63,7 +64,7 @@ _stub_shellcheck_analyzer() {
     _set_analyze shellcheck
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [ -f "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.txt" ]
+    [ -f "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt" ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 x analyze
 }
 

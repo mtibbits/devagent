@@ -49,7 +49,7 @@ if [ ! -f "$source_dir/CMakeLists.txt" ]; then
 fi
 
 mkdir -p "$issue_dir/analysis"
-date_tag="$(date +%Y-%m-%d)"
+date_tag="$(date_tag)"
 
 # #117: each failing leg records "<tag> (<phase> exit=<rc>) → <artifact>" here;
 # after all three legs run, a non-empty list fails step 11 loud (see below).

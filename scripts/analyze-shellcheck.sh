@@ -47,7 +47,7 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 [ -d "$source_dir" ] || die "source_dir missing: $source_dir"
 
 mkdir -p "$issue_dir/analysis"
-out="$issue_dir/analysis/$(date +%Y-%m-%d)-shellcheck.txt"
+out="$issue_dir/analysis/$(date_tag)-shellcheck.txt"
 
 # Scope: shell files changed baseline→working tree. --diff-filter=d drops
 # deletions (shellcheck on a missing path is a hard exit-2); the -f filter is
@@ -71,7 +71,7 @@ done <<< "$diff_list"
 
 {
     echo "=== shellcheck (diff-scoped) ==="
-    echo "date: $(date +%Y-%m-%d)"
+    echo "date: $(date_tag)"
     echo "baseline: $baseline"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done

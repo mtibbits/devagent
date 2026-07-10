@@ -53,7 +53,7 @@ if [ -f "$source_dir/CMakeLists.txt" ]; then
 fi
 
 mkdir -p "$issue_dir/analysis"
-out="$issue_dir/analysis/$(date +%Y-%m-%d)-static.txt"
+out="$issue_dir/analysis/$(date_tag)-static.txt"
 
 "$DEVAGENT_PYTHON" "$DEVAGENT_ROOT/static_analysis_diff.py" --repo "$source_dir" "$baseline" "$build_dir" \
     | tee "$out"

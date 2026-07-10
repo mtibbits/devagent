@@ -39,3 +39,14 @@ confirm() {
     *)              return 1 ;;
   esac
 }
+
+# date_tag — YYYY-MM-DD, honoring DEVAGENT_DATE_OVERRIDE for test determinism
+# (#338). Mirrors capture/lib/slug.sh so the analyze family and the capture
+# family agree. Falls back to the real date when the override is unset.
+date_tag() {
+  if [[ -n "${DEVAGENT_DATE_OVERRIDE:-}" ]]; then
+    printf '%s\n' "$DEVAGENT_DATE_OVERRIDE"
+  else
+    date +%Y-%m-%d
+  fi
+}
