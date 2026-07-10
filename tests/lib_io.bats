@@ -52,3 +52,16 @@ EOF
   offenders="$(grep -rEn '(die|info|warn) "[a-z_-]+\.sh: ' "$REPO_ROOT/scripts" --include='*.sh' | grep -v '/lib/' || true)"
   [ -z "$offenders" ] || { printf 'redundant self-prefixes (io.sh already adds the script name):\n%s\n' "$offenders" >&2; false; }
 }
+
+# #336 — confirm() DA_YES / non-tty matrix. The interactive read path needs a
+# pty and is out of unit scope; these two deterministic branches are what
+# consumers (permission_gate, ship.sh) rely on.
+@test "confirm: DA_YES=1 returns 0 without reading (#336)" {
+  run bash -c ". '$REPO_ROOT/scripts/lib/io.sh'; DA_YES=1 confirm 'Proceed?'"
+  [ "$status" -eq 0 ]
+}
+
+@test "confirm: non-tty stdin without DA_YES returns 1 (#336)" {
+  run bash -c ". '$REPO_ROOT/scripts/lib/io.sh'; confirm 'Proceed?' </dev/null"
+  [ "$status" -eq 1 ]
+}
