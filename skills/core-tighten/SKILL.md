@@ -71,7 +71,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" tighten \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical base sections:
+- the resolved `imPlan_template.md` (§12 registry: project paths → devdoc → plugin default) (canonical base sections:
   Goal, Approach, Tasks, Validation, Out of scope, Open questions — this step
   appends the `## Definition of done` section, which the template does not define).
 

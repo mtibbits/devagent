@@ -27,7 +27,7 @@ issues, not at the end of the current one.
   - `<issue-dir>/actualWork.md` (the Deviations section).
   - `<issue-dir>/analysis/*-redmr.md` (what red-team caught).
   - `<issue-dir>/impact.md` (what actually mattered).
-  - Resolved `${CLAUDE_PLUGIN_ROOT}/templates/lessonsLearned_template.md`.
+  - Resolved `lessonsLearned_template.md` (§12 registry: project paths → devdoc → plugin default).
 - Writes: `<issue-dir>/lessonsLearned.md`.
 
 ## Checklist
@@ -86,7 +86,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" lessonslearned \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/lessonsLearned_template.md` (canonical entry format and
+- the resolved `lessonsLearned_template.md` (§12 registry: project paths → devdoc → plugin default) (canonical entry format and
   tag taxonomy).
 
 ## Completion handoff
