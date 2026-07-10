@@ -58,9 +58,9 @@ devAgent/
 ├── .claude-plugin/marketplace.json
 ├── README.md
 ├── docs/
-│   └── superpowers/specs/2026-05-19-devagent-plugin-design.md   (this file)
+│   └── specs/2026-05-19-devagent-plugin-design.md   (this file)
 ├── commands/                # one .md file per slash command
-├── skills/                  # custom skills (devagent-scope, -prune, -tighten, ...)
+├── skills/                  # custom skills (core-scope, core-prune, core-tighten, ...)
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -423,7 +423,11 @@ with Claude Code built-ins and other plugins).
 /devagent:<verb> [project] [issue-dir] [free-form note words ...]
 ```
 
-Parser, left to right:
+There is no argument-parsing script — the standalone bash parser was
+removed (#121/#122). The driving model applies this grammar and hands each
+script its already-resolved positional arguments (project, issue-dir; a note
+travels via the `NOTE` env var, not argv). The rules below define that
+resolution, left to right:
 
 1. If first token matches a `project.<name>` in `config.toml`, consume as project.
 2. If next token matches `^Issue(-Fork)?-\d+$`, consume as issue dir.
@@ -467,25 +471,25 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 |---|---|---|---|
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
 | 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start` |
-| 2 | `/devagent:scope` | skill | `devagent-scope` — 6-question evaluation, edits imPlan |
-| 3 | `/devagent:improve` | skill | `devagent-improve` — bugs, side effects, ambiguities |
-| 4 | `/devagent:prune` | skill | `devagent-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
-| 5 | `/devagent:tighten` | skill | `devagent-tighten` — final review pass on pruned plan |
+| 2 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
+| 3 | `/devagent:improve` | skill | `core-improve` — bugs, side effects, ambiguities |
+| 4 | `/devagent:prune` | skill | `core-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
+| 5 | `/devagent:tighten` | skill | `core-tighten` — final review pass on pruned plan |
 | 6 | `/devagent:branch` | script + skill | `branch.sh` (prefix from `branch_prefix_map`); `superpowers:using-git-worktrees` |
 | 7 | `/devagent:implement` | skill | `superpowers:executing-plans` |
 | 8 | `/devagent:quality` | skill | `simplify` + project's `coding_standards.md` |
-| 9 | `/devagent:document` | skill | `devagent-document-actual-work` — terse when no deviation |
+| 9 | `/devagent:document` | skill | `core-document-actual-work` — terse when no deviation |
 | 10 | `/devagent:commit` | script | `commit.sh` — `commit_template.md`, `-s` (DCO), strips `(1M context)` |
 | 11 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
-| 12 | `/devagent:draftmr` | skill | `devagent-draft-mr`, fills `mr_template.md` |
+| 12 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
 | 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
-| 14 | `/devagent:redmr` | skill | `devagent-redmr` using `templates/redteam_mr.md` |
+| 14 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md` |
 | 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification; ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
 | 16 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
 | 17 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
-| 18 | `/devagent:impact` | skill | `devagent-impact` — quantify and record |
-| 19 | `/devagent:lessonslearned` | skill | `devagent-lessons-learned` |
+| 18 | `/devagent:impact` | skill | `core-impact` — quantify and record |
+| 19 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 20 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
 
 ### 6.4 Family C — Revision (post-MR feedback)
@@ -960,7 +964,7 @@ across revisions for chronological readability.
 | implement | `superpowers:executing-plans` |
 | quality | `simplify` |
 | review | `superpowers:requesting-code-review` |
-| scope, improve, prune, tighten, redmr, lessonslearned, impact, capture, scaffold, document, draftmr | devAgent-shipped custom skills under `skills/devagent-*` |
+| scope, improve, prune, tighten, redmr, preship, lessonslearned, impact, capture, scaffold, redissue, reap, document, draftmr | devAgent-shipped custom skills under `skills/core-*` |
 
 Custom skills live in `~/src/devAgent/skills/` and follow superpowers
 skill conventions (frontmatter, single-purpose, checklists where

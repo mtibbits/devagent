@@ -1,7 +1,7 @@
 ---
 description: "Step 20: restore tree, commit devdoc, clear active_issue."
 allowed-tools: Bash
-argument-hint: "[project] [issue-dir] [free-form note words ...]"
+argument-hint: "[project] [issue-dir]"
 ---
 
 # /devagent:cleanup

@@ -18,8 +18,10 @@ Args: `[project]` (optional; defaults to active project)
    returns a `DECISIONS:` block keyed by `<hash>`.
 3. Apply the result:
    - **With decisions** — translate the skill's `DECISIONS:` block into a TSV
-     decisions file (one `"<hash>\t<action>\t<subtype>\t<title>"` row per
-     candidate; `subtype`/`title` empty unless overriding; tabs literal), e.g.
+     decisions file (one `"<hash>\t<action>\t<subtype>\t<title>\t<reason>"` row
+     per candidate; `subtype`/`title` empty unless overriding; the 5th
+     `<reason>` field is optional — a free-text discard reason persisted to the
+     `[discarded]` entry (#245), omit it for a 4-field row; tabs literal), e.g.
 
      ```
      9e1033f0a1b2	keep	bug	Better title here
