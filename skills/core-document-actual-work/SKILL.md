@@ -28,17 +28,24 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
   - `<issue-dir>/imPlan.md` (the contract).
   - `git diff <baseline_sha>..HEAD` for the issue branch.
   - Per-task commit messages since baseline.
-- Writes: creates `<issue-dir>/actualWork.md` from
-  `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md`.
+  - Resolved `actualWork_template.md` (per spec §12 registry: project paths →
+    `<devdoc>/templates/` → plugin `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md`).
+- Writes: creates `<issue-dir>/actualWork.md` from the resolved
+  `actualWork_template.md` (§12; see Reads).
 
 ## Checklist
 
-1. **Compare plan to diff.** For each task in `imPlan.md`, find the
+1. **Resolve template.** Walk the §12 artifact registry to find
+   `actualWork_template.md` (project `[project.<name>.paths]` →
+   `<devdoc>/templates/` → plugin default) — mirrors core-draft-mr. Use the
+   resolved file as the structure for the actualWork.md this step writes; a
+   project/devdoc override is honored, not silently bypassed.
+2. **Compare plan to diff.** For each task in `imPlan.md`, find the
    commit(s) that implemented it. Mark each task — under `## Summary` —
    as `[done as planned]`, `[done with deviation: <one-line reason>]`,
    `[skipped: <reason>]`, or `[discovered: <one-line description>]`
    for work done that wasn't in the plan.
-2. **No deviation = terse.** If every task is `[done as planned]`,
+3. **No deviation = terse.** If every task is `[done as planned]`,
    the actualWork.md is exactly this:
 
    ```markdown
@@ -53,12 +60,12 @@ faithfully gets a 3-line actualWork.md — not a synthesised novel.
    `## Deviations from plan`, `## Verification`, and `### Follow-up`. No
    "summary of what was built", no filler.
 
-3. **Deviation = explain.** For each `[deviation]`, `[skipped]`, or
+4. **Deviation = explain.** For each `[deviation]`, `[skipped]`, or
    `[discovered]`, write one paragraph under the template's
    `## Deviations from plan` heading: what changed, why, what the
    operator should know later.
 
-4. **Follow-ups.** Any `[discovered]` items that suggest future work
+5. **Follow-ups.** Any `[discovered]` items that suggest future work
    get a `### Follow-up` sub-heading (the `/devagent:reap` skill
    harvests bullets under exactly this heading). It is the **last**
    section — reap harvests until the next `### ` heading or end of
@@ -122,7 +129,8 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" document \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md` (canonical structure with
+- `actualWork_template.md`, resolved per the §12 registry (project paths →
+  `<devdoc>/templates/` → plugin `${CLAUDE_PLUGIN_ROOT}/templates/actualWork_template.md`) (canonical structure with
   Deviations and Follow-up sub-headings).
 
 ## Completion handoff

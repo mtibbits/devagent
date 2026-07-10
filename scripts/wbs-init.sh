@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib/io.sh"
 source "$SCRIPT_DIR/lib/config.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
+# shellcheck source=lib/template_resolve.sh
+source "$SCRIPT_DIR/lib/template_resolve.sh"
 
 force=0
 project_arg=""
@@ -41,19 +43,16 @@ if [[ -e "$dest" && $force -ne 1 ]]; then
   die "wbs init: $dest exists; pass --force to overwrite"
 fi
 
-# Resolve template per spec §12 artifact-resolution order:
-# 1. <devdoc>/templates/wbs_template.md
-# 2. plugin templates/wbs_template.md
+# Resolve the template through the §12 registry (lib/template_resolve.sh) so a
+# [project.<name>.paths].wbs_template override (layer 1) is honored — not just
+# devdoc (2) / plugin (3), which the previous hand-rolled loop was limited to.
+# #341. The `if …; then` captures the rc so `set -e` cannot swallow the die on a
+# genuine no-template case (template_resolve returns 1 when no layer matches).
 template=""
-for candidate in \
-  "$devdoc_dir/templates/wbs_template.md" \
-  "$PLUGIN_ROOT/templates/wbs_template.md"; do
-  if [[ -f "$candidate" ]]; then
-    template="$candidate"
-    break
-  fi
-done
-[[ -n "$template" ]] || die "no wbs_template.md found in devdoc or plugin"
+if resolved="$(template_resolve "$project" wbs_template)"; then
+  template="$(printf '%s\n' "$resolved" | sed -n 's/^path=//p')"
+fi
+[[ -n "$template" ]] || die "no wbs_template.md found for '$project' (checked project paths, devdoc, plugin)"
 
 mkdir -p "$(dirname "$dest")"
 sed -e "s|{{PROJECT}}|${project}|g" "$template" > "$dest"
