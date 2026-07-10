@@ -187,3 +187,16 @@ EOF
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
 }
+
+@test "cleanup.sh removes the issue's keyed analyze build dirs, sparing siblings (#351)" {
+    key="$(printf '%s-%s' "$TEST_PROJECT" "Issue-1" | tr -c 'A-Za-z0-9' '-')"
+    mkdir -p "$SOURCE_DIR/build-$key" "$SOURCE_DIR/build-$key-asan" "$SOURCE_DIR/build-$key-tsan"
+    # A different issue's dir whose key is a PREFIX (Issue-1 vs Issue-10) must survive.
+    mkdir -p "$SOURCE_DIR/build-${TEST_PROJECT}-Issue-10-asan"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ ! -d "$SOURCE_DIR/build-$key" ]
+    [ ! -d "$SOURCE_DIR/build-$key-asan" ]
+    [ ! -d "$SOURCE_DIR/build-$key-tsan" ]
+    [ -d "$SOURCE_DIR/build-${TEST_PROJECT}-Issue-10-asan" ]   # prefix guard: not wiped
+}

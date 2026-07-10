@@ -51,14 +51,34 @@ fi
 mkdir -p "$issue_dir/analysis"
 date_tag="$(date_tag)"
 
+# #351: per-phase timeout budget (seconds). A configure/build/ctest with no
+# timeout can wedge an --auto chain forever (next.sh has no watchdog). Configurable
+# via `analyze_timeout` (per project) or DEVAGENT_ANALYZE_TIMEOUT (env, for tests);
+# default 1800s — generous, so a slow cold build isn't false-killed; volk-scale
+# ctest suites should raise it. A leg that hits the budget exits 124 and fails
+# step 11 via the #117 aggregation below.
+timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project" analyze_timeout 2>/dev/null || true)}"
+: "${timeout_budget:=1800}"
+
+# #351: key build dirs per project+issue so two concurrent chains sharing a
+# source_dir never interleave configure/build in the SAME dir (cache corruption).
+# Same-issue re-analyze reuses its dir (cache); cleanup.sh removes them on close.
+build_key="$(printf '%s-%s' "$project" "$issue_arg" | tr -c 'A-Za-z0-9' '-')"
+
 # #117: each failing leg records "<tag> (<phase> exit=<rc>) → <artifact>" here;
 # after all three legs run, a non-empty list fails step 11 loud (see below).
 declare -a fail_summaries=()
 
+# #351: render a phase's failure — a timeout(1) kill (124) reads as "timed out
+# >Ns", any other non-zero keeps the historical "exit=<rc>" form (the #117 tests).
+_phase_desc() {
+    if [ "$1" -eq 124 ]; then echo "timed out >${timeout_budget}s"; else echo "exit=$1"; fi
+}
+
 run_one() {
     local tag="$1" flag="$2"
     local out="$issue_dir/analysis/$date_tag-$tag.txt"
-    local build="$source_dir/build-$tag"
+    local build="$source_dir/build-$build_key-$tag"
     mkdir -p "$build"
     # #117: per-phase rc capture with intra-leg short-circuit — a failed
     # configure skips build+ctest for THIS leg; a failed build skips ctest.
@@ -67,7 +87,7 @@ run_one() {
     local conf_rc=0 build_rc=0 test_rc=0 ran_ctest=0
     {
         echo "=== $tag ==="
-        "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build" \
+        timeout -k 10 "$timeout_budget" "$DEVAGENT_CMAKE" -S "$source_dir" -B "$build" \
             "-DCMAKE_BUILD_TYPE=Debug" \
             "-DCMAKE_C_FLAGS=-fsanitize=$flag" \
             "-DCMAKE_CXX_FLAGS=-fsanitize=$flag" 2>&1 || conf_rc=$?
@@ -90,26 +110,36 @@ run_one() {
             if [ "$tag" = "tsan" ] && command -v setarch >/dev/null 2>&1; then
                 launcher=(setarch "$(uname -m)" --addr-no-randomize)
             fi
-            "${launcher[@]}" "$DEVAGENT_CMAKE" --build "$build" 2>&1 || build_rc=$?
+            timeout -k 10 "$timeout_budget" "${launcher[@]}" "$DEVAGENT_CMAKE" --build "$build" 2>&1 || build_rc=$?
             if [ "$build_rc" -ne 0 ]; then
                 echo "ctest skipped: build failed (exit=$build_rc)"
             else
                 set +e
-                ( cd "$build" && "${launcher[@]}" "$DEVAGENT_CTEST" --output-on-failure )
+                # #351: `timeout(1)` guards a wedged ctest process; ctest's own
+                # `--timeout` bounds a single hung test. Either exceeding the
+                # budget yields a nonzero rc → the #117 aggregation fails step 11.
+                ( cd "$build" && timeout -k 10 "$timeout_budget" "${launcher[@]}" \
+                    "$DEVAGENT_CTEST" --timeout "$timeout_budget" --output-on-failure )
                 test_rc=$?
                 set -e
                 ran_ctest=1
-                echo "exit=$test_rc"
+                if [ "$test_rc" -eq 124 ]; then
+                    echo "ctest timed out (>${timeout_budget}s — killed by timeout(1)); exit=$test_rc"
+                else
+                    echo "exit=$test_rc"
+                fi
             fi
         fi
     } > "$out"
     # Aggregate the leg's failure (first failing phase wins the summary).
+    # #351: timeout(1) exits 124 when it kills a phase — label that distinctly so a
+    # reader sees the leg hit the budget rather than failed on its own merits.
     if [ "$conf_rc" -ne 0 ]; then
-        fail_summaries+=("$tag (configure exit=$conf_rc) → $out")
+        fail_summaries+=("$tag (configure $(_phase_desc "$conf_rc")) → $out")
     elif [ "$build_rc" -ne 0 ]; then
-        fail_summaries+=("$tag (build exit=$build_rc) → $out")
+        fail_summaries+=("$tag (build $(_phase_desc "$build_rc")) → $out")
     elif [ "$ran_ctest" -eq 1 ] && [ "$test_rc" -ne 0 ]; then
-        fail_summaries+=("$tag (ctest exit=$test_rc) → $out")
+        fail_summaries+=("$tag (ctest $(_phase_desc "$test_rc")) → $out")
     fi
     # Explicit success return (belt-and-suspenders): the if/elif/fi above
     # already returns 0 on every path (no-branch-taken → 0; each taken branch

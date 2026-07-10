@@ -31,6 +31,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # dynamic coverage). "none" = step 11 self-marks [-] with a logged reason (no
 # manual skip needed). Any other value fails loud at analyze time.
 # analyze = "cmake"                      # cmake | shellcheck | none
+#
+# analyze_timeout: per-phase budget in SECONDS for the cmake analyze legs
+# (configure / build / ctest) — bounds a hung build or test that would otherwise
+# wedge an --auto chain forever (#351). Default 1800 (generous). Raise it for a
+# large/slow ctest suite; a leg exceeding it fails step 11 (#117). Sanitizer +
+# static build dirs are keyed per project+issue (build-<project>-<issue>[-<tag>]/)
+# so concurrent chains sharing a source tree never collide; cleanup removes them.
+# analyze_timeout = 1800
 
 # --- Fork workflow (optional; uncomment + set to enable; defaults shown). ---
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.

@@ -47,3 +47,13 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/analyze-static.sh" "$TEST_PROJECT" Issue-1
     devagent_refute_logged "cmake -S"
 }
+
+@test "analyze-static.sh keys the FALLBACK build dir per project+issue (#351)" {
+    # No build_dir configured → the fallback is keyed (not the shared \$source_dir/build),
+    # so two concurrent chains on a shared source tree don't collide.
+    run "$DEVAGENT_ROOT/scripts/analyze-static.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE "build-[A-Za-z0-9_-]*Issue-1( |$)" "$DEVAGENT_STUB_LOG"
+    # the bare un-keyed fallback is NOT used
+    devagent_refute_logged " $SOURCE_DIR/build "
+}
