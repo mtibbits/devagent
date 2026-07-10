@@ -24,8 +24,9 @@ checklist's file order sets execution order, so `21 preship` runs between
 - **Integrate & close** — `16 mergetoall` · `17 updatewbs` · `18 impact` · `19 lessonslearned` · `20 cleanup`
 
 `/devagent:revise` opens a new revision pass (pulling reviewer feedback via
-`/devagent:comments` and re-running from review); `/devagent:where` and
-`/devagent:catchup` rehydrate an issue's state at any point.
+`/devagent:comments` and re-running from `draft` — the revision's first pending
+step); `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
+any point.
 
 ## Commands
 
@@ -79,8 +80,11 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 Two sessions on DIFFERENT projects are safe as of #282 — pin each session via
 `"env": { "DEVAGENT_ACTIVE_PROJECT": "<project>" }` in that directory's Claude
 Code `settings.local.json`; the shared pointer is only written when actually
-consulted. Same-project sessions still race `active_issue` (#240). Details:
-"Concurrent sessions" in `commands/next.md`.
+consulted. Same-project sessions are isolated per issue as of #240/#303 — each
+issue's state lives under `[context.<issue>]`, so keys can't launder between
+issues; the only residual is the last-writer-wins pick of the shared
+`active_issue` scalar, which a per-session `DEVAGENT_ACTIVE_ISSUE` pin avoids.
+Details: "Concurrent sessions" in `commands/next.md`.
 
 ## Auth subsystem
 

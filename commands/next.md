@@ -93,12 +93,24 @@ without consulting or touching the shared pointer. (Tooling that edits
 `_active.toml` directly — e.g. capture.md's recipe — bypasses the pin.)
 
 Per-PROJECT state is still one file (`state/<project>.toml`): two sessions
-on different issues of the *same* project can clobber `active_issue` —
-last writer wins; `state_set` emits an advisory stderr warning, not a
-lock. As of #96 all multi-key transitions are single atomic transactions
-(`state_set_many`) — state can no longer TEAR (A's issue with B's dir) and
-the clobber-warn reads in-lock — but the last-writer-wins PICK itself is
-#240's remit.
+on different issues of the *same* project can clobber the shared
+`active_issue` scalar — last writer wins; `state_set` emits an advisory
+stderr warning, not a lock. As of #96 all multi-key transitions are single
+atomic transactions (`state_set_many`) — state can no longer TEAR (A's issue
+with B's dir) and the clobber-warn reads in-lock. As of #240/#303 each issue's
+`STATE_ISSUE_KEYS` live under `[context.<issue>]` (`scripts/lib/state.sh:165–174`),
+so the top-level scalars are only a compatibility mirror for the shared active
+issue and same-project sessions can no longer launder one issue's keys into
+another. The sole residual is the last-writer-wins PICK of the `active_issue`
+scalar itself — avoided entirely by a per-session issue pin.
+
+The per-session ISSUE pin is the sibling of the project pin above:
+`"env": { "DEVAGENT_ACTIVE_ISSUE": "Issue-N" }` in the directory's
+`settings.local.json`. It is resolved by `active.sh:147–152` (the env resolver;
+chain arg → env → shared state) and honored by `pull.sh`, `next.sh`, `where.sh`,
+`park.sh`, `commit.sh`, `cleanup.sh`, `switch.sh`, `step-model.sh`, and
+`resume.sh` (pinned-mismatch die). A pinned session resolves its own issue and
+never reads or writes the shared `active_issue` slot.
 
 Before any manual script invocation, confirm the active issue:
 

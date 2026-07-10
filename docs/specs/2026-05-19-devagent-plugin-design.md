@@ -183,19 +183,38 @@ composes better with future per-issue metadata (e.g.,
 `[parked."Issue-12"]` table with `parked_at`, `reason`, etc.) if we
 ever need it. Order is not preserved; v1 does not depend on order.
 
-Per-issue context (#98): the keys `branch`, `baseline_sha`,
+Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
 `worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
 `last_step`, `last_step_name` belong to the active issue, not the
-project. `park` snapshots them into a `[context.<issue>]` sub-table and
-resets the top level to defaults; `resume` restores the snapshot and
-deletes it; `pull` snapshots a displaced unparked issue and starts the
-new issue from defaults (re-pull of the active issue is a no-op on
-context); `cleanup` resets to defaults. The canonical key list and the
-save/restore/clear helpers live in `scripts/lib/state.sh`
-(`STATE_ISSUE_KEYS`, `state_context_{save,restore,clear}`). `[context]`
-is deliberately separate from `[parked]`: saved context is orthogonal
-to parked-ness, and `state_list_parked` lists only scalar keys. A
-future full `[issues.<id>]` nesting (Epic #61 end state) would re-point
+project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Since #240 the
+**`[context.<issue>]` sub-table is the authoritative home** of these
+keys; the top-level copies are a compatibility **mirror**, maintained
+only while that issue is the shared `active_issue`. Per-key reads follow
+this truth table (`state.sh:165–174`):
+
+| lookup condition | read result |
+|---|---|
+| `[context.<issue>]` has the key | the table value (always wins) |
+| table miss, issue == `active_issue` | the top-level value (adopt-on-first-write migration for pre-#240 state) |
+| table miss, issue != `active_issue` | the `state_init` per-key default |
+
+The mirror predicate is evaluated INSIDE the write lock (`set-many-if`,
+#240/#327), so a concurrent `pull` cannot flip `active_issue` mid-write
+and launder one issue's keys into another. Consequence for tools/agents:
+read and write per-issue keys via `state_issue_{get,set}` (or the
+`[context.<issue>]` table directly) — hand-editing the top-level keys is
+ignored whenever a context entry exists.
+
+The snapshot/restore helpers (`state_context_{save,restore,clear}`,
+`scripts/lib/state.sh`) drive the lifecycle: `park` snapshots the active
+issue into its `[context.<issue>]` and resets the top level to defaults;
+`resume` restores the snapshot and deletes it; `pull` snapshots a
+displaced unparked issue and starts the new issue from defaults (re-pull
+of the active issue is a no-op on context); `cleanup` resets to
+defaults. `[context]` is deliberately separate from `[parked]`: saved
+context is orthogonal to parked-ness, and `state_list_parked` lists only
+scalar keys. A future full `[issues.<id>]` nesting (Epic #61 end state)
+would re-point
 these helpers without changing callers.
 
 All writes to state files go through `scripts/lib/_toml.py`, which
@@ -849,9 +868,12 @@ Post-MR feedback often requires re-walking the pipeline. Pattern:
 1. `/devagent:comments` — fetch MR comments to
    `<issue-dir>/revisions/r<N>/comments.md`
 2. `/devagent:revise` — increment revision counter, append a new
-   `## Revision N` block to checklist with steps 1–15 re-listed as
-   `[ ]`, log the revision start. Then `/devagent:next` resumes from
-   `draft` with the comments in context.
+   `## Revision N` block to checklist with steps 1–14, 21 (preship),
+   15, 16–20 re-listed in file order as `[ ]` (the `revision_block`
+   template, #76 — NOT a bare 1–15), log the revision start. Then
+   `/devagent:next` resumes from `draft` with the comments in context.
+   The by-name preship/closeout gates are revision-scoped to match, so
+   a hand-built block that omits them would bypass those gates.
 
 Original Revision 1 entries remain in the checklist. Log is shared
 across revisions for chronological readability.
