@@ -17,7 +17,10 @@
 artifact_resolve_or() {
   local project="$1" key="$2" path=""
   if [[ -n "$project" ]]; then
-    path="$(artifact_resolve "$project" "$key" 2>/dev/null || true)"
+    # No 2>/dev/null (#341): artifact_resolve's only stderr here is the
+    # dead-override warn (project is non-empty, so the rc-2 message can't fire);
+    # swallowing it re-hid the diagnostic from the tolerant-face callers.
+    path="$(artifact_resolve "$project" "$key" || true)"
   fi
   [[ -n "$path" ]] || path="$(plugin_root)/templates/${key}.md"
   echo "$path"
@@ -36,12 +39,19 @@ artifact_resolve() {
   if [[ -n "$override" ]]; then
     if [[ "$override" = /* ]]; then
       [[ -f "$override" ]] && { echo "$override"; return 0; }
+      # #341: a configured override whose file is missing must not be silently
+      # skipped — warn (naming the dead path), then fall through to defaults.
+      warn "artifact_resolve: configured override for '$key' not found: $override (falling through to defaults)"
     else
-      local devdoc
+      local devdoc devdoc_path
       devdoc="$(config_get_project_field "$project" devdoc_dir 2>/dev/null || true)"
-      if [[ -n "$devdoc" && -f "${devdoc%/}/$override" ]]; then
-        echo "${devdoc%/}/$override"; return 0
+      # ${devdoc:+…}: keep the warn path relative (no leading slash) when devdoc
+      # is unset, so the diagnostic names what the operator actually configured.
+      devdoc_path="${devdoc:+${devdoc%/}/}$override"
+      if [[ -n "$devdoc" && -f "$devdoc_path" ]]; then
+        echo "$devdoc_path"; return 0
       fi
+      warn "artifact_resolve: configured override for '$key' not found: $devdoc_path (falling through to defaults)"
     fi
   fi
 

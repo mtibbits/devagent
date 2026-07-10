@@ -94,6 +94,44 @@ _init_state() {
   [ "$status" -ne 0 ]
 }
 
+@test "wbs init honors an L2 devdoc wbs_template override (#341)" {
+  mkdir -p "$TMPDEV/templates"
+  printf '# {{PROJECT}} WBS\nCUSTOM-L2-MARKER\n' > "$TMPDEV/templates/wbs_template.md"
+  run bash "$REPO/scripts/wbs.sh" init testproj
+  [ "$status" -eq 0 ]
+  grep -q "CUSTOM-L2-MARKER" "$TMPDEV/WBS.md"
+  grep -q "# testproj WBS" "$TMPDEV/WBS.md"
+}
+
+@test "wbs init honors an L1 [project.paths].wbs_template override, shadowing devdoc (#341)" {
+  # The pre-#341 hand-rolled loop skipped layer 1 entirely — this is the bug.
+  mkdir -p "$TMPDEV/templates"
+  printf '# {{PROJECT}} WBS\nCUSTOM-L2-MARKER\n' > "$TMPDEV/templates/wbs_template.md"
+  local override="$TMPROOT/my_wbs.md"
+  printf '# {{PROJECT}} WBS\nCUSTOM-L1-MARKER\n' > "$override"
+  cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.testproj.paths]
+wbs_template = "$override"
+EOF
+  run bash "$REPO/scripts/wbs.sh" init testproj
+  [ "$status" -eq 0 ]
+  grep -q "CUSTOM-L1-MARKER" "$TMPDEV/WBS.md"
+  run grep -q "CUSTOM-L2-MARKER" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "wbs init dies with a clear message when no wbs_template resolves (#341 set -e)" {
+  # No devdoc/L1 override AND an empty plugin templates dir → template_resolve
+  # returns rc 1. Under set -euo pipefail the command-substitution must not abort
+  # the script before the explicit die — the operator gets a diagnostic, not a
+  # bare silent exit.
+  local emptytpl="$TMPROOT/empty-templates"; mkdir -p "$emptytpl"
+  DEVAGENT_PLUGIN_TEMPLATES="$emptytpl" run bash "$REPO/scripts/wbs.sh" init testproj
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no wbs_template.md found"* ]]
+}
+
 @test "wbs show prints WBS.md contents" {
   cp "$REPO/tests/fixtures/wbs/simple.md" "$TMPDEV/WBS.md"
   run bash "$REPO/scripts/wbs.sh" show testproj

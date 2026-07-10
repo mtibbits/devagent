@@ -90,9 +90,17 @@ template_resolve() {
   local path
 
   path="$(template_project_paths_override "${project}" "${key}")"
-  if [ -n "${path}" ] && [ -f "${path}" ]; then
-    printf 'path=%s\nlayer=project\n' "${path}"
-    return 0
+  if [ -n "${path}" ]; then
+    if [ -f "${path}" ]; then
+      printf 'path=%s\nlayer=project\n' "${path}"
+      return 0
+    fi
+    # #341: configured override present but file missing — warn (naming the dead
+    # path), then fall through. Blind spot: a RELATIVE override with devdoc_dir
+    # unset collapses to empty in template_project_paths_override, so it reaches
+    # here as "no override" and is not warned (devdoc_dir is effectively always
+    # configured; artifact.sh's inline warn covers that corner).
+    warn "template_resolve: configured override for '${key}' not found: ${path} (falling through to defaults)"
   fi
 
   local devdoc

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+bats_require_minimum_version 1.5.0   # #341: run --separate-stderr
 
 load lib/_helpers
 
@@ -37,6 +38,30 @@ teardown() { teardown_phase9_env; }
   source "${DEVAGENT_LIB}/template_resolve.sh"
   run template_resolve "${DEVAGENT_TEST_PROJECT}" "no_such_template"
   [ "$status" -eq 1 ]
+}
+
+@test "template_resolve: dead L1 override warns and falls through (#341)" {
+  # Configured override whose file is missing must warn (naming the dead path)
+  # while still resolving to a lower layer — not silently skip.
+  source "${DEVAGENT_LIB}/template_resolve.sh"
+  export TEMPLATE_PATHS_OVERRIDE_coding_standards="${TEST_TMP}/nonexistent-typo.md"
+  run --separate-stderr template_resolve "${DEVAGENT_TEST_PROJECT}" "coding_standards"
+  [ "$status" -eq 0 ]
+  # devdoc has coding_standards.md in this fixture → fall-through lands at devdoc.
+  echo "$output" | grep -q "layer=devdoc"
+  [[ "$stderr" == *"nonexistent-typo.md"* ]]
+  [[ "$stderr" == *"coding_standards"* ]]
+}
+
+@test "template_resolve: valid L1 override emits no warn (#341 no-spam)" {
+  local override="${TEST_TMP}/present_standards.md"
+  printf '# present\n' > "${override}"
+  source "${DEVAGENT_LIB}/template_resolve.sh"
+  export TEMPLATE_PATHS_OVERRIDE_coding_standards="${override}"
+  run --separate-stderr template_resolve "${DEVAGENT_TEST_PROJECT}" "coding_standards"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "layer=project"
+  [ -z "$stderr" ]
 }
 
 @test "template_list enumerates known artifact keys" {
