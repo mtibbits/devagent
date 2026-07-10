@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **54 slash commands** driving a **22-step workflow**, works against
+provides **55 slash commands** driving a **22-step workflow**, works against
 GitHub, GitLab, and JIRA trackers/forges, and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
 
@@ -49,6 +49,7 @@ All commands live under the `/devagent:` namespace.
 | `history` / `grep` | Chronological log / search across per-issue artifacts |
 | `depends` | Record or list issue dependencies |
 | `park` / `resume` / `switch` | Park, reactivate, or swap the active issue in one step |
+| `use` | Deliberately switch the active project (the one arg-driven pointer writer) |
 | `sync` | Async merge detection — fires `on_merge` for issues merged outside this session |
 | `stuck` / `unstuck` | Mark the current step stuck (with a reason) / clear it and resume |
 
@@ -73,7 +74,7 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
 > The 22 numbered step commands above, plus `next` / `revise` / `comments`,
-> together with the tables in this section, are the full set of 54 commands.
+> together with the tables in this section, are the full set of 55 commands.
 
 ## Concurrent sessions
 
@@ -84,6 +85,10 @@ consulted. Same-project sessions are isolated per issue as of #240/#303 — each
 issue's state lives under `[context.<issue>]`, so keys can't launder between
 issues; the only residual is the last-writer-wins pick of the shared
 `active_issue` scalar, which a per-session `DEVAGENT_ACTIVE_ISSUE` pin avoids.
+
+To switch the active project deliberately (rather than via the per-session env
+pin), run `/devagent:use <project>` — the one arg-driven writer of the shared
+pointer; hand-editing `_active.toml` is the fallback.
 Details: "Concurrent sessions" in `commands/next.md`.
 
 ## Auth subsystem

@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "devagent",
-      "description": "Drives 54 slash commands over a 22-step issue workflow, preserving all state on disk so you can switch issues without losing context. Works against GitHub/GitLab/JIRA, with capture + issue red-team, revision, WBS, and status-report subsystems.",
+      "description": "Drives 55 slash commands over a 22-step issue workflow, preserving all state on disk so you can switch issues without losing context. Works against GitHub/GitLab/JIRA, with capture + issue red-team, revision, WBS, and status-report subsystems.",
       "version": "0.1.0",
       "source": "./",
       "author": { "name": "Matt Tibbits" }

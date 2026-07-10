@@ -77,8 +77,12 @@ written ONLY by pointer/fallback-resolved `next.sh` invocations (#282) —
 an arg- or env-pinned session never touches it, and `pull.sh` never writes
 it (its project is always an explicit positional). Consequence: on a
 multi-project install the pointer's VALUE effectively freezes — running
-`next.sh <other-project>` no longer moves it; switch projects via the env
-pin or by editing `_active.toml` directly.
+`next.sh <other-project>` no longer moves it. To move it deliberately, run
+`/devagent:use <project>` (`scripts/use.sh`) — the one legitimate arg-driven
+pointer writer (#349): it validates the project, writes the pointer via the
+atomic `active_set_project` (#328), and prints the resolved state. The
+per-session env pin and a direct `_active.toml` edit remain as the
+per-session / fallback alternatives.
 
 The supported per-session pin is a Claude Code `settings.local.json`
 env entry in the project directory:
