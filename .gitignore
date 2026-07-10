@@ -3,9 +3,9 @@ __pycache__/
 *.lock
 
 # #324: analyze-owned build dirs + known local clutter — was a 9-issue manual-mark tax
-build-asan/
-build-tsan/
-build-ubsan/
+# #351: broadened from build-{asan,tsan,ubsan}/ to a glob so the per-project/issue
+# keyed dirs (build-<project>-<issue>[-<tag>]/) are tracked too.
+build-*/
 err
 .claire/
 .claude/

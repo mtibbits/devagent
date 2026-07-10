@@ -85,6 +85,16 @@ fi
 shared_active="$(state_get "$project" active_issue 2>/dev/null || true)"
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
+    # #351: remove this issue's keyed analyze build dirs from the shared source
+    # tree. Per-issue keying isolates concurrent chains but would grow unbounded
+    # otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash
+    # after the key, so cleaning Issue-1 cannot wipe Issue-10's dirs (prefix).
+    _bk="$(printf '%s-%s' "$project" "$gc_issue" | tr -c 'A-Za-z0-9' '-')"
+    rm -rf -- "$source_dir/build-$_bk" 2>/dev/null || true
+    for _d in "$source_dir/build-$_bk"-*; do
+        [ -e "$_d" ] && rm -rf -- "$_d"
+    done
+    unset _bk _d
 fi
 if [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ "$shared_active" = "$gc_issue" ]; then
     state_context_clear "$project"

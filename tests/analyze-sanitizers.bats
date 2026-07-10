@@ -68,10 +68,11 @@ STUB
 }
 
 @test "a single failing leg names ONLY that leg (#117)" {
-    # ctest fails only inside build-tsan; asan/ubsan pass.
+    # ctest fails only inside the tsan build dir; asan/ubsan pass. Build dirs are
+    # keyed per project+issue now (#351: build-<key>-tsan), so match the -tsan suffix.
     cat > "$DEVAGENT_STUB_BIN/ctest" <<'STUB'
 #!/usr/bin/env bash
-case "$PWD" in *build-tsan*) exit 1 ;; esac
+case "$PWD" in *-tsan*) exit 1 ;; esac
 exit 0
 STUB
     chmod +x "$DEVAGENT_STUB_BIN/ctest"
@@ -110,9 +111,42 @@ STUB
     run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     # ASLR disabled for the build-time gtest_discover_tests exec (#32) ...
-    grep -qE "^setarch .* --addr-no-randomize .* --build .*build-tsan" "$DEVAGENT_STUB_LOG"
+    grep -qE "^setarch .* --addr-no-randomize .* --build .*-tsan" "$DEVAGENT_STUB_LOG"
     # ... and for the ctest run (#1).
     grep -qE "^setarch .* --addr-no-randomize .* --output-on-failure" "$DEVAGENT_STUB_LOG"
     # setarch invoked exactly twice — both phases of the tsan tag; asan/ubsan never use it.
     [ "$(grep -c '^setarch ' "$DEVAGENT_STUB_LOG")" -eq 2 ]
+}
+
+@test "a never-returning ctest is killed at the budget and FAILS the step (#351/#117)" {
+    # A hung ctest with no timeout would wedge an --auto chain forever. With the
+    # budget wrap it is killed at DEVAGENT_ANALYZE_TIMEOUT and the leg fails.
+    # `exec sleep` so timeout(1)'s signal reaches the sleep directly (clean kill).
+    cat > "$DEVAGENT_STUB_BIN/ctest" <<'STUB'
+#!/usr/bin/env bash
+echo "ctest $*" >> "$DEVAGENT_STUB_LOG"
+exec sleep 300
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/ctest"
+    # Budget 1s: the three legs each time out fast — the run must NOT hang.
+    DEVAGENT_ANALYZE_TIMEOUT=1 run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]                                  # step 11 stays [ ] (#117: die)
+    [[ "$output" == *"timed out"* ]]                     # labeled as a timeout, not a bare exit
+    [[ "$output" == *"ctest timed out >1s"* ]]
+    # ctest received the per-test --timeout too (belt-and-suspenders).
+    grep -q "ctest --timeout 1 --output-on-failure" "$DEVAGENT_STUB_LOG"
+    # The artifact records the timeout for a later reader.
+    grep -qi "timed out\|ctest" "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-asan.txt"
+}
+
+@test "build dirs are keyed per project+issue so concurrent chains don't collide (#351)" {
+    run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # The three legs live under project+issue-keyed dirs (not the shared build-<tag>).
+    ls -d "$SOURCE_DIR"/build-*-Issue-1-asan  >/dev/null
+    ls -d "$SOURCE_DIR"/build-*-Issue-1-ubsan >/dev/null
+    ls -d "$SOURCE_DIR"/build-*-Issue-1-tsan  >/dev/null
+    # The old un-keyed names are NOT used (a concurrent Issue-2 would key to its own).
+    [ ! -d "$SOURCE_DIR/build-asan" ]
+    [ ! -d "$SOURCE_DIR/build-tsan" ]
 }
