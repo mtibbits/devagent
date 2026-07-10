@@ -134,7 +134,7 @@ If we spend engineering effort on this, what does the user concretely gain?
 
 This is the ROI lens — distinct from Impact (#6), which measures severity.
 Impact says "this crashes." Customer value says "and therefore users can't
-reliably profile kernels, which means they ship suboptimal configurations
+reliably profile the workload, which means they ship suboptimal configurations
 to production." A high-impact bug with no real-world user consequence is
 low customer value.
 
@@ -277,9 +277,9 @@ function's output, a renamed symbol, or a changed default can silently
 break every program linked against it.
 
 Watch for: changes to function signatures or return types, changes to
-kernel numerical output (even "more correct" results break users who
-calibrated against the old behavior), changes to default values (warmup
-time, tolerance, vector length), removal of deprecated functions without
+numerical output (even "more correct" results break users who
+calibrated against the old behavior), changes to default values (timeouts,
+tolerances, batch sizes), removal of deprecated functions without
 a deprecation period, changes to config file format or path that
 orphan existing configs, changes to build system defaults that break
 existing build scripts.
@@ -311,7 +311,7 @@ config path from an environment variable a local attacker on a shared
 system could set. Not exploitable in most deployments, but a
 static analysis tool or distro security audit would flag it.
 
-For most kernel-level issues (SIMD implementations, algorithm fixes),
+For most numeric or algorithmic changes (compute routines, algorithm fixes),
 score this N/A and move on. For anything touching I/O, config parsing,
 environment variables, or memory allocation, evaluate seriously.
 

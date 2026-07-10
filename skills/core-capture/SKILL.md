@@ -34,7 +34,7 @@ You are turning a free-form capture into structured input for
    - `chore`: tooling, CI, infra; not user-visible
 
 4. **Pick a title.** Imperative mood, ≤60 characters after slugification.
-   - Bug: `fix conv kernel NaN at simd-1 length`
+   - Bug: `fix parser NaN at length-1 input`
    - Feature: `add CSV export to the profiler`
    - Epic: `Performance overhaul`
 

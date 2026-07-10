@@ -35,7 +35,7 @@
 <!--
 Examples (delete before saving):
 
-### draft-step missed sign-error in foo_kernel
+### draft-step missed sign-error in foo_routine
 - Evidence: log 2026-05-19 10:00 "improve: 1 bug surfaced, fixed in task 2"
 - Consequence: include a brief manual trace through edge cases when drafting.
 - Tags: [norm, pattern]

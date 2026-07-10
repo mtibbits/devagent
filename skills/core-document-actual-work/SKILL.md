@@ -78,7 +78,7 @@ Follows `actualWork_template.md` exactly: the per-task list lands in
 - Task 1: [done as planned]
 - Task 2: [done with deviation: boundary test extended to cover
   negative n after discovering related bug]
-- Task 3: [discovered: foo_kernel callers in bar.c had matching
+- Task 3: [discovered: foo_helper callers in bar.c had matching
   off-by-one; not fixed here per surgical-diffs principle]
 
 ## Deviations from plan

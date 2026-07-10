@@ -7,7 +7,7 @@
 
 
 ## Testing
-<!-- How did you verify this? For kernel changes, include benchmark output if available. -->
+<!-- How did you verify this? For performance changes, include benchmark output if available. -->
 
 
 ## Evidence
