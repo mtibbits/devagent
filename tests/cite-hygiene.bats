@@ -15,10 +15,12 @@ REPO="${BATS_TEST_DIRNAME}/.."
 
   # Allowlist: core-document-actual-work's actualWork_template.md cites are the
   # §12-chain terminal owned by the sibling bypass issue (#341) — intentional.
-  # Match on the template name, not the file/line (drift-proof), so a NEW bare
-  # cite for a different key in that file is still caught.
+  # Match on file AND template name (drift-proof — no line numbers), so BOTH a
+  # bare cite for a different key IN that file AND an actualWork_template.md cite
+  # in ANY OTHER file are still caught.
   local unallowed
-  unallowed="$(printf '%s\n' "$output" | grep -vE 'actualWork_template\.md' || true)"
+  unallowed="$(printf '%s\n' "$output" \
+    | grep -vE 'core-document-actual-work/SKILL\.md:[0-9]+:.*actualWork_template\.md' || true)"
 
   [ -z "$unallowed" ] || {
     echo "bare \${CLAUDE_PLUGIN_ROOT}/templates/ cites (rephrase to §12 prose):" >&2
