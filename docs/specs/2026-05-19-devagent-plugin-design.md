@@ -147,6 +147,11 @@ remove_others_in_namespace = "status:"
 coding_standards = "codingStandards.md"
 commit_template  = "commitMessageTemplate.md"
 # unspecified artifacts fall through to <devdoc>/templates/ then plugin templates/
+
+[project.volk.step_models]               # optional model tiers per step class (#150/#151/#291); see §7.4
+checking = "opus"                        # improve(3) / review(13) / redmr(14) / preship(21)
+# thinking = "opus"                      # draft(1) / implement(7) / quality(8) / document(9) / draftmr(12)
+# "13"     = "fable"                     # a numeric per-step override wins over its class tier
 ```
 
 `include_coauthor` (per-project bool, default `true`) is a **strip-guard**, not a generator:
@@ -257,6 +262,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
+├── .devagent-step-models  # optional: one model-tier token pinning this issue's checking steps (#291; §7.4)
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -470,7 +476,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 8 | `/devagent:quality` | skill | `simplify` + project's `coding_standards.md` |
 | 9 | `/devagent:document` | skill | `devagent-document-actual-work` — terse when no deviation |
 | 10 | `/devagent:commit` | script | `commit.sh` — `commit_template.md`, `-s` (DCO), strips `(1M context)` |
-| 11 | `/devagent:analyze` | script | `analyze-static.sh` then `analyze-sanitizers.sh` (depends on commit per §11) |
+| 11 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
 | 12 | `/devagent:draftmr` | skill | `devagent-draft-mr`, fills `mr_template.md` |
 | 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
 | 14 | `/devagent:redmr` | skill | `devagent-redmr` using `templates/redteam_mr.md` |
@@ -557,6 +563,67 @@ for priority shifts. The plugin treats that extension as a downstream
 consumer, not a dependency. The plugin's contract is the same whether
 chaining happens via `--auto`, via external session orchestration, or
 via the operator typing `/devagent:next` between steps.
+
+### 7.4 Step model tiers (`step_models`)
+
+An optional `[project.<name>.step_models]` table steers which model tier
+runs each step (surfacing #150; dispatch #151; per-issue override #291).
+Implemented in `scripts/lib/config.sh:96–159` (`step_models_tier`) and
+`scripts/step-model.sh`. The table is entirely optional — **absent, output
+is byte-identical to no tiering** (the resolver returns "no tier" and the
+step runs at the session model).
+
+Steps map to three fixed classes by canonical step number:
+
+| Class | Steps |
+|---|---|
+| `thinking` | 1 draft · 7 implement · 8 quality · 9 document · 12 draftmr |
+| `checking` | 3 improve · 13 review · 14 redmr · 21 preship |
+| `default` | everything else |
+
+A step's tier is resolved in this order (first hit wins):
+
+1. **Per-issue marker** (`<issue-dir>/.devagent-step-models`, #291) — a
+   single tier token, honored for **checking-class steps only**. The
+   reserved token `inherit` forces session-model inheritance (escapes a
+   project `checking` pin). A present-but-empty or multi-token marker is a
+   hard error (never a silent fallback).
+2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
+3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
+4. **Default tier** — `step_models.default`, when the class tier is unset.
+
+If none resolves, the step inherits the session model. Tiers are advisory
+for surfacing steps (`next` / `catchup` print the hint) and load-bearing
+for the dispatch contract (§7.5), which uses the resolved tier as the
+subagent's model override.
+
+### 7.5 Dispatch contract (checking + thinking steps)
+
+Two step classes dispatch their work to a fresh-context subagent rather
+than running inline; the normative per-step detail lives in the command /
+skill files, summarized here so the mechanism is discoverable:
+
+- **Checking steps** (improve 3, review 13, redmr 14, preship 21; #151):
+  run in FRESH CONTEXT whenever the harness offers a subagent — a checker
+  that reads the artifacts from disk instead of inheriting the author's
+  conversation is what makes the check adversarial. Dispatch is
+  unconditional; the model override is the §7.4 tier (empty ⇒ inherit).
+- **Thinking steps** — `draft` today (#284): the *inverse* — inline is the
+  fully-informed default, and dispatch is an opt-in *up-delegation* keyed
+  on a non-empty §7.4 `thinking` tier. Intent is packaged to
+  `<issue-dir>/intent.md` (goals / constraints / rejected alternatives /
+  answers), never pasted as conversation. Because a dispatched planner
+  cannot ask the operator, it uses the two-round **question-return
+  protocol** (writes `## Open questions`, the main session answers into
+  `intent.md`, bounded at two rounds then inline fallback). This protocol
+  is draft-only — checkers do not use `intent.md`.
+
+Shared contract elements: a dispatched artifact's first two lines are the
+provenance header (`context: subagent|inline`, `model: <tier>|inherit|…`);
+and a garbled report is linted (`scripts/dispatch-lint.sh`), archived, and
+re-dispatched once, then the step goes `[!]` (#360). Normative detail:
+`commands/draft.md` (§ Dispatch contract) for the thinking path and the
+`core-improve` / `core-redmr` / `core-preship` skills for the checking path.
 
 ## 8. Permission gates
 
@@ -727,6 +794,12 @@ v1 artifact list:
 | `lessonsLearned_template` | lessonslearned |
 | `wbs_template` | wbs init |
 | `statusreport_template` | statusreport |
+| `checklist-standard` | checklist-init (default workflow template) |
+| `checklist-perf` | checklist-init (perf-workflow template) |
+| `checklist-docs-only` | checklist-init (docs-only template) |
+| `checklist-research` | checklist-init (research template) |
+| `revision_block` | revise (the per-revision checklist block, #76) |
+| `intent_template` | draft (dispatched-planning `intent.md`, #284) |
 
 Migration on first install: existing files at
 `~/src/devAgent/{commitMessageTemplate,pr-redteam-prompt,PULL_REQUEST_TEMPLATE}.md`
@@ -895,17 +968,24 @@ applicable).
 
 ## 18. Static analyzers and sanitizers
 
-- `analyze-static.sh` wraps the existing 36 KB
-  `~/src/devAgent/static_analysis_diff.py`, which runs cppcheck,
-  cpplint, clang-tidy, scan-build, include-what-you-use and filters
-  findings to changed lines only. Requires a baseline ref — hence
-  the commit-before-analyze ordering.
-- `analyze-sanitizers.sh` runs ASan, UBSan, TSan against the same
-  diff scope, separately from static analysis (different toolchain,
-  separate build dir, slower).
-- Both invoked sequentially by step 11 (`/devagent:analyze`). No
-  sub-step tracking in the checklist.
-- Output written under `<issue-dir>/analysis/YYYY-MM-DD-<tool>.txt`.
+Step 11 (`/devagent:analyze`) dispatches to a per-project analyzer family
+selected by `analyze = cmake | shellcheck | none` in
+`[project.<name>]` (#55/#117). All paths are diff-scoped (changed lines
+only) and require a baseline ref — hence the commit-before-analyze
+ordering. A per-phase analyzer failure fails the step loudly rather than
+being swallowed (#117); output is written under
+`<issue-dir>/analysis/YYYY-MM-DD-<tool>.txt`.
+
+- **`cmake`** (C/C++ projects, the default) — `analyze-static.sh` wraps the
+  36 KB `~/src/devAgent/static_analysis_diff.py` (cppcheck, cpplint,
+  clang-tidy, scan-build, include-what-you-use), then `analyze-sanitizers.sh`
+  runs ASan/UBSan/TSan against the same diff scope (separate toolchain and
+  build dir, slower). Both run sequentially; no checklist sub-step tracking.
+- **`shellcheck`** (bash projects, e.g. devAgent itself) — diff-scoped
+  `shellcheck` over the changed shell lines, with the same changed-line
+  novelty gate as the C path (only findings new vs the baseline count).
+- **`none`** — the step self-marks `[-]` with a logged reason (projects with
+  no analyzable source, e.g. docs-only repos).
 
 ## 19. Testing strategy
 
