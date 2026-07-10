@@ -172,7 +172,7 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   # Derived count — a new command that forgets the README/marketplace sweep
   # fails here instead of drifting silently (the '53 commands' class).
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
-  [ "$n" -eq 54 ]
-  grep -q "54 slash commands" "$CMD_DIR/../README.md"
-  grep -q "54 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
+  [ "$n" -eq 55 ]
+  grep -q "55 slash commands" "$CMD_DIR/../README.md"
+  grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
 }
