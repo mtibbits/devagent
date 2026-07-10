@@ -1,5 +1,9 @@
 # Shared bats helpers for Phase 9 tooling tests.
 
+# #338: source the shared hermetic-env guard (#322) so this setup layer can't
+# leave its tests exposed to host git-config / TZ / locale / session pins.
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"
+
 setup_phase9_env() {
   PHASE9_FIXTURE="${BATS_TEST_DIRNAME}/fixtures/phase9"
   if [ ! -d "${PHASE9_FIXTURE}" ]; then

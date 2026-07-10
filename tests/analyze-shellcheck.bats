@@ -6,6 +6,7 @@ load 'helpers/common'
 
 setup() {
     devagent_test_setup
+    export DEVAGENT_DATE_OVERRIDE=1999-01-02   # #338: freeze the analyze date
     # Baseline commit: a script with a PRE-EXISTING warning (SC2164, bare cd)
     # on a line the branch never touches, plus a clean line. (SC2086 is only
     # info-level — below the --severity=warning cutoff — verified live.)
@@ -30,7 +31,7 @@ run_shellcheck_analyzer() {
         bash "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh" "$TEST_PROJECT" Issue-1
 }
 
-_artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/$(date +%Y-%m-%d)-shellcheck.txt"; }
+_artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt"; }
 
 @test "new warning on a changed line is reported as NEW (#55)" {
     # Append a new bare cd — a changed (added) line with warning-level SC2164.

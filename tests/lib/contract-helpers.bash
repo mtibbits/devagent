@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # contract-helpers.bash — shared by every backend-<name>.bats file.
 #
+# #338: source the shared hermetic-env guard (#322) so this setup layer can't
+# leave its tests exposed to host git-config / TZ / locale / session pins.
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"
+#
 # Each backend bats file sets:
 #   BACKEND_NAME      e.g. "gitlab"
 #   ISSUE_SCRIPT      e.g. scripts/issue/gitlab.sh
