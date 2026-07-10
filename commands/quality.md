@@ -12,8 +12,7 @@ changed code:
 1. The `simplify` skill (reuse, quality, efficiency review).
 2. A coding-standards conformance pass against the project's
    `coding_standards.md`, resolved per the spec §12 artifact registry
-   (project paths → `<devdoc>/templates/` → plugin
-   `${CLAUDE_PLUGIN_ROOT}/templates/coding_standards.md`).
+   (project paths → `<devdoc>/templates/` → plugin default for `coding_standards.md`).
 
 ## Argument parsing
 

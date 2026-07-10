@@ -6,7 +6,7 @@ allowed-tools: Bash
 Run `scripts/wbs.sh $ARGUMENTS` with the user's arguments.
 
 Subcommands:
-- `init` — scaffold `<devdoc>/WBS.md` from `${CLAUDE_PLUGIN_ROOT}/templates/wbs_template.md`
+- `init` — scaffold `<devdoc>/WBS.md` from the resolved `wbs_template.md` (§12 registry: project paths → devdoc → plugin default)
 - `update` — append/update WBS entries from active and recently shipped issues
 - `show [--depth N] [--milestone X]` — render `<devdoc>/WBS.md` filtered
 

@@ -114,7 +114,7 @@ adjacent to the word `ambiguit…` so the detector stays in sync.
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical section ordering
+- the resolved `imPlan_template.md` (§12 registry: project paths → devdoc → plugin default) (canonical section ordering
   if the plan needs restructuring; this step appends a `## Scope evaluation`
   section, which the template does not define).
 

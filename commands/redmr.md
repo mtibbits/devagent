@@ -7,7 +7,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 # /devagent:redmr
 
 Step 14 of the 22-step devAgent workflow. Invokes the `core-redmr`
-skill to run `${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md` against the MR body and diff,
+skill to run the resolved `redteam_mr.md` (§12 registry: project paths → devdoc → plugin default) against the MR body and diff,
 classify findings by severity, and write the report to
 `<issue-dir>/analysis/YYYY-MM-DD-redmr.md`.
 

@@ -7,7 +7,7 @@ when-to-use: After /devagent:analyze and before /devagent:review. Run as part of
 # devagent-draft-mr
 
 Step 12 of the devAgent 22-step workflow. Fills in
-`${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md` from the issue's plan, actualWork, and
+the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) from the issue's plan, actualWork, and
 analyzer findings, writing the result to `<issue-dir>/mr.md`. The
 ship step later uses `mr.md` verbatim as the MR body.
 
@@ -31,7 +31,7 @@ re-typed.
   - `<issue-dir>/analysis/*.txt` (for static-analyzer / sanitizer
     summary).
   - Resolved `mr_template.md` (per spec §12 registry: project paths →
-    `<devdoc>/templates/` → plugin `${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md`).
+    `<devdoc>/templates/` → plugin default).
 - Writes: `<issue-dir>/mr.md`.
 
 ## Checklist
@@ -101,7 +101,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" draftmr \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/mr_template.md` (the canonical structure being filled).
+- the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) — the canonical structure being filled.
 
 ## Completion handoff
 

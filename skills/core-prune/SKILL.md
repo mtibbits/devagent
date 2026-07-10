@@ -93,7 +93,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" prune \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (target structure for the pruned
+- the resolved `imPlan_template.md` (§12 registry: project paths → devdoc → plugin default) (target structure for the pruned
   plan; the Improvements and Scope-evaluation sections pruned here are appended by
   earlier steps, not defined by the template).
 

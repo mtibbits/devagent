@@ -160,7 +160,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" improve \
 
 ## Templates referenced
 
-- `${CLAUDE_PLUGIN_ROOT}/templates/imPlan_template.md` (canonical section ordering;
+- the resolved `imPlan_template.md` (§12 registry: project paths → devdoc → plugin default) (canonical section ordering;
   this step appends an `## Improvements` section, which the template does not define).
 
 ## Completion handoff
