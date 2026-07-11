@@ -65,7 +65,13 @@ slug="$(printf '%s' "$title" \
 prefix="$(config_get_project_field "$project" "branch_prefix_map.$issue_type" 2>/dev/null || true)"
 [ -n "$prefix" ] || die "no prefix mapped for type '$issue_type'"
 
-branch="$prefix/$issue_num-$slug"
+# #422: build the branch's issue component from the FULL arg (minus "Issue-",
+# lowercased) so Issue-42 → 42 and Issue-Fork-42 → fork-42 get DISTINCT branch
+# names. The bare $issue_num strips "Fork-" too and collapsed the twins onto one
+# branch → `git worktree add -b` / `checkout -b` died "already exists". #332 fixed
+# only the worktree leaf, not the branch name. Non-fork is unchanged (Issue-42 → 42).
+branch_issue="$(printf '%s' "${issue_arg#Issue-}" | tr '[:upper:]' '[:lower:]')"
+branch="$prefix/$branch_issue-$slug"
 baseline="$(config_get_project_field "$project" default_baseline)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 
