@@ -154,6 +154,15 @@ fi
 # artifact, so non-bats projects (volk) and artifact-only issues are untouched
 # (the #316 fire-precisely lesson).
 _br_latest="$(ls -1 "$issue_dir/analysis/"*-born-red.txt 2>/dev/null | sort | tail -1 || true)"
+# #409: when born_red=true is configured, an ABSENT artifact means the
+# implement-phase born-red run was skipped — the largest silent-skip bypass of
+# the #333 flagship. Die loud. (born_red=false — volk / non-bats projects — never
+# reach here, so they are untouched; the #316 fire-precisely lesson.) A run that
+# finds no new tests still writes a NO-NEW-TESTS artifact, so this is coherent.
+_born_red="$(config_get_project_field "$project" born_red 2>/dev/null || echo false)"
+if [ "$_born_red" = "true" ] && [ -z "$_br_latest" ]; then
+    die "born-red gate: born_red=true but no born-red artifact exists at $issue_dir/analysis/<date>-born-red.txt — the implement-phase born-red run was skipped. Run it (bash \"\$CLAUDE_PLUGIN_ROOT/scripts/born-red.sh\" $project) before committing; a change with no new tests still writes a NO-NEW-TESTS artifact that satisfies this gate (#362/#409)."
+fi
 if [ -n "$_br_latest" ] && grep -q '^verdict: FLAGGED' "$_br_latest"; then
     die "born-red gate: $_br_latest reports FLAGGED — a new test is green at baseline (never-red / vacuous). Make it fail without the change, or allowlist it (with a reason) in $issue_dir/.devagent-born-red-allow, then re-run /devagent:born-red (#362)."
 fi

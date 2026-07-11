@@ -14,6 +14,21 @@ tree with nothing staged dies loud (#25), a clean tree whose commits-ahead
 state cannot be classified (missing/stale `baseline_sha`) dies loud rather
 than guessing, and the branch-identity guard (#69) precedes every path.
 
+## born-red gate (#362/#409)
+
+For projects with `born_red = true`, step 10 checks the issue's born-red
+artifact before committing:
+
+- The latest artifact reports **FLAGGED** (a new test is green at baseline) →
+  die; make the test fail without the change, or allowlist it with a reason.
+- **No** artifact exists → die (#409): `born_red=true` means the implement-phase
+  born-red run is mandatory, so an absent artifact is a skipped run, not a pass.
+  Re-run `scripts/born-red.sh`; a change with no new tests still writes a
+  NO-NEW-TESTS artifact that satisfies the gate.
+
+With `born_red` unset/false (the default — e.g. non-bats projects) the gate is
+inert.
+
 ## Opt-in scoped auto-staging (#251)
 
 By default, if the working tree has in-scope edits but nothing is staged, step 10
