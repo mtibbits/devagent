@@ -804,6 +804,7 @@ v1 artifact list:
 | `checklist-research` | checklist-init (research template) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
+| `potholes` | draft (pothole register read → `## Potholes considered`, #286), lessonslearned (`[pattern]`→register promote) |
 
 Migration on first install: existing files at
 `~/src/devAgent/{commitMessageTemplate,pr-redteam-prompt,PULL_REQUEST_TEMPLATE}.md`

@@ -59,7 +59,21 @@ issues, not at the end of the current one.
    (`/devagent:reap` harvests these). Tag `reference` for a fact to
    remember, `norm` for an operator-working-style change, `pattern` for
    something that generalises beyond this issue.
-7. **Brevity check.** If an entry is more than 4 lines total, split
+7. **Promote patterns to the register (#286).** For each entry whose
+   tag set includes `pattern` (any form — `pattern`, `[pattern, norm]`,
+   etc.) AND that generalises beyond this issue, ALSO append a one-line
+   distillation of it, with its `(Issue-N)` source citation, to the
+   resolved `potholes` register (§12 walk: project paths → devdoc →
+   plugin default; `template.sh --project <p> show potholes` prints its
+   path). Rules: dedupe by citation — skip if the register already
+   carries a line citing this issue for the same rule; keep the one-liner
+   PROJECT-NEUTRAL (strip domain nouns — the register is a shipped
+   plugin template scanned by `generic-templates.bats`, so a
+   project-specific token would redden that canary in an unrelated
+   issue); place it under the closest existing trigger-domain heading.
+   Not every `pattern` entry belongs — promote the ones that will fire
+   on FUTURE issues of other kinds, not the one-off.
+8. **Brevity check.** If an entry is more than 4 lines total, split
    it or trim. Long lessons are unread lessons.
 
 ## Halt and ask if

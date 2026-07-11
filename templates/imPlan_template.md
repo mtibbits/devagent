@@ -32,6 +32,13 @@ What must already be true at HEAD for this plan to make sense. **Dispose of ever
 `✗` row from the rederive artifact** (`analysis/<date>-rederive.txt`, #361) here —
 a named input absent at HEAD is a falsified premise.
 
+## Potholes considered
+
+Which register triggers (the resolved `potholes` template, #286) MATCH this
+issue, with the mitigation the plan adopts — and which were reviewed and marked
+N/A. `(none matched)` if the register has no relevant trigger. The improve step
+treats a matching-but-unlisted trigger as a finding, so keep this honest.
+
 ## Open questions
 
 (Anything the operator needs to resolve before execution.)

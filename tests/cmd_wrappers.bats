@@ -16,6 +16,11 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   grep -q 'superpowers:writing-plans' "$CMD_DIR/draft.md"
 }
 
+@test "draft.md instructs the pothole-register read + Potholes considered section (#286)" {
+  grep -q 'potholes' "$CMD_DIR/draft.md"
+  grep -q '## Potholes considered' "$CMD_DIR/draft.md"
+}
+
 @test "draft.md instructs the model to append a checklist log entry" {
   grep -q 'checklist-log.sh' "$CMD_DIR/draft.md"
 }

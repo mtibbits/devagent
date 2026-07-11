@@ -41,6 +41,7 @@ DEVAGENT_TEMPLATE_KEYS=(
   checklist-research
   revision_block
   intent_template
+  potholes
 )
 
 # template_project_paths_override <project> <key>
