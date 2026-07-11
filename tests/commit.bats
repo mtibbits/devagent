@@ -252,3 +252,25 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [ "$status" -eq 0 ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
 }
+
+@test "commit.sh dies when born_red=true but no born-red artifact exists (#409)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.born_red" true
+    # No *-born-red.txt in the issue's analysis/ dir.
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"born-red gate"* ]]
+    [[ "$output" == *"no born-red artifact"* ]]
+}
+
+@test "commit.sh commits with born_red=true + NO-NEW-TESTS artifact present (#409)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.born_red" true
+    printf 'verdict: NO-NEW-TESTS\n' > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
+@test "commit.sh commits with born_red=false + no artifact — behavior unchanged (#409)" {
+    # Default (knob off): the absent-artifact gate must not fire.
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
