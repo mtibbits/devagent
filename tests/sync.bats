@@ -349,3 +349,16 @@ CL
     grep -q 'Closeout handoff' "$DEVAGENT_ROOT/commands/sync.md"
     grep -q 'CLOSEOUT:' "$DEVAGENT_ROOT/commands/sync.md"
 }
+
+@test "sync re-unblocks a [?] closeout step set AFTER the merge marker (#421)" {
+    # First sync writes the merge marker (marker-absent path fires on_merge).
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    # A closeout step lands on [?] AFTER the marker (e.g. impact halted transiently).
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
+    # The next sync takes the marker-PRESENT early-return path — it must still unblock.
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
+}

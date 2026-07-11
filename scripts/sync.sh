@@ -88,6 +88,11 @@ sync_one_project() {
         # #363: on_merge already fired for this revision — re-print the closeout
         # nudge (derived, ZERO network: this sits before the mr-state call) while
         # closeout is still pending; silent once cleanup lands.
+        # #421: also re-UNBLOCK, mirroring the marker-absent path — a closeout step
+        # that lands on [?] AFTER the merge marker was written (e.g. impact halted
+        # on a transient failure) would otherwise stay [?] forever from sync's
+        # side. _sync_closeout_unblock is idempotent, so this is safe.
+        _sync_closeout_unblock "$issue_dir"
         _sync_closeout_nudge "$project" "$issue_dir" \
             "$(state_get "$project" active_issue 2>/dev/null || true)"
         return 0
