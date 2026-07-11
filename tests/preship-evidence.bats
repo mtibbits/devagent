@@ -60,6 +60,27 @@ _run() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-
     [[ "$output" == *"dirty"* ]]
 }
 
+@test "preship-evidence: TRUNCATED run (ok<plan, notok=0) → nonzero naming truncation (#406)" {
+    # A killed bats run: 500 of 992 ran, 0 failures — looks green, isn't.
+    _artifact "$HEAD_SHA" no 500 992 0 20 0
+    _mr "500/992 bats, 20 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"truncated"* ]]
+    [[ "$output" == *"500 of 992"* ]]
+}
+
+@test "preship-evidence: legit-failing run (notok>0) is NOT mislabeled truncated (#406)" {
+    # ok<plan because a test FAILED, not because the run was cut short — the notok
+    # check reports it; the truncation assert (gated on notok==0) must stay silent.
+    _artifact "$HEAD_SHA" no 99 100 1 20 0
+    _mr "99/100 bats, 20 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"notok"* ]]
+    [[ "$output" != *"truncated"* ]]
+}
+
 @test "preship-evidence: notok>0 → nonzero (#359)" {
     _artifact "$HEAD_SHA" no 99 100 1 20 0
     _mr "99/100 bats, 20 pytest @ $HEAD_SHA" 1

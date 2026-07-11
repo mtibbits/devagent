@@ -64,6 +64,15 @@ fails=()
 [ "$a_head" = "$cur_head" ] || fails+=("artifact head ($a_head) != current HEAD ($cur_head) — re-run run-suite at HEAD")
 [ "$a_dirty" = "no" ] || fails+=("artifact records a dirty tree (dirty=$a_dirty) — commit or clean, then re-run run-suite")
 [ "${a_notok:-0}" = "0" ] || fails+=("bats notok=$a_notok (suite not green)")
+# #406: a truncated bats run (killed/crashed) leaves ok<plan with notok=0 — it
+# looks green but did not run every planned test. Gate on notok==0 so a
+# legitimately-FAILING run (ok<plan because notok>0) is reported by the notok
+# check above, not mislabeled "truncated". Empty a_ok/a_plan (the `bats: (none)`
+# no-bats path) compare equal, so this does not false-fire there (#411 hardens
+# the `suite: none` representation separately).
+if [ "${a_notok:-0}" = "0" ] && [ "${a_ok:-}" != "${a_plan:-}" ]; then
+  fails+=("bats ran ${a_ok:-?} of ${a_plan:-?} planned tests — suite truncated (fewer ran than planned, 0 failures)")
+fi
 [ "${a_failed:-0}" = "0" ] || fails+=("pytest failed=$a_failed (suite not green)")
 
 # Reconstruct the canonical suite line from the artifact and compare (exact).
