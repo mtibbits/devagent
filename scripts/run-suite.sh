@@ -45,6 +45,12 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   notok="$(printf '%s\n' "$tap" | grep -c '^not ok ' || true)"
   plan="$(printf '%s\n' "$tap"  | sed -n 's/^1\.\.\([0-9][0-9]*\)$/\1/p' | tail -1)"
   [ -n "$plan" ] || die "run-suite: no bats plan line (1..N) — bats did not run cleanly"
+  # #406: bats --tap emits the plan (1..N) up front, so a killed/crashed run leaves
+  # ok+notok < plan while still looking well-formed. Recording ok/plan without this
+  # invariant lets a truncated run pass as "green" (the #85 never-trust-the-tail
+  # class, one layer up). Fail loud — a truncated suite must not ship evidence.
+  [ "$((ok + notok))" -eq "$plan" ] \
+    || die "run-suite: suite truncated — accounted for $((ok + notok)) of $plan planned tests (ok=$ok notok=$notok); a killed/crashed bats run leaves ok+notok<plan"
   bats_line="bats: $ok/$plan notok=$notok"
 fi
 
