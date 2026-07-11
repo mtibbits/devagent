@@ -158,3 +158,17 @@ PARKED
   [ "$status" -eq 0 ]
   grep -q 'REVISED-OVERRIDE-#120' "$FIX_ISSUE_DIR/checklist.md"
 }
+
+@test "revise resets last_step so doctor stays truthful (#414)" {
+    # Fixture seeds a shipped rev-1: checklist all-[x] through ship, state
+    # last_step=15/last_step_name=ship. Appending Revision 2 (all [ ]) must reset
+    # the step pointer, else doctor's #329 step-coherence check false-FAILs.
+    run_revise volk Issue-676 --no-chain
+    [ "$status" -eq 0 ]
+    # State pointer no longer names the prior revision's ship step.
+    grep -qE '^last_step_name[[:space:]]*=[[:space:]]*""$' "$FIX_STATE_FILE"
+    grep -qE '^last_step[[:space:]]*=[[:space:]]*0$' "$FIX_STATE_FILE"
+    # doctor no longer false-FAILs step coherence on the freshly-revised issue.
+    run "$DEVAGENT_ROOT/scripts/doctor.sh" volk
+    [[ "$output" != *"last_step_name=ship"* ]]
+}

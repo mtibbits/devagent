@@ -79,7 +79,12 @@ mkdir -p "$new_rdir"
 revision_block_text "$n_new" "$PROJECT" >>"$issue_dir/checklist.md"
 
 # #96: int + str in one transaction (#240: issue-keyed, mirror inside the lock).
-state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" str pending_comments_file "$prev_comments"
+# #414: also RESET last_step/last_step_name — the new '## Revision N' block has
+# every step [ ], so a step pointer inherited from the prior revision (e.g.
+# last_step_name=ship) makes doctor's #329 step-coherence check false-FAIL (state
+# names a step the active block shows unmarked). Empty name ⇒ doctor skips the
+# check; the checklist is authoritative for resumption (next reads the glyphs).
+state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" str pending_comments_file "$prev_comments" int last_step 0 str last_step_name ""
 
 k=$(grep -c '^### @' "$prev_comments" || true)
 # #75: route through log_append so the entry lands inside the `## Log` section,
