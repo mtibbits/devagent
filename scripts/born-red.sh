@@ -55,6 +55,10 @@ cd "$source_dir"
 "$DEVAGENT_GIT" rev-parse --verify "$baseline^{commit}" >/dev/null 2>&1 \
   || die "born-red: baseline_sha '$baseline' is not a resolvable commit"
 
+# #410: pin the tests/ delta this run judges into every artifact, so commit.sh
+# can die on drift (a vacuous test added after this run must not ride a stale PASS).
+br_fingerprint="$(born_red_tests_fingerprint "$source_dir" "$baseline")"
+
 # ---- helpers ----------------------------------------------------------------
 _is_test_file() {   # bats or pytest test file under tests/ (case '*' spans '/')
   case "$1" in
@@ -114,6 +118,7 @@ artifact="$issue_dir/analysis/${date_str}-born-red.txt"
 
 if [ "${#units[@]}" -eq 0 ]; then
   { echo "born-red — $date_str"; echo "baseline: $baseline"; echo "new tests: 0";
+    echo "tests-fingerprint: $br_fingerprint";
     echo "verdict: NO-NEW-TESTS"; } > "$artifact"
   echo "born-red: no new tests detected → NO-NEW-TESTS" >&2
   exit 0
@@ -231,6 +236,7 @@ done
 # NO-NEW-TESTS run, not a PASS — mirror the pre-run zero-units guard's artifact.
 if [ "$total" -eq 0 ]; then
   { echo "born-red — $date_str"; echo "baseline: $baseline"; echo "new tests: 0";
+    echo "tests-fingerprint: $br_fingerprint";
     echo "verdict: NO-NEW-TESTS"; } > "$artifact"
   echo "born-red: new test files contributed zero runnable tests → NO-NEW-TESTS" >&2
   exit 0
@@ -245,6 +251,7 @@ else verdict="PASS"; fi
   echo "born-red — $date_str"
   echo "baseline: $baseline"
   echo "new tests: $total (flagged=$flagged, allowed-green=$allowed)"
+  echo "tests-fingerprint: $br_fingerprint"
   echo "---"
   sort "$rows_tmp"
   echo "---"

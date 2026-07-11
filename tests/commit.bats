@@ -274,3 +274,33 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
+
+@test "commit.sh dies when the born-red tests-fingerprint drifted (#410)" {
+    # Artifact pins a fingerprint that no longer matches the current tests/ delta.
+    local bl; bl="$( git -C "$SOURCE_DIR" rev-parse HEAD )"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$bl"
+    printf 'verdict: PASS\ntests-fingerprint: deadbeefstalefingerprint\n' \
+        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"tests/ set changed since born-red ran"* ]]
+}
+
+@test "commit.sh commits when the tests-fingerprint still matches (#410)" {
+    local bl; bl="$( git -C "$SOURCE_DIR" rev-parse HEAD )"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$bl"
+    # Canonical fingerprint of the current tree, via the real shared helper.
+    local fp; fp="$(bash -c 'source "'"$DEVAGENT_ROOT"'/scripts/lib/io.sh"; born_red_tests_fingerprint "'"$SOURCE_DIR"'" "'"$bl"'"')"
+    printf 'verdict: PASS\ntests-fingerprint: %s\n' "$fp" \
+        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}
+
+@test "commit.sh grandfathers a born-red artifact with no fingerprint line (#410)" {
+    # Older-format artifact (no tests-fingerprint:) → staleness check is skipped.
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$( git -C "$SOURCE_DIR" rev-parse HEAD )"
+    printf 'verdict: PASS\n' > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-born-red.txt"
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+}

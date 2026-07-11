@@ -166,6 +166,18 @@ fi
 if [ -n "$_br_latest" ] && grep -q '^verdict: FLAGGED' "$_br_latest"; then
     die "born-red gate: $_br_latest reports FLAGGED — a new test is green at baseline (never-red / vacuous). Make it fail without the change, or allowlist it (with a reason) in $issue_dir/.devagent-born-red-allow, then re-run /devagent:born-red (#362)."
 fi
+# #410: staleness guard — the artifact pins the tests/ delta born-red judged
+# (born_red_tests_fingerprint). If the set has drifted since (a test added/edited/
+# removed after the run), the recorded PASS is stale — die. Grandfather artifacts
+# with no fingerprint line (older format). Skip if baseline is unknown.
+if [ -n "$_br_latest" ]; then
+    _br_fp="$(sed -n 's/^tests-fingerprint: //p' "$_br_latest" | head -1)"
+    _br_baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
+    if [ -n "$_br_fp" ] && [ -n "$_br_baseline" ]; then
+        _cur_fp="$(born_red_tests_fingerprint "$source_dir" "$_br_baseline")"
+        [ "$_br_fp" = "$_cur_fp" ] || die "born-red gate: the tests/ set changed since born-red ran ($_br_latest pinned $_br_fp, now $_cur_fp) — a test was added/edited/removed after the check, so its PASS is stale. Re-run scripts/born-red.sh to re-judge, then commit (#410)."
+    fi
+fi
 
 cur_branch="$("$DEVAGENT_GIT" -C "$work_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
 if [ -n "$branch" ] && [ "$cur_branch" != "$branch" ]; then
