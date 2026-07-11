@@ -164,7 +164,7 @@ if [ "$_born_red" = "true" ] && [ -z "$_br_latest" ]; then
     die "born-red gate: born_red=true but no born-red artifact exists at $issue_dir/analysis/<date>-born-red.txt — the implement-phase born-red run was skipped. Run it (bash \"\$CLAUDE_PLUGIN_ROOT/scripts/born-red.sh\" $project) before committing; a change with no new tests still writes a NO-NEW-TESTS artifact that satisfies this gate (#362/#409)."
 fi
 if [ -n "$_br_latest" ] && grep -q '^verdict: FLAGGED' "$_br_latest"; then
-    die "born-red gate: $_br_latest reports FLAGGED — a new test is green at baseline (never-red / vacuous). Make it fail without the change, or allowlist it (with a reason) in $issue_dir/.devagent-born-red-allow, then re-run /devagent:born-red (#362)."
+    die "born-red gate: $_br_latest reports FLAGGED — a new test is green at baseline (never-red / vacuous). Make it fail without the change, or allowlist it (with a reason) in $issue_dir/.devagent-born-red-allow, then re-run born-red (bash \"\$CLAUDE_PLUGIN_ROOT/scripts/born-red.sh\" $project) (#362)."
 fi
 # #410: staleness guard — the artifact pins the tests/ delta born-red judged
 # (born_red_tests_fingerprint). If the set has drifted since (a test added/edited/
