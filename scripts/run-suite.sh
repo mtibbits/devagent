@@ -62,7 +62,7 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
 fi
 
-date_str="$(date +%F)"
+date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
 {

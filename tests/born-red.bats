@@ -225,3 +225,26 @@ EOF
     [ "$status" -eq 0 ]
     grep -qE '^tests-fingerprint: [0-9a-f]{64}$' "$(_artifact)"
 }
+
+@test "born-red artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
+    _add_real_test
+    export DEVAGENT_DATE_OVERRIDE=2020-02-02
+    _run_br_stub
+    [ "$status" -eq 0 ]
+    [ -f "$DEVDOC_DIR/Issue-1/analysis/2020-02-02-born-red.txt" ]
+}
+
+@test "born-red: SIGTERM mid-run fires the EXIT trap — no stale worktree (#413)" {
+    _add_real_test
+    # A bats stub that blocks so the ephemeral worktree is live when we SIGTERM.
+    printf '#!/usr/bin/env bash\nsleep 8\necho "1..1"\necho "ok 1 t"\n' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" "$DEVAGENT_ROOT/scripts/born-red.sh" "$TEST_PROJECT" &
+    local pid=$!
+    sleep 2                       # register the worktree, enter the blocking bats
+    kill -TERM "$pid"
+    wait "$pid" 2>/dev/null || true
+    # The EXIT trap must have removed the ephemeral worktree.
+    run bash -c "cd '$SOURCE_DIR' && git worktree list | wc -l"
+    [ "$output" -eq 1 ]
+}

@@ -56,7 +56,7 @@ done
 for fl in "${filelines[@]:-}"; do [ -n "$fl" ] && files+=("${fl%%:*}"); done
 mapfile -t files < <(printf '%s\n' "${files[@]:-}" | grep -v '^$' | sort -u || true)
 
-date_str="$(date +%F)"
+date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-rederive.txt"
 

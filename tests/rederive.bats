@@ -86,3 +86,16 @@ EOF
     [ "$status" -ne 0 ]
     [[ "$output" == *"git repo"* ]]
 }
+
+@test "rederive artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+References `lib.sh`.
+EOF
+    export DEVAGENT_DATE_OVERRIDE=2020-02-02
+    _run
+    [ "$status" -eq 0 ]
+    [ -f "$DEVDOC_DIR/Issue-1/analysis/2020-02-02-rederive.txt" ]
+}
