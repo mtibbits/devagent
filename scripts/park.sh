@@ -60,6 +60,11 @@ main() {
   fi
 
   state_add_parked "$project" "$issue"
+  # #415: an operator park is BY DEFINITION not a displacement — clear any stale
+  # displacement marker so a later re-pull GCs this park (fresh start, #98 MAJ-1)
+  # instead of resurrecting old context. Load-bearing: closes the MAJ-1 hole at
+  # the consumption point regardless of how a marker might have leaked in.
+  state_remove_displaced "$project" "$issue"
   if [[ "$active" == "$issue" ]]; then
     state_context_save "$project" "$issue"
     state_unset "$project" active_issue

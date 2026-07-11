@@ -237,3 +237,72 @@ CTX
   [ "$status" -eq 0 ]
   grep -q 'PULL OVERRIDE MARKER #120' "$DEVDOC/Issue-7/checklist.md"
 }
+
+# --- #415: displacement parks + is recoverable; re-pull restores -------------
+_seed_displaced_676() {   # pull 676, give it a branch, pull 842 → 676 displaced
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676 >/dev/null
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/state/volk.toml" branch "feat/676-work"
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 842 >/dev/null   # displaces Issue-676
+}
+
+@test "#415: pull displacing an in-flight issue parks it AND marks it displaced" {
+  _seed_displaced_676
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" parked.Issue-676
+  [ "$status" -eq 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" displaced.Issue-676
+  [ "$status" -eq 0 ]
+  # Its context snapshot is preserved.
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch
+  [ "$status" -eq 0 ]
+}
+
+@test "#415 AC1: displaced issue is recoverable via the advertised resume" {
+  _seed_displaced_676
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -qE '^active_issue = "Issue-676"$' "$DA_HOME/state/volk.toml"
+  grep -qE '^branch = "feat/676-work"$' "$DA_HOME/state/volk.toml"   # context restored
+}
+
+@test "#415 AC1: displaced issue is recoverable via the advertised switch" {
+  _seed_displaced_676
+  run "$PLUGIN_ROOT/scripts/switch.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -qE '^active_issue = "Issue-676"$' "$DA_HOME/state/volk.toml"
+  grep -qE '^branch = "feat/676-work"$' "$DA_HOME/state/volk.toml"
+}
+
+@test "#415 AC2: re-pull of the displaced issue restores it — does NOT delete the context" {
+  _seed_displaced_676
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676   # re-pull the displaced issue
+  [ "$status" -eq 0 ]
+  grep -qE '^active_issue = "Issue-676"$' "$DA_HOME/state/volk.toml"
+  # The preserved branch is RESTORED to the live top level (not lost, and not left
+  # stranded in the context table — read the top-level key precisely).
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" branch
+  [ "$output" = "feat/676-work" ]
+  # the snapshot is consumed by the restore, and the displacement marker cleared
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.branch
+  [ "$status" -ne 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" displaced.Issue-676
+  [ "$status" -ne 0 ]
+}
+
+@test "#415: operator park clears a leaked displaced marker → re-pull GCs, no MAJ-1 resurrection" {
+  # Seed a LEAKED displacement marker on an issue carrying real live work.
+  mkdir -p "$DA_HOME/state" "$DEVDOC/Issue-676"
+  cat > "$DA_HOME/state/volk.toml" <<CTX
+active_issue = "Issue-676"
+issue_dir = "$DEVDOC/Issue-676"
+branch = "feat/676-REAL-WORK"
+
+[displaced]
+Issue-676 = true
+CTX
+  "$PLUGIN_ROOT/scripts/park.sh" volk            # operator park MUST clear the marker
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" displaced.Issue-676
+  [ "$status" -ne 0 ]
+  "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676 >/dev/null   # re-pull: fresh start
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" branch
+  [ "$output" != "feat/676-REAL-WORK" ]          # #98 MAJ-1: stale context NOT resurrected
+}

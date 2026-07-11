@@ -273,3 +273,17 @@ SH
   # 3. Behavioral: the branch is restored.
   grep -qE '^branch = "fix/676-foo"$' "$DA_HOME/state/volk.toml"
 }
+
+@test "resume displacing an in-flight active issue parks it so it is recoverable (#415)" {
+  # Issue-676 active in-flight (branch); Issue-203 parked+displaced with context.
+  T="$PLUGIN_ROOT/scripts/lib/_toml.py"; S="$DA_HOME/state/volk.toml"
+  python3 "$T" set "$S" branch "fix/676-live"
+  python3 "$T" set-bool "$S" parked.Issue-203 true
+  python3 "$T" set "$S" context.Issue-203.branch "feat/203"
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-203
+  [ "$status" -eq 0 ]
+  grep -qE '^active_issue *= *"Issue-203"' "$S"
+  # Issue-676 (displaced by the resume) is now parked → recoverable in turn.
+  run python3 "$T" get "$S" parked.Issue-676
+  [ "$status" -eq 0 ]
+}
