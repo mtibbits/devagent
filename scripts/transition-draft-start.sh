@@ -27,10 +27,20 @@ main() {
     project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
     [ -n "$project" ] || { echo "draft: no project resolved; skipping on_draft_start transition" >&2; return 0; }
 
-    # active_issue is a top-level session key (raw read, like sync.sh).
+    # #416: resolve the SESSION's issue (pin > state), NOT a raw shared-slot read.
+    # A DEVAGENT_ACTIVE_ISSUE-pinned session drafting while the shared slot names
+    # another issue must fire the transition for the PINNED issue, not the slot's
+    # (or silently skip when the slot is empty). The old "like sync.sh" analogy was
+    # wrong: sync REPORTS the shared view; draft ACTS on the session's issue — the
+    # step-script convention. A scan-GUESSED issue is never acted on for an outward
+    # tracker mutation (#240).
     local issue_arg
-    issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
-    [ -n "$issue_arg" ] || { echo "draft: no active issue for $project; skipping on_draft_start transition" >&2; return 0; }
+    active_resolve_issue_src "$project" 2>/dev/null || true
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
+    if [ -z "$issue_arg" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        echo "draft: no pinned/active issue for $project (scan matches are not acted on); skipping on_draft_start transition" >&2
+        return 0
+    fi
 
     # Gate FIRST, fail-closed (#219). Do not touch the tracker without consent.
     local allow_transition
