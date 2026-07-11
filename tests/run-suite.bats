@@ -65,3 +65,10 @@ teardown() { devagent_test_teardown; }
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^bats: 2/3 notok=1$' "$art"
 }
+
+@test "run-suite artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
+    export DEVAGENT_DATE_OVERRIDE=2020-02-02
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ -f "$DEVDOC_DIR/Issue-1/analysis/2020-02-02-suite-count.txt" ]
+}

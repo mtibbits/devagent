@@ -112,7 +112,7 @@ for f in "${mod_files[@]:-}"; do
   fi
 done
 
-date_str="$(date +%F)"
+date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-born-red.txt"
 
