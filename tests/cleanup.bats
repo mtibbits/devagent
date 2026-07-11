@@ -216,3 +216,28 @@ EOF
     grep -q '^active_issue *= *"Issue-1"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     grep -q '^branch *= *"feat/1-x"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "#418: cleanup clears+stamps+resets in ONE transaction — no crash window" {
+    # Shim python3 to log every _toml.py argv, then exec the real interpreter.
+    REAL_PY="$(command -v python3)"
+    mkdir -p "$DEVAGENT_TMP/shim"
+    cat > "$DEVAGENT_TMP/shim/python3" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$DEVAGENT_TMP/toml-calls.log"
+exec "$REAL_PY" "\$@"
+SH
+    chmod +x "$DEVAGENT_TMP/shim/python3"
+    : > "$DEVAGENT_TMP/toml-calls.log"
+    PATH="$DEVAGENT_TMP/shim:$PATH" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # ONE transact carries BOTH the pointer clear (active_issue) AND the per-issue
+    # reset (branch) — proving the clear+set is a single atomic call, not two.
+    fused="$(grep 'transact' "$DEVAGENT_TMP/toml-calls.log" | grep 'active_issue' | grep 'branch')"
+    [ -n "$fused" ]
+    # The old separate set-many writing active_issue is gone.
+    run bash -c "grep -c 'set-many .*active_issue' '$DEVAGENT_TMP/toml-calls.log'"
+    [ "$output" -eq 0 ]
+    # Behavior unchanged: pointer cleared + closeout stamped.
+    grep -q '^active_issue *= *""' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    grep -q '^last_step_name *= *"cleanup"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}

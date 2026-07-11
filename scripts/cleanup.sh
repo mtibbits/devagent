@@ -106,11 +106,7 @@ fi
 # on a pinned session cleaning its own issue, and still skips a pinned session
 # whose slot names another issue — but never clobbers a different active issue.
 if [ "$shared_active" = "$gc_issue" ]; then
-    state_context_clear "$project"
-    state_set_many "$project" \
-      str last_step      "20" \
-      str last_step_name "cleanup" \
-      str active_issue   ""
+    state_cleanup_finish "$project"   # #418: clear+stamp+pointer in ONE transaction
 else
     info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"
 fi
