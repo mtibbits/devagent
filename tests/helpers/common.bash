@@ -203,13 +203,35 @@ devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
 # --- #335: checklist step helpers --------------------------------------------
 # checklist.md is not a toml, so sed is allowed internally (outside the AC
 # canary); the grep guard supplies the fail-loud property a bare `sed -i` lacks.
+#
+# #420: mark/assert/delete_step must be REVISION-SCOPED exactly like production.
+# revise.sh appends a `## Revision N` block reusing step numbers 1-15 + closeout
+# 16-21; unscoped helpers would flip/read EVERY block (mask a revision bug) or
+# pass off revision-1's stale glyph — the masking class #335 killed for the
+# production checklist_mark_by_name. Rather than re-implement (and re-drift) the
+# scoping, reuse the production resolver `_checklist_scope_start` (membership-
+# based: active-block start iff the step number is in it, else 0 = file-wide, so
+# step 0 stays file-wide). Sourced lazily so `load 'helpers/common'` stays cheap.
+_ensure_checklist_lib() {
+    declare -F _checklist_scope_start >/dev/null 2>&1 && return 0
+    local _lib; _lib="$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib"
+    . "$_lib/io.sh"
+    . "$_lib/checklist.sh"
+}
+
 mark_step() {
     # <checklist-md> <step-num> <glyph>
-    local file="$1" step="$2" glyph="$3"
+    local file="$1" step="$2" glyph="$3" start
     if ! grep -qE "^- \[.\] +${step}\. " "$file"; then
         echo "mark_step: no step ${step} in $file" >&2; return 1
     fi
-    sed -i -E "/^- \[.\] +${step}\. / s/\[.\]/[${glyph}]/" "$file"
+    _ensure_checklist_lib
+    start="$(_checklist_scope_start "$file" "$step")"
+    if [ "$start" -gt 0 ]; then
+        sed -i -E "$((start+1)),\$ {/^- \[.\] +${step}\. / s/\[.\]/[${glyph}]/}" "$file"
+    else
+        sed -i -E "/^- \[.\] +${step}\. / s/\[.\]/[${glyph}]/" "$file"
+    fi
 }
 
 assert_step() {
@@ -218,10 +240,17 @@ assert_step() {
     # literally: [?] [.] [!] [ ] [-] [~] are all safe inside []. (A bare
     # \[${glyph}\] would make glyph='?' optional-quantify the '[' and make
     # glyph='.' match any glyph.)
-    local file="$1" step="$2" glyph="$3" name="${4:-}"
+    local file="$1" step="$2" glyph="$3" name="${4:-}" start scoped
+    _ensure_checklist_lib
+    start="$(_checklist_scope_start "$file" "$step")"
     local pat="^- \[[${glyph}]\] +${step}\. ${name}"
-    if ! grep -qE "$pat" "$file"; then
-        echo "assert_step: step ${step} not [${glyph}] ${name} in $file" >&2
+    if [ "$start" -gt 0 ]; then
+        scoped="$(awk -v s="$start" 'NR>s' "$file")"
+    else
+        scoped="$(cat "$file")"
+    fi
+    if ! printf '%s\n' "$scoped" | grep -qE "$pat"; then
+        echo "assert_step: step ${step} not [${glyph}] ${name} in the active revision of $file" >&2
         echo "--- checklist ---" >&2; cat "$file" >&2
         return 1
     fi
@@ -229,9 +258,15 @@ assert_step() {
 
 delete_step() {
     # <checklist-md> <step-num>
-    local file="$1" step="$2"
+    local file="$1" step="$2" start
     if ! grep -qE "^- \[.\] +${step}\. " "$file"; then
         echo "delete_step: no step ${step} in $file" >&2; return 1
     fi
-    sed -i -E "/^- \[.\] +${step}\. /d" "$file"
+    _ensure_checklist_lib
+    start="$(_checklist_scope_start "$file" "$step")"
+    if [ "$start" -gt 0 ]; then
+        sed -i -E "$((start+1)),\$ {/^- \[.\] +${step}\. /d}" "$file"
+    else
+        sed -i -E "/^- \[.\] +${step}\. /d" "$file"
+    fi
 }
