@@ -76,7 +76,17 @@ fi
 [ "${a_failed:-0}" = "0" ] || fails+=("pytest failed=$a_failed (suite not green)")
 
 # Reconstruct the canonical suite line from the artifact and compare (exact).
-expected_suite="$a_ok/$a_plan bats, ${a_passed:-0} pytest @ $a_head"
+# #411: a project with NEITHER framework yields `bats: (none)` + `pytest: (none)`.
+# Reconstruct the explicit no-framework form `none @ <sha>` instead of a nonsensical
+# `/ bats, 0 pytest @ <sha>` that could never reconcile — so a ctest-only / non-bats
+# project (e.g. volk) preships end-to-end without hand-deleting the Evidence lines.
+# Framework projects keep the exact reconstruction, so their artifacts and Evidence
+# are byte-identical to today.
+if grep -q '^bats: (none)$' "$artifact" && grep -q '^pytest: (none)$' "$artifact"; then
+  expected_suite="none @ $a_head"
+else
+  expected_suite="$a_ok/$a_plan bats, ${a_passed:-0} pytest @ $a_head"
+fi
 [ "$ev_suite" = "$expected_suite" ] \
   || fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite'")
 
