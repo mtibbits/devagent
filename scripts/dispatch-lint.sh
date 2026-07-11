@@ -56,11 +56,26 @@ body_lines="$(sed -n '3,$p' "$artifact" | grep -c '[^[:space:]]' || true)"
 [ "$body_lines" -ge 5 ] \
   || _reject "body has $body_lines non-empty lines (need ≥5 — a garbled/no-work report)"
 
-# Verdict token required for the judgement classes.
+# A verdict SIGNAL is required for the judgement classes (#405). The house skills
+# emit different-but-legitimate shapes: preship writes per-criterion PASS/FAIL;
+# redmr's mandated Summary is the count line "B blocking, M major, m minor, I info"
+# (core-redmr §; no SHIP token); review uses a "## Blocking" section header (or an
+# older "Verdict:" line) with no count and no token. Accept any of these four —
+# each is a human-recognizable "the checker reached a verdict" marker that a
+# garbled/no-work report (the #117/#122/#76/#315 misfire class this gate exists to
+# catch) does not carry. The `## Blocking` pattern deliberately does NOT match
+# redmr's bracketed `### [BLOCKING]` finding header; the `Verdict:` pattern is
+# line-anchored so it does not match mid-prose.
 case "$class" in
   review|redmr|preship)
-    grep -Eq '\b(SHIP|SHIP-WITH-NITS|FIX-BEFORE-SHIP|NO-SHIP|PASS|FAIL)\b' "$artifact" \
-      || _reject "no verdict token (SHIP|SHIP-WITH-NITS|FIX-BEFORE-SHIP|NO-SHIP|PASS|FAIL) for --class $class"
+    if grep -Eq '\b(SHIP|SHIP-WITH-NITS|FIX-BEFORE-SHIP|NO-SHIP|PASS|FAIL)\b' "$artifact" \
+       || grep -Eq '[0-9]+[[:space:]]+blocking\b' "$artifact" \
+       || grep -Eq '^#{1,6}[[:space:]]+Blocking\b' "$artifact" \
+       || grep -Eqi '^#{0,6}[[:space:]]*verdict:' "$artifact"; then
+      :
+    else
+      _reject "no verdict signal for --class $class (need a SHIP/PASS/FAIL token, a house count line 'N blocking, …', a '## Blocking' review section, or a 'Verdict:' line)"
+    fi
     ;;
 esac
 
