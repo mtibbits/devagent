@@ -66,9 +66,12 @@ re-typed.
    ```
 
    From the newest `analysis/<date>-suite-count.txt`, write exactly
-   `suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <head-sha>`
-   and `files: <n> changed` (n = `git diff --name-only <baseline_sha>..HEAD |
-   wc -l`). If an `analysis/<date>-born-red.txt` exists, add
+   `suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <head-sha>` —
+   UNLESS the artifact shows both `bats: (none)` and `pytest: (none)` (a project
+   with neither framework), in which case write the no-framework form
+   `suite: none @ <head-sha>` (#411) — and `files: <n> changed`
+   (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`).
+   If an `analysis/<date>-born-red.txt` exists, add
    `born-red: <its verdict>`. preship's verification #4 (#359) hard-checks
    these against the artifact + git, so they must be exact. (No Evidence block
    in the template ⇒ skip — the checker warns and passes for back-compat.)

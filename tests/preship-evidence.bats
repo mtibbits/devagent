@@ -113,3 +113,35 @@ _run() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN"* ]]
 }
+
+# $1=head  → writes a no-framework (neither bats nor pytest) suite-count artifact
+_artifact_none() {
+    printf 'head: %s  dirty: no\nbats: (none)\npytest: (none)\n' "$1" \
+        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+}
+
+@test "preship-evidence: no-framework project reconciles 'suite: none' → rc 0 (#411)" {
+    _artifact_none "$HEAD_SHA"
+    _mr "none @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: no-framework artifact vs a bats-style Evidence line → nonzero, names 'none @' (#411)" {
+    _artifact_none "$HEAD_SHA"
+    _mr "0/0 bats, 0 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"none @"* ]]
+}
+
+@test "preship-evidence: end-to-end no-framework (run-suite → preship) clean (#411)" {
+    # SOURCE_DIR has no tests/*.bats or tests/test_*.py → run-suite writes (none)/(none).
+    run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -q '^bats: (none)$'   "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    grep -q '^pytest: (none)$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    _mr "none @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
