@@ -179,3 +179,26 @@ EOF
     grep -q '^verdict: PASS$' "$(_artifact)"
     grep -q 'test_feature.py' "$(_artifact)"
 }
+
+@test "born-red: new zero-@test whole file → NO-NEW-TESTS, not PASS (#407)" {
+    # A NEW .bats file that bats loads to an empty plan (1..0, exit 0). Without the
+    # fix the whole-file unit contributes zero rows and the run falls through to a
+    # PASS verdict / "new tests: 0"; the fix demands NO-NEW-TESTS.
+    printf '#!/usr/bin/env bats\n# no @test blocks here\n' > "$SOURCE_DIR/tests/empty.bats"
+    printf '#!/usr/bin/env bash\necho "1..0"\n' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/born-red.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -q '^verdict: NO-NEW-TESTS$' "$(_artifact)"
+}
+
+@test "born-red: new whole file that fails to load (no TAP plan) → die (#407)" {
+    # bats load failure: an error line, NO 1..N plan, nonzero exit swallowed by the
+    # else branch's `|| true`. Without the fix this yields zero rows → silent PASS.
+    printf '#!/usr/bin/env bats\n@test "x" { true; }\n' > "$SOURCE_DIR/tests/loadfail.bats"
+    printf '#!/usr/bin/env bash\necho "Error: could not load test file" >&2\nexit 1\n' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/born-red.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"failed to load"* ]]
+}

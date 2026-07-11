@@ -160,6 +160,13 @@ _run_bats() {   # dir file name(optional) → TAP on stdout; die on empty -f mat
       || die "born-red: name filter matched ZERO tests: $file :: $name (bats exits 0 on an empty match)"
   else
     out="$(cd "$dir" && bats --tap "$file" 2>&1 || true)"
+    # Whole-file runs must emit a TAP plan (`1..N`). Its absence means bats never
+    # loaded the file (parse error / missing file) — the rows would silently
+    # vanish into a PASS, so die. A present `1..0` (zero @test) is legitimate and
+    # is handled as NO-NEW-TESTS after the run loop, not here.
+    plan="$(printf '%s\n' "$out" | sed -n 's/^1\.\.\([0-9]*\)$/\1/p' | head -1)"
+    [ -n "$plan" ] \
+      || die "born-red: bats failed to load '$file' (no TAP plan emitted)"
   fi
   printf '%s\n' "$out"
 }
@@ -213,6 +220,16 @@ for u in "${units[@]}"; do
     _classify_row "$file" "${name:-<file>}" "$base_r" "$head_r"
   fi
 done
+
+# Every new file resolved to zero runnable tests (all bats whole-files emitted
+# `1..0`; name-filter and pytest units either classify a row or die). That is a
+# NO-NEW-TESTS run, not a PASS — mirror the pre-run zero-units guard's artifact.
+if [ "$total" -eq 0 ]; then
+  { echo "born-red — $date_str"; echo "baseline: $baseline"; echo "new tests: 0";
+    echo "verdict: NO-NEW-TESTS"; } > "$artifact"
+  echo "born-red: new test files contributed zero runnable tests → NO-NEW-TESTS" >&2
+  exit 0
+fi
 
 # ---- verdict + artifact -----------------------------------------------------
 if [ "$flagged" -gt 0 ]; then verdict="FLAGGED ($flagged green-at-baseline)"
