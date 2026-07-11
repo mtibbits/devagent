@@ -26,3 +26,17 @@ REPO="${BATS_TEST_DIRNAME}/.."
   local n; n="$(grep -cE '^### [0-9]+\. ' "$f")"
   [ "$n" -eq 16 ]
 }
+
+@test "no phantom /devagent:run-suite or :born-red in shipped invocation messages (#412)" {
+  # Neither has a commands/*.md or a skills-registry entry; the real invocation is
+  # the bash script (run-suite.sh / born-red.sh). Grep shipped source only — NOT
+  # tests/, which necessarily names the forbidden strings here.
+  run grep -rnE '/devagent:(run-suite|born-red)' \
+      "$REPO/scripts" "$REPO/commands" "$REPO/skills" "$REPO/templates"
+  # rc-precise (#337): rc 1 = clean no-match; rc 2 = grep error must not false-pass.
+  [ "$status" -eq 1 ] || { echo "phantom invocation (or grep error):" >&2; echo "$output" >&2; return 1; }
+}
+
+@test "the real /devagent:draftmr reference survives in mr_template (#412)" {
+  grep -q '/devagent:draftmr' "$REPO/templates/mr_template.md"
+}

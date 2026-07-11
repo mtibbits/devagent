@@ -47,7 +47,7 @@ ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\
 
 # Newest suite-count artifact.
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
-[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run /devagent:run-suite at HEAD"
+[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\"\` at HEAD"
 
 a_head="$(sed -n 's/^head:[[:space:]]*\([^ ]*\).*/\1/p' "$artifact" | head -1)"
 a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
