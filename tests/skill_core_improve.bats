@@ -17,6 +17,15 @@ setup() {
   grep -qi 'ambiguit' "$SKILL/SKILL.md"
 }
 
+@test "core-improve carries the pothole tripwire and packages the register (#286)" {
+  # The Checklist tripwire item (item 4).
+  grep -qi 'Pothole register tripwire' "$SKILL/SKILL.md"
+  # The dispatch-packaging input — a DISTINCT assertion (not subsumed by the
+  # tripwire line) proving the checker RECEIVES the register (dead-tripwire fix).
+  grep -qi 'register path is load-bearing' "$SKILL/SKILL.md"
+  grep -q 'potholes' "$SKILL/SKILL.md"
+}
+
 @test "core-improve fixture exists" {
   [ -s "$FIXT/imPlan.md" ]
   [ -s "$FIXT/checklist.md" ]

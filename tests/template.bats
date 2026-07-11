@@ -74,3 +74,16 @@ teardown() { teardown_phase9_env; }
   [ "$status" -eq 0 ]
   [[ "$output" != *MISSING* ]]
 }
+
+@test "potholes register key resolves at the plugin layer (#286)" {
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh"     --project "${DEVAGENT_TEST_PROJECT}" list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *potholes* ]]
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh"     --project "${DEVAGENT_TEST_PROJECT}" show potholes
+  [ "$status" -eq 0 ]
+  [[ "$output" != *MISSING* ]]
+}
+
+@test "imPlan_template carries the Potholes considered section (#286)" {
+  grep -q '^## Potholes considered' "${DEVAGENT_REPO_ROOT}/templates/imPlan_template.md"
+}

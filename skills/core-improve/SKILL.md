@@ -8,8 +8,9 @@ when-to-use: After /devagent:scope has appended scope evaluation and before /dev
 
 Step 3 of the devAgent 22-step workflow. Reads `<issue-dir>/imPlan.md`
 (including the Scope evaluation section) and appends an `## Improvements`
-section that flags concrete plan defects in three categories: bugs,
-side effects, ambiguities.
+section that flags concrete plan defects in three categories — bugs,
+side effects, ambiguities — plus a pothole-register tripwire (#286) whose
+findings route into Bugs.
 
 ## Overview
 
@@ -52,13 +53,17 @@ not.
    bad marker: STOP and fix or remove it — do NOT dispatch on inherit.
 2. **Package inputs as paths, not conversation.** The dispatch prompt
    contains only: the absolute paths of `issue.md` and `imPlan.md`
-   (including its Scope evaluation), the project source repo directory,
-   the three finding categories (bugs / side effects / ambiguities), and
-   the output artifact path
-   `<issue-dir>/analysis/YYYY-MM-DD-improve.md` (create `analysis/` if
-   missing — pull scaffolds only the issue dir). Do NOT paste plan
-   summaries or your own assessment into the prompt — that re-imports
-   the author bias the dispatch exists to shed.
+   (including its Scope evaluation), the resolved pothole register
+   (`potholes` via the §12 walk — `template.sh --project <p> show
+   potholes` prints its source path; #286), the project source repo
+   directory, the three finding categories (bugs / side effects /
+   ambiguities), the pothole tripwire (Checklist item 4), and the output
+   artifact path `<issue-dir>/analysis/YYYY-MM-DD-improve.md` (create
+   `analysis/` if missing — pull scaffolds only the issue dir). The
+   register path is load-bearing: a tripwire the dispatched checker never
+   RECEIVES is dead (#286). Do NOT paste plan summaries or your own
+   assessment into the prompt — that re-imports the author bias the
+   dispatch exists to shed.
 3. **Dispatch** one subagent with the resolved override (per step 1).
    If dispatch fails because the tier is unavailable (e.g. a model the
    current plan does not include), retry once with NO override and
@@ -99,7 +104,7 @@ the lint (the operator sees the artifact directly).
 
 ## Checklist
 
-Walk these three categories in order.
+Walk the three finding categories in order, then apply the pothole tripwire.
 
 1. **Bugs in the plan.** Where would the proposed change introduce a
    bug, regression, off-by-one, race, or memory issue? For each, cite
@@ -112,6 +117,14 @@ Walk these three categories in order.
    confuse another engineer reading it cold? Concrete, not abstract:
    "task 2 says 'add a check' — check for what condition? null? empty?
    uninitialized?"
+4. **Pothole register tripwire (#286).** Read the resolved register
+   (packaged for you per Dispatch step 2) and judge which of its DOMAIN
+   TRIGGERS actually match this issue's change. Then read the plan's
+   `## Potholes considered` section: a register trigger that MATCHES
+   this issue but is ABSENT from, or wrongly marked N/A in, that section
+   is a finding — report it under `### Bugs` (the plan walks into a known
+   trap). This is a check, not a fourth output bucket; its findings live
+   in Bugs.
 
 For each callout: tag with `[merge]`, `[defer]`, or `[dismiss]`. The
 operator decides; the skill proposes a default tag based on severity.

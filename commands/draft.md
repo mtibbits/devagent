@@ -62,6 +62,23 @@ that project.
    path, or state an explicit plan delta). A "0 named inputs found" line means
    derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
    for premise-freshness checks; #286's pothole register appends here.)
+
+   **Pothole register — consider known potholes before drafting (#286).**
+   Resolve `potholes` via the §12 walk (project paths → `<devdoc>/templates/`
+   → plugin default) and read it:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" --project "$project" show potholes
+   ```
+
+   The register is a curated list of `[pattern]` lessons keyed by DOMAIN
+   TRIGGER, each citing its source `(Issue-N)`. Judge which triggers MATCH
+   this issue's change, then emit a `## Potholes considered` section in the
+   plan (the `imPlan_template` carries the skeleton) listing: (a) each MATCHING
+   trigger with the mitigation the plan adopts, and (b) triggers reviewed and
+   deemed N/A. ADVISORY to the plan — enforcement is the improve-step tripwire
+   (core-improve): a trigger that matches but is absent from, or wrongly N/A in,
+   `## Potholes considered` is a finding. Cost: one file read + a short section.
 3. **Check for pending review comments (Phase 6 revision flow).**
    Look up `pending_comments_file` in
    `~/.claude/devagent/state/<project>.toml`. If set and the file
