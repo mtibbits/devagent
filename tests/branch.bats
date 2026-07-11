@@ -234,3 +234,23 @@ PY
     run grep -q '^branch *= *"feat/' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
 }
+
+@test "twin Issue-N / Issue-Fork-N with the same slug get DISTINCT branches (#422)" {
+    # #332 fixed the worktree leaf; the branch NAME still stripped "Fork-" and
+    # collapsed the twins → the second `checkout -b`/`worktree add -b` died
+    # "already exists". Non-fork stays feat/42-…; fork becomes feat/fork-42-….
+    local id
+    for id in Issue-42 Issue-Fork-42; do
+        mkdir -p "$DEVDOC_DIR/$id"
+        cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/$id/checklist.md"
+        echo "feature"         > "$DEVDOC_DIR/$id/.devagent-type"
+        echo "same title slug" > "$DEVDOC_DIR/$id/.devagent-title"
+    done
+    export NOTE=""
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-42
+    [ "$status" -eq 0 ]
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-Fork-42
+    [ "$status" -eq 0 ]                                  # must NOT die "already exists"
+    ( cd "$SOURCE_DIR" && git rev-parse --verify feat/42-same-title-slug >/dev/null )
+    ( cd "$SOURCE_DIR" && git rev-parse --verify feat/fork-42-same-title-slug >/dev/null )
+}
