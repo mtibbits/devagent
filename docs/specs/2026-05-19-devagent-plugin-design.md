@@ -213,12 +213,19 @@ ignored whenever a context entry exists.
 The snapshot/restore helpers (`state_context_{save,restore,clear}`,
 `scripts/lib/state.sh`) drive the lifecycle: `park` snapshots the active
 issue into its `[context.<issue>]` and resets the top level to defaults;
-`resume` restores the snapshot and deletes it; `pull` snapshots a
-displaced unparked issue and starts the new issue from defaults (re-pull
-of the active issue is a no-op on context); `cleanup` resets to
-defaults. `[context]` is deliberately separate from `[parked]`: saved
-context is orthogonal to parked-ness, and `state_list_parked` lists only
-scalar keys. A future full `[issues.<id>]` nesting (Epic #61 end state)
+`resume` restores the snapshot and deletes it; `pull`/`resume` snapshot a
+displaced in-flight issue AND park it, tagging it in a top-level
+`[displaced]` marker table so the advertised recovery
+(`/devagent:resume` | `/devagent:switch`, which both key on `[parked]`)
+finds it (#415). A displacement-park is distinguished from an operator
+park by that marker: re-pulling a **displacement**-parked issue RESTORES
+its snapshot (resume semantics), while re-pulling an **operator**-parked
+issue GCs it (fresh start, the #98 MAJ-1 invariant). Every path that makes
+an issue active or ends a park (`park`, `resume`, `pull` restore/GC,
+`cleanup`) clears the `[displaced]` marker so it cannot leak. `cleanup`
+resets to defaults. `[context]` is deliberately separate from `[parked]`:
+saved context is orthogonal to parked-ness, and `state_list_parked` lists
+only scalar keys. A future full `[issues.<id>]` nesting (Epic #61 end state)
 would re-point
 these helpers without changing callers.
 

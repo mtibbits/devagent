@@ -85,6 +85,7 @@ fi
 shared_active="$(state_get "$project" active_issue 2>/dev/null || true)"
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
+    state_remove_displaced "$project" "$gc_issue"   # #415: don't leak the marker
     # #351: remove this issue's keyed analyze build dirs from the shared source
     # tree. Per-issue keying isolates concurrent chains but would grow unbounded
     # otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash

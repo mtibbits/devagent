@@ -95,6 +95,23 @@ main() {
       # context. (#96: one transaction; #282: no pointer write — pull's
       # project is always an explicit positional.)
       state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
+    elif state_is_displaced "$project" "$issue_id" && state_context_has "$project" "$issue_id"; then
+      # #415: re-pull of a DISPLACEMENT-parked issue = "bring my displaced work
+      # back" → RESTORE its snapshot (resume semantics), not a fresh start. The
+      # issue this pull now displaces is itself snapshotted + parked + marked so
+      # it is recoverable in turn. (Operator-parks — no displaced marker — fall
+      # through to the else and keep the #98 MAJ-1 fresh-start GC below.)
+      if [[ -n "$prev" && "$prev" != "null" && "$prev" != "$issue_id" ]]; then
+        state_context_save "$project" "$prev"
+        if state_context_has "$project" "$prev"; then
+          state_add_parked "$project" "$prev"
+          state_add_displaced "$project" "$prev"
+          displaced="$prev"
+        fi
+      fi
+      state_remove_parked "$project" "$issue_id"
+      # (the displaced marker is cleared in-lock by state_resume_promote_restore)
+      state_resume_promote_restore "$project" "$issue_id" "$issue_dir"
     else
       local snap_prev=""
       [[ -n "$prev" && "$prev" != "null" ]] && snap_prev="$prev"
@@ -108,7 +125,15 @@ main() {
         # actually taken (genuinely in-flight); reads the table the
         # transaction above just wrote. No-prev and nothing-to-save cases
         # leave $displaced empty and stay silent.
-        state_context_has "$project" "$snap_prev" && displaced="$snap_prev"
+        if state_context_has "$project" "$snap_prev"; then
+          displaced="$snap_prev"
+          # #415: park + mark the displaced issue so the advertised recovery
+          # (/devagent:resume | /devagent:switch) actually finds it (both key on
+          # the parked flag). The displaced marker makes a later re-pull RESTORE
+          # it rather than GC it.
+          state_add_parked "$project" "$snap_prev"
+          state_add_displaced "$project" "$snap_prev"
+        fi
       fi
     fi
   fi
@@ -117,8 +142,11 @@ main() {
   # live work (#98). The snapshot GC is gated on the parked flag — under #240
   # the [context.<issue>] table is a pinned session's LIVE home, and an
   # unconditional unset on re-pull would delete the only copy (review CRIT).
+  # #415: a displacement-park was already restored+cleared on the elif path
+  # above, so anything still parked here is an operator-park → GC it (MAJ-1).
   if state_list_parked "$project" | grep -qxF "$issue_id"; then
     state_remove_parked "$project" "$issue_id"
+    state_remove_displaced "$project" "$issue_id"
     state_unset "$project" "context.${issue_id}"
   fi
 

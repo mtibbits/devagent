@@ -320,11 +320,14 @@ state_resume_promote_restore() {
   if ! state_context_has "$project" "$issue"; then
     echo "warning: resume: no saved context for '$issue' — per-issue keys reset to defaults" >&2
   fi
+  # #415: also clear the displacement marker in-lock — the issue is becoming
+  # active, so it is neither parked nor displaced. Folded into THIS transact so
+  # resume stays within the #317 ≤2-mutation cap (no extra call).
   old_active="$(_state_toml transact "$f" --print-old active_issue \
       --restore "context.${issue}" "${_STATE_RESTORE_SPECS[@]}" \
       --set str active_issue "$issue" str issue_dir "$issue_dir" \
             str updated_at "$(_state_now)" \
-      --unset "context.${issue}")"
+      --unset "context.${issue}" "displaced.${issue}")"
   _state_warn_active_clobber "$old_active" "$issue"
 }
 
@@ -376,6 +379,30 @@ state_list_parked() {
   local project="$1"
   state_exists "$project" || return 0
   _state_toml list-keys "$(state_path "$project")" parked 2>/dev/null || true
+}
+
+# #415: the [displaced] table marks a park that pull/resume created by DISPLACING
+# an in-flight issue (as opposed to a deliberate /devagent:park). Both are parked
+# (so resume/switch find them), but they diverge on re-pull: an operator-park is
+# GC'd (fresh start, #98 MAJ-1), a displacement-park is RESTORED (bring the work
+# back). The marker is the only thing that tells the two apart.
+state_add_displaced() {
+  local project="$1" issue="$2"
+  state_init "$project"
+  _state_toml set-bool "$(state_path "$project")" "displaced.${issue}" true
+}
+
+state_remove_displaced() {
+  local project="$1" issue="$2"
+  state_exists "$project" || return 0
+  _state_toml unset "$(state_path "$project")" "displaced.${issue}"
+}
+
+# Returns 0 iff issue carries the displacement-park marker.
+state_is_displaced() {
+  local project="$1" issue="$2"
+  state_exists "$project" || return 1
+  _state_toml get "$(state_path "$project")" "displaced.${issue}" >/dev/null 2>&1
 }
 
 # (#330: state_active_project deleted — zero production callers; project

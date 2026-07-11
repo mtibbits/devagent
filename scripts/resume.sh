@@ -58,6 +58,7 @@ main() {
     state_context_has "$project" "$issue" 2>/dev/null \
       || warn "$issue: no per-issue context recorded (legacy park or fresh issue) — reads start from defaults; run /devagent:branch if a branch existed"
     state_remove_parked "$project" "$issue"
+    state_remove_displaced "$project" "$issue"   # #415: it is active now — no stale marker
     local wt_pin note_pin=""
     wt_pin="$(state_issue_get "$project" "$issue" worktree_path 2>/dev/null || true)"
     if [[ -n "$wt_pin" ]] \
@@ -76,6 +77,7 @@ main() {
     # live context with a stale snapshot (#98). Drop the flag and the stale
     # snapshot; leave live state untouched.
     state_remove_parked "$project" "$issue"
+    state_remove_displaced "$project" "$issue"   # #415: it is active now — no stale marker
     state_unset "$project" "context.${issue}"
     info "resumed $issue (already active; context unchanged)"
     return 0
@@ -85,6 +87,12 @@ main() {
   # guard (#98).
   if [[ -n "$active" && "$active" != "null" ]]; then
     state_context_save "$project" "$active"
+    # #415: park + mark the displaced active so it is recoverable in turn via
+    # resume/switch (both key on the parked flag) — mirrors pull's displacement.
+    if state_context_has "$project" "$active"; then
+      state_add_parked "$project" "$active"
+      state_add_displaced "$project" "$active"
+    fi
   fi
 
   state_remove_parked "$project" "$issue"
