@@ -342,3 +342,15 @@ CFG
   expected="${devdoc%/}/Issue-9"
   [ "$(issue_dir_for volk Issue-9)" = "$expected" ]
 }
+
+@test "STATE_ISSUE_KEYS and _STATE_RESTORE_SPECS enumerate the same key set (#419)" {
+  # Drift is a cross-issue value LEAK: a key snapshotted (STATE_ISSUE_KEYS) but not
+  # reset/restored (_STATE_RESTORE_SPECS) carries a stale value across context
+  # switches. lib/state.sh's own comment documents the hazard; this makes it CI.
+  local keys specs i
+  keys="$(printf '%s\n' $STATE_ISSUE_KEYS | LC_ALL=C sort)"
+  local -a spec_keys=()
+  for ((i=1; i<${#_STATE_RESTORE_SPECS[@]}; i+=3)); do spec_keys+=("${_STATE_RESTORE_SPECS[i]}"); done
+  specs="$(printf '%s\n' "${spec_keys[@]}" | LC_ALL=C sort)"
+  [ "$keys" = "$specs" ]
+}
