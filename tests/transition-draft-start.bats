@@ -45,3 +45,11 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"on_draft_start transition failed"* ]]
 }
+
+@test "draft start fires for the PINNED session issue, not the shared slot (#416)" {
+    # Shared slot names Issue-1 (setup); a second session pinned to Issue-2 drafts.
+    DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 2 on_draft_start"
+    devagent_refute_logged "transition acme/testproj 1 on_draft_start"
+}
