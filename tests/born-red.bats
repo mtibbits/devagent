@@ -202,3 +202,19 @@ EOF
     [ "$status" -ne 0 ]
     [[ "$output" == *"failed to load"* ]]
 }
+
+@test "born-red: pure test-file rename → NO-NEW-TESTS, not FLAGGED (#408)" {
+    # git mv a committed test file with NO content change. Without -M + the old
+    # path the per-file diff reads the renamed file as a wholly-new add → every
+    # @test counts as NEW/green-at-baseline → FLAGGED; the fix must see the rename
+    # and report NO-NEW-TESTS (units empty; the bats stub is never invoked).
+    printf '#!/usr/bin/env bats\n' > "$SOURCE_DIR/tests/orig.bats"
+    printf '%s\n' '@test "one" { true; }' >> "$SOURCE_DIR/tests/orig.bats"
+    ( cd "$SOURCE_DIR" && git add tests/orig.bats && git commit -q -m "seed rename test" )
+    local nb; nb="$( git -C "$SOURCE_DIR" rev-parse HEAD )"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$nb"
+    ( cd "$SOURCE_DIR" && git mv tests/orig.bats tests/renamed.bats )
+    _run_br_stub
+    [ "$status" -eq 0 ]
+    grep -q '^verdict: NO-NEW-TESTS$' "$(_artifact)"
+}
