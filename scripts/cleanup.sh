@@ -97,14 +97,22 @@ if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     done
     unset _bk _d
 fi
-if [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ "$shared_active" = "$gc_issue" ]; then
+# #417: touch the shared slot ONLY when the issue being cleaned actually OWNS it
+# (shared_active == gc_issue). The old guard keyed on pin-ABSENCE (a session
+# property), so an unpinned `cleanup <proj> Issue-B` while active_issue=Issue-A
+# ran state_context_clear + active_issue="" and wiped Issue-A's live top-level
+# mirror. Ownership is a property of the SLOT, not of DEVAGENT_ACTIVE_ISSUE: this
+# still clears on the normal unpinned cleanup of the active issue (shared==gc) and
+# on a pinned session cleaning its own issue, and still skips a pinned session
+# whose slot names another issue — but never clobbers a different active issue.
+if [ "$shared_active" = "$gc_issue" ]; then
     state_context_clear "$project"
     state_set_many "$project" \
       str last_step      "20" \
       str last_step_name "cleanup" \
       str active_issue   ""
 else
-    info "cleanup: session is issue-pinned (${gc_issue}) — shared active_issue (${shared_active}) untouched"
+    info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"
 fi
 
 checklist_mark "$issue_dir/checklist.md" 20 x

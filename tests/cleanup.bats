@@ -200,3 +200,19 @@ EOF
     [ ! -d "$SOURCE_DIR/build-$key-tsan" ]
     [ -d "$SOURCE_DIR/build-${TEST_PROJECT}-Issue-10-asan" ]   # prefix guard: not wiped
 }
+
+@test "unpinned cleanup of a NON-active issue leaves the shared slot intact (#417)" {
+    # Shared slot owns Issue-1 (from setup) with its live top-level branch context.
+    # Clean a DIFFERENT issue (Issue-2) from an UNPINNED session: the shared slot
+    # and Issue-1's context must survive (the old guard keyed on pin-absence and
+    # wiped them).
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-2/checklist.md"
+    ( cd "$DEVDOC_DIR" && git add . && git commit -q -m "seed Issue-2" )
+    unset DEVAGENT_ACTIVE_ISSUE
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-2
+    [ "$status" -eq 0 ]
+    # active_issue pointer + Issue-1's top-level branch mirror untouched.
+    grep -q '^active_issue *= *"Issue-1"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    grep -q '^branch *= *"feat/1-x"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
