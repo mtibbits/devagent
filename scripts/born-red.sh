@@ -69,12 +69,13 @@ _ere_escape() { printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|/]/\\&/g'; }
 
 # ---- detect the NEW-test set vs the working tree ----------------------------
 declare -a new_files=() mod_files=()
+declare -A rename_old=()   # new path → old path, for rename-aware per-file diffs
 while IFS=$'\t' read -r status p1 p2; do
   [ -n "$status" ] || continue
   case "$status" in
     A*) _is_test_file "$p1" && new_files+=("$p1") ;;
     M*) _is_test_file "$p1" && mod_files+=("$p1") ;;
-    R*) _is_test_file "$p2" && mod_files+=("$p2") ;;   # renamed → new path treated as modified
+    R*) _is_test_file "$p2" && { mod_files+=("$p2"); rename_old["$p2"]="$p1"; } ;;  # renamed → new path treated as modified; keep old path so the per-file diff can pair the rename
   esac
 done < <("$DEVAGENT_GIT" diff --name-status -M "$baseline" -- tests/ 2>/dev/null || true)
 while IFS= read -r p; do
@@ -90,15 +91,19 @@ for f in "${new_files[@]:-}"; do
 done
 for f in "${mod_files[@]:-}"; do
   [ -n "$f" ] || continue
+  # Rename-aware: pass BOTH the new and old paths under -M so a pure `git mv` reads
+  # as zero added lines (not a whole-file add). -M on a plain modify is a no-op; a
+  # rename-with-edits still surfaces only the genuinely-added tests.
+  dpaths=("$f"); [ -n "${rename_old[$f]:-}" ] && dpaths+=("${rename_old[$f]}")
   if [ "$(_framework "$f")" = bats ]; then
     while IFS= read -r name; do
       [ -n "$name" ] && units+=("bats"$'\t'"$f"$'\t'"$name")
-    done < <("$DEVAGENT_GIT" diff "$baseline" -- "$f" 2>/dev/null \
+    done < <("$DEVAGENT_GIT" diff -M "$baseline" -- "${dpaths[@]}" 2>/dev/null \
              | sed -n 's/^+[[:space:]]*@test[[:space:]]*"\(.*\)"[[:space:]]*{.*/\1/p')
   else
     while IFS= read -r name; do
       [ -n "$name" ] && units+=("pytest"$'\t'"$f"$'\t'"$name")
-    done < <("$DEVAGENT_GIT" diff "$baseline" -- "$f" 2>/dev/null \
+    done < <("$DEVAGENT_GIT" diff -M "$baseline" -- "${dpaths[@]}" 2>/dev/null \
              | sed -n 's/^+[[:space:]]*def[[:space:]]\(test_[A-Za-z0-9_]*\).*/\1/p')
   fi
 done
