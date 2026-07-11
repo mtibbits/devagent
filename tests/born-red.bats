@@ -218,3 +218,10 @@ EOF
     [ "$status" -eq 0 ]
     grep -q '^verdict: NO-NEW-TESTS$' "$(_artifact)"
 }
+
+@test "born-red: artifact pins a tests-fingerprint for the staleness gate (#410)" {
+    _add_real_test
+    _run_br_stub
+    [ "$status" -eq 0 ]
+    grep -qE '^tests-fingerprint: [0-9a-f]{64}$' "$(_artifact)"
+}
