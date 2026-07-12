@@ -3,7 +3,7 @@ description: Validate config, state, paths, and template resolution.
 allowed-tools: Bash
 ---
 
-Run `scripts/doctor.sh [project]`. With no argument, doctor runs against
+Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.sh" [project]`. With no argument, doctor runs against
 every project in `~/.claude/devagent/config.toml` and reports each one.
 With a project argument, only that project is checked.
 

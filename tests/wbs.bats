@@ -225,7 +225,9 @@ EOF
 
 @test "updatewbs.md command file exists and references wbs.sh update" {
   [ -f "$REPO/commands/updatewbs.md" ]
-  grep -q "scripts/wbs.sh update" "$REPO/commands/updatewbs.md"
+  # #446: the invocation now goes through ${CLAUDE_PLUGIN_ROOT}, so the path is
+  # quoted (`scripts/wbs.sh" update`); tolerate both the bare and quoted forms.
+  grep -qE 'scripts/wbs\.sh"? update' "$REPO/commands/updatewbs.md"
 }
 
 @test "wbs update reconciles in-progress leaf from checklist truth" {
