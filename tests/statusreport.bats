@@ -162,7 +162,8 @@ EOF
   [ "$status" -eq 0 ]
   report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
   grep -q "SENTINEL_OVERRIDE_423" "$report"   # layer 1 rendered
-  ! grep -q "DEVDOC_MARKER_423" "$report"     # layer 2 did NOT win
+  run grep -q "DEVDOC_MARKER_423" "$report"
+  [ "$status" -ne 0 ]                          # layer 2 did NOT win
 }
 
 @test "statusreport warns and falls through when the configured override file is missing" {
