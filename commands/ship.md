@@ -28,11 +28,11 @@ the MR lands:
 | `fork_first = true`  | MR opens against `code_source.fork` first; upstream PR is intended as a later step. The `on_ship` issue transition still fires on the upstream tracker. |
 | `fork_only = true`   | MR opens against `code_source.fork`. The upstream tracker is NOT transitioned. Use when you're iterating on the fork and not yet ready to engage upstream. Implies `fork_first = true`; requires `code_source.fork` to be set. |
 
-For the volk case specifically, `fork_only = true` lets you build a
-backlog of changes on `mtibbits/volk` (recording per-issue context,
-checklist progress, fork PRs) without notifying `gnuradio/volk` until
-you choose to flip the flag and re-engage. The upstream PR is then
-opened manually (e.g. `gh pr create --repo gnuradio/volk ...`)
+Concretely, `fork_only = true` lets you build a backlog of changes on
+your `code_source.fork` (recording per-issue context, checklist
+progress, fork PRs) without notifying the upstream tracker until you
+choose to flip the flag and re-engage. The upstream PR is then opened
+manually (e.g. `gh pr create --repo <upstream-owner>/<repo> ...`)
 because the workflow can't infer when readiness has been reached.
 
 ## Draft PRs
