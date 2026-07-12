@@ -903,6 +903,8 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
 ### Idle > 7d (2)
 - Issue-203, Issue-Fork-13
 ### Poorly scoped (0)
+### Dispatch-lint rejects (1)
+- Issue-Fork-25 (2)
 
 ## WBS roll-up
 <top-level milestones; expand only branches with active issues>
@@ -921,6 +923,9 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
 - **Poorly scoped** — `scope` step logged ≥3 recommendations, or the
   log contains the word "ambiguity"
 - **Idle** — `updated_at` > 7 days ago and step < 20
+- **Dispatch-lint rejects** (#438) — count of `*.md` under the issue's
+  `analysis/rejected/` archive (dispatched checker reports the linter rejected,
+  #360). Issues with zero rejects are omitted from the list — no added noise.
 
 ### 14.5 Velocity & estimate
 
