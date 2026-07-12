@@ -490,8 +490,8 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 11 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
 | 12 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
 | 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
-| 14 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md` |
-| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification; ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
+| 14 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
+| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
 | 16 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
 | 17 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |

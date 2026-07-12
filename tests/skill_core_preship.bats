@@ -32,3 +32,11 @@ setup() {
   [ -s "$FIXT/mr.md" ]
   [ -s "$FIXT/checklist.md" ]
 }
+
+@test "core-preship carries the spec-touch verification covering adds/renames/removals (#435)" {
+  grep -qi 'spec-touch' "$SKILL/SKILL.md"
+  grep -qiE 'renam' "$SKILL/SKILL.md"
+  grep -qiE 'remov' "$SKILL/SKILL.md"
+  grep -qiE 'config key' "$SKILL/SKILL.md"
+  grep -qiE 'top-level director' "$SKILL/SKILL.md"
+}
