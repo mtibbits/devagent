@@ -79,3 +79,63 @@ teardown() { teardown_tmp_devdoc; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown subtype"* ]]
 }
+
+# --- #424: capture template chain routes through the §12 registry --------------
+# Helper: write a HOME config with a [project.fake.paths] override for KEY→PATH.
+_capture_set_paths_override() {
+  local key="$1" path="$2"
+  mkdir -p "$HOME/.claude/devagent"
+  cat > "$HOME/.claude/devagent/config.toml" <<EOF
+[project.fake]
+devdoc_dir = "${TMP_DEVDOC}"
+
+[project.fake.paths]
+${key} = "${path}"
+EOF
+}
+
+@test "capture: honors [project.X.paths].issue_template-bug config-paths override (layer 1)" {
+  # Seed a devdoc template (layer 2) that would win under the pre-fix chain...
+  mkdir -p "${TMP_DEVDOC}/templates"
+  printf '# %s — CAPTURE_DEVDOC_424\n' '{{title}}' \
+    > "${TMP_DEVDOC}/templates/issue_template-bug.md"
+  # ...and a config-paths override (layer 1) with a UNIQUE sentinel.
+  printf '# %s — CAPTURE_SENTINEL_424\n' '{{title}}' \
+    > "${TMP_HOME}/custom_bug_template.md"
+  _capture_set_paths_override "issue_template-bug" "${TMP_HOME}/custom_bug_template.md"
+
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Weeds"
+  [ "$status" -eq 0 ]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-weeds/draft.md"
+  grep -q "CAPTURE_SENTINEL_424" "${draft}"          # layer 1 rendered
+  run grep -q "CAPTURE_DEVDOC_424" "${draft}"
+  [ "$status" -ne 0 ]                                 # layer 2 did NOT win
+}
+
+@test "capture: DEVAGENT_TEMPLATE_OVERRIDE_* env still wins over a config-paths override" {
+  printf '# %s — CAPTURE_CONFIG_424\n' '{{title}}' \
+    > "${TMP_HOME}/config_bug_template.md"
+  _capture_set_paths_override "issue_template-bug" "${TMP_HOME}/config_bug_template.md"
+  printf '# %s — CAPTURE_ENV_424\n' '{{title}}' \
+    > "${TMP_HOME}/env_bug_template.md"
+  export DEVAGENT_TEMPLATE_OVERRIDE_issue_template_bug="${TMP_HOME}/env_bug_template.md"
+
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Aphids"
+  [ "$status" -eq 0 ]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-aphids/draft.md"
+  grep -q "CAPTURE_ENV_424" "${draft}"               # env layer (highest) rendered
+  run grep -q "CAPTURE_CONFIG_424" "${draft}"
+  [ "$status" -ne 0 ]                                 # config-paths did NOT win
+}
+
+@test "capture: warns and falls through when the configured override file is missing" {
+  _capture_set_paths_override "issue_template-bug" "${TMP_HOME}/does_not_exist_424.md"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Locusts"
+  [ "$status" -eq 0 ]                                 # falls through to plugin layer
+  [[ "$output" == *"configured override for 'issue_template-bug' not found"* ]]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-locusts/draft.md"
+  [ -f "${draft}" ]                                   # draft still rendered
+}

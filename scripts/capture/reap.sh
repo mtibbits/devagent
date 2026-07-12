@@ -8,8 +8,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/slug.sh"
 # shellcheck source=lib/paths.sh
 source "${SCRIPT_DIR}/lib/paths.sh"
-# shellcheck source=lib/template.sh
-source "${SCRIPT_DIR}/lib/template.sh"
 # shellcheck source=lib/hash.sh
 source "${SCRIPT_DIR}/lib/hash.sh"
 # #229: breadcrumb support. io.sh + log.sh live in the shared scripts/lib (not
