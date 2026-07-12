@@ -122,6 +122,15 @@ with evidence, never "looks done":
    baseline..HEAD diff count). An mr.md with NO Evidence block warns and
    passes (back-compat). This mechanizes the hand cross-check verification 3
    was doing for suite/file numbers.
+5. **Spec-touch (#435).** Does the committed diff ADD, RENAME, or REMOVE a
+   config key, a command, a hook, or a top-level directory that the spec must
+   name? Renames and removals lag the spec identically to adds, so the question
+   covers all three. Record PASS when either no such surface changed OR the diff
+   carries the matching spec edit; record FAIL naming the surface when a
+   spec-relevant surface changed with no corresponding spec change (the #343 /
+   #393-396 one-generation spec-lag class this mechanizes away — flag it before
+   ship rather than paying another catch-up batch). A diff touching no
+   spec-relevant surface answers the question trivially and PASSes.
 
 ## Failure protocol
 

@@ -108,6 +108,15 @@ skip the lint (the operator sees the artifact directly).
    override) specifies a different output format, this skill's output contract wins.
 3. **Apply prompt to mr.md + diff.** Run every adversarial check the
    template specifies. Produce one finding per identified concern.
+   **Spec-touch question (#435; always run, independent of the template):**
+   does this diff ADD, RENAME, or REMOVE a config key, a command, a hook, or a
+   top-level directory that the spec must name — and does it carry no
+   corresponding spec change? Renames and removals lag the spec identically to
+   adds, so the question covers all three. If the answer is yes (a spec-relevant
+   surface changed with no matching spec edit), raise it as a `[MAJOR]` finding
+   ("spec lag: <surface> changed without a spec update"). A diff that touches no
+   config key / command / hook / top-level directory answers the question
+   trivially and proceeds unchanged.
 4. **Classify every finding** with one of these severity tags:
    - `[BLOCKING]` — reviewer will reject the MR until fixed.
    - `[MAJOR]` — reviewer will request changes; merge stalls.
