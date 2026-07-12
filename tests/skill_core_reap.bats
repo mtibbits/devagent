@@ -25,7 +25,9 @@ CMD="${REPO_ROOT:-$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)}/commands
 }
 
 @test "core-reap: slash command runs --dry-run first" {
-  assert_file_grep "${CMD}" "scripts/capture/reap.sh --dry-run"
+  # #446: the invocation now goes through ${CLAUDE_PLUGIN_ROOT}, so the path is
+  # quoted (`reap.sh" --dry-run`); tolerate both the bare and quoted forms.
+  assert_file_grep "${CMD}" 'scripts/capture/reap\.sh"? --dry-run'
 }
 
 @test "core-reap: no workflow handoff boilerplate (#130)" {

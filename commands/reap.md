@@ -9,7 +9,7 @@ Args: `[project]` (optional; defaults to active project)
 
 ## Behavior
 
-1. Run `scripts/capture/reap.sh --dry-run` to enumerate candidates. Each row is
+1. Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/reap.sh" --dry-run` to enumerate candidates. Each row is
    `<hash>\t<subtype>\t<source>\t<title>` — the `<hash>` is the stable
    per-candidate key.
 2. If candidates exist, ask the operator whether to triage. If yes, trigger the
@@ -28,13 +28,13 @@ Args: `[project]` (optional; defaults to active project)
      4da061d3c4e5	discard
      ```
 
-     then run `scripts/capture/reap.sh --decisions <file>`. Kept candidates are
+     then run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/reap.sh" --decisions <file>`. Kept candidates are
      drafted (with overrides); discarded ones are not drafted and are recorded in
      the `[discarded]` table (skipped next run). To **re-triage** a discarded
      candidate you must delete its line from the `[discarded]` table in
      `<project>.reaped.toml` — a later `keep` decision alone has no effect, because
      a hash already in `[discarded]` is skipped before decisions are read.
-   - **No triage pass** — run `scripts/capture/reap.sh` (no flags); every
+   - **No triage pass** — run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/reap.sh"` (no flags); every
      candidate is kept and drafted (back-compat).
 4. Print the list of newly created `Captures/<slug>/` paths and
    suggest `/devagent:redissue <slug>` for each.

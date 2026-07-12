@@ -62,7 +62,7 @@ and not by the plugin.
 
 ## Doctor hook
 
-`/devagent:doctor` calls `scripts/lib/doctor_auth.sh check <project> <backend>...`
+`/devagent:doctor` calls `bash "${CLAUDE_PLUGIN_ROOT}/scripts/lib/doctor_auth.sh" check <project> <backend>...`
 (one or more configured backends) to produce a per-project auth health summary
 without leaking tokens.
 See that script's header for the contract.

@@ -28,7 +28,7 @@ Args: `[issue|epic] <free-form text>`
 3. Call the script for each chosen artifact:
 
    ```bash
-   scripts/capture/capture.sh \
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" \
      --type "<type>" \
      --subtype "<subtype>"  \
      --title "<title>"
