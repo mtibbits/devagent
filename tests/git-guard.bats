@@ -120,3 +120,42 @@ _run() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$(_json "$1")" "$(HOOK)";
     [ "$status" -eq 0 ] || { echo "expected ALLOW(0) on clean for: $c (got $status)"; false; }
   done
 }
+
+@test "non-deny Bash calls skip the git status subprocess; deny shapes still run it (#431)" {
+  _on; _dirty
+  # A git shim that records each invocation, then delegates to the REAL git
+  # (resolved to an absolute path NOW, before the shim shadows it on PATH).
+  local real_git shimdir log
+  real_git="$(command -v git)"
+  shimdir="$(mktemp -d)"; log="$shimdir/gitcalls.log"
+  cat > "$shimdir/git" <<SHIM
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$log"
+exec "$real_git" "\$@"
+SHIM
+  chmod +x "$shimdir/git"
+
+  # Non-git command → the fast-reject (3a) short-circuits → NO git status.
+  : > "$log"
+  PATH="$shimdir:$PATH" _run "echo hello"
+  [ "$status" -eq 0 ]
+  run grep -c status "$log"
+  [ "$output" -eq 0 ] || { echo "expected 0 git-status calls for a non-git command; log:"; cat "$log"; false; }
+
+  # git-but-non-deny command → the reorder short-circuits after shape-match, still
+  # BEFORE the dirty gate → NO git status subprocess (the #431 hot-path win).
+  : > "$log"
+  PATH="$shimdir:$PATH" _run "git log --oneline -1"
+  [ "$status" -eq 0 ]
+  run grep -c status "$log"
+  [ "$output" -eq 0 ] || { echo "expected 0 git-status calls for a git-but-non-deny command; log:"; cat "$log"; false; }
+
+  # Deny-shaped command on a dirty tree → MUST run git status to confirm dirty.
+  : > "$log"
+  PATH="$shimdir:$PATH" _run "git stash"
+  [ "$status" -eq 2 ]
+  run grep -c status "$log"
+  [ "$output" -ge 1 ] || { echo "expected >=1 git-status call for a deny shape; log:"; cat "$log"; false; }
+
+  rm -rf "$shimdir"
+}
