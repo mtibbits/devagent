@@ -61,6 +61,7 @@ devAgent/
 │   └── specs/2026-05-19-devagent-plugin-design.md   (this file)
 ├── commands/                # one .md file per slash command
 ├── skills/                  # custom skills (core-scope, core-prune, core-tighten, ...)
+├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -96,6 +97,10 @@ One file, all projects. Predictable location mirrors `~/.claude/settings.json`.
 [defaults]
 checklist_template = "standard"          # standard | docs-only | research | perf
 ship_as_draft      = false               # default; overridable per-project and per-invocation
+# git_guard        = true                # opt-in git-reflex guard (#352); the hooks/git-guard.sh
+                                         #   PreToolUse hook denies reflexive destructive git on a
+                                         #   dirty tree. Default off. A [project.<name>] git_guard
+                                         #   value overrides this for the active project (#433).
 
 [project.volk]
 source_dir       = "~/src/volk"
@@ -513,6 +518,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:init <project>` | Interactive bootstrap of a new `project.<name>` entry |
 | `/devagent:where [project]` | Reports active issue + last step + next step; offers "Continue?" but does **not** execute |
 | `/devagent:next [project]` | Executes the next actionable step on the active issue |
+| `/devagent:use <project>` | Deliberately switches the global active-project pointer (`state/_active.toml`), then prints the resolved state (#349). The one arg-driven pointer writer; warns when a `DEVAGENT_ACTIVE_PROJECT` env pin shadows the change (env beats the pointer for this session, #434) |
 | `/devagent:status [project\|--all]` | Multi-project dashboard: active, stuck, parked, idle |
 | `/devagent:catchup [issue]` | Synthesizes issue.md + imPlan + actualWork + last comments + last 5 log entries into one-screen rehydration |
 | `/devagent:park [issue]` | Marks `[P]`, saves state, clears `active_issue` |
@@ -998,6 +1004,17 @@ being swallowed (#117); output is written under
   novelty gate as the C path (only findings new vs the baseline count).
 - **`none`** — the step self-marks `[-]` with a logged reason (projects with
   no analyzable source, e.g. docs-only repos).
+
+**`analyze_timeout` (#351).** A per-phase budget in seconds for the `cmake`
+analyze legs (configure / build / ctest), default 1800. It bounds a hung build
+or test that would otherwise wedge an `--auto` chain forever; a leg exceeding it
+fails step 11 (#117). Set it in `[project.<name>]` (raise for a large/slow ctest
+suite); `shellcheck`/`none` projects ignore it.
+
+**Build-dir keying (#117).** The sanitizer and static build dirs are keyed
+per project **and** issue — `build-<project>-<issue>[-<tag>]/` — so concurrent
+`--auto` chains that share one source tree never collide on a build directory;
+cleanup removes them.
 
 ## 19. Testing strategy
 
