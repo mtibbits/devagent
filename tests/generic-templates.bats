@@ -19,6 +19,17 @@ REPO="${BATS_TEST_DIRNAME}/.."
   [ "$status" -eq 1 ] || { echo "VOLK token in skills/ (or grep error):" >&2; echo "$output" >&2; return 1; }
 }
 
+@test "no VOLK-specific token in the shipped command docs (#136/#427)" {
+  # #427: commands/ is where residual identity text actually survived (ship.md
+  # named gnuradio/volk, auth.md examples used volk) because the #340 canary
+  # scanned only templates/ + skills/. Widen the scan to the command docs so an
+  # identity regression in a shipped command fails CI. (cite-hygiene.bats already
+  # scans commands/ but as a citation-PROSE canary (#342) — a different invariant.)
+  run grep -rniE 'volk|lgpl|\bdsp\b|\bsdr\b|gnu ?radio|plot_pr_evidence|VOLK_CONFIGPATH|src/devDoc/volk|num_points|\bsimd\b|dechirp|\bneon\b|kernel|warmup|vector length' "$REPO/commands"
+  # #337: rc-precise (see the templates canary above).
+  [ "$status" -eq 1 ] || { echo "VOLK token in commands/ (or grep error):" >&2; echo "$output" >&2; return 1; }
+}
+
 @test "the redteam_issue 16-dimension structure survives genericization (#136/#134)" {
   # Genericizing the prose must not remove the dimensions #134 depends on.
   local f="$REPO/templates/redteam_issue.md"
