@@ -248,3 +248,18 @@ passes) if shellcheck is missing or too old.
 
 CI (`.github/workflows/shellcheck.yml`) remains the authoritative, enforcing
 gate; the hook is a faster local mirror, not a replacement.
+
+## Versioning & releases
+
+The marketplace entry deliberately sets **no `version` field** while devAgent is
+under active iteration. Per the Claude Code plugin docs, an unset version means
+each commit is versioned by its git SHA, so `/plugin update` picks up new commits
+without an `uninstall` + `install` round-trip — deleting the stale `0.1.0` pin is
+what ends that reinstall tax.
+
+When a stable release cadence is wanted later, switch to explicit versions with
+[`claude plugin tag`](https://docs.claude.com/en/docs/claude-code/plugins) and
+keep a `CHANGELOG.md` describing what each tagged release changes. Do **not**
+re-add a `version` to `.claude-plugin/plugin.json`: per the docs a plugin.json
+`version` wins over the marketplace entry and would silently re-pin the plugin,
+reintroducing the reinstall tax.
