@@ -1,6 +1,6 @@
 ---
 description: Park current issue and resume a different one in one step
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project> <parked-issue>"
 ---
 

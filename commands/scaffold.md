@@ -1,6 +1,6 @@
 ---
 description: Bin an epic capture into child issue drafts under children/
-allowed-tools: Bash, Read, Write, Edit, Skill
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 ---
 
 # /devagent:scaffold

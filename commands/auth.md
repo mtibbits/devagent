@@ -1,6 +1,6 @@
 ---
 description: Manage PAT / SSH-key lifecycle (create, store, rotate, destroy, status, exec) for a project's tracker and code-forge backends.
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 # /devagent:auth

@@ -1,6 +1,6 @@
 ---
 description: Record actual work versus the plan for the active issue. Invokes core-document-actual-work skill.
-allowed-tools: Bash, Read, Write, Edit, Skill
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

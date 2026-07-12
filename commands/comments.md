@@ -1,7 +1,7 @@
 ---
 description: Fetch MR comments to <issue-dir>/revisions/r<N>/comments.md
 argument-hint: "[project] [issue]"
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 Run the comments script and report the result.

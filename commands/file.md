@@ -1,6 +1,6 @@
 ---
 description: File a capture draft as a tracker issue (origin or fork)
-allowed-tools: Bash, Read
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read
 ---
 
 # /devagent:file

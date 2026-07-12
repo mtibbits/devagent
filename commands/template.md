@@ -1,6 +1,6 @@
 ---
 description: Inspect resolved artifact templates (list or show).
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[--project P] list|show <key>"
 ---
 

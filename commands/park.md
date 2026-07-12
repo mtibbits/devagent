@@ -1,6 +1,6 @@
 ---
 description: Park the active issue (or a named issue), marking it [P]
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project> [issue-id]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: "Step 20: restore tree, commit devdoc, clear active_issue."
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: WBS authoring and rendering (init | update | show)
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" $ARGUMENTS` with the user's arguments.

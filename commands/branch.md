@@ -1,6 +1,6 @@
 ---
 description: "Step 6: create issue branch from default_baseline (or a per-issue baseline override)."
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---
 
