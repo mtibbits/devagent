@@ -9,10 +9,21 @@
 # guard BUG must NEVER brick Bash, so every error/uncertain path exits 0 and ONLY a
 # confirmed deny exits 2. Deliberately NO `set -e`.
 #
+# DENY SHAPES (on a dirty tree): `git checkout … -- <pathspec>`; `git restore`
+# (except index-only `--staged`); bare `git stash` / `git stash push`; `git clean
+# -f`; `git reset --hard` (any arg position — #430); and the unprotected-pathspec
+# checkout — `git checkout` with >=2 non-flag positional args and no `--` separator
+# (#430, conservative: multi-ref false positives use the override; `-b`/`-B`/
+# `--orphan` branch creation and single-arg forms always pass — a single positional
+# cannot be distinguished from a branch switch, so `git checkout <file>` is an
+# accepted work-wipe gap, not a git-protected safe pass).
+#
 # KNOWN GAPS (heuristic backstop, not a sandbox — all fail OPEN): it matches the raw
 # command STRING, so `git -C <dir> …`, shell aliases, `bash -c '…'`, variable
 # indirection, and compound `a && git stash` can evade (or, rarely, over-match) the
-# match. The opt-in gate + the override are the intended escapes.
+# match. The #430 no-`--` checkout shape widens the over-match surface slightly — a
+# STRING merely containing `git checkout <w1> <w2>` (e.g. a commit message or echo
+# referencing it) over-matches. The opt-in gate + the override are the intended escapes.
 
 # 1. Gate — read [defaults] git_guard (matches doctor's config_get_default). OFF
 #    (the default) or unreadable → allow fast, before any parsing work.
@@ -61,6 +72,38 @@ elif printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+stash([[:spa
 elif printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+clean([[:space:]]|$)' \
    && printf '%s' "$cmd" | grep -qE '([[:space:]]-[a-z]*f|[[:space:]]--force)'; then
   deny="\`git clean -f\` removes untracked files"
+elif printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+reset([[:space:]]|$)' \
+   && printf '%s' "$cmd" | grep -qE '[[:space:]]--hard([[:space:]]|$)'; then
+  # #430: `git reset --hard` (any arg position) discards ALL uncommitted work.
+  # `--soft`/`--mixed` (and default `git reset <path>` unstaging) touch no
+  # worktree content, so they are NOT denied.
+  deny="\`git reset --hard\` discards all uncommitted changes"
+elif printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+checkout([[:space:]]|$)'; then
+  # #430: unprotected-pathspec checkout. `git checkout <ref> <pathspec>` with no
+  # `--` separator overwrites <pathspec> in the worktree (the `--` form is caught
+  # by the first branch above). ref-vs-path is undecidable from the string, so the
+  # conservative rule: deny when there are >=2 non-flag positional args and no
+  # `--` — accepting rare false positives on multi-ref forms (the override handles
+  # them). A single positional (plain branch switch, which git itself refuses to
+  # let clobber dirty files) always passes.
+  co_args="$(printf '%s' "$cmd" | sed -E 's/^.*git[[:space:]]+checkout[[:space:]]*//')"
+  co_args="${co_args%%;*}"; co_args="${co_args%%&&*}"; co_args="${co_args%%|*}"
+  set -f                                    # no globbing while word-splitting args
+  co_pos=0; co_ddash=0; co_newbranch=0
+  for tok in $co_args; do
+    case "$tok" in
+      --) co_ddash=1; break ;;
+      -b|-B|--orphan) co_newbranch=1 ;;     # branch CREATION — never a pathspec overwrite
+      -*) : ;;                              # any other flag — not a positional
+      *)  co_pos=$((co_pos + 1)) ;;
+    esac
+  done
+  set +f
+  # -b/-B/--orphan create a branch (carrying dirty changes forward), so the extra
+  # positional is a start-point ref, not a pathspec — don't deny (#430 false-positive fix).
+  if [ "$co_ddash" -eq 0 ] && [ "$co_newbranch" -eq 0 ] && [ "$co_pos" -ge 2 ]; then
+    deny="\`git checkout <ref> <pathspec>\` (no \`--\`) overwrites those paths in the worktree"
+  fi
 fi
 
 [ -n "$deny" ] || exit 0

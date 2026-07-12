@@ -88,3 +88,35 @@ _run() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$(_json "$1")" "$(HOOK)";
   _run "git stash"
   [ "$status" -eq 0 ]
 }
+
+@test "guard ON + DIRTY: git reset --hard is DENIED in any arg position (#430)" {
+  _on; _dirty
+  for c in "git reset --hard" "git reset --hard HEAD~1" "git reset HEAD~1 --hard"; do
+    _run "$c"
+    [ "$status" -eq 2 ] || { echo "expected DENY(2) for: $c (got $status)"; false; }
+  done
+}
+
+@test "guard ON + DIRTY: unprotected-pathspec checkout (>=2 positionals, no --) is DENIED (#430)" {
+  _on; _dirty
+  for c in "git checkout main guarded.txt" "git checkout HEAD guarded.txt" "git checkout -f main guarded.txt"; do
+    _run "$c"
+    [ "$status" -eq 2 ] || { echo "expected DENY(2) for: $c (got $status)"; false; }
+  done
+}
+
+@test "guard ON + DIRTY: reset --soft/--mixed and single-positional checkout stay ALLOWED (#430 false-positive guard)" {
+  _on; _dirty
+  for c in "git checkout main" "git checkout -b feature" "git checkout -b feature main" "git checkout -B feature origin/main" "git reset --soft HEAD~1" "git reset --mixed" "git stash create" "git checkout guarded.txt" "git reset guarded.txt"; do
+    _run "$c"
+    [ "$status" -eq 0 ] || { echo "expected ALLOW(0) for: $c (got $status)"; false; }
+  done
+}
+
+@test "guard ON + CLEAN: the new #430 shapes are ALLOWED (nothing to lose)" {
+  _on; _clean
+  for c in "git reset --hard" "git checkout main guarded.txt"; do
+    _run "$c"
+    [ "$status" -eq 0 ] || { echo "expected ALLOW(0) on clean for: $c (got $status)"; false; }
+  done
+}
