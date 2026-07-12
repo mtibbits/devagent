@@ -131,7 +131,7 @@ that project.
 8. On completion, append a log entry:
 
    ```bash
-   scripts/checklist-log.sh "$ISSUE_DIR" draft "imPlan.md written ($N steps); note: $NOTE"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" draft "imPlan.md written ($N steps); note: $NOTE"
    ```
 
    Where `$N` is the number of top-level tasks in the plan.

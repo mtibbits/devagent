@@ -42,8 +42,8 @@ Per `commands/draft.md`.
    zero-diff guards in commit/ship/mergetoall (#3):
 
    ```bash
-   scripts/checklist-mark.sh "$ISSUE_DIR" 8 -
-   scripts/checklist-log.sh "$ISSUE_DIR" quality "auto-skipped: zero diff (artifact-only issue)"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" 8 -
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality "auto-skipped: zero diff (artifact-only issue)"
    ```
 
    Otherwise, continue to the simplify pass.
@@ -55,7 +55,7 @@ Per `commands/draft.md`.
 7. On completion:
 
 ```bash
-scripts/checklist-log.sh "$ISSUE_DIR" quality \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality \
   "Quality pass: K simplify findings applied, S standards findings applied; note: $NOTE"
 ```
 

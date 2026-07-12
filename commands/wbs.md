@@ -3,7 +3,7 @@ description: WBS authoring and rendering (init | update | show)
 allowed-tools: Bash
 ---
 
-Run `scripts/wbs.sh $ARGUMENTS` with the user's arguments.
+Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" $ARGUMENTS` with the user's arguments.
 
 Subcommands:
 - `init [--force]` — scaffold `<devdoc>/WBS.md` from the resolved `wbs_template.md` (§12 registry: project paths → devdoc → plugin default); `--force` overwrites an existing `WBS.md`

@@ -16,7 +16,7 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
 3. Call:
 
    ```bash
-   scripts/capture/file.sh --slug <slug> --target <origin|fork>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/file.sh" --slug <slug> --target <origin|fork>
    ```
 
    The script reads the env var `DEVAGENT_PERMISSION_PUSH_MR` (which

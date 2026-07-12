@@ -3,7 +3,7 @@ description: Interactive bootstrap of a new project under ~/.claude/devagent/.
 allowed-tools: Bash
 ---
 
-Run `scripts/init.sh <project>`. The script prompts interactively for
+Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" <project>`. The script prompts interactively for
 source_dir, devdoc_dir, issue/code backends and repos. Forward the user's
 single positional argument verbatim.
 

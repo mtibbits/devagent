@@ -63,7 +63,7 @@ Per `commands/draft.md`.
 7. Log:
 
    ```bash
-   scripts/checklist-log.sh "$ISSUE_DIR" review \
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" review \
      "Review: F findings (B blocking, N nits); see analysis/YYYY-MM-DD-review.md; note: $NOTE"
    ```
 
