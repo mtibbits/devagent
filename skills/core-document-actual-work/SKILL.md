@@ -2,6 +2,7 @@
 name: core-document-actual-work
 description: Use when running step 9 of the devAgent workflow to record what was actually built versus what was planned, terse when there is no deviation from the plan
 when_to_use: After /devagent:quality and before /devagent:commit. Run as part of /devagent:document.
+user-invocable: false
 ---
 
 # devagent-document-actual-work

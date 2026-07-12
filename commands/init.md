@@ -1,6 +1,7 @@
 ---
 description: Interactive bootstrap of a new project under ~/.claude/devagent/.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+disable-model-invocation: true
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" <project>`. The script prompts interactively for

@@ -1,6 +1,7 @@
 ---
 name: core-redissue
 description: Adversarially review a capture draft using the resolved redteam_issue template (§12 registry); write findings to redteam.md. Triggers when /devagent:redissue is invoked.
+user-invocable: false
 ---
 
 # devagent-redissue
