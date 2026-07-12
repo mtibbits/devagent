@@ -176,3 +176,38 @@ CL
   [[ "$output" == *"git-reflex guard"* ]]
   [[ "$output" == *"ON"* ]]
 }
+
+@test "doctor reports OFF and FAILs when git_guard=true has a trailing comment the hook rejects (#432)" {
+  # A valid-TOML `git_guard = true  # note`: tomllib parses it as true, but the
+  # hook's awk gate requires a LITERALLY BARE line — so the hook stays off while a
+  # naive tomllib-only doctor would report ON. doctor must side with the hook.
+  # (Insert via awk, not `sed -i` — that would trip the #429 state-TOML canary.)
+  awk '/^\[defaults\]/{print; print "git_guard = true  # note"; next} {print}' \
+    "$DA_HOME/config.toml" > "$DA_HOME/config.toml.tmp" && mv "$DA_HOME/config.toml.tmp" "$DA_HOME/config.toml"
+
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"git-reflex guard"* ]]
+  [[ "$output" == *"OFF despite git_guard=true"* ]]        # divergence surfaced
+  [[ "$output" == *"FAIL"*"git-reflex guard"* ]] || [[ "$output" == *"FAIL git-reflex guard: OFF despite"* ]]
+  # never reports ON for a hook that will not fire
+  [[ "$output" != *"git-reflex guard: ON"* ]]
+}
+
+@test "doctor reports ON when git_guard=true is a literally bare line (#432 agreement)" {
+  # set-bool writes the canonical bare `git_guard = true` — the hook's gate accepts
+  # it, so doctor and the hook AGREE on ON.
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" defaults.git_guard true
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"git-reflex guard: ON"* ]]
+  [[ "$output" != *"OFF despite"* ]]
+}
+
+@test "doctor's git_guard awk gate is byte-identical to the hook's (drift canary, #432)" {
+  # doctor replicates the hook's awk gate; if either drifts, the ON/off divergence
+  # class #432 fixed silently reopens. Pin the gate line identical in both files.
+  local hook_gate doctor_gate
+  hook_gate="$(grep -E 'in_def &&.*git_guard.*true.*found = 1' "$PLUGIN_ROOT/hooks/git-guard.sh" | sed 's/^[[:space:]]*//')"
+  doctor_gate="$(grep -E 'in_def &&.*git_guard.*true.*found = 1' "$PLUGIN_ROOT/scripts/doctor.sh" | sed 's/^[[:space:]]*//')"
+  [ -n "$hook_gate" ]
+  [ "$hook_gate" = "$doctor_gate" ] || { echo "gate DRIFT:"; echo "  hook:   $hook_gate"; echo "  doctor: $doctor_gate"; false; }
+}

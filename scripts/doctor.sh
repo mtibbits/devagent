@@ -172,11 +172,23 @@ if [[ -f "$(config_path)" ]]; then
   else
     check "config is valid TOML" fail "tomllib failed to parse $(config_path)"
   fi
-  # #352: report the opt-in git-reflex guard state. Never a failure — off is the
-  # default and a valid choice; this just surfaces which mode is active. (State is
-  # in the label, not the detail arg — the `check ok` path prints only the label.)
-  if [[ "$(config_get_default git_guard 2>/dev/null || true)" == "true" ]]; then
+  # #352/#432: report the opt-in git-reflex guard state, but per what the HOOK
+  # will ACTUALLY do — never "ON" for a hook that won't fire. tomllib (via
+  # config_get_default) accepts any valid-TOML `git_guard = true`, INCLUDING a
+  # trailing comment / extra whitespace; the hook's awk gate (git-guard.sh)
+  # requires a LITERALLY BARE line. Run the hook's own gate here and reconcile:
+  # both-off / both-on → report that state (off is a valid default, never a
+  # failure); tomllib-on but gate-off → a silently-disabled guard the operator
+  # opted into, which IS a failure (the divergence #432 exists to surface). The
+  # gate awk below is byte-identical to the hook's (drift-pinned by a bats canary).
+  if awk '
+    /^\[/ { in_def = ($0 == "[defaults]") }
+    in_def && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/ { found = 1 }
+    END   { exit(found ? 0 : 1) }
+  ' "$(config_path)" 2>/dev/null; then
     check "git-reflex guard: ON (blocks reflexive stash/checkout--/restore/clean on a dirty tree)" ok
+  elif [[ "$(config_get_default git_guard 2>/dev/null || true)" == "true" ]]; then
+    check "git-reflex guard: OFF despite git_guard=true — the hook's gate needs a LITERALLY BARE line (no trailing comment or extra tokens); the guard will NOT fire. Fix: git_guard = true" fail
   else
     check "git-reflex guard: off (opt-in; set [defaults] git_guard = true to enable)" ok
   fi
