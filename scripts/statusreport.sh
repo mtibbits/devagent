@@ -20,6 +20,8 @@ source "$SCRIPT_DIR/lib/config.sh"
 source "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
+# shellcheck source=lib/template_resolve.sh
+source "$SCRIPT_DIR/lib/template_resolve.sh"
 
 no_pin=0
 window_weeks=4
@@ -46,13 +48,18 @@ devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "statusreport: devdoc_dir not configured for $project"
 commit_devdoc="$(config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false)"
 
+# Resolve the template through the §12 registry (lib/template_resolve.sh) so a
+# [project.<name>.paths].statusreport_template override (layer 1) is honored — not
+# just devdoc (2) / plugin (3), which the previous hand-rolled loop was limited to.
+# Mirrors the #341 wbs-init fix. The `if …; then` captures the rc so `set -e` cannot
+# swallow the die on a genuine no-template case (template_resolve returns 1 when no
+# layer matches). A configured-but-missing override warns via template_resolve, then
+# falls through to the defaults.
 template=""
-for cand in \
-  "$devdoc_dir/templates/statusreport_template.md" \
-  "$PLUGIN_ROOT/templates/statusreport_template.md"; do
-  [[ -f "$cand" ]] && { template="$cand"; break; }
-done
-[[ -n "$template" ]] || die "no statusreport_template.md found"
+if resolved="$(template_resolve "$project" statusreport_template)"; then
+  template="$(printf '%s\n' "$resolved" | sed -n 's/^path=//p')"
+fi
+[[ -n "$template" ]] || die "no statusreport_template.md found for '$project' (checked project paths, devdoc, plugin)"
 
 # Ensure state file exists so state_get/set work even on first run.
 state_init "$project"

@@ -137,3 +137,49 @@ _flip_commit_devdoc_true() {
   run git -C "$TMPDEV" log --oneline -n1
   [ "$status" -ne 0 ]
 }
+
+# --- #423: template resolves through the §12 registry (layers 1-3) -----------
+# Helper: point [project.testproj.paths].statusreport_template at PATH.
+_set_statusreport_template_override() {
+  cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.testproj.paths]
+statusreport_template = "$1"
+EOF
+}
+
+@test "statusreport honors [project.X.paths].statusreport_template (layer 1 wins over devdoc)" {
+  # Seed a devdoc template (layer 2) that would win under the pre-fix loop...
+  mkdir -p "$TMPDEV/templates"
+  printf '# %s — DEVDOC_MARKER_423\nStuck: {{STUCK_COUNT}}\n' '{{PROJECT}}' \
+    > "$TMPDEV/templates/statusreport_template.md"
+  # ...and a config-paths override (layer 1) carrying a UNIQUE sentinel.
+  printf '# %s — SENTINEL_OVERRIDE_423\nStuck: {{STUCK_COUNT}}\n' '{{PROJECT}}' \
+    > "$TMPROOT/custom_sr_template.md"
+  _set_statusreport_template_override "$TMPROOT/custom_sr_template.md"
+
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  grep -q "SENTINEL_OVERRIDE_423" "$report"   # layer 1 rendered
+  ! grep -q "DEVDOC_MARKER_423" "$report"     # layer 2 did NOT win
+}
+
+@test "statusreport warns and falls through when the configured override file is missing" {
+  _set_statusreport_template_override "$TMPROOT/does_not_exist_sr_template.md"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]                                  # falls through to plugin layer
+  [[ "$output" == *"configured override for 'statusreport_template' not found"* ]]
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  [ -n "$report" ]                                     # report still rendered
+}
+
+@test "statusreport resolves a devdoc-layer template with no config override (regression)" {
+  mkdir -p "$TMPDEV/templates"
+  printf '# %s — DEVDOC_ONLY_423\nStuck: {{STUCK_COUNT}}\n' '{{PROJECT}}' \
+    > "$TMPDEV/templates/statusreport_template.md"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  grep -q "DEVDOC_ONLY_423" "$report"
+}
