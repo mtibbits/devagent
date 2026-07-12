@@ -1,7 +1,7 @@
 ---
 name: core-impact
 description: Use when running step 18 of the devAgent workflow to measure, quantify, and record the real-world impact of a merged change before extracting lessons learned
-when-to-use: After /devagent:updatewbs (step 17) and before /devagent:lessonslearned (step 19). Run as part of /devagent:impact.
+when_to_use: After /devagent:updatewbs (step 17) and before /devagent:lessonslearned (step 19). Run as part of /devagent:impact.
 ---
 
 # devagent-impact

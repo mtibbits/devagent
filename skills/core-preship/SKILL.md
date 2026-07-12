@@ -1,7 +1,7 @@
 ---
 name: core-preship
 description: Use when running step 21 of the devAgent workflow to verify, in fresh context, that the committed branch satisfies the issue's acceptance criteria and contains every blocking finding before ship
-when-to-use: After /devagent:redmr and before /devagent:ship. Run as part of /devagent:preship.
+when_to_use: After /devagent:redmr and before /devagent:ship. Run as part of /devagent:preship.
 ---
 
 # devagent-preship
