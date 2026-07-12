@@ -55,11 +55,11 @@ and not by the plugin.
 ## Examples
 
 ```
-/devagent:auth create  volk github
-/devagent:auth status  volk
-/devagent:auth exec    volk github -- gh pr list --repo gnuradio/volk
-/devagent:auth rotate  volk gitlab
-/devagent:auth destroy volk jira
+/devagent:auth create  myproj github
+/devagent:auth status  myproj
+/devagent:auth exec    myproj github -- gh pr list --repo myorg/myproj
+/devagent:auth rotate  myproj gitlab
+/devagent:auth destroy myproj jira
 ```
 
 ## Doctor hook
