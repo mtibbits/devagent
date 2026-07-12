@@ -1,6 +1,6 @@
 ---
 description: Draft a pre-issue or epic capture under <devdoc>/Captures/<slug>/
-allowed-tools: Bash, Read, Write, Edit, Skill
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 ---
 
 # /devagent:capture

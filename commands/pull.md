@@ -1,6 +1,6 @@
 ---
 description: Fetch an issue from origin or fork and scaffold its workflow directory
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project> origin|fork <issue-num>"
 ---
 

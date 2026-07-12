@@ -1,6 +1,6 @@
 ---
 description: "Step 15: push branch and open MR, fire on_ship issue transition."
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir] [--strict-deps]"
 ---
 

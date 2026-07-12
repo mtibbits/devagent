@@ -1,6 +1,6 @@
 ---
 description: Set the glyph on a specific checklist step.
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" <issue-dir> <step-num> <glyph>` where glyph

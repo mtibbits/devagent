@@ -1,6 +1,6 @@
 ---
 description: Mark the current step stuck and write a STUCK file
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: '<project> "<reason>"'
 ---
 

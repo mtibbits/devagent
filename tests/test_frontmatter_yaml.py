@@ -88,3 +88,35 @@ def test_skill_frontmatter_keys_are_recognized(path):
 
 def test_skill_key_canary_is_not_vacuous():
     assert _SKILL_FILES, "no skills/*/SKILL.md discovered — canary would false-green"
+
+
+# #448: every command `allowed-tools` Bash grant must be SCOPED (`Bash(...)`), not
+# a blanket `Bash` that auto-approves arbitrary shell for the turn — a trust
+# problem for a distributed plugin. This canary pins the class so a new command
+# can't re-introduce an unscoped grant.
+_COMMAND_FILES = sorted(glob.glob(os.path.join(_REPO, "commands", "*.md")))
+
+
+@pytest.mark.parametrize(
+    "path", _COMMAND_FILES, ids=[os.path.relpath(p, _REPO) for p in _COMMAND_FILES]
+)
+def test_command_bash_grant_is_scoped(path):
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if not text.startswith("---"):
+        pytest.skip("no frontmatter block")
+    fm = yaml.safe_load(text.split("---", 2)[1]) or {}
+    grant = fm.get("allowed-tools")
+    if grant is None:
+        return
+    # allowed-tools is a comma-separated scalar; a bare `Bash` token (not
+    # `Bash(...)`) is an unscoped grant.
+    tokens = [t.strip() for t in str(grant).split(",")]
+    assert "Bash" not in tokens, (
+        f"{os.path.relpath(path, _REPO)}: unscoped `Bash` grant — scope it to "
+        f"`Bash(bash ${{CLAUDE_PLUGIN_ROOT}}/scripts/*)` (see #448). Got: {grant!r}"
+    )
+
+
+def test_command_bash_canary_is_not_vacuous():
+    assert _COMMAND_FILES, "no commands/*.md discovered — canary would false-green"

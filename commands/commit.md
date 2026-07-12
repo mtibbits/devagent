@@ -1,6 +1,6 @@
 ---
 description: "Step 10: commit staged changes with DCO sign-off using commit_template."
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---
 

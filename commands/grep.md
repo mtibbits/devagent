@@ -1,6 +1,6 @@
 ---
 description: Grep across all per-issue artifact files in a project's devdoc.
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[--project P] [-i] [-l] [--captures] <pattern>"
 ---
 

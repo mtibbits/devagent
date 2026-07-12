@@ -1,6 +1,6 @@
 ---
 description: One-screen rehydration of an issue
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project> [issue]"
 ---
 

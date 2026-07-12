@@ -1,6 +1,6 @@
 ---
 description: Generate per-project status report, advance pin, optionally commit to devdoc
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/statusreport.sh" $ARGUMENTS` with the user's arguments.

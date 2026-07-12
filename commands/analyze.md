@@ -1,6 +1,6 @@
 ---
 description: "Step 11: run the project's analyzer family against changed-line scope."
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---
 

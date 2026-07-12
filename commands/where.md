@@ -1,6 +1,6 @@
 ---
 description: Show active issue, current/next step, parked issues, and STUCK status
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project>"
 ---
 

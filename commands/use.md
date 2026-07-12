@@ -1,6 +1,6 @@
 ---
 description: Deliberately switch the active project (the one arg-driven pointer writer)
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<project>"
 ---
 

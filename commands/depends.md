@@ -1,6 +1,6 @@
 ---
 description: Record or list issue dependencies (Issue-A depends on Issue-B).
-allowed-tools: Bash
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[--project P] <A> on <B> | list"
 ---
 
