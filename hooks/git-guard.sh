@@ -2,8 +2,9 @@
 # hooks/git-guard.sh — devAgent opt-in git-reflex guard (#352). A PreToolUse Bash
 # hook that DENIES reflexive destructive git on a DIRTY working tree, so an agentic
 # run can't silently wipe uncommitted work (6+ recorded near-losses: #85/#116/#125/
-# #76/#151/#240). OPT-IN via `[defaults] git_guard = true`; default off. Override a
-# single call by prefixing `DEVAGENT_GIT_GUARD_OVERRIDE=1`.
+# #76/#151/#240). OPT-IN via `[defaults] git_guard = true`; default off. #433: a
+# `[project.<active>] git_guard` value (true/false) overrides [defaults] for the
+# active project. Override a single call by prefixing `DEVAGENT_GIT_GUARD_OVERRIDE=1`.
 #
 # CONTRACT — fail-OPEN. exit 0 = allow; exit 2 = deny (stderr shown to the user). A
 # guard BUG must NEVER brick Bash, so every error/uncertain path exits 0 and ONLY a
@@ -25,14 +26,33 @@
 # STRING merely containing `git checkout <w1> <w2>` (e.g. a commit message or echo
 # referencing it) over-matches. The opt-in gate + the override are the intended escapes.
 
-# 1. Gate — read [defaults] git_guard (matches doctor's config_get_default). OFF
-#    (the default) or unreadable → allow fast, before any parsing work.
+# 1. Gate — resolve git_guard for the ACTIVE project (#433): a [project.<active>]
+#    override wins over [defaults]; absent → the [defaults] value applies. OFF (the
+#    default) or unreadable → allow fast. active_project comes from state/_active.toml
+#    (empty when unset → defaults-only, backwards compatible with pre-#433 configs).
+#    The gate awk is byte-identical to doctor's (drift-pinned by a bats canary) so the
+#    two parsers never disagree — the #432 divergence class. Still requires a LITERALLY
+#    BARE line (anchored $), so a `git_guard = true  # note` does not enable.
 cfg="${DA_HOME:-$HOME/.claude/devagent}/config.toml"
 [ -f "$cfg" ] || exit 0
-awk '
-  /^\[/ { in_def = ($0 == "[defaults]") }
-  in_def && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/ { found = 1 }
-  END   { exit(found ? 0 : 1) }
+# Resolve the active project via devAgent's canonical chain: DEVAGENT_ACTIVE_PROJECT
+# env pin FIRST (the box may env-pin it via settings.local.json; the pointer's
+# write-half is a known-stale gap), then the state/_active.toml pointer. Empty →
+# defaults-only. Honoring the env tier is load-bearing: otherwise an env-pinned
+# `[project.<X>] git_guard = true` would be silently ignored (a security guard
+# failing OPEN on config the operator explicitly enabled).
+guard_proj="${DEVAGENT_ACTIVE_PROJECT:-}"
+[ -n "$guard_proj" ] || guard_proj="$(awk -F'"' '/^active_project[[:space:]]*=/{print $2; exit}' \
+  "${DA_HOME:-$HOME/.claude/devagent}/state/_active.toml" 2>/dev/null || true)"
+awk -v proj="$guard_proj" '
+  /^\[/ {
+    in_def  = ($0 == "[defaults]")
+    in_proj = (proj != "" && $0 == "[project." proj "]")
+  }
+  in_proj && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/  { pv = 1; ps = 1 }
+  in_proj && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*false[[:space:]]*$/ { pv = 0; ps = 1 }
+  in_def  && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/  { dv = 1 }
+  END { exit((ps ? pv : dv) ? 0 : 1) }
 ' "$cfg" 2>/dev/null || exit 0
 
 # 2. Parse the tool call. Any parse failure → allow (fail-open; jq exits nonzero on

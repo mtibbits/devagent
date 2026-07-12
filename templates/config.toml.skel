@@ -8,6 +8,10 @@ ship_as_draft = false
 # work. `git stash pop|apply` and a clean tree are always allowed. Override one
 # call with a `DEVAGENT_GIT_GUARD_OVERRIDE=1` prefix. Default off; fail-open (a
 # guard error never blocks a call). `/devagent:init` offers to enable it.
+# #433: PER-PROJECT — a `[project.<name>] git_guard` value (true or false) wins
+# over this [defaults] value for that project (resolved via the active project),
+# so you can guard one risky project without enabling it everywhere. Must be a
+# LITERALLY BARE line (no trailing comment) or the hook's gate won't see it.
 # git_guard = false
 
 [project.{{PROJECT}}]

@@ -181,16 +181,37 @@ if [[ -f "$(config_path)" ]]; then
   # failure); tomllib-on but gate-off → a silently-disabled guard the operator
   # opted into, which IS a failure (the divergence #432 exists to surface). The
   # gate awk below is byte-identical to the hook's (drift-pinned by a bats canary).
-  if awk '
-    /^\[/ { in_def = ($0 == "[defaults]") }
-    in_def && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/ { found = 1 }
-    END   { exit(found ? 0 : 1) }
+  # #433: resolve per the project doctor was invoked with (a [project.<name>]
+  # override wins over [defaults]); no arg → defaults-only. The gate awk below is
+  # BYTE-IDENTICAL to the hook's (drift-pinned by a bats canary). The tomllib side
+  # mirrors the same project→defaults order so the divergence check compares like
+  # for like.
+  # An explicit `doctor <project>` arg checks THAT project; with no arg, resolve the
+  # active project via the hook's own chain (DEVAGENT_ACTIVE_PROJECT env > pointer) so
+  # a bare `doctor` predicts what the hook will do in the active session (#433).
+  gproj="${1:-}"
+  if [[ -z "$gproj" ]]; then
+    gproj="${DEVAGENT_ACTIVE_PROJECT:-}"
+    [[ -n "$gproj" ]] || gproj="$(awk -F'"' '/^active_project[[:space:]]*=/{print $2; exit}' \
+      "$(dirname "$(config_path)")/state/_active.toml" 2>/dev/null || true)"
+  fi
+  gtoml="$(config_get_project_field "$gproj" git_guard 2>/dev/null || true)"
+  [[ -z "$gtoml" ]] && gtoml="$(config_get_default git_guard 2>/dev/null || true)"
+  if awk -v proj="$gproj" '
+    /^\[/ {
+      in_def  = ($0 == "[defaults]")
+      in_proj = (proj != "" && $0 == "[project." proj "]")
+    }
+    in_proj && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/  { pv = 1; ps = 1 }
+    in_proj && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*false[[:space:]]*$/ { pv = 0; ps = 1 }
+    in_def  && /^[[:space:]]*git_guard[[:space:]]*=[[:space:]]*true[[:space:]]*$/  { dv = 1 }
+    END { exit((ps ? pv : dv) ? 0 : 1) }
   ' "$(config_path)" 2>/dev/null; then
     check "git-reflex guard: ON (blocks reflexive stash/checkout--/restore/clean on a dirty tree)" ok
-  elif [[ "$(config_get_default git_guard 2>/dev/null || true)" == "true" ]]; then
+  elif [[ "$gtoml" == "true" ]]; then
     check "git-reflex guard: OFF despite git_guard=true — the hook's gate needs a LITERALLY BARE line (no trailing comment or extra tokens); the guard will NOT fire. Fix: git_guard = true" fail
   else
-    check "git-reflex guard: off (opt-in; set [defaults] git_guard = true to enable)" ok
+    check "git-reflex guard: off (opt-in; set [defaults] or [project.<name>] git_guard = true to enable)" ok
   fi
 else
   check "config exists" fail "no $(config_path) — run /devagent:init"
