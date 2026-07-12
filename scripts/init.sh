@@ -60,6 +60,20 @@ ask code_fork     "code fork (org/name)"     ""      DA_INIT_CODE_FORK
 # typed approval — default stays OFF; only an explicit yes enables it.
 ask git_guard_ans "Enable the git-reflex guard? (blocks reflexive stash/checkout--/restore/clean on a dirty tree; default off)" "n" DA_INIT_GIT_GUARD
 
+# #437: ask the step-11 analyze family, and — ONLY when it is cmake — surface the
+# analyze_timeout key so it is discoverable at init (previously only the skel
+# comment named it). A large TSan ctest suite (e.g. volk-scale) can exceed the
+# 1800s default and get silently killed mid-run; offering the key at init lets the
+# operator raise it up front. shellcheck/none projects have no such leg, so the
+# timeout is not offered for them.
+analyze_ans=""   # declared so shellcheck sees the `ask` (printf -v) assignment (SC2154)
+ask analyze_ans "analyze family (cmake | shellcheck | none)" "cmake" DA_INIT_ANALYZE
+analyze_timeout_ans=""
+if [ "$analyze_ans" = "cmake" ]; then
+  ask analyze_timeout_ans "analyze_timeout seconds for the cmake configure/build/ctest legs (default 1800; raise for a large TSan ctest suite that could exceed it)" "1800" DA_INIT_ANALYZE_TIMEOUT
+  [[ "$analyze_timeout_ans" =~ ^[0-9]+$ ]] || die "analyze_timeout must be a positive integer (got '$analyze_timeout_ans')"
+fi
+
 # Detect upstream's default branch for default_baseline. Falls back to main
 # when gh is unavailable, unauthenticated, or offline.
 default_branch="$(gh api "repos/$code_upstream" --jq '.default_branch' 2>/dev/null || true)"
@@ -99,6 +113,20 @@ for k, v in subst.items():
     text = text.replace(k, v)
 open(dst, "w", encoding="utf-8").write(text)
 PY
+
+# #437: surface the analyze family in the project block. For cmake, write the
+# offered analyze_timeout (default 1800 or the operator's value) so the key is
+# discoverable; for a non-default family (shellcheck/none) record `analyze`. The
+# key is inserted right after the `[project.<name>]` header, inside the block.
+if [ "$analyze_ans" = "cmake" ]; then
+  _ana_line="analyze_timeout  = ${analyze_timeout_ans}"
+else
+  _ana_line="analyze          = \"${analyze_ans}\""
+fi
+awk -v hdr="[project.$project]" -v line="$_ana_line" '
+  { print }
+  $0 == hdr { print line }
+' "$rendered" > "$rendered.tmp" && mv "$rendered.tmp" "$rendered"
 
 # Validate the rendered TOML before touching the real config: an answer that
 # breaks TOML quoting (e.g. a literal " in a repo/path) must fail loudly here
