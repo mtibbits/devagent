@@ -21,6 +21,13 @@ remain as the fallback / per-session alternatives (see "Concurrent sessions" in
 An unknown project is rejected (the pointer is left unchanged). Does **not**
 execute a workflow step — invites the operator to run `/devagent:next`.
 
+**Env-pinned sessions (#434):** if this session has `DEVAGENT_ACTIVE_PROJECT`
+set to a *different* project, `use` still writes the pointer (so other sessions
+switch) but WARNS — because the env pin beats the pointer for THIS session, a
+bare command here keeps resolving the pin. The exit code is unchanged (a warning,
+not a refusal); re-export or unset `DEVAGENT_ACTIVE_PROJECT` to switch this
+session too.
+
 ## Run the script
 
 ```bash

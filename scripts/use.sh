@@ -30,6 +30,17 @@ main() {
 
   active_set_project "$project"
   echo "Active project → $project"
+
+  # #434: in a DEVAGENT_ACTIVE_PROJECT-pinned session the env beats the pointer
+  # (active.sh: env > pointer), so a bare command STILL resolves the pin — this
+  # `use` switched the pointer for OTHER sessions but NOT this one. Warn so the
+  # operator isn't misled into thinking their session switched. (Warn, not refuse:
+  # the pointer write is still legitimate for other sessions; scripted callers see
+  # an extra stderr line but an unchanged exit code.) A pin targeting the SAME
+  # project is a no-op switch → no warning.
+  if [[ -n "${DEVAGENT_ACTIVE_PROJECT:-}" && "$DEVAGENT_ACTIVE_PROJECT" != "$project" ]]; then
+    warn "this session is env-pinned to '$DEVAGENT_ACTIVE_PROJECT'; the pointer change to '$project' affects other sessions only (env beats the pointer for this session)"
+  fi
   echo
 
   # Resolved-state view — where.sh takes the project as an arg and handles a
