@@ -1,6 +1,7 @@
 ---
 description: WBS authoring and rendering (init | update | show)
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+argument-hint: "<init|update|show> [project] [args]"
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" $ARGUMENTS` with the user's arguments.

@@ -1,6 +1,7 @@
 ---
 description: Alias for `/devagent:wbs update` (workflow step 17)
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+argument-hint: "[project] [args]"
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments.

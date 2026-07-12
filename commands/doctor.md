@@ -1,6 +1,7 @@
 ---
 description: Validate config, state, paths, and template resolution.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+argument-hint: "[project]"
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.sh" [project]`. With no argument, doctor runs against
