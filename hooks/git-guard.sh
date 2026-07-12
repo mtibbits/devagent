@@ -48,13 +48,22 @@ case "$cmd" in
   *DEVAGENT_GIT_GUARD_OVERRIDE=1*) exit 0 ;;
 esac
 
-# 3. Dirty gate — only guard a DIRTY tree; a clean tree (or a git error) → allow,
-#    since the reflexive commands can't lose work when there's nothing uncommitted.
-status="$(git -C "$cwd" status --porcelain 2>/dev/null)" || exit 0
-[ -n "$status" ] || exit 0
+# 3. Shape-match FIRST (#431) — pure-bash string tests, no subprocess. The git
+#    status subprocess (step 4) is the hot-path cost, so we confine it to the rare
+#    deny-shaped command: match the shape here, and only THEN pay for a git status.
+#    Every non-deny Bash call in a guarded session now skips git entirely.
+#    (verb-gated; each requires its git verb so `git diff -- f` etc. are never
+#    caught. `(^|[^[:alnum:]_])git` = `git` as a word, not `mygit`.)
+#
+# 3a. Fast reject — no `git` substring at all → no deny shape is possible (every
+#     shape below requires a git verb). A pure case-glob (no subprocess), so the
+#     overwhelming majority of Bash calls (which never mention git) exit here,
+#     skipping BOTH the grep chain and the git status subprocess.
+case "$cmd" in
+  *git*) ;;
+  *) exit 0 ;;
+esac
 
-# 4. Deny shapes (verb-gated; each requires its git verb so `git diff -- f` etc. are
-#    never caught). `(^|[^[:alnum:]_])git` = `git` as a word, not `mygit`.
 deny=""
 if printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+checkout([[:space:]].*)?[[:space:]]--([[:space:]]|$)'; then
   deny="\`git checkout … -- <pathspec>\` discards working-tree changes to those paths"
@@ -106,7 +115,14 @@ elif printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+checkout([[:
   fi
 fi
 
+# No deny shape matched → allow WITHOUT touching git (the common hot path, #431).
 [ -n "$deny" ] || exit 0
+
+# 4. Dirty gate — a matched deny shape only loses work on a DIRTY tree; a clean
+#    tree (or a git error) → allow. This `git status` subprocess now runs ONLY for
+#    a deny-shaped command, not on every guarded Bash call (#431).
+status="$(git -C "$cwd" status --porcelain 2>/dev/null)" || exit 0
+[ -n "$status" ] || exit 0
 
 # 5. Confirmed deny.
 {
