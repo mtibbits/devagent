@@ -1,6 +1,7 @@
 ---
 description: Run the issue red-team prompt against a capture draft; write redteam.md
 allowed-tools: Read, Write, Edit, Skill
+argument-hint: "<capture-slug>"
 ---
 
 # /devagent:redissue

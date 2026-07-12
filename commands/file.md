@@ -1,6 +1,7 @@
 ---
 description: File a capture draft as a tracker issue (origin or fork)
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read
+argument-hint: "<capture-slug> [origin|fork]"
 ---
 
 # /devagent:file

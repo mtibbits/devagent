@@ -1,6 +1,7 @@
 ---
 description: Execute the next actionable step on the active issue
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+argument-hint: "[project] [--auto] [--through <step>] [-- <note>]"
 ---
 
 # /devagent:next

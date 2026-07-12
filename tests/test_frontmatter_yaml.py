@@ -165,3 +165,18 @@ def test_disable_model_invocation_only_on_operator_verbs():
         if _load_fm(p).get("disable-model-invocation") is True
     }
     assert have == allowed, f"disable-model-invocation set = {sorted(have)}, expected {sorted(allowed)}"
+
+
+# #450: every slash command carries an `argument-hint` (autocomplete grammar).
+# All devAgent commands take at least an optional [project]; the field was a
+# closed gap of 19 commands. This canary keeps the coverage at 100% so a new
+# command surfaces its grammar in / menu autocomplete.
+@pytest.mark.parametrize(
+    "path", _COMMAND_FILES, ids=[os.path.relpath(p, _REPO) for p in _COMMAND_FILES]
+)
+def test_command_has_argument_hint(path):
+    hint = _load_fm(path).get("argument-hint")
+    assert isinstance(hint, str) and hint.strip(), (
+        f"{os.path.relpath(path, _REPO)}: missing/empty `argument-hint` "
+        f"(copy the usage grammar up into frontmatter — see #450)"
+    )
