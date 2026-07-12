@@ -1,7 +1,7 @@
 ---
 name: core-scope
 description: Use when running step 2 of the devAgent workflow to evaluate whether an issue's implementation plan is correctly scoped before investing implementation time
-when-to-use: After /devagent:draft has produced an imPlan.md and before /devagent:improve. Run as part of /devagent:scope.
+when_to_use: After /devagent:draft has produced an imPlan.md and before /devagent:improve. Run as part of /devagent:scope.
 ---
 
 # devagent-scope

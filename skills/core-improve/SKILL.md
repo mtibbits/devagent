@@ -1,7 +1,7 @@
 ---
 name: core-improve
 description: Use when running step 3 of the devAgent workflow to surface latent bugs, unintended side effects, and ambiguities in an implementation plan before pruning
-when-to-use: After /devagent:scope has appended scope evaluation and before /devagent:prune. Run as part of /devagent:improve.
+when_to_use: After /devagent:scope has appended scope evaluation and before /devagent:prune. Run as part of /devagent:improve.
 ---
 
 # devagent-improve
