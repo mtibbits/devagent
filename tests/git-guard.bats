@@ -81,12 +81,60 @@ _run() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$(_json "$1")" "$(HOOK)";
   [ "$status" -eq 0 ]
 }
 
-@test "guard: git_guard=true in a PROJECT section (not [defaults]) does NOT enable it" {
-  # section-scoped read must match doctor's config_get_default (defaults only)
-  printf '\n[project.other]\ngit_guard = true\n' >> "$HOME/.claude/devagent/config.toml"
+# #433 flips the pre-#433 contract (a [project.*] git_guard was IGNORED). Now a
+# [project.<active>] override enables the guard for THAT project only. active_project
+# comes from state/_active.toml.
+_set_active() { mkdir -p "$HOME/.claude/devagent/state"
+  printf 'active_project = "%s"\n' "$1" > "$HOME/.claude/devagent/state/_active.toml"; }
+
+@test "guard: [project.<active>] git_guard=true enables it for that project only (#433)" {
+  printf '\n[project.risky]\ngit_guard = true\n' >> "$HOME/.claude/devagent/config.toml"
+  _dirty
+  _set_active risky
+  _run "git stash"
+  [ "$status" -eq 2 ]                         # ON for the active project
+  # A DIFFERENT active project (no override, no [defaults]) → the override does NOT apply.
+  _set_active other
+  _run "git stash"
+  [ "$status" -eq 0 ]                         # off — scoped to 'risky' only
+}
+
+@test "guard: [defaults] fallback applies when the active project has no override (#433)" {
+  devagent_config_set_bool "$HOME/.claude/devagent/config.toml" defaults.git_guard true
+  printf '\n[project.risky]\nx = 1\n' >> "$HOME/.claude/devagent/config.toml"
+  _dirty
+  _set_active risky                          # no [project.risky] git_guard → defaults wins
+  _run "git stash"
+  [ "$status" -eq 2 ]                         # ON via [defaults]
+}
+
+@test "guard: [project.<active>] git_guard=false overrides [defaults]=true (#433)" {
+  devagent_config_set_bool "$HOME/.claude/devagent/config.toml" defaults.git_guard true
+  printf '\n[project.safe]\ngit_guard = false\n' >> "$HOME/.claude/devagent/config.toml"
+  _dirty
+  _set_active safe
+  _run "git stash"
+  [ "$status" -eq 0 ]                         # off — project override beats defaults
+}
+
+@test "guard: no active_project (unset) falls back to [defaults] (#433 backwards compat)" {
+  devagent_config_set_bool "$HOME/.claude/devagent/config.toml" defaults.git_guard true
+  # no state/_active.toml written → proj empty → defaults-only, pre-#433 behavior
   _dirty
   _run "git stash"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]                         # ON via [defaults], as before #433
+}
+
+@test "guard: DEVAGENT_ACTIVE_PROJECT env pin wins over the _active.toml pointer (#433)" {
+  # The box may env-pin the active project; the hook must honor the env FIRST or an
+  # env-pinned [project.<X>] git_guard is silently ignored (security guard fails open).
+  printf '\n[project.risky]\ngit_guard = true\n' >> "$HOME/.claude/devagent/config.toml"
+  _set_active other                          # pointer says 'other' (no override)
+  _dirty
+  # PreToolUse hooks inherit the session env; pin it to 'risky' → guard ON.
+  run bash -c 'DEVAGENT_ACTIVE_PROJECT=risky printf "%s" "$1" | DEVAGENT_ACTIVE_PROJECT=risky bash "$2"' \
+    _ "$(_json 'git stash')" "$(HOOK)"
+  [ "$status" -eq 2 ]                         # env pin resolved [project.risky] → ON
 }
 
 @test "guard ON + DIRTY: git reset --hard is DENIED in any arg position (#430)" {

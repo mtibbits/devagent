@@ -202,12 +202,21 @@ CL
   [[ "$output" != *"OFF despite"* ]]
 }
 
-@test "doctor's git_guard awk gate is byte-identical to the hook's (drift canary, #432)" {
-  # doctor replicates the hook's awk gate; if either drifts, the ON/off divergence
-  # class #432 fixed silently reopens. Pin the gate line identical in both files.
+@test "doctor's git_guard awk gate is byte-identical to the hook's (drift canary, #432/#433)" {
+  # doctor replicates the hook's per-project awk gate (#433); if either drifts, the
+  # ON/off divergence class #432 fixed silently reopens. Extract the WHOLE gate block
+  # (from `awk -v proj=` through the `END { exit((ps …` line — incl. the `/^\[/`
+  # section trigger that makes subtable scoping work) and compare it trimmed, so ANY
+  # change to one file's gate — value rules OR section handling — fails.
+  # Capture the awk PROGRAM BODY only (from the line AFTER `awk -v proj=` — the
+  # invocation line differs by shell var name — through the `END { exit((ps …` line).
+  _extract_gate() {
+    awk '/awk -v proj=/{f=1; next} f{print} /END \{ exit\(\(ps/{exit}' "$1" | sed 's/^[[:space:]]*//'
+  }
   local hook_gate doctor_gate
-  hook_gate="$(grep -E 'in_def &&.*git_guard.*true.*found = 1' "$PLUGIN_ROOT/hooks/git-guard.sh" | sed 's/^[[:space:]]*//')"
-  doctor_gate="$(grep -E 'in_def &&.*git_guard.*true.*found = 1' "$PLUGIN_ROOT/scripts/doctor.sh" | sed 's/^[[:space:]]*//')"
+  hook_gate="$(_extract_gate "$PLUGIN_ROOT/hooks/git-guard.sh")"
+  doctor_gate="$(_extract_gate "$PLUGIN_ROOT/scripts/doctor.sh")"
   [ -n "$hook_gate" ]
-  [ "$hook_gate" = "$doctor_gate" ] || { echo "gate DRIFT:"; echo "  hook:   $hook_gate"; echo "  doctor: $doctor_gate"; false; }
+  [[ "$hook_gate" == *'/^\['* ]]                 # the section-trigger line is captured
+  [ "$hook_gate" = "$doctor_gate" ] || { echo "gate DRIFT:"; diff <(echo "$hook_gate") <(echo "$doctor_gate"); false; }
 }
