@@ -10,6 +10,39 @@ revision, WBS, and status-report subsystems on top of the core loop.
 See `docs/specs/2026-05-19-devagent-plugin-design.md` for the design spec and
 `docs/plans/` for the incremental build history.
 
+## Install
+
+devAgent is a Claude Code plugin. Add its marketplace, then install the plugin:
+
+```sh
+# 1. Add the marketplace (the devagent repo)
+claude plugin marketplace add mtibbits/devagent
+
+# 2. Install the plugin
+claude plugin install devagent@devagent
+```
+
+**Prerequisite — superpowers.** devAgent's draft / implement / review steps wrap
+skills from the [`superpowers`](https://github.com/anthropics/claude-plugins-official)
+plugin (declared as a dependency in `plugin.json`). Install it too, or those
+steps silently degrade:
+
+```sh
+claude plugin install superpowers@claude-plugins-official
+```
+
+**Private-repo access.** While `mtibbits/devagent` is private,
+`claude plugin marketplace add` clones it over your configured git access — you
+need read access to the repo (an SSH key, or `gh auth` with `repo` scope). Once
+the repo is public this note no longer applies.
+
+**Updates.** The plugin is versioned by git commit SHA (no pinned `version`), so
+`claude plugin update devagent@devagent` picks up new commits without an
+uninstall + reinstall.
+
+Requires a `bash` + `python3` toolchain (the workflow scripts) and, for the auth
+subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
+
 ## The 22-step workflow
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
