@@ -184,3 +184,27 @@ EOF
   report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
   grep -q "DEVDOC_ONLY_423" "$report"
 }
+
+@test "statusreport surfaces per-issue dispatch-lint reject counts from analysis/rejected/ (#438)" {
+  # Seed two rejected archives for Issue-100 and none for Issue-103.
+  mkdir -p "$TMPDEV/Issue-100/analysis/rejected"
+  : > "$TMPDEV/Issue-100/analysis/rejected/2026-07-01-improve-attempt1.md"
+  : > "$TMPDEV/Issue-100/analysis/rejected/2026-07-01-improve-attempt2.md"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  grep -q "Dispatch-lint rejects (1)" "$report"        # one issue has rejects
+  grep -q "Issue-100 (2)" "$report"                    # with its count
+  # a zero-reject issue is NOT listed under rejects (no noise)
+  run grep -E "Dispatch-lint rejects.*Issue-103|^- Issue-103 \(" "$report"
+  [ "$status" -ne 0 ]
+}
+
+@test "statusreport with no reject archives renders the section as (none), no noise (#438)" {
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  grep -q "Dispatch-lint rejects (0)" "$report"
+  # the section body renders the shared empty marker, not per-issue noise
+  grep -qA1 "Dispatch-lint rejects (0)" "$report"
+}

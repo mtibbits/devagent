@@ -116,12 +116,19 @@ issue_dirs = sorted(
 
 stuck, failed_rt, idle_list, poorly, completed = [], [], [], [], []
 inline_arts = []
+rejects = []           # #438: per-issue dispatch-lint reject counts
 completion_ts = []
 for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
     if not entries:
         continue
     last_step = 20 if any(e["step"] == "cleanup" for e in entries) else 7
+
+    # #438: aggregate dispatch-lint rejects archived under analysis/rejected/
+    # (#360). Zero-reject issues are omitted entirely — no added noise.
+    _nrej = len(list((d / "analysis" / "rejected").glob("*.md")))
+    if _nrej:
+        rejects.append(f"{d.name} ({_nrej})")
 
     if detect.is_stuck(d):
         stuck.append(d.name)
@@ -209,6 +216,8 @@ filled = (
     .replace("{{POORLY_SCOPED_LIST}}", render_list(poorly))
     .replace("{{INLINE_ARTIFACTS_COUNT}}", str(len(inline_arts)))
     .replace("{{INLINE_ARTIFACTS_LIST}}", render_list(inline_arts))
+    .replace("{{DISPATCH_REJECTS_COUNT}}", str(len(rejects)))
+    .replace("{{DISPATCH_REJECTS_LIST}}", render_list(rejects))
     .replace("{{WBS_ROLLUP}}", wbs_rollup)
     .replace("{{VELOCITY_WINDOW_WEEKS}}", str(window_weeks))
     .replace("{{VELOCITY_PER_WEEK}}", f"{v:.1f}")

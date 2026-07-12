@@ -13,6 +13,8 @@ Pin: {{PIN_FROM}} → {{PIN_TO}} ({{PIN_SPAN}})
 {{IDLE_LIST}}
 ### Poorly scoped ({{POORLY_SCOPED_COUNT}})
 {{POORLY_SCOPED_LIST}}
+### Dispatch-lint rejects ({{DISPATCH_REJECTS_COUNT}})
+{{DISPATCH_REJECTS_LIST}}
 ### Inline checking artifacts ({{INLINE_ARTIFACTS_COUNT}})
 <!-- Checking steps run inline (no fresh context) — surfaced so a `context: inline` report isn't invisible (#360). -->
 {{INLINE_ARTIFACTS_LIST}}
