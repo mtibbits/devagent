@@ -1,6 +1,7 @@
 ---
 name: core-reap
 description: Classify harvested follow-up candidates (subtype + keep/discard) before they become drafts. Triggers when /devagent:reap surfaces ambiguous candidates.
+user-invocable: false
 ---
 
 # devagent-reap

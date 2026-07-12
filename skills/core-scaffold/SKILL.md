@@ -1,6 +1,7 @@
 ---
 name: core-scaffold
 description: Bin an epic capture into child issue draft entries (subtype + title + summary). Triggers when /devagent:scaffold is invoked.
+user-invocable: false
 ---
 
 # devagent-scaffold

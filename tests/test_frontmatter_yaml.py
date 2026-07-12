@@ -120,3 +120,48 @@ def test_command_bash_grant_is_scoped(path):
 
 def test_command_bash_canary_is_not_vacuous():
     assert _COMMAND_FILES, "no commands/*.md discovered — canary would false-green"
+
+
+# #449: invocation-control invariants.
+def _load_fm(path):
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if not text.startswith("---"):
+        return {}
+    return yaml.safe_load(text.split("---", 2)[1]) or {}
+
+
+def test_all_core_skills_are_not_user_invocable():
+    """The 14 internal core-* skills must be hidden from the user / menu."""
+    core = sorted(glob.glob(os.path.join(_REPO, "skills", "core-*", "SKILL.md")))
+    assert core, "no core-* skills discovered — canary would false-green"
+    missing = [
+        os.path.relpath(p, _REPO)
+        for p in core
+        if _load_fm(p).get("user-invocable") is not False
+    ]
+    assert not missing, f"core-* skills missing `user-invocable: false` (#449): {missing}"
+
+
+def test_disable_model_invocation_only_on_operator_verbs():
+    """CHAIN-safety invariant: `disable-model-invocation: true` may appear ONLY on
+    auth/init/use — NEVER on a workflow-step command, or /devagent:next --auto's
+    model-invocation of that step silently dies (#449)."""
+    allowed = {"auth.md", "init.md", "use.md"}
+    offenders = sorted(
+        os.path.basename(p)
+        for p in _COMMAND_FILES
+        if _load_fm(p).get("disable-model-invocation") is True
+        and os.path.basename(p) not in allowed
+    )
+    assert not offenders, (
+        f"`disable-model-invocation: true` on non-operator command(s) {offenders} "
+        f"— this breaks the /devagent:next --auto CHAIN. Allowed only on {sorted(allowed)}."
+    )
+    # And the three operator verbs MUST carry it (both directions of the invariant).
+    have = {
+        os.path.basename(p)
+        for p in _COMMAND_FILES
+        if _load_fm(p).get("disable-model-invocation") is True
+    }
+    assert have == allowed, f"disable-model-invocation set = {sorted(have)}, expected {sorted(allowed)}"

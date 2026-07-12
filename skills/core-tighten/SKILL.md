@@ -2,6 +2,7 @@
 name: core-tighten
 description: Use when running step 5 of the devAgent workflow to perform the final pre-implementation review of a pruned plan, locking down task ordering, file paths, and test plan
 when_to_use: After /devagent:prune has produced a minimal plan and before /devagent:branch. Run as part of /devagent:tighten.
+user-invocable: false
 ---
 
 # devagent-tighten

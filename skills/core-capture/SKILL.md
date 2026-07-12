@@ -1,6 +1,7 @@
 ---
 name: core-capture
 description: Decide whether a captured idea is one issue, one epic, or several epics; pick a subtype; emit a structured handoff for capture.sh. Triggers when /devagent:capture is invoked.
+user-invocable: false
 ---
 
 # devagent-capture
