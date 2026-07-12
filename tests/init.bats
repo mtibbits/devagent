@@ -200,3 +200,47 @@ EOF
   source "$PLUGIN_ROOT/scripts/lib/config.sh"
   [ "$(config_get_default git_guard 2>/dev/null || true)" != "true" ]
 }
+
+@test "init offers analyze_timeout for a cmake project (#437)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="n" DA_INIT_ANALYZE="cmake" DA_INIT_ANALYZE_TIMEOUT="3600" \
+    run "$PLUGIN_ROOT/scripts/init.sh" anacmake
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  [ "$(config_get_project_field anacmake analyze_timeout)" = "3600" ]
+}
+
+@test "init does NOT offer analyze_timeout for a non-cmake (shellcheck) project (#437)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="n" DA_INIT_ANALYZE="shellcheck" \
+    run "$PLUGIN_ROOT/scripts/init.sh" anash
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  # analyze family recorded, but no analyze_timeout for a non-cmake project
+  [ "$(config_get_project_field anash analyze)" = "shellcheck" ]
+  [ -z "$(config_get_project_field anash analyze_timeout 2>/dev/null || true)" ]
+}
+
+@test "init default is cmake with analyze_timeout=1800 (#437)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="n" \
+    run "$PLUGIN_ROOT/scripts/init.sh" anadef
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"; source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  [ "$(config_get_project_field anadef analyze_timeout)" = "1800" ]
+}
+
+@test "init rejects a non-integer analyze_timeout (#437)" {
+  DA_INIT_SOURCE_DIR="/tmp/s" DA_INIT_DEVDOC_DIR="/tmp/d" DA_INIT_ISSUE_BACKEND="github" \
+  DA_INIT_ISSUE_REPO="g/v" DA_INIT_CODE_BACKEND="github" DA_INIT_CODE_UPSTREAM="g/v" \
+  DA_INIT_CODE_FORK="m/v" DA_INIT_GIT_GUARD="n" DA_INIT_ANALYZE="cmake" DA_INIT_ANALYZE_TIMEOUT="abc" \
+    run "$PLUGIN_ROOT/scripts/init.sh" anabad
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"analyze_timeout must be a positive integer"* ]]
+}
