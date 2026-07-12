@@ -57,3 +57,28 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"project required"* ]]
 }
+
+@test "use in a DEVAGENT_ACTIVE_PROJECT-pinned session warns the pointer change is for other sessions (#434)" {
+  # env pin to volk, but `use gnuradio` — env beats the pointer for THIS session,
+  # so the switch only affects other sessions; use must say so.
+  run env DEVAGENT_ACTIVE_PROJECT=volk bash "$PLUGIN_ROOT/scripts/use.sh" gnuradio
+  [ "$status" -eq 0 ]                                  # warn, not refuse — exit unchanged
+  [[ "$output" == *"Active project → gnuradio"* ]]     # pointer still written
+  [[ "$output" == *"env-pinned to 'volk'"* ]]
+  [[ "$output" == *"affects other sessions only"* ]]
+  # the pointer DID move (for other sessions)
+  [ "$(active_get_project)" = "gnuradio" ]
+}
+
+@test "use in a session pinned to the TARGET project does NOT warn (#434)" {
+  run env DEVAGENT_ACTIVE_PROJECT=gnuradio bash "$PLUGIN_ROOT/scripts/use.sh" gnuradio
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Active project → gnuradio"* ]]
+  [[ "$output" != *"env-pinned"* ]]                    # same project → no-op switch, no warning
+}
+
+@test "use with NO env pin does not warn (#434 regression)" {
+  run env -u DEVAGENT_ACTIVE_PROJECT bash "$PLUGIN_ROOT/scripts/use.sh" gnuradio
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"env-pinned"* ]]
+}
