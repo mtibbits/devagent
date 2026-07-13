@@ -710,14 +710,20 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   it), while letting the deliberate writer `devagent use` (use.sh) through. The
   two-UNPINNED-sessions interleave is out of scope here — the script layer (#282)
   owns it; unpinned sessions never see this guard.
+- `commit-guard.sh` (`commit_guard`, #455) — PreToolUse/Bash; denies a `git commit`
+  lacking a DCO sign-off (`-s`/`--signoff`), INCLUDING `git commit --amend` without
+  `-s`. Fires ONLY when a devAgent issue is active for the resolved project AND the
+  command's cwd is inside that project's `source_dir` (DCO is this operator's
+  per-project policy, not universal). A signed `git commit -s` outside commit.sh is
+  ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
 on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.
 Even a DISABLED hook is not free: the gate runs one `awk` over `config.toml` per call
 (plus a second `awk` over `_active.toml` when the `DEVAGENT_ACTIVE_PROJECT` env pin is
 unset) — only the no-`config.toml` case is subprocess-free. Keep the stack small
-(today: git-guard + active-pointer-guard on Bash; the guard children #455/#457 may add
-more) and each hook's MATCH path allocation-light (short-circuit before any
+(today: git-guard + active-pointer-guard + commit-guard on Bash; #457 may add more)
+and each hook's MATCH path allocation-light (short-circuit before any
 per-command subprocess like `git status`).
 
 ## 9. Backend abstraction
