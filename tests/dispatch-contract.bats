@@ -13,12 +13,19 @@ REPO="${BATS_TEST_DIRNAME}/.."
 
 _contract_carriers() {
   grep -rl 'step-model.sh' "$REPO/skills" "$REPO/commands"
+  # #441: the #284 draft planner contract was extracted from commands/draft.md
+  # (now a conditional-load STUB) into its own file — add it explicitly so the
+  # full-contract sweep still covers the draft planner.
+  echo "$REPO/docs/draft-dispatch-contract.md"
 }
 
 @test "every dispatch-contract carrier states the full contract (#151)" {
   local files; mapfile -t files < <(_contract_carriers)
   local f p missing=() full=0
   for f in "${files[@]}"; do
+    # #441: the draft.md stub is a POINTER to the extracted contract — not a full
+    # carrier (its full text lives in docs/draft-dispatch-contract.md, added above).
+    grep -qF 'draft-dispatch-contract.md' "$f" && continue
     # Wrappers that merely hand the project through only need the pointer;
     # full-contract carriers are the files defining a dispatch.
     grep -qE '## Dispatch contract|requesting-code-review' "$f" || continue
@@ -46,15 +53,18 @@ _contract_carriers() {
   done
 }
 
-@test "draft.md defines the thinking-class planner contract (#284)" {
-  # The planner carrier's OWN tokens (the generic sweep above covers the
-  # shared four): intent packaging, question-return, the round bound, and
-  # the Phase-6 required input.
-  local f="$REPO/commands/draft.md"
+@test "the thinking-class planner contract is defined in its extracted file (#284/#441)" {
+  # #441: the #284 planner contract moved out of draft.md into its own
+  # conditionally-loaded file. Its OWN tokens (the generic sweep above covers the
+  # shared four): intent packaging, question-return, the round bound, and the
+  # Phase-6 required input — must all survive the move.
+  local f="$REPO/docs/draft-dispatch-contract.md"
   grep -q '## Dispatch contract' "$f"
   grep -qF 'intent.md' "$f"
   grep -qF 'Open questions' "$f"
   grep -qF 'pending_comments_file' "$f"
   grep -qF 'two rounds' "$f"
   grep -qF 'intent_template' "$f"
+  # draft.md retains a stub that points to the extracted contract.
+  grep -qF 'draft-dispatch-contract.md' "$REPO/commands/draft.md"
 }
