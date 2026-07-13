@@ -142,7 +142,8 @@ with evidence, never "looks done":
   verify the checklist's current step is 21 first). The `[!]` plus STUCK
   file is the halt next.sh honors (exit 1 + STUCK display); recovery is
   `/devagent:unstuck` after addressing the failures, then re-run preship.
-- All PASS ⇒ mark step 21 `[x]` per the Completion handoff.
+- All PASS ⇒ mark step 21 `[x]` per the command's Completion handoff (#440: the
+  handoff block is single-sourced command-side; `/devagent:preship` carries it).
 
 ## Zero-diff (artifact-only) issues
 
@@ -179,39 +180,3 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" preship \
 
 - None directly (the artifact is free-form with the mandatory header;
   review/redmr artifacts are inputs, not templates).
-
-## Completion handoff
-
-First, **mark this step done** — `next.sh` keys off the checklist mark
-(not the log), so without it an `--auto`/`--through` chain re-dispatches
-this same step forever:
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
-```
-
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
-skill/command defines one).
-
-**STOP.** Do not invoke any other `/devagent:*` command on your own.
-End your final message with this exact question (substituting the
-correct next-step slash command from the checklist):
-
-> Would you like to continue on to /devagent:<next-step-name>?
-
-The next-step name is the first step in the issue's checklist.md not
-marked `[x]` or `[-]` -- read that line, take the verb after the
-step number, and substitute it into the question.
-
-The only exception: if you were invoked under a `/devagent:next
---auto` or `--through` chain (recognizable because the preceding
-turn's tool output contained a `CHAIN: /devagent:next ...` line),
-then do NOT ask the question -- instead invoke that exact CHAIN:
-command verbatim to continue the chain.
-
-If the operator typed a one-off `/devagent:<name>` directly (no
-preceding CHAIN: line), DO ask the question and wait for the
-operator's answer. Do not advance even if your internal TODO list
-still has steps after this one -- the operator's last explicit
-instruction is the authoritative scope.

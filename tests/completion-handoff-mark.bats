@@ -9,18 +9,25 @@
 # invocation and (b) use the corrected next-step wording matching
 # checklist_current_step ("first step not marked [x]/[-]"), not the old
 # "first line that starts with `- [ ]`".
+#
+# #440: the handoff block is single-sourced COMMAND-side — the 10 paired core-*
+# skills no longer carry it (they are user-invocable:false and reached only via
+# their command). So the handoff-file set is now the command files only; this
+# test scopes to them, and tests/handoff-single-source.bats enforces the skill
+# side is empty.
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
-# All files carrying a Completion-handoff section.
+# All files carrying a Completion-handoff section (command-side only since #440).
 _handoff_files() {
   grep -rl '## Completion handoff' "$REPO/skills" "$REPO/commands"
 }
 
 @test "every Completion-handoff file states the checklist-mark.sh invocation (#129)" {
   local files; mapfile -t files < <(_handoff_files)
-  # Guard against a vacuous pass: there are 9 skills + 14 commands.
-  [ "${#files[@]}" -ge 23 ]
+  # Guard against a vacuous pass: 15 command files carry the block (#440: the
+  # skill-side copies were removed; the block is single-sourced command-side).
+  [ "${#files[@]}" -ge 15 ]  # #440: command-side only (was >=23 incl. skills)
   local f missing=()
   for f in "${files[@]}"; do
     grep -q 'checklist-mark.sh' "$f" || missing+=("$f")
@@ -33,7 +40,7 @@ _handoff_files() {
 
 @test "no Completion-handoff file uses the stale 'starts with - [ ]' next-step wording (#129)" {
   local files; mapfile -t files < <(_handoff_files)
-  [ "${#files[@]}" -ge 23 ]
+  [ "${#files[@]}" -ge 15 ]  # #440: command-side only (was >=23 incl. skills)
   local f stale=()
   for f in "${files[@]}"; do
     # Old wording: "... that starts with `- [ ]`". New wording names the mark.
