@@ -716,6 +716,12 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   command's cwd is inside that project's `source_dir` (DCO is this operator's
   per-project policy, not universal). A signed `git commit -s` outside commit.sh is
   ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
+- `session-rehydrate.sh` (`session_rehydrate`, #456) — **SessionStart** (matchers
+  `startup|resume|clear`; `compact` EXCLUDED — compaction already carries a summary).
+  A NON-guard hook: prints where.sh's one-screen "active issue + last/next step" as
+  session context when a project resolves (env pin → pointer → single-configured
+  fallback). The NO-OP path is load-bearing — SessionStart fires for every session in
+  every repo, so no resolvable project / a where.sh error prints NOTHING and exits 0.
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
 on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.

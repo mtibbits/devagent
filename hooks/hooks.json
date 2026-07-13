@@ -31,6 +31,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-rehydrate.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
