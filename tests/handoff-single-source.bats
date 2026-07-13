@@ -6,17 +6,25 @@
 # handoff). This canary stops the 25-way duplication from re-growing.
 
 REPO="${BATS_TEST_DIRNAME}/.."
-# Signature lines that uniquely identify the block (both must be absent skill-side;
-# keying on both catches a partial re-add).
+# Signatures that identify the block. The historical failure mode is a byte-
+# identical copy, so the structural literals catch the real risk; we also key on
+# the block's BEHAVIOR-anchored line (the next-step / CHAIN question) so a re-add
+# that rewords the heading or the STOP marker but keeps the functional handoff is
+# still caught. All must be absent skill-side. (Scope note: only core-* skills are
+# command-paired, so the block is meaningless elsewhere; this guard is
+# intentionally scoped to skills/core-*/SKILL.md — a re-add to a non-core skill is
+# out of scope by construction.)
 HEADING='^## Completion handoff'
 STOP='^\*\*STOP\.\*\*'
+CHAIN='Would you like to continue on to'   # behavior-anchored (#440 redmr MINOR)
 
 @test "no core-* skill carries the completion-handoff block (#440)" {
-  run grep -rlE "$HEADING" "$REPO"/skills/core-*/SKILL.md
-  # #337 rc-precise: grep rc 1 = clean no-match; rc 0 = a skill still has it.
-  [ "$status" -eq 1 ] || { echo "core-* skill(s) still carry '## Completion handoff':" >&2; echo "$output" >&2; return 1; }
-  run grep -rlE "$STOP" "$REPO"/skills/core-*/SKILL.md
-  [ "$status" -eq 1 ] || { echo "core-* skill(s) still carry the '**STOP.**' block:" >&2; echo "$output" >&2; return 1; }
+  local sig
+  for sig in "$HEADING" "$STOP" "$CHAIN"; do
+    run grep -rlE "$sig" "$REPO"/skills/core-*/SKILL.md
+    # #337 rc-precise: grep rc 1 = clean no-match; rc 0 = a skill still has it.
+    [ "$status" -eq 1 ] || { echo "core-* skill(s) still carry a handoff signature (/$sig/):" >&2; echo "$output" >&2; return 1; }
+  done
 }
 
 @test "every command file carries the block at most once (no in-file dup) (#440)" {
