@@ -78,7 +78,7 @@ devAgent/
 │   ├── commit_template.md   (relocated from ~/src/devAgent/commitMessageTemplate.md)
 │   ├── mr_template.md       (relocated from ~/src/devAgent/PULL_REQUEST_TEMPLATE.md)
 │   ├── redteam_mr.md        (relocated from ~/src/devAgent/pr-redteam-prompt.md)
-│   ├── redteam_issue.md     (relocated from ~/.claude/issue-redteam-prompt.md)
+│   ├── redteam_issue_{shared,light,standard,full}.md   # #443: tier-split issue red-team (shared core + light/standard/full dimension parts, loaded per triage); a monolithic redteam_issue.md override still shadows all tiers
 │   ├── issue_template-bug.md, -feature.md, -docs.md, -perf.md, -chore.md
 │   ├── epic_template.md
 │   ├── imPlan_template.md
@@ -475,7 +475,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:capture issue <text>` | script + skill | Force-type to issue |
 | `/devagent:capture epic <text>` | script + skill | Force-type to epic |
 | `/devagent:scaffold <capture-slug>` | skill | Bin an epic capture into child issue drafts |
-| `/devagent:redissue <capture-slug>` | skill | Run `templates/redteam_issue.md` against the draft, write `redteam.md` |
+| `/devagent:redissue <capture-slug>` | skill | Run the tier-split issue red-team (`redteam_issue_shared` + the triage tier's cumulative dimension parts, or a monolithic `redteam_issue` override) against the draft, write `redteam.md` |
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
@@ -809,7 +809,7 @@ v1 artifact list:
 | `mr_template` | step 12 (draftmr) |
 | `issue_template-<type>` | capture, reap, file |
 | `epic_template` | capture (epic mode), scaffold |
-| `redteam_issue` | redissue |
+| `redteam_issue_shared` / `_light` / `_standard` / `_full` | redissue (#443: tier-split; a monolithic `redteam_issue` override, resolved by the same §12 walk, shadows all tiers) |
 | `redteam_mr` | redmr |
 | `imPlan_template` | draft |
 | `actualWork_template` | document |

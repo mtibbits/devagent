@@ -14,19 +14,19 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
 
 @test "redteam_issue.md no longer mandates the READY-TO-POST verdict line (#134)" {
     run grep -F '<READY TO POST / REVISE (Major) / NOT READY (Blocking)>' \
-        "$REPO/templates/redteam_issue.md"
+        "$REPO/templates/redteam_issue_shared.md"
     [ "$status" -ne 0 ]
 }
 
 @test "redteam_issue.md no longer mandates the dimension-count Summary line (#134)" {
     run grep -F 'X Blocking, X Major, X Minor, X Clean, X N/A' \
-        "$REPO/templates/redteam_issue.md"
+        "$REPO/templates/redteam_issue_shared.md"
     [ "$status" -ne 0 ]
 }
 
 @test "old red/orange verdict RULES are gone from redteam_issue.md (#134 improve H3)" {
     run grep -F 'An issue with two or more :orange_circle: scores should be revised.' \
-        "$REPO/templates/redteam_issue.md"
+        "$REPO/templates/redteam_issue_shared.md"
     [ "$status" -ne 0 ]
 }
 

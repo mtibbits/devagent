@@ -9,7 +9,11 @@ user-invocable: false
 ## Inputs
 
 - `draft_path` — absolute path to `Captures/<slug>/draft.md`.
-- `redteam_prompt` — resolved contents of the `redteam_issue` template (§12 registry: project paths → devdoc override → plugin default), passed by the command.
+- `redteam_prompt` — the resolved red-team prompt, passed by the command (#443:
+  either a monolithic `redteam_issue` override that shadows all tiers, or the
+  composed `redteam_issue_shared` + the cumulative tier parts for the triage tier —
+  Light/Standard/Full — per the §12 registry: project paths → devdoc override →
+  plugin default). Either way it is the complete prompt for the chosen tier.
 
 ## Procedure
 
