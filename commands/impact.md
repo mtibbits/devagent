@@ -1,5 +1,5 @@
 ---
-description: Measure and record the real-world impact of a merged change. Invokes core-impact skill.
+description: Measure and record the real-world impact of a merged change.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note: paths to evidence files]"
 ---

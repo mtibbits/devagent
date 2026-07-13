@@ -1,6 +1,6 @@
 ---
 name: core-draft-mr
-description: Use when running step 12 of the devAgent workflow to draft the merge-request body from imPlan, actualWork, and analyzer output before shipping
+description: "Step 12: draft the merge-request body from imPlan, actualWork, and analyzer output"
 when_to_use: After /devagent:analyze and before /devagent:review. Run as part of /devagent:draftmr.
 user-invocable: false
 ---
