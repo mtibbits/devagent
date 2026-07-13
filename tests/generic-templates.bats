@@ -30,12 +30,18 @@ REPO="${BATS_TEST_DIRNAME}/.."
   [ "$status" -eq 1 ] || { echo "VOLK token in commands/ (or grep error):" >&2; echo "$output" >&2; return 1; }
 }
 
-@test "the redteam_issue 16-dimension structure survives genericization (#136/#134)" {
+@test "the redteam_issue 16-dimension structure survives genericization (#136/#134/#443)" {
   # Genericizing the prose must not remove the dimensions #134 depends on.
-  local f="$REPO/templates/redteam_issue.md"
-  grep -q '## The Sixteen Dimensions' "$f"
-  local n; n="$(grep -cE '^### [0-9]+\. ' "$f")"
-  [ "$n" -eq 16 ]
+  # #443: the monolith was split — the "Sixteen Dimensions" intro lives in
+  # _shared, and the 16 dimension bodies are partitioned across the 3 tier files
+  # (light 1,3,5 / standard 2,4,6,7,12,15 / full 8-11,13,14,16). Assert the intro
+  # survives in _shared and the COMPOSED dimension count across the tier files is 16.
+  grep -q '## The Sixteen Dimensions' "$REPO/templates/redteam_issue_shared.md"
+  local n; n="$(grep -hcE '^### [0-9]+\. ' \
+      "$REPO/templates/redteam_issue_light.md" \
+      "$REPO/templates/redteam_issue_standard.md" \
+      "$REPO/templates/redteam_issue_full.md" | paste -sd+ | bc)"
+  [ "$n" -eq 16 ] || { echo "composed dimension count = $n (expected 16)" >&2; return 1; }
 }
 
 @test "no phantom /devagent:run-suite or :born-red in shipped invocation messages (#412)" {

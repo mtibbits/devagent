@@ -28,7 +28,10 @@ DEVAGENT_TEMPLATE_KEYS=(
   issue_template-perf
   issue_template-chore
   epic_template
-  redteam_issue
+  redteam_issue_shared
+  redteam_issue_light
+  redteam_issue_standard
+  redteam_issue_full
   redteam_mr
   imPlan_template
   actualWork_template
