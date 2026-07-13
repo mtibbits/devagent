@@ -6,9 +6,12 @@
 #
 # CONTRACT (every hook honors it):
 #   - FAIL-OPEN. A PreToolUse hook exits 0 = allow, exit 2 = deny (stderr shown to
-#     the user). A guard BUG must NEVER brick the tool: EVERY error / uncertain /
-#     unreadable path returns the fail-SAFE (disabled / empty / allow); ONLY a
-#     confirmed match denies. Deliberately NO `set -e` in hooks.
+#     the user). A PostToolUse hook (#457) exits 0 = nothing, exit 2 = SURFACE the
+#     stderr as feedback to the model — the tool has ALREADY run, so exit 2 never
+#     blocks it. A SessionStart hook (#456) exits 0 and prints its stdout as context.
+#     Whichever event: a hook BUG must NEVER brick the tool — EVERY error / uncertain
+#     / unreadable path returns the fail-SAFE (allow / nothing); ONLY a confirmed
+#     match denies-or-surfaces. Deliberately NO `set -e` in hooks.
 #   - OPT-IN, DEFAULT-OFF. Each hook is gated by a `[defaults].<key>` /
 #     `[project.<active>].<key>` config bool (see hook_enabled); absent/unreadable
 #     ⇒ disabled. Enabling a hook never changes behavior for a session that has not
