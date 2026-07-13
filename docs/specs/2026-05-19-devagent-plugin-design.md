@@ -676,6 +676,36 @@ Gate set:
 | `transition_issue` | the autonomous outward transitions: `on_draft_start` (`transition-draft-start.sh`, #325) and `on_merge` (`sync.sh`, #219). **Not** `on_ship` — `ship.sh` fires it ungated (consent rides the ship action, #219). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 
+### 8.1 Hooks surface (PreToolUse / SessionStart) — #453 scaffold
+
+Deterministic enforcement lives in `hooks/`: `hooks/hooks.json` registers the
+plugin's hooks (each `command` handler is a bash script under `hooks/`, invoked as
+`"${CLAUDE_PLUGIN_ROOT}"/hooks/<name>.sh` with a per-hook `timeout: 5`). The layout
+is settled by #352/#396; `hooks/lib/hook-common.sh` single-sources the shared
+conventions every guard child inherits (the guidance: *when a skill stops steering
+behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never replaces it.
+
+**Conventions (all hooks honor them):**
+- **Fail-open.** exit 0 = allow, exit 2 = deny. Every error / unreadable / timeout /
+  uncertain path returns the fail-safe (allow); ONLY a confirmed match denies. No
+  `set -e` in a hook.
+- **Opt-in, default-off.** Gated by a `[defaults].<key>` / `[project.<active>].<key>`
+  config bool (`hook_enabled`, env-pin > pointer per #433, anchored-strict per #432);
+  absent/unreadable ⇒ disabled. Enabling one never changes behavior for a
+  non-opted-in session. git-guard.sh's `git_guard` is the reference gate.
+- **Per-call override.** A single tool call bypasses a hook via its override env
+  (e.g. `DEVAGENT_GIT_GUARD_OVERRIDE=1`).
+- **String-match only.** Hooks match the raw command string; `git -C`, aliases,
+  `bash -c`, variable indirection, and compound `a && cmd` can evade or (rarely)
+  over-match. This obfuscation gap is ACCEPTED and DOCUMENTED (the #352 KNOWN GAPS
+  class) — a hook is a reflex backstop, not a sandbox.
+
+**Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
+on EVERY Bash tool call (≤5s each). Keep the stack small (today: git-guard; the
+guard children #454/#455/#457 may add up to ~3 total) and each hook's fast path
+subprocess-free on a config-miss / non-match, so a disabled or non-matching hook
+adds only a cheap `awk` gate per call.
+
 ## 9. Backend abstraction
 
 Two separate backend dimensions per project:
