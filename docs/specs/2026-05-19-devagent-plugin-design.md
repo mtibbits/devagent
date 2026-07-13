@@ -722,8 +722,8 @@ on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointe
 Even a DISABLED hook is not free: the gate runs one `awk` over `config.toml` per call
 (plus a second `awk` over `_active.toml` when the `DEVAGENT_ACTIVE_PROJECT` env pin is
 unset) — only the no-`config.toml` case is subprocess-free. Keep the stack small
-(today: git-guard + active-pointer-guard on Bash; the guard children #455/#457 may add
-more) and each hook's MATCH path allocation-light (short-circuit before any
+(today: git-guard + active-pointer-guard + commit-guard on Bash; #457 may add more)
+and each hook's MATCH path allocation-light (short-circuit before any
 per-command subprocess like `git status`).
 
 ## 9. Backend abstraction

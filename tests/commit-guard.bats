@@ -41,6 +41,15 @@ _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
   _feed "$(_j 'git commit -S -m fix')"; [ "$status" -eq 2 ]
 }
 
+@test "fused DCO+gpg cluster '-sS'/'-Ss' IS signed → PASSES (#455 redmr)" {
+  # -s (DCO sign-off) + -S (gpg-sign) in one cluster is a genuinely SIGNED commit;
+  # the mandatory lowercase `s` is present, so it must not be wrongly denied.
+  _feed "$(_j 'git commit -sS -m fix')"; [ "$status" -eq 0 ]
+  _feed "$(_j 'git commit -Ss -m fix')"; [ "$status" -eq 0 ]
+  # but -S alone (no lowercase s) is still UNSIGNED → denied (guard against widening).
+  _feed "$(_j 'git commit -Sm fix')"; [ "$status" -eq 2 ]
+}
+
 @test "'commit' as a ref/other subcommand is NOT a git commit (#455)" {
   for c in 'git log commit' 'git commit-tree abc' 'echo commit' 'git show commit'; do
     _feed "$(_j "$c")"

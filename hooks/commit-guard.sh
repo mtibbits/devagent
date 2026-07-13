@@ -31,8 +31,10 @@ printf '%s' "$cmd" | grep -qE '(^|[[:space:]])git[[:space:]]+((-C[[:space:]]+[^[
 # Already signed? `--signoff`, or a single-dash short-flag cluster containing a
 # lowercase `s` (`-s`/`-sm`/`-ms`) — NOT `-S` (gpg-sign) nor `--message`/`--signoff`'s
 # double-dash forms other than --signoff itself.
-if printf '%s' "$cmd" | grep -qE '(--signoff|(^|[[:space:]])-[a-rt-z]*s[a-z]*([[:space:]]|=|$))'; then
-  exit 0
+if printf '%s' "$cmd" | grep -qE '(--signoff|(^|[[:space:]])-[A-Za-z]*s[A-Za-z]*([[:space:]]|=|$))'; then
+  exit 0   # the MANDATORY letter is lowercase `s` (so `-S` gpg-sign alone stays
+           # UNSIGNED), but uppercase letters may sit around it in a fused cluster —
+           # `-sS`/`-Ss` (DCO sign-off + gpg-sign) are correctly SIGNED (#455 redmr).
 fi
 
 # Firing scope (per-project): active project + non-empty active_issue + cwd ⊂ source_dir.
