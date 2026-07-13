@@ -710,6 +710,12 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   it), while letting the deliberate writer `devagent use` (use.sh) through. The
   two-UNPINNED-sessions interleave is out of scope here — the script layer (#282)
   owns it; unpinned sessions never see this guard.
+- `commit-guard.sh` (`commit_guard`, #455) — PreToolUse/Bash; denies a `git commit`
+  lacking a DCO sign-off (`-s`/`--signoff`), INCLUDING `git commit --amend` without
+  `-s`. Fires ONLY when a devAgent issue is active for the resolved project AND the
+  command's cwd is inside that project's `source_dir` (DCO is this operator's
+  per-project policy, not universal). A signed `git commit -s` outside commit.sh is
+  ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
 on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.
