@@ -58,7 +58,8 @@ devAgent/
 ├── .claude-plugin/marketplace.json
 ├── README.md
 ├── docs/
-│   └── specs/2026-05-19-devagent-plugin-design.md   (this file)
+│   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
+│   └── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 ├── commands/                # one .md file per slash command
 ├── skills/                  # custom skills (core-scope, core-prune, core-tighten, ...)
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
@@ -640,8 +641,11 @@ Shared contract elements: a dispatched artifact's first two lines are the
 provenance header (`context: subagent|inline`, `model: <tier>|inherit|…`);
 and a garbled report is linted (`scripts/dispatch-lint.sh`), archived, and
 re-dispatched once, then the step goes `[!]` (#360). Normative detail:
-`commands/draft.md` (§ Dispatch contract) for the thinking path and the
-`core-improve` / `core-redmr` / `core-preship` skills for the checking path.
+`docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
+`commands/draft.md`, which now carries a conditional-load stub — the contract is
+read only when the step-1 tier is non-empty OR the operator instructs dispatch)
+and the `core-improve` / `core-redmr` / `core-preship` skills for the checking
+path.
 
 ## 8. Permission gates
 
