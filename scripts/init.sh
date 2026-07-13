@@ -11,8 +11,13 @@ usage() {
   exit 2
 }
 
-[[ $# -eq 1 && -n "$1" ]] || usage
-project="$1"
+if [[ $# -eq 1 && -n "$1" ]]; then
+  project="$1"
+elif [[ $# -eq 0 && -n "${CLAUDE_PLUGIN_OPTION_DEFAULT_PROJECT:-}" ]]; then
+  project="${CLAUDE_PLUGIN_OPTION_DEFAULT_PROJECT}"   # #459: userConfig SEED when no arg given
+else
+  usage
+fi
 
 # Validate project name: lowercase alnum, dash, underscore.
 # (Dots forbidden: they'd produce nested TOML tables, breaking config discovery.)
@@ -49,7 +54,7 @@ ask() {
 }
 
 ask source_dir    "source repo dir" ""               DA_INIT_SOURCE_DIR
-ask devdoc_dir    "devdoc dir"      ""               DA_INIT_DEVDOC_DIR
+ask devdoc_dir    "devdoc dir"      "${CLAUDE_PLUGIN_OPTION_DEVDOC_ROOT:-}" DA_INIT_DEVDOC_DIR   # #459: userConfig SEEDS the default
 ask issue_backend "issue backend"   "github"         DA_INIT_ISSUE_BACKEND
 ask issue_repo    "issue repo (org/name)" ""         DA_INIT_ISSUE_REPO
 ask code_backend  "code backend"    "$issue_backend" DA_INIT_CODE_BACKEND

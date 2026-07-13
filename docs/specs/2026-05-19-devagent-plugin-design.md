@@ -303,6 +303,42 @@ Captures/2026-05-19-corn-planting/
     └── ...
 ```
 
+### 3.7 Plugin manifest `userConfig` (enable-time seed) — #459
+
+`.claude-plugin/plugin.json` declares a `userConfig` block that Claude prompts for at
+plugin-enable time (verified on claude 2.1.75: the validator recognizes `userConfig` and
+requires a `title` per option). Two keys, both seeds:
+
+```json
+"userConfig": {
+  "devdoc_root":     { "type": "directory", "title": "devDoc root",     "default": "" },
+  "default_project": { "type": "string",    "title": "Default project", "default": "" }
+}
+```
+
+Claude exports the answers to `scripts/init.sh` as `CLAUDE_PLUGIN_OPTION_DEVDOC_ROOT`
+and `CLAUDE_PLUGIN_OPTION_DEFAULT_PROJECT`.
+
+**Precedence — config.toml WINS.** These options SEED the `/devagent:init` interview only:
+`devdoc_root` supplies the `devdoc dir` prompt default (an explicit answer / the
+`DA_INIT_DEVDOC_DIR` short-circuit still wins), and `default_project` names the project
+only when `init.sh` runs with no positional argument. `init.sh` dies if
+`[project.<name>]` already exists (init.sh:33), so config.toml is never overwritten and
+there are never two live sources for the devdoc root. Existing installs (config.toml
+present) see no behavior change. `commands/init.md` states this rule for operators;
+`tests/userconfig-seed.bats` pins it.
+
+**`${CLAUDE_PLUGIN_DATA}` — evaluated, REJECTED for devAgent state.** The update-surviving
+plugin data dir (`~/.claude/plugins/data/devagent-devagent/`) was verified present on
+2.1.75 but is not adopted: devAgent's config + state already live at a fixed,
+update-surviving `~/.claude/devagent/` (config.toml single source of truth #328,
+`_active.toml` cross-session pointer, per-project state under user-home, NOT the plugin
+cache). Adopting `${CLAUDE_PLUGIN_DATA}` would FORK the state location and break that
+contract for no benefit. (AC live-smokes: the enable-dialog appearing and cross-update
+persistence are operator actions; the mechanism, `validate`, seed logic, and precedence
+are verified here. AC1 `--strict` is version-gated — absent on 2.1.75, #447 — so
+non-strict `claude plugin validate` PASS-with-userConfig is the recorded evidence.)
+
 ## 4. Configuration vs artifacts
 
 Two distinct concerns, deliberately separated:
