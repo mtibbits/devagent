@@ -33,22 +33,30 @@ case "$fp" in
   */_active.toml|_active.toml) _deny ;;
 esac
 
-# --- Bash: a raw write pattern targeting the pointer, EXCEPT the deliberate writer.
+# --- Bash: deny only a raw write whose TARGET is the pointer, EXCEPT the deliberate
+# writer. The write must actually target `_active.toml` (basename-exact, end-anchored
+# so `_active.toml.bak`/`.tmp` sidecars are exempt) — a READ that merely mentions the
+# pointer, or writes ELSEWHERE (`cat PTR 2>/dev/null`, `grep x PTR > out.txt`), passes.
 cmd="$(hook_json_field "$input" 'tool_input.command')"
 if [ -n "$cmd" ]; then
   case "$cmd" in
-    # the deliberate, documented writer is allowed through (use.sh / devagent use)
+    # The deliberate, documented writer is allowed through. Substring match — an
+    # accidental agent edit is the threat model, not an adversary crafting a
+    # `# use.sh` comment to evade (the accepted #352 KNOWN-GAPS class).
     *use.sh*|*"devagent use "*|*"devagent:use"*) : ;;
     *)
-      # deny only when the command BOTH references the pointer file (basename
-      # _active.toml, preceded by `/` or line-start so `foo_active.toml` is exempt)
-      # AND carries a write verb — a read like `cat .../_active.toml` or
-      # `grep x .../_active.toml` (no verb) passes. `>`/`>>` redirection, `sed -i`,
-      # `tee`, `cp`/`mv`/`dd`/`truncate` cover the raw-write class; obfuscation is an
-      # accepted KNOWN GAP (#352).
-      if printf '%s' "$cmd" | grep -qE '(^|/)_active\.toml' \
-         && printf '%s' "$cmd" | grep -qE '(>|sed[[:space:]]+-[a-zA-Z]*i|\b(tee|cp|mv|dd|truncate)[[:space:]])'; then
-        _deny
+      # (a) a redirection (`>`/`>>`) whose target token's basename is exactly
+      #     `_active.toml`; (b) an in-place/copy writer (sed -i / tee / cp / mv / dd /
+      #     truncate) naming the pointer (basename-exact, end-anchored). `2>/dev/null`
+      #     and `> some_other_file` never match (a); a plain read never matches (b).
+      # PTR = pointer basename, end-anchored (next char ∈ space/EOL/;|&/redir or none).
+      PTR='(^|/)_active\.toml($|[[:space:]]|[;|&<>])'
+      if printf '%s' "$cmd" | grep -qE '>>?[[:space:]]*([^[:space:]<>|&;]*/)?_active\.toml($|[[:space:]]|[;|&])'; then
+        _deny                                   # (a) redirect TO the pointer
+      fi
+      if printf '%s' "$cmd" | grep -qE "$PTR" \
+         && printf '%s' "$cmd" | grep -qE '(sed[[:space:]]+[^|;&]*-[a-zA-Z]*i|(^|[[:space:]])(tee|cp|mv|dd|truncate)[[:space:]])'; then
+        _deny                                   # (b) writer command naming the pointer
       fi
       ;;
   esac

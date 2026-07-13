@@ -50,11 +50,28 @@ _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
   [ "$status" -eq 0 ]
 }
 
-@test "pinned: a READ of the pointer (no write verb) PASSES (#454)" {
+@test "pinned: a READ of the pointer PASSES, even with a redirection elsewhere (#454 redmr)" {
+  # The write must TARGET the pointer; a read that mentions it — including one with a
+  # stderr redirect (2>/dev/null) or one that writes RESULTS to a different file —
+  # must pass (the redmr fail-closed BLOCKING).
   local c
-  for c in "cat $PTR" "grep active_project $PTR" "python3 -c 'print(open(\"$PTR\").read())'"; do
+  for c in "cat $PTR" \
+           "grep active_project $PTR" \
+           "cat $PTR 2>/dev/null" \
+           "grep active_project $PTR > /tmp/matches.txt" \
+           "diff $PTR /tmp/other 2>/dev/null" \
+           "python3 -c 'print(open(\"$PTR\").read())'"; do
     _feed "$(_bash_json "$c")"
     [ "$status" -eq 0 ] || { echo "expected ALLOW(0) for read: $c (got $status)" >&2; false; }
+  done
+}
+
+@test "pinned: precision — raw-bash writes to pointer SIDECARS are NOT denied (#454 review)" {
+  # _active.toml.bak / .tmp / .swp are different files — end-anchored match exempts them.
+  local c
+  for c in "echo x > $PTR.bak" "sed -i s/a/b/ $PTR.tmp" "tee $PTR.swp <<<x"; do
+    _feed "$(_bash_json "$c")"
+    [ "$status" -eq 0 ] || { echo "expected ALLOW(0) for sidecar: $c (got $status)" >&2; false; }
   done
 }
 
