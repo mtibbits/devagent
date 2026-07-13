@@ -724,14 +724,21 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   every repo, so no resolvable project / a where.sh error prints NOTHING and exits 0.
 - `preship-dirty-tree.sh` (`preship_dirty_tree`, #457) — **PostToolUse**/Bash,
   `command`-type (deterministic — NOT a Stop hook, which fires every turn; NOT a
-  `prompt`-type LLM hook). After a `ship.sh` invocation it surfaces UNTRACKED files
-  (`git status --porcelain` `^??`) in the issue worktree via exit 2 (the PostToolUse
-  feedback channel — the ship already ran, this never blocks it). Marginal-value
-  boundary vs #148: ship.sh's #148 gate hard-blocks dirty TRACKED state but EXCLUDES
-  untracked (`grep -cv '^??'`); this hook adds EXACTLY that excluded class and nothing
-  else — #148 stays the authority for tracked state. Noise-scoped: worktree-only,
-  .gitignore-respecting (never `--ignored`), fires at most once per identical
-  untracked state.
+  `prompt`-type LLM hook). When ship.sh is the PROGRAM of a Bash-TOOL call
+  (`bash …/ship.sh`, `sh …ship.sh`, or a direct `…/ship.sh`) it surfaces UNTRACKED
+  files (`git status --porcelain` `^??`) in the issue worktree via exit 2 (the
+  PostToolUse feedback channel — the ship already ran, this never blocks it).
+  **Coverage limit:** the `/devagent:ship` slash command bang-EXECUTES ship.sh
+  (`!\`bash …ship.sh\``), which is command-expansion — NOT a Bash tool call — so
+  PostToolUse does not observe it; this hook covers the Bash-tool ship path
+  (agent-driven / manual `bash …/ship.sh`), not the operator-typed slash command.
+  Marginal-value boundary vs #148: ship.sh's #148 gate hard-blocks dirty TRACKED
+  state but EXCLUDES untracked (`grep -cv '^??'`); this hook adds EXACTLY that
+  excluded class and nothing else — #148 stays the authority for tracked state.
+  Noise-scoped: matches ship.sh only at PROGRAM position (an argument
+  `cat …/ship.sh` never fires), worktree-only, .gitignore-respecting (never
+  `--ignored`), and fires at most once per (state × worktree) via a per-worktree
+  `.git/devagent-preship-nag` marker keyed to HEAD-sha + the untracked set.
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
 on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.

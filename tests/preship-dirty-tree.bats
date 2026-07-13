@@ -61,6 +61,36 @@ _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
   [ "$status" -eq 0 ]
 }
 
+@test "over-fire guard: ship.sh as an ARGUMENT (cat/git diff/vim) does NOT fire (#457 redmr)" {
+  echo new > "$WT/newfile.txt"                 # untracked present, so only the match gates it
+  local c
+  for c in 'cat scripts/ship.sh' 'git diff scripts/ship.sh' 'vim scripts/ship.sh' \
+           'shellcheck scripts/ship.sh' 'grep foo scripts/ship.sh' 'wc -l scripts/ship.sh'; do
+    _feed "$(_j "$c")"
+    [ "$status" -eq 0 ] || { echo "over-fired on inspection command: $c (status $status)" >&2; false; }
+  done
+  # but the real program forms DO fire (reset the per-worktree dedup marker between
+  # them — they share an identical untracked state, which the dedup would otherwise
+  # silence after the first):
+  for c in 'bash scripts/ship.sh devagent' 'sh scripts/ship.sh' './scripts/ship.sh' 'scripts/ship.sh devagent'; do
+    rm -f "$WT/.git/devagent-preship-nag"
+    _feed "$(_j "$c")"
+    [ "$status" -eq 2 ] || { echo "missed a real ship form: $c (status $status)" >&2; false; }
+  done
+}
+
+@test "source_dir fallback: cwd not a git repo, but active project source_dir IS → fires (#457 redmr)" {
+  # cwd is a plain (non-repo) dir; the active project's source_dir points at the worktree.
+  printf '[defaults]\npreship_dirty_tree = true\n[project.acme]\nsource_dir = "%s"\n' "$WT" > "$DA/config.toml"
+  printf 'active_issue = "Issue-7"\n' > "$DA/state/acme.toml"
+  export DEVAGENT_ACTIVE_PROJECT=acme
+  echo new > "$WT/newfile.txt"
+  local nonrepo="$BATS_TEST_TMPDIR/plain"; mkdir -p "$nonrepo"
+  _feed "$(_j 'bash scripts/ship.sh acme' "$nonrepo")"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"newfile.txt"* ]]
+}
+
 @test "opt-in default-off + override + no-worktree fail-open → exit 0 (#457)" {
   echo new > "$WT/newfile.txt"
   printf '[defaults]\n' > "$DA/config.toml"                 # gate off

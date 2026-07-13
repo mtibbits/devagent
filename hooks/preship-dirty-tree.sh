@@ -22,8 +22,19 @@ hook_overridden DEVAGENT_PRESHIP_DIRTY_TREE_OVERRIDE && exit 0
 input="$(hook_read_input)"
 cmd="$(hook_json_field "$input" 'tool_input.command')"
 [ -n "$cmd" ] || exit 0
-# only after a ship invocation (bash .../ship.sh <proj>)
-printf '%s' "$cmd" | grep -qE '(^|/)ship\.sh([[:space:]]|$)' || exit 0
+# Only when ship.sh is the PROGRAM being run (a Bash-TOOL ship: `bash .../ship.sh`,
+# `sh …ship.sh`, or a direct `…/ship.sh`) — NOT when it is merely an argument
+# (`cat/vim/git diff …/ship.sh`), which would over-fire the advisory. NOTE: the
+# `/devagent:ship` slash command bang-EXECUTES ship.sh (`!\`bash …ship.sh\``), which
+# is command-expansion, NOT a Bash tool call, so PostToolUse does not see it — this
+# hook covers the Bash-tool ship path (agent-driven / manual `bash …/ship.sh`).
+_is_ship() {
+  # ship.sh at a command-segment start (optional path prefix), OR right after an
+  # interpreter (bash/sh/exec/source) preceded by start/space/separator.
+  printf '%s' "$1" | grep -qE '(^|[;&|][[:space:]]*)([^[:space:];&|]*/)?ship\.sh([[:space:]]|$)' && return 0
+  printf '%s' "$1" | grep -qE '(^|[[:space:]]|[;&|])(bash|sh|exec|source)[[:space:]]+([^[:space:];&|]*/)?ship\.sh([[:space:]]|$)'
+}
+_is_ship "$cmd" || exit 0
 
 # Worktree: the ship's cwd if it is a git repo, else the active project's source_dir
 # (mirrors ship.sh's work_dir scoping). Files outside the worktree are never reported
@@ -49,11 +60,16 @@ fi
 untracked="$(git -C "$wt" status --porcelain 2>/dev/null | grep '^??' || true)"
 [ -n "$untracked" ] || exit 0
 
-# Fire at most once per identical untracked state (branch + untracked-set fingerprint)
-# — an identical ship retry stays quiet; adding/removing an untracked file re-surfaces.
-branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
-fp="${branch}:$(printf '%s' "$untracked" | md5sum 2>/dev/null | awk '{print $1}')"
-marker="$(hook_home)/state/.preship-dirty-nag"
+# Fire at most once per identical (state × worktree). The marker lives in THIS
+# worktree's .git dir (so two worktrees never collide — the #457-review $wt bug), and
+# the fingerprint is HEAD-sha + untracked-set (so a NEW commit or a changed untracked
+# set re-surfaces — an actual state change is never permanently suppressed; only an
+# exact-identical repeat within the same state is quiet, per the "at most once" AC).
+head="$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo '?')"
+fp="${head}:$(printf '%s' "$untracked" | md5sum 2>/dev/null | awk '{print $1}')"
+gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null || true)"
+[ -n "$gitdir" ] || exit 0
+marker="${gitdir}/devagent-preship-nag"
 [ "$(cat "$marker" 2>/dev/null || true)" = "$fp" ] && exit 0
 printf '%s' "$fp" > "$marker" 2>/dev/null || true
 
