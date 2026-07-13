@@ -1,4 +1,4 @@
-<!-- #443: Full-tier delta dimensions (8,9,10,11,13,14,16). Read with shared + light + standard. -->
+<!-- #443: Full-tier delta dimensions (8,9,10,11,13,14). Dim 16 (Security) moved to _light (always-check rider, #443). Read with shared + light + standard. -->
 
 ### 8. Customer value
 If we spend engineering effort on this, what does the user concretely gain?
@@ -109,26 +109,3 @@ not be aware of.
 Check the project's own license and contribution policy: such an
 import, or an unsigned commit where a DCO/CLA is required, is a
 non-starter regardless of technical merit.
-
-### 16. Security
-Does this fix, introduce, or ignore a security concern?
-
-Many issues in a compute library have no security implications — it
-processes caller-provided buffers. But code that reads from environment
-variables, config files, or network input is attack surface.
-
-Watch for: buffer overflows from unsanitized external input (environment
-variables, config files, command-line arguments), format string
-vulnerabilities, integer overflows that lead to undersized allocations,
-use of attacker-controllable paths without validation, `sscanf`/`sprintf`
-without width limits on data from external sources.
-
-Also consider the inverse: does *not* fixing this issue leave a security
-hole? For example, a `strncpy`/`strcat` buffer overflow reading a
-config path from an environment variable a local attacker on a shared
-system could set. Not exploitable in most deployments, but a
-static analysis tool or distro security audit would flag it.
-
-For most numeric or algorithmic changes (compute routines, algorithm fixes),
-score this N/A and move on. For anything touching I/O, config parsing,
-environment variables, or memory allocation, evaluate seriously.

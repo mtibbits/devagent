@@ -32,11 +32,23 @@ FULL="$T/redteam_issue_full.md"
   [ "$output" -eq 0 ] || { echo "_shared still has $output dimension bodies" >&2; return 1; }
 }
 
-@test "tier membership matches the triage gate (#443)" {
+@test "tier membership matches the triage gate + always-check Security (#443)" {
   local get="grep -hoE '^### [0-9]+\\. ' \"\$1\" | grep -oE '[0-9]+' | sort -n | tr '\\n' ' '"
-  [ "$(bash -c "$get" _ "$LIGHT")" = "1 3 5 " ]
+  # Light carries dims 1,3,5 PLUS dim 16 (Security): the _shared "always check
+  # Security even on Light" rider references dim 16 on every tier, so its body must
+  # be always-loaded (Light is the base of every composition), not Full-only.
+  [ "$(bash -c "$get" _ "$LIGHT")" = "1 3 5 16 " ]
   [ "$(bash -c "$get" _ "$STANDARD")" = "2 4 6 7 12 15 " ]
-  [ "$(bash -c "$get" _ "$FULL")" = "8 9 10 11 13 14 16 " ]
+  [ "$(bash -c "$get" _ "$FULL")" = "8 9 10 11 13 14 " ]
+}
+
+@test "the always-check Security dimension (16) is loaded on a Light run (#443)" {
+  # Regression guard for the review BLOCKING: the _shared rider tells even a Light
+  # run to evaluate dim 16 when I/O/config is touched — its body must be reachable
+  # on Light (i.e. in _light, always-loaded), never Full-only.
+  grep -qE '^### 16\. Security' "$LIGHT" || { echo "dim 16 Security not in _light — Light runs would get the rider without the guidance" >&2; return 1; }
+  run grep -cE '^### 16\.' "$FULL"
+  [ "$output" -eq 0 ] || { echo "dim 16 duplicated in _full" >&2; return 1; }
 }
 
 @test "tier-shared content is single-sourced in _shared, absent from tier files (#443)" {
