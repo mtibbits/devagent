@@ -1,0 +1,175 @@
+{
+  "meta": {
+    "purpose": "Measure whether the judgment-heavy skills STEER the model to the required judgment, not merely whether they trigger. Triggering != steering: a skill can fire and still fail to influence behavior, and a prompt/body regression is invisible to the bats suite. These evals baseline the steering so a skill-body edit (e.g. the #440-#443 token epic) can be diffed against a recorded pass-rate.",
+    "run": "manual/local only. NOT CI-gating: model runs are non-deterministic, so a red eval must never fail a build. The only CI-durable artifact is tests/evals-structure.bats, which guards the eval STRUCTURE and never invokes a model.",
+    "criteria": {
+      "runs_per_case": 3,
+      "fresh_context": "each run is a fresh session (no shared context) so the skill body \u2014 not conversation memory \u2014 is what steers.",
+      "pass_rule": "a case PASSES a baseline if >= 2 of 3 runs satisfy its rubric (verdict + every must_name).",
+      "regression_rule": "after a skill-body edit, re-run the affected skill's cases; a REGRESSION is any case whose new pass-rate drops below its recorded baseline pass_rate. Re-baseline deliberately (documented) only when the edit intentionally changes steering."
+    },
+    "how_to_run": "bash evals/run-eval.sh <case-id>  (prints the fresh-session prompt + rubric); see evals/README.md."
+  },
+  "cases": [
+    {
+      "id": "scope-oversized",
+      "skill": "core-scope",
+      "fixture": "evals/fixtures/scope-oversized",
+      "inputs": [
+        "issue.md",
+        "imPlan.md"
+      ],
+      "rubric": {
+        "verdict": "propose splitting the issue / halt \u2014 the plan exceeds the 300-LOC / 1-day size threshold",
+        "must_name": [
+          "size estimate over the 300-LOC or 1-day threshold",
+          "recommendation to split the issue (halt-and-ask), not proceed"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "scope-well-scoped",
+      "skill": "core-scope",
+      "fixture": "evals/fixtures/scope-well-scoped",
+      "inputs": [
+        "issue.md",
+        "imPlan.md"
+      ],
+      "rubric": {
+        "verdict": "accept the scope \u2014 small, well-bounded, under threshold; do NOT propose a split",
+        "must_name": [
+          "size estimate under the 300-LOC / 1-day threshold",
+          "no split recommendation and no invented blocking ambiguity (<= 3 ambiguities)"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "redmr-spec-lag",
+      "skill": "core-redmr",
+      "fixture": "evals/fixtures/redmr-spec-lag",
+      "inputs": [
+        "mr.md",
+        "diff.patch"
+      ],
+      "rubric": {
+        "verdict": "at least one [MAJOR] finding \u2014 spec lag",
+        "must_name": [
+          "the diff ADDS the config key analyze_parallelism with no corresponding spec change",
+          "classified [MAJOR] as a spec-touch / spec-lag finding (the #435 always-run question)"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "redmr-clean",
+      "skill": "core-redmr",
+      "fixture": "evals/fixtures/redmr-clean",
+      "inputs": [
+        "mr.md",
+        "diff.patch"
+      ],
+      "rubric": {
+        "verdict": "0 blocking \u2014 the MR matches its diff and touches no spec-relevant surface",
+        "must_name": [
+          "no config key / command / hook / top-level directory added (spec-touch answers trivially, no MAJOR)",
+          "no invented [BLOCKING] finding \u2014 the diff supports the mr.md claims"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "preship-stranded-fix",
+      "skill": "core-preship",
+      "fixture": "evals/fixtures/preship-stranded-fix",
+      "inputs": [
+        "issue.md",
+        "mr.md",
+        "review.md",
+        "diff.patch"
+      ],
+      "rubric": {
+        "verdict": "overall FAIL",
+        "must_name": [
+          "verification 2 (findings applied & committed) FAILs: the BLOCKING review finding (match a modified tracked file in EITHER status column) is absent from diff.patch, which still greps only '^ M' (unstaged column)",
+          "mr.md CLAIMS the both-column fix but the diff does not contain it \u2014 a stranded/uncommitted fix (the #101/#102 class)"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "preship-clean",
+      "skill": "core-preship",
+      "fixture": "evals/fixtures/preship-clean",
+      "inputs": [
+        "issue.md",
+        "mr.md",
+        "review.md",
+        "diff.patch"
+      ],
+      "rubric": {
+        "verdict": "all verifications PASS (overall PASS)",
+        "must_name": [
+          "verification 1: the ACs (die on absent step; valid step still marks) are satisfied by diff.patch",
+          "verification 2: the BLOCKING review finding (guard placed BEFORE the sed) IS present in diff.patch"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-13",
+        "model": "claude-opus-4-8",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    }
+  ]
+}

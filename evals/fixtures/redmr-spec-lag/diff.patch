@@ -1,0 +1,49 @@
+diff --git a/scripts/analyze.sh b/scripts/analyze.sh
+index 1111111..2222222 100755
+--- a/scripts/analyze.sh
++++ b/scripts/analyze.sh
+@@ -40,10 +40,18 @@ analyze_changed_files() {
+   local files
+   files="$(changed_source_files)"
+   [ -z "$files" ] && { echo "analyze: no changed source files"; return 0; }
+
+-  # serial per-file analysis
+-  local f
+-  while IFS= read -r f; do
+-    _analyze_one "$f" || rc=1
+-  done <<< "$files"
++  local par
++  par="$(config_get "$project" analyze_parallelism || echo 1)"
++  if [ "$par" -gt 1 ] 2>/dev/null; then
++    printf '%s\n' "$files" \
++      | xargs -P "$par" -I{} bash -c '_analyze_one "$@"' _ {} || rc=1
++  else
++    local f
++    while IFS= read -r f; do
++      _analyze_one "$f" || rc=1
++    done <<< "$files"
++  fi
+   return "$rc"
+ }
+diff --git a/tests/analyze.bats b/tests/analyze.bats
+index 3333333..4444444 100644
+--- a/tests/analyze.bats
++++ b/tests/analyze.bats
+@@ -80,3 +80,20 @@ setup() {
+   run analyze_changed_files
+   [ "$status" -eq 0 ]
+ }
++
++@test "analyze_parallelism=1 keeps serial behavior" {
++  config_set "$proj" analyze_parallelism 1
++  run analyze_changed_files
++  [ "$status" -eq 0 ]
++}
++
++@test "analyze_parallelism=3 processes every changed file" {
++  config_set "$proj" analyze_parallelism 3
++  seed_changed_files a.sh b.sh c.sh
++  run analyze_changed_files
++  [ "$status" -eq 0 ]
++  [ "$(count_analyzed)" -eq 3 ]
++}
