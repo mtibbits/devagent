@@ -18,5 +18,19 @@
   ],
   "dependencies": [
     "superpowers@claude-plugins-official"
-  ]
+  ],
+  "userConfig": {
+    "devdoc_root": {
+      "type": "directory",
+      "title": "devDoc root",
+      "description": "Directory for devAgent's per-issue devdoc artifacts. SEEDS the /devagent:init interview at enable time; config.toml wins thereafter (the single source of truth).",
+      "default": ""
+    },
+    "default_project": {
+      "type": "string",
+      "title": "Default project",
+      "description": "Default project name to offer when /devagent:init is run without an argument. Seed only; config.toml's [project.<name>] blocks remain authoritative.",
+      "default": ""
+    }
+  }
 }
