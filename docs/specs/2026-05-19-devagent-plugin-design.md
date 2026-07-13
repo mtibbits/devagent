@@ -700,13 +700,25 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   over-match. This obfuscation gap is ACCEPTED and DOCUMENTED (the #352 KNOWN GAPS
   class) — a hook is a reflex backstop, not a sandbox.
 
+**Registered hooks (opt-in, default-off):**
+- `git-guard.sh` (`git_guard`, #352) — PreToolUse/Bash; denies reflexive destructive
+  git on a dirty tree.
+- `active-pointer-guard.sh` (`active_pointer_guard`, #454) — PreToolUse/Bash +
+  Write|Edit; DEFENSE-IN-DEPTH over the #282 script-layer gate. Fires ONLY when the
+  session carries a `DEVAGENT_ACTIVE_PROJECT` env pin; denies out-of-band writes to
+  `_active.toml` (Write/Edit on the pointer path, or a raw-bash write verb targeting
+  it), while letting the deliberate writer `devagent use` (use.sh) through. The
+  two-UNPINNED-sessions interleave is out of scope here — the script layer (#282)
+  owns it; unpinned sessions never see this guard.
+
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
-on EVERY Bash tool call (≤5s each). Even a DISABLED hook is not free: the gate runs
-one `awk` over `config.toml` per call (plus a second `awk` over `_active.toml` when
-the `DEVAGENT_ACTIVE_PROJECT` env pin is unset) — only the no-`config.toml` case is
-subprocess-free. So keep the stack small (today: git-guard; the guard children
-#454/#455/#457 may add up to ~3 total) and each hook's MATCH path allocation-light
-(the gate short-circuits before any per-command subprocess like `git status`).
+on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.
+Even a DISABLED hook is not free: the gate runs one `awk` over `config.toml` per call
+(plus a second `awk` over `_active.toml` when the `DEVAGENT_ACTIVE_PROJECT` env pin is
+unset) — only the no-`config.toml` case is subprocess-free. Keep the stack small
+(today: git-guard + active-pointer-guard on Bash; the guard children #455/#457 may add
+more) and each hook's MATCH path allocation-light (short-circuit before any
+per-command subprocess like `git status`).
 
 ## 9. Backend abstraction
 
