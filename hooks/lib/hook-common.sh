@@ -53,14 +53,32 @@ hook_enabled() {
   cfg="$(hook_home)/config.toml"
   [ -f "$cfg" ] || return 1
   proj="$(hook_active_project)"
+  # LITERAL key match (not a dynamic regex): split each line on its first `=` and
+  # string-compare the trimmed LHS to the key, so a key containing a regex
+  # metacharacter (`.`/`*`/`?`) cannot over-match a different line (the divergence
+  # from git-guard's literal gate a dynamic-regex build would introduce). Bare-line
+  # strictness preserved: the trimmed RHS must equal exactly `true`/`false` (a
+  # `= true  # note` yields RHS `true  # note` ≠ `true`, so it does not enable — the
+  # #432 anchored-`$` semantics, keeping parity with git-guard's reference gate).
   awk -v proj="$proj" -v key="$key" '
     /^\[/ {
       in_def  = ($0 == "[defaults]")
       in_proj = (proj != "" && $0 == "[project." proj "]")
     }
-    in_proj && $0 ~ "^[[:space:]]*" key "[[:space:]]*=[[:space:]]*true[[:space:]]*$"  { pv = 1; ps = 1 }
-    in_proj && $0 ~ "^[[:space:]]*" key "[[:space:]]*=[[:space:]]*false[[:space:]]*$" { pv = 0; ps = 1 }
-    in_def  && $0 ~ "^[[:space:]]*" key "[[:space:]]*=[[:space:]]*true[[:space:]]*$"  { dv = 1 }
+    {
+      line = $0
+      sub(/^[[:space:]]+/, "", line); sub(/[[:space:]]+$/, "", line)
+      eq = index(line, "=")
+      if (eq > 0) {
+        k = substr(line, 1, eq - 1); v = substr(line, eq + 1)
+        sub(/[[:space:]]+$/, "", k); sub(/^[[:space:]]+/, "", v)
+        if (k == key) {
+          if      (v == "true"  && in_proj) { pv = 1; ps = 1 }
+          else if (v == "false" && in_proj) { pv = 0; ps = 1 }
+          else if (v == "true"  && in_def)  { dv = 1 }
+        }
+      }
+    }
     END { exit((ps ? pv : dv) ? 0 : 1) }
   ' "$cfg" 2>/dev/null || return 1
 }
@@ -79,9 +97,12 @@ hook_read_input() {
   cat 2>/dev/null || true
 }
 
-# hook_json_field <json> <python-key-path> — extract tool_input fields fail-open via
-# python3 (available; jq not assumed). Prints empty on any error. Example:
-#   cmd="$(hook_json_field "$input" 'tool_input.command')"
+# hook_json_field <json> <python-key-path> — extract a STRING tool_input field
+# fail-open via python3 (available; jq not assumed). Mirrors git-guard's reference
+# extract `jq -r '.tool_input.command // empty'`: a string value prints as-is; a
+# null / missing / non-string value (number, bool, object, array) prints EMPTY — so
+# a child's natural presence test `[ -n "$cmd" ]` treats a null/absent command as
+# absent, and a container value never leaks a serialized blob into a deny match.
 hook_json_field() {
   local json="$1" path="$2"
   # Script via -c (so stdin is free for the JSON); path via argv[1]. Fail-open.
@@ -91,7 +112,8 @@ try:
     cur = json.load(sys.stdin)
     for part in sys.argv[1].split("."):
         cur = cur[part]
-    sys.stdout.write(cur if isinstance(cur, str) else json.dumps(cur))
+    if isinstance(cur, str):
+        sys.stdout.write(cur)
 except Exception:
     pass
 ' "$path" 2>/dev/null || true

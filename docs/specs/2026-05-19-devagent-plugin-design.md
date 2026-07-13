@@ -701,10 +701,12 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   class) — a hook is a reflex backstop, not a sandbox.
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
-on EVERY Bash tool call (≤5s each). Keep the stack small (today: git-guard; the
-guard children #454/#455/#457 may add up to ~3 total) and each hook's fast path
-subprocess-free on a config-miss / non-match, so a disabled or non-matching hook
-adds only a cheap `awk` gate per call.
+on EVERY Bash tool call (≤5s each). Even a DISABLED hook is not free: the gate runs
+one `awk` over `config.toml` per call (plus a second `awk` over `_active.toml` when
+the `DEVAGENT_ACTIVE_PROJECT` env pin is unset) — only the no-`config.toml` case is
+subprocess-free. So keep the stack small (today: git-guard; the guard children
+#454/#455/#457 may add up to ~3 total) and each hook's MATCH path allocation-light
+(the gate short-circuits before any per-command subprocess like `git status`).
 
 ## 9. Backend abstraction
 

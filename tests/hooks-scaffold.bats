@@ -85,14 +85,50 @@ _active() { printf 'active_project = "%s"\n' "$1" > "$DA/state/_active.toml"; }
   [ -z "$output" ]
 }
 
-@test "gate drift parity: hook-common and git-guard.sh share the anchored-strict gate (#453/#432)" {
-  # Behavioral-equivalence-by-construction: both resolve a bool config gate with the
-  # SAME anchored strictness (`= true` must be a literally bare line, trailing $).
-  # git-guard hardcodes git_guard; hook_enabled generalizes the key — so pin that
-  # BOTH carry the anchored `= true[[:space:]]*$` pattern (a bare-line requirement),
-  # never a loose match a `# note` suffix would satisfy.
-  run grep -cE 'true\[\[:space:\]\]\*\$' "$REPO/hooks/git-guard.sh"
-  [ "$output" -ge 1 ] || { echo "git-guard.sh lost its anchored-strict gate" >&2; return 1; }
-  run grep -cE 'true\[\[:space:\]\]\*\$' "$LIB"
-  [ "$output" -ge 1 ] || { echo "hook-common.sh lost its anchored-strict gate — drift from the #352 reference" >&2; return 1; }
+@test "hook_enabled: a regex-metachar key matches LITERALLY, not as a pattern (#453 redmr)" {
+  # Guard against the dynamic-regex divergence: key `my.guard` must NOT match a
+  # config line `myXguard = true` (the `.` must be literal, not any-char).
+  _cfg $'[defaults]\nmyXguard = true'
+  run hook_enabled 'my.guard'
+  [ "$status" -ne 0 ] || { echo "hook_enabled over-matched a metachar key against a different line" >&2; return 1; }
+  # And the exact key still enables.
+  _cfg $'[defaults]\nmy.guard = true'
+  run hook_enabled 'my.guard'
+  [ "$status" -eq 0 ]
+}
+
+@test "hook_json_field: null/non-string extracts to EMPTY (mirrors jq // empty) (#453 redmr)" {
+  run bash -c "source '$LIB'; hook_json_field '{\"tool_input\":{\"command\":null}}' 'tool_input.command'"
+  [ -z "$output" ] || { echo "null command should extract empty, got: $output" >&2; return 1; }
+  run bash -c "source '$LIB'; hook_json_field '{\"tool_input\":{\"command\":42}}' 'tool_input.command'"
+  [ -z "$output" ]
+  run bash -c "source '$LIB'; hook_json_field '{\"tool_input\":{}}' 'tool_input.command'"
+  [ -z "$output" ]
+}
+
+@test "gate parity (DIFFERENTIAL): hook_enabled agrees with git-guard.sh's real gate (#453/#432)" {
+  # The real behavioral-equivalence test: git-guard.sh DENIES a deny-shape on a dirty
+  # tree iff its git_guard gate is ON, so its exit(2) is an observable of the gate.
+  # Assert hook_enabled git_guard tracks git-guard's actual gate decision across
+  # fixtures (not a grep for a shared token).
+  local repo="$BATS_TEST_TMPDIR/gg"; mkdir -p "$repo"
+  git -C "$repo" init -q >/dev/null
+  ( cd "$repo" && echo base > f && git add f \
+      && git -c user.email=t@t -c user.name=t commit -q -m base && echo dirty >> f )
+  local GG="$REPO/hooks/git-guard.sh"
+  # returns 0 iff git-guard denies (exit 2) a deny-shape on the dirty repo
+  _gg_deny() {
+    printf '{"tool_input":{"command":"git stash"},"cwd":"%s"}' "$repo" | bash "$GG"
+    [ "$?" -eq 2 ]
+  }
+  local he gg fixture
+  for fixture in \
+    '[defaults]' \
+    $'[defaults]\ngit_guard = true' \
+    $'[defaults]\ngit_guard = true  # note'; do
+    printf '%s\n' "$fixture" > "$DA/config.toml"
+    if hook_enabled git_guard; then he=1; else he=0; fi
+    if _gg_deny;            then gg=1; else gg=0; fi
+    [ "$he" -eq "$gg" ] || { echo "gate divergence for fixture <<<$fixture>>>: hook_enabled=$he git-guard=$gg" >&2; return 1; }
+  done
 }
