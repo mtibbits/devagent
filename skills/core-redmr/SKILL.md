@@ -1,6 +1,6 @@
 ---
 name: core-redmr
-description: Use when running step 14 of the devAgent workflow to run a red-team adversarial review of the MR body and diff before shipping upstream
+description: "Step 14: red-team adversarial review of the MR body and diff before shipping"
 when_to_use: After /devagent:review and before /devagent:ship. Run as part of /devagent:redmr.
 user-invocable: false
 ---

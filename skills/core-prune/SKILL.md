@@ -1,6 +1,6 @@
 ---
 name: core-prune
-description: Use when running step 4 of the devAgent workflow to move deferred/dismissed items from the implementation plan into the future-enhancements file, producing a minimal load-bearing plan
+description: "Step 4: move deferred/dismissed items from the plan to the future-enhancements file, leaving a minimal load-bearing plan"
 when_to_use: After /devagent:improve has tagged items and before /devagent:tighten. Run as part of /devagent:prune.
 user-invocable: false
 ---

@@ -1,5 +1,5 @@
 ---
-description: Final review pass on the active issue's pruned plan. Invokes core-tighten skill.
+description: Final review pass on the active issue's pruned plan.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---

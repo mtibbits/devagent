@@ -1,6 +1,6 @@
 ---
 name: core-lessons-learned
-description: Use when running step 19 of the devAgent workflow to extract reusable lessons from a completed issue so the same friction is not paid twice
+description: "Step 19: extract reusable lessons from a completed issue"
 when_to_use: After /devagent:impact and before /devagent:cleanup. Run as part of /devagent:lessonslearned.
 user-invocable: false
 ---

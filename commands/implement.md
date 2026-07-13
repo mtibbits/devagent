@@ -1,5 +1,5 @@
 ---
-description: Execute the active issue's plan task-by-task. Wraps superpowers:executing-plans.
+description: Execute the active issue's plan task-by-task.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---

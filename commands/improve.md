@@ -1,5 +1,5 @@
 ---
-description: Surface latent bugs, side effects, ambiguities in the active issue's plan. Invokes core-improve skill.
+description: Surface latent bugs, side effects, ambiguities in the active issue's plan.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---

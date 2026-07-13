@@ -1,5 +1,5 @@
 ---
-description: "Step 21: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship. Wraps core-preship."
+description: "Step 21: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship."
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---

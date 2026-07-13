@@ -1,5 +1,5 @@
 ---
-description: Review and tighten code quality on the active issue's branch. Wraps simplify skill + project coding standards.
+description: Review and tighten code quality on the active issue's branch.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
