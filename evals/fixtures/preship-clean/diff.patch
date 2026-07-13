@@ -1,0 +1,34 @@
+diff --git a/scripts/checklist-mark.sh b/scripts/checklist-mark.sh
+index 9999999..aaaaaa1 100755
+--- a/scripts/checklist-mark.sh
++++ b/scripts/checklist-mark.sh
+@@ -18,6 +18,12 @@ issue_dir="$1"; step="$2"; glyph="${3:-x}"
+ checklist="$issue_dir/checklist.md"
+ [ -f "$checklist" ] || die "no checklist at $checklist"
+
++# presence guard BEFORE the sed: an absent step number must die, not no-op
++if ! grep -qE "^- \[.\] *${step}\." "$checklist"; then
++  die "checklist-mark: step ${step} not present in $checklist"
++fi
++
+ sed -i -E "s/^(- \[).(\] *${step}\.)/\1${glyph}\2/" "$checklist"
+ echo "step ${step} → [${glyph}]"
+diff --git a/tests/checklist-mark.bats b/tests/checklist-mark.bats
+index bbbbbb1..cccccc1 100644
+--- a/tests/checklist-mark.bats
++++ b/tests/checklist-mark.bats
+@@ -30,3 +30,16 @@ setup() {
+   [ "$status" -eq 0 ]
+ }
++
++@test "absent step number dies" {
++  run bash checklist-mark.sh "$dir" 99 x
++  [ "$status" -ne 0 ]
++  [[ "$output" == *"not present"* ]]
++}
++
++@test "valid step number still marks" {
++  run bash checklist-mark.sh "$dir" 2 x
++  [ "$status" -eq 0 ]
++  grep -qE '^- \[x\] *2\.' "$dir/checklist.md"
++}

@@ -1,0 +1,35 @@
+diff --git a/scripts/ship.sh b/scripts/ship.sh
+index 5555555..6666666 100755
+--- a/scripts/ship.sh
++++ b/scripts/ship.sh
+@@ -70,6 +70,12 @@ do_ship() {
+   local branch
+   branch="$(state_get "$project" branch)" || die "no branch in state"
+
++  # dirty-tree gate: refuse to push with modified tracked files
++  if git status --porcelain | grep -qE '^ M'; then
++    die "ship: modified tracked files in working tree — commit or stash first"
++  fi
++
+   git push -u "$remote" "$branch" || die "push failed"
+   open_mr "$branch"
+ }
+diff --git a/tests/ship.bats b/tests/ship.bats
+index 7777777..8888888 100644
+--- a/tests/ship.bats
++++ b/tests/ship.bats
+@@ -40,3 +40,15 @@ setup() {
+   [ "$status" -eq 0 ]
+ }
++
++@test "modified tracked file blocks push" {
++  echo change >> tracked.sh
++  run do_ship
++  [ "$status" -ne 0 ]
++}
++
++@test "untracked-only tree still pushes" {
++  echo new > brand-new-untracked.txt
++  run do_ship
++  [ "$status" -eq 0 ]
++}

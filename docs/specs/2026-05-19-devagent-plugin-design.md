@@ -86,6 +86,7 @@ devAgent/
 │   ├── wbs_template.md
 │   └── statusreport_template.md
 ├── tests/                   # bats for shell, pytest for python helpers
+├── evals/                   # skill-steering evals (#460): evals.json + fixtures/ + run-eval.sh; MANUAL/local, NON-CI-gating (model runs non-deterministic). tests/evals-structure.bats guards the structure only.
 └── static_analysis_diff.py  (existing; wrapped by analyze-static.sh)
 ```
 

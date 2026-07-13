@@ -1,0 +1,46 @@
+diff --git a/scripts/doctor.sh b/scripts/doctor.sh
+index aaaaaaa..bbbbbbb 100755
+--- a/scripts/doctor.sh
++++ b/scripts/doctor.sh
+@@ -120,9 +120,14 @@ check_devdoc_dir() {
+   local dir
+   dir="$(config_get "$project" devdoc_dir || true)"
+   [ -z "$dir" ] && { report WARN "devdoc_dir unset for $project"; return 0; }
+-  if [ ! -d "$dir" ]; then
+-    report FAIL "devdoc_dir $dir does not exist"
+-    return 1
+-  fi
++  if [ ! -d "$dir" ]; then
++    # absent is advisory — the dir is created lazily on first artifact write
++    report WARN "devdoc_dir $dir not yet created (will be made on first write)"
++    return 0
++  fi
++  if [ ! -w "$dir" ]; then
++    report FAIL "devdoc_dir $dir exists but is not writable"
++    return 1
++  fi
+   report OK "devdoc_dir $dir"
+   return 0
+ }
+diff --git a/tests/doctor.bats b/tests/doctor.bats
+index ccccccc..ddddddd 100644
+--- a/tests/doctor.bats
++++ b/tests/doctor.bats
+@@ -60,3 +60,18 @@ setup() {
+   [ "$status" -eq 0 ]
+ }
++
++@test "absent devdoc_dir reports WARN not FAIL" {
++  config_set "$proj" devdoc_dir "$BATS_TEST_TMPDIR/nope"
++  run check_devdoc_dir
++  [ "$status" -eq 0 ]
++  [[ "$output" == *WARN* ]]
++}
++
++@test "unwritable devdoc_dir reports FAIL" {
++  mkdir -p "$BATS_TEST_TMPDIR/ro"; chmod 000 "$BATS_TEST_TMPDIR/ro"
++  config_set "$proj" devdoc_dir "$BATS_TEST_TMPDIR/ro"
++  run check_devdoc_dir
++  [ "$status" -eq 1 ]
++  [[ "$output" == *FAIL* ]]
++}
