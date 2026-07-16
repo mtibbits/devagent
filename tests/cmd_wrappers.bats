@@ -178,10 +178,14 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   # fails here instead of drifting silently (the '53 commands' class).
   # #452: next/capture/ship live as user-invocable skills; the skill half is
   # derived from the user-invocable frontmatter marker (core-* are pinned
-  # `user-invocable: false`), so a 4th conversion or an unmarked core skill
-  # fails here too. Command-form + skill-form = the documented 55.
+  # `user-invocable: false`), so an unmarked core skill fails here too.
+  # Assert the SPLIT, not just the sum: a 4th command->skill conversion keeps
+  # the sum at 55 (51+4) and would slip through a sum-only check — while
+  # falsifying README's explicit "52 commands + 3 user-invocable skills".
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
   s="$(grep -L '^user-invocable: false' "$BATS_TEST_DIRNAME"/../skills/*/SKILL.md | wc -l)"
+  [ "$n" -eq 52 ]
+  [ "$s" -eq 3 ]
   [ $((n + s)) -eq 55 ]
   grep -q "55 slash commands" "$CMD_DIR/../README.md"
   grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"

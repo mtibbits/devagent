@@ -30,7 +30,8 @@ Current capabilities as of this commit:
   works without uninstall + reinstall.
 - Every command routes its scripts through `${CLAUDE_PLUGIN_ROOT}` (works from a
   marketplace install), enforced by a CI canary.
-- `allowed-tools` scoped past a blanket `Bash` grant.
+- `allowed-tools` scoped past a blanket `Bash` grant, on commands and skills
+  alike.
 - Invocation control: the 14 internal `core-*` skills are hidden from the `/`
   menu (`user-invocable: false`), and `auth`/`init`/`use` are operator-timed
   (`disable-model-invocation: true`).

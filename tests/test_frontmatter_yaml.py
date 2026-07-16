@@ -90,17 +90,23 @@ def test_skill_key_canary_is_not_vacuous():
     assert _SKILL_FILES, "no skills/*/SKILL.md discovered — canary would false-green"
 
 
-# #448: every command `allowed-tools` Bash grant must be SCOPED (`Bash(...)`), not
+# #448: every `allowed-tools` Bash grant must be SCOPED (`Bash(...)`), not
 # a blanket `Bash` that auto-approves arbitrary shell for the turn — a trust
 # problem for a distributed plugin. This canary pins the class so a new command
 # can't re-introduce an unscoped grant.
+# #452: sweep skills/ too. next/capture/ship carry the only Bash grants in
+# skills/, and they arrived by moving OUT of commands/ — a commands-only glob
+# would have silently dropped all three subjects the moment they converted.
 _COMMAND_FILES = sorted(glob.glob(os.path.join(_REPO, "commands", "*.md")))
+_GRANT_BEARING_FILES = _COMMAND_FILES + _SKILL_FILES
 
 
 @pytest.mark.parametrize(
-    "path", _COMMAND_FILES, ids=[os.path.relpath(p, _REPO) for p in _COMMAND_FILES]
+    "path",
+    _GRANT_BEARING_FILES,
+    ids=[os.path.relpath(p, _REPO) for p in _GRANT_BEARING_FILES],
 )
-def test_command_bash_grant_is_scoped(path):
+def test_bash_grant_is_scoped(path):
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     if not text.startswith("---"):
@@ -148,17 +154,23 @@ def test_disable_model_invocation_only_on_operator_verbs():
     auth/init/use — NEVER on a workflow-step command, or /devagent:next --auto's
     model-invocation of that step silently dies (#449)."""
     allowed = {"auth.md", "init.md", "use.md"}
+    # #452: sweep skills/ too — `next` is a skill now, and the flag would break
+    # the CHAIN from skills/next/SKILL.md exactly as it would from commands/next.md.
+    # Skills share the basename SKILL.md, so it can never match the allow-list:
+    # any skill carrying the flag is an offender, reported by its readable path.
     offenders = sorted(
-        os.path.basename(p)
-        for p in _COMMAND_FILES
+        os.path.relpath(p, _REPO)
+        for p in _COMMAND_FILES + _SKILL_FILES
         if _load_fm(p).get("disable-model-invocation") is True
         and os.path.basename(p) not in allowed
     )
     assert not offenders, (
-        f"`disable-model-invocation: true` on non-operator command(s) {offenders} "
+        f"`disable-model-invocation: true` on non-operator command(s)/skill(s) {offenders} "
         f"— this breaks the /devagent:next --auto CHAIN. Allowed only on {sorted(allowed)}."
     )
     # And the three operator verbs MUST carry it (both directions of the invariant).
+    # Commands-only by construction: all three are commands, and the offenders
+    # sweep above already forbids the flag anywhere in skills/.
     have = {
         os.path.basename(p)
         for p in _COMMAND_FILES

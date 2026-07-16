@@ -52,9 +52,12 @@ avoided entirely by a per-session issue pin.
 
 The per-session ISSUE pin is the sibling of the project pin above:
 `"env": { "DEVAGENT_ACTIVE_ISSUE": "Issue-N" }` in the directory's
-`settings.local.json`. It is resolved by `active_resolve_issue_src` in
-`scripts/lib/active.sh` (the env resolver; chain arg → env → shared state)
-and honored by `pull.sh`, `next.sh`, `where.sh`, `park.sh`, `commit.sh`,
-`cleanup.sh`, `switch.sh`, `step-model.sh`, and `resume.sh`
-(pinned-mismatch die). A pinned session resolves its own issue and
+`settings.local.json`. It is resolved centrally by `active_resolve_issue_src` in
+`scripts/lib/active.sh` (the env resolver; chain arg → env → shared state), and
+so is honored by every script that resolves an issue through it — `resume.sh`
+dies loud on a pinned mismatch. A pinned session resolves its own issue and
 never reads or writes the shared `active_issue` slot.
+
+(The hand-maintained script enumeration that used to sit here was already stale
+by ~2x when it was carried over; `grep -rln active_resolve_issue scripts/` is the
+answer that cannot rot.)
