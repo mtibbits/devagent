@@ -34,13 +34,14 @@ C="$REPO/commands"
   [ "$status" -ne 0 ]
 }
 
-# --- next.md: the stale zero-diff QUALITY paragraph is gone (#116 auto-skip) -
-@test "next.md's quality zero-diff prose matches quality.md's auto-skip (#125/#116)" {
-  run grep -F 'must be manually marked' "$C/next.md"
+# --- skills/next: the stale zero-diff QUALITY paragraph is gone (#116 auto-skip)
+@test "next skill's quality zero-diff prose matches quality.md's auto-skip (#125/#116)" {
+  F="$REPO/skills/next/SKILL.md"
+  run grep -F 'must be manually marked' "$F"
   [ "$status" -ne 0 ]
-  run grep -F 'A follow-up is tracked' "$C/next.md"
+  run grep -F 'A follow-up is tracked' "$F"
   [ "$status" -ne 0 ]
-  grep -qF 'auto-marks step 8' "$C/next.md"
+  grep -qF 'auto-marks step 8' "$F"
 }
 
 # --- No command doc references the DELETED bash §6.1 parser (#121/#122) ------

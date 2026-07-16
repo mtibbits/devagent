@@ -124,8 +124,8 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 
 # #114: the capture family must document a REAL env-derivation path, not a
 # non-existent "Phase 1 config loader".
-@test "capture.md documents the env-derivation sources, not a phantom loader (#114)" {
-  F="$CMD_DIR/capture.md"
+@test "capture skill documents the env-derivation sources, not a phantom loader (#114)" {
+  F="$BATS_TEST_DIRNAME/../skills/capture/SKILL.md"
   grep -q 'CLAUDE_PLUGIN_ROOT' "$F"            # DEVAGENT_PLUGIN_DIR source
   grep -q 'config\.toml' "$F"                  # DEVAGENT_DEVDOC_DIR source
   grep -q 'devdoc_dir' "$F"
@@ -176,8 +176,13 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 @test "command count matches the documented totals (#149)" {
   # Derived count — a new command that forgets the README/marketplace sweep
   # fails here instead of drifting silently (the '53 commands' class).
+  # #452: next/capture/ship live as user-invocable skills; the skill half is
+  # derived from the user-invocable frontmatter marker (core-* are pinned
+  # `user-invocable: false`), so a 4th conversion or an unmarked core skill
+  # fails here too. Command-form + skill-form = the documented 55.
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
-  [ "$n" -eq 55 ]
+  s="$(grep -L '^user-invocable: false' "$BATS_TEST_DIRNAME"/../skills/*/SKILL.md | wc -l)"
+  [ $((n + s)) -eq 55 ]
   grep -q "55 slash commands" "$CMD_DIR/../README.md"
   grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
 }

@@ -17,6 +17,9 @@ Current capabilities as of this commit:
 - **55 slash commands** driving a fixed **22-step issue workflow**, with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.
+- `next`/`capture`/`ship` converted from commands to user-invocable skills
+  with `references/`; `next`'s operative body thinned ~5.8k → ≤2k chars
+  (#452, verified by #439's size canary).
 - Backends: **GitHub, GitLab, and JIRA** (issue trackers + code forges).
 - Subsystems: capture + issue red-team, revision, WBS, status reports, and an
   auth subsystem (PAT / SSH-key lifecycle).
