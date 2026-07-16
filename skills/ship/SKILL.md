@@ -55,5 +55,4 @@ on the next ship invocation.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/ship.sh" <argument tail>
 
-Run this now, forwarding the invocation's argument tail verbatim (skills
-do not preprocess `!` auto-exec lines or substitute $ARGUMENTS).
+Run this now, forwarding the invocation's argument tail verbatim.

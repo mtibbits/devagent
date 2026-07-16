@@ -52,5 +52,4 @@ History and state-atomicity details: references/concurrency.md.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" <argument tail>
 
-Forward the invocation's argument tail verbatim (skills do not substitute
-$ARGUMENTS).
+Forward the invocation's argument tail verbatim.
