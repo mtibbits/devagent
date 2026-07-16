@@ -155,7 +155,8 @@ def test_disable_model_invocation_only_on_operator_verbs():
     model-invocation of that step silently dies (#449)."""
     allowed = {"auth.md", "init.md", "use.md"}
     # #452: sweep skills/ too — `next` is a skill now, and the flag would break
-    # the CHAIN from skills/next/SKILL.md exactly as it would from commands/next.md.
+    # the CHAIN from skills/next/SKILL.md exactly as it would from the former
+    # command-form doc.
     # Skills share the basename SKILL.md, so it can never match the allow-list:
     # any skill carrying the flag is an offender, reported by its readable path.
     offenders = sorted(
@@ -183,10 +184,23 @@ def test_disable_model_invocation_only_on_operator_verbs():
 # All devAgent commands take at least an optional [project]; the field was a
 # closed gap of 19 commands. This canary keeps the coverage at 100% so a new
 # command surfaces its grammar in / menu autocomplete.
+# #452: "slash command" spans both layouts — commands/*.md AND the user-invocable
+# skills (next/capture/ship), which appear in the / menu identically. core-*
+# skills are `user-invocable: false` and never reach the menu, so they carry no
+# grammar and are correctly out of scope. Resolved by YAML truth rather than a
+# grep so `user-invocable: False` cannot slip past.
+_USER_INVOCABLE_SKILL_FILES = [
+    p for p in _SKILL_FILES if _load_fm(p).get("user-invocable") is not False
+]
+_SLASH_COMMAND_FILES = _COMMAND_FILES + _USER_INVOCABLE_SKILL_FILES
+
+
 @pytest.mark.parametrize(
-    "path", _COMMAND_FILES, ids=[os.path.relpath(p, _REPO) for p in _COMMAND_FILES]
+    "path",
+    _SLASH_COMMAND_FILES,
+    ids=[os.path.relpath(p, _REPO) for p in _SLASH_COMMAND_FILES],
 )
-def test_command_has_argument_hint(path):
+def test_slash_command_has_argument_hint(path):
     hint = _load_fm(path).get("argument-hint")
     assert isinstance(hint, str) and hint.strip(), (
         f"{os.path.relpath(path, _REPO)}: missing/empty `argument-hint` "

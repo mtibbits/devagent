@@ -188,5 +188,8 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   [ "$s" -eq 3 ]
   [ $((n + s)) -eq 55 ]
   grep -q "55 slash commands" "$CMD_DIR/../README.md"
+  # BOTH manifests carry the claim (#439 plan's enumeration); plugin.json was
+  # unpinned while marketplace.json was, so the two could drift apart.
   grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
+  grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
 }
