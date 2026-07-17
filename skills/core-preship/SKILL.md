@@ -12,14 +12,17 @@ agent: devagent:preship-verifier
 Step 21 of the devAgent 22-step workflow (file-ordered between redmr and ship;
 the number is unique, not sequential — file order is execution authority).
 
-**This skill is the fork prompt.** `context: fork` + `agent:` bind it to the
-`devagent:preship-verifier` agent, so invoking it IS the fresh-context dispatch:
-the harness runs this body inside that agent, with that agent's system prompt,
-its pinned model, and its Write/Edit denial in force. The procedure — the five
-verifications, the artifact format, the return contract — lives in the agent
-definition (`agents/preship-verifier.md`), which is the single source. This body
-only resolves the inputs and hands off. Fresh context is not conditional; the
-model override is (see `commands/preship.md`).
+<!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already
+     taken effect by the time it is in context — the harness supplies the agent's
+     system prompt, pinned model, and Write/Edit denial. The procedure (checklist,
+     artifact format, return contract) lives in `agents/preship-verifier.md`, the single
+     source; the main-session duties (tier resolution, the verbatim artifact
+     write, dispatch-lint, the failure protocol) live in the command wrapper.
+     Keep this body to what is genuinely fork-specific, or it is paid for in
+     context on every run. Rationale: docs/specs/2026-05-19-devagent-plugin-design.md §7.5. -->
+
+The procedure lives in `agents/preship-verifier.md` — your system prompt. This body
+only resolves the inputs and hands off.
 
 ## Resolve your inputs, then execute
 
@@ -40,11 +43,8 @@ disk and state:
    complete `preship.md` body as your final message. The invoking session writes
    it to disk verbatim — authorship stays with you.
 
-Stamp the mandatory header your system prompt specifies. Line 1 is always
-`context: subagent` (a fork IS a subagent context; the report linter requires
-that token — never `context: fork`). For line 2, stamp the `model:` value the
-invoking session gives you; absent an instruction, stamp
-`model: agent-default (preship-verifier)`.
+Stamp the header your system prompt specifies; absent an instruction from the
+invoking session, stamp `model: agent-default (preship-verifier)`.
 
 ## Templates referenced
 

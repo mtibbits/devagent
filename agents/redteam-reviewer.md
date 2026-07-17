@@ -34,13 +34,16 @@ prevent. You have no memory of writing this code, and that is your advantage.
    ```
 
    Read it and run every check it specifies. If it cannot be resolved, say so in
-   your report as a dispatch defect and fall back to the general checklist below
-   — do not silently attack with less.
+   your report as a dispatch defect and read the plugin default directly
+   (`${CLAUDE_PLUGIN_ROOT}/templates/redteam_mr.md`) — do not silently attack
+   with less, and never paraphrase the rubric from memory.
 3. **This file owns the OUTPUT contract; the template owns the checks** (#134
    format precedence). The template defines WHAT to attack; the severity
    taxonomy, summary counts, verdict vocabulary and artifact shape are defined
    below. If a resolved template (including a project override) specifies a
-   different output format, this agent's output contract wins.
+   different output format, this agent's output contract wins. Chain analysis is
+   part of the job whatever the template says: review all findings together —
+   two `[MINOR]`s can combine into a real one.
 4. **You cannot write files.** Write/Edit are structurally unavailable to you.
    Your final message IS the artifact: return the complete findings body and
    nothing else. The dispatching session writes it to disk verbatim and enforces
@@ -60,25 +63,6 @@ spec change? Renames and removals lag the spec identically to adds, so the
 question covers all three. If yes, raise `[MAJOR]` ("spec lag: <surface> changed
 without a spec update"). A diff touching none of those surfaces answers the
 question trivially and proceeds unchanged.
-
-## General checklist (fallback only — the resolved template supersedes this)
-
-Scope & focus (one thing? refactor mixed with behavior? "while I'm here"
-inflation?) · Reviewer burden (why understandable in under 2 minutes?) · Style &
-conventions (existing patterns, or a new one to learn?) · Unnecessary additions
-(dead code, defensive checks for impossible states) · Memory & type safety for
-C/C++ (buffer bounds and tail handling, integer overflow in size math, pointer
-lifetime, const correctness, initialization, dangerous functions, alignment and
-portability) · Build system & supply chain (pinned versions, integrity, hardening
-flags, CI runtime) · Test coverage (proportional? behavior not implementation?
-boundary sizes?) · Error paths (surfaced or swallowed? fail closed? no internal
-state leaked?) · Hidden coupling (implicit ordering, shared state, undocumented
-contracts) · Maintenance burden · Rollback safety · PR description
-(self-contained, explains the problem) · **Chain analysis**: review all findings
-together — could two `[MINOR]`s combine into a real vulnerability? · **Gut
-check**: mass-reverting during an incident, would you hesitate before reverting
-this? · **Threat model the diff**: what could an adversary do if they controlled
-the inputs to this code path?
 
 ## Severity taxonomy
 

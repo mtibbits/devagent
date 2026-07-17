@@ -159,45 +159,56 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [[ "$stderr" == *"not a regular file"* ]]
 }
 
-@test "step-model: steps 14/21 resolve unchanged at the raw layer (#458)" {
-    # #458 binds steps 14/21 to dedicated agents whose pinned model becomes the
-    # tier of LAST RESORT. That reinterpretation is the CALLER's (commands/redmr.md
-    # and commands/preship.md map empty ⇒ agent default); this resolver is untouched.
-    # Pin it: with no step_models table the resolver still exits 1 with empty
-    # stdout, exactly as before — if the agent-default fallback ever leaks down
-    # into tier resolution, this fails.
-    local step
-    for step in 14 21; do
-        run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
-        [ "$status" -eq 1 ]
-        [ -z "$output" ]
-    done
-}
-
-@test "step-model: the #291 'inherit' marker stays distinguishable from no-tier (#458)" {
-    # #458 makes steps 14/21 read an unresolved tier as "agent default". The
-    # reserved 'inherit' marker — the ONLY way to escape a project checking pin
-    # back to the session model — ALSO exits 1 with empty stdout, so the two
-    # states are told apart by STDERR alone. Caught live: a wrapper that keys
-    # only on "exit 1" silently converts the escape hatch into the agent
-    # default. If that provenance line is ever dropped, no other test notices.
+@test "step-model: the three no-tier states have distinct exit codes (#458)" {
+    # #458 makes an unresolved tier mean "agent default" for the agent-bound
+    # steps, so "no tier configured" and the reserved 'inherit' marker — which
+    # were interchangeable while both meant inherit — now mean OPPOSITE things.
+    # They are discriminated by exit code, not by stderr prose a caller must
+    # parse. Collapsing 2 into 3 silently defeats the only escape from a pinned
+    # tier; this is the test that catches that.
     _add_step_models 'checking = "opus"'
     local d="$DEVDOC_DIR/Issue-1"
 
-    # (a) inherit marker → exit 1, empty stdout, per-issue provenance on stderr.
-    printf 'inherit' > "$d/.devagent-step-models"
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"per-issue"* ]]
-    [[ "$output" == *"inherit"* ]]
-
-    # (b) same exit code, DIFFERENT state: a resolvable tier is unaffected.
-    rm -f "$d/.devagent-step-models"
+    # rc 0: a tier resolves.
     run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
 
-    # (c) the wrappers must encode the three-state read, or (a) regresses.
-    grep -qi 'escape hatch' "$DEVAGENT_ROOT/commands/preship.md"
-    grep -qi 'escape hatch' "$DEVAGENT_ROOT/commands/redmr.md"
+    # rc 2: the operator's explicit inherit escape — empty stdout, but NOT rc 3.
+    printf 'inherit' > "$d/.devagent-step-models"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"per-issue"* ]]
+    rm -f "$d/.devagent-step-models"
+
+    # rc 1: a bad marker is an error, never an inherit.
+    printf 'two tokens' > "$d/.devagent-step-models"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 1 ]
+    rm -f "$d/.devagent-step-models"
+}
+
+@test "step-model: rc 3 is 'nothing configured', distinct from the inherit escape (#458)" {
+    # No step_models table at all — the fresh-install state that takes the
+    # agent default for steps 14/21.
+    local d="$DEVDOC_DIR/Issue-1"
+    local step
+    for step in 14 21; do
+        run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step" "$d"
+        [ "$status" -eq 3 ]
+        [ -z "$output" ]
+    done
+}
+
+@test "step-model: callers whose fallback IS inherit still collapse every nonzero (#458)" {
+    # Backward compatibility: steps 3/13 and next.sh/catchup.sh use
+    # `$(... || true)` or `if tier=$(...)`, for which rc 2 and rc 3 are both
+    # correctly empty. Adding exit codes must not change what they see.
+    local d="$DEVDOC_DIR/Issue-1"
+    printf 'inherit' > "$d/.devagent-step-models"
+    run bash -c '"$1"/scripts/step-model.sh "$2" 3 "$3" 2>/dev/null || true' _ \
+        "$DEVAGENT_ROOT" "$TEST_PROJECT" "$d"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    rm -f "$d/.devagent-step-models"
 }

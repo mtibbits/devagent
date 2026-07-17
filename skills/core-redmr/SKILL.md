@@ -11,15 +11,17 @@ agent: devagent:redteam-reviewer
 
 Step 14 of the devAgent 22-step workflow.
 
-**This skill is the fork prompt.** `context: fork` + `agent:` bind it to the
-`devagent:redteam-reviewer` agent, so invoking it IS the fresh-context dispatch:
-the harness runs this body inside that agent, with that agent's system prompt,
-its pinned model, and its Write/Edit denial in force. The procedure — the
-adversarial stance, the severity taxonomy, the spec-touch question, the artifact
-format, the return contract — lives in the agent definition
-(`agents/redteam-reviewer.md`), which is the single source. This body only
-resolves the inputs and hands off. Fresh context is not conditional; the model
-override is (see `commands/redmr.md`).
+<!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already
+     taken effect by the time it is in context — the harness supplies the agent's
+     system prompt, pinned model, and Write/Edit denial. The procedure (checklist,
+     artifact format, return contract) lives in `agents/redteam-reviewer.md`, the single
+     source; the main-session duties (tier resolution, the verbatim artifact
+     write, dispatch-lint, the failure protocol) live in the command wrapper.
+     Keep this body to what is genuinely fork-specific, or it is paid for in
+     context on every run. Rationale: docs/specs/2026-05-19-devagent-plugin-design.md §7.5. -->
+
+The procedure lives in `agents/redteam-reviewer.md` — your system prompt. This body
+only resolves the inputs and hands off.
 
 ## Resolve your inputs, then execute
 
@@ -51,11 +53,8 @@ everything from disk and state:
    `<issue-dir>/analysis/YYYY-MM-DD-redmr.md` verbatim, triages, applies fixes,
    and enforces the blocking gate — it never rewrites your findings in place.
 
-Stamp the mandatory header your system prompt specifies. Line 1 is always
-`context: subagent` (a fork IS a subagent context; the report linter requires
-that token — never `context: fork`). For line 2, stamp the `model:` value the
-invoking session gives you; absent an instruction, stamp
-`model: agent-default (redteam-reviewer)`.
+Stamp the header your system prompt specifies; absent an instruction from the
+invoking session, stamp `model: agent-default (redteam-reviewer)`.
 
 ## Templates referenced
 

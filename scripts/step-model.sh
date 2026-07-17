@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # scripts/step-model.sh — CLI face of step_models_tier (#150 table, #151 consumer).
 #   step-model.sh <project> <step-num> [issue-dir]
-# Echoes the configured tier (exit 0) or prints nothing and exits 1 when no
-# tier resolves — callers treat empty as "no override; inherit session model".
-# #458 carve-out, steps 14/21 ONLY: those two are bound to dedicated agents
-# (agents/redteam-reviewer.md, agents/preship-verifier.md) whose pinned model is
-# the tier of LAST RESORT, so their callers map empty to "agent default applies"
-# rather than "inherit the session model". Only that fallback INTERPRETATION is
-# subsumed, and only in the callers — resolution below is unchanged, and marker
-# (#291) > per-step > class > default still resolves identically for every step.
-# An exit 1 WITH an error on stderr is a bad per-issue marker (#291) — that is
-# a stop condition for dispatchers, not an inherit.
+# Echoes the configured tier (exit 0) or prints nothing and exits nonzero when
+# no tier resolves — callers treat empty as "no override; inherit session model".
+#
+# Exit codes (#458): 0 = tier on stdout · 2 = the reserved per-issue `inherit`
+# marker (the operator explicitly wants the session model) · 3 = nothing
+# resolved · 1 = error (bad marker, message on stderr — a stop condition for
+# dispatchers, never an inherit). 2 and 3 are distinct because they are NOT
+# interchangeable for a caller whose fallback is something other than inherit:
+# steps bound to a dedicated agent (#458: 14 redmr, 21 preship) fall back to
+# that agent's pinned model, so 2 must still inherit while 3 takes the agent
+# default. Callers whose fallback IS inherit may keep collapsing every nonzero
+# (`$(... || true)` yields empty for 1, 2 and 3 alike).
+#
+# Only that fallback INTERPRETATION is what #458 subsumes, and only in the
+# callers — resolution here is unchanged: marker (#291) > per-step > class >
+# default resolves identically for every step.
 # Read-only. Used by checking-class skills (improve 3, review 13, redmr 14,
 # preship 21) to resolve the subagent dispatch model override.
 # issue-dir (#291): when omitted or empty, derived from state (issue_dir) so a

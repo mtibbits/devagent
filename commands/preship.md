@@ -38,38 +38,35 @@ Per `commands/draft.md`.
 Fresh context is not conditional; the model override is. The implementing
 session reviews what it remembers intending; preship reviews what is on disk.
 
-1. **Resolve the model tier** (optional):
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21 || true)"`.
-   Pass the CANONICAL step number (21) even on a renumbered checklist — the
-   class map is keyed to canonical numbers (config.sh). **A nonzero exit is
-   three different states — read stderr to tell them apart (#458):**
-   - **stderr carries a `per-issue` `inherit` line** ⇒ the operator's #291
-     escape hatch, deliberately forcing session-model inheritance to escape a
-     project `checking` pin. Honor it: dispatch with an explicit
-     `model: inherit` and stamp `model: inherit (per-issue)`. It must NOT
-     collapse into the agent default below — that would silently defeat the
-     only way to opt out of a pinned tier.
-   - **stderr is empty** ⇒ no tier is configured anywhere ⇒ the agent default
-     (see the empty-tier branch below).
-   - **stderr carries any other error** ⇒ a bad marker: STOP and fix or remove
-     it. Never dispatch on a marker you could not read.
+1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the
+   CANONICAL step number (21) even on a renumbered checklist — the class map is
+   keyed to canonical numbers (config.sh). The three no-tier states are not
+   interchangeable here, so discriminate on the code, never on stderr prose:
 
-   A resolved tier (exit 0) with a stderr `per-issue` provenance line means
-   stamp `model: <tier> (per-issue)`.
-2. **Bifurcated dispatch** (#458). Both paths run the same agent, so its
-   system prompt, its Write/Edit denial, and fresh context hold either way:
-   - **Tier resolved** ⇒ dispatch the Agent tool with
-     `subagent_type: devagent:preship-verifier` and an explicit `model: <tier>`
-     parameter, which overrides the agent's pinned default (per-invocation
-     model beats definition frontmatter). Tell it to stamp
-     `model: <tier>` (or `<tier> (per-issue)`).
-   - **Tier empty AND stderr empty** ⇒ invoke the `core-preship` skill. Its
-     `context: fork` + `agent:` frontmatter runs it inside the same agent at
-     that agent's pinned default; the artifact stamps
-     `model: agent-default (preship-verifier)`. Empty means "no override
-     configured", NOT "inherit the session model" — for steps 14/21 the agent's
-     pinned model is the tier of last resort. An explicit `inherit` marker is a
-     different state entirely (see rung 1) and keeps its session-model meaning.
+   ```bash
+   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21)"; rc=$?
+   ```
+
+   | rc | meaning | dispatch with | stamp |
+   |----|---------|---------------|-------|
+   | 0 | a tier resolved | `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when stderr carries a `per-issue` line |
+   | 2 | the reserved `inherit` marker (#291) — the operator's explicit escape from a project pin | `model: inherit` | `inherit (per-issue)` |
+   | 3 | nothing configured | no override — the agent's pinned default | `agent-default (preship-verifier)` |
+   | 1 | error: a bad/unreadable marker | — | **STOP**; fix or remove the marker |
+
+   rc 2 must never collapse into rc 3: that would silently defeat the only way
+   to opt out of a pinned tier.
+
+2. **Bifurcated dispatch** (#458). Both paths run the same agent, so its system
+   prompt, its Write/Edit denial, and fresh context hold either way:
+   - **rc 0 or 2** ⇒ dispatch the Agent tool with
+     `subagent_type: devagent:preship-verifier` and an explicit `model:` parameter per the
+     table (a per-invocation model beats the agent's pinned default).
+   - **rc 3** ⇒ invoke the `core-preship` skill. Its `context: fork` + `agent:`
+     frontmatter runs it inside the same agent at that agent's pinned default.
+     rc 3 means "no override configured", NOT "inherit the session model" — for
+     steps 14/21 the agent's pinned model is the tier of last resort.
+
 3. **Package inputs as paths, not conversation.** The dispatch prompt contains
    only: the project name, the absolute paths of `issue.md`, `mr.md`, the
    latest-dated review/redmr artifacts, the repo directory plus the literal

@@ -10,11 +10,17 @@
 # probe-verified: agents take `disallowedTools` (camelCase); the hyphenated
 # `disallowed-tools` is the SKILL.md spelling and is silently ignored here.
 
+load 'lib/bats-helpers'
+
 REPO="${BATS_TEST_DIRNAME}/.."
 PRESHIP="$REPO/agents/preship-verifier.md"
 REDTEAM="$REPO/agents/redteam-reviewer.md"
 
-_fm() { awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$1"; }
+# Read each frontmatter ONCE per test rather than re-awking per assertion.
+setup() {
+    FM_PRESHIP="$(skill_frontmatter "$PRESHIP")"
+    FM_REDTEAM="$(skill_frontmatter "$REDTEAM")"
+}
 
 @test "both checker agents exist at the plugin's auto-discovered agents/ root (#458)" {
   # agents/ is scanned by default; plugin.json must NOT gain an "agents" key —
@@ -26,9 +32,9 @@ _fm() { awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$1"; }
 }
 
 @test "agent identity comes from name: frontmatter and matches its binding (#458)" {
-  run grep -c '^name: preship-verifier$' <(_fm "$PRESHIP")
+  run grep -c '^name: preship-verifier$' <<<"$FM_PRESHIP"
   [ "$output" -eq 1 ]
-  run grep -c '^name: redteam-reviewer$' <(_fm "$REDTEAM")
+  run grep -c '^name: redteam-reviewer$' <<<"$FM_REDTEAM"
   [ "$output" -eq 1 ]
   # The skills bind these exact names; a typo'd agent: silently falls back to
   # general-purpose (no system prompt, no tool denial, no isolation).
@@ -39,24 +45,24 @@ _fm() { awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$1"; }
 }
 
 @test "both checker agents deny Write/Edit with the camelCase agent spelling (#458)" {
-  local f
-  for f in "$PRESHIP" "$REDTEAM"; do
-    run grep -c '^disallowedTools:' <(_fm "$f")
-    [ "$output" -eq 1 ] || { echo "no disallowedTools in $f" >&2; false; }
-    grep -qE '^disallowedTools:.*\bWrite\b' <(_fm "$f")
-    grep -qE '^disallowedTools:.*\bEdit\b' <(_fm "$f")
+  local fm
+  for fm in "$FM_PRESHIP" "$FM_REDTEAM"; do
+    run grep -c '^disallowedTools:' <<<"$fm"
+    [ "$output" -eq 1 ] || { echo "no disallowedTools in: $fm" >&2; false; }
+    grep -qE '^disallowedTools:.*\bWrite\b' <<<"$fm"
+    grep -qE '^disallowedTools:.*\bEdit\b' <<<"$fm"
     # The hyphenated skill spelling here would be silently ignored — the exact
     # failure mode this issue exists to close.
-    run grep -c '^disallowed-tools:' <(_fm "$f")
-    [ "$output" -eq 0 ] || { echo "$f uses the SKILL spelling (silently ignored on agents)" >&2; false; }
+    run grep -c '^disallowed-tools:' <<<"$fm"
+    [ "$output" -eq 0 ] || { echo "uses the SKILL spelling (silently ignored on agents)" >&2; false; }
   done
 }
 
 @test "both checker agents pin model and effort (#458)" {
-  local f
-  for f in "$PRESHIP" "$REDTEAM"; do
-    grep -qE '^model:[[:space:]]+(opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)$' <(_fm "$f")
-    grep -qE '^effort:[[:space:]]+(low|medium|high|xhigh|max)$' <(_fm "$f")
+  local fm
+  for fm in "$FM_PRESHIP" "$FM_REDTEAM"; do
+    grep -qE '^model:[[:space:]]+(opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)$' <<<"$fm"
+    grep -qE '^effort:[[:space:]]+(low|medium|high|xhigh|max)$' <<<"$fm"
   done
 }
 
