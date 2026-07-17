@@ -27,7 +27,7 @@ _add_step_models() {  # $1 = TOML lines for the table body
     [ "$output" = "opus" ]
 }
 
-@test "step-model.sh exits 1 printing nothing when no table configured (#151)" {
+@test "step-model.sh exits nonzero printing nothing when no table configured (#151)" {
     run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
     [ "$status" -ne 0 ]
     [ -z "$output" ]
@@ -176,9 +176,10 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 
     # rc 2: the operator's explicit inherit escape — empty stdout, but NOT rc 3.
     printf 'inherit' > "$d/.devagent-step-models"
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
     [ "$status" -eq 2 ]
-    [[ "$output" == *"per-issue"* ]]
+    [ -z "$output" ]
+    [[ "$stderr" == *"per-issue"* ]]
     rm -f "$d/.devagent-step-models"
 
     # rc 1: a bad marker is an error, never an inherit.

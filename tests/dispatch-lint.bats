@@ -138,7 +138,9 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
     # still requires a leading letter and rejects junk.
     for ml in 'model: -leading-hyphen' \
               'model: Agent-Default' \
-              'model: agent default'; do
+              'model: agent default' \
+              'model: opus-' \
+              'model: agent-'; do
         { echo 'context: subagent'; echo "$ml"; _body; } > "$D/a.md"
         run LINT "$D/a.md" subagent
         [ "$status" -ne 0 ] || { echo "wrongly accepted: $ml" >&2; false; }

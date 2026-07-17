@@ -47,25 +47,33 @@ session reviews what it remembers intending; preship reviews what is on disk.
    tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21)"; rc=$?
    ```
 
-   | rc | meaning | dispatch with | stamp |
-   |----|---------|---------------|-------|
-   | 0 | a tier resolved | `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when stderr carries a `per-issue` line |
-   | 2 | the reserved `inherit` marker (#291) — the operator's explicit escape from a project pin | `model: inherit` | `inherit (per-issue)` |
-   | 3 | nothing configured | no override — the agent's pinned default | `agent-default (preship-verifier)` |
+   | rc | meaning | dispatch | stamp |
+   |----|---------|----------|-------|
+   | 0 | a tier resolved | Agent tool, `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when stderr carries a `per-issue` line |
+   | 2 | the reserved `inherit` marker (#291) — the operator's explicit escape from a project pin | **invoke the `core-preship` skill** — the fork inherits the session model | `inherit (per-issue)` |
+   | 3 | nothing configured | Agent tool, explicit `model: opus` — the wrapper-carried step default | `agent-default (preship-verifier)` |
    | 1 | error: a bad/unreadable marker | — | **STOP**; fix or remove the marker |
 
    rc 2 must never collapse into rc 3: that would silently defeat the only way
    to opt out of a pinned tier.
 
-2. **Bifurcated dispatch** (#458). Both paths run the same agent, so its system
-   prompt, its Write/Edit denial, and fresh context hold either way:
-   - **rc 0 or 2** ⇒ dispatch the Agent tool with
-     `subagent_type: devagent:preship-verifier` and an explicit `model:` parameter per the
-     table (a per-invocation model beats the agent's pinned default).
-   - **rc 3** ⇒ invoke the `core-preship` skill. Its `context: fork` + `agent:`
-     frontmatter runs it inside the same agent at that agent's pinned default.
-     rc 3 means "no override configured", NOT "inherit the session model" — for
-     steps 14/21 the agent's pinned model is the tier of last resort.
+   **Why the model default lives HERE and not in the agent's frontmatter, and
+   why rc 2 rides the skill (measured at 2.1.211, #458 redmr BLOCKING):** the
+   Agent tool's `model` parameter is a closed enum (`sonnet|opus|haiku|fable`)
+   with NO `inherit` value — passing the literal `inherit` hard-fails
+   validation — and omitting the parameter resolves to *the agent definition's
+   model* before the parent's. A frontmatter pin therefore makes rc 2
+   unsatisfiable on every dispatch shape. So the agents carry NO `model:` pin
+   (`effort` stays pinned there; the Agent tool has no effort parameter), and:
+   an unpinned fork inherits the session model (transcript-verified — the
+   fork's recorded model ID equaled the main chain's), which is exactly rc 2's
+   semantics; rc 3's default is this table's `model: opus`, passed explicitly
+   (transcript-verified — an explicit param's model ID is the one recorded).
+
+2. **Both dispatch shapes run the same agent** — system prompt, Write/Edit
+   denial, and fresh context hold on either path; only the model source
+   differs. Never pass the literal `inherit` as the Agent-tool `model`
+   parameter — it is not a legal value and fails validation.
 
 3. **Package inputs as paths, not conversation.** The dispatch prompt contains
    only: the project name, the absolute paths of `issue.md`, `mr.md`, the

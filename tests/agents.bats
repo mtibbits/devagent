@@ -58,11 +58,20 @@ setup() {
   done
 }
 
-@test "both checker agents pin model and effort (#458)" {
+@test "checker agents pin effort but MUST NOT pin model (#458 redmr BLOCKING)" {
+  # Measured at 2.1.211: the Agent tool's model param is a closed enum
+  # (sonnet|opus|haiku|fable) with NO inherit value, and omitting the param
+  # resolves to "the agent definition's model, or inherits from the parent".
+  # So a frontmatter model pin makes the #291 'inherit' escape (rc 2)
+  # unreachable — the pinned model wins on every dispatch shape. The step
+  # default therefore lives in the WRAPPERS (rc-3 row); the agents stay
+  # unpinned so the rc-2 skill-fork genuinely inherits the session model
+  # (transcript-verified: unpinned fork ran the main chain's model).
   local fm
   for fm in "$FM_PRESHIP" "$FM_REDTEAM"; do
-    grep -qE '^model:[[:space:]]+(opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)$' <<<"$fm"
     grep -qE '^effort:[[:space:]]+(low|medium|high|xhigh|max)$' <<<"$fm"
+    run grep -c '^model:' <<<"$fm"
+    [ "$output" -eq 0 ] || { echo "agent pins a model — rc 2 becomes unreachable" >&2; false; }
   done
 }
 

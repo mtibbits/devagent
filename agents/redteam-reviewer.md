@@ -2,7 +2,6 @@
 name: redteam-reviewer
 description: Fresh-context MR red-team reviewer (devAgent step 14) — attacks an MR body and its branch diff from a hostile maintainer's perspective and returns the severity-classified findings artifact. Cannot write files.
 disallowedTools: Write, Edit, NotebookEdit
-model: opus
 effort: high
 ---
 

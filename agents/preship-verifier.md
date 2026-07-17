@@ -2,7 +2,6 @@
 name: preship-verifier
 description: Fresh-context preship verifier (devAgent step 21) — verifies a committed branch against its acceptance criteria and findings, and returns the preship.md artifact body. Cannot write files.
 disallowedTools: Write, Edit, NotebookEdit
-model: opus
 effort: high
 ---
 

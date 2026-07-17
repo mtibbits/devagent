@@ -653,12 +653,22 @@ A step's tier is resolved in this order (first hit wins):
 2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
 3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
 4. **Default tier** — `step_models.default`, when the class tier is unset.
-5. **Agent default — any step whose skill binds an agent** (#458). When a
-   step's skill carries `context: fork` + `agent:`, that agent's pinned `model:`
-   is the tier of last resort. The property is the binding, not the step number:
-   converting a further step needs no edit here. Today that is steps 14 (redmr)
-   and 21 (preship). For every other step, an unresolved tier still means
-   "inherit the session model".
+5. **Step default — any step whose skill binds an agent** (#458). When a
+   step's skill carries `context: fork` + `agent:`, the step's COMMAND WRAPPER
+   carries a default model in its dispatch table (today `opus` for redmr and
+   preship), passed as an explicit Agent-tool `model` parameter when nothing
+   resolves. The property is the binding, not the step number: converting a
+   further step needs no edit here. For every other step, an unresolved tier
+   still means "inherit the session model".
+
+   The default deliberately does NOT live in the agent's frontmatter, and the
+   agents carry no `model:` pin (only `effort`). Measured at 2.1.211: the Agent
+   tool's `model` parameter is a closed enum (`sonnet|opus|haiku|fable`) with no
+   `inherit` value — the literal fails validation — and omitting it resolves to
+   the agent definition's model BEFORE the parent's, so a frontmatter pin would
+   make rung 1's reserved `inherit` escape unsatisfiable on every dispatch
+   shape. Unpinned, the skill-fork inherits the session model
+   (transcript-verified), which is exactly what the `inherit` marker demands.
 
 If none resolves, the step inherits the session model — except steps 14/21, per
 rung 5. Tiers are advisory for surfacing steps (`next` / `catchup` print the
@@ -678,17 +688,19 @@ per-issue `inherit` marker (rung 1's escape hatch — the operator explicitly
 wants the session model) · `3` nothing resolved · `1` error (bad marker; a stop
 condition, never an inherit). A caller whose fallback IS inherit — steps 3/13,
 `next.sh`, `catchup.sh` — may keep collapsing every nonzero via `|| true`, which
-stays correct and is pinned by a test. A caller with an agent default MUST
-discriminate: `2` still inherits, `3` takes the agent default. Collapsing the
-two would silently defeat the only way to opt out of a pinned tier.
+stays correct and is pinned by a test. A caller with a step default MUST
+discriminate: `2` still inherits (it dispatches via the bound skill, whose
+unpinned fork runs at the session model), `3` takes the wrapper's explicit
+default. Collapsing the two would silently defeat the only way to opt out of a
+pinned tier.
 The marker (#291) and the config tables therefore behave exactly as before —
 **marker > per-step > class > default > agent default** — and existing projects
 with a `step_models` entry for 14/21 see no change at all.
 
 **Live behavior change** for a project that resolves NO tier for 14/21 (a fresh
 install: `templates/config.toml.skel` ships `step_models` commented out): those
-steps previously ran at the session model and now run at the agent's pinned
-model. Projects that set a `checking` tier — as every project shipped in the
+steps previously ran at the session model and now run at the wrapper-carried
+step default. Projects that set a `checking` tier — as every project shipped in the
 reference config does — are unaffected.
 
 **Failure mode this binding is exposed to: silently-ignored frontmatter.** These
@@ -721,8 +733,10 @@ skill files, summarized here so the mechanism is discoverable:
   structurally** (#458): `skills/core-redmr` and `skills/core-preship` carry
   `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the
   fresh-context dispatch — the harness supplies the agent's system prompt, its
-  pinned model, and its Write/Edit denial, instead of the mechanism depending on
-  the model choosing to spawn a generic subagent correctly. Those agents cannot
+  pinned effort, and its Write/Edit denial, instead of the mechanism depending
+  on the model choosing to spawn a generic subagent correctly. (The model
+  default is wrapper-carried, not agent-pinned — §7.4 rung 5 has the measured
+  reason.) Those agents cannot
   write files: they RETURN the artifact body and the wrapper writes it verbatim,
   so authorship stays with the checker.
 - **Thinking steps** — `draft` today (#284): the *inverse* — inline is the

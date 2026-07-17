@@ -83,3 +83,19 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     run grep -c 'agent-default (redteam-reviewer)' "$REPO/agents/preship-verifier.md"
     [ "$output" -eq 0 ]
 }
+
+@test "both bound-step wrappers carry the same wrapper-owned step default (#458)" {
+    # The rc-3 default model lives in the WRAPPERS (the agents are deliberately
+    # unpinned — a frontmatter pin makes the #291 inherit escape unreachable;
+    # measured, see tests/agents.bats). Two wrapper copies of one constant is a
+    # twin-drift surface: pin that both name the same token, and that neither
+    # agent grew a model pin back.
+    run grep -c 'explicit `model: opus`' "$REPO/commands/preship.md"
+    [ "$output" -eq 1 ]
+    run grep -c 'explicit `model: opus`' "$REPO/commands/redmr.md"
+    [ "$output" -eq 1 ]
+    run grep -c '^model:' <(awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$REPO/agents/preship-verifier.md")
+    [ "$output" -eq 0 ]
+    run grep -c '^model:' <(awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$REPO/agents/redteam-reviewer.md")
+    [ "$output" -eq 0 ]
+}

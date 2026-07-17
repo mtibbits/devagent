@@ -43,8 +43,11 @@ disk and state:
    complete `preship.md` body as your final message. The invoking session writes
    it to disk verbatim — authorship stays with you.
 
-Stamp the header your system prompt specifies; absent an instruction from the
-invoking session, stamp `model: agent-default (preship-verifier)`.
+Stamp the header your system prompt specifies. The wrapper normally tells you
+what to stamp (its rc-2 path — the #291 inherit escape — rides this skill and
+says `inherit (per-issue)`); invoked directly with no instruction, stamp
+`model: inherit` — this fork runs at the session model, since the agent
+definition deliberately carries no pin.
 
 ## Templates referenced
 

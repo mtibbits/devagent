@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+load 'lib/bats-helpers'
 
 setup() {
   HARNESS="$BATS_TEST_DIRNAME/lib/skill-fixture-check.sh"
@@ -25,8 +26,11 @@ setup() {
   # The isolation is the agent's, and it is a denial — not a declaration.
   grep -qE '^disallowedTools:.*\bWrite\b' "$AGENT"
   grep -qE '^disallowedTools:.*\bEdit\b' "$AGENT"
-  grep -qE '^model:[[:space:]]+\S' "$AGENT"
   grep -qE '^effort:[[:space:]]+\S' "$AGENT"
+  # No model pin — a pinned agent model defeats the #291 inherit escape (rc 2);
+  # the step default is wrapper-carried. See tests/agents.bats for the measurement.
+  run grep -c '^model:' <(skill_frontmatter "$AGENT")
+  [ "$output" -eq 0 ]
 }
 
 @test "the preship verifications live in the agent system prompt (#458)" {
