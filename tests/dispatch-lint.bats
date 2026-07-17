@@ -105,3 +105,42 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
     [ "$status" -ne 0 ]
     [[ "$output" == *"empty"* ]]
 }
+
+@test "dispatch-lint: model grammar admits the agent-default provenance form (#458)" {
+    # #458 binds steps 14/21 to dedicated agents whose pinned model is the tier
+    # of last resort. A fresh-install project (config.toml.skel ships step_models
+    # commented out) resolves NO tier, so the wrapper stamps this exact token —
+    # the real artifact header, fed through the real linter (register #232:
+    # two components that must agree are tested with the produced artifact).
+    for ml in 'model: agent-default (preship-verifier)' \
+              'model: agent-default (redteam-reviewer)'; do
+        { echo 'context: subagent'; echo "$ml"; _body; } > "$D/a.md"
+        run LINT "$D/a.md" subagent
+        [ "$status" -eq 0 ] || { echo "rejected: $ml -- $output" >&2; false; }
+    done
+}
+
+@test "dispatch-lint: agent-default header passes the preship/redmr class gates (#458)" {
+    # Both classes, because the wrapper writes this header on BOTH bound steps.
+    { echo 'context: subagent'; echo 'model: agent-default (preship-verifier)'; _body
+      echo 'Verdict: PASS'; } > "$D/preship.md"
+    run LINT "$D/preship.md" subagent --class preship
+    [ "$status" -eq 0 ] || { echo "preship class rejected -- $output" >&2; false; }
+
+    { echo 'context: subagent'; echo 'model: agent-default (redteam-reviewer)'; _body
+      echo '## Summary'; echo '0 blocking, 0 major, 1 minor, 3 info'; } > "$D/redmr.md"
+    run LINT "$D/redmr.md" subagent --class redmr
+    [ "$status" -eq 0 ] || { echo "redmr class rejected -- $output" >&2; false; }
+}
+
+@test "dispatch-lint: a hyphen-only or malformed model token still FAILs (#458)" {
+    # The widened class must not degenerate into "anything goes": the grammar
+    # still requires a leading letter and rejects junk.
+    for ml in 'model: -leading-hyphen' \
+              'model: Agent-Default' \
+              'model: agent default'; do
+        { echo 'context: subagent'; echo "$ml"; _body; } > "$D/a.md"
+        run LINT "$D/a.md" subagent
+        [ "$status" -ne 0 ] || { echo "wrongly accepted: $ml" >&2; false; }
+    done
+}
