@@ -213,3 +213,18 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [ -z "$output" ]
     rm -f "$d/.devagent-step-models"
 }
+
+@test "step-model: a config-table tier of 'inherit' is the same escape as the marker (#458 r2)" {
+    # Without this, checking = "inherit" resolved rc 0 with stdout 'inherit',
+    # and the bound-step wrappers would dispatch the Agent tool with
+    # model: inherit — a value the tool's closed enum rejects (hard crash on a
+    # config any operator could reasonably write). Symmetric semantics: rc 2,
+    # empty stdout, a provenance note WITHOUT the word 'per-issue' so callers
+    # can distinguish the stamp form.
+    _add_step_models 'checking = "inherit"'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -eq 2 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"config tier"* ]]
+    [[ "$stderr" != *"per-issue"* ]]
+}

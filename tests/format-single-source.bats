@@ -75,6 +75,18 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
             grep -qF "$tok" "$f" || { echo "missing '$tok' from $f" >&2; false; }
         done
     done
+    # The fork-prompt skills are the 5th/6th homes (redmr r2 MAJOR: their
+    # direct-invocation stamp `model: inherit` shipped outside the enumerated
+    # set). Every stamp a skill names must be in the set; bare `inherit` is now
+    # enumerated, and the skills carry both forms they can instruct.
+    for f in "$REPO/skills/core-preship/SKILL.md" "$REPO/skills/core-redmr/SKILL.md"; do
+        grep -qF 'inherit (per-issue)' "$f" || { echo "missing rc-2 stamp in $f" >&2; false; }
+        grep -qF '`model: inherit`' "$f" || { echo "missing direct-invocation stamp in $f" >&2; false; }
+    done
+    for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
+             "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md"; do
+        grep -qF '`inherit`,' "$f" || { echo "bare inherit missing from the enumeration in $f" >&2; false; }
+    done
     # Each side names its own agent-default form, and no other's.
     grep -qF 'agent-default (preship-verifier)' "$REPO/commands/preship.md"
     grep -qF 'agent-default (preship-verifier)' "$REPO/agents/preship-verifier.md"

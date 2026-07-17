@@ -26,6 +26,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Born-red is a claim to VERIFY per test against the UNFIXED tree — a green suite over unfixed code is the compound failure (Issue-282).
 - A floor/presence guard on a test that filters-after-discovering is vacuous → count what the assertions run against (after the filter) and mutation-test the guard itself (Issue-151).
 - "did it run / processes all X" features → assert COUNT/coverage or an observable per-item effect, never just rc or the log (Issue-32).
+- A clean analyzer/test run over code the tool cannot parse or never built is VACUOUS, not a pass → verify the tool actually saw the changed lines (arch-gated sources, generated files, non-C asm) before trusting "0 findings" (Issue-Fork-149).
+- A defect whose symptom depends on uninitialized caller/register/heap state → the test must CONTROL that state (poison it), or a benign ambient value shows a passing green over broken code (Issue-Fork-149).
 - A born-red test whose fixture pre-seeds the asserted marker proves nothing → assert a delta/count, not mere presence (Issue-318).
 - `! cmd | grep` negation in bats is vacuous → `run grep …; [ "$status" -ne 0 ]`; when a red step unexpectedly passes, find out WHY (Issue-31).
 - A grep presence-canary asserts `-eq 1` (precise no-match), never `-ne 0` (which conflates clean with error) (Issue-337).
@@ -57,6 +59,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
 - An issue's named input can be wrong → verify it exists with the assumed content in scope/improve; surface the mismatch rather than building an inert fix (Issue-274).
+- An issue's prescribed fix is an untrusted hypothesis, not a spec → verify it at HEAD before building on it (Issue-Fork-149's `## Fix` would have hung); and "which impl/path does this ACTUALLY run by default?" is a source question — read the dispatch/fallback logic, don't assume the measured or common case is the default (Issue-Fork-149).
 - Two components that must agree on a format → test by feeding one's REAL produced artifact through the other, not a prose promise or a format check (Issue-232).
 - A status ambiguous between "absent" and "can't-determine" → fail closed; a tri-state classifier makes the fail-safe un-violatable by construction (Issue-243).
 - Match rigor to risk; tier the model to the FAILURE MODE, not the diff size (a 90-line interleaving diff earns opus; a proven-dead deletion earns one coupling sweep) (Issue-122).

@@ -168,6 +168,16 @@ step_models_tier() {
     fi
   fi
   [[ -n "$tier" ]] || return 3
+  # #458 redmr r2: the reserved token is symmetric — 'inherit' arriving via the
+  # CONFIG TABLE (step_models.<N>/.class/.default) forces session-model
+  # inheritance exactly like the per-issue marker, rather than resolving rc 0
+  # and flowing into an Agent-tool dispatch as a model name the closed enum
+  # rejects. Distinct stderr note: no 'per-issue' word, so callers can stamp
+  # plain 'inherit' vs 'inherit (per-issue)' by provenance.
+  if [[ "$tier" == "inherit" ]]; then
+    echo "step_models_tier: config tier 'inherit' — forcing session-model inheritance" >&2
+    return 2
+  fi
   printf '%s\n' "$tier"
 }
 

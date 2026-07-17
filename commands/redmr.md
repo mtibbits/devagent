@@ -63,13 +63,19 @@ Fresh context is what makes the attack real; the model override is conditional.
    interchangeable here, so discriminate on the code, never on stderr prose:
 
    ```bash
-   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14)"; rc=$?
+   err="$(mktemp)"
+   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14 2>"$err")"; rc=$?
+   prov="$(cat "$err")"; rm -f "$err"
    ```
+
+   (`$prov` is load-bearing: the per-issue provenance note arrives on stderr,
+   and command substitution alone would discard it — the `(per-issue)` stamp
+   forms key off `$prov`, not off eyeballed terminal output.)
 
    | rc | meaning | dispatch | stamp |
    |----|---------|----------|-------|
-   | 0 | a tier resolved | Agent tool, `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when stderr carries a `per-issue` line |
-   | 2 | the reserved `inherit` marker (#291) — the operator's explicit escape from a project pin | **invoke the `core-redmr` skill** — the fork inherits the session model | `inherit (per-issue)` |
+   | 0 | a tier resolved | Agent tool, `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when `$prov` carries a `per-issue` line |
+   | 2 | the reserved `inherit` token — the operator's explicit escape from a project pin (per-issue marker #291, or a config-table tier of `inherit`) | **invoke the `core-redmr` skill**, passing in its args: "stamp `model: <form>`" — the fork inherits the session model | `inherit (per-issue)` when `$prov` says `per-issue`; plain `inherit` when it says `config tier` |
    | 3 | nothing configured | Agent tool, explicit `model: opus` — the wrapper-carried step default | `agent-default (redteam-reviewer)` |
    | 1 | error: a bad/unreadable marker | — | **STOP**; fix or remove the marker |
 
@@ -105,11 +111,14 @@ Fresh context is what makes the attack real; the model override is conditional.
    catches a report/branch divergence.
 4. **Mandatory artifact header.** First lines: `context: subagent` (always —
    a fork IS a subagent context; `context: inline` only on the degraded path
-   below), then `model:` as one of `<tier>`, `<tier> (per-issue)`,
+   below), then `model:` as one of `<tier>`, `<tier> (per-issue)`, `inherit`,
    `inherit (per-issue)`, `inherit (fallback from <tier>)`, or
    `agent-default (redteam-reviewer)`. This set must stay identical to the
-   stamp column of rung 1's table and to the agent's own `## Artifact format`;
-   the rc-2 stamp shipped missing from it once already (#458 review MAJOR-1).
+   stamp column of rung 1's table, to the agent's own `## Artifact format`, and
+   to the stamps the fork-prompt skill names; it shipped divergent twice (#458
+   review MAJOR-1: `inherit (per-issue)` missing; redmr r2 MAJOR: the skill's
+   direct-invocation `inherit` missing), so the single-source test sweeps all
+   six homes.
 5. **Degraded-harness fallback.** When no subagent mechanism exists (headless
    run, cron, degraded harness), run the red-team inline against the agent
    definition's contract and the resolved template; the artifact MUST record

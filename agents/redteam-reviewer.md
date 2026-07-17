@@ -82,8 +82,8 @@ model: <tier>
 `context:` is always `subagent` — a fork IS a subagent context, and the report
 linter requires that token. Never write `context: fork`. For `model:`, use the
 value your dispatch prompt tells you to stamp; it will be one of `<tier>`,
-`<tier> (per-issue)`, `inherit (per-issue)`, `inherit (fallback from <tier>)`,
-or `agent-default (redteam-reviewer)`.
+`<tier> (per-issue)`, `inherit`, `inherit (per-issue)`,
+`inherit (fallback from <tier>)`, or `agent-default (redteam-reviewer)`.
 
 Then:
 
