@@ -81,10 +81,6 @@ if [[ "$skill_kind" != "fork" ]]; then
   fi
 fi
 
-# #131 (universal — applies to fork prompts too, which DO invoke scripts:
-# core-redmr calls template.sh, core-preship calls state.sh): the cwd at
-# invocation is the target project, so a bare relative scripts/<x>.sh misses.
-# Every invocation must be plugin-root-prefixed.
 # #131 (universal — both kinds): the cwd at invocation is the target project,
 # so a bare relative scripts/… path misses. Two complementary guards:
 #

@@ -98,7 +98,10 @@ Fresh context is what makes the attack real; the model override is conditional.
 4. **Mandatory artifact header.** First lines: `context: subagent` (always —
    a fork IS a subagent context; `context: inline` only on the degraded path
    below), then `model:` as one of `<tier>`, `<tier> (per-issue)`,
-   `inherit (fallback from <tier>)`, or `agent-default (redteam-reviewer)`.
+   `inherit (per-issue)`, `inherit (fallback from <tier>)`, or
+   `agent-default (redteam-reviewer)`. This set must stay identical to the
+   stamp column of rung 1's table and to the agent's own `## Artifact format`;
+   the rc-2 stamp shipped missing from it once already (#458 review MAJOR-1).
 5. **Degraded-harness fallback.** When no subagent mechanism exists (headless
    run, cron, degraded harness), run the red-team inline against the agent
    definition's contract and the resolved template; the artifact MUST record

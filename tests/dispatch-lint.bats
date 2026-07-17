@@ -144,3 +144,23 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
         [ "$status" -ne 0 ] || { echo "wrongly accepted: $ml" >&2; false; }
     done
 }
+
+@test "dispatch-lint: model grammar admits the rc-2 inherit-escape provenance (#458)" {
+    # The #291 escape hatch (marker 'inherit' → step-model.sh rc 2) stamps this
+    # form. It shipped missing from the header enumeration once (review MAJOR-1)
+    # precisely because nothing fed it through the linter, the way agent-default
+    # was. Real header, real linter, both bound classes (register #232).
+    { echo 'context: subagent'; echo 'model: inherit (per-issue)'; _body; } > "$D/a.md"
+    run LINT "$D/a.md" subagent
+    [ "$status" -eq 0 ] || { echo "plain rejected -- $output" >&2; false; }
+
+    { echo 'context: subagent'; echo 'model: inherit (per-issue)'; _body
+      echo 'Verdict: PASS'; } > "$D/p.md"
+    run LINT "$D/p.md" subagent --class preship
+    [ "$status" -eq 0 ] || { echo "preship class rejected -- $output" >&2; false; }
+
+    { echo 'context: subagent'; echo 'model: inherit (per-issue)'; _body
+      echo '## Summary'; echo '0 blocking, 0 major, 0 minor, 0 info'; } > "$D/r.md"
+    run LINT "$D/r.md" subagent --class redmr
+    [ "$status" -eq 0 ] || { echo "redmr class rejected -- $output" >&2; false; }
+}

@@ -630,7 +630,7 @@ via the operator typing `/devagent:next` between steps.
 
 An optional `[project.<name>.step_models]` table steers which model tier
 runs each step (surfacing #150; dispatch #151; per-issue override #291).
-Implemented in `scripts/lib/config.sh:96–159` (`step_models_tier`) and
+Implemented in `scripts/lib/config.sh:96–172` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
 step runs at the session model).

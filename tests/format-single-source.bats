@@ -60,3 +60,26 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     grep -qF 'B blocking, M major, m minor, I info' \
         "$REPO/agents/redteam-reviewer.md"
 }
+
+@test "the artifact-header model enumeration is single-valued across its four homes (#458)" {
+    # The rc table tells the wrapper WHAT to stamp; the enumeration and the
+    # agent's ## Artifact format tell the checker what is LEGAL. They are three
+    # statements of one contract in four files, and they shipped divergent once:
+    # the rc-2 stamp `inherit (per-issue)` was absent from every enumeration
+    # (review MAJOR-1), so a checker resolving the conflict could normalise the
+    # provenance of the one path that most needs an audit trail.
+    local f tok
+    for tok in '<tier> (per-issue)' 'inherit (per-issue)' 'inherit (fallback from <tier>)'; do
+        for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
+                 "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md"; do
+            grep -qF "$tok" "$f" || { echo "missing '$tok' from $f" >&2; false; }
+        done
+    done
+    # Each side names its own agent-default form, and no other's.
+    grep -qF 'agent-default (preship-verifier)' "$REPO/commands/preship.md"
+    grep -qF 'agent-default (preship-verifier)' "$REPO/agents/preship-verifier.md"
+    grep -qF 'agent-default (redteam-reviewer)' "$REPO/commands/redmr.md"
+    grep -qF 'agent-default (redteam-reviewer)' "$REPO/agents/redteam-reviewer.md"
+    run grep -c 'agent-default (redteam-reviewer)' "$REPO/agents/preship-verifier.md"
+    [ "$output" -eq 0 ]
+}

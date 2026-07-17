@@ -35,9 +35,10 @@ _contract_carriers() {
     done
   done
   # Guard against a vacuous pass on FILTERED carriers (not merely discovered
-  # files): core-improve + core-redmr + core-preship + review.md + draft.md
-  # (#284) is today's floor — a carrier silently dropping out of the sweep
-  # must fail here.
+  # files). Today's roster (#458 changed it — core-redmr/core-preship dropped out
+  # when their contracts moved skill→command, and the wrappers replaced them):
+  #   core-improve + review.md + preship.md + redmr.md + draft-dispatch-contract.md
+  # A carrier silently dropping out of the sweep must fail here.
   [ "$full" -ge 5 ]
   if [ "${#missing[@]}" -ne 0 ]; then
     printf 'missing contract token: %s\n' "${missing[@]}" >&2
