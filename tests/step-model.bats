@@ -158,3 +158,18 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [ -z "$output" ]
     [[ "$stderr" == *"not a regular file"* ]]
 }
+
+@test "step-model: steps 14/21 resolve unchanged at the raw layer (#458)" {
+    # #458 binds steps 14/21 to dedicated agents whose pinned model becomes the
+    # tier of LAST RESORT. That reinterpretation is the CALLER's (commands/redmr.md
+    # and commands/preship.md map empty ⇒ agent default); this resolver is untouched.
+    # Pin it: with no step_models table the resolver still exits 1 with empty
+    # stdout, exactly as before — if the agent-default fallback ever leaks down
+    # into tier resolution, this fails.
+    local step
+    for step in 14 21; do
+        run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
+        [ "$status" -eq 1 ]
+        [ -z "$output" ]
+    done
+}

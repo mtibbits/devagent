@@ -30,13 +30,18 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     [ "$status" -ne 0 ]
 }
 
-@test "both red-team skills state the precedence rule (#134)" {
-    grep -qF "this skill's output contract wins" "$REPO/skills/core-redmr/SKILL.md"
+@test "both red-team surfaces state the precedence rule (#134/#458)" {
+    # #458: the MR red-team's output contract moved into its agent system prompt
+    # (skills/core-redmr is now a fork prompt bound to devagent:redteam-reviewer).
+    # core-redissue still owns its contract skill-side — the asymmetry is real,
+    # so each assertion names the file that OWNS the rule.
+    grep -qF "output contract wins" "$REPO/agents/redteam-reviewer.md"
     grep -qF "this skill's output contract wins" "$REPO/skills/core-redissue/SKILL.md"
 }
 
-@test "core-redmr names the machine-parsed log token (#134)" {
-    grep -q 'machine-parsed by statusreport' "$REPO/skills/core-redmr/SKILL.md"
+@test "redmr names the machine-parsed log token (#134/#458)" {
+    # The log line is emitted by the MAIN session, so the token lives with it.
+    grep -q 'machine-parsed by statusreport' "$REPO/commands/redmr.md"
 }
 
 @test "core-redissue never references checklist.md (#130 pin preserved) (#134)" {
@@ -44,10 +49,14 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     [ "$status" -ne 0 ]
 }
 
-@test "core-redmr's documented log line keeps the parsed token (#134 review MED)" {
+@test "redmr's documented log line keeps the parsed token (#134 review MED/#458)" {
     # The one machine-parsed surface: rewording "B blocking" (e.g. to
     # "B blockers") would silently blind statusreport while every other
     # test stays green — empirically confirmed during review.
+    # #458 moved the log emission to the wrapper; the count line ALSO appears in
+    # the agent's artifact format, so pin both or a reword could split them.
     grep -qF '"Red-team: B blocking, M major, m minor, I info' \
-        "$REPO/skills/core-redmr/SKILL.md"
+        "$REPO/commands/redmr.md"
+    grep -qF 'B blocking, M major, m minor, I info' \
+        "$REPO/agents/redteam-reviewer.md"
 }

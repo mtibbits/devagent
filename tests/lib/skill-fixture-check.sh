@@ -30,6 +30,34 @@ for field in name description; do
   fi
 done
 
+# #458: a `context: fork` skill is a FORK PROMPT, not a procedure. The harness
+# runs its body inside the bound agent, whose system prompt owns the checklist
+# and whose invoking command owns the halt rules and logging — so the
+# procedure-shaped requirements below do not apply to it. The exemption is not
+# a hole: a fork prompt must name a bound agent that actually EXISTS and
+# declares the matching name, which is the failure this class can suffer that a
+# procedure skill cannot (a typo'd `agent:` silently falls back to
+# general-purpose — no system prompt, no tool denial, no isolation).
+if grep -qE '^context:[[:space:]]+fork[[:space:]]*$' <<<"$fm"; then
+  agent_ref="$(grep -E '^agent:[[:space:]]+\S' <<<"$fm" | head -1 | sed -E 's/^agent:[[:space:]]+//; s/[[:space:]]+$//')"
+  if [[ -z "$agent_ref" ]]; then
+    echo "context: fork requires an 'agent:' binding (else it forks to general-purpose: no system prompt, no tool denial)" >&2
+    exit 1
+  fi
+  # Plugin-scoped form `<plugin>:<agent>`; the leaf is the agent's name.
+  agent_name="${agent_ref##*:}"
+  agent_file="$skill_dir/../../agents/${agent_name}.md"
+  if [[ ! -f "$agent_file" ]]; then
+    echo "agent: ${agent_ref} names no agent file (looked for agents/${agent_name}.md)" >&2
+    exit 1
+  fi
+  if ! grep -qE "^name:[[:space:]]+${agent_name}[[:space:]]*$" "$agent_file"; then
+    echo "agents/${agent_name}.md does not declare 'name: ${agent_name}' (identity comes from frontmatter, not filename)" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
 if ! grep -qE "^##[[:space:]]+Checklist" "$skill_md"; then
   echo "Checklist section missing" >&2
   exit 1

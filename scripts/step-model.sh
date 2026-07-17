@@ -3,6 +3,12 @@
 #   step-model.sh <project> <step-num> [issue-dir]
 # Echoes the configured tier (exit 0) or prints nothing and exits 1 when no
 # tier resolves — callers treat empty as "no override; inherit session model".
+# #458 carve-out, steps 14/21 ONLY: those two are bound to dedicated agents
+# (agents/redteam-reviewer.md, agents/preship-verifier.md) whose pinned model is
+# the tier of LAST RESORT, so their callers map empty to "agent default applies"
+# rather than "inherit the session model". Only that fallback INTERPRETATION is
+# subsumed, and only in the callers — resolution below is unchanged, and marker
+# (#291) > per-step > class > default still resolves identically for every step.
 # An exit 1 WITH an error on stderr is a bad per-issue marker (#291) — that is
 # a stop condition for dispatchers, not an inherit.
 # Read-only. Used by checking-class skills (improve 3, review 13, redmr 14,
