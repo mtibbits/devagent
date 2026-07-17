@@ -64,6 +64,11 @@ devAgent/
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
 │                            #   (SKILL.md + references/, #452) — 52 + 3 = the 55 slash commands
+├── agents/                  # #458: dedicated checker agents auto-discovered from this root
+│                            #   (preship-verifier, redteam-reviewer): pinned model/effort +
+│                            #   disallowedTools, bound by the core-preship/core-redmr skills'
+│                            #   `context: fork` + `agent:`. NB plugin.json must NOT gain an
+│                            #   "agents" key — it REPLACES this default scan rather than adding.
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
@@ -648,11 +653,44 @@ A step's tier is resolved in this order (first hit wins):
 2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
 3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
 4. **Default tier** — `step_models.default`, when the class tier is unset.
+5. **Agent default — steps 14 and 21 only** (#458). Those two are bound to
+   dedicated agents (`agents/redteam-reviewer.md`, `agents/preship-verifier.md`)
+   whose frontmatter pins a model; that pin is the tier of last resort. For
+   every other step, an unresolved tier still means "inherit the session model".
 
-If none resolves, the step inherits the session model. Tiers are advisory
-for surfacing steps (`next` / `catchup` print the hint) and load-bearing
-for the dispatch contract (§7.5), which uses the resolved tier as the
-subagent's model override.
+If none resolves, the step inherits the session model — except steps 14/21, per
+rung 5. Tiers are advisory for surfacing steps (`next` / `catchup` print the
+hint) and load-bearing for the dispatch contract (§7.5), which uses the resolved
+tier as the subagent's model override.
+
+**What #458 subsumes, precisely:** only the *fallback interpretation* for steps
+14/21, and only in the CALLERS (`commands/redmr.md`, `commands/preship.md`).
+`step-model.sh` keeps owning tier resolution: rungs 1–4 resolve identically for
+every step, and it still exits nonzero with empty output when nothing resolves.
+The marker (#291) and the config tables therefore behave exactly as before —
+**marker > per-step > class > default > agent default** — and existing projects
+with a `step_models` entry for 14/21 see no change at all.
+
+**Live behavior change** for a project that resolves NO tier for 14/21 (a fresh
+install: `templates/config.toml.skel` ships `step_models` commented out): those
+steps previously ran at the session model and now run at the agent's pinned
+model. Projects that set a `checking` tier — as every project shipped in the
+reference config does — are unaffected.
+
+**Failure mode this binding is exposed to: silently-ignored frontmatter.** These
+are harness surfaces, and a field that is *accepted but not enforced* buys no
+isolation. `claude plugin validate --strict` does **not** close this: verified at
+Claude Code 2.1.211, it validates `plugin.json` / `marketplace.json` only and
+never opens an agent file — a bogus field, or the wrong-scope spelling
+`disallowed-tools` (agents take camelCase `disallowedTools`; the hyphenated form
+is the SKILL.md spelling), produces byte-identical validator output. **The live
+smoke test on the installed version is the gate**, not the validator: dispatch
+the agent, have it attempt a Write, and confirm a structural refusal.
+
+**Residual, stated:** both checker agents retain `Bash` — they must run git,
+diffs, and `preship-evidence.sh`. Write/Edit denial is therefore *tool-level*
+isolation, not a filesystem sandbox; a determined agent could still write via
+shell redirection. The denial removes the accident, not the capability.
 
 ### 7.5 Dispatch contract (checking + thinking steps)
 
@@ -664,7 +702,15 @@ skill files, summarized here so the mechanism is discoverable:
   run in FRESH CONTEXT whenever the harness offers a subagent — a checker
   that reads the artifacts from disk instead of inheriting the author's
   conversation is what makes the check adversarial. Dispatch is
-  unconditional; the model override is the §7.4 tier (empty ⇒ inherit).
+  unconditional; the model override is the §7.4 tier (empty ⇒ inherit, except
+  14/21 ⇒ agent default, §7.4 rung 5). **Steps 14 and 21 are bound
+  structurally** (#458): `skills/core-redmr` and `skills/core-preship` carry
+  `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the
+  fresh-context dispatch — the harness supplies the agent's system prompt, its
+  pinned model, and its Write/Edit denial, instead of the mechanism depending on
+  the model choosing to spawn a generic subagent correctly. Those agents cannot
+  write files: they RETURN the artifact body and the wrapper writes it verbatim,
+  so authorship stays with the checker.
 - **Thinking steps** — `draft` today (#284): the *inverse* — inline is the
   fully-informed default, and dispatch is an opt-in *up-delegation* keyed
   on a non-empty §7.4 `thinking` tier. Intent is packaged to
@@ -682,8 +728,12 @@ re-dispatched once, then the step goes `[!]` (#360). Normative detail:
 `docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
 `commands/draft.md`, which now carries a conditional-load stub — the contract is
 read only when the step-1 tier is non-empty OR the operator instructs dispatch)
-and the `core-improve` / `core-redmr` / `core-preship` skills for the checking
-path.
+and, for the checking path, the `core-improve` skill (which still dispatches
+skill-side) plus the `commands/redmr.md` / `commands/preship.md` wrappers — #458
+moved those two contracts skill→command, because the duties they describe (tier
+resolution, the verbatim artifact write, dispatch-lint, the failure protocol)
+bind the MAIN session, while their skills became fork prompts bound to the
+agents that carry the procedure.
 
 ## 8. Permission gates
 
