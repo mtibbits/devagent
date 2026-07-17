@@ -107,7 +107,9 @@ directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
 > The 22 numbered step commands above, plus `next` / `revise` / `comments`,
-> together with the tables in this section, are the full set of 55 commands.
+> together with the tables in this section, are the full set of 55 slash
+> commands (52 commands + 3 user-invocable skills — `next`, `capture`,
+> `ship`; #452).
 
 ## Concurrent sessions
 
@@ -122,7 +124,7 @@ issues; the only residual is the last-writer-wins pick of the shared
 To switch the active project deliberately (rather than via the per-session env
 pin), run `/devagent:use <project>` — the one arg-driven writer of the shared
 pointer; hand-editing `_active.toml` is the fallback.
-Details: "Concurrent sessions" in `commands/next.md`.
+Details: `skills/next/references/concurrency.md`.
 
 ## Auth subsystem
 

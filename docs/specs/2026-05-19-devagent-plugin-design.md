@@ -60,8 +60,10 @@ devAgent/
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   └── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
-├── commands/                # one .md file per slash command
-├── skills/                  # custom skills (core-scope, core-prune, core-tighten, ...)
+├── commands/                # one .md file per command-form slash command (52)
+├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
+│                            #   user-invocable slash-command skills next/capture/ship
+│                            #   (SKILL.md + references/, #452) — 52 + 3 = the 55 slash commands
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
@@ -764,10 +766,15 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   (`bash …/ship.sh`, `sh …ship.sh`, or a direct `…/ship.sh`) it surfaces UNTRACKED
   files (`git status --porcelain` `^??`) in the issue worktree via exit 2 (the
   PostToolUse feedback channel — the ship already ran, this never blocks it).
-  **Coverage limit:** the `/devagent:ship` slash command bang-EXECUTES ship.sh
-  (`!\`bash …ship.sh\``), which is command-expansion — NOT a Bash tool call — so
-  PostToolUse does not observe it; this hook covers the Bash-tool ship path
-  (agent-driven / manual `bash …/ship.sh`), not the operator-typed slash command.
+  **Coverage (was a limit until #452):** `/devagent:ship` used to bang-EXECUTE
+  ship.sh (`!\`bash …ship.sh\``) — command-expansion, NOT a Bash tool call — so
+  PostToolUse could not observe the operator-typed slash command. Since #452
+  converted ship to `skills/ship/SKILL.md`, its body carries no `!` line: the
+  model runs `bash …/ship.sh` through the Bash TOOL, which this hook DOES observe.
+  Coverage therefore now spans both the operator-typed slash command and the
+  agent-driven / manual `bash …/ship.sh` path. (Unchanged: the `--auto` chain
+  never reads the skill body at all — `next.sh` execs `scripts/ship.sh` in-process
+  whenever it is executable, so that path is not a Bash tool call either.)
   Marginal-value boundary vs #148: ship.sh's #148 gate hard-blocks dirty TRACKED
   state but EXCLUDES untracked (`grep -cv '^??'`); this hook adds EXACTLY that
   excluded class and nothing else — #148 stays the authority for tracked state.

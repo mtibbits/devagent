@@ -15,8 +15,8 @@ step). This is the deliberate, arg-driven way to switch projects on a
 multi-project install — since #282 the pointer is otherwise written only by
 pointer/fallback-resolved `/devagent:next` runs, so its value would freeze. The
 `_active.toml` hand-edit and the per-session `DEVAGENT_ACTIVE_PROJECT` env pin
-remain as the fallback / per-session alternatives (see "Concurrent sessions" in
-`commands/next.md`).
+remain as the fallback / per-session alternatives (see
+`skills/next/references/concurrency.md`).
 
 An unknown project is rejected (the pointer is left unchanged). Does **not**
 execute a workflow step — invites the operator to run `/devagent:next`.

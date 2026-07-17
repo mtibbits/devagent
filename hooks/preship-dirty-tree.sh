@@ -24,10 +24,12 @@ cmd="$(hook_json_field "$input" 'tool_input.command')"
 [ -n "$cmd" ] || exit 0
 # Only when ship.sh is the PROGRAM being run (a Bash-TOOL ship: `bash .../ship.sh`,
 # `sh …ship.sh`, or a direct `…/ship.sh`) — NOT when it is merely an argument
-# (`cat/vim/git diff …/ship.sh`), which would over-fire the advisory. NOTE: the
-# `/devagent:ship` slash command bang-EXECUTES ship.sh (`!\`bash …ship.sh\``), which
-# is command-expansion, NOT a Bash tool call, so PostToolUse does not see it — this
-# hook covers the Bash-tool ship path (agent-driven / manual `bash …/ship.sh`).
+# (`cat/vim/git diff …/ship.sh`), which would over-fire the advisory. NOTE: until
+# #452, `/devagent:ship` bang-EXECUTED ship.sh (`!\`bash …ship.sh\``) — command
+# expansion, not a Bash tool call — so PostToolUse could not see it. ship is now a
+# skill whose body has no `!` line, so the operator-typed path runs through the Bash
+# TOOL and IS seen. Still unseen: the `--auto` chain, which execs scripts/ship.sh
+# in-process via next.sh rather than through the tool.
 _is_ship() {
   # ship.sh at a command-segment start (optional path prefix), OR right after an
   # interpreter (bash/sh/exec/source) preceded by start/space/separator.

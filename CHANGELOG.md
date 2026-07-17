@@ -17,6 +17,9 @@ Current capabilities as of this commit:
 - **55 slash commands** driving a fixed **22-step issue workflow**, with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.
+- `next`/`capture`/`ship` converted from commands to user-invocable skills with
+  `references/`; `next` thinned 5,764 → 2,209 chars whole-file (operative body
+  5,565 → 1,916, pinned under 2,000 by #439's size canary).
 - Backends: **GitHub, GitLab, and JIRA** (issue trackers + code forges).
 - Subsystems: capture + issue red-team, revision, WBS, status reports, and an
   auth subsystem (PAT / SSH-key lifecycle).
@@ -27,7 +30,8 @@ Current capabilities as of this commit:
   works without uninstall + reinstall.
 - Every command routes its scripts through `${CLAUDE_PLUGIN_ROOT}` (works from a
   marketplace install), enforced by a CI canary.
-- `allowed-tools` scoped past a blanket `Bash` grant.
+- `allowed-tools` scoped past a blanket `Bash` grant, on commands and skills
+  alike.
 - Invocation control: the 14 internal `core-*` skills are hidden from the `/`
   menu (`user-invocable: false`), and `auth`/`init`/`use` are operator-timed
   (`disable-model-invocation: true`).

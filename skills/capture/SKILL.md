@@ -1,7 +1,9 @@
 ---
+name: capture
 description: Draft a pre-issue or epic capture under <devdoc>/Captures/<slug>/
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
+when_to_use: To capture a new idea as an issue or epic draft before filing.
 argument-hint: "[issue|epic] <text>"
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
 ---
 
 # /devagent:capture
@@ -43,7 +45,7 @@ Args: `[issue|epic] <free-form text>`
 
 ## Non-goals
 
-This command does NOT file the issue to any tracker. Filing is the
+This skill does NOT file the issue to any tracker. Filing is the
 job of `/devagent:file` and requires the `permissions.push_mr` gate.
 
 ## Env contract
