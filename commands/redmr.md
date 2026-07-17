@@ -60,12 +60,21 @@ Fresh context is what makes the attack real; the model override is conditional.
 1. **Resolve the model tier** (optional):
    `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14 || true)"`.
    Pass the CANONICAL step number (14) even on a renumbered checklist — the
-   class map is keyed to canonical numbers (config.sh). A per-issue
-   `.devagent-step-models` marker (#291) may supply the tier — a stderr
-   `per-issue` provenance line means stamp `model: <tier> (per-issue)`. A
-   nonzero exit WITH an error on stderr (stderr WITHOUT a `per-issue`
-   provenance line) is a bad marker: STOP and fix or remove it — do NOT
-   dispatch on inherit.
+   class map is keyed to canonical numbers (config.sh). **A nonzero exit is
+   three different states — read stderr to tell them apart (#458):**
+   - **stderr carries a `per-issue` `inherit` line** ⇒ the operator's #291
+     escape hatch, deliberately forcing session-model inheritance to escape a
+     project `checking` pin. Honor it: dispatch with an explicit
+     `model: inherit` and stamp `model: inherit (per-issue)`. It must NOT
+     collapse into the agent default below — that would silently defeat the
+     only way to opt out of a pinned tier.
+   - **stderr is empty** ⇒ no tier is configured anywhere ⇒ the agent default
+     (see the empty-tier branch below).
+   - **stderr carries any other error** ⇒ a bad marker: STOP and fix or remove
+     it. Never dispatch on a marker you could not read.
+
+   A resolved tier (exit 0) with a stderr `per-issue` provenance line means
+   stamp `model: <tier> (per-issue)`.
 2. **Bifurcated dispatch** (#458). Both paths run the same agent, so its
    system prompt, its Write/Edit denial, and fresh context hold either way:
    - **Tier resolved** ⇒ dispatch the Agent tool with
@@ -73,11 +82,13 @@ Fresh context is what makes the attack real; the model override is conditional.
      parameter, which overrides the agent's pinned default (per-invocation
      model beats definition frontmatter). Tell it to stamp `model: <tier>`
      (or `<tier> (per-issue)`).
-   - **Tier empty** ⇒ invoke the `core-redmr` skill. Its `context: fork` +
-     `agent:` frontmatter runs it inside the same agent at that agent's pinned
-     default; the report stamps `model: agent-default (redteam-reviewer)`.
-     Empty means "no override", NOT "inherit the session model" — for steps
-     14/21 the agent's pinned model is the tier of last resort.
+   - **Tier empty AND stderr empty** ⇒ invoke the `core-redmr` skill. Its
+     `context: fork` + `agent:` frontmatter runs it inside the same agent at
+     that agent's pinned default; the report stamps
+     `model: agent-default (redteam-reviewer)`. Empty means "no override
+     configured", NOT "inherit the session model" — for steps 14/21 the agent's
+     pinned model is the tier of last resort. An explicit `inherit` marker is a
+     different state entirely (see rung 1) and keeps its session-model meaning.
 3. **Package inputs as paths, not conversation.** The dispatch prompt contains
    only: the project name, the absolute paths of `mr.md`, `imPlan.md`,
    `actualWork.md`, the repo directory plus the literal diff spec

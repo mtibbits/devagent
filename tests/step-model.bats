@@ -173,3 +173,31 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
         [ -z "$output" ]
     done
 }
+
+@test "step-model: the #291 'inherit' marker stays distinguishable from no-tier (#458)" {
+    # #458 makes steps 14/21 read an unresolved tier as "agent default". The
+    # reserved 'inherit' marker — the ONLY way to escape a project checking pin
+    # back to the session model — ALSO exits 1 with empty stdout, so the two
+    # states are told apart by STDERR alone. Caught live: a wrapper that keys
+    # only on "exit 1" silently converts the escape hatch into the agent
+    # default. If that provenance line is ever dropped, no other test notices.
+    _add_step_models 'checking = "opus"'
+    local d="$DEVDOC_DIR/Issue-1"
+
+    # (a) inherit marker → exit 1, empty stdout, per-issue provenance on stderr.
+    printf 'inherit' > "$d/.devagent-step-models"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"per-issue"* ]]
+    [[ "$output" == *"inherit"* ]]
+
+    # (b) same exit code, DIFFERENT state: a resolvable tier is unaffected.
+    rm -f "$d/.devagent-step-models"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 0 ]
+    [ "$output" = "opus" ]
+
+    # (c) the wrappers must encode the three-state read, or (a) regresses.
+    grep -qi 'escape hatch' "$DEVAGENT_ROOT/commands/preship.md"
+    grep -qi 'escape hatch' "$DEVAGENT_ROOT/commands/redmr.md"
+}
