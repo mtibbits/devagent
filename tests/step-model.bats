@@ -27,7 +27,7 @@ _add_step_models() {  # $1 = TOML lines for the table body
     [ "$output" = "opus" ]
 }
 
-@test "step-model.sh exits 1 printing nothing when no table configured (#151)" {
+@test "step-model.sh exits nonzero printing nothing when no table configured (#151)" {
     run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
     [ "$status" -ne 0 ]
     [ -z "$output" ]
@@ -157,4 +157,74 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"not a regular file"* ]]
+}
+
+@test "step-model: the three no-tier states have distinct exit codes (#458)" {
+    # #458 makes an unresolved tier mean "agent default" for the agent-bound
+    # steps, so "no tier configured" and the reserved 'inherit' marker — which
+    # were interchangeable while both meant inherit — now mean OPPOSITE things.
+    # They are discriminated by exit code, not by stderr prose a caller must
+    # parse. Collapsing 2 into 3 silently defeats the only escape from a pinned
+    # tier; this is the test that catches that.
+    _add_step_models 'checking = "opus"'
+    local d="$DEVDOC_DIR/Issue-1"
+
+    # rc 0: a tier resolves.
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 0 ]
+    [ "$output" = "opus" ]
+
+    # rc 2: the operator's explicit inherit escape — empty stdout, but NOT rc 3.
+    printf 'inherit' > "$d/.devagent-step-models"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 2 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"per-issue"* ]]
+    rm -f "$d/.devagent-step-models"
+
+    # rc 1: a bad marker is an error, never an inherit.
+    printf 'two tokens' > "$d/.devagent-step-models"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    [ "$status" -eq 1 ]
+    rm -f "$d/.devagent-step-models"
+}
+
+@test "step-model: rc 3 is 'nothing configured', distinct from the inherit escape (#458)" {
+    # No step_models table at all — the fresh-install state that takes the
+    # agent default for steps 14/21.
+    local d="$DEVDOC_DIR/Issue-1"
+    local step
+    for step in 14 21; do
+        run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step" "$d"
+        [ "$status" -eq 3 ]
+        [ -z "$output" ]
+    done
+}
+
+@test "step-model: callers whose fallback IS inherit still collapse every nonzero (#458)" {
+    # Backward compatibility: steps 3/13 and next.sh/catchup.sh use
+    # `$(... || true)` or `if tier=$(...)`, for which rc 2 and rc 3 are both
+    # correctly empty. Adding exit codes must not change what they see.
+    local d="$DEVDOC_DIR/Issue-1"
+    printf 'inherit' > "$d/.devagent-step-models"
+    run bash -c '"$1"/scripts/step-model.sh "$2" 3 "$3" 2>/dev/null || true' _ \
+        "$DEVAGENT_ROOT" "$TEST_PROJECT" "$d"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    rm -f "$d/.devagent-step-models"
+}
+
+@test "step-model: a config-table tier of 'inherit' is the same escape as the marker (#458 r2)" {
+    # Without this, checking = "inherit" resolved rc 0 with stdout 'inherit',
+    # and the bound-step wrappers would dispatch the Agent tool with
+    # model: inherit — a value the tool's closed enum rejects (hard crash on a
+    # config any operator could reasonably write). Symmetric semantics: rc 2,
+    # empty stdout, a provenance note WITHOUT the word 'per-issue' so callers
+    # can distinguish the stamp form.
+    _add_step_models 'checking = "inherit"'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    [ "$status" -eq 2 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"config tier"* ]]
+    [[ "$stderr" != *"per-issue"* ]]
 }

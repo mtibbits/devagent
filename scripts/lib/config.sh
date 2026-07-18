@@ -95,9 +95,23 @@ config_active_project() {
 
 # step_models_tier <project> <step-num> [issue_dir]
 # #150 surfacing + #151 dispatch consumer. Echoes the model tier for a workflow
-# step from the optional [project.<name>.step_models] table, or returns 1
+# step from the optional [project.<name>.step_models] table, or returns nonzero
 # (prints nothing) when no tier
 # resolves — so an absent table yields byte-identical output to before.
+#
+# Exit codes (#458) — the three no-tier states are DISTINCT, because they are
+# not interchangeable for a caller whose fallback is not "inherit":
+#   0  a tier resolved; it is on stdout.
+#   2  the reserved per-issue `inherit` marker: the operator explicitly asked
+#      for session-model inheritance, escaping a project pin.
+#   3  nothing resolved: no marker, no table entry.
+#   1  error (bad/unreadable marker, missing args) — via die, message on stderr.
+# Steps whose fallback IS "inherit" may keep treating every nonzero alike
+# (`$(... || true)` yields empty for 2 and 3, which is correct for them). Steps
+# bound to a dedicated agent (#458: 14 redmr, 21 preship) fall back to the
+# agent's pinned model, for which 2 and 3 mean opposite things — 2 must inherit,
+# 3 takes the agent default — so they discriminate on the exit code rather than
+# parsing the stderr prose.
 # Resolution: a per-issue marker (#291, checking-class steps only) wins over
 # the whole table; then a per-step override (step_models.<N>) wins over the
 # step's class. The step→class map is fixed (canonical step numbers):
@@ -107,7 +121,7 @@ config_active_project() {
 # Per-issue marker (#291): <issue_dir>/.devagent-step-models holds ONE tier
 # token. Like .devagent-baseline (#162) it must not fall back silently — an
 # empty or non-token marker dies. The reserved token `inherit` forces
-# session-model inheritance (return 1, distinct stderr note), escaping a
+# session-model inheritance (return 2, distinct stderr note), escaping a
 # project `checking` pin. Provenance goes to stderr; stdout stays a bare tier.
 step_models_tier() {
   local project="$1" step="$2" issue_dir="${3:-}" tier=""
@@ -137,7 +151,7 @@ step_models_tier() {
       || die "step_models_tier: $marker must hold exactly one tier token (allowed: A-Za-z0-9 . _ -), got: '$raw'"
     if [[ "$tier" == "inherit" ]]; then
       echo "step_models_tier: per-issue 'inherit' from $marker — forcing session-model inheritance" >&2
-      return 1
+      return 2
     fi
     echo "step_models_tier: per-issue tier '$tier' from $marker" >&2
     printf '%s\n' "$tier"
@@ -153,7 +167,17 @@ step_models_tier() {
       tier="$(config_get_project_field "$project" "step_models.default" 2>/dev/null || true)"
     fi
   fi
-  [[ -n "$tier" ]] || return 1
+  [[ -n "$tier" ]] || return 3
+  # #458 redmr r2: the reserved token is symmetric — 'inherit' arriving via the
+  # CONFIG TABLE (step_models.<N>/.class/.default) forces session-model
+  # inheritance exactly like the per-issue marker, rather than resolving rc 0
+  # and flowing into an Agent-tool dispatch as a model name the closed enum
+  # rejects. Distinct stderr note: no 'per-issue' word, so callers can stamp
+  # plain 'inherit' vs 'inherit (per-issue)' by provenance.
+  if [[ "$tier" == "inherit" ]]; then
+    echo "step_models_tier: config tier 'inherit' — forcing session-model inheritance" >&2
+    return 2
+  fi
   printf '%s\n' "$tier"
 }
 

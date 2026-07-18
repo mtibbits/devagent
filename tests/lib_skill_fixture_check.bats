@@ -101,3 +101,57 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"CLAUDE_PLUGIN_ROOT"* ]]
 }
+
+@test "harness rejects an unprefixed bash script invocation in a fork prompt (#131/#458)" {
+  # #458 fork prompts carry no Logging section, so the checklist-log guard never
+  # sees them — but they DO invoke scripts (core-redmr calls template.sh,
+  # core-preship calls state.sh). Without this, the files most likely to grow a
+  # new script call are the ones the cwd guard does not watch.
+  mkdir -p "$TMP/skills/x" "$TMP/fixture" "$TMP/agents"
+  cat > "$TMP/agents/x-agent.md" <<'EOF'
+---
+name: x-agent
+description: probe
+---
+body
+EOF
+  cat > "$TMP/skills/x/SKILL.md" <<'EOF'
+---
+name: x
+description: Use when y
+context: fork
+agent: devagent:x-agent
+---
+# Skill
+Resolve inputs: bash scripts/template.sh --project p show redteam_mr
+EOF
+  run bash "$HARNESS" "$TMP/skills/x" "$TMP/fixture"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CLAUDE_PLUGIN_ROOT"* ]]
+}
+
+@test "harness accepts a correctly prefixed fork prompt, and prose naming a script (#131/#458)" {
+  # The complement: guard (b) keys on `bash …`, so a sentence that merely NAMES a
+  # script is not a false positive (core-lessons-learned does exactly this).
+  mkdir -p "$TMP/skills/x" "$TMP/fixture" "$TMP/agents"
+  cat > "$TMP/agents/x-agent.md" <<'EOF'
+---
+name: x-agent
+description: probe
+---
+body
+EOF
+  cat > "$TMP/skills/x/SKILL.md" <<'PROMPT'
+---
+name: x
+description: Use when y
+context: fork
+agent: devagent:x-agent
+---
+# Skill
+Resolve inputs: bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" --project p show redteam_mr
+Note: `scripts/lessons-lint.sh` rejects ad-hoc tags.
+PROMPT
+  run bash "$HARNESS" "$TMP/skills/x" "$TMP/fixture"
+  [ "$status" -eq 0 ]
+}

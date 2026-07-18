@@ -64,6 +64,11 @@ devAgent/
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
 │                            #   (SKILL.md + references/, #452) — 52 + 3 = the 55 slash commands
+├── agents/                  # #458: dedicated checker agents auto-discovered from this root
+│                            #   (preship-verifier, redteam-reviewer): pinned model/effort +
+│                            #   disallowedTools, bound by the core-preship/core-redmr skills'
+│                            #   `context: fork` + `agent:`. NB plugin.json must NOT gain an
+│                            #   "agents" key — it REPLACES this default scan rather than adding.
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
@@ -625,7 +630,7 @@ via the operator typing `/devagent:next` between steps.
 
 An optional `[project.<name>.step_models]` table steers which model tier
 runs each step (surfacing #150; dispatch #151; per-issue override #291).
-Implemented in `scripts/lib/config.sh:96–159` (`step_models_tier`) and
+Implemented in `scripts/lib/config.sh:96–172` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
 step runs at the session model).
@@ -648,11 +653,70 @@ A step's tier is resolved in this order (first hit wins):
 2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
 3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
 4. **Default tier** — `step_models.default`, when the class tier is unset.
+5. **Step default — any step whose skill binds an agent** (#458). When a
+   step's skill carries `context: fork` + `agent:`, the step's COMMAND WRAPPER
+   carries a default model in its dispatch table (today `opus` for redmr and
+   preship), passed as an explicit Agent-tool `model` parameter when nothing
+   resolves. The property is the binding, not the step number: converting a
+   further step needs no edit here. For every other step, an unresolved tier
+   still means "inherit the session model".
 
-If none resolves, the step inherits the session model. Tiers are advisory
-for surfacing steps (`next` / `catchup` print the hint) and load-bearing
-for the dispatch contract (§7.5), which uses the resolved tier as the
-subagent's model override.
+   The default deliberately does NOT live in the agent's frontmatter, and the
+   agents carry no `model:` pin (only `effort`). Measured at 2.1.211: the Agent
+   tool's `model` parameter is a closed enum (`sonnet|opus|haiku|fable`) with no
+   `inherit` value — the literal fails validation — and omitting it resolves to
+   the agent definition's model BEFORE the parent's, so a frontmatter pin would
+   make rung 1's reserved `inherit` escape unsatisfiable on every dispatch
+   shape. Unpinned, the skill-fork inherits the session model
+   (transcript-verified), which is exactly what the `inherit` marker demands.
+
+If none resolves, the step inherits the session model — except steps 14/21, per
+rung 5. Tiers are advisory for surfacing steps (`next` / `catchup` print the
+hint) and load-bearing for the dispatch contract (§7.5), which uses the resolved
+tier as the subagent's model override.
+
+**What #458 subsumes, precisely:** only the *fallback interpretation* for the
+bound steps, and only in the CALLERS (`commands/redmr.md`,
+`commands/preship.md`). `step-model.sh` keeps owning tier resolution: rungs 1–4
+resolve identically for every step, and it still exits nonzero with empty output
+when nothing resolves.
+
+Because rung 5 is not "inherit", the resolver's three no-tier states stopped
+being interchangeable, so they are **distinct exit codes** rather than stderr
+prose a caller must parse (#458): `0` a tier is on stdout · `2` the reserved
+per-issue `inherit` marker (rung 1's escape hatch — the operator explicitly
+wants the session model) · `3` nothing resolved · `1` error (bad marker; a stop
+condition, never an inherit). A caller whose fallback IS inherit — steps 3/13,
+`next.sh`, `catchup.sh` — may keep collapsing every nonzero via `|| true`, which
+stays correct and is pinned by a test. A caller with a step default MUST
+discriminate: `2` still inherits (it dispatches via the bound skill, whose
+unpinned fork runs at the session model), `3` takes the wrapper's explicit
+default. Collapsing the two would silently defeat the only way to opt out of a
+pinned tier.
+The marker (#291) and the config tables therefore behave exactly as before —
+**marker > per-step > class > default > agent default** — and existing projects
+with a `step_models` entry for 14/21 see no change at all.
+
+**Live behavior change** for a project that resolves NO tier for 14/21 (a fresh
+install: `templates/config.toml.skel` ships `step_models` commented out): those
+steps previously ran at the session model and now run at the wrapper-carried
+step default. Projects that set a `checking` tier — as every project shipped in the
+reference config does — are unaffected.
+
+**Failure mode this binding is exposed to: silently-ignored frontmatter.** These
+are harness surfaces, and a field that is *accepted but not enforced* buys no
+isolation. `claude plugin validate --strict` does **not** close this: verified at
+Claude Code 2.1.211, it validates `plugin.json` / `marketplace.json` only and
+never opens an agent file — a bogus field, or the wrong-scope spelling
+`disallowed-tools` (agents take camelCase `disallowedTools`; the hyphenated form
+is the SKILL.md spelling), produces byte-identical validator output. **The live
+smoke test on the installed version is the gate**, not the validator: dispatch
+the agent, have it attempt a Write, and confirm a structural refusal.
+
+**Residual, stated:** both checker agents retain `Bash` — they must run git,
+diffs, and `preship-evidence.sh`. Write/Edit denial is therefore *tool-level*
+isolation, not a filesystem sandbox; a determined agent could still write via
+shell redirection. The denial removes the accident, not the capability.
 
 ### 7.5 Dispatch contract (checking + thinking steps)
 
@@ -664,7 +728,17 @@ skill files, summarized here so the mechanism is discoverable:
   run in FRESH CONTEXT whenever the harness offers a subagent — a checker
   that reads the artifacts from disk instead of inheriting the author's
   conversation is what makes the check adversarial. Dispatch is
-  unconditional; the model override is the §7.4 tier (empty ⇒ inherit).
+  unconditional; the model override is the §7.4 tier (empty ⇒ inherit, except
+  14/21 ⇒ agent default, §7.4 rung 5). **Steps 14 and 21 are bound
+  structurally** (#458): `skills/core-redmr` and `skills/core-preship` carry
+  `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the
+  fresh-context dispatch — the harness supplies the agent's system prompt, its
+  pinned effort, and its Write/Edit denial, instead of the mechanism depending
+  on the model choosing to spawn a generic subagent correctly. (The model
+  default is wrapper-carried, not agent-pinned — §7.4 rung 5 has the measured
+  reason.) Those agents cannot
+  write files: they RETURN the artifact body and the wrapper writes it verbatim,
+  so authorship stays with the checker.
 - **Thinking steps** — `draft` today (#284): the *inverse* — inline is the
   fully-informed default, and dispatch is an opt-in *up-delegation* keyed
   on a non-empty §7.4 `thinking` tier. Intent is packaged to
@@ -682,8 +756,26 @@ re-dispatched once, then the step goes `[!]` (#360). Normative detail:
 `docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
 `commands/draft.md`, which now carries a conditional-load stub — the contract is
 read only when the step-1 tier is non-empty OR the operator instructs dispatch)
-and the `core-improve` / `core-redmr` / `core-preship` skills for the checking
-path.
+and, for the checking path, the `core-improve` skill plus the
+`commands/redmr.md` / `commands/preship.md` wrappers — #458 moved those two
+contracts skill→command, because the duties they describe (tier resolution, the
+verbatim artifact write, dispatch-lint, the failure protocol) bind the MAIN
+session, while their skills became fork prompts bound to the agents that carry
+the procedure.
+
+**Why only two of the four checking steps are bound** — the asymmetry is a
+boundary, not an oversight, and each half has a different reason:
+
+- **Step 3 (improve)** is structurally identical to redmr/preship and *should*
+  be converted; it is deferred only because #458 scoped itself to the two
+  last-gate steps ("migrating other workflow steps to dedicated agents" is
+  explicitly out of scope there). Until it is, the checking-path contract exists
+  in two dialects — `core-improve` keeps the older skill-side shape. That is a
+  known, temporary inconsistency owned by epic #403, not a design position.
+- **Step 13 (review)** cannot be converted as things stand: `commands/review.md`
+  wraps the upstream `superpowers:requesting-code-review` skill, which devAgent
+  does not own and cannot add frontmatter to. Binding it would first require
+  vendoring that contract.
 
 ## 8. Permission gates
 

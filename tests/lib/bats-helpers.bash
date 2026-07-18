@@ -41,3 +41,11 @@ install_fixture_config() {
   local fixture="$1"
   cp "$(fixtures_dir)/$fixture" "$DA_HOME/config.toml"
 }
+
+# skill_frontmatter <file> — echo a markdown file's YAML frontmatter (the block
+# between the leading `---` markers). The extractor idiom was independently
+# copied into tests/lib/skill-fixture-check.sh and tests/skill-next-size-canary.bats
+# before this existed; new callers should use this.
+skill_frontmatter() {
+    awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$1"
+}
