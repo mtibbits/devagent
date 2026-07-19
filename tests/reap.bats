@@ -216,11 +216,17 @@ LL
 
 ### A substring like actionableness must not be harvested
 - Tags: [actionableness]
+
+### Sibling bracket groups must be scanned not just the first
+- Tags: [reference] [actionable]
 LL
   run "${REPO_ROOT}/scripts/capture/reap.sh"
   [ "$status" -eq 0 ]
   # the actionable list-member entry is harvested, titled by its heading
   grep -rqF 'Widened recognition must be a token membership test' "${TMP_DEVDOC}/Captures"/*/draft.md
+  # the sibling-bracket form '[reference] [actionable]' is harvested — the token
+  # is not in the FIRST bracket, so a first-bracket-only scan would drop it (#525 redmr)
+  grep -rqF 'Sibling bracket groups must be scanned not just the first' "${TMP_DEVDOC}/Captures"/*/draft.md
   # the non-actionable entry is NOT harvested
   run grep -rl 'A non-actionable multi-tag entry' "${TMP_DEVDOC}/Captures"/*/draft.md
   [ "$status" -ne 0 ]

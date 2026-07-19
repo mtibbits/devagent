@@ -258,11 +258,12 @@ emit_candidates() {
           # TOKEN not substring — the guard below is the sole discriminator, so
           # the comma-joined form [pattern, actionable] matches while
           # [actionableness] and prose actionable do not.
-          is_actionable = 0;
-          if (match($0, /\[[^][]*\]/)) {
-            toks = substr($0, RSTART + 1, RLENGTH - 2);
-            ntok = split(toks, tok, /[ ,]+/);
+          is_actionable = 0; rest = $0;
+          while (match(rest, /\[[^][]*\]/)) {          # scan EVERY bracket group, not just the first
+            grp = substr(rest, RSTART + 1, RLENGTH - 2);
+            ntok = split(grp, tok, /[ ,]+/);
             for (ti = 1; ti <= ntok; ti++) if (tok[ti] == "actionable") is_actionable = 1;
+            rest = substr(rest, RSTART + RLENGTH);
           }
           if (!is_actionable) next;
           line = $0; sub(/^[ \t]*-[ \t]*/, "", line);   # strip a leading bullet
