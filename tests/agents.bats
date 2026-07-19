@@ -10,6 +10,9 @@
 # canaries plus the live smoke test are the only gates. Field spellings are
 # probe-verified: agents take `disallowedTools` (camelCase); the hyphenated
 # `disallowed-tools` is the SKILL.md spelling and is silently ignored here.
+# The Write/Edit denial is tool-level isolation, not a filesystem sandbox —
+# that residual is adjudicated ACCEPTED in #529; each agent header carries
+# the caveat (swept by the #529 test below).
 
 load 'lib/bats-helpers'
 
@@ -129,4 +132,26 @@ setup() {
     grep -qF 'context: subagent' "$f"
     grep -qi 'never .*context: fork' "$f"
   done
+}
+
+@test "every disallowedTools agent carries the Bash-escape residual caveat (#529)" {
+  # The caveat is a contract enumerated in N homes (#458 sweep pothole): derive
+  # the subject set mechanically so a fourth agent cannot land without it, and
+  # guard the subject COUNT so a file move cannot silently empty the sweep (#439).
+  local subjects
+  subjects="$(grep -rln 'disallowedTools' "$REPO/agents")"
+  run grep -c . <<<"$subjects"
+  [ "$output" -ge 3 ]
+  local f header
+  while IFS= read -r f; do
+    # Scope to the header slice (frontmatter + intro, above ## Operating rules):
+    # the caveat is a HEADER contract, so presence buried elsewhere must not
+    # pass (redmr minor). A file lacking the heading degrades to a whole-file
+    # check — superset-safe for a future agent with a different layout.
+    header="$(sed -n '1,/^## Operating rules$/p' "$f")"
+    grep -q 'tool-level isolation, not a filesystem sandbox' <<<"$header" \
+      || { echo "missing residual caveat in header: $f" >&2; false; }
+    grep -q '#529' <<<"$header" \
+      || { echo "caveat lacks the adjudication pointer (#529): $f" >&2; false; }
+  done <<<"$subjects"
 }
