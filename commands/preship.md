@@ -52,10 +52,9 @@ verbatim, substituting this step's per-step deltas:
   and stamps `agent-default (preship-verifier)`.
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-preship`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md`,
-  `mr.md`, the latest-dated review/redmr artifacts, the repo directory plus the
-  diff spec `<baseline_sha>..HEAD`, and the output artifact path.
-- **`<TEMPLATE-RES>`** (rung-3 self-resolution) — none; preship resolves no
-  template.
+  `mr.md`, and the latest-dated review/redmr artifacts, plus the diff spec
+  `<baseline_sha>..HEAD`.
+- **`<TEMPLATE-RES>`** (rung-3 self-resolution) — This step resolves no template.
 - **`<CLASS>`** (rung-6 dispatch-lint class) — `--class preship`.
 - **`<REJECT-SLUG>`** (rung-6 rejected-artifact slug) — `preship`.
 

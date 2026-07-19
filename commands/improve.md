@@ -81,8 +81,7 @@ verbatim, substituting this step's per-step deltas:
   `agent-default (plan-improver)`.
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-improve`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md` and
-  `imPlan.md` (including its Scope evaluation), the project source repo
-  directory, and the output artifact path.
+  `imPlan.md` (including its Scope evaluation).
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   pothole register itself via `template.sh --project <project> show potholes`
   (#286: self-resolution is what makes the tripwire un-droppable).

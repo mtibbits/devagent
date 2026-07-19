@@ -26,7 +26,7 @@ Per-step deltas each wrapper supplies (nothing else varies):
 
 ## Dispatch contract
 
-Fresh context is not conditional; the model override is. `<INTRO>`
+`<INTRO>`
 
 1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the
    CANONICAL step number (`<STEP>`) even on a renumbered checklist — the class
@@ -72,9 +72,9 @@ Fresh context is not conditional; the model override is. `<INTRO>`
    parameter — it is not a legal value and fails validation.
 
 3. **Package inputs as paths, not conversation.** The dispatch prompt contains
-   only the per-step input set: `<INPUTS>`, the project source repo directory
-   plus the diff spec where the step needs it, the output artifact path, and the
-   `model:` value to stamp. `<TEMPLATE-RES>` Do NOT paste your recollection of
+   only: the project name, the project source repo directory, the output
+   artifact path, the `model:` value to stamp, and this step's inputs —
+   `<INPUTS>`. `<TEMPLATE-RES>` Do NOT paste your recollection of
    the change, prior findings, or summaries into the prompt — deriving
    everything from disk is exactly what the dispatch exists to enforce (a
    stranded fix, a report/branch divergence, or re-imported author bias is what
@@ -102,8 +102,9 @@ Fresh context is not conditional; the model override is. `<INTRO>`
    <tier>)`.
 
 6. **Report validation — retry-then-stuck (#360).** When this ran DISPATCHED,
-   validate before adopting:
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<artifact>" subagent <CLASS>`.
+   validate before adopting — run
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<artifact>" subagent`,
+   appending `<CLASS>` when this step is a verdict class.
    On FAIL (a garbled / no-tool-use report — the #117/#122/#76/#315 misfire
    class): archive the reject to
    `<issue-dir>/analysis/rejected/<date>-<REJECT-SLUG>-attempt<N>.md`,

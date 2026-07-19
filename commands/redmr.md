@@ -71,8 +71,7 @@ verbatim, substituting this step's per-step deltas:
   and stamps `agent-default (redteam-reviewer)`.
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-redmr`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `mr.md`,
-  `imPlan.md`, `actualWork.md`, the repo directory plus the diff spec
-  `<baseline_sha>..HEAD`, and the output artifact path.
+  `imPlan.md`, and `actualWork.md`, plus the diff spec `<baseline_sha>..HEAD`.
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   red-team template itself via `template.sh --project <project> show
   redteam_mr`.
