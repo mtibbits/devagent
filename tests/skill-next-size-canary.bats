@@ -1,4 +1,9 @@
 #!/usr/bin/env bats
+# SIBLING: tests/prompt-size-canary.bats (#531) guards the other per-invocation
+# prompt files (agents/*.md, checking-command wrappers, capture/ship skills) on
+# this SAME frontmatter-stripped-body measure. This file keeps next.md's own
+# tight 2,000/800 pins (its proven-doubler history earns them); do not merge.
+#
 # #439 size canary: next.md doubled in three weeks (2,961 → 5,659 chars,
 # 06-18 → 07-10) before the thinning; the operative body of its successor
 # (skills/next/SKILL.md) reloads on ~14 steps per --auto traversal, so silent
