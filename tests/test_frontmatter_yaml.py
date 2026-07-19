@@ -226,7 +226,7 @@ def test_slash_command_has_argument_hint(path):
 
 
 # #531: the allowed-tools sweep (`test_bash_grant_is_scoped`, parametrized over
-# `_FILES` = commands/*.md + skills/*/SKILL.md — one-level globs) is guarded by
+# `_GRANT_BEARING_FILES` = commands/*.md + skills/*/SKILL.md — one-level globs) is guarded by
 # NOTHING against a carrier that lives OUTSIDE those globs: a nested
 # `skills/*/*/SKILL.md`, or a future `allowed-tools` carrier in a new top-level
 # dir (agents/ carry only disallowedTools today). Enumerate carriers via an
@@ -264,8 +264,9 @@ def _grant_carriers(root):
 
 
 def _swept_one_level(root):
-    """The set `test_bash_grant_is_scoped` actually iterates (`_FILES`),
-    parameterized by root: commands/*.md + skills/*/SKILL.md (one level deep)."""
+    """The set `test_bash_grant_is_scoped` actually iterates
+    (`_GRANT_BEARING_FILES`, == `_FILES`'s globs), parameterized by root:
+    commands/*.md + skills/*/SKILL.md (one level deep)."""
     swept = glob.glob(os.path.join(root, "commands", "*.md"))
     swept += glob.glob(os.path.join(root, "skills", "*", "SKILL.md"))
     return {os.path.normpath(p) for p in swept}
