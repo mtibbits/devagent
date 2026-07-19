@@ -209,23 +209,23 @@ _check_user_invocable() {
   grep -q 'absent from the issue' "$BATS_TEST_DIRNAME/../skills/core-document-actual-work/SKILL.md"
 }
 
-@test "preship.md exists, invokes core-preship, documents stuck + tier resolution (#149/#458)" {
+@test "preship.md points to the checking-dispatch contract + keeps its wrapper duties (#149/#458/#528)" {
   F="$CMD_DIR/preship.md"
   [ -s "$F" ]
   grep -q 'core-preship' "$F"
   grep -q 'checklist-stuck.sh' "$F"
-  grep -q 'step-model.sh' "$F"
-  # #458 INVERTS the old expectation. This file used to delegate the dispatch
-  # contract to the skill; now core-preship is a fork PROMPT bound to
-  # devagent:preship-verifier, and the main-session duties the contract
-  # describes (tier resolution, the verbatim artifact write, dispatch-lint, the
-  # failure protocol) are this wrapper's. So it MUST be a full carrier, and the
-  # dispatch-contract sweep must pick it up by this heading.
+  # #528 INVERTS #458. #458 made preship.md a FULL carrier of the dispatch
+  # contract (tier resolution, the inherit/context: enumeration). #528 extracted
+  # that shared text into docs/checking-dispatch-contract.md, so preship.md is
+  # now a POINTER stub: it keeps its `## Dispatch contract` heading, names the
+  # doc it points at, and carries only its per-step delta (here, the bound
+  # agent's default stamp). The full-carrier tokens (the step-model.sh call, the
+  # inherit / context: subagent|inline enumeration) live in the doc now, and
+  # dispatch-contract.bats asserts the doc carries them + that this wrapper is
+  # correctly classified as a pointer.
   grep -q '^## Dispatch contract' "$F"
-  local p
-  for p in 'inherit' 'context: subagent' 'context: inline'; do
-    grep -qF "$p" "$F" || { echo "missing carrier token: $p" >&2; false; }
-  done
+  grep -qF 'checking-dispatch-contract.md' "$F"
+  grep -qF 'agent-default (preship-verifier)' "$F"
 }
 
 @test "command count matches the documented totals (#149)" {

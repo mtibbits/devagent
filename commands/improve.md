@@ -64,91 +64,31 @@ dir, remainder = `$NOTE`; `--` halts positional consumption.
 
 ## Dispatch contract
 
-Fresh context is what makes the check real; the model override is conditional.
-The `core-improve` skill invoked below is a fork prompt bound to the agent —
-invoking it IS the fresh-context dispatch.
+The shared checking-class dispatch procedure — tier resolution and the rc
+exit-code table, the fresh-context path-packaging rule, the artifact-header
+model enumeration, the degraded-harness fallback, and the dispatch-lint
+retry-then-stuck protocol — is single-sourced in
+`docs/checking-dispatch-contract.md` (#528). Read that file and follow it
+verbatim, substituting this step's per-step deltas:
 
-1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the
-   CANONICAL step number (3) even on a renumbered checklist — the class map is
-   keyed to canonical numbers (config.sh). The three no-tier states are not
-   interchangeable here, so discriminate on the code, never on stderr prose:
-
-   ```bash
-   err="$(mktemp)"
-   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 3 2>"$err")"; rc=$?
-   prov="$(cat "$err")"; rm -f "$err"
-   ```
-
-   (`$prov` is load-bearing: the per-issue provenance note arrives on stderr,
-   and command substitution alone would discard it — the `(per-issue)` stamp
-   forms key off `$prov`, not off eyeballed terminal output.)
-
-   | rc | meaning | dispatch | stamp |
-   |----|---------|----------|-------|
-   | 0 | a tier resolved | Agent tool, `subagent_type: devagent:plan-improver`, `model: <tier>` | `<tier>`, or `<tier> (per-issue)` when `$prov` carries a `per-issue` line |
-   | 2 | the reserved `inherit` token — the operator's explicit escape from a project pin (per-issue marker #291, or a config-table tier of `inherit`) | **invoke the `core-improve` skill**, passing in its args: "stamp `model: <form>`" — the fork inherits the session model | `inherit (per-issue)` when `$prov` says `per-issue`; plain `inherit` when it says `config tier` |
-   | 3 | nothing configured | Agent tool, explicit `model: opus` — the wrapper-carried step default | `agent-default (plan-improver)` |
-   | 1 | error: a bad/unreadable marker | — | **STOP**; fix or remove the marker |
-
-   rc 2 must never collapse into rc 3: that would silently defeat the only way
-   to opt out of a pinned tier.
-
-   **Why the model default lives HERE and not in the agent's frontmatter, and
-   why rc 2 rides the skill (measured at 2.1.211, #458 redmr BLOCKING):** the
-   Agent tool's `model` parameter is a closed enum (`sonnet|opus|haiku|fable`)
-   with NO `inherit` value — passing the literal `inherit` hard-fails
-   validation — and omitting the parameter resolves to *the agent definition's
-   model* before the parent's. A frontmatter pin therefore makes rc 2
-   unsatisfiable on every dispatch shape. So the agent carries NO `model:` pin
-   (`effort` stays pinned there; the Agent tool has no effort parameter), and:
-   an unpinned fork inherits the session model (transcript-verified — the
-   fork's recorded model ID equaled the main chain's), which is exactly rc 2's
-   semantics; rc 3's default is this table's `model: opus`, passed explicitly
-   (transcript-verified — an explicit param's model ID is the one recorded).
-
-2. **Both dispatch shapes run the same agent** — system prompt, Write/Edit
-   denial, and fresh context hold on either path; only the model source
-   differs. Never pass the literal `inherit` as the Agent-tool `model`
-   parameter — it is not a legal value and fails validation.
-
-3. **Package inputs as paths, not conversation.** The dispatch prompt contains
-   only: the project name, the absolute paths of `issue.md` and `imPlan.md`
-   (including its Scope evaluation), the project source repo directory, the
-   output artifact path, and the `model:` value to stamp. The checker resolves
-   the pothole register itself via
-   `template.sh --project <project> show potholes` (#286: self-resolution is
-   what makes the tripwire un-droppable). Do NOT paste plan summaries, your
-   own assessment, or prior findings into the prompt — that re-imports the
-   author bias the dispatch exists to shed.
-
-4. **Mandatory artifact header.** First lines: `context: subagent` (always —
-   a fork IS a subagent context; `context: inline` only on the degraded path
-   below), then `model:` as one of `<tier>`, `<tier> (per-issue)`, `inherit`,
-   `inherit (per-issue)`, `inherit (fallback from <tier>)`, or
-   `agent-default (plan-improver)`. This set must stay identical to the
-   stamp column of rung 1's table, to the agent's own `## Artifact format`,
-   and to the stamps the fork-prompt skill names — the single-source test
-   sweeps all nine homes (#458 shipped divergent twice before the sweep).
-
-5. **Degraded-harness fallback.** When no subagent mechanism exists (headless
-   run, cron, degraded harness), run the check inline against the agent
-   definition's contract and the resolved register; the artifact MUST record
-   `context: inline` so the reduced independence stays visible in the record.
-   If dispatch fails because the tier is unavailable, retry once with NO
-   override and record `model: inherit (fallback from <tier>)`.
-
-6. **Report validation — retry-then-stuck (#360).** When this ran DISPATCHED,
-   validate before adopting:
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch-lint.sh" "<artifact>" subagent`
-   (no `--class` — improve is not a verdict class; there is no SHIP/BLOCK
-   token to require). On FAIL (a garbled / no-tool-use report — the
-   #117/#122/#76/#315 misfire class): archive the reject to
-   `<issue-dir>/analysis/rejected/<date>-improve-attempt<N>.md`, re-dispatch
-   ONCE with an explicit "your previous response did no work — actually do
-   the work with tools" nudge, and if it FAILs again mark the step `[!]` with
-   the lint reason. Never adopt a garbled report as a result (the #315
-   lesson). Inline runs skip the lint (the operator sees the artifact
-   directly).
+- **`<INTRO>`** — Fresh context is what makes the check real; the model override
+  is conditional. The `core-improve` skill invoked below is a fork prompt bound
+  to the agent — invoking it IS the fresh-context dispatch.
+- **`<STEP>`** (canonical step number) — `3`.
+- **`<AGENT>`** (bound agent) — `plan-improver`: rc 0 dispatches the Agent tool
+  with `subagent_type: devagent:plan-improver`; rc 3 dispatches the Agent tool
+  with an explicit `model: opus` (the wrapper-carried step default) and stamps
+  `agent-default (plan-improver)`.
+- **`<SKILL>`** (rc-2 fork-prompt skill) — `core-improve`.
+- **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md` and
+  `imPlan.md` (including its Scope evaluation), the project source repo
+  directory, and the output artifact path.
+- **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
+  pothole register itself via `template.sh --project <project> show potholes`
+  (#286: self-resolution is what makes the tripwire un-droppable).
+- **`<CLASS>`** (rung-6 dispatch-lint class) — none; improve is not a verdict
+  class, so run `dispatch-lint.sh <artifact> subagent` with no `--class`.
+- **`<REJECT-SLUG>`** (rung-6 rejected-artifact slug) — `improve`.
 
 ## Halt and ask if
 
