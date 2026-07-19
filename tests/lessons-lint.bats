@@ -127,3 +127,17 @@ LL
   run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
   [ "$status" -eq 0 ]
 }
+
+@test "lessons-lint: a prose bullet before the first heading is not a flat entry (#525 redmr)" {
+  # A canonical file may open with a context bullet before its first '### '
+  # heading; the flat floor keys off bold-lead '- **' so that prose bullet is
+  # NOT mistaken for an untagged entry.
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+- See the parent epic Issue-400 for context.
+### A properly tagged lesson
+- Tags: [pattern]
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+}

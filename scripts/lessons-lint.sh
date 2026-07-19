@@ -39,12 +39,14 @@ awk '
     }
     next
   }
-  # #525: a flat-bullet entry. A column-0 "- " bullet that the tag-bullet rule
-  # above did NOT consume (it runs first and "next"s tag bullets) opens an entry
-  # only OUTSIDE a "### " structured file — once a heading is seen the file is
-  # structured and body bullets belong to their heading. This closes the vacuous
-  # pass over wholly flat-bullet, zero-tag files (e.g. the batch-11 shape).
-  /^-[ \t]/ {
+  # #525: a flat-bullet entry — a column-0 BOLD-lead "- **" bullet (the batch-11
+  # entry shape) that the tag-bullet rule above did NOT consume (it runs first and
+  # "next"s tag bullets), opening an entry only OUTSIDE a "### " structured file:
+  # once a heading is seen the file is structured and body bullets belong to their
+  # heading. Bold-lead only, so a prose/context bullet before the first heading is
+  # not mistaken for an entry (#525 redmr). Closes the vacuous pass over wholly
+  # flat bold-bullet, zero-tag files (the batch-11 shape).
+  /^-[ \t]+\*\*/ {
     if (!seen_heading) {
       if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
       in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^-[ \t]*/,"",etext)
