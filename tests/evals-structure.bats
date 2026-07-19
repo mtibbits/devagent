@@ -5,9 +5,17 @@
 # STRUCTURE so a case cannot silently lose its fixture, rubric, or baseline, and
 # so each judgment skill keeps >= 2 cases (the issue's "measure structure, not
 # model" contract).
+#
+# #530 EXTENSION: the harness-conformance smoke rungs (evals/smoke/smoke.json)
+# get their own structural @tests BELOW, keyed to a SEPARATE file so the four
+# steering `cases` @tests above are byte-unchanged (the smoke rungs have a
+# different shape —
+# they measure the harness, not a skill body — and must not weaken the
+# fixture+rubric+baseline guard on steering cases).
 
 REPO="${BATS_TEST_DIRNAME}/.."
 EVALS="$REPO/evals/evals.json"
+SMOKE="$REPO/evals/smoke/smoke.json"
 
 @test "evals.json exists and is valid JSON (#460)" {
   [ -f "$EVALS" ] || { echo "missing $EVALS" >&2; return 1; }
@@ -71,4 +79,67 @@ PY
   while IFS= read -r id; do
     [[ "$listing" == *"$id"* ]] || { echo "id '$id' missing from --list" >&2; return 1; }
   done <<< "$ids"
+}
+
+# --- #530: harness-conformance smoke rungs (evals/smoke/) ---
+
+@test "smoke.json exists and is valid JSON (#530)" {
+  [ -f "$SMOKE" ] || { echo "missing $SMOKE" >&2; return 1; }
+  run python3 -m json.tool "$SMOKE"
+  [ "$status" -eq 0 ] || { echo "smoke.json is not valid JSON:" >&2; echo "$output" >&2; return 1; }
+}
+
+@test "every smoke rung has id, target, procedure, measured, expected, baseline, trigger (#530)" {
+  run python3 - "$SMOKE" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+errs = []
+for r in data["rungs"]:
+    rid = r.get("id", "<no-id>")
+    for key in ("id", "target", "procedure", "measured", "expected", "baseline", "trigger"):
+        if not r.get(key):
+            errs.append(f"{rid}: missing/empty {key}")
+    b = r.get("baseline", {})
+    for key in ("date", "model", "pass_rate", "runs"):
+        if key not in b:
+            errs.append(f"{rid}: baseline missing {key}")
+if errs:
+    sys.stderr.write("\n".join(errs) + "\n"); sys.exit(1)
+print(f"{len(data['rungs'])} rungs OK")
+PY
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "smoke rung count floor >= 3 so an emptied smoke.json REDs (#530 / #439 vacuity guard)" {
+  run python3 - "$SMOKE" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+n = len(data.get("rungs", []))
+if n < 3:
+    sys.stderr.write(f"only {n} smoke rungs (need >= 3: the #458 Smoke A/B ladder)\n"); sys.exit(1)
+print(f"{n} rungs")
+PY
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "smoke.json meta declares non-CI-gating and a run trigger (#530)" {
+  run python3 - "$SMOKE" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1]))["meta"]
+errs = []
+if "NON-CI-GATING" not in meta.get("run", "").upper():
+    errs.append("meta.run must declare NON-CI-GATING")
+if not meta.get("run_trigger"):
+    errs.append("meta.run_trigger missing (harness regression has no skill-edit trigger)")
+if errs:
+    sys.stderr.write("\n".join(errs) + "\n"); sys.exit(1)
+print("meta OK")
+PY
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+}
+
+@test "the broken-binding fixture dir exists with an agent file (#530)" {
+  local dir="$REPO/evals/smoke/fixtures/broken-binding"
+  [ -d "$dir" ] || { echo "missing $dir" >&2; return 1; }
+  [ -f "$dir/preship-verifier.md" ] || { echo "missing broken agent fixture" >&2; return 1; }
 }

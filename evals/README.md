@@ -1,5 +1,12 @@
 # Skill-steering evals (#460)
 
+> **Sibling: harness-conformance smoke rungs** live in
+> [`smoke/`](smoke/README.md) (#530). Those measure whether the Claude Code
+> HARNESS still honours the agent binding (`context: fork`/`agent:`/
+> `disallowedTools`) — a different axis from skill steering — and are keyed to
+> CC upgrade / plugin reinstall, not to a skill-body edit. Both are
+> non-CI-gating; `tests/evals-structure.bats` guards the structure of both.
+
 These evals measure whether the **judgment-heavy** skills — `core-scope`,
 `core-redmr`, `core-preship` — actually *steer* the model to the required
 judgment. The bats suite proves every script *triggers*; nothing proved the

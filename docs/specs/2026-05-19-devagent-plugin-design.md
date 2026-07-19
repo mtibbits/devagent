@@ -98,6 +98,7 @@ devAgent/
 │   └── statusreport_template.md
 ├── tests/                   # bats for shell, pytest for python helpers
 ├── evals/                   # skill-steering evals (#460): evals.json + fixtures/ + run-eval.sh; MANUAL/local, NON-CI-gating (model runs non-deterministic). tests/evals-structure.bats guards the structure only.
+│   └── smoke/               # harness-conformance smoke rungs (#530): smoke.json + README + fixtures/broken-binding/; the LIVE gate for the agent binding/isolation class (#458 Smoke A/B), keyed to CC upgrade/plugin reinstall. Non-CI-gating; evals-structure.bats guards its structure.
 └── static_analysis_diff.py  (existing; wrapped by analyze-static.sh)
 ```
 
@@ -714,7 +715,13 @@ never opens an agent file — a bogus field, or the wrong-scope spelling
 `disallowed-tools` (agents take camelCase `disallowedTools`; the hyphenated form
 is the SKILL.md spelling), produces byte-identical validator output. **The live
 smoke test on the installed version is the gate**, not the validator: dispatch
-the agent, have it attempt a Write, and confirm a structural refusal.
+the agent, attempt a Write, and confirm the Write/Edit TOOLS are absent from the
+fork's schema (a structural refusal — measured as tool-denial, not "cannot
+write", since Bash is retained per the #529 residual below). This gate is
+MECHANIZED as the `evals/smoke/` rungs (#530: `binding-honoured` +
+`disallowed-tools-enforced` + `model-routing-observable`, run every CC
+upgrade/plugin reinstall); the rung `measured` fields are the normative
+operationalization of this sentence.
 
 **Residual, stated and adjudicated (#529):** the checker agents retain `Bash` —
 they must run git, diffs, and the evidence/register scripts. Write/Edit denial
