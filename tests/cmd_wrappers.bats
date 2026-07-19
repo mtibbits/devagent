@@ -15,7 +15,8 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 # read as user-invocable, agreeing with yaml.safe_load. mawk-safe (`[ \t]`, no
 # gawk-isms) — survives tests/mawk-portability.bats.
 _user_invocable_skills() {
-  local dir="${1:-$BATS_TEST_DIRNAME/../skills}" f name val out=""
+  local dir="${1:-$BATS_TEST_DIRNAME/../skills}" f name val
+  local -a uinv=()
   for f in "$dir"/*/SKILL.md; do
     [ -e "$f" ] || continue
     name="$(basename "$(dirname "$f")")"
@@ -28,15 +29,17 @@ _user_invocable_skills() {
     ' "$f")"
     case "$val" in
       false|False|FALSE) ;;          # hidden — omit from the user-invocable set
-      *) out="$out $name" ;;
+      *) uinv+=("$name") ;;
     esac
   done
-  [ -n "$out" ] || return 0
-  echo $out | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//'
+  [ ${#uinv[@]} -eq 0 ] && return 0
+  printf '%s\n' "${uinv[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
 # #526: assert the user-invocable set equals the expected skills, NAMING the
 # offenders on stderr (not a bare count) on mismatch. Run-able for the AC3 test.
+# shellcheck disable=SC2120  # args ARE passed by the offender-naming @test; the
+# count @test calls it argless via the ${1:-}/${2:-} defaults.
 _check_user_invocable() {
   local dir="${1:-$BATS_TEST_DIRNAME/../skills}" expected="${2:-capture next ship}" got
   got="$(_user_invocable_skills "$dir")"
