@@ -61,19 +61,22 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
         "$REPO/agents/redteam-reviewer.md"
 }
 
-@test "the artifact-header model enumeration is single-valued across its nine homes (#458/#527)" {
+@test "the artifact-header model enumeration is single-valued across its seven homes (#458/#527/#528)" {
     # The rc table tells the wrapper WHAT to stamp; the enumeration and the
-    # agent's ## Artifact format tell the checker what is LEGAL. They are three
+    # agent's ## Artifact format tell the checker what is LEGAL. They are
     # statements of one contract per bound step, and they shipped divergent
     # once: the rc-2 stamp `inherit (per-issue)` was absent from every
     # enumeration (review MAJOR-1), so a checker resolving the conflict could
     # normalise the provenance of the one path that most needs an audit trail.
-    # #527 added the third bound step (improve): 3 wrappers + 3 agents + 3
-    # fork-prompt skills = nine homes, one sweep.
+    # #527 added the third bound step (improve); #528 then extracted the shared
+    # wrapper enumeration into docs/checking-dispatch-contract.md, so the three
+    # wrapper enumeration-homes collapse to ONE doc: doc + 3 agents + 3
+    # fork-prompt skills = seven homes, one sweep. (The wrappers still carry
+    # their OWN concrete `agent-default (<agent>)` token — asserted separately
+    # below — but no longer the shared enumeration.)
     local f tok
     for tok in '<tier> (per-issue)' 'inherit (per-issue)' 'inherit (fallback from <tier>)'; do
-        for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
-                 "$REPO/commands/improve.md" \
+        for f in "$REPO/docs/checking-dispatch-contract.md" \
                  "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md" \
                  "$REPO/agents/plan-improver.md"; do
             grep -qF "$tok" "$f" || { echo "missing '$tok' from $f" >&2; false; }
@@ -88,8 +91,7 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
         grep -qF 'inherit (per-issue)' "$f" || { echo "missing rc-2 stamp in $f" >&2; false; }
         grep -qF '`model: inherit`' "$f" || { echo "missing direct-invocation stamp in $f" >&2; false; }
     done
-    for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
-             "$REPO/commands/improve.md" \
+    for f in "$REPO/docs/checking-dispatch-contract.md" \
              "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md" \
              "$REPO/agents/plan-improver.md"; do
         grep -qF '`inherit`,' "$f" || { echo "bare inherit missing from the enumeration in $f" >&2; false; }
