@@ -83,8 +83,9 @@ _body_chars() { awk '/^---$/{c++; next} c>=2{print}' "$1" | wc -c; }
   [ "$n_actual" -eq "$n_guarded" ] || {
     echo "agents/*.md count=$n_actual but $n_guarded are size-guarded — add the new agent to _ROWS" >&2
     find "$REPO/agents" -maxdepth 1 -name '*.md' -printf '  %f\n' >&2; return 1; }
+  local rel
   for a in "$REPO"/agents/*.md; do
-    local rel="agents/$(basename "$a")"
+    rel="agents/$(basename "$a")"
     [[ " $guarded " == *" $rel "* ]] || { echo "unguarded agent: $rel" >&2; return 1; }
   done
 }
