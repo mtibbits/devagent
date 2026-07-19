@@ -716,10 +716,18 @@ is the SKILL.md spelling), produces byte-identical validator output. **The live
 smoke test on the installed version is the gate**, not the validator: dispatch
 the agent, have it attempt a Write, and confirm a structural refusal.
 
-**Residual, stated:** both checker agents retain `Bash` — they must run git,
-diffs, and `preship-evidence.sh`. Write/Edit denial is therefore *tool-level*
-isolation, not a filesystem sandbox; a determined agent could still write via
-shell redirection. The denial removes the accident, not the capability.
+**Residual, stated and adjudicated (#529):** the checker agents retain `Bash` —
+they must run git, diffs, and the evidence/register scripts. Write/Edit denial
+is therefore *tool-level* isolation, not a filesystem sandbox; a determined
+agent could still write via shell redirection. The denial removes the accident,
+not the capability. Issue-529 adjudicated this residual as ACCEPTED (threat
+model: accidental self-inflicted mutation, not an adversary; decision doc in
+the issue archive, incl. the re-verified rejection of dropping Bash and the
+deferred worktree-isolation option). Each agent header carries the caveat. The
+agents' return-don't-write prompt contract is the load-bearing layer; §8.1's
+hooks (`git-guard.sh`, `preship-dirty-tree.sh`) add partial, opt-in *detection*
+for the destructive-git and untracked-file shapes only — an in-place edit of a
+tracked file is not detected, and the record accepts that.
 
 ### 7.5 Dispatch contract (checking + thinking steps)
 
@@ -874,6 +882,15 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   `cat …/ship.sh` never fires), worktree-only, .gitignore-respecting (never
   `--ignored`), and fires at most once per (state × worktree) via a per-worktree
   `.git/devagent-preship-nag` marker keyed to HEAD-sha + the untracked set.
+
+git-guard and preship-dirty-tree double as partial detection for the checker
+agents' accepted Bash-escape residual (§7.4, #529) — opt-in detection of the
+destructive-git and untracked-file shapes only, not prevention and not coverage
+of tracked-file edits, consistent with the "reflex backstop, not a sandbox"
+boundary above. That the hooks observe a dispatched subagent's Bash calls at
+all is docs-verified, not measured (2.1.211 hooks doc: `agent_id` is "present
+only when the hook fires inside a subagent call" — #529's redmr demanded this
+provenance be on record; a live probe rides the #533/#530 smoke family).
 
 **Latency / noise budget:** every registered PreToolUse Bash hook spawns one process
 on EVERY Bash tool call (≤5s each); Write/Edit calls now also spawn the pointer guard.
