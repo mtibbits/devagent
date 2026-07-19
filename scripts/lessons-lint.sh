@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # scripts/lessons-lint.sh — validate a lessonsLearned.md against the closed tag
-# taxonomy (#232). Recognition mirrors reap.sh block 4: skip <!-- --> comment
-# blocks; accept the structured '### claim' + '- Tags: [...]' form and the flat
-# inline '- [tag] <claim>' form. Exit 0 if clean; 1 listing offenders; 2 on usage.
+# taxonomy (#232). NOT a strict mirror of reap.sh block 4 — deliberately
+# STRICTER (#232): skip <!-- --> comment blocks; accept the structured
+# '### claim' + '- Tags: [...]' form and the flat inline '- [tag] <claim>' form;
+# and (#525) FAIL a wholly flat-bullet, zero-tag entry (the batch-11 shape) that
+# the '### '-only floor used to pass vacuously. Exit 0 if clean; 1 listing
+# offenders (naming the file); 2 on usage.
 set -euo pipefail
 
 file="${1:-}"
@@ -15,7 +18,7 @@ awk '
   incomment { if ($0 ~ /-->/) incomment=0; next }
   /^### / {
     if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
-    in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^### */,"",etext); next
+    in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^### */,"",etext); seen_heading=1; next
   }
   # A tag-bearing bullet: "- Tags: [..]", "- [tag] ..", or "- [..]". The bracket
   # must LEAD the bullet (after an optional "Tags:") — intentionally STRICTER
@@ -36,8 +39,20 @@ awk '
     }
     next
   }
+  # #525: a flat-bullet entry. A column-0 "- " bullet that the tag-bullet rule
+  # above did NOT consume (it runs first and "next"s tag bullets) opens an entry
+  # only OUTSIDE a "### " structured file — once a heading is seen the file is
+  # structured and body bullets belong to their heading. This closes the vacuous
+  # pass over wholly flat-bullet, zero-tag files (e.g. the batch-11 shape).
+  /^-[ \t]/ {
+    if (!seen_heading) {
+      if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
+      in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^-[ \t]*/,"",etext)
+    }
+    next
+  }
   END {
     if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
-    if (bad) { print "lessons-lint: FAIL (off-taxonomy or untagged entries above)" > "/dev/stderr"; exit 1 }
+    if (bad) { printf "lessons-lint: FAIL %s (off-taxonomy or untagged entries above)\n", FILENAME > "/dev/stderr"; exit 1 }
   }
 ' "$file"

@@ -90,3 +90,40 @@ LL
   [[ "$output" == *"tag [bogus]"* ]]
   [[ "$output" != *"tag [norm]"* ]]
 }
+
+@test "lessons-lint: fails an untagged flat-bullet file, naming it (#525)" {
+  # Batch-11 shape: top-level bold bullets, no '### ' heading, zero tags. The
+  # entry floor used to key only off '### ', so these passed vacuously (exit 0).
+  cat > "$BATS_TEST_TMPDIR/batch11.md" <<'LL'
+# Lessons learned — Issue-440
+
+- **`user-invocable:false` gates the operator MENU only** — not model
+  reachability. State it precisely.
+- **Blast radius of a which-files-carry-X change:** grep the file-set BEFORE
+  the edit; the guard update is Step 0.
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/batch11.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *batch11.md* ]]
+}
+
+@test "lessons-lint: a flat-bullet entry tagged by a following Tags line passes (#525)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+
+- **A flat bold-bullet claim that carries a tag.**
+- Tags: [actionable]
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lessons-lint: an entry-less present file passes (#525)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons learned — Issue-000
+
+No entries recorded yet.
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+}
