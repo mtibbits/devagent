@@ -223,3 +223,87 @@ def test_slash_command_has_argument_hint(path):
         f"{os.path.relpath(path, _REPO)}: missing/empty `argument-hint` "
         f"(copy the usage grammar up into frontmatter — see #450)"
     )
+
+
+# #531: the allowed-tools sweep (`test_bash_grant_is_scoped`, parametrized over
+# `_GRANT_BEARING_FILES` = commands/*.md + skills/*/SKILL.md — one-level globs) is guarded by
+# NOTHING against a carrier that lives OUTSIDE those globs: a nested
+# `skills/*/*/SKILL.md`, or a future `allowed-tools` carrier in a new top-level
+# dir (agents/ carry only disallowedTools today). Enumerate carriers via an
+# oracle INDEPENDENT of the sweep's globs (a recursive walk that PARSES the
+# frontmatter — a string grep would count prose mentions in docs/CHANGELOG/README)
+# and assert every carrier is in the swept set. Reusing `_FILES`' globs as the
+# oracle would be vacuous by construction. Both helpers take a `root` so the
+# #425-style self-test can drive them against a planted tmp tree (no repo
+# mutation). The walk is scoped to agents/+commands/+skills/ and built in-body,
+# NOT at import, so an unrelated tree `.md` with a bad `---` block cannot error
+# collection.
+
+# NOTE (#531 review nit): this tuple is itself a staleable allowlist — a carrier
+# in a genuinely NEW top-level dir (e.g. a future hooks/) would be missed by BOTH
+# the one-level sweep and this oracle. The two concretely-named residuals (nested
+# skills/*/*/SKILL.md + an agents/ carrier) ARE covered; widen this tuple the day
+# a new carrier-bearing top-level dir is introduced.
+_GRANT_SCAN_DIRS = ("agents", "commands", "skills")
+
+
+def _grant_carriers(root):
+    """Files under agents/+commands/+skills/ whose FRONTMATTER declares an
+    `allowed-tools` key. Independent of the one-level sweep globs."""
+    carriers = set()
+    for d in _GRANT_SCAN_DIRS:
+        base = os.path.join(root, d)
+        for dirpath, _dirs, files in os.walk(base):
+            for fn in files:
+                if not fn.endswith(".md"):
+                    continue
+                p = os.path.join(dirpath, fn)
+                if "allowed-tools" in _load_fm(p):
+                    carriers.add(os.path.normpath(p))
+    return carriers
+
+
+def _swept_one_level(root):
+    """The set `test_bash_grant_is_scoped` actually iterates
+    (`_GRANT_BEARING_FILES`, == `_FILES`'s globs), parameterized by root:
+    commands/*.md + skills/*/SKILL.md (one level deep)."""
+    swept = glob.glob(os.path.join(root, "commands", "*.md"))
+    swept += glob.glob(os.path.join(root, "skills", "*", "SKILL.md"))
+    return {os.path.normpath(p) for p in swept}
+
+
+def test_allowed_tools_sweep_covers_all_carriers():
+    """Every allowed-tools carrier must be in the swept set — else its unscoped
+    Bash grant is never checked (#531; #439 silent-coverage-loss on the grant
+    axis)."""
+    carriers = _grant_carriers(_REPO)
+    swept = _swept_one_level(_REPO)
+    uncovered = sorted(os.path.relpath(p, _REPO) for p in carriers - swept)
+    assert not uncovered, (
+        "allowed-tools carrier(s) outside the `test_bash_grant_is_scoped` sweep "
+        f"({', '.join(uncovered)}) — a nested skills/*/*/SKILL.md or a new "
+        "top-level carrier dir escapes the one-level globs. Widen _FILES."
+    )
+
+
+def test_allowed_tools_oracle_catches_nested_carrier(tmp_path):
+    """#425-style self-test: the independent oracle finds an out-of-glob carrier
+    the one-level sweep misses — proving the coverage assertion is non-vacuous.
+    No repo tree mutation (planted under tmp_path)."""
+    fm = "---\nname: x\nallowed-tools: Bash(bash foo)\n---\nbody\n"
+    nested = tmp_path / "skills" / "x" / "y" / "SKILL.md"      # escapes skills/*/SKILL.md
+    nested.parent.mkdir(parents=True)
+    nested.write_text(fm, encoding="utf-8")
+    normal = tmp_path / "skills" / "a" / "SKILL.md"            # a swept carrier
+    normal.parent.mkdir(parents=True)
+    normal.write_text(fm, encoding="utf-8")
+
+    carriers = _grant_carriers(str(tmp_path))
+    swept = _swept_one_level(str(tmp_path))
+    nested_n = os.path.normpath(str(nested))
+    normal_n = os.path.normpath(str(normal))
+    # the oracle sees BOTH; the one-level sweep sees only the normal one
+    assert nested_n in carriers and normal_n in carriers
+    assert normal_n in swept and nested_n not in swept
+    # ⇒ the coverage assertion would fire on the nested carrier
+    assert (carriers - swept) == {nested_n}
