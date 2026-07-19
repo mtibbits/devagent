@@ -113,6 +113,20 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
     [ "$output" -eq 0 ]
     run grep -c 'agent-default (plan-improver)' "$REPO/agents/redteam-reviewer.md"
     [ "$output" -eq 0 ]
+    # ... and the WRAPPERS too (#527 review S1): a botched wrapper copy that
+    # leaves a neighbour's token behind would pass a positive-only check.
+    run grep -c 'agent-default (redteam-reviewer)' "$REPO/commands/improve.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (preship-verifier)' "$REPO/commands/improve.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (plan-improver)' "$REPO/commands/redmr.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (preship-verifier)' "$REPO/commands/redmr.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (plan-improver)' "$REPO/commands/preship.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (redteam-reviewer)' "$REPO/commands/preship.md"
+    [ "$output" -eq 0 ]
 }
 
 @test "all bound-step wrappers carry the same wrapper-owned step default (#458/#527)" {

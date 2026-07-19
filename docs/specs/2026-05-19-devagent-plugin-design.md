@@ -64,11 +64,13 @@ devAgent/
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
 │                            #   (SKILL.md + references/, #452) — 52 + 3 = the 55 slash commands
-├── agents/                  # #458: dedicated checker agents auto-discovered from this root
-│                            #   (preship-verifier, redteam-reviewer): pinned model/effort +
-│                            #   disallowedTools, bound by the core-preship/core-redmr skills'
-│                            #   `context: fork` + `agent:`. NB plugin.json must NOT gain an
-│                            #   "agents" key — it REPLACES this default scan rather than adding.
+├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
+│                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
+│                            #   effort (deliberately NO model pin — §7.4 rung 5) +
+│                            #   disallowedTools, bound by the core-preship/core-redmr/
+│                            #   core-improve skills' `context: fork` + `agent:`. NB plugin.json
+│                            #   must NOT gain an "agents" key — it REPLACES this default scan
+│                            #   rather than adding.
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
