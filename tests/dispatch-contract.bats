@@ -72,18 +72,30 @@ _contract_carriers() {
   local doc="$REPO/docs/checking-dispatch-contract.md"
   grep -q '## Dispatch contract' "$doc" || { echo "no contract section in doc: $doc" >&2; false; }
   grep -q 'paths, not' "$doc" || { echo "no path-packaging rule in doc: $doc" >&2; false; }
+  # #528 redmr-rerun MINOR: pin the re-inline sentinel to its source of truth.
+  # The negative assertion below greps wrappers for the rc-0 row `| 0 | a tier
+  # resolved`; if a doc reformat renames that cell, the sentinel would exist
+  # nowhere and the negative check would silently never match (vacuous). Assert
+  # the doc still owns the exact string so sentinel and source cannot drift.
+  grep -qF '| 0 | a tier resolved' "$doc" || { echo "doc lost the rc-0 sentinel row: $doc" >&2; false; }
   local f
   for f in "$REPO/commands/improve.md" \
            "$REPO/commands/redmr.md" \
            "$REPO/commands/preship.md"; do
     grep -q '## Dispatch contract' "$f" || { echo "wrapper dropped its heading: $f" >&2; false; }
     grep -qF 'checking-dispatch-contract.md' "$f" || { echo "wrapper does not point to the doc: $f" >&2; false; }
+    # #528 redmr-rerun MAJOR: pin discovery liveness. dispatch-contract.bats
+    # discovers carriers via `grep -rl step-model.sh`; if a wrapper loses that
+    # token it silently drops out of the sweep and its reclassification goes
+    # dead (the exact prior BLOCKING). Nothing else asserts the wrappers keep
+    # the token, so assert it here — a careless removal must red, not vanish.
+    grep -qF 'step-model.sh' "$f" || { echo "wrapper lost step-model.sh (drops out of carrier discovery): $f" >&2; false; }
     # #528 redmr BLOCKING-1: a pointer wrapper must not ALSO re-paste a divergent
     # inline copy of the contract. The rc-exit-code table row `| 0 | a tier
     # resolved` lives ONLY in the doc; a wrapper that carries it has re-inlined
     # the contract (the exact anti-divergence regression this change blocks).
-    # This guard does not depend on the carrier-discovery sweep (which keys off
-    # step-model.sh), so it fires even if a re-paste omits that token.
+    # This guard does not depend on the carrier-discovery sweep, so it fires
+    # even if a re-paste omits step-model.sh.
     run grep -cF '| 0 | a tier resolved' "$f"
     [ "$output" -eq 0 ] || { echo "wrapper re-inlined the rc table (divergent copy): $f" >&2; false; }
   done
