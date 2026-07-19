@@ -12,8 +12,9 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
 # and whitespace stripped — that is exactly one of PyYAML's bool casings
 # {false,False,FALSE}. A space after the colon is required (YAML mapping rule), so
 # body text, `user-invocable:false` (no space), and quoted/other-cased values all
-# read as user-invocable, agreeing with yaml.safe_load. mawk-safe (`[ \t]`, no
-# gawk-isms) — survives tests/mawk-portability.bats.
+# read as user-invocable, agreeing with yaml.safe_load. CR-tolerant (a `\r` on a
+# CRLF file must not defeat the `---` anchor or leak into the value). Verified
+# mawk-safe (`[ \t]`, no gawk-isms).
 _user_invocable_skills() {
   local dir="${1:-$BATS_TEST_DIRNAME/../skills}" f name val
   local -a uinv=()
@@ -21,9 +22,9 @@ _user_invocable_skills() {
     [ -e "$f" ] || continue
     name="$(basename "$(dirname "$f")")"
     val="$(awk '
-      /^---[ \t]*$/ { c++; if (c >= 2) exit; next }
+      /^---[ \t\r]*$/ { c++; if (c >= 2) exit; next }
       c == 1 && /^user-invocable:[ \t]/ {
-        sub(/^user-invocable:[ \t]*/, ""); sub(/[ \t]*#.*/, ""); sub(/[ \t]+$/, "")
+        sub(/\r$/, ""); sub(/^user-invocable:[ \t]*/, ""); sub(/[ \t]*#.*/, ""); sub(/[ \t]+$/, "")
         print; exit
       }
     ' "$f")"
@@ -254,7 +255,9 @@ _check_user_invocable() {
 }
 
 @test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {
-  mkdir -p "$BATS_TEST_TMPDIR/skills/core-x"
+  # Co-locate a visible skill so the assertion proves the classifier DISTINGUISHES
+  # hidden-False from visible, not merely returns empty (which an empty glob does too).
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-x" "$BATS_TEST_TMPDIR/skills/vis0"
   cat > "$BATS_TEST_TMPDIR/skills/core-x/SKILL.md" <<'S'
 ---
 name: core-x
@@ -262,13 +265,14 @@ user-invocable: False
 ---
 body
 S
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
   run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]   # capital-False → hidden → empty user-invocable set (matches pytest)
+  [ "$output" = "vis0" ]   # capital-False → hidden; vis0 (no marker) → visible (matches pytest)
 }
 
 @test "user-invocable: inline-comment 'false  # c' is hidden (#526)" {
-  mkdir -p "$BATS_TEST_TMPDIR/skills/core-y"
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-y" "$BATS_TEST_TMPDIR/skills/vis0"
   cat > "$BATS_TEST_TMPDIR/skills/core-y/SKILL.md" <<'S'
 ---
 name: core-y
@@ -276,9 +280,22 @@ user-invocable: false  # hidden from the menu
 ---
 body
 S
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
   run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  [ "$output" = "vis0" ]   # comment-form false → hidden; vis0 → visible
+}
+
+@test "user-invocable: CRLF frontmatter 'user-invocable: false' is hidden (#526)" {
+  # A \r must not defeat the '---' anchor or leak into the value (yaml.safe_load
+  # parses CRLF fine → HIDDEN; the classifier must agree).
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-crlf" "$BATS_TEST_TMPDIR/skills/vis0"
+  printf -- '---\r\nname: core-crlf\r\nuser-invocable: false\r\n---\r\nbody\r\n' \
+    > "$BATS_TEST_TMPDIR/skills/core-crlf/SKILL.md"
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
+  run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis0" ]   # core-crlf hidden despite CRLF; vis0 visible
 }
 
 @test "user-invocable: body-text marker outside frontmatter does not hide (#526)" {
@@ -306,5 +323,6 @@ body
 S
   run --separate-stderr _check_user_invocable "$BATS_TEST_TMPDIR/skills" "capture next ship"
   [ "$status" -eq 1 ]
+  # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
   [[ "$stderr" == *core-oops* ]]
 }
