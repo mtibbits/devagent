@@ -107,13 +107,14 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
 }
 
 @test "dispatch-lint: model grammar admits the agent-default provenance form (#458)" {
-    # #458 binds steps 14/21 to dedicated agents whose pinned model is the tier
-    # of last resort. A fresh-install project (config.toml.skel ships step_models
+    # #458/#527 bind steps 3/14/21 to dedicated agents whose pinned model is the
+    # tier of last resort. A fresh-install project (config.toml.skel ships step_models
     # commented out) resolves NO tier, so the wrapper stamps this exact token —
     # the real artifact header, fed through the real linter (register #232:
     # two components that must agree are tested with the produced artifact).
     for ml in 'model: agent-default (preship-verifier)' \
-              'model: agent-default (redteam-reviewer)'; do
+              'model: agent-default (redteam-reviewer)' \
+              'model: agent-default (plan-improver)'; do
         { echo 'context: subagent'; echo "$ml"; _body; } > "$D/a.md"
         run LINT "$D/a.md" subagent
         [ "$status" -eq 0 ] || { echo "rejected: $ml -- $output" >&2; false; }

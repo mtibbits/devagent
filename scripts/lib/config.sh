@@ -108,7 +108,7 @@ config_active_project() {
 #   1  error (bad/unreadable marker, missing args) — via die, message on stderr.
 # Steps whose fallback IS "inherit" may keep treating every nonzero alike
 # (`$(... || true)` yields empty for 2 and 3, which is correct for them). Steps
-# bound to a dedicated agent (#458: 14 redmr, 21 preship) fall back to the
+# bound to a dedicated agent (#458/#527: 3 improve, 14 redmr, 21 preship) fall back to the
 # agent's pinned model, for which 2 and 3 mean opposite things — 2 must inherit,
 # 3 takes the agent default — so they discriminate on the exit code rather than
 # parsing the stderr prose.

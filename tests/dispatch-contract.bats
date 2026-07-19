@@ -35,9 +35,9 @@ _contract_carriers() {
     done
   done
   # Guard against a vacuous pass on FILTERED carriers (not merely discovered
-  # files). Today's roster (#458 changed it — core-redmr/core-preship dropped out
-  # when their contracts moved skill→command, and the wrappers replaced them):
-  #   core-improve + review.md + preship.md + redmr.md + draft-dispatch-contract.md
+  # files). Today's roster (#458 moved redmr/preship skill→command; #527 did
+  # the same for improve — core-improve dropped out, improve.md replaced it):
+  #   improve.md + review.md + preship.md + redmr.md + draft-dispatch-contract.md
   # A carrier silently dropping out of the sweep must fail here.
   [ "$full" -ge 5 ]
   if [ "${#missing[@]}" -ne 0 ]; then
@@ -46,15 +46,15 @@ _contract_carriers() {
   [ "${#missing[@]}" -eq 0 ]
 }
 
-@test "every checking-class dispatch defines the contract section + path packaging (#151/#458)" {
-  # #458 moved the redmr/preship contracts from the SKILL to the COMMAND: those
-  # two skills are now fork PROMPTS bound to dedicated agents, and the main-session
-  # duties the contract describes (tier resolution, the verbatim artifact write,
-  # dispatch-lint, the failure protocol) are the wrapper's. core-improve still
-  # dispatches skill-side and is unchanged — the asymmetry is deliberate, so the
-  # test names each contract's home rather than assuming one shape (register #76).
+@test "every checking-class dispatch defines the contract section + path packaging (#151/#458/#527)" {
+  # #458 moved the redmr/preship contracts from the SKILL to the COMMAND, and
+  # #527 completed the pattern for improve: all three skills are now fork
+  # PROMPTS bound to dedicated agents, and the main-session duties the contract
+  # describes (tier resolution, the verbatim artifact write, dispatch-lint,
+  # the failure protocol) are the wrapper's — so all three contracts live
+  # command-side (register #76: the test names each contract's home).
   local f
-  for f in "$REPO/skills/core-improve/SKILL.md" \
+  for f in "$REPO/commands/improve.md" \
            "$REPO/commands/redmr.md" \
            "$REPO/commands/preship.md"; do
     grep -q '## Dispatch contract' "$f" || { echo "no contract section: $f" >&2; false; }
@@ -62,14 +62,15 @@ _contract_carriers() {
   done
 }
 
-@test "the fork-bound checking skills hand off to their agent without re-stating the contract (#458)" {
+@test "the fork-bound checking skills hand off to their agent without re-stating the contract (#458/#527)" {
   # The twin-drift guard: the procedure lives in the agent system prompt, and the
   # skill must NOT carry a second copy that can rot away from it.
   local f
-  for f in "$REPO/skills/core-redmr/SKILL.md" "$REPO/skills/core-preship/SKILL.md"; do
+  for f in "$REPO/skills/core-redmr/SKILL.md" "$REPO/skills/core-preship/SKILL.md" \
+           "$REPO/skills/core-improve/SKILL.md"; do
     run grep -c '^context: fork$' "$f"
     [ "$output" -eq 1 ]
-    grep -qE '^agent: devagent:(redteam-reviewer|preship-verifier)$' "$f"
+    grep -qE '^agent: devagent:(redteam-reviewer|preship-verifier|plan-improver)$' "$f"
     # No second contract copy, and no tier resolution: those are the wrapper's.
     run grep -c '## Dispatch contract' "$f"
     [ "$output" -eq 0 ]
