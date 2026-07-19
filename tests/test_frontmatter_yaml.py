@@ -149,6 +149,23 @@ def test_all_core_skills_are_not_user_invocable():
     assert not missing, f"core-* skills missing `user-invocable: false` (#449): {missing}"
 
 
+def test_user_invocable_yaml_truth(tmp_path):
+    """#526: pin the YAML-truth semantics the guard relies on, so a future
+    `_load_fm`->literal/grep regression reds loudly. Capital-`False` and an
+    inline-comment `false  # c` must both resolve to Python `False` (guard treats
+    HIDDEN — matching the bats classifier); an absent marker must resolve to a
+    value that `is not False` (flagged / user-invocable). Both directions."""
+
+    def fm(body):
+        p = tmp_path / "SKILL.md"
+        p.write_text(body, encoding="utf-8")
+        return _load_fm(p)
+
+    assert fm("---\nname: x\nuser-invocable: False\n---\nbody\n").get("user-invocable") is False
+    assert fm("---\nname: x\nuser-invocable: false  # c\n---\nbody\n").get("user-invocable") is False
+    assert fm("---\nname: x\n---\nbody\n").get("user-invocable") is not False
+
+
 def test_disable_model_invocation_only_on_operator_verbs():
     """CHAIN-safety invariant: `disable-model-invocation: true` may appear ONLY on
     auth/init/use — NEVER on a workflow-step command, or /devagent:next --auto's

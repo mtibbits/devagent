@@ -1,6 +1,54 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0   # #526: run --separate-stderr for the offender-naming test
+
 CMD_DIR="$BATS_TEST_DIRNAME/../commands"
+
+# #526: classify skills by the user-invocable frontmatter marker with YAML-truth
+# semantics, matching the pytest guard (test_frontmatter_yaml.py). Echoes the
+# sorted DIRECTORY names (never `basename` — every skill is SKILL.md) of the
+# user-invocable (NOT hidden) skills. A skill is HIDDEN iff, inside its frontmatter
+# (between the first two `---`), `user-invocable:` has a value — trailing `#comment`
+# and whitespace stripped — that is exactly one of PyYAML's bool casings
+# {false,False,FALSE}. A space after the colon is required (YAML mapping rule), so
+# body text, `user-invocable:false` (no space), and quoted/other-cased values all
+# read as user-invocable, agreeing with yaml.safe_load. CR-tolerant (a `\r` on a
+# CRLF file must not defeat the `---` anchor or leak into the value). Verified
+# mawk-safe (`[ \t]`, no gawk-isms).
+_user_invocable_skills() {
+  local dir="${1:-$BATS_TEST_DIRNAME/../skills}" f name val
+  local -a uinv=()
+  for f in "$dir"/*/SKILL.md; do
+    [ -e "$f" ] || continue
+    name="$(basename "$(dirname "$f")")"
+    val="$(awk '
+      /^---[ \t\r]*$/ { c++; if (c >= 2) exit; next }
+      c == 1 && /^user-invocable:[ \t]/ {
+        sub(/\r$/, ""); sub(/^user-invocable:[ \t]*/, ""); sub(/[ \t]*#.*/, ""); sub(/[ \t]+$/, "")
+        print; exit
+      }
+    ' "$f")"
+    case "$val" in
+      false|False|FALSE) ;;          # hidden — omit from the user-invocable set
+      *) uinv+=("$name") ;;
+    esac
+  done
+  [ ${#uinv[@]} -eq 0 ] && return 0
+  printf '%s\n' "${uinv[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
+# #526: assert the user-invocable set equals the expected skills, NAMING the
+# offenders on stderr (not a bare count) on mismatch. Run-able for the AC3 test.
+# shellcheck disable=SC2120  # args ARE passed by the offender-naming @test; the
+# count @test calls it argless via the ${1:-}/${2:-} defaults.
+_check_user_invocable() {
+  local dir="${1:-$BATS_TEST_DIRNAME/../skills}" expected="${2:-capture next ship}" got
+  got="$(_user_invocable_skills "$dir")"
+  if [ "$got" != "$expected" ]; then
+    echo "user-invocable skills mismatch: got ($got), expected ($expected)" >&2
+    return 1
+  fi
+}
 
 @test "draft.md exists and is non-empty" {
   [ -f "$CMD_DIR/draft.md" ]
@@ -186,11 +234,16 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   # #452: next/capture/ship live as user-invocable skills; the skill half is
   # derived from the user-invocable frontmatter marker (core-* are pinned
   # `user-invocable: false`), so an unmarked core skill fails here too.
+  # #526: the split is derived by `_user_invocable_skills` — a FRONTMATTER-scoped,
+  # YAML-truth classifier (value in {false,False,FALSE}) that agrees with the
+  # pytest guard and NAMES offenders, not the old whole-file literal-lowercase
+  # grep (which missed `user-invocable: False` and failed as a bare count).
   # Assert the SPLIT, not just the sum: a 4th command->skill conversion keeps
   # the sum at 55 (51+4) and would slip through a sum-only check — while
   # falsifying README's explicit "52 commands + 3 user-invocable skills".
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
-  s="$(grep -L '^user-invocable: false' "$BATS_TEST_DIRNAME"/../skills/*/SKILL.md | wc -l)"
+  _check_user_invocable   # names offenders on stderr, fails on mismatch (AC3)
+  s="$(_user_invocable_skills | wc -w)"
   [ "$n" -eq 52 ]
   [ "$s" -eq 3 ]
   [ $((n + s)) -eq 55 ]
@@ -199,4 +252,77 @@ CMD_DIR="$BATS_TEST_DIRNAME/../commands"
   # unpinned while marketplace.json was, so the two could drift apart.
   grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
   grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
+}
+
+@test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {
+  # Co-locate a visible skill so the assertion proves the classifier DISTINGUISHES
+  # hidden-False from visible, not merely returns empty (which an empty glob does too).
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-x" "$BATS_TEST_TMPDIR/skills/vis0"
+  cat > "$BATS_TEST_TMPDIR/skills/core-x/SKILL.md" <<'S'
+---
+name: core-x
+user-invocable: False
+---
+body
+S
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
+  run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis0" ]   # capital-False → hidden; vis0 (no marker) → visible (matches pytest)
+}
+
+@test "user-invocable: inline-comment 'false  # c' is hidden (#526)" {
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-y" "$BATS_TEST_TMPDIR/skills/vis0"
+  cat > "$BATS_TEST_TMPDIR/skills/core-y/SKILL.md" <<'S'
+---
+name: core-y
+user-invocable: false  # hidden from the menu
+---
+body
+S
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
+  run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis0" ]   # comment-form false → hidden; vis0 → visible
+}
+
+@test "user-invocable: CRLF frontmatter 'user-invocable: false' is hidden (#526)" {
+  # A \r must not defeat the '---' anchor or leak into the value (yaml.safe_load
+  # parses CRLF fine → HIDDEN; the classifier must agree).
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-crlf" "$BATS_TEST_TMPDIR/skills/vis0"
+  printf -- '---\r\nname: core-crlf\r\nuser-invocable: false\r\n---\r\nbody\r\n' \
+    > "$BATS_TEST_TMPDIR/skills/core-crlf/SKILL.md"
+  printf -- '---\nname: vis0\n---\nbody\n' > "$BATS_TEST_TMPDIR/skills/vis0/SKILL.md"
+  run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis0" ]   # core-crlf hidden despite CRLF; vis0 visible
+}
+
+@test "user-invocable: body-text marker outside frontmatter does not hide (#526)" {
+  mkdir -p "$BATS_TEST_TMPDIR/skills/vis"
+  cat > "$BATS_TEST_TMPDIR/skills/vis/SKILL.md" <<'S'
+---
+name: vis
+argument-hint: "x"
+---
+This skill mentions `user-invocable: false` in its body prose.
+S
+  run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis" ]   # frontmatter-scoped: body text neither satisfies nor trips it
+}
+
+@test "user-invocable check names the offending skill, not a bare count (#526)" {
+  mkdir -p "$BATS_TEST_TMPDIR/skills/core-oops"
+  cat > "$BATS_TEST_TMPDIR/skills/core-oops/SKILL.md" <<'S'
+---
+name: core-oops
+description: a core skill that forgot the marker
+---
+body
+S
+  run --separate-stderr _check_user_invocable "$BATS_TEST_TMPDIR/skills" "capture next ship"
+  [ "$status" -eq 1 ]
+  # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
+  [[ "$stderr" == *core-oops* ]]
 }
