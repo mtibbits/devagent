@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "purpose": "HARNESS-CONFORMANCE smoke rungs for the agent binding/isolation class (#530, encoding #458's live Smoke A/B ladder). Distinct from the skill-STEERING evals in evals.json: those measure whether a skill body steers the model; these measure whether the Claude Code HARNESS still honours the agent binding (context: fork / agent: / disallowedTools). Every bats test in the area greps devAgent's own markdown for strings devAgent wrote — if the harness ever stops honouring the binding, those tests stay green while isolation silently degrades to a general-purpose subagent with full Write. These rungs are the live gate the bats cannot be.",
+    "run": "manual/local, model-run, NON-CI-GATING (model runs are non-deterministic; a red rung must never fail a build). The only CI-durable artifact is tests/evals-structure.bats, which guards the STRUCTURE of these rungs and never invokes a model.",
+    "run_trigger": "Run every Claude Code UPGRADE and every plugin REINSTALL/UPDATE. A harness regression has no skill-body-edit trigger to hang on (unlike the steering evals), so it is keyed to the harness/plugin version changing. Reinstall the plugin first (the cache is SHA-versioned; a stale cache false-passes) and run each rung in a FRESH headless session (claude -p --plugin-dir <worktree>); components load at session start.",
+    "criteria": {
+      "runs_per_case": 3,
+      "fresh_context": "each run is a fresh headless session so the shipped agent/skill frontmatter is what binds, not conversation memory.",
+      "pass_rule": "a rung PASSES a baseline if >= 2 of 3 runs satisfy its `expected` observation (per #460 conventions).",
+      "regression_rule": "a below-baseline pass-rate after a harness/plugin version change is a HARNESS regression — the isolation the binding promises is no longer enforced. Escalate; do not silently re-baseline."
+    }
+  },
+  "rungs": [
+    {
+      "id": "binding-honoured",
+      "target": "agents/preship-verifier.md (context: fork + agent: devagent:preship-verifier)",
+      "procedure": "In a fresh headless session, dispatch subagent_type: devagent:preship-verifier and ask it to quote the FIRST SENTENCE of its system prompt.",
+      "measured": "whether the returned sentence is the one that exists ONLY in agents/preship-verifier.md",
+      "expected": "the fork returns: 'You are the devAgent preship verifier - the last gate before content leaves the machine (workflow step 21).' That sentence exists nowhere else, so its presence is direct attestation (not inference) that the plugin-scoped agent's system prompt was active in the fork.",
+      "trigger": "every Claude Code upgrade / plugin reinstall",
+      "baseline": {
+        "date": "",
+        "model": "",
+        "pass_rate": "",
+        "runs": [],
+        "note": "UNFILLED at ship (harness bring-up). First fill: B5, run per the procedure. #458's 2026-07-17 run on 2.1.211 recorded PASS (hard evidence) for this rung's shape."
+      }
+    },
+    {
+      "id": "disallowed-tools-enforced",
+      "target": "agents/preship-verifier.md (disallowedTools: Write, Edit, NotebookEdit)",
+      "procedure": "In the same forked run, instruct a Write AND an Edit attempt to a /tmp path. Capture the HARNESS-SIDE signal — the tool-call rejection / the fork's report that Write/Edit are excluded from its RESOLVED SCHEMA (no call could be made) — NOT merely path-absence. Then also independently check the /tmp path was never created (corroboration, not the primary signal).",
+      "measured": "the Write/Edit TOOLS are absent from the fork's schema at schema-resolution time — evidenced by a structural tool-call refusal / resolved-schema report. Path-absence ALONE is insufficient: it cannot distinguish denial from the model electing not to write (the self-attestation weakness this issue exists to defeat), so the schema/refusal signal is load-bearing and path-absence is corroboration.",
+      "expected": "the fork cannot invoke Write/Edit/NotebookEdit — the harness reports them excluded from the schema (structural refusal at schema-resolution), corroborated by the /tmp path being absent. This is 'the TOOLS are denied', NOT a sandbox claim: Bash is retained (spec 7.4 residual), so 'cannot write anything' would be an overclaim. If path-absence is the ONLY evidence available (no refusal signal surfaced), the rung is INCONCLUSIVE, not PASS.",
+      "trigger": "every Claude Code upgrade / plugin reinstall",
+      "baseline": {
+        "date": "",
+        "model": "",
+        "pass_rate": "",
+        "runs": [],
+        "note": "UNFILLED at ship. #458's 2026-07-17 run recorded PASS (denial enforced at schema-resolution)."
+      }
+    },
+    {
+      "id": "model-routing-observable",
+      "target": "the unpinned fork inherits the session model; an explicit model param is honoured",
+      "procedure": "Dispatch the fork twice: once with no model override, once with an explicit model: opus. After each, read the per-subagent model ID from the session transcript's subagents/*.jsonl.",
+      "measured": "the recorded model ID per subagent message",
+      "expected": "the unpinned fork's recorded model ID equals the main chain's (inherit); the explicit-param fork's recorded model ID equals the passed value. Routing is observable via subagents/*.jsonl (closing #458 Smoke A's 'routing unobservable' limit). Effort is NOT recorded in transcripts and stays disclosed-as-unobserved.",
+      "trigger": "every Claude Code upgrade / plugin reinstall",
+      "baseline": {
+        "date": "",
+        "model": "",
+        "pass_rate": "",
+        "runs": [],
+        "note": "UNFILLED at ship. #458 probe 7 confirmed both dispatch shapes transcript-verified."
+      }
+    }
+  ]
+}
