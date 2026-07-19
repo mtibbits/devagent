@@ -74,7 +74,8 @@ verbatim, substituting this step's per-step deltas:
 - **`<INTRO>`** — Fresh context is what makes the check real; the model override
   is conditional. The `core-improve` skill invoked below is a fork prompt bound
   to the agent — invoking it IS the fresh-context dispatch.
-- **`<STEP>`** (canonical step number) — `3`.
+- **`<STEP>`** (canonical step number) — `3`; the main session resolves the
+  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 3`.
 - **`<AGENT>`** (bound agent) — `plan-improver`: rc 0 dispatches the Agent tool
   with `subagent_type: devagent:plan-improver`; rc 3 dispatches the Agent tool
   with an explicit `model: opus` (the wrapper-carried step default) and stamps
