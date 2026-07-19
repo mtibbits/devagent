@@ -194,6 +194,47 @@ LL
   [ "$status" -ne 0 ]
 }
 
+@test "reap: list-form [pattern, actionable] lesson is harvested (#525)" {
+  # #525: block 4 gated on the literal [actionable], so a comma-joined tag list
+  # '- Tags: [pattern, actionable]' (the structured multi-tag form the newest
+  # files use) never matched — actionable entries were silently skipped. reap must
+  # recognize `actionable` as a MEMBER of a bracketed tag list, by token not
+  # substring: a non-actionable list and an [actionableness] substring must NOT be
+  # harvested. Fresh Issue-995 isolates the assertion.
+  mkdir -p "${TMP_DEVDOC}/Issue-995"
+  cat > "${TMP_DEVDOC}/Issue-995/lessonsLearned.md" <<'LL'
+# Issue-995 — Lessons learned
+
+## Entries
+
+### Widened recognition must be a token membership test
+- Evidence: the literal-bracket gate skipped comma-joined lists
+- Tags: [pattern, actionable]
+
+### A non-actionable multi-tag entry must not be harvested
+- Tags: [pattern, norm]
+
+### A substring like actionableness must not be harvested
+- Tags: [actionableness]
+
+### Sibling bracket groups must be scanned not just the first
+- Tags: [reference] [actionable]
+LL
+  run "${REPO_ROOT}/scripts/capture/reap.sh"
+  [ "$status" -eq 0 ]
+  # the actionable list-member entry is harvested, titled by its heading
+  grep -rqF 'Widened recognition must be a token membership test' "${TMP_DEVDOC}/Captures"/*/draft.md
+  # the sibling-bracket form '[reference] [actionable]' is harvested — the token
+  # is not in the FIRST bracket, so a first-bracket-only scan would drop it (#525 redmr)
+  grep -rqF 'Sibling bracket groups must be scanned not just the first' "${TMP_DEVDOC}/Captures"/*/draft.md
+  # the non-actionable entry is NOT harvested
+  run grep -rl 'A non-actionable multi-tag entry' "${TMP_DEVDOC}/Captures"/*/draft.md
+  [ "$status" -ne 0 ]
+  # the [actionableness] substring is NOT harvested (token, not substring match)
+  run grep -rl 'A substring like actionableness' "${TMP_DEVDOC}/Captures"/*/draft.md
+  [ "$status" -ne 0 ]
+}
+
 @test "reap: numbered-bold [actionable] lesson is titled by its claim, not the list number (#323)" {
   # Fable-era lessons use a NUMBERED bold list: '1. **[actionable] <claim>.** ...'.
   # reap's bullet strip did not match '1.', so the title truncated at the period

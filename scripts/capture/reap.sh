@@ -253,7 +253,19 @@ emit_candidates() {
         /<!--/ { incomment = 1 }
         incomment { if ($0 ~ /-->/) incomment = 0; next }
         /^### / { heading = $0; sub(/^### */, "", heading); next }
-        /\[actionable\]/ {
+        /\[[^][]*\]/ {
+          # #525: recognize actionable as a MEMBER of a bracketed tag list, by
+          # TOKEN not substring — the guard below is the sole discriminator, so
+          # the comma-joined form [pattern, actionable] matches while
+          # [actionableness] and prose actionable do not.
+          is_actionable = 0; rest = $0;
+          while (match(rest, /\[[^][]*\]/)) {          # scan EVERY bracket group, not just the first
+            grp = substr(rest, RSTART + 1, RLENGTH - 2);
+            ntok = split(grp, tok, /[ ,]+/);
+            for (ti = 1; ti <= ntok; ti++) if (tok[ti] == "actionable") is_actionable = 1;
+            rest = substr(rest, RSTART + RLENGTH);
+          }
+          if (!is_actionable) next;
           line = $0; sub(/^[ \t]*-[ \t]*/, "", line);   # strip a leading bullet
           if (line ~ /^[0-9]+\.[ \t]+/) {               # #323: numbered bold list "1. **[actionable] <claim>.**"
             sub(/^[0-9]+\.[ \t]+/, "", line);           #   drop the ordered-list marker
