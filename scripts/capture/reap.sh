@@ -253,12 +253,11 @@ emit_candidates() {
         /<!--/ { incomment = 1 }
         incomment { if ($0 ~ /-->/) incomment = 0; next }
         /^### / { heading = $0; sub(/^### */, "", heading); next }
-        /\[[^][]*actionable[^][]*\]/ {
+        /\[[^][]*\]/ {
           # #525: recognize actionable as a MEMBER of a bracketed tag list, by
-          # TOKEN not substring, so the comma-joined form [pattern, actionable]
-          # matches while [actionableness] and prose actionable do not. The
-          # broadened gate only widens which lines reach the unchanged claim-lift
-          # branches below.
+          # TOKEN not substring — the guard below is the sole discriminator, so
+          # the comma-joined form [pattern, actionable] matches while
+          # [actionableness] and prose actionable do not.
           is_actionable = 0;
           if (match($0, /\[[^][]*\]/)) {
             toks = substr($0, RSTART + 1, RLENGTH - 2);
