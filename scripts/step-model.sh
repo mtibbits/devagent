@@ -9,7 +9,7 @@
 # resolved · 1 = error (bad marker, message on stderr — a stop condition for
 # dispatchers, never an inherit). 2 and 3 are distinct because they are NOT
 # interchangeable for a caller whose fallback is something other than inherit:
-# steps bound to a dedicated agent (#458: 14 redmr, 21 preship) fall back to
+# steps bound to a dedicated agent (#458/#527: 3 improve, 14 redmr, 21 preship) fall back to
 # that agent's pinned model, so 2 must still inherit while 3 takes the agent
 # default. Callers whose fallback IS inherit may keep collapsing every nonzero
 # (`$(... || true)` yields empty for 1, 2 and 3 alike).

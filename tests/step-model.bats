@@ -191,10 +191,10 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 
 @test "step-model: rc 3 is 'nothing configured', distinct from the inherit escape (#458)" {
     # No step_models table at all — the fresh-install state that takes the
-    # agent default for steps 14/21.
+    # agent default for steps 3/14/21 (#527 added 3).
     local d="$DEVDOC_DIR/Issue-1"
     local step
-    for step in 14 21; do
+    for step in 3 14 21; do
         run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step" "$d"
         [ "$status" -eq 3 ]
         [ -z "$output" ]
@@ -202,7 +202,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 }
 
 @test "step-model: callers whose fallback IS inherit still collapse every nonzero (#458)" {
-    # Backward compatibility: steps 3/13 and next.sh/catchup.sh use
+    # Backward compatibility: step 13 and next.sh/catchup.sh use
     # `$(... || true)` or `if tier=$(...)`, for which rc 2 and rc 3 are both
     # correctly empty. Adding exit codes must not change what they see.
     local d="$DEVDOC_DIR/Issue-1"

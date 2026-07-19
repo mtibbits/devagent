@@ -61,53 +61,76 @@ REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
         "$REPO/agents/redteam-reviewer.md"
 }
 
-@test "the artifact-header model enumeration is single-valued across its four homes (#458)" {
+@test "the artifact-header model enumeration is single-valued across its nine homes (#458/#527)" {
     # The rc table tells the wrapper WHAT to stamp; the enumeration and the
     # agent's ## Artifact format tell the checker what is LEGAL. They are three
-    # statements of one contract in four files, and they shipped divergent once:
-    # the rc-2 stamp `inherit (per-issue)` was absent from every enumeration
-    # (review MAJOR-1), so a checker resolving the conflict could normalise the
-    # provenance of the one path that most needs an audit trail.
+    # statements of one contract per bound step, and they shipped divergent
+    # once: the rc-2 stamp `inherit (per-issue)` was absent from every
+    # enumeration (review MAJOR-1), so a checker resolving the conflict could
+    # normalise the provenance of the one path that most needs an audit trail.
+    # #527 added the third bound step (improve): 3 wrappers + 3 agents + 3
+    # fork-prompt skills = nine homes, one sweep.
     local f tok
     for tok in '<tier> (per-issue)' 'inherit (per-issue)' 'inherit (fallback from <tier>)'; do
         for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
-                 "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md"; do
+                 "$REPO/commands/improve.md" \
+                 "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md" \
+                 "$REPO/agents/plan-improver.md"; do
             grep -qF "$tok" "$f" || { echo "missing '$tok' from $f" >&2; false; }
         done
     done
-    # The fork-prompt skills are the 5th/6th homes (redmr r2 MAJOR: their
+    # The fork-prompt skills are the remaining homes (redmr r2 MAJOR: their
     # direct-invocation stamp `model: inherit` shipped outside the enumerated
     # set). Every stamp a skill names must be in the set; bare `inherit` is now
     # enumerated, and the skills carry both forms they can instruct.
-    for f in "$REPO/skills/core-preship/SKILL.md" "$REPO/skills/core-redmr/SKILL.md"; do
+    for f in "$REPO/skills/core-preship/SKILL.md" "$REPO/skills/core-redmr/SKILL.md" \
+             "$REPO/skills/core-improve/SKILL.md"; do
         grep -qF 'inherit (per-issue)' "$f" || { echo "missing rc-2 stamp in $f" >&2; false; }
         grep -qF '`model: inherit`' "$f" || { echo "missing direct-invocation stamp in $f" >&2; false; }
     done
     for f in "$REPO/commands/preship.md" "$REPO/commands/redmr.md" \
-             "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md"; do
+             "$REPO/commands/improve.md" \
+             "$REPO/agents/preship-verifier.md" "$REPO/agents/redteam-reviewer.md" \
+             "$REPO/agents/plan-improver.md"; do
         grep -qF '`inherit`,' "$f" || { echo "bare inherit missing from the enumeration in $f" >&2; false; }
     done
-    # Each side names its own agent-default form, and no other's.
+    # Each side names its own agent-default form, and no other's — the negative
+    # half is load-bearing: a §-for-§ copy that leaves a neighbour's token in
+    # place re-opens the exact divergence this test exists to close.
     grep -qF 'agent-default (preship-verifier)' "$REPO/commands/preship.md"
     grep -qF 'agent-default (preship-verifier)' "$REPO/agents/preship-verifier.md"
     grep -qF 'agent-default (redteam-reviewer)' "$REPO/commands/redmr.md"
     grep -qF 'agent-default (redteam-reviewer)' "$REPO/agents/redteam-reviewer.md"
+    grep -qF 'agent-default (plan-improver)' "$REPO/commands/improve.md"
+    grep -qF 'agent-default (plan-improver)' "$REPO/agents/plan-improver.md"
     run grep -c 'agent-default (redteam-reviewer)' "$REPO/agents/preship-verifier.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (redteam-reviewer)' "$REPO/agents/plan-improver.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (preship-verifier)' "$REPO/agents/plan-improver.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (plan-improver)' "$REPO/agents/preship-verifier.md"
+    [ "$output" -eq 0 ]
+    run grep -c 'agent-default (plan-improver)' "$REPO/agents/redteam-reviewer.md"
     [ "$output" -eq 0 ]
 }
 
-@test "both bound-step wrappers carry the same wrapper-owned step default (#458)" {
+@test "all bound-step wrappers carry the same wrapper-owned step default (#458/#527)" {
     # The rc-3 default model lives in the WRAPPERS (the agents are deliberately
     # unpinned — a frontmatter pin makes the #291 inherit escape unreachable;
-    # measured, see tests/agents.bats). Two wrapper copies of one constant is a
-    # twin-drift surface: pin that both name the same token, and that neither
+    # measured, see tests/agents.bats). Wrapper copies of one constant are a
+    # twin-drift surface: pin that all name the same token, and that no
     # agent grew a model pin back.
     run grep -c 'explicit `model: opus`' "$REPO/commands/preship.md"
     [ "$output" -eq 1 ]
     run grep -c 'explicit `model: opus`' "$REPO/commands/redmr.md"
     [ "$output" -eq 1 ]
+    run grep -c 'explicit `model: opus`' "$REPO/commands/improve.md"
+    [ "$output" -eq 1 ]
     run grep -c '^model:' <(awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$REPO/agents/preship-verifier.md")
     [ "$output" -eq 0 ]
     run grep -c '^model:' <(awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$REPO/agents/redteam-reviewer.md")
+    [ "$output" -eq 0 ]
+    run grep -c '^model:' <(awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$REPO/agents/plan-improver.md")
     [ "$output" -eq 0 ]
 }
