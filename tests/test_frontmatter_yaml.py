@@ -239,6 +239,11 @@ def test_slash_command_has_argument_hint(path):
 # NOT at import, so an unrelated tree `.md` with a bad `---` block cannot error
 # collection.
 
+# NOTE (#531 review nit): this tuple is itself a staleable allowlist — a carrier
+# in a genuinely NEW top-level dir (e.g. a future hooks/) would be missed by BOTH
+# the one-level sweep and this oracle. The two concretely-named residuals (nested
+# skills/*/*/SKILL.md + an agents/ carrier) ARE covered; widen this tuple the day
+# a new carrier-bearing top-level dir is introduced.
 _GRANT_SCAN_DIRS = ("agents", "commands", "skills")
 
 

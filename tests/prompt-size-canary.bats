@@ -16,7 +16,7 @@
 # 1916 body): next.md is the proven-doubler with a known regrowth driver, so it
 # earns a tight pin; these are stabler prompt bodies where a ~25% ceiling still
 # catches doubling without flapping on ordinary edits. Numbers documented per
-# file below (measured at HEAD 090d1a5).
+# file below (measured at baseline 090d1a5; tests-only, so identical at HEAD).
 #
 #   file                          body   floor  ceiling
 #   agents/preship-verifier.md    5342   2600   6800
