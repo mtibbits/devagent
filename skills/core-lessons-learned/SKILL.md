@@ -42,7 +42,8 @@ issues, not at the end of the current one.
    in the plan was wrong, what was learned mid-implementation?
 4. **Read red-team findings.** Each BLOCKING finding the operator
    addressed is a candidate lesson about future plans.
-5. **Write entries.** Format per entry:
+5. **Write entries in a tagged, lint-recognized shape.** Every entry MUST
+   carry a tag in one of the TWO shapes `scripts/lessons-lint.sh` recognizes:
 
    ```markdown
    ### <one-line claim>
@@ -50,6 +51,14 @@ issues, not at the end of the current one.
    - Consequence: <one line: what to do differently next time>
    - Tags: [actionable | reference | norm | pattern]
    ```
+
+   or the flat inline form `- [<tag>] <one-line claim>`. Prefer the
+   `### `+`- Tags:` form for register-grade lessons — `/devagent:reap` lifts
+   the heading as the follow-up title. **Anti-pattern:** a bare bold bullet
+   `- **<claim>**` with NO `- Tags:` line and NO `### ` heading is invisible
+   to the tagging pipeline; since #525 `lessons-lint` FAILS such wholly
+   flat-bullet, zero-tag files naming the file (the batch-11 gap — Issue-440–443,
+   453–457, 459–460 shipped this way and silently escaped both reap and the lint).
 
 6. **Classify every entry — mandatory.** Each entry MUST carry ≥1 tag
    from the closed set `actionable | reference | norm | pattern` (no
