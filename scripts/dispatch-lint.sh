@@ -7,6 +7,13 @@
 #
 #   dispatch-lint.sh <artifact> <expected-context> [--class review|redmr|preship]
 #
+# PRIMARY MECHANISM (#458, register PR #524): the producer or relay WRITEs the
+# artifact to a FILE, never echoes it through a prose relay — a relayed report
+# comes back truncated/elided and is not verbatim. This lint is the NARROW
+# BACKSTOP behind that contract: it rejects the elision SHAPES that slip it (a
+# marker line, or padding with no distinct substance — #530), not a substitute
+# for file-carrying.
+#
 # rc 0 = looks real; rc≠0 + a one-line reason on stderr = reject (the carrier then
 # archives + re-dispatches once, then marks [!]). Unreadable file = FAIL (fail-closed).
 set -euo pipefail
@@ -55,10 +62,46 @@ line2="$(sed -n '2p' "$artifact")"
 printf '%s\n' "$line2" | grep -Eq '^model: [a-z]+(-[a-z]+)*( \(.*\))?$' \
   || _reject "line 2 must match 'model: <tier>[ (note)]' (got: '${line2:-<empty>}')"
 
-# Body: ≥5 non-empty lines beyond the 2-line header.
-body_lines="$(sed -n '3,$p' "$artifact" | grep -c '[^[:space:]]' || true)"
-[ "$body_lines" -ge 5 ] \
-  || _reject "body has $body_lines non-empty lines (need ≥5 — a garbled/no-work report)"
+# Body (lines 3..EOF): reject the ELISION shape class (#530). A relayed report —
+# one echoed through another model session instead of file-carried (#458) — comes
+# back truncated: an ellipsis/omission MARKER line, or a body padded to clear a
+# raw line count with almost no DISTINCT substance. The file-carried artifact
+# contract (see header) is the primary mechanism; this is the narrow backstop.
+#
+# ONE awk pass (awk exits 0 regardless of match count — no `grep -c` rc=1
+# pipefail trap, #314/#316). It emits `elision=<0|1> distinct=<n>`:
+#  - Shape 1 (elision marker): OUTSIDE a ``` fence (fenced lines are the
+#    checker's own quoted content, exempt), a line whose trimmed+lowercased form
+#    exactly equals a member of the fixed literal marker set → elision=1.
+#  - Shape 2 (low distinct substance): count DISTINCT non-blank lines that are
+#    not a horizontal rule and not a marker (trimmed+lowercased, deduped).
+# KNOWN GAP (#530 redmr INFO): Shape 1 is fence-evadable — a marker inside a
+# fence, or an unclosed fence, is exempt. This is deliberate (the file-carried
+# contract is primary; Shape 2 still applies), so the lint does NOT close the
+# elision class — it is the narrow backstop, not a substitute for file-carrying.
+# mawk-safe (#526): literal `…` (no \x escape), no regex backreferences.
+_body_stats="$(sed -n '3,$p' "$artifact" | awk '
+  function trim(s){ sub(/^[[:space:]]+/,"",s); sub(/[[:space:]]+$/,"",s); return s }
+  BEGIN{ elision=0
+    n=split("...|…|[...]|[truncated]|[elided]|[omitted]|<elided>|<truncated>|(truncated)|(rest omitted)", M, "|")
+    for(i=1;i<=n;i++) marker[tolower(M[i])]=1
+  }
+  { line=trim($0); low=tolower(line)
+    if (line ~ /^`{3}/ || line ~ /^~{3}/) { in_fence = !in_fence; next }  # ``` or ~~~ fence
+    if (line=="") next
+    if (!in_fence && (low in marker)) { elision=1; next }
+    if (line ~ /^-{3,}$/ || line ~ /^\*{3,}$/ || line ~ /^={3,}$/ || line ~ /^_{3,}$/) next  # horizontal rule
+    if (in_fence && (low in marker)) next        # fenced quoted marker: not substance, not elision
+    if (!(low in seen)) { seen[low]=1; distinct++ }
+  }
+  END{ printf "%d %d\n", elision, distinct }
+')"
+elision="${_body_stats%% *}"      # awk-emitted integers; no pipe rc exposure, no eval
+distinct="${_body_stats##* }"
+[ "${elision:-0}" -eq 0 ] \
+  || _reject "body contains an elision/relay marker line (a relayed/truncated report — file-carry the artifact, do not echo it; #458)"
+[ "${distinct:-0}" -ge 5 ] \
+  || _reject "body has ${distinct:-0} distinct substantive lines (need ≥5 — a garbled/relayed report)"
 
 # A verdict SIGNAL is required for the judgement classes (#405). The house skills
 # emit different-but-legitimate shapes: preship writes per-criterion PASS/FAIL;

@@ -764,7 +764,12 @@ skill files, summarized here so the mechanism is discoverable:
 Shared contract elements: a dispatched artifact's first two lines are the
 provenance header (`context: subagent|inline`, `model: <tier>|inherit|…`);
 and a garbled report is linted (`scripts/dispatch-lint.sh`), archived, and
-re-dispatched once, then the step goes `[!]` (#360). Normative detail:
+re-dispatched once, then the step goes `[!]` (#360). The lint's PRIMARY
+mechanism is the file-carried artifact contract (#458 — a relay through another
+model session is not verbatim); as a narrow backstop it rejects the ELISION
+shape class (#530): an elision/omission marker line outside a code fence, or a
+body with fewer than 5 DISTINCT substantive lines (replacing the older raw
+non-empty-line floor, which padding could clear). Normative detail:
 `docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
 `commands/draft.md`, which now carries a conditional-load stub — the contract is
 read only when the step-1 tier is non-empty OR the operator instructs dispatch)
