@@ -59,7 +59,8 @@ devAgent/
 ├── README.md
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
-│   └── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
+│   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
+│   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 ├── commands/                # one .md file per command-form slash command (52)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
@@ -759,13 +760,14 @@ re-dispatched once, then the step goes `[!]` (#360). Normative detail:
 `docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
 `commands/draft.md`, which now carries a conditional-load stub — the contract is
 read only when the step-1 tier is non-empty OR the operator instructs dispatch)
-and, for the checking path, the
-`commands/improve.md` / `commands/redmr.md` / `commands/preship.md` wrappers —
-#458 moved the redmr/preship contracts skill→command and #527 completed the
-pattern for improve, because the duties they describe (tier resolution, the
-verbatim artifact write, dispatch-lint, the failure protocol) bind the MAIN
-session, while their skills became fork prompts bound to the agents that carry
-the procedure.
+and, for the checking path, `docs/checking-dispatch-contract.md` (#528: extracted
+from the `commands/improve.md` / `commands/redmr.md` / `commands/preship.md`
+wrappers, which now carry a pointer stub + per-step delta block, mirroring the
+thinking path's stub) — #458 moved the redmr/preship contracts skill→command and
+#527 completed the pattern for improve, because the duties they describe (tier
+resolution, the verbatim artifact write, dispatch-lint, the failure protocol)
+bind the MAIN session, while their skills became fork prompts bound to the agents
+that carry the procedure.
 
 **Why review (step 13) is the one unbound checking step** — the asymmetry is a
 boundary, not an oversight:
