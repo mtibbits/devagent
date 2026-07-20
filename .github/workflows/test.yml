@@ -2,8 +2,9 @@
 # bats 1.10.0-1 and python3-pytest 7.4.4 ship on ubuntu-24.04 via apt.
 # Tests are hermetic: stubs replace gh/glab/curl; HOME is redirected
 # per test; fixture HTTP server runs on a random port.
-# claude plugin validate: non-strict rc=0 is the wired check (local-only rung,
-# no claude CLI in CI); --strict is documented-red by the #532 policy.
+# claude plugin validate: non-strict rc=0 is the local rung (skips here — no
+# claude CLI in CI); the CI-enforced half is tests/test_plugin_versioning.py,
+# and --strict is documented-red by the #532 policy.
 name: test suite
 
 on:
