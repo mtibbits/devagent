@@ -82,3 +82,39 @@ EOF
   run tier_is_legal ../evil
   [ "$status" -ne 0 ]
 }
+
+@test "flags_get ignores a Workflow-flags block inside an HTML comment (#537 redmr)" {
+  MD3="$BATS_TEST_TMPDIR/commented.md"
+  cat > "$MD3" <<'FIXTURE'
+# repo#3 — demo
+
+---
+
+Body text.
+
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
+More body.
+
+---
+
+## Comments (0)
+FIXTURE
+  run flags_get "$MD3" tier
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "flags_get returns a trailing-annotated value verbatim (bare-value grammar, downstream fail-closed) (#537 redmr)" {
+  MD4="$BATS_TEST_TMPDIR/annotated.md"
+  cat > "$MD4" <<'FIXTURE'
+## Workflow flags
+tier: oneshot   # run the Q3 release
+FIXTURE
+  run flags_get "$MD4" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot   # run the Q3 release" ]
+}

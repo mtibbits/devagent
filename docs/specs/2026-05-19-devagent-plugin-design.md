@@ -560,8 +560,10 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 A tier is a named checklist template selecting WHICH of the 22 steps an issue
 runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
-`[a-z-]+`, unknown keys ignored, body segment only — comments never parse;
-first consumer `scripts/lib/flags.sh`, extended by #535/#536). `pull.sh`
+`[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
+part of the value and fails per-key validation, fail-closed; body segment
+only — tracker comments and HTML-comment spans never parse; first consumer
+`scripts/lib/flags.sh`, extended by #535/#536). `pull.sh`
 validates the value against the table below BEFORE any path interpolation
 (the value arrives in remote content), then passes it to `checklist_init` as
 the template name, overriding the project's `checklist_template` default. No

@@ -343,3 +343,10 @@ CTX
   [ "$status" -eq 0 ]
   grep -q '^Template: standard$' "$DEVDOC/Issue-703/checklist.md"
 }
+
+@test "template boilerplate comment left in the body does not tier the issue (#537 redmr)" {
+  export GH_STUB_BODY_JSON='"## Motivation\nStuff.\n\n<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):\n## Workflow flags\ntier: oneshot\n-->\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 704
+  [ "$status" -eq 0 ]
+  grep -q '^Template: standard$' "$DEVDOC/Issue-704/checklist.md"
+}

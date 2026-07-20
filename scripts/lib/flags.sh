@@ -4,9 +4,15 @@
 # Grammar (pinned by the #535 research-step capture; this file is the first
 # consumer and #535/#536 EXTEND it): one `key: value` pair per line; keys
 # lowercase [a-z-]+; unknown keys are ignored by each consumer (forward
-# compatibility); legal values are per-key. Parses ONLY the body segment of a
-# fetched issue.md — everything before the `^## Comments (` heading — so a
-# flags block quoted in a comment can never flip behavior.
+# compatibility); legal values are per-key. Value lines are BARE: trailing
+# inline prose is part of the value and fails per-key validation downstream
+# (fail-closed). Parses ONLY the body segment of a fetched issue.md —
+# everything before the `^## Comments (` heading — so a flags block quoted
+# in a tracker comment can never flip behavior. HTML-comment spans
+# (`<!-- … -->`) are skipped entirely (the reap.sh/lessons-lint.sh
+# incomment idiom): template boilerplate that quotes a flags block inside a
+# comment is invisible in rendered markdown and must never parse as live
+# config (#537 redmr BLOCKING).
 #
 # Source-only file: do not execute directly.
 
@@ -17,6 +23,8 @@ flags_get() {
   [[ -f "$file" ]] || return 1
   awk -v key="$key" '
     /^## Comments \(/ { exit }
+    /<!--/ { incomment = 1 }
+    incomment { if ($0 ~ /-->/) incomment = 0; next }
     /^## Workflow flags[[:space:]]*$/ { inblock=1; next }
     inblock && /^#/ { inblock=0 }
     inblock && index($0, key ":") == 1 {
