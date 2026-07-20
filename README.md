@@ -301,11 +301,11 @@ evidence in the #532 decision doc.
 
 Consequence, accepted: `claude plugin validate --strict` fails on the missing
 version (measured on 2.1.211) and stays red by design. The wired check is the
-**non-strict** `claude plugin validate` (rc=0, `tests/plugin-validate.bats` —
-a local-only rung, since CI has no claude CLI; the CI-enforcing half is the
-pytest guard above); real conformance coverage comes from the pytest
-frontmatter canaries (#447), since `--strict` is manifest-only and never opens
-agent/skill files.
+**non-strict** `claude plugin validate` (rc=0). Both live in
+`tests/plugin-validate.bats` — a local-only rung, since CI has no claude CLI;
+the CI-enforcing half is the pytest guard above. Real conformance coverage
+comes from the pytest frontmatter canaries (#447): `--strict` is manifest-only
+and never opens agent/skill files.
 
 When a stable release cadence is wanted (go-public, #404), revisit #532
 branch (b): explicit versions with
