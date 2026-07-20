@@ -22,6 +22,8 @@ source "$DEVAGENT_ROOT/scripts/lib/active.sh"
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/flags.sh"
 
 # Private die() preserves the "revise:" message prefix; defined after the sources so
 # it shadows io.sh's die (state.sh's internal die calls then carry this prefix too).
@@ -38,8 +40,16 @@ die() {
 PROJECT=""
 ISSUE=""
 NO_CHAIN=0
+RETIER=""
+expect_retier=0
 for arg in "$@"; do
+  if [[ "$expect_retier" -eq 1 ]]; then
+    RETIER="$arg"
+    expect_retier=0
+    continue
+  fi
   case "$arg" in
+    --retier)   expect_retier=1 ;;
     --no-chain) NO_CHAIN=1 ;;
     *)
       if [[ -z "$PROJECT" ]]; then
@@ -50,6 +60,7 @@ for arg in "$@"; do
       ;;
   esac
 done
+[[ "$expect_retier" -eq 0 ]] || die "--retier requires a tier name"
 # #124: route the bare-invocation default through the active-project chain
 # (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured project)
 # instead of the literal string 'default', matching next.sh / statusreport.sh / wbs.
@@ -63,6 +74,37 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+
+if [[ -n "$RETIER" ]]; then
+  # #537 escalation valve: tier promotion is a REVISION (this script owns
+  # both halves — the block append AND the issue-keyed state transaction).
+  # No comments.md required: this is a tier change, not MR feedback.
+  tier_is_legal "$RETIER" \
+    || die "unknown tier '${RETIER}' — legal tiers: $(tier_allowlist)"
+  old_tier="$(sed -n 's/^Template: //p' "$issue_dir/checklist.md" | head -1)"
+  n_cur=$(revision_current "$PROJECT" "$ISSUE")
+  n_new=$((n_cur + 1))
+  tpl="$(artifact_resolve_or "$PROJECT" "checklist-${RETIER}")"
+  [[ -f "$tpl" ]] || die "checklist template not found: $tpl"
+  {
+    printf '\n## Revision %s\n\n' "$n_new"
+    # the new tier's Revision-1 rows, excluding row 0 (revision_block.md
+    # convention: a pending `0. pull` would re-point next.sh at pull)
+    awk '/^## Revision 1$/{inrev=1; next} inrev && /^## /{exit} inrev && /^- \[/{print}' "$tpl" \
+      | grep -Ev '^\- \[.\] +0\. ' || true
+  } >> "$issue_dir/checklist.md"
+  sed -i "s/^Template: .*/Template: ${RETIER}/" "$issue_dir/checklist.md"
+  # #414 shape: revision bump + step-pointer reset in ONE issue-keyed
+  # transaction; pending_comments_file deliberately untouched (no comments).
+  state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" int last_step 0 str last_step_name ""
+  log_append "$issue_dir" revise "retier: ${old_tier:-unknown} → ${RETIER} (revision $n_new)"
+  printf 'revise: retier %s → %s (revision %s)\n' "${old_tier:-unknown}" "$RETIER" "$n_new"
+  if [[ "$NO_CHAIN" -eq 0 ]]; then
+    chain_cmd="${DEVAGENT_CHAIN_CMD:-/devagent:next}"
+    printf 'CHAIN: %s\n' "$chain_cmd"
+  fi
+  exit 0
+fi
 
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 prev_rdir=$(revision_dir "$issue_dir" "$n_cur")
