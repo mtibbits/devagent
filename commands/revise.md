@@ -35,4 +35,7 @@ introduced by retier): a subsequent GENUINE revise appends
 `revision_block.md`, which is standard-shaped regardless of the
 `Template:` header — after `--retier <non-standard>`, that next
 MR-feedback block reintroduces standard-only rows. Tier-shaped revision
-blocks are a recorded future enhancement.
+blocks are a recorded future enhancement. Similarly, retier updates the
+`Template:` header but leaves any tier-specific header prose from the
+original scaffold in place (e.g. oneshot's Boundary paragraph) — human-
+facing only; read the header line, not the prose, for the current tier.

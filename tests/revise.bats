@@ -268,3 +268,10 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"--retier requires a tier name"* ]]
 }
+
+@test "revise --retier with an empty tier name dies rather than degrading (#537)" {
+  retier_fixture
+  run_revise --retier "" volk Issue-676
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--retier requires a tier name"* ]]
+}

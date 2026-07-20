@@ -46,6 +46,8 @@ RETIER=""
 expect_retier=0
 for arg in "$@"; do
   if [[ "$expect_retier" -eq 1 ]]; then
+    # An explicit empty value must not silently degrade to a genuine revise.
+    [[ -n "$arg" ]] || die "--retier requires a tier name"
     RETIER="$arg"
     expect_retier=0
     continue
