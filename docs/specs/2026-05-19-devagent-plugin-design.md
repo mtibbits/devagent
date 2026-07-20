@@ -317,8 +317,9 @@ Captures/2026-05-19-corn-planting/
 ### 3.7 Plugin manifest `userConfig` (enable-time seed) — #459
 
 `.claude-plugin/plugin.json` declares a `userConfig` block that Claude prompts for at
-plugin-enable time (verified on claude 2.1.75: the validator recognizes `userConfig` and
-requires a `title` per option). Two keys, both seeds:
+plugin-enable time (verified on claude 2.1.75 that the validator recognizes `userConfig`
+and requires a `title` per option; re-verified on 2.1.211 #533 that a titled `userConfig`
+block still validates). Two keys, both seeds:
 
 ```json
 "userConfig": {
