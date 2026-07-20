@@ -19,8 +19,9 @@ Per `commands/draft.md`.
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify state file has a `baseline_sha` (needed to diff actual
    against plan). If absent, halt — operator must run branch first —
-   UNLESS the issue's `checklist.md` does not contain the branch step
-   (step 6), as in the research and oneshot checklists.
+   UNLESS the issue's ACTIVE revision block (the last `## Revision N`;
+   earlier blocks may predate a #537 retier) does not contain the branch
+   step (step 6), as in the research and oneshot checklists.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt:
    skip this check and proceed without a diff baseline.
 3. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
@@ -33,7 +34,7 @@ Per `commands/draft.md`.
   issue's checklist. If the checklist omits branch (research), the baseline is
   N/A — do not halt.
 - imPlan.md lacks `## Definition of done` section **and** the draft step (1)
-  is present in the issue's checklist. If the checklist omits draft
+  is present in the active revision block. If the checklist omits draft
   (oneshot), the producing step is absent and the check is N/A — record
   execution evidence (command output, service-answers proof) against the
   issue body's acceptance criteria instead.

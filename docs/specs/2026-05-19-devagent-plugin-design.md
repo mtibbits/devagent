@@ -573,6 +573,13 @@ issue-keyed transaction, logs `retier: <old> → <new>`; never destructive).
 Tier and model are orthogonal axes: tiers select STEPS; `step_models` (§7.4)
 selects who runs them — docs may suggest pairings, the schema enforces none.
 
+Executor convention (canonical statement; command docs carry the per-step
+mapping): a prerequisite whose producing step is absent from the issue's
+ACTIVE revision block is N/A, not a halt — branch produces the branch, draft
+produces imPlan.md. Compressed tiers only work because executors apply this
+rule; scope it to the active block, since after a retier earlier revision
+blocks may carry rows the current tier omits.
+
 | Tier | Rows | For |
 |---|---|---|
 | oneshot | 0, 7, 9, 19, 20 | An operational action, not a repo change ("run the release mechanism"). Document (9) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |

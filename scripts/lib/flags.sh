@@ -35,11 +35,14 @@ flags_get() {
 # #535's block-level validator — recorded, not reinterpreted.
 tier_allowlist() { printf 'oneshot standard perf docs-only research'; }
 
-# tier_is_legal <value>
-tier_is_legal() {
-  local t
-  for t in $(tier_allowlist); do
-    [[ "${1:-}" == "$t" ]] && return 0
-  done
-  return 1
+# tier_is_legal <value> — values are space-free by construction.
+tier_is_legal() { [[ " $(tier_allowlist) " == *" ${1:-} "* ]]; }
+
+# tier_require_legal <value> [context] — die with the single-sourced
+# legal-names message; <context> is optional prose after the tier name
+# (e.g. " in ## Workflow flags"). Uses whatever die() the caller has in
+# scope, so per-script message prefixes are preserved.
+tier_require_legal() {
+  tier_is_legal "${1:-}" \
+    || die "unknown tier '${1:-}'${2:-} — legal tiers: $(tier_allowlist)"
 }
