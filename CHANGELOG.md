@@ -6,8 +6,9 @@ All notable changes to devAgent are documented here. The format is based on
 devAgent is currently versioned by its **git commit SHA** (the marketplace entry
 carries no pinned `version`), so every commit on `master` is a release and
 `claude plugin update` tracks new commits without a reinstall. When a stable
-release cadence is adopted, tagged versions (`claude plugin tag`) will get their
-own dated sections below.
+release cadence is adopted (a go-public decision — see #532, ratified
+2026-07-20: SHA-tracking stays until then), tagged versions (`claude plugin
+tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
