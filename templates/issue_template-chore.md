@@ -10,5 +10,10 @@
 - [ ] <verifiable change>
 - [ ] No user-visible behavior change
 
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
 ## Source
 {{source}}

@@ -90,3 +90,23 @@ teardown() { teardown_tmp_devagent_home; }
 
 # --- Task 7: spec-lag tripwire + allowlist sweep -----------------------------
 
+@test "spec carries the tier table with oneshot defined and simple/ultra reserved (#537, #435 tripwire)" {
+  spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -q "Workflow tier profiles" "$spec"
+  grep -q 'checklist-oneshot' "$spec"
+  grep -qE '\| *oneshot *\|' "$spec"
+  grep -qE '\| *simple *\| *RESERVED' "$spec"
+  grep -qE '\| *ultra *\| *RESERVED' "$spec"
+}
+
+@test "spec tier table stays in sweep with tier_allowlist (#537, Issue-458 sweep)" {
+  spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  source "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  for t in $(tier_allowlist); do
+    grep -qE "^\| *${t} *\|" "$spec"
+  done
+  # the config sample/skel comments are POINTERS, not a second list —
+  # a pipe-delimited tier enumeration outside the table is drift surface
+  run grep -E 'standard \| docs-only \| research \| perf' "$spec" "$PLUGIN_ROOT/templates/config.toml.skel"
+  [ "$status" -ne 0 ]
+}

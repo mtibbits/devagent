@@ -19,5 +19,10 @@
 - [ ] Plot from an evidence-plot script attached (if the project has one)
 - [ ] No regression on adjacent functions/callers
 
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
 ## Source
 {{source}}

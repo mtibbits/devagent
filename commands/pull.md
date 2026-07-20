@@ -20,6 +20,16 @@ Implements workflow step 0 per spec §6.3.
 - `fork`   reads `[project.<name>.issue_source_fork]`
 - Existing `checklist.md` is preserved; `issue.md` is overwritten on refetch
 
+## Per-issue tier (#537)
+
+A `tier: <name>` key in the issue body's `## Workflow flags` block selects
+the checklist template at scaffold, overriding the project's
+`checklist_template` default (legal names: the spec §6.3 tier table; an
+unknown value dies pre-path listing them). Body segment only — a flags
+block quoted in a comment never fires. Scaffold-only: a tier key added
+after the first pull is inert on re-pull; the post-scaffold path is
+`/devagent:revise --retier <tier>`.
+
 ## Run the script
 
 Execute, substituting positional args. Pass through `$NOTE` only as

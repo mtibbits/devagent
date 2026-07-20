@@ -23,5 +23,10 @@ Actual:   <what happens>
 - [ ] <observable test that proves the fix>
 - [ ] Regression test added
 
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
 ## Source
 {{source}}

@@ -108,7 +108,7 @@ One file, all projects. Predictable location mirrors `~/.claude/settings.json`.
 
 ```toml
 [defaults]
-checklist_template = "standard"          # standard | docs-only | research | perf
+checklist_template = "standard"          # project default; a per-issue `tier:` key overrides — legal names live in the §6.3 tier table
 ship_as_draft      = false               # default; overridable per-project and per-invocation
 # git_guard        = true                # opt-in git-reflex guard (#352); the hooks/git-guard.sh
                                          #   PreToolUse hook denies reflexive destructive git on a
@@ -554,6 +554,34 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 18 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 19 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 20 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
+
+#### Workflow tier profiles (#537)
+
+A tier is a named checklist template selecting WHICH of the 22 steps an issue
+runs. Selection is per-issue: a `tier: <name>` key in the issue body's
+`## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
+`[a-z-]+`, unknown keys ignored, body segment only — comments never parse;
+first consumer `scripts/lib/flags.sh`, extended by #535/#536). `pull.sh`
+validates the value against the table below BEFORE any path interpolation
+(the value arrives in remote content), then passes it to `checklist_init` as
+the template name, overriding the project's `checklist_template` default. No
+key ⇒ project default ⇒ standard — exactly the prior resolution chain. The
+override fires only at first scaffold; the post-scaffold path is the
+escalation valve `revise.sh --retier <tier>` (a revision: appends the new
+tier's rows minus row 0, updates `Template:`, resets the step pointer in one
+issue-keyed transaction, logs `retier: <old> → <new>`; never destructive).
+Tier and model are orthogonal axes: tiers select STEPS; `step_models` (§7.4)
+selects who runs them — docs may suggest pairings, the schema enforces none.
+
+| Tier | Rows | For |
+|---|---|---|
+| oneshot | 0, 7, 9, 19, 20 | An operational action, not a repo change ("run the release mechanism"). Document (9) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
+| standard | all 22 | Full rails: features, bugfixes (default). |
+| perf | standard minus 17 (updatewbs; impact stays) | Performance work. |
+| docs-only | 0, 1, 6, 9, 10, 12, 13, 21, 15, 16, 20 | Documentation-only changes. |
+| research | 0, 1, 2, 3, 9, 19, 20 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
+| ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 
 ### 6.4 Family C — Revision (post-MR feedback)
 

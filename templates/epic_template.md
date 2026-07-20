@@ -21,5 +21,10 @@
 ## Out of scope
 <adjacent work this epic does not own>
 
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
 ## Source
 {{source}}

@@ -1,5 +1,5 @@
 [defaults]
-checklist_template = "standard"
+checklist_template = "standard"  # project default; a per-issue `tier:` key overrides — legal names live in the spec §6.3 tier table (#537)
 ship_as_draft = false
 # git_guard (#352): opt-in backstop. When true, the plugin's PreToolUse Bash hook
 # (hooks/git-guard.sh) DENIES reflexive destructive git on a DIRTY tree — `git

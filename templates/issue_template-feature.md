@@ -17,5 +17,10 @@
 ## Out of scope
 <things this issue deliberately does NOT address>
 
+<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):
+## Workflow flags
+tier: oneshot
+-->
+
 ## Source
 {{source}}
