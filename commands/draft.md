@@ -63,6 +63,12 @@ that project.
    derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
    for premise-freshness checks; #286's pothole register appends here.)
 
+   **Research findings — read `research.md` if present (#535).** If the optional
+   research step (22) ran, `<issue-dir>/research.md` exists. Read it: the plan's
+   `## Preconditions` and design choices CITE its `## Findings` rather than
+   re-deriving them, and each `## Open unknowns` entry MUST be disposed of — designed
+   around, or carried forward explicitly (never silently dropped).
+
    **Pothole register — consider known potholes before drafting (#286).**
    Resolve `potholes` via the §12 walk (project paths → `<devdoc>/templates/`
    → plugin default) and read it:

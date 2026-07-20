@@ -3,7 +3,13 @@
 #
 # Grammar (pinned by the #535 research-step capture; this file is the first
 # consumer and #535/#536 EXTEND it): one `key: value` pair per line; keys
-# lowercase [a-z-]+; unknown keys are ignored by each consumer (forward
+# lowercase [a-z-]+; the block is CONTIGUOUS — it ends at the next `#` heading, or at a
+# blank line ONCE AT LEAST ONE KEY HAS BEEN SEEN, so col-1 prose further down the body
+# can never be read as a flag (#535 review: a blank line + a col-1 `key: value` prose line
+# otherwise MIS-FLIPPED) while the markdown-conventional `## Workflow flags` + blank line +
+# keys form still parses (#535 redmr BLOCKING: terminating on the FIRST blank silently
+# dropped every flag, regressing #537's shipped `tier:`);
+# unknown keys are ignored by each consumer (forward
 # compatibility); legal values are per-key. Value lines are BARE: trailing
 # inline prose is part of the value and fails per-key validation downstream
 # (fail-closed). Parses ONLY the body segment of a fetched issue.md —
@@ -25,8 +31,10 @@ flags_get() {
     /^## Comments \(/ { exit }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
-    /^## Workflow flags[[:space:]]*$/ { inblock=1; next }
+    /^## Workflow flags[[:space:]]*$/ { inblock=1; seen=0; next }
     inblock && /^#/ { inblock=0 }
+    inblock && seen && /^[[:space:]]*$/ { inblock=0 }
+    inblock && /^[a-z][a-z-]*:/ { seen=1 }
     inblock && index($0, key ":") == 1 {
       val = substr($0, length(key) + 2)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
@@ -53,4 +61,37 @@ tier_is_legal() { [[ " $(tier_allowlist) " == *" ${1:-} "* ]]; }
 tier_require_legal() {
   tier_is_legal "${1:-}" \
     || die "unknown tier '${1:-}'${2:-} — legal tiers: $(tier_allowlist)"
+}
+
+# flags_known_keys — single source of the recognized `## Workflow flags` keys.
+# Consumers EXTEND this (tier #537, research #535; #536 spike adds its own).
+# Unknown keys are warn-and-ignored by flags_validate (forward compatibility).
+flags_known_keys() { printf 'tier research'; }
+
+# flags_validate <issue-md-path> — enumerate the body `## Workflow flags` block's
+# COL-1 keys (the flags_get idiom: body segment only via the `^## Comments (`
+# guard, HTML-comment spans skipped, block ends at the next `^#` heading) and WARN
+# on stderr — non-fatal, forward-compat — for any key not in flags_known_keys.
+# Silent when the block is absent or carries only known keys. Value-continuation,
+# indented, and blank lines are not keys (col-1 `^[a-z][a-z-]*:` only).
+# CONSUMPTION NOTE: pull.sh calls this only in the scaffold branch, so a key added
+# after first scaffold is never validated. CAVEAT (inherited #537 grammar): an inline
+# `<!--` on a key line starts a comment span and silently drops that key.
+flags_validate() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  awk -v known=" $(flags_known_keys) " '
+    /^## Comments \(/ { exit }
+    /<!--/ { incomment = 1 }
+    incomment { if ($0 ~ /-->/) incomment = 0; next }
+    /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
+    inblock && /^#/ { inblock = 0 }
+    inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
+    inblock && /^[a-z][a-z-]*:/ { seen = 1 }
+    inblock && /^[a-z][a-z-]*:/ {
+      key = $0; sub(/:.*/, "", key)
+      if (index(known, " " key " ") == 0)
+        print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
+    }
+  ' "$file"
 }

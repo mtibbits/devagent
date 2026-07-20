@@ -86,6 +86,36 @@ main() {
       template="$tier"
     fi
     ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template" "$project"
+
+    # #535: table-driven optional-step row-flip. `_flag_rows` is the SINGLE SOURCE
+    # of the flag->row mapping; each entry is "flag:trigger-value:row" and #536's
+    # spike step appends an entry here rather than adding a second parser.
+    # Reads the fetched body block via flags_get (body-segment + comment-aware +
+    # contiguous). Scaffold-branch only, so a completed row is never reset; flips
+    # only a `[-]` row. Absent row => warn + no-op (#231/#242: checklist_mark alone
+    # dies, and a die mid-scaffold is a different product than a warning). A known
+    # key with a non-trigger value warns too, so a typo is not silently inert
+    # (#535 review: `research: yes` was indistinguishable from no flag).
+    local _entry _fl _trig _row _val _glyph
+    local -a _flag_rows=( "research:required:22" )
+    for _entry in "${_flag_rows[@]}"; do
+      IFS=: read -r _fl _trig _row <<<"$_entry"
+      _val="$(flags_get "$issue_dir/issue.md" "$_fl" || true)"
+      if [[ -n "$_val" && "$_val" != "$_trig" ]]; then
+        printf "pull.sh: warn: '%s: %s' is not a recognized value for flag '%s' (expected '%s') — ignored\n" \
+          "$_fl" "$_val" "$_fl" "$_trig" >&2
+      fi
+      [[ "$_val" == "$_trig" ]] || continue
+      if _glyph="$(checklist_step_state "$issue_dir/checklist.md" "$_row" 2>/dev/null)"; then
+        [[ "$_glyph" == "-" ]] && checklist_mark "$issue_dir/checklist.md" "$_row" " "
+      else
+        printf 'pull.sh: warn: %s flag set but checklist row %s absent (template-overridden?) — no-op\n' "$_fl" "$_row" >&2
+        log_append "$issue_dir" "pull" "warn: ${_fl} flag set but row ${_row} absent — no-op"
+      fi
+    done
+    # #535: block-level unknown-key WARN (deferred here from #537). Scaffold-branch
+    # only — a key added after first scaffold is inert and unvalidated (documented).
+    flags_validate "$issue_dir/issue.md"
   fi
 
   # Mark step 0 done; log
