@@ -157,3 +157,29 @@ EOF
   run grep -E '^- \[ \] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]
 }
+
+# ---- #536: the spike flag rides the SAME table-driven parser (one entry) ----
+@test "pull flips row 23 to [ ] when the BODY carries spike: required (#536)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nspike: required\n\nBody."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  run grep -E '^- \[ \] 23\. spike$' "$DEVDOC/Issue-676/checklist.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "a spike-flagged scaffold does NOT emit an unknown-key warning (#536 B3)" {
+  # flags_known_keys must list `spike`, else a correctly-flagged issue both flips the
+  # row AND warns that its own flag is unknown — a self-contradicting scaffold.
+  export GH_STUB_BODY_JSON='"## Workflow flags\nspike: required\n\nBody."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown ## Workflow flags key 'spike'"* ]]
+}
+
+@test "research and spike rows flip together when both flags are set (#535/#536)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nresearch: required\nspike: required\n\nBody."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  grep -qE '^- \[ \] 23\. spike$'    "$DEVDOC/Issue-676/checklist.md"
+}

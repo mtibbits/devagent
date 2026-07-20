@@ -66,7 +66,7 @@ tier_require_legal() {
 # flags_known_keys — single source of the recognized `## Workflow flags` keys.
 # Consumers EXTEND this (tier #537, research #535; #536 spike adds its own).
 # Unknown keys are warn-and-ignored by flags_validate (forward compatibility).
-flags_known_keys() { printf 'tier research'; }
+flags_known_keys() { printf 'tier research spike'; }
 
 # flags_validate <issue-md-path> — enumerate the body `## Workflow flags` block's
 # COL-1 keys (the flags_get idiom: body segment only via the `^## Comments (`

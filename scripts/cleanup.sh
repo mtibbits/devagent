@@ -106,6 +106,14 @@ fi
 # on a pinned session cleaning its own issue, and still skips a pinned session
 # whose slot names another issue — but never clobbers a different active issue.
 if [ "$shared_active" = "$gc_issue" ]; then
+    # #536 redmr MAJOR: state_cleanup_finish resets spike_worktree_path along with the
+    # other issue keys. If a spike worktree SURVIVED (a crashed create/teardown), that
+    # reset erases the only pointer to it — turning a passive gap into active
+    # pointer-erasure. Warn with the path BEFORE it is discarded.
+    _spike_orphan="$(state_ctx_get "$project" spike_worktree_path "$issue_arg" 2>/dev/null || true)"
+    if [ -n "${_spike_orphan:-}" ] && [ -e "$_spike_orphan" ]; then
+        warn "spike worktree still present at '$_spike_orphan' — cleanup is about to clear the recorded path. Remove it by hand (git worktree remove --force '$_spike_orphan') or it becomes an untracked orphan."
+    fi
     state_cleanup_finish "$project"   # #418: clear+stamp+pointer in ONE transaction
 else
     info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"

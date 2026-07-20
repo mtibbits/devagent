@@ -61,10 +61,10 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-├── commands/                # one .md file per command-form slash command (53)
+├── commands/                # one .md file per command-form slash command (54)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 53 + 3 = the 56 slash commands
+│                            #   (SKILL.md + references/, #452) — 54 + 3 = the 57 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -188,6 +188,7 @@ issue_dir      = "~/src/devDoc/volk/Issue-676"
 branch         = "fix/676-foo-bar"
 baseline_sha   = "ed15328"
 worktree_path  = "~/src/volk-wt/issue-676"   # set if worktree-based
+spike_worktree_path = ""                     # #536: throwaway spike worktree while step 23 runs
 last_step      = 7
 last_step_name = "implement"
 mr_url         = "https://github.com/gnuradio/volk/pull/842"   # set after ship
@@ -207,7 +208,7 @@ composes better with future per-issue metadata (e.g.,
 ever need it. Order is not preserved; v1 does not depend on order.
 
 Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
-`worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
+`worktree_path`, `spike_worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
 `last_step`, `last_step_name` belong to the active issue, not the
 project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Since #240 the
 **`[context.<issue>]` sub-table is the authoritative home** of these
@@ -536,6 +537,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
 | 22 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 1. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start` |
+| 23 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 1 and 2. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. |
 | 2 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
 | 3 | `/devagent:improve` | skill | `core-improve` (fork → `devagent:plan-improver`, #527) — bugs, side effects, ambiguities; the #286 pothole tripwire lives in the agent, which self-resolves the register |
 | 4 | `/devagent:prune` | skill | `core-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
@@ -557,7 +559,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 19 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 20 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
 
-**Numbering & naming.** Step numbers are permanent IDs, not positions — the checklist's FILE order sets execution order (research 22 runs between 0 and 1; preship 21 between 14 and 15). Numbered 0–22; the mandatory pipeline is 0–21, and research (22) is optional and off by default, so an unflagged issue runs exactly the 22 mandatory steps. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are permanent IDs, not positions — the checklist's FILE order sets execution order (research 22 runs between 0 and 1; spike 23 between 1 and 2; preship 21 between 14 and 15). Numbered 0–23; the mandatory pipeline is 0–21, and research (22) and spike (23) are optional and off by default, so an unflagged issue runs exactly the 22 mandatory steps. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 

@@ -35,7 +35,10 @@ everything from disk and state:
    and `... get <project> issue_dir` (an env-pinned session exports
    `DEVAGENT_ACTIVE_PROJECT` / `DEVAGENT_ACTIVE_ISSUE`, which take precedence).
 2. Read `<issue-dir>/imPlan.md` (the plan under check, including its Scope
-   evaluation) and `<issue-dir>/issue.md` (the goal the plan must serve).
+   evaluation and its `## Load-bearing unknowns` section) and `<issue-dir>/spike.md`
+   when it exists, and `<issue-dir>/checklist.md` (row 23's glyph is the spike
+   tripwire's GATE — #536; all are packaged by the dispatch contract's `<INPUTS>`),
+   and `<issue-dir>/issue.md` (the goal the plan must serve).
 3. **Resolve the pothole register** — the tripwire's input (#286):
 
    ```bash
@@ -46,9 +49,18 @@ everything from disk and state:
    default `templates/potholes.md`) and prints the resolved source path plus
    its content. Halt-and-report in your artifact if it cannot be resolved;
    never check with less and stay silent about it.
-4. Verify the plan's claims against the project source repo at HEAD — read the
+4. **Spike tripwire (#536) — only on a `spike: required` issue** (checklist row 23 is
+   not `[-]`; unflagged issues that merely declare unknowns do NOT fire this):
+   - a declared `## Load-bearing unknowns` entry with NO matching verdict in
+     `spike.md` is a finding (the bet was declared and never tested); and
+   - a plan task whose `U<N> (Task <M>)` back-reference points at an unknown recorded
+     FALSIFIED or INCONCLUSIVE, with no stated plan delta disposing of it, is a finding
+     (the plan still rides a bet measurement broke).
+   The `U<N> (Task <M>)` back-reference is what makes "task depends on unknown"
+   mechanically evaluable — without it this item would be unevaluable, i.e. dead.
+5. Verify the plan's claims against the project source repo at HEAD — read the
    files the plan says it will touch; check them cold.
-5. Write nothing. Produce the three finding categories + the pothole tripwire
+6. Write nothing. Produce the three finding categories + the pothole tripwire
    per your system prompt and RETURN the complete artifact body as your final
    message. The invoking session writes it to
    `<issue-dir>/analysis/YYYY-MM-DD-improve.md` verbatim, triages

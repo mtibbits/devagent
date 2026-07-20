@@ -13,6 +13,20 @@
 
 (2-3 sentences describing the implementation approach.)
 
+## Load-bearing unknowns
+
+The plan's BETS — assumptions the plan's shape depends on, each with the cheapest probe
+that would falsify it. `(none)` is legal and common. The `U<N> (Task <M>)` back-reference
+is load-bearing: it is how the improve step (and the optional `23 spike` step) tell WHICH
+task depends on WHICH unknown.
+
+(none)
+
+<!-- Replace `(none)` with one line per bet when the plan has them. Format:
+     - U1 (Task 3): <assumption> | why load-bearing: <what breaks if false> | cheapest probe: <how to falsify>
+     Kept COMMENTED so an un-edited template never reads as a real declared bet —
+     the spike tripwire treats a declared unknown with no verdict as a finding. -->
+
 ## Tasks
 
 - [ ] Task 1

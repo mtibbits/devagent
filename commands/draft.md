@@ -63,6 +63,13 @@ that project.
    derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
    for premise-freshness checks; #286's pothole register appends here.)
 
+   **Declare the plan's bets — `## Load-bearing unknowns` (#536).** Fill the plan's
+   `## Load-bearing unknowns` section: one entry per assumption the plan's SHAPE depends on,
+   each naming (a) the assumption, (b) WHY it is load-bearing — what breaks if it is false —
+   and (c) the CHEAPEST probe that would falsify it. Use the `U<N> (Task <M>)` back-reference
+   so a later step can tell which task rides which bet. `(none)` is legal and common; declaring
+   is cheap either way. On a `spike: required` issue these entries are what step 23 executes.
+
    **Research findings — read `research.md` if present (#535).** If the optional
    research step (22) ran, `<issue-dir>/research.md` exists. Read it: the plan's
    `## Preconditions` and design choices CITE its `## Findings` rather than

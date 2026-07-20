@@ -254,3 +254,25 @@ PY
     ( cd "$SOURCE_DIR" && git rev-parse --verify feat/42-same-title-slug >/dev/null )
     ( cd "$SOURCE_DIR" && git rev-parse --verify feat/fork-42-same-title-slug >/dev/null )
 }
+
+@test "branch.sh worktree_root falls back to <source_dir>-wt when unset (#536 Task 0)" {
+    # COVERAGE GATE for the #536 baseline extraction: every other worktree test
+    # INJECTS worktree_root, so branch.sh's `|| echo "$source_dir-wt"` fallback was
+    # unexercised — an extraction that stopped setting $source_dir would die
+    # unbound under `set -u` and still ship green. This pins the fallback line.
+    python3 - "$HOME/.claude/devagent/config.toml" "$TEST_PROJECT" <<'PY'
+import sys, re
+path, proj = sys.argv[1:]
+text = open(path).read()
+# use_worktree ONLY — worktree_root deliberately absent
+text = re.sub(rf'(\[project\.{re.escape(proj)}\]\n)', r'\1' + 'use_worktree   = true\n', text, count=1)
+open(path, 'w').write(text)
+PY
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "wt fallback" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    # derived from source_dir, not from a configured worktree_root
+    [ -d "$SOURCE_DIR-wt/issue-1/.git" ] || [ -f "$SOURCE_DIR-wt/issue-1/.git" ]
+    grep -q "worktree_path *= *\"$SOURCE_DIR-wt/issue-1\"" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}

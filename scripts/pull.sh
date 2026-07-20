@@ -97,7 +97,7 @@ main() {
     # key with a non-trigger value warns too, so a typo is not silently inert
     # (#535 review: `research: yes` was indistinguishable from no flag).
     local _entry _fl _trig _row _val _glyph
-    local -a _flag_rows=( "research:required:22" )
+    local -a _flag_rows=( "research:required:22" "spike:required:23" )
     for _entry in "${_flag_rows[@]}"; do
       IFS=: read -r _fl _trig _row <<<"$_entry"
       _val="$(flags_get "$issue_dir/issue.md" "$_fl" || true)"
