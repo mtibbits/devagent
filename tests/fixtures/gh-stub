@@ -8,6 +8,8 @@
 #   GH_STUB_CASE   standard | nocomments | fail | noisy   (issue-view payload)
 #   GH_STUB_CREATE_URL   URL printed by `gh issue create` (default …/issues/85)
 #   GH_STUB_ARGS_LOG     if set, `gh issue create` appends its argv here (#89)
+#   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
+#   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
 #
 # Contract-suite HTTP simulation (number-driven, used by backend-github.bats):
 #   issue number 404 → "HTTP 404" on stderr, exit 1
@@ -27,11 +29,15 @@ _has_flag() {
 }
 
 _issue_json() {
-  local comments
+  local comments body
   case "${GH_STUB_CASE:-standard}" in
     nocomments) comments='[]' ;;
     *) comments='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "First comment."}]' ;;
   esac
+  # #537: per-test payload knobs — JSON-encoded string / array, verbatim.
+  [ -n "${GH_STUB_COMMENTS_JSON:-}" ] && comments="$GH_STUB_COMMENTS_JSON"
+  body='"Body line one.\n\nBody line two."'
+  [ -n "${GH_STUB_BODY_JSON:-}" ] && body="$GH_STUB_BODY_JSON"
   cat <<JSON
 {
   "title": "Demo issue title",
@@ -39,7 +45,7 @@ _issue_json() {
   "author": {"login": "alice"},
   "labels": [{"name": "bug"}, {"name": "performance"}],
   "url": "https://github.com/gnuradio/volk/issues/676",
-  "body": "Body line one.\n\nBody line two.",
+  "body": $body,
   "comments": $comments
 }
 JSON
