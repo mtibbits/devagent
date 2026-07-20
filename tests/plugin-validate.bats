@@ -13,9 +13,12 @@
 
 # Inverse canary: the day --strict goes green without a version key, the
 # documented-red rationale is obsolete and #532 should be revisited (wire the
-# strict gate). Any nonzero rc is "red" — the tripwire fires only on green.
+# strict gate). Pins the MEASURED red (rc=1 + the version finding, 2.1.211) so
+# a green here means "revisit #532" and any other drift (rc change, finding
+# change, subcommand gone) also surfaces instead of passing as still-red.
 @test "claude plugin validate --strict stays documented-red (#532)" {
     command -v claude >/dev/null 2>&1 || skip "claude CLI not installed (CI)"
     run claude plugin validate --strict "$BATS_TEST_DIRNAME/.."
-    [ "$status" -ne 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *version* ]]
 }

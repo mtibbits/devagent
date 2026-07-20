@@ -347,8 +347,10 @@ update-surviving `~/.claude/devagent/` (config.toml single source of truth #328,
 cache). Adopting `${CLAUDE_PLUGIN_DATA}` would FORK the state location and break that
 contract for no benefit. (AC live-smokes: the enable-dialog appearing and cross-update
 persistence are operator actions; the mechanism, `validate`, seed logic, and precedence
-are verified here. AC1 `--strict` is version-gated — absent on 2.1.75, #447 — so
-non-strict `claude plugin validate` PASS-with-userConfig is the recorded evidence.)
+are verified here. AC1 `--strict` was version-gated — absent on 2.1.75, #447 — so
+non-strict `claude plugin validate` PASS-with-userConfig is the recorded evidence.
+Disposed by #532: `--strict` exists by 2.1.211, is manifest-only (§ isolation
+binding below), and stays documented-red under the ratified no-version policy.)
 
 ## 4. Configuration vs artifacts
 
