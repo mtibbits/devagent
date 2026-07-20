@@ -72,3 +72,21 @@ teardown() { teardown_tmp_devagent_home; }
   grep -qE "checklist omits draft" "$f"
 }
 
+# --- Task 5: end-to-end oneshot chain ----------------------------------------
+
+@test "scaffolded oneshot issue chains through next.sh to 7 then 9 without an executor halt (#537)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: oneshot\n\nDo the thing."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 710
+  [ "$status" -eq 0 ]
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Run /devagent:implement"* ]]
+  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$DEVDOC/Issue-710" 7 x
+  [ "$status" -eq 0 ]
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Run /devagent:document"* ]]
+}
+
+# --- Task 7: spec-lag tripwire + allowlist sweep -----------------------------
+
