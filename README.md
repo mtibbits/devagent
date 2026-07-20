@@ -286,15 +286,29 @@ gate; the hook is a faster local mirror, not a replacement.
 
 ## Versioning & releases
 
-The marketplace entry deliberately sets **no `version` field** while devAgent is
-under active iteration. Per the Claude Code plugin docs, an unset version means
-each commit is versioned by its git SHA, so `/plugin update` picks up new commits
-without an `uninstall` + `install` round-trip — deleting the stale `0.1.0` pin is
-what ends that reinstall tax.
+**Policy (ratified, #532): SHA-tracking — no `version` field anywhere.**
+The marketplace entry and `.claude-plugin/plugin.json` both deliberately set
+no `version` while devAgent is under active iteration. Per the Claude Code
+plugin docs, an unset version means each commit is versioned by its git SHA,
+so `/plugin update` picks up new commits without an `uninstall` + `install`
+round-trip.
 
-When a stable release cadence is wanted later, switch to explicit versions with
-[`claude plugin tag`](https://docs.claude.com/en/docs/claude-code/plugins) and
-keep a `CHANGELOG.md` describing what each tagged release changes. Do **not**
-re-add a `version` to `.claude-plugin/plugin.json`: per the docs a plugin.json
-`version` wins over the marketplace entry and would silently re-pin the plugin,
-reintroducing the reinstall tax.
+Do **not** re-add a `version` to `.claude-plugin/plugin.json`: a plugin.json
+`version` wins over the marketplace entry and silently re-pins the plugin for
+every installed user, reintroducing the reinstall tax (#445). This is enforced
+by `tests/test_plugin_versioning.py` (CI) and recorded with the measured
+evidence in the #532 decision doc.
+
+Consequence, accepted: `claude plugin validate --strict` fails on the missing
+version (measured on 2.1.211) and stays red by design. The wired check is the
+**non-strict** `claude plugin validate` (rc=0, `tests/plugin-validate.bats` —
+a local-only rung, since CI has no claude CLI; the CI-enforcing half is the
+pytest guard above); real conformance coverage comes from the pytest
+frontmatter canaries (#447), since `--strict` is manifest-only and never opens
+agent/skill files.
+
+When a stable release cadence is wanted (go-public, #404), revisit #532
+branch (b): explicit versions with
+[`claude plugin tag`](https://docs.claude.com/en/docs/claude-code/plugins), a
+`CHANGELOG.md` section per release, and an explicit migration note — adding a
+version changes `/plugin update` behavior for every installed user.
