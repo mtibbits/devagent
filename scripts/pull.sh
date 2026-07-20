@@ -22,6 +22,8 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/flags.sh"
 
 main() {
   local project="${1:-}"
@@ -42,14 +44,11 @@ main() {
     section="issue_source_fork"
   fi
 
-  local backend repo dir_prefix devdoc template
+  local backend repo dir_prefix devdoc
   backend="$(config_get_project_field "$project" "${section}.backend" 2>/dev/null || true)"
   repo="$(config_get_project_field "$project" "${section}.repo" 2>/dev/null || true)"
   dir_prefix="$(config_get_project_field "$project" "${section}.dir_prefix" 2>/dev/null || true)"
   devdoc="$(config_get_project_field "$project" "devdoc_dir" 2>/dev/null || true)"
-  template="$(config_get_project_field "$project" "checklist_template" 2>/dev/null || true)"
-  [[ -n "$template" ]] || template="$(config_get_default checklist_template 2>/dev/null || echo standard)"
-  [[ -n "$template" ]] || template="standard"
 
   [[ -n "$backend" ]]    || die "$section.backend not configured for $project"
   [[ -n "$repo" ]]       || die "$section.repo not configured for $project"
@@ -69,8 +68,23 @@ main() {
   fi
   mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
 
-  # Scaffold checklist if missing; do not stomp on user edits
+  # Scaffold checklist if missing; do not stomp on user edits.
+  # Template resolution sits AFTER the fetch (and only in the scaffold
+  # branch — re-pulls skip it) so the fetched body's `## Workflow flags`
+  # tier key can override the project default (#537). The override is
+  # validated against the allowlist BEFORE the remote-content value
+  # touches any path; a tier key added after first scaffold is inert
+  # (revise.sh --retier is the sole post-scaffold path).
   if [[ ! -f "$issue_dir/checklist.md" ]]; then
+    local template tier
+    template="$(config_get_project_field "$project" "checklist_template" 2>/dev/null || true)"
+    [[ -n "$template" ]] || template="$(config_get_default checklist_template 2>/dev/null || echo standard)"
+    [[ -n "$template" ]] || template="standard"
+    tier="$(flags_get "$issue_dir/issue.md" tier || true)"
+    if [[ -n "$tier" ]]; then
+      tier_require_legal "$tier" " in ## Workflow flags"
+      template="$tier"
+    fi
     ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template" "$project"
   fi
 

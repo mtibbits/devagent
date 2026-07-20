@@ -306,3 +306,47 @@ CTX
   run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" branch
   [ "$output" != "feat/676-REAL-WORK" ]          # #98 MAJ-1: stale context NOT resurrected
 }
+
+# --- #537: per-issue tier override -------------------------------------------
+
+@test "pull with tier: oneshot in Workflow flags scaffolds checklist-oneshot (#537)" {
+  export GH_STUB_BODY_JSON='"Intro.\n\n## Workflow flags\ntier: oneshot\n\n## Motivation\nStuff."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 700
+  [ "$status" -eq 0 ]
+  grep -q '^Template: oneshot$' "$DEVDOC/Issue-700/checklist.md"
+  [ "$(grep -cE '^\- \[.\] +[0-9]+\.' "$DEVDOC/Issue-700/checklist.md")" -eq 5 ]
+  grep -qE '^\- \[x\] +0\. pull' "$DEVDOC/Issue-700/checklist.md"
+  grep -qE '^\- \[ \] +7\. implement' "$DEVDOC/Issue-700/checklist.md"
+}
+
+@test "pull rejects unknown tier pre-path with the legal-names list (#537)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: ../evil\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 701
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"legal tiers: oneshot standard perf docs-only research"* ]]
+  [ ! -f "$DEVDOC/Issue-701/checklist.md" ]
+}
+
+@test "flags block quoted in a comment does not override the default (#537)" {
+  export GH_STUB_COMMENTS_JSON='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "quoting:\n## Workflow flags\ntier: oneshot"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 702
+  [ "$status" -eq 0 ]
+  grep -q '^Template: standard$' "$DEVDOC/Issue-702/checklist.md"
+}
+
+@test "tier flag added after first scaffold is inert on re-pull (#537)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 703
+  [ "$status" -eq 0 ]
+  grep -q '^Template: standard$' "$DEVDOC/Issue-703/checklist.md"
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: oneshot\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 703
+  [ "$status" -eq 0 ]
+  grep -q '^Template: standard$' "$DEVDOC/Issue-703/checklist.md"
+}
+
+@test "template boilerplate comment left in the body does not tier the issue (#537 redmr)" {
+  export GH_STUB_BODY_JSON='"## Motivation\nStuff.\n\n<!-- Optional per-issue workflow tier (spec §6.3 tier table; delete if unused):\n## Workflow flags\ntier: oneshot\n-->\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 704
+  [ "$status" -eq 0 ]
+  grep -q '^Template: standard$' "$DEVDOC/Issue-704/checklist.md"
+}

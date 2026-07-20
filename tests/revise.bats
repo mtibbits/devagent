@@ -172,3 +172,106 @@ PARKED
     run "$DEVAGENT_ROOT/scripts/doctor.sh" volk
     [[ "$output" != *"last_step_name=ship"* ]]
 }
+
+# --- #537: --retier escalation valve -----------------------------------------
+
+retier_fixture() {
+  # Reshape the standard fixture into a oneshot-scaffolded issue mid-flight.
+  cat >"$FIX_ISSUE_DIR/checklist.md" <<'EOF'
+# Issue — Workflow checklist
+
+State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] blocked-external  [P] parked
+
+Template: oneshot
+Created: 2026-05-19 14:01
+Active revision: 1
+
+## Revision 1
+
+- [x]  0. pull
+- [~]  7. implement
+- [ ]  9. document
+- [ ] 19. lessonslearned
+- [ ] 20. cleanup
+
+## Log
+
+- 2026-05-19 14:05  pull: fetched example/volk#842, scaffold created
+EOF
+  cat >"$FIX_STATE_FILE" <<EOF
+active_issue   = "$FIX_ISSUE"
+issue_dir      = "$FIX_ISSUE_DIR"
+branch         = ""
+last_step      = 7
+last_step_name = "implement"
+revision       = 1
+updated_at     = "2026-05-19T14:32:00-04:00"
+EOF
+}
+
+@test "revise --retier standard appends the standard rows minus row 0 and updates Template: (#537)" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+  awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +1\. draft'
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +0\. pull')" -eq 0 ]
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 21 ]
+  grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+@test "revise --retier preserves the Log section and prior revision blocks (#537)" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 1$' "$FIX_ISSUE_DIR/checklist.md"
+  grep -qE '^\- \[~\] +7\. implement' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q 'pull: fetched example/volk#842' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q 'retier: oneshot → standard' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+@test "revise --retier keeps state and file revision numbers in agreement (#537)" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -q '^revision[[:space:]]*=[[:space:]]*2$' "$FIX_STATE_FILE"
+  grep -q '^last_step[[:space:]]*=[[:space:]]*0$' "$FIX_STATE_FILE"
+  grep -q '^last_step_name[[:space:]]*=[[:space:]]*""$' "$FIX_STATE_FILE"
+  [ "$(grep -c '^## Revision ' "$FIX_ISSUE_DIR/checklist.md")" -eq 2 ]
+}
+
+@test "a genuine revise after --retier appends the correct next block number (#537)" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  mkdir -p "$FIX_ISSUE_DIR/revisions/r2"
+  printf '### @bob\nfix it\n' > "$FIX_ISSUE_DIR/revisions/r2/comments.md"
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^## Revision 3$' "$FIX_ISSUE_DIR/checklist.md")" -eq 1 ]
+  grep -q '^revision[[:space:]]*=[[:space:]]*3$' "$FIX_STATE_FILE"
+}
+
+@test "revise --retier rejects unknown tiers with the legal-names list (#537)" {
+  retier_fixture
+  run_revise --retier bogus volk Issue-676
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"legal tiers:"* ]]
+  # nothing appended, nothing retitled
+  grep -q '^Template: oneshot$' "$FIX_ISSUE_DIR/checklist.md"
+  [ "$(grep -c '^## Revision ' "$FIX_ISSUE_DIR/checklist.md")" -eq 1 ]
+}
+
+@test "revise --retier without a tier name dies loudly (#537)" {
+  retier_fixture
+  run_revise --retier
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--retier requires a tier name"* ]]
+}
+
+@test "revise --retier with an empty tier name dies rather than degrading (#537)" {
+  retier_fixture
+  run_revise --retier "" volk Issue-676
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--retier requires a tier name"* ]]
+}
