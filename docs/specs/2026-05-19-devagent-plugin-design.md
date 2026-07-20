@@ -1059,6 +1059,7 @@ v1 artifact list:
 | `checklist-perf` | checklist-init (perf-workflow template) |
 | `checklist-docs-only` | checklist-init (docs-only template) |
 | `checklist-research` | checklist-init (research template) |
+| `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
 | `potholes` | draft (pothole register read → `## Potholes considered`, #286), lessonslearned (`[pattern]`→register promote) |
