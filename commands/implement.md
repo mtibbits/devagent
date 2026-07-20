@@ -17,11 +17,23 @@ Per `commands/draft.md`.
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify branch step has completed (state file's `branch` field is
-   set and the working tree is on that branch). If not, halt.
+   set and the working tree is on that branch). If not, halt — UNLESS the
+   issue's `checklist.md` contains no branch row (step 6), as in the
+   oneshot checklist.
+   A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt
+   (branch produces the branch): with no branch step, implement acts as an
+   operational one-shot on the current tree and must produce no repo diff.
 3. Verify `imPlan.md` has a `## Definition of done` section (proves
-   tighten ran).
+   tighten ran). If absent, halt — UNLESS the checklist contains no draft
+   row (step 1): the producing step is absent, so the check is N/A
+   (draft produces imPlan.md); the issue body's `## Proposed behavior`
+   and acceptance criteria are then the work statement.
 4. Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`
-   as the plan path. Pass `$NOTE` as additional context the executor
+   as the plan path — UNLESS the checklist contains no draft row (step 1):
+   there is no imPlan.md, so skip the executing-plans dispatch and
+   execute directly against the issue body (its `## Proposed behavior`
+   and acceptance criteria are the work statement, per step 3's
+   carve-out). Pass `$NOTE` as additional context the executor
    should consider (e.g., "skip task 4 — already merged upstream").
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans
@@ -35,8 +47,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement \
 
 ## Halt and ask if
 
-- Working tree is not on the issue's branch.
-- `imPlan.md` lacks Definition of done.
+- Working tree is not on the issue's branch **and** the checklist
+  contains the branch step (6).
+- `imPlan.md` lacks Definition of done **and** the checklist contains
+  the draft step (1).
 - A task fails halfway through — surface the failure and let the
   operator decide whether to mark the step `[!]` stuck (via
   `/devagent:stuck`) or retry.

@@ -55,3 +55,20 @@ teardown() { teardown_tmp_devagent_home; }
   ISSUE_ID="Issue-999" checklist_init "$d" oneshot
   grep -q '^Template: oneshot$' "$d/checklist.md"
 }
+
+# --- Task 4: executor carve-out fixture-greps --------------------------------
+
+@test "implement.md carries both absent-producing-step carve-outs (#537)" {
+  f="$PLUGIN_ROOT/commands/implement.md"
+  grep -q "producing step is absent from the issue's checklist is N/A" "$f"
+  grep -q "branch produces the branch" "$f"
+  grep -q "draft produces imPlan.md" "$f"
+  grep -q "execute directly against the issue body" "$f"
+}
+
+@test "document.md carries the absent-draft-step carve-out (#537)" {
+  f="$PLUGIN_ROOT/commands/document.md"
+  grep -q "producing step is absent from the issue's checklist is N/A" "$f"
+  grep -qE "checklist omits draft" "$f"
+}
+
