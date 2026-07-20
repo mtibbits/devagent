@@ -239,19 +239,26 @@ _check_user_invocable() {
   # pytest guard and NAMES offenders, not the old whole-file literal-lowercase
   # grep (which missed `user-invocable: False` and failed as a bare count).
   # Assert the SPLIT, not just the sum: a 4th command->skill conversion keeps
-  # the sum at 55 (51+4) and would slip through a sum-only check — while
-  # falsifying README's explicit "52 commands + 3 user-invocable skills".
+  # the sum at 56 (52+4) and would slip through a sum-only check — while
+  # falsifying README's explicit "53 commands + 3 user-invocable skills".
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
   _check_user_invocable   # names offenders on stderr, fails on mismatch (AC3)
   s="$(_user_invocable_skills | wc -w)"
-  [ "$n" -eq 52 ]
+  [ "$n" -eq 53 ]
   [ "$s" -eq 3 ]
-  [ $((n + s)) -eq 55 ]
-  grep -q "55 slash commands" "$CMD_DIR/../README.md"
+  [ $((n + s)) -eq 56 ]
+  grep -q "56 slash commands" "$CMD_DIR/../README.md"
   # BOTH manifests carry the claim (#439 plan's enumeration); plugin.json was
   # unpinned while marketplace.json was, so the two could drift apart.
-  grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
-  grep -q "55 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
+  grep -q "56 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
+  grep -q "56 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
+  # #535: CHANGELOG is a FOURTH count home the sweep previously missed — the exact
+  # drift this canary exists to catch, so it is enumerated here too.
+  grep -q "56 slash commands" "$CMD_DIR/../CHANGELOG.md"
+  # #535 redmr: the SPEC is a fifth home and contradicted itself three lines apart
+  # (tree comment said 52 while the sum line said 53+3=56) — pin both.
+  grep -q "53 + 3 = the 56 slash commands" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -qE "command-form slash command \(53\)" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
 }
 
 @test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {

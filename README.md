@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **55 slash commands** driving a **22-step workflow**, works against
+provides **56 slash commands** driving a **22-step workflow**, works against
 GitHub, GitLab, and JIRA trackers/forges, and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
 
@@ -59,11 +59,12 @@ covering the version segment). Never widen to bare `Bash`.
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
 Run them one at a time with `/devagent:next` (which advances to the next
-unmarked step), or invoke any step command directly. Steps are numbered 0–21; numbers are permanent IDs, not positions — the
-checklist's file order sets execution order, so `21 preship` runs between
-14 and 15:
+unmarked step), or invoke any step command directly. Steps are numbered 0–22;
+numbers are permanent IDs, not positions — the checklist's file order sets
+execution order, so `21 preship` runs between 14 and 15, and the optional
+`22 research` (off by default) runs between 0 and 1:
 
-- **Plan** — `0 pull` · `1 draft` · `2 scope` · `3 improve` · `4 prune` · `5 tighten`
+- **Plan** — `0 pull` · `22 research` _(optional, flagged)_ · `1 draft` · `2 scope` · `3 improve` · `4 prune` · `5 tighten`
 - **Implement** — `6 branch` · `7 implement` · `8 quality` · `9 document` · `10 commit` · `11 analyze`
 - **Ship** — `12 draftmr` · `13 review` · `14 redmr` · `21 preship` · `15 ship`
 - **Integrate & close** — `16 mergetoall` · `17 updatewbs` · `18 impact` · `19 lessonslearned` · `20 cleanup`
@@ -118,10 +119,10 @@ Low-level building blocks the workflow commands use; you rarely call them
 directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
-> The 22 numbered step commands above, plus `next` / `revise` / `comments`,
-> together with the tables in this section, are the full set of 55 slash
-> commands (52 commands + 3 user-invocable skills — `next`, `capture`,
-> `ship`; #452).
+> The 23 numbered step commands above (22 mandatory + the optional `22 research`
+> step), plus `next` / `revise` / `comments`, together with the tables in this
+> section, are the full set of 56 slash commands (53 commands + 3 user-invocable
+> skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
 

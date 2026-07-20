@@ -9,6 +9,7 @@ Active revision: 1
 ## Revision 1
 
 - [ ]  0. pull
+- [-] 22. research
 - [ ]  1. draft
 - [ ]  2. scope
 - [ ]  3. improve

@@ -15,7 +15,8 @@ tag`) will get their own dated sections below.
 Current capabilities as of this commit:
 
 ### Core
-- **55 slash commands** driving a fixed **22-step issue workflow**, with all
+- **56 slash commands** driving a fixed **22-step issue workflow** (plus the optional
+  research step, 22), with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.
 - `next`/`capture`/`ship` converted from commands to user-invocable skills with

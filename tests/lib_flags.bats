@@ -118,3 +118,87 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" = "oneshot   # run the Q3 release" ]
 }
+
+# --- #535: flags_validate (block-level unknown-key WARN, deferred from #537) ---
+
+@test "flags_known_keys is the single source: tier + research (#535)" {
+  run flags_known_keys
+  [ "$output" = "tier research" ]
+}
+
+@test "flags_validate is silent when only known keys are present (#535)" {
+  local f="$BATS_TEST_TMPDIR/known.md"
+  printf '## Workflow flags\ntier: perf\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "flags_validate warns (stderr) on an unknown key, naming it (#535)" {
+  local f="$BATS_TEST_TMPDIR/unk.md"
+  printf '## Workflow flags\nresearch: required\nboguskey: x\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]                       # non-fatal (forward-compat)
+  [[ "$output" == *"boguskey"* ]]           # named
+  [[ "$output" != *"research"* ]]           # known key NOT warned (exact negative)
+}
+
+@test "flags_validate is silent when the flags block is absent (#535)" {
+  local f="$BATS_TEST_TMPDIR/noblock.md"
+  printf '# Title\n\nOrdinary body, no flags.\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "flags_validate does not enumerate keys inside an HTML comment or below Comments (#535)" {
+  local f="$BATS_TEST_TMPDIR/comment.md"
+  # The SECOND flags block sits below `## Comments (` — without the Comments exit it
+  # would re-open the block and `belowkey` WOULD warn, so this half is falsifiable.
+  printf '<!--\n## Workflow flags\ncommentedkey: x\n-->\n## Workflow flags\nresearch: required\n## Comments (1)\n## Workflow flags\nbelowkey: y\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"commentedkey"* ]]       # HTML-comment key not enumerated
+  [[ "$output" != *"belowkey"* ]]           # below `## Comments (` not enumerated
+}
+
+@test "flags_validate does not treat a value-continuation/indented line as a key (#535)" {
+  local f="$BATS_TEST_TMPDIR/cont.md"
+  printf '## Workflow flags\nresearch: required\n  indented: notakey\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"indented"* ]]           # col>1, not a key (exact negative)
+}
+
+@test "the flags block is contiguous: col-1 prose after a blank line is NOT a flag (#535 review)" {
+  local f="$BATS_TEST_TMPDIR/contig.md"
+  printf '## Workflow flags\ntier: standard\n\nSome prose paragraph.\nresearch: required\ndepends: 536\n' > "$f"
+  # flags_get must NOT read the post-blank prose line as a flag (this MIS-FLIPPED row 22)
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # and the enumerator must not spuriously warn about the prose key
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"depends"* ]]
+  # the real in-block key still reads
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "standard" ]
+}
+
+@test "markdown-conventional block (heading, BLANK line, keys) still parses — tier regression guard (#535 redmr)" {
+  local f="$BATS_TEST_TMPDIR/blankafter.md"
+  printf '## Workflow flags\n\ntier: oneshot\nresearch: required\n\nBody prose.\ndepends: 536\n' > "$f"
+  # #537's shipped tier flag MUST survive (this form is what GitHub's editor produces)
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+  run flags_get "$f" research
+  [ "$status" -eq 0 ]
+  [ "$output" = "required" ]
+  # ...and post-block prose is still not enumerated
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"depends"* ]]
+}

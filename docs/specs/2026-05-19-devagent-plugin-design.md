@@ -61,10 +61,10 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-├── commands/                # one .md file per command-form slash command (52)
+├── commands/                # one .md file per command-form slash command (53)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 52 + 3 = the 55 slash commands
+│                            #   (SKILL.md + references/, #452) — 53 + 3 = the 56 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -529,11 +529,12 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (the 22 steps)
+### 6.3 Family B — Workflow (22 mandatory steps + the optional research step)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
+| 22 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 1. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
 | 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start` |
 | 2 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
 | 3 | `/devagent:improve` | skill | `core-improve` (fork → `devagent:plan-improver`, #527) — bugs, side effects, ambiguities; the #286 pothole tripwire lives in the agent, which self-resolves the register |
@@ -555,6 +556,8 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 18 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 19 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 20 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
+
+**Numbering & naming.** Step numbers are permanent IDs, not positions — the checklist's FILE order sets execution order (research 22 runs between 0 and 1; preship 21 between 14 and 15). Numbered 0–22; the mandatory pipeline is 0–21, and research (22) is optional and off by default, so an unflagged issue runs exactly the 22 mandatory steps. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 

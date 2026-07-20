@@ -275,3 +275,14 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"--retier requires a tier name"* ]]
 }
+
+@test "revise --retier excludes the PRE-DRAFT research row 22 like row 0 (#535)" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  # research is pre-draft: copying it would either re-point next.sh at research or
+  # RESET an outstanding flagged row to [-]. It must not appear in the new block.
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +22\. research')" -eq 0 ]
+  # sanity: the block IS non-empty (guards a vacuous zero-count)
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[')" -ge 20 ]
+}
