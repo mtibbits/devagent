@@ -43,6 +43,18 @@ uninstall + reinstall.
 Requires a `bash` + `python3` toolchain (the workflow scripts) and, for the auth
 subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
 
+**Claude Code version.** Developed and verified against Claude Code **2.1.211**;
+earlier versions are untested. One caveat to expect: as of 2.1.211 Claude Code does
+not substitute `${CLAUDE_PLUGIN_ROOT}` inside `allowed-tools`, so devAgent's scoped
+`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)` grants don't auto-match and you'll be
+prompted to approve each workflow script call. Approve-and-remember when prompted, or
+pre-approve by adding a `permissions.allow` entry in `~/.claude/settings.json` that
+covers the plugin's installed version directory (which contains `scripts/`) — its cache
+path is version-nested under `~/.claude/plugins/cache/devagent/…`, so match the plugin
+dir prefix (e.g.
+`Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)`, absolute path, `:*`
+covering the version segment). Never widen to bare `Bash`.
+
 ## The 22-step workflow
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
