@@ -19,6 +19,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 # shellcheck source=lib/conn-diag.sh
 . "$DEVAGENT_ROOT/scripts/lib/conn-diag.sh"
+# shellcheck source=lib/baseline.sh
+. "$DEVAGENT_ROOT/scripts/lib/baseline.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -72,80 +74,15 @@ prefix="$(config_get_project_field "$project" "branch_prefix_map.$issue_type" 2>
 # only the worktree leaf, not the branch name. Non-fork is unchanged (Issue-42 → 42).
 branch_issue="$(printf '%s' "${issue_arg#Issue-}" | tr '[:upper:]' '[:lower:]')"
 branch="$prefix/$branch_issue-$slug"
-baseline="$(config_get_project_field "$project" default_baseline)"
-source_dir="$(config_get_project_field "$project" source_dir)"
-
-# Per-issue baseline override (#162). A .devagent-baseline marker in the issue
-# dir (mirroring .devagent-type/.devagent-title) cuts the branch from a
-# non-default base, for issues whose targets live only on an integration branch
-# (e.g. a fork-only harness on dev/all-prs). It is INTENTIONAL: unlike the
-# default-baseline path below it must not silently fall back to HEAD (cf. #72).
-baseline_file="$issue_dir/.devagent-baseline"
-baseline_override=0
-if [ -r "$baseline_file" ]; then
-    # Strip all whitespace: a git ref carries none, and this collapses an
-    # all-whitespace marker to empty so it is rejected rather than passed on.
-    override_ref="$(tr -d '[:space:]' < "$baseline_file")"
-    [ -n "$override_ref" ] || die "$baseline_file is empty (no baseline ref)"
-    # Treat strictly as a git ref: reject anything outside the ref charset so a
-    # marker can never inject shell metacharacters into the git invocations.
-    case "$override_ref" in
-    *[!A-Za-z0-9._/-]*) die "invalid baseline ref '$override_ref' in $baseline_file (allowed: A-Za-z0-9 . _ / -)" ;;
-    esac
-    baseline="$override_ref"
-    baseline_override=1
-fi
-
-cd "$source_dir"
-# First path component of a remote/branch baseline names the remote to fetch; for
-# a purely local-branch baseline (e.g. dev/all-prs → "dev") it is not a configured
-# remote, so the fetch fails harmlessly — the baseline still resolves locally and
-# fetch_failed is never consulted on that path (see the resolution block below).
-base_remote="$(echo "$baseline" | cut -d/ -f1)"
-# Fetch that remote, but CAPTURE the outcome rather than uniformly absorbing it as
-# "already up to date" (#244). A failed fetch against a *configured* remote means
-# the remote was unreachable (offline, host down, auth, transient), not that the
-# ref is absent — the post-fetch resolution block below uses fetch_failed to tell
-# those apart. stderr is still suppressed so offline tests stay quiet.
-fetch_failed=0
-# #269: capture the fetch stderr (into a var, not the terminal — offline tests stay
-# quiet) so the unreachable-remote die below can classify auth vs network. Order is
-# load-bearing: 2>&1 binds stderr to the capture, THEN 1>/dev/null drops stdout.
-fetch_err="$("$DEVAGENT_GIT" fetch --quiet "$base_remote" 2>&1 1>/dev/null)" || fetch_failed=1
-# Resolve baseline ref.
-if baseline_sha="$("$DEVAGENT_GIT" rev-parse --verify "$baseline" 2>/dev/null)"; then
-    :
-elif [ "$baseline_override" -eq 1 ]; then
-    # An explicit per-issue override that does not resolve is a hard error —
-    # NEVER silently fall back to HEAD or default_baseline (that is the #72
-    # mis-base hazard). Fail before any branch is created.
-    die "per-issue baseline '$baseline' does not resolve as a git ref in $source_dir; refusing to fall back"
-else
-    # Default-baseline path. Three outcomes, not two (#244):
-    #  (a) remote NOT configured (offline / no-remote fixture) → fall back to
-    #      HEAD, but LOUDLY.
-    #  (b) remote configured but the fetch FAILED → the remote was unreachable
-    #      (offline, host down, auth, transient). The ref may legitimately exist
-    #      remotely; we just never reached it. Do NOT call it pruned/typo'd, and
-    #      do NOT fall back to HEAD (would wrong-base on a network blip).
-    #  (c) remote configured and the fetch SUCCEEDED but the ref still does not
-    #      resolve → genuinely pruned/typo'd/deleted ref.
-    # (b) and (c) both refuse a silent HEAD fallback — that is the #72 mis-base
-    # hazard: stacking the branch on whatever is checked out (often the previous
-    # issue's branch) so ship later bases the PR on the wrong parent.
-    if "$DEVAGENT_GIT" remote get-url "$base_remote" >/dev/null 2>&1; then
-        if [ "$fetch_failed" -eq 1 ]; then
-            # #269: classify the captured fetch stderr (auth vs network vs rate-limit).
-            # Ambiguous/unrecognized ⇒ keep today's grouped wording (never mis-assert).
-            cause="$(conn_diag_message "$fetch_err" || true)"
-            [ -n "$cause" ] || cause="the fetch failed: offline, host down, auth, or transient network error"
-            die "default_baseline '$baseline' could not be confirmed — remote '$base_remote' is configured but unreachable ($cause); refusing to fall back to HEAD (would wrong-base) — reconnect and retry, or fix default_baseline if the ref is gone (#72, #244, #269)"
-        fi
-        die "default_baseline '$baseline' does not resolve though remote '$base_remote' was reached and fetched (pruned, typo'd, or deleted ref?); refusing to fall back to HEAD — fix default_baseline or restore the ref (#72)"
-    fi
-    warn "default_baseline '$baseline' unresolvable and remote '$base_remote' is not configured; falling back to HEAD ($("$DEVAGENT_GIT" rev-parse --short HEAD)) — the new branch will stack on the current checkout (#72)"
-    baseline_sha="$("$DEVAGENT_GIT" rev-parse HEAD)"
-fi
+# #536: baseline resolution now lives in scripts/lib/baseline.sh (shared with
+# spike.sh). Setter-globals, not `$(...)`: the resolver dies/warns and returns four
+# values. Assign back into the historical lowercase names so every downstream
+# reference below is untouched (behavior-preserving extraction).
+baseline_resolve "$project" "$issue_dir"
+baseline="$BASELINE_REF"
+baseline_sha="$BASELINE_SHA"
+baseline_override="$BASELINE_OVERRIDE"
+source_dir="$BASELINE_SOURCE_DIR"
 
 worktree_dir=""
 use_worktree="$(config_get_project_field "$project" use_worktree 2>/dev/null || echo false)"

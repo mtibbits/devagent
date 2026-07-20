@@ -82,7 +82,11 @@ verbatim, substituting this step's per-step deltas:
   `agent-default (plan-improver)`.
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-improve`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md` and
-  `imPlan.md` (including its Scope evaluation).
+  `imPlan.md` (including its `## Scope evaluation` AND its `## Load-bearing unknowns`
+  section), `checklist.md` (the spike tripwire GATES on row 23's glyph, so the checker
+  must be able to read it — #536 redmr), plus `spike.md` when it exists (#536). The unknowns + spike verdicts are
+  packaged EXPLICITLY because the step-3 checklist carries a tripwire over them, and a
+  checklist item the checker never RECEIVES is a dead tripwire (#286).
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   pothole register itself via `template.sh --project <project> show potholes`
   (#286: self-resolution is what makes the tripwire un-droppable).

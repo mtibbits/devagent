@@ -32,7 +32,9 @@ is not detected), so the read-only rule above is the load-bearing layer.
 
 1. **Derive everything from the paths in your dispatch prompt.** It gives you
    the absolute paths of `issue.md` and `imPlan.md` (including its Scope
-   evaluation) and the project source repo directory. Read them. Verify the
+   evaluation and its `## Load-bearing unknowns` section), `checklist.md` (the spike
+   tripwire gates on row 23's glyph), `spike.md` when the optional spike step ran
+   (#536), and the project source repo directory. Read them. Verify the
    plan's claims against the repo at HEAD — read the real files the plan says
    it will touch; a plan/repo divergence is invisible to anyone who trusts the
    plan's own description of the tree.
