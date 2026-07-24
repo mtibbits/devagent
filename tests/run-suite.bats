@@ -66,6 +66,45 @@ teardown() { devagent_test_teardown; }
     grep -q '^bats: 2/3 notok=1$' "$art"
 }
 
+# Stub python3 so the pytest branch sees a controlled summary, while DELEGATING
+# every non-pytest call (config/state parse `python3 _toml.py`, #116) to the real
+# interpreter — resolved before binstub goes on PATH.
+_stub_python3_pytest() {
+    local summary="$1" real_py3
+    real_py3="$(command -v python3)"
+    cat > "$DEVAGENT_TMP/binstub/python3" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*) echo "$summary" ;;
+  *) exec "$real_py3" "\$@" ;;
+esac
+EOF
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+}
+
+@test "run-suite parses a line-start pytest summary (count at column 0)" {
+    # Regression: pytest -q's summary "285 passed, 9 skipped in Xs" BEGINS with
+    # the count. The old sed 's/.*[^0-9]\([0-9]*\) passed/' required a non-digit
+    # BEFORE the digits, so a line-start count matched nothing -> recorded 0.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "285 passed, 9 skipped in 0.01s"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 285 passed, 0 failed$' "$art"
+}
+
+@test "run-suite parses a mixed failed+passed pytest summary (order-independent)" {
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "3 failed, 282 passed in 0.02s"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 282 passed, 3 failed$' "$art"
+}
+
 @test "run-suite artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
     export DEVAGENT_DATE_OVERRIDE=2020-02-02
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
