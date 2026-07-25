@@ -8,7 +8,7 @@ these steps inside a Claude Code session.
 ## 1. Bootstrap the project
 
 ```
-/devagent:init
+/devagent:init myproj
 ```
 
 Interactive bootstrap of a new project under `~/.claude/devagent/`: registers
