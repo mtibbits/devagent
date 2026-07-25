@@ -348,10 +348,11 @@ S
 
 @test "docs homes: no silent-degradation claim; recommended statement present (#541)" {
   local REPO_ROOT="$CMD_DIR/.."
-  # POSTURE homes only (README, commands/, spec) — deliberately NOT repo-wide:
+  # POSTURE homes only (README, commands/, spec, docs-site/ — #461) —
+  # deliberately NOT repo-wide:
   # evals/smoke/README.md:11 says "silently degrades" about subagent isolation,
   # unrelated and staying (improve finding: a repo-wide sweep can never go green).
-  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs"
+  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs" "$REPO_ROOT/docs-site"
   [ "$status" -eq 1 ]
   # delta-pinning tokens (Issue-318: born-green presence greps prove nothing):
   grep -qF 'Recommended — superpowers' "$REPO_ROOT/README.md"       # NEW heading token

@@ -20,24 +20,17 @@ trades improvisation for auditability:
 - **Steps are permanently numbered IDs.** Each step leaves an on-disk
   artifact (a plan, a scope evaluation, review findings, an MR body), so the
   full history of a change is reviewable after the fact.
-- **Fresh-session handoff is built in.** `/devagent:where` shows the active
-  issue and its next step; `/devagent:catchup` rehydrates one issue on a
-  single screen.
+- **Fresh-session handoff is built in.** `/devagent:where` and
+  `/devagent:catchup` rehydrate the active issue in a fresh session.
 - **Review feedback loops back into the plan.** `/devagent:revise` opens a
-  new revision pass that pulls reviewer comments and re-runs the workflow
-  from the draft step.
+  new revision pass — see [the revision loop](./workflow.md).
 
 ## The shape of the loop
 
-- **Plan** — `0 pull` · `22 research` _(optional, flagged)_ · `1 draft` ·
-  `23 spike` _(optional, flagged)_ · `2 scope` · `3 improve` · `4 prune` ·
-  `5 tighten`
-- **Implement** — `6 branch` · `7 implement` · `8 quality` · `9 document` ·
-  `10 commit` · `11 analyze`
-- **Ship** — `12 draftmr` · `13 review` · `14 redmr` · `21 preship` ·
-  `15 ship`
-- **Integrate & close** — `16 mergetoall` · `17 updatewbs` · `18 impact` ·
-  `19 lessonslearned` · `20 cleanup`
+Four phases — **Plan → Implement → Ship → Integrate & close** — carry an
+issue from a drafted, adversarially-checked plan through implementation,
+review, and an opened MR, to integration, impact measurement, and close-out.
+The [workflow reference](./workflow.md) tables every numbered step.
 
 ## Where to go next
 

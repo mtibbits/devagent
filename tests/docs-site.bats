@@ -2,18 +2,20 @@
 # #461: onboarding-site guard — six pages + README exist (array count, not
 # ls|wc; Issue-314/32/151), every page's line-1 derive header names real
 # existing sources with a non-empty list (the recorded content-drift
-# strategy's machine-checkable half), page links are fixed per-page
-# assertions (index → five siblings, each sibling → index; no scraped-link
-# floor a single page can satisfy), install commands match README on BOTH
-# sides, workflow.md has one row per numbered step, configuration.md names
-# every backend verb backtick-anchored (substring-proof; `state` must not
-# ride on `mr-state`), and the audit §E step-count typo ("21-step") never
-# appears in a content page (precise no-match, status -eq 1; Issue-337).
+# strategy's machine-checkable half), page links derive from the PAGES
+# array (index → each sibling, each sibling → index; no scraped-link floor
+# a single page can satisfy), install commands and the verified Claude Code
+# version match README on BOTH sides, workflow.md's step table derives from
+# templates/checklist-standard.md (one row per template step, so a step
+# insertion or rename reddens the page; the 24 pin keeps the derived count
+# honest), configuration.md names every backend verb backtick-anchored
+# (substring-proof; `state` must not ride on `mr-state`), and the audit §E
+# step-count typo ("21-step") never appears in a content page (one
+# multi-file grep; precise no-match, status -eq 1; Issue-337).
 
 load 'lib/bats-helpers'
 
-REPO="${BATS_TEST_DIRNAME}/.."
-SITE="$REPO/docs-site"
+SITE="$PLUGIN_ROOT/docs-site"
 PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrency.md)
 
 @test "docs-site: exactly six content pages plus README" {
@@ -30,30 +32,28 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     [[ "$output" == "<!-- derived-from: "*" -->" ]]
     srcs="${output#<!-- derived-from: }"; srcs="${srcs% -->}"
     [ -n "${srcs// /}" ]
-    for s in $srcs; do [ -e "$REPO/$s" ]; done
+    for s in $srcs; do [ -e "$PLUGIN_ROOT/$s" ]; done
   done
 }
 
-@test "docs-site: index links all five siblings; every other page links back" {
-  for t in install quickstart workflow configuration concurrency; do
-    grep -qF "](./$t.md" "$SITE/index.md"
-  done
+@test "docs-site: index links every sibling; every sibling links back" {
   for p in "${PAGES[@]:1}"; do
+    grep -qF "](./$p" "$SITE/index.md"
     grep -qF '](./index.md' "$SITE/$p"
   done
 }
 
-@test "docs-site: install commands are verbatim-shared with README" {
-  for f in "$SITE/install.md" "$REPO/README.md"; do
+@test "docs-site: install commands and version are verbatim-shared with README" {
+  for f in "$SITE/install.md" "$PLUGIN_ROOT/README.md"; do
     grep -qF 'claude plugin marketplace add mtibbits/devagent' "$f"
     grep -qF 'claude plugin install devagent@devagent' "$f"
     grep -qF 'claude plugin install superpowers@claude-plugins-official' "$f"
+    grep -qF '2.1.211' "$f"
   done
 }
 
-@test "docs-site: install page says superpowers is recommended (not a hard dependency)" {
-  grep -q 'superpowers' "$SITE/install.md"
-  grep -qi 'recommended' "$SITE/install.md"
+@test "docs-site: install page carries the #541 posture delta token" {
+  grep -qF 'recommended, never hard-required' "$SITE/install.md"
 }
 
 @test "docs-site: quickstart carries the auth prerequisite, doctor, and the loop entry" {
@@ -62,9 +62,15 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   grep -qF '/devagent:next --auto' "$SITE/quickstart.md"
 }
 
-@test "docs-site: workflow table has one row per numbered step (24)" {
+@test "docs-site: workflow table derives from the checklist template steps" {
+  count=0
+  while read -r num cmd; do
+    grep -qE "^\| ${num} *\| \`${cmd}\`" "$SITE/workflow.md"
+    count=$((count + 1))
+  done < <(sed -n 's/^- \[.\] *\([0-9]*\)\. \(.*\)$/\1 \2/p' "$PLUGIN_ROOT/templates/checklist-standard.md")
+  [ "$count" -eq 24 ]
   run grep -c '^| [0-9]' "$SITE/workflow.md"
-  [ "$output" -eq 24 ]
+  [ "$output" -eq "$count" ]
 }
 
 @test "docs-site: configuration page names all ten backend verbs" {
@@ -75,8 +81,6 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
 }
 
 @test "docs-site: the audit step-count typo never appears in a content page" {
-  for p in "${PAGES[@]}"; do
-    run grep '21-step' "$SITE/$p"
-    [ "$status" -eq 1 ]
-  done
+  run grep -l '21-step' "${PAGES[@]/#/$SITE/}"
+  [ "$status" -eq 1 ]
 }

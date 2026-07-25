@@ -28,16 +28,16 @@ Counts and versions are restated minimally, with the sources' exact tokens:
   CHANGELOG, and the spec.
 - "22-step workflow" — the site-wide headline number; `workflow.md`'s
   Numbering section carries the reconciling sentence for the optional steps.
-- Claude Code "2.1.211" — on a version bump, sweep every home:
-  `grep -rn '2\.1\.211'` across the repo **including docs-site/**.
+- The verified Claude Code version — verbatim-shared between `install.md`
+  and the repo README, pinned on both sides by the guard suite; on a bump,
+  update README first, then the page and the test's expectation together,
+  and sweep the old token repo-wide **including docs-site/**.
 
 ## Enforcement today
 
-- `tests/docs-site.bats` — pins the page set, the derive headers (each named
-  source must exist), per-page links, the install commands (asserted in BOTH
-  `install.md` and README, so drift on either side reddens), the 24-row step
-  table, the ten backend verbs, and a no-match canary for the audit's
-  off-by-one step-count typo.
+- `tests/docs-site.bats` — pins the pages against their sources (drift on
+  either side reddens); its header comment, which lives next to the
+  assertions and is edited with them, enumerates the pinned surface.
 - The devAgent workflow's preship step re-verifies restated numbers at the
   ship SHA.
 
