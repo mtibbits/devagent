@@ -106,6 +106,16 @@ that project.
    Otherwise invoke the `superpowers:writing-plans` skill. Pass `$NOTE` (plus
    the pending-comments block if any) as additional user-intent
    context describing what the operator wants emphasised in the plan.
+
+   **Fallback (superpowers absent):** if that Skill invocation errors
+   (`Unknown skill: superpowers:writing-plans` — the measured absence
+   symptom, #541), draft the plan yourself directly against
+   `templates/imPlan_template.md`'s section contract: every template
+   section present, tasks bite-sized with exact files, code blocks, and
+   runnable test commands, tests-before-implementation ordering. Then
+   print the nudge line verbatim and continue — never stall on the
+   missing plugin:
+   recommended: claude plugin install superpowers@claude-plugins-official
 5. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
    `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.

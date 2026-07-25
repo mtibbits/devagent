@@ -37,6 +37,14 @@ Per `commands/draft.md`.
    dispatch and execute directly against the issue body (per step 3's
    carve-out). Pass `$NOTE` as additional context the executor
    should consider (e.g., "skip task 4 — already merged upstream").
+
+   **Fallback (superpowers absent):** if that Skill invocation errors
+   (`Unknown skill: superpowers:executing-plans`, #541), execute
+   `$ISSUE_DIR/imPlan.md` directly: task-by-task in plan order, running
+   each task's stated test/verify steps before moving on; steps 5–7 of
+   this command apply unchanged. Print the nudge line verbatim and
+   continue:
+   recommended: claude plugin install superpowers@claude-plugins-official
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans
    defaults.
