@@ -22,10 +22,15 @@ claude plugin marketplace add mtibbits/devagent
 claude plugin install devagent@devagent
 ```
 
-**Prerequisite — superpowers.** devAgent's draft / implement / review steps wrap
-skills from the [`superpowers`](https://github.com/anthropics/claude-plugins-official)
-plugin (declared as a dependency in `plugin.json`). Install it too, or those
-steps silently degrade:
+**Recommended — superpowers.** devAgent's implement and review steps — and
+draft on its inline (non-dispatched) path — prefer skills from the
+[`superpowers`](https://github.com/anthropics/claude-plugins-official)
+plugin when it is installed, and fall back to compact built-in paths (with
+a one-line install nudge) when it is absent — devAgent itself always loads
+either way (#541: nothing is hard-required; note that plugin dependencies
+do NOT auto-install at CC 2.1.211, so this is a separate, optional
+command). `/devagent:doctor` reports whether it is installed. For the
+richer paths:
 
 ```sh
 claude plugin install superpowers@claude-plugins-official

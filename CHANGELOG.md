@@ -12,6 +12,13 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Changed — 2026-07-25 (#541)
+- superpowers demoted from declared dependency to recommended plugin: the
+  manifest carries no `dependencies` key (measured at CC 2.1.211: dependencies
+  never auto-install and an unresolved one silently disables the whole plugin);
+  draft / implement / review gain built-in fallbacks + a one-line install
+  nudge, and `/devagent:doctor` WARNs when the plugin is absent or disabled.
+
 Current capabilities as of this commit:
 
 ### Core
