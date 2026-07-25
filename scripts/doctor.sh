@@ -239,15 +239,27 @@ fi
 # Tri-state (Issue-314/243): capture the CLI output, never pipe-under-`!`;
 # a CLI failure or empty output is "undetermined", NOT "absent" — no WARN.
 if command -v claude >/dev/null 2>&1; then
-  plugins="$(timeout 5 claude plugin list 2>/dev/null)" || plugins=""   # Issue-314: capture; a CLI failure/hang is NOT "absent"
+  # Issue-314: capture; a CLI failure/hang is NOT "absent". timeout guarded:
+  # absent coreutils must not turn the whole check into a silent no-op (redmr).
+  if command -v timeout >/dev/null 2>&1; then
+    plugins="$(timeout 5 claude plugin list 2>/dev/null)" || plugins=""
+  else
+    plugins="$(claude plugin list 2>/dev/null)" || plugins=""
+  fi
   if [[ -z "$plugins" ]]; then
     : # undetermined (CLI errored / empty) — fail closed, no claim either way (Issue-243)
-  elif printf '%s\n' "$plugins" | awk '/❯ superpowers@/{f=1; next} /❯/{f=0} f && /✔ enabled/{ok=1} END{exit !ok}'; then
-    : # present AND enabled — silent. Stanza-scoped (❯-delimited record), not a
-    # fixed -A window: an inserted line in a future `plugin list` layout must not
-    # false-WARN. '✔ enabled' exact: plain 'enabled' would substring-match 'disabled'.
+  elif printf '%s\n' "$plugins" | awk '/❯/{f=($0 ~ /superpowers@/)} f && /✔ enabled/{ok=1} END{exit !ok}'; then
+    : # present AND enabled — silent. Stanza-scoped (❯-delimited record, header
+    # line included), not a fixed -A window: an inserted OR merged line in a
+    # future `plugin list` layout must not false-WARN. '✔ enabled' exact:
+    # plain 'enabled' would substring-match 'disabled'.
+  elif printf '%s\n' "$plugins" | grep -q '❯ superpowers@'; then
+    # installed but not enabled — the fix is enable, not a second install;
+    # name taken from the actual stanza (any marketplace, redmr finding)
+    sp_name="$(printf '%s\n' "$plugins" | grep -o '❯ superpowers@[^[:space:]]*' | head -1 | cut -d' ' -f2)"
+    check "superpowers (recommended)" warn "installed but disabled: draft/implement/review use built-in fallbacks — recommended: claude plugin enable ${sp_name}"
   else
-    check "superpowers (recommended)" warn "not installed or not enabled: draft/implement/review use built-in fallbacks — recommended: claude plugin install superpowers@claude-plugins-official"
+    check "superpowers (recommended)" warn "not installed: draft/implement/review use built-in fallbacks — recommended: claude plugin install superpowers@claude-plugins-official"
   fi
 fi
 

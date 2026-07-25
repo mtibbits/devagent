@@ -45,7 +45,7 @@ Per `commands/draft.md`.
    commit per task (`git commit -s` — the same granularity the wrapped
    skill defaults to); steps 5–6 of this command apply unchanged. Print
    the nudge line verbatim and continue:
-   recommended: claude plugin install superpowers@claude-plugins-official
+   `recommended: claude plugin install superpowers@claude-plugins-official`
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans
    defaults.

@@ -118,7 +118,7 @@ that project.
    the plan to `<issue-dir>/imPlan.md` (step 5's save-path rule applies
    to this fallback too). Then print the nudge line verbatim and
    continue — never stall on the missing plugin:
-   recommended: claude plugin install superpowers@claude-plugins-official
+   `recommended: claude plugin install superpowers@claude-plugins-official`
 5. The skill writes the plan to `<issue-dir>/imPlan.md` (NOT to
    `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.

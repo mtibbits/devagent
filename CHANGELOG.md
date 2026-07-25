@@ -18,6 +18,9 @@ tag`) will get their own dated sections below.
   never auto-install and an unresolved one silently disables the whole plugin);
   draft / implement / review gain built-in fallbacks + a one-line install
   nudge, and `/devagent:doctor` WARNs when the plugin is absent or disabled.
+  Pre-#541 installs sit at `✘ failed to load` under the old cached manifest:
+  run `claude plugin update devagent@devagent` once to heal (measured —
+  the update alone flips the plugin to `✔ enabled`, superpowers still absent).
 
 Current capabilities as of this commit:
 

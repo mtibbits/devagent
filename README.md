@@ -22,19 +22,23 @@ claude plugin marketplace add mtibbits/devagent
 claude plugin install devagent@devagent
 ```
 
-**Recommended — superpowers.** devAgent's implement and review steps — and
-draft on its inline (non-dispatched) path — prefer skills from the
+**Recommended — superpowers.** When the
 [`superpowers`](https://github.com/anthropics/claude-plugins-official)
-plugin when it is installed, and fall back to compact built-in paths (with
-a one-line install nudge) when it is absent — devAgent itself always loads
-either way (#541: nothing is hard-required; note that plugin dependencies
-do NOT auto-install at CC 2.1.211, so this is a separate, optional
-command). `/devagent:doctor` reports whether it is installed. For the
-richer paths:
+plugin is installed, devAgent's implement and review steps — and draft on
+its inline (non-dispatched) path — use its skills. When it is absent, those
+steps fall back to compact built-in paths and print a one-line install
+nudge; devAgent itself always loads either way, and `/devagent:doctor`
+warns when the plugin is missing or disabled (#541: recommended, never
+hard-required; plugin dependencies do not auto-install, so this is a
+separate, optional command):
 
 ```sh
 claude plugin install superpowers@claude-plugins-official
 ```
+
+Installs from before #541: run `claude plugin update devagent@devagent`
+once — the old manifest declared superpowers as a hard dependency, and a
+cached copy of it keeps devAgent disabled until updated.
 
 **Private-repo access.** While `mtibbits/devagent` is private,
 `claude plugin marketplace add` clones it over your configured git access — you

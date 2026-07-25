@@ -42,7 +42,7 @@ Per `commands/draft.md`.
    coding-standards context and the same verdict/artifact contract —
    without the upstream skill's framing. Print the nudge line verbatim
    and continue:
-   recommended: claude plugin install superpowers@claude-plugins-official
+   `recommended: claude plugin install superpowers@claude-plugins-official`
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`
    (**canonical location**; `<issue-dir>/review.md` at the root is accepted
    legacy — some recent issues wrote it there. #360: prefer `analysis/` going

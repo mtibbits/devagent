@@ -119,7 +119,9 @@ remove_claude_from_path() {
   make_claude_stub disabled    # superpowers block present, Status: disabled (Cell C's state)
   run bash "$SCRIPTS/doctor.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"recommended: claude plugin install superpowers@claude-plugins-official"* ]]
+  # redmr finding: the disabled state's copy-pasteable fix is ENABLE (with the
+  # stanza's own marketplace-qualified name), not a second install
+  [[ "$output" == *"recommended: claude plugin enable superpowers@claude-plugins-official"* ]]
 }
 
 @test "doctor stays silent about superpowers when installed+enabled" {
