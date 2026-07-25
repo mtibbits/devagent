@@ -12,6 +12,16 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Changed — 2026-07-25 (#541)
+- superpowers demoted from declared dependency to recommended plugin: the
+  manifest carries no `dependencies` key (measured at CC 2.1.211: dependencies
+  never auto-install and an unresolved one silently disables the whole plugin);
+  draft / implement / review gain built-in fallbacks + a one-line install
+  nudge, and `/devagent:doctor` WARNs when the plugin is absent or disabled.
+  Pre-#541 installs sit at `✘ failed to load` under the old cached manifest:
+  run `claude plugin update devagent@devagent` once to heal (measured —
+  the update alone flips the plugin to `✔ enabled`, superpowers still absent).
+
 Current capabilities as of this commit:
 
 ### Core
@@ -27,7 +37,8 @@ Current capabilities as of this commit:
   auth subsystem (PAT / SSH-key lifecycle).
 
 ### Plugin conformance & distribution readiness
-- `.claude-plugin/plugin.json` manifest declaring the `superpowers` dependency.
+- `.claude-plugin/plugin.json` manifest with no hard dependencies — `superpowers`
+  is recommended, not declared (#541; the pre-#541 manifest declared it).
 - SHA-versioned marketplace entry (no pinned `version`) so `/plugin update`
   works without uninstall + reinstall.
 - Every command routes its scripts through `${CLAUDE_PLUGIN_ROOT}` (works from a

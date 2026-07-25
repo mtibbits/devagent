@@ -34,6 +34,15 @@ Per `commands/draft.md`.
    form. A nonzero exit WITH an error on stderr (stderr WITHOUT a
    `per-issue` provenance line) is a bad marker: STOP and fix or remove
    it — do NOT dispatch on inherit.
+
+   **Fallback (superpowers absent):** if that Skill invocation errors
+   (`Unknown skill: superpowers:requesting-code-review`, #541), run the
+   review exactly as this wrapper already specifies — dispatch the
+   fresh-context review subagent over `baseline_sha..HEAD` with the
+   coding-standards context and the same verdict/artifact contract —
+   without the upstream skill's framing. Print the nudge line verbatim
+   and continue:
+   `recommended: claude plugin install superpowers@claude-plugins-official`
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`
    (**canonical location**; `<issue-dir>/review.md` at the root is accepted
    legacy — some recent issues wrote it there. #360: prefer `analysis/` going

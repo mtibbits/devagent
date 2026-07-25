@@ -536,20 +536,20 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 |---|---|---|---|
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
 | 22 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 1. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
-| 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start` |
+| 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
 | 23 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 1 and 2. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. |
 | 2 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
 | 3 | `/devagent:improve` | skill | `core-improve` (fork → `devagent:plan-improver`, #527) — bugs, side effects, ambiguities; the #286 pothole tripwire lives in the agent, which self-resolves the register |
 | 4 | `/devagent:prune` | skill | `core-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
 | 5 | `/devagent:tighten` | skill | `core-tighten` — final review pass on pruned plan |
 | 6 | `/devagent:branch` | script + skill | `branch.sh` (prefix from `branch_prefix_map`); `superpowers:using-git-worktrees` |
-| 7 | `/devagent:implement` | skill | `superpowers:executing-plans` |
+| 7 | `/devagent:implement` | skill | `superpowers:executing-plans` (superpowers absent ⇒ direct imPlan execution fallback + nudge, #541) |
 | 8 | `/devagent:quality` | skill | `simplify` + project's `coding_standards.md` |
 | 9 | `/devagent:document` | skill | `core-document-actual-work` — terse when no deviation |
 | 10 | `/devagent:commit` | script | `commit.sh` — `commit_template.md`, `-s` (DCO), strips `(1M context)` |
 | 11 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
 | 12 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
-| 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` |
+| 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
 | 14 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
@@ -840,7 +840,9 @@ boundary, not an oversight:
 - **Step 13 (review)** cannot be converted as things stand: `commands/review.md`
   wraps the upstream `superpowers:requesting-code-review` skill, which devAgent
   does not own and cannot add frontmatter to. Binding it would first require
-  vendoring that contract.
+  vendoring that contract. A devAgent-authored degraded review path is NOT
+  vendoring (#541): nothing is copied from superpowers; the upstream skill
+  remains the preferred implementation and the binding boundary stands.
 
 ## 8. Permission gates
 
@@ -1272,6 +1274,8 @@ across revisions for chronological readability.
 | quality | `simplify` |
 | review | `superpowers:requesting-code-review` |
 | scope, improve, prune, tighten, redmr, preship, lessonslearned, impact, capture, scaffold, redissue, reap, document, draftmr | devAgent-shipped custom skills under `skills/core-*` |
+
+All superpowers rows are preferences, not requirements (#541): the plugin carries no dependencies declaration. The three wrapping rows (draft / implement / review) carry per-step fallbacks + the install nudge when the plugin is absent; the branch row is a name-drop (worktree guidance, no invocation, no fallback needed).
 
 Custom skills live in `~/src/devAgent/skills/` and follow superpowers
 skill conventions (frontmatter, single-purpose, checklists where
