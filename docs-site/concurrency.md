@@ -13,7 +13,8 @@ own `~/.claude/devagent/state/<project>.toml`.
 ## Per-session pins
 
 Running two Claude Code sessions at once? Pin each session in that working
-directory's `settings.local.json` so it never touches the shared pointer:
+directory's `.claude/settings.local.json` so it never touches the shared
+pointer:
 
 ```json
 { "env": { "DEVAGENT_ACTIVE_PROJECT": "myproj",

@@ -50,6 +50,10 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qF 'claude plugin install superpowers@claude-plugins-official' "$f"
     grep -qF '2.1.211' "$f"
   done
+  # The headline count token is shared by index.md and README the same way
+  # (review minor 18: previously pinned only via workflow.md's derived table).
+  grep -qF '22-step workflow' "$SITE/index.md"
+  grep -qF '22-step workflow' "$PLUGIN_ROOT/README.md"
 }
 
 @test "docs-site: install page carries the #541 posture delta token" {
@@ -82,5 +86,18 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
 
 @test "docs-site: the audit step-count typo never appears in a content page" {
   run grep -l '21-step' "${PAGES[@]/#/$SITE/}"
+  [ "$status" -eq 1 ]
+}
+
+@test "docs-site: quickstart command lines are full-arity and gate-honest" {
+  # Review findings 2-4 class: a fenced /devagent:<verb> line must satisfy
+  # the verb's own usage — pull takes <project> origin|fork <num>
+  # (commands/pull.md), file takes <slug> (commands/file.md), capture takes
+  # text (skills/capture/SKILL.md). Pin the runnable forms, forbid the bare
+  # regressions, and keep the push_mr-gate warning present.
+  grep -qF '/devagent:pull myproj origin 42' "$SITE/quickstart.md"
+  grep -qF '/devagent:file <slug>' "$SITE/quickstart.md"
+  grep -qF 'permissions.push_mr' "$SITE/quickstart.md"
+  run grep -E '^/devagent:(pull|file|capture) *$' "$SITE/quickstart.md"
   [ "$status" -eq 1 ]
 }

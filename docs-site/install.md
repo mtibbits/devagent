@@ -3,12 +3,15 @@
 
 ## Prerequisites & supported platforms
 
-devAgent runs on **Linux and macOS**, inside
-[Claude Code](https://claude.com/claude-code). You need:
+devAgent is developed and tested on **Linux**, inside
+[Claude Code](https://claude.com/claude-code). macOS is currently untested:
+the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
+`readlink -f`) and bash ≥ 4, and CI runs Linux only. You need:
 
 - **Claude Code** — developed and verified against **2.1.211**; earlier
   versions are untested.
-- **`bash`**, **`python3`**, and **`jq`** — the workflow scripts' toolchain.
+- **`bash` ≥ 4**, **`python3`**, **`jq`**, and **`git`** — the workflow
+  scripts' toolchain.
 - A forge CLI for your backend: **`gh`** (GitHub), **`glab`** or `curl`
   (GitLab), `curl` (JIRA).
 - Contributors additionally need **`bats`** and **`shellcheck >= 0.9.0`**
@@ -40,10 +43,6 @@ plugin is missing or disabled. It is recommended, never hard-required:
 claude plugin install superpowers@claude-plugins-official
 ```
 
-Installs from before #541: run `claude plugin update devagent@devagent` once —
-the old manifest declared superpowers as a hard dependency, and a cached copy
-of it keeps devAgent disabled until updated.
-
 ## Updates
 
 The plugin is versioned by git commit SHA (no pinned `version`), so updating
@@ -53,6 +52,10 @@ picks up new commits without an uninstall + reinstall:
 claude plugin update devagent@devagent
 ```
 
+Installs from before #541: run the update once — the old manifest declared
+superpowers as a hard dependency, and a cached copy of it keeps devAgent
+disabled until updated.
+
 ## Permissions caveat
 
 As of Claude Code 2.1.211, `${CLAUDE_PLUGIN_ROOT}` is not substituted inside
@@ -60,8 +63,14 @@ As of Claude Code 2.1.211, `${CLAUDE_PLUGIN_ROOT}` is not substituted inside
 and you'll be prompted to approve each workflow script call. Approve-and-
 remember when prompted, or pre-approve by adding a `permissions.allow` entry
 in `~/.claude/settings.json` that covers the plugin's installed version
-directory under `~/.claude/plugins/cache/devagent/…` (absolute path, `:*`
-covering the version segment). Never widen to bare `Bash`.
+directory under `~/.claude/plugins/cache/devagent/…` — absolute path, with
+`:*` covering the version segment, for example:
+
+```
+Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)
+```
+
+Never widen to bare `Bash`.
 
 ## While the repo is private
 

@@ -35,16 +35,18 @@ Counts and versions are restated minimally, with the sources' exact tokens:
 
 ## Enforcement today
 
-- `tests/docs-site.bats` — pins the pages against their sources (drift on
-  either side reddens); its header comment, which lives next to the
-  assertions and is edited with them, enumerates the pinned surface.
-- The devAgent workflow's preship step re-verifies restated numbers at the
-  ship SHA.
+`tests/docs-site.bats` is the enforcement: it pins the pages against their
+sources (drift on either side reddens), and its header comment — which lives
+next to the assertions and is edited with them — enumerates the pinned
+surface. Anything the suite does not pin is held only by the derivation rule
+above and by review.
 
 ## Pending mechanism
 
-The structural fix for documentation lag is a "documented-surface" question
-in the red-team and preship review steps — "does this diff add, rename, or
-remove a config key, command, hook, or top-level directory a documented
-surface must name?" — tracked as **mtibbits/devagent#435**. Until it lands,
-this file is the strategy record.
+The structural fix for documentation lag is a "spec-touch" question in the
+red-team and preship review steps — "does this diff add, rename, or remove a
+config key, command, hook, or top-level directory the spec must name?" —
+tracked as **mtibbits/devagent#435**. Note its scope as filed is the
+**spec**, not this site: when it lands it will not cover `docs-site/` unless
+widened (or given a sibling check). Until then, this file is the strategy
+record.

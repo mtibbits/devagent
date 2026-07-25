@@ -1,10 +1,12 @@
-<!-- derived-from: README.md docs/specs/2026-05-19-devagent-plugin-design.md -->
+<!-- derived-from: README.md docs/specs/2026-05-19-devagent-plugin-design.md templates/config.toml.skel -->
 # Configuration
 
 ## config.toml anatomy
 
 All projects live in one file: `~/.claude/devagent/config.toml`
-(bootstrapped per project by `/devagent:init`). A representative entry:
+(bootstrapped per project by `/devagent:init`). A representative entry —
+note the permissions here loosen three of the shipped defaults; a fresh
+init writes all five `false`:
 
 ```toml
 [defaults]
@@ -17,19 +19,22 @@ devdoc_dir       = "/home/you/src/devDoc/myproj" # per-issue artifacts
 default_baseline = "origin/main"               # branch step's base
 fork_first       = false                       # branch/push via a fork
 ship_as_draft    = false                       # open MRs as drafts
-analyze          = "none"                      # step-11 analyzer family
+analyze          = "none"                      # step-11 analyzer family; default when absent: cmake
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
-[project.myproj.permissions]   # gates the workflow must ask before crossing
-push_mr          = true        # step 15 may push + open the MR
+[project.myproj.permissions]   # pre-grants: true = proceed unprompted,
+                               # false = stop and ask (autonomous paths
+                               # skip instead of asking). All ship false.
+push_mr          = true        # step 15 pushes + opens the MR unprompted
 merge_mr         = false       # merging the MR itself
 merge_to_all_prs = false       # step 16 local integration branch
-commit_devdoc    = true        # step 20 may commit the devdoc
-transition_issue = true        # tracker state transitions may fire
+commit_devdoc    = true        # step 20 commits the devdoc unprompted
+transition_issue = true        # tracker state transitions fire unprompted
 
 [project.myproj.issue_source]  # where tickets live
 backend = "github"             # github | gitlab | jira | custom
 repo    = "you/myproj"
+dir_prefix = "Issue-"          # issue-directory prefix; pull dies without it
 
 [project.myproj.code_source]   # where branches push and MRs file
 backend  = "github"
@@ -47,8 +52,10 @@ checking = "opus"
 
 ## The five-verb backend contract
 
-Backends are plain scripts; four ship out of the box (`github`, `gitlab`,
-`jira`, and a `custom` stub). Every **issue backend** implements five verbs:
+Backends are plain scripts; four issue backends ship out of the box
+(`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
+GitHub and GitLab (JIRA hosts issues only). Every **issue backend**
+implements five verbs:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -91,7 +98,9 @@ Every artifact the workflow writes (plans, MR bodies, red-team prompts,
 checklists, the pothole register …) resolves through a fixed three-layer
 order:
 
-1. A per-project `paths` override in `config.toml` (exact file path).
+1. A per-project `paths` override in `config.toml` (a file path; relative
+   paths resolve against `devdoc_dir`). Beware: an override path that does
+   not exist falls through **silently** to the plugin default.
 2. Your devdoc's `templates/` directory — per-project customization.
 3. The plugin's own `templates/` directory (under the plugin cache dir) —
    the shipped defaults.

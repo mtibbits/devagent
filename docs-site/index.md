@@ -36,7 +36,7 @@ The [workflow reference](./workflow.md) tables every numbered step.
 
 - [Install](./install.md) — prerequisites, supported platforms, and the
   two-command install.
-- [Quickstart](./quickstart.md) — from empty config to a merged-ready MR.
+- [Quickstart](./quickstart.md) — from empty config to a merge-ready MR.
 - [Workflow reference](./workflow.md) — the full step table, checklist
   glyphs, and the revision loop.
 - [Configuration](./configuration.md) — `config.toml`, the five-verb backend
