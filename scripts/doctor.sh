@@ -23,6 +23,9 @@ check() {
     # mode audit on a filesystem that can't represent modes). Visible and
     # non-fatal — never report a skipped 644/755 as a bare OK (#289).
     skip) echo "  SKIP $label${detail:+ — $detail}" ;;
+    # warn: advisory only (#541 recommend-not-require) — visible, never
+    # counted in ERRORS, never flips doctor's exit code.
+    warn) echo "  WARN $label${detail:+ — $detail}" ;;
     *)    echo "  FAIL $label${detail:+ — $detail}"; ERRORS=$((ERRORS + 1)) ;;
   esac
 }
@@ -229,6 +232,20 @@ if [[ -d "$(secrets_dir)" ]]; then
   fi
 else
   check "secrets dir present" fail "no $(secrets_dir)"
+fi
+
+# #541: recommended-plugin check — WARN only, never touches ERRORS.
+# Tri-state (Issue-314/243): capture the CLI output, never pipe-under-`!`;
+# a CLI failure or empty output is "undetermined", NOT "absent" — no WARN.
+if command -v claude >/dev/null 2>&1; then
+  plugins="$(claude plugin list 2>/dev/null)" || plugins=""   # Issue-314: capture; a CLI failure is NOT "absent"
+  if [[ -z "$plugins" ]]; then
+    : # undetermined (CLI errored / empty) — fail closed, no claim either way (Issue-243)
+  elif printf '%s\n' "$plugins" | grep -A4 'superpowers@claude-plugins-official' | grep -qF '✔ enabled'; then
+    : # present AND enabled — silent ('✔ enabled' exact: plain 'enabled' would substring-match 'disabled')
+  else
+    check "superpowers (recommended)" warn "not installed or not enabled: draft/implement/review use built-in fallbacks — recommended: claude plugin install superpowers@claude-plugins-official"
+  fi
 fi
 
 echo
