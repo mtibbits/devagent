@@ -10,8 +10,9 @@ With a project argument, only that project is checked.
 
 doctor checks structural concerns (config parses; required project fields
 present; source_dir/devdoc_dir exist; state file mode 600; secrets dir mode
-700; checklist template resolves) and, via the auth doctor hook, auth-secret
-presence and reachability — and (#541) whether the recommended `superpowers`
-plugin is installed and enabled (WARN + install hint otherwise).
+700; checklist template resolves; and — #541, global phase — whether the
+recommended `superpowers` plugin is installed and enabled, WARN + install
+hint otherwise) and, via the auth doctor hook, auth-secret presence and
+reachability.
 
 Forward arguments verbatim.

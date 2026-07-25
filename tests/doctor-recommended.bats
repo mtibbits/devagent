@@ -49,53 +49,47 @@ teardown() { teardown_tmp_devagent_home; }
 # name-blind grep can't pass vacuously (Issue-Fork-149 poison control).
 make_claude_stub() {
   local state="$1" fixture="$STUBBIN/list-output.txt"
-  case "$state" in
-    absent) cat > "$fixture" <<'EOF'
+  if [ "$state" = failing ]; then
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$STUBBIN/claude"
+  else
+    # Shared header + a non-superpowers block in EVERY fixture, so the
+    # absent case stays poison-controlled (other plugins present,
+    # superpowers nowhere — Issue-Fork-149) and only the state-bearing
+    # tail varies per case.
+    cat > "$fixture" <<'EOF'
 Installed plugins:
-
-  ❯ code-review@claude-plugins-official
-    Version: unknown
-    Scope: user
-    Status: ✔ enabled
 
   ❯ devagent@devagent
     Version: a143b22419c4
     Scope: user
     Status: ✔ enabled
 EOF
-      ;;
-    disabled) cat > "$fixture" <<'EOF'
-Installed plugins:
+    case "$state" in
+      absent) cat >> "$fixture" <<'EOF'
 
-  ❯ devagent@devagent
-    Version: a143b22419c4
+  ❯ code-review@claude-plugins-official
+    Version: unknown
     Scope: user
     Status: ✔ enabled
+EOF
+        ;;
+      disabled) cat >> "$fixture" <<'EOF'
 
   ❯ superpowers@claude-plugins-official
     Version: 6.2.0
     Scope: user
     Status: ✘ disabled
 EOF
-      ;;
-    enabled) cat > "$fixture" <<'EOF'
-Installed plugins:
-
-  ❯ devagent@devagent
-    Version: a143b22419c4
-    Scope: user
-    Status: ✔ enabled
+        ;;
+      enabled) cat >> "$fixture" <<'EOF'
 
   ❯ superpowers@claude-plugins-official
     Version: 6.2.0
     Scope: user
     Status: ✔ enabled
 EOF
-      ;;
-  esac
-  if [ "$state" = failing ]; then
-    printf '#!/usr/bin/env bash\nexit 1\n' > "$STUBBIN/claude"
-  else
+        ;;
+    esac
     printf '#!/usr/bin/env bash\ncat "%s"\n' "$fixture" > "$STUBBIN/claude"
   fi
   chmod +x "$STUBBIN/claude"

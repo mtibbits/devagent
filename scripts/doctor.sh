@@ -24,7 +24,8 @@ check() {
     # non-fatal — never report a skipped 644/755 as a bare OK (#289).
     skip) echo "  SKIP $label${detail:+ — $detail}" ;;
     # warn: advisory only (#541 recommend-not-require) — visible, never
-    # counted in ERRORS, never flips doctor's exit code.
+    # counted in ERRORS, never flips doctor's exit code. NOT the auth-hook
+    # protocol's WARN (doctor_auth.sh), which deliberately maps to fail.
     warn) echo "  WARN $label${detail:+ — $detail}" ;;
     *)    echo "  FAIL $label${detail:+ — $detail}"; ERRORS=$((ERRORS + 1)) ;;
   esac
@@ -241,8 +242,10 @@ if command -v claude >/dev/null 2>&1; then
   plugins="$(claude plugin list 2>/dev/null)" || plugins=""   # Issue-314: capture; a CLI failure is NOT "absent"
   if [[ -z "$plugins" ]]; then
     : # undetermined (CLI errored / empty) — fail closed, no claim either way (Issue-243)
-  elif printf '%s\n' "$plugins" | grep -A4 'superpowers@claude-plugins-official' | grep -qF '✔ enabled'; then
-    : # present AND enabled — silent ('✔ enabled' exact: plain 'enabled' would substring-match 'disabled')
+  elif printf '%s\n' "$plugins" | awk '/❯ superpowers@claude-plugins-official/{f=1; next} /❯/{f=0} f && /✔ enabled/{ok=1} END{exit !ok}'; then
+    : # present AND enabled — silent. Stanza-scoped (❯-delimited record), not a
+    # fixed -A window: an inserted line in a future `plugin list` layout must not
+    # false-WARN. '✔ enabled' exact: plain 'enabled' would substring-match 'disabled'.
   else
     check "superpowers (recommended)" warn "not installed or not enabled: draft/implement/review use built-in fallbacks — recommended: claude plugin install superpowers@claude-plugins-official"
   fi

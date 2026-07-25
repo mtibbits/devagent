@@ -109,8 +109,10 @@ that project.
 
    **Fallback (superpowers absent):** if that Skill invocation errors
    (`Unknown skill: superpowers:writing-plans` — the measured absence
-   symptom, #541), draft the plan yourself directly against
-   `templates/imPlan_template.md`'s section contract: every template
+   symptom, #541), draft the plan yourself directly against the resolved
+   `imPlan_template.md`'s section contract (§12 registry: project paths →
+   devdoc → plugin default — the same resolution every other consumer of
+   that template uses): every template
    section present, tasks bite-sized with exact files, code blocks, and
    runnable test commands, tests-before-implementation ordering. Then
    print the nudge line verbatim and continue — never stall on the
