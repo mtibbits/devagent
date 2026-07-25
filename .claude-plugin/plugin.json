@@ -16,9 +16,6 @@
     "development",
     "automation"
   ],
-  "dependencies": [
-    "superpowers@claude-plugins-official"
-  ],
   "userConfig": {
     "devdoc_root": {
       "type": "directory",
