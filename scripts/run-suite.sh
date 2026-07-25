@@ -57,8 +57,17 @@ fi
 pytest_line="pytest: (none)"
 if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE python3 -m pytest tests/ -q 2>&1 || true)"
-  passed="$(printf '%s\n' "$pout" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) passed.*/\1/p' | tail -1)"
-  failed="$(printf '%s\n' "$pout" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' | tail -1)"
+  # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
+  # column 0, which pytest -q's summary ("285 passed, 9 skipped in Xs") always
+  # is. The prior sed required a non-digit BEFORE the digits and so recorded 0
+  # for every line-start summary. `tail -1` here is the summary line (pytest
+  # prints it last) — NOT the header's forbidden tail-derived count (#85), which
+  # is about the bats `1..N`/`^ok ` counting, a different mechanism.
+  # `|| true`: a green run has no "failed" line, so `grep` exits 1 — which under
+  # this script's `set -euo pipefail` would kill run-suite mid-way. No match just
+  # means a zero count, defaulted below.
+  passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
+  failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
   pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
 fi
 
