@@ -265,6 +265,10 @@ _check_user_invocable() {
   # (tree comment said 52 while the sum line said 53+3=56) — pin both.
   grep -q "54 + 3 = the 57 slash commands" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -qE "command-form slash command \(54\)" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
+  # #461: the onboarding site's landing page is a SIXTH home, enrolled in the
+  # same change that created it (Issue-458: extend the sweep in the change that
+  # adds a home, or it ships divergent exactly when the sweep lags the homes).
+  grep -q "57 slash commands" "$CMD_DIR/../docs-site/index.md"
 }
 
 @test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {
