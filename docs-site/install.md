@@ -1,4 +1,4 @@
-<!-- derived-from: README.md scripts/ -->
+<!-- derived-from: README.md scripts/ .github/workflows/ -->
 # Install
 
 ## Prerequisites & supported platforms
@@ -37,7 +37,8 @@ plugin is installed, devAgent's implement and review steps — and draft on its
 inline (non-dispatched) path — use its skills. When it is absent, those steps
 fall back to compact built-in paths and print a one-line install nudge;
 devAgent itself always loads either way, and `/devagent:doctor` warns when the
-plugin is missing or disabled. It is recommended, never hard-required:
+plugin is missing or disabled. It is recommended, never hard-required
+([#541](https://github.com/mtibbits/devagent/issues/541)):
 
 ```sh
 claude plugin install superpowers@claude-plugins-official
@@ -52,9 +53,9 @@ picks up new commits without an uninstall + reinstall:
 claude plugin update devagent@devagent
 ```
 
-Installs from before #541: run the update once — the old manifest declared
-superpowers as a hard dependency, and a cached copy of it keeps devAgent
-disabled until updated.
+Installs from before [#541](https://github.com/mtibbits/devagent/issues/541):
+run the update once — the old manifest declared superpowers as a hard
+dependency, and a cached copy of it keeps devAgent disabled until updated.
 
 ## Permissions caveat
 
@@ -70,7 +71,10 @@ directory under `~/.claude/plugins/cache/devagent/…` — absolute path, with
 Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)
 ```
 
-Never widen to bare `Bash`.
+Never widen to bare `Bash`. Note what this grant covers: every script in the
+plugin's install directory, **including ones added by a later
+`claude plugin update`**. Scope it to the versioned subdirectory instead if
+you prefer to re-approve on each upgrade.
 
 ## While the repo is private
 

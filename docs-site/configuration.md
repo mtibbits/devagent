@@ -54,8 +54,8 @@ checking = "opus"
 
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
-GitHub and GitLab (JIRA hosts issues only). Every **issue backend**
-implements five verbs:
+GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
+**issue backend** implements five verbs:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -88,9 +88,9 @@ Exit-code conventions across all backends:
 
 The markdown shape produced by `fetch` and `comment-list` is fixed across
 backends, so everything downstream is backend-agnostic. To add your own
-tracker, copy `scripts/issue/custom.sh`, implement each verb, point
-`backend = "<yourname>"` at it, and verify with
-`bats tests/backend-<yourname>.bats`.
+tracker or forge, copy `scripts/issue/custom.sh` (and `scripts/code/custom.sh`
+for the forge half), implement each verb, point `backend = "<yourname>"` at
+it, and verify with `bats tests/backend-<yourname>.bats`.
 
 ## Templates (the §12 registry)
 

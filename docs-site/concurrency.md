@@ -24,10 +24,12 @@ pointer:
 A pinned session never reads or writes the shared pointer or the project's
 shared `active_issue` scalar:
 
-- **Different projects** are safe to run concurrently as of #282 — the
-  shared pointer is only written when actually consulted.
-- **Same-project sessions** are isolated per issue as of #240/#303: each
-  issue's state lives under its own `[context.<issue>]` table, so keys
+- **Different projects** are safe to run concurrently as of
+  [#282](https://github.com/mtibbits/devagent/issues/282) — the shared
+  pointer is only written when actually consulted.
+- **Same-project sessions** are isolated per issue as of
+  [#240](https://github.com/mtibbits/devagent/issues/240)/[#303](https://github.com/mtibbits/devagent/issues/303):
+  each issue's state lives under its own `[context.<issue>]` table, so keys
   cannot launder between issues. The `DEVAGENT_ACTIVE_ISSUE` pin closes the
   last residual (the last-writer-wins pick of the shared `active_issue`
   scalar).
