@@ -1275,7 +1275,7 @@ across revisions for chronological readability.
 | review | `superpowers:requesting-code-review` |
 | scope, improve, prune, tighten, redmr, preship, lessonslearned, impact, capture, scaffold, redissue, reap, document, draftmr | devAgent-shipped custom skills under `skills/core-*` |
 
-All superpowers rows are preferences, not requirements (#541): the plugin carries no dependencies declaration; absent plugin ⇒ per-step fallback + install nudge.
+All superpowers rows are preferences, not requirements (#541): the plugin carries no dependencies declaration. The three wrapping rows (draft / implement / review) carry per-step fallbacks + the install nudge when the plugin is absent; the branch row is a name-drop (worktree guidance, no invocation, no fallback needed).
 
 Custom skills live in `~/src/devAgent/skills/` and follow superpowers
 skill conventions (frontmatter, single-purpose, checklists where

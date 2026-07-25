@@ -41,9 +41,10 @@ Per `commands/draft.md`.
    **Fallback (superpowers absent):** if that Skill invocation errors
    (`Unknown skill: superpowers:executing-plans`, #541), execute
    `$ISSUE_DIR/imPlan.md` directly: task-by-task in plan order, running
-   each task's stated test/verify steps before moving on; steps 5–7 of
-   this command apply unchanged. Print the nudge line verbatim and
-   continue:
+   each task's stated test/verify steps before moving on, one signed-off
+   commit per task (`git commit -s` — the same granularity the wrapped
+   skill defaults to); steps 5–6 of this command apply unchanged. Print
+   the nudge line verbatim and continue:
    recommended: claude plugin install superpowers@claude-plugins-official
 5. Implementation happens task-by-task per the wrapped skill's
    conventions. Each task gets its own commit per executing-plans

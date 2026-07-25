@@ -326,10 +326,15 @@ S
 }
 
 @test "every wrapper INVOKING a superpowers skill pairs it with fallback twin + nudge (#541)" {
-  local invokers count=0 f
-  invokers=$(grep -rliE 'invoke[^`]*`superpowers:' "$CMD_DIR" --include='*.md')
+  # Review finding (#541 r1): derive from ANY `superpowers:` mention, not an
+  # 'invoke…`superpowers:' phrasing regex — a differently-worded 4th wrapper
+  # ("Use the `superpowers:x` skill…") must fail here, not walk past the pin.
+  # Allowlist below is for NAME-DROP-ONLY command files (none today).
+  local allowlist="" invokers count=0 f
+  invokers=$(grep -rl 'superpowers:' "$CMD_DIR" --include='*.md')
   while IFS= read -r f; do
     [ -n "$f" ] || continue
+    case " $allowlist " in *" $(basename "$f") "*) continue ;; esac
     grep -q 'Fallback (superpowers absent)' "$f"
     grep -q 'recommended: claude plugin install superpowers@claude-plugins-official' "$f"
     count=$((count + 1))

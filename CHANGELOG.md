@@ -34,7 +34,8 @@ Current capabilities as of this commit:
   auth subsystem (PAT / SSH-key lifecycle).
 
 ### Plugin conformance & distribution readiness
-- `.claude-plugin/plugin.json` manifest declaring the `superpowers` dependency.
+- `.claude-plugin/plugin.json` manifest with no hard dependencies — `superpowers`
+  is recommended, not declared (#541; the pre-#541 manifest declared it).
 - SHA-versioned marketplace entry (no pinned `version`) so `/plugin update`
   works without uninstall + reinstall.
 - Every command routes its scripts through `${CLAUDE_PLUGIN_ROOT}` (works from a

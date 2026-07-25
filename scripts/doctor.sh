@@ -239,10 +239,10 @@ fi
 # Tri-state (Issue-314/243): capture the CLI output, never pipe-under-`!`;
 # a CLI failure or empty output is "undetermined", NOT "absent" — no WARN.
 if command -v claude >/dev/null 2>&1; then
-  plugins="$(claude plugin list 2>/dev/null)" || plugins=""   # Issue-314: capture; a CLI failure is NOT "absent"
+  plugins="$(timeout 5 claude plugin list 2>/dev/null)" || plugins=""   # Issue-314: capture; a CLI failure/hang is NOT "absent"
   if [[ -z "$plugins" ]]; then
     : # undetermined (CLI errored / empty) — fail closed, no claim either way (Issue-243)
-  elif printf '%s\n' "$plugins" | awk '/❯ superpowers@claude-plugins-official/{f=1; next} /❯/{f=0} f && /✔ enabled/{ok=1} END{exit !ok}'; then
+  elif printf '%s\n' "$plugins" | awk '/❯ superpowers@/{f=1; next} /❯/{f=0} f && /✔ enabled/{ok=1} END{exit !ok}'; then
     : # present AND enabled — silent. Stanza-scoped (❯-delimited record), not a
     # fixed -A window: an inserted line in a future `plugin list` layout must not
     # false-WARN. '✔ enabled' exact: plain 'enabled' would substring-match 'disabled'.
