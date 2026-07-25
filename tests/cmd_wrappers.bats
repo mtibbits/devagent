@@ -62,6 +62,8 @@ _check_user_invocable() {
 
 @test "draft.md references the wrapped skill (superpowers:writing-plans)" {
   grep -q 'superpowers:writing-plans' "$CMD_DIR/draft.md"
+  grep -q 'Fallback (superpowers absent)' "$CMD_DIR/draft.md"
+  grep -q 'recommended: claude plugin install superpowers@claude-plugins-official' "$CMD_DIR/draft.md"
 }
 
 @test "draft.md instructs the pothole-register read + Potholes considered section (#286)" {
@@ -109,6 +111,8 @@ _check_user_invocable() {
   F="$CMD_DIR/implement.md"
   [ -f "$F" ]
   grep -q 'superpowers:executing-plans' "$F"
+  grep -q 'Fallback (superpowers absent)' "$F"
+  grep -q 'recommended: claude plugin install superpowers@claude-plugins-official' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
@@ -142,6 +146,8 @@ _check_user_invocable() {
   F="$CMD_DIR/review.md"
   [ -f "$F" ]
   grep -q 'superpowers:requesting-code-review' "$F"
+  grep -q 'Fallback (superpowers absent)' "$F"
+  grep -q 'recommended: claude plugin install superpowers@claude-plugins-official' "$F"
   grep -q '\$NOTE' "$F"
   grep -q 'checklist-log.sh' "$F"
 }
@@ -317,6 +323,38 @@ S
   run _user_invocable_skills "$BATS_TEST_TMPDIR/skills"
   [ "$status" -eq 0 ]
   [ "$output" = "vis" ]   # frontmatter-scoped: body text neither satisfies nor trips it
+}
+
+@test "every wrapper INVOKING a superpowers skill pairs it with fallback twin + nudge (#541)" {
+  local invokers count=0 f
+  invokers=$(grep -rliE 'invoke[^`]*`superpowers:' "$CMD_DIR" --include='*.md')
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    grep -q 'Fallback (superpowers absent)' "$f"
+    grep -q 'recommended: claude plugin install superpowers@claude-plugins-official' "$f"
+    count=$((count + 1))
+  done <<< "$invokers"
+  [ "$count" -eq 3 ]   # draft, implement, review — the filter-then-count guard
+}
+
+@test "docs homes: no silent-degradation claim; recommended statement present (#541)" {
+  local REPO_ROOT="$CMD_DIR/.."
+  # POSTURE homes only (README, commands/, spec) — deliberately NOT repo-wide:
+  # evals/smoke/README.md:11 says "silently degrades" about subagent isolation,
+  # unrelated and staying (improve finding: a repo-wide sweep can never go green).
+  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs"
+  [ "$status" -eq 1 ]
+  # delta-pinning tokens (Issue-318: born-green presence greps prove nothing):
+  grep -qF 'Recommended — superpowers' "$REPO_ROOT/README.md"       # NEW heading token
+  run grep -F 'Prerequisite — superpowers' "$REPO_ROOT/README.md"   # OLD token must be GONE
+  [ "$status" -eq 1 ]
+  grep -qF 'preferences, not requirements (#541)' "$REPO_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+}
+
+@test "the three superpowers invocation lines are byte-exact (#541 AC3)" {
+  grep -qF 'Otherwise invoke the `superpowers:writing-plans` skill.' "$CMD_DIR/draft.md"
+  grep -qF 'Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`' "$CMD_DIR/implement.md"
+  grep -qF 'Invoke `superpowers:requesting-code-review` with the diff scope' "$CMD_DIR/review.md"
 }
 
 @test "user-invocable check names the offending skill, not a bare count (#526)" {
