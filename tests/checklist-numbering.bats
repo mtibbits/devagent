@@ -136,6 +136,7 @@ CFG
     while IFS= read -r line; do
         n=$((n + 1))
         num="$(sed -E 's/.*<project> ([0-9]+).*/\1/' <<<"$line")"
+        # shellcheck disable=SC2194 # constant subject; space-padded membership test
         case " 2 5 15 16 17 " in
             *" $num "*) : ;;
             *) printf 'STALE invocation: %s\n' "$line" >&2; bad=1 ;;
