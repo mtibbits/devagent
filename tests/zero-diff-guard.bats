@@ -20,7 +20,7 @@ teardown() { devagent_test_teardown; }
     # Clean tree + zero commits ahead → genuinely artifact-only, still skips.
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"auto-marking step 10"* ]]
+    [[ "$output" == *"auto-marking step 12"* ]]
     grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     grep -q "auto-skipped.*no commits" "$DEVDOC_DIR/Issue-1/checklist.md"
 }

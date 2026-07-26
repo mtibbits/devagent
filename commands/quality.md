@@ -42,7 +42,7 @@ Per `commands/draft.md`.
    zero-diff guards in commit/ship/mergetoall (#3):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" 8 -
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" 10 -
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality "auto-skipped: zero diff (artifact-only issue)"
    ```
 

@@ -62,7 +62,7 @@ out="$issue_dir/analysis/$(date_tag)-shellcheck.txt"
 # legitimate empty-scope path below.
 diff_list="$(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
                  -- '*.sh' '*.bats' '*.bash')" \
-    || die "git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 11 left unmarked, fix the baseline and re-run)"
+    || die "git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 13 left unmarked, fix the baseline and re-run)"
 files=()
 while IFS= read -r f; do
     [ -n "$f" ] || continue

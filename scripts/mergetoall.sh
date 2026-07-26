@@ -63,7 +63,7 @@ fi
 
 all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
 if [ -z "$all_prs" ]; then
-    info "all_prs_branch not configured — auto-marking step 16 [-]"
+    info "all_prs_branch not configured — auto-marking step 19 [-]"
     checklist_mark "$issue_dir/checklist.md" 19 -
     log_append "$issue_dir" mergetoall "auto-skipped: all_prs_branch not configured"
     exit 0

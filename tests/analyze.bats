@@ -22,7 +22,7 @@ EOF
 }
 teardown() { devagent_test_teardown; }
 
-@test "analyze.sh runs static then sanitizers and marks step 11 done" {
+@test "analyze.sh runs static then sanitizers and marks step 13 done" {
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     static_line=$(grep -n '^static ' "$DEVAGENT_STUB_LOG" | head -1 | cut -d: -f1)
@@ -124,7 +124,7 @@ _stub_shellcheck_analyzer() {
 @test "an unresolvable baseline leaves step 11 UNMARKED through analyze.sh (#314 e2e)" {
     # analyze = shellcheck + the REAL analyzer + a bad baseline: analyze.sh must
     # exit nonzero BEFORE the step-13 mark / state write (so an --auto chain
-    # halts), not mark step 11 [x] on a vacuous empty scope.
+    # halts), not mark step 13 [x] on a vacuous empty scope.
     command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
     _set_analyze shellcheck
     export DEVAGENT_ANALYZE_SHELLCHECK="$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh"

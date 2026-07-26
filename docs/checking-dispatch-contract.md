@@ -29,14 +29,12 @@ Per-step deltas each wrapper supplies (nothing else varies):
 `<INTRO>`
 
 1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the step
-   number the ACTIVE checklist row carries (`<STEP>`). Since #558, numbers are
-   POSITIONS assigned once from the standard template's execution order, and the
-   class map (config.sh) is keyed to those same global numbers, so a checklist
-   scaffolded at or after #558 agrees by construction. **A checklist scaffolded
-   BEFORE #558 carries the old numbers and WILL resolve the wrong class** —
-   regenerate its revision block with `/devagent:revise` before relying on a
-   tier override. The three no-tier states are not interchangeable here, so
-   discriminate on the code, never on stderr prose:
+   number the ACTIVE checklist row carries (`<STEP>`) — since #558 numbers are
+   positions and the class map (config.sh) is keyed to the same global numbers,
+   so a current checklist agrees by construction. (A pre-#558 checklist carries
+   old numbers and resolves the WRONG class until `/devagent:revise` regenerates
+   its block — see the #558 CHANGELOG entry.) The three no-tier states are not
+   interchangeable here, so discriminate on the code, never on stderr prose:
 
    ```bash
    err="$(mktemp)"

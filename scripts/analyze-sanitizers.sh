@@ -66,7 +66,7 @@ timeout_budget="${DEVAGENT_ANALYZE_TIMEOUT:-$(config_get_project_field "$project
 build_key="$(printf '%s-%s' "$project" "$issue_arg" | tr -c 'A-Za-z0-9' '-')"
 
 # #117: each failing leg records "<tag> (<phase> exit=<rc>) → <artifact>" here;
-# after all three legs run, a non-empty list fails step 11 loud (see below).
+# after all three legs run, a non-empty list fails step 13 loud (see below).
 declare -a fail_summaries=()
 
 # #351: render a phase's failure — a timeout(1) kill (124) reads as "timed out

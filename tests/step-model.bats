@@ -191,7 +191,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 
 @test "step-model: rc 3 is 'nothing configured', distinct from the inherit escape (#458)" {
     # No step_models table at all — the fresh-install state that takes the
-    # agent default for steps 3/14/21 (#527 added 3).
+    # agent default for steps 5/16/17 (#527 added improve).
     local d="$DEVDOC_DIR/Issue-1"
     local step
     for step in 5 16 17; do

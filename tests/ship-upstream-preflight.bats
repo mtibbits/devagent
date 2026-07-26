@@ -74,7 +74,7 @@ _make_branch() {
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"Rebase onto"* ]]
-    # Fork base untouched; ship did not proceed to create a PR or mark step 15.
+    # Fork base untouched; ship did not proceed to create a PR or mark step 18.
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_before" ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
 }

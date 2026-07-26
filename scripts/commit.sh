@@ -121,7 +121,7 @@ finish_step() {
 
 # #69: commit on the issue branch only. This guard runs BEFORE the zero-diff
 # guard so no early-exit path (no-op success, artifact-only skip) can mark
-# step 10 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
+# step 12 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
 # or the base branch after cleanup, in the revision flow). A detached HEAD
 # yields an empty name and is also refused. Checked on work_dir, whose HEAD
 # IS the issue branch under a worktree too.
@@ -138,7 +138,7 @@ fi
 # [context.<issue>] table but left it parked, so a later BARE resume (no pin, no
 # arg — which the #240 guard above does NOT cover) restored defaults (branch="").
 # Without this, the empty-branch tolerance below would commit staged work onto
-# whatever HEAD is on (the base branch post-cleanup) and mark step 10 [x]. Gate
+# whatever HEAD is on (the base branch post-cleanup) and mark step 12 [x]. Gate
 # on the branch step being DONE ([x]) — not skipped ([-]) or pending ([ ]/[~]) —
 # so the legitimate never-branched legacy flow keeps its empty-branch tolerance.
 if [ -z "$branch" ]; then
@@ -233,7 +233,7 @@ if [ -z "$staged" ]; then
                 exit 0
                 ;;
             empty)
-                info "clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
+                info "clean tree, no commits — auto-marking step 12 [-] (artifact-only)"
                 checklist_mark "$issue_dir/checklist.md" 12 -
                 log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
                 exit 0

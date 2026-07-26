@@ -74,11 +74,11 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "cleanup.sh reconciles the WBS leaf for the completed issue to [x]" {
-    # Mark every step except step 20 done in the seeded checklist;
+    # Mark every step except step 23 done in the seeded checklist;
     # cleanup will mark step 23 itself, then call wbs update.
     sed -i 's/^- \[ \]\([ ]*\([0-9]*\)\.\)/- [x]\1/' \
         "$DEVDOC_DIR/Issue-1/checklist.md"
-    # Re-mark step 20 as pending so cleanup has work to do.
+    # Re-mark step 23 as pending so cleanup has work to do.
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
     # Seed a WBS with the issue's leaf in-progress.
     cat > "$DEVDOC_DIR/WBS.md" <<EOF
@@ -91,7 +91,7 @@ EOF
         git -c user.email=t@x -c user.name=t commit -q -m "seed wbs" )
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    # cleanup marks its own step 20, then calls wbs update, which sees
+    # cleanup marks its own step 23, then calls wbs update, which sees
     # all checklist lines [x] and flips the leaf to [x].
     grep -q "\[x\] Working leaf" "$DEVDOC_DIR/WBS.md"
 }
@@ -142,7 +142,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *lessonslearned* ]]
-    # fail-closed: no side effects — step 20 still pending, branch unchanged
+    # fail-closed: no side effects — step 23 still pending, branch unchanged
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
     [ "$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )" = "feat/1-x" ]
 }
@@ -169,7 +169,7 @@ EOF
     [ "$status" -ne 0 ]
     [[ "$output" == *"updatewbs:[ ]"* ]]
     [[ "$output" == *"impact:[ ]"* ]]
-    # No side effect ran: step 20 unmarked, source repo still on the branch.
+    # No side effect ran: step 23 unmarked, source repo still on the branch.
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
     [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
 }

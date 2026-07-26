@@ -27,7 +27,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
                                # skip instead of asking). All ship false.
 push_mr          = true        # step 15 pushes + opens the MR unprompted
 merge_mr         = false       # merging the MR itself
-merge_to_all_prs = false       # step 16 local integration branch
+merge_to_all_prs = false       # step 19 local integration branch
 commit_devdoc    = true        # step 20 commits the devdoc unprompted
 transition_issue = true        # tracker state transitions fire unprompted
 

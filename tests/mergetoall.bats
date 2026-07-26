@@ -160,7 +160,7 @@ EOF
 }
 
 # #33: a GENUINE overlap (child's own delta collides with already-integrated work)
-# must fail closed — clean tree, restored branch, step 16 unmarked.
+# must fail closed — clean tree, restored branch, step 19 unmarked.
 @test "mergetoall.sh fails closed on genuine overlap, leaves no half-applied index (#33)" {
     cd "$SOURCE_DIR"
     git checkout -q main
@@ -221,7 +221,7 @@ EOF
 @test "mergetoall.sh zero-diff guard rev-lists the issue branch, not source_dir HEAD (#68)" {
     # Same bug as ship.sh: rev-list HEAD ^baseline in source_dir. feat/1-x has a commit
     # but source_dir HEAD is detached at the baseline → HEAD ^baseline is empty → the
-    # guard wrongly marks step 16 [-] and the branch is never squash-merged.
+    # guard wrongly marks step 19 [-] and the branch is never squash-merged.
     base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
     ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$base"

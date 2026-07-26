@@ -92,18 +92,14 @@ if [[ -n "$RETIER" ]]; then
   [[ -f "$tpl" ]] || die "checklist template not found: $tpl"
   {
     printf '\n## Revision %s\n\n' "$n_new"
-    # the new tier's Revision-1 rows, excluding the PRE-DRAFT / flag-driven rows
-    # 0 pull, 1 research and 3 spike (#558 renumber: research/spike moved 22/23 → 1/3;
-    # rows 22/23 are now lessonslearned/cleanup and MUST be copied into every block)
-    # (revision_block.md convention: a pending `0. pull` would re-point next.sh at
-    # pull; #535: `1. research` is likewise pre-draft — a revision re-runs from
-    # draft, so copying it would either re-point next.sh at research or RESET an
-    # outstanding flagged research row to `[-]`; #536: row 3 spike is flag-driven the
-    # same way — its flip lives ONLY in pull.sh's scaffold branch, so copying it would
-    # silently reset a flagged spike to `[-]` on every revision. Re-spike via the
-    # documented manual escape hatch.)
+    # the new tier's Revision-1 rows, excluding the PRE-DRAFT / flag-driven steps.
+    # Keyed by NAME, not number, so a future renumber leaves this untouched (#558).
+    # A pending `pull` would re-point next.sh at pull; research (#535) and spike
+    # (#536) are flag-driven — their flip lives ONLY in pull.sh's scaffold branch,
+    # so copying them would re-point next.sh or silently reset a flagged row to
+    # `[-]` on every revision. Re-flag via the documented manual escape hatch.
     awk '/^## Revision 1$/{inrev=1; next} inrev && /^## /{exit}
-         inrev && /^- \[/ && $0 !~ /^- \[.\] +0\. / && $0 !~ /^- \[.\] +1\. / && $0 !~ /^- \[.\] +3\. / {print}' "$tpl"
+         inrev && /^- \[/ && $0 !~ /^- \[.\] +[0-9]+\. (pull|research|spike)$/ {print}' "$tpl"
   } >> "$issue_dir/checklist.md"
   sed -i "s/^Template: .*/Template: ${RETIER}/" "$issue_dir/checklist.md"
   # #414 shape: revision bump + step-pointer reset in ONE issue-keyed

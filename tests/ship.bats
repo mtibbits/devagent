@@ -37,7 +37,7 @@ teardown() { devagent_test_teardown; }
 @test "ship.sh fails closed when the branch push fails — no MR, step 15 unmarked (#104)" {
     # git stub that fails ONLY on push (no-op success otherwise, like the default
     # stub). Guards against a refactor that wraps the push in `|| warn` and would
-    # then create the PR, store mr_url, and mark step 15 after a failed push.
+    # then create the PR, store mr_url, and mark step 18 after a failed push.
     cat > "$DEVAGENT_STUB_BIN/git" <<EOF
 #!/usr/bin/env bash
 printf 'git' >> "$DEVAGENT_STUB_LOG"
@@ -53,7 +53,7 @@ EOF
     # push was attempted, but create-mr must never run after it fails
     devagent_assert_logged "git push --set-upstream origin feat/1-x"
     devagent_refute_logged "gh pr create"
-    # no mr_url recorded, step 15 left unmarked
+    # no mr_url recorded, step 18 left unmarked
     run grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
@@ -66,7 +66,7 @@ EOF
     # from an interactive terminal (read -r -p blocks waiting for input).
     run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
-    # Checklist unchanged for step 15.
+    # Checklist unchanged for step 18.
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
     # Plan was printed (the permission gate text goes to stderr; bats merges it into $output).
     [[ "$output" == *"ship plan"* ]]
@@ -134,7 +134,7 @@ EOF
     # ...and its failure produced a warn on stderr (merged into $output by `run`),
     # not a die. Substring match: the real message has a `warning: ` prefix.
     [[ "$output" == *"issue transition failed"* ]]
-    # ship completed regardless: mr_url stored and step 15 marked.
+    # ship completed regardless: mr_url stored and step 18 marked.
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
@@ -388,7 +388,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"modified tracked file"* ]]
-    # Fail-closed: no PR, no mr_url, step 15 untouched. (run+status, not
+    # Fail-closed: no PR, no mr_url, step 18 untouched. (run+status, not
     # vacuous `! grep` — see SC2314 gate.)
     devagent_refute_logged "gh pr create"
     run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -540,7 +540,7 @@ EOF
     # The bug: rev-list HEAD ^baseline in source_dir, whose checkout need not be the
     # issue branch (never is under a worktree). Here feat/1-x has a commit but
     # source_dir HEAD is detached at the baseline, so HEAD ^baseline is empty → the
-    # guard wrongly marks step 15 [-] and the branch's work is never pushed.
+    # guard wrongly marks step 18 [-] and the branch's work is never pushed.
     _install_real_git_except_push_stub
     base="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x~1)"     # feat/1-x's fork point
     ( cd "$SOURCE_DIR" && /usr/bin/git checkout -q "$base" )            # detach HEAD at baseline; HEAD != feat/1-x

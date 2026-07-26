@@ -746,9 +746,9 @@ default. Collapsing the two would silently defeat the only way to opt out of a
 pinned tier.
 The marker (#291) and the config tables therefore behave exactly as before —
 **marker > per-step > class > default > agent default** — and existing projects
-with a `step_models` entry for 3/14/21 see no change at all.
+with a `step_models` entry for 5/16/17 see no change at all.
 
-**Live behavior change** for a project that resolves NO tier for 3/14/21 (a fresh
+**Live behavior change** for a project that resolves NO tier for 5/16/17 (a fresh
 install: `templates/config.toml.skel` ships `step_models` commented out): those
 steps previously ran at the session model and now run at the wrapper-carried
 step default. Projects that set a `checking` tier — as every project shipped in the
@@ -794,7 +794,7 @@ skill files, summarized here so the mechanism is discoverable:
   that reads the artifacts from disk instead of inheriting the author's
   conversation is what makes the check adversarial. Dispatch is
   unconditional; the model override is the §7.4 tier (empty ⇒ inherit, except
-  3/14/21 ⇒ agent default, §7.4 rung 5). **Steps 3, 14 and 21 are bound
+  5/16/17 ⇒ agent default, §7.4 rung 5). **Steps 5, 16 and 17 are bound
   structurally** (#458/#527): `skills/core-improve`, `skills/core-redmr` and
   `skills/core-preship` carry
   `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the

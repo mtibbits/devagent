@@ -1,5 +1,5 @@
 """#249 — direct pytest coverage for the pure, deterministic core of
-static_analysis_diff.py (the analyze-step engine, workflow step 11).
+static_analysis_diff.py (the analyze-step engine, workflow step 13).
 
 Before this module the parsing/filtering core had no direct unit coverage: the
 existing pytest only exercised subprocess timeout handling, and the integration

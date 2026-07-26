@@ -4,9 +4,8 @@
 # and the standard template is contiguous 0..23. Retires the permanent-ID scheme.
 # NOTE: bats-support is not installed here, so diagnostics use printf+return 1.
 
-setup() {
-    PLUGIN_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-}
+load 'lib/bats-helpers'
+
 
 _die() { printf '%s\n' "$1" >&2; return 1; }
 
@@ -98,12 +97,12 @@ CFG
     grep -qF 'str last_step "23" str last_step_name "cleanup"' "$PLUGIN_ROOT/scripts/lib/state.sh"
 }
 
-@test "numbering: revise excludes the new pre-draft rows from a retier block (#558, B1)" {
-    # The filter must exclude 0 pull / 1 research / 3 spike — NOT 22/23, which are
-    # now lessonslearned and cleanup and MUST appear in every revision block.
-    grep -qE '\+0\\\. .*\+1\\\. .*\+3\\\. ' "$PLUGIN_ROOT/scripts/revise.sh"
-    run grep -c '+22\\\. ' "$PLUGIN_ROOT/scripts/revise.sh"
-    [ "$status" -eq 1 ] || _die "revise.sh still filters row 22 (now lessonslearned)"
+@test "numbering: revise excludes the pre-draft steps BY NAME from a retier block (#558, B1)" {
+    # Name-keyed, so no number literal to go stale. tests/revise.bats covers the
+    # behavior end-to-end; this pins that the filter never regresses to numbers.
+    grep -qF '(pull|research|spike)$/' "$PLUGIN_ROOT/scripts/revise.sh"
+    run grep -cE '\+(2[0-3]|1?[0-9])\\\. ' "$PLUGIN_ROOT/scripts/revise.sh"
+    [ "$status" -eq 1 ] || _die "revise.sh regressed to a number-keyed row filter"
 }
 
 @test "numbering: pull's flag->row table uses the new rows (#558, B2)" {
@@ -143,5 +142,27 @@ CFG
         esac
     done < <(grep -rn '<project> [0-9]' "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/docs")
     [ "$n" -eq 6 ] || _die "expected 6 step-model invocation sites, found $n"
+    [ "$bad" -eq 0 ]
+}
+
+@test "numbering: every checklist-mark.sh doc invocation targets its own step (#558, quality)" {
+    # The step-model sweep above covers `<project> N`; this covers the LARGER
+    # `checklist-mark.sh ... N` surface, where a stale literal silently marks a
+    # DIFFERENT step (commands/quality.md shipped `8 -` for step 10 — caught in
+    # review, not by a guard). Each hit must carry the invoking command's own number.
+    declare -A OWN=( [pull]=0 [research]=1 [draft]=2 [spike]=3 [scope]=4 [improve]=5 \
+        [prune]=6 [tighten]=7 [branch]=8 [implement]=9 [quality]=10 [document]=11 \
+        [commit]=12 [analyze]=13 [draftmr]=14 [review]=15 [redmr]=16 [preship]=17 \
+        [ship]=18 [mergetoall]=19 [updatewbs]=20 [impact]=21 [lessonslearned]=22 [cleanup]=23 )
+    local n=0 bad=0 hit f base num
+    while IFS= read -r hit; do
+        f="${hit%%:*}"; base="$(basename "$f" .md)"
+        num="$(sed -E 's/.*checklist-mark\.sh"? +\S+ +([0-9]+) .*/\1/' <<<"$hit")"
+        n=$((n + 1))
+        [ -z "${OWN[$base]:-}" ] && continue     # not a step command; skip
+        [ "$num" = "${OWN[$base]}" ] \
+            || { printf 'STALE mark: %s (owns %s, marks %s)\n' "$f" "${OWN[$base]}" "$num" >&2; bad=1; }
+    done < <(grep -rnE 'checklist-mark\.sh"? +("\$ISSUE_DIR"|\S+) +[0-9]+ ' \
+                "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents" || true)
     [ "$bad" -eq 0 ]
 }
