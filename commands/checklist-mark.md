@@ -4,5 +4,5 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "<issue-dir> <step-num> <glyph>"
 ---
 
-Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" <issue-dir> <step-num> <glyph>` where glyph
+Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" [--by-name] <issue-dir> <step-num|step-name> <glyph>` where glyph
 is one of ' ', x, -, !, ~, ?, P. Forward all arguments verbatim.

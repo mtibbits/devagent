@@ -6,10 +6,10 @@ argument-hint: "[project] [Issue-N]"
 
 # /devagent:spike
 
-Step 23 of the devAgent workflow — the OPTIONAL post-draft spike step (flow-order between
-`1 draft` and `2 scope`). It runs only when the issue was flagged `spike: required` in its
-`## Workflow flags` block (pull.sh flips row 23 at scaffold), or when the operator flips row
-23 manually (the escape hatch).
+Step 3 of the devAgent workflow — the OPTIONAL post-draft spike step (flow-order between
+`2 draft` and `4 scope`). It runs only when the issue was flagged `spike: required` in its
+`## Workflow flags` block (pull.sh flips the `spike` row at scaffold), or when the operator
+flips that row manually (the escape hatch).
 
 **Why post-draft.** The plan is the hypothesis; the spike is the experiment. Pre-draft
 prototyping was rejected: a plan written after a prototype rationalizes whatever the prototype
@@ -21,11 +21,12 @@ it. Declaring the bet in writing FIRST keeps falsification sharp.
 Per `commands/draft.md` (spec §6.1): optional `project`, optional `Issue[-Fork]-N`, rest
 ignored. Defaults to the active project/issue.
 
-## Precondition — row 23 must be active
+## Precondition — the spike row must be active
 
-Read row 23's glyph (`checklist_step_state <checklist> 23`). Proceed only if `[ ]` or `[~]`.
-If `[-]` (the unflagged default), HALT: "spike is not flagged for this issue — flip row 23
-first (`/devagent:checklist-mark <issue-dir> 23 ' '`) or skip." Never silently flip `[-]`→`[x]`.
+Read the `spike` row's glyph (`checklist_step_state_by_name <checklist> spike`). Proceed
+only if `[ ]` or `[~]`. If `[-]` (the unflagged default), HALT: "spike is not flagged for
+this issue — flip the spike row first (`/devagent:checklist-mark --by-name <issue-dir>
+spike ' '`) or skip." Never silently flip `[-]`→`[x]`.
 
 ## Discipline — spike code is EVIDENCE, never product
 
@@ -70,8 +71,8 @@ the worktree's destruction: `teardown` verifies the worktree and branch are gone
    Teardown is idempotent and clears `spike_worktree_path`.
 6. **If a core bet is FALSIFIED**, do not patch around it here: route back to draft via the
    existing revision machinery (`/devagent:revise`), which opens a `## Revision N` block. There is
-   no bespoke spike loop. (Row 23 is excluded from revision blocks — re-spike via the manual
-   escape hatch, as with row 22.)
+   no bespoke spike loop. (The spike row is excluded from revision blocks — re-spike via the manual
+   escape hatch, as with the research row.)
 
 ## Logging
 
@@ -87,10 +88,11 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" spike x
 ```
 
-`<N>` is this step's number on the issue's checklist (23); use `-` instead of
+This step marks itself BY NAME, not by number — the row's number differs between
+a pre-#558 checklist and a current one, and the name does not. Use `-` instead of
 `x` if the step was skipped. Then run the Logging command above.
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

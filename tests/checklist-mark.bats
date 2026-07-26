@@ -30,3 +30,33 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [ "$(stat -c '%a' "$ISSUE_DIR/checklist.md")" = "644" ]
 }
+
+@test "checklist-mark: --by-name targets the active revision block, not an aliased number (#558)" {
+    local d="$BATS_TEST_TMPDIR/Issue-999"; mkdir -p "$d"
+    cat > "$d/checklist.md" <<'CKEOF'
+# Issue-999 — Workflow checklist
+
+## Revision 1
+
+- [x]  0. pull
+- [ ]  1. draft
+- [ ]  3. improve
+
+## Revision 2
+
+- [ ]  2. draft
+- [ ]  5. improve
+CKEOF
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" draft x
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[x\]  2\. draft' "$d/checklist.md"
+    # revision 1's draft must be UNTOUCHED — assert the delta, not mere presence (#318)
+    grep -qE '^- \[ \]  1\. draft' "$d/checklist.md"
+}
+
+@test "checklist-mark: --by-name rejects an unknown step name (#558)" {
+    local d="$BATS_TEST_TMPDIR/Issue-998"; mkdir -p "$d"
+    printf '## Revision 1\n\n- [ ]  0. pull\n' > "$d/checklist.md"
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" nosuchstep x
+    [ "$status" -ne 0 ]
+}
