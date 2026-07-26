@@ -15,9 +15,9 @@ service-answers proof), not just narrate intent.
 ## Revision 1
 
 - [ ]  0. pull
-- [ ]  7. implement
-- [ ]  9. document
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [ ]  9. implement
+- [ ] 11. document
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log

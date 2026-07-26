@@ -9,11 +9,11 @@ Active revision: 1
 ## Revision 1
 
 - [ ]  0. pull
-- [ ]  1. draft
-- [ ]  2. scope
-- [ ]  3. improve
-- [ ]  9. document
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [ ]  2. draft
+- [ ]  4. scope
+- [ ]  5. improve
+- [ ] 11. document
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log
