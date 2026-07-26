@@ -284,10 +284,28 @@ checklist_steps_with_glyph() {
   ' "$file"
 }
 
+# checklist_mark <file> <step-num> <glyph> [expected-name]
+# #558: pass the CALLER'S OWN step name as the 4th argument. Step numbers are
+# positions, so the same number means different steps on checklists scaffolded
+# either side of a renumber — a step script marking its own number against an
+# older checklist silently flips a DIFFERENT row (post-#558 commit.sh marking
+# 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and
+# `next.sh --auto` then re-dispatched commit forever). The check turns that
+# silent wrong-row write into a loud stop naming the remedy. Omitting the
+# argument keeps the historical unchecked behavior for ad-hoc/manual callers.
 checklist_mark() {
-  local file="$1" target="$2" glyph="$3"
+  local file="$1" target="$2" glyph="$3" expect_name="${4:-}"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
   _checklist_valid_glyph "$glyph" || die "checklist_mark: bad glyph '$glyph'"
+  if [[ -n "$expect_name" ]]; then
+    # Resolved through the SAME scope logic that the write below uses, so this
+    # names precisely the row that would be marked.
+    local actual_name
+    actual_name="$(checklist_step_name "$file" "$target" 2>/dev/null || true)"
+    if [[ -n "$actual_name" && "$actual_name" != "$expect_name" ]]; then
+      die "checklist_mark: refusing to mark step $target as '$expect_name' — that row is '$actual_name' in $file. This checklist predates the #558 renumber (numbers are positions, not IDs). Migrate it with scripts/migrate-checklist-numbering.sh, or start a fresh revision with /devagent:revise."
+    fi
+  fi
   local tmp start
   start="$(_checklist_scope_start "$file" "$target")"
   # #329: same-dir temp → mv is an atomic rename on one filesystem (a bare

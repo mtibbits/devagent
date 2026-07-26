@@ -56,7 +56,7 @@ baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null |
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "no commits on branch — auto-marking step 19 [-] (zero-diff issue)"
-    checklist_mark "$issue_dir/checklist.md" 19 -
+    checklist_mark "$issue_dir/checklist.md" 19 - mergetoall
     log_append "$issue_dir" mergetoall "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
 fi
@@ -64,7 +64,7 @@ fi
 all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
 if [ -z "$all_prs" ]; then
     info "all_prs_branch not configured — auto-marking step 19 [-]"
-    checklist_mark "$issue_dir/checklist.md" 19 -
+    checklist_mark "$issue_dir/checklist.md" 19 - mergetoall
     log_append "$issue_dir" mergetoall "auto-skipped: all_prs_branch not configured"
     exit 0
 fi
@@ -185,6 +185,6 @@ fi
 [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
 
 state_ctx_set_many "$project" "$issue_arg" str last_step "19" str last_step_name "mergetoall"
-checklist_mark "$issue_dir/checklist.md" 19 x
+checklist_mark "$issue_dir/checklist.md" 19 x mergetoall
 log_append "$issue_dir" mergetoall "squashed $branch → $all_prs; $push_status${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

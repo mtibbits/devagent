@@ -57,7 +57,7 @@ shellcheck)
     ;;
 none)
     state_ctx_set_many "$project" "$issue_arg" str last_step "13" str last_step_name "analyze"
-    checklist_mark "$issue_dir/checklist.md" 13 -
+    checklist_mark "$issue_dir/checklist.md" 13 - analyze
     log_append "$issue_dir" analyze "skipped: analyze = \"none\" for project '$project' — no analyzer family applies${NOTE:+ — $NOTE}"
     checklist_print_next_hint "$issue_dir/checklist.md"
     exit 0
@@ -68,6 +68,6 @@ none)
 esac
 
 state_ctx_set_many "$project" "$issue_arg" str last_step "13" str last_step_name "analyze"
-checklist_mark "$issue_dir/checklist.md" 13 x
+checklist_mark "$issue_dir/checklist.md" 13 x analyze
 log_append "$issue_dir" analyze "${log_line}${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

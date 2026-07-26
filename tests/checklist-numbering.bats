@@ -166,3 +166,61 @@ CFG
                 "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents" || true)
     [ "$bad" -eq 0 ]
 }
+
+# --- #558 loop regression: a post-renumber script vs a pre-renumber checklist ---
+
+_old_scheme_checklist() {   # pre-#558 numbering: 10=commit, 12=draftmr
+    F="$BATS_TEST_TMPDIR/old/checklist.md"; mkdir -p "$(dirname "$F")"
+    cat > "$F" <<'CL'
+# Issue-1 — Workflow checklist
+
+## Revision 1
+
+- [x]  9. document
+- [ ] 10. commit
+- [ ] 12. draftmr
+
+## Log
+CL
+}
+
+@test "numbering: checklist_mark refuses a name/number mismatch (#558 loop regression)" {
+    source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+    source "$PLUGIN_ROOT/scripts/lib/io.sh"
+    source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
+    _old_scheme_checklist
+    # post-#558 commit.sh marks 12; on this checklist row 12 is draftmr.
+    run checklist_mark "$F" 12 x commit
+    [ "$status" -ne 0 ] || _die "expected a refusal, got rc 0"
+    [[ "$output" == *"that row is 'draftmr'"* ]] || _die "message did not name the actual row: $output"
+    # and it must NOT have written: the wrong row stays pending (assert the delta)
+    grep -qE '^- \[ \] 12\. draftmr' "$F" || _die "draftmr was marked despite the refusal"
+}
+
+@test "numbering: checklist_mark still marks when the name matches (#558)" {
+    source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+    source "$PLUGIN_ROOT/scripts/lib/io.sh"
+    source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
+    _old_scheme_checklist
+    checklist_mark "$F" 10 x commit          # 10 IS commit on this checklist
+    grep -qE '^- \[x\] 10\. commit' "$F"
+}
+
+@test "numbering: every script self-mark declares its own step name (#558)" {
+    # The 4th arg is what makes the mismatch detectable; a self-mark that omits
+    # it silently reopens the wrong-row class.
+    local n=0 f
+    for f in pull branch commit analyze ship mergetoall cleanup; do
+        while IFS= read -r hit; do
+            n=$((n + 1))
+            [[ "$hit" =~ checklist_mark\ \"\$issue_dir/checklist\.md\"\ [0-9]+\ [x-]\ [a-z]+ ]] \
+                || _die "$f.sh: self-mark without an expected-name arg: $hit"
+        done < <(grep -o 'checklist_mark "\$issue_dir/checklist\.md" [0-9]* [x-].*' \
+                     "$PLUGIN_ROOT/scripts/$f.sh" || true)
+    done
+    [ "$n" -eq 12 ] || _die "expected 12 script self-marks, found $n"
+}
+
+@test "numbering: next.sh carries the advance guard against re-dispatch loops (#558)" {
+    grep -qF 'exited 0 but did not mark itself' "$PLUGIN_ROOT/scripts/next.sh"
+}

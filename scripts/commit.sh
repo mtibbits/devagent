@@ -114,7 +114,7 @@ work_dir="${worktree:-$source_dir}"
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
     state_ctx_set_many "$project" "$issue_arg" str last_step "12" str last_step_name "commit"
-    checklist_mark "$issue_dir/checklist.md" 12 x
+    checklist_mark "$issue_dir/checklist.md" 12 x commit
     log_append "$issue_dir" commit "$1"
     checklist_print_next_hint "$issue_dir/checklist.md"
 }
@@ -234,7 +234,7 @@ if [ -z "$staged" ]; then
                 ;;
             empty)
                 info "clean tree, no commits — auto-marking step 12 [-] (artifact-only)"
-                checklist_mark "$issue_dir/checklist.md" 12 -
+                checklist_mark "$issue_dir/checklist.md" 12 - commit
                 log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
                 exit 0
                 ;;

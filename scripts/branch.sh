@@ -108,7 +108,7 @@ state_ctx_set_many "$project" "$issue_arg" \
   str last_step      "8" \
   str last_step_name "branch"
 
-checklist_mark "$issue_dir/checklist.md" 8 x
+checklist_mark "$issue_dir/checklist.md" 8 x branch
 log_append "$issue_dir" branch "created $branch from $baseline$([ "$baseline_override" -eq 1 ] && printf ' (per-issue override)') ($baseline_sha)${NOTE:+ — $NOTE}"
 echo "$branch"
 checklist_print_next_hint "$issue_dir/checklist.md"
