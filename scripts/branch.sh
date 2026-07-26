@@ -48,7 +48,7 @@ issue_num="${issue_num#Fork-}"
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
 
-# Read issue type and title from marker files (written by /devagent:draft, step 1).
+# Read issue type and title from marker files (written by /devagent:draft, step 2).
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
 [ -r "$type_file" ]  || die "missing $type_file (issue type not classified)"

@@ -105,7 +105,7 @@ case "$action" in
 create)
     # Resolve the baseline through the SHARED resolver (#536): the spike worktree
     # is cut at the SAME baseline branch.sh would use — never at the issue branch
-    # (branch is step 6; the plan phase stays no-code in the real tree) and never
+    # (branch is step 8; the plan phase stays no-code in the real tree) and never
     # at HEAD (the #72 mis-base hazard).
     baseline_resolve "$project" "$issue_dir"
     source_dir="$BASELINE_SOURCE_DIR"

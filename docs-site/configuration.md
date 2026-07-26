@@ -19,7 +19,7 @@ devdoc_dir       = "/home/you/src/devDoc/myproj" # per-issue artifacts
 default_baseline = "origin/main"               # branch step's base
 fork_first       = false                       # branch/push via a fork
 ship_as_draft    = false                       # open MRs as drafts
-analyze          = "none"                      # step-11 analyzer family; default when absent: cmake
+analyze          = "none"                      # step-13 analyzer family; default when absent: cmake
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,

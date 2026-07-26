@@ -35,7 +35,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # table names). Upgrade note: pre-#240 plugin code GCs a pinned session's
 # live table on pull — update ALL long-lived sessions/caches before pinning.
 #
-# analyze: step-11 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
+# analyze: step-13 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
 # compile_commands.json + ASan/UBSan/TSan — the pre-#55 behavior). "shellcheck"
 # = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash;
 # a finding is NEW only when its line is in a changed hunk vs baseline, so
@@ -56,7 +56,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
 # fork_only         = false              # never reference upstream (fork is the only remote)
 # source_remote     = "origin"           # git remote that branches/PRs push to (e.g. "fork")
-# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-16 squash-merges (no default; unset = skip)
+# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = skip)
 # all_prs_auto_push = false              # push all_prs_branch after each merge-to-all
 # all_prs_remote    = "origin"           # remote for all_prs_branch (defaults to source_remote)
 # use_worktree      = false              # cut issue branches in a git worktree
@@ -108,7 +108,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #
 # Per-issue override (#291): a `.devagent-step-models` file in the issue
 # directory holding ONE tier token (e.g. `fable`) pins the CHECKING-class
-# steps (3/13/14/21) for that issue, beating this whole table — numeric
+# steps (5/15/16/17) for that issue, beating this whole table — numeric
 # per-step keys included. The reserved token `inherit` stands the table down
 # and inherits the session model. An empty or multi-token marker fails loud
 # (like .devagent-baseline, #162) — never a silent fallback. Non-checking

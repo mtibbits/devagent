@@ -431,27 +431,27 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull            — origin · gnuradio/volk#676
-- [x]  1. draft           — imPlan.md (3 changes proposed)
-- [x]  2. scope           — 1 recommendation merged
-- [~]  3. improve         ← active
-- [ ]  4. prune
-- [ ]  5. tighten
-- [ ]  6. branch
-- [ ]  7. implement
-- [ ]  8. quality
-- [ ]  9. document
-- [ ] 10. commit
-- [ ] 11. analyze
-- [ ] 12. draftmr
-- [ ] 13. review
-- [ ] 14. redmr
-- [ ] 21. preship
-- [ ] 15. ship
-- [ ] 16. mergetoall
-- [ ] 17. updatewbs
-- [ ] 18. impact
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [x]  2. draft           — imPlan.md (3 changes proposed)
+- [x]  4. scope           — 1 recommendation merged
+- [~]  5. improve         ← active
+- [ ]  6. prune
+- [ ]  7. tighten
+- [ ]  8. branch
+- [ ]  9. implement
+- [ ] 10. quality
+- [ ] 11. document
+- [ ] 12. commit
+- [ ] 13. analyze
+- [ ] 14. draftmr
+- [ ] 15. review
+- [ ] 16. redmr
+- [ ] 17. preship
+- [ ] 18. ship
+- [ ] 19. mergetoall
+- [ ] 20. updatewbs
+- [ ] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log
 - 2026-05-19 14:01  pull: fetched gnuradio/volk#676, scaffold created
@@ -1064,8 +1064,8 @@ Three semantic events trigger backend transitions:
 
 | Event | Stage | Hook |
 |---|---|---|
-| Start of `draft` (step 1) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
-| End of `ship` (step 15) | `on_ship` | `ship.sh` after successful MR creation; **not** gated by `transition_issue` (consent-by-ship-action, #219), and a failing transition degrades to a warn — ship still completes |
+| Start of `draft` (step 2) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
+| End of `ship` (step 18) | `on_ship` | `ship.sh` after successful MR creation; **not** gated by `transition_issue` (consent-by-ship-action, #219), and a failing transition degrades to a warn — ship still completes |
 | MR merged upstream (async) | `on_merge` | `/devagent:sync` |
 
 The `commit` → `analyze` ordering (steps 12 → 13) exists because

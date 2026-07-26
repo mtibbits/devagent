@@ -9,7 +9,7 @@
 #
 # Knob off (default) → exit 0 no-op. Knob on + missing baseline / worktree
 # failure / an empty name-filter match → die loud, NO artifact (#117/#314 class).
-# The commit.sh gate (step 10) dies iff the latest artifact verdict is FLAGGED.
+# The commit.sh gate (step 12) dies iff the latest artifact verdict is FLAGGED.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

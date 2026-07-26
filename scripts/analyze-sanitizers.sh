@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/analyze-sanitizers.sh — run ASan, UBSan, TSan in separate build dirs.
 # Per spec §18: no sub-step tracking. analyze.sh (Task 10) sequences this and
-# writes the step-11 checklist mark.
+# writes the step-13 checklist mark.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -41,7 +41,7 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 # (post-#55, non-C projects set analyze = "none"/"shellcheck"). Hard-dying on
 # the default knob would be hostile to a fresh project's first analyze, so the
 # path stays non-fatal — but NOT silent: warn (the vacuous-pass class this
-# issue exists to kill) and name the fix. exit 0 lets analyze.sh mark step 11
+# issue exists to kill) and name the fix. exit 0 lets analyze.sh mark step 13
 # [x], mirroring the analyze-static.sh:48 guard.
 if [ ! -f "$source_dir/CMakeLists.txt" ]; then
     warn "no CMakeLists.txt in $source_dir — skipping sanitizer legs (not a CMake project; set analyze = \"none\" or \"shellcheck\" per #55 so step 11 is meaningful)"
@@ -154,7 +154,7 @@ run_one ubsan undefined
 run_one tsan  thread
 
 # #117: fail step 11 loud when any leg failed. die (lib/io.sh) exits 1 → under
-# analyze.sh's `set -e` the state write / step-11 mark / log never run (step
+# analyze.sh's `set -e` the state write / step-13 mark / log never run (step
 # stays [ ]), and next.sh's `set -e` halts an --auto chain. The message names
 # every failing leg, its failing phase, and the artifact to read.
 if [ "${#fail_summaries[@]}" -gt 0 ]; then

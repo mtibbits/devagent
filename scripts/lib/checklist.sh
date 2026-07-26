@@ -4,7 +4,7 @@
 #
 # Lines look like:
 #   - [ ]  0. pull
-#   - [x]  7. implement
+#   - [x]  9. implement
 # A single-space step number is allowed for steps 0-9.
 
 # _checklist_template_path <template> [project] — #120: §12 registry with

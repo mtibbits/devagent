@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/sync.sh — async merge detection. For each shipped issue (step 15
+# scripts/sync.sh — async merge detection. For each shipped issue (step 18
 # done, mr_url set), call code/<backend>.sh mr-state and if "merged", fire
 # the on_merge transition exactly once (idempotent — relies on the log
 # entry to skip already-handled issues).
