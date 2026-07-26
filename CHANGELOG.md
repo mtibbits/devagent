@@ -12,6 +12,31 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Changed — 2026-07-26 (#558)
+- **Workflow steps are renumbered to execution order.** Checklist numbers are
+  now POSITIONS, not permanent IDs: the standard template reads `0 pull` …
+  `23 cleanup` top-to-bottom. Old `21 preship` is now `17`, optional old
+  `22 research` is now `1`, and old `23 spike` is now `3`. The workflow is
+  described as **24-step** throughout (24 numbered step commands, 22 of them
+  mandatory). Execution order is unchanged — dispatch is by step NAME and
+  file order was always the authority.
+
+  **Upgrading with work in flight — read this before resuming an issue.** A
+  checklist scaffolded before this release keeps its old numbers and still
+  executes in the right order. But `[project.<name>.step_models]` tier
+  resolution is keyed to the step NUMBER read from the checklist, so an
+  old-numbered checklist resolves the WRONG model class: old `3 improve`,
+  `13 review` and `21 preship` fall back to the default tier, and old
+  `14 redmr` resolves as *thinking*. Run `/devagent:revise` to regenerate the
+  checklist's revision block with current numbering before relying on a tier
+  override. Steps that can be invoked outside a revision block (`research`,
+  `spike`) now read and mark by NAME (`checklist-mark.sh --by-name`), so a
+  checklist holding both schemes cannot be mis-marked.
+
+  Numeric per-step keys in `[project.<name>.step_models]` (e.g.
+  `"13" = "opus"`) must be remapped by hand; the class keys (`thinking` /
+  `checking` / `default`) are unaffected.
+
 ### Added — 2026-07-25 (#461)
 - `docs-site/`: six audience-facing onboarding pages (what is devAgent,
   install, quickstart, workflow reference, configuration, multi-project &
