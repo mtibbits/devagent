@@ -28,13 +28,13 @@ Per-step deltas each wrapper supplies (nothing else varies):
 
 `<INTRO>`
 
-1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the step
-   number the ACTIVE checklist row carries (`<STEP>`) — since #558 numbers are
-   positions and the class map (config.sh) is keyed to the same global numbers,
-   so a current checklist agrees by construction. (A pre-#558 checklist carries
-   old numbers and resolves the WRONG class until `/devagent:revise` regenerates
-   its block — see the #558 CHANGELOG entry.) The three no-tier states are not
-   interchangeable here, so discriminate on the code, never on stderr prose:
+1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the CANONICAL
+   `<STEP>` literal this wrapper carries — not a number read from the checklist.
+   Since #558 numbers are positions, and the class map (config.sh) is keyed to
+   those same global numbers, the canonical literal is correct on a current
+   checklist AND on a pre-#558 one (where a row-derived number would resolve the
+   wrong class). The three no-tier states are not interchangeable here, so
+   discriminate on the code, never on stderr prose:
 
    ```bash
    err="$(mktemp)"

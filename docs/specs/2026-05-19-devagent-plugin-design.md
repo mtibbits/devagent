@@ -169,9 +169,9 @@ commit_template  = "commitMessageTemplate.md"
 # unspecified artifacts fall through to <devdoc>/templates/ then plugin templates/
 
 [project.volk.step_models]               # optional model tiers per step class (#150/#151/#291); see §7.4
-checking = "opus"                        # improve(3) / review(13) / redmr(14) / preship(21)
-# thinking = "opus"                      # draft(1) / implement(7) / quality(8) / document(9) / draftmr(12)
-# "13"     = "fable"                     # a numeric per-step override wins over its class tier
+checking = "opus"                        # improve(5) / review(15) / redmr(16) / preship(17)
+# thinking = "opus"                      # draft(2) / implement(9) / quality(10) / document(11) / draftmr(14)
+# "15"     = "fable"                     # a numeric per-step override wins over its class tier
 ```
 
 `include_coauthor` (per-project bool, default `true`) is a **strip-guard**, not a generator:
@@ -565,7 +565,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 
 #### Workflow tier profiles (#537)
 
-A tier is a named checklist template selecting WHICH of the 22 steps an issue
+A tier is a named checklist template selecting WHICH of the 24 steps an issue
 runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
 `[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
@@ -592,7 +592,7 @@ blocks may carry rows the current tier omits.
 
 | Tier | Rows | For |
 |---|---|---|
-| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (9) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
+| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
 | standard | all 24 rows | Full rails: features, bugfixes (default). |
 | perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |

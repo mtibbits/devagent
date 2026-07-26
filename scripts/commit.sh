@@ -110,7 +110,7 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 worktree="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
 
-# Success epilogue for step 10 — shared by the real-commit tail and the #116
+# Success epilogue for step 12 — shared by the real-commit tail and the #116
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
     state_ctx_set_many "$project" "$issue_arg" str last_step "12" str last_step_name "commit"

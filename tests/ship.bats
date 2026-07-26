@@ -368,7 +368,7 @@ EOF
 }
 
 # --- #148: modified-tracked-files gate -------------------------------------
-# Review (13) / redmr (16) fixes applied after commit (12) used to strand in
+# Review (15) / redmr (16) fixes applied after commit (12) used to strand in
 # the working tree; ship.sh pushed the branch without them. The gate refuses
 # to push when tracked files are modified in work_dir; untracked-only noise
 # (build dirs, scratch files) still ships. Uses the real-git-except-push stub

@@ -30,9 +30,9 @@ Per `commands/draft.md`.
 
 ## Halt and ask if
 
-- analyze step did not run (no analysis/ dir) **and** the analyze step (11) is
+- analyze step did not run (no analysis/ dir) **and** the analyze step (13) is
   present in the issue's checklist **and** not marked `[-]`. If the checklist
-  omits analyze (docs-only) or step 11 self-skipped (`analyze = "none"`, #55),
+  omits analyze (docs-only) or step 13 self-skipped (`analyze = "none"`, #55),
   analyze is N/A — do not halt.
 - actualWork.md missing.
 - mr.md already exists with content (overwrite? revise? abort?).

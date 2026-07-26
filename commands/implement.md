@@ -83,14 +83,14 @@ commit (12) and ship (18) safe:
 - Leave nothing uncommitted at the end of this step. The commit step
   (10) verifies everything is on the branch — it succeeds as a no-op
   when per-task commits already captured all work, and fails loudly
-  on a dirty tree. Analyze (11) then runs against the committed work;
+  on a dirty tree. Analyze (13) then runs against the committed work;
   post-analyze fixes are new signed-off commits (squash-on-merge
   absorbs the noise — spec §11).
 
 ## Completion handoff
 
 First, **record the in-scope manifest** — only when the active project sets
-`commit_autostage=true`, run record-scope so step 10's #251 autostage can stage
+`commit_autostage=true`, run record-scope so step 12's #251 autostage can stage
 exactly this issue's edited files with no hand-written `.devagent-scope`. It is a
 no-op for projects without `commit_autostage=true`, and it preserves an
 operator-authored `.devagent-scope` (it only regenerates manifests it created):

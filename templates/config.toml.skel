@@ -40,14 +40,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash;
 # a finding is NEW only when its line is in a changed hunk vs baseline, so
 # pre-existing repo noise never blocks; sanitizers are skipped (bats is the
-# dynamic coverage). "none" = step 11 self-marks [-] with a logged reason (no
+# dynamic coverage). "none" = step 13 self-marks [-] with a logged reason (no
 # manual skip needed). Any other value fails loud at analyze time.
 # analyze = "cmake"                      # cmake | shellcheck | none
 #
 # analyze_timeout: per-phase budget in SECONDS for the cmake analyze legs
 # (configure / build / ctest) — bounds a hung build or test that would otherwise
 # wedge an --auto chain forever (#351). Default 1800 (generous). Raise it for a
-# large/slow ctest suite; a leg exceeding it fails step 11 (#117). Sanitizer +
+# large/slow ctest suite; a leg exceeding it fails step 13 (#117). Sanitizer +
 # static build dirs are keyed per project+issue (build-<project>-<issue>[-<tag>]/)
 # so concurrent chains sharing a source tree never collide; cleanup removes them.
 # analyze_timeout = 1800
@@ -62,7 +62,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # use_worktree      = false              # cut issue branches in a git worktree
 # worktree_root     = "<source_dir>-wt"  # parent dir for per-issue worktrees
 # include_coauthor  = true               # false strips Co-Authored-By from commits + PR bodies
-# commit_autostage  = false              # true: step 10 auto-stages the issue's
+# commit_autostage  = false              # true: step 12 auto-stages the issue's
 #                                        #   in-scope FILES (one file path per line in
 #                                        #   <issue-dir>/.devagent-scope) on a
 #                                        #   dirty-but-nothing-staged tree instead of

@@ -165,6 +165,9 @@ CFG
             || { printf 'STALE mark: %s (owns %s, marks %s)\n' "$f" "${OWN[$base]}" "$num" >&2; bad=1; }
     done < <(grep -rnE 'checklist-mark\.sh"? +("\$ISSUE_DIR"|\S+) +[0-9]+ ' \
                 "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents" || true)
+    # Issue-439: assert the SUBJECT COUNT — rewriting the one numeric invocation
+    # to the <N> placeholder would otherwise empty this guard while it still passed.
+    [ "$n" -ge 1 ] || _die "no numeric checklist-mark.sh invocations found — selector broke"
     [ "$bad" -eq 0 ]
 }
 
@@ -222,6 +225,48 @@ CL
     [ "$n" -eq 12 ] || _die "expected 12 script self-marks, found $n"
 }
 
-@test "numbering: next.sh carries the advance guard against re-dispatch loops (#558)" {
-    grep -qF 'exited 0 but did not mark itself' "$PLUGIN_ROOT/scripts/next.sh"
+@test "numbering: next.sh STOPS when a script step exits 0 without marking (#558)" {
+    # Behavioral, not a string pin (review m1): stage a script-backed step whose
+    # script exits 0 and marks nothing — the exact shape that looped ~3255 times.
+    local root="$BATS_TEST_TMPDIR/repo"
+    local DA_HOME="$BATS_TEST_TMPDIR/dahome"
+    mkdir -p "$root/scripts" "$BATS_TEST_TMPDIR/dd/Issue-1" "$DA_HOME/state"
+    cp -r "$PLUGIN_ROOT/scripts/." "$root/scripts/"
+    cp -r "$PLUGIN_ROOT/templates" "$root/" 2>/dev/null || true
+    # a no-op script step standing in for the broken commit.sh
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$root/scripts/scope.sh"
+    chmod +x "$root/scripts/scope.sh"
+    printf '%s\n' '# Issue-1' '' '## Revision 1' '' '- [x]  0. pull' '- [x]  2. draft' \
+        '- [ ]  4. scope' '- [ ]  5. improve' '' '## Log' \
+        > "$BATS_TEST_TMPDIR/dd/Issue-1/checklist.md"
+    cat > "$DA_HOME/config.toml" <<CFG
+[project.p]
+source_dir = "$root"
+devdoc_dir = "$BATS_TEST_TMPDIR/dd"
+CFG
+    printf 'active_issue = "Issue-1"\nissue_dir = "%s/dd/Issue-1"\n' "$BATS_TEST_TMPDIR" \
+        > "$DA_HOME/state/p.toml"
+    local before; before="$(cat "$BATS_TEST_TMPDIR/dd/Issue-1/checklist.md")"
+    # --auto implies --through cleanup, which this mini checklist lacks; the
+    # guard is what we are testing, so chain through a row that IS present.
+    run env DA_HOME="$DA_HOME" bash "$root/scripts/next.sh" p --through improve
+    [ "$status" -ne 0 ] || _die "expected a nonzero halt, got rc 0 (guard did not fire)"
+    [[ "$output" == *"did not mark itself"* ]] || _die "no guard message: $output"
+    # and it must not have looped or mutated the checklist
+    [ "$(cat "$BATS_TEST_TMPDIR/dd/Issue-1/checklist.md")" = "$before" ] \
+        || _die "checklist changed despite the halt"
+    [ "$(grep -c 'scope' <<<"$output")" -le 3 ] || _die "looks like it looped: $output"
+}
+
+@test "numbering: every adjacent name/number pairing agrees with the map (#558 M1)" {
+    # Decidable subset of the census, promoted from a session snippet into the
+    # suite because it shipped stale twice (census CORRECTION; review M1).
+    # The undecidable bare-`step N` form is deliberately NOT asserted here —
+    # see scripts/lib/check-step-pairings.py for why, and use --list-bare for
+    # the human-triage list.
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$PLUGIN_ROOT"
+    [ "$status" -eq 0 ] || _die "stale name/number pairings:"$'\n'"$output"
+    # Issue-439: assert the SUBJECT COUNT so a broken selector cannot pass empty.
+    local n; n="$(sed -nE 's/^checked ([0-9]+) .*/\1/p' <<<"$output")"
+    [ -n "$n" ] && [ "$n" -ge 150 ] || _die "only ${n:-0} pairings checked — selector broke"
 }

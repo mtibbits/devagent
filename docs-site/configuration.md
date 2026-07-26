@@ -25,10 +25,10 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,
                                # false = stop and ask (autonomous paths
                                # skip instead of asking). All ship false.
-push_mr          = true        # step 15 pushes + opens the MR unprompted
+push_mr          = true        # step 18 pushes + opens the MR unprompted
 merge_mr         = false       # merging the MR itself
 merge_to_all_prs = false       # step 19 local integration branch
-commit_devdoc    = true        # step 20 commits the devdoc unprompted
+commit_devdoc    = true        # step 23 commits the devdoc unprompted
 transition_issue = true        # tracker state transitions fire unprompted
 
 [project.myproj.issue_source]  # where tickets live
@@ -105,8 +105,8 @@ order:
 3. The plugin's own `templates/` directory (under the plugin cache dir) —
    the shipped defaults.
 
-Example keys: `imPlan_template` (step 1), `mr_template` (step 12),
-`potholes` (steps 1/19), `checklist-standard` (issue scaffolding). Inspect
+Example keys: `imPlan_template` (step 2), `mr_template` (step 14),
+`potholes` (steps 2/22), `checklist-standard` (issue scaffolding). Inspect
 what resolves where with `/devagent:template list` and
 `/devagent:template show <key>`.
 

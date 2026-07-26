@@ -114,7 +114,7 @@ EOF
     grep -qE '^mr_url = ""$' "$f"
     grep -qE '^baseline_sha = ""$' "$f"
     grep -qE '^revision = 1$' "$f"
-    # Quoted "20" is deliberate: cleanup re-sets last_step via the string-typed
+    # Quoted "23" is deliberate: cleanup re-sets last_step via the string-typed
     # state_set AFTER the clear, preserving today's stored form exactly.
     grep -qE '^last_step = "23"$' "$f"
 }

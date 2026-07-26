@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/analyze-shellcheck.sh — #55: the bash analyzer family for step 11.
+# scripts/analyze-shellcheck.sh — #55: the bash analyzer family for step 13.
 # Diff-scoped: shellcheck --severity=warning runs once over the shell files
 # changed vs baseline (working-tree endpoint, matching static_analysis_diff.py's
 # deliberate choice so uncommitted review-fix edits stay visible), and a finding
 # is NEW iff its line falls inside a changed hunk's new-side range — the same
 # novelty gate as the C path's filter_novel(). No baseline run, no worktree.
 # Report-not-fail: new findings are surfaced in the artifact; failure semantics
-# for step 11 are #117's remit. Every git call is -C anchored (cwd resets are a
+# for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
 # known hazard and the origin of this issue's sibling CWD bug).
 set -euo pipefail
 

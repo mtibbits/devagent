@@ -36,7 +36,7 @@ EOF
   for t in checklist-standard checklist-perf; do
     run grep -nE '^- \[-\] +1\. research$' "$REPO/templates/$t.md"
     [ "$status" -eq 0 ]
-    # flow position: research line number is AFTER pull(0) and BEFORE draft(1)
+    # flow position: research line number is AFTER pull(0) and BEFORE draft(2)
     local p r d
     p="$(grep -nE '^- \[ \]  0\. pull$' "$REPO/templates/$t.md" | cut -d: -f1)"
     r="$(grep -nE '^- \[-\] +1\. research$' "$REPO/templates/$t.md" | cut -d: -f1)"
