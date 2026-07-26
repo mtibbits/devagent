@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:improve
 
-Step 3 of the 22-step devAgent workflow. The check runs in the
+Step 5 of the 24-step devAgent workflow. The check runs in the
 `devagent:plan-improver` agent, which cannot write files and carries the
 checking procedure (three finding categories + the #286 pothole tripwire) as
 its system prompt; it reads the plan cold and resolves the pothole register
@@ -83,9 +83,9 @@ verbatim, substituting this step's per-step deltas:
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-improve`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md` and
   `imPlan.md` (including its `## Scope evaluation` AND its `## Load-bearing unknowns`
-  section), `checklist.md` (the spike tripwire GATES on row 23's glyph, so the checker
+  section), `checklist.md` (the spike tripwire GATES on the spike row's glyph, so the checker
   must be able to read it — #536 redmr), plus `spike.md` when it exists (#536). The unknowns + spike verdicts are
-  packaged EXPLICITLY because the step-3 checklist carries a tripwire over them, and a
+  packaged EXPLICITLY because the step-5 checklist carries a tripwire over them, and a
   checklist item the checker never RECEIVES is a dead tripwire (#286).
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   pothole register itself via `template.sh --project <project> show potholes`

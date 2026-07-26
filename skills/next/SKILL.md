@@ -1,7 +1,7 @@
 ---
 name: next
 description: Execute the next actionable step on the active issue
-when_to_use: To advance the active issue's 22-step checklist; --auto chains steps.
+when_to_use: To advance the active issue's 24-step checklist; --auto chains steps.
 argument-hint: "[project] [--auto] [--through <step>] [-- <note>]"
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---
@@ -29,11 +29,11 @@ through-target completing. review→redmr: review `[x]` proceeds; `[!]` halts
 
 ## Zero-diff (artifact-only) issues
 
-When the issue branch has zero commits ahead of `baseline_sha`, steps 10
-(commit), 15 (ship), and 16 (mergetoall) self-detect and mark `[-]`, exit 0 —
+When the issue branch has zero commits ahead of `baseline_sha`, steps 12
+(commit), 18 (ship), and 19 (mergetoall) self-detect and mark `[-]`, exit 0 —
 no flag exists (a clean tree WITH commits ahead is a `[x]` no-op; #116).
-Step 21 (preship) marks `[-]` skill-side on zero-diff (`indeterminate` never
-auto-skips). Step 8 (quality): the skill auto-marks step 8 `[-]` and advances
+Step 17 (preship) marks `[-]` skill-side on zero-diff (`indeterminate` never
+auto-skips). Step 10 (quality): the skill auto-marks step 10 `[-]` and advances
 without operator confirmation (#116).
 
 ## Concurrent sessions

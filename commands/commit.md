@@ -1,5 +1,5 @@
 ---
-description: "Step 10: commit staged changes with DCO sign-off using commit_template."
+description: "Step 12: commit staged changes with DCO sign-off using commit_template."
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---
@@ -16,7 +16,7 @@ than guessing, and the branch-identity guard (#69) precedes every path.
 
 ## born-red gate (#362/#409)
 
-For projects with `born_red = true`, step 10 checks the issue's born-red
+For projects with `born_red = true`, step 12 checks the issue's born-red
 artifact before committing:
 
 - The latest artifact reports **FLAGGED** (a new test is green at baseline) →
@@ -40,7 +40,7 @@ inert.
 
 ## Opt-in scoped auto-staging (#251)
 
-By default, if the working tree has in-scope edits but nothing is staged, step 10
+By default, if the working tree has in-scope edits but nothing is staged, step 12
 dies loud and asks you to `git add` your files (the #25 safeguard against shipping
 an empty PR). Setting `commit_autostage = true` (project or default config) makes
 the step stage the issue's declared in-scope files itself instead:

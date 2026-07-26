@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/commit.sh — workflow step 10. Compose commit message from
+# scripts/commit.sh — workflow step 12. Compose commit message from
 # commit_template, substitute placeholders, strip "(1M context)", commit -s.
 set -euo pipefail
 

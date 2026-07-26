@@ -1,13 +1,13 @@
 ---
 name: core-scope
-description: "Step 2: evaluate whether an issue's implementation plan is correctly scoped before implementation"
+description: "Step 4: evaluate whether an issue's implementation plan is correctly scoped before implementation"
 when_to_use: After /devagent:draft has produced an imPlan.md and before /devagent:improve. Run as part of /devagent:scope.
 user-invocable: false
 ---
 
 # devagent-scope
 
-Step 2 of the devAgent 22-step workflow. Walks the operator through
+Step 4 of the devAgent 24-step workflow. Walks the operator through
 seven scope questions and appends the answers to `<issue-dir>/imPlan.md`
 as a new `## Scope evaluation` section.
 

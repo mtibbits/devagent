@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/analyze.sh — step 11. Dispatches the project's analyzer family per
+# scripts/analyze.sh — step 13. Dispatches the project's analyzer family per
 # the optional `analyze` config key (#55): cmake (default — static then
 # sanitizers per spec §6.3), shellcheck (diff-scoped bash analysis), or none
 # (self-marks the step [-] with a logged reason — the acceptance criterion is

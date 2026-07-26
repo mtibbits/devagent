@@ -13,7 +13,7 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/revise.sh" $ARGUMENTS
 Then:
 - If the script prints a line starting with `CHAIN: `, treat the remainder as the next slash command to invoke. Per spec §7, the same `--auto` semantics that govern `/devagent:next` apply transitively here: if the operator passed `--auto` upstream, continue chaining; otherwise pause and ask.
 - If the script exited non-zero because `revisions/r<N>/comments.md` is missing, tell the user to run `/devagent:comments` first.
-- The next step on the new revision is `draft` (step 1). The `draft` skill reads `pending_comments_file` from per-project state and includes those comments as user-intent context in the new plan.
+- The next step on the new revision is `draft` (step 2). The `draft` skill reads `pending_comments_file` from per-project state and includes those comments as user-intent context in the new plan.
 
 ## `--retier <tier>` — tier escalation valve (#537)
 
@@ -21,8 +21,9 @@ Then:
 issue to a different workflow tier (the usual case: a oneshot that turned
 out to produce a repo diff → `--retier standard`). It is a REVISION, not an
 edit-in-place: it appends a `## Revision N` block carrying the new tier's
-checklist rows (excluding row 0 — a pending `0. pull` would re-point
-next.sh at pull), updates the `Template:` header, resets the step pointer
+checklist rows (excluding rows 0/1/3 — pull, research, spike: a pending
+`0. pull` would re-point next.sh at pull, and research/spike are flag-driven,
+#535/#536/#558), updates the `Template:` header, resets the step pointer
 in the same issue-keyed state transaction (#414 shape), and logs a
 discriminating `retier: <old> → <new>` entry. Never destructive: the log
 and all prior revision blocks are preserved. Unlike an MR-feedback revise

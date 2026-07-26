@@ -1,5 +1,5 @@
 ---
-description: "Step 23: run a plan's load-bearing bets in a throwaway worktree; record VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence."
+description: "Step 3: run a plan's load-bearing bets in a throwaway worktree; record VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence."
 allowed-tools: Read, Grep, Glob, Write, Edit, Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [Issue-N]"
 ---

@@ -26,7 +26,7 @@ CLOSEOUT: <project>/<issue> merged — pending: <steps> — run /devagent:next <
 
 If the output above contains a `CLOSEOUT:` line, **ask the operator ONE
 question** offering to run that `/devagent:next <project> --auto` (which chains
-steps 16→20 on existing machinery). Never auto-invoke it — the closeout steps
+steps 19→23 on existing machinery). Never auto-invoke it — the closeout steps
 include gated, tree-mutating work that needs an operator in the loop. If there is
 no `CLOSEOUT:` line, nothing is pending; stop.
 

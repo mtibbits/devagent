@@ -4,7 +4,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can
 switch between issues, or hand one to a fresh session, without losing
-context. It provides **57 slash commands** driving a **22-step workflow**,
+context. It provides **57 slash commands** driving a **24-step workflow**,
 and works against GitHub, GitLab, and JIRA issue trackers — with GitHub and
 GitLab as code forges — layering capture, issue red-team, revision, WBS, and
 status-report subsystems on top of the core loop.

@@ -1,5 +1,5 @@
 ---
-description: "Step 16: squash-merge the issue branch into the local all_prs_branch (e.g. dev/all-prs). Local only — does not close the PR."
+description: "Step 19: squash-merge the issue branch into the local all_prs_branch (e.g. dev/all-prs). Local only — does not close the PR."
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [issue-dir]"
 ---

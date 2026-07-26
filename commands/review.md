@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:review
 
-Step 13 of the 22-step devAgent workflow. Invokes the upstream
+Step 15 of the 24-step devAgent workflow. Invokes the upstream
 `superpowers:requesting-code-review` skill against the issue's
 branch diff. Produces a review report that the operator addresses
 before the red-team step (14).
@@ -65,7 +65,7 @@ Per `commands/draft.md`.
    the issue branch — `git add` the files and `git commit -s` them
    BEFORE marking the step. A new signed-off commit, not an amend:
    the review-fix delta stays auditable. All source-repo work is
-   committed as of step 10; from this step on,
+   committed as of step 12; from this step on,
    uncommitted fixes are a defect — ship.sh (15) refuses to push when
    tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
    NOT committed here; they are governed by `commit_devdoc` at cleanup.

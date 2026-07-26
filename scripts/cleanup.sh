@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cleanup.sh — step 20. Switch source tree back to default_baseline,
+# scripts/cleanup.sh — step 23. Switch source tree back to default_baseline,
 # commit/push devdoc if permissions.commit_devdoc=true, clear active_issue.
 set -euo pipefail
 

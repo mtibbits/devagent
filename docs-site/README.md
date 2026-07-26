@@ -26,7 +26,7 @@ Counts and versions are restated minimally, with the sources' exact tokens:
 - "57 slash commands" — `index.md` is an enrolled home of the phrasing sweep
   in `tests/cmd_wrappers.bats`, alongside README, both plugin manifests, the
   CHANGELOG, and the spec.
-- "22-step workflow" — the site-wide headline number; `workflow.md`'s
+- "24-step workflow" — the site-wide headline number; `workflow.md`'s
   Numbering section carries the reconciling sentence for the optional steps.
 - The verified Claude Code version — verbatim-shared between `install.md`
   and the repo README, pinned on both sides by the guard suite; on a bump,

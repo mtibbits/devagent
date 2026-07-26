@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:quality
 
-Step 8 of the 22-step devAgent workflow. Runs two passes on the
+Step 10 of the 24-step devAgent workflow. Runs two passes on the
 changed code:
 
 1. The `simplify` skill (reuse, quality, efficiency review).
@@ -37,7 +37,7 @@ Per `commands/draft.md`.
 
    If both are empty — no commits ahead of baseline and no
    working-tree changes (an artifact-only issue) — there is nothing to
-   review. Auto-mark step 8 `[-]`, log, and skip the rest of this
+   review. Auto-mark step 10 `[-]`, log, and skip the rest of this
    workflow WITHOUT asking the operator. This mirrors the script-level
    zero-diff guards in commit/ship/mergetoall (#3):
 
@@ -72,7 +72,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality \
 ## Skipping policy
 
 Auto-skip ONLY on a true zero diff (artifact-only issue — see Workflow
-step 3): mark `[-]`, log, and advance without operator confirmation,
+item 3): mark `[-]`, log, and advance without operator confirmation,
 matching the script-level guards from #3.
 
 For a tiny-but-nonzero diff (< 5 LOC) where no standards apply, do NOT
@@ -84,7 +84,7 @@ operator confirmation.
 If this step changed any tracked file, `git add` and `git commit -s`
 the fixes as their own commit — not an amend — so the quality delta
 stays auditable next to implement's task commits. The commit step
-(10) then verifies everything is on the branch, and analyze (11)
+(12) then verifies everything is on the branch, and analyze (13)
 runs against the committed work. Do not leave quality fixes sitting
 uncommitted in the working tree.
 

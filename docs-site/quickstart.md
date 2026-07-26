@@ -58,7 +58,7 @@ until you confirm (and it asks again if the capture was never red-teamed).
 
 Fetches issue #42 from the project's origin tracker and scaffolds its
 workflow directory, including the checklist that tracks it through the
-22-step loop.
+24-step loop.
 
 ## 6. Run the loop
 

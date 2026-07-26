@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:scope
 
-Step 2 of the 22-step devAgent workflow. Invokes the `core-scope`
+Step 4 of the 24-step devAgent workflow. Invokes the `core-scope`
 skill to walk through six structured questions and append a
 `## Scope evaluation` section to `<issue-dir>/imPlan.md`.
 

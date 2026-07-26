@@ -89,7 +89,7 @@ main() {
   if [[ -f "$issue_dir/imPlan.md" ]]; then
     head -n 20 "$issue_dir/imPlan.md" | sed 's/^/  /'
   else
-    echo "  imPlan.md: not yet present (lands at step 1 draft)"
+    echo "  imPlan.md: not yet present (lands at step 2 draft)"
   fi
 
   echo
@@ -97,7 +97,7 @@ main() {
   if [[ -f "$issue_dir/actualWork.md" ]]; then
     tail -n 20 "$issue_dir/actualWork.md" | sed 's/^/  /'
   else
-    echo "  actualWork.md: not yet present (lands at step 9 document)"
+    echo "  actualWork.md: not yet present (lands at step 11 document)"
   fi
 
   echo

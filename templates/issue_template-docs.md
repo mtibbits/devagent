@@ -19,10 +19,11 @@
      followed by one `key: value` line per flag. Recognized keys:
        - tier: <name>       (legal names: spec §6.3 tier table)
        - research: required (flags the optional pre-draft research step, #535;
-                             flips checklist row 22 where the template carries it
-                             — standard/perf; warn+no-op elsewhere)
+                             flips the checklist's `research` row where the
+                             template carries it — standard/perf; warn+no-op
+                             elsewhere)
        - spike: required    (flags the optional post-draft spike step, #536; flips
-                             checklist row 23 the same way — the plan's
+                             the checklist's `spike` row the same way — the plan's
                              `## Load-bearing unknowns` are what it executes)
      Unknown keys warn-and-ignore (forward compatibility).
      (No live example here on purpose: an invisible commented block that

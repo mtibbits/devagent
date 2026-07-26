@@ -469,9 +469,9 @@ parse it.
 Present iff any step is `[!]`. Format:
 
 ```
-Step:        14 redmr
+Step:        16 redmr
 Reason:      red team produced 46 blocking issues, need triage strategy
-Last good:   step 13 review (2026-05-19 16:42)
+Last good:   step 15 review (2026-05-19 16:42)
 Suggested:   read analysis/2026-05-19-redmr.md; group findings by severity; pick top 3
 Created:     2026-05-19 17:08
 ```
@@ -537,31 +537,31 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | # | Command | Type | Implementation |
 |---|---|---|---|
 | 0 | `/devagent:pull` | script | `pull.sh` + `issue/<backend>.sh fetch`; scaffolds Issue dir |
-| 22 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 1. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
-| 1 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
-| 23 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 1 and 2. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. |
-| 2 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
-| 3 | `/devagent:improve` | skill | `core-improve` (fork → `devagent:plan-improver`, #527) — bugs, side effects, ambiguities; the #286 pothole tripwire lives in the agent, which self-resolves the register |
-| 4 | `/devagent:prune` | skill | `core-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
-| 5 | `/devagent:tighten` | skill | `core-tighten` — final review pass on pruned plan |
-| 6 | `/devagent:branch` | script + skill | `branch.sh` (prefix from `branch_prefix_map`); `superpowers:using-git-worktrees` |
-| 7 | `/devagent:implement` | skill | `superpowers:executing-plans` (superpowers absent ⇒ direct imPlan execution fallback + nudge, #541) |
-| 8 | `/devagent:quality` | skill | `simplify` + project's `coding_standards.md` |
-| 9 | `/devagent:document` | skill | `core-document-actual-work` — terse when no deviation |
-| 10 | `/devagent:commit` | script | `commit.sh` — `commit_template.md`, `-s` (DCO), strips `(1M context)` |
-| 11 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
-| 12 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
-| 13 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
-| 14 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
-| 21 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
-| 15 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 16 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
-| 17 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
-| 18 | `/devagent:impact` | skill | `core-impact` — quantify and record |
-| 19 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 20 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
+| 1 | `/devagent:research` | command | **OPTIONAL, off by default** — the pre-draft research step, flow-order between 0 and 2. Ships `[-]` in checklist-standard/perf; flipped to `[ ]` when the fetched body carries `research: required` in `## Workflow flags` (pull.sh table-driven flip, #535) or by a manual escape-hatch flip. Read-only: measures the world (cites file:line / URL / command output), builds nothing; writes `research.md` (Questions / Findings / Open unknowns). Draft consumes it via `## Pre-plan inputs`. |
+| 2 | `/devagent:draft` | skill | `superpowers:writing-plans` (inline) or a dispatched planner per the #284 contract; writes `imPlan.md`; triggers `on_draft_start`; superpowers absent ⇒ built-in template-contract fallback + nudge (#541) |
+| 3 | `/devagent:spike` | command | **OPTIONAL, off by default** — the post-draft spike step, flow-order between 2 and 4. Ships `[-]` in checklist-standard/perf; flipped by `spike: required` in `## Workflow flags` (pull.sh table-driven flip) or a manual escape-hatch flip. Runs the plan's `## Load-bearing unknowns` in a THROWAWAY worktree cut at the RESOLVED baseline (`scripts/spike.sh create|teardown`; never the issue branch, never HEAD — #72), records per-unknown VERIFIED/FALSIFIED/INCONCLUSIVE verdicts with evidence in `spike.md`, and destroys the worktree + temp branch on completion AND failure. Spike code is evidence, never product; a FALSIFIED core bet routes back to draft via `revise`. |
+| 4 | `/devagent:scope` | skill | `core-scope` — 6-question evaluation, edits imPlan |
+| 5 | `/devagent:improve` | skill | `core-improve` (fork → `devagent:plan-improver`, #527) — bugs, side effects, ambiguities; the #286 pothole tripwire lives in the agent, which self-resolves the register |
+| 6 | `/devagent:prune` | skill | `core-prune` — moves extras to `imPlan-potentialFutureEnhancements.md` |
+| 7 | `/devagent:tighten` | skill | `core-tighten` — final review pass on pruned plan |
+| 8 | `/devagent:branch` | script + skill | `branch.sh` (prefix from `branch_prefix_map`); `superpowers:using-git-worktrees` |
+| 9 | `/devagent:implement` | skill | `superpowers:executing-plans` (superpowers absent ⇒ direct imPlan execution fallback + nudge, #541) |
+| 10 | `/devagent:quality` | skill | `simplify` + project's `coding_standards.md` |
+| 11 | `/devagent:document` | skill | `core-document-actual-work` — terse when no deviation |
+| 12 | `/devagent:commit` | script | `commit.sh` — `commit_template.md`, `-s` (DCO), strips `(1M context)` |
+| 13 | `/devagent:analyze` | script | the project's `analyze` family — `cmake` \| `shellcheck` \| `none` (§18); depends on commit per §11 |
+| 14 | `/devagent:draftmr` | skill | `core-draft-mr`, fills `mr_template.md` |
+| 15 | `/devagent:review` | skill | `superpowers:requesting-code-review` (superpowers absent ⇒ the wrapper's own dispatched-review fallback + nudge, #541) |
+| 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
+| 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
+| 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
+| 19 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
+| 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
+| 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
+| 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
+| 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
 
-**Numbering & naming.** Step numbers are permanent IDs, not positions — the checklist's FILE order sets execution order (research 22 runs between 0 and 1; spike 23 between 1 and 2; preship 21 between 14 and 15). Numbered 0–23; the mandatory pipeline is 0–21, and research (22) and spike (23) are optional and off by default, so an unflagged issue runs exactly the 22 mandatory steps. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 22 of them mandatory, with research (1) and spike (3) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 
@@ -578,7 +578,7 @@ the template name, overriding the project's `checklist_template` default. No
 key ⇒ project default ⇒ standard — exactly the prior resolution chain. The
 override fires only at first scaffold; the post-scaffold path is the
 escalation valve `revise.sh --retier <tier>` (a revision: appends the new
-tier's rows minus row 0, updates `Template:`, resets the step pointer in one
+tier's rows minus rows 0/1/3 (pull, research, spike), updates `Template:`, resets the step pointer in one
 issue-keyed transaction, logs `retier: <old> → <new>`; never destructive).
 Tier and model are orthogonal axes: tiers select STEPS; `step_models` (§7.4)
 selects who runs them — docs may suggest pairings, the schema enforces none.
@@ -592,10 +592,10 @@ blocks may carry rows the current tier omits.
 
 | Tier | Rows | For |
 |---|---|---|
-| oneshot | 0, 7, 9, 19, 20 | An operational action, not a repo change ("run the release mechanism"). Document (9) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
-| standard | all 22 | Full rails: features, bugfixes (default). |
-| perf | standard minus 17 (updatewbs; impact stays) | Performance work. |
-| docs-only | 0, 1, 6, 9, 10, 12, 13, 21, 15, 16, 20 | Documentation-only changes. |
+| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (9) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
+| standard | all 24 rows | Full rails: features, bugfixes (default). |
+| perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
+| docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |
 | research | 0, 1, 2, 3, 9, 19, 20 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
@@ -646,11 +646,11 @@ Any executing command accepts:
 Without either flag, every step ends with:
 
 ```
-✅ step 7 (implement) — done.
+✅ step 9 (implement) — done.
    log: 2026-05-19 14:32  implement: 3 files changed, all tests pass
    STUCK: no
 
-Next up: step 8 (quality). Continue? [Y/n/skip/stuck]
+Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 ```
 
 `Y` (or Enter) chains; `n` halts; `skip` marks `[-]` and offers next;
@@ -690,8 +690,8 @@ Steps map to three fixed classes by canonical step number:
 
 | Class | Steps |
 |---|---|
-| `thinking` | 1 draft · 7 implement · 8 quality · 9 document · 12 draftmr |
-| `checking` | 3 improve · 13 review · 14 redmr · 21 preship |
+| `thinking` | 2 draft · 9 implement · 10 quality · 11 document · 14 draftmr |
+| `checking` | 5 improve · 15 review · 16 redmr · 17 preship |
 | `default` | everything else |
 
 A step's tier is resolved in this order (first hit wins):
@@ -721,7 +721,7 @@ A step's tier is resolved in this order (first hit wins):
    shape. Unpinned, the skill-fork inherits the session model
    (transcript-verified), which is exactly what the `inherit` marker demands.
 
-If none resolves, the step inherits the session model — except steps 3/14/21, per
+If none resolves, the step inherits the session model — except steps 5/16/17, per
 rung 5. Tiers are advisory for surfacing steps (`next` / `catchup` print the
 hint) and load-bearing for the dispatch contract (§7.5), which uses the resolved
 tier as the subagent's model override.
@@ -737,7 +737,7 @@ being interchangeable, so they are **distinct exit codes** rather than stderr
 prose a caller must parse (#458): `0` a tier is on stdout · `2` the reserved
 per-issue `inherit` marker (rung 1's escape hatch — the operator explicitly
 wants the session model) · `3` nothing resolved · `1` error (bad marker; a stop
-condition, never an inherit). A caller whose fallback IS inherit — step 13,
+condition, never an inherit). A caller whose fallback IS inherit — step 15,
 `next.sh`, `catchup.sh` — may keep collapsing every nonzero via `|| true`, which
 stays correct and is pinned by a test. A caller with a step default MUST
 discriminate: `2` still inherits (it dispatches via the bound skill, whose
@@ -826,7 +826,7 @@ body with fewer than 5 DISTINCT substantive lines (replacing the older raw
 non-empty-line floor, which padding could clear). Normative detail:
 `docs/draft-dispatch-contract.md` for the thinking path (#441: extracted from
 `commands/draft.md`, which now carries a conditional-load stub — the contract is
-read only when the step-1 tier is non-empty OR the operator instructs dispatch)
+read only when the step-2 tier is non-empty OR the operator instructs dispatch)
 and, for the checking path, `docs/checking-dispatch-contract.md` (#528: extracted
 from the `commands/improve.md` / `commands/redmr.md` / `commands/preship.md`
 wrappers, which now carry a pointer stub + per-step delta block, mirroring the
@@ -836,10 +836,10 @@ resolution, the verbatim artifact write, dispatch-lint, the failure protocol)
 bind the MAIN session, while their skills became fork prompts bound to the agents
 that carry the procedure.
 
-**Why review (step 13) is the one unbound checking step** — the asymmetry is a
+**Why review (step 15) is the one unbound checking step** — the asymmetry is a
 boundary, not an oversight:
 
-- **Step 13 (review)** cannot be converted as things stand: `commands/review.md`
+- **Step 15 (review)** cannot be converted as things stand: `commands/review.md`
   wraps the upstream `superpowers:requesting-code-review` skill, which devAgent
   does not own and cannot add frontmatter to. Binding it would first require
   vendoring that contract. A devAgent-authored degraded review path is NOT
@@ -1068,7 +1068,7 @@ Three semantic events trigger backend transitions:
 | End of `ship` (step 15) | `on_ship` | `ship.sh` after successful MR creation; **not** gated by `transition_issue` (consent-by-ship-action, #219), and a failing transition degrades to a warn — ship still completes |
 | MR merged upstream (async) | `on_merge` | `/devagent:sync` |
 
-The `commit` → `analyze` ordering (steps 10 → 11) exists because
+The `commit` → `analyze` ordering (steps 12 → 13) exists because
 `static_analysis_diff.py` requires a `git diff` against a baseline,
 which requires a commit. With squash-on-merge, the noise of a
 post-analyze amend commit is acceptable — both end up squashed.
@@ -1090,9 +1090,9 @@ v1 artifact list:
 
 | Key | Used by |
 |---|---|
-| `coding_standards` | step 8 (quality), step 13 (review) |
-| `commit_template` | step 10 (commit) |
-| `mr_template` | step 12 (draftmr) |
+| `coding_standards` | step 10 (quality), step 15 (review) |
+| `commit_template` | step 12 (commit) |
+| `mr_template` | step 14 (draftmr) |
 | `issue_template-<type>` | capture, reap, file |
 | `epic_template` | capture (epic mode), scaffold |
 | `redteam_issue_shared` / `_light` / `_standard` / `_full` | redissue (#443: tier-split; a monolithic `redteam_issue` override, resolved by the same §12 walk, shadows all tiers) |
@@ -1143,7 +1143,7 @@ verbatim for forward compatibility.
 ### 13.2 Commands
 
 - `/devagent:wbs init` — scaffold from `wbs_template.md`
-- `/devagent:wbs update` — invoked by step 17 and by `planwbs` from
+- `/devagent:wbs update` — invoked by step 20 and by `planwbs` from
   capture family; appends/updates entries based on active issues
 - `/devagent:wbs show [--depth N] [--milestone X]` — markdown render
 
@@ -1185,7 +1185,7 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
 
 ## Accomplished
 - Issue-676 shipped → merged 2026-05-22 (PR #842)
-- Issue-Fork-24 advanced steps 5→8
+- Issue-Fork-24 advanced steps 7→10
 
 ## Needs attention
 ### Stuck (1)
@@ -1221,7 +1221,7 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
 
 ### 14.5 Velocity & estimate
 
-- Velocity = issues completed (step 20) per calendar week, computed
+- Velocity = issues completed (step 23) per calendar week, computed
   over a configurable window (default 4 weeks)
 - Estimate = (remaining WBS leaves) / velocity, rendered with `± X
   weeks` band based on observed variance
@@ -1256,8 +1256,7 @@ Post-MR feedback often requires re-walking the pipeline. Pattern:
 1. `/devagent:comments` — fetch MR comments to
    `<issue-dir>/revisions/r<N>/comments.md`
 2. `/devagent:revise` — increment revision counter, append a new
-   `## Revision N` block to checklist with steps 1–14, 21 (preship),
-   15, 16–20 re-listed in file order as `[ ]` (the `revision_block`
+   `## Revision N` block to checklist with steps 2, 4–23 re-listed in file order as `[ ]` (the `revision_block`
    template, #76 — NOT a bare 1–15), log the revision start. Then
    `/devagent:next` resumes from `draft` with the comments in context.
    The by-name preship/closeout gates are revision-scoped to match, so

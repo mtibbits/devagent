@@ -1,13 +1,13 @@
 ---
 name: core-lessons-learned
-description: "Step 19: extract reusable lessons from a completed issue"
+description: "Step 22: extract reusable lessons from a completed issue"
 when_to_use: After /devagent:impact and before /devagent:cleanup. Run as part of /devagent:lessonslearned.
 user-invocable: false
 ---
 
 # devagent-lessons-learned
 
-Step 19 of the devAgent 22-step workflow. Writes
+Step 22 of the devAgent 24-step workflow. Writes
 `<issue-dir>/lessonsLearned.md` capturing what to do differently next
 time. Entries tagged `actionable` are harvested by `/devagent:reap`
 into new captures.

@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:document
 
-Step 9 of the 22-step devAgent workflow. Invokes the
+Step 11 of the 24-step devAgent workflow. Invokes the
 `core-document-actual-work` skill to write
 `<issue-dir>/actualWork.md`.
 
@@ -21,7 +21,7 @@ Per `commands/draft.md`.
    against plan). If absent, halt — operator must run branch first —
    UNLESS the issue's ACTIVE revision block (the last `## Revision N`;
    earlier blocks may predate a #537 retier) does not contain the branch
-   step (step 6), as in the research and oneshot checklists.
+   step (step 8), as in the research and oneshot checklists.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt:
    skip this check and proceed without a diff baseline.
 3. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
@@ -51,7 +51,7 @@ repo — this step normally leaves the source tree untouched. If
 writing the record surfaced a straggler in the source repo (a file
 implement/quality commits missed), `git add` and `git commit -s` it
 now. The commit step (10) comes next and verifies everything is
-committed; analyze (11) then runs against the committed work.
+committed; analyze (13) then runs against the committed work.
 
 ## Completion handoff
 

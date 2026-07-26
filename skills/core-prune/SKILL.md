@@ -1,13 +1,13 @@
 ---
 name: core-prune
-description: "Step 4: move deferred/dismissed items from the plan to the future-enhancements file, leaving a minimal load-bearing plan"
+description: "Step 6: move deferred/dismissed items from the plan to the future-enhancements file, leaving a minimal load-bearing plan"
 when_to_use: After /devagent:improve has tagged items and before /devagent:tighten. Run as part of /devagent:prune.
 user-invocable: false
 ---
 
 # devagent-prune
 
-Step 4 of the devAgent 22-step workflow. Walks the Improvements section
+Step 6 of the devAgent 24-step workflow. Walks the Improvements section
 of `<issue-dir>/imPlan.md`, the Out-of-scope section of the Scope
 evaluation, and any task whose value is not load-bearing for the
 issue, and migrates them to

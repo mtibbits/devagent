@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/mergetoall.sh — step 16. Squash-merge active branch into the
+# scripts/mergetoall.sh — step 19. Squash-merge active branch into the
 # all_prs_branch. Always local; remote push is opt-in via
 # all_prs_auto_push=true (per-project config). NO GitHub PR closure
 # either way. Honors permissions.merge_to_all_prs (fall back to legacy

@@ -1,13 +1,13 @@
 ---
 name: core-draft-mr
-description: "Step 12: draft the merge-request body from imPlan, actualWork, and analyzer output"
+description: "Step 14: draft the merge-request body from imPlan, actualWork, and analyzer output"
 when_to_use: After /devagent:analyze and before /devagent:review. Run as part of /devagent:draftmr.
 user-invocable: false
 ---
 
 # devagent-draft-mr
 
-Step 12 of the devAgent 22-step workflow. Fills in
+Step 14 of the devAgent 24-step workflow. Fills in
 the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) from the issue's plan, actualWork, and
 analyzer findings, writing the result to `<issue-dir>/mr.md`. The
 ship step later uses `mr.md` verbatim as the MR body.
@@ -84,7 +84,7 @@ re-typed.
 - `actualWork.md` is missing — operator must run document first.
 - Any `analysis/*.txt` reports unaddressed findings — surface them
   before filing the MR. (The analyze step is N/A when its step is
-  absent from the issue's checklist, e.g. docs-only, or when step 11
+  absent from the issue's checklist, e.g. docs-only, or when step 13
   is marked `[-]` — the `analyze = "none"` self-skip, #55 — then there
   is no `analysis/` and that is expected, not a halt.)
 - `<issue-dir>/mr.md` already exists with substantive content —

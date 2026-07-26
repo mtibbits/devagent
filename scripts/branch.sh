@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/branch.sh — workflow step 6. Compute prefix from branch_prefix_map,
+# scripts/branch.sh — workflow step 8. Compute prefix from branch_prefix_map,
 # baseline on default_baseline, optionally create a git worktree.
 set -euo pipefail
 

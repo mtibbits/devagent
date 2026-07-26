@@ -365,8 +365,9 @@ checklist_advance() {
 # Returns the next step number whose state is one of [ ] [~], in FILE ORDER,
 # on a line after the `after` step's line. Skips [x] [-] [?] [P] [!]. Empty if
 # none. #77: the checklist's authority is file order, not the step number — a
-# `n > after` comparison silently skips e.g. commit (10) under the pre-#116
-# 11-before-10 layout (still live in checklists cut before the reorder).
+# `n > after` comparison silently skips a step under any out-of-file-order
+# numbering (e.g. the pre-#116 11-before-10 layout, or a pre-#558 checklist —
+# both still live in checklists cut before those reorders).
 # `after=0` (default) returns the first pending step.
 checklist_next_actionable() {
   local file="$1"

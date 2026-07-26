@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:redmr
 
-Step 14 of the 22-step devAgent workflow. The red-team runs in the
+Step 16 of the 24-step devAgent workflow. The red-team runs in the
 `devagent:redteam-reviewer` agent, which cannot write files and carries the
 adversarial stance, severity taxonomy, and output contract as its system
 prompt; it attacks the MR body and diff using the resolved `redteam_mr.md`
@@ -45,7 +45,7 @@ Per `commands/draft.md`.
    counts — this gate is yours to enforce.
 7. **Commit applied fixes (#148).** If addressing findings modified (or added)
    any tracked file in the project source repo — the issue branch — `git add`
-   + `git commit -s` them before marking step 14. A new signed-off commit, not
+   + `git commit -s` them before marking step 16. A new signed-off commit, not
    an amend (the fix delta stays auditable; amending after a prior ship would
    force-push). ship.sh (15) refuses to push when tracked files are modified.
    Committing here also re-anchors the report to `baseline..HEAD`, so the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/ship.sh — workflow step 15. Push branch, create MR, fire on_ship.
+# scripts/ship.sh — workflow step 18. Push branch, create MR, fire on_ship.
 # Honors permissions.push_mr and ship_as_draft. If fork_first=true, files MR
 # on the fork before referencing upstream.
 set -euo pipefail
@@ -82,8 +82,8 @@ if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sh
     exit 0
 fi
 
-# #148: refuse to push a branch that differs from the working tree. Review (13)
-# and redmr (14) fixes applied after commit (10) land in the working tree; with
+# #148: refuse to push a branch that differs from the working tree. Review (15)
+# and redmr (16) fixes applied after commit (12) land in the working tree; with
 # no commit step remaining, ship used to push without them (Issues #101/#102 →
 # recovery PR #147). Untracked paths are excluded deliberately (build dirs,
 # scratch files) — the review/redmr docs' git-add instruction covers the
@@ -101,7 +101,7 @@ if [ "$modified_count" -gt 0 ]; then
     die "$modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
 fi
 
-# #149: refuse to push while preship (21) is non-terminal — the fresh-context
+# #149: refuse to push while preship (17) is non-terminal — the fresh-context
 # verification is the semantic half of #148's gate, and a direct /devagent:ship
 # is exactly the ad-hoc path where the #101/#102 stranded-fix incidents lived.
 # By name; absent step (pre-#149 checklists, research template) => no gate —

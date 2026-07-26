@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note: paths to evidence files]"
 
 # /devagent:impact
 
-Step 18 of the 22-step devAgent workflow. Invokes the `core-impact`
+Step 21 of the 24-step devAgent workflow. Invokes the `core-impact`
 skill to write `<issue-dir>/impact.md`.
 
 ## Argument parsing

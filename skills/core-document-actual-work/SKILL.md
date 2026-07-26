@@ -1,13 +1,13 @@
 ---
 name: core-document-actual-work
-description: "Step 9: record what was actually built versus planned, terse when there is no deviation"
+description: "Step 11: record what was actually built versus planned, terse when there is no deviation"
 when_to_use: After /devagent:quality and before /devagent:commit. Run as part of /devagent:document.
 user-invocable: false
 ---
 
 # devagent-document-actual-work
 
-Step 9 of the devAgent 22-step workflow. Writes
+Step 11 of the devAgent 24-step workflow. Writes
 `<issue-dir>/actualWork.md` recording what was actually built. The
 contract: **be terse when there is no deviation from `imPlan.md`**.
 Most of the time, the plan is the work; the actualWork file is short.

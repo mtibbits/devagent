@@ -1,13 +1,13 @@
 ---
 name: core-tighten
-description: "Step 5: final pre-implementation review of a pruned plan — lock task ordering, file paths, and test plan"
+description: "Step 7: final pre-implementation review of a pruned plan — lock task ordering, file paths, and test plan"
 when_to_use: After /devagent:prune has produced a minimal plan and before /devagent:branch. Run as part of /devagent:tighten.
 user-invocable: false
 ---
 
 # devagent-tighten
 
-Step 5 of the devAgent 22-step workflow. The last review pass on
+Step 7 of the devAgent 24-step workflow. The last review pass on
 `<issue-dir>/imPlan.md` before any code is written. Locks down the
 plan so the implementing engineer (often a fresh subagent in a fresh
 session) needs zero context-discovery to start.

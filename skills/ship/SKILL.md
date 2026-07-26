@@ -1,7 +1,7 @@
 ---
 name: ship
-description: "Step 15: push branch and open MR, fire on_ship issue transition."
-when_to_use: Workflow step 15, after preship passes — push the issue branch and open its MR.
+description: "Step 18: push branch and open MR, fire on_ship issue transition."
+when_to_use: Workflow step 18, after preship passes — push the issue branch and open its MR.
 argument-hint: "[project] [issue-dir] [--strict-deps]"
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 ---

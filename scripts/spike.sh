@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/spike.sh — workflow step 23 (OPTIONAL, flag-driven). Manages the
+# scripts/spike.sh — workflow step 3 (OPTIONAL, flag-driven). Manages the
 # lifecycle of a THROWAWAY worktree in which the spike step tests a plan's
 # load-bearing unknowns. Spike code is EVIDENCE, never product: nothing here is
 # merged, cherry-picked, or copied — the worktree and its temp branch are destroyed.
