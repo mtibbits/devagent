@@ -45,8 +45,8 @@ verbatim, substituting this step's per-step deltas:
 - **`<INTRO>`** — Fresh context is not conditional; the model override is. The
   implementing session reviews what it remembers intending; preship reviews what
   is on disk.
-- **`<STEP>`** (canonical step number) — `21`; the main session resolves the
-  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21`.
+- **`<STEP>`** (canonical step number) — `17`; the main session resolves the
+  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 17`.
 - **`<AGENT>`** (bound agent) — `preship-verifier`: rc 0 dispatches the Agent
   tool with `subagent_type: devagent:preship-verifier`; rc 3 dispatches the
   Agent tool with an explicit `model: opus` (the wrapper-carried step default)

@@ -25,7 +25,7 @@ Per `commands/draft.md`.
    = `baseline_sha..HEAD` on the issue's branch. This wrapper already
    dispatches a fresh-context subagent; per #151, resolve the model
    override first —
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 13 || true)"`
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 15 || true)"`
    — and pass it on the dispatch (omit when empty ⇒ inherit the session
    model; if the tier is unavailable, retry once with no override and
    record the degradation in the artifact header). A per-issue

@@ -64,8 +64,8 @@ verbatim, substituting this step's per-step deltas:
 
 - **`<INTRO>`** — Fresh context is what makes the attack real; the model
   override is conditional.
-- **`<STEP>`** (canonical step number) — `14`; the main session resolves the
-  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 14`.
+- **`<STEP>`** (canonical step number) — `16`; the main session resolves the
+  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 16`.
 - **`<AGENT>`** (bound agent) — `redteam-reviewer`: rc 0 dispatches the Agent
   tool with `subagent_type: devagent:redteam-reviewer`; rc 3 dispatches the
   Agent tool with an explicit `model: opus` (the wrapper-carried step default)

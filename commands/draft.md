@@ -173,7 +173,7 @@ It is **loaded only when dispatch can fire** — before drafting, READ that file
 follow it verbatim if EITHER condition holds:
 
 1. the resolved step-1 tier is non-empty
-   (`tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 1 || true)"`), OR
+   (`tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`), OR
 2. the operator explicitly instructs dispatch ("dispatch the draft") — this fires
    even on an EMPTY tier (the `model: inherit` provenance case), so the trigger is
    BOTH conditions, not tier-alone.

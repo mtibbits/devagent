@@ -110,3 +110,38 @@ CFG
     grep -qF '"research:required:1"' "$PLUGIN_ROOT/scripts/pull.sh"
     grep -qF '"spike:required:3"' "$PLUGIN_ROOT/scripts/pull.sh"
 }
+
+@test "numbering: the checking contract's canonical steps match the class map (#558)" {
+    local c="$PLUGIN_ROOT/docs/checking-dispatch-contract.md"
+    grep -qF '`5` improve / `16` redmr / `17` preship' "$c"
+    run grep -c '`3` improve' "$c"
+    [ "$status" -eq 1 ] || _die "contract still names the old canonical step 3"
+}
+
+@test "numbering: each checker agent names its new step number (#558)" {
+    grep -qF 'step 5'  "$PLUGIN_ROOT/agents/plan-improver.md"
+    grep -qF 'step 16' "$PLUGIN_ROOT/agents/redteam-reviewer.md"
+    grep -qF 'step 17' "$PLUGIN_ROOT/agents/preship-verifier.md"
+}
+
+@test "numbering: the smoke eval tracks preship-verifier's sentence (#558, S1)" {
+    # The eval asserts an exact-uniqueness attestation; it must quote the CURRENT text.
+    grep -qF 'workflow step 17' "$PLUGIN_ROOT/evals/smoke/smoke.json"
+}
+
+@test "numbering: every step-model.sh doc invocation carries a new-scheme step (#558, audit)" {
+    # The load-bearing dispatcher instructions: `step-model.sh" <project> N` in the
+    # wrappers and contracts. Legal N post-renumber: 2 draft, 5 improve, 15 review,
+    # 16 redmr, 17 preship. Subject count asserted (Issue-439): exactly 6 sites.
+    local n=0 bad=0 line num
+    while IFS= read -r line; do
+        n=$((n + 1))
+        num="$(sed -E 's/.*<project> ([0-9]+).*/\1/' <<<"$line")"
+        case " 2 5 15 16 17 " in
+            *" $num "*) : ;;
+            *) printf 'STALE invocation: %s\n' "$line" >&2; bad=1 ;;
+        esac
+    done < <(grep -rn '<project> [0-9]' "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/docs")
+    [ "$n" -eq 6 ] || _die "expected 6 step-model invocation sites, found $n"
+    [ "$bad" -eq 0 ]
+}
