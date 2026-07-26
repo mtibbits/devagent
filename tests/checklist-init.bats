@@ -10,7 +10,7 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [ -f "$ISSUE_DIR/checklist.md" ]
-  run grep -q '20. cleanup' "$ISSUE_DIR/checklist.md"
+  run grep -q '23. cleanup' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
 
@@ -28,11 +28,11 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
-@test "standard template carries preship (21) between redmr and ship in file order (#149)" {
+@test "standard template carries preship (17) between redmr and ship in file order (#149)" {
   ISSUE_DIR="$DA_HOME/Issue-149t"
   run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
   [ "$status" -eq 0 ]
-  awk '/14\. redmr/{r=NR} /21\. preship/{p=NR} /15\. ship/{s=NR} END{exit !(r<p && p<s)}' "$ISSUE_DIR/checklist.md"
+  awk '/16\. redmr/{r=NR} /17\. preship/{p=NR} /18\. ship/{s=NR} END{exit !(r<p && p<s)}' "$ISSUE_DIR/checklist.md"
 }
 
 # --- #120: registry-routed templates ----------------------------------------
@@ -44,7 +44,7 @@ source_dir = "$BATS_TEST_TMPDIR/src"
 devdoc_dir = "$BATS_TEST_TMPDIR/devdoc"
 EOC
   mkdir -p "$BATS_TEST_TMPDIR/devdoc/templates"
-  printf '# OVERRIDE MARKER #120\n- [ ]  0. pull\n- [ ] 20. cleanup\n\n## Log\n' \
+  printf '# OVERRIDE MARKER #120\n- [ ]  0. pull\n- [ ] 23. cleanup\n\n## Log\n' \
     > "$BATS_TEST_TMPDIR/devdoc/templates/checklist-standard.md"
   ISSUE_DIR="$DA_HOME/Issue-120a"
   DEVAGENT_ACTIVE_PROJECT=tp run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
@@ -56,5 +56,5 @@ EOC
   ISSUE_DIR="$DA_HOME/Issue-120b"
   run env -u DEVAGENT_ACTIVE_PROJECT "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
   [ "$status" -eq 0 ]
-  grep -q '21\. preship' "$ISSUE_DIR/checklist.md"
+  grep -q '17\. preship' "$ISSUE_DIR/checklist.md"
 }

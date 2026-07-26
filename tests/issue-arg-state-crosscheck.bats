@@ -78,6 +78,6 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"no branch in state"* ]]
     # Load-bearing: ship did not complete — step 15 is not marked done on the
     # active issue's checklist (it aborted at the cross-check, before push).
-    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
     [ "$status" -ne 0 ]
 }

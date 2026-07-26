@@ -37,7 +37,7 @@ Second comment with more detail.
 EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [~]  1. draft
+- [~]  2. draft
 ## Log
 - 2026-05-10 10:00  pull: fetched
 - 2026-05-11 10:00  draft: started
@@ -55,7 +55,7 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"Issue-676"* ]]
   [[ "$output" == *"Demo"* ]]
-  [[ "$output" == *"Current step: 1 (draft)"* ]]
+  [[ "$output" == *"Current step: 2 (draft)"* ]]
   [[ "$output" == *"draft: revised"* ]]
   [[ "$output" == *"improve: in progress"* ]]
   # First log line should be dropped (5-line cap)
@@ -99,7 +99,7 @@ EOF
 default  = "sonnet"
 thinking = "opus"
 EOF
-  # current step is 1 (draft) → thinking class → opus
+  # current step is 2 (draft) → thinking class → opus
   run "$PLUGIN_ROOT/scripts/catchup.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"wants tier: opus"* ]]

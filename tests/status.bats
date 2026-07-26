@@ -23,15 +23,15 @@ issue_dir = "$DEVDOC1/Issue-1"
 EOF
   cat > "$DEVDOC1/Issue-1/checklist.md" <<'EOF'
 - [x]  0. pull
-- [~]  1. draft
-- [ ]  2. scope
+- [~]  2. draft
+- [ ]  4. scope
 EOF
   cat > "$DA_HOME/state/other.toml" <<EOF
 active_issue = "Issue-9"
 issue_dir = "$DEVDOC2/Issue-9"
 EOF
   cat > "$DEVDOC2/Issue-9/checklist.md" <<'EOF'
-- [!]  3. improve
+- [!]  5. improve
 EOF
   echo "Reason: stuck" > "$DEVDOC2/Issue-9/STUCK"
 }

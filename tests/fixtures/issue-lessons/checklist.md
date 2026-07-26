@@ -1,7 +1,7 @@
 # Issue-1008 — Workflow checklist
 ## Revision 1
-- [x] 18. impact
-- [~] 19. lessonslearned  ← active
+- [x] 21. impact
+- [~] 22. lessonslearned  ← active
 
 ## Log
 - 2026-05-19 09:00  draft: imPlan.md written (4 tasks)

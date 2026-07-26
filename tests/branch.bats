@@ -12,7 +12,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -eq 0 ]
     ( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD ) | grep -qx "feat/1-make-widgets-faster"
     grep -q '^branch *= *"feat/1-make-widgets-faster"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    grep -q '\[x\]  6. branch' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q '\[x\]  8. branch' "$DEVDOC_DIR/Issue-1/checklist.md"
     grep -q 'branch: created feat/1-make-widgets-faster' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 

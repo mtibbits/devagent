@@ -31,7 +31,7 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "issue/github transition acme/testproj 1 on_ship"
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }
 
 @test "ship.sh fails closed when the branch push fails — no MR, step 15 unmarked (#104)" {
@@ -56,7 +56,7 @@ EOF
     # no mr_url recorded, step 15 left unmarked
     run grep -q 'mr_url *= *"https://' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
 }
 
 @test "ship.sh halts when push_mr=false and non-interactive (no DA_YES)" {
@@ -67,7 +67,7 @@ EOF
     run bash -c "'$DEVAGENT_ROOT/scripts/ship.sh' '$TEST_PROJECT' Issue-1 </dev/null"
     [ "$status" -ne 0 ]
     # Checklist unchanged for step 15.
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
     # Plan was printed (the permission gate text goes to stderr; bats merges it into $output).
     [[ "$output" == *"ship plan"* ]]
     # No MR url recorded. (run+status, not vacuous `! grep`; checked after $output use.)
@@ -137,7 +137,7 @@ EOF
     # ship completed regardless: mr_url stored and step 15 marked.
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }
 
 # ---- #88: cross-repo create-mr head qualification (A1) ----
@@ -190,7 +190,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
-    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 21 x
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 17 x
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
@@ -209,7 +209,7 @@ EOF
     echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
     bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
         "$DEVDOC_DIR/Issue-Fork-51"
-    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 21 x
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 17 x
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
@@ -368,7 +368,7 @@ EOF
 }
 
 # --- #148: modified-tracked-files gate -------------------------------------
-# Review (13) / redmr (14) fixes applied after commit (10) used to strand in
+# Review (13) / redmr (16) fixes applied after commit (12) used to strand in
 # the working tree; ship.sh pushed the branch without them. The gate refuses
 # to push when tracked files are modified in work_dir; untracked-only noise
 # (build dirs, scratch files) still ships. Uses the real-git-except-push stub
@@ -393,7 +393,7 @@ EOF
     devagent_refute_logged "gh pr create"
     run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     [ "$status" -ne 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
 }
 
 @test "ship.sh ships clean when only untracked files are present (#148)" {
@@ -432,7 +432,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"zero-diff"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 '-' ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '-' ship
     devagent_refute_logged "gh pr create"
 }
 
@@ -548,7 +548,7 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]                                    # NOT treated as artifact-only
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
     devagent_assert_logged "gh pr create"                              # the branch's work reaches a PR
 }
 
@@ -561,24 +561,24 @@ EOF
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"zero-diff"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }
 
-@test "ship refuses while preship (21) is non-terminal; absent step ungated (#149)" {
-    # The common fixture predates #149 (no 21 line) — add a pending one.
-    printf -- '- [ ] 21. preship\n' >> "$DEVDOC_DIR/Issue-1/checklist.md"
+@test "ship refuses while preship (17) is non-terminal; absent step ungated (#149)" {
+    # The common fixture predates #149 (no preship line) — add a pending one.
+    printf -- '- [ ] 17. preship\n' >> "$DEVDOC_DIR/Issue-1/checklist.md"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"preship is non-terminal"* ]]
     # Absent step (pre-#149 checklist) => no gate at this check; ship then
     # proceeds past it (fixture dies later at push, which is fine — assert
     # only that THIS gate did not fire and the run got past it).
-    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 21
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 17
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" != *"preship is non-terminal"* ]]
 }
 
-@test "ship.sh dies fail-closed when create-mr returns an empty URL — no mr_url, step 15 unmarked (#337)" {
+@test "ship.sh dies fail-closed when create-mr returns an empty URL — no mr_url, step 18 unmarked (#337)" {
   # ship.sh:323 `[ -n "$mr_url" ] || die` is the only OUTPUT-validation die in
   # ship.sh with no pin. Stub gh to emit an empty PR URL on `pr create`; push
   # succeeds, create-mr returns "", ship must die BEFORE storing mr_url / marking.
@@ -596,5 +596,5 @@ EOF
   [[ "$output" == *"empty URL"* ]]                                    # the fail-closed die fired
   run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
   [ "$status" -ne 0 ]                                                 # no mr_url stored
-  grep -qE '^- \[ \] +15\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 unmarked
+  grep -qE '^- \[ \] +18\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 unmarked
 }

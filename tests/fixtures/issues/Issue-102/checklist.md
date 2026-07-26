@@ -2,7 +2,7 @@
 Template: standard
 
 ## Revision 1
-- [~] 2. scope
+- [~] 4. scope
 
 ## Log
 - 2026-05-19 10:00  pull: fetched

@@ -62,8 +62,8 @@ _append_rev2_block() {
 
 ## Revision 2
 
-- [ ]  1. draft
-- [ ] 15. ship
+- [ ]  2. draft
+- [ ] 18. ship
 EOF
 }
 

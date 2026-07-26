@@ -58,13 +58,13 @@ run_revise() {
   run_revise volk Issue-676 --no-chain
   [ "$status" -eq 0 ]
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
-  grep -q '\[ \]  1\. draft' "$FIX_ISSUE_DIR/checklist.md"
-  grep -q '\[ \] 15\. ship' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \]  2\. draft' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 18\. ship' "$FIX_ISSUE_DIR/checklist.md"
   # #76: the appended block carries preship + the full closeout, so a revised
   # MR re-runs preship/mergetoall/updatewbs/impact/lessonslearned/cleanup.
-  grep -q '\[ \] 21\. preship' "$FIX_ISSUE_DIR/checklist.md"
-  grep -q '\[ \] 16\. mergetoall' "$FIX_ISSUE_DIR/checklist.md"
-  grep -q '\[ \] 20\. cleanup' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 17\. preship' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 19\. mergetoall' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 23\. cleanup' "$FIX_ISSUE_DIR/checklist.md"
 }
 
 @test "revise preserves the original ## Revision 1 block" {
@@ -152,7 +152,7 @@ PARKED
 @test "revision block resolves via a devdoc override (#120)" {
   local devdoc="${FIX_ISSUE_DIR%/*}"
   mkdir -p "$devdoc/templates"
-  printf '## Revision {{N}} REVISED-OVERRIDE-#120\n\n- [ ]  1. draft\n' \
+  printf '## Revision {{N}} REVISED-OVERRIDE-#120\n\n- [ ]  2. draft\n' \
     > "$devdoc/templates/revision_block.md"
   run_revise volk
   [ "$status" -eq 0 ]
@@ -189,10 +189,10 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull
-- [~]  7. implement
-- [ ]  9. document
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [~]  9. implement
+- [ ]  11. document
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log
 
@@ -214,7 +214,7 @@ EOF
   run_revise --retier standard volk Issue-676
   [ "$status" -eq 0 ]
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
-  awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +1\. draft'
+  awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +2\. draft'
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +0\. pull')" -eq 0 ]
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 21 ]
   grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
@@ -225,7 +225,7 @@ EOF
   run_revise --retier standard volk Issue-676
   [ "$status" -eq 0 ]
   grep -q '^## Revision 1$' "$FIX_ISSUE_DIR/checklist.md"
-  grep -qE '^\- \[~\] +7\. implement' "$FIX_ISSUE_DIR/checklist.md"
+  grep -qE '^\- \[~\] +9\. implement' "$FIX_ISSUE_DIR/checklist.md"
   grep -q 'pull: fetched example/volk#842' "$FIX_ISSUE_DIR/checklist.md"
   grep -q 'retier: oneshot → standard' "$FIX_ISSUE_DIR/checklist.md"
 }
@@ -276,13 +276,16 @@ EOF
   [[ "$output" == *"--retier requires a tier name"* ]]
 }
 
-@test "revise --retier excludes the PRE-DRAFT research row 22 like row 0 (#535)" {
+@test "revise --retier excludes the PRE-DRAFT research row like row 0 (#535/#558)" {
   retier_fixture
   run_revise --retier standard volk Issue-676
   [ "$status" -eq 0 ]
   # research is pre-draft: copying it would either re-point next.sh at research or
-  # RESET an outstanding flagged row to [-]. It must not appear in the new block.
-  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +22\. research')" -eq 0 ]
+  # RESET an outstanding flagged row to [-]. It must not appear in the new block —
+  # and post-#558 rows 22/23 are lessonslearned/cleanup, which MUST appear.
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +[0-9]+\. (research|spike)')" -eq 0 ]
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +22\. lessonslearned')" -eq 1 ]
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +23\. cleanup')" -eq 1 ]
   # sanity: the block IS non-empty (guards a vacuous zero-count)
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[')" -ge 20 ]
 }

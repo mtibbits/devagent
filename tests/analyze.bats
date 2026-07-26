@@ -28,7 +28,7 @@ teardown() { devagent_test_teardown; }
     static_line=$(grep -n '^static ' "$DEVAGENT_STUB_LOG" | head -1 | cut -d: -f1)
     san_line=$(grep -n '^san '    "$DEVAGENT_STUB_LOG" | head -1 | cut -d: -f1)
     [ "$static_line" -lt "$san_line" ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 x analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 x analyze
     grep -q 'analyze: static + sanitizers complete' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -54,7 +54,7 @@ _stub_shellcheck_analyzer() {
     grep -q '^shellcheck ' "$DEVAGENT_STUB_LOG"
     run grep -E '^(static|san) ' "$DEVAGENT_STUB_LOG"
     [ "$status" -ne 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 x analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 x analyze
     grep -q 'analyze: shellcheck' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -65,7 +65,7 @@ _stub_shellcheck_analyzer() {
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [ -f "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt" ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 x analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 x analyze
 }
 
 @test "analyze = none self-marks step 11 [-] with a logged reason (#55)" {
@@ -76,9 +76,9 @@ _stub_shellcheck_analyzer() {
         run grep -E '^(static|san|shellcheck) ' "$DEVAGENT_STUB_LOG"
         [ "$status" -ne 0 ]
     fi
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 '-' analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 '-' analyze
     grep -q 'analyze: skipped' "$DEVDOC_DIR/Issue-1/checklist.md"
-    grep -q '^last_step[[:space:]]*=[[:space:]]*"11"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"13"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
 
 @test "unknown analyze value dies naming the legal values, step unmarked (#55)" {
@@ -86,7 +86,7 @@ _stub_shellcheck_analyzer() {
     run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"cmake"* && "$output" == *"shellcheck"* && "$output" == *"none"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 ' ' analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 ' ' analyze
     if [ -f "$DEVAGENT_STUB_LOG" ]; then
         run grep -E '^(static|san) ' "$DEVAGENT_STUB_LOG"
         [ "$status" -ne 0 ]
@@ -104,7 +104,7 @@ _stub_shellcheck_analyzer() {
 
 @test "a failing sanitizer leg leaves step 11 UNMARKED through analyze.sh (#117 e2e)" {
     # End-to-end through the REAL sanitizers script (no fake crutch): a ctest
-    # failure must exit analyze.sh nonzero BEFORE the state write / step-11
+    # failure must exit analyze.sh nonzero BEFORE the state write / step-13
     # mark / completion log — so an --auto chain (next.sh set -e) halts.
     touch "$SOURCE_DIR/CMakeLists.txt"                 # pass the loud-skip guard
     export DEVAGENT_ANALYZE_SANITIZERS="$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh"
@@ -115,7 +115,7 @@ _stub_shellcheck_analyzer() {
     [[ "$output" == *"ctest exit=1"* ]]
     [[ "$output" == *"$DEVDOC_DIR/Issue-1/analysis/"* ]]
     # Step 11 stays [ ]; no completion log; state's last_step never advanced.
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 ' ' analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 ' ' analyze
     run grep -q 'analyze: static + sanitizers complete' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
     grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -123,7 +123,7 @@ _stub_shellcheck_analyzer() {
 
 @test "an unresolvable baseline leaves step 11 UNMARKED through analyze.sh (#314 e2e)" {
     # analyze = shellcheck + the REAL analyzer + a bad baseline: analyze.sh must
-    # exit nonzero BEFORE the step-11 mark / state write (so an --auto chain
+    # exit nonzero BEFORE the step-13 mark / state write (so an --auto chain
     # halts), not mark step 11 [x] on a vacuous empty scope.
     command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
     _set_analyze shellcheck
@@ -133,7 +133,7 @@ _stub_shellcheck_analyzer() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"unresolvable"* ]]     # die-only fragment (#314 review)
     # Step 11 stays [ ]; completion log absent; last_step never advanced past 5.
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 11 ' ' analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 ' ' analyze
     run grep -q 'shellcheck (diff-scoped) complete' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
     grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"

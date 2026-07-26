@@ -115,11 +115,11 @@ teardown() { teardown_tmp_devagent_home; }
            "$BATS_TEST_TMPDIR/devdoc/volk/Issue-2"
   cat > "$BATS_TEST_TMPDIR/devdoc/volk/Issue-1/checklist.md" <<'EOF'
 - [x] 0. pull
-- [x] 1. draft
+- [x] 2. draft
 EOF
   cat > "$BATS_TEST_TMPDIR/devdoc/volk/Issue-2/checklist.md" <<'EOF'
 - [x] 0. pull
-- [ ] 1. draft
+- [ ] 2. draft
 EOF
   # Make Issue-2 newer.
   touch -d "1 minute ago" "$BATS_TEST_TMPDIR/devdoc/volk/Issue-1/checklist.md"
@@ -133,7 +133,7 @@ EOF
   mkdir -p "$BATS_TEST_TMPDIR/devdoc/volk/Issue-3"
   cat > "$BATS_TEST_TMPDIR/devdoc/volk/Issue-3/checklist.md" <<'EOF'
 - [x] 0. pull
-- [~] 1. draft
+- [~] 2. draft
 EOF
   state_init volk
   run active_resolve_issue volk

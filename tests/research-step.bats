@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# #535: the optional pre-draft `22. research` step — template row, pull.sh
+# #535: the optional pre-draft `1. research` step — template row, pull.sh
 # table-driven flag-flip, the /devagent:research executor contract, draft.md
 # consumption, spec, and flags_validate. Mirrors pull.bats's gh-stub harness.
 
@@ -32,15 +32,15 @@ EOF
 }
 
 # ---- Task 1: template row ----
-@test "checklist-standard and checklist-perf carry [-] 22. research between rows 0 and 1" {
+@test "checklist-standard and checklist-perf carry [-] 1. research between rows 0 and 1" {
   for t in checklist-standard checklist-perf; do
-    run grep -nE '^- \[-\] 22\. research$' "$REPO/templates/$t.md"
+    run grep -nE '^- \[-\] +1\. research$' "$REPO/templates/$t.md"
     [ "$status" -eq 0 ]
     # flow position: research line number is AFTER pull(0) and BEFORE draft(1)
     local p r d
     p="$(grep -nE '^- \[ \]  0\. pull$' "$REPO/templates/$t.md" | cut -d: -f1)"
-    r="$(grep -nE '^- \[-\] 22\. research$' "$REPO/templates/$t.md" | cut -d: -f1)"
-    d="$(grep -nE '^- \[ \]  1\. draft$' "$REPO/templates/$t.md" | cut -d: -f1)"
+    r="$(grep -nE '^- \[-\] +1\. research$' "$REPO/templates/$t.md" | cut -d: -f1)"
+    d="$(grep -nE '^- \[ \]  2\. draft$' "$REPO/templates/$t.md" | cut -d: -f1)"
     # split: `a && b` under bats set -e only errexits on the FINAL command, so a
     # combined form left the first half DEAD (research placed BEFORE pull passed).
     [ "$p" -lt "$r" ] || { echo "$t: research row not after pull"; false; }
@@ -49,43 +49,43 @@ EOF
 }
 
 # ---- Task 3: pull.sh flag-flip (born-red without the pull.sh flip pass) ----
-@test "pull flips row 22 to [ ] when the BODY carries research: required (#535)" {
+@test "pull flips the research row to [ ] when the BODY carries research: required (#535)" {
   export GH_STUB_BODY_JSON='"## Workflow flags\nresearch: required\n\nBody."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  run grep -E '^- \[ \] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[ \] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]
 }
 
-@test "unflagged pull leaves row 22 [-] (no behavior change)" {
+@test "unflagged pull leaves the research row [-] (no behavior change)" {
   export GH_STUB_BODY_JSON='"An ordinary issue with no flags block."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  run grep -E '^- \[-\] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[-\] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]
 }
 
-@test "re-pull does not reset a completed row 22 (scaffold-branch-only)" {
+@test "re-pull does not reset a completed research row (scaffold-branch-only)" {
   export GH_STUB_BODY_JSON='"## Workflow flags\nresearch: required\n\nBody."'
   "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   # operator completes research
-  sed -i 's/^- \[ \] 22\. research$/- [x] 22. research/' "$DEVDOC/Issue-676/checklist.md"
+  sed -i 's/^- \[ \]  1\. research$/- [x]  1. research/' "$DEVDOC/Issue-676/checklist.md"
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676   # re-pull
   [ "$status" -eq 0 ]
-  run grep -E '^- \[x\] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[x\] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]   # still [x], not reset to [ ] or [-]
 }
 
-@test "a flags block quoted in a COMMENT does not flip row 22 (body-segment only)" {
+@test "a flags block quoted in a COMMENT does not flip the research row (body-segment only)" {
   export GH_STUB_BODY_JSON='"An ordinary body, no flags."'
   export GH_STUB_COMMENTS_JSON='[{"author":{"login":"bob"},"createdAt":"2026-05-12T08:14:22Z","body":"## Workflow flags\nresearch: required"}]'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  run grep -E '^- \[-\] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[-\] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]   # comment block is below "## Comments (" → flags_get stops → no flip
 }
 
-@test "research flag with an absent row 22 warns and no-ops (does NOT die mid-scaffold #242)" {
+@test "research flag with an absent research row warns and no-ops (does NOT die mid-scaffold #242)" {
   _write_config docs-only   # checklist-docs-only has no row 22
   export GH_STUB_BODY_JSON='"## Workflow flags\nresearch: required\n\nBody."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
@@ -102,12 +102,12 @@ EOF
 }
 
 # ---- Task 4/5/6/7: contract greps ----
-@test "commands/research.md: 3 sections, read-only, step 22, STEP≠TEMPLATE note" {
+@test "commands/research.md: 3 sections, read-only, step 1, STEP≠TEMPLATE note" {
   local f="$REPO/commands/research.md"
   grep -qE '## Questions'       "$f"
   grep -qE '## Findings'        "$f"
   grep -qE 'Open unknowns'      "$f"
-  grep -q  'Step 22'            "$f"
+  grep -q  'Step 1'             "$f"
   grep -qi 'read-only\|read only\|builds NOTHING\|builds nothing' "$f"
   grep -qi 'distinct from the research checklist TEMPLATE\|STEP.*distinct.*TEMPLATE' "$f"
   # Write/Edit ARE granted — research.md is this step's deliverable. The read-only
@@ -130,7 +130,7 @@ EOF
 @test "spec §6.3 carries row 22, the honest count, and the STEP-vs-TEMPLATE note" {
   local f="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -q '/devagent:research' "$f"
-  grep -q 'optional research step\|research (22) is optional' "$f"
+  grep -q 'optional research step\|research (1) is optional' "$f"
   grep -q 'research STEP' "$f"
 }
 
@@ -146,24 +146,24 @@ EOF
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "not a recognized value for flag 'research'"
-  run grep -E '^- \[-\] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[-\] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]   # NOT flipped
 }
 
-@test "pull flips row 22 when the flags block uses the blank-line-after-heading form (#535 redmr)" {
+@test "pull flips the research row when the flags block uses the blank-line-after-heading form (#535 redmr)" {
   export GH_STUB_BODY_JSON='"## Workflow flags\n\nresearch: required\n\nBody."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  run grep -E '^- \[ \] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[ \] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]
 }
 
 # ---- #536: the spike flag rides the SAME table-driven parser (one entry) ----
-@test "pull flips row 23 to [ ] when the BODY carries spike: required (#536)" {
+@test "pull flips the spike row to [ ] when the BODY carries spike: required (#536)" {
   export GH_STUB_BODY_JSON='"## Workflow flags\nspike: required\n\nBody."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  run grep -E '^- \[ \] 23\. spike$' "$DEVDOC/Issue-676/checklist.md"
+  run grep -E '^- \[ \] +3\. spike$' "$DEVDOC/Issue-676/checklist.md"
   [ "$status" -eq 0 ]
 }
 
@@ -180,6 +180,6 @@ EOF
   export GH_STUB_BODY_JSON='"## Workflow flags\nresearch: required\nspike: required\n\nBody."'
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   [ "$status" -eq 0 ]
-  grep -qE '^- \[ \] 22\. research$' "$DEVDOC/Issue-676/checklist.md"
-  grep -qE '^- \[ \] 23\. spike$'    "$DEVDOC/Issue-676/checklist.md"
+  grep -qE '^- \[ \] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
+  grep -qE '^- \[ \] +3\. spike$'    "$DEVDOC/Issue-676/checklist.md"
 }

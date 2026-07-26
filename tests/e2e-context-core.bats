@@ -64,7 +64,7 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/unstuck.sh" volk
   [ "$status" -eq 0 ]
 
-  # next → skill-backed step 1 (draft) emits its slash command pointer
+  # next → skill-backed step 2 (draft) emits its slash command pointer
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:draft"* ]]

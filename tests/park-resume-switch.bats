@@ -16,11 +16,11 @@ issue_dir = "$DEVDOC/Issue-676"
 EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [~]  1. draft
+- [~]  2. draft
 ## Log
 EOF
   cat > "$DEVDOC/Issue-203/checklist.md" <<'EOF'
-- [~]  3. improve
+- [~]  5. improve
 ## Log
 EOF
 }
@@ -36,7 +36,7 @@ teardown() { teardown_tmp_devagent_home; }
   # Issue-676 must appear under [parked] table as `Issue-676 = true`
   grep -qE '^Issue-676 *= *true' "$DA_HOME/state/volk.toml"
   # Either the [P] mark on step 1, or a "park: ..." log entry
-  grep -E '^- \[P\] +1\. draft' "$DEVDOC/Issue-676/checklist.md" \
+  grep -E '^- \[P\] +2\. draft' "$DEVDOC/Issue-676/checklist.md" \
     || grep -q 'park: ' "$DEVDOC/Issue-676/checklist.md"
 }
 

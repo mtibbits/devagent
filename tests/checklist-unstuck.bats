@@ -15,14 +15,14 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [ ! -f "$ISSUE_DIR/STUCK" ]
-  run grep -E '^- \[ \]  1\. draft' "$ISSUE_DIR/checklist.md"
+  run grep -E '^- \[ \]  2\. draft' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
 
 @test "unstuck with --in-progress flips ! to ~" {
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --in-progress "$ISSUE_DIR"
   [ "$status" -eq 0 ]
-  run grep -E '^- \[~\]  1\. draft' "$ISSUE_DIR/checklist.md"
+  run grep -E '^- \[~\]  2\. draft' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
 
@@ -32,13 +32,13 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
-@test "checklist-unstuck clears a step-21 [!] (#149)" {
-  # The pre-#149 loop bound (0..20) stranded step 21 permanently. Clear the
-  # fixture's step-1 [!] first so 21 is the only stuck step.
+@test "checklist-unstuck clears a step-17 preship [!] (#149)" {
+  # The pre-#149 loop bound stranded the preship row permanently. Clear the
+  # fixture's first [!] so preship (17) is the only stuck step.
   "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
-  sed -i -E '/21\. preship/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
+  sed -i -E '/17\. preship/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
   echo "preship: planted failure" > "$ISSUE_DIR/STUCK"
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
-  grep -qE '^- \[ \] +21\. preship' "$ISSUE_DIR/checklist.md"
+  grep -qE '^- \[ \] +17\. preship' "$ISSUE_DIR/checklist.md"
 }

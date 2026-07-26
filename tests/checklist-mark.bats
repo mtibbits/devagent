@@ -10,14 +10,14 @@ setup() {
 teardown() { teardown_tmp_devagent_home; }
 
 @test "mark sets a glyph" {
-  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" 7 '~'
+  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" 9 '~'
   [ "$status" -eq 0 ]
-  run grep -E '^- \[~\]  7\. implement' "$ISSUE_DIR/checklist.md"
+  run grep -E '^- \[~\]  9\. implement' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
 
 @test "mark refuses an invalid glyph" {
-  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" 7 Q
+  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" 9 Q
   [ "$status" -ne 0 ]
 }
 

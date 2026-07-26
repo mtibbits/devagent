@@ -94,26 +94,26 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [x]  2. scope
-- [x]  3. improve
-- [x]  4. prune
-- [x]  5. tighten
-- [ ]  6. branch
-- [ ]  7. implement
-- [ ]  8. quality
-- [ ]  9. document
-- [ ] 10. commit
-- [ ] 11. analyze
-- [ ] 12. draftmr
-- [ ] 13. review
-- [ ] 14. redmr
-- [ ] 15. ship
-- [ ] 16. mergetoall
-- [ ] 17. updatewbs
-- [ ] 18. impact
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [x]  2. draft
+- [x]  4. scope
+- [x]  5. improve
+- [x]  6. prune
+- [x]  7. tighten
+- [ ]  8. branch
+- [ ]  9. implement
+- [ ] 10. quality
+- [ ] 11. document
+- [ ] 12. commit
+- [ ] 13. analyze
+- [ ] 14. draftmr
+- [ ] 15. review
+- [ ] 16. redmr
+- [ ] 18. ship
+- [ ] 19. mergetoall
+- [ ] 20. updatewbs
+- [ ] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log
 - 2026-05-19 14:00  pull: fixture seed
@@ -205,7 +205,7 @@ devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
 # canary); the grep guard supplies the fail-loud property a bare `sed -i` lacks.
 #
 # #420: mark/assert/delete_step must be REVISION-SCOPED exactly like production.
-# revise.sh appends a `## Revision N` block reusing step numbers 1-15 + closeout
+# revise.sh appends a `## Revision N` block reusing step numbers 2,4..23 + closeout
 # 16-21; unscoped helpers would flip/read EVERY block (mask a revision bug) or
 # pass off revision-1's stale glyph — the masking class #335 killed for the
 # production checklist_mark_by_name. Rather than re-implement (and re-drift) the

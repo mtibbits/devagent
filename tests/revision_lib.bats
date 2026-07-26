@@ -40,17 +40,17 @@ setup() {
   run revision_block_text 2
   [ "$status" -eq 0 ]
   [[ "$output" == *"## Revision 2"* ]]
-  [[ "$output" == *"[ ]  1. draft"* ]]
-  [[ "$output" == *"[ ] 14. redmr"* ]]
+  [[ "$output" == *"[ ]  2. draft"* ]]
+  [[ "$output" == *"[ ] 16. redmr"* ]]
   # #76: the revision block must carry preship + the full closeout, else a
   # revised MR never re-merges/re-cleanups and bypasses the #149/#242 gates.
-  [[ "$output" == *"[ ] 21. preship"* ]]
-  [[ "$output" == *"[ ] 15. ship"* ]]
-  [[ "$output" == *"[ ] 16. mergetoall"* ]]
-  [[ "$output" == *"[ ] 17. updatewbs"* ]]
-  [[ "$output" == *"[ ] 18. impact"* ]]
-  [[ "$output" == *"[ ] 19. lessonslearned"* ]]
-  [[ "$output" == *"[ ] 20. cleanup"* ]]
+  [[ "$output" == *"[ ] 17. preship"* ]]
+  [[ "$output" == *"[ ] 18. ship"* ]]
+  [[ "$output" == *"[ ] 19. mergetoall"* ]]
+  [[ "$output" == *"[ ] 20. updatewbs"* ]]
+  [[ "$output" == *"[ ] 21. impact"* ]]
+  [[ "$output" == *"[ ] 22. lessonslearned"* ]]
+  [[ "$output" == *"[ ] 23. cleanup"* ]]
   # A revision never re-pulls.
   [[ "$output" != *"0. pull"* ]]
 }

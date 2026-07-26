@@ -52,8 +52,8 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   done
   # The headline count token is shared by index.md and README the same way
   # (review minor 18: previously pinned only via workflow.md's derived table).
-  grep -qF '22-step workflow' "$SITE/index.md"
-  grep -qF '22-step workflow' "$PLUGIN_ROOT/README.md"
+  grep -qF '24-step workflow' "$SITE/index.md"
+  grep -qF '24-step workflow' "$PLUGIN_ROOT/README.md"
 }
 
 @test "docs-site: install page carries the #541 posture delta token" {

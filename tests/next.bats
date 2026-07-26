@@ -17,14 +17,14 @@ issue_dir    = "$DEVDOC/Issue-676"
 EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [ ]  2. scope
-- [ ]  3. improve
-- [ ]  4. prune
-- [ ]  5. tighten
-- [ ]  6. branch
-- [ ]  7. implement
-- [ ] 20. cleanup
+- [x]  2. draft
+- [ ]  4. scope
+- [ ]  5. improve
+- [ ]  6. prune
+- [ ]  7. tighten
+- [ ]  8. branch
+- [ ]  9. implement
+- [ ] 23. cleanup
 EOF
 }
 
@@ -38,7 +38,7 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "next refuses to advance when current step is [!]" {
-  sed -i 's/^- \[ \]  2\. scope/- [!]  2. scope/' "$DEVDOC/Issue-676/checklist.md"
+  sed -i 's/^- \[ \]  4\. scope/- [!]  4. scope/' "$DEVDOC/Issue-676/checklist.md"
   echo "Reason: blocked" > "$DEVDOC/Issue-676/STUCK"
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -ne 0 ]
@@ -77,8 +77,8 @@ teardown() { teardown_tmp_devagent_home; }
 @test "next when all steps done reports completion" {
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [x]  2. scope
+- [x]  2. draft
+- [x]  4. scope
 EOF
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
@@ -133,7 +133,7 @@ EOF
   # Simulate: tighten was the chain target and the skill marked it [x].
   # The model re-invokes /devagent:next --through tighten. We must NOT
   # advance into the next step (branch).
-  sed -i 's/^- \[ \]  5\. tighten/- [x]  5. tighten/' "$DEVDOC/Issue-676/checklist.md"
+  sed -i 's/^- \[ \]  7\. tighten/- [x]  7. tighten/' "$DEVDOC/Issue-676/checklist.md"
   run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
   [ "$status" -eq 0 ]
   [[ "$output" == *"target 'tighten' is complete"* ]]
@@ -154,7 +154,7 @@ EOF
   # is the checklist; next.sh just reads it.
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
+- [x]  2. draft
 - [ ]  9. brainstorm
 EOF
   run "$PLUGIN_ROOT/scripts/next.sh" volk
@@ -170,10 +170,10 @@ default  = "sonnet"
 thinking = "opus"
 checking = "fable"
 EOF
-  # current step is 2 (scope) → default class → sonnet
+  # current step is 4 (scope) → default class → sonnet
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"step 2 (scope) wants tier: sonnet"* ]]
+  [[ "$output" == *"step 4 (scope) wants tier: sonnet"* ]]
 }
 
 @test "next prints NO advisory when step_models table is absent (#150)" {
@@ -183,18 +183,18 @@ EOF
 }
 
 @test "next per-step override beats the class tier (#150)" {
-  # make step 7 (implement, thinking class) the current step
-  sed -i -E 's/^- \[ \]  ([23456])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
+  # make step 9 (implement, thinking class) the current step
+  sed -i -E 's/^- \[ \]  ([245678])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
   cat >> "$DA_HOME/config.toml" <<'EOF'
 
 [project.volk.step_models]
 default  = "sonnet"
 thinking = "opus"
-"7"      = "fable"
+"9"      = "fable"
 EOF
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"step 7 (implement) wants tier: fable"* ]]
+  [[ "$output" == *"step 9 (implement) wants tier: fable"* ]]
   [[ "$output" != *"wants tier: opus"* ]]
 }
 
@@ -205,9 +205,9 @@ EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
 # Issue-676 — Workflow checklist
 
-- [x] 14. redmr
-- [ ] 21. preship
-- [ ] 15. ship
+- [x] 16. redmr
+- [ ] 17. preship
+- [ ] 18. ship
 EOC
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
@@ -218,29 +218,29 @@ EOC
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
 # Issue-676 — Workflow checklist
 
-- [x] 14. redmr
-- [!] 21. preship
-- [ ] 15. ship
+- [x] 16. redmr
+- [!] 17. preship
+- [ ] 18. ship
 EOC
   echo "preship: planted failure list" > "$DEVDOC/Issue-676/STUCK"
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -ne 0 ]
   [[ "$output" == *"STUCK"* ]]
-  grep -qE '^- \[ \] +15\. ship' "$DEVDOC/Issue-676/checklist.md"
+  grep -qE '^- \[ \] +18\. ship' "$DEVDOC/Issue-676/checklist.md"
 }
 
 @test "next --auto halts (nonzero, no advance) when a dispatched script step exits nonzero (#337)" {
   # next.sh dispatches script steps with NO rc check (next.sh:~158) — halt-on-
-  # failure exists ONLY via the file's `set -euo pipefail`. Pin it: mark 2-5 done
-  # so step 6 (branch, a SCRIPT step) is current; branch.sh dies on the absent
+  # failure exists ONLY via the file's `set -euo pipefail`. Pin it: mark 2-7 done
+  # so step 8 (branch, a SCRIPT step) is current; branch.sh dies on the absent
   # .devagent-type; --auto must propagate nonzero and NOT advance. A refactor
   # wrapping the dispatch in `|| …` / an `if` converts halt into loop-past-failure.
-  sed -i -E 's/^- \[ \]  ([2-5])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
+  sed -i -E 's/^- \[ \]  ([24567])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
   [ "$status" -ne 0 ]                                                  # halted nonzero
-  grep -qE '^- \[ \]  6\. branch' "$DEVDOC/Issue-676/checklist.md"     # step 6 still pending
+  grep -qE '^- \[ \]  8\. branch' "$DEVDOC/Issue-676/checklist.md"     # step 8 still pending
   # Non-vacuous "did not advance": next.sh emits `→ Run /devagent:implement` when
-  # it reaches step 7 (skill-backed). Its ABSENCE proves the chain halted at 6.
+  # it reaches step 9 (skill-backed). Its ABSENCE proves the chain halted at 8.
   [[ "$output" != *"/devagent:implement"* ]]
   [[ "$output" != *"CHAIN:"* ]]                                       # no chain-continue emitted
 }

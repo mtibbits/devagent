@@ -231,7 +231,7 @@ CTX
 
 @test "pull.sh applies a devdoc checklist-template override (#120)" {
   mkdir -p "$DEVDOC/templates"
-  printf '# PULL OVERRIDE MARKER #120\n- [ ]  0. pull\n- [ ] 20. cleanup\n\n## Log\n' \
+  printf '# PULL OVERRIDE MARKER #120\n- [ ]  0. pull\n- [ ] 23. cleanup\n\n## Log\n' \
     > "$DEVDOC/templates/checklist-standard.md"
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 7
   [ "$status" -eq 0 ]
@@ -316,7 +316,7 @@ CTX
   grep -q '^Template: oneshot$' "$DEVDOC/Issue-700/checklist.md"
   [ "$(grep -cE '^\- \[.\] +[0-9]+\.' "$DEVDOC/Issue-700/checklist.md")" -eq 5 ]
   grep -qE '^\- \[x\] +0\. pull' "$DEVDOC/Issue-700/checklist.md"
-  grep -qE '^\- \[ \] +7\. implement' "$DEVDOC/Issue-700/checklist.md"
+  grep -qE '^\- \[ \] +9\. implement' "$DEVDOC/Issue-700/checklist.md"
 }
 
 @test "pull rejects unknown tier pre-path with the legal-names list (#537)" {
