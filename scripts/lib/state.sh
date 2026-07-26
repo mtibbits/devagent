@@ -269,7 +269,7 @@ state_context_clear() {
 
 # state_cleanup_finish <project> — #418: cleanup's shared-slot finish as ONE
 # transaction: reset the per-issue keys to defaults, STAMP the closeout
-# (last_step=20 / last_step_name=cleanup), and clear the active_issue pointer.
+# (last_step=23 / last_step_name=cleanup), and clear the active_issue pointer.
 # Was state_context_clear + a separate state_set_many — a crash between them left
 # active_issue=<old> over default branch="" (the #316/#327 corruption shape the
 # #326 epic hardened against). last_step/last_step_name appear twice in the --set
@@ -282,7 +282,7 @@ state_cleanup_finish() {
   f="$(state_path "$project")"
   _state_toml transact "$f" \
       --set "${_STATE_RESTORE_SPECS[@]}" \
-            str last_step "20" str last_step_name "cleanup" \
+            str last_step "23" str last_step_name "cleanup" \
             str active_issue "" str updated_at "$(_state_now)" \
       --unset pending_comments_file
 }

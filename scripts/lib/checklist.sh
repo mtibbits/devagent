@@ -44,7 +44,7 @@ checklist_init() {
 _checklist_line_re='^- \[(.)\][[:space:]]+([0-9]+)\.[[:space:]]+([A-Za-z][A-Za-z0-9_-]*)'
 
 # #74: revision blocks (templates/revision_block.md, appended by revise.sh) reuse
-# step numbers 1-15. The ACTIVE revision is the LAST `## Revision N` block in the
+# step numbers 2,4..23 (#558). The ACTIVE revision is the LAST `## Revision N` block in the
 # file; mark/read must be scoped to it or revision-2 work corrupts revision-1's
 # recorded glyphs (and status/where/next read the stale block).
 #
@@ -57,7 +57,7 @@ _checklist_active_start() {
 # _checklist_scope_start: the active-block start line IF the target step NUMBER
 # appears in that block, else 0 (whole file). Resolution is membership-based:
 # step 0 (pull) is unique to revision 1 and resolves file-wide, while the
-# closeout steps 16-21 ARE reused in every revision block (#76) and therefore
+# closeout steps 19-23 ARE reused in every revision block (#76) and therefore
 # resolve to the active block once a revision is present. (The by-NAME analog
 # used by the #149/#242 gates is _checklist_scope_start_by_name, below.)
 _checklist_scope_start() {
@@ -80,7 +80,7 @@ _checklist_scope_start() {
 # _checklist_scope_start_by_name: the active-block start line IF the target step
 # NAME appears in that block, else 0 (whole file). The name-keyed analog of
 # _checklist_scope_start (#76): revision blocks now reuse the closeout step
-# names 16-21, so the by-name gates (#149 preship, #242 closeout) must scope to
+# names 19-23, so the by-name gates (#149 preship, #242 closeout) must scope to
 # the active revision like the number-keyed reads do — else they read revision
 # 1's stale glyph and a revised cleanup sticks (gate reads rev1's pending copy;
 # marks land in rev2; no CLI escape). Uses match+substr (not gawk match(s,r,arr))
@@ -148,7 +148,7 @@ checklist_step_state() {
 # returns 1 if no such step exists. Resolves by name, not number, so callers
 # survive cross-template step renumbering. Revision-scoped (#76): the by-name
 # callers (cleanup's closeout gate #231/#242, ship's preship gate #149) target
-# steps 16-21, which revision blocks now REUSE — so the lookup scopes to the
+# steps 19-23, which revision blocks now REUSE — so the lookup scopes to the
 # active revision block when the name is present there, else falls back
 # file-wide (legacy checklists / names unique to revision 1).
 checklist_step_state_by_name() {

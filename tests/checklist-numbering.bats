@@ -50,3 +50,63 @@ mergetoall updatewbs impact lessonslearned cleanup"
     actual="$(_rows "$PLUGIN_ROOT/templates/checklist-standard.md" | cut -d' ' -f2 | tr '\n' ' ')"
     [ "$(echo $actual)" = "$(echo $expected)" ] || _die "standard step order drifted: $actual"
 }
+
+@test "numbering: the step->class map uses the new numbers (#558)" {
+    grep -qF 'case " 2 9 10 11 14 " in' "$PLUGIN_ROOT/scripts/lib/config.sh"
+    grep -qF 'case " 5 15 16 17 " in' "$PLUGIN_ROOT/scripts/lib/config.sh"
+}
+
+@test "numbering: step-model resolves the CHECKING class at the new numbers (#558)" {
+    # Not a vacuous rc probe (improve A5): seed a config whose ONLY entry is the
+    # checking tier, then assert the resolved tier on stdout per step.
+    # DA_HOME is the config/state override (scripts/lib/paths.sh).
+    local home="$BATS_TEST_TMPDIR/dh"; mkdir -p "$home/state"
+    cat > "$home/config.toml" <<CFG
+[project.p]
+devdoc_dir = "$BATS_TEST_TMPDIR/dd"
+[project.p.step_models]
+checking = "opus"
+CFG
+    for step in 5 15 16 17; do
+        run env DA_HOME="$home" bash "$PLUGIN_ROOT/scripts/step-model.sh" p "$step"
+        [ "$status" -eq 0 ] || _die "step $step: expected rc 0, got $status"
+        [ "$output" = "opus" ] || _die "step $step: expected opus, got '$output'"
+    done
+    # and a NON-checking step must NOT resolve checking
+    run env DA_HOME="$home" bash "$PLUGIN_ROOT/scripts/step-model.sh" p 21
+    [ "$output" != "opus" ] || _die "step 21 (impact) wrongly resolved as checking"
+}
+
+@test "numbering: the idle threshold tracks cleanup's new number (#558)" {
+    grep -qF 'if last_step >= 23:' "$PLUGIN_ROOT/scripts/lib/statusreport-detect.py"
+    grep -qF 'last_step = 23 if any' "$PLUGIN_ROOT/scripts/statusreport.sh"
+}
+
+@test "numbering: each script self-marks its own new step number (#558)" {
+    declare -A EXPECT=( [pull]=0 [branch]=8 [commit]=12 [analyze]=13 \
+                        [ship]=18 [mergetoall]=19 [cleanup]=23 )
+    local n=0
+    for name in "${!EXPECT[@]}"; do
+        grep -qE "checklist_mark \"\\\$issue_dir/checklist\.md\" ${EXPECT[$name]} " \
+            "$PLUGIN_ROOT/scripts/${name}.sh" || _die "${name}.sh: no self-mark ${EXPECT[$name]}"
+        n=$((n + 1))
+    done
+    [ "$n" -eq 7 ] || _die "expected 7 script self-marks, checked $n"
+}
+
+@test "numbering: state_cleanup_finish stamps the new cleanup number (#558, B4)" {
+    grep -qF 'str last_step "23" str last_step_name "cleanup"' "$PLUGIN_ROOT/scripts/lib/state.sh"
+}
+
+@test "numbering: revise excludes the new pre-draft rows from a retier block (#558, B1)" {
+    # The filter must exclude 0 pull / 1 research / 3 spike — NOT 22/23, which are
+    # now lessonslearned and cleanup and MUST appear in every revision block.
+    grep -qE '\+0\\\. .*\+1\\\. .*\+3\\\. ' "$PLUGIN_ROOT/scripts/revise.sh"
+    run grep -c '+22\\\. ' "$PLUGIN_ROOT/scripts/revise.sh"
+    [ "$status" -eq 1 ] || _die "revise.sh still filters row 22 (now lessonslearned)"
+}
+
+@test "numbering: pull's flag->row table uses the new rows (#558, B2)" {
+    grep -qF '"research:required:1"' "$PLUGIN_ROOT/scripts/pull.sh"
+    grep -qF '"spike:required:3"' "$PLUGIN_ROOT/scripts/pull.sh"
+}

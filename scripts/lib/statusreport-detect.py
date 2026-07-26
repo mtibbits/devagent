@@ -90,7 +90,7 @@ def poorly_scoped(issue_dir: Path | str) -> bool:
 
 
 def is_idle(issue_dir: Path | str, last_step: int, threshold_days: int = 7) -> bool:
-    if last_step >= 20:
+    if last_step >= 23:
         return False
     entries = _parse_log_entries(Path(issue_dir) / "checklist.md")
     if not entries:

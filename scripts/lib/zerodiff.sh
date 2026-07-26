@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lib/zerodiff.sh — the shared zero-diff / nothing-to-commit guard core.
 #
-# The workflow's commit (10), ship (15) and mergetoall (16) steps each auto-skip
+# The workflow's commit (12), ship (18) and mergetoall (19) steps each auto-skip
 # an artifact-only issue that has no commits ahead of its baseline. The decision
 # carries a correctness invariant (#25/#68): a git error must NEVER collapse into
 # the destructive auto-skip (which would ship an empty PR or skip a real commit).
