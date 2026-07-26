@@ -9,3 +9,4 @@ build-*/
 err
 .claire/
 .claude/
+*.code-workspace
