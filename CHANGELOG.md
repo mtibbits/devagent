@@ -12,6 +12,14 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Added — 2026-07-25 (#461)
+- `docs-site/`: six audience-facing onboarding pages (what is devAgent,
+  install, quickstart, workflow reference, configuration, multi-project &
+  concurrency) plus a content-drift policy, guarded by `tests/docs-site.bats`
+  (line-1 derive headers, both-sides token pins with README, a step table
+  derived from `templates/checklist-standard.md`, command-arity pins).
+  Static markdown only — Pages deployment is the #404 sibling child.
+
 ### Changed — 2026-07-25 (#541)
 - superpowers demoted from declared dependency to recommended plugin: the
   manifest carries no `dependencies` key (measured at CC 2.1.211: dependencies

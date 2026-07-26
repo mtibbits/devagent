@@ -265,6 +265,10 @@ _check_user_invocable() {
   # (tree comment said 52 while the sum line said 53+3=56) — pin both.
   grep -q "54 + 3 = the 57 slash commands" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -qE "command-form slash command \(54\)" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
+  # #461: the onboarding site's landing page is a SIXTH home, enrolled in the
+  # same change that created it (Issue-458: extend the sweep in the change that
+  # adds a home, or it ships divergent exactly when the sweep lags the homes).
+  grep -q "57 slash commands" "$CMD_DIR/../docs-site/index.md"
 }
 
 @test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {
@@ -344,10 +348,11 @@ S
 
 @test "docs homes: no silent-degradation claim; recommended statement present (#541)" {
   local REPO_ROOT="$CMD_DIR/.."
-  # POSTURE homes only (README, commands/, spec) — deliberately NOT repo-wide:
+  # POSTURE homes only (README, commands/, spec, docs-site/ — #461) —
+  # deliberately NOT repo-wide:
   # evals/smoke/README.md:11 says "silently degrades" about subagent isolation,
   # unrelated and staying (improve finding: a repo-wide sweep can never go green).
-  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs"
+  run grep -ril 'silently degrade' "$REPO_ROOT/README.md" "$CMD_DIR" "$REPO_ROOT/docs/specs" "$REPO_ROOT/docs-site"
   [ "$status" -eq 1 ]
   # delta-pinning tokens (Issue-318: born-green presence greps prove nothing):
   grep -qF 'Recommended — superpowers' "$REPO_ROOT/README.md"       # NEW heading token
