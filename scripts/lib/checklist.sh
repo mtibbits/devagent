@@ -288,8 +288,8 @@ checklist_steps_with_glyph() {
 # #558: pass the CALLER'S OWN step name as the 4th argument. Step numbers are
 # positions, so the same number means different steps on checklists scaffolded
 # either side of a renumber — a step script marking its own number against an
-# older checklist silently flips a DIFFERENT row (post-#558 commit.sh marking
-# 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and
+# older checklist silently flips a DIFFERENT row: post-#558 commit.sh marking
+# 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and  #558-old-scheme
 # `next.sh --auto` then re-dispatched commit forever). The check turns that
 # silent wrong-row write into a loud stop naming the remedy. Omitting the
 # argument keeps the historical unchecked behavior for ad-hoc/manual callers.

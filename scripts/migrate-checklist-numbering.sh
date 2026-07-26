@@ -3,10 +3,12 @@
 # from the pre-#558 scheme (numbers were permanent IDs) to the current one
 # (numbers are positions in execution order).
 #
-#   migrate-checklist-numbering.sh [--dry-run] <issue-dir>...
-#   migrate-checklist-numbering.sh [--dry-run] --all           # every in-flight
-#                                                              # checklist in every
-#                                                              # configured devdoc
+#   migrate-checklist-numbering.sh [--dry-run] [--reverse] <issue-dir>...
+#   migrate-checklist-numbering.sh [--dry-run] [--reverse] --all
+#
+# --reverse inverts the map (new scheme -> pre-#558). Required for a clean
+# `git revert` of #558: the code goes back to old numbers, so the in-flight
+# checklists must go back with it or every script self-mark hits the wrong row.
 #
 # Keyed by step NAME, never by old number: each row's name determines its new
 # number. That makes the transform correct on an old-scheme file, a no-op on a
@@ -23,15 +25,16 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/io.sh
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 
-DRY=0; ALL=0; INCLUDE_DONE=0
+DRY=0; ALL=0; INCLUDE_DONE=0; REVERSE=0
 declare -a DIRS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)           DRY=1 ;;
     --all)               ALL=1 ;;
     --include-completed) INCLUDE_DONE=1 ;;
+    --reverse)           REVERSE=1 ;;
     -h|--help)
-      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      sed -n '2,/^[^#]/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown flag: $1" ;;
     *)  DIRS+=("$1") ;;
   esac
@@ -61,12 +64,18 @@ migrated=0; skipped_done=0; already=0
 for d in "${DIRS[@]}"; do
   f="${d%/}/checklist.md"
   [ -f "$f" ] || { warn "no checklist at $f — skipping"; continue; }
-  out="$(DRY="$DRY" INCLUDE_DONE="$INCLUDE_DONE" python3 - "$f" <<'PY'
+  out="$(DRY="$DRY" INCLUDE_DONE="$INCLUDE_DONE" REVERSE="$REVERSE" python3 - "$f" <<'PY'
 import os, re, sys
 NEW = {'pull':0,'research':1,'draft':2,'spike':3,'scope':4,'improve':5,'prune':6,
        'tighten':7,'branch':8,'implement':9,'quality':10,'document':11,'commit':12,
        'analyze':13,'draftmr':14,'review':15,'redmr':16,'preship':17,'ship':18,
        'mergetoall':19,'updatewbs':20,'impact':21,'lessonslearned':22,'cleanup':23}
+OLD = {'pull':0,'research':22,'draft':1,'spike':23,'scope':2,'improve':3,'prune':4,
+       'tighten':5,'branch':6,'implement':7,'quality':8,'document':9,'commit':10,
+       'analyze':11,'draftmr':12,'review':13,'redmr':14,'preship':21,'ship':15,
+       'mergetoall':16,'updatewbs':17,'impact':18,'lessonslearned':19,'cleanup':20}
+if os.environ.get("REVERSE") == "1":
+    NEW = OLD
 # Capture the original whitespace run so column alignment is preserved exactly.
 ROW = re.compile(r'^(- \[(.)\])(\s+)(\d+)(\.\s+)([A-Za-z][A-Za-z0-9_-]*)(.*)$')
 path = sys.argv[1]

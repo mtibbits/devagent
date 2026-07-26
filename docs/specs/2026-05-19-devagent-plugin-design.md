@@ -250,6 +250,19 @@ only scalar keys. A future full `[issues.<id>]` nesting (Epic #61 end state)
 would re-point
 these helpers without changing callers.
 
+**Renumbering support (#558).** `scripts/migrate-checklist-numbering.sh`
+migrates an in-flight checklist between numbering schemes, keyed by step NAME
+(`--all` walks configured projects, `--dry-run` previews, `--reverse` inverts for
+a rollback, `--include-completed` overrides the completed-record waiver).
+`scripts/lib/check-step-pairings.py` is its CI counterpart: it asserts every
+name-adjacent step/number pairing on live surfaces and, with `--list-bare`,
+emits the undecidable bare-`step N` sites for human triage. `checklist_mark`
+takes an optional 4th argument — the calling step's own NAME — and refuses to
+write when the number's row carries a different name; every script-backed step
+passes it. `checklist-mark.sh --by-name` marks by step name for callers that
+run outside a revision block. Lines that deliberately cite pre-#558 numbers
+carry a `#558-old-scheme` marker so the checker exemption is greppable.
+
 All writes to state files go through `scripts/lib/_toml.py`, which
 holds an exclusive lock (`fcntl.flock` on POSIX, `msvcrt.locking` on
 Windows) on a sibling `.lock` file across the entire read-modify-write
@@ -1284,7 +1297,7 @@ applicable).
 
 ## 18. Static analyzers and sanitizers
 
-Step 11 (`/devagent:analyze`) dispatches to a per-project analyzer family
+Step 13 (`/devagent:analyze`) dispatches to a per-project analyzer family
 selected by `analyze = cmake | shellcheck | none` in
 `[project.<name>]` (#55/#117). All paths are diff-scoped (changed lines
 only) and require a baseline ref — hence the commit-before-analyze
@@ -1306,7 +1319,7 @@ being swallowed (#117); output is written under
 **`analyze_timeout` (#351).** A per-phase budget in seconds for the `cmake`
 analyze legs (configure / build / ctest), default 1800. It bounds a hung build
 or test that would otherwise wedge an `--auto` chain forever; a leg exceeding it
-fails step 11 (#117). Set it in `[project.<name>]` (raise for a large/slow ctest
+fails step 13 (#117). Set it in `[project.<name>]` (raise for a large/slow ctest
 suite); `shellcheck`/`none` projects ignore it.
 
 **Build-dir keying (#117).** The sanitizer and static build dirs are keyed

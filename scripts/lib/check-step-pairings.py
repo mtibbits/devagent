@@ -39,7 +39,8 @@ SKIP_DIRS = ('__pycache__', os.sep + 'plans', os.sep + 'fixtures')
 _N = '|'.join(NEW)
 # (pattern, name-group, number-group)
 PAIRED = [
-    (re.compile(r'[Ss]teps? (\d+) \((%s)\)' % _N), 2, 1),
+    # Tolerates the repo's dominant spelling, e.g. Step 13 (`/devagent:analyze`)
+    (re.compile(r'[Ss]teps? (\d+) \(`?(?:/devagent:)?(%s)`?\)' % _N), 2, 1),
     (re.compile(r'\b(%s) \((\d+)\)' % _N), 1, 2),
     (re.compile(r'\b(%s)\((\d+)\)' % _N), 1, 2),
     (re.compile(r'(?<![\w.#/-])(\d+)\.? (%s)\b' % _N), 2, 1),
@@ -47,6 +48,10 @@ PAIRED = [
 BARE = re.compile(r'[Ss]teps? (\d+)\b')
 # Issue/PR refs and exit codes collide textually with step numbers.
 NOISE = re.compile(r'#\d{2,}|Issue-\d|\brc \d|exit code')
+# Opt-out for lines that deliberately cite PRE-#558 numbers — e.g. comments
+# explaining the wrong-row hazard, or this file's own worked example. Must be
+# explicit and greppable so an exemption is never silent.
+EXEMPT = re.compile(r'#558-old-scheme')
 
 
 def iter_files(root):
@@ -79,18 +84,31 @@ def main():
             continue
         rel = os.path.relpath(path, args.root)
         for i, line in enumerate(text.splitlines(), 1):
-            if NOISE.search(line):
+            # NOISE spans (issue refs, rc codes) collide textually with step
+            # numbers. Skip only the OVERLAPPING match — never the whole line:
+            # dropping the line hid 18 of 171 bare sites and 12 pairings from
+            # BOTH outputs, including the stale config.toml.skel:101 that
+            # reached ship (#558 redmr MAJOR-1a).
+            if EXEMPT.search(line):
                 continue
+            noise_spans = [m.span() for m in NOISE.finditer(line)]
+            def _noisy(span):
+                return any(ns <= span[0] < ne for ns, ne in noise_spans)
             paired_spans = []
             for pat, gname, gnum in PAIRED:
                 for m in pat.finditer(line):
-                    checked += 1
                     paired_spans.append(m.span())
+                    if _noisy(m.span()):
+                        continue
+                    checked += 1
                     name, num = m.group(gname), int(m.group(gnum))
                     if NEW[name] != num:
                         bad.append(f"{rel}:{i}: '{m.group(0)}' — {name} is {NEW[name]}")
             if args.list_bare:
                 for m in BARE.finditer(line):
+                    # A bare site inside a paired match is already decided.
+                    # NOISE does NOT suppress it: a triage list has no reason
+                    # to filter, and filtering is what hid the ship defect.
                     if not any(s <= m.start() < e for s, e in paired_spans):
                         bare.append(f"{rel}:{i}: {line.strip()[:100]}")
 

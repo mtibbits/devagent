@@ -21,9 +21,26 @@ tag`) will get their own dated sections below.
   mandatory). Execution order is unchanged — dispatch is by step NAME and
   file order was always the authority.
 
-  **Upgrading with work in flight — read this before resuming an issue.** A
-  checklist scaffolded before this release keeps its old numbers and still
-  executes in the right order. But `[project.<name>.step_models]` tier
+  **Upgrading with work in flight — run the migrator first.** A checklist
+  scaffolded before this release carries the old numbers, and every
+  script-backed step now **hard-stops** on it rather than marking the wrong
+  row: `checklist_mark` refuses when the number's row name does not match the
+  calling step. Migrate before resuming:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --dry-run --all
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --all
+  ```
+
+  It is keyed by step NAME (correct on old, a no-op on current, safe on a
+  mixed file), idempotent, and reversible with `--reverse` if you roll #558
+  back. `--all` covers projects present in `config.toml`; pass any other issue
+  directory explicitly. Completed checklists are skipped by design.
+  `/devagent:revise` remains an alternative — it opens a fresh, correctly
+  numbered revision block — but the migrator is the direct remedy the
+  hard-stop message names.
+
+  Without migrating, the older symptom also applies: `[project.<name>.step_models]` tier
   resolution is keyed to the step NUMBER read from the checklist, so an
   old-numbered checklist resolves the WRONG model class: old `3 improve`,
   `13 review` and `21 preship` fall back to the default tier, and old
@@ -58,8 +75,8 @@ tag`) will get their own dated sections below.
 Current capabilities as of this commit:
 
 ### Core
-- **57 slash commands** driving a fixed **22-step issue workflow** (plus the optional
-  research step 22 and spike step 23), with all
+- **57 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
+  plus the optional research step 1 and spike step 3), with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.
 - `next`/`capture`/`ship` converted from commands to user-invocable skills with

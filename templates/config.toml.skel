@@ -98,13 +98,13 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # catchup shows the current step's tier; tier names (not model IDs) are
 # forward-compatible. An absent table changes nothing; when set, next/catchup
 # surface the tier and checking-class steps also consume it as their subagent
-# dispatch model override (#151). Classes: thinking = steps 1 7 8 9 12, checking = 3 13 14 21, else default;
+# dispatch model override (#151). Classes: thinking = steps 2 9 10 11 14, checking = 5 15 16 17, else default;
 # a per-step override (numeric key) wins over its class.
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"
 # thinking = "opus"     # draft, implement, quality, document, draftmr
 # checking = "fable"    # improve, review, redmr, preship
-# "7"      = "fable"    # per-step override (implement) beats the class tier
+# "9"      = "fable"    # per-step override (implement) beats the class tier
 #
 # Per-issue override (#291): a `.devagent-step-models` file in the issue
 # directory holding ONE tier token (e.g. `fable`) pins the CHECKING-class

@@ -268,5 +268,8 @@ CFG
     [ "$status" -eq 0 ] || _die "stale name/number pairings:"$'\n'"$output"
     # Issue-439: assert the SUBJECT COUNT so a broken selector cannot pass empty.
     local n; n="$(sed -nE 's/^checked ([0-9]+) .*/\1/p' <<<"$output")"
-    [ -n "$n" ] && [ "$n" -ge 150 ] || _die "only ${n:-0} pairings checked — selector broke"
+    # Floor derived from the CORRECTED checker (212 at f124e6d), not the
+    # pre-fix 200: a floor set below actual coverage cannot register erosion,
+    # which is how the NOISE blind spot hid four stale sites (#558 redmr M1c).
+    [ -n "$n" ] && [ "$n" -ge 205 ] || _die "only ${n:-0} pairings checked — selector broke"
 }

@@ -119,3 +119,21 @@ _old_scheme_inflight() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"usage"* ]]
 }
+
+@test "migrate: --reverse round-trips back to the pre-#558 scheme (#558 redmr MAJOR-4)" {
+    # Rollback story: `git revert` restores old-scheme code, so the in-flight
+    # checklists must be able to go back with it.
+    _old_scheme_inflight
+    local original; original="$(cat "$D/checklist.md")"
+    MIGRATE "$D"
+    grep -qE '^- \[ \] 18\. ship' "$D/checklist.md"      # forward applied
+    MIGRATE --reverse "$D"
+    [ "$(cat "$D/checklist.md")" = "$original" ]         # byte-identical round-trip
+}
+
+@test "migrate: -h prints the whole header, not a truncated range" {
+    run MIGRATE -h
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--include-completed"* ]]
+    [[ "$output" == *"re-driven."* ]]     # the previously-cut final line
+}
