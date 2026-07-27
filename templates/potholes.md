@@ -55,16 +55,20 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A mechanical `sed` sweep undercounts on single-line grep (the dominant form is a continuation line) and a variable-path sed evades every `.toml`-string canary → anchored pattern + `-A1` count + balanced-diff + a semantic check (Issue-335).
 - A contract enumerated in N files → ONE sweep test over all N homes, extended in the same change that adds a home; it ships divergent exactly when the sweep lags the homes (Issue-458).
 - Claiming a CLASS is closed → derive its members mechanically (grep the predicate); fixing the instances a checker handed you and declaring the class shut publishes a count the next reader disproves in one command (Issue-439).
+- A value that has been corrected twice is a design defect, not a typo → remove the dependency on it rather than updating it a third time (Issue-558).
+- A checker's green result overclaims unless its blind-spot SHAPE is written into the checker itself → state what it cannot decide beside what it asserts (Issue-558).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
 - A new `die` in a step script → trace its `--auto`-chain interaction in the plan; a die mid-chain is a different product than one on direct invocation, and warnings can't gate autonomous flows (Issue-242).
+- Replacing a lookup or scan → enumerate BOTH branches of the new logic and test each; a rewrite that fixes one direction can turn a fail-closed error into a fail-open wrong write (Issue-558).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
 - A dispatched checker returning 0 tool-uses / echoing an instruction fragment is a MISFIRE, not a clean pass → verify the artifact was written; re-dispatch with a "do the work with tools" nudge (Issue-315).
 - A checklist item a dispatched checker never RECEIVES is a dead tripwire → add the input to the dispatch-packaging list in the same change (Issue-286).
 - An artifact relayed through another model session is NOT verbatim → the producer/relay writes it to a FILE; a low body-line floor passes an elided report as valid (Issue-458).
+- A checker finding is a SAMPLE of a class, not a coordinate → grep for its siblings before fixing the named site, or the next round returns the same shape (Issue-558).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -86,3 +90,4 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An audience-facing page inherits claims from its issue/source prose → verify every support/prerequisite/platform claim against the CODE and CI matrix; premise-rederive must cover ALL inherited claims, not just the ones that look stale (Issue-461).
 - Every command a doc presents as pasteable → check arity against the command's own usage, and derive the guard's subject set from the doc (all fenced commands), never from the found instances (Issue-461).
 - A diff that ADDS a top-level surface → update the documents that enumerate surfaces (spec layout tree, changelog, readme pointer) in the same change; being new is exactly what makes it invisible (Issue-461).
+- Write each claim to the width of the diff → run the one command that would disprove it; if the output is narrower than the sentence, narrow the sentence (Issue-558).
