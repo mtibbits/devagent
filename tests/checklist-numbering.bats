@@ -268,8 +268,77 @@ CFG
     [ "$status" -eq 0 ] || _die "stale name/number pairings:"$'\n'"$output"
     # Issue-439: assert the SUBJECT COUNT so a broken selector cannot pass empty.
     local n; n="$(sed -nE 's/^checked ([0-9]+) .*/\1/p' <<<"$output")"
-    # Floor derived from the CORRECTED checker (212 at f124e6d), not the
-    # pre-fix 200: a floor set below actual coverage cannot register erosion,
-    # which is how the NOISE blind spot hid four stale sites (#558 redmr M1c).
-    [ -n "$n" ] && [ "$n" -ge 205 ] || _die "only ${n:-0} pairings checked — selector broke"
+    # Floor derived from the GENERALIZED checker (266 after the r2 BLOCKING-3
+    # family extension), not an earlier narrower run: a floor set below actual
+    # coverage cannot register erosion, which is how the NOISE blind spot hid
+    # four stale sites (#558 redmr M1c).
+    [ -n "$n" ] && [ "$n" -ge 260 ] || _die "only ${n:-0} pairings checked — selector broke"
+}
+
+@test "numbering: the checker flags every observed spelling family (#558 r2 BLOCKING-3)" {
+    # The spelling CORPUS: one wrong-numbered line per family ever observed on
+    # a live surface. r2 found five families invisible to the checker in BOTH
+    # its outputs. Add a line here whenever a new spelling ships stale — the
+    # test fails until the checker's PAIRED set learns it.
+    local root="$BATS_TEST_TMPDIR/corpus-root"
+    mkdir -p "$root/commands"
+    cat > "$root/commands/corpus.md" <<'EOF'
+Step 9 (`/devagent:analyze`) runs next.
+the implement (7) step
+implement(7) again
+7. implement as a row
+The commit step (10) comes next in the flow.
+ship.sh (15) refuses to push when tracked files are modified.
+`cleanup` (20) is required (hardcoded self-mark).
+checking steps (improve 3, review 13; #151)
+# 21 = preship (#149); keep the bound in step.
+(17 for `updatewbs`); resolve it from project state.
+so 20/cleanup land in the final state.
+steps 18 (commit) and 19 (mergetoall) self-detect.
+EOF
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
+    [ "$status" -eq 1 ] || _die "checker passed a corpus of stale spellings:"$'\n'"$output"
+    # every corpus line must be flagged (line 1..12, one family per line;
+    # lines 8 and 12 carry two pairings each)
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        grep -q "corpus.md:$i:" <<<"$output" \
+            || _die "family on corpus line $i not flagged:"$'\n'"$output"
+    done
+}
+
+@test "numbering: the checker does not false-positive on known noise shapes (#558 r2)" {
+    # Negative controls: real lines from this repo that LOOK like pairings.
+    # A checker that flags these floods the signal and gets ignored.
+    local root="$BATS_TEST_TMPDIR/noise-root"
+    mkdir -p "$root/scripts"
+    cat > "$root/scripts/noise.sh" <<'EOF'
+st="$(checklist_step_state_by_name "$file" ship 2>/dev/null || true)"
+mode="$(config_get_project_field "$project" analyze 2>/dev/null || true)"
+local -a _flag_rows=( "research:required:1" "spike:required:3" )
+log_append "$issue_dir" commit "$1"
+# - 2026-05-19 14:01  pull: fetched gnuradio/volk#676, scaffold created
+# log 2026-05-19 10:00 "improve: 1 bug surfaced, fixed in task 2"
+# zero-diff guards in commit/ship/mergetoall (#3):
+local remote="${1:-}" branch="${2:-}"
+local draft=0
+EOF
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
+    [ "$status" -eq 0 ] || _die "checker false-positived on noise:"$'\n'"$output"
+}
+
+@test "numbering: EXEMPT suppresses pairing checks but never the triage list (#558 r2 MAJOR-2)" {
+    # The opt-out is for lines that deliberately cite pre-#558 numbers. It must
+    # not reinstate the whole-line drop: --list-bare is a triage list and has
+    # no reason to filter (that filtering is what hid the shipped defect).
+    local root="$BATS_TEST_TMPDIR/exempt-root"
+    mkdir -p "$root/commands"
+    cat > "$root/commands/exempt.md" <<'EOF'
+old scheme: step 21 (preship) was the gate.  #558-old-scheme
+EOF
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
+    [ "$status" -eq 0 ] || _die "exempt-marked pairing was still flagged:"$'\n'"$output"
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root" --list-bare
+    grep -q 'exempt.md:1:' <<<"$output" \
+        || _die "exempt line missing from the triage list:"$'\n'"$output"
 }

@@ -7,8 +7,14 @@ pairing on a live surface agrees with the canonical numbering.
 Exit 0 when every pairing agrees; 1 when any disagrees (offenders on stdout).
 
 WHAT IS CHECKED (decidable): forms where a step NAME sits directly beside a
-number — `step 9 (implement)`, `implement (9)`, `implement(9)`, `9 implement`,
-`9. implement`. Those cannot be ambiguous, so they are machine-checkable.
+number. The pattern set is a CORPUS of every spelling ever observed on a live
+surface — `step 9 (implement)`, `implement (9)`, `implement(9)`, `9 implement`,
+`9. implement`, `commit step (12)`, `ship.sh (18)`, `` `cleanup` (23) ``,
+`improve 5, review 15` (list), `17 = preship`, `20 for updatewbs`,
+`23/cleanup`, `18 (ship)`. Each family has a wrong-numbered fixture line in
+tests/checklist-numbering.bats; when a NEW spelling ships stale, add it there
+first (the test fails until PAIRED learns it). r2 BLOCKING-3 was five of these
+families being invisible to both outputs at once.
 
 WHAT IS NOT CHECKED (undecidable): bare `step N` with no adjacent name. Prose
 legitimately says "per-task commits begin in step 9" on a line that also
@@ -44,6 +50,16 @@ PAIRED = [
     (re.compile(r'\b(%s) \((\d+)\)' % _N), 1, 2),
     (re.compile(r'\b(%s)\((\d+)\)' % _N), 1, 2),
     (re.compile(r'(?<![\w.#/-])(\d+)\.? (%s)\b' % _N), 2, 1),
+    # r2 BLOCKING-3: the families below shipped stale while invisible to both
+    # outputs. One fixture line each in the corpus test; keep them in step.
+    (re.compile(r'\b(%s) step \((\d+)\)' % _N), 1, 2),       # commit step (12)
+    (re.compile(r'\b(%s)\.sh \((\d+)\)' % _N), 1, 2),        # ship.sh (18)
+    (re.compile(r'`(%s)` \((\d+)\)' % _N), 1, 2),            # `cleanup` (23)
+    (re.compile(r'\b(%s) (\d+)(?=[,;.)\]]|$)' % _N), 1, 2),  # improve 5, review 15
+    (re.compile(r'\b(\d+) = (%s)\b' % _N), 2, 1),            # 17 = preship
+    (re.compile(r'\b(\d+) for `?(%s)`?\b' % _N), 2, 1),      # 20 for `updatewbs`
+    (re.compile(r'\b(\d+)/(%s)\b' % _N), 2, 1),              # 23/cleanup
+    (re.compile(r'(?<![\w.#/-])(\d+) \(`?(%s)`?\)' % _N), 2, 1),  # 18 (ship)
 ]
 BARE = re.compile(r'[Ss]teps? (\d+)\b')
 # Issue/PR refs and exit codes collide textually with step numbers.
@@ -88,15 +104,19 @@ def main():
             # numbers. Skip only the OVERLAPPING match — never the whole line:
             # dropping the line hid 18 of 171 bare sites and 12 pairings from
             # BOTH outputs, including the stale config.toml.skel:101 that
-            # reached ship (#558 redmr MAJOR-1a).
-            if EXEMPT.search(line):
-                continue
+            # reached ship (#558 redmr MAJOR-1a). EXEMPT is likewise scoped to
+            # the PAIRING CHECK only (r2 MAJOR-2): an exempt line's pairings
+            # are neither checked nor recorded as decided, so its `step N`
+            # forms still reach the --list-bare triage list below.
+            exempt = bool(EXEMPT.search(line))
             noise_spans = [m.span() for m in NOISE.finditer(line)]
             def _noisy(span):
                 return any(ns <= span[0] < ne for ns, ne in noise_spans)
             paired_spans = []
             for pat, gname, gnum in PAIRED:
                 for m in pat.finditer(line):
+                    if exempt:
+                        continue
                     paired_spans.append(m.span())
                     if _noisy(m.span()):
                         continue
