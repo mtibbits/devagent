@@ -76,12 +76,14 @@ devAgent/
 │                            #   rather than adding.
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
-│   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh)
+│   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
+│   │                        #   check-step-pairings.py — #558 pairing census)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
-│   │   cleanup.sh, sync.sh, statusreport.sh, doctor.sh, ...
+│   │   cleanup.sh, sync.sh, statusreport.sh, doctor.sh,
+│   │   migrate-checklist-numbering.sh (#558 in-flight upgrade), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
