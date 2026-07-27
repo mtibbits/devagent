@@ -296,13 +296,16 @@ checking steps (improve 3, review 13; #151)
 (17 for `updatewbs`); resolve it from project state.
 so 20/cleanup land in the final state.
 steps 18 (commit) and 19 (mergetoall) self-detect.
+last_step      = 7
+last_step_name = "implement"
 EOF
     run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
     [ "$status" -eq 1 ] || _die "checker passed a corpus of stale spellings:"$'\n'"$output"
-    # every corpus line must be flagged (line 1..12, one family per line;
-    # lines 8 and 12 carry two pairings each)
+    # every corpus line must be flagged (one family per line; lines 8 and 12
+    # carry two pairings each; lines 13-14 are ONE cross-line pairing, the
+    # r3 MAJOR-1 family, reported at the _name line)
     local i
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 14; do
         grep -q "corpus.md:$i:" <<<"$output" \
             || _die "family on corpus line $i not flagged:"$'\n'"$output"
     done

@@ -11,10 +11,19 @@ number. The pattern set is a CORPUS of every spelling ever observed on a live
 surface — `step 9 (implement)`, `implement (9)`, `implement(9)`, `9 implement`,
 `9. implement`, `commit step (12)`, `ship.sh (18)`, `` `cleanup` (23) ``,
 `improve 5, review 15` (list), `17 = preship`, `20 for updatewbs`,
-`23/cleanup`, `18 (ship)`. Each family has a wrong-numbered fixture line in
-tests/checklist-numbering.bats; when a NEW spelling ships stale, add it there
-first (the test fails until PAIRED learns it). r2 BLOCKING-3 was five of these
-families being invisible to both outputs at once.
+`23/cleanup`, `18 (ship)`, and ONE cross-line form — `<key> = N` directly
+above `<key>_name = "<step>"` (r3 MAJOR-1, the state.toml shape). Each family
+has a wrong-numbered fixture line in tests/checklist-numbering.bats; when a
+NEW spelling ships stale, add it there first (the test fails until PAIRED
+learns it). r2 BLOCKING-3 was five of these families being invisible to both
+outputs at once.
+
+SCOPE LIMIT (state it, don't discover it): except for the key/key_name window
+above, every pattern is LINE-scoped. A pairing spread across lines in any
+other layout — a table row split by wrapping, a list where names and numbers
+alternate lines — is invisible to this checker AND absent from --list-bare
+when no `step N` token survives on either line. That is a known shape of
+blind spot, not a proof of absence.
 
 WHAT IS NOT CHECKED (undecidable): bare `step N` with no adjacent name. Prose
 legitimately says "per-task commits begin in step 9" on a line that also
@@ -61,6 +70,12 @@ PAIRED = [
     (re.compile(r'\b(\d+)/(%s)\b' % _N), 2, 1),              # 23/cleanup
     (re.compile(r'(?<![\w.#/-])(\d+) \(`?(%s)`?\)' % _N), 2, 1),  # 18 (ship)
 ]
+# r3 MAJOR-1: the one observed CROSS-LINE family — `<key> = N` directly above
+# `<key>_name = "<step>"` (the state.toml shape). This is the sole exception to
+# the line-scoped corpus; any other multi-line spelling is out of scope and the
+# docstring says so.
+KEYNUM = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\d+)\s*(#.*)?$')
+KEYNAME = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)_name\s*=\s*"(%s)"' % _N)
 BARE = re.compile(r'[Ss]teps? (\d+)\b')
 # Issue/PR refs and exit codes collide textually with step numbers.
 NOISE = re.compile(r'#\d{2,}|Issue-\d|\brc \d|exit code')
@@ -99,6 +114,7 @@ def main():
         except OSError:
             continue
         rel = os.path.relpath(path, args.root)
+        prev_keynum = None   # (key, num, exempt) from the previous line
         for i, line in enumerate(text.splitlines(), 1):
             # NOISE spans (issue refs, rc codes) collide textually with step
             # numbers. Skip only the OVERLAPPING match — never the whole line:
@@ -109,6 +125,18 @@ def main():
             # are neither checked nor recorded as decided, so its `step N`
             # forms still reach the --list-bare triage list below.
             exempt = bool(EXEMPT.search(line))
+            # Cross-line window: `<key> = N` on the line above pairs with
+            # `<key>_name = "<step>"` here.
+            mkn = KEYNAME.match(line)
+            if mkn and prev_keynum and prev_keynum[0] == mkn.group(1):
+                if not (exempt or prev_keynum[2]):
+                    checked += 1
+                    name, num = mkn.group(2), prev_keynum[1]
+                    if NEW[name] != num:
+                        bad.append(f"{rel}:{i}: '{prev_keynum[0]} = {num}' + "
+                                   f"'{mkn.group(0).strip()}' — {name} is {NEW[name]}")
+            mnum = KEYNUM.match(line)
+            prev_keynum = (mnum.group(1), int(mnum.group(2)), exempt) if mnum else None
             noise_spans = [m.span() for m in NOISE.finditer(line)]
             def _noisy(span):
                 return any(ns <= span[0] < ne for ns, ne in noise_spans)
