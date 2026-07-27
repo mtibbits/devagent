@@ -95,8 +95,11 @@ for i, m in rows:
     new = str(NEW[m.group(6)])
     if new == m.group(4):
         continue
-    width = len(m.group(3)) + len(m.group(4))     # keep the field width constant
-    lines[i] = f"{m.group(1)}{new.rjust(width)}{m.group(5)}{m.group(6)}{m.group(7)}\n"
+    # Keep the field width constant when the new number fits; widen by one
+    # space otherwise — rjust cannot widen, and a fused '- [ ]10.' row exits
+    # the ROW grammar, invisible to every checklist reader (r2 MAJOR-1).
+    pad = max(len(m.group(3)) + len(m.group(4)) - len(new), 1)
+    lines[i] = f"{m.group(1)}{' ' * pad}{new}{m.group(5)}{m.group(6)}{m.group(7)}\n"
     changed += 1
 if changed == 0:
     print("ALREADY"); sys.exit(0)

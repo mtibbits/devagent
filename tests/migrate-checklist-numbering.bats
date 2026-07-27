@@ -131,6 +131,29 @@ _old_scheme_inflight() {
     [ "$(cat "$D/checklist.md")" = "$original" ]         # byte-identical round-trip
 }
 
+@test "migrate: widens a too-narrow field instead of fusing the row (#558 r2 MAJOR-1)" {
+    # Hand-authored single-space gutter: 8 -> 10 cannot fit the old field.
+    # rjust cannot widen, so the number fused to the checkbox ('- [ ]10.')
+    # and the row exited the ROW grammar — invisible to the migrator and to
+    # every checklist_* reader, while still reported as migrated.
+    _write '# Issue-1 — Workflow checklist' '' '## Revision 1' '' \
+        '- [x] 0. pull' '- [ ] 8. quality' '- [ ] 9. document' '' '## Log'
+    run MIGRATE "$D"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[ \] 10\. quality'  "$D/checklist.md"
+    grep -qE '^- \[ \] 11\. document' "$D/checklist.md"
+}
+
+@test "migrate: --reverse widens too instead of fusing (#558 r2 MAJOR-1 mirror)" {
+    # research NEW=1 -> OLD=22: at a single-space gutter the width-2 field
+    # holds '22' with no room for the separator.
+    _write '# Issue-1 — Workflow checklist' '' '## Revision 1' '' \
+        '- [x] 0. pull' '- [ ] 1. research' '' '## Log'
+    run MIGRATE --reverse "$D"
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[ \] 22\. research' "$D/checklist.md"
+}
+
 @test "migrate: -h prints the whole header, not a truncated range" {
     run MIGRATE -h
     [ "$status" -eq 0 ]
