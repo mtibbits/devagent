@@ -22,10 +22,13 @@ tag`) will get their own dated sections below.
   file order was always the authority.
 
   **Upgrading with work in flight — run the migrator first.** A checklist
-  scaffolded before this release carries the old numbers, and every
-  script-backed step now **hard-stops** on it rather than marking the wrong
-  row: `checklist_mark` refuses when the number's row name does not match the
-  calling step. Migrate before resuming:
+  scaffolded before this release carries the old numbers. The seven script
+  **self-marks** now **hard-stop** on it rather than marking the wrong row
+  (`checklist_mark` refuses when the number's row name does not match the
+  calling step), and command-doc handoffs mark by NAME, which is
+  scheme-proof. Callers outside those two classes (e.g. `unstuck.sh`'s
+  file-wide `[!]` scan) are NOT guarded — one more reason to migrate before
+  resuming:
 
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --dry-run --all

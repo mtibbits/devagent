@@ -11,7 +11,8 @@ number. The pattern set is a CORPUS of every spelling ever observed on a live
 surface — `step 9 (implement)`, `implement (9)`, `implement(9)`, `9 implement`,
 `9. implement`, `commit step (12)`, `ship.sh (18)`, `` `cleanup` (23) ``,
 `improve 5, review 15` (list), `17 = preship`, `20 for updatewbs`,
-`23/cleanup`, `18 (ship)`, and ONE cross-line form — `<key> = N` directly
+`23/cleanup`, `18 (ship)`, `` `draft` (step 2) `` (case-insensitive; r4
+MAJOR-2), and ONE cross-line form — `<key> = N` directly
 above `<key>_name = "<step>"` (r3 MAJOR-1, the state.toml shape). Each family
 has a wrong-numbered fixture line in tests/checklist-numbering.bats; when a
 NEW spelling ships stale, add it there first (the test fails until PAIRED
@@ -69,6 +70,10 @@ PAIRED = [
     (re.compile(r'\b(\d+) for `?(%s)`?\b' % _N), 2, 1),      # 20 for `updatewbs`
     (re.compile(r'\b(\d+)/(%s)\b' % _N), 2, 1),              # 23/cleanup
     (re.compile(r'(?<![\w.#/-])(\d+) \(`?(%s)`?\)' % _N), 2, 1),  # 18 (ship)
+    # r4 MAJOR-2: `name (step N)` — name-adjacent by this file's own remit,
+    # found on nine live pairings while sitting untriaged in --list-bare.
+    # Case-insensitive: templates spell it `Document (step 11)`.
+    (re.compile(r'`?(%s)`? \(step (\d+)\)' % _N, re.IGNORECASE), 1, 2),
 ]
 # r3 MAJOR-1: the one observed CROSS-LINE family — `<key> = N` directly above
 # `<key>_name = "<step>"` (the state.toml shape). This is the sole exception to
@@ -149,7 +154,7 @@ def main():
                     if _noisy(m.span()):
                         continue
                     checked += 1
-                    name, num = m.group(gname), int(m.group(gnum))
+                    name, num = m.group(gname).lower(), int(m.group(gnum))
                     if NEW[name] != num:
                         bad.append(f"{rel}:{i}: '{m.group(0)}' — {name} is {NEW[name]}")
             if args.list_bare:

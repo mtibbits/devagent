@@ -269,11 +269,11 @@ CFG
     [ "$status" -eq 0 ] || _die "stale name/number pairings:"$'\n'"$output"
     # Issue-439: assert the SUBJECT COUNT so a broken selector cannot pass empty.
     local n; n="$(sed -nE 's/^checked ([0-9]+) .*/\1/p' <<<"$output")"
-    # Floor derived from the GENERALIZED checker (266 after the r2 BLOCKING-3
+    # Floor derived from the GENERALIZED checker (277 after the r4 MAJOR-2
     # family extension), not an earlier narrower run: a floor set below actual
     # coverage cannot register erosion, which is how the NOISE blind spot hid
     # four stale sites (#558 redmr M1c).
-    [ -n "$n" ] && [ "$n" -ge 260 ] || _die "only ${n:-0} pairings checked — selector broke"
+    [ -n "$n" ] && [ "$n" -ge 270 ] || _die "only ${n:-0} pairings checked — selector broke"
 }
 
 @test "numbering: the checker flags every observed spelling family (#558 r2 BLOCKING-3)" {
@@ -298,14 +298,17 @@ so 20/cleanup land in the final state.
 steps 18 (commit) and 19 (mergetoall) self-detect.
 last_step      = 7
 last_step_name = "implement"
+run `draft` (step 1) before anything else.
+Document (step 12) is the verify beat.
 EOF
     run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
     [ "$status" -eq 1 ] || _die "checker passed a corpus of stale spellings:"$'\n'"$output"
     # every corpus line must be flagged (one family per line; lines 8 and 12
     # carry two pairings each; lines 13-14 are ONE cross-line pairing, the
-    # r3 MAJOR-1 family, reported at the _name line)
+    # r3 MAJOR-1 family, reported at the _name line; 15-16 are the r4 MAJOR-2
+    # `name (step N)` family, line 16 exercising case tolerance)
     local i
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12 14; do
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 14 15 16; do
         grep -q "corpus.md:$i:" <<<"$output" \
             || _die "family on corpus line $i not flagged:"$'\n'"$output"
     done
