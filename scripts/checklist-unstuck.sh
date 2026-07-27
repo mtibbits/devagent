@@ -22,16 +22,26 @@ file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 [[ -f "$issue_dir/STUCK" ]] || die "no STUCK file at $issue_dir/STUCK"
 
-# Find the step currently marked [!]
-target=""
-# 21 = preship (#149); keep the bound in step with the templates' highest step.
-for ((i = 0; i <= 21; i++)); do
-  st="$(checklist_step_state "$file" "$i" 2>/dev/null || true)"
-  if [[ "$st" == '!' ]]; then
-    target="$i"
-    break
-  fi
-done
+# Find the step currently marked [!]. Candidates come from the checklist's
+# own rows — no numeric bound to keep in step with the templates (#558 r2:
+# the 0..21 loop could not unstick 22/23 and reported a FALSE "no step is
+# currently [!]"). A [!] in the active revision block wins; a [!] only in an
+# older block is the legacy file-wide fallback (#76).
+target="$(awk '
+  /^## Revision / { blk = NR }
+  match($0, /^- \[!\][ \t]+[0-9]+\./) {
+    num = substr($0, RSTART, RLENGTH)
+    sub(/^- \[!\][ \t]+/, "", num); sub(/\.$/, "", num)
+    rows[++n] = NR ":" (num + 0)
+  }
+  END {
+    for (i = 1; i <= n; i++) {
+      split(rows[i], a, ":")
+      if (a[1] > blk) { print a[2]; exit }
+    }
+    if (n) { split(rows[1], a, ":"); print a[2] }
+  }
+' "$file")"
 [[ -n "$target" ]] || die "no step is currently [!] in $file"
 
 name="$(checklist_step_name "$file" "$target")"
