@@ -37,12 +37,12 @@ Per `commands/draft.md`.
 
    If both are empty — no commits ahead of baseline and no
    working-tree changes (an artifact-only issue) — there is nothing to
-   review. Auto-mark step 10 `[-]`, log, and skip the rest of this
+   review. Auto-mark this step `[-]` by name, log, and skip the rest of this
    workflow WITHOUT asking the operator. This mirrors the script-level
    zero-diff guards in commit/ship/mergetoall (#3):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" 10 -
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" quality -
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality "auto-skipped: zero diff (artifact-only issue)"
    ```
 
@@ -95,11 +95,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" quality x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

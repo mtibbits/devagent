@@ -146,28 +146,29 @@ CFG
     [ "$bad" -eq 0 ]
 }
 
-@test "numbering: every checklist-mark.sh doc invocation targets its own step (#558, quality)" {
-    # The step-model sweep above covers `<project> N`; this covers the LARGER
-    # `checklist-mark.sh ... N` surface, where a stale literal silently marks a
-    # DIFFERENT step (commands/quality.md shipped `8 -` for step 10 — caught in
-    # review, not by a guard). Each hit must carry the invoking command's own number.
-    declare -A OWN=( [pull]=0 [research]=1 [draft]=2 [spike]=3 [scope]=4 [improve]=5 \
-        [prune]=6 [tighten]=7 [branch]=8 [implement]=9 [quality]=10 [document]=11 \
-        [commit]=12 [analyze]=13 [draftmr]=14 [review]=15 [redmr]=16 [preship]=17 \
-        [ship]=18 [mergetoall]=19 [updatewbs]=20 [impact]=21 [lessonslearned]=22 [cleanup]=23 )
-    local n=0 bad=0 hit f base num
+@test "numbering: doc surfaces mark BY NAME only — no literal-number invocations (#558 r3 B1)" {
+    # quality.md shipped `8 -`, was corrected to `10 -`, and STILL silently
+    # marked commit's row on a pre-#558 checklist — a literal that is correct
+    # today is the defect, not just a stale one, because numbers are positions
+    # and differ across schemes. Doc-driven marks are therefore banned from
+    # carrying numbers at all; every invocation resolves by name.
+    run grep -rnE 'checklist-mark\.sh"? +("\$ISSUE_DIR"|\S+) +[0-9]+ ' \
+        "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents"
+    [ -z "$output" ] || _die "literal-number checklist-mark invocation(s):"$'\n'"$output"
+    # ...and every --by-name invocation names its OWN step.
+    local n=0 bad=0 hit f base name
     while IFS= read -r hit; do
         f="${hit%%:*}"; base="$(basename "$f" .md)"
-        num="$(sed -E 's/.*checklist-mark\.sh"? +\S+ +([0-9]+) .*/\1/' <<<"$hit")"
+        name="$(sed -E 's/.*--by-name +\S+ +([A-Za-z][A-Za-z0-9_-]*) .*/\1/' <<<"$hit")"
         n=$((n + 1))
-        [ -z "${OWN[$base]:-}" ] && continue     # not a step command; skip
-        [ "$num" = "${OWN[$base]}" ] \
-            || { printf 'STALE mark: %s (owns %s, marks %s)\n' "$f" "${OWN[$base]}" "$num" >&2; bad=1; }
-    done < <(grep -rnE 'checklist-mark\.sh"? +("\$ISSUE_DIR"|\S+) +[0-9]+ ' \
+        [ "$name" = "$base" ] \
+            || { printf 'WRONG-name mark: %s marks %s\n' "$f" "$name" >&2; bad=1; }
+    done < <(grep -rnE 'checklist-mark\.sh"? +--by-name +("\$ISSUE_DIR"|\S+) +[A-Za-z]' \
                 "$PLUGIN_ROOT/commands" "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/agents" || true)
-    # Issue-439: assert the SUBJECT COUNT — rewriting the one numeric invocation
-    # to the <N> placeholder would otherwise empty this guard while it still passed.
-    [ "$n" -ge 1 ] || _die "no numeric checklist-mark.sh invocations found — selector broke"
+    # Issue-439: assert the SUBJECT COUNT so an emptied selector cannot pass.
+    # 17 = the 14 converted handoffs (quality carries two sites) + the three
+    # early adopters (spike, research, updatewbs).
+    [ "$n" -ge 17 ] || _die "only $n by-name invocations found — selector broke"
     [ "$bad" -eq 0 ]
 }
 
