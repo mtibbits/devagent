@@ -30,10 +30,10 @@ Per `commands/draft.md`.
 
 ## Halt and ask if
 
-- State file lacks `baseline_sha` **and** the branch step (6) is present in the
+- State file lacks `baseline_sha` **and** the branch step (8) is present in the
   issue's checklist. If the checklist omits branch (research), the baseline is
   N/A — do not halt.
-- imPlan.md lacks `## Definition of done` section **and** the draft step (1)
+- imPlan.md lacks `## Definition of done` section **and** the draft step (2)
   is present in the active revision block. If the checklist omits draft
   (oneshot), the producing step is absent and the check is N/A — record
   execution evidence (command output, service-answers proof) against the
@@ -50,7 +50,7 @@ actualWork.md and wbs.md live in the devdoc, not the project source
 repo — this step normally leaves the source tree untouched. If
 writing the record surfaced a straggler in the source repo (a file
 implement/quality commits missed), `git add` and `git commit -s` it
-now. The commit step (10) comes next and verifies everything is
+now. The commit step (12) comes next and verifies everything is
 committed; analyze (13) then runs against the committed work.
 
 ## Completion handoff

@@ -274,7 +274,7 @@ state_context_clear() {
 # active_issue=<old> over default branch="" (the #316/#327 corruption shape the
 # #326 epic hardened against). last_step/last_step_name appear twice in the --set
 # group (the _STATE_RESTORE_SPECS defaults, then the cleanup override); transact
-# applies --set in order and last-wins, so 20/cleanup land — identical final
+# applies --set in order and last-wins, so 23/cleanup land — identical final
 # state to the old two-call sequence, minus the crash window.
 state_cleanup_finish() {
   local project="$1" f

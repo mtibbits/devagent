@@ -71,7 +71,7 @@ that project.
    is cheap either way. On a `spike: required` issue these entries are what step 3 (spike) executes.
 
    **Research findings — read `research.md` if present (#535).** If the optional
-   research step (22) ran, `<issue-dir>/research.md` exists. Read it: the plan's
+   research step (1) ran, `<issue-dir>/research.md` exists. Read it: the plan's
    `## Preconditions` and design choices CITE its `## Findings` rather than
    re-deriving them, and each `## Open unknowns` entry MUST be disposed of — designed
    around, or carried forward explicitly (never silently dropped).

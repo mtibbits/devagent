@@ -47,7 +47,7 @@ Per `commands/draft.md`.
    any tracked file in the project source repo — the issue branch — `git add`
    + `git commit -s` them before marking step 16. A new signed-off commit, not
    an amend (the fix delta stays auditable; amending after a prior ship would
-   force-push). ship.sh (15) refuses to push when tracked files are modified.
+   force-push). ship.sh (18) refuses to push when tracked files are modified.
    Committing here also re-anchors the report to `baseline..HEAD`, so the
    report and the pushed branch cannot diverge (the #101/#102 failure). Devdoc
    artifacts (analysis/, mr.md) are NOT committed here; they are governed by

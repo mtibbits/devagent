@@ -132,7 +132,7 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 if [ -z "$branch" ] && { [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "${2:-}" ]; }; then
     die "no branch recorded for '$issue_arg' — run /devagent:branch first"
 fi
-# #316: an empty recorded branch with a COMPLETED branch step (6) is state
+# #316: an empty recorded branch with a COMPLETED branch step (8) is state
 # corruption — the branch step ran (a branch existed) but the recorded branch is
 # now gone. This is the resume-after-cleanup kill chain: cleanup GC'd the issue's
 # [context.<issue>] table but left it parked, so a later BARE resume (no pin, no

@@ -111,7 +111,7 @@ n=-1 also failed the assertion. Extended to cover that case.
   is the diff comparison broken?).
 - The plan's Definition of done has unchecked items.
 
-When the branch step (6) is absent from the issue's checklist (e.g. research),
+When the branch step (8) is absent from the issue's checklist (e.g. research),
 there is no `baseline_sha` and no diff baseline — that is N/A and expected, not a
 halt; document the work narratively instead of against a diff.
 

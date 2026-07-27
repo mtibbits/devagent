@@ -38,7 +38,9 @@ Checklist templates (`checklist-<name>`) and `revision_block` resolve via
 the §12 registry, so a project may override its workflow. Authoring rules:
 gates resolve step NAMES with absent ⇒ no gate — keep
 `updatewbs`/`impact`/`lessonslearned`/`preship` named for the gates you
-want; `cleanup` (20) is required (hardcoded self-mark). Dispatch is
-checklist FILE ORDER; numbers are permanent IDs. A custom step name needs
+want; `cleanup` (23) is required (hardcoded self-mark). Dispatch is
+checklist FILE ORDER; numbers are POSITIONS in that order, not permanent
+IDs (#558) — renumbering a template renumbers its steps, which is why
+load-bearing marks resolve by NAME. A custom step name needs
 its own `/devagent:<name>` command (operator-provided). An override path
 that does not exist falls through silently to the plugin default.

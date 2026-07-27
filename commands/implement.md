@@ -59,9 +59,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement \
 ## Halt and ask if
 
 - Working tree is not on the issue's branch **and** the active revision
-  block contains the branch step (6).
+  block contains the branch step (8).
 - `imPlan.md` lacks Definition of done **and** the active revision block
-  contains the draft step (1).
+  contains the draft step (2).
 - A task fails halfway through — surface the failure and let the
   operator decide whether to mark the step `[!]` stuck (via
   `/devagent:stuck`) or retry.

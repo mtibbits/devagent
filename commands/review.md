@@ -66,7 +66,7 @@ Per `commands/draft.md`.
    BEFORE marking the step. A new signed-off commit, not an amend:
    the review-fix delta stays auditable. All source-repo work is
    committed as of step 12; from this step on,
-   uncommitted fixes are a defect — ship.sh (15) refuses to push when
+   uncommitted fixes are a defect — ship.sh (18) refuses to push when
    tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
    NOT committed here; they are governed by `commit_devdoc` at cleanup.
 7. Log:

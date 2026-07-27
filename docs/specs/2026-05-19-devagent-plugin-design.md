@@ -609,7 +609,7 @@ blocks may carry rows the current tier omits.
 | standard | all 24 rows | Full rails: features, bugfixes (default). |
 | perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |
-| research | 0, 1, 2, 3, 9, 19, 20 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| research | 0, 2, 4, 5, 11, 22, 23 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 
@@ -802,7 +802,7 @@ Two step classes dispatch their work to a fresh-context subagent rather
 than running inline; the normative per-step detail lives in the command /
 skill files, summarized here so the mechanism is discoverable:
 
-- **Checking steps** (improve 3, review 13, redmr 14, preship 21; #151):
+- **Checking steps** (improve 5, review 15, redmr 16, preship 17; #151):
   run in FRESH CONTEXT whenever the harness offers a subagent — a checker
   that reads the artifacts from disk instead of inheriting the author's
   conversation is what makes the check adversarial. Dispatch is

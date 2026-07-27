@@ -89,7 +89,7 @@ check_one_project() {
     else
       check "state file ($mode)" fail "expected mode 600"
     fi
-    # #316: state coherence — an ACTIVE issue whose branch step (6) is DONE but
+    # #316: state coherence — an ACTIVE issue whose branch step (8) is DONE but
     # whose recorded branch is empty is the resume-after-cleanup corruption
     # (cleanup GC'd the [context.<issue>] table but left the issue parked; a
     # later bare resume restored defaults, branch=""). Gate on branch-step == x
