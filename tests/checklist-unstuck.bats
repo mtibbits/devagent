@@ -69,6 +69,34 @@ teardown() { teardown_tmp_devagent_home; }
   grep -qE '^- \[!\]  2\. draft' "$ISSUE_DIR/checklist.md"
 }
 
+@test "checklist-unstuck clears an old-block [!] whose number is reused (#558 r3 BLOCKING-2)" {
+  # The r2 rewrite carried the step NUMBER out of the scan; checklist_mark
+  # then re-scoped it to the ACTIVE block, flipping rev-2's pending copy while
+  # rev-1's [!] survived and STUCK was deleted — a fail-open wrong-row write.
+  # Closeout numbers are REUSED in every revision block (#76), so this is the
+  # normal revise-then-unstuck shape, not an exotic one.
+  "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
+  sed -i -E '/19\. mergetoall/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
+  {
+    echo ""
+    echo "## Revision 2"
+    echo ""
+    echo "- [ ] 19. mergetoall"
+    echo "- [ ] 23. cleanup"
+  } >> "$ISSUE_DIR/checklist.md"
+  echo "mergetoall: planted failure" > "$ISSUE_DIR/STUCK"
+  run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --in-progress "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  # rev-1's [!] row is the one flipped...
+  run grep -cE '^- \[~\] 19\. mergetoall' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+  grep -qE '^- \[!\]' "$ISSUE_DIR/checklist.md" && _fail_stuck_row_survived=1
+  [ -z "${_fail_stuck_row_survived:-}" ]
+  # ...and rev-2's pending copy is untouched.
+  run grep -cE '^- \[ \] 19\. mergetoall' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+}
+
 @test "checklist-unstuck clears a step-17 preship [!] (#149)" {
   # The pre-#149 loop bound stranded the preship row permanently. Clear the
   # fixture's first [!] so preship (17) is the only stuck step.
