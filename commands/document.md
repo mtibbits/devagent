@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:document
 
-Step 9 of the 22-step devAgent workflow. Invokes the
+Step 11 of the 24-step devAgent workflow. Invokes the
 `core-document-actual-work` skill to write
 `<issue-dir>/actualWork.md`.
 
@@ -21,7 +21,7 @@ Per `commands/draft.md`.
    against plan). If absent, halt — operator must run branch first —
    UNLESS the issue's ACTIVE revision block (the last `## Revision N`;
    earlier blocks may predate a #537 retier) does not contain the branch
-   step (step 6), as in the research and oneshot checklists.
+   step (step 8), as in the research and oneshot checklists.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt:
    skip this check and proceed without a diff baseline.
 3. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
@@ -30,10 +30,10 @@ Per `commands/draft.md`.
 
 ## Halt and ask if
 
-- State file lacks `baseline_sha` **and** the branch step (6) is present in the
+- State file lacks `baseline_sha` **and** the branch step (8) is present in the
   issue's checklist. If the checklist omits branch (research), the baseline is
   N/A — do not halt.
-- imPlan.md lacks `## Definition of done` section **and** the draft step (1)
+- imPlan.md lacks `## Definition of done` section **and** the draft step (2)
   is present in the active revision block. If the checklist omits draft
   (oneshot), the producing step is absent and the check is N/A — record
   execution evidence (command output, service-answers proof) against the
@@ -50,8 +50,8 @@ actualWork.md and wbs.md live in the devdoc, not the project source
 repo — this step normally leaves the source tree untouched. If
 writing the record surfaced a straggler in the source repo (a file
 implement/quality commits missed), `git add` and `git commit -s` it
-now. The commit step (10) comes next and verifies everything is
-committed; analyze (11) then runs against the committed work.
+now. The commit step (12) comes next and verifies everything is
+committed; analyze (13) then runs against the committed work.
 
 ## Completion handoff
 
@@ -60,11 +60,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" document x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

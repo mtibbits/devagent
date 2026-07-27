@@ -63,26 +63,26 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [x]  2. scope
-- [x]  3. improve
-- [x]  4. prune
-- [x]  5. tighten
-- [x]  6. branch
-- [x]  7. implement
-- [x]  8. quality
-- [x]  9. document
-- [x] 10. commit
-- [x] 11. analyze
-- [x] 12. draftmr
-- [x] 13. review
-- [x] 14. redmr
-- [x] 15. ship
-- [ ] 16. mergetoall
-- [ ] 17. updatewbs
-- [ ] 18. impact
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [x]  2. draft
+- [x]  4. scope
+- [x]  5. improve
+- [x]  6. prune
+- [x]  7. tighten
+- [x]  8. branch
+- [x]  9. implement
+- [x]  10. quality
+- [x]  11. document
+- [x] 12. commit
+- [x] 13. analyze
+- [x] 14. draftmr
+- [x] 15. review
+- [x] 16. redmr
+- [x] 18. ship
+- [ ] 19. mergetoall
+- [ ] 20. updatewbs
+- [ ] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log
 - 2026-05-19 14:01  pull: fetched example/stub#0, scaffold created

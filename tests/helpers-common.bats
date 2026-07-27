@@ -52,15 +52,15 @@ CL()    { echo "$DEVDOC_DIR/Issue-1/checklist.md"; }
 # --- Task 2: checklist step helpers -----------------------------------------
 
 @test "mark_step flips a glyph and assert_step confirms it" {
-  mark_step "$(CL)" 6 x
-  assert_step "$(CL)" 6 x
-  assert_step "$(CL)" 6 x branch
+  mark_step "$(CL)" 8 x
+  assert_step "$(CL)" 8 x
+  assert_step "$(CL)" 8 x branch
 }
 
-@test "mark_step distinguishes step 1 from step 12" {
+@test "mark_step distinguishes step 2 from step 12" {
   mark_step "$(CL)" 12 x
   assert_step "$(CL)" 12 x
-  assert_step "$(CL)" 1 x        # step 1 already [x] in fixture; must stay [x]
+  assert_step "$(CL)" 2 x        # step 2 (draft) already [x] in fixture; must stay [x]
 }
 
 @test "mark_step FAILS LOUD on an absent step" {
@@ -69,7 +69,7 @@ CL()    { echo "$DEVDOC_DIR/Issue-1/checklist.md"; }
 }
 
 @test "assert_step FAILS when the glyph differs" {
-  run assert_step "$(CL)" 6 x   # step 6 is [ ] in fixture
+  run assert_step "$(CL)" 8 x   # step 8 (branch) is [ ] in fixture
   [ "$status" -ne 0 ]
 }
 

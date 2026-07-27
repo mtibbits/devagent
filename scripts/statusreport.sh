@@ -122,7 +122,7 @@ for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
     if not entries:
         continue
-    last_step = 20 if any(e["step"] == "cleanup" for e in entries) else 7
+    last_step = 23 if any(e["step"] == "cleanup" for e in entries) else 7
 
     # #438: aggregate dispatch-lint rejects archived under analysis/rejected/
     # (#360). Zero-reject issues are omitted entirely — no added noise.

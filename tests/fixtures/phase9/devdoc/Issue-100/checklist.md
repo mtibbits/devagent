@@ -7,8 +7,8 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [~]  2. scope
+- [x]  2. draft
+- [~]  4. scope
 
 ## Log
 - 2026-05-10 09:00  pull: fetched gnuradio/volk#100

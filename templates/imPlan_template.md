@@ -17,7 +17,7 @@
 
 The plan's BETS — assumptions the plan's shape depends on, each with the cheapest probe
 that would falsify it. `(none)` is legal and common. The `U<N> (Task <M>)` back-reference
-is load-bearing: it is how the improve step (and the optional `23 spike` step) tell WHICH
+is load-bearing: it is how the improve step (and the optional `3 spike` step) tell WHICH
 task depends on WHICH unknown.
 
 (none)

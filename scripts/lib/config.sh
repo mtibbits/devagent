@@ -108,14 +108,14 @@ config_active_project() {
 #   1  error (bad/unreadable marker, missing args) — via die, message on stderr.
 # Steps whose fallback IS "inherit" may keep treating every nonzero alike
 # (`$(... || true)` yields empty for 2 and 3, which is correct for them). Steps
-# bound to a dedicated agent (#458/#527: 3 improve, 14 redmr, 21 preship) fall back to the
+# bound to a dedicated agent (#458/#527: 5 improve, 16 redmr, 17 preship) fall back to the
 # agent's pinned model, for which 2 and 3 mean opposite things — 2 must inherit,
 # 3 takes the agent default — so they discriminate on the exit code rather than
 # parsing the stderr prose.
 # Resolution: a per-issue marker (#291, checking-class steps only) wins over
 # the whole table; then a per-step override (step_models.<N>) wins over the
 # step's class. The step→class map is fixed (canonical step numbers):
-# thinking = 1 7 8 9 12, checking = 3 13 14 21, everything else = default.
+# thinking = 2 9 10 11 14, checking = 5 15 16 17, everything else = default.
 # A class with no tier set falls back to the default tier.
 #
 # Per-issue marker (#291): <issue_dir>/.devagent-step-models holds ONE tier
@@ -129,9 +129,9 @@ step_models_tier() {
   # Fixed step→class map — computed once; the per-issue layer is gated on it.
   local class="default"
   # shellcheck disable=SC2194 # constant subject; space-padded membership test
-  case " 1 7 8 9 12 " in *" $step "*) class="thinking" ;; esac
+  case " 2 9 10 11 14 " in *" $step "*) class="thinking" ;; esac
   # shellcheck disable=SC2194 # constant subject; space-padded membership test
-  case " 3 13 14 21 " in *" $step "*) class="checking" ;; esac
+  case " 5 15 16 17 " in *" $step "*) class="checking" ;; esac
   # 0. per-issue marker (checking class only)
   local marker="${issue_dir%/}/.devagent-step-models"
   if [[ "$class" == "checking" && -n "$issue_dir" && -e "$marker" ]]; then

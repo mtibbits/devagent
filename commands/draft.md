@@ -8,7 +8,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 Drafts `<issue-dir>/imPlan.md` for the active issue — inline via the
 upstream `superpowers:writing-plans` skill, or via a dispatched planner
-when a step-1 tier is configured (Dispatch contract, #284). Step 1 of the 22-step
+when a step-2 tier is configured (Dispatch contract, #284). Step 2 of the 24-step
 devAgent workflow (spec §6.3).
 
 ## Argument parsing (spec §6.1)
@@ -68,10 +68,10 @@ that project.
    each naming (a) the assumption, (b) WHY it is load-bearing — what breaks if it is false —
    and (c) the CHEAPEST probe that would falsify it. Use the `U<N> (Task <M>)` back-reference
    so a later step can tell which task rides which bet. `(none)` is legal and common; declaring
-   is cheap either way. On a `spike: required` issue these entries are what step 23 executes.
+   is cheap either way. On a `spike: required` issue these entries are what step 3 (spike) executes.
 
    **Research findings — read `research.md` if present (#535).** If the optional
-   research step (22) ran, `<issue-dir>/research.md` exists. Read it: the plan's
+   research step (1) ran, `<issue-dir>/research.md` exists. Read it: the plan's
    `## Preconditions` and design choices CITE its `## Findings` rather than
    re-deriving them, and each `## Open unknowns` entry MUST be disposed of — designed
    around, or carried forward explicitly (never silently dropped).
@@ -98,7 +98,7 @@ that project.
    exists, read it and include its content as additional user-intent
    context alongside `$NOTE`, framed as "Reviewer feedback from the
    previous revision that the new plan must address:".
-4. **Resolve the step-1 tier first** (see the conditionally-loaded
+4. **Resolve the step-2 tier first** (see the conditionally-loaded
    Dispatch contract stub below — READ the referenced contract file
    when either load condition holds): a non-empty tier — or an explicit
    operator instruction — means DISPATCH a planner per that contract
@@ -115,7 +115,7 @@ that project.
    that template uses): every template
    section present, tasks bite-sized with exact files, code blocks, and
    runnable test commands, tests-before-implementation ordering; write
-   the plan to `<issue-dir>/imPlan.md` (step 5's save-path rule applies
+   the plan to `<issue-dir>/imPlan.md` (item 5's save-path rule applies
    to this fallback too). Then print the nudge line verbatim and
    continue — never stall on the missing plugin:
    `recommended: claude plugin install superpowers@claude-plugins-official`
@@ -123,8 +123,8 @@ that project.
    `docs/plans/`, despite the wrapped skill's default).
    Override its save path explicitly when invoking it.
 6. **Write issue-classification marker files.** After saving `imPlan.md`,
-   write two files into `<issue-dir>` that `branch.sh` (step 6) and
-   `commit.sh` (step 10) consume:
+   write two files into `<issue-dir>` that `branch.sh` (step 8) and
+   `commit.sh` (step 12) consume:
 
    a. Read `~/.claude/devagent/config.toml` with the Read tool and
       extract the `branch_prefix_map` keys from the active project's
@@ -172,8 +172,8 @@ finalization rules) lives in `${CLAUDE_PLUGIN_ROOT}/docs/draft-dispatch-contract
 It is **loaded only when dispatch can fire** — before drafting, READ that file and
 follow it verbatim if EITHER condition holds:
 
-1. the resolved step-1 tier is non-empty
-   (`tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 1 || true)"`), OR
+1. the resolved step-2 tier is non-empty
+   (`tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`), OR
 2. the operator explicitly instructs dispatch ("dispatch the draft") — this fires
    even on an EMPTY tier (the `model: inherit` provenance case), so the trigger is
    BOTH conditions, not tier-alone.
@@ -204,11 +204,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" draft x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

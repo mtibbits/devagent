@@ -107,7 +107,7 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
 }
 
 @test "dispatch-lint: model grammar admits the agent-default provenance form (#458)" {
-    # #458/#527 bind steps 3/14/21 to dedicated agents whose pinned model is the
+    # #458/#527 bind steps 5/16/17 to dedicated agents whose pinned model is the
     # tier of last resort. A fresh-install project (config.toml.skel ships step_models
     # commented out) resolves NO tier, so the wrapper stamps this exact token —
     # the real artifact header, fed through the real linter (register #232:

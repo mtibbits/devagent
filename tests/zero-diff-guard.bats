@@ -20,8 +20,8 @@ teardown() { devagent_test_teardown; }
     # Clean tree + zero commits ahead → genuinely artifact-only, still skips.
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"auto-marking step 10"* ]]
-    grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [[ "$output" == *"auto-marking step 12"* ]]
+    grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     grep -q "auto-skipped.*no commits" "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -34,7 +34,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"git add"* ]]
     # Must NOT have auto-marked the commit step as skipped.
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
@@ -45,14 +45,14 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"git add"* ]]
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
 @test "mergetoall.sh auto-skips on zero-diff branch" {
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"auto-marking step 16"* ]]
-    grep -qE '^\- \[-\] +16\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [[ "$output" == *"auto-marking step 19"* ]]
+    grep -qE '^\- \[-\] +19\. mergetoall' "$DEVDOC_DIR/Issue-1/checklist.md"
     grep -q "auto-skipped.*zero commits" "$DEVDOC_DIR/Issue-1/checklist.md"
 }

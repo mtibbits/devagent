@@ -1,6 +1,6 @@
 ---
 name: core-preship
-description: "Step 21: verify in fresh context that the committed branch meets the issue's acceptance criteria and contains every blocking finding before ship"
+description: "Step 17: verify in fresh context that the committed branch meets the issue's acceptance criteria and contains every blocking finding before ship"
 when_to_use: After /devagent:redmr and before /devagent:ship. Run as part of /devagent:preship.
 user-invocable: false
 context: fork
@@ -9,7 +9,7 @@ agent: devagent:preship-verifier
 
 # devagent-preship
 
-Step 21 of the devAgent 22-step workflow (file-ordered between redmr and ship;
+Step 17 of the devAgent 24-step workflow (file-ordered between redmr and ship;
 the number is unique, not sequential — file order is execution authority).
 
 <!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already

@@ -109,14 +109,14 @@ PY2
 }
 
 # ---- Task 2: template row + flow position (SPLIT assertions — never `a && b`, #535) ----
-@test "checklist-standard and checklist-perf carry [-] 23. spike between rows 1 and 2 (#536)" {
+@test "checklist-standard and checklist-perf carry [-] 3. spike between rows 1 and 2 (#536)" {
     local t d r sc
     for t in checklist-standard checklist-perf; do
-        run grep -qE '^- \[-\] 23\. spike$' "$DEVAGENT_ROOT/templates/$t.md"
+        run grep -qE '^- \[-\] +3\. spike$' "$DEVAGENT_ROOT/templates/$t.md"
         [ "$status" -eq 0 ]
-        d="$(grep -nE '^- \[ \]  1\. draft$'  "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
-        r="$(grep -nE '^- \[-\] 23\. spike$'  "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
-        sc="$(grep -nE '^- \[ \]  2\. scope$' "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
+        d="$(grep -nE '^- \[ \]  2\. draft$'  "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
+        r="$(grep -nE '^- \[-\] +3\. spike$'  "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
+        sc="$(grep -nE '^- \[ \]  4\. scope$' "$DEVAGENT_ROOT/templates/$t.md" | cut -d: -f1)"
         [ "$d" -lt "$r" ]  || { echo "$t: spike row not after draft"; false; }
         [ "$r" -lt "$sc" ] || { echo "$t: spike row not before scope"; false; }
     done
@@ -129,7 +129,7 @@ PY2
     grep -qi 'evidence' "$f"
     grep -qi 'never product\|never a product\|evidence, never product' "$f"
     grep -q 'revise' "$f"
-    grep -q 'Step 23' "$f"
+    grep -q 'Step 3' "$f"
     # it authors spike.md, so Write must be granted (the #535 review lesson)
     grep -qE '^allowed-tools:.*\bWrite\b' "$f"
     # `(none)` unknowns is a legitimate outcome, not a finding

@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:tighten
 
-Step 5 of the 22-step devAgent workflow. Invokes the `core-tighten`
+Step 7 of the 24-step devAgent workflow. Invokes the `core-tighten`
 skill for the last pre-implementation review of `imPlan.md`: task
 ordering, dependencies, absolute file paths, per-task test plan,
 Definition of done.
@@ -41,11 +41,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" tighten x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

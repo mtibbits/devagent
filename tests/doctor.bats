@@ -102,8 +102,8 @@ _seed_316_active_issue() {   # $1 = branch-step glyph (x = corrupt, ' ' = fresh)
 ## Revision 1
 
 - [x]  0. pull
-- [$1]  6. branch
-- [ ] 10. commit
+- [$1]  8. branch
+- [ ] 12. commit
 CL
   state_set volk active_issue Issue-1
   state_set volk issue_dir "$DA_HOME/fake-devdoc/Issue-1"
@@ -130,8 +130,8 @@ _seed_329_active_issue() {   # $1 = commit-step glyph (' ' = divergent, x = cohe
 ## Revision 1
 
 - [x]  0. pull
-- [x]  6. branch
-- [$1] 10. commit
+- [x]  8. branch
+- [$1] 12. commit
 CL
   state_set volk active_issue Issue-1
   state_set volk issue_dir "$DA_HOME/fake-devdoc/Issue-1"

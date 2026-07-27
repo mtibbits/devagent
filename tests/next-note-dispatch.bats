@@ -17,7 +17,7 @@ load 'helpers/common'
 setup() { devagent_test_setup; }
 teardown() { devagent_test_teardown; }
 
-# Make `branch` (step 6) the current actionable step and give branch.sh the
+# Make `branch` (step 8) the current actionable step and give branch.sh the
 # marker files it needs.
 _seed_branch_current() {
   echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
@@ -28,12 +28,12 @@ _seed_branch_current() {
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [x]  2. scope
-- [x]  3. improve
-- [x]  4. prune
-- [x]  5. tighten
-- [ ]  6. branch
+- [x]  2. draft
+- [x]  4. scope
+- [x]  5. improve
+- [x]  6. prune
+- [x]  7. tighten
+- [ ]  8. branch
 
 ## Log
 - 2026-05-19 14:00  pull: fixture seed

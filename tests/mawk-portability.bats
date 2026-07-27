@@ -26,9 +26,9 @@ issue_dir = "$DEVDOC/Issue-676"
 EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [~]  2. scope
-- [ ]  3. improve
+- [x]  2. draft
+- [~]  4. scope
+- [ ]  5. improve
 ## Log
 EOF
 
@@ -66,11 +66,11 @@ teardown() { teardown_tmp_devagent_home; }
   command -v mawk >/dev/null 2>&1 || skip "mawk not installed"
   PATH="$SHIMBIN:$PATH" run "$PLUGIN_ROOT/scripts/stuck.sh" volk "blocked on upstream"
   [ "$status" -eq 0 ]
-  grep -E '^- \[!\]  2\. scope' "$DEVDOC/Issue-676/checklist.md"
+  grep -E '^- \[!\]  4\. scope' "$DEVDOC/Issue-676/checklist.md"
   [ -f "$DEVDOC/Issue-676/STUCK" ]
   # The "last good" walk-back (last [x] step before the current one) must still
-  # resolve — step 1 (draft), not step 0 — proving the number extraction works.
-  grep -q 'Last good: *step 1 draft' "$DEVDOC/Issue-676/STUCK"
+  # resolve — step 2 (draft), not step 0 — proving the number extraction works.
+  grep -q 'Last good: *step 2 draft' "$DEVDOC/Issue-676/STUCK"
 }
 
 @test "unstuck.sh runs under mawk and flips [!] back to [~] (#313 born-red)" {
@@ -81,7 +81,7 @@ teardown() { teardown_tmp_devagent_home; }
   PATH="$SHIMBIN:$PATH" run "$PLUGIN_ROOT/scripts/unstuck.sh" volk
   [ "$status" -eq 0 ]
   [ ! -f "$DEVDOC/Issue-676/STUCK" ]
-  grep -E '^- \[~\]  2\. scope' "$DEVDOC/Issue-676/checklist.md"
+  grep -E '^- \[~\]  4\. scope' "$DEVDOC/Issue-676/checklist.md"
 }
 
 @test "resume.sh runs under mawk and flips [P] back to [~] (#313 born-red)" {

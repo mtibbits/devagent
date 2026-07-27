@@ -1,13 +1,13 @@
 ---
 name: core-document-actual-work
-description: "Step 9: record what was actually built versus planned, terse when there is no deviation"
+description: "Step 11: record what was actually built versus planned, terse when there is no deviation"
 when_to_use: After /devagent:quality and before /devagent:commit. Run as part of /devagent:document.
 user-invocable: false
 ---
 
 # devagent-document-actual-work
 
-Step 9 of the devAgent 22-step workflow. Writes
+Step 11 of the devAgent 24-step workflow. Writes
 `<issue-dir>/actualWork.md` recording what was actually built. The
 contract: **be terse when there is no deviation from `imPlan.md`**.
 Most of the time, the plan is the work; the actualWork file is short.
@@ -111,7 +111,7 @@ n=-1 also failed the assertion. Extended to cover that case.
   is the diff comparison broken?).
 - The plan's Definition of done has unchecked items.
 
-When the branch step (6) is absent from the issue's checklist (e.g. research),
+When the branch step (8) is absent from the issue's checklist (e.g. research),
 there is no `baseline_sha` and no diff baseline — that is N/A and expected, not a
 halt; document the work narratively instead of against a diff.
 

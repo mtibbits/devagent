@@ -1,8 +1,8 @@
 # Checking-class dispatch contract (#528 — extracted from the wrappers)
 
 The single source for the fresh-context dispatch contract shared by the
-CHECKING-class step wrappers: `commands/improve.md` (step 3),
-`commands/redmr.md` (step 14), and `commands/preship.md` (step 21). Each of
+CHECKING-class step wrappers: `commands/improve.md` (step 5),
+`commands/redmr.md` (step 16), and `commands/preship.md` (step 17). Each of
 those wrappers retains a `## Dispatch contract` heading whose body is a pointer
 to this file plus a compact **delta block** — the per-step values named by the
 `<PLACEHOLDER>` tokens below. Precedent: #441 extracted the THINKING-class
@@ -16,7 +16,7 @@ Per-step deltas each wrapper supplies (nothing else varies):
 | token | meaning |
 |-------|---------|
 | `<INTRO>` | the one-line framing sentence above rung 1 |
-| `<STEP>` | canonical step number — `3` improve / `14` redmr / `21` preship |
+| `<STEP>` | canonical step number — `5` improve / `16` redmr / `17` preship |
 | `<AGENT>` | bound agent — `plan-improver` / `redteam-reviewer` / `preship-verifier` |
 | `<SKILL>` | rc-2 fork-prompt skill — `core-improve` / `core-redmr` / `core-preship` |
 | `<INPUTS>` | rung-3 path-packaging list (the artifacts the prompt names) |
@@ -28,10 +28,13 @@ Per-step deltas each wrapper supplies (nothing else varies):
 
 `<INTRO>`
 
-1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the
-   CANONICAL step number (`<STEP>`) even on a renumbered checklist — the class
-   map is keyed to canonical numbers (config.sh). The three no-tier states are
-   not interchangeable here, so discriminate on the code, never on stderr prose:
+1. **Resolve the model tier and read the EXIT CODE** (#458). Pass the CANONICAL
+   `<STEP>` literal this wrapper carries — not a number read from the checklist.
+   Since #558 numbers are positions, and the class map (config.sh) is keyed to
+   those same global numbers, the canonical literal is correct on a current
+   checklist AND on a pre-#558 one (where a row-derived number would resolve the
+   wrong class). The three no-tier states are not interchangeable here, so
+   discriminate on the code, never on stderr prose:
 
    ```bash
    err="$(mktemp)"

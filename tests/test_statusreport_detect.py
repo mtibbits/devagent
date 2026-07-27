@@ -90,7 +90,7 @@ def test_idle_when_no_log_entry_in_7d_and_step_below_20(monkeypatch):
         sr, "_now", lambda: datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc)
     )
     assert sr.is_idle(ISSUES / "Issue-103", last_step=7)
-    assert not sr.is_idle(ISSUES / "Issue-104", last_step=20)
+    assert not sr.is_idle(ISSUES / "Issue-104", last_step=23)
 
 
 def test_completed_detection():

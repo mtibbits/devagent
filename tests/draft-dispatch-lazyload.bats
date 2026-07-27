@@ -45,7 +45,7 @@ CONTRACT="$REPO/docs/draft-dispatch-contract.md"
 }
 
 @test "the draft.md stub states BOTH load conditions (#441)" {
-  # Condition 1: non-empty resolved step-1 tier.
+  # Condition 1: non-empty resolved step-2 tier.
   run grep -qE 'tier is non-empty|non-empty resolved.*tier|step-model.sh' "$DRAFT"
   [ "$status" -eq 0 ] || { echo "stub missing the non-empty-tier load condition" >&2; return 1; }
   # Condition 2: explicit operator dispatch instruction (fires even on empty tier).

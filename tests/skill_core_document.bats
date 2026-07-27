@@ -22,7 +22,7 @@ setup() {
 @test "core-document-actual-work resolves actualWork_template via the §12 registry (#341)" {
   # The bypass this issue closes: the skill must carry an explicit "Resolve
   # template" step citing §12, not a bare ${CLAUDE_PLUGIN_ROOT} path, so
-  # project/devdoc overrides are honored at step 9 (mirror of core-draft-mr).
+  # project/devdoc overrides are honored at step 11 (mirror of core-draft-mr).
   grep -qi 'Resolve template' "$SKILL/SKILL.md"
   grep -q '§12' "$SKILL/SKILL.md"
   # And it names the registry walk (project paths → devdoc → plugin).

@@ -4,7 +4,7 @@
 #
 # Lines look like:
 #   - [ ]  0. pull
-#   - [x]  7. implement
+#   - [x]  9. implement
 # A single-space step number is allowed for steps 0-9.
 
 # _checklist_template_path <template> [project] — #120: §12 registry with
@@ -44,7 +44,7 @@ checklist_init() {
 _checklist_line_re='^- \[(.)\][[:space:]]+([0-9]+)\.[[:space:]]+([A-Za-z][A-Za-z0-9_-]*)'
 
 # #74: revision blocks (templates/revision_block.md, appended by revise.sh) reuse
-# step numbers 1-15. The ACTIVE revision is the LAST `## Revision N` block in the
+# step numbers 2,4..23 (#558). The ACTIVE revision is the LAST `## Revision N` block in the
 # file; mark/read must be scoped to it or revision-2 work corrupts revision-1's
 # recorded glyphs (and status/where/next read the stale block).
 #
@@ -57,7 +57,7 @@ _checklist_active_start() {
 # _checklist_scope_start: the active-block start line IF the target step NUMBER
 # appears in that block, else 0 (whole file). Resolution is membership-based:
 # step 0 (pull) is unique to revision 1 and resolves file-wide, while the
-# closeout steps 16-21 ARE reused in every revision block (#76) and therefore
+# closeout steps 19-23 ARE reused in every revision block (#76) and therefore
 # resolve to the active block once a revision is present. (The by-NAME analog
 # used by the #149/#242 gates is _checklist_scope_start_by_name, below.)
 _checklist_scope_start() {
@@ -80,7 +80,7 @@ _checklist_scope_start() {
 # _checklist_scope_start_by_name: the active-block start line IF the target step
 # NAME appears in that block, else 0 (whole file). The name-keyed analog of
 # _checklist_scope_start (#76): revision blocks now reuse the closeout step
-# names 16-21, so the by-name gates (#149 preship, #242 closeout) must scope to
+# names 19-23, so the by-name gates (#149 preship, #242 closeout) must scope to
 # the active revision like the number-keyed reads do — else they read revision
 # 1's stale glyph and a revised cleanup sticks (gate reads rev1's pending copy;
 # marks land in rev2; no CLI escape). Uses match+substr (not gawk match(s,r,arr))
@@ -148,7 +148,7 @@ checklist_step_state() {
 # returns 1 if no such step exists. Resolves by name, not number, so callers
 # survive cross-template step renumbering. Revision-scoped (#76): the by-name
 # callers (cleanup's closeout gate #231/#242, ship's preship gate #149) target
-# steps 16-21, which revision blocks now REUSE — so the lookup scopes to the
+# steps 19-23, which revision blocks now REUSE — so the lookup scopes to the
 # active revision block when the name is present there, else falls back
 # file-wide (legacy checklists / names unique to revision 1).
 checklist_step_state_by_name() {
@@ -284,10 +284,28 @@ checklist_steps_with_glyph() {
   ' "$file"
 }
 
+# checklist_mark <file> <step-num> <glyph> [expected-name]
+# #558: pass the CALLER'S OWN step name as the 4th argument. Step numbers are
+# positions, so the same number means different steps on checklists scaffolded
+# either side of a renumber — a step script marking its own number against an
+# older checklist silently flips a DIFFERENT row: post-#558 commit.sh marking
+# 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and  #558-old-scheme
+# `next.sh --auto` then re-dispatched commit forever). The check turns that
+# silent wrong-row write into a loud stop naming the remedy. Omitting the
+# argument keeps the historical unchecked behavior for ad-hoc/manual callers.
 checklist_mark() {
-  local file="$1" target="$2" glyph="$3"
+  local file="$1" target="$2" glyph="$3" expect_name="${4:-}"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
   _checklist_valid_glyph "$glyph" || die "checklist_mark: bad glyph '$glyph'"
+  if [[ -n "$expect_name" ]]; then
+    # Resolved through the SAME scope logic that the write below uses, so this
+    # names precisely the row that would be marked.
+    local actual_name
+    actual_name="$(checklist_step_name "$file" "$target" 2>/dev/null || true)"
+    if [[ -n "$actual_name" && "$actual_name" != "$expect_name" ]]; then
+      die "checklist_mark: refusing to mark step $target as '$expect_name' — that row is '$actual_name' in $file. This checklist predates the #558 renumber (numbers are positions, not IDs). Migrate it with scripts/migrate-checklist-numbering.sh, or start a fresh revision with /devagent:revise."
+    fi
+  fi
   local tmp start
   start="$(_checklist_scope_start "$file" "$target")"
   # #329: same-dir temp → mv is an atomic rename on one filesystem (a bare
@@ -365,8 +383,9 @@ checklist_advance() {
 # Returns the next step number whose state is one of [ ] [~], in FILE ORDER,
 # on a line after the `after` step's line. Skips [x] [-] [?] [P] [!]. Empty if
 # none. #77: the checklist's authority is file order, not the step number — a
-# `n > after` comparison silently skips e.g. commit (10) under the pre-#116
-# 11-before-10 layout (still live in checklists cut before the reorder).
+# `n > after` comparison silently skips a step under any out-of-file-order
+# numbering (e.g. the pre-#116 11-before-10 layout, or a pre-#558 checklist —
+# both still live in checklists cut before those reorders).
 # `after=0` (default) returns the first pending step.
 checklist_next_actionable() {
   local file="$1"

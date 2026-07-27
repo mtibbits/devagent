@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **57 slash commands** driving a **22-step workflow**, works against
+provides **57 slash commands** driving a **24-step workflow** (22 mandatory steps + 2 optional), works against
 GitHub, GitLab, and JIRA trackers/forges, and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
 
@@ -65,20 +65,19 @@ dir prefix (e.g.
 `Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)`, absolute path, `:*`
 covering the version segment). Never widen to bare `Bash`.
 
-## The 22-step workflow
+## The 24-step workflow
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
 Run them one at a time with `/devagent:next` (which advances to the next
-unmarked step), or invoke any step command directly. Steps are numbered 0–23;
-numbers are permanent IDs, not positions — the checklist's file order sets
-execution order, so `21 preship` runs between 14 and 15, and the optional
-`22 research` and `23 spike` (both off by default) run between 0 and 1 and between
-1 and 2:
+unmarked step), or invoke any step command directly. Steps are numbered 0–23 in
+execution order — 24 numbered steps, 22 of them mandatory; the optional
+`1 research` and `3 spike` are off by default, so a normal issue's checklist
+reads top-to-bottom with two gaps:
 
-- **Plan** — `0 pull` · `22 research` _(optional, flagged)_ · `1 draft` · `23 spike` _(optional, flagged)_ · `2 scope` · `3 improve` · `4 prune` · `5 tighten`
-- **Implement** — `6 branch` · `7 implement` · `8 quality` · `9 document` · `10 commit` · `11 analyze`
-- **Ship** — `12 draftmr` · `13 review` · `14 redmr` · `21 preship` · `15 ship`
-- **Integrate & close** — `16 mergetoall` · `17 updatewbs` · `18 impact` · `19 lessonslearned` · `20 cleanup`
+- **Plan** — `0 pull` · `1 research` _(optional, flagged)_ · `2 draft` · `3 spike` _(optional, flagged)_ · `4 scope` · `5 improve` · `6 prune` · `7 tighten`
+- **Implement** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
+- **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
+- **Integrate & close** — `19 mergetoall` · `20 updatewbs` · `21 impact` · `22 lessonslearned` · `23 cleanup`
 
 `/devagent:revise` opens a new revision pass (pulling reviewer feedback via
 `/devagent:comments` and re-running from `draft` — the revision's first pending
@@ -130,8 +129,8 @@ Low-level building blocks the workflow commands use; you rarely call them
 directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
-> The 24 numbered step commands above (22 mandatory + the optional `22 research`
-> and `23 spike` steps), plus `next` / `revise` / `comments`, together with the tables in this
+> The 24 numbered step commands above (22 mandatory + the optional `1 research`
+> and `3 spike` steps), plus `next` / `revise` / `comments`, together with the tables in this
 > section, are the full set of 57 slash commands (54 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 

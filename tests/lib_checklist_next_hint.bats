@@ -7,9 +7,9 @@ setup() {
   CL="$BATS_TEST_TMPDIR/checklist.md"
   cat > "$CL" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [ ]  2. scope
-- [ ]  3. improve
+- [x]  2. draft
+- [ ]  4. scope
+- [ ]  5. improve
 EOF
   source "$PLUGIN_ROOT/scripts/lib/paths.sh"
   source "$PLUGIN_ROOT/scripts/lib/io.sh"
@@ -27,7 +27,7 @@ teardown() { teardown_tmp_devagent_home; }
 @test "next_command returns 'done' when all steps are checked" {
   cat > "$CL" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
+- [x]  2. draft
 EOF
   run checklist_next_command "$CL"
   [ "$status" -eq 0 ]
@@ -49,7 +49,7 @@ EOF
 @test "print_next_hint announces workflow completion when done" {
   cat > "$CL" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
+- [x]  2. draft
 EOF
   run checklist_print_next_hint "$CL"
   [ "$status" -eq 0 ]

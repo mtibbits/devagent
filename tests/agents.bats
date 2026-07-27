@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# #458: the dedicated checker agents for steps 14 (redmr) and 21 (preship).
-# #527: + the step-3 (improve) agent — same structural pins, third row.
+# #458: the dedicated checker agents for steps 16 (redmr) and 17 (preship).
+# #527: + the step-5 (improve) agent — same structural pins, third row.
 #
 # These agents are the STRUCTURAL half of fresh-context checking: the isolation
 # is enforced by the harness (tool denial + pinned model + system prompt) rather

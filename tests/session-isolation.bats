@@ -44,7 +44,7 @@ EOF
 teardown() { teardown_tmp_devagent_home; }
 
 # Minimal checklist with the structure park/resume/cleanup touch
-# (current-step line, a step-20 row, a ## Log section).
+# (current-step line, a step-23 row, a ## Log section).
 _mk_checklist() {
   cat > "$1/checklist.md" <<'CL'
 # Issue — Workflow checklist
@@ -52,8 +52,8 @@ _mk_checklist() {
 ## Revision 1
 
 - [ ]  0. pull
-- [ ]  1. draft
-- [ ] 20. cleanup
+- [ ]  2. draft
+- [ ] 23. cleanup
 
 ## Log
 CL
@@ -181,7 +181,7 @@ _shared_view() {  # A's shared slot, as another session would read it
   DEVAGENT_ACTIVE_ISSUE='Issue-2/../Issue-1' run bash "$PLUGIN_ROOT/scripts/cleanup.sh" volk
   [ "$status" -ne 0 ]
   # Issue-1's checklist untouched (the traversal previously ran cleanup there).
-  run grep -qE '^- \[x\] +20\. cleanup' "$DEVDOC/Issue-1/checklist.md"
+  run grep -qE '^- \[x\] +23\. cleanup' "$DEVDOC/Issue-1/checklist.md"
   [ "$status" -ne 0 ]
 }
 
@@ -189,7 +189,7 @@ _shared_view() {  # A's shared slot, as another session would read it
   printf '[project.volk.step_models]\nchecking = "opus"\n' >> "$DA_HOME/config.toml"
   printf 'fable' > "$DEVDOC/Issue-2/.devagent-step-models"
   # Issue-2 has NO table (as after cleanup GC) — the marker must not leak.
-  DEVAGENT_ACTIVE_ISSUE=Issue-2 run bash "$PLUGIN_ROOT/scripts/step-model.sh" volk 13
+  DEVAGENT_ACTIVE_ISSUE=Issue-2 run bash "$PLUGIN_ROOT/scripts/step-model.sh" volk 15
   [ "$status" -eq 0 ]
   [ "$output" = "opus" ]
 }

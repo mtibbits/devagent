@@ -9,15 +9,15 @@ Active revision: 1
 ## Revision 1
 
 - [ ]  0. pull
-- [ ]  1. draft
-- [ ]  6. branch
-- [ ]  9. document
-- [ ] 10. commit
-- [ ] 12. draftmr
-- [ ] 13. review
-- [ ] 21. preship
-- [ ] 15. ship
-- [ ] 16. mergetoall
-- [ ] 20. cleanup
+- [ ]  2. draft
+- [ ]  8. branch
+- [ ] 11. document
+- [ ] 12. commit
+- [ ] 14. draftmr
+- [ ] 15. review
+- [ ] 17. preship
+- [ ] 18. ship
+- [ ] 19. mergetoall
+- [ ] 23. cleanup
 
 ## Log

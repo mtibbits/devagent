@@ -12,30 +12,30 @@ _add_step_models() {  # $1 = TOML lines for the table body
         >> "$HOME/.claude/devagent/config.toml"
 }
 
-@test "step-model.sh resolves the checking class tier for step 14 (#151)" {
+@test "step-model.sh resolves the checking class tier for step 16 (#151)" {
     _add_step_models 'checking = "fable"'
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "fable" ]
 }
 
 @test "step-model.sh per-step override beats the class tier (#151)" {
     _add_step_models 'checking = "fable"
-"14" = "opus"'
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+"16" = "opus"'
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
 }
 
 @test "step-model.sh exits nonzero printing nothing when no table configured (#151)" {
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
 }
 
-@test "step-model.sh resolves checking tier for preship (21) (#149)" {
+@test "step-model.sh resolves checking tier for preship (17) (#149)" {
     _add_step_models 'checking = "fable"'
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 17
     [ "$status" -eq 0 ]
     [ "$output" = "fable" ]
 }
@@ -47,7 +47,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "per-issue marker beats the project checking tier (#291)" {
     _add_step_models 'checking = "opus"'
     _marker 'fable'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "fable" ]
     [[ "$stderr" == *"per-issue"* ]]
@@ -56,17 +56,17 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 
 @test "per-issue marker beats a per-step numeric key (#291)" {
     _add_step_models 'checking = "opus"
-"14" = "opus"'
+"16" = "opus"'
     _marker 'fable'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "fable" ]
 }
 
-@test "per-issue marker fires for preship (21) (#291)" {
+@test "per-issue marker fires for preship (17) (#291)" {
     _add_step_models 'checking = "opus"'
     _marker 'fable'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 17
     [ "$status" -eq 0 ]
     [ "$output" = "fable" ]
 }
@@ -74,7 +74,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "per-issue marker 'inherit' forces session-model inheritance (#291)" {
     _add_step_models 'checking = "opus"'
     _marker 'inherit'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"inherit"* ]]
@@ -83,7 +83,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "per-issue marker does NOT apply to a non-checking step (#291)" {
     _add_step_models 'thinking = "sonnet"'
     _marker 'fable'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 7
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 9
     [ "$status" -eq 0 ]
     [ "$output" = "sonnet" ]
     [ -z "$stderr" ]
@@ -92,7 +92,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "whitespace-only per-issue marker fails loud (#291)" {
     _add_step_models 'checking = "opus"'
     _marker '   '
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"$DEVDOC_DIR/Issue-1/.devagent-step-models"* ]]
@@ -101,7 +101,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "multi-token / invalid-charset per-issue marker fails loud (#291)" {
     _add_step_models 'checking = "opus"'
     _marker 'fable opus'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *".devagent-step-models"* ]]
@@ -113,7 +113,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     other="$DEVAGENT_TMP/other-issue"
     mkdir -p "$other"
     printf 'haiku' > "$other/.devagent-step-models"
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14 "$other"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16 "$other"
     [ "$status" -eq 0 ]
     [ "$output" = "haiku" ]
 }
@@ -124,7 +124,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     # cleanup clears active_issue but NOT issue_dir — the leftover marker
     # must not steer post-cleanup runs.
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue ""
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
     [ -z "$stderr" ]
@@ -134,7 +134,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     _add_step_models 'checking = "opus"'
     _marker 'fable'
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "null"
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
 }
@@ -144,7 +144,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     _add_step_models 'checking = "opus"'
     _marker 'fable'
     chmod 000 "$DEVDOC_DIR/Issue-1/.devagent-step-models"
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"not readable"* ]]
@@ -153,7 +153,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 @test "marker that is a directory fails loud (#291)" {
     _add_step_models 'checking = "opus"'
     mkdir -p "$DEVDOC_DIR/Issue-1/.devagent-step-models"
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -ne 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"not a regular file"* ]]
@@ -170,13 +170,13 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     local d="$DEVDOC_DIR/Issue-1"
 
     # rc 0: a tier resolves.
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 17 "$d"
     [ "$status" -eq 0 ]
     [ "$output" = "opus" ]
 
     # rc 2: the operator's explicit inherit escape — empty stdout, but NOT rc 3.
     printf 'inherit' > "$d/.devagent-step-models"
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 17 "$d"
     [ "$status" -eq 2 ]
     [ -z "$output" ]
     [[ "$stderr" == *"per-issue"* ]]
@@ -184,17 +184,17 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 
     # rc 1: a bad marker is an error, never an inherit.
     printf 'two tokens' > "$d/.devagent-step-models"
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 21 "$d"
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 17 "$d"
     [ "$status" -eq 1 ]
     rm -f "$d/.devagent-step-models"
 }
 
 @test "step-model: rc 3 is 'nothing configured', distinct from the inherit escape (#458)" {
     # No step_models table at all — the fresh-install state that takes the
-    # agent default for steps 3/14/21 (#527 added 3).
+    # agent default for steps 5/16/17 (#527 added improve).
     local d="$DEVDOC_DIR/Issue-1"
     local step
-    for step in 3 14 21; do
+    for step in 5 16 17; do
         run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step" "$d"
         [ "$status" -eq 3 ]
         [ -z "$output" ]
@@ -202,12 +202,12 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
 }
 
 @test "step-model: callers whose fallback IS inherit still collapse every nonzero (#458)" {
-    # Backward compatibility: step 13 and next.sh/catchup.sh use
+    # Backward compatibility: step 15 and next.sh/catchup.sh use
     # `$(... || true)` or `if tier=$(...)`, for which rc 2 and rc 3 are both
     # correctly empty. Adding exit codes must not change what they see.
     local d="$DEVDOC_DIR/Issue-1"
     printf 'inherit' > "$d/.devagent-step-models"
-    run bash -c '"$1"/scripts/step-model.sh "$2" 3 "$3" 2>/dev/null || true' _ \
+    run bash -c '"$1"/scripts/step-model.sh "$2" 5 "$3" 2>/dev/null || true' _ \
         "$DEVAGENT_ROOT" "$TEST_PROJECT" "$d"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
@@ -222,7 +222,7 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     # empty stdout, a provenance note WITHOUT the word 'per-issue' so callers
     # can distinguish the stamp form.
     _add_step_models 'checking = "inherit"'
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 14
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 2 ]
     [ -z "$output" ]
     [[ "$stderr" == *"config tier"* ]]

@@ -1,15 +1,16 @@
 ---
-description: "Step 22: measure the world (read code/docs/upstream, run existing probes) before drafting; write cited findings + open unknowns."
+description: "Step 1: measure the world (read code/docs/upstream, run existing probes) before drafting; write cited findings + open unknowns."
 allowed-tools: Read, Grep, Glob, WebFetch, Write, Edit, Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [Issue-N]"
 ---
 
 # /devagent:research
 
-Step 22 of the devAgent workflow — the OPTIONAL pre-draft research step (flow-order
-between `0 pull` and `1 draft`). It runs only when the issue was flagged
-`research: required` in its `## Workflow flags` block (pull.sh flips row 22 to `[ ]`
-at scaffold), or when the operator flips row 22 manually (the escape hatch).
+Step 1 of the devAgent workflow — the OPTIONAL pre-draft research step (flow-order
+between `0 pull` and `2 draft`). It runs only when the issue was flagged
+`research: required` in its `## Workflow flags` block (pull.sh flips the `research`
+row to `[ ]` at scaffold), or when the operator flips that row manually (the escape
+hatch).
 
 **Naming.** The research STEP (this command, driven by the `research: required` flag) is
 distinct from the research checklist TEMPLATE (`checklist_template = research`, a
@@ -34,12 +35,13 @@ was considered and deferred — recorded here so the weaker choice is visible, n
 Per `commands/draft.md` (spec §6.1): optional `project`, optional `Issue[-Fork]-N`, rest
 ignored. Defaults to the active project/issue.
 
-## Precondition — row 22 must be active
+## Precondition — the research row must be active
 
-Read row 22's glyph (`checklist_step_state <checklist> 22`). Proceed only if it is `[ ]`
-(pending) or `[~]` (in-progress). If it is `[-]` (the unflagged default), HALT and tell the
-operator: "research is not flagged for this issue — flip row 22 first
-(`/devagent:checklist-mark <issue-dir> 22 ' '`, the escape hatch) or skip research." Do NOT
+Read the `research` row's glyph (`checklist_step_state_by_name <checklist> research`).
+Proceed only if it is `[ ]` (pending) or `[~]` (in-progress). If it is `[-]` (the
+unflagged default), HALT and tell the operator: "research is not flagged for this
+issue — flip the research row first (`/devagent:checklist-mark --by-name <issue-dir>
+research ' '`, the escape hatch) or skip research." Do NOT
 silently flip `[-]`→`[x]`.
 
 ## Workflow
@@ -82,10 +84,11 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" research x
 ```
 
-`<N>` is this step's number on the issue's checklist (22); use `-` instead of
+This step marks itself BY NAME, not by number — the row's number differs between
+a pre-#558 checklist and a current one, and the name does not. Use `-` instead of
 `x` if the step was skipped. Then run the Logging command above.
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

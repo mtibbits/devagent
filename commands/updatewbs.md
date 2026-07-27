@@ -1,13 +1,13 @@
 ---
-description: Alias for `/devagent:wbs update` (workflow step 17)
+description: Alias for `/devagent:wbs update` (workflow step 20)
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
 argument-hint: "[project] [args]"
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments.
 
-This is the workflow step-17 entrypoint. Identical behavior to
-`/devagent:wbs update`; exists as a separate command so the 22-step
+This is the workflow step-20 entrypoint. Identical behavior to
+`/devagent:wbs update`; exists as a separate command so the 24-step
 workflow chaining (`--auto`, `--through`) and skill mapping can
 reference a single verb.
 
@@ -18,14 +18,15 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" updatewbs x
 ```
 
-`<N>` is this step's number on the issue's checklist (17 for `updatewbs`);
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
 `$ISSUE_DIR` is the active issue's directory (resolve it from project
 state if not already bound). Use `-` instead of `x` if the step was
 skipped. This step is backed by `wbs.sh`, which does NOT self-mark, so the
-mark above is the only thing advancing step 17.
+mark above is the only thing advancing this step.
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.
 End your final message with this exact question (substituting the

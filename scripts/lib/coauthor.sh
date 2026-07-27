@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/lib/coauthor.sh — strip Co-Authored-By trailer lines from a file in
-# place. Used by commit.sh (step 10) and ship.sh (step 15) when a project sets
+# place. Used by commit.sh (step 12) and ship.sh (step 18) when a project sets
 # include_coauthor = false (issue #31).
 #
 # Preserves Signed-off-by (DCO) and all other content. Matches the git trailer

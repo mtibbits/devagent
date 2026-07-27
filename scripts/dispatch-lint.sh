@@ -56,7 +56,7 @@ line2="$(sed -n '2p' "$artifact")"
 # optional free-text parenthetical. Real artifacts write 'model: opus (per-issue
 # checking floor)', 'model: inherit (fallback from <tier>)', etc.
 # #458: the token class admits internal hyphens so the agent-default provenance
-# form ('model: agent-default (preship-verifier)' — steps 3/14/21 on a project that
+# form ('model: agent-default (preship-verifier)' — steps 5/16/17 on a project that
 # resolves no tier) parses. Hyphens are internal-only: '-leading-hyphen',
 # 'opus-', 'agent-' and 'Agent-Default' all stay rejected.
 printf '%s\n' "$line2" | grep -Eq '^model: [a-z]+(-[a-z]+)*( \(.*\))?$' \

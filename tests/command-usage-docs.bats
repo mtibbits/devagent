@@ -41,7 +41,7 @@ C="$REPO/commands"
   [ "$status" -ne 0 ]
   run grep -F 'A follow-up is tracked' "$F"
   [ "$status" -ne 0 ]
-  grep -qF 'auto-marks step 8' "$F"
+  grep -qF 'auto-marks step 10' "$F"
 }
 
 # --- No command doc references the DELETED bash §6.1 parser (#121/#122) ------

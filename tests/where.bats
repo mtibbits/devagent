@@ -22,11 +22,11 @@ EOF
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [x]  2. scope
-- [~]  3. improve
-- [ ]  4. prune
-- [ ]  5. tighten
+- [x]  2. draft
+- [x]  4. scope
+- [~]  5. improve
+- [ ]  6. prune
+- [ ]  7. tighten
 
 ## Log
 - 2026-05-19 14:32  improve: started analyzing edge cases
@@ -40,8 +40,8 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"Project: volk"* ]]
   [[ "$output" == *"Active issue: Issue-676"* ]]
-  [[ "$output" == *"Current step: 3 (improve) [~]"* ]]
-  [[ "$output" == *"Next step: 4 (prune)"* ]]
+  [[ "$output" == *"Current step: 5 (improve) [~]"* ]]
+  [[ "$output" == *"Next step: 6 (prune)"* ]]
   [[ "$output" == *"Run /devagent:next to execute"* ]]
 }
 
@@ -54,11 +54,11 @@ teardown() { teardown_tmp_devagent_home; }
 
 @test "where surfaces STUCK file when present" {
   cat > "$DEVDOC/Issue-676/STUCK" <<'EOF'
-Step: 3 improve
+Step: 5 improve
 Reason: needs upstream API clarification
 EOF
   # Mark step 3 as stuck
-  sed -i 's/^- \[~\]  3\. improve/- [!]  3. improve/' "$DEVDOC/Issue-676/checklist.md"
+  sed -i 's/^- \[~\]  5\. improve/- [!]  5. improve/' "$DEVDOC/Issue-676/checklist.md"
   run "$PLUGIN_ROOT/scripts/where.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"STUCK"* ]]

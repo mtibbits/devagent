@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/commit.sh — workflow step 10. Compose commit message from
+# scripts/commit.sh — workflow step 12. Compose commit message from
 # commit_template, substitute placeholders, strip "(1M context)", commit -s.
 set -euo pipefail
 
@@ -110,18 +110,18 @@ source_dir="$(config_get_project_field "$project" source_dir)"
 worktree="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
 work_dir="${worktree:-$source_dir}"
 
-# Success epilogue for step 10 — shared by the real-commit tail and the #116
+# Success epilogue for step 12 — shared by the real-commit tail and the #116
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
-    state_ctx_set_many "$project" "$issue_arg" str last_step "10" str last_step_name "commit"
-    checklist_mark "$issue_dir/checklist.md" 10 x
+    state_ctx_set_many "$project" "$issue_arg" str last_step "12" str last_step_name "commit"
+    checklist_mark "$issue_dir/checklist.md" 12 x commit
     log_append "$issue_dir" commit "$1"
     checklist_print_next_hint "$issue_dir/checklist.md"
 }
 
 # #69: commit on the issue branch only. This guard runs BEFORE the zero-diff
 # guard so no early-exit path (no-op success, artifact-only skip) can mark
-# step 10 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
+# step 12 while HEAD sits on the wrong branch (e.g. all_prs after mergetoall,
 # or the base branch after cleanup, in the revision flow). A detached HEAD
 # yields an empty name and is also refused. Checked on work_dir, whose HEAD
 # IS the issue branch under a worktree too.
@@ -132,13 +132,13 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 if [ -z "$branch" ] && { [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ] || [ -n "${2:-}" ]; }; then
     die "no branch recorded for '$issue_arg' — run /devagent:branch first"
 fi
-# #316: an empty recorded branch with a COMPLETED branch step (6) is state
+# #316: an empty recorded branch with a COMPLETED branch step (8) is state
 # corruption — the branch step ran (a branch existed) but the recorded branch is
 # now gone. This is the resume-after-cleanup kill chain: cleanup GC'd the issue's
 # [context.<issue>] table but left it parked, so a later BARE resume (no pin, no
 # arg — which the #240 guard above does NOT cover) restored defaults (branch="").
 # Without this, the empty-branch tolerance below would commit staged work onto
-# whatever HEAD is on (the base branch post-cleanup) and mark step 10 [x]. Gate
+# whatever HEAD is on (the base branch post-cleanup) and mark step 12 [x]. Gate
 # on the branch step being DONE ([x]) — not skipped ([-]) or pending ([ ]/[~]) —
 # so the legitimate never-branched legacy flow keeps its empty-branch tolerance.
 if [ -z "$branch" ]; then
@@ -233,8 +233,8 @@ if [ -z "$staged" ]; then
                 exit 0
                 ;;
             empty)
-                info "clean tree, no commits — auto-marking step 10 [-] (artifact-only)"
-                checklist_mark "$issue_dir/checklist.md" 10 -
+                info "clean tree, no commits — auto-marking step 12 [-] (artifact-only)"
+                checklist_mark "$issue_dir/checklist.md" 12 - commit
                 log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
                 exit 0
                 ;;

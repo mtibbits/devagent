@@ -6,8 +6,8 @@ operator INTENT it holds — packaged to disk, never "paste the
 conversation".
 
 1. **When to dispatch.** Resolve the tier:
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 1 || true)"`
-   (canonical step number 1; the thinking class). A NON-EMPTY tier ⇒
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`
+   (canonical step number 2; the thinking class). A NON-EMPTY tier ⇒
    dispatch a fresh-context planner subagent with that model override.
    EMPTY ⇒ stay inline — note this deliberately differs from #151,
    where dispatch is unconditional and empty means dispatch-with-
@@ -63,13 +63,13 @@ conversation".
    historical plan corpus valid). The imPlan template does not define
    these lines; the planner prepends them.
 6. **Finalization is the MAIN session's, once.** The marker files
-   (workflow step 6), clearing `pending_comments_file` (step 7), the
-   log entry (step 8), and the checklist mark happen ONLY after the
+   (draft command item 6), clearing `pending_comments_file` (item 7), the
+   log entry (item 8), and the checklist mark happen ONLY after the
    FINAL accepted plan — questions resolved, or the bound exhausted
    and the inline fallback finished. A round plan still carrying
    UNRESOLVED `## Open questions` is never what `/devagent:scope`
    sees (an explicitly emptied/"None" section on the accepted plan is
    fine — it is the record that the protocol ran).
-7. **Generalization note.** The other thinking-class steps (7/8/9/12)
+7. **Generalization note.** The other thinking-class steps (9/10/11/14)
    can adopt this contract later; draft is the payoff case and the
    only carrier today.

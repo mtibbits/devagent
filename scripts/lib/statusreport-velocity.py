@@ -2,7 +2,7 @@
 """Velocity and completion-estimate helpers for /devagent:statusreport.
 
 Spec §14.5:
-- Velocity = issues completed (step 20) per calendar week, over a
+- Velocity = issues completed (step 23) per calendar week, over a
   configurable window (default 4 weeks).
 - Estimate = (remaining WBS leaves) / velocity, rendered with `± X weeks`
   band based on observed variance.

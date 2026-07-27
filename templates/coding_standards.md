@@ -5,8 +5,8 @@ this file per spec §12. Override at `[project.<name>.paths].coding_standards`
 in `config.toml` shadows both.
 
 This default is intentionally minimal — operators are expected to maintain a
-real per-project standards document. The default exists so `quality` (step 8)
-and `review` (step 13) always have a file to read.
+real per-project standards document. The default exists so `quality` (step 10)
+and `review` (step 15) always have a file to read.
 
 ## Style
 

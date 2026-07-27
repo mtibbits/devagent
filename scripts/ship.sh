@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/ship.sh — workflow step 15. Push branch, create MR, fire on_ship.
+# scripts/ship.sh — workflow step 18. Push branch, create MR, fire on_ship.
 # Honors permissions.push_mr and ship_as_draft. If fork_first=true, files MR
 # on the fork before referencing upstream.
 set -euo pipefail
@@ -76,14 +76,14 @@ branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
-    info "no commits on branch — auto-marking step 15 [-] (zero-diff issue)"
-    checklist_mark "$issue_dir/checklist.md" 15 -
+    info "no commits on branch — auto-marking step 18 [-] (zero-diff issue)"
+    checklist_mark "$issue_dir/checklist.md" 18 - ship
     log_append "$issue_dir" ship "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
 fi
 
-# #148: refuse to push a branch that differs from the working tree. Review (13)
-# and redmr (14) fixes applied after commit (10) land in the working tree; with
+# #148: refuse to push a branch that differs from the working tree. Review (15)
+# and redmr (16) fixes applied after commit (12) land in the working tree; with
 # no commit step remaining, ship used to push without them (Issues #101/#102 →
 # recovery PR #147). Untracked paths are excluded deliberately (build dirs,
 # scratch files) — the review/redmr docs' git-add instruction covers the
@@ -101,7 +101,7 @@ if [ "$modified_count" -gt 0 ]; then
     die "$modified_count modified tracked file(s) in $work_dir — commit review/redmr fixes (git add … && git commit -s) or stash unrelated edits before shipping; refusing to push a branch that differs from the working tree (#148)"
 fi
 
-# #149: refuse to push while preship (21) is non-terminal — the fresh-context
+# #149: refuse to push while preship (17) is non-terminal — the fresh-context
 # verification is the semantic half of #148's gate, and a direct /devagent:ship
 # is exactly the ad-hoc path where the #101/#102 stranded-fix incidents lived.
 # By name; absent step (pre-#149 checklists, research template) => no gate —
@@ -343,9 +343,9 @@ fi
 
 state_ctx_set_many "$project" "$issue_arg" \
   str mr_url         "$mr_url" \
-  str last_step      "15" \
+  str last_step      "18" \
   str last_step_name "ship"
-checklist_mark "$issue_dir/checklist.md" 15 x
+checklist_mark "$issue_dir/checklist.md" 18 x ship
 log_append "$issue_dir" ship "MR $mr_url${NOTE:+ — $NOTE}"
 echo "$mr_url"
 checklist_print_next_hint "$issue_dir/checklist.md"

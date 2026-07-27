@@ -1,6 +1,6 @@
 ---
 name: core-redmr
-description: "Step 14: red-team adversarial review of the MR body and diff before shipping"
+description: "Step 16: red-team adversarial review of the MR body and diff before shipping"
 when_to_use: After /devagent:review and before /devagent:ship. Run as part of /devagent:redmr.
 user-invocable: false
 context: fork
@@ -9,7 +9,7 @@ agent: devagent:redteam-reviewer
 
 # devagent-redmr
 
-Step 14 of the devAgent 22-step workflow.
+Step 16 of the devAgent 24-step workflow.
 
 <!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already
      taken effect by the time it is in context — the harness supplies the agent's

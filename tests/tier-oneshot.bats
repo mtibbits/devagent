@@ -34,10 +34,10 @@ teardown() { teardown_tmp_devagent_home; }
   [ -f "$tpl" ]
   [ "$(grep -cE '^\- \[ \] +[0-9]+\.' "$tpl")" -eq 5 ]
   grep -qE '^\- \[ \] +0\. pull' "$tpl"
-  grep -qE '^\- \[ \] +7\. implement' "$tpl"
-  grep -qE '^\- \[ \] +9\. document' "$tpl"
-  grep -qE '^\- \[ \] 19\. lessonslearned' "$tpl"
-  grep -qE '^\- \[ \] 20\. cleanup' "$tpl"
+  grep -qE '^\- \[ \] +9\. implement' "$tpl"
+  grep -qE '^\- \[ \] +11\. document' "$tpl"
+  grep -qE '^\- \[ \] 22\. lessonslearned' "$tpl"
+  grep -qE '^\- \[ \] 23\. cleanup' "$tpl"
 }
 
 @test "checklist-oneshot carries the evidence note and the no-repo-change boundary (#537)" {
@@ -81,7 +81,7 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"Run /devagent:implement"* ]]
-  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$DEVDOC/Issue-710" 7 x
+  run "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$DEVDOC/Issue-710" 9 x
   [ "$status" -eq 0 ]
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]

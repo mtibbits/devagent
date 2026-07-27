@@ -96,7 +96,7 @@ EOF
 
 ## Revision 2
 
-- [ ]  1. draft
+- [ ]  2. draft
 EOF
   run_comments volk Issue-676
   [ "$status" -eq 0 ]

@@ -16,8 +16,8 @@ issue_dir = "$DEVDOC/Issue-676"
 EOF
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOF'
 - [x]  0. pull
-- [~]  1. draft
-- [ ]  2. scope
+- [~]  2. draft
+- [ ]  4. scope
 ## Log
 EOF
 }
@@ -27,10 +27,10 @@ teardown() { teardown_tmp_devagent_home; }
 @test "stuck marks current step [!] and writes STUCK file" {
   run "$PLUGIN_ROOT/scripts/stuck.sh" volk "needs upstream API clarification"
   [ "$status" -eq 0 ]
-  grep -E '^\- \[!\]  1\. draft' "$DEVDOC/Issue-676/checklist.md"
+  grep -E '^\- \[!\]  2\. draft' "$DEVDOC/Issue-676/checklist.md"
   [ -f "$DEVDOC/Issue-676/STUCK" ]
   grep -q "needs upstream API clarification" "$DEVDOC/Issue-676/STUCK"
-  grep -q "Step: *1 draft" "$DEVDOC/Issue-676/STUCK"
+  grep -q "Step: *2 draft" "$DEVDOC/Issue-676/STUCK"
 }
 
 @test "stuck appends a log entry" {
@@ -49,14 +49,14 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/unstuck.sh" volk
   [ "$status" -eq 0 ]
   [ ! -f "$DEVDOC/Issue-676/STUCK" ]
-  grep -E '^\- \[~\]  1\. draft' "$DEVDOC/Issue-676/checklist.md"
+  grep -E '^\- \[~\]  2\. draft' "$DEVDOC/Issue-676/checklist.md"
 }
 
 @test "unstuck --pending flips to [ ]" {
   "$PLUGIN_ROOT/scripts/stuck.sh" volk "blocked"
   run "$PLUGIN_ROOT/scripts/unstuck.sh" volk --pending
   [ "$status" -eq 0 ]
-  grep -E '^\- \[ \]  1\. draft' "$DEVDOC/Issue-676/checklist.md"
+  grep -E '^\- \[ \]  2\. draft' "$DEVDOC/Issue-676/checklist.md"
 }
 
 @test "unstuck is a no-op (with warning) when no STUCK file" {

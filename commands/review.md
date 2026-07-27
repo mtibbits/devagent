@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:review
 
-Step 13 of the 22-step devAgent workflow. Invokes the upstream
+Step 15 of the 24-step devAgent workflow. Invokes the upstream
 `superpowers:requesting-code-review` skill against the issue's
 branch diff. Produces a review report that the operator addresses
 before the red-team step (14).
@@ -25,7 +25,7 @@ Per `commands/draft.md`.
    = `baseline_sha..HEAD` on the issue's branch. This wrapper already
    dispatches a fresh-context subagent; per #151, resolve the model
    override first —
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 13 || true)"`
+   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 15 || true)"`
    — and pass it on the dispatch (omit when empty ⇒ inherit the session
    model; if the tier is unavailable, retry once with no override and
    record the degradation in the artifact header). A per-issue
@@ -65,8 +65,8 @@ Per `commands/draft.md`.
    the issue branch — `git add` the files and `git commit -s` them
    BEFORE marking the step. A new signed-off commit, not an amend:
    the review-fix delta stays auditable. All source-repo work is
-   committed as of step 10; from this step on,
-   uncommitted fixes are a defect — ship.sh (15) refuses to push when
+   committed as of step 12; from this step on,
+   uncommitted fixes are a defect — ship.sh (18) refuses to push when
    tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
    NOT committed here; they are governed by `commit_devdoc` at cleanup.
 7. Log:
@@ -94,11 +94,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" review x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

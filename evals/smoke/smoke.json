@@ -16,7 +16,7 @@
       "target": "agents/preship-verifier.md (context: fork + agent: devagent:preship-verifier)",
       "procedure": "In a fresh headless session, dispatch subagent_type: devagent:preship-verifier and ask it to quote the FIRST SENTENCE of its system prompt.",
       "measured": "whether the returned sentence is the one that exists ONLY in agents/preship-verifier.md",
-      "expected": "the fork returns: 'You are the devAgent preship verifier - the last gate before content leaves the machine (workflow step 21).' That sentence exists nowhere else, so its presence is direct attestation (not inference) that the plugin-scoped agent's system prompt was active in the fork.",
+      "expected": "the fork returns: 'You are the devAgent preship verifier - the last gate before content leaves the machine (workflow step 17).' That sentence exists nowhere else, so its presence is direct attestation (not inference) that the plugin-scoped agent's system prompt was active in the fork.",
       "trigger": "every Claude Code upgrade / plugin reinstall",
       "baseline": {
         "date": "",

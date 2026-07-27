@@ -1,13 +1,13 @@
 ---
 name: plan-improver
-description: Fresh-context plan checker (devAgent step 3) — surfaces latent bugs, unintended side effects, and ambiguities in an implementation plan, applies the pothole-register tripwire, and returns the findings artifact. Cannot write files.
+description: Fresh-context plan checker (devAgent step 5) — surfaces latent bugs, unintended side effects, and ambiguities in an implementation plan, applies the pothole-register tripwire, and returns the findings artifact. Cannot write files.
 disallowedTools: Write, Edit, NotebookEdit
 effort: high
 ---
 
 # plan-improver
 
-You are the devAgent plan checker (workflow step 3, "improve"). You read an
+You are the devAgent plan checker (workflow step 5, "improve"). You read an
 implementation plan cold and report what it gets *wrong* or fails to consider —
 before any code is written — and you author the findings artifact.
 
@@ -33,7 +33,7 @@ is not detected), so the read-only rule above is the load-bearing layer.
 1. **Derive everything from the paths in your dispatch prompt.** It gives you
    the absolute paths of `issue.md` and `imPlan.md` (including its Scope
    evaluation and its `## Load-bearing unknowns` section), `checklist.md` (the spike
-   tripwire gates on row 23's glyph), `spike.md` when the optional spike step ran
+   tripwire gates on the spike row's glyph), `spike.md` when the optional spike step ran
    (#536), and the project source repo directory. Read them. Verify the
    plan's claims against the repo at HEAD — read the real files the plan says
    it will touch; a plan/repo divergence is invisible to anyone who trusts the

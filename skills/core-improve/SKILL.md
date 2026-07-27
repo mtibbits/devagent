@@ -1,6 +1,6 @@
 ---
 name: core-improve
-description: "Step 3: surface latent bugs, side effects, and ambiguities in an implementation plan before pruning"
+description: "Step 5: surface latent bugs, side effects, and ambiguities in an implementation plan before pruning"
 when_to_use: After /devagent:scope has appended scope evaluation and before /devagent:prune. Run as part of /devagent:improve.
 user-invocable: false
 context: fork
@@ -9,7 +9,7 @@ agent: devagent:plan-improver
 
 # devagent-improve
 
-Step 3 of the devAgent 22-step workflow.
+Step 5 of the devAgent 24-step workflow.
 
 <!-- #527 (pattern-completing #458): this body is the FORK PROMPT.
      `context: fork` + `agent:` have already taken effect by the time it is in
@@ -36,7 +36,7 @@ everything from disk and state:
    `DEVAGENT_ACTIVE_PROJECT` / `DEVAGENT_ACTIVE_ISSUE`, which take precedence).
 2. Read `<issue-dir>/imPlan.md` (the plan under check, including its Scope
    evaluation and its `## Load-bearing unknowns` section) and `<issue-dir>/spike.md`
-   when it exists, and `<issue-dir>/checklist.md` (row 23's glyph is the spike
+   when it exists, and `<issue-dir>/checklist.md` (the spike row's glyph is the spike
    tripwire's GATE — #536; all are packaged by the dispatch contract's `<INPUTS>`),
    and `<issue-dir>/issue.md` (the goal the plan must serve).
 3. **Resolve the pothole register** — the tripwire's input (#286):

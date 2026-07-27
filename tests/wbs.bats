@@ -198,7 +198,7 @@ Template: standard
 
 ## Revision 1
 - [x] 0. pull
-- [~] 3. improve
+- [~] 5. improve
 
 ## Log
 - 2026-05-19 10:00  pull: fetched
@@ -240,9 +240,9 @@ EOF
   mkdir -p "$TMPDEV/Issue-9"
   cat > "$TMPDEV/Issue-9/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [~]  7. implement
-- [ ] 11. analyze
+- [x]  2. draft
+- [~]  9. implement
+- [ ] 13. analyze
 EOF
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
@@ -259,10 +259,10 @@ EOF
   mkdir -p "$TMPDEV/Issue-9"
   cat > "$TMPDEV/Issue-9/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [x]  7. implement
-- [x] 11. analyze
-- [x] 20. cleanup
+- [x]  2. draft
+- [x]  9. implement
+- [x] 13. analyze
+- [x] 23. cleanup
 EOF
   # Note: NO active_issue set. Mimics the post-cleanup state where the
   # operator runs wbs update and the issue's leaf must still flip to [x].
@@ -281,7 +281,7 @@ EOF
   mkdir -p "$TMPDEV/Issue-3"
   cat > "$TMPDEV/Issue-3/checklist.md" <<'EOF'
 - [x]  0. pull
-- [x] 20. cleanup
+- [x] 23. cleanup
 EOF
   bash "$REPO/scripts/wbs.sh" update testproj
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"

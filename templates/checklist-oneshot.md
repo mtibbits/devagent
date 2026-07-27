@@ -8,16 +8,16 @@ Active revision: 1
 
 Boundary: a one-shot is an operational action, not a repo change — commit/ship
 rows are absent by design; an action that produces a diff belongs in the
-standard tier (escalate with `revise.sh --retier standard`). Document (step 9)
+standard tier (escalate with `revise.sh --retier standard`). Document (step 11)
 is the verify beat: it must record execution evidence (command output,
 service-answers proof), not just narrate intent.
 
 ## Revision 1
 
 - [ ]  0. pull
-- [ ]  7. implement
-- [ ]  9. document
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [ ]  9. implement
+- [ ] 11. document
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log

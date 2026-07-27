@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/branch.sh — workflow step 6. Compute prefix from branch_prefix_map,
+# scripts/branch.sh — workflow step 8. Compute prefix from branch_prefix_map,
 # baseline on default_baseline, optionally create a git worktree.
 set -euo pipefail
 
@@ -48,7 +48,7 @@ issue_num="${issue_num#Fork-}"
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
 
-# Read issue type and title from marker files (written by /devagent:draft, step 1).
+# Read issue type and title from marker files (written by /devagent:draft, step 2).
 type_file="$issue_dir/.devagent-type"
 title_file="$issue_dir/.devagent-title"
 [ -r "$type_file" ]  || die "missing $type_file (issue type not classified)"
@@ -105,10 +105,10 @@ state_ctx_set_many "$project" "$issue_arg" \
   str branch         "$branch" \
   str baseline_sha   "$baseline_sha" \
   str worktree_path  "$worktree_dir" \
-  str last_step      "6" \
+  str last_step      "8" \
   str last_step_name "branch"
 
-checklist_mark "$issue_dir/checklist.md" 6 x
+checklist_mark "$issue_dir/checklist.md" 8 x branch
 log_append "$issue_dir" branch "created $branch from $baseline$([ "$baseline_override" -eq 1 ] && printf ' (per-issue override)') ($baseline_sha)${NOTE:+ — $NOTE}"
 echo "$branch"
 checklist_print_next_hint "$issue_dir/checklist.md"

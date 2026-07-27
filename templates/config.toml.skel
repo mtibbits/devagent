@@ -35,19 +35,19 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # table names). Upgrade note: pre-#240 plugin code GCs a pinned session's
 # live table on pull — update ALL long-lived sessions/caches before pinning.
 #
-# analyze: step-11 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
+# analyze: step-13 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
 # compile_commands.json + ASan/UBSan/TSan — the pre-#55 behavior). "shellcheck"
 # = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash;
 # a finding is NEW only when its line is in a changed hunk vs baseline, so
 # pre-existing repo noise never blocks; sanitizers are skipped (bats is the
-# dynamic coverage). "none" = step 11 self-marks [-] with a logged reason (no
+# dynamic coverage). "none" = step 13 self-marks [-] with a logged reason (no
 # manual skip needed). Any other value fails loud at analyze time.
 # analyze = "cmake"                      # cmake | shellcheck | none
 #
 # analyze_timeout: per-phase budget in SECONDS for the cmake analyze legs
 # (configure / build / ctest) — bounds a hung build or test that would otherwise
 # wedge an --auto chain forever (#351). Default 1800 (generous). Raise it for a
-# large/slow ctest suite; a leg exceeding it fails step 11 (#117). Sanitizer +
+# large/slow ctest suite; a leg exceeding it fails step 13 (#117). Sanitizer +
 # static build dirs are keyed per project+issue (build-<project>-<issue>[-<tag>]/)
 # so concurrent chains sharing a source tree never collide; cleanup removes them.
 # analyze_timeout = 1800
@@ -56,13 +56,13 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
 # fork_only         = false              # never reference upstream (fork is the only remote)
 # source_remote     = "origin"           # git remote that branches/PRs push to (e.g. "fork")
-# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-16 squash-merges (no default; unset = skip)
+# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = skip)
 # all_prs_auto_push = false              # push all_prs_branch after each merge-to-all
 # all_prs_remote    = "origin"           # remote for all_prs_branch (defaults to source_remote)
 # use_worktree      = false              # cut issue branches in a git worktree
 # worktree_root     = "<source_dir>-wt"  # parent dir for per-issue worktrees
 # include_coauthor  = true               # false strips Co-Authored-By from commits + PR bodies
-# commit_autostage  = false              # true: step 10 auto-stages the issue's
+# commit_autostage  = false              # true: step 12 auto-stages the issue's
 #                                        #   in-scope FILES (one file path per line in
 #                                        #   <issue-dir>/.devagent-scope) on a
 #                                        #   dirty-but-nothing-staged tree instead of
@@ -98,17 +98,17 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # catchup shows the current step's tier; tier names (not model IDs) are
 # forward-compatible. An absent table changes nothing; when set, next/catchup
 # surface the tier and checking-class steps also consume it as their subagent
-# dispatch model override (#151). Classes: thinking = steps 1 7 8 9 12, checking = 3 13 14 21, else default;
+# dispatch model override (#151). Classes: thinking = steps 2 9 10 11 14, checking = 5 15 16 17, else default;
 # a per-step override (numeric key) wins over its class.
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"
 # thinking = "opus"     # draft, implement, quality, document, draftmr
 # checking = "fable"    # improve, review, redmr, preship
-# "7"      = "fable"    # per-step override (implement) beats the class tier
+# "9"      = "fable"    # per-step override (implement) beats the class tier
 #
 # Per-issue override (#291): a `.devagent-step-models` file in the issue
 # directory holding ONE tier token (e.g. `fable`) pins the CHECKING-class
-# steps (3/13/14/21) for that issue, beating this whole table — numeric
+# steps (5/15/16/17) for that issue, beating this whole table — numeric
 # per-step keys included. The reserved token `inherit` stands the table down
 # and inherits the session model. An empty or multi-token marker fails loud
 # (like .devagent-baseline, #162) — never a silent fallback. Non-checking

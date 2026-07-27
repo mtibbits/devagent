@@ -6,8 +6,8 @@ setup() {
     # Pretend Issue-1 was shipped and has an MR URL stored.
     # Insert mr_url before [parked] so it is a top-level TOML key.
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "https://github.com/acme/testproj/pull/77"
-    # Mark step 15 done so sync considers this issue.
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 x
+    # Mark the ship step (18) done so sync considers this issue.
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x
 
     # Stub code/github.sh mr-state to return "merged".
     mkdir -p "$DEVAGENT_TMP/fake-code"
@@ -99,7 +99,7 @@ EOF
     # #107/F7: give 'other' a SHIPPED issue too, so --all has real per-project
     # work — otherwise the test passes even when --all iterates ZERO projects.
     mkdir -p "$DEVAGENT_TMP/devdoc/other/Issue-1"
-    printf -- '- [x] 15. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
+    printf -- '- [x] 18. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
     cat > "$HOME/.claude/devagent/state/other.toml" <<EOF
 active_issue = "Issue-1"
 issue_dir = "$DEVAGENT_TMP/devdoc/other/Issue-1"
@@ -141,7 +141,7 @@ fork     = "me/other"
 on_merge = "Done"
 EOF
     mkdir -p "$DEVAGENT_TMP/devdoc/other/Issue-1"
-    printf -- '- [x] 15. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
+    printf -- '- [x] 18. ship\n\n## Log\n' > "$DEVAGENT_TMP/devdoc/other/Issue-1/checklist.md"
     cat > "$HOME/.claude/devagent/state/other.toml" <<EOF
 active_issue = "Issue-1"
 issue_dir = "$DEVAGENT_TMP/devdoc/other/Issue-1"
@@ -193,8 +193,8 @@ EOF
 ## Revision 1
 
 - [x]  0. pull
-- [x] 15. ship
-- [x] 20. cleanup
+- [x] 18. ship
+- [x] 23. cleanup
 
 ## Log
 - 2026-05-19 14:00  pull: fixture seed
@@ -203,9 +203,9 @@ EOF
 
 ## Revision 2
 
-- [ ]  1. draft
-- [x] 15. ship
-- [ ] 20. cleanup
+- [ ]  2. draft
+- [x] 18. ship
+- [ ] 23. cleanup
 EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
@@ -230,7 +230,7 @@ EOF
 ## Revision 1
 
 - [x]  0. pull
-- [x] 15. ship
+- [x] 18. ship
 
 ## Log
 - 2026-05-19 14:00  pull: fixture seed
@@ -238,8 +238,8 @@ EOF
 
 ## Revision 2
 
-- [ ]  1. draft
-- [ ] 15. ship
+- [ ]  2. draft
+- [ ] 18. ship
 EOF
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
@@ -249,10 +249,10 @@ EOF
 # --- #363: sync unblocks + queues the closeout ------------------------------
 
 @test "sync unblocks a [?] closeout step to [ ] on merge, logs it (#363)" {
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 '?'
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' impact
     grep -q 'unblocked .* closeout step' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
@@ -271,17 +271,17 @@ EOF
     [[ "$output" == *"CLOSEOUT:"* ]]
     local n2; n2="$(grep -c '  sync:' "$DEVDOC_DIR/Issue-1/checklist.md")"
     [ "$n1" -eq "$n2" ]                                       # no extra log on marker-present path
-    sed -i -E 's/^- \[ \] (1[6-9]|20)\./- [x] \1./' "$DEVDOC_DIR/Issue-1/checklist.md"
+    sed -i -E 's/^- \[ \] (19|2[0-3])\./- [x] \1./' "$DEVDOC_DIR/Issue-1/checklist.md"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [[ "$output" != *"CLOSEOUT:"* ]]                          # all closeout terminal → silent
 }
 
 @test "sync unblocks+nudges with transition_issue off; #219 preserved (#363)" {
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 '?'
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' impact
     [[ "$output" == *"CLOSEOUT:"* ]]                                       # nudged
     [[ "$output" == *"transition_issue"* ]]                               # #219 skip-warn
     run grep 'merged .* on_merge fired' "$DEVDOC_DIR/Issue-1/checklist.md" # marker NOT written
@@ -290,11 +290,11 @@ EOF
 
 @test "sync leaves a NON-closeout [?] untouched (#363)" {
     # single-digit steps are space-aligned ("  7."), so match flexibly.
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?'
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?' implement
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 9 '?'
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 9 '?' implement
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 7 '?' implement
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 9 '?' implement
 }
 
 @test "sync does nothing (no CLOSEOUT) when the MR is still open (#363)" {
@@ -327,22 +327,22 @@ EOF
     cat > "$DEVDOC_DIR/Issue-1/checklist.md" <<'CL'
 # Issue-1 — checklist
 
-- [x] 15. ship
-- [x] 18. impact
+- [x] 18. ship
+- [x] 21. impact
 
 ## Log
 - 2026-05-19 10:00  ship: MR
 - 2026-05-19 11:00  revise: round 2
 
 ## Revision 2
-- [x] 15. ship
-- [?] 18. impact
+- [x] 18. ship
+- [?] 21. impact
 CL
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     # The rev-1 line stays [x]; the active rev-2 line flips to [ ].
-    grep -qE '^- \[x\] 18\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"    # rev-1 untouched
-    awk '/## Revision 2/{f=1} f && /18\. impact/{print}' "$DEVDOC_DIR/Issue-1/checklist.md" | grep -qE '^- \[ \] 18\. impact'
+    grep -qE '^- \[x\] 21\. impact' "$DEVDOC_DIR/Issue-1/checklist.md"    # rev-1 untouched
+    awk '/## Revision 2/{f=1} f && /21\. impact/{print}' "$DEVDOC_DIR/Issue-1/checklist.md" | grep -qE '^- \[ \] 21\. impact'
 }
 
 @test "sync.md carries the Closeout-handoff (CLOSEOUT) section (#363)" {
@@ -356,9 +356,9 @@ CL
     [ "$status" -eq 0 ]
     grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
     # A closeout step lands on [?] AFTER the marker (e.g. impact halted transiently).
-    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 '?'
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 '?'
     # The next sync takes the marker-PRESENT early-return path — it must still unblock.
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' impact
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' impact
 }

@@ -7,29 +7,30 @@ setup() {
   F="$BATS_TEST_TMPDIR/c.md"
   cat > "$F" <<'EOF'
 - [x]  0. pull
-- [x]  1. draft
-- [~]  2. scope
-- [ ]  3. improve
-- [-]  4. prune
-- [ ]  5. tighten
+- [x]  2. draft
+- [~]  4. scope
+- [ ]  5. improve
+- [-]  6. prune
+- [ ]  7. tighten
 EOF
 }
 
-@test "after step 2, next actionable is 3" {
-  run checklist_next_actionable "$F" 2
-  [ "$output" = "3" ]
-}
-@test "after step 3, skips [-] and returns 5" {
-  run checklist_next_actionable "$F" 3
+@test "after step 4, next actionable is 5" {
+  run checklist_next_actionable "$F" 4
   [ "$output" = "5" ]
 }
-@test "after step 5, returns empty" {
+@test "after step 5, skips [-] and returns 7" {
   run checklist_next_actionable "$F" 5
+  [ "$output" = "7" ]
+}
+@test "after step 7, returns empty" {
+  run checklist_next_actionable "$F" 7
   [ -z "$output" ]
 }
 
 @test "follows file order not step number: after 11 (listed before 10) returns 10 [#77]" {
-  # The pre-#116 11-before-10 layout (analyze before commit), still live in
+  # LEGACY OLD-SCHEME fixture, deliberately not renumbered (#558): the pre-#116
+  # 11-before-10 layout (analyze before commit), still live in
   # checklists cut before the reorder. The next
   # actionable after 11 is 10 on the NEXT line — not 12, which a step-number
   # comparison (n > 11) would wrongly pick while silently skipping commit.

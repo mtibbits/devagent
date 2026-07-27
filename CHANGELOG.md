@@ -12,6 +12,51 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Changed — 2026-07-26 (#558)
+- **Workflow steps are renumbered to execution order.** Checklist numbers are
+  now POSITIONS, not permanent IDs: the standard template reads `0 pull` …
+  `23 cleanup` top-to-bottom. Old `21 preship` is now `17`, optional old
+  `22 research` is now `1`, and old `23 spike` is now `3`. The workflow is
+  described as **24-step** throughout (24 numbered step commands, 22 of them
+  mandatory). Execution order is unchanged — dispatch is by step NAME and
+  file order was always the authority.
+
+  **Upgrading with work in flight — run the migrator first.** A checklist
+  scaffolded before this release carries the old numbers. The seven script
+  **self-marks** now **hard-stop** on it rather than marking the wrong row
+  (`checklist_mark` refuses when the number's row name does not match the
+  calling step), and command-doc handoffs mark by NAME, which is
+  scheme-proof. Callers outside those two classes (e.g. `unstuck.sh`'s
+  file-wide `[!]` scan) are NOT guarded — one more reason to migrate before
+  resuming:
+
+  ```bash
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --dry-run --all
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --all
+  ```
+
+  It is keyed by step NAME (correct on old, a no-op on current, safe on a
+  mixed file), idempotent, and reversible with `--reverse` if you roll #558
+  back. `--all` covers projects present in `config.toml`; pass any other issue
+  directory explicitly. Completed checklists are skipped by design.
+  `/devagent:revise` remains an alternative — it opens a fresh, correctly
+  numbered revision block — but the migrator is the direct remedy the
+  hard-stop message names.
+
+  Without migrating, the older symptom also applies: `[project.<name>.step_models]` tier
+  resolution is keyed to the step NUMBER read from the checklist, so an
+  old-numbered checklist resolves the WRONG model class: old `3 improve`,
+  `13 review` and `21 preship` fall back to the default tier, and old
+  `14 redmr` resolves as *thinking*. Run `/devagent:revise` to regenerate the
+  checklist's revision block with current numbering before relying on a tier
+  override. Steps that can be invoked outside a revision block (`research`,
+  `spike`) now read and mark by NAME (`checklist-mark.sh --by-name`), so a
+  checklist holding both schemes cannot be mis-marked.
+
+  Numeric per-step keys in `[project.<name>.step_models]` (e.g.
+  `"13" = "opus"`) must be remapped by hand; the class keys (`thinking` /
+  `checking` / `default`) are unaffected.
+
 ### Added — 2026-07-25 (#461)
 - `docs-site/`: six audience-facing onboarding pages (what is devAgent,
   install, quickstart, workflow reference, configuration, multi-project &
@@ -33,8 +78,8 @@ tag`) will get their own dated sections below.
 Current capabilities as of this commit:
 
 ### Core
-- **57 slash commands** driving a fixed **22-step issue workflow** (plus the optional
-  research step 22 and spike step 23), with all
+- **57 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
+  plus the optional research step 1 and spike step 3), with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.
 - `next`/`capture`/`ship` converted from commands to user-invocable skills with

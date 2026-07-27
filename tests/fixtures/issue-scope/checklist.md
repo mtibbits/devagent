@@ -9,9 +9,9 @@ Active revision: 1
 ## Revision 1
 
 - [x]  0. pull
-- [x]  1. draft
-- [~]  2. scope            ← active
-- [ ]  3. improve
+- [x]  2. draft
+- [~]  4. scope            ← active
+- [ ]  5. improve
 
 ## Log
 - 2026-05-19 09:00  pull: fetched gnuradio/volk#999, scaffold created

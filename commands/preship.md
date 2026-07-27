@@ -1,13 +1,13 @@
 ---
-description: "Step 21: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship."
+description: "Step 17: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship."
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill, Agent
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 
 # /devagent:preship
 
-Step 21 of the devAgent 22-step workflow (file-ordered between redmr (14)
-and ship (15); the number is unique — file order is execution authority).
+Step 17 of the devAgent 24-step workflow (between redmr (16) and ship (18);
+since #558 the numbers agree with file order by construction).
 The verification runs in the `devagent:preship-verifier` agent, which cannot
 write files and carries the five verifications as its system prompt; this
 command resolves the tier, dispatches, writes the returned artifact to
@@ -21,7 +21,7 @@ Per `commands/draft.md`.
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify `mr.md` exists (draftmr ran) and the redmr artifact exists —
-   UNLESS the issue's checklist does not contain step 14 (docs-only): a
+   UNLESS the issue's checklist does not contain step 16 (docs-only): a
    prerequisite whose producing step is absent is **N/A**, and the review
    report alone is the findings input. Do not halt on the absent step;
    DO halt when the step is present but its artifact is missing.
@@ -45,8 +45,8 @@ verbatim, substituting this step's per-step deltas:
 - **`<INTRO>`** — Fresh context is not conditional; the model override is. The
   implementing session reviews what it remembers intending; preship reviews what
   is on disk.
-- **`<STEP>`** (canonical step number) — `21`; the main session resolves the
-  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 21`.
+- **`<STEP>`** (canonical step number) — `17`; the main session resolves the
+  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 17`.
 - **`<AGENT>`** (bound agent) — `preship-verifier`: rc 0 dispatches the Agent
   tool with `subagent_type: devagent:preship-verifier`; rc 3 dispatches the
   Agent tool with an explicit `model: opus` (the wrapper-carried step default)
@@ -64,12 +64,12 @@ verbatim, substituting this step's per-step deltas:
 - ANY FAIL ⇒ run
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" "$ISSUE_DIR" "preship: <one-line failure list>"`
   and STOP. NB: checklist-stuck.sh takes NO step-number argument — it marks the
-  CURRENT step, which is preship when steps 0-14 are terminal (guaranteed under
+  CURRENT step, which is preship when steps 0-16 are terminal (guaranteed under
   next.sh dispatch; on manual out-of-order invocation, verify the checklist's
   current step is 21 first). The `[!]` plus STUCK file is the halt next.sh
   honors (exit 1 + STUCK display); recovery is `/devagent:unstuck` after
   addressing the failures, then re-run preship.
-- All PASS ⇒ mark step 21 `[x]` per the Completion handoff below.
+- All PASS ⇒ mark step 17 `[x]` per the Completion handoff below.
 
 ## Zero-diff (artifact-only) issues
 
@@ -81,8 +81,8 @@ the state (the #116/#242 discipline).
 ## Halt and ask if
 
 - `mr.md` missing (run draftmr first).
-- Step 14 present in the checklist but no `analysis/*-redmr.md` (and the
-  docs-only inverse: step 13 present but no review artifact).
+- Step 16 present in the checklist but no `analysis/*-redmr.md` (and the
+  docs-only inverse: step 15 present but no review artifact).
 - State lacks `baseline_sha`/`branch` (preship cannot identify the push
   content) — fix state, do not guess.
 
@@ -106,11 +106,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" preship x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

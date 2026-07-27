@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:draftmr
 
-Step 12 of the 22-step devAgent workflow. Invokes the
+Step 14 of the 24-step devAgent workflow. Invokes the
 `core-draft-mr` skill to fill the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) from the
 issue's artifacts and write `<issue-dir>/mr.md`.
 
@@ -18,8 +18,8 @@ Per `commands/draft.md`.
 
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify analyze step completed (`<issue-dir>/analysis/` exists) — UNLESS the
-   issue's `checklist.md` does not contain the analyze step (step 11), as in the
-   docs-only checklist, OR step 11 is marked `[-]` (self-skipped: the project
+   issue's `checklist.md` does not contain the analyze step (step 13), as in the
+   docs-only checklist, OR step 13 is marked `[-]` (self-skipped: the project
    sets `analyze = "none"`, #55 — the skip reason is in the checklist log). A
    prerequisite whose producing step is absent from the issue's checklist or
    legitimately self-skipped is **N/A**: skip this check and proceed, do not
@@ -30,9 +30,9 @@ Per `commands/draft.md`.
 
 ## Halt and ask if
 
-- analyze step did not run (no analysis/ dir) **and** the analyze step (11) is
+- analyze step did not run (no analysis/ dir) **and** the analyze step (13) is
   present in the issue's checklist **and** not marked `[-]`. If the checklist
-  omits analyze (docs-only) or step 11 self-skipped (`analyze = "none"`, #55),
+  omits analyze (docs-only) or step 13 self-skipped (`analyze = "none"`, #55),
   analyze is N/A — do not halt.
 - actualWork.md missing.
 - mr.md already exists with content (overwrite? revise? abort?).
@@ -48,11 +48,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" draftmr x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

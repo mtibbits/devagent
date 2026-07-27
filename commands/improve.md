@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:improve
 
-Step 3 of the 22-step devAgent workflow. The check runs in the
+Step 5 of the 24-step devAgent workflow. The check runs in the
 `devagent:plan-improver` agent, which cannot write files and carries the
 checking procedure (three finding categories + the #286 pothole tripwire) as
 its system prompt; it reads the plan cold and resolves the pothole register
@@ -74,8 +74,8 @@ verbatim, substituting this step's per-step deltas:
 - **`<INTRO>`** — Fresh context is what makes the check real; the model override
   is conditional. The `core-improve` skill invoked below is a fork prompt bound
   to the agent — invoking it IS the fresh-context dispatch.
-- **`<STEP>`** (canonical step number) — `3`; the main session resolves the
-  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 3`.
+- **`<STEP>`** (canonical step number) — `5`; the main session resolves the
+  tier per rung 1 with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 5`.
 - **`<AGENT>`** (bound agent) — `plan-improver`: rc 0 dispatches the Agent tool
   with `subagent_type: devagent:plan-improver`; rc 3 dispatches the Agent tool
   with an explicit `model: opus` (the wrapper-carried step default) and stamps
@@ -83,9 +83,9 @@ verbatim, substituting this step's per-step deltas:
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-improve`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md` and
   `imPlan.md` (including its `## Scope evaluation` AND its `## Load-bearing unknowns`
-  section), `checklist.md` (the spike tripwire GATES on row 23's glyph, so the checker
+  section), `checklist.md` (the spike tripwire GATES on the spike row's glyph, so the checker
   must be able to read it — #536 redmr), plus `spike.md` when it exists (#536). The unknowns + spike verdicts are
-  packaged EXPLICITLY because the step-3 checklist carries a tripwire over them, and a
+  packaged EXPLICITLY because the step-5 checklist carries a tripwire over them, and a
   checklist item the checker never RECEIVES is a dead tripwire (#286).
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   pothole register itself via `template.sh --project <project> show potholes`
@@ -117,11 +117,12 @@ First, **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" improve x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

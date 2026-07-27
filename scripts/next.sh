@@ -163,6 +163,19 @@ main() {
       if [[ -n "$through" && "$name" == "$through" ]]; then
         return 0
       fi
+      # #558: ADVANCE GUARD. The loop assumes a script step marks its own row,
+      # so a step that exits 0 WITHOUT marking makes the next iteration
+      # re-dispatch the same row — an unbounded loop with no cap (observed:
+      # commit.sh marking a renumbered row on an older checklist re-ran
+      # thousands of times, writing a log line each pass). Re-read the current
+      # step; if the dispatched script left it unchanged, stop loudly instead
+      # of spinning. Failing here is always better than a runaway: the step
+      # either genuinely did nothing, or marked the WRONG row.
+      local after
+      after="$(checklist_current_step "$checklist" 2>/dev/null || true)"
+      if [[ "$after" == "$cur" ]]; then
+        die "step $cur ($name) exited 0 but did not mark itself — refusing to re-dispatch (would loop). Its script may have marked a different row: on a checklist predating the #558 renumber, migrate with scripts/migrate-checklist-numbering.sh or start a fresh revision with /devagent:revise."
+      fi
       # Loop: re-read checklist and advance.
       continue
     else

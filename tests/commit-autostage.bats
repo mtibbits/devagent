@@ -29,7 +29,7 @@ _enable_autostage() {
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"git add"* ]]
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
@@ -39,7 +39,7 @@ _enable_autostage() {
     printf 'README.md\n' > "$DEVDOC_DIR/Issue-1/.devagent-scope"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    grep -qE '^\- \[x\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qE '^\- \[x\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     # README.md is in the new commit.
     ( cd "$SOURCE_DIR" && git show --stat --name-only --format= HEAD ) | grep -qx "README.md"
     # Tree is clean afterwards (the only dirty path was staged + committed).
@@ -66,7 +66,7 @@ _enable_autostage() {
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *".devagent-scope"* ]]
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
@@ -119,7 +119,7 @@ _enable_autostage() {
     [ "$status" -ne 0 ]
     # Nothing was staged (no over-capture of UNRELATED.txt).
     [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
@@ -139,6 +139,6 @@ _enable_autostage() {
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [ -z "$( cd "$SOURCE_DIR" && git diff --cached --name-only )" ]
-    run grep -qE '^\- \[-\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^\- \[-\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }

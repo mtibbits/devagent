@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/transition-draft-start.sh — workflow step 1 (draft) hook. Fire the
+# scripts/transition-draft-start.sh — workflow step 2 (draft) hook. Fire the
 # on_draft_start tracker transition at the START of the draft step, gated by
 # permissions.transition_issue (#325). Before this, on_draft_start was set in
 # both live configs and claimed by spec §11 but fired by NOTHING — a standing

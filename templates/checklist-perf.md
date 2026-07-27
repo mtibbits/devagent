@@ -9,27 +9,27 @@ Active revision: 1
 ## Revision 1
 
 - [ ]  0. pull
-- [-] 22. research
-- [ ]  1. draft
-- [-] 23. spike
-- [ ]  2. scope
-- [ ]  3. improve
-- [ ]  4. prune
-- [ ]  5. tighten
-- [ ]  6. branch
-- [ ]  7. implement
-- [ ]  8. quality
-- [ ]  9. document
-- [ ] 10. commit
-- [ ] 11. analyze
-- [ ] 12. draftmr
-- [ ] 13. review
-- [ ] 14. redmr
-- [ ] 21. preship
-- [ ] 15. ship
-- [ ] 16. mergetoall
-- [ ] 18. impact
-- [ ] 19. lessonslearned
-- [ ] 20. cleanup
+- [-]  1. research
+- [ ]  2. draft
+- [-]  3. spike
+- [ ]  4. scope
+- [ ]  5. improve
+- [ ]  6. prune
+- [ ]  7. tighten
+- [ ]  8. branch
+- [ ]  9. implement
+- [ ] 10. quality
+- [ ] 11. document
+- [ ] 12. commit
+- [ ] 13. analyze
+- [ ] 14. draftmr
+- [ ] 15. review
+- [ ] 16. redmr
+- [ ] 17. preship
+- [ ] 18. ship
+- [ ] 19. mergetoall
+- [ ] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
 
 ## Log

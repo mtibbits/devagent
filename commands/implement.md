@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:implement
 
-Step 7 of the 22-step devAgent workflow. Invokes the upstream
+Step 9 of the 24-step devAgent workflow. Invokes the upstream
 `superpowers:executing-plans` skill against `<issue-dir>/imPlan.md`.
 
 ## Argument parsing
@@ -20,21 +20,21 @@ Per `commands/draft.md`.
    set and the working tree is on that branch). If not, halt — UNLESS the
    issue's ACTIVE revision block (the last `## Revision N` in
    `checklist.md` — after a #537 retier, earlier blocks may carry rows
-   the current tier omits) contains no branch row (step 6), as in the
+   the current tier omits) contains no branch row (step 8), as in the
    oneshot checklist.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt
    (branch produces the branch): with no branch step, implement acts as an
    operational one-shot on the current tree and must produce no repo diff.
 3. Verify `imPlan.md` has a `## Definition of done` section (proves
    tighten ran). If absent, halt — UNLESS the active revision block
-   contains no draft row (step 1): the producing step is absent, so the
+   contains no draft row (step 2): the producing step is absent, so the
    check is N/A (draft produces imPlan.md); the issue body's
    `## Proposed behavior` and acceptance criteria are then the work
    statement.
 4. Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`
    as the plan path — UNLESS the active revision block contains no draft
-   row (step 1): there is no imPlan.md, so skip the executing-plans
-   dispatch and execute directly against the issue body (per step 3's
+   row (step 2): there is no imPlan.md, so skip the executing-plans
+   dispatch and execute directly against the issue body (per item 3's
    carve-out). Pass `$NOTE` as additional context the executor
    should consider (e.g., "skip task 4 — already merged upstream").
 
@@ -43,7 +43,7 @@ Per `commands/draft.md`.
    `$ISSUE_DIR/imPlan.md` directly: task-by-task in plan order, running
    each task's stated test/verify steps before moving on, one signed-off
    commit per task (`git commit -s` — the same granularity the wrapped
-   skill defaults to); steps 5–6 of this command apply unchanged. Print
+   skill defaults to); items 5–6 of this command apply unchanged. Print
    the nudge line verbatim and continue:
    `recommended: claude plugin install superpowers@claude-plugins-official`
 5. Implementation happens task-by-task per the wrapped skill's
@@ -59,9 +59,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement \
 ## Halt and ask if
 
 - Working tree is not on the issue's branch **and** the active revision
-  block contains the branch step (6).
+  block contains the branch step (8).
 - `imPlan.md` lacks Definition of done **and** the active revision block
-  contains the draft step (1).
+  contains the draft step (2).
 - A task fails halfway through — surface the failure and let the
   operator decide whether to mark the step `[!]` stuck (via
   `/devagent:stuck`) or retry.
@@ -74,8 +74,8 @@ itself — without code change the rest of the pipeline is meaningless.
 
 ## Commit discipline
 
-Per-task commits (Workflow step 5 above) are the norm. Two rules make
-commit (10) and ship (15) safe:
+Per-task commits (Workflow item 5 above) are the norm. Two rules make
+commit (12) and ship (18) safe:
 
 - `git add` NEW files in the same task commit that creates them; an
   untracked file that never gets added ships an incomplete PR (#25's
@@ -83,14 +83,14 @@ commit (10) and ship (15) safe:
 - Leave nothing uncommitted at the end of this step. The commit step
   (10) verifies everything is on the branch — it succeeds as a no-op
   when per-task commits already captured all work, and fails loudly
-  on a dirty tree. Analyze (11) then runs against the committed work;
+  on a dirty tree. Analyze (13) then runs against the committed work;
   post-analyze fixes are new signed-off commits (squash-on-merge
   absorbs the noise — spec §11).
 
 ## Completion handoff
 
 First, **record the in-scope manifest** — only when the active project sets
-`commit_autostage=true`, run record-scope so step 10's #251 autostage can stage
+`commit_autostage=true`, run record-scope so step 12's #251 autostage can stage
 exactly this issue's edited files with no hand-written `.devagent-scope`. It is a
 no-op for projects without `commit_autostage=true`, and it preserves an
 operator-authored `.devagent-scope` (it only regenerates manifests it created):
@@ -107,7 +107,7 @@ ephemeral worktree at baseline (never mutating your tree) and writes
 new test was green at baseline (never-red / vacuous); fix it to fail without the
 change, or allowlist it with a reason in `<issue-dir>/.devagent-born-red-allow`,
 before marking this step. No-op for projects without `born_red=true` (and for
-non-bats/pytest work). commit.sh (step 10) also hard-blocks on a FLAGGED artifact.
+non-bats/pytest work). commit.sh (step 12) also hard-blocks on a FLAGGED artifact.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh"
@@ -118,11 +118,12 @@ Then **mark this step done** — `next.sh` keys off the checklist mark
 this same step forever:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" "$ISSUE_DIR" <N> x
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" implement x
 ```
 
-`<N>` is this step's number on the issue's checklist; use `-` instead of
-`x` if the step was skipped. Then run the Logging command above (if this
+This step marks itself BY NAME, not by number — the row's number differs
+between a pre-#558 checklist and a current one, and the name does not.
+Use `-` instead of `x` if the step was skipped. Then run the Logging command above (if this
 skill/command defines one).
 
 **STOP.** Do not invoke any other `/devagent:*` command on your own.

@@ -65,7 +65,7 @@ ask code_fork     "code fork (org/name)"     ""      DA_INIT_CODE_FORK
 # typed approval — default stays OFF; only an explicit yes enables it.
 ask git_guard_ans "Enable the git-reflex guard? (blocks reflexive stash/checkout--/restore/clean on a dirty tree; default off)" "n" DA_INIT_GIT_GUARD
 
-# #437: ask the step-11 analyze family, and — ONLY when it is cmake — surface the
+# #437: ask the step-13 analyze family, and — ONLY when it is cmake — surface the
 # analyze_timeout key so it is discoverable at init (previously only the skel
 # comment named it). A large TSan ctest suite (e.g. volk-scale) can exceed the
 # 1800s default and get silently killed mid-run; offering the key at init lets the

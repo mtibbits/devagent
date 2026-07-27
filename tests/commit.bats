@@ -25,7 +25,7 @@ teardown() { devagent_test_teardown; }
     echo "$msg" | grep -qx "feat: add a.txt"
     echo "$msg" | grep -q "Issue: Issue-1"
     echo "$msg" | grep -q "^Signed-off-by:"
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
 }
 
 @test "commit.sh dies when the latest born-red artifact is FLAGGED (#362)" {
@@ -123,7 +123,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"feat/1-x"* ]]                          # names the expected issue branch
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 ' ' commit
     # The work-loss is actually prevented: nothing was committed anywhere — a.txt is
     # still staged-but-uncommitted, not landed on the wrong branch.
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt
@@ -137,7 +137,7 @@ teardown() { devagent_test_teardown; }
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     [[ "$output" == *"detached HEAD"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 ' ' commit
     ( cd "$SOURCE_DIR" && git diff --cached --name-only ) | grep -qx a.txt   # work preserved, not committed
 }
 
@@ -158,7 +158,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [[ "$output" == *"already committed"* ]]
     # No new commit was created.
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$head_before" ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
 }
 
 @test "commit.sh dies loud on dirty-unstaged tree even with commits ahead (#116/#25)" {
@@ -173,7 +173,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
 @test "commit.sh no-op ignores analyze-owned clutter via .gitignore (#324)" {
     # The #25 guard fires on analyze-owned clutter (build-asan/, err, .claude/)
     # left in the tree, forcing a manual mark (9 issues paid this). devagent's
-    # own .gitignore must cover it, so the step-10 no-op path passes untouched.
+    # own .gitignore must cover it, so the step-12 no-op path passes untouched.
     base="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     # devagent's REAL .gitignore, tracked so it doesn't itself dirty the tree.
     cp "${BATS_TEST_DIRNAME}/../.gitignore" "$SOURCE_DIR/.gitignore"
@@ -195,7 +195,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     [ "$status" -ne 0 ]
     [[ "$output" == *"refusing to commit"* ]]
     # Step 10 must NOT be marked done.
-    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
+    run assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
     [ "$status" -ne 0 ]
 }
 
@@ -207,18 +207,18 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"cannot classify"* ]]
-    run grep -qE '^- \[(x|-)\] +10\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run grep -qE '^- \[(x|-)\] +12\. commit' "$DEVDOC_DIR/Issue-1/checklist.md"
     [ "$status" -ne 0 ]
 }
 
 @test "commit refuses an empty branch when the branch step is done — resume-after-cleanup (#316)" {
     # The state resume-after-cleanup leaves behind: active_issue set, the issue's
-    # recorded branch reset to "", but the branch step (6) still [x] — a branch
+    # recorded branch reset to "", but the branch step (8) still [x] — a branch
     # DID exist and was lost. A BARE commit (no arg, no pin) must refuse: the
     # #240 guard only covers pinned/arg sessions, so without #316 the bare flow
-    # would commit staged work onto whatever HEAD is on and mark step 10 [x].
+    # would commit staged work onto whatever HEAD is on and mark step 12 [x].
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch ""
-    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
+    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 8 x
     local before; before="$( cd "$SOURCE_DIR" && git rev-parse HEAD )"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"      # BARE: no Issue-1 arg
     [ "$status" -ne 0 ]
@@ -226,7 +226,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # Nothing committed (HEAD unchanged).
     [ "$( cd "$SOURCE_DIR" && git rev-parse HEAD )" = "$before" ]
     # Step 10 stays pending.
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 ' ' commit
 }
 
 @test "commit still tolerates an empty branch when the branch step is NOT done — legacy bare flow (#316)" {
@@ -237,7 +237,7 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
 }
 
 @test "commit does NOT refuse a healthy recorded branch with the branch step done, bare flow (#316 regression)" {
@@ -245,12 +245,12 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     # step [x] on the bare path must commit normally (the #316 guard fires only
     # on an EMPTY branch). Mirrors the doctor healthy regression. setup already
     # recorded branch=feat/1-x and staged a.txt on feat/1-x.
-    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 6 x
+    bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 8 x
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '{{type}}: {{title}}' > "$DEVDOC_DIR/templates/commit_template.md"
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 x commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 12 x commit
 }
 
 @test "commit.sh dies when born_red=true but no born-red artifact exists (#409)" {
