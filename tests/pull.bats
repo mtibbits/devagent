@@ -67,6 +67,29 @@ teardown() { teardown_tmp_devagent_home; }
   grep -q "issue_dir *= *\"$DEVDOC/Issue-676\"" "$DA_HOME/state/volk.toml"
 }
 
+@test "pull keeps mergetoall pre-skipped without all_prs_branch" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[-\] 19\. mergetoall' "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "pull flips mergetoall to pending when the project sets all_prs_branch" {
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/volk"
+devdoc_dir = "$DEVDOC"
+all_prs_branch = "dev/all-prs"
+
+[project.volk.issue_source]
+backend = "github"
+repo = "gnuradio/volk"
+dir_prefix = "Issue-"
+EOF
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] 19\. mergetoall' "$DEVDOC/Issue-676/checklist.md"
+}
+
 @test "pull is idempotent on issue.md (refetch overwrites, checklist preserved)" {
   "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   # Tamper with the checklist so we can prove it wasn't blown away

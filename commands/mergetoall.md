@@ -11,7 +11,17 @@ Invokes `scripts/mergetoall.sh` with the parsed arguments per spec §6.1.
 **Optional step, off by default:** checklists scaffold row 19 pre-skipped
 `[-]`; configuring the per-project `all_prs_branch` flips it back to pending
 at scaffold time. The script keeps its own unconfigured/zero-diff auto-skip
-as a runtime backstop.
+as a runtime backstop — that covers config REMOVED mid-issue only. Adding
+`all_prs_branch` mid-issue does not re-open an already-scaffolded `[-]` row
+(next.sh never dispatches a skipped row); opt that issue in manually:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-mark.sh" --by-name <issue-dir> mergetoall " "
+```
+
+The manual opt-in is per-revision: `/devagent:revise` (and `--retier`)
+re-applies the config-derived glyph in the new revision block, matching
+research/spike semantics — re-mark after revising if still wanted.
 
 **What it does (local only):**
 1. `git checkout <all_prs_branch>` (e.g. `dev/all-prs`)

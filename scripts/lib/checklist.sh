@@ -56,7 +56,9 @@ checklist_filter_mergetoall() {
     all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
   fi
   if [[ -n "$all_prs" ]]; then
-    sed 's/^- \[-\]\([[:space:]]\{1,\}[0-9]\{1,\}\. mergetoall\)$/- [ ]\1/'
+    # Trailing [[:space:]]* tolerates CR / trailing blanks in devdoc override
+    # templates (a $-anchored match silently no-ops on CRLF under GNU sed).
+    sed 's/^- \[-\]\([[:space:]]\{1,\}[0-9]\{1,\}\. mergetoall[[:space:]]*\)$/- [ ]\1/'
   else
     cat
   fi

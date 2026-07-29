@@ -12,6 +12,25 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Changed — 2026-07-29
+- **Step 19 (`mergetoall`) is now optional and off by default.** Checklist
+  templates (standard, perf, docs-only) and revision blocks scaffold the row
+  pre-marked `[-]` (skipped); configuring the per-project `all_prs_branch`
+  flips it back to `[ ]` pending at scaffold time (pull, revise, and
+  `--retier` all apply the same filter). The workflow is now counted as
+  21 mandatory + 3 optional steps.
+
+  **Upgrading:** if you rely on step 19 without `all_prs_branch` set (e.g.
+  invoking `/devagent:mergetoall` manually), set `all_prs_branch` in
+  `[project.<name>]` — otherwise new checklists and revision blocks ship the
+  row skipped and `/devagent:next --auto` sails past it. Checklists
+  scaffolded before this release are untouched: a pending row 19 stays
+  pending, and `mergetoall.sh`'s runtime auto-skip still covers the
+  unconfigured and zero-diff cases at dispatch. A manual per-issue opt-in
+  (`checklist-mark.sh --by-name mergetoall` back to pending) does NOT survive
+  `/devagent:revise` — the new revision block re-applies the config-derived
+  glyph, matching research/spike semantics.
+
 ### Changed — 2026-07-26 (#558)
 - **Workflow steps are renumbered to execution order.** Checklist numbers are
   now POSITIONS, not permanent IDs: the standard template reads `0 pull` …

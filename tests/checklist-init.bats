@@ -92,3 +92,20 @@ EOC
   [ "$status" -eq 0 ]
   grep -qE '^- \[-\] 19\. mergetoall$' "$ISSUE_DIR/checklist.md"
 }
+
+@test "the mergetoall flip tolerates trailing whitespace/CR in an override template row" {
+  # A devdoc override template (#120 registry) may carry CRLF or trailing
+  # spaces; the flip must not silently no-op on such a row (redmr MINOR).
+  cat > "$DA_HOME/config.toml" <<EOC
+[project.tp]
+source_dir = "$BATS_TEST_TMPDIR/src"
+devdoc_dir = "$BATS_TEST_TMPDIR/devdoc"
+all_prs_branch = "dev/all-prs"
+EOC
+  mkdir -p "$BATS_TEST_TMPDIR/devdoc/templates"
+  printf -- '- [ ]  0. pull\n- [-] 19. mergetoall \r\n- [ ] 23. cleanup\n\n## Log\n'     > "$BATS_TEST_TMPDIR/devdoc/templates/checklist-standard.md"
+  ISSUE_DIR="$DA_HOME/Issue-m4"
+  DEVAGENT_ACTIVE_PROJECT=tp run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] 19\. mergetoall[[:space:]]*$' "$ISSUE_DIR/checklist.md"
+}
