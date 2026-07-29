@@ -668,3 +668,59 @@ EOF
   [ "$status" -eq 0 ]
   [ ! -f "$DEVDOC/Issue-741/.devagent-step-models" ]
 }
+
+# ---- #561 AC12: backwards compatibility, in-suite regression net ------------
+#
+# The EVIDENCE for AC12 is the two-checkout capture-diff recorded in the issue's
+# analysis/<date>-byte-identical.txt (plan Task 9b) — a hermetic bats run sits at
+# ONE checkout and cannot compare against the merge base. These cases are the
+# regression net that keeps the pinned behavior from drifting afterwards.
+
+@test "#561 AC12: no model keys and no steering labels writes NO marker at all" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+default  = "haiku"
+EOF
+  # the stub's DEFAULT labels (bug, performance) are deliberately non-tier:*
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 750
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-750"
+  [ ! -f "$d/.devagent-step-models" ]
+  grep -q '^Template: standard$' "$d/checklist.md"
+  # every class resolves the config chain, exactly as before #561
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+  [ "$(_step_tier 9 "$d")"  = "sonnet" ]
+  [ "$(_step_tier 12 "$d")" = "haiku" ]
+  # and pull emitted no steering warning at all
+  [[ "$output" != *"steering label"* ]]
+  [[ "$output" != *"model annotation"* ]]
+}
+
+@test "#561 AC12: a LEGACY bare-token marker keeps its exact shipped behavior" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+default  = "haiku"
+EOF
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 751
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-751"
+  # hand-dropped legacy marker, the #291 flow
+  printf 'fable' > "$d/.devagent-step-models"
+  # checking class takes the token; nothing else sees it
+  for s in 5 15 16 17; do [ "$(_step_tier "$s" "$d")" = "fable" ]; done
+  for s in 2 9 10 11 14; do [ "$(_step_tier "$s" "$d")" = "sonnet" ]; done
+  [ "$(_step_tier 12 "$d")" = "haiku" ]
+  # reserved token still rc 2, still checking-only
+  printf 'inherit' > "$d/.devagent-step-models"
+  run "$PLUGIN_ROOT/scripts/step-model.sh" volk 16 "$d"
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/step-model.sh" volk 9 "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = "sonnet" ]
+}
