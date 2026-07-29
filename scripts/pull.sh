@@ -81,11 +81,79 @@ main() {
     [[ -n "$template" ]] || template="$(config_get_default checklist_template 2>/dev/null || echo standard)"
     [[ -n "$template" ]] || template="standard"
     tier="$(flags_get "$issue_dir/issue.md" tier || true)"
+    local _shim_checking=""
     if [[ -n "$tier" ]]; then
-      tier_require_legal "$tier" " in ## Workflow flags"
-      template="$tier"
+      # #561 COMPAT SHIM: `tier: <model>-checking` is a MODEL annotation from a
+      # convention that predates #537's claim on the `tier:` key (koopman-gnn used
+      # it for "which model runs the checking steps"). #537 made those bodies die
+      # pre-path; this intercepts the shape BEFORE tier_require_legal so they pull
+      # again, leaving `template` on the project default chain.
+      # PERMANENT grammar, warn-ALWAYS: the warning IS the migration nudge, and a
+      # removal date would orphan capture drafts that are not yet filed.
+      # tier_shim_model is non-fatal by contract, so it is safe in $().
+      if _shim_checking="$(tier_shim_model "$tier")"; then
+        printf "pull.sh: warn: 'tier: %s' is a model annotation, not a template tier — interpreted as 'checking-model: %s'; prefer 'checking-model:'\n" \
+          "$tier" "$_shim_checking" >&2
+      else
+        # Not the shim shape ⇒ a genuinely unknown tier still dies listing the
+        # legal template names, exactly as #537 shipped it.
+        _shim_checking=""
+        tier_require_legal "$tier" " in ## Workflow flags"
+        template="$tier"
+      fi
     fi
+
+    # #561: the two per-issue model keys, resolved into ONE scalar per class.
+    # Values are captured FIRST (flags_get is non-fatal, safe in $()), and only
+    # THEN validated by a helper that dies — so the die executes in the main
+    # shell rather than in a subshell that would swallow it (register: Issue-120,
+    # a die-exiting resolver cannot live inside $()). Two plain scalars, not a
+    # packed token or setter-globals reached through a subshell (Issue-282).
+    # ALL of this runs BEFORE checklist_init, so a rejected value leaves neither
+    # a checklist nor a marker behind — the #537 precedent pinned by
+    # tests/pull.bats:345-352.
+    local _body_thinking _body_checking _want_thinking="" _want_checking=""
+    _body_thinking="$(flags_get "$issue_dir/issue.md" implementation-model || true)"
+    _body_checking="$(flags_get "$issue_dir/issue.md" checking-model || true)"
+    if [[ -n "$_body_thinking" ]]; then
+      model_token_require_legal "$_body_thinking" " in ## Workflow flags (implementation-model)"
+    fi
+    if [[ -n "$_body_checking" ]]; then
+      model_token_require_legal "$_body_checking" " in ## Workflow flags (checking-model)"
+    fi
+
+    # Per-class precedence, body sources only: explicit key > `tier:` shim.
+    # (The label rung is appended below this, as the lowest.)
+    _want_thinking="$_body_thinking"
+    if [[ -n "$_body_checking" ]]; then
+      _want_checking="$_body_checking"
+      if [[ -n "$_shim_checking" ]]; then
+        printf "pull.sh: warn: explicit 'checking-model: %s' beats 'tier: %s-checking' — using '%s'\n" \
+          "$_body_checking" "$_shim_checking" "$_body_checking" >&2
+      fi
+    elif [[ -n "$_shim_checking" ]]; then
+      _want_checking="$_shim_checking"
+    fi
+
     ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template" "$project"
+
+    # #561: write the per-issue marker from the resolved per-class steering.
+    # Scaffold-branch only, like `tier:` — a key added after first scaffold is
+    # inert on re-pull, and the documented post-scaffold path is hand-editing
+    # this file. An EXISTING marker is never stomped for that same reason.
+    if [[ -n "$_want_thinking" || -n "$_want_checking" ]]; then
+      local _marker="$issue_dir/.devagent-step-models" _content=""
+      if [[ -e "$_marker" ]]; then
+        printf 'pull.sh: warn: %s already exists — leaving it untouched (hand-editing the marker is the documented post-scaffold path)\n' \
+          "$_marker" >&2
+        log_append "$issue_dir" "pull" "warn: .devagent-step-models already existed — scaffold model steering NOT written"
+      else
+        if [[ -n "$_want_checking" ]]; then _content+="checking: $_want_checking"$'\n'; fi
+        if [[ -n "$_want_thinking" ]]; then _content+="thinking: $_want_thinking"$'\n'; fi
+        printf '%s' "$_content" > "$_marker"
+        log_append "$issue_dir" "pull" "wrote .devagent-step-models (${_want_checking:+checking=$_want_checking }${_want_thinking:+thinking=$_want_thinking})"
+      fi
+    fi
 
     # #535: table-driven optional-step row-flip. `_flag_rows` is the SINGLE SOURCE
     # of the flag->row mapping; each entry is "flag:trigger-value:row" and #536's

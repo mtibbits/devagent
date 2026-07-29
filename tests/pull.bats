@@ -373,3 +373,155 @@ CTX
   [ "$status" -eq 0 ]
   grep -q '^Template: standard$' "$DEVDOC/Issue-704/checklist.md"
 }
+
+# ---- #561: per-issue model steering — body keys and the tier: compat shim ----
+#
+# Every case asserts the MARKER CONTENT pull.sh wrote AND resolves it through the
+# real step-model.sh for a step in each class. Asserting rc alone would pass
+# whether or not the marker was written (register: Issue-32 — assert an
+# observable per-item effect, never just rc), and resolving pull.sh's OWN
+# produced artifact is what pins the two components' format agreement rather
+# than a prose promise (register: Issue-232).
+
+_step_tier() {  # <step> <issue-dir> -> stdout tier (stderr dropped)
+  "$PLUGIN_ROOT/scripts/step-model.sh" volk "$1" "$2" 2>/dev/null
+}
+
+@test "#561 AC1: checking-model: fable steers 5/15/16/17 and leaves the thinking class alone" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_BODY_JSON='"Intro.\n\n## Workflow flags\nchecking-model: fable\n\n## Motivation\nStuff."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 710
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-710"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  run grep -c '^thinking:' "$d/.devagent-step-models"
+  [ "$status" -eq 1 ]   # precise no-match, never -ne 0 (register: Issue-337)
+  for s in 5 15 16 17; do
+    [ "$(_step_tier "$s" "$d")" = "fable" ]
+  done
+  # thinking class still resolves the config table
+  for s in 2 9 10 11 14; do
+    [ "$(_step_tier "$s" "$d")" = "sonnet" ]
+  done
+}
+
+@test "#561 AC2: implementation-model: haiku steers 2/9/10/11/14 only" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_BODY_JSON='"## Workflow flags\nimplementation-model: haiku\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 711
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-711"
+  grep -q '^thinking: haiku$' "$d/.devagent-step-models"
+  run grep -c '^checking:' "$d/.devagent-step-models"
+  [ "$status" -eq 1 ]
+  for s in 2 9 10 11 14; do
+    [ "$(_step_tier "$s" "$d")" = "haiku" ]
+  done
+  for s in 5 15 16 17; do
+    [ "$(_step_tier "$s" "$d")" = "opus" ]
+  done
+}
+
+@test "#561 AC1+AC2: both keys together write one line per class" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\nimplementation-model: sonnet\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 712
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-712"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  grep -q '^thinking: sonnet$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
+}
+
+@test "#561 AC3: tier: opus-checking pulls with a warning — the koopman-gnn#106 shape" {
+  # Pre-#561 this body died pre-path ("unknown tier 'opus-checking'"), blocking
+  # the pull of an already-drafted issue. It must now succeed, leave the template
+  # on the project default chain, and steer the checking class.
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 713
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model annotation, not a template tier"* ]]
+  [[ "$output" == *"prefer 'checking-model:'"* ]]
+  local d="$DEVDOC/Issue-713"
+  grep -q '^Template: standard$' "$d/checklist.md"
+  grep -q '^checking: opus$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+}
+
+@test "#561 AC3: fable-checking shims too; bogus-checking still dies as a tier" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: fable-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 714
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-714/.devagent-step-models"
+  # NOT a shim (bogus is not a legal model) => falls through to tier_require_legal
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: bogus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 715
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"legal tiers: oneshot standard perf docs-only research"* ]]
+  [ ! -f "$DEVDOC/Issue-715/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-715/.devagent-step-models" ]
+}
+
+@test "#561 AC9: explicit checking-model beats the tier: shim, with a warning" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 716
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats 'tier: opus-checking'"* ]]
+  local d="$DEVDOC/Issue-716"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+}
+
+@test "#561 AC8: an illegal model token dies listing the tokens, BEFORE any write" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: bogus\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 717
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown model token 'bogus'"* ]]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  # fail-closed: neither artifact exists, so a fail-open write is caught even if
+  # the rc were wrong
+  [ ! -f "$DEVDOC/Issue-717/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-717/.devagent-step-models" ]
+  # same for the thinking key
+  export GH_STUB_BODY_JSON='"## Workflow flags\nimplementation-model: ../evil\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 718
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  [ ! -f "$DEVDOC/Issue-718/checklist.md" ]
+}
+
+@test "#561: model keys are SCAFFOLD-ONLY — inert on re-pull, existing marker never stomped" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 719
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-719/.devagent-step-models" ]
+  # a key added after first scaffold does not retro-write the marker
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 719
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-719/.devagent-step-models" ]
+  # and a hand-authored marker outranks a first-scaffold key: warn, do not stomp
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  mkdir -p "$DEVDOC/Issue-720"
+  printf 'haiku' > "$DEVDOC/Issue-720/.devagent-step-models"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 720
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already exists"* ]]
+  [ "$(cat "$DEVDOC/Issue-720/.devagent-step-models")" = "haiku" ]
+}
+
+@test "#561: a model key quoted in a tracker comment cannot steer" {
+  export GH_STUB_COMMENTS_JSON='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "quoting:\n## Workflow flags\nchecking-model: fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 721
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-721/.devagent-step-models" ]
+}
