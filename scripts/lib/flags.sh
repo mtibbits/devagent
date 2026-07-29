@@ -24,6 +24,16 @@
 
 # flags_get <issue-md-path> <key> — print <key>'s value from the body's
 # `## Workflow flags` block; empty + rc 1 when file/block/key is absent.
+#
+# DUPLICATE KEYS ARE FIRST-MATCH-WINS (#561 AC10, documenting existing
+# behavior): the awk action `exit`s on the first match, so a body carrying
+# `tier: opus-checking` above `tier: oneshot` yields `opus-checking` and the
+# second line is dead. To combine a template tier with a model annotation use
+# `tier:` + `checking-model:`, one line each. Note this is deliberately the
+# OPPOSITE of the per-issue marker's duplicate rule (config.sh's
+# step_models_tier dies on two lines for one class): the flags block is remote
+# content whose forward-compat contract is "ignore what you don't understand",
+# while the marker is local operator-authored state where ambiguity is a bug.
 flags_get() {
   local file="$1" key="$2"
   [[ -f "$file" ]] || return 1
@@ -66,7 +76,115 @@ tier_require_legal() {
 # flags_known_keys — single source of the recognized `## Workflow flags` keys.
 # Consumers EXTEND this (tier #537, research #535; #536 spike adds its own).
 # Unknown keys are warn-and-ignored by flags_validate (forward compatibility).
-flags_known_keys() { printf 'tier research spike'; }
+flags_known_keys() { printf 'tier research spike implementation-model checking-model'; }
+
+# --- #561: per-issue model steering ------------------------------------------
+#
+# Two keys, orthogonal to `tier:` (which stays the checklist-template
+# selector). Both are SCAFFOLD-TIME only — pull.sh writes them into the
+# per-issue `.devagent-step-models` marker at first pull; the post-scaffold
+# path is hand-editing that file.
+#
+#   implementation-model: <token>  → the THINKING class, canonical steps
+#                                    2 draft, 9 implement, 10 quality,
+#                                    11 document, 14 draftmr
+#   checking-model: <token>        → the CHECKING class, canonical steps
+#                                    5 improve, 15 review, 16 redmr,
+#                                    17 preship
+#
+# ENFORCEMENT DIFFERS BY STEP and the names under-promise their coverage:
+# `checking-model` is fully enforced (all four steps dispatch, and consume the
+# resolved tier as the Agent-tool `model:` override per
+# docs/checking-dispatch-contract.md). `implementation-model` is enforced for
+# step 2 only (draft's dispatched planner, via step-model.sh <project> 2) and
+# ADVISORY for 9/10/11/14 — those run inline and a session cannot swap its own
+# model, so the tier surfaces only as the next/catchup hint.
+
+# model_token_allowlist — single source of the legal model tokens, shared by
+# both keys, the `tier: <model>-checking` shim, and the label channel. The
+# Agent tool's closed model enum plus #291's reserved `inherit`.
+model_token_allowlist() { printf 'sonnet opus haiku fable inherit'; }
+
+# model_token_is_legal <value> — legal values are space-free by construction,
+# so a value carrying trailing inline prose fails (fail-closed, matching
+# tier_is_legal's semantics).
+model_token_is_legal() { [[ " $(model_token_allowlist) " == *" ${1:-} "* ]]; }
+
+# model_token_require_legal <value> [context] — die with the single-sourced
+# legal-tokens message. Uses whatever die() the caller has in scope (the
+# tier_require_legal contract), so it MUST be called as a statement and never
+# inside $(...) — a die inside command substitution kills only the subshell.
+model_token_require_legal() {
+  model_token_is_legal "${1:-}" \
+    || die "unknown model token '${1:-}'${2:-} — legal tokens: $(model_token_allowlist)"
+}
+
+# tier_shim_model <value> — the #561 compat shim. Echo <model> with rc 0 iff
+# <value> is `<model>-checking` and <model> is a legal model token; rc 1
+# otherwise, so the caller falls through to tier_require_legal and genuinely
+# unknown tiers still die listing the legal tier names.
+#
+# Why it exists: koopman-gnn used `tier: opus-checking` / `tier: fable-checking`
+# as a MODEL annotation before #537 claimed the `tier:` key for template
+# selection, so pull.sh started hard-dying on already-drafted bodies
+# (koopman-gnn#106). The shim is PERMANENT grammar and warns every time: the
+# warning IS the migration nudge, and a removal date would orphan capture
+# drafts that are not yet filed.
+#
+# Non-fatal by design — never calls die(), so it is safe inside $(...).
+tier_shim_model() {
+  local v="${1:-}" model
+  [[ "$v" == *-checking ]] || return 1
+  model="${v%-checking}"
+  [[ -n "$model" ]] || return 1
+  model_token_is_legal "$model" || return 1
+  printf '%s\n' "$model"
+}
+
+# issue_labels <issue-md-path> — print one forge label per line, read from the
+# HEADER segment's `- Labels: <csv>` line.
+#
+# This IS the backend payload as pull.sh sees it (#561 operator answer A1):
+# the five-verb backend contract defines `fetch` as markdown-to-stdout and
+# pull.sh writes that stdout verbatim, so no JSON crosses the process
+# boundary — the `- Labels:` line the backends render
+# (scripts/issue/github.sh, scripts/lib/backend-common.sh) is the structured
+# surface available here.
+#
+# HEADER SEGMENT ONLY: awk exits at the first `^---`, and only the FIRST
+# `- Labels:` line is consumed. This is the same segment-scoping discipline
+# flags_get has, for the same reason — a `- Labels:` line sitting in body
+# prose or quoted inside a tracker comment must never steer model selection.
+#
+# KNOWN LOSSY, accepted: forge label names may legally contain commas, and all
+# three backends join this line on `,` / `, ` (scripts/issue/github.sh,
+# scripts/issue/gitlab.sh, scripts/issue/jira.sh) while this function
+# re-splits on `,`. A comma inside a non-`tier:` label merely sheds harmless
+# fragments; a pathological `tier:check-opus, tier:check-fable` authored as ONE
+# forge label would parse as two and hit pull.sh's same-class conflict die.
+# Fixing it needs a structured backend channel (a sixth verb) — considered and
+# rejected as out of scope; see the issue's future-enhancements file.
+#
+# rc is always 0: "no `- Labels:` line" and "an empty label set" are the same
+# thing to every caller (no labels to steer with), so they are not
+# distinguished.
+issue_labels() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  awk '
+    /^---[[:space:]]*$/ { exit }
+    /^- Labels:/ {
+      val = $0
+      sub(/^- Labels:[[:space:]]*/, "", val)
+      n = split(val, parts, ",")
+      for (i = 1; i <= n; i++) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", parts[i])
+        if (parts[i] != "") print parts[i]
+      }
+      exit
+    }
+  ' "$file"
+}
 
 # flags_validate <issue-md-path> — enumerate the body `## Workflow flags` block's
 # COL-1 keys (the flags_get idiom: body segment only via the `^## Comments (`
