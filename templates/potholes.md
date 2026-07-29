@@ -36,6 +36,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A grep presence-canary asserts `-eq 1` (precise no-match), never `-ne 0` (which conflates clean with error) (Issue-337).
 - Ad-hoc test runs in an env-pinned session inherit the pins → only a hermetic (`env -u`) or harness-owned run is admissible evidence; re-running the same contaminated command at baseline confirms nothing (Issue-458).
 - A guard whose glob stops selecting its subjects passes SILENTLY — relocating a file can empty a canary without reddening anything → enumerate the globs that select a file before moving it, and assert the subject COUNT (Issue-439).
+- A born-red claim printed unconditionally is narration, not evidence — a later re-run makes the log contradict it → gate the claim on an actual existence/state check, or state the STRUCTURAL fact (this module imports only X, so it cannot depend on Y) instead (Issue-85).
+- Before pinning a statistical probe, derive what it measures when the code is CORRECT → a probe whose estimator degenerates (support fixed by construction, error O(sd/sqrt(K)) not O(sd/sqrt(n))) hard-fails on a correct implementation (Issue-85).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -57,6 +59,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Claiming a CLASS is closed → derive its members mechanically (grep the predicate); fixing the instances a checker handed you and declaring the class shut publishes a count the next reader disproves in one command (Issue-439).
 - A value that has been corrected twice is a design defect, not a typo → remove the dependency on it rather than updating it a third time (Issue-558).
 - A checker's green result overclaims unless its blind-spot SHAPE is written into the checker itself → state what it cannot decide beside what it asserts (Issue-558).
+- After fixing a defect, grep the FIX ITSELF for the defect's own class → a phase-mixing bug was reintroduced inside the renderer added to fix it; prefer a COUNTED denominator over one derived from a loop bound, which silently re-mixes when a caller changes (Issue-85).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -78,16 +81,23 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An issue's prescribed fix is an untrusted hypothesis, not a spec → verify it at HEAD before building on it (Issue-Fork-149's `## Fix` would have hung); and "which impl/path does this ACTUALLY run by default?" is a source question — read the dispatch/fallback logic, don't assume the measured or common case is the default (Issue-Fork-149).
 - Two components that must agree on a format → test by feeding one's REAL produced artifact through the other, not a prose promise or a format check (Issue-232).
 - A status ambiguous between "absent" and "can't-determine" → fail closed; a tri-state classifier makes the fail-safe un-violatable by construction (Issue-243).
+- A cited doc's exact commands are unverified until something RUNS them (wrapper/entrypoint, permissions, a step that consumes a file no step creates) → execute them during draft/scope instead of treating the citation as validation (fleet Issue-3).
 - Match rigor to risk; tier the model to the FAILURE MODE, not the diff size (a 90-line interleaving diff earns opus; a proven-dead deletion earns one coupling sweep) (Issue-122).
 - A verification claim is only true at the SHA it RAN at → re-run every claimed check at the final SHA before ship; fixing X silently invalidates each count derived from X being broken (Issue-439).
 - A multiplier or figure inherited from an issue body is a MODEL, not a measurement → measure it before quoting a saving that is linear in it; the whole estimate rides on the factor nobody checked (Issue-439).
 - When a change alters a contract the workflow itself consumes, run the workflow THROUGH it before ship — one live self-hosted dispatch falsifies premises that six review gates pass (Issue-439).
+- A premise-freshness prober that checks named FILES cannot see a stale remote-tracking gap → compare the working checkout against the configured default_baseline itself (`rev-list --count main..origin/main`) before drafting; a 35-commit gap cost a whole plan revision (Issue-85).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
+- A late "trivial" fix-commit that exceeds the scope a review authorized invalidates the evidence the MR cites → re-run the evidence at the new HEAD before ship (fleet Issue-3).
 - Evidence/count numbers must come from a run at THIS HEAD — stale counts copy forward silently; brand numbers need ONE derived source, not N hand-edits (Issue-284).
 - Mixing measurement bases (whole-file before minus stripped-body after) inflates a headline while every individual number stays true → state the basis beside the number and subtract like from like (Issue-439).
 - An audience-facing page inherits claims from its issue/source prose → verify every support/prerequisite/platform claim against the CODE and CI matrix; premise-rederive must cover ALL inherited claims, not just the ones that look stale (Issue-461).
 - Every command a doc presents as pasteable → check arity against the command's own usage, and derive the guard's subject set from the doc (all fenced commands), never from the found instances (Issue-461).
 - A diff that ADDS a top-level surface → update the documents that enumerate surfaces (spec layout tree, changelog, readme pointer) in the same change; being new is exactly what makes it invisible (Issue-461).
 - Write each claim to the width of the diff → run the one command that would disprove it; if the output is narrower than the sentence, narrow the sentence (Issue-558).
+- A fix that lands in code and the work log but not in the NORMATIVE doc downstream consumers implement from ships the bug to them → enumerate every home of the contract in the same edit (Issue-85).
+
+## Version / registry-string comparison
+- Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
