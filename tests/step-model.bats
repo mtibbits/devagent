@@ -384,3 +384,35 @@ checking = "opus"'
     run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 1 ]
 }
+
+@test "#561: the ADVISORY hint path surfaces a keyed thinking tier (next/catchup)" {
+  # scripts/next.sh:136 and scripts/catchup.sh:75 both call
+  # step_models_tier "$project" "$cur" "$issue_dir" for the CURRENT step. For the
+  # inline thinking steps (9/10/11/14) that hint is the ONLY place the tier
+  # appears, since a session cannot swap its own model — so it is the whole
+  # enforcement surface for implementation-model there and is pinned here.
+  _add_step_models 'thinking = "opus"'
+  _marker 'thinking: sonnet
+checking: fable'
+  for step in 9 10 11 14; do
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
+    [ "$status" -eq 0 ]
+    [ "$output" = "sonnet" ]   # the marker beats the project thinking pin
+  done
+}
+
+@test "#561: a malformed marker is LOUD on the advisory path, not silently dropped" {
+  # Decision recorded: next/catchup guard the call as `if _tier="$(…)"`, which
+  # swallows the rc but NOT the stderr. A malformed marker therefore prints its
+  # die message on every next/catchup while the flow continues. That is the
+  # intended behavior — the alternative (silencing stderr) would hide a broken
+  # marker from the operator at exactly the moment they are looking at the step
+  # list, and pull.sh's write-time validation means a malformed marker can only
+  # arrive by hand-edit.
+  _add_step_models 'thinking = "opus"'
+  _marker 'checking: a b'
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"exactly one token"* ]]
+}

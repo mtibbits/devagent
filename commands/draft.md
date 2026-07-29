@@ -172,13 +172,19 @@ finalization rules) lives in `${CLAUDE_PLUGIN_ROOT}/docs/draft-dispatch-contract
 It is **loaded only when dispatch can fire** — before drafting, READ that file and
 follow it verbatim if EITHER condition holds:
 
-1. the resolved step-2 tier is non-empty
-   (`tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`), OR
+1. the step-2 tier resolves — `bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh"
+   <project> 2` exits **0** (a tier) or **2** (the reserved `inherit`), OR
 2. the operator explicitly instructs dispatch ("dispatch the draft") — this fires
-   even on an EMPTY tier (the `model: inherit` provenance case), so the trigger is
-   BOTH conditions, not tier-alone.
+   even when nothing resolves (the `model: inherit` provenance case), so the
+   trigger is BOTH conditions, not tier-alone.
 
-Otherwise (empty tier AND no operator dispatch instruction) drafting is INLINE via
+**Read the exit code; do not resolve with `|| true`** (#561). That idiom mapped
+rc 1 (a bad/unreadable per-issue marker) to the same empty string as rc 3
+(nothing configured), so a broken marker silently disabled dispatch instead of
+stopping. **rc 1 ⇒ STOP** and fix or remove the marker. The contract file carries
+the full rc table.
+
+Otherwise (nothing resolved AND no operator dispatch instruction) drafting is INLINE via
 `superpowers:writing-plans` — skip the contract entirely (it is conditionally-dead
 on dispatch-disabled projects; #441 moved it out of the common load path).
 

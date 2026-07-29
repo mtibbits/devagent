@@ -57,3 +57,34 @@ REPO="${BATS_TEST_DIRNAME}/.."
 @test "the real /devagent:draftmr reference survives in mr_template (#412)" {
   grep -q '/devagent:draftmr' "$REPO/templates/mr_template.md"
 }
+
+@test "#561: every issue/epic template boilerplate names BOTH model keys" {
+  # Sweep guard (register: Issue-458 — a contract enumerated in N files needs ONE
+  # sweep over all N homes, extended in the same change that adds a home). The
+  # subject set is DERIVED, not listed: any template carrying the `## Workflow
+  # flags` boilerplate must document both keys, so a seventh template added later
+  # cannot ship divergent.
+  local f n=0 missing=()
+  for f in "$REPO"/templates/*.md; do
+    grep -q 'Optional per-issue `## Workflow flags`' "$f" || continue
+    n=$((n + 1))
+    grep -q 'implementation-model' "$f" && grep -q 'checking-model' "$f" \
+      || missing+=("$(basename "$f")")
+  done
+  # assert the DENOMINATOR too: a glob that stops selecting its subjects passes
+  # silently (register: Issue-439), so pin the count of boilerplate carriers.
+  [ "$n" -eq 6 ] || { echo "boilerplate carriers = $n (expected 6)" >&2; return 1; }
+  [ "${#missing[@]}" -eq 0 ] || { echo "missing model keys: ${missing[*]}" >&2; return 1; }
+}
+
+@test "#561: the marker prose in config.toml.skel documents the keyed form" {
+  # config.toml.skel is the file every new project copies its config from, and it
+  # previously said the marker holds "ONE tier token" pinning "the CHECKING-class
+  # steps" with "Non-checking steps ignore the marker" — all false after #561.
+  # This home was missed by the round-1 plan's enumerated list even though its own
+  # derivation command (grep -rn devagent-step-models) finds it.
+  grep -q 'checking: fable' "$REPO/templates/config.toml.skel"
+  grep -q 'thinking: sonnet' "$REPO/templates/config.toml.skel"
+  run grep -c 'Non-checking$' "$REPO/templates/config.toml.skel"
+  [ "$status" -eq 1 ]
+}

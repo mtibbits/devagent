@@ -5,19 +5,44 @@ isolation (paths, no author context); a planner is better the more
 operator INTENT it holds — packaged to disk, never "paste the
 conversation".
 
-1. **When to dispatch.** Resolve the tier:
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`
-   (canonical step number 2; the thinking class). A NON-EMPTY tier ⇒
-   dispatch a fresh-context planner subagent with that model override.
-   EMPTY ⇒ stay inline — note this deliberately differs from #151,
-   where dispatch is unconditional and empty means dispatch-with-
-   inherit; for planning, inline IS the fully-informed default and
-   dispatch exists for up-delegation. An explicit operator instruction
-   ("dispatch the draft" / "plan inline") overrides either way. If
-   the resolved tier is unavailable at dispatch, retry once with no
-   override and record the fallback form (rule 5).
-   Per-issue `.devagent-step-models` markers do NOT apply — the #291
-   layer is checking-class only (config.sh gate).
+1. **When to dispatch.** Resolve the tier AND READ THE EXIT CODE — do not
+   collapse the codes with `|| true` (#561; see the rc table below):
+
+   ```bash
+   err="$(mktemp)"
+   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 2>"$err")"; rc=$?
+   prov="$(cat "$err")"; rm -f "$err"
+   ```
+
+   (canonical step number 2; the thinking class).
+
+   | rc | meaning | action |
+   |----|---------|--------|
+   | 0 | a tier resolved | dispatch a fresh-context planner with that model override |
+   | 2 | the reserved `inherit` token | dispatch, recording `model: inherit` (rule 5) — an unpinned fork inherits the session model |
+   | 3 | nothing configured | stay INLINE |
+   | 1 | **error: a bad/unreadable marker** | **STOP.** Fix or remove the marker; never silently fall inline |
+
+   Inline IS the fully-informed default here and dispatch exists for
+   up-delegation — this deliberately differs from #151, where dispatch is
+   unconditional. An explicit operator instruction ("dispatch the draft" /
+   "plan inline") overrides either way. If the resolved tier is unavailable at
+   dispatch, retry once with no override and record the fallback form (rule 5).
+
+   **Why rc 1 must STOP (#561).** Before #561 this rule resolved the tier with
+   `$(… || true)`, which mapped rc 1, 2 and 3 alike to an empty string ⇒ "stay
+   inline". #561 made `step_models_tier`'s structural marker faults apply to the
+   THINKING class as well as the checking one, so rc 1 became reachable at step 2
+   for the first time — and a broken keyed marker would have silently disabled
+   draft dispatch instead of stopping. That is the same silent fallback
+   `docs/checking-dispatch-contract.md` forbids for the checking class, at the one
+   place `implementation-model` is enforced.
+
+   **Per-issue `.devagent-step-models` markers DO apply to this step (#561).**
+   The KEYED marker form (`thinking: <token>`) covers the thinking class, so a
+   per-issue marker can steer draft's planner. (The legacy BARE token form
+   remains checking-class only, so it is still invisible here — the pre-#561
+   claim that markers never apply to draft was true only of that form.)
 2. **Package intent to disk, then dispatch paths.** Before dispatching,
    write `<issue-dir>/intent.md` from the resolved `intent_template`
    (§12 registry key) — sections: `## Goals`, `## Constraints`,
