@@ -17,7 +17,7 @@
 - [ ] 16. redmr
 - [ ] 17. preship
 - [ ] 18. ship
-- [ ] 19. mergetoall
+- [-] 19. mergetoall
 - [ ] 20. updatewbs
 - [ ] 21. impact
 - [ ] 22. lessonslearned

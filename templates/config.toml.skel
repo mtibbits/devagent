@@ -56,7 +56,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
 # fork_only         = false              # never reference upstream (fork is the only remote)
 # source_remote     = "origin"           # git remote that branches/PRs push to (e.g. "fork")
-# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = skip)
+# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = step 19 scaffolds pre-skipped [-])
 # all_prs_auto_push = false              # push all_prs_branch after each merge-to-all
 # all_prs_remote    = "origin"           # remote for all_prs_branch (defaults to source_remote)
 # use_worktree      = false              # cut issue branches in a git worktree
