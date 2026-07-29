@@ -80,7 +80,11 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [[ "$stderr" == *"inherit"* ]]
 }
 
-@test "per-issue marker does NOT apply to a non-checking step (#291)" {
+# Title tightened by #561: still true, but only of the BARE form. A KEYED marker
+# (`thinking: <tok>`) DOES apply to thinking steps — see the #561 cases below.
+# Register: Issue-321, re-read unchanged neighbours for a newly-created
+# contradiction.
+@test "BARE per-issue marker does NOT apply to a non-checking step (#291)" {
     _add_step_models 'thinking = "sonnet"'
     _marker 'fable'
     run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 9
@@ -227,4 +231,156 @@ _marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
     [ -z "$output" ]
     [[ "$stderr" == *"config tier"* ]]
     [[ "$stderr" != *"per-issue"* ]]
+}
+
+# ---- #561: KEYED per-issue marker (checking: / thinking:), both classes ----
+
+@test "keyed marker steers BOTH classes; default class still ignores it (#561)" {
+    _add_step_models 'checking = "opus"
+thinking = "haiku"'
+    _marker 'checking: fable
+thinking: sonnet'
+    # checking class -> the marker's checking value, with per-issue provenance
+    for step in 5 15 16 17; do
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
+        [ "$status" -eq 0 ]
+        [ "$output" = "fable" ]
+        [[ "$stderr" == *"per-issue"* ]]
+        [[ "$stderr" == *".devagent-step-models"* ]]
+    done
+    # thinking class -> the marker's thinking value
+    for step in 2 9 10 11 14; do
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
+        [ "$status" -eq 0 ]
+        [ "$output" = "sonnet" ]
+        [[ "$stderr" == *"per-issue"* ]]
+    done
+    # default class (12 commit) never reads the marker in either form
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 12
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+    [ -z "$stderr" ]
+}
+
+@test "keyed marker with only one class leaves the other on the config chain (#561)" {
+    _add_step_models 'thinking = "sonnet"'
+    _marker 'checking: fable'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 5
+    [ "$status" -eq 0 ]
+    [ "$output" = "fable" ]
+    # step 9 falls THROUGH to the table — not a die, not the checking value
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 9
+    [ "$status" -eq 0 ]
+    [ "$output" = "sonnet" ]
+    [ -z "$stderr" ]
+}
+
+@test "keyed 'inherit' returns rc 2 per class, re-pinning #291 under the new form (#561)" {
+    _add_step_models 'checking = "opus"
+thinking = "opus"'
+    _marker 'thinking: inherit'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 2
+    [ "$status" -eq 2 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"per-issue"* ]]
+    [[ "$stderr" == *"inherit"* ]]
+    _marker 'checking: inherit'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 2 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"per-issue"* ]]
+}
+
+@test "malformed keyed marker dies naming the marker — never a silent fallback (#561)" {
+    # NOTE: each of these also dies at baseline, but for the WRONG reason (the
+    # bare-form parser sees a multi-token blob). What makes them non-vacuous is
+    # the paired 'indented line is keyed' case below plus the rc-2/rc-0 cases
+    # above: together they prove the keyed parser, not the bare one, is running.
+    _add_step_models 'checking = "opus"'
+    # empty value
+    _marker 'checking:'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *".devagent-step-models"* ]]
+    # multi-token value
+    _marker 'checking: a b'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *".devagent-step-models"* ]]
+    # a line that is neither blank nor a class key
+    _marker 'checking: fable
+default: opus'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"default: opus"* ]]
+    # DUPLICATE lines for the same class die naming BOTH values — fail closed on
+    # ambiguous authored intent, deliberately the opposite of flags_get's
+    # first-match-wins (the marker is local operator state, not remote content)
+    _marker 'checking: fable
+checking: opus'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"duplicate"* ]]
+    [[ "$stderr" == *"fable"* ]]
+    [[ "$stderr" == *"opus"* ]]
+}
+
+@test "one regex governs detector AND validator: an indented line is keyed (#561)" {
+    # Guards the round-1 bug where a permissive detector and a strict validator
+    # disagreed, making '  checking: fable' keyed by one rule and malformed by
+    # the other. Red at baseline (the bare parser rejects it as multi-token).
+    _add_step_models 'checking = "opus"'
+    _marker '  checking: fable'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 0 ]
+    [ "$output" = "fable" ]
+    [[ "$stderr" == *"per-issue"* ]]
+}
+
+@test "#561 U3 delta: an unreadable marker now dies for THINKING steps too" {
+    # Deliberate behavior change, asserted so it can never regress silently: the
+    # structural check (exists but is not a regular file) applies to both classes
+    # because 'the operator left something unreadable here' is a fault whichever
+    # step asks. Previously a thinking step fell through to the config chain.
+    _add_step_models 'thinking = "sonnet"
+checking = "opus"'
+    rm -f "$DEVDOC_DIR/Issue-1/.devagent-step-models"
+    mkdir -p "$DEVDOC_DIR/Issue-1/.devagent-step-models"
+    for step in 9 16; do
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
+        [ "$status" -eq 1 ]
+        [[ "$stderr" == *"not a regular file"* ]]
+    done
+    # the default class is untouched by the delta
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 12
+    [ "$status" -ne 0 ]
+    [ -z "$stderr" ]
+}
+
+@test "#561 AC11: a bare-token marker keeps EXACT legacy semantics" {
+    # Equivalence by construction (register: Issue-94) — config.sh's bare-token
+    # branch is textually untouched. This case is GREEN AT BASELINE by design and
+    # is a PIN, not a born-red claim; it exists so the keyed rewrite cannot
+    # regress the legacy form.
+    _add_step_models 'thinking = "sonnet"
+checking = "opus"'
+    _marker 'fable'
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 0 ]
+    [ "$output" = "fable" ]
+    # checking-class ONLY: a thinking step resolves the table, stderr SILENT
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 9
+    [ "$status" -eq 0 ]
+    [ "$output" = "sonnet" ]
+    [ -z "$stderr" ]
+    # reserved token, empty, and multi-token all keep their shipped behavior
+    _marker 'inherit'
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 2 ]
+    _marker '   '
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
+    _marker 'fable opus'
+    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
+    [ "$status" -eq 1 ]
 }

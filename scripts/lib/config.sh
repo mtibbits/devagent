@@ -112,17 +112,47 @@ config_active_project() {
 # agent's pinned model, for which 2 and 3 mean opposite things — 2 must inherit,
 # 3 takes the agent default — so they discriminate on the exit code rather than
 # parsing the stderr prose.
-# Resolution: a per-issue marker (#291, checking-class steps only) wins over
-# the whole table; then a per-step override (step_models.<N>) wins over the
-# step's class. The step→class map is fixed (canonical step numbers):
+# Resolution: a per-issue marker wins over the whole table; then a per-step
+# override (step_models.<N>) wins over the step's class. The step→class map is
+# fixed (canonical step numbers):
 # thinking = 2 9 10 11 14, checking = 5 15 16 17, everything else = default.
 # A class with no tier set falls back to the default tier.
 #
-# Per-issue marker (#291): <issue_dir>/.devagent-step-models holds ONE tier
-# token. Like .devagent-baseline (#162) it must not fall back silently — an
-# empty or non-token marker dies. The reserved token `inherit` forces
-# session-model inheritance (return 2, distinct stderr note), escaping a
-# project `checking` pin. Provenance goes to stderr; stdout stays a bare tier.
+# Per-issue marker — TWO FORMS, discriminated by content, never by filename:
+#
+#   BARE token (#291, legacy):  `fable`
+#     One tier token. CHECKING-CLASS ONLY — invisible to thinking steps, which
+#     fall through to the config chain silently. Like .devagent-baseline (#162)
+#     it must not fall back silently: an empty or multi-token marker dies.
+#
+#   KEYED lines (#561):  `checking: fable` / `thinking: sonnet`
+#     One line per steered class, either or both. Applies to the CHECKING and
+#     THINKING classes. A keyed marker with no line for the resolving step's
+#     class is NOT an error — it falls through to the config rungs exactly as an
+#     absent marker would, so `checking: fable` alone leaves step 9 on the
+#     table. A malformed line, or two lines for the same class, dies.
+#     Written by pull.sh at first scaffold from the `## Workflow flags` keys
+#     `checking-model:` / `implementation-model:`, the `tier: <model>-checking`
+#     shim, or recognized `tier:*` forge labels; hand-editing is the documented
+#     post-scaffold path.
+#
+# Both forms: the reserved token `inherit` forces session-model inheritance
+# (return 2, distinct stderr note), escaping a project pin. Provenance goes to
+# stderr; stdout stays a bare tier.
+#
+# TOKEN LEGALITY IS NOT CHECKED HERE. pull.sh validates against
+# flags.sh's model_token_allowlist at WRITE time; this resolver enforces only
+# the one-token charset, so a hand-edited marker keeps the contract it always
+# had. A marker holding a token the Agent tool's closed enum rejects therefore
+# resolves rc 0 and fails at dispatch, by design.
+#
+# STRUCTURAL vs CONTENT validity are scoped differently, deliberately (#561):
+# structural checks (exists but is not a regular file / not readable) apply to
+# BOTH classes, because "the operator left something unreadable here" is a
+# fault regardless of which step asks. Bare-form CONTENT checks (empty,
+# multi-token) stay checking-only, because the bare form itself is
+# checking-only — so an empty marker + a thinking step still falls through
+# silently, byte-identically to before #561.
 step_models_tier() {
   local project="$1" step="$2" issue_dir="${3:-}" tier=""
   [[ -n "$project" && -n "$step" ]] || return 1
@@ -132,15 +162,78 @@ step_models_tier() {
   case " 2 9 10 11 14 " in *" $step "*) class="thinking" ;; esac
   # shellcheck disable=SC2194 # constant subject; space-padded membership test
   case " 5 15 16 17 " in *" $step "*) class="checking" ;; esac
-  # 0. per-issue marker (checking class only)
+  # 0. per-issue marker. Two forms:
+  #      BARE token  (#291) — one tier token, CHECKING class only (legacy);
+  #      KEYED lines (#561) — `checking: <tok>` / `thinking: <tok>`, BOTH classes.
+  #    The `default` class never reads the marker in either form.
   local marker="${issue_dir%/}/.devagent-step-models"
-  if [[ "$class" == "checking" && -n "$issue_dir" && -e "$marker" ]]; then
+  # #561: ONE predicate computed once, so the structural dies below and the read
+  # block can never disagree about whether the marker applies to this step
+  # (register: Issue-558 — enumerate BOTH branches of new logic; a split
+  # predicate is how a fail-closed check becomes a fail-open read).
+  local marker_applies=0
+  [[ "$class" == "checking" || "$class" == "thinking" ]] && marker_applies=1
+  if [[ "$marker_applies" == 1 && -n "$issue_dir" && -e "$marker" ]]; then
     # An existing marker that cannot be read as a file must not silently
     # fall back to the project tier (AC3's silent-wrong-tier class).
+    # #561 U3 DELIBERATE DELTA: this now fires for the THINKING class too, where
+    # it previously fell through to the config chain. Asserted explicitly by
+    # tests/step-model.bats so it can never regress silently.
     [[ -f "$marker" ]] || die "step_models_tier: $marker exists but is not a regular file"
     [[ -r "$marker" ]] || die "step_models_tier: $marker exists but is not readable"
   fi
-  if [[ "$class" == "checking" && -n "$issue_dir" && -r "$marker" ]]; then
+  # #561: ONE regex, used by BOTH the form detector and the line validator, so a
+  # line like `  checking: fable` can never be keyed by one rule and malformed by
+  # the other.
+  local _keyed_re='^[[:space:]]*(thinking|checking)[[:space:]]*:'
+  if [[ "$marker_applies" == 1 && -n "$issue_dir" && -r "$marker" ]] \
+     && grep -Eq "$_keyed_re" "$marker"; then
+    # --- KEYED form (#561) ------------------------------------------------
+    # Legality of the TOKEN is a write-time concern (pull.sh validates against
+    # model_token_allowlist); the resolver keeps the bare form's charset-only
+    # contract so a hand-edited marker behaves the same way it always has.
+    local _line _lkey _lval _v_thinking="" _v_checking="" _got_thinking=0 _got_checking=0
+    while IFS= read -r _line || [[ -n "$_line" ]]; do
+      [[ "$_line" =~ ^[[:space:]]*$ ]] && continue
+      [[ "$_line" =~ $_keyed_re ]] \
+        || die "step_models_tier: $marker: not a valid keyed-marker line: '$_line' (expected 'thinking: <token>' or 'checking: <token>')"
+      _lkey="${_line%%:*}"; _lkey="${_lkey//[[:space:]]/}"
+      _lval="${_line#*:}"
+      # One token, nothing else — the bare form's charset, per class.
+      [[ "$_lval" =~ ^[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$ ]] \
+        || die "step_models_tier: $marker: '$_lkey' must hold exactly one token (allowed: A-Za-z0-9 . _ -), got: '$_lval'"
+      _lval="${_lval//[[:space:]]/}"
+      case "$_lkey" in
+        thinking)
+          [[ "$_got_thinking" -eq 0 ]] \
+            || die "step_models_tier: $marker: duplicate 'thinking' lines ('$_v_thinking' and '$_lval') — one line per class"
+          _v_thinking="$_lval"; _got_thinking=1 ;;
+        checking)
+          [[ "$_got_checking" -eq 0 ]] \
+            || die "step_models_tier: $marker: duplicate 'checking' lines ('$_v_checking' and '$_lval') — one line per class"
+          _v_checking="$_lval"; _got_checking=1 ;;
+      esac
+    done < "$marker"
+    local _want=""
+    [[ "$class" == "thinking" ]] && _want="$_v_thinking"
+    [[ "$class" == "checking" ]] && _want="$_v_checking"
+    if [[ -n "$_want" ]]; then
+      if [[ "$_want" == "inherit" ]]; then
+        echo "step_models_tier: per-issue 'inherit' from $marker — forcing session-model inheritance" >&2
+        return 2
+      fi
+      echo "step_models_tier: per-issue tier '$_want' from $marker" >&2
+      printf '%s\n' "$_want"
+      return 0
+    fi
+    # A keyed marker with NO line for this class is not an error: fall through
+    # to the config rungs below, exactly as an absent marker would.
+  elif [[ "$class" == "checking" && -n "$issue_dir" && -r "$marker" ]]; then
+    # --- BARE token (#291) — legacy path, left TEXTUALLY UNTOUCHED -------
+    # Equivalence by construction (register: Issue-94): the bare form's
+    # semantics are preserved by not editing its code, not by a test promising
+    # they match. Still checking-class only: a bare marker is invisible to
+    # thinking steps, which fall through to the config chain silently.
     local raw
     raw="$(cat "$marker")"
     # One token, nothing else: reject BEFORE stripping so `fable opus` cannot
