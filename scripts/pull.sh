@@ -135,6 +135,84 @@ main() {
       _want_checking="$_shim_checking"
     fi
 
+    # #561 LABEL CHANNEL. factorAI steers exclusively by labels
+    # (`tier:impl-<model>` / `tier:check-<model>`, no flags block anywhere) and
+    # koopman-gnn duplicates its body convention as `tier:<model>-checking`.
+    # Both backends already fetch the label set and render it; nothing consumed
+    # it, so factorAI#85 ran every checking step at the config floor despite a
+    # `tier:check-fable` label.
+    #
+    # SOURCE (operator answer A1): the backend-rendered `- Labels:` HEADER line of
+    # the issue.md this run just wrote from the backend's stdout — read once,
+    # header segment only, never the body and never a comment. There is no JSON
+    # payload to parse here: the five-verb backend contract defines `fetch` as
+    # markdown-to-stdout (spec §9.1) and pull.sh writes it verbatim (§9.3), so the
+    # markdown IS the payload at this point.
+    #
+    # The loop is fed by process substitution, NOT a pipe: the body must run in
+    # THIS shell so `die` below actually exits the script instead of a subshell
+    # (register: Issue-314 — a pipe hides a non-zero exit as "found nothing").
+    local _lbl _lmodel _lclass
+    local _lbl_thinking="" _lbl_checking="" _lbl_thinking_src="" _lbl_checking_src=""
+    while IFS= read -r _lbl; do
+      [[ -n "$_lbl" ]] || continue
+      # Not our namespace at all: silently ignored, no warning. Ordinary labels
+      # like `bug` are the common case and must stay quiet.
+      [[ "$_lbl" == tier:* ]] || continue
+      _lmodel=""; _lclass=""
+      # FIXED match order; the first shape a label matches wins.
+      if [[ "$_lbl" == tier:impl-* ]]; then
+        _lclass="thinking"; _lmodel="${_lbl#tier:impl-}"
+      elif [[ "$_lbl" == tier:check-* ]]; then
+        _lclass="checking"; _lmodel="${_lbl#tier:check-}"
+      elif [[ "$_lbl" == tier:*-checking ]]; then
+        _lclass="checking"; _lmodel="${_lbl#tier:}"; _lmodel="${_lmodel%-checking}"
+      else
+        # Our namespace but NOT a recognized shape — this includes template tier
+        # names used as labels (`tier:standard`). Warn and ignore, NEVER die: the
+        # label namespace is shared forge metadata that anyone may write, and
+        # template selection stays body-only. A die here would also halt an
+        # --auto chain on someone else's label hygiene (register: Issue-242).
+        printf "pull.sh: warn: unrecognized steering label '%s' — ignored (recognized shapes: tier:impl-<model>, tier:check-<model>, tier:<model>-checking)\n" \
+          "$_lbl" >&2
+        continue
+      fi
+      # Validated UNCONDITIONALLY, and BEFORE precedence is applied (operator
+      # answer A2). A same-class label pair is ambiguous authored intent ON THE
+      # FORGE — a fact about the issue regardless of what the body says — so
+      # letting a body key mask it would surface the failure later, on some other
+      # issue with no body key. That is the fail-open shape the register's
+      # Issue-558 trigger warns about.
+      model_token_require_legal "$_lmodel" " in forge label '$_lbl'"
+      if [[ "$_lclass" == "thinking" ]]; then
+        if [[ -n "$_lbl_thinking" && "$_lbl_thinking" != "$_lmodel" ]]; then
+          die "conflicting thinking-class labels: '$_lbl_thinking_src' and '$_lbl' steer the same class to different models — remove one"
+        fi
+        _lbl_thinking="$_lmodel"; _lbl_thinking_src="$_lbl"
+      else
+        if [[ -n "$_lbl_checking" && "$_lbl_checking" != "$_lmodel" ]]; then
+          die "conflicting checking-class labels: '$_lbl_checking_src' and '$_lbl' steer the same class to different models — remove one"
+        fi
+        _lbl_checking="$_lmodel"; _lbl_checking_src="$_lbl"
+      fi
+    done < <(issue_labels "$issue_dir/issue.md")
+
+    # Labels are the LOWEST rung: body key > body `tier:` shim > label > config
+    # chain. When a body source beats a DIFFERENT label the label is ignored with
+    # a warning — the unambiguous case warns, it does not die.
+    if [[ -z "$_want_thinking" ]]; then
+      _want_thinking="$_lbl_thinking"
+    elif [[ -n "$_lbl_thinking" && "$_want_thinking" != "$_lbl_thinking" ]]; then
+      printf "pull.sh: warn: body 'implementation-model: %s' beats label '%s' — label ignored\n" \
+        "$_want_thinking" "$_lbl_thinking_src" >&2
+    fi
+    if [[ -z "$_want_checking" ]]; then
+      _want_checking="$_lbl_checking"
+    elif [[ -n "$_lbl_checking" && "$_want_checking" != "$_lbl_checking" ]]; then
+      printf "pull.sh: warn: body checking-class steering '%s' beats label '%s' — label ignored\n" \
+        "$_want_checking" "$_lbl_checking_src" >&2
+    fi
+
     ISSUE_ID="$issue_id" checklist_init "$issue_dir" "$template" "$project"
 
     # #561: write the per-issue marker from the resolved per-class steering.

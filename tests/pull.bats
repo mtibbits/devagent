@@ -525,3 +525,146 @@ EOF
   [ "$status" -eq 0 ]
   [ ! -f "$DEVDOC/Issue-721/.devagent-step-models" ]
 }
+
+# ---- #561: the LABEL channel -----------------------------------------------
+#
+# Source is the backend-rendered `- Labels:` HEADER line of the issue.md pull.sh
+# just wrote (operator answer A1). Driven through the Task-0 GH_STUB_LABELS_JSON
+# knob, so these exercise the same path a real forge payload would.
+
+@test "#561 AC4: tier:impl-opus + tier:check-fable with NO flags block (factorAI#85)" {
+  # The concrete miss this channel closes: factorAI#85 carried tier:check-fable
+  # and ran every checking step at opus, the config floor, because nothing
+  # consumed labels.
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_LABELS_JSON='[{"name":"tier:impl-opus"},{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 730
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-730"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  grep -q '^thinking: opus$' "$d/.devagent-step-models"
+  for s in 5 15 16 17; do [ "$(_step_tier "$s" "$d")" = "fable" ]; done
+  for s in 2 9 10 11 14; do [ "$(_step_tier "$s" "$d")" = "opus" ]; done
+}
+
+@test "#561 AC5: label tier:opus-checking with no flags block (koopman-gnn shape)" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:opus-checking"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 731
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-731"
+  grep -q '^checking: opus$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+}
+
+@test "#561 AC6: a body source beats a conflicting label, with a warning" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-opus"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 732
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats label 'tier:check-opus'"* ]]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-732/.devagent-step-models"
+  # the body tier: shim outranks a label too
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 733
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats label 'tier:check-fable'"* ]]
+  grep -q '^checking: opus$' "$DEVDOC/Issue-733/.devagent-step-models"
+}
+
+@test "#561 AC7: two same-class labels naming DIFFERENT models die naming both" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"},{"name":"tier:opus-checking"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 734
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"tier:check-fable"* ]]
+  [[ "$output" == *"tier:opus-checking"* ]]
+  [ ! -f "$DEVDOC/Issue-734/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-734/.devagent-step-models" ]
+}
+
+@test "#561 AC7: a same-class label conflict dies EVEN WHEN a body key would win" {
+  # Operator answer A2: labels are validated unconditionally, BEFORE precedence.
+  # A same-class pair is ambiguous authored intent ON THE FORGE — a fact about the
+  # issue regardless of the body — and letting a body key mask it would surface
+  # the failure later on some other issue with no body key (the fail-open shape
+  # of register Issue-558).
+  # NB the two labels must name DIFFERENT models to be a conflict at all:
+  # tier:check-opus and tier:opus-checking both resolve to opus.
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-opus"},{"name":"tier:fable-checking"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: haiku\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 735
+  [ "$status" -ne 0 ]
+  [ ! -f "$DEVDOC/Issue-735/.devagent-step-models" ]
+  [ ! -f "$DEVDOC/Issue-735/checklist.md" ]
+}
+
+@test "#561 AC7: a recognized-shape label with an illegal model token dies pre-write" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-bogus"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 736
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  [[ "$output" == *"tier:check-bogus"* ]]
+  [ ! -f "$DEVDOC/Issue-736/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-736/.devagent-step-models" ]
+}
+
+@test "#561 AC7: unrecognized tier:* labels warn and are ignored — they never die" {
+  # The label namespace is shared forge metadata anyone may write, and template
+  # selection stays body-only. A die here would also halt an --auto chain on
+  # someone else's label hygiene (register: Issue-242).
+  export GH_STUB_LABELS_JSON='[{"name":"tier:standard"},{"name":"tier:frobnicate"},{"name":"bug"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 737
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tier:standard"* ]]
+  [[ "$output" == *"tier:frobnicate"* ]]
+  # an ordinary label is the common case and must stay SILENT
+  [[ "$output" != *"'bug'"* ]]
+  # a template tier name used as a LABEL does not select a template
+  grep -q '^Template: standard$' "$DEVDOC/Issue-737/checklist.md"
+  [ ! -f "$DEVDOC/Issue-737/.devagent-step-models" ]
+}
+
+@test "#561: two same-class labels naming the SAME model are idempotent, not a conflict" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"},{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 738
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-738/.devagent-step-models"
+  # exactly one line for the class
+  run grep -c '^checking:' "$DEVDOC/Issue-738/.devagent-step-models"
+  [ "$output" = "1" ]
+}
+
+@test "#561: later forge label edits do NOT retro-edit the marker" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 739
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-739/.devagent-step-models"
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-haiku"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 739
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-739/.devagent-step-models"
+  run grep -c 'haiku' "$DEVDOC/Issue-739/.devagent-step-models"
+  [ "$status" -eq 1 ]
+}
+
+@test "#561 A1: a - Labels: line in the BODY or a COMMENT cannot steer (header-only)" {
+  # The label-channel twin of the #537 flags-block-in-a-comment case at
+  # tests/pull.bats:353-359, and the reason issue_labels is header-scoped rather
+  # than a file grep. Each case pairs the negative with a live channel: the stub's
+  # real header labels are non-tier:*, so a marker appearing at all means the
+  # body/comment line leaked through.
+  export GH_STUB_BODY_JSON='"Intro.\n\n- Labels: tier:check-opus\n\n## Motivation\nStuff."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 740
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-740/.devagent-step-models" ]
+  unset GH_STUB_BODY_JSON
+  export GH_STUB_COMMENTS_JSON='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "- Labels: tier:check-haiku"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 741
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-741/.devagent-step-models" ]
+}
