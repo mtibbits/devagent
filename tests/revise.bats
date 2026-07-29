@@ -216,8 +216,25 @@ EOF
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
   awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +2\. draft'
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +0\. pull')" -eq 0 ]
-  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 21 ]
+  # 20 pending + pre-skipped mergetoall (volk sets no all_prs_branch).
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 20 ]
+  awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[-\] +19\. mergetoall'
   grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+@test "revise --retier flips mergetoall to pending when the project sets all_prs_branch" {
+  retier_fixture
+  # all_prs_branch must live in [project.volk] (an append would land inside the
+  # trailing [project.volk.code_source] table); rewrite the config wholesale.
+  cat >"$FIX_CONFIG_FILE" <<EOF
+[project.volk]
+source_dir     = "$BATS_TEST_TMPDIR/src/volk"
+devdoc_dir     = "$BATS_TEST_TMPDIR/devdoc/volk"
+all_prs_branch = "dev/all-prs"
+EOF
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +19\. mergetoall'
 }
 
 @test "revise --retier preserves the Log section and prior revision blocks (#537)" {

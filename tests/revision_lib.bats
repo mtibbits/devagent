@@ -46,7 +46,8 @@ setup() {
   # revised MR never re-merges/re-cleanups and bypasses the #149/#242 gates.
   [[ "$output" == *"[ ] 17. preship"* ]]
   [[ "$output" == *"[ ] 18. ship"* ]]
-  [[ "$output" == *"[ ] 19. mergetoall"* ]]
+  # mergetoall ships pre-skipped; only an all_prs_branch project re-opens it.
+  [[ "$output" == *"[-] 19. mergetoall"* ]]
   [[ "$output" == *"[ ] 20. updatewbs"* ]]
   [[ "$output" == *"[ ] 21. impact"* ]]
   [[ "$output" == *"[ ] 22. lessonslearned"* ]]
@@ -67,6 +68,24 @@ setup() {
   # Non-vacuous guard: a broken regex would make both empty and pass "" = "".
   [ "$(printf '%s\n' "$rev_steps" | grep -c .)" -ge 20 ]
   [ "$rev_steps" = "$expected" ]
+}
+
+@test "revision_block_text keeps mergetoall pre-skipped for a project without all_prs_branch" {
+  run revision_block_text 2 volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[-] 19. mergetoall"* ]]
+}
+
+@test "revision_block_text flips mergetoall to pending when the project sets all_prs_branch" {
+  cat >"$FIX_CONFIG_FILE" <<EOF
+[project.volk]
+source_dir     = "$BATS_TEST_TMPDIR/src/volk"
+devdoc_dir     = "$BATS_TEST_TMPDIR/devdoc/volk"
+all_prs_branch = "dev/all-prs"
+EOF
+  run revision_block_text 2 volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[ ] 19. mergetoall"* ]]
 }
 
 @test "revision_current honors DA_HOME, not \$HOME (#83 guard for the #97 fix)" {

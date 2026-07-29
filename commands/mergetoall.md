@@ -8,6 +8,11 @@ argument-hint: "[project] [issue-dir]"
 
 Invokes `scripts/mergetoall.sh` with the parsed arguments per spec §6.1.
 
+**Optional step, off by default:** checklists scaffold row 19 pre-skipped
+`[-]`; configuring the per-project `all_prs_branch` flips it back to pending
+at scaffold time. The script keeps its own unconfigured/zero-diff auto-skip
+as a runtime backstop.
+
 **What it does (local only):**
 1. `git checkout <all_prs_branch>` (e.g. `dev/all-prs`)
 2. `git merge --squash <issue-branch>`

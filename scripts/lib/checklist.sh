@@ -37,7 +37,29 @@ checklist_init() {
   created="$(date -Iseconds)"
   sed -e "s|{{ISSUE_ID}}|${issue_id}|g" \
       -e "s|{{CREATED_AT}}|${created}|g" \
-      "$tpl" > "$issue_dir/checklist.md"
+      "$tpl" | checklist_filter_mergetoall "$project" > "$issue_dir/checklist.md"
+}
+
+# checklist_filter_mergetoall [project] — stdin→stdout. Templates ship the
+# mergetoall row pre-skipped `[-]`; a project that configures all_prs_branch
+# opts the step back in, so its row flips to pending here at scaffold time
+# (mergetoall.sh keeps its runtime unconfigured-guard as backstop). Keyed by
+# NAME, not number (#558). No project, or no all_prs_branch → passthrough.
+checklist_filter_mergetoall() {
+  local project="${1:-}" all_prs=""
+  if [[ -n "$project" ]]; then
+    # Same fail-loud contract as _checklist_template_path (#120): a
+    # project-passing caller that forgot to source config.sh is a bug —
+    # a silent passthrough would leave the step skipped on a configured
+    # project, and next.sh never dispatches a `[-]` row.
+    command -v config_get_project_field >/dev/null 2>&1       || die "checklist_filter_mergetoall: caller passed a project but config.sh is not sourced"
+    all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
+  fi
+  if [[ -n "$all_prs" ]]; then
+    sed 's/^- \[-\]\([[:space:]]\{1,\}[0-9]\{1,\}\. mergetoall\)$/- [ ]\1/'
+  else
+    cat
+  fi
 }
 
 # Matches valid step lines into BASH_REMATCH: glyph=1 num=2 name=3

@@ -58,3 +58,37 @@ EOC
   [ "$status" -eq 0 ]
   grep -q '17\. preship' "$ISSUE_DIR/checklist.md"
 }
+
+# --- mergetoall ships pre-skipped; all_prs_branch opts it back in ------------
+
+@test "mergetoall ships pre-skipped [-] when no project resolves" {
+  ISSUE_DIR="$DA_HOME/Issue-m1"
+  run env -u DEVAGENT_ACTIVE_PROJECT "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[-\] 19\. mergetoall$' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist-init flips mergetoall to pending when the project sets all_prs_branch" {
+  cat > "$DA_HOME/config.toml" <<EOC
+[project.tp]
+source_dir = "$BATS_TEST_TMPDIR/src"
+devdoc_dir = "$BATS_TEST_TMPDIR/devdoc"
+all_prs_branch = "dev/all-prs"
+EOC
+  ISSUE_DIR="$DA_HOME/Issue-m2"
+  DEVAGENT_ACTIVE_PROJECT=tp run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] 19\. mergetoall$' "$ISSUE_DIR/checklist.md"
+}
+
+@test "a project without all_prs_branch keeps mergetoall pre-skipped" {
+  cat > "$DA_HOME/config.toml" <<EOC
+[project.tp]
+source_dir = "$BATS_TEST_TMPDIR/src"
+devdoc_dir = "$BATS_TEST_TMPDIR/devdoc"
+EOC
+  ISSUE_DIR="$DA_HOME/Issue-m3"
+  DEVAGENT_ACTIVE_PROJECT=tp run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[-\] 19\. mergetoall$' "$ISSUE_DIR/checklist.md"
+}

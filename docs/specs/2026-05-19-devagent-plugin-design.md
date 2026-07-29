@@ -462,7 +462,7 @@ Active revision: 1
 - [ ] 16. redmr
 - [ ] 17. preship
 - [ ] 18. ship
-- [ ] 19. mergetoall
+- [-] 19. mergetoall
 - [ ] 20. updatewbs
 - [ ] 21. impact
 - [ ] 22. lessonslearned
@@ -547,7 +547,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (22 mandatory steps + the optional research step)
+### 6.3 Family B — Workflow (21 mandatory steps + the optional research, spike, and mergetoall steps)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
@@ -570,7 +570,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 19 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
+| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every checklist template (and revision blocks); flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop |
 | 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
