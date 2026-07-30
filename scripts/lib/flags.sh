@@ -165,6 +165,14 @@ tier_shim_model() {
 # Fixing it needs a structured backend channel (a sixth verb) — considered and
 # rejected as out of scope; see the issue's future-enhancements file.
 #
+# SCOPE DEPENDENCY (#561 review F3): the header segment is delimited by the FIRST
+# `^---`, which spec §9.3 requires every backend to emit
+# (scripts/lib/backend-common.sh, scripts/issue/*.sh). Unlike flags_get this
+# function has no `^## Comments (` guard and does not skip HTML-comment spans, so
+# a non-compliant custom backend that omitted the separator would let a
+# body-authored `- Labels:` line steer. Compliant backends make that unreachable;
+# a stricter reader is not worth the complexity while §9.3 holds.
+#
 # rc is always 0: "no `- Labels:` line" and "an empty label set" are the same
 # thing to every caller (no labels to steer with), so they are not
 # distinguished.

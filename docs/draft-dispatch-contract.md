@@ -19,9 +19,21 @@ conversation".
    | rc | meaning | action |
    |----|---------|--------|
    | 0 | a tier resolved | dispatch a fresh-context planner with that model override |
-   | 2 | the reserved `inherit` token | dispatch, recording `model: inherit` (rule 5) — an unpinned fork inherits the session model |
+   | 2 | the reserved `inherit` token | **stay INLINE** — unchanged from pre-#561 behavior; see the note below |
    | 3 | nothing configured | stay INLINE |
    | 1 | **error: a bad/unreadable marker** | **STOP.** Fix or remove the marker; never silently fall inline |
+
+   **rc 2 keeps its pre-#561 behavior, deliberately (#561 review F1).** Before
+   #561 this rule resolved with `$(… || true)`, which mapped rc 2 to an empty
+   string ⇒ stay inline; that is preserved above. It is also the coherent reading
+   for THIS step: rc 2 means "inherit the session model", and inline drafting
+   already runs at the session model, so there is nothing to up-delegate. Contrast
+   the checking class, where rc 2 must dispatch-with-inherit because those steps
+   need fresh context regardless of model.
+   Whether rc 2 should instead dispatch a fork carrying `model: inherit` is a
+   real question, and it is deliberately NOT decided here — #561's scope was rc 1.
+   It is recorded as a follow-up in that issue's
+   `imPlan-potentialFutureEnhancements.md`.
 
    Inline IS the fully-informed default here and dispatch exists for
    up-delegation — this deliberately differs from #151, where dispatch is

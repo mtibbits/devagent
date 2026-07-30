@@ -73,6 +73,8 @@ main() {
       # #291: issue_dir keeps the hint in agreement with the per-issue marker.
       # #561: the marker's KEYED form covers the thinking class too, so this
       # surfaces marker tiers for thinking steps as well, not just checking.
+      # DECISION (#561 review F5): a malformed marker stays LOUD — see the same
+      # note in scripts/next.sh for why stderr is deliberately not silenced.
       local _tier
       if _tier="$(step_models_tier "$project" "$cur" "$issue_dir")"; then
         echo "  wants tier: $_tier"

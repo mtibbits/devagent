@@ -113,6 +113,11 @@ main() {
     # a checklist nor a marker behind — the #537 precedent pinned by
     # tests/pull.bats:345-352.
     local _body_thinking _body_checking _want_thinking="" _want_checking=""
+    # An EMPTY value (`checking-model:` with nothing after it) is inert, not an
+    # error: flags_get trims it away, the -n guards below skip validation, and
+    # flags_validate stays silent because the key IS known. That mirrors `tier:`'s
+    # shipped empty-value handling, so it is consistency rather than oversight —
+    # but note the asymmetry: `checking-model: bogus` dies (#561 review F2).
     _body_thinking="$(flags_get "$issue_dir/issue.md" implementation-model || true)"
     _body_checking="$(flags_get "$issue_dir/issue.md" checking-model || true)"
     if [[ -n "$_body_thinking" ]]; then
