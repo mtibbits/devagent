@@ -186,37 +186,43 @@ step_models_tier() {
   # line like `  checking: fable` can never be keyed by one rule and malformed by
   # the other.
   local _keyed_re='^[[:space:]]*(thinking|checking)[[:space:]]*:'
-  if [[ "$marker_applies" == 1 && -n "$issue_dir" && -r "$marker" ]] \
-     && grep -Eq "$_keyed_re" "$marker"; then
+  # Read the marker ONCE into an array when it applies: the form detector and the
+  # keyed parser then share one read and spawn no subprocess, and the bare branch
+  # below still sees the file exactly as it always did.
+  local -a _mlines=()
+  local _keyed=0 _l
+  if [[ "$marker_applies" == 1 && -n "$issue_dir" && -r "$marker" ]]; then
+    mapfile -t _mlines < "$marker"
+    for _l in "${_mlines[@]}"; do
+      if [[ "$_l" =~ $_keyed_re ]]; then _keyed=1; break; fi
+    done
+  fi
+  if [[ "$_keyed" == 1 ]]; then
     # --- KEYED form (#561) ------------------------------------------------
     # Legality of the TOKEN is a write-time concern (pull.sh validates against
     # model_token_allowlist); the resolver keeps the bare form's charset-only
     # contract so a hand-edited marker behaves the same way it always has.
-    local _line _lkey _lval _v_thinking="" _v_checking="" _got_thinking=0 _got_checking=0
-    while IFS= read -r _line || [[ -n "$_line" ]]; do
-      [[ "$_line" =~ ^[[:space:]]*$ ]] && continue
-      [[ "$_line" =~ $_keyed_re ]] \
-        || die "step_models_tier: $marker: not a valid keyed-marker line: '$_line' (expected 'thinking: <token>' or 'checking: <token>')"
-      _lkey="${_line%%:*}"; _lkey="${_lkey//[[:space:]]/}"
-      _lval="${_line#*:}"
-      # One token, nothing else — the bare form's charset, per class.
+    # Keyed by class, so the duplicate check and its message exist ONCE rather
+    # than once per class.
+    local _lkey _lval
+    local -A _v=()
+    for _l in "${_mlines[@]}"; do
+      [[ "$_l" =~ ^[[:space:]]*$ ]] && continue
+      [[ "$_l" =~ $_keyed_re ]] \
+        || die "step_models_tier: $marker: not a valid keyed-marker line: '$_l' (expected 'thinking: <token>' or 'checking: <token>')"
+      _lkey="${_l%%:*}"; _lkey="${_lkey//[[:space:]]/}"
+      _lval="${_l#*:}"
+      # One token, nothing else — the bare form's charset, per class. The `+`
+      # makes the accepted value non-empty, which is why presence alone is a
+      # sufficient duplicate test below.
       [[ "$_lval" =~ ^[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$ ]] \
         || die "step_models_tier: $marker: '$_lkey' must hold exactly one token (allowed: A-Za-z0-9 . _ -), got: '$_lval'"
       _lval="${_lval//[[:space:]]/}"
-      case "$_lkey" in
-        thinking)
-          [[ "$_got_thinking" -eq 0 ]] \
-            || die "step_models_tier: $marker: duplicate 'thinking' lines ('$_v_thinking' and '$_lval') — one line per class"
-          _v_thinking="$_lval"; _got_thinking=1 ;;
-        checking)
-          [[ "$_got_checking" -eq 0 ]] \
-            || die "step_models_tier: $marker: duplicate 'checking' lines ('$_v_checking' and '$_lval') — one line per class"
-          _v_checking="$_lval"; _got_checking=1 ;;
-      esac
-    done < "$marker"
-    local _want=""
-    [[ "$class" == "thinking" ]] && _want="$_v_thinking"
-    [[ "$class" == "checking" ]] && _want="$_v_checking"
+      [[ -z "${_v[$_lkey]:-}" ]] \
+        || die "step_models_tier: $marker: duplicate '$_lkey' lines ('${_v[$_lkey]}' and '$_lval') — one line per class"
+      _v[$_lkey]="$_lval"
+    done
+    local _want="${_v[$class]:-}"
     if [[ -n "$_want" ]]; then
       if [[ "$_want" == "inherit" ]]; then
         echo "step_models_tier: per-issue 'inherit' from $marker — forcing session-model inheritance" >&2

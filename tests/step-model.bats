@@ -373,16 +373,15 @@ checking = "opus"'
     [ "$status" -eq 0 ]
     [ "$output" = "sonnet" ]
     [ -z "$stderr" ]
-    # reserved token, empty, and multi-token all keep their shipped behavior
+    # the reserved token keeps its shipped rc
     _marker 'inherit'
     run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
     [ "$status" -eq 2 ]
-    _marker '   '
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
-    [ "$status" -eq 1 ]
-    _marker 'fable opus'
-    run "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 16
-    [ "$status" -eq 1 ]
+    # The empty and multi-token legs are deliberately NOT repeated here: the
+    # pre-existing #291 cases ("whitespace-only per-issue marker fails loud",
+    # "multi-token / invalid-charset per-issue marker fails loud") already run
+    # against this same modified config.sh, so repeating them would buy two
+    # process spawns and no coverage.
 }
 
 @test "#561: the ADVISORY hint path surfaces a keyed thinking tier (next/catchup)" {
@@ -394,11 +393,10 @@ checking = "opus"'
   _add_step_models 'thinking = "opus"'
   _marker 'thinking: sonnet
 checking: fable'
-  for step in 9 10 11 14; do
-    run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" "$step"
-    [ "$status" -eq 0 ]
-    [ "$output" = "sonnet" ]   # the marker beats the project thinking pin
-  done
+  # One step, not the whole class: the class enumeration is pinned once above.
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/step-model.sh" "$TEST_PROJECT" 9
+  [ "$status" -eq 0 ]
+  [ "$output" = "sonnet" ]   # the marker beats the project thinking pin
 }
 
 @test "#561: a malformed marker is LOUD on the advisory path, not silently dropped" {

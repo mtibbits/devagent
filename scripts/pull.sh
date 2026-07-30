@@ -152,8 +152,11 @@ main() {
     # The loop is fed by process substitution, NOT a pipe: the body must run in
     # THIS shell so `die` below actually exits the script instead of a subshell
     # (register: Issue-314 — a pipe hides a non-zero exit as "found nothing").
+    # Keyed by class, so the conflict check and its message exist ONCE rather than
+    # once per class. `_src` keeps the operator's LITERAL label text, which is not
+    # derivable from the model (three spellings map to one class).
     local _lbl _lmodel _lclass
-    local _lbl_thinking="" _lbl_checking="" _lbl_thinking_src="" _lbl_checking_src=""
+    local -A _lbl_want=() _lbl_src=()
     while IFS= read -r _lbl; do
       [[ -n "$_lbl" ]] || continue
       # Not our namespace at all: silently ignored, no warning. Ordinary labels
@@ -184,18 +187,13 @@ main() {
       # issue with no body key. That is the fail-open shape the register's
       # Issue-558 trigger warns about.
       model_token_require_legal "$_lmodel" " in forge label '$_lbl'"
-      if [[ "$_lclass" == "thinking" ]]; then
-        if [[ -n "$_lbl_thinking" && "$_lbl_thinking" != "$_lmodel" ]]; then
-          die "conflicting thinking-class labels: '$_lbl_thinking_src' and '$_lbl' steer the same class to different models — remove one"
-        fi
-        _lbl_thinking="$_lmodel"; _lbl_thinking_src="$_lbl"
-      else
-        if [[ -n "$_lbl_checking" && "$_lbl_checking" != "$_lmodel" ]]; then
-          die "conflicting checking-class labels: '$_lbl_checking_src' and '$_lbl' steer the same class to different models — remove one"
-        fi
-        _lbl_checking="$_lmodel"; _lbl_checking_src="$_lbl"
+      if [[ -n "${_lbl_want[$_lclass]:-}" && "${_lbl_want[$_lclass]}" != "$_lmodel" ]]; then
+        die "conflicting ${_lclass}-class labels: '${_lbl_src[$_lclass]}' and '$_lbl' steer the same class to different models — remove one"
       fi
+      _lbl_want[$_lclass]="$_lmodel"; _lbl_src[$_lclass]="$_lbl"
     done < <(issue_labels "$issue_dir/issue.md")
+    local _lbl_thinking="${_lbl_want[thinking]:-}" _lbl_checking="${_lbl_want[checking]:-}"
+    local _lbl_thinking_src="${_lbl_src[thinking]:-}" _lbl_checking_src="${_lbl_src[checking]:-}"
 
     # Labels are the LOWEST rung: body key > body `tier:` shim > label > config
     # chain. When a body source beats a DIFFERENT label the label is ignored with

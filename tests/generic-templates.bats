@@ -88,3 +88,43 @@ REPO="${BATS_TEST_DIRNAME}/.."
   run grep -c 'Non-checking$' "$REPO/templates/config.toml.skel"
   [ "$status" -eq 1 ]
 }
+
+@test "#561: prose class->step lists agree with the authoritative map in config.sh" {
+  # The step->class map lives in code (scripts/lib/config.sh's two `case` lines).
+  # This change restated those step numbers in prose across many homes, and #560
+  # renumbered them three commits earlier — this issue's own capture shipped the
+  # PRE-#560 numbers and had to be hand-corrected. So DERIVE both lists from
+  # config.sh and assert every home that documents the model keys agrees, rather
+  # than trusting ~9 hand-copied lists (register: Issue-439, derive the member set
+  # mechanically; Issue-458, one sweep over all N homes).
+  local thinking checking
+  thinking="$(sed -n 's/.*case " \(2 9[0-9 ]*\)" in.*/\1/p' "$REPO/scripts/lib/config.sh" | head -1)"
+  checking="$(sed -n 's/.*case " \(5 15[0-9 ]*\)" in.*/\1/p' "$REPO/scripts/lib/config.sh" | head -1)"
+  thinking="$(echo $thinking)"; checking="$(echo $checking)"
+  # guard the DERIVATION itself: an empty capture would make every check below
+  # vacuously pass (register: Issue-151, mutation-test the guard)
+  [ "$thinking" = "2 9 10 11 14" ] || { echo "thinking map drifted or capture failed: '$thinking'" >&2; return 1; }
+  [ "$checking" = "5 15 16 17" ]   || { echo "checking map drifted or capture failed: '$checking'" >&2; return 1; }
+
+  # Subject set: files that ENUMERATE the class mapping, not merely mention the
+  # keys. A file that enumerates the thinking class names `draftmr` (step 14, the
+  # list's tail); one that only references the keys in passing — e.g.
+  # docs/draft-dispatch-contract.md, which is about step 2 alone, or pull.sh's
+  # implementation comments — legitimately does not, and must not be forced to.
+  local f n=0 bad=()
+  while IFS= read -r f; do
+    grep -q 'draftmr' "$f" || continue
+    n=$((n + 1))
+    # normalize both prose forms: "2 draft · 9 implement …" and "steps 2 9 10 11 14"
+    local nums
+    nums="$(grep -oE '\b(2|5|9|10|11|14|15|16|17)\b' "$f" | sort -n -u | tr '\n' ' ')"
+    for s in $thinking $checking; do
+      [[ " $nums " == *" $s "* ]] || { bad+=("$(basename "$f"):missing-$s"); break; }
+    done
+  done < <(grep -rl 'implementation-model' "$REPO/docs" "$REPO/commands" "$REPO/templates" "$REPO/scripts" "$REPO/CHANGELOG.md" 2>/dev/null)
+  # Pin the DENOMINATOR: a glob or grep that stops selecting its subjects passes
+  # silently (register: Issue-439). 11 = 6 issue/epic templates + config.toml.skel
+  # + spec + commands/pull.md + flags.sh + CHANGELOG.md.
+  [ "$n" -eq 11 ] || { echo "class-enumerating homes = $n (expected 11) — did a home lose its enumeration, or gain one?" >&2; return 1; }
+  [ "${#bad[@]}" -eq 0 ] || { echo "homes with an incomplete step list: ${bad[*]}" >&2; return 1; }
+}

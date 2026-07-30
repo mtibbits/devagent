@@ -401,13 +401,11 @@ EOF
   grep -q '^checking: fable$' "$d/.devagent-step-models"
   run grep -c '^thinking:' "$d/.devagent-step-models"
   [ "$status" -eq 1 ]   # precise no-match, never -ne 0 (register: Issue-337)
-  for s in 5 15 16 17; do
-    [ "$(_step_tier "$s" "$d")" = "fable" ]
-  done
-  # thinking class still resolves the config table
-  for s in 2 9 10 11 14; do
-    [ "$(_step_tier "$s" "$d")" = "sonnet" ]
-  done
+  # One step per class: this case pins the writer/reader FORMAT agreement, and
+  # the step->class map itself is pinned once in tests/step-model.bats rather than
+  # re-walked here (each step-model.sh spawn is ~4s on win32).
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
 }
 
 @test "#561 AC2: implementation-model: haiku steers 2/9/10/11/14 only" {
@@ -424,12 +422,8 @@ EOF
   grep -q '^thinking: haiku$' "$d/.devagent-step-models"
   run grep -c '^checking:' "$d/.devagent-step-models"
   [ "$status" -eq 1 ]
-  for s in 2 9 10 11 14; do
-    [ "$(_step_tier "$s" "$d")" = "haiku" ]
-  done
-  for s in 5 15 16 17; do
-    [ "$(_step_tier "$s" "$d")" = "opus" ]
-  done
+  [ "$(_step_tier 9 "$d")" = "haiku" ]
+  [ "$(_step_tier 16 "$d")" = "opus" ]
 }
 
 @test "#561 AC1+AC2: both keys together write one line per class" {
@@ -548,8 +542,8 @@ EOF
   local d="$DEVDOC/Issue-730"
   grep -q '^checking: fable$' "$d/.devagent-step-models"
   grep -q '^thinking: opus$' "$d/.devagent-step-models"
-  for s in 5 15 16 17; do [ "$(_step_tier "$s" "$d")" = "fable" ]; done
-  for s in 2 9 10 11 14; do [ "$(_step_tier "$s" "$d")" = "opus" ]; done
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "opus" ]
 }
 
 @test "#561 AC5: label tier:opus-checking with no flags block (koopman-gnn shape)" {
@@ -713,8 +707,8 @@ EOF
   # hand-dropped legacy marker, the #291 flow
   printf 'fable' > "$d/.devagent-step-models"
   # checking class takes the token; nothing else sees it
-  for s in 5 15 16 17; do [ "$(_step_tier "$s" "$d")" = "fable" ]; done
-  for s in 2 9 10 11 14; do [ "$(_step_tier "$s" "$d")" = "sonnet" ]; done
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
   [ "$(_step_tier 12 "$d")" = "haiku" ]
   # reserved token still rc 2, still checking-only
   printf 'inherit' > "$d/.devagent-step-models"
