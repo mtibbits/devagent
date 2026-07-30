@@ -37,10 +37,15 @@ REPO="${BATS_TEST_DIRNAME}/.."
   # (light 1,3,5 / standard 2,4,6,7,12,15 / full 8-11,13,14,16). Assert the intro
   # survives in _shared and the COMPOSED dimension count across the tier files is 16.
   grep -q '## The Sixteen Dimensions' "$REPO/templates/redteam_issue_shared.md"
+  # Summed with awk, not `paste -sd+ | bc`: bc is NOT a documented prerequisite
+  # (docs-site/install.md lists bash, python3, jq, git + bats/shellcheck) and does
+  # not ship with Git for Windows, so the bc form made this the one test that
+  # could not run on a stock Windows checkout. awk is already required and used
+  # throughout the suite.
   local n; n="$(grep -hcE '^### [0-9]+\. ' \
       "$REPO/templates/redteam_issue_light.md" \
       "$REPO/templates/redteam_issue_standard.md" \
-      "$REPO/templates/redteam_issue_full.md" | paste -sd+ | bc)"
+      "$REPO/templates/redteam_issue_full.md" | awk '{s+=$1} END{print s+0}')"
   [ "$n" -eq 16 ] || { echo "composed dimension count = $n (expected 16)" >&2; return 1; }
 }
 

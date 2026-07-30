@@ -1,0 +1,19 @@
+# Line endings are LF in the working tree, on every platform.
+#
+# WHY THIS IS NOT COSMETIC. This project is bash + bats + markdown, and it is
+# developed on Windows where `core.autocrlf=true` is the Git default. With CRLF in
+# the working tree:
+#
+#   * WSL and any Linux shell REFUSE to run the scripts and tests at all —
+#     `$'\r': command not found`, `syntax error near unexpected token $'{\r'`.
+#     That matters because the test suite needs POSIX file modes, and Git Bash on
+#     NTFS cannot provide them (its MSYS mounts are `noacl`, so chmod is a silent
+#     no-op: `chmod 700` reports 755). WSL is the only local environment that can
+#     run the mode-dependent suites, and CRLF was what locked it out.
+#   * shellcheck reports SC1017 ("literal carriage return") on EVERY file,
+#     including untouched ones, which makes the step-13 analyzer output
+#     indistinguishable from real findings.
+#
+# `text=auto` still lets git detect and leave binary content alone, so this is
+# safe for any future non-text file.
+* text=auto eol=lf

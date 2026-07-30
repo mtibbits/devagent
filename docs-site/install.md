@@ -10,7 +10,9 @@ the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
 
 - **Claude Code** — developed and verified against **2.1.211**; earlier
   versions are untested.
-- **`bash` ≥ 4**, **`python3`**, **`jq`**, and **`git`** — the workflow
+- **`bash` ≥ 4**, **`python3` ≥ 3.11** (or 3.8-3.10 plus `tomli`, e.g.
+  `apt install python3-tomli` — the TOML parser moved into the stdlib as
+  `tomllib` in 3.11), **`jq`**, and **`git`** — the workflow
   scripts' toolchain.
 - A forge CLI for your backend: **`gh`** (GitHub), **`glab`** or `curl`
   (GitLab), `curl` (JIRA).
