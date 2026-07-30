@@ -130,7 +130,13 @@ EOF
 @test "spec §6.3 carries row 22, the honest count, and the STEP-vs-TEMPLATE note" {
   local f="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -q '/devagent:research' "$f"
-  grep -q 'optional research step\|research (1) is optional' "$f"
+  # Assert the CLAIM (research is an optional step), not one exact phrasing.
+  # #562 reworded 6.3 to list all three optional steps together — "the optional
+  # research, spike, and mergetoall steps" / "research (1), spike (3), and
+  # mergetoall (19) optional and off by default" — which broke BOTH alternatives
+  # of the previous grep even though the spec became more accurate. A pin that
+  # brittle fails on improvements to the text it guards.
+  grep -qE 'optional research|research \(1\)[^.]*optional' "$f"
   grep -q 'research STEP' "$f"
 }
 
