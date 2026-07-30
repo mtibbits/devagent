@@ -89,7 +89,18 @@ REPO="${BATS_TEST_DIRNAME}/.."
   [ "$status" -eq 1 ]
 }
 
-@test "#561: prose class->step lists agree with the authoritative map in config.sh" {
+@test "#561: prose step numbers are the UNION of the authoritative class lists in config.sh" {
+  # BLIND SPOT, stated here because a checker's green overclaims unless its limits
+  # are written into the checker itself (register: Issue-558). This asserts SET
+  # MEMBERSHIP over the union of both class lists, per file — it catches renumbering
+  # drift (its motivation: #560 renumbered these three commits before this issue,
+  # and this issue's own capture shipped the pre-#560 numbers). It does NOT verify
+  # class ASSIGNMENT: a home that swapped the lists — claiming
+  # `implementation-model` steers 5/15/16/17 — would pass, because the union is
+  # identical. That is the more damaging drift for an operator. Anchoring each
+  # class's numbers to its key's vicinity needs per-paragraph scoping over prose
+  # that varies in shape across 11 homes; deferred rather than faked, and recorded
+  # in the issue's future-enhancements file. Found by the step-16 red-team.
   # The step->class map lives in code (scripts/lib/config.sh's two `case` lines).
   # This change restated those step numbers in prose across many homes, and #560
   # renumbered them three commits earlier — this issue's own capture shipped the
