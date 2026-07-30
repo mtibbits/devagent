@@ -34,7 +34,10 @@ except ImportError:   # Windows / any interpreter without fcntl
     fcntl = None      # _locked_rmw falls back to msvcrt (imported there,
                       # so read-only verbs never depend on either module)
 import sys
-import tomllib
+try:
+    import tomllib          # stdlib, Python >= 3.11
+except ModuleNotFoundError:  # Python 3.8-3.10: the same parser, packaged
+    import tomli as tomllib  # apt install python3-tomli / pip install tomli
 from contextlib import contextmanager
 from pathlib import Path
 
