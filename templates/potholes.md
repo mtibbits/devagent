@@ -38,6 +38,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A guard whose glob stops selecting its subjects passes SILENTLY — relocating a file can empty a canary without reddening anything → enumerate the globs that select a file before moving it, and assert the subject COUNT (Issue-439).
 - A born-red claim printed unconditionally is narration, not evidence — a later re-run makes the log contradict it → gate the claim on an actual existence/state check, or state the STRUCTURAL fact (this module imports only X, so it cannot depend on Y) instead (Issue-85).
 - Before pinning a statistical probe, derive what it measures when the code is CORRECT → a probe whose estimator degenerates (support fixed by construction, error O(sd/sqrt(K)) not O(sd/sqrt(n))) hard-fails on a correct implementation (Issue-85).
+- A hand probe that asserts MEMBERSHIP is blind to a suite's EQUALITY pin — extending a single-source list passes `contains` and fails `equals`; when substituting probes for a suite, match the assertion SHAPE (Issue-561).
+- Absence from a SUBSET result means NOT RUN, not PASSED — assert the name->file mapping is TOTAL before diffing a subset against a known failure set, because an unmapped name is silent and silence reads as success (Issue-561).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -72,6 +74,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A checklist item a dispatched checker never RECEIVES is a dead tripwire → add the input to the dispatch-packaging list in the same change (Issue-286).
 - An artifact relayed through another model session is NOT verbatim → the producer/relay writes it to a FILE; a low body-line floor passes an elided report as valid (Issue-458).
 - A checker finding is a SAMPLE of a class, not a coordinate → grep for its siblings before fixing the named site, or the next round returns the same shape (Issue-558).
+- A mechanical evidence gate and an adversarial reader catch DISJOINT classes — the gate reads two lines and misses false prose; the reader misses arithmetic. A green gate is not evidence the body is true (Issue-561).
+- A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -87,6 +91,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A multiplier or figure inherited from an issue body is a MODEL, not a measurement → measure it before quoting a saving that is linear in it; the whole estimate rides on the factor nobody checked (Issue-439).
 - When a change alters a contract the workflow itself consumes, run the workflow THROUGH it before ship — one live self-hosted dispatch falsifies premises that six review gates pass (Issue-439).
 - A premise-freshness prober that checks named FILES cannot see a stale remote-tracking gap → compare the working checkout against the configured default_baseline itself (`rev-list --count main..origin/main`) before drafting; a 35-commit gap cost a whole plan revision (Issue-85).
+- A suite that is green only in CI hides UNDECLARED PREREQUISITES, not local quirks — chase the delta and declare it; a bare `python3` with no version bound is how a stdlib-version break ships (Issue-561).
+- After any history rewrite, re-verify every artifact's recorded SHA is still reachable (`git merge-base --is-ancestor <sha> HEAD`) — a replayed branch leaves artifacts citing commits that are no longer ancestors (Issue-561).
+- Before requesting an override on a failing quality gate, ask whether the GATE is right and the ENVIRONMENT is wrong — an override is a permanent record of a compromise (Issue-561).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
@@ -98,6 +105,10 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A diff that ADDS a top-level surface → update the documents that enumerate surfaces (spec layout tree, changelog, readme pointer) in the same change; being new is exactly what makes it invisible (Issue-461).
 - Write each claim to the width of the diff → run the one command that would disprove it; if the output is narrower than the sentence, narrow the sentence (Issue-558).
 - A fix that lands in code and the work log but not in the NORMATIVE doc downstream consumers implement from ships the bug to them → enumerate every home of the contract in the same edit (Issue-85).
+- Docs that an agent EXECUTES are product behavior — 'deferred in the prose, decided in the instructions' is a real behavior change, just later; hold them to code-review standards (Issue-561).
+- State SHA/version anchoring ONCE and refer to it by ROLE elsewhere — the same literal repeated in N paragraphs goes stale N times on every move (Issue-561).
+- Pin the CLAIM, not one phrasing of it — a guard that fails when the text it guards is IMPROVED trains people to weaken guards (Issue-561).
+- A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
