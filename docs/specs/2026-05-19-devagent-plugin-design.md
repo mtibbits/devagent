@@ -628,7 +628,16 @@ state this wherever the keys appear.** `checking-model` is FULLY ENFORCED: all
 four checking steps dispatch, and consume the resolved tier as the Agent-tool
 `model:` override (`docs/checking-dispatch-contract.md`).
 `implementation-model` is ENFORCED for step 2 only — draft's dispatched planner,
-via `step-model.sh <project> 2` — and ADVISORY for 9/10/11/14, which run inline:
+which resolves the step-2 tier via `step-model.sh` — and ADVISORY for 9/10/11/14,
+which run inline:
+<!-- The literal dispatcher form (step-model.sh followed by the project
+     placeholder and a step number) is deliberately NOT spelled out on the line
+     above. tests/checklist-numbering.bats greps commands/ and docs/ for that
+     exact shape, treats every hit as a DISPATCHER INSTRUCTION, and pins the
+     count. This sentence is descriptive prose, not an instruction, so it must
+     stay out of that subject set or it inflates the audit's denominator.
+     (This comment cannot spell the form out either, for the same reason.) -->
+
 a session cannot swap its own model, so there the tier surfaces only as the
 `next` / `catchup` hint.
 

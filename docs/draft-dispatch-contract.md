@@ -46,9 +46,15 @@ conversation".
    inline". #561 made `step_models_tier`'s structural marker faults apply to the
    THINKING class as well as the checking one, so rc 1 became reachable at step 2
    for the first time — and a broken keyed marker would have silently disabled
-   draft dispatch instead of stopping. That is the same silent fallback
-   `docs/checking-dispatch-contract.md` forbids for the checking class, at the one
+   draft dispatch instead of stopping. That is the same silent fallback the
+   CHECKING-class dispatch contract forbids (its rc-1 row says STOP), at the one
    place `implementation-model` is enforced.
+   <!-- The sibling contract is referenced by CLASS above, never by filename, on
+        purpose: tests/dispatch-contract.bats treats any file that names a
+        dispatch-contract doc as a POINTER STUB rather than a full-contract
+        carrier, so writing that filename anywhere in this file silently drops
+        THIS file out of the asserted carrier set. Do not "helpfully" add it --
+        and note this comment cannot name it either, for exactly that reason. -->
 
    **Per-issue `.devagent-step-models` markers DO apply to this step (#561).**
    The KEYED marker form (`thinking: <token>`) covers the thinking class, so a
