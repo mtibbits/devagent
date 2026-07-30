@@ -121,9 +121,12 @@ FIXTURE
 
 # --- #535: flags_validate (block-level unknown-key WARN, deferred from #537) ---
 
-@test "flags_known_keys is the single source: tier + research + spike (#535/#536)" {
+@test "flags_known_keys is the single source: tier + research + spike + model keys (#535/#536/#561)" {
   run flags_known_keys
-  [ "$output" = "tier research spike" ]
+  # EXACT match, deliberately: this is the single-source list, and an exact
+  # assertion is what forces a consumer adding a key to come here. #561 appended
+  # the two model-steering keys.
+  [ "$output" = "tier research spike implementation-model checking-model" ]
 }
 
 @test "flags_validate is silent when only known keys are present (#535)" {
@@ -201,4 +204,137 @@ FIXTURE
   run flags_validate "$f"
   [ "$status" -eq 0 ]
   [[ "$output" != *"depends"* ]]
+}
+
+# --- #561: per-issue model steering keys, the tier shim, and the label channel
+
+@test "flags_known_keys gains the two model keys and keeps the shipped three (#561)" {
+  run flags_known_keys
+  [ "$status" -eq 0 ]
+  [[ " $output " == *" implementation-model "* ]]
+  [[ " $output " == *" checking-model "* ]]
+  [[ " $output " == *" tier "* ]]
+  [[ " $output " == *" research "* ]]
+  [[ " $output " == *" spike "* ]]
+}
+
+@test "model_token_allowlist is the Agent enum plus reserved inherit (#561)" {
+  run model_token_allowlist
+  [ "$status" -eq 0 ]
+  [ "$output" = "sonnet opus haiku fable inherit" ]
+}
+
+@test "model_token_is_legal accepts every token, rejects bogus/empty/prose/path (#561)" {
+  model_token_is_legal sonnet
+  model_token_is_legal opus
+  model_token_is_legal haiku
+  model_token_is_legal fable
+  model_token_is_legal inherit
+  run model_token_is_legal bogus
+  [ "$status" -ne 0 ]
+  run model_token_is_legal ""
+  [ "$status" -ne 0 ]
+  # trailing inline prose is part of the value (bare-value grammar) -> illegal
+  run model_token_is_legal "opus trailing prose"
+  [ "$status" -ne 0 ]
+  run model_token_is_legal "../evil"
+  [ "$status" -ne 0 ]
+}
+
+@test "model_token_require_legal dies with the single-sourced token list (#561)" {
+  # the helper uses whatever die() is in the caller's scope (tier_require_legal
+  # contract), so the test supplies one and asserts the message names every token
+  die() { echo "$*" >&2; return 1; }
+  run model_token_require_legal bogus " in ## Workflow flags"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown model token 'bogus'"* ]]
+  [[ "$output" == *"in ## Workflow flags"* ]]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  # a legal token is silent and succeeds
+  run model_token_require_legal fable
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "tier_shim_model maps <model>-checking, rejects everything else (#561)" {
+  run tier_shim_model opus-checking
+  [ "$status" -eq 0 ]
+  [ "$output" = "opus" ]
+  run tier_shim_model fable-checking
+  [ "$status" -eq 0 ]
+  [ "$output" = "fable" ]
+  # NOT a shim -> rc 1 so the caller falls through to tier_require_legal
+  run tier_shim_model bogus-checking
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  run tier_shim_model oneshot
+  [ "$status" -eq 1 ]
+  run tier_shim_model -checking
+  [ "$status" -eq 1 ]
+  run tier_shim_model ""
+  [ "$status" -eq 1 ]
+}
+
+@test "issue_labels reads the header - Labels: line, both backend separators (#561)" {
+  local f="$BATS_TEST_TMPDIR/labels-gh.md"
+  # scripts/issue/github.sh joins on ', '
+  printf -- '# repo#1 — demo\n\n- State: open\n- Labels: tier:impl-opus, tier:check-fable\n\n---\n\nBody.\n' > "$f"
+  run issue_labels "$f"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "tier:impl-opus" ]
+  [ "${lines[1]}" = "tier:check-fable" ]
+  [ "${#lines[@]}" -eq 2 ]
+  # scripts/issue/gitlab.sh and jira.sh join on bare ','
+  local g="$BATS_TEST_TMPDIR/labels-gl.md"
+  printf -- '- Labels: bug,tier:check-opus\n\n---\nBody.\n' > "$g"
+  run issue_labels "$g"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "bug" ]
+  [ "${lines[1]}" = "tier:check-opus" ]
+  [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "issue_labels: an empty label line and a missing file both yield nothing (#561)" {
+  local f="$BATS_TEST_TMPDIR/labels-empty.md"
+  printf -- '- Labels: \n\n---\nBody.\n' > "$f"
+  run issue_labels "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run issue_labels "$BATS_TEST_TMPDIR/does-not-exist.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "issue_labels is HEADER-SEGMENT ONLY — body, comment, and second lines cannot steer (#561)" {
+  # Each case asserts the header label IS still read, so a function that simply
+  # returned nothing would fail: the negative is paired with a positive.
+  local body="$BATS_TEST_TMPDIR/labels-body.md"
+  printf -- '- Labels: bug\n\n---\n\nProse.\n- Labels: tier:check-opus\n' > "$body"
+  run issue_labels "$body"
+  [ "$status" -eq 0 ]
+  [ "$output" = "bug" ]
+
+  local cmt="$BATS_TEST_TMPDIR/labels-comment.md"
+  printf -- '- Labels: bug\n\n---\n\n## Comments (1)\n\n### @bob\n- Labels: tier:check-opus\n' > "$cmt"
+  run issue_labels "$cmt"
+  [ "$status" -eq 0 ]
+  [ "$output" = "bug" ]
+
+  # a SECOND - Labels: line inside the header: first wins, second is dead
+  local two="$BATS_TEST_TMPDIR/labels-second.md"
+  printf -- '- Labels: bug\n- Labels: tier:check-opus\n\n---\nBody.\n' > "$two"
+  run issue_labels "$two"
+  [ "$status" -eq 0 ]
+  [ "$output" = "bug" ]
+}
+
+@test "duplicate tier: lines are FIRST-match-wins — AC10 pin of existing behavior (#561)" {
+  # PIN, not a born-red claim: flags_get exits on the first match, so this is
+  # green at HEAD by construction. A body combining a template tier with a model
+  # annotation must use tier: + checking-model:, one line each.
+  local f="$BATS_TEST_TMPDIR/dup-tier.md"
+  printf -- '## Workflow flags\ntier: opus-checking\ntier: oneshot\n\n## Motivation\nx\n' > "$f"
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "opus-checking" ]
 }

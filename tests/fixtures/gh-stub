@@ -10,6 +10,13 @@
 #   GH_STUB_ARGS_LOG     if set, `gh issue create` appends its argv here (#89)
 #   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
 #   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
+#   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
+#
+# #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
+# non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
+# and silently ignores the rest, so every suite that loads this stub stays green
+# without opting in. Changing either default to a `tier:*` name would inject
+# warns (or dies) into every one of those suites — pick a non-`tier:` name.
 #
 # Contract-suite HTTP simulation (number-driven, used by backend-github.bats):
 #   issue number 404 → "HTTP 404" on stderr, exit 1
@@ -29,7 +36,7 @@ _has_flag() {
 }
 
 _issue_json() {
-  local comments body
+  local comments body labels
   case "${GH_STUB_CASE:-standard}" in
     nocomments) comments='[]' ;;
     *) comments='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "First comment."}]' ;;
@@ -38,12 +45,16 @@ _issue_json() {
   [ -n "${GH_STUB_COMMENTS_JSON:-}" ] && comments="$GH_STUB_COMMENTS_JSON"
   body='"Body line one.\n\nBody line two."'
   [ -n "${GH_STUB_BODY_JSON:-}" ] && body="$GH_STUB_BODY_JSON"
+  # #561: same shape, default-off — see the header note on why the defaults are
+  # deliberately non-`tier:*`.
+  labels='[{"name": "bug"}, {"name": "performance"}]'
+  [ -n "${GH_STUB_LABELS_JSON:-}" ] && labels="$GH_STUB_LABELS_JSON"
   cat <<JSON
 {
   "title": "Demo issue title",
   "state": "OPEN",
   "author": {"login": "alice"},
-  "labels": [{"name": "bug"}, {"name": "performance"}],
+  "labels": $labels,
   "url": "https://github.com/gnuradio/volk/issues/676",
   "body": $body,
   "comments": $comments

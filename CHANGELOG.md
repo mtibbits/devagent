@@ -12,6 +12,71 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Added — 2026-07-29
+- **Per-issue model steering for both step classes, plus a `tier:` compat
+  shim (#561).** Two new `## Workflow flags` keys, orthogonal to `tier:`
+  (which remains the checklist-template selector):
+
+  | Key | Class | Steps |
+  |---|---|---|
+  | `implementation-model: <token>` | *thinking* | 2 draft · 9 implement · 10 quality · 11 document · 14 draftmr |
+  | `checking-model: <token>` | *checking* | 5 improve · 15 review · 16 redmr · 17 preship |
+
+  Legal tokens: `sonnet opus haiku fable inherit`, validated fail-closed before
+  any file write. Both resolve into the per-issue `.devagent-step-models`
+  marker at first scaffold, whose format now accepts keyed
+  `checking:` / `thinking:` lines in addition to the legacy bare token.
+
+  **Enforcement differs by step and the key names under-promise it:**
+  `checking-model` is fully enforced (all four checking steps dispatch and
+  consume the tier as their Agent-tool `model:` override), while
+  `implementation-model` is enforced for **draft only** and **advisory** for
+  9/10/11/14 — those run inline and a session cannot swap its own model, so
+  the tier appears only as the `next`/`catchup` hint.
+
+- **`tier: <model>-checking` no longer breaks `pull`.** That form is a model
+  annotation from a convention predating #537's claim on the `tier:` key
+  (koopman-gnn), and #537 made those bodies die pre-path — blocking the pull
+  of already-drafted issues (observed: koopman-gnn#106). `pull.sh` now warns,
+  leaves the template on the project default chain, and reads it as
+  `checking-model: <model>`. The shim is **permanent grammar and warns
+  always** — the warning is the migration nudge, and a removal date would
+  orphan capture drafts that are not yet filed. Any other unknown `tier:`
+  value still dies listing the legal tier names.
+
+- **Forge labels now steer models (#561).** Both backends already fetched the
+  label set and rendered it into `issue.md`'s `- Labels:` line; nothing
+  consumed it, so a label-only project got no steering at all (observed:
+  factorAI#85 ran every checking step at the config floor despite a
+  `tier:check-fable` label). Recognized at first scaffold:
+  `tier:impl-<model>` (thinking), `tier:check-<model>` and
+  `tier:<model>-checking` (checking). Read once from the `- Labels:` HEADER
+  line, so a `- Labels:` line in the body or a tracker comment never steers.
+
+  Per-class precedence: body key > body `tier:` shim > label > the
+  `step_models` config chain. Fail-closed: an illegal model token dies, and
+  two labels steering one class to different models die naming both — even
+  when a body key would have won that class. Never-die: an unrecognized
+  `tier:*` label warns and is ignored, a non-`tier:` label is silent.
+
+  **Upgrading:** nothing to do. A body with no new keys and no recognized
+  steering labels resolves byte-identically to before (verified by a
+  two-checkout capture-diff over all 24 steps × 3 marker states), and legacy
+  bare-token markers keep their exact semantics. If your project stamps
+  `tier:*` labels, note they now take effect at first pull; later label edits
+  never retro-edit an existing marker, and hand-editing the marker remains
+  the post-scaffold path.
+
+### Fixed — 2026-07-29
+- **Draft dispatch no longer treats a bad per-issue marker as "stay inline"
+  (#561).** The step-2 tier was resolved with `$(… || true)`, mapping rc 1
+  (bad/unreadable marker) to the same empty string as rc 3 (nothing
+  configured). Since #561 makes the marker's structural faults apply to the
+  thinking class, rc 1 became reachable at step 2 — so a broken keyed marker
+  would have silently disabled dispatch at the one place
+  `implementation-model` is enforced. `docs/draft-dispatch-contract.md` and
+  `commands/draft.md` now read the exit code, and **rc 1 stops**.
+
 ### Changed — 2026-07-29
 - **Step 19 (`mergetoall`) is now optional and off by default.** Checklist
   templates (standard, perf, docs-only) and revision blocks scaffold the row

@@ -305,7 +305,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
-├── .devagent-step-models  # optional: one model-tier token pinning this issue's checking steps (#291; §7.4)
+├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -598,6 +598,62 @@ issue-keyed transaction, logs `retier: <old> → <new>`; never destructive).
 Tier and model are orthogonal axes: tiers select STEPS; `step_models` (§7.4)
 selects who runs them — docs may suggest pairings, the schema enforces none.
 
+**Duplicate keys are FIRST-match-wins** (#561, documenting shipped behavior):
+`flags_get` stops at the first matching line, so a body carrying
+`tier: opus-checking` above `tier: oneshot` yields `opus-checking` and the second
+line is dead. To combine a template tier with a model annotation, use `tier:` plus
+`checking-model:` — one line each. Note this is deliberately the OPPOSITE of the
+per-issue marker's duplicate rule (§7.4: two lines for one class is a hard error):
+the flags block is REMOTE content under a forward-compat "ignore what you don't
+understand" contract, while the marker is LOCAL operator-authored state where
+ambiguity is a bug.
+
+##### Per-issue model steering keys (#561)
+
+Two further `## Workflow flags` keys, orthogonal to `tier:`, select WHICH MODEL
+runs a class of steps. They write the per-issue `.devagent-step-models` marker at
+first scaffold; §7.4 owns the marker format and the full precedence chain.
+
+| Key | Class | Canonical steps |
+|---|---|---|
+| `implementation-model: <token>` | *thinking* | 2 draft · 9 implement · 10 quality · 11 document · 14 draftmr |
+| `checking-model: <token>` | *checking* | 5 improve · 15 review · 16 redmr · 17 preship |
+
+Legal tokens: `sonnet | opus | haiku | fable | inherit` — the Agent tool's closed
+model enum plus #291's reserved `inherit`. Validated fail-closed BEFORE any file
+write, so a rejected value leaves neither a checklist nor a marker.
+
+**ENFORCEMENT DIFFERS BY STEP, and the key names under-promise their coverage —
+state this wherever the keys appear.** `checking-model` is FULLY ENFORCED: all
+four checking steps dispatch, and consume the resolved tier as the Agent-tool
+`model:` override (`docs/checking-dispatch-contract.md`).
+`implementation-model` is ENFORCED for step 2 only — draft's dispatched planner,
+which resolves the step-2 tier via `step-model.sh` — and ADVISORY for 9/10/11/14,
+which run inline:
+<!-- The literal dispatcher form (step-model.sh followed by the project
+     placeholder and a step number) is deliberately NOT spelled out on the line
+     above. tests/checklist-numbering.bats greps commands/ and docs/ for that
+     exact shape, treats every hit as a DISPATCHER INSTRUCTION, and pins the
+     count. This sentence is descriptive prose, not an instruction, so it must
+     stay out of that subject set or it inflates the audit's denominator.
+     (This comment cannot spell the form out either, for the same reason.) -->
+
+a session cannot swap its own model, so there the tier surfaces only as the
+`next` / `catchup` hint.
+
+**Compat shim — `tier: <model>-checking`.** A `tier:` value of the form
+`<model>-checking` (model in the legal-token set) is a MODEL annotation from a
+convention that predates #537's claim on the `tier:` key. It no longer dies:
+`pull.sh` warns, leaves the template on the project default chain, and interprets
+it as `checking-model: <model>`. The shim is PERMANENT grammar and warns
+ALWAYS — the warning is the migration nudge, and a removal date would orphan
+capture drafts that are not yet filed. Any other unknown `tier:` value still dies
+listing the legal tier names. An explicit `checking-model:` beats the shim, with a
+warning.
+
+Like `tier:`, these keys fire only at FIRST SCAFFOLD; the post-scaffold path is
+hand-editing the marker (`revise.sh --retier` stays template-only).
+
 Executor convention (canonical statement; command docs carry the per-step
 mapping): a prerequisite whose producing step is absent from the issue's
 ACTIVE revision block is N/A, not a halt — branch produces the branch, draft
@@ -696,7 +752,7 @@ via the operator typing `/devagent:next` between steps.
 
 An optional `[project.<name>.step_models]` table steers which model tier
 runs each step (surfacing #150; dispatch #151; per-issue override #291).
-Implemented in `scripts/lib/config.sh:96–172` (`step_models_tier`) and
+Implemented in `scripts/lib/config.sh` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
 step runs at the session model).
@@ -711,11 +767,78 @@ Steps map to three fixed classes by canonical step number:
 
 A step's tier is resolved in this order (first hit wins):
 
-1. **Per-issue marker** (`<issue-dir>/.devagent-step-models`, #291) — a
-   single tier token, honored for **checking-class steps only**. The
-   reserved token `inherit` forces session-model inheritance (escapes a
-   project `checking` pin). A present-but-empty or multi-token marker is a
-   hard error (never a silent fallback).
+1. **Per-issue marker** (`<issue-dir>/.devagent-step-models`) — TWO forms,
+   discriminated by CONTENT, never by filename:
+
+   **BARE token** (#291, legacy) — e.g. `fable`. One tier token, honored for
+   **checking-class steps only**: a bare marker is invisible to thinking steps,
+   which fall through to the rungs below silently. A present-but-empty or
+   multi-token marker is a hard error (never a silent fallback).
+
+   **KEYED lines** (#561) — one `<class>: <token>` line per steered class,
+   either or both, applying to the **checking AND thinking** classes:
+
+   ```
+   checking: fable
+   thinking: sonnet
+   ```
+
+   A keyed marker with no line for the resolving step's class is NOT an error —
+   it falls through to rung 2 exactly as an absent marker would, so
+   `checking: fable` alone leaves step 9 on the table. A malformed line, or two
+   lines for the SAME class, is a hard error (fail closed on ambiguous
+   operator-authored intent — contrast §6.3's flags-block first-match-wins).
+
+   Both forms: the reserved token `inherit` forces session-model inheritance
+   (escapes a project pin), returning rc 2. The `default` class never reads the
+   marker in either form.
+
+   **Structural vs content validity are scoped differently, deliberately.**
+   Structural faults (exists but is not a regular file / not readable) apply to
+   BOTH classes, because an unreadable file is a fault whichever step asks — this
+   is a #561 behavior change for thinking steps, which previously fell through.
+   Bare-form CONTENT faults (empty, multi-token) stay checking-only, because the
+   bare form itself is checking-only.
+
+   **TOKEN LEGALITY IS NOT CHECKED HERE.** `pull.sh` validates against the legal
+   token set at WRITE time (§6.3); the resolver enforces only the one-token
+   charset, so a hand-edited marker keeps the contract it always had. A marker
+   holding a token the Agent tool's enum rejects therefore resolves rc 0 and
+   fails at dispatch, by design.
+
+   **Who writes it.** At first scaffold `pull.sh` writes the keyed form from,
+   in precedence order: an explicit body key (§6.3) > the body `tier:` shim >
+   a recognized forge LABEL (below) > nothing, leaving the config rungs to
+   resolve. Hand-editing is the documented post-scaffold path, and an existing
+   marker is never stomped.
+
+   **Label channel** (#561). At first scaffold `pull.sh` also derives steering
+   from the issue's forge labels — the same label set the backends already fetch
+   and render into `issue.md`'s `- Labels:` header line, read once from that
+   HEADER segment only (a `- Labels:` line in body prose or a tracker comment
+   never steers). Recognized shapes, matched in a fixed order:
+
+   | Label | Class | Convention |
+   |---|---|---|
+   | `tier:impl-<model>` | thinking | factorAI |
+   | `tier:check-<model>` | checking | factorAI |
+   | `tier:<model>-checking` | checking | koopman-gnn |
+
+   Fail-closed: a recognized shape carrying an illegal model token dies listing
+   the legal tokens; two labels steering the same class to DIFFERENT models die
+   naming both — and that fires EVEN WHEN a body key would have won the class,
+   because a same-class pair is ambiguous authored intent on the forge regardless
+   of the body. Equal models are idempotent, not a conflict.
+   Never-die: an unrecognized `tier:*` label (including a template tier name used
+   as a label) warns and is ignored, and a non-`tier:` label is silently ignored —
+   the label namespace is shared forge metadata, template selection stays
+   body-only, and a die would halt an `--auto` chain on someone else's label
+   hygiene. Later label edits on the forge do NOT retro-edit the marker.
+
+   The channel is knowingly LOSSY for label names containing commas: all backends
+   join the `- Labels:` line on `,`, and the reader re-splits on it. Harmless for
+   non-`tier:` labels; fixing it would need a structured backend channel (a sixth
+   verb), rejected as out of scope.
 2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
 3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
 4. **Default tier** — `step_models.default`, when the class tier is unset.
