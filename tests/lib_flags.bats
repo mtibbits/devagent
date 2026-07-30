@@ -121,9 +121,12 @@ FIXTURE
 
 # --- #535: flags_validate (block-level unknown-key WARN, deferred from #537) ---
 
-@test "flags_known_keys is the single source: tier + research + spike (#535/#536)" {
+@test "flags_known_keys is the single source: tier + research + spike + model keys (#535/#536/#561)" {
   run flags_known_keys
-  [ "$output" = "tier research spike" ]
+  # EXACT match, deliberately: this is the single-source list, and an exact
+  # assertion is what forces a consumer adding a key to come here. #561 appended
+  # the two model-steering keys.
+  [ "$output" = "tier research spike implementation-model checking-model" ]
 }
 
 @test "flags_validate is silent when only known keys are present (#535)" {
