@@ -139,3 +139,32 @@ EOF
   draft="${TMP_DEVDOC}/Captures/2026-05-19-locusts/draft.md"
   [ -f "${draft}" ]                                   # draft still rendered
 }
+
+# --- #559 U4: promote-loop collision pins. crrf promotes each scaffolded
+# child into its own top-level capture; two children of one epic filed the
+# same day can collide on the date-plus-title slug. The worst failure is not a
+# crash but a WRONG BODY under a reused slug (Issue-558's fail-open class) —
+# pin both directions: collisions are detectable (rc 3, first draft intact),
+# and --slug-suffix (#252) mints a distinct slug.
+
+@test "capture: a colliding title exits 3 and does NOT overwrite (#559 U4)" {
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting"
+  [ "$status" -eq 0 ]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  printf 'SENTINEL\n' >> "${draft}"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting"
+  [ "$status" -eq 3 ]                       # detectable, not silent
+  grep -qF 'SENTINEL' "${draft}"            # first body byte-intact
+}
+
+@test "capture: --slug-suffix disambiguates a promoted child (#559 U4)" {
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" >/dev/null
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --slug-suffix 02
+  [ "$status" -eq 0 ]
+  [ "$output" != "2026-05-19-corn-planting" ]
+  [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
+}
