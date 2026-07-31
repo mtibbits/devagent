@@ -250,25 +250,25 @@ _check_user_invocable() {
   n="$(ls "$CMD_DIR"/*.md | wc -l)"
   _check_user_invocable   # names offenders on stderr, fails on mismatch (AC3)
   s="$(_user_invocable_skills | wc -w)"
-  [ "$n" -eq 54 ]
+  [ "$n" -eq 55 ]
   [ "$s" -eq 3 ]
-  [ $((n + s)) -eq 57 ]
-  grep -q "57 slash commands" "$CMD_DIR/../README.md"
+  [ $((n + s)) -eq 58 ]
+  grep -q "58 slash commands" "$CMD_DIR/../README.md"
   # BOTH manifests carry the claim (#439 plan's enumeration); plugin.json was
   # unpinned while marketplace.json was, so the two could drift apart.
-  grep -q "57 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
-  grep -q "57 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
+  grep -q "58 slash commands" "$CMD_DIR/../.claude-plugin/marketplace.json"
+  grep -q "58 slash commands" "$CMD_DIR/../.claude-plugin/plugin.json"
   # #535: CHANGELOG is a FOURTH count home the sweep previously missed — the exact
   # drift this canary exists to catch, so it is enumerated here too.
-  grep -q "57 slash commands" "$CMD_DIR/../CHANGELOG.md"
+  grep -q "58 slash commands" "$CMD_DIR/../CHANGELOG.md"
   # #535 redmr: the SPEC is a fifth home and contradicted itself three lines apart
   # (tree comment said 52 while the sum line said 53+3=56) — pin both.
-  grep -q "54 + 3 = the 57 slash commands" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
-  grep -qE "command-form slash command \(54\)" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -q "55 + 3 = the 58 slash commands" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -qE "command-form slash command \(55\)" "$CMD_DIR/../docs/specs/2026-05-19-devagent-plugin-design.md"
   # #461: the onboarding site's landing page is a SIXTH home, enrolled in the
   # same change that created it (Issue-458: extend the sweep in the change that
   # adds a home, or it ships divergent exactly when the sweep lags the homes).
-  grep -q "57 slash commands" "$CMD_DIR/../docs-site/index.md"
+  grep -q "58 slash commands" "$CMD_DIR/../docs-site/index.md"
 }
 
 @test "user-invocable: frontmatter 'user-invocable: False' is hidden (#526)" {
