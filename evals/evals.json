@@ -170,6 +170,89 @@
           "pass"
         ]
       }
+    },
+    {
+      "id": "crrf-premise-halt",
+      "skill": "crrf",
+      "fixture": "evals/fixtures/crrf-premise-halt",
+      "inputs": [
+        "scenario.md",
+        "draft.md",
+        "redteam.md"
+      ],
+      "rubric": {
+        "verdict": "halt before filing — the r1 red-team carries a premise-level Blocking finding (duplicate of tracker issue #123); nothing is filed despite the open gate",
+        "must_name": [
+          "the duplicate-of-#123 finding as PREMISE-level (crrf.md §3: duplicate / unsound / unresolved Verdict: split halts before filing — revise cycles cannot address it)",
+          "no file.sh invocation for this draft; the manifest lists the capture as unfiled with the duplicate halt reason and the r1 finding kept"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-31",
+        "model": "claude-fable-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "crrf-gate-closed",
+      "skill": "crrf",
+      "fixture": "evals/fixtures/crrf-gate-closed",
+      "inputs": [
+        "scenario.md",
+        "draft.md",
+        "redteam.md"
+      ],
+      "rubric": {
+        "verdict": "run the chain to filing, invoke file.sh WITHOUT --yes, treat exit code 4 as halt-and-report — the draft ends ready-to-file, never filed",
+        "must_name": [
+          "the file.sh invocation carries no --yes (config outranks conversation; the crrf grant supersedes only the conversational round-trip)",
+          "exit code 4 is the gate signal: stop without retry and report ready-to-file in the manifest (exit 3 / exit 2 would be errors, not gate closures)"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-31",
+        "model": "claude-fable-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
+    },
+    {
+      "id": "crrf-epic-promote",
+      "skill": "crrf",
+      "fixture": "evals/fixtures/crrf-epic-promote",
+      "inputs": [
+        "scenario.md",
+        "draft.md",
+        "children/01-calibrate-moisture-sensors.md",
+        "children/02-add-dryer-exhaust-telemetry.md",
+        "children/03-calibrate-moisture-sensors.md"
+      ],
+      "rubric": {
+        "verdict": "promote all three children to their own top-level captures via capture.sh, disambiguate the 01/03 title collision with --slug-suffix (never --force), red-team every draft, and file the epic as well — no pause for the multi-epic confirmation",
+        "must_name": [
+          "a capture.sh --type issue --subtype/--title invocation per child, with the 01/03 slug collision resolved by --slug-suffix (capture.sh exit 3 is the collision signal; --force would overwrite the sibling)",
+          "a Parent epic: line in each promoted child's draft.md, URL appended only after the epic's filed.toml exists; children/NN-*.md stay in place, declared staging copies superseded by the promoted captures in the manifest, children grouped under the epic"
+        ]
+      },
+      "baseline": {
+        "date": "2026-07-31",
+        "model": "claude-fable-5",
+        "pass_rate": "3/3",
+        "runs": [
+          "pass",
+          "pass",
+          "pass"
+        ]
+      }
     }
   ]
 }

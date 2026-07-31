@@ -59,6 +59,14 @@ skill="${fields[0]}"; fixture="${fields[1]}"; inputs="${fields[2]}"
 verdict="${fields[3]}"; must_name="${fields[4]}"
 
 skill_path="$REPO/skills/$skill/SKILL.md"
+# #559: a case may target a command-form doc (e.g. crrf) that has no
+# skills/ entry; fall back to commands/<skill>.md, and die clearly when
+# neither home exists instead of printing a prompt at a missing file.
+[ -f "$skill_path" ] || skill_path="$REPO/commands/$skill.md"
+[ -f "$skill_path" ] || {
+  echo "run-eval: no skills/$skill/SKILL.md and no commands/$skill.md" >&2
+  exit 3
+}
 fixture_abs="$REPO/$fixture"
 
 # Build the input-file list and detect the diff.patch / preship special-cases.
