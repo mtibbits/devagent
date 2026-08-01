@@ -188,7 +188,7 @@
         ]
       },
       "baseline": {
-        "date": "2026-07-31",
+        "date": "2026-08-01",
         "model": "claude-fable-5",
         "pass_rate": "3/3",
         "runs": [
@@ -215,7 +215,7 @@
         ]
       },
       "baseline": {
-        "date": "2026-07-31",
+        "date": "2026-08-01",
         "model": "claude-fable-5",
         "pass_rate": "3/3",
         "runs": [
@@ -244,7 +244,7 @@
         ]
       },
       "baseline": {
-        "date": "2026-07-31",
+        "date": "2026-08-01",
         "model": "claude-fable-5",
         "pass_rate": "3/3",
         "runs": [

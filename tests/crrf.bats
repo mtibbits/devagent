@@ -9,44 +9,53 @@
 # phrase is CANONICAL VOCABULARY — frozen deliberately, and the test says so
 # in a comment. Rewording a canonical phrase is a contract change, not an
 # editorial edit.
+#
+# Positive literal pins match against $DOC (one read in setup, no per-assert
+# process spawn — ~285ms/grep on this suite's Windows floor). NEGATIVES and
+# line-anchored pins stay grep: grep is line-oriented, so `.` cannot cross a
+# newline there, while a whole-file [[ ]] match would — that distinction is
+# load-bearing for the `file.sh … --yes` guard below.
+
+load 'lib/bats-helpers'
 
 REPO="${BATS_TEST_DIRNAME}/.."
 F="$REPO/commands/crrf.md"
 
-@test "crrf.md exists, non-empty, frontmatter carries the three keys (#559)" {
+setup() { DOC="$(<"$F")"; }
+
+@test "crrf.md exists with frontmatter description and allowed-tools (#559)" {
+  # argument-hint presence is already swept for every command doc by
+  # tests/test_frontmatter_yaml.py — not re-pinned here (Issue-458).
   [ -s "$F" ]
-  grep -q '^description: ' "$F"
-  grep -q '^argument-hint: ' "$F"
-  grep -q '^allowed-tools: ' "$F"
+  skill_frontmatter "$F" | grep -q '^description: '
+  skill_frontmatter "$F" | grep -q '^allowed-tools: '
 }
 
-@test "AC1: the no-prompt grant is stated and the chain names all four verbs (#559)" {
-  # canonical vocabulary: the grant phrase
-  grep -qF 'without intermediate confirmation prompts' "$F"
-  grep -qF 'capture' "$F"
-  grep -qF 'scaffold' "$F"
-  grep -qF 'redissue' "$F"
-  grep -qF 'file' "$F"
+@test "AC1: the no-prompt grant is stated (#559)" {
+  # canonical vocabulary: the grant phrase. (Bare verb-name greps were
+  # dropped as vacuous — the four verbs are pinned by their DOC PATHS in the
+  # pointer test below.)
+  [[ "$DOC" == *'without intermediate confirmation prompts'* ]]
 }
 
 @test "AC2: the topic declaration precedes any artifact (#559)" {
   # canonical vocabulary: both phrases
-  grep -qF 'a statement, not a question' "$F"
-  grep -qF 'before any artifact is created' "$F"
+  [[ "$DOC" == *'a statement, not a question'* ]]
+  [[ "$DOC" == *'before any artifact is created'* ]]
 }
 
 @test "AC3: the multi-artifact path is specified end to end (#559)" {
   # Q1 — the invocation PRE-ANSWERS capture's multi-epic prompt; the prompt is
   # SATISFIED, not skipped. Canonical vocabulary: the answer sentence itself,
   # so a reword into an override ("ignore the confirmation") fails here.
-  grep -qF 'author those you deem appropriate for the declared topic' "$F"
+  [[ "$DOC" == *'author those you deem appropriate for the declared topic'* ]]
   # Q2 — children are PROMOTED to their own top-level captures, then filed.
-  grep -qF 'scripts/capture/capture.sh' "$F"
-  grep -qF -- '--type issue --subtype' "$F"
-  grep -qF -- '--slug-suffix' "$F"               # U4: collision disambiguator
-  grep -qF 'Parent epic:' "$F"                   # linkage home 1 (child draft)
-  grep -qF 'staging copies superseded' "$F"      # children/NN-*.md disposition
-  grep -qF 'epic draft is filed as well' "$F"    # case-safe: no leading article
+  [[ "$DOC" == *'scripts/capture/capture.sh'* ]]
+  [[ "$DOC" == *'--type issue --subtype'* ]]
+  [[ "$DOC" == *'--slug-suffix'* ]]              # U4: collision disambiguator
+  [[ "$DOC" == *'Parent epic:'* ]]               # linkage home 1 (child draft)
+  [[ "$DOC" == *'staging copies superseded'* ]]  # children/NN-*.md disposition
+  [[ "$DOC" == *'epic draft is filed as well'* ]]  # case-safe: no leading article
 }
 
 @test "AC3 anti-bypass: crrf never tells the model to disregard a verb doc (#559)" {
@@ -57,37 +66,38 @@ F="$REPO/commands/crrf.md"
 }
 
 @test "AC4: all three premise-level halt triggers are present (#559)" {
-  grep -qF 'duplicate' "$F"
-  grep -qF 'unsound' "$F"
-  grep -qF 'Verdict: split' "$F"
+  [[ "$DOC" == *'duplicate'* ]]
+  [[ "$DOC" == *'unsound'* ]]
+  [[ "$DOC" == *'Verdict: split'* ]]
 }
 
 @test "AC5: the revise bound is stated (#559)" {
   # token pin: the bound IS the claim
-  grep -qF 'at most two revise cycles' "$F"
+  [[ "$DOC" == *'at most two revise cycles'* ]]
 }
 
 @test "AC6: the push_mr gate is delegated, never bypassed (#559)" {
   # (a) the prohibition sentence
-  grep -qF 'MUST NOT pass' "$F"
+  [[ "$DOC" == *'MUST NOT pass'* ]]
   # (b) rc-precise negative (#337): an OPERATIVE `file.sh … --yes`. The
   # prohibition sentence puts --yes BEFORE file.sh, so it stays legal.
   # `.`, not `[^\n]` — a POSIX bracket expression treats \n as two literals,
-  # which let `--target origin --yes` slip the guard (#559 improve B2).
+  # which let `--target origin --yes` slip the guard (#559 improve B2). Stays
+  # grep: line-oriented `.` is the point.
   run grep -nE 'file\.sh.*--yes' "$F"
   [ "$status" -eq 1 ]
   # (c) the delegated gate signal
-  grep -qF 'exit code 4' "$F"
+  [[ "$DOC" == *'exit code 4'* ]]
 }
 
 @test "AC7: the manifest contract is stated (#559)" {
   # The doc's operative sections are numbered; pin the numbered heading form
   # (`^## Manifest` can never match `## 5. Manifest` — #559 improve B1).
   grep -qE '^## [0-9]+\. Manifest' "$F"
-  grep -qF 'tracker URL' "$F"
-  grep -qF 'halt reason' "$F"
-  grep -qF 'kept' "$F"
-  grep -qF 'discarded' "$F"
+  [[ "$DOC" == *'tracker URL'* ]]
+  [[ "$DOC" == *'halt reason'* ]]
+  [[ "$DOC" == *'kept'* ]]
+  [[ "$DOC" == *'discarded'* ]]
 }
 
 @test "crrf is NOT a workflow-checklist step (#559)" {
@@ -110,8 +120,9 @@ F="$REPO/commands/crrf.md"
 @test "crrf.md points at the verbs' docs instead of restating their semantics (#559)" {
   # capture redteam Recommended [Dim 9] + Issue-458: a contract enumerated in N
   # files ships divergent. crrf owns ORCHESTRATION; stage semantics stay in the
-  # verb docs it names.
-  grep -qF 'commands/redissue.md' "$F"
-  grep -qF 'commands/file.md'     "$F"
-  grep -qF 'skills/capture/SKILL.md' "$F"
+  # verb docs it names — all four verbs pinned by their doc paths.
+  [[ "$DOC" == *'skills/capture/SKILL.md'* ]]
+  [[ "$DOC" == *'commands/scaffold.md'* ]]
+  [[ "$DOC" == *'commands/redissue.md'* ]]
+  [[ "$DOC" == *'commands/file.md'* ]]
 }

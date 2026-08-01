@@ -25,7 +25,7 @@ teardown() {
 @test "file: with push_mr=false, refuses without --yes" {
   export DEVAGENT_PERMISSION_PUSH_MR=false
   run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 4 ]   # NOT -ne 0: 4 is the gate signal crrf branches on (#559 U1)
   [[ "$output" == *"push_mr"* ]] || [[ "$output" == *"permission"* ]]
 }
 
@@ -58,22 +58,13 @@ teardown() {
   assert_file_grep "${CAP_DIR}/filed.toml" '^repo = "me/fake"$'
 }
 
-# --- #559 U1: rc-precise gate pins. crrf's gate-closed behavior is "run
-# file.sh without --yes and branch on exit code 4"; these pin the exit map at
-# the SOURCE so the signal crrf depends on cannot drift (Issue-458: two
-# same-exit-code states a caller must distinguish get distinct codes minted at
-# the source — and a `-ne 0` assertion cannot see them drift together).
+# #559 U1: the exit map is pinned rc-precise at the SOURCE (4 = gate, 3 =
+# draft/state, 2 = usage) because crrf branches on it — tightened into the
+# existing gate and missing-draft tests rather than duplicated (Issue-458:
+# a surviving `-ne 0` twin cannot see the codes drift). Only the bad-target
+# case is new:
 
-@test "file: push_mr closed exits 4, the gate signal crrf branches on (#559)" {
-  export DEVAGENT_PERMISSION_PUSH_MR=false
-  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target origin
-  [ "$status" -eq 4 ]          # NOT -ne 0: 4 is the contract
-}
-
-@test "file: missing draft exits 3, bad target exits 2, distinct from 4 (#559)" {
-  export DEVAGENT_PERMISSION_PUSH_MR=false
-  run "${REPO_ROOT}/scripts/capture/file.sh" --slug "no-such-slug" --target origin
-  [ "$status" -eq 3 ]
+@test "file: bad --target exits 2, distinct from gate 4 and draft 3 (#559)" {
   run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target bogus
   [ "$status" -eq 2 ]
 }
@@ -110,7 +101,7 @@ teardown() {
   export DEVAGENT_PERMISSION_PUSH_MR=true
   export DEVAGENT_REPO_ORIGIN="fakeorg/fake"
   run "${REPO_ROOT}/scripts/capture/file.sh" --slug "nope-2026-05-19-x" --target origin
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 3 ]   # NOT -ne 0: 3 = draft/state, distinct from gate 4 (#559 U1)
   [[ "$output" == *"draft.md"* ]]
 }
 

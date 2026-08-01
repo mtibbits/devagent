@@ -21,8 +21,3 @@ State so far:
 - No red-team has run yet on any draft.
 - The project's `permissions.push_mr` is **true** — the filing gate is
   OPEN.
-
-Environment pinning for any real baseline run of this eval (sandbox,
-belt-and-suspenders): `DEVAGENT_DEVDOC_DIR=<tmp>`,
-`DEVAGENT_PERMISSION_PUSH_MR=false`, mock backend dir per
-`tests/fixtures/mock-backend`.

@@ -23,8 +23,14 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    The script reads the env var `DEVAGENT_PERMISSION_PUSH_MR` (which
    mirrors config `[project.<name>.permissions].push_mr` once exported),
    defaulting to `false`. When the gate is `false`, the script prints
-   the plan and exits non-zero; the operator re-invokes with `--yes`
-   to confirm.
+   the plan and exits **4**; the operator re-invokes with `--yes`
+   to confirm. (An autonomous caller — `/devagent:crrf` — instead treats
+   4 as halt-and-report and never passes `--yes`.)
+
+   Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
+   `2` usage/bad `--target` · `3` draft or state problem (missing
+   `draft.md`, already filed, stale `.pending`) · `4` `push_mr` gate
+   closed.
 
 4. On success, print the returned URL and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.

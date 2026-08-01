@@ -44,10 +44,16 @@ teardown() { teardown_tmp_devdoc; }
 @test "capture: refuses to overwrite an existing draft without --force" {
   "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting" >/dev/null
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  printf 'SENTINEL\n' >> "${draft}"
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting"
-  [ "$status" -ne 0 ]
+  # #559 U4: rc-precise — 3 is the collision signal crrf's promote loop
+  # branches on, and the first body must survive byte-intact (a --force here
+  # would be Issue-558's fail-open wrong-body write).
+  [ "$status" -eq 3 ]
   [[ "$output" == *"already exists"* ]]
+  grep -qF 'SENTINEL' "${draft}"
 }
 
 @test "capture: --force overwrites existing draft" {
@@ -140,24 +146,9 @@ EOF
   [ -f "${draft}" ]                                   # draft still rendered
 }
 
-# --- #559 U4: promote-loop collision pins. crrf promotes each scaffolded
-# child into its own top-level capture; two children of one epic filed the
-# same day can collide on the date-plus-title slug. The worst failure is not a
-# crash but a WRONG BODY under a reused slug (Issue-558's fail-open class) —
-# pin both directions: collisions are detectable (rc 3, first draft intact),
-# and --slug-suffix (#252) mints a distinct slug.
-
-@test "capture: a colliding title exits 3 and does NOT overwrite (#559 U4)" {
-  run "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting"
-  [ "$status" -eq 0 ]
-  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
-  printf 'SENTINEL\n' >> "${draft}"
-  run "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting"
-  [ "$status" -eq 3 ]                       # detectable, not silent
-  grep -qF 'SENTINEL' "${draft}"            # first body byte-intact
-}
+# #559 U4: the collision half of the promote-loop pin was tightened into the
+# existing overwrite-refusal test above (rc 3 + SENTINEL); only --slug-suffix
+# coverage is new (#252 — the disambiguator crrf's promote loop mandates).
 
 @test "capture: --slug-suffix disambiguates a promoted child (#559 U4)" {
   "${REPO_ROOT}/scripts/capture/capture.sh" \

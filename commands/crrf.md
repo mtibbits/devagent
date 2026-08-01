@@ -11,8 +11,7 @@ Args: `[topic hint]` — optional quoted free-form text narrowing the scope.
 **crrf** = **c**apture, **r**ed-team, **r**evise, **f**ile. Invoking this
 command IS the operator's explicit permission to run that chain end to end,
 without intermediate confirmation prompts. It is not a workflow-checklist
-step; it lives in the pre-issue capture stage, outside the per-issue
-checklist.
+step; it lives in the pre-issue capture stage.
 
 Stage semantics belong to the verbs, not to this document — see
 `skills/capture/SKILL.md`, `commands/scaffold.md`, `commands/redissue.md`,
@@ -24,21 +23,18 @@ no slash-command facility is assumed.
 
 Open with one line naming the topic you understood, folding in the topic
 hint when one was given.
-It is a statement, not a question: declare it and proceed.
-Do this before any artifact is created, and do not wait for a reply — the
-declaration exists so a misread is visible immediately, not to seek
-approval.
+It is a statement, not a question — the declaration exists so a misread
+is visible immediately.
+Do this before any artifact is created.
 
 ## 2. Capture
 
-Invoke `/devagent:capture` normally — its procedure is unchanged and this
-command does not reach around it.
+Invoke `/devagent:capture` normally — its procedure is unchanged.
 
 `skills/capture/SKILL.md` asks the operator which epics to author when it
 recommends a multi-epic split. **The crrf invocation supplies that answer in
 advance:** author those you deem appropriate for the declared topic. The
-prompt is answered, not skipped — do not pause for a reply. Everything else
-that skill says still applies in full.
+prompt is answered, not skipped.
 
 For each epic captured, run `/devagent:scaffold <epic-slug>` to bin it into
 `children/NN-<kebab-title>.md`, then **promote** every child into its own
@@ -62,10 +58,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" \
   write succeeds, so never bake a URL you have not been handed.
 - `capture.sh` exits **3** (`draft already exists`) when two children
   collide on the date-plus-title slug. That is a signal, not a failure:
-  re-run with `--slug-suffix 02` (03, …). Never pass `--force` — it would
-  overwrite a sibling's draft.
-- Leave `children/NN-*.md` in place as the binning record. The manifest
-  declares them staging copies superseded by the promoted captures.
+  re-run with `--slug-suffix` set to the first six hex chars of the child
+  body's content hash — the idempotent, content-derived form `reap.sh`
+  already uses (#252). Never pass `--force` — it would overwrite a
+  sibling's draft.
+- Leave `children/NN-*.md` in place as the binning record (the manifest
+  states their disposition — see the Manifest section).
 
 The epic draft is filed as well, alongside its promoted children.
 
@@ -73,9 +71,9 @@ The epic draft is filed as well, alongside its promoted children.
 
 Run `redissue` on each draft — epic drafts and promoted child captures
 alike. Cycle accounting: the initial redissue run is **r1**; preserve each
-run's findings as `Captures/<slug>/redteam-r<N>.md` before the next run, so
-r1 is the pre-revision record and revise cycles re-run redissue as r2 then
-r3 — three redissue runs per draft is the ceiling. The manifest's
+run's findings as `Captures/<slug>/revisions/r<N>/redteam.md` (the repo-wide
+revision layout) before the next run, so r1 is the pre-revision record and
+each revise cycle adds one more numbered run. The manifest's
 kept-vs-discarded claims must be checkable against these files, not recalled
 from context.
 
