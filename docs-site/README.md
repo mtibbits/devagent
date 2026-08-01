@@ -28,9 +28,12 @@ Counts and versions are restated minimally, with the sources' exact tokens:
   CHANGELOG, and the spec.
 - "24-step workflow" — the site-wide headline number; `workflow.md`'s
   Numbering section carries the reconciling sentence for the optional steps.
-- the mandatory/optional step split — anchored once in spec §6.3;
-  `workflow.md`'s Numbering section restates it, and
-  `tests/checklist-numbering.bats` sweeps every home of the claim.
+- the mandatory/optional step split — spec §6.3 is the authority, but the
+  number is restated wherever a reader needs it (README, `workflow.md`'s
+  Numbering section). Those restatements are kept honest by the sweep in
+  `tests/checklist-numbering.bats`, which derives the expected count from
+  `templates/checklist-standard.md` and finds its subjects by predicate — so a
+  new home is covered the moment it is written, without editing the test.
 - The verified Claude Code version — verbatim-shared between `install.md`
   and the repo README, pinned on both sides by the guard suite; on a bump,
   update README first, then the page and the test's expectation together,

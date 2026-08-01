@@ -407,15 +407,29 @@ _mandatory_step_count() {
 
 # Emit "<repo-relative path>:<claimed mandatory count>" once per claim.
 # Subjects are the TRACKED files only; see the universe note above.
+#
+# The candidate list is prefiltered on the BARE WORD, never on the full phrase.
+# That is what keeps the prefilter compatible with the newline flattening below:
+# prose wraps at whitespace, so a claim split across two lines still leaves the
+# bare word intact on one of them and the file is still selected. Prefiltering
+# on the phrase would silently drop exactly the wrapped claims this guard exists
+# to catch. `git grep` also searches tracked files only, so the tracked-tree
+# universe is preserved. (Measured: 564 tracked files -> 15 candidates, and the
+# test drops from ~3m20s to ~4s. Without this, one test would eat a fifth of the
+# suite's CI budget.)
+#
+# The `|| true` is safe here only because of the floor below, and for no other
+# reason: `git grep` exits 1 on no-match and 2 on error, and this collapses both
+# to an empty candidate list — normally the exact "hid a failure as found
+# nothing" shape Issue-314 warns about. It stays loud because an empty list
+# means n=0, and the floor turns n=0 into a hard failure rather than a pass.
 _split_claim_hits() {
-    local rel
-    while IFS= read -r -d '' rel; do
-        [ -f "$PLUGIN_ROOT/$rel" ] || continue
+    local rel phrase
+    while IFS= read -r rel; do
         tr '\n' ' ' < "$PLUGIN_ROOT/$rel" | tr -s ' ' \
           | grep -oE '[0-9]+ (of them )?mandatory' \
-          | grep -oE '^[0-9]+' \
-          | while IFS= read -r num; do printf '%s:%s\n' "$rel" "$num"; done
-    done < <(git -C "$PLUGIN_ROOT" ls-files -z)
+          | while IFS= read -r phrase; do printf '%s:%s\n' "$rel" "${phrase%% *}"; done
+    done < <(git -C "$PLUGIN_ROOT" grep -lI 'mandatory' || true)
 }
 
 @test "step-split: every prose mandatory-count claim equals the template-derived count (#566)" {
@@ -425,8 +439,7 @@ _split_claim_hits() {
         n=$((n + 1))
         [ "${hit##*:}" = "$m" ] || bad="$bad $hit"
     done < <(_split_claim_hits)
-    # Issue-439/151: pin the SUBJECT COUNT — a predicate that stopped matching
-    # would otherwise leave this test green over an unswept repo.
+    # The subject-count floor promised in the header (Issue-439/151).
     #
     # A FLOOR, not equality, on purpose: new correct homes are welcome and are
     # each checked by the equality-with-derived-count test above; only the
