@@ -381,10 +381,12 @@ EOF
 # own born-red run.)
 #
 # DECLARED BLIND SPOT (Issue-558 — say what the checker cannot decide): this
-# sweeps only the MANDATORY half, in digit form. A word-form optional count
-# ("three of them are optional") is invisible here. Issue-566 closed the one
-# such home by de-numbering it; if word-form counts return, extend the
-# predicate rather than de-numbering again.
+# sweeps only the MANDATORY half, in digit form. A count of the OPTIONAL steps
+# spelled as an English word rather than a digit is invisible here. Issue-566
+# closed the one such home by de-numbering it; if that form returns, extend the
+# predicate rather than de-numbering again — and note this comment deliberately
+# does not spell an example, so that extending the predicate does not turn the
+# blind-spot notice into its own first offender (Issue-561).
 #
 # The retired value this sweep exists to catch is deliberately NOT spelled
 # anywhere in this file. The assertion is equality with the derived count, so
