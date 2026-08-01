@@ -72,8 +72,10 @@ The epic draft is filed as well, alongside its promoted children.
 Run `redissue` on each draft — epic drafts and promoted child captures
 alike. Cycle accounting: the initial redissue run is **r1**; preserve each
 run's findings as `Captures/<slug>/revisions/r<N>/redteam.md` (the repo-wide
-revision layout) before the next run, so r1 is the pre-revision record and
-each revise cycle adds one more numbered run. The manifest's
+revision layout) before the next run — preservation is a COPY, and the root
+`Captures/<slug>/redteam.md` stays in place as the live latest run (it is
+what `commands/file.md` checks before filing). So r1 is the pre-revision
+record and each revise cycle adds one more numbered run. The manifest's
 kept-vs-discarded claims must be checkable against these files, not recalled
 from context.
 

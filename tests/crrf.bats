@@ -53,6 +53,7 @@ setup() { DOC="$(<"$F")"; }
   [[ "$DOC" == *'scripts/capture/capture.sh'* ]]
   [[ "$DOC" == *'--type issue --subtype'* ]]
   [[ "$DOC" == *'--slug-suffix'* ]]              # U4: collision disambiguator
+  [[ "$DOC" == *'content hash'* ]]               # #252 idempotent suffix form
   [[ "$DOC" == *'Parent epic:'* ]]               # linkage home 1 (child draft)
   [[ "$DOC" == *'staging copies superseded'* ]]  # children/NN-*.md disposition
   [[ "$DOC" == *'epic draft is filed as well'* ]]  # case-safe: no leading article
