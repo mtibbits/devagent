@@ -87,6 +87,11 @@ setup() { DOC="$(<"$F")"; }
   # grep: line-oriented `.` is the point.
   run grep -nE 'file\.sh.*--yes' "$F"
   [ "$status" -eq 1 ]
+  # (b2) wrapped-invocation companion (redmr M5): a line-continued
+  # `file.sh … \` + `  --yes` on the next line would slip the line-oriented
+  # guard above — the doc's own pasteable blocks use continuations.
+  run bash -c "grep -A2 'file\.sh' '$F' | grep -E '^[[:space:]]*--yes'"
+  [ "$status" -eq 1 ]
   # (c) the delegated gate signal
   [[ "$DOC" == *'exit code 4'* ]]
 }
