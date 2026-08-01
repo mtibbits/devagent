@@ -21,8 +21,8 @@ tag`) will get their own dated sections below.
   redundant word-form count — two places where the number carried no weight for
   a reader. The remaining homes keep the number, because a reader of the README
   or the site wants it in front of them; they stay correct by being swept rather
-  than by being removed. `tests/checklist-numbering.bats` now
-  sweeps every prose home of the claim across the tracked tree — subject set
+  than by being removed. `tests/checklist-numbering.bats` now sweeps every prose
+  home of the claim across the tracked tree — subject set
   derived from the predicate, expected value derived from
   `templates/checklist-standard.md` — so the next optionality change reddens
   instead of drifting silently.

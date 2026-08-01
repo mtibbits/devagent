@@ -361,7 +361,8 @@ EOF
 # guard whose selector stops selecting passes silently (Issue-439). The count
 # floor below is that guard's own guard (Issue-151).
 #
-# The universe is the TRACKED tree (`git ls-files`), not the filesystem: a raw
+# The universe is the TRACKED tree (`git grep` searches tracked files only, and
+# the candidate list below comes from it), not the filesystem: a raw
 # recursive grep also selects gitignored, machine-local, mutable files (a mypy
 # cache, a merge-conflict .orig, a stray saved log), which makes the guard's
 # result depend on which machine ran it — the environment trap of Issue-559 and
@@ -380,13 +381,24 @@ EOF
 # offender — the self-trigger trap of Issue-561, observed live in this guard's
 # own born-red run.)
 #
-# DECLARED BLIND SPOT (Issue-558 — say what the checker cannot decide): this
-# sweeps only the MANDATORY half, in digit form. A count of the OPTIONAL steps
-# spelled as an English word rather than a digit is invisible here. Issue-566
-# closed the one such home by de-numbering it; if that form returns, extend the
-# predicate rather than de-numbering again — and note this comment deliberately
-# does not spell an example, so that extending the predicate does not turn the
-# blind-spot notice into its own first offender (Issue-561).
+# DECLARED BLIND SPOTS (Issue-558 — say what the checker cannot decide):
+#   1. Only the MANDATORY half, in digit form. A count of the OPTIONAL steps
+#      spelled as an English word rather than a digit is invisible. Issue-566
+#      closed the one such home by de-numbering it; if that form returns, extend
+#      the predicate rather than de-numbering again.
+#   2. Only whitespace-separated claims, and only space-separated after the
+#      flattening above: a TAB between the digit and the word is not seen.
+#   3. Only files `git grep` treats as text — a UTF-16 or otherwise NUL-bearing
+#      document is dropped by `-I` before the extractor ever sees it.
+# 2 and 3 are consistent between the prefilter and the extractor, so neither can
+# drop a claim ASYMMETRICALLY (the failure that would make a green run a lie);
+# they are simply not covered. All three are theoretical in an all-ASCII,
+# LF-pinned markdown tree, which is what `.gitattributes` enforces today.
+#
+# This notice deliberately spells no example of any of them, so that a later
+# change extending the predicate does not turn the blind-spot notice itself into
+# the new guard's first offender (Issue-561 — which is exactly what happened to
+# an earlier draft of the comment above).
 #
 # The retired value this sweep exists to catch is deliberately NOT spelled
 # anywhere in this file. The assertion is equality with the derived count, so
@@ -418,18 +430,26 @@ _mandatory_step_count() {
 # test drops from ~3m20s to ~4s. Without this, one test would eat a fifth of the
 # suite's CI budget.)
 #
+# The `-z` is not cosmetic: without it `git grep -l` applies quotePath and emits
+# a NON-ASCII path as a quoted C-escaped string, which then names no real file,
+# and the read failure is swallowed inside this process substitution — a claim in
+# such a file would be silently unswept. NUL-delimited output is unquoted, so the
+# name that comes out is the name that goes in.
+#
 # The `|| true` is safe here only because of the floor below, and for no other
-# reason: `git grep` exits 1 on no-match and 2 on error, and this collapses both
-# to an empty candidate list — normally the exact "hid a failure as found
-# nothing" shape Issue-314 warns about. It stays loud because an empty list
-# means n=0, and the floor turns n=0 into a hard failure rather than a pass.
+# reason: `git grep` exits nonzero both when it merely matched nothing and when it
+# genuinely failed (1 for no-match, 128 for a fatal error such as not-a-repo), and
+# this collapses every one of them to an empty candidate list — normally the exact
+# "hid a failure as found nothing" shape Issue-314 warns about. It stays loud
+# because an empty list means n=0, and the floor turns n=0 into a hard failure
+# rather than a pass. Do not remove the floor without also removing this.
 _split_claim_hits() {
     local rel phrase
-    while IFS= read -r rel; do
+    while IFS= read -r -d '' rel; do
         tr '\n' ' ' < "$PLUGIN_ROOT/$rel" | tr -s ' ' \
           | grep -oE '[0-9]+ (of them )?mandatory' \
           | while IFS= read -r phrase; do printf '%s:%s\n' "$rel" "${phrase%% *}"; done
-    done < <(git -C "$PLUGIN_ROOT" grep -lI 'mandatory' || true)
+    done < <(git -C "$PLUGIN_ROOT" grep -lIz 'mandatory' || true)
 }
 
 @test "step-split: every prose mandatory-count claim equals the template-derived count (#566)" {
