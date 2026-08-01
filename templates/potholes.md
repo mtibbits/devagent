@@ -40,6 +40,10 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Before pinning a statistical probe, derive what it measures when the code is CORRECT → a probe whose estimator degenerates (support fixed by construction, error O(sd/sqrt(K)) not O(sd/sqrt(n))) hard-fails on a correct implementation (Issue-85).
 - A hand probe that asserts MEMBERSHIP is blind to a suite's EQUALITY pin — extending a single-source list passes `contains` and fails `equals`; when substituting probes for a suite, match the assertion SHAPE (Issue-561).
 - Absence from a SUBSET result means NOT RUN, not PASSED — assert the name->file mapping is TOTAL before diffing a subset against a known failure set, because an unmapped name is silent and silence reads as success (Issue-561).
+- A locale-empty shell can make a test runner silently SKIP tests whose names carry non-ASCII characters while still printing a full plan — pin the harness locale and treat executed<plan as failure, not warning (Issue-559).
+- Every number in an evidence artifact must be mechanically derived from the run log it cites — a prose summary is where hand-carried counts resurface after the mechanized path is fixed (Issue-559).
+- A fast tier that never EXECUTES a real call path cannot see a control-flow regression → put the cheapest real end-to-end run first in the slow tier; five author regressions passed a full fast tier here (Issue-106).
+- A guard that greps a message LITERAL dies silently when the message is reworded → export the string as a module constant and assert on it from both sides, so a rename reddens instead of disarming (Issue-106).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -52,6 +56,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Any step that commits/pushes/merges → assert `HEAD == state.branch` first; steps that MOVE the checkout set traps for later steps ("acts on ambient git state, not the named target" is a defect family) (Issue-69).
 - "Is this ref still a valid base?" depends on merge state → ask the forge; git topology can't see it, don't add heuristics (Issue-154).
 - Any clever git/plumbing technique → validate empirically on a scratch repo BEFORE planning around it (Issue-33).
+- A chain-continuation command emitted without its scoping argument re-resolves GLOBAL state at fire time — a concurrent session's pointer hijacks the chain; bake the resolved scope into the emitted command (Issue-559).
+- A `Closes #N` keyword silently DELETES acceptance criteria that a scope split moved elsewhere → file the receiving issue and amend the tracker before ship, never as a merge-time promise (Issue-106).
+- A deferral recorded only in a code comment or MR body has no addressee → put the obligation on the receiving issue AND in a committed, guard-asserted register the change itself carries (Issue-106).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -61,12 +68,14 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Claiming a CLASS is closed → derive its members mechanically (grep the predicate); fixing the instances a checker handed you and declaring the class shut publishes a count the next reader disproves in one command (Issue-439).
 - A value that has been corrected twice is a design defect, not a typo → remove the dependency on it rather than updating it a third time (Issue-558).
 - A checker's green result overclaims unless its blind-spot SHAPE is written into the checker itself → state what it cannot decide beside what it asserts (Issue-558).
+- A programmatic edit (`sed`, string-replace) that silently NO-OPS leaves a false record when you verify a proxy instead of the edited file → grep the edited file for the new text before booking the fix (Issue-106).
 - After fixing a defect, grep the FIX ITSELF for the defect's own class → a phase-mixing bug was reintroduced inside the renderer added to fix it; prefer a COUNTED denominator over one derived from a loop bound, which silently re-mixes when a caller changes (Issue-85).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
 - A new `die` in a step script → trace its `--auto`-chain interaction in the plan; a die mid-chain is a different product than one on direct invocation, and warnings can't gate autonomous flows (Issue-242).
 - Replacing a lookup or scan → enumerate BOTH branches of the new logic and test each; a rewrite that fixes one direction can turn a fail-closed error into a fail-open wrong write (Issue-558).
+- Changing a serialized format can invalidate a certificate that hashes the FILE rather than its contents → grep for file-level hashers first, and pin the container's key set in the same change; content hashes cannot see a key appear (Issue-106).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
@@ -75,6 +84,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An artifact relayed through another model session is NOT verbatim → the producer/relay writes it to a FILE; a low body-line floor passes an elided report as valid (Issue-458).
 - A checker finding is a SAMPLE of a class, not a coordinate → grep for its siblings before fixing the named site, or the next round returns the same shape (Issue-558).
 - A mechanical evidence gate and an adversarial reader catch DISJOINT classes — the gate reads two lines and misses false prose; the reader misses arithmetic. A green gate is not evidence the body is true (Issue-561).
+- Several findings in one round often share ONE structural cause → look for it before fixing them individually; reverting the decision can close all of them, where fixing each spawns the next round's defects (Issue-106).
+- Write each dispatched checker's returned body to disk on RECEIPT, before acting on it — act-then-summarize leaves an audit trail one round deep and second-hand (Issue-106).
 - A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
 
 ## Premise freshness / contracts / classification
@@ -85,12 +96,16 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An issue's prescribed fix is an untrusted hypothesis, not a spec → verify it at HEAD before building on it (Issue-Fork-149's `## Fix` would have hung); and "which impl/path does this ACTUALLY run by default?" is a source question — read the dispatch/fallback logic, don't assume the measured or common case is the default (Issue-Fork-149).
 - Two components that must agree on a format → test by feeding one's REAL produced artifact through the other, not a prose promise or a format check (Issue-232).
 - A status ambiguous between "absent" and "can't-determine" → fail closed; a tri-state classifier makes the fail-safe un-violatable by construction (Issue-243).
+- A check green YESTERDAY and red TODAY at the same SHA → establish WHICH ENVIRONMENT produced each run before diagnosing drift; an A/B across SHAs is valid only same-environment (Issue-559).
+- An evidence artifact saved under a non-canonical filename silently drops out of its mechanized checker's glob — the checker validates the wrong file and the mismatch reads as staleness; canonical names are part of the evidence contract (Issue-559).
 - A cited doc's exact commands are unverified until something RUNS them (wrapper/entrypoint, permissions, a step that consumes a file no step creates) → execute them during draft/scope instead of treating the citation as validation (fleet Issue-3).
 - Match rigor to risk; tier the model to the FAILURE MODE, not the diff size (a 90-line interleaving diff earns opus; a proven-dead deletion earns one coupling sweep) (Issue-122).
 - A verification claim is only true at the SHA it RAN at → re-run every claimed check at the final SHA before ship; fixing X silently invalidates each count derived from X being broken (Issue-439).
 - A multiplier or figure inherited from an issue body is a MODEL, not a measurement → measure it before quoting a saving that is linear in it; the whole estimate rides on the factor nobody checked (Issue-439).
 - When a change alters a contract the workflow itself consumes, run the workflow THROUGH it before ship — one live self-hosted dispatch falsifies premises that six review gates pass (Issue-439).
 - A premise-freshness prober that checks named FILES cannot see a stale remote-tracking gap → compare the working checkout against the configured default_baseline itself (`rev-list --count main..origin/main`) before drafting; a 35-commit gap cost a whole plan revision (Issue-85).
+- An artifact pinned to a gitignored, mutable input goes stale SILENTLY → record a provenance block for that input inside the artifact, and expect siblings elsewhere in the repo (Issue-106).
+- When an inherited figure falsifies under measurement, correct it on the TRACKER where downstream readers look — fixing it only on the branch leaves every sibling issue quoting the wrong number (Issue-106).
 - A suite that is green only in CI hides UNDECLARED PREREQUISITES, not local quirks — chase the delta and declare it; a bare `python3` with no version bound is how a stdlib-version break ships (Issue-561).
 - After any history rewrite, re-verify every artifact's recorded SHA is still reachable (`git merge-base --is-ancestor <sha> HEAD`) — a replayed branch leaves artifacts citing commits that are no longer ancestors (Issue-561).
 - Before requesting an override on a failing quality gate, ask whether the GATE is right and the ENVIRONMENT is wrong — an override is a permanent record of a compromise (Issue-561).
@@ -108,6 +123,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Docs that an agent EXECUTES are product behavior — 'deferred in the prose, decided in the instructions' is a real behavior change, just later; hold them to code-review standards (Issue-561).
 - State SHA/version anchoring ONCE and refer to it by ROLE elsewhere — the same literal repeated in N paragraphs goes stale N times on every move (Issue-561).
 - Pin the CLAIM, not one phrasing of it — a guard that fails when the text it guards is IMPROVED trains people to weaken guards (Issue-561).
+- Running a VARIANT of a published command is not running it — a regex published in one dialect and executed in another returns a different count under an identical-looking claim; run every command in the exact form it will appear (Issue-106).
 - A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
 
 ## Version / registry-string comparison
