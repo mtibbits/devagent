@@ -12,6 +12,19 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-01
+- **The mandatory/optional step-split claim is reconciled and now guarded
+  (#566).** The "Current capabilities" line still carried the pre-#562 split —
+  a mandatory count one higher than today's, naming only two optional steps —
+  and now matches spec §6.3, the README, and `docs-site/workflow.md`. The #558
+  entry below drops its incidental step-split count, and the docs site drops a
+  redundant word-form count: the split is anchored once, in the spec, and
+  restated only where a reader needs it. `tests/checklist-numbering.bats` now
+  sweeps every prose home of the claim across the tracked tree — subject set
+  derived from the predicate, expected value derived from
+  `templates/checklist-standard.md` — so the next optionality change reddens
+  instead of drifting silently.
+
 ### Added — 2026-07-31
 - **`/devagent:crrf` — autonomous capture → red-team → revise → file (#559).**
   An orchestration alias over the existing verbs: invoking it IS the
