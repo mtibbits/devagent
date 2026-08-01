@@ -359,7 +359,8 @@ EOF
 # The subject set comes from the PREDICATE, never a hardcoded path list: a home
 # that moves, or a new home that appears, is selected automatically, where a
 # guard whose selector stops selecting passes silently (Issue-439). The count
-# floor below is that guard's own guard (Issue-151).
+# floor below is that guard's own guard (Issue-151). It counts CLAIMS, not
+# files: one file can carry several.
 #
 # The universe is the TRACKED tree (`git grep` searches tracked files only, and
 # the candidate list below comes from it), not the filesystem: a raw
@@ -470,7 +471,7 @@ _split_claim_hits() {
     # SAME CHANGE. Lowering it without a census is how a sweep goes quietly
     # blind (Issue-439).
     [ "$n" -ge 8 ] \
-        || _die "split-claim sweep selected only $n homes (expected >= 8) — the predicate stopped matching"
+        || _die "split-claim sweep selected only $n claims (expected >= 8) — the predicate stopped matching"
     # Locate offenders with:
     #   grep -rnE '[0-9]+ +(of them +)?mandatory|[0-9]+ of them *$' --include='*.md' .
     [ -z "$bad" ] || _die "step-split drift — expected $m mandatory, found:$bad"
