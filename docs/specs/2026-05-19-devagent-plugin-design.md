@@ -63,10 +63,10 @@ devAgent/
 │   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   Pages deployment is the #404 sibling child
-├── commands/                # one .md file per command-form slash command (54)
+├── commands/                # one .md file per command-form slash command (55)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 54 + 3 = the 57 slash commands
+│                            #   (SKILL.md + references/, #452) — 55 + 3 = the 58 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -545,6 +545,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:scaffold <capture-slug>` | skill | Bin an epic capture into child issue drafts |
 | `/devagent:redissue <capture-slug>` | skill | Run the tier-split issue red-team (`redteam_issue_shared` + the triage tier's cumulative dimension parts, or a monolithic `redteam_issue` override) against the draft, write `redteam.md` |
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
+| `/devagent:crrf [topic hint]` | alias | Orchestrates capture → (scaffold) → redissue → adjudicate → file under one bounded autonomy grant; honors `permissions.push_mr` (#559) |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
 ### 6.3 Family B — Workflow (21 mandatory steps + the optional research, spike, and mergetoall steps)

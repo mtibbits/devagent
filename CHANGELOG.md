@@ -12,6 +12,17 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Added — 2026-07-31
+- **`/devagent:crrf` — autonomous capture → red-team → revise → file (#559).**
+  An orchestration alias over the existing verbs: invoking it IS the
+  operator's bounded autonomy grant (topic declared first; the capture
+  skill's multi-epic confirmation answered in advance; scaffolded children
+  promoted to their own captures; at most two revise cycles per draft;
+  premise-level red-team findings halt before filing; the `push_mr` gate
+  delegated to `file.sh` exit 4, never `--yes`; every run ends with a
+  kept/discarded manifest). Pinned by `tests/crrf.bats`; the behavioral half
+  is baselined by three `crrf-*` eval cases.
+
 ### Added — 2026-07-29
 - **Per-issue model steering for both step classes, plus a `tier:` compat
   shim (#561).** Two new `## Workflow flags` keys, orthogonal to `tier:`
@@ -162,7 +173,7 @@ tag`) will get their own dated sections below.
 Current capabilities as of this commit:
 
 ### Core
-- **57 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
+- **58 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
   plus the optional research step 1 and spike step 3), with all
   state preserved on disk so you can switch issues — or hand one to a fresh
   session — without losing context.

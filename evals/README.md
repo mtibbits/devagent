@@ -54,6 +54,13 @@ skill's `git diff baseline..HEAD` input to the fixture's `diff.patch`; for
 the printed prompt into a fresh session, run it 3×, and hand-score each run
 against the printed rubric.
 
+Sandbox the session for the `crrf-*` cases (belt-and-suspenders — they are
+judgment-shape and read-only, but a disobedient run must not touch real
+state): export `DEVAGENT_DEVDOC_DIR=<tmp>`, `DEVAGENT_PERMISSION_PUSH_MR=false`,
+and point the backend at `tests/fixtures/mock-backend` (#559). This is
+operator guidance, not fixture content — the scenarios deliberately omit it
+so the model's world state stays uncontradicted.
+
 ## Recording a baseline
 
 For each of the 3 runs, mark PASS/FAIL against the rubric, then write the result
