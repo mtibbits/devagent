@@ -349,3 +349,94 @@ EOF
     grep -q 'exempt.md:1:' <<<"$output" \
         || _die "exempt line missing from the triage list:"$'\n'"$output"
 }
+
+# ---- #566: the mandatory/optional step-split claim ----
+# The split is DERIVED, not asserted: templates/checklist-standard.md is the
+# source (its rows are the 24 steps; the rows pre-marked `[-]` are the optional
+# ones), so the mandatory count is rows-minus-skipped. Every prose home that
+# states a mandatory COUNT must state that derived number.
+#
+# The subject set comes from the PREDICATE, never a hardcoded path list: a home
+# that moves, or a new home that appears, is selected automatically, where a
+# guard whose selector stops selecting passes silently (Issue-439). The count
+# floor below is that guard's own guard (Issue-151).
+#
+# The universe is the TRACKED tree (`git ls-files`), not the filesystem: a raw
+# recursive grep also selects gitignored, machine-local, mutable files (a mypy
+# cache, a merge-conflict .orig, a stray saved log), which makes the guard's
+# result depend on which machine ran it — the environment trap of Issue-559 and
+# the gitignored-mutable-input shape of Issue-106.
+#
+# Newline-flattened before matching: the dominant prose form wraps the claim
+# across a continuation line, which a plain line-grep undercounts (Issue-335).
+#
+# SCOPE CLAIM, stated so the first false positive is a two-minute triage: this
+# sweep treats EVERY numeric `<n> mandatory` phrase in the tracked tree as a
+# workflow-split claim. A future doc that puts a digit immediately before the
+# word — counting a command's required arguments, say — will fail here in a
+# sense this guard knows nothing about. That is deliberate fail-loud behavior;
+# the fix is to reword the new text or to narrow this predicate, consciously.
+# (Spelling such an example literally here would make this comment its own
+# offender — the self-trigger trap of Issue-561, observed live in this guard's
+# own born-red run.)
+#
+# DECLARED BLIND SPOT (Issue-558 — say what the checker cannot decide): this
+# sweeps only the MANDATORY half, in digit form. A word-form optional count
+# ("three of them are optional") is invisible here. Issue-566 closed the one
+# such home by de-numbering it; if word-form counts return, extend the
+# predicate rather than de-numbering again.
+#
+# The retired value this sweep exists to catch is deliberately NOT spelled
+# anywhere in this file. The assertion is equality with the derived count, so
+# every wrong number reddens AND a repo-wide grep for the retired token stays
+# empty — a comment that quoted the literal would re-trigger the very grep it
+# warns about (Issue-561).
+
+_mandatory_step_count() {
+    local t="$PLUGIN_ROOT/templates/checklist-standard.md" total skipped
+    total="$(_rows "$t" | wc -l)"
+    skipped="$(grep -cE '^- \[-\] *[0-9]+\.' "$t")"
+    # Selector sanity: a broken _rows or a renamed template would derive a
+    # meaningless count and make every comparison below vacuous.
+    [ "$total" -eq 24 ] || { _die "standard template: parsed $total rows, expected 24"; return 1; }
+    [ "$skipped" -ge 1 ] || { _die "standard template: parsed no pre-skipped rows"; return 1; }
+    printf '%s\n' "$((total - skipped))"
+}
+
+# Emit "<repo-relative path>:<claimed mandatory count>" once per claim.
+# Subjects are the TRACKED files only; see the universe note above.
+_split_claim_hits() {
+    local rel
+    while IFS= read -r -d '' rel; do
+        [ -f "$PLUGIN_ROOT/$rel" ] || continue
+        tr '\n' ' ' < "$PLUGIN_ROOT/$rel" | tr -s ' ' \
+          | grep -oE '[0-9]+ (of them )?mandatory' \
+          | grep -oE '^[0-9]+' \
+          | while IFS= read -r num; do printf '%s:%s\n' "$rel" "$num"; done
+    done < <(git -C "$PLUGIN_ROOT" ls-files -z)
+}
+
+@test "step-split: every prose mandatory-count claim equals the template-derived count (#566)" {
+    local m hit n=0 bad=""
+    m="$(_mandatory_step_count)" || return 1
+    while IFS= read -r hit; do
+        n=$((n + 1))
+        [ "${hit##*:}" = "$m" ] || bad="$bad $hit"
+    done < <(_split_claim_hits)
+    # Issue-439/151: pin the SUBJECT COUNT — a predicate that stopped matching
+    # would otherwise leave this test green over an unswept repo.
+    #
+    # A FLOOR, not equality, on purpose: new correct homes are welcome and are
+    # each checked by the equality-with-derived-count test above; only the
+    # DISAPPEARANCE of the predicate is what this line catches.
+    #
+    # If this floor trips: re-run the Issue-566 census (see that issue's
+    # analysis/2026-08-01-split-claim-census.txt) and adjust the floor IN THE
+    # SAME CHANGE. Lowering it without a census is how a sweep goes quietly
+    # blind (Issue-439).
+    [ "$n" -ge 8 ] \
+        || _die "split-claim sweep selected only $n homes (expected >= 8) — the predicate stopped matching"
+    # Locate offenders with:
+    #   grep -rnE '[0-9]+ +(of them +)?mandatory|[0-9]+ of them *$' --include='*.md' .
+    [ -z "$bad" ] || _die "step-split drift — expected $m mandatory, found:$bad"
+}
