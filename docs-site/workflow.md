@@ -4,8 +4,8 @@
 ## Numbering
 
 Steps are numbered 0–23 in execution order — 24 numbered step commands in
-all, and the checklist reads top-to-bottom. Three of them are optional and
-off by default: `1 research` and `3 spike` opt in per issue via the
+all, and the checklist reads top-to-bottom. Some are optional and off by
+default: `1 research` and `3 spike` opt in per issue via the
 `## Workflow flags` block, and `19 mergetoall` opts in per project by
 configuring `all_prs_branch`. A normal issue runs the 21 mandatory steps and
 its checklist shows the optional rows pre-marked `[-]` (skipped). Reduced

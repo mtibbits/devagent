@@ -12,6 +12,21 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-01
+- **The mandatory/optional step-split claim is reconciled and now guarded
+  (#566).** The "Current capabilities" line still carried the pre-#562 split —
+  a mandatory count one higher than today's, naming only two optional steps —
+  and now matches spec §6.3, the README, and `docs-site/workflow.md`. The #558
+  entry below drops its incidental step-split count, and the docs site drops a
+  redundant word-form count — two places where the number carried no weight for
+  a reader. The remaining homes keep the number, because a reader of the README
+  or the site wants it in front of them; they stay correct by being swept rather
+  than by being removed. `tests/checklist-numbering.bats` now sweeps every prose
+  home of the claim across the tracked tree — subject set
+  derived from the predicate, expected value derived from
+  `templates/checklist-standard.md` — so the next optionality change reddens
+  instead of drifting silently.
+
 ### Added — 2026-07-31
 - **`/devagent:crrf` — autonomous capture → red-team → revise → file (#559).**
   An orchestration alias over the existing verbs: invoking it IS the
@@ -112,9 +127,9 @@ tag`) will get their own dated sections below.
   now POSITIONS, not permanent IDs: the standard template reads `0 pull` …
   `23 cleanup` top-to-bottom. Old `21 preship` is now `17`, optional old
   `22 research` is now `1`, and old `23 spike` is now `3`. The workflow is
-  described as **24-step** throughout (24 numbered step commands, 22 of them
-  mandatory). Execution order is unchanged — dispatch is by step NAME and
-  file order was always the authority.
+  described as **24-step** throughout (24 numbered step commands). Execution
+  order is unchanged — dispatch is by step NAME and file order was always the
+  authority.
 
   **Upgrading with work in flight — run the migrator first.** A checklist
   scaffolded before this release carries the old numbers. The seven script
@@ -173,10 +188,10 @@ tag`) will get their own dated sections below.
 Current capabilities as of this commit:
 
 ### Core
-- **58 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
-  plus the optional research step 1 and spike step 3), with all
-  state preserved on disk so you can switch issues — or hand one to a fresh
-  session — without losing context.
+- **58 slash commands** driving a fixed **24-step issue workflow** (21 mandatory,
+  plus the optional research step 1, spike step 3, and mergetoall step 19),
+  with all state preserved on disk so you can switch issues — or hand one to a
+  fresh session — without losing context.
 - `next`/`capture`/`ship` converted from commands to user-invocable skills with
   `references/`; `next` thinned 5,764 → 2,209 chars whole-file (operative body
   5,565 → 1,916, pinned under 2,000 by #439's size canary).
