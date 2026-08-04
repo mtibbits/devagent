@@ -338,3 +338,50 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" = "opus-checking" ]
 }
+
+# --- #553: an EMPTY `## Workflow flags` heading must not leave the block open ------
+#
+# Test names in this section are deliberately ASCII-only (no em dash, no section
+# sign): a locale-empty shell makes bats fail to REGISTER a test whose name carries
+# non-ASCII bytes, and a guard that silently never runs is worse than no guard.
+
+@test "flags_get: an empty flags heading followed by prose does not parse a later col-1 key (#553)" {
+  local f="$BATS_TEST_TMPDIR/empty-heading-prose.md"
+  printf '## Workflow flags\n\nsome prose\nresearch: required\ntier: oneshot\n' > "$f"
+  # BOTH keys sit in prose position, so a pass here proves the BLOCK closed rather
+  # than that one key happens to be special.
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
+
+@test "flags_get: the fenced example in issue 553's own body does not parse (#553)" {
+  # FENCE-BLIND ON PURPOSE. This guard must pass on the empty-block rule alone.
+  # Teaching the scanner to skip ``` fences is a deliberately REJECTED alternative
+  # for #553 (recorded in the issue's future-enhancements file), so do not "improve"
+  # this into a fence test -- doing so would silently move a rejected alternative
+  # into shipped scope and stop testing the rule this file is guarding.
+  local f="$BATS_TEST_TMPDIR/fenced-example.md"
+  cat > "$f" <<'FIXTURE'
+## Finding
+
+Residual: an empty flags heading followed by prose still parses a later col-1
+key as a flag:
+
+```
+## Workflow flags
+
+some prose
+research: required        <- parsed as a flag today
+```
+
+## Why this is its own issue
+Prose.
+FIXTURE
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
