@@ -44,6 +44,7 @@ flags_get() {
     /^## Workflow flags[[:space:]]*$/ { inblock=1; seen=0; next }
     inblock && /^#/ { inblock=0 }
     inblock && seen && /^[[:space:]]*$/ { inblock=0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock=0 }
     inblock && /^[a-z][a-z-]*:/ { seen=1 }
     inblock && index($0, key ":") == 1 {
       val = substr($0, length(key) + 2)
@@ -213,6 +214,7 @@ flags_validate() {
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock = 0 }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
       key = $0; sub(/:.*/, "", key)
