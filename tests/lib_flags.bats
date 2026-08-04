@@ -385,3 +385,55 @@ FIXTURE
   [ "$status" -ne 0 ]
   [ -z "$output" ]
 }
+
+@test "flags_validate: an empty flags heading followed by prose enumerates no keys (#553)" {
+  # The flags_validate half of the same defect. It exists so that reverting the
+  # rule in ONE machine reddens something: G1/G3 cover flags_get, this covers
+  # flags_validate, and neither can pass on the other's coverage.
+  local f="$BATS_TEST_TMPDIR/validate-empty-heading.md"
+  printf '## Workflow flags\n\nsome prose\nboguskey: x\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"boguskey"* ]]
+}
+
+@test "flags_get: heading plus BLANK plus keys still parses all five known keys (#553 regression PIN)" {
+  # PIN, not a born-red claim: this is green at HEAD by construction. Its evidence
+  # is the candidate-B mutation (M3), which drops every key in this shape -- the
+  # exact #535 redmr regression the seen gate was added to prevent.
+  #
+  # Extends the tier-only guard above to all five shipped keys. The two model keys
+  # are DIE-class in pull.sh, so a regression there is a hard pull failure rather
+  # than a silently dropped flag.
+  local f="$BATS_TEST_TMPDIR/conventional-five.md"
+  printf '## Workflow flags\n\ntier: oneshot\nresearch: required\nspike: required\nimplementation-model: sonnet\nchecking-model: fable\n' > "$f"
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+  run flags_get "$f" research
+  [ "$status" -eq 0 ]
+  [ "$output" = "required" ]
+  run flags_get "$f" spike
+  [ "$status" -eq 0 ]
+  [ "$output" = "required" ]
+  run flags_get "$f" implementation-model
+  [ "$status" -eq 0 ]
+  [ "$output" = "sonnet" ]
+  run flags_get "$f" checking-model
+  [ "$status" -eq 0 ]
+  [ "$output" = "fable" ]
+}
+
+@test "flags.sh: the empty-block rule appears in BOTH state machines (#553 anti-drift)" {
+  # Anti-drift sweep: flags_get and flags_validate carry the same block scanner by
+  # house idiom, and the fix has to land in both. Asserts an exact count of 2
+  # (never -ne 0, which conflates "clean" with "grep errored").
+  #
+  # BLIND SPOT, stated deliberately: this proves the rule TEXT is present twice, NOT
+  # that the two awk programs are semantically identical -- G1/G3 and G2 own the
+  # behavioural halves, one per machine. The pattern is whitespace-tolerant so
+  # reformatting the assignment does not disarm it (see M4).
+  run grep -cE 'inblock[[:space:]]*&&[[:space:]]*!seen[[:space:]]*&&' "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 2 ]
+}
