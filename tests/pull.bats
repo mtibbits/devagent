@@ -718,3 +718,17 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "sonnet" ]
 }
+
+# ---- #553: an empty flags heading must not leave the block open ----
+@test "pull: an empty flags heading plus prose cannot make a prose line die as a model token (#553)" {
+  # The die-class shape, and the strongest born-red in the #553 set: at the parent
+  # commit pull.sh DIES here (rc != 0), because the prose line parses as a real
+  # checking-model value and model_token_require_legal rejects it. The residual is
+  # therefore a hard pull failure, not merely a spurious warning.
+  export GH_STUB_BODY_JSON='"## Workflow flags\n\nprose about the flags block\nchecking-model: whatever-we-wrote-in-prose\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 760
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown model token"* ]]
+  [ -f "$DEVDOC/Issue-760/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-760/.devagent-step-models" ]
+}
