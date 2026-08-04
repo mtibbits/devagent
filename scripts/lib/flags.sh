@@ -8,7 +8,25 @@
 # can never be read as a flag (#535 review: a blank line + a col-1 `key: value` prose line
 # otherwise MIS-FLIPPED) while the markdown-conventional `## Workflow flags` + blank line +
 # keys form still parses (#535 redmr BLOCKING: terminating on the FIRST blank silently
-# dropped every flag, regressing #537's shipped `tier:`);
+# dropped every flag, regressing #537's shipped `tier:`); AND, while no key has been
+# seen yet, it ends at the first non-blank line that is not a col-1 key (#553: an EMPTY
+# flags heading followed by prose otherwise left the block open, so a later col-1
+# `key: value` prose line still parsed as a live flag — since the two model keys are
+# die-class in pull.sh, that had become a hard pull failure, not a spurious warning).
+# The two rules the #553 issue proposed were both falsified by execution: terminating on
+# a second consecutive blank never fires (the shape carries exactly one blank), and
+# terminating on the first blank after the heading drops every flag in the conventional
+# form. Neither can work, because the conventional and defective shapes share their
+# first three lines — heading, blank, then either a key or prose — so the discriminator
+# is the THIRD line and no rule keyed on a blank can separate them. Keying on the prose
+# line is the resolution. NOTE the tolerance is deliberately warn-LESS: a block whose
+# first in-block non-blank line is a mis-cased or indented key (`Tier: oneshot`) now
+# closes there, silently dropping every legitimate key below it, so "a typo is not
+# silently inert" does not hold for that shape. Accepted for #553; a warn-on-close
+# follow-up is recorded in that issue's future-enhancements file.
+# (Describing rather than quoting the rule here is deliberate: a guard in
+# tests/lib_flags.bats counts the rule's occurrences in this file and spelling its
+# matching form in a comment would make that count wrong — #561.)
 # unknown keys are ignored by each consumer (forward
 # compatibility); legal values are per-key. Value lines are BARE: trailing
 # inline prose is part of the value and fails per-key validation downstream
@@ -200,7 +218,9 @@ issue_labels() {
 # guard, HTML-comment spans skipped, block ends at the next `^#` heading) and WARN
 # on stderr — non-fatal, forward-compat — for any key not in flags_known_keys.
 # Silent when the block is absent or carries only known keys. Value-continuation,
-# indented, and blank lines are not keys (col-1 `^[a-z][a-z-]*:` only).
+# indented, and blank lines are not keys (col-1 `^[a-z][a-z-]*:` only) — and, AFTER the
+# first key, they do not end the block either; BEFORE the first key an indented or prose
+# line ENDS it (#553), so such a line is not merely skipped, it closes the block.
 # CONSUMPTION NOTE: pull.sh calls this only in the scaffold branch, so a key added
 # after first scaffold is never validated. CAVEAT (inherited #537 grammar): an inline
 # `<!--` on a key line starts a comment span and silently drops that key.

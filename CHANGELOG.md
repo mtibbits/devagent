@@ -12,6 +12,27 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-04
+- **An EMPTY `## Workflow flags` heading no longer leaves the block open
+  (#553).** The block ended at the next `#` heading, or at a blank line once at
+  least one key had been seen. That `seen` gate exists because terminating on
+  the FIRST blank silently dropped every flag in the markdown-conventional
+  heading/blank/keys form (#535 redmr). The residual: with an EMPTY heading no
+  key has been seen at the blank either, so the block stayed open across prose
+  and a later col-1 `key: value` prose line parsed as a live flag. Since #561's
+  `implementation-model`/`checking-model` keys are die-class, that had stopped
+  being a spurious warning and become a hard `pull.sh` failure — reproduced by
+  this issue's own body, whose fenced EXAMPLE made a real scaffold warn. The
+  block now also ends, while no key has been seen, at the first non-blank line
+  that is not a col-1 key. **No currently-valid body changes meaning:** the rule
+  fires only inside the no-key-yet window, so any block whose first in-block
+  non-blank line is a key parses bit-for-bit as before. Both rules the issue
+  proposed were falsified by execution first — one never fires on the
+  reproducer, the other reintroduces the #535 regression — because the two
+  shapes share their first three lines and no rule keyed on a blank can
+  separate them. One line per state machine, in `flags_get` and
+  `flags_validate` alike, with an anti-drift guard asserting it lands in both.
+
 ### Fixed — 2026-08-01
 - **The mandatory/optional step-split claim is reconciled and now guarded
   (#566).** The "Current capabilities" line still carried the pre-#562 split —
