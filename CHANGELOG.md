@@ -26,7 +26,12 @@ tag`) will get their own dated sections below.
   block now also ends, while no key has been seen, at the first non-blank line
   that is not a col-1 key. **No currently-valid body changes meaning:** the rule
   fires only inside the no-key-yet window, so any block whose first in-block
-  non-blank line is a key parses bit-for-bit as before. Both rules the issue
+  non-blank line is a key parses bit-for-bit as before. The one trade-off, and
+  it is warn-LESS: a block that opens with a MALFORMED key line — mis-cased
+  (`Tier:`), indented, or a list item — now closes there and silently drops the
+  legitimate keys below it, where before those keys were read. No fixture
+  carries that shape; a warn-on-close follow-up is recorded on the issue. See
+  spec §6.3. Both rules the issue
   proposed were falsified by execution first — one never fires on the
   reproducer, the other reintroduces the #535 regression — because the two
   shapes share their first three lines and no rule keyed on a blank can
