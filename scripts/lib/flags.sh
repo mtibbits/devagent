@@ -8,7 +8,20 @@
 # can never be read as a flag (#535 review: a blank line + a col-1 `key: value` prose line
 # otherwise MIS-FLIPPED) while the markdown-conventional `## Workflow flags` + blank line +
 # keys form still parses (#535 redmr BLOCKING: terminating on the FIRST blank silently
-# dropped every flag, regressing #537's shipped `tier:`);
+# dropped every flag, regressing #537's shipped `tier:`); AND, while no key has been
+# seen yet, it ends at the first non-blank line that is not a col-1 key (#553: an EMPTY
+# flags heading followed by prose otherwise left the block open, so a later col-1
+# `key: value` prose line still parsed as a live flag — die-class since #561's model
+# keys, so a hard pull failure rather than a warning). That last clause is deliberately
+# warn-LESS: a block whose first in-block non-blank line is a mis-cased or indented key
+# (`Tier: oneshot`) closes there, silently dropping every key below it, so "a typo is
+# not silently inert" does not hold for that shape — accepted, with a warn-on-close
+# follow-up in #553's future-enhancements. Why the two rules #553 proposed cannot work
+# (both keyed on a blank; the conventional and defective shapes share their first three
+# lines, so the discriminator is the THIRD): CHANGELOG #553.
+# (This comment DESCRIBES the third clause rather than quoting it: a guard in
+# tests/lib_flags.bats counts that rule's occurrences in this file, and spelling its
+# matching form here would make the count wrong — #561.)
 # unknown keys are ignored by each consumer (forward
 # compatibility); legal values are per-key. Value lines are BARE: trailing
 # inline prose is part of the value and fails per-key validation downstream
@@ -44,6 +57,7 @@ flags_get() {
     /^## Workflow flags[[:space:]]*$/ { inblock=1; seen=0; next }
     inblock && /^#/ { inblock=0 }
     inblock && seen && /^[[:space:]]*$/ { inblock=0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock=0 }
     inblock && /^[a-z][a-z-]*:/ { seen=1 }
     inblock && index($0, key ":") == 1 {
       val = substr($0, length(key) + 2)
@@ -199,7 +213,11 @@ issue_labels() {
 # guard, HTML-comment spans skipped, block ends at the next `^#` heading) and WARN
 # on stderr — non-fatal, forward-compat — for any key not in flags_known_keys.
 # Silent when the block is absent or carries only known keys. Value-continuation,
-# indented, and blank lines are not keys (col-1 `^[a-z][a-z-]*:` only).
+# indented, and blank lines are not keys (col-1 `^[a-z][a-z-]*:` only) — and, AFTER the
+# first key, they do not end the block either; BEFORE the first key an indented or prose
+# line ENDS it (#553), so such a line is not merely skipped, it closes the block. This
+# machine is the deliberate twin of flags_get's; the grammar and its rationale are
+# stated once at the top of this file.
 # CONSUMPTION NOTE: pull.sh calls this only in the scaffold branch, so a key added
 # after first scaffold is never validated. CAVEAT (inherited #537 grammar): an inline
 # `<!--` on a key line starts a comment span and silently drops that key.
@@ -213,6 +231,7 @@ flags_validate() {
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock = 0 }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
       key = $0; sub(/:.*/, "", key)

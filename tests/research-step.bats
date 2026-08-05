@@ -189,3 +189,19 @@ EOF
   grep -qE '^- \[ \] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
   grep -qE '^- \[ \] +3\. spike$'    "$DEVDOC/Issue-676/checklist.md"
 }
+
+# ---- #553: an empty flags heading must not leave the block open ----
+@test "pull: a fenced flags example in the body does not flip the research row or warn (#553)" {
+  export GH_STUB_BODY_JSON='"Finding:\n\n```\n## Workflow flags\n\nsome prose\nresearch: required        <- parsed as a flag today\n```\n\nWhy this is its own issue.\n"'
+  # U2 was discharged by measurement here, then the probe removed: the gh-stub
+  # transported the fence, the leading blank, and the exact inline spacing of
+  # `required        <- parsed as a flag today` byte-faithfully into issue.md, so
+  # this fixture reproduces #553's real body shape rather than a sanitized cousin.
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"not a recognized value for flag 'research'"* ]]
+  [[ "$output" != *"flags.sh: warn:"* ]]
+  [[ "$output" != *"pull.sh: warn:"* ]]
+  run grep -E '^- \[-\] +1\. research$' "$DEVDOC/Issue-676/checklist.md"
+  [ "$status" -eq 0 ]
+}

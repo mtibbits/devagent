@@ -586,7 +586,13 @@ runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
 `[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
 part of the value and fails per-key validation, fail-closed; body segment
-only — tracker comments and HTML-comment spans never parse; first consumer
+only — tracker comments and HTML-comment spans never parse; the block
+TERMINATES at the next `#` heading, at a blank line once at least one key has
+been seen, or — while no key has been seen yet — at the first non-blank line
+that is not a col-1 key, so an EMPTY flags heading followed by prose cannot let
+a later col-1 `key: value` prose line parse as a live flag (#553; that last
+clause is warn-less by design, so a mis-cased or indented first key closes the
+block and silently drops the keys below it); first consumer
 `scripts/lib/flags.sh`, extended by #535/#536). `pull.sh`
 validates the value against the table below BEFORE any path interpolation
 (the value arrives in remote content), then passes it to `checklist_init` as
