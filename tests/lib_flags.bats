@@ -437,3 +437,21 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" -eq 2 ]
 }
+
+@test "flags_get: an INDENTED first in-block line closes the block too, not just col-1 prose (#553)" {
+  # Pins the half of the rule's predicate that the other guards leave free. Every
+  # other #553 block-closing fixture uses a COL-1 non-key line, so a rule narrowed
+  # to `close only on col-1 non-keys` would keep them all green while making four
+  # doc homes false (flags.sh header and flags_validate docblock, spec 6.3,
+  # CHANGELOG all say an INDENTED line ends the block) and leaving the defect live
+  # for this shape. Found by red-team: the mutation matrix proves a DELETED rule is
+  # caught, not that the shipped predicate is the one documented.
+  local f="$BATS_TEST_TMPDIR/indented-first.md"
+  printf '## Workflow flags\n\n  indented prose\nresearch: required\ntier: oneshot\n' > "$f"
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+}
