@@ -32,6 +32,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A clean analyzer/test run over code the tool cannot parse or never built is VACUOUS, not a pass → verify the tool actually saw the changed lines (arch-gated sources, generated files, non-C asm) before trusting "0 findings" (Issue-Fork-149).
 - A defect whose symptom depends on uninitialized caller/register/heap state → the test must CONTROL that state (poison it), or a benign ambient value shows a passing green over broken code (Issue-Fork-149).
 - A born-red test whose fixture pre-seeds the asserted marker proves nothing → assert a delta/count, not mere presence (Issue-318).
+- A mutation matrix that only DELETES the rule proves it is PRESENT, not that it is RIGHT — a rule narrowed to half its documented predicate can pass every guard and reproduce every mutation split → mutate each CLAUSE the docs claim, and ask which guard fails if that clause alone is wrong (Issue-553).
 - `! cmd | grep` negation in bats is vacuous → `run grep …; [ "$status" -ne 0 ]`; when a red step unexpectedly passes, find out WHY (Issue-31).
 - A grep presence-canary asserts `-eq 1` (precise no-match), never `-ne 0` (which conflates clean with error) (Issue-337).
 - Ad-hoc test runs in an env-pinned session inherit the pins → only a hermetic (`env -u`) or harness-owned run is admissible evidence; re-running the same contaminated command at baseline confirms nothing (Issue-458).
@@ -44,6 +45,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Every number in an evidence artifact must be mechanically derived from the run log it cites — a prose summary is where hand-carried counts resurface after the mechanized path is fixed (Issue-559).
 - A fast tier that never EXECUTES a real call path cannot see a control-flow regression → put the cheapest real end-to-end run first in the slow tier; five author regressions passed a full fast tier here (Issue-106).
 - A guard that greps a message LITERAL dies silently when the message is reworded → export the string as a module constant and assert on it from both sides, so a rename reddens instead of disarming (Issue-106).
+- A guard that iterates the WHOLE tree is a cost you must measure before shipping it — time it against a normal test in the same suite; a per-file process pipeline over every tracked file can eat a fifth of a CI budget for one assertion, and a bare-token prefilter usually removes ~98% of it (Issue-566).
+- A run that never EXECUTED the code reads exactly like a passing one — a non-login shell without the test binary on PATH reports "0 failing" for a mutation that deletes the code under test → make the harness prove it ran: print the resolved binary path, assert ok+notok == plan, and refuse to summarize a run that produced no plan line (Issue-553).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -59,6 +62,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A chain-continuation command emitted without its scoping argument re-resolves GLOBAL state at fire time — a concurrent session's pointer hijacks the chain; bake the resolved scope into the emitted command (Issue-559).
 - A `Closes #N` keyword silently DELETES acceptance criteria that a scope split moved elsewhere → file the receiving issue and amend the tracker before ship, never as a merge-time promise (Issue-106).
 - A deferral recorded only in a code comment or MR body has no addressee → put the obligation on the receiving issue AND in a committed, guard-asserted register the change itself carries (Issue-106).
+- A command that resolves the active scope from GLOBAL state does it at FIRE time, so an unscoped invocation can silently WRITE its artifact into another scope's directory, not merely act on the wrong one — pass the scope explicitly to anything that produces a file (Issue-566).
+- The same fire-time global-scope defect on the EVIDENCE path is worse than on the write path: an unscoped verifier measures a DIFFERENT tree and reports green, so the artifact is true about something nobody asked about → stamp the resolved SHA/tree in the artifact and compare it to the branch before trusting any number (three sites hit in one issue: suite runner, evidence checker, WBS updater — Issue-553).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -70,6 +75,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A checker's green result overclaims unless its blind-spot SHAPE is written into the checker itself → state what it cannot decide beside what it asserts (Issue-558).
 - A programmatic edit (`sed`, string-replace) that silently NO-OPS leaves a false record when you verify a proxy instead of the edited file → grep the edited file for the new text before booking the fix (Issue-106).
 - After fixing a defect, grep the FIX ITSELF for the defect's own class → a phase-mixing bug was reintroduced inside the renderer added to fix it; prefer a COUNTED denominator over one derived from a loop bound, which silently re-mixes when a caller changes (Issue-85).
+- A repo-wide sweep must DECLARE its universe and prove the edge: enumerate from the tracked set (not the filesystem, which carries ignored mutable junk), pass the NUL-delimited form so unusual filenames survive quoting, and probe it with a subject whose NAME exercises the edge rather than only its contents (Issue-566).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -94,6 +100,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Building on an external tool/harness parameter → probe the CONSUMER's accepted-value contract live (closed enums reject values docs imply legal); split probe findings CONFIRMED vs ASSERTED by provenance — the read-not-measured rung is the one that breaks (Issue-458).
 - A premise-freshness ✗ on a named file can be the issue's own DELIVERABLE → classify input-vs-output before treating absence as a falsified premise (Issue-458).
 - An issue's prescribed fix is an untrusted hypothesis, not a spec → verify it at HEAD before building on it (Issue-Fork-149's `## Fix` would have hung); and "which impl/path does this ACTUALLY run by default?" is a source question — read the dispatch/fallback logic, don't assume the measured or common case is the default (Issue-Fork-149).
+- An issue's MENU of candidate fixes can be wholly falsified, not just partly — execute every candidate against the real cases before picking one; when the working and broken inputs share a prefix, no rule keyed on that prefix can discriminate them, so the whole menu is unfixable and the discriminator lies further along (Issue-553).
 - Two components that must agree on a format → test by feeding one's REAL produced artifact through the other, not a prose promise or a format check (Issue-232).
 - A status ambiguous between "absent" and "can't-determine" → fail closed; a tri-state classifier makes the fail-safe un-violatable by construction (Issue-243).
 - A check green YESTERDAY and red TODAY at the same SHA → establish WHICH ENVIRONMENT produced each run before diagnosing drift; an A/B across SHAs is valid only same-environment (Issue-559).
@@ -113,6 +120,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
 - A late "trivial" fix-commit that exceeds the scope a review authorized invalidates the evidence the MR cites → re-run the evidence at the new HEAD before ship (fleet Issue-3).
+- The MR body is REGENERATED at ship, not authored once — every post-draftmr commit silently ages its evidence SHA, counts, and any claim a later review corrected elsewhere; the maintainer-facing document is the one home consumed alone, so it must be the LAST one re-stamped, never the first one forgotten (Issue-553).
 - Evidence/count numbers must come from a run at THIS HEAD — stale counts copy forward silently; brand numbers need ONE derived source, not N hand-edits (Issue-284).
 - Mixing measurement bases (whole-file before minus stripped-body after) inflates a headline while every individual number stays true → state the basis beside the number and subtract like from like (Issue-439).
 - An audience-facing page inherits claims from its issue/source prose → verify every support/prerequisite/platform claim against the CODE and CI matrix; premise-rederive must cover ALL inherited claims, not just the ones that look stale (Issue-461).
@@ -125,6 +133,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Pin the CLAIM, not one phrasing of it — a guard that fails when the text it guards is IMPROVED trains people to weaken guards (Issue-561).
 - Running a VARIANT of a published command is not running it — a regex published in one dialect and executed in another returns a different count under an identical-looking claim; run every command in the exact form it will appear (Issue-106).
 - A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
+- Recording a command VERBATIM into an artifact passes through layers that each re-interpret backslash escapes — a regex escape can land as a control byte and read as a mere variant; write it as explicit bytes and diff byte-for-byte against the published form (Issue-566).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
