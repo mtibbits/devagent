@@ -1,6 +1,6 @@
 ---
 description: "Step 1: measure the world (read code/docs/upstream, run existing probes) before drafting; write cited findings + open unknowns."
-allowed-tools: Read, Grep, Glob, WebFetch, Write, Edit, Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Read, Grep, Glob, WebFetch, Write, Edit, Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [Issue-N]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: Harvest follow-up candidates into Captures/<slug>/draft.md (idempotent)
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Skill
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Skill
 argument-hint: "[project]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: "Async merge detection: fires on_merge for shipped issues that merged outside this session."
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "--all | <project>"
 ---
 

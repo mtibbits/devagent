@@ -1,6 +1,6 @@
 ---
 description: Run six-question scope evaluation on the active issue's plan.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

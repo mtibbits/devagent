@@ -55,6 +55,25 @@
         "runs": [],
         "note": "UNFILLED at ship. #458 probe 7 confirmed both dispatch shapes transcript-verified."
       }
+    },
+    {
+      "id": "plugin-root-grant-automatch",
+      "target": "commands/*.md + skills/{capture,next,ship}/SKILL.md allowed-tools (the quoted two-token ${CLAUDE_PLUGIN_ROOT} grant form, #548)",
+      "procedure": "Hermetic headless probe: temp CLAUDE_CONFIG_DIR seeded with .credentials.json + an EMPTY settings.json; claude -p --plugin-dir <this repo> '/devagent:status' with --verbose --output-format stream-json; read the Bash tool_result from the stream mechanically (never the prose - a denied run can narrate success, #548 caught exactly that).",
+      "measured": "whether the Bash tool_result is real script output (ALLOW) vs 'This command requires approval' (DENY), plus the emitted command string byte-captured from the stream",
+      "expected": "ALLOW: the quoted grant form prefix-matches the quoted body invocation on CC >= 2.1.223. A DENY on a newer CC means the substitution or the literal-prefix matcher regressed - re-run the #548 Q-cell matrix before touching the grants.",
+      "trigger": "every Claude Code upgrade / plugin reinstall",
+      "baseline": {
+        "date": "2026-08-06",
+        "model": "sonnet (probe child; grant matching is model-independent, but retyping fidelity is not)",
+        "pass_rate": "3/3",
+        "runs": [
+          "#548 run1: live-final.jsonl - /devagent:status ALLOW with real dashboard output, CC 2.1.223 (pre-sweep controls DENIED: live-sj1.jsonl, live-post-sweep2.jsonl)",
+          "#548 run2: ladder-run2.jsonl - ALLOW, real output (stream-json, mechanical read)",
+          "#548 run3: ladder-run3.jsonl - ALLOW, real output (stream-json, mechanical read)"
+        ],
+        "note": "FILLED at #548 ship with the full 3-session ladder per meta.criteria (3 runs, >=2 pass). Fixture Q-matrix corroboration in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md."
+      }
     }
   ]
 }

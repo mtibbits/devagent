@@ -1,6 +1,6 @@
 ---
 description: Manage PAT / SSH-key lifecycle (create, store, rotate, destroy, status, exec) for a project's tracker and code-forge backends.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 disable-model-invocation: true
 argument-hint: "<create|store|rotate|destroy|status|exec> [project] [backend]"
 ---

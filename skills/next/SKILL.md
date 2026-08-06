@@ -3,7 +3,7 @@ name: next
 description: Execute the next actionable step on the active issue
 when_to_use: To advance the active issue's 24-step checklist; --auto chains steps.
 argument-hint: "[project] [--auto] [--through <step>] [-- <note>]"
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # /devagent:next

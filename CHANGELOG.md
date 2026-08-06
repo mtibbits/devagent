@@ -12,6 +12,23 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-06
+- **Workflow-script calls now auto-approve on Claude Code ≥ 2.1.223 (#548).**
+  All 57 `allowed-tools` grants (54 commands + 3 skills) moved to the
+  probe-verified quoted two-token form
+  `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`.
+  Two measured facts drove the form: (1) `${CLAUDE_PLUGIN_ROOT}` now substitutes
+  inside `allowed-tools` (#533's 2.1.211 negative flipped — measured, not
+  documented upstream); (2) matching is a literal prefix match, so the grant
+  must carry the same QUOTED shape the command bodies emit — the old unquoted
+  form never matched, and the issue's proposed `${CLAUDE_SKILL_DIR}` target
+  never substitutes for command files at all (it would have broken all 54).
+  Live-verified end-to-end against the real plugin (stream-json, hermetic
+  settings); re-asked on every CC upgrade by the new filled
+  `plugin-root-grant-automatch` smoke rung. Both permission-caveat docs homes
+  rewritten to the positive; verified-against re-stamped to 2.1.223. Evidence:
+  Issue-548 `decision-skill-dir-probe.md`.
+
 ### Fixed — 2026-08-04
 - **An EMPTY `## Workflow flags` heading no longer leaves the block open
   (#553).** The block ended at the next `#` heading, or at a blank line once at

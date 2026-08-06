@@ -1,6 +1,6 @@
 ---
 description: "Step 17: fresh-context verification that the committed branch satisfies the ACs and contains all findings, before ship."
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill, Agent
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill, Agent
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 
