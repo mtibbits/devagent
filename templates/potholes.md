@@ -47,6 +47,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A guard that greps a message LITERAL dies silently when the message is reworded → export the string as a module constant and assert on it from both sides, so a rename reddens instead of disarming (Issue-106).
 - A guard that iterates the WHOLE tree is a cost you must measure before shipping it — time it against a normal test in the same suite; a per-file process pipeline over every tracked file can eat a fifth of a CI budget for one assertion, and a bare-token prefilter usually removes ~98% of it (Issue-566).
 - A run that never EXECUTED the code reads exactly like a passing one — a non-login shell without the test binary on PATH reports "0 failing" for a mutation that deletes the code under test → make the harness prove it ran: print the resolved binary path, assert ok+notok == plan, and refuse to summarize a run that produced no plan line (Issue-553).
+- A headless agent can NARRATE the expected output of a tool call that was actually DENIED — plausible fabricated success prose over zero execution → every headless probe asserts an unforgeable token (nonce in stdout) or reads the tool result from the machine event stream; prose claims of execution are inadmissible (Issue-548).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -96,6 +97,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
+- A plan built on a version-gated NEGATIVE ("measured NO at version V") must re-measure that negative at the CURRENT version as its FIRST cell, with an explicit STOP wired for the flip — a vendor can silently land the capability and convert every planned branch at once (Issue-548).
+- A permission/pattern matcher may compare LITERAL byte forms — a rule silently never matches an emission differing only in quoting, bracing, case, or argument presence → capture the exact emitted strings mechanically and probe each call shape separately before sweeping grants or rules (Issue-548).
 - An issue's named input can be wrong → verify it exists with the assumed content in scope/improve; surface the mismatch rather than building an inert fix (Issue-274).
 - Building on an external tool/harness parameter → probe the CONSUMER's accepted-value contract live (closed enums reject values docs imply legal); split probe findings CONFIRMED vs ASSERTED by provenance — the read-not-measured rung is the one that breaks (Issue-458).
 - A premise-freshness ✗ on a named file can be the issue's own DELIVERABLE → classify input-vs-output before treating absence as a falsified premise (Issue-458).
