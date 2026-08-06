@@ -122,9 +122,61 @@ def test_bash_grant_is_scoped(path):
     tokens = [t.strip() for t in str(grant).split(",")]
     assert "Bash" not in tokens, (
         f"{os.path.relpath(path, _REPO)}: unscoped `Bash` grant — scope it to "
-        f'`Bash(bash "${{CLAUDE_PLUGIN_ROOT}}/scripts/*" *)` (see #448, #548). '
+        f"the canonical pair {_PLUGIN_SCRIPT_GRANT!r} (see #448, #548). "
         f"Got: {grant!r}"
     )
+
+
+# #548: matching is a LITERAL PREFIX MATCH, so the grant must be byte-exact —
+# quoted like the body invocations, two tokens (the argless glob token plus the
+# arg-wildcard token; probe cells Q6/Q7 proved each alone misses one call
+# shape). The pre-#548 unquoted form was CI-green for months while silently
+# never matching. Single source for the string; every Bash-grant carrier must
+# carry the pair verbatim. NOTE: the yaml loader (test_bash_grant_is_scoped
+# above) sees the frontmatter value; a naive comma-split would cut INSIDE the
+# pair, so this canary asserts substring presence on the raw value instead.
+_PLUGIN_SCRIPT_GRANT = (
+    'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), '
+    'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)'
+)
+
+
+@pytest.mark.parametrize(
+    "path",
+    _GRANT_BEARING_FILES,
+    ids=[os.path.relpath(p, _REPO) for p in _GRANT_BEARING_FILES],
+)
+def test_bash_grant_is_the_canonical_pair(path):
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if not text.startswith("---"):
+        pytest.skip("no frontmatter block")
+    fm = yaml.safe_load(text.split("---", 2)[1]) or {}
+    grant = fm.get("allowed-tools")
+    if grant is None or "Bash" not in str(grant):
+        return
+    assert _PLUGIN_SCRIPT_GRANT in str(grant), (
+        f"{os.path.relpath(path, _REPO)}: Bash grant drifted from the canonical "
+        f"#548 pair — a non-byte-exact form silently never auto-matches "
+        f"(literal prefix matching). Expected the verbatim substring "
+        f"{_PLUGIN_SCRIPT_GRANT!r}. Got: {grant!r}"
+    )
+
+
+def test_canonical_pair_canary_is_not_vacuous():
+    # The canary above returns early on grant-less files; prove the subject
+    # set is the full 57 Bash-grant carriers (54 commands + 3 skills), so a
+    # glob/layout change cannot silently empty it (#439).
+    n = 0
+    for path in _GRANT_BEARING_FILES:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        if not text.startswith("---"):
+            continue
+        fm = yaml.safe_load(text.split("---", 2)[1]) or {}
+        if "Bash" in str(fm.get("allowed-tools") or ""):
+            n += 1
+    assert n == 57, f"expected 57 Bash-grant carriers, found {n}"
 
 
 def test_command_bash_canary_is_not_vacuous():

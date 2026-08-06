@@ -61,15 +61,15 @@ dependency, and a cached copy of it keeps devAgent disabled until updated.
 
 ## Permissions
 
-As of Claude Code **2.1.223**, `${CLAUDE_PLUGIN_ROOT}` IS substituted inside
-`allowed-tools`, and devAgent ships the probe-verified quoted grant form, so
-workflow-script calls auto-approve without prompting (#548 decision doc: the
-match is a literal prefix match, which is why the grants carry the same quoted
-form the command bodies emit). On earlier Claude Code (≤ 2.1.211, measured in
-#533) the substitution never fires and every workflow script call prompts —
-approve-and-remember when prompted, or upgrade Claude Code. The model can
-occasionally retype a command in a form that misses the prefix match (e.g.
-drive-letter case); that falls back to a one-off prompt, never to a wider
+Workflow-script calls auto-approve: as of 2.1.223,
+`${CLAUDE_PLUGIN_ROOT}` substitutes inside `allowed-tools`, and devAgent ships the
+probe-verified quoted grant form
+`Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`
+that matches the quoted script invocations the command bodies emit (#548 decision doc).
+On older Claude Code (≤ 2.1.211, where the substitution never fires — measured in #533)
+every workflow script call prompts; approve-and-remember there, or upgrade. The model can
+occasionally retype a command in a form that misses the literal prefix match (e.g. a
+different drive-letter case) — that falls back to a one-off prompt, never to a wider
 grant. Never widen to bare `Bash`.
 
 ## While the repo is private
