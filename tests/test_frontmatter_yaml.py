@@ -166,7 +166,8 @@ def test_bash_grant_is_the_canonical_pair(path):
 def test_canonical_pair_canary_is_not_vacuous():
     # The canary above returns early on grant-less files; prove the subject
     # set is the full 57 Bash-grant carriers (54 commands + 3 skills), so a
-    # glob/layout change cannot silently empty it (#439).
+    # glob/layout change cannot silently empty it (#439). DELIBERATE EQUALITY
+    # PIN, not a floor — update the count when adding/removing a grant carrier.
     n = 0
     for path in _GRANT_BEARING_FILES:
         with open(path, encoding="utf-8") as fh:
@@ -176,7 +177,39 @@ def test_canonical_pair_canary_is_not_vacuous():
         fm = yaml.safe_load(text.split("---", 2)[1]) or {}
         if "Bash" in str(fm.get("allowed-tools") or ""):
             n += 1
-    assert n == 57, f"expected 57 Bash-grant carriers, found {n}"
+    assert n == 57, (
+        f"expected 57 Bash-grant carriers, found {n} — deliberate pin: if you "
+        f"added/removed a grant-carrying command or skill on purpose, update "
+        f"this count (see #548)"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    _GRANT_BEARING_FILES,
+    ids=[os.path.relpath(p, _REPO) for p in _GRANT_BEARING_FILES],
+)
+def test_no_bash_grant_beyond_the_canonical_pair(path):
+    # #548 review minor 4: the pair canary is substring-presence, so a rider
+    # grant (`Bash(git *), <pair>`) would pass it AND pass the bare-Bash test.
+    # Token-level closure: every Bash(...) token in allowed-tools must be one
+    # of the two canonical tokens — the grants are load-bearing now.
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if not text.startswith("---"):
+        pytest.skip("no frontmatter block")
+    fm = yaml.safe_load(text.split("---", 2)[1]) or {}
+    grant = fm.get("allowed-tools")
+    if grant is None or "Bash" not in str(grant):
+        return
+    canonical = {t.strip() for t in _PLUGIN_SCRIPT_GRANT.split(", ")}
+    bash_tokens = [
+        t.strip() for t in str(grant).split(",") if t.strip().startswith("Bash")
+    ]
+    assert set(bash_tokens) == canonical, (
+        f"{os.path.relpath(path, _REPO)}: Bash token set beyond/besides the "
+        f"canonical #548 pair. Got: {bash_tokens!r}"
+    )
 
 
 def test_command_bash_canary_is_not_vacuous():

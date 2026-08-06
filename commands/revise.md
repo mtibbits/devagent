@@ -7,7 +7,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 Run the revise script and report the result.
 
 ````bash
-bash "$CLAUDE_PLUGIN_ROOT/scripts/revise.sh" $ARGUMENTS
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/revise.sh" $ARGUMENTS
 ````
 
 Then:

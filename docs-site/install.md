@@ -66,7 +66,9 @@ Workflow-script calls auto-approve: as of 2.1.223,
 probe-verified quoted grant form
 `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`
 that matches the quoted script invocations the command bodies emit (#548 decision doc).
-On older Claude Code (≤ 2.1.211, where the substitution never fires — measured in #533)
+On older Claude Code (≤ 2.1.211, where the substitution never fires — measured in #533;
+the exact landing version between 2.1.211 and 2.1.223 is unmeasured, so intermediate
+versions may or may not prompt)
 every workflow script call prompts; approve-and-remember there, or upgrade. The model can
 occasionally retype a command in a form that misses the literal prefix match (e.g. a
 different drive-letter case) — that falls back to a one-off prompt, never to a wider

@@ -7,7 +7,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 Run the comments script and report the result.
 
 ````bash
-bash "$CLAUDE_PLUGIN_ROOT/scripts/comments.sh" $ARGUMENTS
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/comments.sh" $ARGUMENTS
 ````
 
 After it runs:

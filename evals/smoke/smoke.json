@@ -70,7 +70,7 @@
         "runs": [
           "#548: live-final.jsonl - /devagent:status ALLOW with real dashboard output, CC 2.1.223; pre-sweep controls DENIED (live-sj1.jsonl, live-post-sweep2.jsonl)"
         ],
-        "note": "FILLED at #548 ship. Full Q-matrix in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md."
+        "note": "FILLED at #548 ship. Full Q-matrix in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md. PROTOCOL DEVIATION, acknowledged: baseline is 1 live run + 2 fixture cells, not the meta.criteria 3-run ladder — run the full 3-session ladder at the next trigger and re-baseline."
       }
     }
   ]
