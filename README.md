@@ -53,17 +53,17 @@ uninstall + reinstall.
 Requires a `bash` + `python3` toolchain (the workflow scripts) and, for the auth
 subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
 
-**Claude Code version.** Developed and verified against Claude Code **2.1.211**;
-earlier versions are untested. One caveat to expect: as of 2.1.211 Claude Code does
-not substitute `${CLAUDE_PLUGIN_ROOT}` inside `allowed-tools`, so devAgent's scoped
-`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)` grants don't auto-match and you'll be
-prompted to approve each workflow script call. Approve-and-remember when prompted, or
-pre-approve by adding a `permissions.allow` entry in `~/.claude/settings.json` that
-covers the plugin's installed version directory (which contains `scripts/`) — its cache
-path is version-nested under `~/.claude/plugins/cache/devagent/…`, so match the plugin
-dir prefix (e.g.
-`Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)`, absolute path, `:*`
-covering the version segment). Never widen to bare `Bash`.
+**Claude Code version.** Developed and verified against Claude Code **2.1.223**;
+earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
+`${CLAUDE_PLUGIN_ROOT}` substitutes inside `allowed-tools`, and devAgent ships the
+probe-verified quoted grant form
+`Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`
+that matches the quoted script invocations the command bodies emit (#548 decision doc).
+On older Claude Code (≤ 2.1.211, where the substitution never fires — measured in #533)
+every workflow script call prompts; approve-and-remember there, or upgrade. The model can
+occasionally retype a command in a form that misses the literal prefix match (e.g. a
+different drive-letter case) — that falls back to a one-off prompt, never to a wider
+grant. Never widen to bare `Bash`.
 
 ## The 24-step workflow
 
@@ -326,7 +326,7 @@ by `tests/test_plugin_versioning.py` (CI) and recorded with the measured
 evidence in the #532 decision doc.
 
 Consequence, accepted: `claude plugin validate --strict` fails on the missing
-version (measured on 2.1.211) and stays red by design. The wired check is the
+version (measured on 2.1.211, re-verified on 2.1.223 — #548) and stays red by design. The wired check is the
 **non-strict** `claude plugin validate` (rc=0). Both invocations — the
 non-strict check and the strict inverse canary — live in
 `tests/plugin-validate.bats`, a local-only rung, since CI has no claude CLI;

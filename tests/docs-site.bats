@@ -48,7 +48,7 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qF 'claude plugin marketplace add mtibbits/devagent' "$f"
     grep -qF 'claude plugin install devagent@devagent' "$f"
     grep -qF 'claude plugin install superpowers@claude-plugins-official' "$f"
-    grep -qF '2.1.211' "$f"
+    grep -qF '2.1.223' "$f"
   done
   # The headline count token is shared by index.md and README the same way
   # (review minor 18: previously pinned only via workflow.md's derived table).

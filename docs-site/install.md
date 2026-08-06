@@ -8,7 +8,7 @@ devAgent is developed and tested on **Linux**, inside
 the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
 `readlink -f`) and bash ≥ 4, and CI runs Linux only. You need:
 
-- **Claude Code** — developed and verified against **2.1.211**; earlier
+- **Claude Code** — developed and verified against **2.1.223**; earlier
   versions are untested.
 - **`bash` ≥ 4**, **`python3` ≥ 3.11** (or 3.8-3.10 plus `tomli`, e.g.
   `apt install python3-tomli` — the TOML parser moved into the stdlib as
@@ -59,24 +59,18 @@ Installs from before [#541](https://github.com/mtibbits/devagent/issues/541):
 run the update once — the old manifest declared superpowers as a hard
 dependency, and a cached copy of it keeps devAgent disabled until updated.
 
-## Permissions caveat
+## Permissions
 
-As of Claude Code 2.1.211, `${CLAUDE_PLUGIN_ROOT}` is not substituted inside
-`allowed-tools`, so devAgent's scoped workflow-script grants don't auto-match
-and you'll be prompted to approve each workflow script call. Approve-and-
-remember when prompted, or pre-approve by adding a `permissions.allow` entry
-in `~/.claude/settings.json` that covers the plugin's installed version
-directory under `~/.claude/plugins/cache/devagent/…` — absolute path, with
-`:*` covering the version segment, for example:
-
-```
-Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)
-```
-
-Never widen to bare `Bash`. Note what this grant covers: every script in the
-plugin's install directory, **including ones added by a later
-`claude plugin update`**. Scope it to the versioned subdirectory instead if
-you prefer to re-approve on each upgrade.
+As of Claude Code **2.1.223**, `${CLAUDE_PLUGIN_ROOT}` IS substituted inside
+`allowed-tools`, and devAgent ships the probe-verified quoted grant form, so
+workflow-script calls auto-approve without prompting (#548 decision doc: the
+match is a literal prefix match, which is why the grants carry the same quoted
+form the command bodies emit). On earlier Claude Code (≤ 2.1.211, measured in
+#533) the substitution never fires and every workflow script call prompts —
+approve-and-remember when prompted, or upgrade Claude Code. The model can
+occasionally retype a command in a form that misses the prefix match (e.g.
+drive-letter case); that falls back to a one-off prompt, never to a wider
+grant. Never widen to bare `Bash`.
 
 ## While the repo is private
 
