@@ -1,6 +1,6 @@
 ---
 description: Mark the current step stuck and write a STUCK file with a reason.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "<issue-dir> <reason...>"
 ---
 

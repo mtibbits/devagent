@@ -1,7 +1,7 @@
 ---
 description: Start a new revision pass; appends "## Revision N" to checklist and chains to /devagent:next
 argument-hint: "[project] [issue] [--no-chain] [--retier <tier>]"
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 Run the revise script and report the result.

@@ -1,6 +1,6 @@
 ---
 description: Autonomous capture, red-team, revise, and file for one discussed topic
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill
 argument-hint: "[topic hint]"
 ---
 

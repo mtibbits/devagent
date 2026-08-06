@@ -122,7 +122,8 @@ def test_bash_grant_is_scoped(path):
     tokens = [t.strip() for t in str(grant).split(",")]
     assert "Bash" not in tokens, (
         f"{os.path.relpath(path, _REPO)}: unscoped `Bash` grant — scope it to "
-        f"`Bash(bash ${{CLAUDE_PLUGIN_ROOT}}/scripts/*)` (see #448). Got: {grant!r}"
+        f'`Bash(bash "${{CLAUDE_PLUGIN_ROOT}}/scripts/*" *)` (see #448, #548). '
+        f"Got: {grant!r}"
     )
 
 

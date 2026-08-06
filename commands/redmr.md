@@ -1,6 +1,6 @@
 ---
 description: Run red-team adversarial review of the MR before shipping.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill, Agent
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill, Agent
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

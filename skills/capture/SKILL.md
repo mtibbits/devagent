@@ -3,7 +3,7 @@ name: capture
 description: Draft a pre-issue or epic capture under <devdoc>/Captures/<slug>/
 when_to_use: To capture a new idea as an issue or epic draft before filing.
 argument-hint: "[issue|epic] <text>"
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill
 ---
 
 # /devagent:capture

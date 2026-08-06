@@ -1,6 +1,6 @@
 ---
 description: "Initialize the per-issue checklist.md (default template: standard)."
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[--template <name>] <issue-dir>"
 ---
 

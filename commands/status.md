@@ -1,6 +1,6 @@
 ---
 description: Multi-project dashboard of active issues, STUCK, and parked
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project|--all]"
 ---
 
