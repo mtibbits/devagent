@@ -66,11 +66,13 @@
       "baseline": {
         "date": "2026-08-06",
         "model": "sonnet (probe child; grant matching is model-independent, but retyping fidelity is not)",
-        "pass_rate": "1/1 live post-sweep (plus Q8 fixture: 2/2 call shapes)",
+        "pass_rate": "3/3",
         "runs": [
-          "#548: live-final.jsonl - /devagent:status ALLOW with real dashboard output, CC 2.1.223; pre-sweep controls DENIED (live-sj1.jsonl, live-post-sweep2.jsonl)"
+          "#548 run1: live-final.jsonl - /devagent:status ALLOW with real dashboard output, CC 2.1.223 (pre-sweep controls DENIED: live-sj1.jsonl, live-post-sweep2.jsonl)",
+          "#548 run2: ladder-run2.jsonl - ALLOW, real output (stream-json, mechanical read)",
+          "#548 run3: ladder-run3.jsonl - ALLOW, real output (stream-json, mechanical read)"
         ],
-        "note": "FILLED at #548 ship. Full Q-matrix in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md. PROTOCOL DEVIATION, acknowledged: baseline is 1 live run + 2 fixture cells, not the meta.criteria 3-run ladder — run the full 3-session ladder at the next trigger and re-baseline."
+        "note": "FILLED at #548 ship with the full 3-session ladder per meta.criteria (3 runs, >=2 pass). Fixture Q-matrix corroboration in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md."
       }
     }
   ]
