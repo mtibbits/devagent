@@ -13,13 +13,7 @@ setup() {
     cd "$SOURCE_DIR" || return
     mkdir -p tests && echo '# placeholder' > tests/x.bats
     git add -A && git commit -q -m "seed tests"
-    # An AD-HOC worktree: nothing recorded in state.worktree_path.
-    WT="$DEVAGENT_TMP/wt"
-    git worktree add -q -b wt-branch "$WT" HEAD
-    ( cd "$WT" && echo delta > delta.txt && git add -A && git commit -q -m "worktree-only" )
-    WT_HEAD="$(git -C "$WT" rev-parse HEAD)"
     SRC_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
-    [ "$WT_HEAD" != "$SRC_HEAD" ]          # the fixture must actually diverge
     mkdir -p "$DEVAGENT_TMP/binstub"
     printf '%s\n' '#!/usr/bin/env bash' 'echo "1..1"' 'echo "ok 1 a"' \
         > "$DEVAGENT_TMP/binstub/bats"
@@ -27,10 +21,21 @@ setup() {
 }
 teardown() { devagent_test_teardown; }
 
+# An AD-HOC worktree: nothing recorded in state.worktree_path. Lazy — only the
+# tests exercising the worktree shape pay the fixture's ~6 process spawns.
+_mk_wt() {
+    WT="$DEVAGENT_TMP/wt"
+    git -C "$SOURCE_DIR" worktree add -q -b wt-branch "$WT" HEAD
+    ( cd "$WT" && echo delta > delta.txt && git add -A && git commit -q -m "worktree-only" )
+    WT_HEAD="$(git -C "$WT" rev-parse HEAD)"
+    [ "$WT_HEAD" != "$SRC_HEAD" ]          # the fixture must actually diverge
+}
+
 @test "#571 AC1: run-suite from an ad-hoc worktree REFUSES and writes no artifact" {
     # the guard must EXIST — a 127 would satisfy the rc assertion vacuously (#572)
     run bash -c ". '$DEVAGENT_ROOT/scripts/lib/paths.sh'; . '$DEVAGENT_ROOT/scripts/lib/io.sh'; . '$DEVAGENT_ROOT/scripts/lib/config.sh'; . '$DEVAGENT_ROOT/scripts/lib/state.sh'; . '$DEVAGENT_ROOT/scripts/lib/active.sh'; type active_guard_tree"
     [ "$status" -eq 0 ]
+    _mk_wt
     cd "$WT"
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -ne 0 ]
@@ -49,6 +54,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "#571: DEVAGENT_TREE_GUARD_OVERRIDE=1 restores the old behavior for one call" {
+    _mk_wt
     cd "$WT"
     PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TREE_GUARD_OVERRIDE=1 \
         run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
@@ -126,6 +132,7 @@ teardown() { devagent_test_teardown; }
 @test "#571 AC4: with a RECORDED worktree, run-suite and preship-evidence agree on one tree" {
     # Fixture is DISCRIMINATING: the worktree and source_dir differ in both HEAD
     # and file count, so a checker still reading source_dir fails on head: AND files:.
+    _mk_wt
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" worktree_path "$WT"
     BASE="$(git -C "$WT" rev-parse HEAD~1)"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
@@ -144,6 +151,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "#571 AC4: an artifact stamped with a FOREIGN tree is rejected by preship-evidence" {
+    _mk_wt
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
     printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
         "$SRC_HEAD" "$(cd "$WT" && pwd -P)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"

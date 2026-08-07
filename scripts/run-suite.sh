@@ -106,9 +106,10 @@ date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze se
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
 # #571: tree: is an IDENTITY, not a display string — canonicalized (pwd -P) so the
-# stamp survives symlink/case spelling variance. Inserted AFTER head:, so the SHA
-# stays the artifact's first data line and no prefix-anchored consumer moves.
-tree_canon="$(cd "$work_dir" && pwd -P)"
+# stamp survives symlink/case spelling variance; cwd has been $work_dir since the
+# cd above. Inserted AFTER head:, so the SHA stays the artifact's first data line
+# and no prefix-anchored consumer moves.
+tree_canon="$(pwd -P)"
 {
   echo "head: $head  dirty: $dirty"
   echo "tree: $tree_canon"

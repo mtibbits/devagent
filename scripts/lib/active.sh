@@ -368,15 +368,14 @@ issue_context_dir() {
 
 # active_tree_resolve <project> [issue-arg]
 # The CHECKOUT the issue's work lives in — the tree an EVIDENCE step must measure.
-# Same rule commit.sh:110-111 and ship.sh:92-98 already apply, hoisted here so the
-# evidence pair cannot drift from the commit/ship pair (#571; register Issue-82/94).
+# Same rule commit.sh:110-111 and ship.sh:92-98 already apply, given one shared
+# home here for the evidence pair (#571; register Issue-82/94 — migrating the
+# commit/ship pair onto this helper is a recorded follow-up).
 # SETTER-GLOBALS, and it dies: never command-substitute it (#282/#120).
 #   ACTIVE_TREE_DIR   the tree to act on
 #   ACTIVE_TREE_FROM  "state" (recorded worktree_path) | "config" (source_dir)
 active_tree_resolve() {
   local project="$1" arg="${2:-}" wt src
-  src="$(config_get_project_field "$project" source_dir)"
-  [ -n "$src" ] || die "active_tree_resolve: no source_dir configured for '$project'"
   # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
   # liveness check below is what makes the `|| true` safe (register Issue-314/316).
   wt="$(state_ctx_get "$project" worktree_path "$arg" 2>/dev/null || true)"
@@ -386,6 +385,10 @@ active_tree_resolve() {
       || die "active_tree_resolve: recorded worktree_path is not a usable git tree: $wt — refusing to silently measure a different tree instead (#571/#148)"
     ACTIVE_TREE_DIR="$wt"; ACTIVE_TREE_FROM="state"; return 0
   fi
+  # source_dir resolved only on this fallback branch — a worktree-recorded issue
+  # never pays the config read (one python3 spawn, ~0.5s on Windows).
+  src="$(config_get_project_field "$project" source_dir)"
+  [ -n "$src" ] || die "active_tree_resolve: no source_dir configured for '$project'"
   [ -d "$src" ] || die "active_tree_resolve: source_dir missing: $src"
   ACTIVE_TREE_DIR="$src"
   # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
@@ -435,6 +438,15 @@ ACTIVE_TREE_MISMATCH_TAG="TREE MISMATCH"
 # Issue-548: compare the strings that are actually emitted, do not invent equalities).
 _active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
 
+# _active_common_root <dir>: canonical (pwd -P) path of <dir>'s repo COMMON dir.
+# --git-common-dir is RELATIVE (".git") from a main worktree and ABSOLUTE from a
+# linked one, so it must be resolved from inside <dir> and then canonicalized
+# (measured on a scratch repo before this was written, #33; re-run in WSL
+# 2026-08-07 — Issue-571's analysis/2026-08-07-probes.txt). Nonzero rc on failure.
+_active_common_root() {
+  (cd "$1" && cd "$("${DEVAGENT_GIT:-git}" rev-parse --git-common-dir)" && pwd -P)
+}
+
 active_guard_tree() {
   local label="${1:-devagent}" git="${DEVAGENT_GIT:-git}"
   [ -n "${ACTIVE_TREE_DIR:-}" ] || return 0
@@ -449,12 +461,9 @@ active_guard_tree() {
   # identity by device+inode, NEVER string equality: `pwd` yields /c/Programs/...
   # where git yields C:/Programs/... (the #553 correction, active_context_project).
   [ "$top" -ef "$ACTIVE_TREE_DIR" ] && return 0
-  # Clause 1 — linked worktree. --git-common-dir is RELATIVE (".git") from a main
-  # worktree and ABSOLUTE from a linked one, so both sides are normalized through
-  # cd + pwd -P (measured on a scratch repo before this was written, #33; re-run
-  # in WSL 2026-08-07 — analysis/2026-08-07-probes.txt).
-  c_cwd="$(cd "$top" && cd "$("$git" rev-parse --git-common-dir)" && pwd -P)" || c_cwd=""
-  c_tree="$(cd "$ACTIVE_TREE_DIR" && cd "$("$git" rev-parse --git-common-dir)" && pwd -P)" || c_tree=""
+  # Clause 1 — linked worktree: both sides' common dirs via _active_common_root.
+  c_cwd="$(_active_common_root "$top")" || c_cwd=""
+  c_tree="$(_active_common_root "$ACTIVE_TREE_DIR")" || c_tree=""
   if [ -z "$c_cwd" ] || [ -z "$c_tree" ]; then
     warn "$label: could not compare \$PWD's checkout ($top) with the tree about to be measured ($ACTIVE_TREE_DIR) — proceeding on $ACTIVE_TREE_DIR; verify the artifact's head: before trusting it."
     return 0
