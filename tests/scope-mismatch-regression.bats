@@ -23,17 +23,11 @@ BASELINE_SHA="86efe8c"   # pre-#572 master; leg 5 skips its diff half if absent
 setup() {
   devagent_test_setup    # projA = testproj; $SOURCE_DIR is its git repo
 
-  SRC_B="$DEVAGENT_TMP/src/projB"
-  DOC_B="$DEVAGENT_TMP/devdoc/projB"
-  ISSUE_B="$DOC_B/Issue-9"
-  mkdir -p "$SRC_B" "$ISSUE_B/analysis" "$ISSUE_B/revisions/r1"
-
-  # B's source repo: baseline commit + one changed file at HEAD (files: 1)
-  ( cd "$SRC_B" \
-    && git -c init.defaultBranch=main init -q \
-    && git config user.email b@example.com && git config user.name B \
-    && echo one > f.txt && git add f.txt && git commit -q -m c1 \
-    && echo two > f.txt && git add f.txt && git commit -q -m c2 )
+  # projB core (pointer on B, env pins unset) + a second commit so the
+  # baseline..HEAD diff is exactly one file (mr.md's `files: 1 changed`)
+  devagent_fixture_projB 1
+  mkdir -p "$ISSUE_B/analysis" "$ISSUE_B/revisions/r1"
+  ( cd "$SRC_B" && echo two > f.txt && git add f.txt && git commit -q -m c2 )
   B_BASE="$(git -C "$SRC_B" rev-parse HEAD~1)"
   B_HEAD="$(git -C "$SRC_B" rev-parse HEAD)"
 
@@ -73,12 +67,10 @@ EOF
 
   ( cd "$DOC_B" && git add -A && git commit -q -m fixture )
 
-  # projB config: every opt-in consumer ON so bare completions are observable
+  # projB config extras: every opt-in consumer ON so bare completions are
+  # observable. The bare keys continue the helper's still-open [project.projB]
+  # table (nothing writes the config between the helper and this append).
   cat >> "$HOME/.claude/devagent/config.toml" <<EOF
-
-[project.projB]
-source_dir       = "$SRC_B"
-devdoc_dir       = "$DOC_B"
 commit_autostage = true
 born_red         = true
 
@@ -100,24 +92,21 @@ revision     = 1
 mr_url       = "https://example.test/projB/mr/9"
 EOF
 
-  printf 'active_project = "projB"\n' \
-    > "$HOME/.claude/devagent/state/_active.toml"
-  unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
+  # (pointer + env-pin hygiene already done by devagent_fixture_projB)
 
-  # stub issue backend (transition-draft-start) + code backend (comments)
-  STUB_LOG="$DEVAGENT_TMP/stub.log"; : > "$STUB_LOG"
-  export STUB_LOG
+  # stub issue backend (transition-draft-start) + code backend (comments),
+  # both logging argv to the shared $DEVAGENT_STUB_LOG from devagent_test_setup
   STUB_BACKENDS="$DEVAGENT_TMP/stub-issue"
   mkdir -p "$STUB_BACKENDS"
   cat > "$STUB_BACKENDS/github.sh" <<EOF
 #!/usr/bin/env bash
-printf 'issue/github %s\n' "\$*" >> "$STUB_LOG"
+printf 'issue/github %s\n' "\$*" >> "$DEVAGENT_STUB_LOG"
 EOF
   chmod +x "$STUB_BACKENDS/github.sh"
   CODE_STUB="$DEVAGENT_TMP/code-stub.sh"
   cat > "$CODE_STUB" <<EOF
 #!/usr/bin/env bash
-printf 'code %s\n' "\$*" >> "$STUB_LOG"
+printf 'code %s\n' "\$*" >> "$DEVAGENT_STUB_LOG"
 printf '### @bob · 2026-08-02\n\nstub comment\n'
 EOF
   chmod +x "$CODE_STUB"
@@ -178,8 +167,7 @@ _from_a() {
   # 10. transition-draft-start — fires B's transition on the stub tracker
   _from_a override "'$REPO/scripts/transition-draft-start.sh'"
   [ "$status" -eq 0 ]
-  run grep -c 'transition acme/projB 9 on_draft_start' "$STUB_LOG"
-  [ "$output" -ge 1 ]
+  devagent_assert_logged "issue/github transition acme/projB 9 on_draft_start"
   # 11. depends — records into B's dependency graph
   _from_a override "'$REPO/scripts/depends.sh' Issue-9 on Issue-8"
   [ "$status" -eq 0 ]
@@ -230,7 +218,8 @@ _from_a() {
   # floor: every PROTECTED row was exercised (register: Issue-151)
   [ "$checked" -eq 14 ]
   # and nothing was fired at the stub tracker/backend by any refused run
-  [ ! -s "$STUB_LOG" ]
+  devagent_refute_logged "issue/github"
+  devagent_refute_logged "code "
 }
 
 @test "#572 AC3 leg 3: B's devdoc is byte-unchanged by the refusing runs — and the check itself reddens on a planted write" {
@@ -285,16 +274,15 @@ _from_a() {
   cp "$DOC_B/WBS.md" "$DEVAGENT_TMP/wbs.pristine"
 
   # baseline half: extract the whole pre-#572 scripts tree and capture its
-  # bare-run behavior against B (skipped when the pinned SHA is unreachable,
+  # bare-run EFFECT against B (skipped when the pinned SHA is unreachable,
   # e.g. a shallow clone; the effect assertion below still runs)
-  local have_baseline=0 base_out=""
+  local have_baseline=0
   if git -C "$REPO" cat-file -e "${BASELINE_SHA}^{commit}" 2>/dev/null; then
     have_baseline=1
     mkdir -p "$DEVAGENT_TMP/baseline"
     git -C "$REPO" archive "$BASELINE_SHA" scripts | tar -x -C "$DEVAGENT_TMP/baseline"
     _from_a guarded "'$DEVAGENT_TMP/baseline/scripts/wbs-update.sh'"
     [ "$status" -eq 0 ]        # the pre-#572 tree happily acts on B — the defect
-    base_out="$output"
     cp "$DOC_B/WBS.md" "$DEVAGENT_TMP/wbs.baseline-result"
     cp "$DEVAGENT_TMP/wbs.pristine" "$DOC_B/WBS.md"   # reset
   fi
@@ -312,10 +300,8 @@ _from_a() {
   [[ "$output" != *"SCOPE MISMATCH"* ]]
   run grep -c 'Issue-9' "$DOC_B/WBS.md"; [ "$output" -ge 1 ]
 
-  # equivalence: the override run's output and effect match the baseline run's
+  # equivalence: the override run's EFFECT matches the baseline tree's run
   if [ "$have_baseline" -eq 1 ]; then
-    _from_a override "'$REPO/scripts/wbs-update.sh'"   # idempotent re-run for output capture
-    [ "$status" -eq 0 ]
     run diff "$DOC_B/WBS.md" "$DEVAGENT_TMP/wbs.baseline-result"
     [ "$status" -eq 0 ]
   fi

@@ -50,13 +50,8 @@ EOF
     # projB: transition_issue=true AND a configured issue_source — without the
     # backend/repo fields the script skips at its unset-backend gate and leg (a)
     # would be degenerate (AC2 explicitly excludes the permission-skip rc 0).
-    SRC_B="$DEVAGENT_TMP/src/projB"; DOC_B="$DEVAGENT_TMP/devdoc/projB"
-    mkdir -p "$SRC_B" "$DOC_B/Issue-9"
+    devagent_fixture_projB
     cat >> "$HOME/.claude/devagent/config.toml" <<EOF
-
-[project.projB]
-source_dir = "$SRC_B"
-devdoc_dir = "$DOC_B"
 
 [project.projB.permissions]
 transition_issue = true
@@ -66,11 +61,6 @@ backend    = "github"
 repo       = "acme/projB"
 dir_prefix = "Issue-"
 EOF
-    printf 'active_issue = "Issue-9"\nissue_dir = "%s/Issue-9"\n' "$DOC_B" \
-      > "$HOME/.claude/devagent/state/projB.toml"
-    printf 'active_project = "projB"\n' \
-      > "$HOME/.claude/devagent/state/_active.toml"
-    unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
 
     # (a) NON-DEGENERACY: with the scope passed, the transition IS reached
     run bash -c "cd '$SOURCE_DIR' && '$DEVAGENT_ROOT/scripts/transition-draft-start.sh' projB"

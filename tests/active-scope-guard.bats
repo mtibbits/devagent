@@ -4,23 +4,9 @@ load 'helpers/common'
 
 setup() {
   devagent_test_setup
-  # second project + pointer on B
-  SRC_B="$DEVAGENT_TMP/src/projB"; DOC_B="$DEVAGENT_TMP/devdoc/projB"
-  mkdir -p "$SRC_B" "$DOC_B/Issue-9"
-  ( cd "$SRC_B" && git -c init.defaultBranch=main init -q \
-    && git config user.email t@e.com && git config user.name T \
-    && touch R && git add R && git commit -q -m i )
-  cat >> "$HOME/.claude/devagent/config.toml" <<EOF
-
-[project.projB]
-source_dir = "$SRC_B"
-devdoc_dir = "$DOC_B"
-EOF
-  printf 'active_issue = "Issue-9"\nissue_dir = "%s/Issue-9"\n' "$DOC_B" \
-    > "$HOME/.claude/devagent/state/projB.toml"
-  printf 'active_project = "projB"\n' \
-    > "$HOME/.claude/devagent/state/_active.toml"
-  unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
+  # second project + pointer on B; no git repo — nothing in this file runs
+  # git against projB (born-red no-ops at its born_red gate first)
+  devagent_fixture_projB
   LIB="$BATS_TEST_DIRNAME/../scripts/lib"
 }
 teardown() { devagent_test_teardown; }

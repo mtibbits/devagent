@@ -27,6 +27,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --template) template="$2"; shift 2 ;;
     --project)  project_arg="$2"; shift 2 ;;
+    --project=*) project_arg="${1#--project=}"; shift ;;
     -h|--help)  usage ;;
     --)         shift; break ;;
     -*)         usage ;;

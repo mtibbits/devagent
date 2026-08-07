@@ -18,8 +18,7 @@ _rows() {
 
 @test "triage table lists exactly the 18 resolving scripts (#572 AC1)" {
   [ -f "$DOC" ]
-  run bash -c "cd '$REPO' && grep -rln 'active_resolve_project' scripts/ | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$' | wc -l"
-  [ "$output" -eq 18 ]
+  [ "$(_universe | wc -l)" -eq 18 ]
   diff <(_universe) <(_rows)
 }
 

@@ -138,6 +138,39 @@ devagent_test_teardown() {
     fi
 }
 
+# #572: second-project fixture — the scope-guard MISMATCH shape (work in
+# $TEST_PROJECT's tree, global pointer on projB). Creates SRC_B / DOC_B /
+# ISSUE_B (exported), appends a minimal [project.projB] to the config —
+# callers append extra keys/tables AFTERWARDS (the table stays open at EOF) —
+# writes state/projB.toml naming Issue-9 (callers needing richer state
+# overwrite the file), points _active.toml at projB, and unsets the env pins.
+# Pass 1 to also make SRC_B a one-commit git repo (only tests that run git
+# against projB need it — the guard itself only stats the directory).
+devagent_fixture_projB() {
+    local git_init="${1:-0}"
+    SRC_B="$DEVAGENT_TMP/src/projB"
+    DOC_B="$DEVAGENT_TMP/devdoc/projB"
+    ISSUE_B="$DOC_B/Issue-9"
+    export SRC_B DOC_B ISSUE_B
+    mkdir -p "$SRC_B" "$ISSUE_B"
+    if [ "$git_init" = "1" ]; then
+        ( cd "$SRC_B" && git -c init.defaultBranch=main init -q \
+          && git config user.email b@example.com && git config user.name B \
+          && echo one > f.txt && git add f.txt && git commit -q -m c1 )
+    fi
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.projB]
+source_dir = "$SRC_B"
+devdoc_dir = "$DOC_B"
+EOF
+    printf 'active_issue = "Issue-9"\nissue_dir = "%s"\n' "$ISSUE_B" \
+      > "$HOME/.claude/devagent/state/projB.toml"
+    printf 'active_project = "projB"\n' \
+      > "$HOME/.claude/devagent/state/_active.toml"
+    unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
+}
+
 # Create a stub for `cmd_name` that logs argv to $DEVAGENT_STUB_LOG and
 # emits the given stdout. Subsequent invocations all return the same.
 devagent_stub() {

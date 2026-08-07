@@ -102,19 +102,17 @@ active_resolve_project() {
 # token — the "stdout-token" option the #282 lesson names as the alternative to
 # setter-globals, chosen because setter-globals are precisely what does not
 # survive the containment subshell.
-# The engine's stderr is CAPTURED and re-emitted on this function's own stderr,
-# so the four sites that historically let the resolver's die message reach the
-# operator keep that message, while the ten sites that suppress add 2>/dev/null
-# at the call site exactly as before.
+# The engine's stderr is deliberately NOT redirected: command substitution
+# captures stdout only, so the resolver's message flows through to this
+# function's caller, and each call site keeps its historical choice — the
+# sites that suppressed keep their own `2>/dev/null` on the call, the sites
+# that surfaced the message still surface it.
 # Sets, in the CALLING shell:
 #   ACTIVE_RESOLVED_PROJECT / ACTIVE_RESOLVED_FROM   (both "" and rc 1 on failure)
 active_resolve_project_try() {
-  local _t _err_file _err
-  _err_file="$(mktemp)"
+  local _t
   _t="$( { active_resolve_project_src "${1:-}" >/dev/null \
-         && printf '%s\t%s' "$ACTIVE_RESOLVED_PROJECT" "$ACTIVE_RESOLVED_FROM"; } 2>"$_err_file" )" || _t=""
-  _err="$(cat "$_err_file" 2>/dev/null || true)"; rm -f "$_err_file"
-  [ -n "$_err" ] && printf '%s\n' "$_err" >&2
+         && printf '%s\t%s' "$ACTIVE_RESOLVED_PROJECT" "$ACTIVE_RESOLVED_FROM"; } )" || _t=""
   if [ -z "$_t" ]; then
     ACTIVE_RESOLVED_PROJECT=""; ACTIVE_RESOLVED_FROM=""; return 1
   fi
