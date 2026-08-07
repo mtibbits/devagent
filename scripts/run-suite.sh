@@ -92,6 +92,16 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   fi
 fi
 
+# #571 AC2: the stamp at the top and the suites below are two reads of one tree. If
+# HEAD moved between them, no single SHA describes what was executed — refuse rather
+# than record a HEAD the suite never ran against. Residual window (register Issue-558):
+# the microseconds between this check and the write below; `dirty` is still the
+# PRE-run reading, deliberately — re-deriving it here would false-fire on any run
+# that leaves untracked build output.
+head_after="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
+[ "$head_after" = "$head" ] \
+  || die "run-suite: HEAD MOVED mid-run in $work_dir ($head -> ${head_after:-<unresolvable>}) — the suite did not execute against one tree; no artifact written. Re-run at a stable HEAD."
+
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
