@@ -122,3 +122,53 @@ teardown() { devagent_test_teardown; }
     run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt"
     [ "$status" -ne 0 ]
 }
+
+@test "#571 AC4: with a RECORDED worktree, run-suite and preship-evidence agree on one tree" {
+    # Fixture is DISCRIMINATING: the worktree and source_dir differ in both HEAD
+    # and file count, so a checker still reading source_dir fails on head: AND files:.
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" worktree_path "$WT"
+    BASE="$(git -C "$WT" rev-parse HEAD~1)"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
+    ( cd "$SOURCE_DIR" && echo a > a.txt && echo b > b.txt && git add -A && git commit -q -m src )
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q "^head: $WT_HEAD" "$art"          # measured the WORKTREE, not source_dir
+    grep -q "^tree: $(cd "$WT" && pwd -P)$" "$art"
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 1/1 bats, 0 pytest @ $WT_HEAD"; echo "files: 1 changed"; } \
+      > "$DEVDOC_DIR/Issue-1/mr.md"
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"PASS"* ]]
+}
+
+@test "#571 AC4: an artifact stamped with a FOREIGN tree is rejected by preship-evidence" {
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
+    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
+        "$SRC_HEAD" "$(cd "$WT" && pwd -P)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 1/1 bats, 0 pytest @ $SRC_HEAD"; echo "files: 1 changed"; } \
+      > "$DEVDOC_DIR/Issue-1/mr.md"
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"produced from tree"* ]]
+}
+
+@test "#571 AC4: an artifact whose tree: path does not exist here WARNS and proceeds" {
+    # The cross-environment shape (artifact produced in the WSL clone, checked from
+    # Windows): UNDECIDABLE, so the checker warns loudly and falls back to the head:
+    # comparison — the checker's own stated blind spot, pinned like any clause.
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
+    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
+        "$SRC_HEAD" "/nonexistent/other-env/devagent" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 1/1 bats, 0 pytest @ $SRC_HEAD"; echo "files: 1 changed"; } \
+      > "$DEVDOC_DIR/Issue-1/mr.md"
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"does not exist in THIS environment"* ]]
+}
+# Back-compat pin for artifacts with NO tree: line (every pre-#571 artifact):
+# tests/preship-evidence.bats's _artifact helper writes exactly that shape and its
+# tests stay green untouched — do not "modernize" that helper to add tree:.

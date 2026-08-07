@@ -105,9 +105,14 @@ head_after="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
+# #571: tree: is an IDENTITY, not a display string — canonicalized (pwd -P) so the
+# stamp survives symlink/case spelling variance. Inserted AFTER head:, so the SHA
+# stays the artifact's first data line and no prefix-anchored consumer moves.
+tree_canon="$(cd "$work_dir" && pwd -P)"
 {
   echo "head: $head  dirty: $dirty"
+  echo "tree: $tree_canon"
   echo "$bats_line"
   echo "$pytest_line"
 } > "$artifact"
-echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty)" >&2
+echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2
