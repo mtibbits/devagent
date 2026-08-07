@@ -82,8 +82,11 @@ verification passed; FAIL otherwise).
    recorded with its stderr:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project>
    ```
+
+   (`<project>` is the project name your dispatch prompt carries — pass it
+   explicitly; #572 guards the bare form against wrong-scope resolution.)
 
    It verifies `mr.md`'s `## Evidence` block against the newest
    `analysis/<date>-suite-count.txt` plus git (artifact head == HEAD, tree clean,

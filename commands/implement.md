@@ -96,7 +96,7 @@ no-op for projects without `commit_autostage=true`, and it preserves an
 operator-authored `.devagent-scope` (it only regenerates manifests it created):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/record-scope.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/record-scope.sh" "$project"
 ```
 
 Next, **run the born-red check** — only when the active project sets
@@ -110,7 +110,7 @@ before marking this step. No-op for projects without `born_red=true` (and for
 non-bats/pytest work). commit.sh (step 12) also hard-blocks on a FLAGGED artifact.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh" "$project"
 ```
 
 Then **mark this step done** — `next.sh` keys off the checklist mark

@@ -52,4 +52,5 @@ History and state-atomicity details: references/concurrency.md.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" <argument tail>
 
-Forward the invocation's argument tail verbatim.
+Forward the argument tail verbatim; pass the project first if known
+(#572: a bare run refuses on a pointer/repo scope mismatch).

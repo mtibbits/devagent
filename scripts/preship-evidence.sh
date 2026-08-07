@@ -23,9 +23,11 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 : "${DEVAGENT_GIT:=git}"
 
-project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+active_resolve_project_try "${1:-}" 2>/dev/null || true
+project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "preship-evidence: project required (no arg and no active project)"
 config_is_project "$project" || die "preship-evidence: unknown project '$project'"
+active_guard_scope preship-evidence
 issue_arg="${2:-}"
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "preship-evidence: issue_dir not set or missing"

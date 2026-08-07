@@ -60,7 +60,8 @@ devAgent/
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
-│   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
+│   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
+│   └── resolver-scope-triage.md     # #572: the 18 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   Pages deployment is the #404 sibling child
 ├── commands/                # one .md file per command-form slash command (55)
@@ -990,6 +991,40 @@ boundary, not an oversight:
   vendoring that contract. A devAgent-authored degraded review path is NOT
   vendoring (#541): nothing is copied from superpowers; the upstream skill
   remains the preferred implementation and the binding boundary stands.
+
+### 7.5 Wrong-scope refusal (#572)
+
+An unscoped invocation resolves the project from mutable global state
+(env pin → pointer → single-project fallback) at FIRE time, so a script run
+bare while the pointer names a different project acts on the pointer's
+project — both Issue-553 misfires (`wbs.sh update` writing another project's
+WBS; `preship-evidence.sh` resolving another project's issue) were this shape.
+Since #572, every PROTECTED resolving script (triage: the normative
+`docs/resolver-scope-triage.md`, 14 PROTECTED / 4 EXEMPT of the 18-member
+universe, pinned by `tests/resolver-scope-triage.bats`) calls
+`active_guard_scope` after its own validation and before any read, write, cd,
+or network call. The guard is tri-state:
+
+- `FROM=arg` (a project passed positionally or via `--project`) is a
+  per-invocation assertion — never questioned. An env pin is NOT in this
+  class: an inherited `DEVAGENT_ACTIVE_PROJECT` is contamination, not an
+  assertion (#458), and is guarded exactly like the pointer.
+- `$PWD` inside the RESOLVED project's `source_dir` (identity by `-ef`, never
+  string comparison — drive-form and case differences are real, #553) →
+  allow silently.
+- `$PWD` demonstrably inside a DIFFERENT configured project → **die**, naming
+  both projects, both active issues, the resolution source, and the literal
+  `SCOPE MISMATCH` tag.
+- Undecidable (`$PWD` under no configured `source_dir`, or the project
+  enumeration itself failed — the two causes are distinguished) → allow with
+  ONE stderr warning that names the resolved project and its resolution
+  source; that warning is a contract, not diagnostics.
+
+Per-call opt-out: `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` — truth-valued, not
+presence-valued (empty/`0`/`false` do not disable), per-call, and NOT a
+substitute for passing the scope: it suppresses the check, it does not correct
+the resolution. `next.sh` guards BEFORE its pointer refresh, so a mismatched
+bare chain neither dispatches nor moves the pointer.
 
 ## 8. Permission gates
 

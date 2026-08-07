@@ -9,8 +9,12 @@
 # started is an outward, autonomous mutation, so read the gate DIRECTLY and FAIL
 # CLOSED (skip + warn) when off — deliberately NOT permission_gate (which
 # prompts; #141 batch fail-closed pattern). A transition failure WARNS rather
-# than dies: a tracker hiccup must never block drafting (§11). Under current
-# configs (transition_issue = false both projects) this is a behavior no-op.
+# than dies: a tracker hiccup must never block drafting (§11). This is NOT a
+# behavior no-op: as of 2026-08 the operator's config carries six projects and
+# two of them (koopman-gnn, factor-ai) set permissions.transition_issue = true,
+# so a bare invocation that resolves one of those fires a REAL transition on a
+# REAL tracker. That is why this script is PROTECTED in
+# docs/resolver-scope-triage.md and calls active_guard_scope (#572).
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -24,8 +28,10 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 main() {
     local project
-    project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+    active_resolve_project_try "${1:-}" 2>/dev/null || true
+    project="$ACTIVE_RESOLVED_PROJECT"
     [ -n "$project" ] || { echo "draft: no project resolved; skipping on_draft_start transition" >&2; return 0; }
+    active_guard_scope draft
 
     # #416: resolve the SESSION's issue (pin > state), NOT a raw shared-slot read.
     # A DEVAGENT_ACTIVE_ISSUE-pinned session drafting while the shared slot names

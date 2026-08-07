@@ -51,6 +51,9 @@ main() {
   active_resolve_project_src "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
   config_is_project "$project" || die "unknown project '$project'"
+  # #572: refuse a wrong-scope chain BEFORE the pointer refresh below — a
+  # mismatched bare invocation must neither dispatch nor move the pointer.
+  active_guard_scope next
   # #282: only pointer/fallback-resolved runs refresh the pointer (rationale
   # at active_resolve_project_src).
   case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac

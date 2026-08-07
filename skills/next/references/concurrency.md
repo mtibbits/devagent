@@ -61,3 +61,18 @@ never reads or writes the shared `active_issue` slot.
 (The hand-maintained script enumeration that used to sit here was already stale
 by ~2x when it was carried over; `grep -rln active_resolve_issue scripts/` is the
 answer that cannot rot.)
+
+## The wrong-scope guard (#572)
+
+A bare invocation resolves the project from the pointer (or an inherited env
+pin) at fire time, so it can act on a DIFFERENT project than the one you are
+working in. Since #572 every PROTECTED resolving script (the triage table is
+`docs/resolver-scope-triage.md`) refuses when `$PWD` demonstrably belongs to
+a different configured project than the resolved one — the die names both
+projects, both active issues, and the resolution source. An explicit scope
+(positional or `--project`) is never questioned; a cwd under no configured
+`source_dir` allows with a warning naming the resolved project and source.
+Per-call escape: `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` — truth-valued
+(empty/`0`/`false` do not disable), and not a substitute for passing the
+scope. `next.sh` guards BEFORE its pointer refresh, so a mismatched bare
+chain neither dispatches nor moves the pointer. Spec §7.5 is normative.

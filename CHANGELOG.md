@@ -12,6 +12,20 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-07
+- **Unscoped scripts no longer silently act on the global pointer's project
+  (#572).** The 14 write-, verify- or transition-capable resolving scripts
+  (triage: `docs/resolver-scope-triage.md`, sweep-tested) now refuse a bare
+  invocation when `$PWD` demonstrably belongs to a DIFFERENT configured
+  project than the one the pointer/env resolved — dying with a message naming
+  both projects, both active issues, and the resolution source. An explicit
+  scope (positional or `--project`) is never questioned; an undecidable cwd
+  allows with a warning naming the resolved project and source; the per-call
+  escape is `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` (truth-valued). `next.sh` guards
+  before its pointer refresh, so a mismatched bare chain neither dispatches
+  nor moves the pointer. `checklist-init.sh` gains `--project`; the four
+  workflow docs that invoked these scripts bare now pass the scope. Spec §7.5.
+
 ### Fixed — 2026-08-06
 - **Workflow-script calls now auto-approve on Claude Code ≥ 2.1.223 (#548).**
   All 57 `allowed-tools` grants (54 commands + 3 skills) moved to the

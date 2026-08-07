@@ -68,7 +68,11 @@ done
 # #124: route the bare-invocation default through the active-project chain
 # (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured project)
 # instead of the literal string 'default', matching next.sh / statusreport.sh / wbs.
-PROJECT="$(active_resolve_project "$PROJECT")"
+# #572: _try form; a resolution failure still exits under set -e with the
+# engine's own message (re-emitted), byte-compatible with the old $() die-through.
+active_resolve_project_try "$PROJECT"
+PROJECT="$ACTIVE_RESOLVED_PROJECT"
+active_guard_scope revise
 
 # #240: the session's issue (arg → env pin → shared state); reads/writes are
 # keyed to it. (Supersedes the #70 arg-vs-state crosscheck: an explicit arg
