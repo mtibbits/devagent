@@ -11,8 +11,9 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/io.sh"
 # shellcheck source=lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
-# shellcheck source=lib/state.sh — active_guard_scope reads state_get (#572);
-# without it the guard's state lookup would 127 inside its $(... || true)
+# active_guard_scope reads state_get (#572); without state.sh the guard's
+# state lookup would 127 inside its $(... || true)
+# shellcheck source=lib/state.sh
 source "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
