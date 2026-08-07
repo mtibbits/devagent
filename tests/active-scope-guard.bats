@@ -1,0 +1,148 @@
+#!/usr/bin/env bats
+# #572: active_resolve_project_try / active_context_project / active_guard_scope
+load 'helpers/common'
+
+setup() {
+  devagent_test_setup
+  # second project + pointer on B
+  SRC_B="$DEVAGENT_TMP/src/projB"; DOC_B="$DEVAGENT_TMP/devdoc/projB"
+  mkdir -p "$SRC_B" "$DOC_B/Issue-9"
+  ( cd "$SRC_B" && git -c init.defaultBranch=main init -q \
+    && git config user.email t@e.com && git config user.name T \
+    && touch R && git add R && git commit -q -m i )
+  cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.projB]
+source_dir = "$SRC_B"
+devdoc_dir = "$DOC_B"
+EOF
+  printf 'active_issue = "Issue-9"\nissue_dir = "%s/Issue-9"\n' "$DOC_B" \
+    > "$HOME/.claude/devagent/state/projB.toml"
+  printf 'active_project = "projB"\n' \
+    > "$HOME/.claude/devagent/state/_active.toml"
+  unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
+  LIB="$BATS_TEST_DIRNAME/../scripts/lib"
+}
+teardown() { devagent_test_teardown; }
+
+_src() { echo ". '$LIB/paths.sh'; . '$LIB/io.sh'; . '$LIB/config.sh'; . '$LIB/state.sh'; . '$LIB/active.sh'"; }
+
+@test "try: sets BOTH project and source in the CALLING shell (#572)" {
+  run bash -c "$(_src); active_resolve_project_try ''; echo \"\$ACTIVE_RESOLVED_PROJECT/\$ACTIVE_RESOLVED_FROM\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "projB/pointer" ]
+}
+
+@test "try: an arg resolves as FROM=arg (#572)" {
+  run bash -c "$(_src); active_resolve_project_try '$TEST_PROJECT'; echo \"\$ACTIVE_RESOLVED_FROM\""
+  [ "$output" = "arg" ]
+}
+
+@test "try: a 2+-project fallback does NOT kill the caller (#572 U3)" {
+  rm -f "$HOME/.claude/devagent/state/_active.toml"
+  # `type` preamble: a missing function must redden this test, not vacuously
+  # green it via a swallowed 127 (register: Issue-316)
+  run bash -c "$(_src); type active_resolve_project_try >/dev/null 2>&1 || exit 99; set -e; active_resolve_project_try '' 2>/dev/null || true; echo AFTER=\$ACTIVE_RESOLVED_PROJECT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AFTER="* ]]
+}
+
+@test "try: failure RE-EMITS the engine's stderr for unsuppressed sites (#572 U3 amendment)" {
+  rm -f "$HOME/.claude/devagent/state/_active.toml"
+  run bash -c "$(_src); active_resolve_project_try '' || true; :"
+  [[ "$output" == *"projects configured"* ]]
+}
+
+@test "context: \$PWD inside a configured source_dir names that project (#572 U1/U2)" {
+  run bash -c "cd '$SOURCE_DIR'; $(_src); active_context_project"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TEST_PROJECT" ]
+}
+
+@test "context: a SUBDIRECTORY of source_dir still names the project (#572)" {
+  mkdir -p "$SOURCE_DIR/a/b"
+  run bash -c "cd '$SOURCE_DIR/a/b'; $(_src); active_context_project"
+  [ "$output" = "$TEST_PROJECT" ]
+}
+
+@test "context: \$PWD under no configured source_dir returns 1, prints nothing (#572)" {
+  run bash -c "cd '$DEVAGENT_TMP'; $(_src); active_context_project"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "guard: MISMATCH dies naming BOTH projects and BOTH issues (#572 AC2)" {
+  run bash -c "cd '$SOURCE_DIR'; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"projB"*    ]]   # the resolved project
+  [[ "$output" == *"Issue-9"*  ]]   # its issue
+  [[ "$output" == *"$TEST_PROJECT"* ]]   # the project under work
+  [[ "$output" == *"Issue-1"*  ]]   # the issue under work
+  [[ "$output" == *"pointer"*  ]]   # where the resolution came from
+  [[ "$output" == *"SCOPE MISMATCH"* ]]
+}
+
+@test "guard: an explicit arg is never guarded (#572 — FROM=arg)" {
+  run bash -c "cd '$SOURCE_DIR'; $(_src); active_resolve_project_try 'projB'; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+}
+
+@test "guard: an ENV pin is guarded exactly like the pointer (#572 — env is not trusted)" {
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_ACTIVE_PROJECT=projB; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"env"* ]]
+}
+
+@test "guard: agreeing context allows silently (#572)" {
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_ACTIVE_PROJECT=$TEST_PROJECT; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "guard: UNDETERMINED context allows but WARNS naming project AND source (#572 Q2 contract)" {
+  run bash -c "cd '$DEVAGENT_TMP'; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"projB"*   ]]   # the resolved project — REQUIRED
+  [[ "$output" == *"pointer"* ]]   # its resolution source — REQUIRED
+  [[ "$output" == *"Issue-9"* ]]   # its issue, when state names one
+}
+
+@test "guard: the UNDETERMINED warning names the ENV source when the pin resolved it (#572 Q2)" {
+  run bash -c "cd '$DEVAGENT_TMP'; export DEVAGENT_ACTIVE_PROJECT=projB; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"env"*   ]]
+  [[ "$output" == *"projB"* ]]
+}
+
+@test "guard: an undecidable run is never SILENT — stderr is non-empty (#572 Q2)" {
+  run bash -c "cd '$DEVAGENT_TMP'; $(_src); type active_guard_scope >/dev/null 2>&1 || exit 99; active_resolve_project_try ''; active_guard_scope demo 2>&1 1>/dev/null"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+}
+
+@test "guard: a FAILED config enumeration is loud, never a silent allow (#572 register Issue-314)" {
+  printf '[[[ this is not toml' > "$HOME/.claude/devagent/config.toml"
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_ACTIVE_PROJECT=projB; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"enumeration"* ]]   # names the cause, not just "no project"
+  [[ "$output" == *"projB"* ]]
+  [[ "$output" == *"env"* ]]
+}
+
+@test "guard: DEVAGENT_SCOPE_GUARD_OVERRIDE=1 restores today's behavior (#572 opt-out)" {
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_SCOPE_GUARD_OVERRIDE=1; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -eq 0 ]
+}
+
+@test "guard: an EMPTY or 0 override does NOT disable the guard (#572 — presence is not truth)" {
+  # assert the TAG, not just rc != 0 — a missing function's 127 must not
+  # vacuously green this at baseline (register: Issue-85 / born-red discipline)
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_SCOPE_GUARD_OVERRIDE=; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SCOPE MISMATCH"* ]]
+  run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_SCOPE_GUARD_OVERRIDE=0; $(_src); active_resolve_project_try ''; active_guard_scope demo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SCOPE MISMATCH"* ]]
+}
