@@ -275,3 +275,23 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"TREE MISMATCH"* ]]
 }
+
+@test "active_guard_tree: unresolvable measured tree WARNS and proceeds (#571)" {
+  # source_dir exists but is NOT a git repo: clause 1 cannot derive its common
+  # dir, and the guard's documented undecidable branch warns rather than dying
+  # or silently passing (review finding 5 — the one branch previously unpinned).
+  type active_guard_tree >/dev/null
+  mkdir -p "$BATS_TEST_TMPDIR/volk"          # exists, not a repo
+  local other="$BATS_TEST_TMPDIR/other-repo"
+  mkdir -p "$other"
+  ( cd "$other" && git -c init.defaultBranch=main init -q \
+      && git config user.email t@example.com && git config user.name T \
+      && git commit -q --allow-empty -m x )
+  state_init volk
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+  cd "$other"
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not compare"* ]]
+}

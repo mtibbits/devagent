@@ -43,11 +43,18 @@ transition-capable scripts refuse a bare invocation when your working
 directory demonstrably belongs to a *different* configured project than the
 one that resolved: the error names both projects, both active issues, and
 where the resolution came from. Passing the project explicitly (positionally
-or via `--project`) always works; running from a directory outside any
-configured project proceeds with a warning naming what was resolved. The
-per-call escape hatch is `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` (an empty or `0`
-value does not disable it). The full PROTECTED/EXEMPT triage lives in
-`docs/resolver-scope-triage.md`.
+or via `--project`) always satisfies the *scope* guard; running from a
+directory outside any configured project proceeds with a warning naming what
+was resolved. The per-call escape hatch is `DEVAGENT_SCOPE_GUARD_OVERRIDE=1`
+(an empty or `0` value does not disable it). The full PROTECTED/EXEMPT triage
+lives in `docs/resolver-scope-triage.md`. Separately, since
+[#571](https://github.com/mtibbits/devagent/issues/571) the two *evidence*
+scripts (`run-suite.sh`, `preship-evidence.sh`) also check WHICH CHECKOUT of
+the correctly-resolved project they would measure: invoking them from a
+linked worktree or an equal-`origin` clone of the tree about to be measured
+refuses with `TREE MISMATCH` **even when the project was passed explicitly**
+— re-run from the measured tree, record your checkout as the issue's
+`worktree_path`, or use the per-call `DEVAGENT_TREE_GUARD_OVERRIDE=1`.
 
 ## Parking
 

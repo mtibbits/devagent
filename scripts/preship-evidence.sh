@@ -10,7 +10,10 @@
 # Stated blind spot: a tree: path that does not exist in THIS environment (an
 # artifact produced elsewhere, e.g. the WSL clone) is undecidable → loud WARN,
 # head:-comparison fallback. Back-compat: mr.md WITHOUT an Evidence block → single
-# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable); an
+# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; note
+# the tree resolution and guard above run first, so a dead recorded
+# worktree_path or a same-project-checkout invocation still refuses even for a
+# no-Evidence legacy issue — fail-closed by design, #571); an
 # artifact without a tree: line (pre-#571) skips the tree check. Block present
 # → every check hard-dies. Any git/parse failure dies loud (#117/#314 — never
 # "0 checked"); no prompts (safe under --auto).

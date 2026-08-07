@@ -444,7 +444,7 @@ _active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
 # (measured on a scratch repo before this was written, #33; re-run in WSL
 # 2026-08-07 — Issue-571's analysis/2026-08-07-probes.txt). Nonzero rc on failure.
 _active_common_root() {
-  (cd "$1" && cd "$("${DEVAGENT_GIT:-git}" rev-parse --git-common-dir)" && pwd -P)
+  (cd "$1" && cd "$("${DEVAGENT_GIT:-git}" rev-parse --git-common-dir 2>/dev/null)" && pwd -P) 2>/dev/null
 }
 
 active_guard_tree() {
