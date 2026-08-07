@@ -52,4 +52,7 @@ History and state-atomicity details: references/concurrency.md.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" <argument tail>
 
-Forward the invocation's argument tail verbatim.
+Forward the invocation's argument tail verbatim. (Pass the project as the
+first argument when you know it. Bare is fine and normal; #572 makes next.sh
+refuse only when the global pointer names a DIFFERENT project than the repo
+you are in, and its message names both.)

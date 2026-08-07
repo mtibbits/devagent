@@ -63,8 +63,11 @@ re-typed.
    #120/#85/#284):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh"   # writes analysis/<date>-suite-count.txt
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>   # writes analysis/<date>-suite-count.txt
    ```
+
+   (`<project>` = the resolved project; pass it explicitly — #572 guards the
+   bare form against wrong-scope resolution.)
 
    From the newest `analysis/<date>-suite-count.txt`, write exactly
    `suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <head-sha>` —

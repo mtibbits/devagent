@@ -5,6 +5,8 @@ argument-hint: "[--template <name>] <issue-dir>"
 ---
 
 Run the shell script `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-init.sh"` with the user's arguments. The
-expected positional form is `[--template <name>] <issue-dir>`.
+expected positional form is `[--template <name>] [--project <p>] <issue-dir>`.
 
-Forward all arguments verbatim. Surface stderr to the user.
+Forward all arguments verbatim, and pass `--project <p>` when the project is
+known in context (#572 — an explicit scope is never guard-questioned).
+Surface stderr to the user.
