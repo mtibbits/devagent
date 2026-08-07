@@ -45,11 +45,13 @@ while [ $# -gt 0 ]; do
 done
 
 # #331: documented arg→env→pointer→fallback chain (was env-only).
-PROJECT="$(active_resolve_project "${PROJECT}" 2>/dev/null || true)"
+active_resolve_project_try "${PROJECT}" 2>/dev/null || true
+PROJECT="$ACTIVE_RESOLVED_PROJECT"
 if [ -z "${PROJECT}" ]; then
   printf 'depends: no project (pass --project, set DEVAGENT_ACTIVE_PROJECT, or configure one)\n' >&2
   usage
 fi
+active_guard_scope depends
 
 if [ "${#ARGS[@]}" -eq 0 ]; then
   usage

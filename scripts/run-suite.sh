@@ -25,9 +25,11 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 : "${DEVAGENT_GIT:=git}"
 
-project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+active_resolve_project_try "${1:-}" 2>/dev/null || true
+project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "run-suite: project required (no arg and no active project)"
 config_is_project "$project" || die "run-suite: unknown project '$project'"
+active_guard_scope run-suite
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "run-suite: issue_dir not set or missing"
 source_dir="$(config_get_project_field "$project" source_dir)"
@@ -68,7 +70,18 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   # means a zero count, defaulted below.
   passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
   failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
-  pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
+  if [ -z "$passed" ] && [ -z "$failed" ]; then
+    # pytest emitted no count at all: it never ran (missing interpreter — e.g.
+    # a Windows Store python3 shim — or a collection error) or collected
+    # nothing. tests/test_*.py existing does NOT mean pytest can run them
+    # (standalone-script suites). Recording "0 passed, 0 failed" here is a
+    # false green — it reads "ran clean" for a suite that was never measured —
+    # and it also breaks preship-evidence's no-framework reconciliation
+    # (`none @ <sha>`), which requires the explicit `pytest: (none)` form.
+    pytest_line="pytest: (none)"
+  else
+    pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
+  fi
 fi
 
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam

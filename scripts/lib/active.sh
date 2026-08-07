@@ -207,6 +207,24 @@ active_guard_scope() {
     *)             return 0 ;;
   esac
 
+  # FAST PATH (register Issue-566 — a guard's cost must be measured and
+  # prefiltered): the overwhelmingly common case is $PWD inside the RESOLVED
+  # project's own tree. Deciding that needs ONE config lookup, not a full
+  # project enumeration (measured on Windows: ~0.7s vs ~5.5s per call). The
+  # full enumeration below runs only on the abnormal paths (mismatch — which
+  # dies anyway — or undecidable — which warns).
+  local res_src _dir _parent
+  res_src="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+  if [ -n "$res_src" ] && [ -d "$res_src" ]; then
+    _dir="$PWD"
+    while :; do
+      [ "$_dir" -ef "$res_src" ] && return 0
+      _parent="$(dirname "$_dir")"
+      [ "$_parent" = "$_dir" ] && break
+      _dir="$_parent"
+    done
+  fi
+
   local ctx="" ctx_rc=0 res_issue="" ctx_issue="" cause
   res_issue="$(state_get "$project" active_issue 2>/dev/null || true)"
   case "$res_issue" in null|'""') res_issue="" ;; esac

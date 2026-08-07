@@ -24,9 +24,11 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_GIT:=git}"
 
 # Default to the active project when no arg, so the implement step can call us bare.
-project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+active_resolve_project_try "${1:-}" 2>/dev/null || true
+project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "project required (no arg and no active project)"
 config_is_project "$project" || die "unknown project '$project'"
+active_guard_scope record-scope
 
 # Opt-in: no-op unless commit_autostage=true (the #251 consumer flag — recording is
 # pointless, and must change nothing, when autostage is off).

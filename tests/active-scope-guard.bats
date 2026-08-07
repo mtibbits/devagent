@@ -131,6 +131,22 @@ _src() { echo ". '$LIB/paths.sh'; . '$LIB/io.sh'; . '$LIB/config.sh'; . '$LIB/st
   [[ "$output" == *"env"* ]]
 }
 
+@test "convention parity: --project flag and positional scope both resolve FROM=arg, neither guarded (#572 Task 6)" {
+  # control: the BARE invocation from projA's tree with the pointer on projB
+  # IS guarded — without this, the two allow-legs below prove nothing
+  run bash -c "cd '$SOURCE_DIR'; bash '$LIB/../depends.sh' list"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SCOPE MISMATCH"* ]]
+  # flag convention: an explicit --project is FROM=arg -> never guarded
+  run bash -c "cd '$SOURCE_DIR'; bash '$LIB/../depends.sh' --project projB list"
+  [[ "$output" != *"SCOPE MISMATCH"* ]]
+  # positional convention: same conditions, same bypass (born-red is an
+  # opt-in no-op for a project without born_red=true, so rc 0 and quiet)
+  run bash -c "cd '$SOURCE_DIR'; bash '$LIB/../born-red.sh' projB"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"SCOPE MISMATCH"* ]]
+}
+
 @test "guard: DEVAGENT_SCOPE_GUARD_OVERRIDE=1 restores today's behavior (#572 opt-out)" {
   run bash -c "cd '$SOURCE_DIR'; export DEVAGENT_SCOPE_GUARD_OVERRIDE=1; $(_src); active_resolve_project_try ''; active_guard_scope demo"
   [ "$status" -eq 0 ]

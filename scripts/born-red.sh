@@ -35,9 +35,11 @@ while IFS= read -r _v; do unset "$_v" 2>/dev/null || true; done \
   < <(compgen -v 2>/dev/null | grep '^BATS_' || true)
 
 # ---- resolution (record-scope.sh precedent) --------------------------------
-project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+active_resolve_project_try "${1:-}" 2>/dev/null || true
+project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "born-red: project required (no arg and no active project)"
 config_is_project "$project" || die "born-red: unknown project '$project'"
+active_guard_scope born-red
 
 # Opt-in: no-op unless born_red=true (the record-scope/commit_autostage precedent).
 born_red="$(config_get_project_field "$project" born_red 2>/dev/null || echo false)"
