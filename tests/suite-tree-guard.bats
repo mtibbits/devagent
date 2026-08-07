@@ -106,3 +106,19 @@ teardown() { devagent_test_teardown; }
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
 }
+
+@test "#571 AC2: HEAD moving mid-run REFUSES and writes no artifact" {
+    # The symptom depends on ambient state, so the test CONTROLS it (#Fork-149):
+    # the bats stub itself moves HEAD in the measured tree before emitting TAP
+    # (run-suite has already cd'd there, and the fixture repo has user config).
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'git commit -q --allow-empty -m "concurrent move"' \
+        'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"HEAD MOVED"* ]]
+    [[ "$output" == *"$SRC_HEAD"* ]]        # names the SHA the stamp was taken at
+    run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt"
+    [ "$status" -ne 0 ]
+}
