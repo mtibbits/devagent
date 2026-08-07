@@ -295,3 +295,14 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"could not compare"* ]]
 }
+
+@test "active_guard_tree: called before active_tree_resolve DIES (#571 redmr)" {
+  # Programmer-error fail-closed: an unresolved guard must never be a silent
+  # no-op that looks guarded (redmr MINOR — the one fail-open reachable by
+  # code change rather than topology).
+  type active_guard_tree >/dev/null
+  unset ACTIVE_TREE_DIR ACTIVE_TREE_FROM
+  run active_guard_tree lib-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"before active_tree_resolve"* ]]
+}

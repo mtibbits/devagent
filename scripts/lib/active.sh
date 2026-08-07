@@ -458,7 +458,12 @@ _active_common_root() {
 
 active_guard_tree() {
   local label="${1:-devagent}" git="${DEVAGENT_GIT:-git}"
-  [ -n "${ACTIVE_TREE_DIR:-}" ] || return 0
+  # Guard-before-resolve is programmer error, not a topology blind spot: an
+  # unset ACTIVE_TREE_DIR must DIE, never silently no-op — a future caller
+  # (e.g. the recorded commit/ship migration) that forgets the resolve call
+  # would otherwise get an unguarded run that looks guarded (#571 redmr MINOR).
+  [ -n "${ACTIVE_TREE_DIR:-}" ] \
+    || die "$label: active_guard_tree called before active_tree_resolve — no tree is resolved, so there is nothing to guard; call active_tree_resolve first in the same shell (#571)"
   [ "${ACTIVE_TREE_FROM:-}" = "config" ] || return 0
   case "${DEVAGENT_TREE_GUARD_OVERRIDE:-}" in
     ''|0|false|no) : ;;
