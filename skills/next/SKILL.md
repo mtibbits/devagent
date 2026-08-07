@@ -52,5 +52,5 @@ History and state-atomicity details: references/concurrency.md.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" <argument tail>
 
-Forward the argument tail verbatim; pass the project first when known
-(#572: a bare run refuses on a pointer-vs-repo project mismatch).
+Forward the argument tail verbatim; pass the project first if known
+(#572: a bare run refuses on a pointer/repo scope mismatch).
