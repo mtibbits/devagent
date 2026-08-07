@@ -363,3 +363,111 @@ issue_context_dir() {
     state_get "$project" issue_dir
   fi
 }
+
+# ---- #571 tree resolution + guard -------------------------------------------
+
+# active_tree_resolve <project> [issue-arg]
+# The CHECKOUT the issue's work lives in — the tree an EVIDENCE step must measure.
+# Same rule commit.sh:110-111 and ship.sh:92-98 already apply, hoisted here so the
+# evidence pair cannot drift from the commit/ship pair (#571; register Issue-82/94).
+# SETTER-GLOBALS, and it dies: never command-substitute it (#282/#120).
+#   ACTIVE_TREE_DIR   the tree to act on
+#   ACTIVE_TREE_FROM  "state" (recorded worktree_path) | "config" (source_dir)
+active_tree_resolve() {
+  local project="$1" arg="${2:-}" wt src
+  src="$(config_get_project_field "$project" source_dir)"
+  [ -n "$src" ] || die "active_tree_resolve: no source_dir configured for '$project'"
+  # same shape as ship.sh:92 — kept byte-identical deliberately; the fail-closed
+  # liveness check below is what makes the `|| true` safe (register Issue-314/316).
+  wt="$(state_ctx_get "$project" worktree_path "$arg" 2>/dev/null || true)"
+  case "$wt" in null|'""') wt="" ;; esac
+  if [ -n "$wt" ]; then
+    "${DEVAGENT_GIT:-git}" -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+      || die "active_tree_resolve: recorded worktree_path is not a usable git tree: $wt — refusing to silently measure a different tree instead (#571/#148)"
+    ACTIVE_TREE_DIR="$wt"; ACTIVE_TREE_FROM="state"; return 0
+  fi
+  [ -d "$src" ] || die "active_tree_resolve: source_dir missing: $src"
+  ACTIVE_TREE_DIR="$src"
+  # shellcheck disable=SC2034  # consumed by active_guard_tree in the calling shell
+  ACTIVE_TREE_FROM="config"
+}
+
+# #571. Refuse an EVIDENCE action that would measure a checkout other than the one
+# the operator is demonstrably working in. Reads ACTIVE_TREE_DIR/ACTIVE_TREE_FROM
+# from the CALLING shell — never command-substitute; must follow active_tree_resolve
+# in the same shell.
+#
+# Verdicts, and the blind spots are part of the contract (register Issue-558):
+#   FROM=state             -> allow, silently. devAgent RECORDED this tree; commit.sh
+#                             and ship.sh act on it regardless of cwd and this must not
+#                             disagree with them.
+#   cwd outside any repo   -> allow. Nothing to compare against.
+#   cwd in a DIFFERENT
+#     project's checkout   -> allow. Running from devdoc, the plugin repo, or a second
+#                             project is normal and is how the skill caller runs.
+#   cwd in another checkout
+#     of the SAME project  -> DIE, naming both trees. The Issue-553 shape. "Same
+#                             project" is two clauses in order: a shared
+#                             --git-common-dir (a linked git worktree), else an equal
+#                             `remote get-url origin` (a separate CLONE — the
+#                             ~/devagent-wsl shape, and the likeliest live divergence).
+# STATED BLIND SPOT — the clone clause FAILS OPEN, by decision, in two shapes:
+#   * either side has no `origin` remote (every bats fixture repo, any local-only
+#     checkout): the URLs read empty and the clause cannot decide, so the run
+#     PROCEEDS on ACTIVE_TREE_DIR;
+#   * the two clones' origins differ past the cosmetic normalization below —
+#     different transports (ssh vs https), or a clone made FROM a local path
+#     (measured 2026-08-07: ~/devagent-wsl's origin is /mnt/c/Programs/src/devagent,
+#     so THAT pair is not covered): the URLs read as different projects.
+# KNOWN FALSE-REFUSAL SHAPE (documented, not handled): a source_dir configured as a
+# SUBDIRECTORY of a repo (monorepo subproject) makes cwd-inside-the-measured-tree
+# look like clause 1. All configured projects are repo toplevels today; the
+# active_guard_scope-style ancestor walk (active.sh fast path above) is the
+# recorded follow-up (Issue-571's imPlan-potentialFutureEnhancements.md).
+# In all fail-open shapes, the `tree:` line run-suite stamps is what makes the run
+# legible after the fact — the guard is not the only mechanism, and must not be
+# described as if it were.
+ACTIVE_TREE_MISMATCH_TAG="TREE MISMATCH"
+
+# Normalize a remote URL for comparison: trailing '/' and '.git' are cosmetic and
+# differ between clones of one project. Nothing further is normalized on purpose —
+# a transport difference is a real difference to this comparison (register
+# Issue-548: compare the strings that are actually emitted, do not invent equalities).
+_active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
+
+active_guard_tree() {
+  local label="${1:-devagent}" git="${DEVAGENT_GIT:-git}"
+  [ -n "${ACTIVE_TREE_DIR:-}" ] || return 0
+  [ "${ACTIVE_TREE_FROM:-}" = "config" ] || return 0
+  case "${DEVAGENT_TREE_GUARD_OVERRIDE:-}" in
+    ''|0|false|no) : ;;
+    *)             return 0 ;;
+  esac
+  local top c_cwd c_tree u_cwd u_tree why
+  top="$("$git" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$top" ] || return 0
+  # identity by device+inode, NEVER string equality: `pwd` yields /c/Programs/...
+  # where git yields C:/Programs/... (the #553 correction, active_context_project).
+  [ "$top" -ef "$ACTIVE_TREE_DIR" ] && return 0
+  # Clause 1 — linked worktree. --git-common-dir is RELATIVE (".git") from a main
+  # worktree and ABSOLUTE from a linked one, so both sides are normalized through
+  # cd + pwd -P (measured on a scratch repo before this was written, #33; re-run
+  # in WSL 2026-08-07 — analysis/2026-08-07-probes.txt).
+  c_cwd="$(cd "$top" && cd "$("$git" rev-parse --git-common-dir)" && pwd -P)" || c_cwd=""
+  c_tree="$(cd "$ACTIVE_TREE_DIR" && cd "$("$git" rev-parse --git-common-dir)" && pwd -P)" || c_tree=""
+  if [ -z "$c_cwd" ] || [ -z "$c_tree" ]; then
+    warn "$label: could not compare \$PWD's checkout ($top) with the tree about to be measured ($ACTIVE_TREE_DIR) — proceeding on $ACTIVE_TREE_DIR; verify the artifact's head: before trusting it."
+    return 0
+  fi
+  if [ "$c_cwd" -ef "$c_tree" ]; then
+    why="a linked git worktree of the tree it would measure"
+  else
+    # Clause 2 — separate clone of the same project. Empty on either side means
+    # "cannot decide" and PROCEEDS: the documented fail-open above.
+    u_cwd="$(_active_norm_url "$("$git" -C "$top" remote get-url origin 2>/dev/null || true)")"
+    u_tree="$(_active_norm_url "$("$git" -C "$ACTIVE_TREE_DIR" remote get-url origin 2>/dev/null || true)")"
+    [ -n "$u_cwd" ] && [ -n "$u_tree" ] && [ "$u_cwd" = "$u_tree" ] || return 0
+    why="a separate clone of the same project (origin $u_cwd)"
+  fi
+  die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree (set worktree_path in ~/.claude/devagent/state/<project>.toml), or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
+}

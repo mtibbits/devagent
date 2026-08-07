@@ -4,8 +4,15 @@
 # artifact. Runs bats + pytest (per tree presence) with the hermetic env-unset
 # baked in, and writes <issue-dir>/analysis/<date>-suite-count.txt:
 #     head: <sha>  dirty: yes|no
+#     tree: <canonical path of the measured checkout>
 #     bats: <ok>/<plan> notok=<n>
 #     pytest: <passed> passed, <failed> failed
+# The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
+# commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
+# checkout of the SAME project (a linked worktree, or a clone with the same
+# origin) REFUSES via active_guard_tree rather than silently measuring the
+# configured tree; a mid-run HEAD move also refuses, so the head: stamp always
+# names the tree the suites actually ran against.
 # Counts come from `grep -c '^ok '` + the `1..N` plan line — NEVER the tail (#85
 # shipped a tail-derived false count). preship-evidence.sh cross-checks mr.md
 # against this artifact (verification #4).
@@ -32,12 +39,13 @@ config_is_project "$project" || die "run-suite: unknown project '$project'"
 active_guard_scope run-suite
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "run-suite: issue_dir not set or missing"
-source_dir="$(config_get_project_field "$project" source_dir)"
-[ -d "$source_dir" ] || die "run-suite: source_dir missing: $source_dir"
+active_tree_resolve "$project"            # setter-globals; never $( … )  (#282/#120)
+active_guard_tree run-suite               # #571: strictly AFTER active_guard_scope
+work_dir="$ACTIVE_TREE_DIR"
 
-cd "$source_dir"
+cd "$work_dir"
 head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
-[ -n "$head" ] || die "run-suite: could not resolve HEAD in $source_dir"
+[ -n "$head" ] || die "run-suite: could not resolve HEAD in $work_dir"
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 bats_line="bats: (none)"
