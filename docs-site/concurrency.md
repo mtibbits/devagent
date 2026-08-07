@@ -34,6 +34,21 @@ shared `active_issue` scalar:
   last residual (the last-writer-wins pick of the shared `active_issue`
   scalar).
 
+## The wrong-scope guard
+
+A script invoked without a project acts on whatever the shared pointer names —
+which may not be the project you are working in. Since
+[#572](https://github.com/mtibbits/devagent/issues/572), write-, verify- and
+transition-capable scripts refuse a bare invocation when your working
+directory demonstrably belongs to a *different* configured project than the
+one that resolved: the error names both projects, both active issues, and
+where the resolution came from. Passing the project explicitly (positionally
+or via `--project`) always works; running from a directory outside any
+configured project proceeds with a warning naming what was resolved. The
+per-call escape hatch is `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` (an empty or `0`
+value does not disable it). The full PROTECTED/EXEMPT triage lives in
+`docs/resolver-scope-triage.md`.
+
 ## Parking
 
 Issues pause and resume without losing place:
