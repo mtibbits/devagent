@@ -59,4 +59,8 @@ and its resolution source (see `active_guard_scope` in `scripts/lib/active.sh`).
 Its fast path also cannot see NESTED configured source_dirs: cwd inside an
 inner project satisfies the resolved outer project's ancestor walk and is
 allowed. No configured projects nest today; the fast path's header says to
-drop it if they ever do.
+drop it if they ever do. A git WORKTREE of a project (`branch.sh`'s
+`<source_dir>-wt` convention) is likewise outside every configured
+`source_dir`, so invocations from inside one land on the warned UNDECIDABLE
+branch — a known workflow-internal shape (follow-up candidate: derive context
+via `git rev-parse --git-common-dir` when inside a worktree).

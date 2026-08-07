@@ -242,6 +242,11 @@ _from_a() {
     "'$REPO/scripts/born-red.sh'" \
     "'$REPO/scripts/checklist-init.sh' '$DOC_B/Issue-9x'" \
     "'$REPO/scripts/wbs-init.sh'" \
+    "'$REPO/scripts/run-suite.sh'" \
+    "'$REPO/scripts/depends.sh' Issue-9 on Issue-8" \
+    "'$REPO/scripts/next.sh'" \
+    "'$REPO/scripts/preship-evidence.sh'" \
+    "'$REPO/scripts/transition-draft-start.sh'" \
   ; do
     _from_a guarded "$cmd"
     [ "$status" -ne 0 ]
