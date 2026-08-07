@@ -229,6 +229,7 @@ _from_a() {
       | xargs -0 -I{} sha256sum "$DOC_B/{}" | awk '{print $1}' | sha256sum
   }
   local before after
+  mkdir -p "$DOC_B/Issue-9x"
   before="$(_snap)"
   local cmd
   for cmd in \
@@ -238,6 +239,9 @@ _from_a() {
     "'$REPO/scripts/comments.sh'" \
     "'$REPO/scripts/record-scope.sh'" \
     "'$REPO/scripts/rederive.sh'" \
+    "'$REPO/scripts/born-red.sh'" \
+    "'$REPO/scripts/checklist-init.sh' '$DOC_B/Issue-9x'" \
+    "'$REPO/scripts/wbs-init.sh'" \
   ; do
     _from_a guarded "$cmd"
     [ "$status" -ne 0 ]

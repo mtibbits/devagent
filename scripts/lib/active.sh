@@ -211,6 +211,11 @@ active_guard_scope() {
   # project enumeration (measured on Windows: ~0.7s vs ~5.5s per call). The
   # full enumeration below runs only on the abnormal paths (mismatch — which
   # dies anyway — or undecidable — which warns).
+  # Blind spot (#558 — state what a checker cannot decide): with NESTED
+  # configured source_dirs, cwd inside the inner project still satisfies this
+  # ancestor walk for the OUTER resolved project and is allowed, where the
+  # full innermost-first derivation would call it a mismatch. No configured
+  # projects nest today; if they ever do, drop this fast path.
   local res_src _dir _parent
   res_src="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
   if [ -n "$res_src" ] && [ -d "$res_src" ]; then

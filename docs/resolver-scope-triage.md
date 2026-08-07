@@ -56,3 +56,7 @@ added to a PROTECTED script inherits the guard; that is the safe direction.
 The guard itself cannot decide a scope when `$PWD` is under no configured
 `source_dir` — that branch allows with a warning naming the resolved project
 and its resolution source (see `active_guard_scope` in `scripts/lib/active.sh`).
+Its fast path also cannot see NESTED configured source_dirs: cwd inside an
+inner project satisfies the resolved outer project's ancestor walk and is
+allowed. No configured projects nest today; the fast path's header says to
+drop it if they ever do.
