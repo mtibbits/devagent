@@ -3,8 +3,15 @@
 # m2m3-preship-evidence.md, normative). core-preship's verification #4: cross-check
 # mr.md's ## Evidence block against the generated suite-count artifact + git, so a
 # hand-written wrong number (#120/#85/#284) or an mr.md stale against post-draftmr
-# fixes can't ship. Back-compat: mr.md WITHOUT an Evidence block → single WARN,
-# rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable). Block present
+# fixes can't ship. The COMPARED TREE is state.worktree_path when recorded, else
+# source_dir (active_tree_resolve, #571) — the same tree run-suite measures — and
+# the artifact's tree: stamp is cross-checked against it, so the artifact and its
+# checker cannot agree with each other while both disagreeing with reality.
+# Stated blind spot: a tree: path that does not exist in THIS environment (an
+# artifact produced elsewhere, e.g. the WSL clone) is undecidable → loud WARN,
+# head:-comparison fallback. Back-compat: mr.md WITHOUT an Evidence block → single
+# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable); an
+# artifact without a tree: line (pre-#571) skips the tree check. Block present
 # → every check hard-dies. Any git/parse failure dies loud (#117/#314 — never
 # "0 checked"); no prompts (safe under --auto).
 set -euo pipefail
@@ -34,6 +41,14 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 mr="$issue_dir/mr.md"
 [ -f "$mr" ] || die "preship-evidence: no mr.md at $mr (run /devagent:draftmr first)"
 
+# #571: resolve the tree the evidence claims are ABOUT — worktree_path else
+# source_dir, the commit.sh/ship.sh rule. Strictly AFTER active_guard_scope
+# above, for the same SCOPE-before-TREE reason run-suite.sh declares: a
+# wrong-PROJECT invocation must still die SCOPE MISMATCH first.
+active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
+active_guard_tree preship-evidence
+work_dir="$ACTIVE_TREE_DIR"
+
 # Back-compat: no ## Evidence block ⇒ WARN + rc 0 (#149).
 if ! grep -q '^## Evidence' "$mr"; then
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
@@ -49,7 +64,7 @@ ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\
 
 # Newest suite-count artifact.
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
-[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\"\` at HEAD"
+[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project\` at HEAD (#572: pass the project explicitly)"
 
 a_head="$(sed -n 's/^head:[[:space:]]*\([^ ]*\).*/\1/p' "$artifact" | head -1)"
 a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
@@ -59,10 +74,28 @@ a_notok="$(sed -n 's/^bats:.*notok=\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1
 a_passed="$(sed -n 's/^pytest:[[:space:]]*\([0-9][0-9]*\) passed.*/\1/p' "$artifact" | head -1)"
 a_failed="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' "$artifact" | head -1)"
 
-cur_head="$("$DEVAGENT_GIT" -C "$(config_get_project_field "$project" source_dir)" rev-parse HEAD 2>/dev/null || true)"
+cur_head="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse HEAD 2>/dev/null || true)"
 [ -n "$cur_head" ] || die "preship-evidence: could not resolve current HEAD"
 
 fails=()
+
+# #571 AC4: the artifact names the checkout that produced it; compare it to the
+# tree THIS check resolves, so the artifact and its checker can no longer agree
+# with each other while both disagreeing with reality. Absent line ⇒ skip (the
+# #149 absent⇒no-gate pattern above — every pre-#571 artifact). A tree: path
+# that does not EXIST in this environment is UNDECIDABLE, not a mismatch — the
+# artifact may come from another environment (the sanctioned WSL-suite flow), so
+# warn loudly and fall back to the head: checks; that shape is this checker's
+# stated blind spot. A mismatch can also be CAUSED by the pair's arity asymmetry
+# (this script resolves with $issue_arg; run-suite without one — see #571's plan).
+a_tree="$(sed -n 's/^tree:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
+if [ -n "$a_tree" ]; then
+  if [ ! -d "$a_tree" ]; then
+    warn "preship-evidence: artifact records tree '$a_tree', which does not exist in THIS environment — cannot verify which checkout produced the evidence; proceeding on the head: comparison alone. If the artifact was produced in another environment (e.g. the WSL clone), verify the tree there."
+  elif [ ! "$a_tree" -ef "$work_dir" ]; then
+    fails+=("artifact was produced from tree '$a_tree' but this check resolves '$work_dir' — re-run run-suite in the tree being shipped (#571)")
+  fi
+fi
 [ "$a_head" = "$cur_head" ] || fails+=("artifact head ($a_head) != current HEAD ($cur_head) — re-run run-suite at HEAD")
 [ "$a_dirty" = "no" ] || fails+=("artifact records a dirty tree (dirty=$a_dirty) — commit or clean, then re-run run-suite")
 [ "${a_notok:-0}" = "0" ] || fails+=("bats notok=$a_notok (suite not green)")
@@ -95,7 +128,7 @@ fi
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || die "preship-evidence: baseline_sha unset — cannot verify files: (never diff against nothing)"
-actual_files="$("$DEVAGENT_GIT" -C "$(config_get_project_field "$project" source_dir)" diff --name-only "$baseline..HEAD" 2>/dev/null | grep -c . || true)"
+actual_files="$("$DEVAGENT_GIT" -C "$work_dir" diff --name-only "$baseline..HEAD" 2>/dev/null | grep -c . || true)"
 [ "$ev_files" = "$actual_files" ] \
   || fails+=("Evidence files mismatch: mr.md=$ev_files vs git diff $baseline..HEAD=$actual_files")
 
