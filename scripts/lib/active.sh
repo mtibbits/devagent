@@ -444,7 +444,16 @@ _active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
 # (measured on a scratch repo before this was written, #33; re-run in WSL
 # 2026-08-07 — Issue-571's analysis/2026-08-07-probes.txt). Nonzero rc on failure.
 _active_common_root() {
-  (cd "$1" && cd "$("${DEVAGENT_GIT:-git}" rev-parse --git-common-dir 2>/dev/null)" && pwd -P) 2>/dev/null
+  # The common-dir is captured and tested non-empty BEFORE the cd: bash's
+  # `cd ""` succeeds in place, so piping an empty rev-parse result straight
+  # into cd silently yields the INPUT dir instead of failing — which routed
+  # a not-a-repo tree past the warn branch into the clone clause's silent
+  # fail-open (caught by the warn-branch test on its first WSL run).
+  ( cd "$1" 2>/dev/null || exit 1
+    _c="$("${DEVAGENT_GIT:-git}" rev-parse --git-common-dir 2>/dev/null)" || exit 1
+    [ -n "$_c" ] || exit 1
+    cd "$_c" 2>/dev/null || exit 1
+    pwd -P )
 }
 
 active_guard_tree() {
