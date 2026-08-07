@@ -12,7 +12,8 @@
 
 ## Evidence
 <!-- Filled by /devagent:draftmr from the newest analysis/<date>-suite-count.txt
-     (run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh"` first). Machine-checked by preship (#359) — do not
+     (run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>` first —
+     #572: pass the project explicitly). Machine-checked by preship (#359) — do not
      hand-edit the two lines below. The optional 'born-red:' line is filled from a
      born-red artifact (#362) when present.
      A project with NEITHER bats nor pytest uses the no-framework form instead:

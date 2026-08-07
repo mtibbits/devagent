@@ -28,11 +28,11 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `grep.sh` | EXEMPT | read-only search; every output line is prefixed with the issue-dir path, so a wrong scope is self-identifying and leaves no record | no-validation |
 | `history.sh` | EXEMPT | read-only chronological print with the same self-identifying path prefix | no-validation |
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
-| `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:28`) |
+| `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:36`) |
 | `record-scope.sh` | PROTECTED | writes `.devagent-scope` into another project's issue dir, driving `commit_autostage` | validates (`:29`) |
 | `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir | validates (`:27`) |
 | `revise.sh` | PROTECTED | appends a revision block to another project's `checklist.md` and mutates its state | no-validation |
-| `run-suite.sh` | PROTECTED | `cd`s into another project's `source_dir`, runs its suite and writes the canonical evidence artifact | validates (`:30`) |
+| `run-suite.sh` | PROTECTED | `cd`s into another project's resolved tree (`worktree_path` else `source_dir`, #571), runs its suite and writes the canonical evidence artifact | validates (`:38`) |
 | `statusreport.sh` | PROTECTED | writes `StatusReports/<date>.md`, then `git add` + `git commit -s` in another project's devdoc repo and pins its state | validates (`:46`) |
 | `template.sh` | EXEMPT | read-only resolver/printer; the `# === template <key> (layer=<L>) ===` banner names the resolved file, so a wrong scope is self-identifying — and it is the workflow's hottest script, called with `--project` at five sites | no-validation |
 | `transition-draft-start.sh` | PROTECTED | the only OFF-MACHINE effect: fires a real `on_draft_start` tracker transition for `transition_issue = true` projects | no-validation |
@@ -62,5 +62,9 @@ allowed. No configured projects nest today; the fast path's header says to
 drop it if they ever do. A git WORKTREE of a project (`branch.sh`'s
 `<source_dir>-wt` convention) is likewise outside every configured
 `source_dir`, so invocations from inside one land on the warned UNDECIDABLE
-branch — a known workflow-internal shape (follow-up candidate: derive context
-via `git rev-parse --git-common-dir` when inside a worktree).
+branch — a known workflow-internal shape. The SCOPE question stays undecidable
+there (#572's domain, unchanged); the TREE question now has an answer:
+`active_guard_tree` (#571, `scripts/lib/active.sh`) refuses an evidence run
+invoked from a linked worktree — or an equal-`origin` clone — of the tree it
+would measure, via exactly the `git rev-parse --git-common-dir` derivation the
+earlier follow-up candidate here named.
