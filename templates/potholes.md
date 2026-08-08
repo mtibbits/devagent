@@ -22,6 +22,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A resolver/setter that `die`-exits cannot live inside `$(...)` → the echo-wrapper-in-command-substitution is the non-fatal resolve shape (Issue-120).
 - `|| true` + a HEAD/default fallback on a load-bearing value hides a mis-base → make degradations loud; distinguish "genuinely absent" from "should-exist-but-didn't" first (Issue-72).
 - Two same-exit-code states that some caller must distinguish → mint distinct exit codes at the SOURCE; caller-side stderr-prose parsing is unguardable (a phrase-grep pins words, not behavior) (Issue-458).
+- `cd "$(cmd)"` with an empty substitution SUCCEEDS in place, silently disarming a derived-path failure branch → capture the result and test non-empty before the cd (Issue-571).
 
 ## Test discipline (born-red / vacuous pass)
 
@@ -58,11 +59,16 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A guard that iterates the WHOLE tree is a cost you must measure before shipping it — time it against a normal test in the same suite; a per-file process pipeline over every tracked file can eat a fifth of a CI budget for one assertion, and a bare-token prefilter usually removes ~98% of it (Issue-566).
 - A run that never EXECUTED the code reads exactly like a passing one — a non-login shell without the test binary on PATH reports "0 failing" for a mutation that deletes the code under test → make the harness prove it ran: print the resolved binary path, assert ok+notok == plan, and refuse to summarize a run that produced no plan line (Issue-553).
 - A headless agent can NARRATE the expected output of a tool call that was actually DENIED — plausible fabricated success prose over zero execution → every headless probe asserts an unforgeable token (nonce in stdout) or reads the tool result from the machine event stream; prose claims of execution are inadmissible (Issue-548).
+- A suite that runs time-gated code on the real clock fails inside the code's own gate windows → inject a fixed time anchor through a now-override hook and use it in every run that exercises the gated path (fleet Issue-25).
+- A negative assertion (rc != 0, stderr non-empty) is vacuously satisfied by a MISSING function's 127 → precede born-red negative tests with a `type <fn>` probe or pin the specific failure token, so absence reddens instead of greening (Issue-572).
+- A guard set that measures only SAFETY lets a half-built feature ship green -> every enabling task needs a positive-capability probe, because "clean" is also satisfied by "wrote nothing" (Issue-107).
+- A multi-assertion guard reddens only at its FIRST failing assert — born-red evidence for the later legs requires probing each leg independently against the unfixed tree (Issue-123).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
 - A function that reads state to decide what to write must decide inside the lock → prefer a locked primitive (`set-many-if`, `--print-old`) over a read-then-write pair (Issue-240).
 - Atomicity ACs pin by observing transaction TRAFFIC (shim the writer, assert co-carried fields) + crash injection — a race-window test is flaky-green theatre (Issue-317).
+- A destructive per-item loop that records its outcomes once AFTER the loop re-does every completed item on the next run when one item throws → isolate each item in try/catch and record each attempt durably; "did it" and "recorded it" are one unit per item (fleet Issue-25).
 
 ## Git / ambient checkout / forge state
 
@@ -73,6 +79,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A per-issue override marker (baseline, tier) consumed by a chained scripted step must be written at scaffold/pull time → an auto-chain reaches the consuming step without pausing, and the mis-based artifact must then be rebuilt (Issue-Fork-132).
 - A `git diff --exit-code` restoration guard is vacuous while related work sits uncommitted (HEAD-relative diff always fails) → stage or copy aside the known-good state first and diff against THAT base (Issue-Fork-191).
 - A chain-continuation command emitted without its scoping argument re-resolves GLOBAL state at fire time — a concurrent session's pointer hijacks the chain; bake the resolved scope into the emitted command (Issue-559).
+- An eol/text attribute added to a repo does not rewrite existing blobs → cross-platform byte comparisons (drift checks) must read `git cat-file`/`git show` blob bytes, never a checkout's working-tree file (fleet Issue-19).
+- A whole-file `git add` during a long implementation sweeps CONCURRENT working-tree edits into the task's commit unrecorded → diff the staged hunks against the task's intent before committing, and treat a file reported as externally modified mid-session as a pending merge, not noise (Issue-572).
+- An evidence/demo run whose checkout FAILS silently records the OLD tree under the new claim → hard-abort the script on checkout failure and stamp the resolved SHA as the artifact's first data line (Issue-572).
 - A `Closes #N` keyword silently DELETES acceptance criteria that a scope split moved elsewhere → file the receiving issue and amend the tracker before ship, never as a merge-time promise (Issue-106).
 - A deferral recorded only in a code comment or MR body has no addressee → put the obligation on the receiving issue AND in a committed, guard-asserted register the change itself carries (Issue-106).
 - A command that resolves the active scope from GLOBAL state does it at FIRE time, so an unscoped invocation can silently WRITE its artifact into another scope's directory, not merely act on the wrong one — pass the scope explicitly to anything that produces a file (Issue-566).
@@ -91,6 +100,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A programmatic edit (`sed`, string-replace) that silently NO-OPS leaves a false record when you verify a proxy instead of the edited file → grep the edited file for the new text before booking the fix (Issue-106).
 - After fixing a defect, grep the FIX ITSELF for the defect's own class → a phase-mixing bug was reintroduced inside the renderer added to fix it; prefer a COUNTED denominator over one derived from a loop bound, which silently re-mixes when a caller changes (Issue-85).
 - A repo-wide sweep must DECLARE its universe and prove the edge: enumerate from the tracked set (not the filesystem, which carries ignored mutable junk), pass the NUL-delimited form so unusual filenames survive quoting, and probe it with a subject whose NAME exercises the edge rather than only its contents (Issue-566).
+- A def-time parameter default freezes an import-time value and defeats runtime redirection -> pass a None sentinel and resolve inside the function when the value can vary per run (Issue-107).
+- A fix landed mid-review inherits the plan's parallel-surface sweep obligations — enumerate the changed claim's prose homes for the FIX commit exactly as the plan did for its own tasks (Issue-123).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -104,6 +115,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A guard keyed to a build-type NAME misses the same condition arriving via injected flags → key it on a capability probe, not the configuration name; the first new consumer of an old mode inherits its ungated holes (Issue-Fork-162).
 - A single-cause label on a multi-cause counter becomes misinformation when a change arms the second cause → re-read every aggregate/summary label sharing a counter with the newly-reachable failure path (Issue-Fork-191).
 - Changing a serialized format can invalidate a certificate that hashes the FILE rather than its contents → grep for file-level hashers first, and pin the container's key set in the same change; content hashes cannot see a key appear (Issue-106).
+- A change that transfers custody of live state invalidates the recovery paths that predate it → re-derive what snapshot-restore and revert DO under the new semantics before shipping them as safety nets; both "safe ways back" can be booby-trapped by the very change they backstop (fleet Issue-19).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
@@ -116,6 +128,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Several findings in one round often share ONE structural cause → look for it before fixing them individually; reverting the decision can close all of them, where fixing each spawns the next round's defects (Issue-106).
 - Write each dispatched checker's returned body to disk on RECEIPT, before acting on it — act-then-summarize leaves an audit trail one round deep and second-hand (Issue-106).
 - A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
+- Numbers in a shipping record are re-derived at the FINAL sha in the same pass that writes the record -> a count carried forward across even three commits shipped false twice (Issue-107).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -130,6 +143,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An issue's MENU of candidate fixes can be wholly falsified, not just partly — execute every candidate against the real cases before picking one; when the working and broken inputs share a prefix, no rule keyed on that prefix can discriminate them, so the whole menu is unfixable and the discriminator lies further along (Issue-553).
 - Two components that must agree on a format → test by feeding one's REAL produced artifact through the other, not a prose promise or a format check (Issue-232).
 - A status ambiguous between "absent" and "can't-determine" → fail closed; a tri-state classifier makes the fail-safe un-violatable by construction (Issue-243).
+- A health signal served from a persisted artifact outlives its producer — presence checks go silent after the first success → alert on three shapes: never-produced (absence), stopped-producing (stale heartbeat), producing-but-failing (stale success) (fleet Issue-25).
+- A cost measurement is machine- and input-vintage-bound — "smaller input, so the prior number is an upper bound" is a hypothesis to measure, not a bound to book; when measurement falsifies it, push the correction to whoever booked the number (Issue-123).
 - A check green YESTERDAY and red TODAY at the same SHA → establish WHICH ENVIRONMENT produced each run before diagnosing drift; an A/B across SHAs is valid only same-environment (Issue-559).
 - An evidence artifact saved under a non-canonical filename silently drops out of its mechanized checker's glob — the checker validates the wrong file and the mismatch reads as staleness; canonical names are part of the evidence contract (Issue-559).
 - Re-captured evidence that overwrites the prior round's filenames leaves no way to prove WHICH tree produced the surviving bytes → round-tag re-run filenames and record each round's SHA beside them; never overwrite a superseded round (Issue-Fork-163).
@@ -141,14 +156,20 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A hypothesis about another platform/toolchain is often locally falsifiable (cross-compile, emulate, inspect the format) → run that probe before designing around the claimed behavior; ABI-level facts don't need the platform (Issue-Fork-225).
 - A diagnostic that asserts a CAUSE it cannot verify misdirects every future diagnosis → report the observation plus discriminating evidence (what WAS found), never an unverified cause (Issue-Fork-225).
 - A premise-freshness prober that checks named FILES cannot see a stale remote-tracking gap → compare the working checkout against the configured default_baseline itself (`rev-list --count main..origin/main`) before drafting; a 35-commit gap cost a whole plan revision (Issue-85).
+- A sibling's branch tip failing `merge-base --is-ancestor` does NOT mean its content is absent — squash-merge rewrites identity → verify a landed prerequisite by file state at the baseline, never by branch-tip ancestry (Issue-571).
+- A committed config file is not evidence the RUNNING system consumes it → inspect the live mount/dispatch/provider path of the deployment before planning around the file; a repo can be ahead of the box it describes, and vice versa, on the same file (fleet Issue-19).
+- Retrofitting a pinned identifier onto an existing live resource → pin the value the system already generated; an in-place identifier change can hard-fail the whole service, and the pretty string is cosmetic (fleet Issue-19).
+- A config-management adopter can silently SKIP an existing unmanaged resource with the same identity — an instant "finished" walk reads exactly like success → verify adoption state via the API after deploying, and expect adoption only through the create path (fleet Issue-19).
 - An artifact pinned to a gitignored, mutable input goes stale SILENTLY → record a provenance block for that input inside the artifact, and expect siblings elsewhere in the repo (Issue-106).
 - When an inherited figure falsifies under measurement, correct it on the TRACKER where downstream readers look — fixing it only on the branch leaves every sibling issue quoting the wrong number (Issue-106).
 - A suite that is green only in CI hides UNDECLARED PREREQUISITES, not local quirks — chase the delta and declare it; a bare `python3` with no version bound is how a stdlib-version break ships (Issue-561).
 - After any history rewrite, re-verify every artifact's recorded SHA is still reachable (`git merge-base --is-ancestor <sha> HEAD`) — a replayed branch leaves artifacts citing commits that are no longer ancestors (Issue-561).
 - Before requesting an override on a failing quality gate, ask whether the GATE is right and the ENVIRONMENT is wrong — an override is a permanent record of a compromise (Issue-561).
+- A deferral's addressee is a LOOKUP, not an assumption -> read the tracker before shipping a string that names a follow-up owner; claiming "unfiled" about a filed issue is the no-addressee defect wearing a number (Issue-107).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
+- An issue body's conditional hazard ("IF X, then …") must have its antecedent MEASURED before the hazard is documented as fact → an unverified caveat plants a false record that points attention away from the real site (fleet Issue-19).
 - A late "trivial" fix-commit that exceeds the scope a review authorized invalidates the evidence the MR cites → re-run the evidence at the new HEAD before ship (fleet Issue-3).
 - The MR body is REGENERATED at ship, not authored once — every post-draftmr commit silently ages its evidence SHA, counts, and any claim a later review corrected elsewhere; the maintainer-facing document is the one home consumed alone, so it must be the LAST one re-stamped, never the first one forgotten (Issue-553).
 - Evidence/count numbers must come from a run at THIS HEAD — stale counts copy forward silently; brand numbers need ONE derived source, not N hand-edits (Issue-284).
