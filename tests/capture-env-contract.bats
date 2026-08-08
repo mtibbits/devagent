@@ -80,6 +80,8 @@ teardown() {
 
 @test "AC5 no interpolated sed address-range survives" {
   # Issue-337 / Issue-Fork-132: precise no-match (1), never `-ne 0`.
+  # shellcheck disable=SC2016  # the single quotes are the point: we grep for the
+  # LITERAL ${DEVAGENT_PROJECT} text in the doc, so expanding it would defeat the test.
   run grep -F '/^\[project.${DEVAGENT_PROJECT}\]/' "$F"
   [ "$status" -eq 1 ]
 }
@@ -87,6 +89,10 @@ teardown() {
 # --- AC2: the documented recipe, EXECUTED ----------------------------------
 # The block is read from the doc's bytes, never retyped: running a VARIANT of a
 # published command is not running it (register: Issue-106/Issue-566).
+#
+# The per-test DEVAGENT_PROJECT export below is MEANT to be test-local — each
+# @test is its own subshell, and that isolation is what lets the three legs
+# assert different halves of the same recipe. Hence the SC2030/SC2031 waivers.
 
 ac2_fixture() {
   setup_tmp_devdoc
@@ -112,6 +118,7 @@ TOML
 
 @test "AC2 the documented block does not overwrite the operator's project" {
   ac2_fixture
+  # shellcheck disable=SC2030,SC2031  # test-local by design (see block note above)
   export DEVAGENT_PROJECT=alpha
   eval "$BLOCK"
   [ "$DEVAGENT_PROJECT" = "alpha" ]
@@ -119,6 +126,7 @@ TOML
 
 @test "AC2 the documented block resolves the named project's devdoc" {
   ac2_fixture
+  # shellcheck disable=SC2030,SC2031  # test-local by design (see block note above)
   export DEVAGENT_PROJECT=alpha
   eval "$BLOCK"
   [ "$DEVAGENT_DEVDOC_DIR" = "$ALPHA_DEVDOC" ]
@@ -126,6 +134,7 @@ TOML
 
 @test "AC2 capture.sh writes under the named project, not the pointer's" {
   ac2_fixture
+  # shellcheck disable=SC2030,SC2031  # test-local by design (see block note above)
   export DEVAGENT_PROJECT=alpha
   eval "$BLOCK"
   run "$REPO_ROOT/scripts/capture/capture.sh" \
