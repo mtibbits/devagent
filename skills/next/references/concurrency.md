@@ -76,3 +76,8 @@ Per-call escape: `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` — truth-valued
 (empty/`0`/`false` do not disable), and not a substitute for passing the
 scope. `next.sh` guards BEFORE its pointer refresh, so a mismatched bare
 chain neither dispatches nor moves the pointer. Spec §7.5 is normative.
+Since #571 the evidence pair (`run-suite.sh`, `preship-evidence.sh`) also
+guards WHICH CHECKOUT it measures: invocation from a linked worktree or
+equal-`origin` clone of the measured tree dies `TREE MISMATCH` even with an
+explicit project; escape is `DEVAGENT_TREE_GUARD_OVERRIDE=1`, same
+truth-valued semantics.

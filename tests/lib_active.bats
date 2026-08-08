@@ -217,3 +217,92 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "Issue-7" ]
 }
+
+# --- #571: active_tree_resolve / active_guard_tree ---------------------------
+# The tree an EVIDENCE step must measure: state.worktree_path else source_dir
+# (the commit.sh/ship.sh rule, hoisted). Setter-globals; never $( ... ).
+
+@test "active_tree_resolve: no worktree_path -> source_dir, FROM=config (#571)" {
+  type active_tree_resolve >/dev/null   # missing fn must redden, never 127-pass (#572)
+  mkdir -p "$BATS_TEST_TMPDIR/volk"
+  state_init volk
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_DIR" -ef "$BATS_TEST_TMPDIR/volk" ]
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+}
+
+@test "active_tree_resolve: recorded LIVE worktree_path wins, FROM=state (#571)" {
+  type active_tree_resolve >/dev/null
+  local wt="$BATS_TEST_TMPDIR/wt-volk"
+  mkdir -p "$wt"
+  ( cd "$wt" && git -c init.defaultBranch=main init -q \
+      && git config user.email t@example.com && git config user.name T \
+      && git commit -q --allow-empty -m x )
+  state_init volk
+  state_set volk worktree_path "$wt"
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_DIR" = "$wt" ]
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+}
+
+@test "active_tree_resolve: recorded-but-DEAD worktree_path dies naming the path (#571)" {
+  # fail-closed, mirroring ship.sh:94-98 — never silently measure source_dir instead
+  type active_tree_resolve >/dev/null
+  state_init volk
+  state_set volk worktree_path "$BATS_TEST_TMPDIR/gone-wt"
+  run active_tree_resolve volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"gone-wt"* ]]
+}
+
+@test "active_guard_tree: FROM=state is authoritative — no-op regardless of cwd (#571)" {
+  # cwd = the CONFIGURED tree while ACTIVE_TREE_DIR = its linked worktree: the
+  # exact shape clause 1 would refuse under FROM=config, so a pass here is
+  # decided by the FROM=state early return, not by the clauses not matching.
+  type active_guard_tree >/dev/null
+  local src="$BATS_TEST_TMPDIR/volk" wt="$BATS_TEST_TMPDIR/wt-volk2"
+  mkdir -p "$src"
+  ( cd "$src" && git -c init.defaultBranch=main init -q \
+      && git config user.email t@example.com && git config user.name T \
+      && git commit -q --allow-empty -m x && git branch -q wt2 \
+      && git worktree add -q "$wt" wt2 )
+  state_init volk
+  state_set volk worktree_path "$wt"
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "state" ]
+  cd "$src"
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"TREE MISMATCH"* ]]
+}
+
+@test "active_guard_tree: unresolvable measured tree WARNS and proceeds (#571)" {
+  # source_dir exists but is NOT a git repo: clause 1 cannot derive its common
+  # dir, and the guard's documented undecidable branch warns rather than dying
+  # or silently passing (review finding 5 — the one branch previously unpinned).
+  type active_guard_tree >/dev/null
+  mkdir -p "$BATS_TEST_TMPDIR/volk"          # exists, not a repo
+  local other="$BATS_TEST_TMPDIR/other-repo"
+  mkdir -p "$other"
+  ( cd "$other" && git -c init.defaultBranch=main init -q \
+      && git config user.email t@example.com && git config user.name T \
+      && git commit -q --allow-empty -m x )
+  state_init volk
+  active_tree_resolve volk
+  [ "$ACTIVE_TREE_FROM" = "config" ]
+  cd "$other"
+  run active_guard_tree lib-test
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"could not compare"* ]]
+}
+
+@test "active_guard_tree: called before active_tree_resolve DIES (#571 redmr)" {
+  # Programmer-error fail-closed: an unresolved guard must never be a silent
+  # no-op that looks guarded (redmr MINOR — the one fail-open reachable by
+  # code change rather than topology).
+  type active_guard_tree >/dev/null
+  unset ACTIVE_TREE_DIR ACTIVE_TREE_FROM
+  run active_guard_tree lib-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"before active_tree_resolve"* ]]
+}

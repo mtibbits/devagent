@@ -13,6 +13,23 @@ tag`) will get their own dated sections below.
 ## [Unreleased]
 
 ### Fixed — 2026-08-07
+- **Evidence runs now measure the checkout the issue's work lives in, or
+  refuse (#571).** `run-suite.sh` used to `cd` into the configured
+  `source_dir` regardless of where it was invoked, so a suite run from a git
+  worktree or second clone silently produced a green artifact about the wrong
+  tree (observed in Issue-553) — a failure #572's scope guard cannot see,
+  because it fires even when the project resolves correctly. Both evidence
+  scripts now resolve `state.worktree_path`-else-`source_dir`
+  (`active_tree_resolve`) and refuse with `TREE MISMATCH` when invoked from
+  another checkout of the *same* project (a linked worktree, else an
+  equal-`origin` clone; remote-less and differing-origin shapes fail open by
+  documented decision — note this fires even for an explicitly-scoped
+  invocation, unlike the scope guard). A mid-run HEAD move also refuses, and
+  the suite-count artifact carries a canonical `tree:` stamp that
+  `preship-evidence.sh` cross-checks (a stamp naming a tree absent in the
+  checking environment warns and falls back to the head comparison —
+  cross-environment evidence stays shippable). Per-call escape:
+  `DEVAGENT_TREE_GUARD_OVERRIDE=1` (truth-valued). Spec §7.5.
 - **Unscoped scripts no longer silently act on the global pointer's project
   (#572).** The 14 write-, verify- or transition-capable resolving scripts
   (triage: `docs/resolver-scope-triage.md`, sweep-tested) now refuse a bare

@@ -89,9 +89,13 @@ verification passed; FAIL otherwise).
    explicitly; #572 guards the bare form against wrong-scope resolution.)
 
    It verifies `mr.md`'s `## Evidence` block against the newest
-   `analysis/<date>-suite-count.txt` plus git (artifact head == HEAD, tree clean,
-   suite green, the `suite:` line exact, `files:` == the baseline..HEAD diff
-   count). An `mr.md` with no Evidence block warns and passes (back-compat).
+   `analysis/<date>-suite-count.txt` plus git (artifact head == HEAD of the tree
+   the artifact was produced in — `worktree_path` else `source_dir`, with the
+   artifact's `tree:` stamp cross-checked against it (#571; a stamp naming a
+   tree that does not exist in this environment warns and falls back to the
+   head comparison), tree clean, suite green, the `suite:` line exact,
+   `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
+   block warns and passes (back-compat).
 
 5. **Spec-touch.** Does the committed diff ADD, RENAME, or REMOVE a config key, a
    command, a hook, or a top-level directory that the spec must name? Renames and

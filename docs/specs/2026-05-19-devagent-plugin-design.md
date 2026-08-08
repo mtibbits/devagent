@@ -1026,6 +1026,28 @@ substitute for passing the scope: it suppresses the check, it does not correct
 the resolution. `next.sh` guards BEFORE its pointer refresh, so a mismatched
 bare chain neither dispatches nor moves the pointer.
 
+Since #571, the two EVIDENCE scripts (`run-suite.sh`, `preship-evidence.sh`)
+additionally decide WHICH CHECKOUT of the correctly-resolved project they act
+on — `state.worktree_path` when recorded, else `source_dir`
+(`active_tree_resolve`, the commit/ship rule hoisted into `lib/active.sh`) —
+and call `active_guard_tree` strictly AFTER `active_guard_scope`
+(scope-before-tree). An invocation from another checkout of the SAME project —
+a linked git worktree, else a clone with an equal (trailing-`/`/`.git`
+normalized) `origin` URL — **dies** with the literal `TREE MISMATCH` tag and
+writes no artifact; this fires even when the project resolved correctly, the
+Issue-553 shape #572 cannot see. Stated fail-open blind spots, each pinned by
+a test: either side lacking an `origin`, and origins differing beyond the
+cosmetic normalization (different transports, or a clone made from a local
+path). The suite-count artifact carries a canonical `tree:` stamp (after
+`head:`, which stays the first data line) that `preship-evidence.sh`
+cross-checks against its own resolved tree — absent line ⇒ skip (pre-#571
+artifacts); a stamped tree that does not exist in the checking environment ⇒
+loud warn + head-comparison fallback (cross-environment evidence, e.g. a
+WSL-produced artifact checked from Windows). A mid-run HEAD move in the
+measured tree likewise refuses rather than stamping a SHA the suites did not
+run against. Per-call opt-out: `DEVAGENT_TREE_GUARD_OVERRIDE=1`, truth-valued
+exactly like the scope override.
+
 ## 8. Permission gates
 
 Defined per project in `[project.<name>.permissions]`. Each gate:
