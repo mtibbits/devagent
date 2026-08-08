@@ -65,16 +65,17 @@ sys.exit(1)
 PY
 }
 
-resolve_project_arg() {
+main() {
+  local project
   # #124: route the bare-invocation default through the active-project chain
   # (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured
   # project) instead of the literal string 'default', matching next.sh / wbs.
-  active_resolve_project "${1:-}"
-}
-
-main() {
-  local project
-  project=$(resolve_project_arg "$@")
+  # #572: hoisted out of the old resolve_project_arg $(...) substitution — the
+  # guard reads ACTIVE_RESOLVED_FROM, which dies in a subshell. A resolution
+  # failure still exits under set -e with the engine's message re-emitted.
+  active_resolve_project_try "${1:-}"
+  project="$ACTIVE_RESOLVED_PROJECT"
+  active_guard_scope comments
   [[ $# -ge 1 ]] && shift || true
   local issue_arg="${1:-}"
 

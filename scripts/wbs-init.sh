@@ -11,6 +11,10 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/io.sh"
 # shellcheck source=lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
+# active_guard_scope reads state_get (#572); without state.sh the guard's
+# state lookup would 127 inside its $(... || true)
+# shellcheck source=lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
 # shellcheck source=lib/template_resolve.sh
@@ -32,8 +36,10 @@ for arg in "$@"; do
   esac
 done
 
-project="$(active_resolve_project "$project_arg")"
+active_resolve_project_try "$project_arg"
+project="$ACTIVE_RESOLVED_PROJECT"
 config_is_project "$project" || die "wbs init: unknown project '$project'"
+active_guard_scope "wbs init"
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "wbs init: devdoc_dir not configured for $project"
 

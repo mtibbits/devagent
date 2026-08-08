@@ -4,10 +4,12 @@
 ## Numbering
 
 Steps are numbered 0–23 in execution order — 24 numbered step commands in
-all, and the checklist reads top-to-bottom. Two of them (`1 research`,
-`3 spike`) are optional and off by default, so a normal issue runs the 22
-mandatory steps and its checklist shows two gaps. Reduced checklist tiers
-show a monotonic subset with larger gaps.
+all, and the checklist reads top-to-bottom. Some are optional and off by
+default: `1 research` and `3 spike` opt in per issue via the
+`## Workflow flags` block, and `19 mergetoall` opts in per project by
+configuring `all_prs_branch`. A normal issue runs the 21 mandatory steps and
+its checklist shows the optional rows pre-marked `[-]` (skipped). Reduced
+checklist tiers show a monotonic subset with larger gaps.
 
 Run steps one at a time with `/devagent:next` (which advances to the next
 unmarked step), chain them with `/devagent:next --auto`, or invoke any step
@@ -38,7 +40,7 @@ Rows in execution order.
 | 16 | `redmr` | Ship | Red-team adversarial review of the MR before shipping |
 | 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria |
 | 18 | `ship` | Ship | Push the branch and open the MR |
-| 19 | `mergetoall` | Integrate & close | Squash-merge the branch into the local all-PRs branch |
+| 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch |
 | 20 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
 | 21 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
 | 22 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |

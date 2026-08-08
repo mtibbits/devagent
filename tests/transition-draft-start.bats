@@ -46,6 +46,41 @@ EOF
     [[ "$output" == *"on_draft_start transition failed"* ]]
 }
 
+@test "#572: bare invocation with pointer on B and cwd in A refuses BEFORE the tracker call" {
+    # projB: transition_issue=true AND a configured issue_source — without the
+    # backend/repo fields the script skips at its unset-backend gate and leg (a)
+    # would be degenerate (AC2 explicitly excludes the permission-skip rc 0).
+    devagent_fixture_projB
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.projB.permissions]
+transition_issue = true
+
+[project.projB.issue_source]
+backend    = "github"
+repo       = "acme/projB"
+dir_prefix = "Issue-"
+EOF
+
+    # (a) NON-DEGENERACY: with the scope passed, the transition IS reached
+    run bash -c "cd '$SOURCE_DIR' && '$DEVAGENT_ROOT/scripts/transition-draft-start.sh' projB"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/projB 9 on_draft_start"
+
+    # (b) the bare invocation refuses at the guard, and the stub is NOT called
+    : > "$DEVAGENT_STUB_LOG"
+    run bash -c "cd '$SOURCE_DIR' && '$DEVAGENT_ROOT/scripts/transition-draft-start.sh'"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"SCOPE MISMATCH"* ]]
+    devagent_refute_logged "transition"
+
+    # (c) the enumerated caller's `|| true` semantics stay intact: the guarded
+    # die is absorbed exactly like any other failure at that call shape
+    run bash -c "cd '$SOURCE_DIR' && { '$DEVAGENT_ROOT/scripts/transition-draft-start.sh' || true; } && echo CALLER-CONTINUES"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CALLER-CONTINUES"* ]]
+}
+
 @test "draft start fires for the PINNED session issue, not the shared slot (#416)" {
     # Shared slot names Issue-1 (setup); a second session pinned to Issue-2 drafts.
     DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"

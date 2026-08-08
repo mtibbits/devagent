@@ -20,6 +20,9 @@ source "$DEVAGENT_ROOT/scripts/lib/artifact.sh"
 source "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/state.sh"
+# checklist_filter_mergetoall (requires paths+io, sourced above)
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 
 # revision_current <project>
 revision_current() {
@@ -43,7 +46,9 @@ revision_dir() {
 }
 
 # revision_block_text <N> [project] — #120: §12 registry with plugin-default
-# fallback; return-1 (not die) semantics preserved.
+# fallback; return-1 (not die) semantics preserved. The template's pre-skipped
+# mergetoall row flips to pending for all_prs_branch projects, matching
+# checklist_init's scaffold behavior.
 revision_block_text() {
   local n="$1"
   local tmpl
@@ -52,5 +57,5 @@ revision_block_text() {
     printf 'revision_block_text: template not found: %s\n' "$tmpl" >&2
     return 1
   fi
-  sed "s/{{N}}/${n}/g" "$tmpl"
+  sed "s/{{N}}/${n}/g" "$tmpl" | checklist_filter_mergetoall "${2:-}"
 }

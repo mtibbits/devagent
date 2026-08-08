@@ -56,7 +56,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
 # fork_only         = false              # never reference upstream (fork is the only remote)
 # source_remote     = "origin"           # git remote that branches/PRs push to (e.g. "fork")
-# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = skip)
+# all_prs_branch    = "dev/all-prs"      # REQUIRED to enable step-19 squash-merges (no default; unset = step 19 scaffolds pre-skipped [-])
 # all_prs_auto_push = false              # push all_prs_branch after each merge-to-all
 # all_prs_remote    = "origin"           # remote for all_prs_branch (defaults to source_remote)
 # use_worktree      = false              # cut issue branches in a git worktree
@@ -100,19 +100,41 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # surface the tier and checking-class steps also consume it as their subagent
 # dispatch model override (#151). Classes: thinking = steps 2 9 10 11 14, checking = 5 15 16 17, else default;
 # a per-step override (numeric key) wins over its class.
+# Enforcement differs by step: the checking class is fully enforced (all four
+# dispatch), while of the thinking class only step 2 (draft) dispatches — for
+# 9/10/11/14 the tier is an ADVISORY next/catchup hint, since a session cannot
+# swap its own model.
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"
 # thinking = "opus"     # draft, implement, quality, document, draftmr
 # checking = "fable"    # improve, review, redmr, preship
 # "9"      = "fable"    # per-step override (implement) beats the class tier
 #
-# Per-issue override (#291): a `.devagent-step-models` file in the issue
-# directory holding ONE tier token (e.g. `fable`) pins the CHECKING-class
-# steps (5/15/16/17) for that issue, beating this whole table — numeric
-# per-step keys included. The reserved token `inherit` stands the table down
-# and inherits the session model. An empty or multi-token marker fails loud
-# (like .devagent-baseline, #162) — never a silent fallback. Non-checking
-# steps ignore the marker. Remove the marker at issue cleanup.
+# Per-issue override: a `.devagent-step-models` file in the issue directory
+# beats this whole table — numeric per-step keys included. TWO forms:
+#
+#   BARE token (#291, legacy)      one token, e.g. `fable`. Pins the
+#                                  CHECKING-class steps (5/15/16/17) only;
+#                                  non-checking steps ignore it.
+#   KEYED lines (#561)             one line per steered class, either or both,
+#                                  covering CHECKING and THINKING:
+#                                      checking: fable
+#                                      thinking: sonnet
+#                                  A class with no line falls through to this
+#                                  table. Two lines for the same class fail loud.
+#
+# Both forms: the reserved token `inherit` stands the table down and inherits
+# the session model. An empty or multi-token marker fails loud (like
+# .devagent-baseline, #162) — never a silent fallback. The `default` class never
+# reads the marker.
+#
+# pull.sh writes the keyed form at FIRST SCAFFOLD from the issue body's
+# `## Workflow flags` keys `checking-model:` / `implementation-model:`, from the
+# `tier: <model>-checking` compat shim, or from recognized `tier:*` forge labels
+# (`tier:impl-<model>`, `tier:check-<model>`, `tier:<model>-checking`). Legal
+# tokens: sonnet opus haiku fable inherit. Hand-editing the marker is the
+# documented post-scaffold path; an existing marker is never stomped.
+# Remove the marker at issue cleanup.
 
 # Per-project WORKFLOW override (#120): any checklist template resolves via
 # the §12 registry — drop a checklist-<name>.md in <devdoc>/templates/ or pin

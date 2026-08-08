@@ -95,6 +95,22 @@ EOF
     grep -q '^pytest: 285 passed, 0 failed$' "$art"
 }
 
+@test "run-suite records pytest: (none) when pytest emits no count at all (false-green guard)" {
+    # tests/test_*.py existing does NOT mean pytest can run them: a missing
+    # interpreter (Windows Store shim) or a collection error emits no summary.
+    # Recording "0 passed, 0 failed" would read "ran clean" for a suite that
+    # was never measured; the explicit (none) form is what preship-evidence's
+    # no-framework reconciliation requires. (Behavior landed alongside #572;
+    # authored as a concurrent operator edit, pinned by this test.)
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "pytest exploded: no summary counts in this output"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: (none)$' "$art"
+}
+
 @test "run-suite parses a mixed failed+passed pytest summary (order-independent)" {
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
@@ -110,4 +126,33 @@ EOF
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     [ -f "$DEVDOC_DIR/Issue-1/analysis/2020-02-02-suite-count.txt" ]
+}
+
+@test "#571 AC3: the head:/dirty: stamp survives, and the artifact records its tree" {
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    # head: is the FIRST data line and carries BOTH fields (register Issue-572)
+    run head -1 "$art"
+    printf '%s\n' "$output" | grep -qE '^head: [0-9a-f]+  dirty: (yes|no)$'
+    # tree: is an IDENTITY — canonical (pwd -P) on both sides; precise count,
+    # never -ne 0 (register Issue-337)
+    run grep -c '^tree: ' "$art"
+    [ "$output" -eq 1 ]
+    grep -q "^tree: $(cd "$SOURCE_DIR" && pwd -P)$" "$art"
+}
+
+@test "#571 AC5: the core-draft-mr skill's documented caller shape still works" {
+    # The EXACT argv shape skills/core-draft-mr/SKILL.md:66 carries at HEAD:
+    #     bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>
+    # (read from the file at implementation time; #572 made the project explicit.
+    # Running a VARIANT of a published command is not running it — register Issue-106.)
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run bash "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -qE '^head: [0-9a-f]+  dirty: (yes|no)$' "$art"
+    run grep -c '^tree: ' "$art"
+    [ "$output" -eq 1 ]
+    grep -q '^bats: ' "$art"
+    grep -q '^pytest: ' "$art"
 }

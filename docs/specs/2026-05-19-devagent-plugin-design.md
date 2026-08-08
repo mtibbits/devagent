@@ -60,13 +60,14 @@ devAgent/
 ├── docs/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
-│   └── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
+│   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
+│   └── resolver-scope-triage.md     # #572: the 18 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   Pages deployment is the #404 sibling child
-├── commands/                # one .md file per command-form slash command (54)
+├── commands/                # one .md file per command-form slash command (55)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 54 + 3 = the 57 slash commands
+│                            #   (SKILL.md + references/, #452) — 55 + 3 = the 58 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -305,7 +306,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
-├── .devagent-step-models  # optional: one model-tier token pinning this issue's checking steps (#291; §7.4)
+├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
 ├── actualWork.md
@@ -462,7 +463,7 @@ Active revision: 1
 - [ ] 16. redmr
 - [ ] 17. preship
 - [ ] 18. ship
-- [ ] 19. mergetoall
+- [-] 19. mergetoall
 - [ ] 20. updatewbs
 - [ ] 21. impact
 - [ ] 22. lessonslearned
@@ -545,9 +546,10 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:scaffold <capture-slug>` | skill | Bin an epic capture into child issue drafts |
 | `/devagent:redissue <capture-slug>` | skill | Run the tier-split issue red-team (`redteam_issue_shared` + the triage tier's cumulative dimension parts, or a monolithic `redteam_issue` override) against the draft, write `redteam.md` |
 | `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
+| `/devagent:crrf [topic hint]` | alias | Orchestrates capture → (scaffold) → redissue → adjudicate → file under one bounded autonomy grant; honors `permissions.push_mr` (#559) |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (22 mandatory steps + the optional research step)
+### 6.3 Family B — Workflow (21 mandatory steps + the optional research, spike, and mergetoall steps)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
@@ -570,13 +572,13 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 19 | `/devagent:mergetoall` | script | `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge |
+| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop |
 | 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
 
-**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 22 of them mandatory, with research (1) and spike (3) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 21 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 
@@ -585,7 +587,13 @@ runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
 `[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
 part of the value and fails per-key validation, fail-closed; body segment
-only — tracker comments and HTML-comment spans never parse; first consumer
+only — tracker comments and HTML-comment spans never parse; the block
+TERMINATES at the next `#` heading, at a blank line once at least one key has
+been seen, or — while no key has been seen yet — at the first non-blank line
+that is not a col-1 key, so an EMPTY flags heading followed by prose cannot let
+a later col-1 `key: value` prose line parse as a live flag (#553; that last
+clause is warn-less by design, so a mis-cased or indented first key closes the
+block and silently drops the keys below it); first consumer
 `scripts/lib/flags.sh`, extended by #535/#536). `pull.sh`
 validates the value against the table below BEFORE any path interpolation
 (the value arrives in remote content), then passes it to `checklist_init` as
@@ -597,6 +605,62 @@ tier's rows minus rows 0/1/3 (pull, research, spike), updates `Template:`, reset
 issue-keyed transaction, logs `retier: <old> → <new>`; never destructive).
 Tier and model are orthogonal axes: tiers select STEPS; `step_models` (§7.4)
 selects who runs them — docs may suggest pairings, the schema enforces none.
+
+**Duplicate keys are FIRST-match-wins** (#561, documenting shipped behavior):
+`flags_get` stops at the first matching line, so a body carrying
+`tier: opus-checking` above `tier: oneshot` yields `opus-checking` and the second
+line is dead. To combine a template tier with a model annotation, use `tier:` plus
+`checking-model:` — one line each. Note this is deliberately the OPPOSITE of the
+per-issue marker's duplicate rule (§7.4: two lines for one class is a hard error):
+the flags block is REMOTE content under a forward-compat "ignore what you don't
+understand" contract, while the marker is LOCAL operator-authored state where
+ambiguity is a bug.
+
+##### Per-issue model steering keys (#561)
+
+Two further `## Workflow flags` keys, orthogonal to `tier:`, select WHICH MODEL
+runs a class of steps. They write the per-issue `.devagent-step-models` marker at
+first scaffold; §7.4 owns the marker format and the full precedence chain.
+
+| Key | Class | Canonical steps |
+|---|---|---|
+| `implementation-model: <token>` | *thinking* | 2 draft · 9 implement · 10 quality · 11 document · 14 draftmr |
+| `checking-model: <token>` | *checking* | 5 improve · 15 review · 16 redmr · 17 preship |
+
+Legal tokens: `sonnet | opus | haiku | fable | inherit` — the Agent tool's closed
+model enum plus #291's reserved `inherit`. Validated fail-closed BEFORE any file
+write, so a rejected value leaves neither a checklist nor a marker.
+
+**ENFORCEMENT DIFFERS BY STEP, and the key names under-promise their coverage —
+state this wherever the keys appear.** `checking-model` is FULLY ENFORCED: all
+four checking steps dispatch, and consume the resolved tier as the Agent-tool
+`model:` override (`docs/checking-dispatch-contract.md`).
+`implementation-model` is ENFORCED for step 2 only — draft's dispatched planner,
+which resolves the step-2 tier via `step-model.sh` — and ADVISORY for 9/10/11/14,
+which run inline:
+<!-- The literal dispatcher form (step-model.sh followed by the project
+     placeholder and a step number) is deliberately NOT spelled out on the line
+     above. tests/checklist-numbering.bats greps commands/ and docs/ for that
+     exact shape, treats every hit as a DISPATCHER INSTRUCTION, and pins the
+     count. This sentence is descriptive prose, not an instruction, so it must
+     stay out of that subject set or it inflates the audit's denominator.
+     (This comment cannot spell the form out either, for the same reason.) -->
+
+a session cannot swap its own model, so there the tier surfaces only as the
+`next` / `catchup` hint.
+
+**Compat shim — `tier: <model>-checking`.** A `tier:` value of the form
+`<model>-checking` (model in the legal-token set) is a MODEL annotation from a
+convention that predates #537's claim on the `tier:` key. It no longer dies:
+`pull.sh` warns, leaves the template on the project default chain, and interprets
+it as `checking-model: <model>`. The shim is PERMANENT grammar and warns
+ALWAYS — the warning is the migration nudge, and a removal date would orphan
+capture drafts that are not yet filed. Any other unknown `tier:` value still dies
+listing the legal tier names. An explicit `checking-model:` beats the shim, with a
+warning.
+
+Like `tier:`, these keys fire only at FIRST SCAFFOLD; the post-scaffold path is
+hand-editing the marker (`revise.sh --retier` stays template-only).
 
 Executor convention (canonical statement; command docs carry the per-step
 mapping): a prerequisite whose producing step is absent from the issue's
@@ -696,7 +760,7 @@ via the operator typing `/devagent:next` between steps.
 
 An optional `[project.<name>.step_models]` table steers which model tier
 runs each step (surfacing #150; dispatch #151; per-issue override #291).
-Implemented in `scripts/lib/config.sh:96–172` (`step_models_tier`) and
+Implemented in `scripts/lib/config.sh` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
 step runs at the session model).
@@ -711,11 +775,78 @@ Steps map to three fixed classes by canonical step number:
 
 A step's tier is resolved in this order (first hit wins):
 
-1. **Per-issue marker** (`<issue-dir>/.devagent-step-models`, #291) — a
-   single tier token, honored for **checking-class steps only**. The
-   reserved token `inherit` forces session-model inheritance (escapes a
-   project `checking` pin). A present-but-empty or multi-token marker is a
-   hard error (never a silent fallback).
+1. **Per-issue marker** (`<issue-dir>/.devagent-step-models`) — TWO forms,
+   discriminated by CONTENT, never by filename:
+
+   **BARE token** (#291, legacy) — e.g. `fable`. One tier token, honored for
+   **checking-class steps only**: a bare marker is invisible to thinking steps,
+   which fall through to the rungs below silently. A present-but-empty or
+   multi-token marker is a hard error (never a silent fallback).
+
+   **KEYED lines** (#561) — one `<class>: <token>` line per steered class,
+   either or both, applying to the **checking AND thinking** classes:
+
+   ```
+   checking: fable
+   thinking: sonnet
+   ```
+
+   A keyed marker with no line for the resolving step's class is NOT an error —
+   it falls through to rung 2 exactly as an absent marker would, so
+   `checking: fable` alone leaves step 9 on the table. A malformed line, or two
+   lines for the SAME class, is a hard error (fail closed on ambiguous
+   operator-authored intent — contrast §6.3's flags-block first-match-wins).
+
+   Both forms: the reserved token `inherit` forces session-model inheritance
+   (escapes a project pin), returning rc 2. The `default` class never reads the
+   marker in either form.
+
+   **Structural vs content validity are scoped differently, deliberately.**
+   Structural faults (exists but is not a regular file / not readable) apply to
+   BOTH classes, because an unreadable file is a fault whichever step asks — this
+   is a #561 behavior change for thinking steps, which previously fell through.
+   Bare-form CONTENT faults (empty, multi-token) stay checking-only, because the
+   bare form itself is checking-only.
+
+   **TOKEN LEGALITY IS NOT CHECKED HERE.** `pull.sh` validates against the legal
+   token set at WRITE time (§6.3); the resolver enforces only the one-token
+   charset, so a hand-edited marker keeps the contract it always had. A marker
+   holding a token the Agent tool's enum rejects therefore resolves rc 0 and
+   fails at dispatch, by design.
+
+   **Who writes it.** At first scaffold `pull.sh` writes the keyed form from,
+   in precedence order: an explicit body key (§6.3) > the body `tier:` shim >
+   a recognized forge LABEL (below) > nothing, leaving the config rungs to
+   resolve. Hand-editing is the documented post-scaffold path, and an existing
+   marker is never stomped.
+
+   **Label channel** (#561). At first scaffold `pull.sh` also derives steering
+   from the issue's forge labels — the same label set the backends already fetch
+   and render into `issue.md`'s `- Labels:` header line, read once from that
+   HEADER segment only (a `- Labels:` line in body prose or a tracker comment
+   never steers). Recognized shapes, matched in a fixed order:
+
+   | Label | Class | Convention |
+   |---|---|---|
+   | `tier:impl-<model>` | thinking | factorAI |
+   | `tier:check-<model>` | checking | factorAI |
+   | `tier:<model>-checking` | checking | koopman-gnn |
+
+   Fail-closed: a recognized shape carrying an illegal model token dies listing
+   the legal tokens; two labels steering the same class to DIFFERENT models die
+   naming both — and that fires EVEN WHEN a body key would have won the class,
+   because a same-class pair is ambiguous authored intent on the forge regardless
+   of the body. Equal models are idempotent, not a conflict.
+   Never-die: an unrecognized `tier:*` label (including a template tier name used
+   as a label) warns and is ignored, and a non-`tier:` label is silently ignored —
+   the label namespace is shared forge metadata, template selection stays
+   body-only, and a die would halt an `--auto` chain on someone else's label
+   hygiene. Later label edits on the forge do NOT retro-edit the marker.
+
+   The channel is knowingly LOSSY for label names containing commas: all backends
+   join the `- Labels:` line on `,`, and the reader re-splits on it. Harmless for
+   non-`tier:` labels; fixing it would need a structured backend channel (a sixth
+   verb), rejected as out of scope.
 2. **Per-step override** — `step_models.<N>` (a numeric key, e.g. `"13"`).
 3. **Class tier** — `step_models.<class>` (`thinking` / `checking` / `default`).
 4. **Default tier** — `step_models.default`, when the class tier is unset.
@@ -860,6 +991,62 @@ boundary, not an oversight:
   vendoring that contract. A devAgent-authored degraded review path is NOT
   vendoring (#541): nothing is copied from superpowers; the upstream skill
   remains the preferred implementation and the binding boundary stands.
+
+### 7.5 Wrong-scope refusal (#572)
+
+An unscoped invocation resolves the project from mutable global state
+(env pin → pointer → single-project fallback) at FIRE time, so a script run
+bare while the pointer names a different project acts on the pointer's
+project — both Issue-553 misfires (`wbs.sh update` writing another project's
+WBS; `preship-evidence.sh` resolving another project's issue) were this shape.
+Since #572, every PROTECTED resolving script (triage: the normative
+`docs/resolver-scope-triage.md`, 14 PROTECTED / 4 EXEMPT of the 18-member
+universe, pinned by `tests/resolver-scope-triage.bats`) calls
+`active_guard_scope` after its own validation and before any read, write, cd,
+or network call. The guard is tri-state:
+
+- `FROM=arg` (a project passed positionally or via `--project`) is a
+  per-invocation assertion — never questioned. An env pin is NOT in this
+  class: an inherited `DEVAGENT_ACTIVE_PROJECT` is contamination, not an
+  assertion (#458), and is guarded exactly like the pointer.
+- `$PWD` inside the RESOLVED project's `source_dir` (identity by `-ef`, never
+  string comparison — drive-form and case differences are real, #553) →
+  allow silently.
+- `$PWD` demonstrably inside a DIFFERENT configured project → **die**, naming
+  both projects, both active issues, the resolution source, and the literal
+  `SCOPE MISMATCH` tag.
+- Undecidable (`$PWD` under no configured `source_dir`, or the project
+  enumeration itself failed — the two causes are distinguished) → allow with
+  ONE stderr warning that names the resolved project and its resolution
+  source; that warning is a contract, not diagnostics.
+
+Per-call opt-out: `DEVAGENT_SCOPE_GUARD_OVERRIDE=1` — truth-valued, not
+presence-valued (empty/`0`/`false` do not disable), per-call, and NOT a
+substitute for passing the scope: it suppresses the check, it does not correct
+the resolution. `next.sh` guards BEFORE its pointer refresh, so a mismatched
+bare chain neither dispatches nor moves the pointer.
+
+Since #571, the two EVIDENCE scripts (`run-suite.sh`, `preship-evidence.sh`)
+additionally decide WHICH CHECKOUT of the correctly-resolved project they act
+on — `state.worktree_path` when recorded, else `source_dir`
+(`active_tree_resolve`, the commit/ship rule hoisted into `lib/active.sh`) —
+and call `active_guard_tree` strictly AFTER `active_guard_scope`
+(scope-before-tree). An invocation from another checkout of the SAME project —
+a linked git worktree, else a clone with an equal (trailing-`/`/`.git`
+normalized) `origin` URL — **dies** with the literal `TREE MISMATCH` tag and
+writes no artifact; this fires even when the project resolved correctly, the
+Issue-553 shape #572 cannot see. Stated fail-open blind spots, each pinned by
+a test: either side lacking an `origin`, and origins differing beyond the
+cosmetic normalization (different transports, or a clone made from a local
+path). The suite-count artifact carries a canonical `tree:` stamp (after
+`head:`, which stays the first data line) that `preship-evidence.sh`
+cross-checks against its own resolved tree — absent line ⇒ skip (pre-#571
+artifacts); a stamped tree that does not exist in the checking environment ⇒
+loud warn + head-comparison fallback (cross-environment evidence, e.g. a
+WSL-produced artifact checked from Windows). A mid-run HEAD move in the
+measured tree likewise refuses rather than stamping a SHA the suites did not
+run against. Per-call opt-out: `DEVAGENT_TREE_GUARD_OVERRIDE=1`, truth-valued
+exactly like the scope override.
 
 ## 8. Permission gates
 

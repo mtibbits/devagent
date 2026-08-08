@@ -35,6 +35,16 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
 }
 
+@test "checklist_init dies when a project is passed without config.sh sourced" {
+  # artifact.sh alone gets past the #120 guard (its own config_get calls are
+  # ||-true-swallowed), so the mergetoall filter's guard is the one that must
+  # fail loud instead of silently scaffolding row 19 skipped (redmr MINOR).
+  source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
+  run checklist_init "$ISSUE_DIR" standard someproject
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"config.sh is not sourced"* ]]
+}
+
 @test "checklist_current_step is 0 on a fresh standard" {
   checklist_init "$ISSUE_DIR" standard
   run checklist_current_step "$ISSUE_DIR/checklist.md"

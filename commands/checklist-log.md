@@ -1,6 +1,6 @@
 ---
 description: Append a timestamped entry to the checklist log.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "<issue-dir> <step-name> <message...>"
 ---
 

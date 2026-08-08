@@ -1,6 +1,6 @@
 ---
 description: Surface latent bugs, side effects, ambiguities in the active issue's plan.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read, Write, Edit, Skill, Agent
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read, Write, Edit, Skill, Agent
 argument-hint: "[project] [issue-dir] [free-form note...]"
 ---
 

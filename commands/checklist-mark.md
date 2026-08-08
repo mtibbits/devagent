@@ -1,6 +1,6 @@
 ---
 description: Set the glyph on a specific checklist step.
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "<issue-dir> <step-num|step-name> <glyph> [expected-name]"
 ---
 

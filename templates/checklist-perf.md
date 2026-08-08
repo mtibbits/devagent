@@ -27,7 +27,7 @@ Active revision: 1
 - [ ] 16. redmr
 - [ ] 17. preship
 - [ ] 18. ship
-- [ ] 19. mergetoall
+- [-] 19. mergetoall
 - [ ] 21. impact
 - [ ] 22. lessonslearned
 - [ ] 23. cleanup

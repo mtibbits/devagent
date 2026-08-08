@@ -67,6 +67,29 @@ teardown() { teardown_tmp_devagent_home; }
   grep -q "issue_dir *= *\"$DEVDOC/Issue-676\"" "$DA_HOME/state/volk.toml"
 }
 
+@test "pull keeps mergetoall pre-skipped without all_prs_branch" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[-\] 19\. mergetoall' "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "pull flips mergetoall to pending when the project sets all_prs_branch" {
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/volk"
+devdoc_dir = "$DEVDOC"
+all_prs_branch = "dev/all-prs"
+
+[project.volk.issue_source]
+backend = "github"
+repo = "gnuradio/volk"
+dir_prefix = "Issue-"
+EOF
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[ \] 19\. mergetoall' "$DEVDOC/Issue-676/checklist.md"
+}
+
 @test "pull is idempotent on issue.md (refetch overwrites, checklist preserved)" {
   "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676
   # Tamper with the checklist so we can prove it wasn't blown away
@@ -349,4 +372,363 @@ CTX
   run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 704
   [ "$status" -eq 0 ]
   grep -q '^Template: standard$' "$DEVDOC/Issue-704/checklist.md"
+}
+
+# ---- #561: per-issue model steering — body keys and the tier: compat shim ----
+#
+# Every case asserts the MARKER CONTENT pull.sh wrote AND resolves it through the
+# real step-model.sh for a step in each class. Asserting rc alone would pass
+# whether or not the marker was written (register: Issue-32 — assert an
+# observable per-item effect, never just rc), and resolving pull.sh's OWN
+# produced artifact is what pins the two components' format agreement rather
+# than a prose promise (register: Issue-232).
+
+_step_tier() {  # <step> <issue-dir> -> stdout tier (stderr dropped)
+  "$PLUGIN_ROOT/scripts/step-model.sh" volk "$1" "$2" 2>/dev/null
+}
+
+@test "#561 AC1: checking-model: fable steers 5/15/16/17 and leaves the thinking class alone" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_BODY_JSON='"Intro.\n\n## Workflow flags\nchecking-model: fable\n\n## Motivation\nStuff."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 710
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-710"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  run grep -c '^thinking:' "$d/.devagent-step-models"
+  [ "$status" -eq 1 ]   # precise no-match, never -ne 0 (register: Issue-337)
+  # One step per class: this case pins the writer/reader FORMAT agreement, and
+  # the step->class map itself is pinned once in tests/step-model.bats rather than
+  # re-walked here (each step-model.sh spawn is ~4s on win32).
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
+}
+
+@test "#561 AC2: implementation-model: haiku steers 2/9/10/11/14 only" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_BODY_JSON='"## Workflow flags\nimplementation-model: haiku\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 711
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-711"
+  grep -q '^thinking: haiku$' "$d/.devagent-step-models"
+  run grep -c '^checking:' "$d/.devagent-step-models"
+  [ "$status" -eq 1 ]
+  [ "$(_step_tier 9 "$d")" = "haiku" ]
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+}
+
+@test "#561 AC1+AC2: both keys together write one line per class" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\nimplementation-model: sonnet\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 712
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-712"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  grep -q '^thinking: sonnet$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
+}
+
+@test "#561 AC3: tier: opus-checking pulls with a warning — the koopman-gnn#106 shape" {
+  # Pre-#561 this body died pre-path ("unknown tier 'opus-checking'"), blocking
+  # the pull of an already-drafted issue. It must now succeed, leave the template
+  # on the project default chain, and steer the checking class.
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 713
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"model annotation, not a template tier"* ]]
+  [[ "$output" == *"prefer 'checking-model:'"* ]]
+  local d="$DEVDOC/Issue-713"
+  grep -q '^Template: standard$' "$d/checklist.md"
+  grep -q '^checking: opus$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+}
+
+@test "#561 AC3: fable-checking shims too; bogus-checking still dies as a tier" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: fable-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 714
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-714/.devagent-step-models"
+  # NOT a shim (bogus is not a legal model) => falls through to tier_require_legal
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: bogus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 715
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"legal tiers: oneshot standard perf docs-only research"* ]]
+  [ ! -f "$DEVDOC/Issue-715/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-715/.devagent-step-models" ]
+}
+
+@test "#561 AC9: explicit checking-model beats the tier: shim, with a warning" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 716
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats 'tier: opus-checking'"* ]]
+  local d="$DEVDOC/Issue-716"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+}
+
+@test "#561 AC8: an illegal model token dies listing the tokens, BEFORE any write" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: bogus\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 717
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown model token 'bogus'"* ]]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  # fail-closed: neither artifact exists, so a fail-open write is caught even if
+  # the rc were wrong
+  [ ! -f "$DEVDOC/Issue-717/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-717/.devagent-step-models" ]
+  # same for the thinking key
+  export GH_STUB_BODY_JSON='"## Workflow flags\nimplementation-model: ../evil\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 718
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  [ ! -f "$DEVDOC/Issue-718/checklist.md" ]
+}
+
+@test "#561: model keys are SCAFFOLD-ONLY — inert on re-pull, existing marker never stomped" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 719
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-719/.devagent-step-models" ]
+  # a key added after first scaffold does not retro-write the marker
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 719
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-719/.devagent-step-models" ]
+  # and a hand-authored marker outranks a first-scaffold key: warn, do not stomp
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  mkdir -p "$DEVDOC/Issue-720"
+  printf 'haiku' > "$DEVDOC/Issue-720/.devagent-step-models"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 720
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already exists"* ]]
+  [ "$(cat "$DEVDOC/Issue-720/.devagent-step-models")" = "haiku" ]
+}
+
+@test "#561: a model key quoted in a tracker comment cannot steer" {
+  export GH_STUB_COMMENTS_JSON='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "quoting:\n## Workflow flags\nchecking-model: fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 721
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-721/.devagent-step-models" ]
+}
+
+# ---- #561: the LABEL channel -----------------------------------------------
+#
+# Source is the backend-rendered `- Labels:` HEADER line of the issue.md pull.sh
+# just wrote (operator answer A1). Driven through the Task-0 GH_STUB_LABELS_JSON
+# knob, so these exercise the same path a real forge payload would.
+
+@test "#561 AC4: tier:impl-opus + tier:check-fable with NO flags block (factorAI#85)" {
+  # The concrete miss this channel closes: factorAI#85 carried tier:check-fable
+  # and ran every checking step at opus, the config floor, because nothing
+  # consumed labels.
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+EOF
+  export GH_STUB_LABELS_JSON='[{"name":"tier:impl-opus"},{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 730
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-730"
+  grep -q '^checking: fable$' "$d/.devagent-step-models"
+  grep -q '^thinking: opus$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "opus" ]
+}
+
+@test "#561 AC5: label tier:opus-checking with no flags block (koopman-gnn shape)" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:opus-checking"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 731
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-731"
+  grep -q '^checking: opus$' "$d/.devagent-step-models"
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+}
+
+@test "#561 AC6: a body source beats a conflicting label, with a warning" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-opus"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: fable\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 732
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats label 'tier:check-opus'"* ]]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-732/.devagent-step-models"
+  # the body tier: shim outranks a label too
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: opus-checking\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 733
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"beats label 'tier:check-fable'"* ]]
+  grep -q '^checking: opus$' "$DEVDOC/Issue-733/.devagent-step-models"
+}
+
+@test "#561 AC7: two same-class labels naming DIFFERENT models die naming both" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"},{"name":"tier:opus-checking"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 734
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"tier:check-fable"* ]]
+  [[ "$output" == *"tier:opus-checking"* ]]
+  [ ! -f "$DEVDOC/Issue-734/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-734/.devagent-step-models" ]
+}
+
+@test "#561 AC7: a same-class label conflict dies EVEN WHEN a body key would win" {
+  # Operator answer A2: labels are validated unconditionally, BEFORE precedence.
+  # A same-class pair is ambiguous authored intent ON THE FORGE — a fact about the
+  # issue regardless of the body — and letting a body key mask it would surface
+  # the failure later on some other issue with no body key (the fail-open shape
+  # of register Issue-558).
+  # NB the two labels must name DIFFERENT models to be a conflict at all:
+  # tier:check-opus and tier:opus-checking both resolve to opus.
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-opus"},{"name":"tier:fable-checking"}]'
+  export GH_STUB_BODY_JSON='"## Workflow flags\nchecking-model: haiku\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 735
+  [ "$status" -ne 0 ]
+  [ ! -f "$DEVDOC/Issue-735/.devagent-step-models" ]
+  [ ! -f "$DEVDOC/Issue-735/checklist.md" ]
+}
+
+@test "#561 AC7: a recognized-shape label with an illegal model token dies pre-write" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-bogus"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 736
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sonnet opus haiku fable inherit"* ]]
+  [[ "$output" == *"tier:check-bogus"* ]]
+  [ ! -f "$DEVDOC/Issue-736/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-736/.devagent-step-models" ]
+}
+
+@test "#561 AC7: unrecognized tier:* labels warn and are ignored — they never die" {
+  # The label namespace is shared forge metadata anyone may write, and template
+  # selection stays body-only. A die here would also halt an --auto chain on
+  # someone else's label hygiene (register: Issue-242).
+  export GH_STUB_LABELS_JSON='[{"name":"tier:standard"},{"name":"tier:frobnicate"},{"name":"bug"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 737
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tier:standard"* ]]
+  [[ "$output" == *"tier:frobnicate"* ]]
+  # an ordinary label is the common case and must stay SILENT
+  [[ "$output" != *"'bug'"* ]]
+  # a template tier name used as a LABEL does not select a template
+  grep -q '^Template: standard$' "$DEVDOC/Issue-737/checklist.md"
+  [ ! -f "$DEVDOC/Issue-737/.devagent-step-models" ]
+}
+
+@test "#561: two same-class labels naming the SAME model are idempotent, not a conflict" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"},{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 738
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-738/.devagent-step-models"
+  # exactly one line for the class
+  run grep -c '^checking:' "$DEVDOC/Issue-738/.devagent-step-models"
+  [ "$output" = "1" ]
+}
+
+@test "#561: later forge label edits do NOT retro-edit the marker" {
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-fable"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 739
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-739/.devagent-step-models"
+  export GH_STUB_LABELS_JSON='[{"name":"tier:check-haiku"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 739
+  [ "$status" -eq 0 ]
+  grep -q '^checking: fable$' "$DEVDOC/Issue-739/.devagent-step-models"
+  run grep -c 'haiku' "$DEVDOC/Issue-739/.devagent-step-models"
+  [ "$status" -eq 1 ]
+}
+
+@test "#561 A1: a - Labels: line in the BODY or a COMMENT cannot steer (header-only)" {
+  # The label-channel twin of the #537 flags-block-in-a-comment case at
+  # tests/pull.bats:353-359, and the reason issue_labels is header-scoped rather
+  # than a file grep. Each case pairs the negative with a live channel: the stub's
+  # real header labels are non-tier:*, so a marker appearing at all means the
+  # body/comment line leaked through.
+  export GH_STUB_BODY_JSON='"Intro.\n\n- Labels: tier:check-opus\n\n## Motivation\nStuff."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 740
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-740/.devagent-step-models" ]
+  unset GH_STUB_BODY_JSON
+  export GH_STUB_COMMENTS_JSON='[{"author": {"login": "bob"}, "createdAt": "2026-05-12T08:14:22Z", "body": "- Labels: tier:check-haiku"}]'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 741
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-741/.devagent-step-models" ]
+}
+
+# ---- #561 AC12: backwards compatibility, in-suite regression net ------------
+#
+# The EVIDENCE for AC12 is the two-checkout capture-diff recorded in the issue's
+# analysis/<date>-byte-identical.txt (plan Task 9b) — a hermetic bats run sits at
+# ONE checkout and cannot compare against the merge base. These cases are the
+# regression net that keeps the pinned behavior from drifting afterwards.
+
+@test "#561 AC12: no model keys and no steering labels writes NO marker at all" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+default  = "haiku"
+EOF
+  # the stub's DEFAULT labels (bug, performance) are deliberately non-tier:*
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 750
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-750"
+  [ ! -f "$d/.devagent-step-models" ]
+  grep -q '^Template: standard$' "$d/checklist.md"
+  # every class resolves the config chain, exactly as before #561
+  [ "$(_step_tier 16 "$d")" = "opus" ]
+  [ "$(_step_tier 9 "$d")"  = "sonnet" ]
+  [ "$(_step_tier 12 "$d")" = "haiku" ]
+  # and pull emitted no steering warning at all
+  [[ "$output" != *"steering label"* ]]
+  [[ "$output" != *"model annotation"* ]]
+}
+
+@test "#561 AC12: a LEGACY bare-token marker keeps its exact shipped behavior" {
+  cat >> "$DA_HOME/config.toml" <<'EOF'
+
+[project.volk.step_models]
+thinking = "sonnet"
+checking = "opus"
+default  = "haiku"
+EOF
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 751
+  [ "$status" -eq 0 ]
+  local d="$DEVDOC/Issue-751"
+  # hand-dropped legacy marker, the #291 flow
+  printf 'fable' > "$d/.devagent-step-models"
+  # checking class takes the token; nothing else sees it
+  [ "$(_step_tier 16 "$d")" = "fable" ]
+  [ "$(_step_tier 9 "$d")" = "sonnet" ]
+  [ "$(_step_tier 12 "$d")" = "haiku" ]
+  # reserved token still rc 2, still checking-only
+  printf 'inherit' > "$d/.devagent-step-models"
+  run "$PLUGIN_ROOT/scripts/step-model.sh" volk 16 "$d"
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/step-model.sh" volk 9 "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = "sonnet" ]
+}
+
+# ---- #553: an empty flags heading must not leave the block open ----
+@test "pull: an empty flags heading plus prose cannot make a prose line die as a model token (#553)" {
+  # The die-class shape, and the strongest born-red in the #553 set: at the parent
+  # commit pull.sh DIES here (rc != 0), because the prose line parses as a real
+  # checking-model value and model_token_require_legal rejects it. The residual is
+  # therefore a hard pull failure, not merely a spurious warning.
+  export GH_STUB_BODY_JSON='"## Workflow flags\n\nprose about the flags block\nchecking-model: whatever-we-wrote-in-prose\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 760
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown model token"* ]]
+  [ -f "$DEVDOC/Issue-760/checklist.md" ]
+  [ ! -f "$DEVDOC/Issue-760/.devagent-step-models" ]
 }

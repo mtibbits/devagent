@@ -1,6 +1,6 @@
 ---
 description: File a capture draft as a tracker issue (origin or fork)
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*), Read
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *), Read
 argument-hint: "<capture-slug> [origin|fork]"
 ---
 
@@ -23,8 +23,14 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    The script reads the env var `DEVAGENT_PERMISSION_PUSH_MR` (which
    mirrors config `[project.<name>.permissions].push_mr` once exported),
    defaulting to `false`. When the gate is `false`, the script prints
-   the plan and exits non-zero; the operator re-invokes with `--yes`
-   to confirm.
+   the plan and exits **4**; the operator re-invokes with `--yes`
+   to confirm. (An autonomous caller — `/devagent:crrf` — instead treats
+   4 as halt-and-report and never passes `--yes`.)
+
+   Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
+   `2` usage/bad `--target` · `3` draft or state problem (e.g. missing
+   `draft.md`, already filed, stale `.pending`, no H1 title, backend
+   failure) · `4` `push_mr` gate closed.
 
 4. On success, print the returned URL and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.

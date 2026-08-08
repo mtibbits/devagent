@@ -3,7 +3,7 @@ name: next
 description: Execute the next actionable step on the active issue
 when_to_use: To advance the active issue's 24-step checklist; --auto chains steps.
 argument-hint: "[project] [--auto] [--through <step>] [-- <note>]"
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # /devagent:next
@@ -52,4 +52,5 @@ History and state-atomicity details: references/concurrency.md.
 
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/next.sh" <argument tail>
 
-Forward the invocation's argument tail verbatim.
+Forward the argument tail verbatim; pass the project first if known
+(#572: a bare run refuses on a pointer/repo scope mismatch).

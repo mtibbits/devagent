@@ -1,6 +1,6 @@
 ---
 description: "Step 12: commit staged changes with DCO sign-off using commit_template."
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue-dir]"
 ---
 
@@ -23,13 +23,13 @@ artifact before committing:
   die; make the test fail without the change, or allowlist it with a reason.
 - **No** artifact exists → die (#409): `born_red=true` means the implement-phase
   born-red run is mandatory, so an absent artifact is a skipped run, not a pass.
-  Re-run `scripts/born-red.sh`; a change with no new tests still writes a
+  Re-run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh" <project>`; a change with no new tests still writes a
   NO-NEW-TESTS artifact that satisfies the gate.
 - The artifact **pins the `tests/` delta** it judged (a `tests-fingerprint:`
   hash over every changed/added path under `tests/`). If a test — or a shared
   helper/fixture under `tests/` that could flip a judged test's result — was
   added/edited/removed since the run, the recorded verdict is stale → die (#410);
-  re-run `scripts/born-red.sh` to re-judge. The fingerprint is invariant to a
+  re-run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/born-red.sh" <project>` to re-judge. The fingerprint is invariant to a
   file's tracked/untracked status, so merely `git add`-ing an already-judged test
   does not trip it. The check inspects `source_dir` (matching born-red), so a
   change made only inside a separate worktree is not seen — the same boundary

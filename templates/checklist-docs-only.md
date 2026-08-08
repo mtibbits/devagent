@@ -17,7 +17,7 @@ Active revision: 1
 - [ ] 15. review
 - [ ] 17. preship
 - [ ] 18. ship
-- [ ] 19. mergetoall
+- [-] 19. mergetoall
 - [ ] 23. cleanup
 
 ## Log

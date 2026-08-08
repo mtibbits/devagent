@@ -5,19 +5,62 @@ isolation (paths, no author context); a planner is better the more
 operator INTENT it holds — packaged to disk, never "paste the
 conversation".
 
-1. **When to dispatch.** Resolve the tier:
-   `tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 || true)"`
-   (canonical step number 2; the thinking class). A NON-EMPTY tier ⇒
-   dispatch a fresh-context planner subagent with that model override.
-   EMPTY ⇒ stay inline — note this deliberately differs from #151,
-   where dispatch is unconditional and empty means dispatch-with-
-   inherit; for planning, inline IS the fully-informed default and
-   dispatch exists for up-delegation. An explicit operator instruction
-   ("dispatch the draft" / "plan inline") overrides either way. If
-   the resolved tier is unavailable at dispatch, retry once with no
-   override and record the fallback form (rule 5).
-   Per-issue `.devagent-step-models` markers do NOT apply — the #291
-   layer is checking-class only (config.sh gate).
+1. **When to dispatch.** Resolve the tier AND READ THE EXIT CODE — do not
+   collapse the codes with `|| true` (#561; see the rc table below):
+
+   ```bash
+   err="$(mktemp)"
+   tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 2>"$err")"; rc=$?
+   prov="$(cat "$err")"; rm -f "$err"
+   ```
+
+   (canonical step number 2; the thinking class).
+
+   | rc | meaning | action |
+   |----|---------|--------|
+   | 0 | a tier resolved | dispatch a fresh-context planner with that model override |
+   | 2 | the reserved `inherit` token | **stay INLINE** — unchanged from pre-#561 behavior; see the note below |
+   | 3 | nothing configured | stay INLINE |
+   | 1 | **error: a bad/unreadable marker** | **STOP.** Fix or remove the marker; never silently fall inline |
+
+   **rc 2 keeps its pre-#561 behavior, deliberately (#561 review F1).** Before
+   #561 this rule resolved with `$(… || true)`, which mapped rc 2 to an empty
+   string ⇒ stay inline; that is preserved above. It is also the coherent reading
+   for THIS step: rc 2 means "inherit the session model", and inline drafting
+   already runs at the session model, so there is nothing to up-delegate. Contrast
+   the checking class, where rc 2 must dispatch-with-inherit because those steps
+   need fresh context regardless of model.
+   Whether rc 2 should instead dispatch a fork carrying `model: inherit` is a
+   real question, and it is deliberately NOT decided here — #561's scope was rc 1.
+   It is recorded as a follow-up in that issue's
+   `imPlan-potentialFutureEnhancements.md`.
+
+   Inline IS the fully-informed default here and dispatch exists for
+   up-delegation — this deliberately differs from #151, where dispatch is
+   unconditional. An explicit operator instruction ("dispatch the draft" /
+   "plan inline") overrides either way. If the resolved tier is unavailable at
+   dispatch, retry once with no override and record the fallback form (rule 5).
+
+   **Why rc 1 must STOP (#561).** Before #561 this rule resolved the tier with
+   `$(… || true)`, which mapped rc 1, 2 and 3 alike to an empty string ⇒ "stay
+   inline". #561 made `step_models_tier`'s structural marker faults apply to the
+   THINKING class as well as the checking one, so rc 1 became reachable at step 2
+   for the first time — and a broken keyed marker would have silently disabled
+   draft dispatch instead of stopping. That is the same silent fallback the
+   CHECKING-class dispatch contract forbids (its rc-1 row says STOP), at the one
+   place `implementation-model` is enforced.
+   <!-- The sibling contract is referenced by CLASS above, never by filename, on
+        purpose: tests/dispatch-contract.bats treats any file that names a
+        dispatch-contract doc as a POINTER STUB rather than a full-contract
+        carrier, so writing that filename anywhere in this file silently drops
+        THIS file out of the asserted carrier set. Do not "helpfully" add it --
+        and note this comment cannot name it either, for exactly that reason. -->
+
+   **Per-issue `.devagent-step-models` markers DO apply to this step (#561).**
+   The KEYED marker form (`thinking: <token>`) covers the thinking class, so a
+   per-issue marker can steer draft's planner. (The legacy BARE token form
+   remains checking-class only, so it is still invisible here — the pre-#561
+   claim that markers never apply to draft was true only of that form.)
 2. **Package intent to disk, then dispatch paths.** Before dispatching,
    write `<issue-dir>/intent.md` from the resolved `intent_template`
    (§12 registry key) — sections: `## Goals`, `## Constraints`,

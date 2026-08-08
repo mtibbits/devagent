@@ -1,6 +1,6 @@
 ---
 description: Clear the STUCK file and resume the previously-stuck step
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "<project> [--pending]"
 ---
 

@@ -4,8 +4,15 @@
 # artifact. Runs bats + pytest (per tree presence) with the hermetic env-unset
 # baked in, and writes <issue-dir>/analysis/<date>-suite-count.txt:
 #     head: <sha>  dirty: yes|no
+#     tree: <canonical path of the measured checkout>
 #     bats: <ok>/<plan> notok=<n>
 #     pytest: <passed> passed, <failed> failed
+# The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
+# commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
+# checkout of the SAME project (a linked worktree, or a clone with the same
+# origin) REFUSES via active_guard_tree rather than silently measuring the
+# configured tree; a mid-run HEAD move also refuses, so the head: stamp always
+# names the tree the suites actually ran against.
 # Counts come from `grep -c '^ok '` + the `1..N` plan line — NEVER the tail (#85
 # shipped a tail-derived false count). preship-evidence.sh cross-checks mr.md
 # against this artifact (verification #4).
@@ -25,17 +32,20 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 : "${DEVAGENT_GIT:=git}"
 
-project="$(active_resolve_project "${1:-}" 2>/dev/null || true)"
+active_resolve_project_try "${1:-}" 2>/dev/null || true
+project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "run-suite: project required (no arg and no active project)"
 config_is_project "$project" || die "run-suite: unknown project '$project'"
+active_guard_scope run-suite
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "run-suite: issue_dir not set or missing"
-source_dir="$(config_get_project_field "$project" source_dir)"
-[ -d "$source_dir" ] || die "run-suite: source_dir missing: $source_dir"
+active_tree_resolve "$project"            # setter-globals; never $( … )  (#282/#120)
+active_guard_tree run-suite               # #571: strictly AFTER active_guard_scope
+work_dir="$ACTIVE_TREE_DIR"
 
-cd "$source_dir"
+cd "$work_dir"
 head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
-[ -n "$head" ] || die "run-suite: could not resolve HEAD in $source_dir"
+[ -n "$head" ] || die "run-suite: could not resolve HEAD in $work_dir"
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 bats_line="bats: (none)"
@@ -68,15 +78,42 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   # means a zero count, defaulted below.
   passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
   failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
-  pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
+  if [ -z "$passed" ] && [ -z "$failed" ]; then
+    # pytest emitted no count at all: it never ran (missing interpreter — e.g.
+    # a Windows Store python3 shim — or a collection error) or collected
+    # nothing. tests/test_*.py existing does NOT mean pytest can run them
+    # (standalone-script suites). Recording "0 passed, 0 failed" here is a
+    # false green — it reads "ran clean" for a suite that was never measured —
+    # and it also breaks preship-evidence's no-framework reconciliation
+    # (`none @ <sha>`), which requires the explicit `pytest: (none)` form.
+    pytest_line="pytest: (none)"
+  else
+    pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
+  fi
 fi
+
+# #571 AC2: the stamp at the top and the suites below are two reads of one tree. If
+# HEAD moved between them, no single SHA describes what was executed — refuse rather
+# than record a HEAD the suite never ran against. Residual window (register Issue-558):
+# the microseconds between this check and the write below; `dirty` is still the
+# PRE-run reading, deliberately — re-deriving it here would false-fire on any run
+# that leaves untracked build output.
+head_after="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
+[ "$head_after" = "$head" ] \
+  || die "run-suite: HEAD MOVED mid-run in $work_dir ($head -> ${head_after:-<unresolvable>}) — the suite did not execute against one tree; no artifact written. Re-run at a stable HEAD."
 
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
+# #571: tree: is an IDENTITY, not a display string — canonicalized (pwd -P) so the
+# stamp survives symlink/case spelling variance; cwd has been $work_dir since the
+# cd above. Inserted AFTER head:, so the SHA stays the artifact's first data line
+# and no prefix-anchored consumer moves.
+tree_canon="$(pwd -P)"
 {
   echo "head: $head  dirty: $dirty"
+  echo "tree: $tree_canon"
   echo "$bats_line"
   echo "$pytest_line"
 } > "$artifact"
-echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty)" >&2
+echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

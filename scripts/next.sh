@@ -51,6 +51,9 @@ main() {
   active_resolve_project_src "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
   config_is_project "$project" || die "unknown project '$project'"
+  # #572: refuse a wrong-scope chain BEFORE the pointer refresh below — a
+  # mismatched bare invocation must neither dispatch nor move the pointer.
+  active_guard_scope next
   # #282: only pointer/fallback-resolved runs refresh the pointer (rationale
   # at active_resolve_project_src).
   case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac
@@ -131,7 +134,16 @@ main() {
     # #150: advisory model-tier hint for the dispatched step. Prints only when the
     # optional [project.<name>.step_models] table resolves a tier; absent ⇒ silent.
     # #291: issue_dir passed so the hint agrees with the per-issue marker the
-    # checking-class dispatch will actually resolve.
+    # dispatch will actually resolve. #561: the marker's KEYED form covers the
+    # thinking class too, so this hint now surfaces marker tiers for thinking
+    # steps as well — and for the inline ones (9/10/11/14) the hint is the ONLY
+    # place the tier appears, since a session cannot swap its own model.
+    # DECISION (#561 review F5): a MALFORMED marker stays LOUD here. The `if`
+    # swallows the rc but not the stderr, so step_models_tier's die message
+    # prints on every next/catchup while the flow continues. That is wanted:
+    # silencing it would hide a broken marker at exactly the moment the operator
+    # is looking at the step list, and pull.sh's write-time validation means a
+    # malformed marker can only arrive by hand-edit.
     local _tier
     if _tier="$(step_models_tier "$project" "$cur" "$issue_dir")"; then
       echo "step $cur ($name) wants tier: $_tier"

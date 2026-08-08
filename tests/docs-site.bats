@@ -48,7 +48,13 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qF 'claude plugin marketplace add mtibbits/devagent' "$f"
     grep -qF 'claude plugin install devagent@devagent' "$f"
     grep -qF 'claude plugin install superpowers@claude-plugins-official' "$f"
-    grep -qF '2.1.211' "$f"
+    # Deliberate literal pin, not derive-from-README: a version bump must be a
+    # CONSCIOUS edit here too, because it is the trigger for re-running the
+    # plugin-root-grant-automatch smoke rung (#548).
+    grep -qF '2.1.223' "$f"
+    # #548 permissions-caveat parity: the load-bearing lines are byte-shared.
+    grep -qF 'Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)' "$f"
+    grep -qF 'Never widen to bare `Bash`' "$f"
   done
   # The headline count token is shared by index.md and README the same way
   # (review minor 18: previously pinned only via workflow.md's derived table).

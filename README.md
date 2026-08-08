@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **57 slash commands** driving a **24-step workflow** (22 mandatory steps + 2 optional), works against
+provides **58 slash commands** driving a **24-step workflow** (21 mandatory steps + 3 optional), works against
 GitHub, GitLab, and JIRA trackers/forges, and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
 
@@ -53,31 +53,35 @@ uninstall + reinstall.
 Requires a `bash` + `python3` toolchain (the workflow scripts) and, for the auth
 subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
 
-**Claude Code version.** Developed and verified against Claude Code **2.1.211**;
-earlier versions are untested. One caveat to expect: as of 2.1.211 Claude Code does
-not substitute `${CLAUDE_PLUGIN_ROOT}` inside `allowed-tools`, so devAgent's scoped
-`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*)` grants don't auto-match and you'll be
-prompted to approve each workflow script call. Approve-and-remember when prompted, or
-pre-approve by adding a `permissions.allow` entry in `~/.claude/settings.json` that
-covers the plugin's installed version directory (which contains `scripts/`) — its cache
-path is version-nested under `~/.claude/plugins/cache/devagent/…`, so match the plugin
-dir prefix (e.g.
-`Bash(bash /home/you/.claude/plugins/cache/devagent/devagent/:*)`, absolute path, `:*`
-covering the version segment). Never widen to bare `Bash`.
+**Claude Code version.** Developed and verified against Claude Code **2.1.223**;
+earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
+`${CLAUDE_PLUGIN_ROOT}` substitutes inside `allowed-tools`, and devAgent ships the
+probe-verified quoted grant form
+`Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`
+that matches the quoted script invocations the command bodies emit (#548 decision doc).
+On older Claude Code (measured at 2.1.211 in #533, where the substitution does not fire;
+older versions are untested but assumed the same, and the exact landing version between
+2.1.211 and 2.1.223 is unmeasured, so intermediate versions may or may not prompt)
+every workflow script call prompts; approve-and-remember there, or upgrade. The model can
+occasionally retype a command in a form that misses the literal prefix match (e.g. a
+different drive-letter case) — that falls back to a one-off prompt, never to a wider
+grant. Never widen to bare `Bash`.
 
 ## The 24-step workflow
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
 Run them one at a time with `/devagent:next` (which advances to the next
 unmarked step), or invoke any step command directly. Steps are numbered 0–23 in
-execution order — 24 numbered steps, 22 of them mandatory; the optional
-`1 research` and `3 spike` are off by default, so a normal issue's checklist
-reads top-to-bottom with two gaps:
+execution order — 24 numbered steps, 21 of them mandatory; the optional steps
+are off by default: `1 research` and `3 spike` opt in per issue via the
+`## Workflow flags` block, and `19 mergetoall` opts in per project by
+configuring `all_prs_branch`. A normal issue's checklist reads top-to-bottom
+with those rows pre-marked `[-]` (skipped):
 
 - **Plan** — `0 pull` · `1 research` _(optional, flagged)_ · `2 draft` · `3 spike` _(optional, flagged)_ · `4 scope` · `5 improve` · `6 prune` · `7 tighten`
 - **Implement** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
 - **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
-- **Integrate & close** — `19 mergetoall` · `20 updatewbs` · `21 impact` · `22 lessonslearned` · `23 cleanup`
+- **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 updatewbs` · `21 impact` · `22 lessonslearned` · `23 cleanup`
 
 `/devagent:revise` opens a new revision pass (pulling reviewer feedback via
 `/devagent:comments` and re-running from `draft` — the revision's first pending
@@ -116,6 +120,7 @@ All commands live under the `/devagent:` namespace.
 | `redissue` | Run the issue red-team prompt against a capture draft |
 | `scaffold` | Bin an epic capture into child issue drafts |
 | `file` | File a capture draft as a tracker issue (origin or fork) |
+| `crrf` | Autonomous capture → red-team → revise → file for one discussed topic |
 | `reap` | Harvest follow-up candidates from completed work into a capture draft |
 
 ### WBS & reporting
@@ -129,9 +134,9 @@ Low-level building blocks the workflow commands use; you rarely call them
 directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
-> The 24 numbered step commands above (22 mandatory + the optional `1 research`
-> and `3 spike` steps), plus `next` / `revise` / `comments`, together with the tables in this
-> section, are the full set of 57 slash commands (54 commands + 3 user-invocable
+> The 24 numbered step commands above (21 mandatory + the optional `1 research`,
+> `3 spike`, and `19 mergetoall` steps), plus `next` / `revise` / `comments`, together with the tables in this
+> section, are the full set of 58 slash commands (55 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
@@ -323,7 +328,7 @@ by `tests/test_plugin_versioning.py` (CI) and recorded with the measured
 evidence in the #532 decision doc.
 
 Consequence, accepted: `claude plugin validate --strict` fails on the missing
-version (measured on 2.1.211) and stays red by design. The wired check is the
+version (measured on 2.1.211, re-verified on 2.1.223 — #548) and stays red by design. The wired check is the
 **non-strict** `claude plugin validate` (rc=0). Both invocations — the
 non-strict check and the strict inverse canary — live in
 `tests/plugin-validate.bats`, a local-only rung, since CI has no claude CLI;

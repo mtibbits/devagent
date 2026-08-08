@@ -68,7 +68,11 @@ done
 # #124: route the bare-invocation default through the active-project chain
 # (arg → DEVAGENT_ACTIVE_PROJECT → global _active.toml → single configured project)
 # instead of the literal string 'default', matching next.sh / statusreport.sh / wbs.
-PROJECT="$(active_resolve_project "$PROJECT")"
+# #572: _try form; a resolution failure still exits under set -e with the
+# engine's own message (re-emitted), byte-compatible with the old $() die-through.
+active_resolve_project_try "$PROJECT"
+PROJECT="$ACTIVE_RESOLVED_PROJECT"
+active_guard_scope revise
 
 # #240: the session's issue (arg → env pin → shared state); reads/writes are
 # keyed to it. (Supersedes the #70 arg-vs-state crosscheck: an explicit arg
@@ -99,7 +103,8 @@ if [[ -n "$RETIER" ]]; then
     # so copying them would re-point next.sh or silently reset a flagged row to
     # `[-]` on every revision. Re-flag via the documented manual escape hatch.
     awk '/^## Revision 1$/{inrev=1; next} inrev && /^## /{exit}
-         inrev && /^- \[/ && $0 !~ /^- \[.\] +[0-9]+\. (pull|research|spike)$/ {print}' "$tpl"
+         inrev && /^- \[/ && $0 !~ /^- \[.\] +[0-9]+\. (pull|research|spike)$/ {print}' "$tpl" \
+      | checklist_filter_mergetoall "$PROJECT"
   } >> "$issue_dir/checklist.md"
   sed -i "s/^Template: .*/Template: ${RETIER}/" "$issue_dir/checklist.md"
   # #414 shape: revision bump + step-pointer reset in ONE issue-keyed

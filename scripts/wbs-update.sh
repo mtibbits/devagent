@@ -49,8 +49,10 @@ for arg in "$@"; do
   esac
 done
 
-project="$(active_resolve_project "$project_arg")"
+active_resolve_project_try "$project_arg"
+project="$ACTIVE_RESOLVED_PROJECT"
 config_is_project "$project" || die "wbs update: unknown project '$project'"
+active_guard_scope "wbs update"
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "wbs update: devdoc_dir not configured for $project"
 
