@@ -111,7 +111,10 @@ TOML
   printf 'active_project = "beta"\n' \
     > "$HOME/.claude/devagent/state/_active.toml"
   export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-  BLOCK="$(awk '/^## Env contract/{s=1} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
+  # The range TERMINATES at the next `## ` heading: without that, removing this
+  # section's fence would let the scan run on and eval some later section's bash
+  # block instead of redding on the emptiness guard below.
+  BLOCK="$(awk '/^## Env contract/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
     "$REPO_ROOT/skills/capture/SKILL.md")"
   [ -n "$BLOCK" ]          # anti-vacuous: an empty extraction must red, not pass
 }
