@@ -177,15 +177,17 @@ _check_user_invocable() {
 }
 
 # #114: the capture family must document a REAL env-derivation path, not a
-# non-existent "Phase 1 config loader".
-@test "capture skill documents the env-derivation sources, not a phantom loader (#114)" {
+# non-existent "Phase 1 config loader". #570: DEVAGENT_PROJECT's real source is
+# the OPERATOR — deriving it from the global pointer filed drafts under the
+# wrong project, so the pointer cite was removed rather than re-pinned here.
+@test "capture skill documents the env-derivation sources, not a phantom loader (#114/#570)" {
   F="$BATS_TEST_DIRNAME/../skills/capture/SKILL.md"
   grep -q 'CLAUDE_PLUGIN_ROOT' "$F"            # DEVAGENT_PLUGIN_DIR source
   grep -q 'config\.toml' "$F"                  # DEVAGENT_DEVDOC_DIR source
   grep -q 'devdoc_dir' "$F"
-  grep -q 'active_project' "$F"                # DEVAGENT_PROJECT source (state)
+  grep -qF 'You type it.' "$F"                 # DEVAGENT_PROJECT source (operator)
   run grep -q 'Phase 1' "$F"                   # the phantom loader claim is gone
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }
 
 @test "file.md names the real push_mr env gate the script reads (#114)" {
