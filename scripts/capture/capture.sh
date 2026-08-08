@@ -22,7 +22,8 @@ Prints the slug on stdout.
 Env:
   DEVAGENT_DEVDOC_DIR   required
   DEVAGENT_PLUGIN_DIR   required
-  DEVAGENT_PROJECT      optional (used in {{project}} substitution)
+  DEVAGENT_PROJECT      optional ({{project}} substitution + [project.<name>.paths]
+                        template override; reap.sh REQUIRES it)
   DEVAGENT_DATE_OVERRIDE  optional (test-only)
 USAGE
 }
