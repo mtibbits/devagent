@@ -42,10 +42,11 @@
 #
 # COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
 # renaming ANY skill reddens @test 4 — that is the intended forcing function. Adding
-# a USER-INVOCABLE one reddens three further places: @test 1 here, and in
-# tests/cmd_wrappers.bats the `capture next ship` set pin, the `-eq 3` / `n + s -eq
-# 58` counts, and its grep for the literal "58 slash commands" in README.md. Budget
-# a four-site update, not a one-line one.
+# a USER-INVOCABLE one also reddens @test 1 here and, in tests/cmd_wrappers.bats,
+# the `capture next ship` set pin and the `-eq 3` / `n + s -eq 58` counts — and that
+# file pins the "58 slash commands" literal in SIX doc homes (README, CHANGELOG,
+# both .claude-plugin manifests, the design spec, docs-site/index.md). Budget
+# roughly an eight-site update, not a one-line one.
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
@@ -86,8 +87,8 @@ _bang_exec_re='^[[:space:]]*![^[]'
 # space-separated. This is NOT a second classifier: it reads no frontmatter, and
 # it answers a different question ("which skills exist") from the one
 # _user_invocable_skills answers ("which of those are user-invocable"). Same glob
-# on purpose; @test 4 pins that the user-invocable set is a SUBSET of this one, so
-# the two enumerators cannot drift apart silently. Dir-parameterized so the
+# on purpose. The primary drift guard is the PAIR of exact-set literals (@test 1 and
+# @test 4); @test 4's subset loop is belt-and-braces on top of them. Dir-parameterized so the
 # anti-vacuity proof can run it against a synthetic fixture tree instead of the
 # real one. (skills/.gitkeep is a tracked file directly under skills/ and is
 # correctly never matched by */SKILL.md.)
@@ -170,8 +171,10 @@ _bang_offenders() {          # $1 = skills dir; $2.. = skill names to scan
   # explicit count floor so an emptied glob can never pass @test 5 vacuously, and
   # so a future weakening of the set assert still leaves a live floor
   [ "$(printf '%s' "$output" | wc -w)" -eq 17 ]
-  # the two enumerators must agree: every user-invocable name is in the full set.
-  # Guards against the globs drifting apart (they are deliberately identical).
+  # Belt-and-braces: every user-invocable name is in the full set. The exact-set
+  # literal above (paired with @test 1's) is what actually catches drift — this loop
+  # is vacuous on an empty classifier result and, when non-empty, can only fire in
+  # cases @test 1 already reddens. Kept because it is cheap and names the offender.
   local u
   for u in $(_user_invocable_skills); do
     [[ " $output " == *" $u "* ]] || { echo "enumerator drift: $u not in the full skill set" >&2; return 1; }
@@ -193,7 +196,8 @@ _bang_offenders() {          # $1 = skills dir; $2.. = skill names to scan
   [ "${#set_[@]}" -eq 17 ]
 
   run _bang_offenders "$REPO/skills" "${set_[@]}"
-  # status 0 = clean scan; 2 = grep error or a missing subject; 127 = missing helper
+  # status 0 = clean scan; 2 = grep error or a missing subject (the type -t check
+  # above has already ruled out the missing-function 127)
   [ "$status" -eq 0 ]
   [ -z "$output" ] || { echo "bang-exec line(s) found in skills: $output" >&2; return 1; }
 }
