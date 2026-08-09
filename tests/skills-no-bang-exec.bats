@@ -221,7 +221,7 @@ _bang_offenders() {          # $1 = skills dir; $2.. = skill names to scan
 
   # the widened scan DOES name it (positive leg), and does not name the two clean
   # skills (negative leg — a rewrite must not turn fail-closed into fail-open)
-  local -a s=(); read -r -a s <<< "core-bad core-clean vis-clean"
+  local -a s=(core-bad core-clean vis-clean)
   run _bang_offenders "$d" "${s[@]}"
   [ "$status" -eq 0 ]
   [ "$output" = "core-bad" ]
