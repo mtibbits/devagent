@@ -12,6 +12,40 @@
 # rename/conversion empties it, "0 skills, 0 bang lines" would pass vacuously.
 # So @test 1 asserts the exact SET + COUNT before @test 2 checks bang lines
 # (Issue-337: a presence-canary asserts a precise count, never `-ne 0`).
+#
+# #550 WIDENS the canary to ALL skills/*/SKILL.md, including the 14
+# `user-invocable: false` core-* skills. Those are invoked via the Skill tool by the
+# workflow chain, so a bang-exec line in one would auto-exec just the same, and
+# would be unobservable to both the `--auto` chain and hooks/preship-dirty-tree.sh.
+# The widened trio (@test 4-6) is ADDITIVE: @test 1-3 remain the narrower #521
+# invariant and its exact-set guard on the user-invocable subset. @test 6 is the
+# standing proof the widening is load-bearing — its fixture's only offender is a
+# hidden (user-invocable:false) skill, which the pre-#550 subject list does not
+# contain.
+#
+# STATED BLIND SPOT (Issue-558 — a checker's green overclaims unless its blind-spot
+# SHAPE is written into the checker): `_bang_exec_re` pins exactly ONE spelling of a
+# vendor grammar this repo does not control. A future command-expansion form that is
+# not "leading `!` not followed by `[`" is invisible here; a bare `!` alone on a line
+# and the markdown-image `![` form are excluded BY DESIGN. Broadening the grammar is
+# deliberately out of scope for #550 (see the issue's future-enhancements file).
+#
+# DO NOT ILLUSTRATE THIS PATTERN INSIDE ANY SKILL.md (Issue-561): a comment or
+# example that spells a leading-bang line inside a skill file self-trips the guard it
+# is explaining. This .bats file is not a scan subject, which is why the literal is
+# safe here.
+#
+# commands/*.md are deliberately OUT of scope and are NOT clean: analyze, branch,
+# cleanup, commit, mergetoall and sync each carry exactly one bang-exec line — that
+# IS the command-side auto-exec path this invariant exists to keep out of skills.
+# agents/*.md carry zero, but are a different invocation surface and are not pinned.
+#
+# COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
+# renaming ANY skill reddens @test 4 — that is the intended forcing function. Adding
+# a USER-INVOCABLE one reddens three further places: @test 1 here, and in
+# tests/cmd_wrappers.bats the `capture next ship` set pin, the `-eq 3` / `n + s -eq
+# 58` counts, and its grep for the literal "58 slash commands" in README.md. Budget
+# a four-site update, not a one-line one.
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
@@ -48,6 +82,52 @@ _user_invocable_skills() {
 # markdown image (`![`). Matches `!cmd` and the `` !`cmd` `` backtick form.
 _bang_exec_re='^[[:space:]]*![^[]'
 
+# #550: the FULL skill set — directory names of every skills/*/SKILL.md, sorted,
+# space-separated. This is NOT a second classifier: it reads no frontmatter, and
+# it answers a different question ("which skills exist") from the one
+# _user_invocable_skills answers ("which of those are user-invocable"). Same glob
+# on purpose; @test 4 pins that the user-invocable set is a SUBSET of this one, so
+# the two enumerators cannot drift apart silently. Dir-parameterized so the
+# anti-vacuity proof can run it against a synthetic fixture tree instead of the
+# real one. (skills/.gitkeep is a tracked file directly under skills/ and is
+# correctly never matched by */SKILL.md.)
+# shellcheck disable=SC2120  # args ARE passed by the anti-vacuity @test (fixture
+# tree); the floor and scan @tests call it argless via the ${1:-} default. Same
+# false positive, same disposition, as tests/cmd_wrappers.bats's on the classifier.
+_all_skills() {
+  local dir="${1:-$REPO/skills}" f
+  local -a all=()
+  for f in "$dir"/*/SKILL.md; do
+    [ -e "$f" ] || continue
+    all+=("$(basename "$(dirname "$f")")")
+  done
+  [ ${#all[@]} -eq 0 ] && return 0
+  printf '%s\n' "${all[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
+# #550: names of the skills — from the NAME LIST the caller passes in, which is
+# the denominator the caller already counted (#151: count what the assertions
+# actually run against) — whose SKILL.md carries a bang-exec line. Sorted,
+# space-separated, empty when clean. rc-precise (#337/#314): grep -c exits 0 on a
+# match, 1 on a CLEAN no-match, and >=2 on ERROR; the error rung returns 2 rather
+# than being read as "found nothing", so an unreadable subject reddens instead of
+# passing. A missing subject file is also a hard 2 — a shrunken glob must never
+# read as clean.
+_bang_offenders() {          # $1 = skills dir; $2.. = skill names to scan
+  local dir="$1"; shift
+  local name f n rc
+  local -a bad=()
+  for name in "$@"; do
+    f="$dir/$name/SKILL.md"
+    [ -f "$f" ] || { echo "missing subject file: $f" >&2; return 2; }
+    rc=0; n="$(grep -cE "$_bang_exec_re" "$f")" || rc=$?
+    [ "$rc" -le 1 ] || { echo "grep failed (rc=$rc) on $f" >&2; return 2; }
+    [ "$n" -gt 0 ] && bad+=("$name")
+  done
+  [ ${#bad[@]} -eq 0 ] && return 0
+  printf '%s\n' "${bad[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
 @test "exactly the three known user-invocable skills (glob-drop + unexpected-addition guard, #439)" {
   run _user_invocable_skills
   [ "$status" -eq 0 ]
@@ -78,4 +158,71 @@ _bang_exec_re='^[[:space:]]*![^[]'
   run grep -cE "$_bang_exec_re" "$tmp"
   [ "$output" -eq 1 ]
   rm -f "$tmp"
+}
+
+@test "exactly the 17 known skills exist (full-set glob-drop + unexpected-addition floor, #439/#337/#550)" {
+  run _all_skills
+  [ "$status" -eq 0 ]
+  # exact set over the FULL skill set — strictly stronger than a bare count at the
+  # same churn cost: a rename or a 1-for-1 swap keeps the count at 17 and is
+  # invisible to a count, and a mismatch NAMES the delta instead of printing 16!=17
+  [ "$output" = "capture core-capture core-document-actual-work core-draft-mr core-impact core-improve core-lessons-learned core-preship core-prune core-reap core-redissue core-redmr core-scaffold core-scope core-tighten next ship" ]
+  # explicit count floor so an emptied glob can never pass @test 5 vacuously, and
+  # so a future weakening of the set assert still leaves a live floor
+  [ "$(printf '%s' "$output" | wc -w)" -eq 17 ]
+  # the two enumerators must agree: every user-invocable name is in the full set.
+  # Guards against the globs drifting apart (they are deliberately identical).
+  local u
+  for u in $(_user_invocable_skills); do
+    [[ " $output " == *" $u "* ]] || { echo "enumerator drift: $u not in the full skill set" >&2; return 1; }
+  done
+}
+
+@test "no skill of ANY visibility carries a bang-exec line (core-* included, #550)" {
+  # #572: prove the helper EXISTS first — bats `run` on a missing function yields
+  # status 127 with EMPTY output, which would satisfy the "no offenders" assertion
+  # below vacuously.
+  run type -t _bang_offenders
+  [ "$status" -eq 0 ]
+  [ "$output" = "function" ]
+
+  # the denominator is counted BEFORE the scan and is the SAME list the scan runs
+  # over (#151: count what the assertions actually run against, not a parallel glob)
+  local -a set_=()
+  read -r -a set_ <<< "$(_all_skills)"
+  [ "${#set_[@]}" -eq 17 ]
+
+  run _bang_offenders "$REPO/skills" "${set_[@]}"
+  # status 0 = clean scan; 2 = grep error or a missing subject; 127 = missing helper
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "bang-exec line(s) found in skills: $output" >&2; return 1; }
+}
+
+@test "self-test: the all-skills scan names a planted offender in a HIDDEN skill (anti-vacuity, #425/#151/#550)" {
+  # A synthetic skills tree — never mutate the real one. The ONLY offender is a
+  # user-invocable:false skill, which is exactly the hole #550 closes.
+  local d="$BATS_TEST_TMPDIR/skills"
+  mkdir -p "$d/core-clean" "$d/core-bad" "$d/vis-clean"
+  printf -- '---\nname: core-clean\nuser-invocable: false\n---\nprose\n' > "$d/core-clean/SKILL.md"
+  printf -- '---\nname: core-bad\nuser-invocable: false\n---\nprose\n!`bash /tmp/x.sh`\n' > "$d/core-bad/SKILL.md"
+  printf -- '---\nname: vis-clean\n---\nprose\n' > "$d/vis-clean/SKILL.md"
+
+  # the fixture is enumerated through the SAME helper the real guard uses
+  run _all_skills "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = "core-bad core-clean vis-clean" ]
+
+  # THE #550 PREMISE, made executable: the pre-#550 user-invocable-scoped subject
+  # list does NOT contain the offender, so the narrower guard passes this fixture
+  # vacuously. This assertion is what proves the widening is load-bearing.
+  run _user_invocable_skills "$d"
+  [ "$status" -eq 0 ]
+  [ "$output" = "vis-clean" ]
+
+  # the widened scan DOES name it (positive leg), and does not name the two clean
+  # skills (negative leg — a rewrite must not turn fail-closed into fail-open)
+  local -a s=(); read -r -a s <<< "core-bad core-clean vis-clean"
+  run _bang_offenders "$d" "${s[@]}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "core-bad" ]
 }
