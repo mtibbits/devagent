@@ -29,8 +29,9 @@ env entry in the project directory:
 
 The harness injects the variable into every shell, so resolution through
 the standard chain (arg → env → pointer) is pinned for that session
-without consulting or touching the shared pointer. (Tooling that edits
-`_active.toml` directly — e.g. capture's recipe — bypasses the pin.)
+without consulting or touching the shared pointer. (Tooling that reads or
+edits `_active.toml` directly bypasses the pin. Capture's env contract did
+so until #570; it now takes the project from the operator.)
 
 ## Per-project state atomicity
 

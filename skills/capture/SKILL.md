@@ -50,22 +50,31 @@ job of `/devagent:file` and requires the `permissions.push_mr` gate.
 
 ## Env contract
 
-The capture/reap scripts hard-require these env vars and exit 2 if any
-is unset. There is no automatic loader yet, so for now the operator
-exports them in their shell; each derives from an existing source:
+The capture/reap scripts read three env vars. There is no automatic loader
+yet, so for now the operator exports them in their shell.
 
-| Var                   | Source                                                              |
-|-----------------------|--------------------------------------------------------------------|
-| `DEVAGENT_PLUGIN_DIR` | `CLAUDE_PLUGIN_ROOT` — the harness-set plugin root (the same value the command wrappers already use to invoke `scripts/...`). |
-| `DEVAGENT_PROJECT`    | `active_project` in `~/.claude/devagent/state/_active.toml`.        |
-| `DEVAGENT_DEVDOC_DIR` | `[project.<name>].devdoc_dir` in `~/.claude/devagent/config.toml`. |
+| Var | Role | Source |
+|-----|------|--------|
+| `DEVAGENT_PLUGIN_DIR` | locates scripts + templates; required. | `CLAUDE_PLUGIN_ROOT` — the harness-set plugin root. |
+| `DEVAGENT_DEVDOC_DIR` | **governs WHERE the draft is written** (`<devdoc>/Captures/<slug>/`); required. | `[project.<name>].devdoc_dir` in `~/.claude/devagent/config.toml`, for the project you are capturing FOR. |
+| `DEVAGENT_PROJECT` | names the project you are capturing FOR. `capture.sh`: optional — fills `{{project}}` and picks up a `[project.<name>.paths]` template override. `reap.sh`: **required** (exit 2), and it keys the ledger `<state>/$DEVAGENT_PROJECT.reaped.toml`. | You type it. |
 
-Example:
+**Do not derive `DEVAGENT_PROJECT` from `~/.claude/devagent/state/_active.toml`.**
+That global pointer names whichever project was last made active, not the one
+you are capturing for; deriving from it silently files the draft — and reap's
+ledger — under the wrong project.
+
+Example — name the project first, then paste:
 
 ```bash
-export DEVAGENT_PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT}"
-export DEVAGENT_PROJECT="$(sed -n 's/^active_project = "\(.*\)"/\1/p' \
-  ~/.claude/devagent/state/_active.toml)"
-export DEVAGENT_DEVDOC_DIR="$(sed -n "/^\[project.${DEVAGENT_PROJECT}\]/,/^\[/s/^devdoc_dir *= *\"\(.*\)\"/\1/p" \
-  ~/.claude/devagent/config.toml)"
+export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?name the project you are capturing FOR, e.g. devagent}"
+export DEVAGENT_PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT:?harness-set; export it by hand in a plain shell}"
+DEVAGENT_DEVDOC_DIR="$(python3 "${DEVAGENT_PLUGIN_DIR}/scripts/lib/_toml.py" get \
+  ~/.claude/devagent/config.toml "project.${DEVAGENT_PROJECT}.devdoc_dir")" \
+  || echo "no devdoc_dir for '${DEVAGENT_PROJECT}' in config.toml" >&2
+export DEVAGENT_DEVDOC_DIR
 ```
+
+That lookup takes a literal TOML key path, not a `sed` regex: a name with
+regex metacharacters cannot spill into another project's block, and an
+unknown name yields an empty value plus a loud message.
