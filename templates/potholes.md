@@ -63,6 +63,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A negative assertion (rc != 0, stderr non-empty) is vacuously satisfied by a MISSING function's 127 → precede born-red negative tests with a `type <fn>` probe or pin the specific failure token, so absence reddens instead of greening (Issue-572).
 - A guard set that measures only SAFETY lets a half-built feature ship green -> every enabling task needs a positive-capability probe, because "clean" is also satisfied by "wrote nothing" (Issue-107).
 - A multi-assertion guard reddens only at its FIRST failing assert — born-red evidence for the later legs requires probing each leg independently against the unfixed tree (Issue-123).
+- A guard that enumerates BAD spellings of a grammar you do not control ships green on the next spelling → assert the ONE permitted shape instead, so unknown future forms are red by default rather than invisible by default (fleet Issue-20).
+- A mutate/restore test harness can corrupt the tree it is testing — a shell that re-encodes BOM-less UTF-8 on write leaves valid results over mangled files → mutate with byte-safe tooling and hash-verify every restored file before trusting the run (fleet Issue-20).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -86,6 +88,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A deferral recorded only in a code comment or MR body has no addressee → put the obligation on the receiving issue AND in a committed, guard-asserted register the change itself carries (Issue-106).
 - A command that resolves the active scope from GLOBAL state does it at FIRE time, so an unscoped invocation can silently WRITE its artifact into another scope's directory, not merely act on the wrong one — pass the scope explicitly to anything that produces a file (Issue-566).
 - The same fire-time global-scope defect on the EVIDENCE path is worse than on the write path: an unscoped verifier measures a DIFFERENT tree and reports green, so the artifact is true about something nobody asked about → stamp the resolved SHA/tree in the artifact and compare it to the branch before trusting any number (three sites hit in one issue: suite runner, evidence checker, WBS updater — Issue-553).
+- A deploy target's git HEAD is not what it RUNS — a hand-tended box is deployed-to but rarely committed-on, so take the parity baseline from the working tree and state which baseline the artifact used; a HEAD-to-HEAD comparison invents divergence and hides the real kind (fleet Issue-20).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -116,6 +119,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A single-cause label on a multi-cause counter becomes misinformation when a change arms the second cause → re-read every aggregate/summary label sharing a counter with the newly-reachable failure path (Issue-Fork-191).
 - Changing a serialized format can invalidate a certificate that hashes the FILE rather than its contents → grep for file-level hashers first, and pin the container's key set in the same change; content hashes cannot see a key appear (Issue-106).
 - A change that transfers custody of live state invalidates the recovery paths that predate it → re-derive what snapshot-restore and revert DO under the new semantics before shipping them as safety nets; both "safe ways back" can be booby-trapped by the very change they backstop (fleet Issue-19).
+- A machine-readable contract authored for a consumer that does not exist yet rots silently → land its well-formedness check in the SAME change; the future consumer is not a defense against the next entry being added malformed (fleet Issue-20).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
@@ -166,6 +170,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - After any history rewrite, re-verify every artifact's recorded SHA is still reachable (`git merge-base --is-ancestor <sha> HEAD`) — a replayed branch leaves artifacts citing commits that are no longer ancestors (Issue-561).
 - Before requesting an override on a failing quality gate, ask whether the GATE is right and the ENVIRONMENT is wrong — an override is a permanent record of a compromise (Issue-561).
 - A deferral's addressee is a LOOKUP, not an assumption -> read the tracker before shipping a string that names a follow-up owner; claiming "unfiled" about a filed issue is the no-addressee defect wearing a number (Issue-107).
+- An input the issue calls unreachable is a claim, not a constraint → spend the one cheap probe (read-only remote read, archived copy) before planning around a prose reconstruction; here it corrected the source commit, the affected file set, and deleted a planned edit that would have CREATED divergence (fleet Issue-20).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
@@ -187,6 +192,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Running a VARIANT of a published command is not running it — a regex published in one dialect and executed in another returns a different count under an identical-looking claim; run every command in the exact form it will appear (Issue-106).
 - A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
 - Recording a command VERBATIM into an artifact passes through layers that each re-interpret backslash escapes — a regex escape can land as a control byte and read as a mere variant; write it as explicit bytes and diff byte-for-byte against the published form (Issue-566).
+- A residual honestly recorded in a deep artifact but absent from the maintainer-facing summary reads as CLOSED → whatever the deepest artifact admits, the MR body must admit too; deferring a class is fine, claiming it closed is not (fleet Issue-20).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
