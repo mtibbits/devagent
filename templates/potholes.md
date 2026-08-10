@@ -65,6 +65,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A multi-assertion guard reddens only at its FIRST failing assert — born-red evidence for the later legs requires probing each leg independently against the unfixed tree (Issue-123).
 - A guard that enumerates BAD spellings of a grammar you do not control ships green on the next spelling → assert the ONE permitted shape instead, so unknown future forms are red by default rather than invisible by default (fleet Issue-20).
 - A mutate/restore test harness can corrupt the tree it is testing — a shell that re-encodes BOM-less UTF-8 on write leaves valid results over mangled files → mutate with byte-safe tooling and hash-verify every restored file before trusting the run (fleet Issue-20).
+- Evidence generated in an environment where the suite is known never to be green produces an authoritative-looking artifact that fails the gate it feeds → generate gate inputs in the supported environment first, rather than building a case around a red number (Issue-550).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -89,6 +90,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A command that resolves the active scope from GLOBAL state does it at FIRE time, so an unscoped invocation can silently WRITE its artifact into another scope's directory, not merely act on the wrong one — pass the scope explicitly to anything that produces a file (Issue-566).
 - The same fire-time global-scope defect on the EVIDENCE path is worse than on the write path: an unscoped verifier measures a DIFFERENT tree and reports green, so the artifact is true about something nobody asked about → stamp the resolved SHA/tree in the artifact and compare it to the branch before trusting any number (three sites hit in one issue: suite runner, evidence checker, WBS updater — Issue-553).
 - A deploy target's git HEAD is not what it RUNS — a hand-tended box is deployed-to but rarely committed-on, so take the parity baseline from the working tree and state which baseline the artifact used; a HEAD-to-HEAD comparison invents divergence and hides the real kind (fleet Issue-20).
+- Running an artifact-producing script from a SECOND environment resolves its destination from THAT environment's state — a project-scoping guard does not cover the ISSUE, so the artifact lands in another issue's directory; check the second environment's own state file, or pass the scope explicitly, before invoking (Issue-550).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -120,6 +122,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Changing a serialized format can invalidate a certificate that hashes the FILE rather than its contents → grep for file-level hashers first, and pin the container's key set in the same change; content hashes cannot see a key appear (Issue-106).
 - A change that transfers custody of live state invalidates the recovery paths that predate it → re-derive what snapshot-restore and revert DO under the new semantics before shipping them as safety nets; both "safe ways back" can be booby-trapped by the very change they backstop (fleet Issue-19).
 - A machine-readable contract authored for a consumer that does not exist yet rots silently → land its well-formedness check in the SAME change; the future consumer is not a defense against the next entry being added malformed (fleet Issue-20).
+- A gate that WARNS it cannot verify something and passes on the remaining rungs is weaker than its green suggests → execute the skipped check by hand and record it, or treat the pass as provisional (Issue-550).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
@@ -133,6 +136,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Write each dispatched checker's returned body to disk on RECEIPT, before acting on it — act-then-summarize leaves an audit trail one round deep and second-hand (Issue-106).
 - A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
 - Numbers in a shipping record are re-derived at the FINAL sha in the same pass that writes the record -> a count carried forward across even three commits shipped false twice (Issue-107).
+- Writing "see artifact X for Y" is a claim to VERIFY: open X and confirm Y is derivable there, and re-read a finding's own words before logging it addressed — a partial fix logged as complete is caught only by the next checker, if at all (Issue-550).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -171,6 +175,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Before requesting an override on a failing quality gate, ask whether the GATE is right and the ENVIRONMENT is wrong — an override is a permanent record of a compromise (Issue-561).
 - A deferral's addressee is a LOOKUP, not an assumption -> read the tracker before shipping a string that names a follow-up owner; claiming "unfiled" about a filed issue is the no-addressee defect wearing a number (Issue-107).
 - An input the issue calls unreachable is a claim, not a constraint → spend the one cheap probe (read-only remote read, archived copy) before planning around a prose reconstruction; here it corrected the source commit, the affected file set, and deleted a planned edit that would have CREATED divergence (fleet Issue-20).
+- An acceptance criterion can state a tool's CURRENT output as a premise and be unsatisfiable from the start → run the tool at baseline while drafting the criterion, never from recall (Issue-550).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
@@ -193,6 +198,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
 - Recording a command VERBATIM into an artifact passes through layers that each re-interpret backslash escapes — a regex escape can land as a control byte and read as a mere variant; write it as explicit bytes and diff byte-for-byte against the published form (Issue-566).
 - A residual honestly recorded in a deep artifact but absent from the maintainer-facing summary reads as CLOSED → whatever the deepest artifact admits, the MR body must admit too; deferring a class is fine, claiming it closed is not (fleet Issue-20).
+- A comment beside an assertion can claim more than the assertion buys → for each claim, name the input that makes THAT line fail first; if a neighbouring assertion always catches it first, say belt-and-braces (Issue-550).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
