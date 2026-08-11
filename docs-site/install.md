@@ -19,6 +19,12 @@ the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
 - Contributors additionally need **`bats`** and **`shellcheck >= 0.9.0`**
   (the test suite and the CI lint gate).
 
+Contributors running the test suite have two further requirements — a POSIX
+filesystem where `chmod` actually changes the mode, and a UTF-8 locale. On
+Windows that means a WSL clone on ext4, not a `/mnt/c` checkout or native Git
+Bash. `scripts/run-suite.sh` enforces both. See
+[Running the test suite](../README.md#running-the-test-suite).
+
 ## Install the plugin
 
 devAgent is a Claude Code plugin. Add its marketplace, then install the

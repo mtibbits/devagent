@@ -245,8 +245,11 @@ To add a new backend:
    `tests/fixtures/<yourname>/`. Then:
 
    ```
-   bats tests/backend-<yourname>.bats
+   LC_ALL=C.UTF-8 bats tests/backend-<yourname>.bats
    ```
+
+   (The locale pin matters for any direct `bats` invocation — see
+   [Running the test suite](#running-the-test-suite).)
 
    All tests must pass before the dispatcher (`pull.sh`, `ship.sh`,
    etc.) will work reliably with your backend.
@@ -286,6 +289,62 @@ Exit-code conventions across all backends:
 
 The markdown shape produced by `fetch` and `comment-list` is fixed
 across backends (spec §9.3) — downstream code is backend-agnostic.
+
+## Running the test suite
+
+The canonical runner is `scripts/run-suite.sh`, which runs bats and pytest with
+the hermetic environment baked in and writes the provenance artifact
+`<issue-dir>/analysis/<date>-suite-count.txt` that `preship-evidence.sh` reads:
+
+```sh
+bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
+```
+
+The suite has two environmental requirements, and `run-suite.sh` enforces both
+rather than producing an artifact it cannot stand behind — so a minimal
+container running these tests must provide them.
+
+**A POSIX filesystem where `chmod` actually changes the mode.**
+`tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets
+store; on a mount where `chmod` is a no-op those tests can never pass, and the
+run tells you nothing about your branch. `run-suite.sh` probes this
+behaviourally and refuses.
+
+On Windows that means **a WSL clone on a native Linux filesystem (ext4) — not a
+checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
+mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
+with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
+is fine for individual scripts — it is not a supported environment for the
+suite, and that is a property of the mount, not a defect to repair.
+
+**A UTF-8 locale.** Many `@test` names in this repo carry non-ASCII characters
+(em dash, `§`, `⇒`). bats encodes each name into a shell function name in a
+child process, walking it one unit at a time; without a UTF-8 locale it walks
+BYTES instead of characters.
+
+What happens next is platform-dependent, and it is why the locale is pinned
+rather than left to the invoking shell:
+
+- On **Git Bash / MSYS**, a leading byte such as `0xe2` is classified as
+  `[[:alnum:]]` in the C locale, so it is copied into the function name RAW.
+  The resulting name is never defined, and bats prints `unknown test name` and
+  **skips** the test while still counting it in the `1..N` plan — the run looks
+  complete and is quietly thinner.
+- On **glibc** (Linux, WSL, CI) the same byte is not `[[:alnum:]]`, so it is
+  hex-escaped consistently on both sides and the test still registers. The
+  silent skip does not occur there.
+
+`run-suite.sh` and CI both pin a UTF-8 locale, so neither depends on that
+difference. If you invoke `bats` directly, pin it yourself:
+
+```sh
+LC_ALL=C.UTF-8 bats tests/some-file.bats
+```
+
+`tests/locale-registration.bats` fails loudly if the bats process running it
+has no UTF-8 locale, so a bare `bats tests/` reports the condition rather than
+hiding it — and it asserts both platform branches above, so it is not vacuous
+on either.
 
 ## Git hooks (opt-in)
 

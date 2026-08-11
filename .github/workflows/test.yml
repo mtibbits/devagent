@@ -27,7 +27,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bats python3-pytest python3-yaml
 
+      # #565: bats registers @test names in a child process; without a UTF-8
+      # locale a non-ASCII name can be silently skipped while still counted in
+      # the plan. The runner happens to export one today — pin it rather than
+      # inherit it. Mechanism: README, "Running the test suite".
       - name: Run bats suite
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
         run: bats tests/
 
       - name: Run pytest suite

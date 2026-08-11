@@ -1,7 +1,10 @@
 #!/usr/bin/env bats
-# #359 run-suite.sh. run-suite runs bats internally, which cannot nest inside a
-# bats run, so bats is stubbed to controlled TAP (the counting logic — grep '^ok '
-# + the 1..N plan line, NEVER the tail, #85 — is what this exercises).
+# #359 run-suite.sh. bats is stubbed to controlled TAP for determinism and speed
+# (the counting logic — grep '^ok ' + the 1..N plan line, NEVER the tail, #85 — is
+# what this exercises). NB: an earlier version of this comment said bats "cannot
+# nest inside a bats run"; #565 measured that false at bats 1.10.0 and 1.14.0, and
+# tests/locale-registration.bats nests deliberately. Stubbing is still right here;
+# impossibility was never the reason.
 load 'helpers/common'
 
 setup() {
@@ -155,4 +158,26 @@ EOF
     [ "$output" -eq 1 ]
     grep -q '^bats: ' "$art"
     grep -q '^pytest: ' "$art"
+}
+
+@test "#565: run-suite hands bats a UTF-8 locale, whatever the invoking shell" {
+    # Stub bats records the locale it was invoked with, then emits a valid plan.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'printf "%s" "${LC_ALL:-<unset>}" > "$DEVAGENT_TMP/seen-lc-all"' \
+        'echo "1..1"' 'echo "ok 1 a"' \
+        > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    # Invoke from a locale-empty shell — the shape that silently drops tests.
+    # LC_CTYPE is scrubbed too: it outranks LANG for character semantics, so
+    # unsetting only LC_ALL/LANG does not model a locale-empty shell.
+    # DEVAGENT_TMP is already exported by devagent_test_setup; the stub sees it.
+    PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run env -u LC_ALL -u LC_CTYPE -u LANG "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    seen="$(cat "$DEVAGENT_TMP/seen-lc-all")"
+    [ "$seen" != "<unset>" ]
+    # Assert the CLAIM, not the token (#561): whatever was passed must give bash
+    # multibyte semantics.
+    run env LC_ALL="$seen" bash -c 'e="$(printf "\xe2\x80\x94")"; printf "%s" "${#e}"'
+    [ "$output" = "1" ]
 }
