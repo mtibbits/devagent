@@ -7,9 +7,9 @@
 # "fix" them to ASCII; that is the property under test.
 
 @test "fixture — em dash in the name" {
-  [ 1 -eq 1 ]
+  true
 }
 
 @test "fixture §6.3 section sign and ⇒ arrow" {
-  [ 1 -eq 1 ]
+  true
 }

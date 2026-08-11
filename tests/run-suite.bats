@@ -167,7 +167,8 @@ EOF
     # Invoke from a locale-empty shell — the shape that silently drops tests.
     # LC_CTYPE is scrubbed too: it outranks LANG for character semantics, so
     # unsetting only LC_ALL/LANG does not model a locale-empty shell.
-    PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TMP="$DEVAGENT_TMP" \
+    # DEVAGENT_TMP is already exported by devagent_test_setup; the stub sees it.
+    PATH="$DEVAGENT_TMP/binstub:$PATH" \
         run env -u LC_ALL -u LC_CTYPE -u LANG "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     seen="$(cat "$DEVAGENT_TMP/seen-lc-all")"
