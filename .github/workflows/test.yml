@@ -27,7 +27,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bats python3-pytest python3-yaml
 
+      # #565: bats encodes each @test name into a shell function name in a CHILD
+      # process (bats-preprocess). Without a UTF-8 locale that encoding is
+      # byte-wise; on MSYS that silently skips every name carrying a non-ASCII
+      # character while still counting it in the 1..N plan. The ubuntu runner
+      # happens to export one today — pin it rather than inherit it.
       - name: Run bats suite
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
         run: bats tests/
 
       - name: Run pytest suite
