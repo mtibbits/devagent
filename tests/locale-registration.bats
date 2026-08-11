@@ -48,9 +48,10 @@ _emits_raw_high_byte() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"1..2"* ]]
   [[ "$output" != *"unknown test name"* ]]
-  # Assert the COUNT, not mere absence of the error (#32).
-  run bash -c "env LC_ALL='$UTF8_LOCALE' LANG='$UTF8_LOCALE' bats --tap '$FIXTURE' | grep -c '^ok '"
-  [ "$output" = "2" ]
+  # Assert the COUNT, not mere absence of the error (#32) — counted from the run
+  # above rather than re-spawning bats over the same fixture.
+  [ "$(printf '%s
+' "$output" | grep -c '^ok ')" = "2" ]
 }
 
 # Both verdict classes are asserted, so neither platform gets a silently
@@ -62,15 +63,15 @@ _emits_raw_high_byte() {
     run env -u LC_ALL -u LC_CTYPE -u LANG bats --tap "$FIXTURE"
     [[ "$output" == *"1..2"* ]]
     [[ "$output" == *"unknown test name"* ]]
-    run bash -c "env -u LC_ALL -u LC_CTYPE -u LANG bats --tap '$FIXTURE' 2>/dev/null | grep -c '^ok '"
-    [ "$output" = "0" ]
+    [ "$(printf '%s
+' "$output" | grep -c '^ok ')" = "0" ]
   else
     echo "# platform: glibc-shaped (0xe2 is not [[:alnum:]] in C) — expecting NO drop"
     run env -u LC_ALL -u LC_CTYPE -u LANG bats --tap "$FIXTURE"
     [ "$status" -eq 0 ]
     [[ "$output" != *"unknown test name"* ]]
-    run bash -c "env -u LC_ALL -u LC_CTYPE -u LANG bats --tap '$FIXTURE' | grep -c '^ok '"
-    [ "$output" = "2" ]
+    [ "$(printf '%s
+' "$output" | grep -c '^ok ')" = "2" ]
   fi
 }
 

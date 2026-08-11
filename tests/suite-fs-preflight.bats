@@ -1,82 +1,75 @@
 #!/usr/bin/env bats
-# #565: on this project's Windows box /etc/fstab mounts are `noacl`, so chmod is
-# a no-op and the auth/secrets mode tests can never pass there — BY DESIGN.
-# run-suite.sh's only product is a provenance artifact consumed by
-# preship-evidence.sh, so producing one from such a filesystem manufactures
-# authoritative-looking evidence for a gate it cannot pass (Issue-550's lesson).
-
-REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+# #565: run-suite.sh's only product is a provenance artifact that
+# preship-evidence.sh consumes as authority. On a filesystem where chmod is a
+# no-op (Windows noacl NTFS) a suite that asserts file modes fails wholesale,
+# so an artifact written there is authoritative-looking false evidence
+# (Issue-550's lesson). run-suite.sh therefore refuses.
+#
+# These tests drive run-suite.sh END TO END rather than grepping its source: a
+# structural assertion would pass on `if false; then …probe…; fi` and redden on
+# any innocuous reflow. The probe itself (posix_modes_representable, #289) is
+# tested in tests/lib_secrets.bats.
+load 'helpers/common'
 
 setup() {
-  # shellcheck source=../scripts/lib/fs-probe.sh
-  . "$REPO/scripts/lib/fs-probe.sh"
+    devagent_test_setup
+    cd "$SOURCE_DIR" || return
+    mkdir -p "$DEVAGENT_TMP/binstub"
+    # Stub bats so run-suite's own bats branch is deterministic and fast.
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "1..1"' 'echo "ok 1 a"' \
+        > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+}
+teardown() { devagent_test_teardown; }
+
+_seed_suite() {
+    mkdir -p tests && echo '# placeholder' > tests/x.bats
+    git add -A && git commit -q -m "seed tests"
 }
 
-# #572: a negative assertion is vacuously satisfied by a missing function's 127.
-@test "#565: fs_chmod_is_effective is defined by scripts/lib/fs-probe.sh" {
-  run type -t fs_chmod_is_effective
-  [ "$status" -eq 0 ]
-  [ "$output" = "function" ]
+# The guard must stay SILENT where its trigger is legitimately absent
+# (#Fork-195) — a project with no suite at all still gets its artifact.
+@test "#565: a tests-less tree still writes its artifact (preflight does not fire)" {
+    git commit -q --allow-empty -m "no tests here"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^bats: (none)$' "$art"
 }
 
-@test "#565: fs_chmod_is_effective reports 0 on a filesystem where chmod sticks" {
-  if ! _chmod_sticks_here; then
-    skip "this filesystem is chmod-ineffective (noacl) — the negative case is covered below"
-  fi
-  run fs_chmod_is_effective "$BATS_TEST_TMPDIR"
-  [ "$status" -eq 0 ]
+@test "#565: a tree WITH a suite still writes its artifact where chmod works" {
+    _seed_suite
+    local t="$SOURCE_DIR/.pc"; : > "$t"; chmod 600 "$t"
+    [ "$(stat -c '%a' "$t" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here; the die branch is asserted below"
+    rm -f "$t"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
 }
 
-@test "#565: fs_chmod_is_effective reports 1 on a filesystem where chmod is a no-op" {
-  if _chmod_sticks_here; then
-    skip "this filesystem honours chmod — the positive case is covered above"
-  fi
-  run fs_chmod_is_effective "$BATS_TEST_TMPDIR"
-  [ "$status" -eq 1 ]
+# Drives the real refusal branch on ANY platform, using the technique
+# tests/lib_secrets.bats already uses for this probe: stub chmod to a no-op and
+# stat to report 644, so a probe file reads back != 600.
+@test "#565: run-suite REFUSES and writes NO artifact when chmod is a no-op" {
+    _seed_suite
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 0'   > "$DEVAGENT_TMP/binstub/chmod"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo 644' > "$DEVAGENT_TMP/binstub/stat"
+    chmod +x "$DEVAGENT_TMP/binstub/chmod" "$DEVAGENT_TMP/binstub/stat"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"chmod is a NO-OP"* ]]
+    [[ "$output" == *"false evidence"* ]]
+    run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt 2>/dev/null | wc -l"
+    [ "$output" = "0" ]
 }
 
-@test "#565: fs_chmod_is_effective reports 2 when the probe file cannot be created" {
-  run fs_chmod_is_effective "$BATS_TEST_TMPDIR/does-not-exist"
-  [ "$status" -eq 2 ]
-}
-
-@test "#565: fs_chmod_is_effective leaves no probe file behind" {
-  fs_chmod_is_effective "$BATS_TEST_TMPDIR" || true
-  run bash -c "ls -A '$BATS_TEST_TMPDIR' | wc -l"
-  [ "$output" = "0" ]
-}
-
-@test "#565: the preflight's die message points at a README section that exists" {
-  # Two-sided constant (#106): the message names a heading, so a rename must
-  # redden here instead of silently misdirecting the reader.
-  run grep -q '^## Running the test suite$' "$REPO/README.md"
-  [ "$status" -eq 0 ]
-  run grep -q 'Running the test suite' "$REPO/scripts/run-suite.sh"
-  [ "$status" -eq 0 ]
-  run grep -q 'WSL' "$REPO/scripts/run-suite.sh"
-  [ "$status" -eq 0 ]
-}
-
-@test "#565: the preflight only fires when the tree actually has a suite to run" {
-  # run-suite.sh serves EVERY configured project; a tests-less tree legitimately
-  # records (none)/(none) and must not die on a filesystem property it never
-  # exercises. Pin the guard's condition rather than its wording.
-  run grep -n 'compgen -G "tests/\*\.bats"' "$REPO/scripts/run-suite.sh"
-  [ "$status" -eq 0 ]
-  run bash -c "grep -c 'fs_chmod_is_effective' '$REPO/scripts/run-suite.sh'"
-  [ "$output" != "0" ]
-  # the preflight loop must sit inside a suite-presence guard, not at top level
-  run bash -c "awk '/^if compgen -G \"tests\/\\*\\.bats\" .*\\|\\| compgen/,/^fi\$/' '$REPO/scripts/run-suite.sh' | grep -c fs_chmod_is_effective"
-  [ "$output" = "1" ]
-}
-
-# Is chmod effective on THIS filesystem? Used only to route the two verdict
-# branches above, so neither platform gets a silently skipped assertion.
-_chmod_sticks_here() {
-  local probe perms
-  probe="$(mktemp "$BATS_TEST_TMPDIR/.sticks.XXXXXX")" || return 1
-  chmod 600 "$probe" 2>/dev/null || { rm -f "$probe"; return 1; }
-  perms="$(ls -l "$probe" | cut -c1-10)"
-  rm -f "$probe"
-  [ "$perms" = "-rw-------" ]
+@test "#565: the refusal names the WSL remedy and a README section that exists" {
+    # Two-sided constant (#106): the message points at a heading, so a rename
+    # must redden here instead of silently misdirecting the reader.
+    run grep -q '^## Running the test suite$' "$DEVAGENT_ROOT/README.md"
+    [ "$status" -eq 0 ]
+    run grep -q "Running the test suite" "$DEVAGENT_ROOT/scripts/run-suite.sh"
+    [ "$status" -eq 0 ]
+    run grep -q 'WSL clone on ext4' "$DEVAGENT_ROOT/scripts/run-suite.sh"
+    [ "$status" -eq 0 ]
 }
