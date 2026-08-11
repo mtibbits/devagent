@@ -12,6 +12,19 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The suite environment is documented and enforced (#565).**
+  `scripts/run-suite.sh` refuses to write an evidence artifact from a filesystem
+  where `chmod` is a no-op, and pins a UTF-8 locale for its bats run. Without
+  one, bats walks `@test` names byte-wise when encoding them into function
+  names; on Git Bash/MSYS that silently skips every name containing a non-ASCII
+  character (124 names across 48 of 178 test files here) while still
+  printing a full `1..N` plan. On glibc the byte is hex-escaped and the test
+  still registers, so the skip is an MSYS property — the pin removes the
+  dependence on that difference either way. CI pins the same locale,
+  `tests/locale-registration.bats` makes a bare locale-empty `bats tests/` fail
+  loudly and asserts both platform branches, and README gains
+  "Running the test suite".
+
 ### Fixed — 2026-08-07
 - **Evidence runs now measure the checkout the issue's work lives in, or
   refuse (#571).** `run-suite.sh` used to `cd` into the configured
