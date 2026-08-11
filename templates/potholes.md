@@ -66,6 +66,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A guard that enumerates BAD spellings of a grammar you do not control ships green on the next spelling → assert the ONE permitted shape instead, so unknown future forms are red by default rather than invisible by default (fleet Issue-20).
 - A mutate/restore test harness can corrupt the tree it is testing — a shell that re-encodes BOM-less UTF-8 on write leaves valid results over mangled files → mutate with byte-safe tooling and hash-verify every restored file before trusting the run (fleet Issue-20).
 - Evidence generated in an environment where the suite is known never to be green produces an authoritative-looking artifact that fails the gate it feeds → generate gate inputs in the supported environment first, rather than building a case around a red number (Issue-550).
+- A guard that passes only because two independently-derived quantities COINCIDE today is armed to mislead when they diverge → compare against the field that names the subject under test, never a lookalike value that happens to equal it at HEAD (Issue-118).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -91,6 +92,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - The same fire-time global-scope defect on the EVIDENCE path is worse than on the write path: an unscoped verifier measures a DIFFERENT tree and reports green, so the artifact is true about something nobody asked about → stamp the resolved SHA/tree in the artifact and compare it to the branch before trusting any number (three sites hit in one issue: suite runner, evidence checker, WBS updater — Issue-553).
 - A deploy target's git HEAD is not what it RUNS — a hand-tended box is deployed-to but rarely committed-on, so take the parity baseline from the working tree and state which baseline the artifact used; a HEAD-to-HEAD comparison invents divergence and hides the real kind (fleet Issue-20).
 - Running an artifact-producing script from a SECOND environment resolves its destination from THAT environment's state — a project-scoping guard does not cover the ISSUE, so the artifact lands in another issue's directory; check the second environment's own state file, or pass the scope explicitly, before invoking (Issue-550).
+- One MR that closes N issues discharges workflow steps on ALL N issues' checklists → at ship and at merge-sync, walk every closed issue's checklist through close-out; a joint flow that books only its own issue leaves the siblings half-closed (Issue-118).
+- A forge can auto-close a UI-linked issue even when the PR body explicitly disclaims closing it → after any merge, verify every related issue's state on the forge; the body's Closes-set is not what the forge executes when a sidebar link exists (Issue-122).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -105,6 +108,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A programmatic edit (`sed`, string-replace) that silently NO-OPS leaves a false record when you verify a proxy instead of the edited file → grep the edited file for the new text before booking the fix (Issue-106).
 - After fixing a defect, grep the FIX ITSELF for the defect's own class → a phase-mixing bug was reintroduced inside the renderer added to fix it; prefer a COUNTED denominator over one derived from a loop bound, which silently re-mixes when a caller changes (Issue-85).
 - A repo-wide sweep must DECLARE its universe and prove the edge: enumerate from the tracked set (not the filesystem, which carries ignored mutable junk), pass the NUL-delimited form so unusual filenames survive quoting, and probe it with a subject whose NAME exercises the edge rather than only its contents (Issue-566).
+- A re-value/re-baseline sweep misses pins living behind gated or slow tiers (env-flag, archive-dependent, subprocess) → enumerate subjects by grepping the LITERAL across ALL tiers and run every gated tier once before declaring the sweep complete; the miss surfaces as a red at the next issue's least convenient moment (Issue-122).
+- An honesty fix that documents a guarded token's history is itself a new match for the token census — write deliberate-reference buckets into the census contract up front, and re-derive the count at the final SHA after EVERY fix wave, never carry it forward (Issue-119).
 - A def-time parameter default freezes an import-time value and defeats runtime redirection -> pass a None sentinel and resolve inside the function when the value can vary per run (Issue-107).
 - A fix landed mid-review inherits the plan's parallel-surface sweep obligations — enumerate the changed claim's prose homes for the FIX commit exactly as the plan did for its own tasks (Issue-123).
 
@@ -197,6 +202,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Running a VARIANT of a published command is not running it — a regex published in one dialect and executed in another returns a different count under an identical-looking claim; run every command in the exact form it will appear (Issue-106).
 - A comment explaining a grep-based guard must DESCRIBE the token without spelling it, and say why — quoting the literal re-triggers the guard the comment is warning about (Issue-561).
 - Recording a command VERBATIM into an artifact passes through layers that each re-interpret backslash escapes — a regex escape can land as a control byte and read as a mere variant; write it as explicit bytes and diff byte-for-byte against the published form (Issue-566).
+- An outward checklist box is a falsifiable claim about the branch — derive each box from a command at the final SHA (trailer sweep, tip equality, count re-run); a box checked from memory ships a false certification the verifier will catch (Issue-119).
 - A residual honestly recorded in a deep artifact but absent from the maintainer-facing summary reads as CLOSED → whatever the deepest artifact admits, the MR body must admit too; deferring a class is fine, claiming it closed is not (fleet Issue-20).
 - A comment beside an assertion can claim more than the assertion buys → for each claim, name the input that makes THAT line fail first; if a neighbouring assertion always catches it first, say belt-and-braces (Issue-550).
 
