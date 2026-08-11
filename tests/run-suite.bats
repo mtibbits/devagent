@@ -1,7 +1,10 @@
 #!/usr/bin/env bats
-# #359 run-suite.sh. run-suite runs bats internally, which cannot nest inside a
-# bats run, so bats is stubbed to controlled TAP (the counting logic — grep '^ok '
-# + the 1..N plan line, NEVER the tail, #85 — is what this exercises).
+# #359 run-suite.sh. bats is stubbed to controlled TAP for determinism and speed
+# (the counting logic — grep '^ok ' + the 1..N plan line, NEVER the tail, #85 — is
+# what this exercises). NB: an earlier version of this comment said bats "cannot
+# nest inside a bats run"; #565 measured that false at bats 1.10.0 and 1.14.0, and
+# tests/locale-registration.bats nests deliberately. Stubbing is still right here;
+# impossibility was never the reason.
 load 'helpers/common'
 
 setup() {

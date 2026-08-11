@@ -17,7 +17,7 @@ tag`) will get their own dated sections below.
   where `chmod` is a no-op, and pins a UTF-8 locale for its bats run. Without
   one, bats walks `@test` names byte-wise when encoding them into function
   names; on Git Bash/MSYS that silently skips every name containing a non-ASCII
-  character (124 names across 48 of 178 test files here) while still
+  character (124 such names across 48 files at this commit) while still
   printing a full `1..N` plan. On glibc the byte is hex-escaped and the test
   still registers, so the skip is an MSYS property — the pin removes the
   dependence on that difference either way. CI pins the same locale,

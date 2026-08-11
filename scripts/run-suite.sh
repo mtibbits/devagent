@@ -60,6 +60,11 @@ cd "$work_dir"
 # tree legitimately records (none)/(none). Deliberately conservative — it
 # cannot tell whether a given project's tests assert modes without running them.
 if compgen -G "tests/*.bats" >/dev/null 2>&1 || compgen -G "tests/test_*.py" >/dev/null 2>&1; then
+  # Residual, deliberate: posix_modes_representable is FAIL-OPEN on an
+  # unprobeable dir (mktemp/chmod/stat failure) because its original caller is
+  # an audit that must still run. For this gate that direction is inverted, so a
+  # mount where chmod ERRORS (rather than no-ops) is not caught here. The noacl
+  # case this exists for IS caught, because there chmod succeeds and lies.
   for _fs_dir in "$work_dir" "${TMPDIR:-/tmp}"; do
     posix_modes_representable "$_fs_dir" \
       || die "run-suite: chmod is a NO-OP under '$_fs_dir' — a suite that asserts file modes cannot pass on this filesystem, so any artifact written here would be false evidence (#565). Run the suite on a native POSIX filesystem; on Windows that means a WSL clone on ext4 with its own ~/.claude/devagent/config.toml, not a /mnt/c checkout or native Git Bash. See README 'Running the test suite'."
@@ -77,7 +82,7 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   # while still counted in the 1..N plan, so the artifact would be thinner than
   # its own plan. See README "Running the test suite" for the mechanism.
   utf8_locale_resolve \
-    || die "run-suite: no UTF-8-capable locale found (tried \$LC_ALL, \$LC_CTYPE, \$LANG, C.UTF-8, en_US.UTF-8) — bats would silently skip @test names containing non-ASCII characters (#565). Install a UTF-8 locale or export LC_ALL to one."
+    || die "run-suite: no UTF-8-capable locale found (tried \$LC_ALL, \$LC_CTYPE, \$LANG, then C.UTF-8/en_US.UTF-8/C.utf8/en_US.utf8) — bats would silently skip @test names containing non-ASCII characters (#565). Install a UTF-8 locale or export LC_ALL to one."
   tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
            LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" bats --tap tests/ 2>&1 || true)"
   ok="$(printf '%s\n' "$tap"    | grep -c '^ok '     || true)"

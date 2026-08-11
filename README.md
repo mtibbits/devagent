@@ -317,7 +317,7 @@ with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
 is fine for individual scripts — it is not a supported environment for the
 suite, and that is a property of the mount, not a defect to repair.
 
-**A UTF-8 locale.** 124 `@test` names in this repo carry non-ASCII characters
+**A UTF-8 locale.** Many `@test` names in this repo carry non-ASCII characters
 (em dash, `§`, `⇒`). bats encodes each name into a shell function name in a
 child process, walking it one unit at a time; without a UTF-8 locale it walks
 BYTES instead of characters.
