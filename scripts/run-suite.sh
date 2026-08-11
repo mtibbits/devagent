@@ -29,6 +29,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/utf8-locale.sh
+. "$DEVAGENT_ROOT/scripts/lib/utf8-locale.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -50,7 +52,20 @@ if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; e
 
 bats_line="bats: (none)"
 if compgen -G "tests/*.bats" >/dev/null 2>&1; then
-  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE bats --tap tests/ 2>&1 || true)"
+  # #565: bats encodes each @test name into a shell function name in
+  # bats-preprocess, a CHILD process that inherits this environment. In a
+  # non-UTF-8 locale that encoding is byte-wise, the function is never found,
+  # and bats prints `unknown test name` and SKIPS the test while still counting
+  # it in the 1..N plan — so the artifact would be quietly thinner than its own
+  # plan. Resolved here, inside the bats branch: the tap= line below is the only
+  # consumer, and a pytest-only tree must not die over a bats-only defect.
+  # The candidates variable is a test-only seam (tests/utf8-locale.bats); clear
+  # it so an exported shell variable cannot reorder a production resolve.
+  unset DEVAGENT_UTF8_LOCALE_CANDIDATES
+  utf8_locale_resolve \
+    || die "run-suite: no UTF-8-capable locale found (tried \$LC_ALL, \$LC_CTYPE, \$LANG, C.UTF-8, en_US.UTF-8) — bats would silently skip every @test name containing a non-ASCII character (#565). Install a UTF-8 locale or export LC_ALL to one."
+  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
+           LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" bats --tap tests/ 2>&1 || true)"
   ok="$(printf '%s\n' "$tap"    | grep -c '^ok '     || true)"
   notok="$(printf '%s\n' "$tap" | grep -c '^not ok ' || true)"
   plan="$(printf '%s\n' "$tap"  | sed -n 's/^1\.\.\([0-9][0-9]*\)$/\1/p' | tail -1)"

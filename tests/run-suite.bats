@@ -156,3 +156,24 @@ EOF
     grep -q '^bats: ' "$art"
     grep -q '^pytest: ' "$art"
 }
+
+@test "#565: run-suite hands bats a UTF-8 locale, whatever the invoking shell" {
+    # Stub bats records the locale it was invoked with, then emits a valid plan.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'printf "%s" "${LC_ALL:-<unset>}" > "$DEVAGENT_TMP/seen-lc-all"' \
+        'echo "1..1"' 'echo "ok 1 a"' \
+        > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    # Invoke from a locale-empty shell — the shape that silently drops tests.
+    # LC_CTYPE is scrubbed too: it outranks LANG for character semantics, so
+    # unsetting only LC_ALL/LANG does not model a locale-empty shell.
+    PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TMP="$DEVAGENT_TMP" \
+        run env -u LC_ALL -u LC_CTYPE -u LANG "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    seen="$(cat "$DEVAGENT_TMP/seen-lc-all")"
+    [ "$seen" != "<unset>" ]
+    # Assert the CLAIM, not the token (#561): whatever was passed must give bash
+    # multibyte semantics.
+    run env LC_ALL="$seen" bash -c 'e="$(printf "\xe2\x80\x94")"; printf "%s" "${#e}"'
+    [ "$output" = "1" ]
+}
