@@ -31,6 +31,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=lib/utf8-locale.sh
 . "$DEVAGENT_ROOT/scripts/lib/utf8-locale.sh"
+# shellcheck source=lib/fs-probe.sh
+. "$DEVAGENT_ROOT/scripts/lib/fs-probe.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -46,6 +48,23 @@ active_guard_tree run-suite               # #571: strictly AFTER active_guard_sc
 work_dir="$ACTIVE_TREE_DIR"
 
 cd "$work_dir"
+
+# #565: refuse to manufacture an evidence artifact from a filesystem where chmod
+# is a no-op. Any suite that asserts file modes fails wholesale on such a mount
+# (in this repo, the auth/secrets tests), so the artifact would record a red
+# suite that says nothing about the branch — and preship-evidence.sh consumes it
+# as authority. Probed behaviourally on BOTH the measured tree and TMPDIR,
+# because tests create their fixtures in the latter. run-suite.sh serves EVERY
+# configured project, so this fires only where there is actually a suite to run
+# and stays deliberately conservative: it cannot tell whether a given project's
+# tests assert modes without running them.
+if compgen -G "tests/*.bats" >/dev/null 2>&1 || compgen -G "tests/test_*.py" >/dev/null 2>&1; then
+  for _fs_dir in "$work_dir" "${TMPDIR:-/tmp}"; do
+    fs_chmod_is_effective "$_fs_dir" && continue
+    die "run-suite: chmod is a NO-OP under '$_fs_dir' — a suite that asserts file modes cannot pass on this filesystem, so any artifact written here would be false evidence (#565). Run the suite on a native POSIX filesystem; on Windows that means a WSL clone on ext4 with its own ~/.claude/devagent/config.toml, not a /mnt/c checkout or native Git Bash. See README 'Running the test suite'."
+  done
+  unset _fs_dir
+fi
 head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
 [ -n "$head" ] || die "run-suite: could not resolve HEAD in $work_dir"
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
