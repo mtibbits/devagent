@@ -244,3 +244,44 @@ EOC
   [[ "$output" != *"/devagent:implement"* ]]
   [[ "$output" != *"CHAIN:"* ]]                                       # no chain-continue emitted
 }
+
+@test "a chain hop dispatches the project the chain STARTED with (#578)" {
+  # Second project, with its own devdoc, state and checklist — the hijack target.
+  mkdir -p "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
+  cat >> "$DA_HOME/config.toml" <<CFG
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
+CFG
+  cat > "$DA_HOME/state/other.toml" <<ST
+active_issue = "Issue-999"
+issue_dir    = "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
+ST
+  # The cleanup row is LOAD-BEARING: `--auto` implies `--through cleanup`
+  # (next.sh:61-63), and hop 2 validates that target against the RESOLVED
+  # project's checklist (:66-76). Without the row the unfixed tree dies
+  # "unknown step 'cleanup'" before dispatching anything, and the born-red
+  # would fire on a path unrelated to the hijack (register Issue-Fork-132).
+  cat > "$BATS_TEST_TMPDIR/other-devdoc/Issue-999/checklist.md" <<'CL'
+- [x]  0. pull
+- [ ] 15. review
+- [ ] 23. cleanup
+CL
+
+  # Hop 1: the chain starts for volk and emits its continuation.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  local chain
+  chain="$(printf '%s\n' "$output" | sed -n 's/^CHAIN: \/devagent:next //p')"
+  [ -n "$chain" ]
+
+  # A concurrent session moves the global pointer to the OTHER project.
+  printf 'active_project = "other"\n' > "$DA_HOME/state/_active.toml"
+
+  # Hop 2: the model invokes the emitted command verbatim.
+  run "$PLUGIN_ROOT/scripts/next.sh" $chain
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:scope"* ]]        # volk's next step
+  [[ "$output" != *"/devagent:review"* ]]       # NOT other's next step
+}
