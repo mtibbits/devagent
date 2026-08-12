@@ -17,10 +17,15 @@ permission gates nor continues past `[!]` or a non-zero step exit (spec §7.2).
 `next.sh` runs script-backed steps in-process. For skill-backed steps it hands
 back to the model:
 
-    → Run /devagent:<name>
-    CHAIN: /devagent:next --auto
+    → Run /devagent:<name> <project>
+    CHAIN: /devagent:next <project> --auto
 
-The `CHAIN:` line is your instruction (model): invoke `/devagent:<name>` now
+Both emitted lines carry the RESOLVED project (#578) and are authoritative:
+invoke them VERBATIM, project token included. Dropping the token re-resolves
+global state at fire time, so a concurrent session that moves the pointer
+silently redirects the rest of the chain to another project.
+
+The `CHAIN:` line is your instruction (model): invoke the `→ Run` command now
 (its body marks the step done), then invoke the CHAIN: command verbatim;
 next.sh advances and repeats. The chain breaks on: a step marked `[!]` or
 `[?]`, a non-zero script-step exit, a declined permission gate, or the

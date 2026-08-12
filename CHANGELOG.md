@@ -12,6 +12,37 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **Chain hops carry their scope; the dispatch output names it (#578).**
+  `next.sh` resolved the project once but emitted both of its model-facing
+  commands without it, so every hop of an `--auto`/`--through` chain
+  re-resolved global state at FIRE time — a concurrent session that moved the
+  pointer (or a pointer left stale) silently redirected the rest of the chain
+  to another project. Both emissions now carry the resolved project
+  (`→ Run /devagent:<name> <project>` and
+  `CHAIN: /devagent:next <project> --auto`), and the dispatch line names
+  `<project>/<issue>` so a misresolution is visible in the transcript instead
+  of surfacing later as a confusing prerequisite failure. This restores on the
+  skill-backed path an invariant the script-backed path already held (it has
+  always passed `"$project"`).
+
+  Two deliberate behavior changes come with it, neither a side effect:
+
+  1. **Chain hops no longer refresh the global pointer.** Hops now resolve from
+     `arg`, and per #282 only pointer/fallback-resolved runs refresh it. A
+     *fresh* bare `/devagent:next` is unchanged and still resolves from — and
+     refreshes — the pointer.
+  2. **Chain hops are no longer covered by the #572 wrong-scope guard.**
+     `active_guard_scope` returns immediately when the scope came from `arg`,
+     treating an explicit scope as a per-invocation assertion, so hops are now
+     exempt. Note this also removes coverage from env-pinned hops, which the
+     guard deliberately does NOT exempt today ("an inherited pin is
+     contamination, not an assertion"); and a chain whose FIRST resolution came
+     from `pointer` or `env` re-emits that value as an `arg` on every later hop,
+     laundering a non-asserted source into an asserted one for the chain's
+     remainder. Accepted because a chain's scope is correct by construction and
+     the new dispatch identification keeps it visible; restoring guard coverage
+     via a distinct `chain` resolution source is recorded as a follow-up.
+
 - **The suite environment is documented and enforced (#565).**
   `scripts/run-suite.sh` refuses to write an evidence artifact from a filesystem
   where `chmod` is a no-op, and pins a UTF-8 locale for its bats run. Without
