@@ -156,7 +156,9 @@ main() {
     # that mutate the repo hardest were the silent ones.
     local _backing="skill-backed"
     [[ -x "$script_path" ]] && _backing="script-backed"
-    echo "  ($project/$active — step $cur on this issue's checklist; $_backing)"
+    # Header, not a trailing parenthetical: it now precedes BOTH branches, so it
+    # must read as a label for what follows rather than dangle above it.
+    echo "dispatch: $project/$active — step $cur ($name), $_backing"
     if [[ -x "$script_path" ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
       # When chaining (and not at the target), suppress the script's
