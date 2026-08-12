@@ -19,7 +19,10 @@ tag`) will get their own dated sections below.
   pointer (or a pointer left stale) silently redirected the rest of the chain
   to another project. Both emissions now carry the resolved project
   (`→ Run /devagent:<name> <project>` and
-  `CHAIN: /devagent:next <project> --auto`), and the dispatch line names
+  `CHAIN: /devagent:next <project> --auto`). `scripts/revise.sh` — which starts a
+  chain of its own — carries the same fix, narrowed to the `/devagent:next`
+  default so a custom `DEVAGENT_CHAIN_CMD` is still emitted verbatim. The dispatch
+  line names
   `<project>/<issue>` so a misresolution is visible in the transcript instead
   of surfacing later as a confusing prerequisite failure. This restores on the
   skill-backed path an invariant the script-backed path already held (it has
@@ -46,9 +49,11 @@ tag`) will get their own dated sections below.
      undecidable case hop 1 clears nothing, and the chain launders an unverified
      value into a guard-exempt `arg` for every remaining hop. This is not
      hypothetical: `Issue-578/analysis/2026-08-12-bornred.txt` captured exactly that
-     branch firing. Until `scripts/revise.sh`'s twin emitter is fixed, a
-     revise-initiated chain is the remaining pointer-first entry into this path.
-     Accepted because a chain's scope is correct by construction and
+     branch firing. `scripts/revise.sh`'s twin emitter — the entry point to a
+     whole revision pass, and the remaining pointer-first way into this path — is
+     fixed in the same change, so no shipped emitter now hands the model a
+     scope-free continuation. Accepted because a chain's scope is correct by
+     construction and
      the new dispatch identification keeps it visible; restoring guard coverage
      via a distinct `chain` resolution source is recorded as a follow-up.
 

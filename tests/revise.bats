@@ -306,3 +306,28 @@ EOF
   # sanity: the block IS non-empty (guards a vacuous zero-count)
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[')" -ge 20 ]
 }
+
+@test "revise's chain continuation carries the resolved project (#578)" {
+  # Deliberately NOT run_revise: setup()'s stub_chain_recorder EXPORTS
+  # DEVAGENT_CHAIN_CMD at an executable stub, which takes the exec branch and
+  # emits no CHAIN: line at all. Scrub it to reach the printf branch.
+  run env -u DEVAGENT_CHAIN_CMD \
+    HOME="$HOME" \
+    DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+    bash "$DEVAGENT_ROOT/scripts/revise.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CHAIN: /devagent:next volk"* ]]
+}
+
+@test "revise leaves a custom DEVAGENT_CHAIN_CMD unscoped (#578)" {
+  # The project is appended only to the /devagent:next default. A custom value is
+  # an operator string whose grammar this script does not control, so it is
+  # emitted verbatim.
+  run env DEVAGENT_CHAIN_CMD="/custom:resume" \
+    HOME="$HOME" \
+    DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+    bash "$DEVAGENT_ROOT/scripts/revise.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CHAIN: /custom:resume"* ]]
+  [[ "$output" != *"CHAIN: /custom:resume volk"* ]]
+}
