@@ -278,5 +278,11 @@ CL
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:scope"* ]]        # volk's next step
   [[ "$output" != *"/devagent:review"* ]]       # NOT other's next step
+  # Hop 2's OWN continuation must carry the token too, or stability for hops 3+
+  # rests on induction over the emitter rather than on the driven loop.
+  [[ "$output" == *"CHAIN: /devagent:next volk"* ]]
+  # An arg-resolved hop must NOT refresh the global pointer (#282 semantics —
+  # the documented behavior change this fix trades for).
+  grep -q 'active_project = "other"' "$DA_HOME/state/_active.toml"
 }
 

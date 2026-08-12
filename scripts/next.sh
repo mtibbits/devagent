@@ -8,10 +8,12 @@
 # issue may have no "implement"/"analyze"); next.sh just looks at the
 # first unchecked step in *this* checklist.
 #
-# Dispatch: if scripts/<step-name>.sh exists and is executable, exec it.
-# Otherwise print "→ Run /devagent:<step-name>" so the calling model
-# invokes the slash command (skill-backed steps), then re-invokes
-# /devagent:next when the skill is done.
+# Dispatch: every step is preceded by a "dispatch: <project>/<issue> — step N
+# (<name>), <backing>" header. If scripts/<step-name>.sh exists and is
+# executable, exec it. Otherwise print "→ Run /devagent:<step-name> <project>"
+# so the calling model invokes the slash command (skill-backed steps), then
+# re-invokes "/devagent:next <project> ..." from the emitted CHAIN: line when
+# the skill is done. Both emissions carry the resolved project (#578).
 
 set -euo pipefail
 
