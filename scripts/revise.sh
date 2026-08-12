@@ -147,7 +147,18 @@ if [[ "$NO_CHAIN" -eq 0 ]]; then
   chain_cmd="${DEVAGENT_CHAIN_CMD:-/devagent:next}"
   if [[ -x "$chain_cmd" ]]; then
     "$chain_cmd" /devagent:next
+  elif [[ "$chain_cmd" == "/devagent:next" ]]; then
+    # #578: bake the RESOLVED project into the continuation - same class as
+    # next.sh. A continuation emitted without its scoping argument re-resolves
+    # GLOBAL state at fire time, so a concurrent session pointer hijacks the
+    # chain (pothole Issue-559). revise is the entry point to a whole revision
+    # pass and its hop 1 is pointer-resolved, which made it the remaining
+    # pointer-first entry into that path.
+    printf 'CHAIN: %s %s\n' "$chain_cmd" "$PROJECT"
   else
+    # A custom DEVAGENT_CHAIN_CMD is an operator string whose grammar this
+    # script does not control - emit it verbatim rather than assuming it
+    # accepts a trailing project.
     printf 'CHAIN: %s\n' "$chain_cmd"
   fi
 fi

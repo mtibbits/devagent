@@ -30,10 +30,21 @@ EOF
 
 teardown() { teardown_tmp_devagent_home; }
 
+# Second configured project. Three cases need one; keep the schema in one place.
+_add_other_project() {
+  cat >> "$DA_HOME/config.toml" <<EOF
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
+EOF
+}
+
 @test "next on a skill-backed step prints the slash command to invoke" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"/devagent:scope"* ]]
+  [[ "$output" == *"/devagent:scope volk"* ]]   # #578: the command carries its scope
+  [[ "$output" == *"volk/Issue-676"* ]]         # #578: the dispatch names project/issue
   [[ "$output" == *"skill-backed"* ]]
 }
 
@@ -93,24 +104,14 @@ EOF
 
 @test "next with no project arg respects DEVAGENT_ACTIVE_PROJECT env var" {
   # Add a second project so single-project resolution would die.
-  cat >> "$DA_HOME/config.toml" <<EOF
-
-[project.other]
-source_dir = "$BATS_TEST_TMPDIR/other"
-devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
-EOF
+  _add_other_project
   DEVAGENT_ACTIVE_PROJECT=volk run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:scope"* ]]
 }
 
 @test "next with no project arg dies when multiple projects configured" {
-  cat >> "$DA_HOME/config.toml" <<EOF
-
-[project.other]
-source_dir = "$BATS_TEST_TMPDIR/other"
-devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
-EOF
+  _add_other_project
   run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"2 projects configured"* ]]
@@ -120,13 +121,13 @@ EOF
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:scope"* ]]
-  [[ "$output" == *"CHAIN: /devagent:next --auto"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto"* ]]
 }
 
 @test "next --through propagates into CHAIN: marker" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CHAIN: /devagent:next --through tighten"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --through tighten"* ]]
 }
 
 @test "next --through stops once the target is marked done" {
@@ -244,3 +245,44 @@ EOC
   [[ "$output" != *"/devagent:implement"* ]]
   [[ "$output" != *"CHAIN:"* ]]                                       # no chain-continue emitted
 }
+
+@test "a chain hop dispatches the project the chain STARTED with (#578)" {
+  # Second project, with its own devdoc, state and checklist — the hijack target.
+  mkdir -p "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
+  _add_other_project
+  cat > "$DA_HOME/state/other.toml" <<ST
+active_issue = "Issue-999"
+issue_dir    = "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
+ST
+  # cleanup row required: --auto implies --through cleanup, which hop 2
+  # validates against the RESOLVED project's checklist (next.sh:61-76).
+  # Without it the unfixed tree dies before dispatching and the born-red
+  # would fire on a path unrelated to the hijack.
+  cat > "$BATS_TEST_TMPDIR/other-devdoc/Issue-999/checklist.md" <<'CL'
+- [ ] 15. review
+- [ ] 23. cleanup
+CL
+
+  # Hop 1: the chain starts for volk and emits its continuation.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  local chain
+  chain="$(printf '%s\n' "$output" | sed -n 's/^CHAIN: \/devagent:next //p')"
+  [ -n "$chain" ]
+
+  # A concurrent session moves the global pointer to the OTHER project.
+  printf 'active_project = "other"\n' > "$DA_HOME/state/_active.toml"
+
+  # Hop 2: the model invokes the emitted command verbatim.
+  run "$PLUGIN_ROOT/scripts/next.sh" $chain
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/devagent:scope"* ]]        # volk's next step
+  [[ "$output" != *"/devagent:review"* ]]       # NOT other's next step
+  # Hop 2's OWN continuation must carry the token too, or stability for hops 3+
+  # rests on induction over the emitter rather than on the driven loop.
+  [[ "$output" == *"CHAIN: /devagent:next volk"* ]]
+  # An arg-resolved hop must NOT refresh the global pointer (#282 semantics —
+  # the documented behavior change this fix trades for).
+  grep -q 'active_project = "other"' "$DA_HOME/state/_active.toml"
+}
+

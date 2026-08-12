@@ -8,10 +8,12 @@
 # issue may have no "implement"/"analyze"); next.sh just looks at the
 # first unchecked step in *this* checklist.
 #
-# Dispatch: if scripts/<step-name>.sh exists and is executable, exec it.
-# Otherwise print "→ Run /devagent:<step-name>" so the calling model
-# invokes the slash command (skill-backed steps), then re-invokes
-# /devagent:next when the skill is done.
+# Dispatch: every step is preceded by a "dispatch: <project>/<issue> — step N
+# (<name>), <backing>" header. If scripts/<step-name>.sh exists and is
+# executable, exec it. Otherwise print "→ Run /devagent:<step-name> <project>"
+# so the calling model invokes the slash command (skill-backed steps), then
+# re-invokes "/devagent:next <project> ..." from the emitted CHAIN: line when
+# the skill is done. Both emissions carry the resolved project (#578).
 
 set -euo pipefail
 
@@ -150,6 +152,15 @@ main() {
     fi
 
     local script_path="$PLUGIN_ROOT/scripts/$name.sh"
+    # #578: name the scope for EVERY dispatch, not just the skill-backed one — a
+    # misresolution (stale pointer, concurrent session) is otherwise invisible
+    # until a downstream prerequisite gate fires, and the script-backed steps
+    # that mutate the repo hardest were the silent ones.
+    local _backing="skill-backed"
+    [[ -x "$script_path" ]] && _backing="script-backed"
+    # Header, not a trailing parenthetical: it now precedes BOTH branches, so it
+    # must read as a label for what follows rather than dangle above it.
+    echo "dispatch: $project/$active — step $cur ($name), $_backing"
     if [[ -x "$script_path" ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
       # When chaining (and not at the target), suppress the script's
@@ -192,8 +203,13 @@ main() {
       continue
     else
       # Skill-backed step: hand back to the model.
-      echo "→ Run /devagent:$name"
-      echo "  (step $cur on this issue's checklist; skill-backed)"
+      # #578: both emissions carry the RESOLVED project, on the [project]
+      # positional every /devagent:* command already accepts. A command emitted
+      # without its scope re-resolves GLOBAL state at fire time (pothole
+      # Issue-559). CANNOT ENFORCE: nothing here can tell whether the model
+      # actually invoked the token — a dropped token silently restores the old
+      # behavior, and the identification line above is the only trace.
+      echo "→ Run /devagent:$name $project"
       # If chaining is in effect, emit a CHAIN: marker (Plan 6 convention)
       # so the model knows to re-invoke /devagent:next after the skill
       # completes, continuing the chain until the through-target or a
@@ -201,7 +217,7 @@ main() {
       # responsible for marking the step done on success; this script's
       # next invocation re-reads the checklist and advances.
       if (( auto == 1 )) || [[ -n "$through" ]]; then
-        local chain_cmd="/devagent:next"
+        local chain_cmd="/devagent:next $project"
         (( auto == 1 )) && chain_cmd+=" --auto"
         [[ -n "$through" ]] && chain_cmd+=" --through $through"
         echo "CHAIN: $chain_cmd"

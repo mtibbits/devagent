@@ -82,3 +82,22 @@ guards WHICH CHECKOUT it measures: invocation from a linked worktree or
 equal-`origin` clone of the measured tree dies `TREE MISMATCH` even with an
 explicit project; escape is `DEVAGENT_TREE_GUARD_OVERRIDE=1`, same
 truth-valued semantics.
+
+## Confirming the active issue before a manual script invocation
+
+Workflow scripts act on the state file's `active_issue`, not on anything visible
+in the terminal. Before invoking one by hand — especially in a session that has
+switched issues or projects — read the resolved state first:
+
+    head -15 ~/.claude/devagent/state/<project>.toml
+
+Since #578 the `--auto` chain no longer depends on this for the PROJECT axis:
+`next.sh` bakes the resolved project into both the `→ Run` and `CHAIN:` lines it
+emits, so a moved global pointer cannot redirect a hop to another project.
+
+The ISSUE axis is NOT pinned. Every hop still re-reads `active_issue` for the
+resolved project at fire time, so a concurrent `/devagent:switch`, `/devagent:pull`
+or `/devagent:resume` on the SAME project still redirects the rest of the chain to
+a different issue — the #578 mechanism, one level down. `next.sh` keeps only its
+first positional, so it cannot pin an issue even in principle today; pinning it is
+a recorded follow-up. A BARE manual invocation resolves both axes at fire time.
