@@ -74,12 +74,15 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A verification token the prompt demands back verbatim SURFACES on every rendered output → strip it after the verify step, pin every user-facing surface token-free, and never elide that surface's prose from the evidence artifact — the elision is why the one pass that ran it missed the leak (lawFirm Issue-14).
 - A "cannot be verified" state whose refusal lives only in the TEST SUITE fails open at runtime → put the fail-closed branch in the shipped code path and let the suite pin it, not carry it (lawFirm Issue-14).
 - A delta claim needs ONE metric at BOTH ends, named next to the number — pairing different instruments at baseline and tip made the correction wrong by its own stated method (Issue-466).
+- A fixture that EXPORTS a test seam can make a planned test unable to pass in either direction — read the fixture's exports before writing a test against an env-seamed branch, and scrub with `env -u` to reach the branch under test (Issue-578).
+- Two concurrent runs sharing one worktree void each other: a checkout in one changes the tree under the other, and the victim's output is not a weaker result but NO result — one worktree per run, or serialise them (Issue-578).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
 - A function that reads state to decide what to write must decide inside the lock → prefer a locked primitive (`set-many-if`, `--print-old`) over a read-then-write pair (Issue-240).
 - Atomicity ACs pin by observing transaction TRAFFIC (shim the writer, assert co-carried fields) + crash injection — a race-window test is flaky-green theatre (Issue-317).
 - A destructive per-item loop that records its outcomes once AFTER the loop re-does every completed item on the next run when one item throws → isolate each item in try/catch and record each attempt durably; "did it" and "recorded it" are one unit per item (fleet Issue-25).
+- Scope that must cross a MODEL TURN cannot ride an exported env var — the emitting process returns before the next invocation exists, so the only channels are emitted text, persisted state, or operator-set session env; pick from those three rather than the in-process idiom (Issue-578).
 
 ## Git / ambient checkout / forge state
 
@@ -156,6 +159,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
 - Numbers in a shipping record are re-derived at the FINAL sha in the same pass that writes the record -> a count carried forward across even three commits shipped false twice (Issue-107).
 - Writing "see artifact X for Y" is a claim to VERIFY: open X and confirm Y is derivable there, and re-read a finding's own words before logging it addressed — a partial fix logged as complete is caught only by the next checker, if at all (Issue-550).
+- A guard cited as what makes a trade acceptable must be quoted with its FULL state table — summarising a tri-state guard as two-state hides the branch the reader will land on, and the omitted branch is often already documented in your own evidence artifact (Issue-578).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -198,6 +202,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An input the issue calls unreachable is a claim, not a constraint → spend the one cheap probe (read-only remote read, archived copy) before planning around a prose reconstruction; here it corrected the source commit, the affected file set, and deleted a planned edit that would have CREATED divergence (fleet Issue-20).
 - An acceptance criterion can state a tool's CURRENT output as a premise and be unsatisfiable from the start → run the tool at baseline while drafting the criterion, never from recall (Issue-550).
 - A defect reproduced in ONE environment is an environment-specific claim until measured in the others → probe the MECHANISM per platform before publishing the explanation or writing a test that asserts it everywhere; the general-sounding version can be a guaranteed false red where the suite actually runs (Issue-565).
+- A cross-environment measurement must ASSERT the sha it actually materialised before measuring — a clone that cannot reach the forge, or a local branch ref that never moved, silently yields the pre-change tree and a green run on it reads as proof of the change (Issue-578).
+- Fixing one axis of a COMPOUND scope leaves the identical defect one level down — enumerate every component of the thing resolved at fire time before claiming the class is closed, and narrow the doc claim to what is actually pinned (Issue-578).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
