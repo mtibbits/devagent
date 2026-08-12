@@ -39,9 +39,16 @@ tag`) will get their own dated sections below.
      contamination, not an assertion"); and a chain whose FIRST resolution came
      from `pointer` or `env` re-emits that value as an `arg` on every later hop,
      laundering a non-asserted source into an asserted one for the chain's
-     remainder. The laundering is bounded: hop 1 is still guard-checked and still
-     dies on a genuine `SCOPE MISMATCH`, so later hops re-emit a value hop 1
-     already cleared. Accepted because a chain's scope is correct by construction and
+     remainder. The bound on that laundering is CONDITIONAL, not absolute: hop 1 is
+     still guard-checked, but `active_guard_scope` is tri-state — it dies on a
+     genuine `SCOPE MISMATCH` only when `$PWD` is decidable, and when `$PWD` is
+     under no configured `source_dir` it allows with a single warning. In that
+     undecidable case hop 1 clears nothing, and the chain launders an unverified
+     value into a guard-exempt `arg` for every remaining hop. This is not
+     hypothetical: `Issue-578/analysis/2026-08-12-bornred.txt` captured exactly that
+     branch firing. Until `scripts/revise.sh`'s twin emitter is fixed, a
+     revise-initiated chain is the remaining pointer-first entry into this path.
+     Accepted because a chain's scope is correct by construction and
      the new dispatch identification keeps it visible; restoring guard coverage
      via a distinct `chain` resolution source is recorded as a follow-up.
 
