@@ -192,8 +192,13 @@ main() {
       continue
     else
       # Skill-backed step: hand back to the model.
-      echo "→ Run /devagent:$name"
-      echo "  (step $cur on this issue's checklist; skill-backed)"
+      # #578: name AND scope. A misresolution (stale pointer, concurrent session) is
+      # otherwise invisible until a downstream prerequisite gate fires; and a BARE
+      # slash command re-resolves global state when the model runs it, so the work
+      # between hops would stay unscoped even with the CHAIN: line fixed
+      # (register Issue-566). Every /devagent:* command takes a leading [project].
+      echo "→ Run /devagent:$name $project"
+      echo "  ($project/$active — step $cur on this issue's checklist; skill-backed)"
       # If chaining is in effect, emit a CHAIN: marker (Plan 6 convention)
       # so the model knows to re-invoke /devagent:next after the skill
       # completes, continuing the chain until the through-target or a

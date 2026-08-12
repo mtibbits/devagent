@@ -285,3 +285,10 @@ CL
   [[ "$output" == *"/devagent:scope"* ]]        # volk's next step
   [[ "$output" != *"/devagent:review"* ]]       # NOT other's next step
 }
+
+@test "skill dispatch names the resolved project and issue (#578)" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"volk/Issue-676"* ]]
+  [[ "$output" == *"/devagent:scope volk"* ]]   # the invoked command carries its scope
+}
