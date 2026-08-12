@@ -39,7 +39,9 @@ tag`) will get their own dated sections below.
      contamination, not an assertion"); and a chain whose FIRST resolution came
      from `pointer` or `env` re-emits that value as an `arg` on every later hop,
      laundering a non-asserted source into an asserted one for the chain's
-     remainder. Accepted because a chain's scope is correct by construction and
+     remainder. The laundering is bounded: hop 1 is still guard-checked and still
+     dies on a genuine `SCOPE MISMATCH`, so later hops re-emit a value hop 1
+     already cleared. Accepted because a chain's scope is correct by construction and
      the new dispatch identification keeps it visible; restoring guard coverage
      via a distinct `chain` resolution source is recorded as a follow-up.
 

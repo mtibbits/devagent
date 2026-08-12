@@ -150,6 +150,13 @@ main() {
     fi
 
     local script_path="$PLUGIN_ROOT/scripts/$name.sh"
+    # #578: name the scope for EVERY dispatch, not just the skill-backed one — a
+    # misresolution (stale pointer, concurrent session) is otherwise invisible
+    # until a downstream prerequisite gate fires, and the script-backed steps
+    # that mutate the repo hardest were the silent ones.
+    local _backing="skill-backed"
+    [[ -x "$script_path" ]] && _backing="script-backed"
+    echo "  ($project/$active — step $cur on this issue's checklist; $_backing)"
     if [[ -x "$script_path" ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
       # When chaining (and not at the target), suppress the script's
@@ -192,13 +199,13 @@ main() {
       continue
     else
       # Skill-backed step: hand back to the model.
-      # #578: name AND scope. A misresolution (stale pointer, concurrent session) is
-      # otherwise invisible until a downstream prerequisite gate fires; and a BARE
-      # slash command re-resolves global state when the model runs it, so the work
-      # between hops would stay unscoped even with the CHAIN: line fixed
-      # (register Issue-566). Every /devagent:* command takes a leading [project].
+      # #578: both emissions carry the RESOLVED project, on the [project]
+      # positional every /devagent:* command already accepts. A command emitted
+      # without its scope re-resolves GLOBAL state at fire time (pothole
+      # Issue-559). CANNOT ENFORCE: nothing here can tell whether the model
+      # actually invoked the token — a dropped token silently restores the old
+      # behavior, and the identification line above is the only trace.
       echo "→ Run /devagent:$name $project"
-      echo "  ($project/$active — step $cur on this issue's checklist; skill-backed)"
       # If chaining is in effect, emit a CHAIN: marker (Plan 6 convention)
       # so the model knows to re-invoke /devagent:next after the skill
       # completes, continuing the chain until the through-target or a
@@ -206,11 +213,6 @@ main() {
       # responsible for marking the step done on success; this script's
       # next invocation re-reads the checklist and advances.
       if (( auto == 1 )) || [[ -n "$through" ]]; then
-        # #578: bake the RESOLVED project into the continuation. Without it every
-        # hop re-resolves global state at fire time, so a concurrent session that
-        # moves the pointer silently redirects the rest of the chain. The
-        # script-backed path above already passes "$project"; this restores the
-        # same invariant on the skill-backed path.
         local chain_cmd="/devagent:next $project"
         (( auto == 1 )) && chain_cmd+=" --auto"
         [[ -n "$through" ]] && chain_cmd+=" --through $through"

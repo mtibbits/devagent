@@ -30,10 +30,21 @@ EOF
 
 teardown() { teardown_tmp_devagent_home; }
 
+# Second configured project. Three cases need one; keep the schema in one place.
+_add_other_project() {
+  cat >> "$DA_HOME/config.toml" <<EOF
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
+EOF
+}
+
 @test "next on a skill-backed step prints the slash command to invoke" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *"/devagent:scope"* ]]
+  [[ "$output" == *"/devagent:scope volk"* ]]   # #578: the command carries its scope
+  [[ "$output" == *"volk/Issue-676"* ]]         # #578: the dispatch names project/issue
   [[ "$output" == *"skill-backed"* ]]
 }
 
@@ -93,24 +104,14 @@ EOF
 
 @test "next with no project arg respects DEVAGENT_ACTIVE_PROJECT env var" {
   # Add a second project so single-project resolution would die.
-  cat >> "$DA_HOME/config.toml" <<EOF
-
-[project.other]
-source_dir = "$BATS_TEST_TMPDIR/other"
-devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
-EOF
+  _add_other_project
   DEVAGENT_ACTIVE_PROJECT=volk run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:scope"* ]]
 }
 
 @test "next with no project arg dies when multiple projects configured" {
-  cat >> "$DA_HOME/config.toml" <<EOF
-
-[project.other]
-source_dir = "$BATS_TEST_TMPDIR/other"
-devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
-EOF
+  _add_other_project
   run "$PLUGIN_ROOT/scripts/next.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"2 projects configured"* ]]
@@ -248,23 +249,16 @@ EOC
 @test "a chain hop dispatches the project the chain STARTED with (#578)" {
   # Second project, with its own devdoc, state and checklist — the hijack target.
   mkdir -p "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
-  cat >> "$DA_HOME/config.toml" <<CFG
-
-[project.other]
-source_dir = "$BATS_TEST_TMPDIR/other"
-devdoc_dir = "$BATS_TEST_TMPDIR/other-devdoc"
-CFG
+  _add_other_project
   cat > "$DA_HOME/state/other.toml" <<ST
 active_issue = "Issue-999"
 issue_dir    = "$BATS_TEST_TMPDIR/other-devdoc/Issue-999"
 ST
-  # The cleanup row is LOAD-BEARING: `--auto` implies `--through cleanup`
-  # (next.sh:61-63), and hop 2 validates that target against the RESOLVED
-  # project's checklist (:66-76). Without the row the unfixed tree dies
-  # "unknown step 'cleanup'" before dispatching anything, and the born-red
-  # would fire on a path unrelated to the hijack (register Issue-Fork-132).
+  # cleanup row required: --auto implies --through cleanup, which hop 2
+  # validates against the RESOLVED project's checklist (next.sh:61-76).
+  # Without it the unfixed tree dies before dispatching and the born-red
+  # would fire on a path unrelated to the hijack.
   cat > "$BATS_TEST_TMPDIR/other-devdoc/Issue-999/checklist.md" <<'CL'
-- [x]  0. pull
 - [ ] 15. review
 - [ ] 23. cleanup
 CL
@@ -286,9 +280,3 @@ CL
   [[ "$output" != *"/devagent:review"* ]]       # NOT other's next step
 }
 
-@test "skill dispatch names the resolved project and issue (#578)" {
-  run "$PLUGIN_ROOT/scripts/next.sh" volk
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"volk/Issue-676"* ]]
-  [[ "$output" == *"/devagent:scope volk"* ]]   # the invoked command carries its scope
-}

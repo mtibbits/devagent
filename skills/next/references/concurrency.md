@@ -91,7 +91,13 @@ switched issues or projects — read the resolved state first:
 
     head -15 ~/.claude/devagent/state/<project>.toml
 
-Since #578 the `--auto` chain no longer depends on this: `next.sh` bakes the
-resolved project into both the `→ Run` and `CHAIN:` lines it emits, so a chain
-hop cannot be redirected by a pointer that moved mid-chain. A BARE manual
-invocation still resolves from global state at fire time.
+Since #578 the `--auto` chain no longer depends on this for the PROJECT axis:
+`next.sh` bakes the resolved project into both the `→ Run` and `CHAIN:` lines it
+emits, so a moved global pointer cannot redirect a hop to another project.
+
+The ISSUE axis is NOT pinned. Every hop still re-reads `active_issue` for the
+resolved project at fire time, so a concurrent `/devagent:switch`, `/devagent:pull`
+or `/devagent:resume` on the SAME project still redirects the rest of the chain to
+a different issue — the #578 mechanism, one level down. `next.sh` keeps only its
+first positional, so it cannot pin an issue even in principle today; pinning it is
+a recorded follow-up. A BARE manual invocation resolves both axes at fire time.
