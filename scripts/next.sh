@@ -201,7 +201,12 @@ main() {
       # responsible for marking the step done on success; this script's
       # next invocation re-reads the checklist and advances.
       if (( auto == 1 )) || [[ -n "$through" ]]; then
-        local chain_cmd="/devagent:next"
+        # #578: bake the RESOLVED project into the continuation. Without it every
+        # hop re-resolves global state at fire time, so a concurrent session that
+        # moves the pointer silently redirects the rest of the chain. The
+        # script-backed path above already passes "$project"; this restores the
+        # same invariant on the skill-backed path.
+        local chain_cmd="/devagent:next $project"
         (( auto == 1 )) && chain_cmd+=" --auto"
         [[ -n "$through" ]] && chain_cmd+=" --through $through"
         echo "CHAIN: $chain_cmd"

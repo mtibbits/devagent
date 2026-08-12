@@ -120,13 +120,13 @@ EOF
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
   [ "$status" -eq 0 ]
   [[ "$output" == *"/devagent:scope"* ]]
-  [[ "$output" == *"CHAIN: /devagent:next --auto"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto"* ]]
 }
 
 @test "next --through propagates into CHAIN: marker" {
   run "$PLUGIN_ROOT/scripts/next.sh" volk --through tighten
   [ "$status" -eq 0 ]
-  [[ "$output" == *"CHAIN: /devagent:next --through tighten"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --through tighten"* ]]
 }
 
 @test "next --through stops once the target is marked done" {
