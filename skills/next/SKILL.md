@@ -14,16 +14,13 @@ permission gates nor continues past `[!]` or a non-zero step exit (spec §7.2).
 
 ## Chain recognition
 
-`next.sh` runs script-backed steps in-process. For skill-backed steps it hands
-back to the model:
+Script-backed steps run in-process. Skill-backed steps hand back to the model:
 
     → Run /devagent:<name> <project>
     CHAIN: /devagent:next <project> --auto
 
-Both emitted lines carry the RESOLVED project (#578) and are authoritative:
-invoke them VERBATIM, project token included. Dropping the token re-resolves
-global state at fire time, so a concurrent session that moves the pointer
-silently redirects the rest of the chain to another project.
+The project token is load-bearing (#578): without it the command re-resolves
+global state at fire time.
 
 The `CHAIN:` line is your instruction (model): invoke the `→ Run` command now
 (its body marks the step done), then invoke the CHAIN: command verbatim;
@@ -46,12 +43,9 @@ without operator confirmation (#116).
 Pin per-session in the project directory's settings.local.json:
 `"env": { "DEVAGENT_ACTIVE_PROJECT": "<project>", "DEVAGENT_ACTIVE_ISSUE":
 "Issue-N" }` — a pinned session never reads or writes the shared pointer or
-`active_issue`. Move the global pointer only via /devagent:use. Before any
-manual script invocation, confirm the active issue:
+`active_issue`. Move the global pointer only via /devagent:use.
 
-    head -15 ~/.claude/devagent/state/<project>.toml
-
-History and state-atomicity details: references/concurrency.md.
+Details + how to confirm the active issue: references/concurrency.md.
 
 ## Run the script
 
