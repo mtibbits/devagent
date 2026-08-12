@@ -67,6 +67,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A mutate/restore test harness can corrupt the tree it is testing — a shell that re-encodes BOM-less UTF-8 on write leaves valid results over mangled files → mutate with byte-safe tooling and hash-verify every restored file before trusting the run (fleet Issue-20).
 - Evidence generated in an environment where the suite is known never to be green produces an authoritative-looking artifact that fails the gate it feeds → generate gate inputs in the supported environment first, rather than building a case around a red number (Issue-550).
 - A guard that passes only because two independently-derived quantities COINCIDE today is armed to mislead when they diverge → compare against the field that names the subject under test, never a lookalike value that happens to equal it at HEAD (Issue-118).
+- When the defect makes the suite THINNER, the suite's own total is identical on both sides and cannot be the guard → assert the enabling CONDITION in a self-describing test that names the remedy (Issue-565).
+- A test that greps the implementation's SOURCE passes on disabled code (`if false; then … fi`) and reddens on innocuous reflow → drive the entry point and stub the environment so the negative branch runs everywhere, not just where it is already impossible (Issue-565).
+- A test-only ENV seam obliges every production caller to scrub it and the first that forgets fails silently → pass it as an ARGUMENT that REPLACES the ambient probes; an appended seam can still be answered from the environment, so it isolates nothing (Issue-565).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -112,6 +115,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An honesty fix that documents a guarded token's history is itself a new match for the token census — write deliberate-reference buckets into the census contract up front, and re-derive the count at the final SHA after EVERY fix wave, never carry it forward (Issue-119).
 - A def-time parameter default freezes an import-time value and defeats runtime redirection -> pass a None sentinel and resolve inside the function when the value can vary per run (Issue-107).
 - A fix landed mid-review inherits the plan's parallel-surface sweep obligations — enumerate the changed claim's prose homes for the FIX commit exactly as the plan did for its own tasks (Issue-123).
+- Before adding a probe/helper, grep for the QUESTION it decides, not the name you would give it — two implementations that can disagree about one question is the defect, and a fresh file's self-justifying rationale is unaudited (Issue-565).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -181,6 +185,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A deferral's addressee is a LOOKUP, not an assumption -> read the tracker before shipping a string that names a follow-up owner; claiming "unfiled" about a filed issue is the no-addressee defect wearing a number (Issue-107).
 - An input the issue calls unreachable is a claim, not a constraint → spend the one cheap probe (read-only remote read, archived copy) before planning around a prose reconstruction; here it corrected the source commit, the affected file set, and deleted a planned edit that would have CREATED divergence (fleet Issue-20).
 - An acceptance criterion can state a tool's CURRENT output as a premise and be unsatisfiable from the start → run the tool at baseline while drafting the criterion, never from recall (Issue-550).
+- A defect reproduced in ONE environment is an environment-specific claim until measured in the others → probe the MECHANISM per platform before publishing the explanation or writing a test that asserts it everywhere; the general-sounding version can be a guaranteed false red where the suite actually runs (Issue-565).
 
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
