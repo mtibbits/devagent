@@ -70,6 +70,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - When the defect makes the suite THINNER, the suite's own total is identical on both sides and cannot be the guard → assert the enabling CONDITION in a self-describing test that names the remedy (Issue-565).
 - A test that greps the implementation's SOURCE passes on disabled code (`if false; then … fi`) and reddens on innocuous reflow → drive the entry point and stub the environment so the negative branch runs everywhere, not just where it is already impossible (Issue-565).
 - A test-only ENV seam obliges every production caller to scrub it and the first that forgets fails silently → pass it as an ARGUMENT that REPLACES the ambient probes; an appended seam can still be answered from the environment, so it isolates nothing (Issue-565).
+- A verification token the prompt demands back verbatim SURFACES on every rendered output → strip it after the verify step, pin every user-facing surface token-free, and never elide that surface's prose from the evidence artifact — the elision is why the one pass that ran it missed the leak (lawFirm Issue-14).
+- A "cannot be verified" state whose refusal lives only in the TEST SUITE fails open at runtime → put the fail-closed branch in the shipped code path and let the suite pin it, not carry it (lawFirm Issue-14).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -153,6 +155,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A permission/pattern matcher may compare LITERAL byte forms — a rule silently never matches an emission differing only in quoting, bracing, case, or argument presence → capture the exact emitted strings mechanically and probe each call shape separately before sweeping grants or rules (Issue-548).
 - An issue's named input can be wrong → verify it exists with the assumed content in scope/improve; surface the mismatch rather than building an inert fix (Issue-274).
 - Building on an external tool/harness parameter → probe the CONSUMER's accepted-value contract live (closed enums reject values docs imply legal); split probe findings CONFIRMED vs ASSERTED by provenance — the read-not-measured rung is the one that breaks (Issue-458).
+- A flag or option carrying a security/behavior claim → assert the resulting output/envelope shape at RUNTIME, not just once in a probe; an unenforced measurement is not a control, and the probe's own transcript may already falsify the claim if read past its success signal (lawFirm Issue-14).
 - A premise-freshness ✗ on a named file can be the issue's own DELIVERABLE → classify input-vs-output before treating absence as a falsified premise (Issue-458).
 - Correcting or restating a prior record's claim → re-derive it from the PRIMARY artifact at execution time; the record's conclusion AND its inherited qualifiers are leads, not sources — if the artifact is gone, withhold rather than assert (Issue-Fork-138).
 - A documented verified-non-fix gets re-proposed by every fresh reviewer → record the refutation at the code site itself, not only in the issue/plan (Issue-Fork-221).
@@ -190,6 +193,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 ## Docs / edit-neighborhood hygiene
 - Changing one claim/line → re-read its unchanged neighbours for a newly-created contradiction, and pin every parallel surface (command doc + script `usage()`) or they drift (Issue-321).
 - An issue body's conditional hazard ("IF X, then …") must have its antecedent MEASURED before the hazard is documented as fact → an unverified caveat plants a false record that points attention away from the real site (fleet Issue-19).
+- A review finding about a FACT, fixed only at the finding's named line → grep every home of the fact and fix them in the same commit; a code-constant fix with the shipped doc left stale is the next round's re-finding, now as a contradiction (lawFirm Issue-14).
 - A late "trivial" fix-commit that exceeds the scope a review authorized invalidates the evidence the MR cites → re-run the evidence at the new HEAD before ship (fleet Issue-3).
 - The MR body is REGENERATED at ship, not authored once — every post-draftmr commit silently ages its evidence SHA, counts, and any claim a later review corrected elsewhere; the maintainer-facing document is the one home consumed alone, so it must be the LAST one re-stamped, never the first one forgotten (Issue-553).
 - Evidence/count numbers must come from a run at THIS HEAD — stale counts copy forward silently; brand numbers need ONE derived source, not N hand-edits (Issue-284).
