@@ -1075,8 +1075,12 @@ recorded "0 passed" for a 51-test suite. The reconstruction is
 `<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
 `none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`
 suffix that claimed a measured zero for an absent framework and a `/ bats` prefix that
-reconciled only against itself. `(error)` fails preship outright with no override: an
-unmeasured suite is not a condition an operator can knowingly accept. bats has no
+reconciled only against itself. `(error)` fails preship outright with no bypass: an
+unmeasured suite is not a condition an operator can knowingly accept. The interpreter
+search is overridable via `DEVAGENT_PYTEST_PYTHON` — the same `DEVAGENT_<TOOL>` seam
+`DEVAGENT_GIT`/`DEVAGENT_GH`/`DEVAGENT_CMAKE` use — so an unsupported virtualenv layout,
+or a linked worktree that an untracked venv never reached, is unsupported rather than
+unshippable. The seam names a working interpreter; it cannot silence the verdict. bats has no
 `(error)` state, because a run with no `1..N` plan line dies in `run-suite.sh` before an
 artifact exists.
 

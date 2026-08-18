@@ -114,11 +114,11 @@ _run() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-
     [[ "$output" == *"WARN"* ]]
 }
 
-# $1=head  → writes a no-framework (neither bats nor pytest) suite-count artifact
-_artifact_none() {
-    printf 'head: %s  dirty: no\nbats: (none)\npytest: (none)\n' "$1" \
-        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
-}
+# $1=head  → writes a no-framework (neither bats nor pytest) suite-count artifact.
+# Delegates to _artifact_raw (defined below) so the artifact's printf template has ONE
+# home in this file: #571 added a tree: line to the format and had to touch every
+# writer, and a missed one leaves a test passing against a format nothing emits.
+_artifact_none() { _artifact_raw "(none)" "(none)" "$1"; }
 
 @test "preship-evidence: no-framework project reconciles 'suite: none' → rc 0 (#411)" {
     _artifact_none "$HEAD_SHA"

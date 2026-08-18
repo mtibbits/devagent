@@ -13,6 +13,12 @@
 # those differently and refuses to ship on `(error)` (#466). bats has no `(error)` state
 # by construction: a bats run with no `1..N` plan line dies below rather than reaching
 # the artifact, so the asymmetry is deliberate.
+# Producer rule, so the next framework added knows which arm it belongs in: DIE when the
+# artifact would be FALSE (#565 chmod no-op, #406 truncation, a mid-run HEAD move);
+# record `(error)` when it would be UNKNOWN. bats has no unknown state — a run with no
+# plan line cannot reach the artifact — so its die is an INSTANCE of that rule, not an
+# exemption from it.
+# DEVAGENT_PYTEST_PYTHON overrides the interpreter search (see below).
 # The optional [project.<name>.suite_env] config table (#603) is exported into
 # both suite child processes — for a project whose tests need environment that
 # is not derivable from the tree (lawFirm's LAWFIRM_DATA_ROOT, whose data layer
@@ -126,8 +132,20 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   # Only `.venv/` is honoured — the `venv/` spelling and Windows `.venv/Scripts/` are
   # deliberately out of scope, and a project using either is no longer SILENT: it lands
   # in the `(error)` arm below rather than recording a false zero.
-  py=python3
-  [ -x ".venv/bin/python" ] && py=".venv/bin/python"
+  # Every other external tool in this repo goes through a DEVAGENT_<TOOL> seam
+  # (DEVAGENT_GIT, DEVAGENT_GH, DEVAGENT_CMAKE, analyze-static's DEVAGENT_PYTHON); the
+  # interpreter is one more tool, so it gets one too. Without it an unsupported layout
+  # (`venv/`, `.venv/Scripts/`, conda, uv, pyenv) is UNSHIPPABLE rather than merely
+  # unsupported: the `(error)` arm below has no bypass by design, so the operator would
+  # have to rename their virtualenv. The seam names a WORKING interpreter — it cannot
+  # silence the verdict, so fail-closed is unweakened.
+  # It also covers the linked-worktree case (#571 use_worktree): a venv is untracked, so
+  # it never travels to `git worktree add`, and the measured tree legitimately has none.
+  py="${DEVAGENT_PYTEST_PYTHON:-}"
+  if [ -z "$py" ]; then
+    py=python3
+    [ -x ".venv/bin/python" ] && py=".venv/bin/python"
+  fi
   pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1 || true)"

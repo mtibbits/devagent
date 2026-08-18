@@ -352,7 +352,16 @@ ambient `python3` — a Python project conventionally carries its interpreter in
 tree, and measuring with the system one recorded `0 passed` for a 51-test suite. If
 neither can run pytest, the artifact records `pytest: (error)` rather than a zero count,
 and `preship-evidence.sh` fails on it: an unmeasured suite must not ship as a green
-(#466). Only the `.venv/` spelling is searched.
+(#466). Only the `.venv/` spelling is searched, so for any other layout — `venv/`,
+`.venv/Scripts/`, conda, uv, pyenv, or a linked worktree, where an untracked virtualenv
+never travels — point `DEVAGENT_PYTEST_PYTHON` at the interpreter instead:
+
+```sh
+DEVAGENT_PYTEST_PYTHON=/path/to/python bash scripts/run-suite.sh <project>
+```
+
+That names a working interpreter; it does not silence the `(error)` verdict, so the
+fail-closed property is unweakened.
 
 ## Git hooks (opt-in)
 

@@ -341,3 +341,43 @@ EOF
     run grep -q 's3cr3t-value' "$art"
     [ "$status" -ne 0 ]
 }
+
+@test "run-suite: DEVAGENT_PYTEST_PYTHON overrides the interpreter search (#466)" {
+    # The seam exists so an unsupported venv layout (`venv/`, `.venv/Scripts/`, conda,
+    # uv, pyenv) or a linked worktree — where an untracked .venv never travels — is
+    # merely unsupported rather than UNSHIPPABLE, since the (error) arm has no bypass.
+    # Point it at an interpreter that reports a count while BOTH ambient python3 and a
+    # present .venv report none: only the override can produce the recorded number.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "venv also cannot run pytest"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    mkdir -p "$DEVAGENT_TMP/elsewhere"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "7 passed in 0.10s"' \
+        > "$DEVAGENT_TMP/elsewhere/python"
+    chmod +x "$DEVAGENT_TMP/elsewhere/python"
+    git add -A && git commit -q -m "add py test and a pytest-less venv"
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/elsewhere/python" \
+        PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 7 passed, 0 failed$' "$art"
+}
+
+@test "run-suite: an unset DEVAGENT_PYTEST_PYTHON does not disturb the .venv preference (#466)" {
+    # Guards the seam's empty case: `${DEVAGENT_PYTEST_PYTHON:-}` must fall through to
+    # the search, not resolve to an empty command.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "51 passed in 44.69s"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    git add -A && git commit -q -m "add py test and venv"
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    DEVAGENT_PYTEST_PYTHON="" PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 51 passed, 0 failed$' "$art"
+}

@@ -88,6 +88,13 @@ a_plan="$(sed -n 's/^bats:[[:space:]]*[0-9][0-9]*\/\([0-9][0-9]*\).*/\1/p' "$art
 a_notok="$(sed -n 's/^bats:.*notok=\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
 a_passed="$(sed -n 's/^pytest:[[:space:]]*\([0-9][0-9]*\) passed.*/\1/p' "$artifact" | head -1)"
 a_failed="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' "$artifact" | head -1)"
+# #466: the framework line BODIES verbatim, parsed HERE with the same sed idiom as the
+# numeric fields above rather than by inline greps further down — one parsing convention
+# for one file format, so a new state token or a schema tweak has a single home. The
+# numeric fields cannot answer the presence question: a_ok/a_passed are empty for BOTH
+# "(none)" and an unparseable line, and this checker must tell those apart.
+a_bats_body="$(sed -n 's/^bats:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
+a_pytest_body="$(sed -n 's/^pytest:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
 
 cur_head="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse HEAD 2>/dev/null || true)"
 [ -n "$cur_head" ] || die "preship-evidence: could not resolve current HEAD"
@@ -142,22 +149,25 @@ fi
 # commit. All three verdicts below are fails+= entries, never die: this script's
 # contract is to accumulate and report EVERY failure in one run (fails=() above), and a
 # die would hand the operator one failure per round-trip.
-if grep -q '^pytest: (error)$' "$artifact"; then
-  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Fix the interpreter and re-run run-suite (#466). There is deliberately NO override for this: unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept.")
+# One sentence, one home: both unparseable-artifact verdicts end in it, and a reworded
+# copy would leave the operator two phrasings for one class of failure.
+unparseable="— refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite. Set DEVAGENT_PYTEST_PYTHON if run-suite cannot find your project's interpreter."
+if [ "$a_pytest_body" = "(error)" ]; then
+  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run them, or fix the venv, then re-run run-suite (#466). There is deliberately no bypass that would let this SHIP: unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept — the seam names a working interpreter, it does not silence the verdict.")
 fi
 parts=()
-if ! grep -q '^bats: (none)$' "$artifact"; then
+if [ "$a_bats_body" != "(none)" ]; then
   if [ -n "$a_ok" ] && [ -n "$a_plan" ]; then
     parts+=("$a_ok/$a_plan bats")
   else
-    fails+=("artifact 'bats:' line is neither '(none)' nor '<ok>/<plan> notok=<n>' — refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite.")
+    fails+=("artifact 'bats:' line is neither '(none)' nor '<ok>/<plan> notok=<n>' $unparseable")
   fi
 fi
-if ! grep -q '^pytest: (none)$' "$artifact" && ! grep -q '^pytest: (error)$' "$artifact"; then
+if [ "$a_pytest_body" != "(none)" ] && [ "$a_pytest_body" != "(error)" ]; then
   if [ -n "$a_passed" ]; then
     parts+=("$a_passed pytest")
   else
-    fails+=("artifact 'pytest:' line is neither '(none)'/'(error)' nor '<n> passed, <m> failed' — refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite.")
+    fails+=("artifact 'pytest:' line is neither '(none)'/'(error)' nor '<n> passed, <m> failed' $unparseable")
   fi
 fi
 # An (error) artifact contributes no parts entry, so expected_suite still reconstructs
