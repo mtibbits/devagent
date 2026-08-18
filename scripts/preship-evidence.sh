@@ -17,6 +17,18 @@
 # artifact without a tree: line (pre-#571) skips the tree check. Block present
 # → every check hard-dies. Any git/parse failure dies loud (#117/#314 — never
 # "0 checked"); no prompts (safe under --auto).
+# #466: the reconstruction is PER-FRAMEWORK. A bats-only project's Evidence line is
+# `<ok>/<plan> bats @ <sha>` (NOT `…, 0 pytest`, which claimed a measured zero for an
+# absent framework) and a pytest-only project's is `<passed> pytest @ <sha>` (previously
+# the nonsense `/ bats, …`, which reconciled against itself and shipped twice). This is
+# a DELIBERATE break for any single-framework mr.md drafted before #466: the mismatch
+# message names the exact correct line, so remediation is one edit. An artifact
+# recording `pytest: (error)` — tests present, no counts parsed — FAILS rather than
+# reconciling; that state means the suite was never measured, which no Evidence line can
+# honestly report, and it has no override by design. Stated blind spot: this canNOT
+# repair an artifact that already recorded `0 passed, 0 failed` for a suite that never
+# ran — those reconcile as `0 pytest` and are indistinguishable here from a real zero.
+# The fix is at the producer, for artifacts written at or after #466.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -113,17 +125,50 @@ if [ "${a_notok:-0}" = "0" ] && [ "${a_ok:-}" != "${a_plan:-}" ]; then
 fi
 [ "${a_failed:-0}" = "0" ] || fails+=("pytest failed=$a_failed (suite not green)")
 
-# Reconstruct the canonical suite line from the artifact and compare (exact).
-# #411: a project with NEITHER framework yields `bats: (none)` + `pytest: (none)`.
-# Reconstruct the explicit no-framework form `none @ <sha>` instead of a nonsensical
-# `/ bats, 0 pytest @ <sha>` that could never reconcile — so a ctest-only / non-bats
-# project (e.g. volk) preships end-to-end without hand-deleting the Evidence lines.
-# Framework projects keep the exact reconstruction, so their artifacts and Evidence
-# are byte-identical to today.
-if grep -q '^bats: (none)$' "$artifact" && grep -q '^pytest: (none)$' "$artifact"; then
+# Reconstruct the canonical suite line from the frameworks the artifact reports
+# PRESENT, and compare (exact). #411 established the neither-framework form; #466
+# generalizes it per-framework, because the pair had two working shapes and two broken:
+#   both        -> "<ok>/<plan> bats, <passed> pytest @ <sha>"  (byte-identical to #359)
+#   neither     -> "none @ <sha>"                                (byte-identical to #411)
+#   pytest-only -> was "/ bats, <passed> pytest @ <sha>". NOT merely unmatchable: this
+#                  checker compares mr.md against its OWN reconstruction, so an operator
+#                  who copied the nonsense string reconciled cleanly. factorAI/Issue-85
+#                  and koopmanGNN/Issue-106 both SHIPPED that way (#466).
+#   bats-only   -> was "<ok>/<plan> bats, 0 pytest @ <sha>". "0 pytest" reads as a
+#                  MEASURED zero rather than an absent framework: a false green
+#                  (#572 redmr MINOR-5).
+# One representation, both sides — mirrored in templates/mr_template.md,
+# skills/core-draft-mr/SKILL.md and agents/preship-verifier.md, which move in the same
+# commit. All three verdicts below are fails+= entries, never die: this script's
+# contract is to accumulate and report EVERY failure in one run (fails=() above), and a
+# die would hand the operator one failure per round-trip.
+if grep -q '^pytest: (error)$' "$artifact"; then
+  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Fix the interpreter and re-run run-suite (#466). There is deliberately NO override for this: unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept.")
+fi
+parts=()
+if ! grep -q '^bats: (none)$' "$artifact"; then
+  if [ -n "$a_ok" ] && [ -n "$a_plan" ]; then
+    parts+=("$a_ok/$a_plan bats")
+  else
+    fails+=("artifact 'bats:' line is neither '(none)' nor '<ok>/<plan> notok=<n>' — refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite.")
+  fi
+fi
+if ! grep -q '^pytest: (none)$' "$artifact" && ! grep -q '^pytest: (error)$' "$artifact"; then
+  if [ -n "$a_passed" ]; then
+    parts+=("$a_passed pytest")
+  else
+    fails+=("artifact 'pytest:' line is neither '(none)'/'(error)' nor '<n> passed, <m> failed' — refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite.")
+  fi
+fi
+# An (error) artifact contributes no parts entry, so expected_suite still reconstructs
+# from whatever else is present and the operator sees the suite-line verdict ALONGSIDE
+# the (error) verdict rather than instead of it.
+if [ "${#parts[@]}" -eq 0 ]; then
   expected_suite="none @ $a_head"
+elif [ "${#parts[@]}" -eq 1 ]; then
+  expected_suite="${parts[0]} @ $a_head"
 else
-  expected_suite="$a_ok/$a_plan bats, ${a_passed:-0} pytest @ $a_head"
+  expected_suite="${parts[0]}, ${parts[1]} @ $a_head"
 fi
 [ "$ev_suite" = "$expected_suite" ] \
   || fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite'")

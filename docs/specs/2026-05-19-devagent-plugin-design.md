@@ -1063,6 +1063,23 @@ variable the table exists to supply). The artifact gains a trailing
 values, since the block is quoted into MR bodies — appended last so every
 prefix-anchored consumer of `head:`/`tree:`/`bats:`/`pytest:` is unmoved.
 
+Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
+reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming
+both. `(none)` means the framework is absent from the measured tree; `(error)` means
+its tests exist but produced no counts (a missing interpreter, a venv without pytest, a
+collection error); anything else is a measurement. `run-suite.sh` prefers
+`<tree>/.venv/bin/python` over ambient `python3`, because a Python project
+conventionally carries its interpreter in the tree and measuring with the system one
+recorded "0 passed" for a 51-test suite. The reconstruction is
+`<ok>/<plan> bats, <passed> pytest @ <sha>` when both are present,
+`<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
+`none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`
+suffix that claimed a measured zero for an absent framework and a `/ bats` prefix that
+reconciled only against itself. `(error)` fails preship outright with no override: an
+unmeasured suite is not a condition an operator can knowingly accept. bats has no
+`(error)` state, because a run with no `1..N` plan line dies in `run-suite.sh` before an
+artifact exists.
+
 ## 8. Permission gates
 
 Defined per project in `[project.<name>.permissions]`. Each gate:

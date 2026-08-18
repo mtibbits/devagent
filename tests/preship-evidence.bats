@@ -145,3 +145,75 @@ _artifact_none() {
     _run
     [ "$status" -eq 0 ]
 }
+
+# #466: write the two framework lines VERBATIM, so single-framework and error
+# artifacts are expressible. $1=bats-line-body $2=pytest-line-body $3=head (opt)
+_artifact_raw() {
+    printf 'head: %s  dirty: no\nbats: %s\npytest: %s\n' "${3:-$HEAD_SHA}" "$1" "$2" \
+        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+}
+
+@test "preship-evidence: bats-only artifact reconciles '<n>/<m> bats @ sha' (#466)" {
+    _artifact_raw "285/285 notok=0" "(none)"
+    _mr "285/285 bats @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: bats-only REJECTS the legacy ', 0 pytest' false green (#572 MINOR-5)" {
+    # "0 pytest" reads as a measured zero; the framework is ABSENT. Different facts.
+    _artifact_raw "285/285 notok=0" "(none)"
+    _mr "285/285 bats, 0 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"285/285 bats @ $HEAD_SHA"* ]]   # names the correct line
+}
+
+@test "preship-evidence: pytest-only artifact reconciles '<k> pytest @ sha' (#466)" {
+    _artifact_raw "(none)" "51 passed, 0 failed"
+    _mr "51 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: pytest: (error) FAILS and does not suppress a second failure (#466)" {
+    # The (error) verdict is a fails+= entry, NOT a die: this script's contract is to
+    # accumulate and report every failure at once. A die would hand the operator one
+    # failure per round-trip. Pair it with a stale head so the report must name BOTH.
+    _artifact_raw "285/285 notok=0" "(error)" "deadbeefdeadbeef"
+    _mr "285/285 bats @ deadbeefdeadbeef" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(error)"* ]]
+    [[ "$output" == *"head"* ]]
+}
+
+@test "preship-evidence: unparseable bats: line FAILS without emitting '/ bats' (#466)" {
+    _artifact_raw "garbage" "(none)"
+    _mr "anything @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"/ bats"* ]]
+}
+
+@test "#466 sweep: every documentation home of the suite: format carries the single-framework forms" {
+    # The bats-only and pytest-only forms are what #466 introduces. Assert each home
+    # separately and by an ANCHORED pattern: a bare 'pytest @ <sha>' grep is satisfied
+    # by the pre-existing BOTH-frameworks form, so that leg could never redden
+    # (register Issue-151/Issue-337 — a vacuous presence guard).
+    local f
+    for f in "$DEVAGENT_ROOT/templates/mr_template.md" \
+             "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" \
+             "$DEVAGENT_ROOT/agents/preship-verifier.md"; do
+        [ "$(grep -cE 'bats @ <(head-)?sha>' "$f")" -ge 1 ] \
+            || { echo "no bats-only form in $f"; return 1; }
+        # The pytest-only form is a 'pytest @ <sha>' that is NOT the tail of the
+        # both-frameworks form, whose distinguishing token is the 'bats,' separator.
+        # Deliberately no bracket expression: '[^a-z]' is collation-dependent, so an
+        # anchored character-class version returned a different count under LC_ALL than
+        # under the ambient locale (register Issue-106 — running a VARIANT of a command
+        # is not running it). This pins the CLAIM, not one phrasing of it.
+        [ "$(grep -E 'pytest @ <(head-)?sha>' "$f" | grep -vc 'bats,')" -ge 1 ] \
+            || { echo "no pytest-only form in $f"; return 1; }
+    done
+}

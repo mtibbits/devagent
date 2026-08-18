@@ -98,20 +98,43 @@ EOF
     grep -q '^pytest: 285 passed, 0 failed$' "$art"
 }
 
-@test "run-suite records pytest: (none) when pytest emits no count at all (false-green guard)" {
-    # tests/test_*.py existing does NOT mean pytest can run them: a missing
-    # interpreter (Windows Store shim) or a collection error emits no summary.
-    # Recording "0 passed, 0 failed" would read "ran clean" for a suite that
-    # was never measured; the explicit (none) form is what preship-evidence's
-    # no-framework reconciliation requires. (Behavior landed alongside #572;
-    # authored as a concurrent operator edit, pinned by this test.)
+@test "run-suite records pytest: (error) when tests exist but pytest emits no count (#466)" {
+    # Was the "(none) false-green guard" until #466. Its INTENT is preserved and
+    # strengthened, not dropped: never record a green for a suite that was never
+    # measured. What changes is the TOKEN. `(none)` was doing two jobs — "this project
+    # has no pytest suite" and "this project's pytest suite could not be measured" —
+    # and preship-evidence reconstructs the Evidence line from framework PRESENCE, so
+    # the shared token let an unmeasured suite vanish out of the green entirely.
+    # Splitting it makes the fail-safe un-violatable by construction (register
+    # Issue-243). tests/test_*.py existing does NOT mean pytest can run them: a missing
+    # interpreter (Windows Store shim), a venv without pytest, a `venv/`-spelled
+    # environment, or a collection error all emit no summary.
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
     _stub_python3_pytest "pytest exploded: no summary counts in this output"
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -q '^pytest: (none)$' "$art"
+    grep -q '^pytest: (error)$' "$art"
+}
+
+@test "run-suite prefers <tree>/.venv/bin/python over ambient python3 (#466)" {
+    # factor-ai Issue-9: a 51-test pytest suite recorded "0 passed" because the project
+    # keeps its interpreter in .venv/ and run-suite measured with ambient python3.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "51 passed in 44.69s"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    git add -A && git commit -q -m "add py test and venv"
+    # Ambient python3 still answers config/state calls (_stub_python3_pytest delegates
+    # every non-pytest call to the real interpreter), but produces NO pytest summary —
+    # so a non-zero count in the artifact can ONLY have come from .venv/bin/python.
+    # That is the venv proof: a behavioural assertion, not a provenance label.
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 51 passed, 0 failed$' "$art"
 }
 
 @test "run-suite parses a mixed failed+passed pytest summary (order-independent)" {

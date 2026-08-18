@@ -6,8 +6,13 @@
 #     head: <sha>  dirty: yes|no
 #     tree: <canonical path of the measured checkout>
 #     bats: <ok>/<plan> notok=<n>
-#     pytest: <passed> passed, <failed> failed
+#     pytest: <passed> passed, <failed> failed | (none) | (error)
 #     suite_env: <NAMES…> | (none)
+# On the framework lines, `(none)` means the framework is ABSENT from the measured tree
+# and `(error)` means its tests exist but produced no counts; preship-evidence.sh treats
+# those differently and refuses to ship on `(error)` (#466). bats has no `(error)` state
+# by construction: a bats run with no `1..N` plan line dies below rather than reaching
+# the artifact, so the asymmetry is deliberate.
 # The optional [project.<name>.suite_env] config table (#603) is exported into
 # both suite child processes — for a project whose tests need environment that
 # is not derivable from the tree (lawFirm's LAWFIRM_DATA_ROOT, whose data layer
@@ -113,29 +118,42 @@ fi
 
 pytest_line="pytest: (none)"
 if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
+  # #466: Python projects conventionally carry their interpreter in <tree>/.venv/, where
+  # the AMBIENT python3 has no pytest — measuring a 51-test suite with system python3
+  # recorded "0 passed" (factor-ai Issue-9). Prefer the tree's own venv: the artifact is
+  # a function of the TREE, not of the operator's session (#458), and the venv is part
+  # of the tree. cwd has been $work_dir since the cd above.
+  # Only `.venv/` is honoured — the `venv/` spelling and Windows `.venv/Scripts/` are
+  # deliberately out of scope, and a project using either is no longer SILENT: it lands
+  # in the `(error)` arm below rather than recording a false zero.
+  py=python3
+  [ -x ".venv/bin/python" ] && py=".venv/bin/python"
   pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
-            python3 -m pytest tests/ -q 2>&1 || true)"
+            "$py" -m pytest tests/ -q 2>&1 || true)"
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
   # column 0, which pytest -q's summary ("285 passed, 9 skipped in Xs") always
   # is. The prior sed required a non-digit BEFORE the digits and so recorded 0
-  # for every line-start summary. `tail -1` here is the summary line (pytest
+  # for every line-start summary (#555). `tail -1` here is the summary line (pytest
   # prints it last) — NOT the header's forbidden tail-derived count (#85), which
   # is about the bats `1..N`/`^ok ` counting, a different mechanism.
   # `|| true`: a green run has no "failed" line, so `grep` exits 1 — which under
   # this script's `set -euo pipefail` would kill run-suite mid-way. No match just
-  # means a zero count, defaulted below.
+  # means a zero count, handled below.
   passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
   failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
   if [ -z "$passed" ] && [ -z "$failed" ]; then
-    # pytest emitted no count at all: it never ran (missing interpreter — e.g.
-    # a Windows Store python3 shim — or a collection error) or collected
-    # nothing. tests/test_*.py existing does NOT mean pytest can run them
-    # (standalone-script suites). Recording "0 passed, 0 failed" here is a
-    # false green — it reads "ran clean" for a suite that was never measured —
-    # and it also breaks preship-evidence's no-framework reconciliation
-    # (`none @ <sha>`), which requires the explicit `pytest: (none)` form.
-    pytest_line="pytest: (none)"
+    # #466: TRI-STATE. pytest emitted no count at all: it never ran (missing
+    # interpreter, a venv without pytest, a `venv/`-spelled environment) or it hit a
+    # collection error. tests/test_*.py existing does NOT mean pytest can run them.
+    # This is "could not MEASURE", which is a DIFFERENT FACT from "this project has no
+    # pytest suite" — and the two must not share one token, because preship-evidence
+    # reconstructs the Evidence line from framework PRESENCE and would read a shared
+    # `(none)` as "no pytest here", silently dropping the unmeasured suite out of the
+    # green. An absent-vs-can't-determine ambiguity fails CLOSED (register Issue-243).
+    # Recording "0 passed, 0 failed" here would be the other false green, and it is
+    # what factorAI/Issue-85 and koopmanGNN/Issue-106 shipped.
+    pytest_line="pytest: (error)"
   else
     pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
   fi

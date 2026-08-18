@@ -93,7 +93,11 @@ verification passed; FAIL otherwise).
    the artifact was produced in — `worktree_path` else `source_dir`, with the
    artifact's `tree:` stamp cross-checked against it (#571; a stamp naming a
    tree that does not exist in this environment warns and falls back to the
-   head comparison), tree clean, suite green, the `suite:` line exact,
+   head comparison), tree clean, suite green, the `suite:` line exact — and note it names only the
+   frameworks the tree HAS, so a bats-only project's line is `<ok>/<plan> bats @ <sha>`
+   and a pytest-only project's is `<n> pytest @ <sha>`, never `, 0 pytest` for an absent
+   framework (#466); an artifact recording `pytest: (error)` fails outright because the
+   suite was never measured —
    `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
    block warns and passes (back-compat).
 

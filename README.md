@@ -300,7 +300,7 @@ the hermetic environment baked in and writes the provenance artifact
 bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
 ```
 
-The suite has two environmental requirements, and `run-suite.sh` enforces both
+The suite has three environmental requirements, and `run-suite.sh` enforces all three
 rather than producing an artifact it cannot stand behind — so a minimal
 container running these tests must provide them.
 
@@ -345,6 +345,14 @@ LC_ALL=C.UTF-8 bats tests/some-file.bats
 has no UTF-8 locale, so a bare `bats tests/` reports the condition rather than
 hiding it — and it asserts both platform branches above, so it is not vacuous
 on either.
+
+**A pytest-capable interpreter for a tree that has `tests/test_*.py`.**
+`run-suite.sh` prefers `<tree>/.venv/bin/python` when it exists and falls back to
+ambient `python3` — a Python project conventionally carries its interpreter inside the
+tree, and measuring with the system one recorded `0 passed` for a 51-test suite. If
+neither can run pytest, the artifact records `pytest: (error)` rather than a zero count,
+and `preship-evidence.sh` fails on it: an unmeasured suite must not ship as a green
+(#466). Only the `.venv/` spelling is searched.
 
 ## Git hooks (opt-in)
 
