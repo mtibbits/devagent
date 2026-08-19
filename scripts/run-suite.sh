@@ -51,6 +51,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/utf8-locale.sh"
 # shellcheck source=lib/secrets.sh
 . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
+# shellcheck source=lib/python-interp.sh
+. "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -132,20 +134,12 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   # Only `.venv/` is honoured — the `venv/` spelling and Windows `.venv/Scripts/` are
   # deliberately out of scope, and a project using either is no longer SILENT: it lands
   # in the `(error)` arm below rather than recording a false zero.
-  # Every other external tool in this repo goes through a DEVAGENT_<TOOL> seam
-  # (DEVAGENT_GIT, DEVAGENT_GH, DEVAGENT_CMAKE, analyze-static's DEVAGENT_PYTHON); the
-  # interpreter is one more tool, so it gets one too. Without it an unsupported layout
-  # (`venv/`, `.venv/Scripts/`, conda, uv, pyenv) is UNSHIPPABLE rather than merely
-  # unsupported: the `(error)` arm below has no bypass by design, so the operator would
-  # have to rename their virtualenv. The seam names a WORKING interpreter — it cannot
-  # silence the verdict, so fail-closed is unweakened.
-  # It also covers the linked-worktree case (#571 use_worktree): a venv is untracked, so
-  # it never travels to `git worktree add`, and the measured tree legitimately has none.
-  py="${DEVAGENT_PYTEST_PYTHON:-}"
-  if [ -z "$py" ]; then
-    py=python3
-    [ -x ".venv/bin/python" ] && py=".venv/bin/python"
-  fi
+  # Interpreter resolution lives in scripts/lib/python-interp.sh — born-red.sh invokes
+  # pytest too and had the same defect, so the fact has ONE home (register Issue-82).
+  # Setter-global; never $( … ). $work_dir is the measured tree; source_dir is the
+  # fallback for a linked worktree, which an untracked venv never reaches.
+  python_interp_resolve "$work_dir" "$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
+  py="$PYTHON_INTERP"
   pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1 || true)"

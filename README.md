@@ -361,7 +361,9 @@ DEVAGENT_PYTEST_PYTHON=/path/to/python bash scripts/run-suite.sh <project>
 ```
 
 That names a working interpreter; it does not silence the `(error)` verdict, so the
-fail-closed property is unweakened.
+fail-closed property is unweakened. `born-red.sh` resolves the interpreter the same way
+(both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
+at all — an unmeasurable baseline is not a red one.
 
 ## Git hooks (opt-in)
 

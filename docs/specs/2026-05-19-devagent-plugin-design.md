@@ -1080,7 +1080,18 @@ unmeasured suite is not a condition an operator can knowingly accept. The interp
 search is overridable via `DEVAGENT_PYTEST_PYTHON` — the same `DEVAGENT_<TOOL>` seam
 `DEVAGENT_GIT`/`DEVAGENT_GH`/`DEVAGENT_CMAKE` use — so an unsupported virtualenv layout,
 or a linked worktree that an untracked venv never reached, is unsupported rather than
-unshippable. The seam names a working interpreter; it cannot silence the verdict. bats has no
+unshippable. The seam names a working interpreter; it cannot silence the verdict.
+
+Interpreter resolution is single-sourced in `scripts/lib/python-interp.sh`
+(`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). Both
+pytest-invoking scripts use it: `run-suite.sh` and `born-red.sh`. born-red had the same
+defect in a more dangerous form — `_run_pytest` reads a non-zero exit as "RED at
+baseline", so on a venv project every new test classified `baseline=RED` and the gate
+passed VACUOUSLY. It now also refuses outright when the resolved interpreter cannot run
+pytest at all: an unmeasurable baseline is not a red one, and recording it as red is the
+vacuous pass the guard exists to prevent. The fallback-tree argument is what makes both
+correct under `use_worktree = true`, where an untracked virtualenv never reaches the
+ephemeral or linked worktree. bats has no
 `(error)` state, because a run with no `1..N` plan line dies in `run-suite.sh` before an
 artifact exists.
 

@@ -23,6 +23,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/python-interp.sh
+. "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -187,10 +189,25 @@ _bats_rows() {  # stdin=TAP → "name<TAB>RED|GREEN"
 }
 _run_pytest() { # dir file name(optional) → RED|GREEN; die on empty selection
   local dir="$1" file="$2" name="$3" rc=0
+  # #466: NOT bare `python3`. A Python project keeps its interpreter at
+  # <tree>/.venv/bin/python, where ambient python3 cannot import pytest — and this
+  # function reads a non-zero exit as RED. So on every venv project each new test
+  # classified baseline=RED and the whole gate passed VACUOUSLY, which is the same
+  # false-green class run-suite.sh had (factor-ai Issue-9), one script over. $dir is
+  # the ephemeral baseline worktree for the baseline run; a venv is untracked and so
+  # never travels there, which is why source_dir is the fallback.
+  python_interp_resolve "$dir" "$source_dir"   # setter-global; never $( … )
+  # An interpreter that cannot run pytest AT ALL makes the baseline UNMEASURABLE, and
+  # an unmeasurable baseline is not a RED one — classifying it RED is precisely the
+  # vacuous pass this guard exists to prevent. Fail closed and name the seam (the same
+  # absent-vs-can't-determine split #466 gives run-suite's artifact, register
+  # Issue-243). One extra probe per new pytest file; born-red only walks new files.
+  "$PYTHON_INTERP" -m pytest --version >/dev/null 2>&1 \
+    || die "born-red: '$PYTHON_INTERP' cannot run pytest in '$dir' — the baseline for '$file' is UNMEASURABLE, not RED, and recording it as RED would pass this gate vacuously (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite."
   if [ -n "$name" ]; then
-    ( cd "$dir" && python3 -m pytest -q -k "$name" "$file" >/dev/null 2>&1 ) || rc=$?
+    ( cd "$dir" && "$PYTHON_INTERP" -m pytest -q -k "$name" "$file" >/dev/null 2>&1 ) || rc=$?
   else
-    ( cd "$dir" && python3 -m pytest -q "$file" >/dev/null 2>&1 ) || rc=$?
+    ( cd "$dir" && "$PYTHON_INTERP" -m pytest -q "$file" >/dev/null 2>&1 ) || rc=$?
   fi
   [ "$rc" -eq 5 ] && die "born-red: pytest selection matched ZERO tests: $file${name:+ -k $name}"
   [ "$rc" -eq 0 ] && echo GREEN || echo RED
