@@ -304,8 +304,6 @@ The suite has three environmental requirements. `run-suite.sh` enforces the firs
 by refusing to write an artifact at all, rather than producing one it cannot stand
 behind. The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
 A minimal container running these tests must provide all three.
-rather than producing an artifact it cannot stand behind — so a minimal
-container running these tests must provide them.
 
 **A POSIX filesystem where `chmod` actually changes the mode.**
 `tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets

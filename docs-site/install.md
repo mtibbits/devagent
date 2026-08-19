@@ -26,7 +26,7 @@ WSL clone on ext4. `scripts/run-suite.sh` enforces the first two by refusing to 
 an artifact at all. The third it RECORDS: it prefers `<tree>/.venv/bin/python` over
 ambient `python3`, and if no candidate can run pytest the artifact reads
 `pytest: (error)` and `scripts/preship-evidence.sh` refuses it. Set
-`DEVAGENT_PYTEST_PYTHON` to point at an interpreter for any other layout (#466)
+`DEVAGENT_PYTEST_PYTHON` to point at an interpreter for any other layout (#466). See
 [Running the test suite](../README.md#running-the-test-suite).
 
 ## Install the plugin
