@@ -33,23 +33,51 @@
 #   3. <fallback_tree>/.venv/bin/python  — for an ephemeral/linked worktree (above).
 #   4. python3                           — ambient; the pre-#466 behaviour.
 #
+# Arms 2 and 3 additionally require that the candidate can RUN pytest, probed with
+# `-m pytest --version`. Existence is not capability: an application `.venv` with pytest
+# only system-wide is a routine shape that measured fine before #466 and must not be
+# turned into an unshippable `(error)`. Arm 1 is deliberately NOT probed — an operator's
+# explicit choice must fail loudly, never fall through to an interpreter they did not
+# name. `(error)` therefore means "no candidate could run pytest", not "the first
+# candidate could not".
+#
 # Deliberately only the `.venv/` spelling is probed. Broadening the search list is a
 # follow-up; the seam above already covers every other layout, and an unfound
 # interpreter is no longer silent — run-suite records `pytest: (error)` and born-red
 # dies, rather than either recording a false zero.
+# _python_interp_runs_pytest <candidate> — true when the candidate can actually RUN
+# pytest. #466 (redmr): selecting the first path that is merely `-x` regressed a routine
+# shape — an application `.venv` with pytest installed only system-wide measured fine
+# before this branch and afterwards recorded `(error)`, which by design has no override.
+# Capability is directly observable, so observe it rather than using file existence as
+# a proxy (register Issue-Fork-132: a fail-closed gate must not fire on a routine state).
+_python_interp_runs_pytest() {
+  "$1" -m pytest --version >/dev/null 2>&1
+}
+
 python_interp_resolve() {
   local primary="${1:-}" fallback="${2:-}"
+  # The operator's explicit choice is honoured WITHOUT a capability probe: if it cannot
+  # run pytest, that must surface as a loud `(error)`/die naming their value, not as a
+  # silent fall-through to an interpreter they did not ask for.
   if [ -n "${DEVAGENT_PYTEST_PYTHON:-}" ]; then
+    # Validated here, where the operator's own value can be NAMED. Without this a typo
+    # surfaced as a generic `(error)` whose remedy text told them to set the variable
+    # they had just set (redmr MINOR).
+    command -v "$DEVAGENT_PYTEST_PYTHON" >/dev/null 2>&1 || [ -x "$DEVAGENT_PYTEST_PYTHON" ] \
+      || die "python_interp_resolve: DEVAGENT_PYTEST_PYTHON='$DEVAGENT_PYTEST_PYTHON' is not an executable command — fix the path or unset it to fall back to <tree>/.venv/bin/python then python3 (#466)."
     # shellcheck disable=SC2034  # PYTHON_INTERP is the return channel, not a local
     PYTHON_INTERP="$DEVAGENT_PYTEST_PYTHON"
     return 0
   fi
-  if [ -n "$primary" ] && [ -x "$primary/.venv/bin/python" ]; then
+  if [ -n "$primary" ] && [ -x "$primary/.venv/bin/python" ] \
+     && _python_interp_runs_pytest "$primary/.venv/bin/python"; then
     # shellcheck disable=SC2034  # return channel (see CONTRACT above)
     PYTHON_INTERP="$primary/.venv/bin/python"
     return 0
   fi
-  if [ -n "$fallback" ] && [ -x "$fallback/.venv/bin/python" ]; then
+  if [ -n "$fallback" ] && [ -x "$fallback/.venv/bin/python" ] \
+     && _python_interp_runs_pytest "$fallback/.venv/bin/python"; then
     # shellcheck disable=SC2034  # return channel (see CONTRACT above)
     PYTHON_INTERP="$fallback/.venv/bin/python"
     return 0

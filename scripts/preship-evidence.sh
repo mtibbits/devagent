@@ -107,6 +107,10 @@ a_plan="$(sed -n 's/^bats:[[:space:]]*[0-9][0-9]*\/\([0-9][0-9]*\).*/\1/p' "$art
 a_notok="$(sed -n 's/^bats:.*notok=\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
 a_passed="$(sed -n 's/^pytest:[[:space:]]*\([0-9][0-9]*\) passed.*/\1/p' "$artifact" | head -1)"
 a_failed="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' "$artifact" | head -1)"
+# #466 (redmr): pytest ERRORS were invisible to this whole chain — an error is not a
+# "failed", so `2 passed, 1 error` recorded `0 failed` and reconciled green. The bats
+# side has had its equivalent invariant since #406; this is pytest's.
+a_errors="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) errors\?.*/\1/p' "$artifact" | head -1)"
 # #466: the framework line BODIES verbatim, parsed HERE with the same sed idiom as the
 # numeric fields above rather than by inline greps further down — one parsing convention
 # for one file format, so a new state token or a schema tweak has a single home. The
@@ -150,6 +154,7 @@ if [ "${a_notok:-0}" = "0" ] && [ "${a_ok:-}" != "${a_plan:-}" ]; then
   fails+=("bats ran ${a_ok:-?} of ${a_plan:-?} planned tests — suite truncated (fewer ran than planned, 0 failures)")
 fi
 [ "${a_failed:-0}" = "0" ] || fails+=("pytest failed=$a_failed (suite not green)")
+[ "${a_errors:-0}" = "0" ] || fails+=("pytest errors=$a_errors (suite not green — a collection/fixture ERROR is not a 'failed' and was invisible to this check before #466)")
 
 # Reconstruct the canonical suite line from the frameworks the artifact reports
 # PRESENT, and compare (exact). #411 established the neither-framework form; #466

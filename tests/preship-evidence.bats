@@ -271,3 +271,29 @@ _artifact_raw() {
     [[ "$output" == *"refusing to reconstruct"* ]]
     [[ "$output" == *"pytest:"* ]]
 }
+
+@test "preship-evidence: a pre-#466 TWO-FIELD pytest line still parses (back-compat)" {
+    # Artifacts written before the errors field exist on disk. The errors sed simply
+    # finds nothing and defaults to 0 — an absent field must not read as a failure.
+    _artifact_raw "285/285 notok=0" "20 passed, 0 failed"
+    _mr "285/285 bats, 20 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: a non-zero pytest ERROR count fails the suite-green check (#466 redmr)" {
+    # An error is not a "failed", so this was invisible: `2 passed, 1 error` reconciled
+    # green. bats has had the equivalent invariant since #406.
+    _artifact_raw "285/285 notok=0" "2 passed, 0 failed, 1 errors"
+    _mr "285/285 bats, 2 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"errors=1"* ]]
+}
+
+@test "preship-evidence: a zero pytest ERROR count is still green (#466 redmr)" {
+    _artifact_raw "285/285 notok=0" "2 passed, 0 failed, 0 errors"
+    _mr "285/285 bats, 2 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}

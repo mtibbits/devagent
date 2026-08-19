@@ -1067,13 +1067,34 @@ Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence
 reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming
 both. `(none)` means the framework is absent from the measured tree; `(error)` means
 its tests exist but could not be RUN (a missing interpreter, a venv without pytest, an
-import/collection error). A suite that ran and had nothing to count — all skipped, or
-nothing collected — is a MEASUREMENT of zero and records `0 passed, 0 failed`, so a
-routine `skipif` suite stays shippable; conflating the two made healthy projects
-unshippable in the first draft of this change. `run-suite.sh` prefers
+import/collection error). A suite that ran and had nothing to count — all skipped, all
+xpassed, or nothing collected — is a MEASUREMENT of zero, so a routine `skipif` suite
+stays shippable. The two are told apart by pytest's EXIT CODE, not by its prose: 0 and 5
+are measurements; 1 is ambiguous (tests failed and no-pytest-module share it) and is
+resolved by whether any category count was parsed; anything else is unmeasured. An
+earlier draft grepped the summary text instead and recorded a clean zero for
+`1 skipped, 1 error` while refusing a healthy `1 xpassed`.
+
+The pytest line carries a third field, `<errors> errors`, and `preship-evidence.sh`
+gates on it: a collection or fixture ERROR is not a "failed", so `2 passed, 1 error`
+previously reconciled green — the pytest analogue of the bats truncation invariant
+(#406). A two-field line from before this change still parses, with the field defaulting
+to zero. The artifact also gains a `python: <interpreter> | (none)` line, because
+`DEVAGENT_PYTEST_PYTHON` and the fallback arm both admit an interpreter from outside the
+measured tree: without it, two operators at one commit can produce different counts in
+otherwise identical artifacts, and an `(error)` is undiagnosable. Framework PRESENCE is
+probed with `find tests -name 'test_*.py'`, matching the recursive collection pytest
+itself performs — a non-recursive glob called a `tests/unit/` suite absent, and since
+presence is load-bearing for the reconstruction the suite then vanished from the
+Evidence entirely. `run-suite.sh` prefers
 `<tree>/.venv/bin/python` over ambient `python3`, because a Python project
 conventionally carries its interpreter in the tree and measuring with the system one
-recorded "0 passed" for a 51-test suite. The reconstruction is
+recorded "0 passed" for a 51-test suite. Each venv candidate must also be able to RUN
+pytest (`-m pytest --version`), not merely exist: an application venv with pytest
+installed only system-wide is a routine shape, and selecting it on existence alone
+turned a tree that measured fine into an unshippable `(error)`. The explicit
+`DEVAGENT_PYTEST_PYTHON` is deliberately NOT probed — an operator's stated choice must
+fail loudly rather than silently fall through to an interpreter they did not name. The reconstruction is
 `<ok>/<plan> bats, <passed> pytest @ <sha>` when both are present,
 `<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
 `none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`

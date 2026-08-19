@@ -300,7 +300,10 @@ the hermetic environment baked in and writes the provenance artifact
 bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
 ```
 
-The suite has three environmental requirements. `run-suite.sh` enforces the first two by refusing to write an artifact at all; the third it RECORDS, and `preship-evidence.sh` refuses on the recorded value
+The suite has three environmental requirements. `run-suite.sh` enforces the first two
+by refusing to write an artifact at all, rather than producing one it cannot stand
+behind. The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
+A minimal container running these tests must provide all three.
 rather than producing an artifact it cannot stand behind — so a minimal
 container running these tests must provide them.
 

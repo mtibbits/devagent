@@ -6,7 +6,8 @@
 #     head: <sha>  dirty: yes|no
 #     tree: <canonical path of the measured checkout>
 #     bats: <ok>/<plan> notok=<n>
-#     pytest: <passed> passed, <failed> failed | (none) | (error)
+#     pytest: <passed> passed, <failed> failed, <errors> errors | (none) | (error)
+#     python: <interpreter that ran pytest> | (none)
 #     suite_env: <NAMES…> | (none)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
@@ -126,12 +127,21 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
 fi
 
 pytest_line="pytest: (none)"
-if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
+python_line="python: (none)"
+# #466 (redmr): the presence probe must agree with the MEASUREMENT below, which runs
+# `pytest tests/` and collects RECURSIVELY. A non-recursive glob called a project with
+# tests/unit/test_*.py "absent", and since #466 makes presence load-bearing for the
+# Evidence reconstruction, the whole suite then vanished from the green instead of
+# merely showing as `, 0 pytest`. `(none)` must mean ABSENT, never NOT LOOKED FOR.
+if [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
   # #466: Python projects conventionally carry their interpreter in <tree>/.venv/, where
   # the AMBIENT python3 has no pytest — measuring a 51-test suite with system python3
   # recorded "0 passed" (factor-ai Issue-9). Prefer the tree's own venv: the artifact is
-  # a function of the TREE, not of the operator's session (#458), and the venv is part
-  # of the tree. cwd has been $work_dir since the cd above.
+  # a function of the TREE wherever it can be — the venv normally IS part of the tree, so
+  # preferring it removes the session dependence that ambient python3 introduced (#458).
+  # It is not absolute: DEVAGENT_PYTEST_PYTHON and the fallback arm both admit an
+  # interpreter from outside the measured tree, which is why the `python:` line below
+  # records which one ran. cwd has been $work_dir since the cd above.
   # Only `.venv/` is honoured — the `venv/` spelling and Windows `.venv/Scripts/` are
   # deliberately out of scope, and a project using either is no longer SILENT: it lands
   # in the `(error)` arm below rather than recording a false zero.
@@ -141,50 +151,67 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   # fallback for a linked worktree, which an untracked venv never reaches.
   python_interp_resolve "$work_dir" "$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
   py="$PYTHON_INTERP"
+  # #466 (redmr): RESTORED after being pruned at step 6, on evidence the prune did not
+  # have. Three things make it load-bearing rather than nice-to-have: (a) the artifact is
+  # NO LONGER a function of the tree alone — DEVAGENT_PYTEST_PYTHON and the fallback arm
+  # both let the interpreter come from outside the measured tree, so two operators at one
+  # commit can produce different counts in otherwise byte-identical artifacts (register
+  # Issue-106: an artifact pinned to a gitignored, mutable input needs a provenance block
+  # INSIDE it); (b) an `(error)` artifact is undiagnosable without knowing WHICH
+  # interpreter failed; (c) under the fallback arm the interpreter comes from source_dir
+  # while head:/tree: stamp the worktree, and that divergence is exactly what #571's tree
+  # guard exists to make visible. NAMES only, like suite_env: — never a value.
+  python_line="python: $py"
+  # Capture pytest's EXIT CODE. The first draft of the tri-state discriminated
+  # "ran, nothing to count" from "could not run" by grepping the summary PROSE, and
+  # redmr found that BLOCKING: pytest orders its summary `failed, passed, skipped,
+  # deselected, xfailed, xpassed, error`, so `1 skipped, 1 error in 0.01s` matched a
+  # `^[0-9]+ skipped` prefix and recorded a clean `0 passed, 0 failed` for a suite that
+  # ERRORED — the exact false green this file exists to prevent. The same hand-written
+  # category list omitted `xpassed`, so a healthy `1 xpassed` suite recorded (error).
+  # Both faults are the same mistake: reading prose where an authoritative signal
+  # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
+  pout=""; prc=0
   pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
-            "$py" -m pytest tests/ -q 2>&1 || true)"
+            "$py" -m pytest tests/ -q 2>&1)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
   # column 0, which pytest -q's summary ("285 passed, 9 skipped in Xs") always
   # is. The prior sed required a non-digit BEFORE the digits and so recorded 0
   # for every line-start summary (#555). `tail -1` here is the summary line (pytest
   # prints it last) — NOT the header's forbidden tail-derived count (#85), which
   # is about the bats `1..N`/`^ok ` counting, a different mechanism.
-  # `|| true`: a green run has no "failed" line, so `grep` exits 1 — which under
-  # this script's `set -euo pipefail` would kill run-suite mid-way. No match just
-  # means a zero count, handled below.
-  passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
-  failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
-  if [ -z "$passed" ] && [ -z "$failed" ]; then
-    # #466: TRI-STATE, and the discrimination below is the load-bearing half of it.
-    # pytest emitted neither a passed nor a failed count. That has TWO causes with
-    # opposite meanings, and collapsing them is how the first draft of this change
-    # turned routine suites unshippable (review MAJOR-1):
-    #
-    #   RAN FINE, nothing to count — every test skipped (`1 skipped in 0.00s`, the
-    #   normal shape for a platform/optional-dependency `skipif` suite) or nothing
-    #   collected (`no tests ran in 0.00s`, e.g. a standalone-script suite under
-    #   tests/test_*.py). The suite WAS measured; its measurement is zero. That is a
-    #   truthful `0 passed, 0 failed` and it must stay shippable.
-    #
-    #   COULD NOT RUN — missing interpreter, a venv without pytest, a `venv/`-spelled
-    #   environment, an import/collection ERROR. Nothing was measured. Recording a
-    #   zero here is the false green factorAI/Issue-85 and koopmanGNN/Issue-106
-    #   shipped; recording `(none)` is the other one, because preship-evidence
-    #   reconstructs the Evidence line from framework PRESENCE and would read `(none)`
-    #   as "no pytest here", dropping the unmeasured suite out of the green entirely.
-    #
-    # pytest states the first case explicitly in its own summary, so key on that
-    # rather than on the exit code (which is 5 for no-collect, 0 for all-skipped —
-    # two codes for one meaning). Anything else is unmeasured and fails closed
-    # (register Issue-243: an absent-vs-can't-determine ambiguity fails CLOSED).
-    if printf '%s\n' "$pout" | grep -qE '^[0-9]+ (skipped|deselected|xfailed)|^no tests ran'; then
-      pytest_line="pytest: 0 passed, 0 failed"
-    else
-      pytest_line="pytest: (error)"
-    fi
+  # `|| true`: a category absent from the summary makes grep exit 1, which under this
+  # script's `set -euo pipefail` would kill run-suite. No match means a zero count.
+  # ` passed` is matched with its leading space so `1 xpassed` is not read as `1 passed`.
+  passed="$(printf '%s\n' "$pout" | grep -oE '(^| )[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
+  failed="$(printf '%s\n' "$pout" | grep -oE '(^| )[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
+  # #466 (redmr): pytest ERRORS were invisible to the whole evidence chain — they are
+  # not "failed", so `2 passed, 1 error` recorded `0 failed` and shipped green. bats has
+  # had the equivalent invariant since #406 (ok+notok == plan); pytest had none.
+  errors="$(printf '%s\n' "$pout" | grep -oE '(^| )[0-9]+ errors?' | tail -1 | grep -oE '[0-9]+' || true)"
+  # MEASURED vs COULD-NOT-RUN, from the exit code:
+  #   0  all collected tests passed — including the all-skipped and all-xpassed suites,
+  #      which are measurements OF ZERO and must stay shippable (the point of the
+  #      original MAJOR-1 fix).
+  #   5  no tests collected — also a measurement of zero (a standalone-script suite).
+  #   1  AMBIGUOUS: "tests failed" and "python3 -m pytest with no pytest module" BOTH
+  #      exit 1. Discriminate on whether any count was actually parsed — a real run
+  #      always reports at least one category; a missing module reports none.
+  #   2,3,4,127,… interrupted / internal error / usage error / no interpreter: nothing
+  #      was measured.
+  if [ "$prc" -eq 0 ] || [ "$prc" -eq 5 ] \
+     || { [ "$prc" -eq 1 ] && [ -n "${passed}${failed}${errors}" ]; }; then
+    pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed, ${errors:-0} errors"
   else
-    pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
+    # Nothing was measured. This is a DIFFERENT FACT from "this project has no pytest
+    # suite" — the two must not share one token, because preship-evidence reconstructs
+    # the Evidence line from framework PRESENCE and would read a shared `(none)` as
+    # "no pytest here", dropping the unmeasured suite out of the green entirely. An
+    # absent-vs-can't-determine ambiguity fails CLOSED (register Issue-243). Recording
+    # "0 passed, 0 failed" here is the other false green, and it is what
+    # factorAI/Issue-85 and koopmanGNN/Issue-106 shipped.
+    pytest_line="pytest: (error)"
   fi
 fi
 
@@ -223,6 +250,7 @@ fi
   echo "tree: $tree_canon"
   echo "$bats_line"
   echo "$pytest_line"
+  echo "$python_line"
   echo "$suite_env_line"
 } > "$artifact"
 echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2
