@@ -181,3 +181,140 @@ EOF
     run env LC_ALL="$seen" bash -c 'e="$(printf "\xe2\x80\x94")"; printf "%s" "${#e}"'
     [ "$output" = "1" ]
 }
+
+# --- #603: [project.<name>.suite_env] exported into the suite children --------
+#
+# Motivating case: lawFirm keeps its data layer outside git (its SCHEMA §1), so
+# every entry point dies without LAWFIRM_DATA_ROOT and run-suite recorded a red
+# suite that said nothing about the branch. Before #603 the only way in was
+# INHERITANCE from the invoking shell, which makes the artifact a function of the
+# operator's session rather than the tree (#458).
+
+# Stub python3 to RECORD WHAT IT SAW in the environment to a side-channel file, so
+# these tests assert the variable actually reached the child rather than that the
+# config parsed. The value goes to a file rather than into pytest's summary line
+# because the summary's count field is parsed as digits — encoding a path or a
+# word there would be swallowed by the parser and the assertion would pass or
+# fail for the wrong reason.
+_stub_python3_record_env() {
+    local var="$1" real_py3
+    real_py3="$(command -v python3)"
+    : > "$DEVAGENT_TMP/seen-env.txt"
+    cat > "$DEVAGENT_TMP/binstub/python3" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*)
+    printf '%s\\n' "\${$var-<UNSET>}" > "$DEVAGENT_TMP/seen-env.txt"
+    echo "5 passed in 0.01s" ;;
+  *) exec "$real_py3" "\$@" ;;
+esac
+EOF
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+}
+
+@test "#603 suite_env: a declared variable reaches the pytest child" {
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+DEVAGENT_SUITE_PROBE = "4242"
+EOF
+    _stub_python3_record_env DEVAGENT_SUITE_PROBE
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "4242" ]
+    grep -q '^suite_env: DEVAGENT_SUITE_PROBE$' "$art"
+}
+
+@test "#603 suite_env: BORN-RED control — without the table the child sees nothing" {
+    # The mutation-proof for the test above: same stub, no table declared. If this
+    # ever reports a value, the variable is arriving by inheritance and the test
+    # above proves nothing.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_record_env DEVAGENT_SUITE_PROBE
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "<UNSET>" ]
+    grep -q '^suite_env: (none)$' "$art"
+}
+
+@test "#603 suite_env: the declared value WINS over an inherited one" {
+    # Determinism is the point: the artifact must describe the tree, not the shell.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+DEVAGENT_SUITE_PROBE = "fromconfig"
+EOF
+    _stub_python3_record_env DEVAGENT_SUITE_PROBE
+    DEVAGENT_SUITE_PROBE=fromshell PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "fromconfig" ]
+}
+
+@test "#603 suite_env: a tilde value is expanded" {
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+DEVAGENT_SUITE_PROBE = "~/probe-dir"
+EOF
+    _stub_python3_record_env DEVAGENT_SUITE_PROBE
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "$HOME/probe-dir" ]
+    [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" != "~/probe-dir" ]
+}
+
+@test "#603 suite_env: an EMPTY declared value dies loud (fail-closed)" {
+    # A silently-empty export is indistinguishable from the unset variable the
+    # table exists to supply — the failure it is meant to prevent, wearing a
+    # well-formed artifact.
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+DEVAGENT_SUITE_PROBE = ""
+EOF
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is empty"* ]]
+    # Died BEFORE writing an artifact.
+    run ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    [ "$status" -ne 0 ]
+}
+
+@test "#603 suite_env: an illegal variable NAME dies loud (fail-closed)" {
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+"not-a-valid-name" = "x"
+EOF
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not a valid environment-variable name"* ]]
+}
+
+@test "#603 suite_env: the artifact records NAMES, never values" {
+    # The artifact is quoted into MR bodies; a declared variable may hold a token.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.suite_env]
+DEVAGENT_SUITE_PROBE = "s3cr3t-value"
+EOF
+    _stub_python3_pytest "5 passed in 0.01s"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^suite_env: DEVAGENT_SUITE_PROBE$' "$art"
+    run grep -q 's3cr3t-value' "$art"
+    [ "$status" -ne 0 ]
+}

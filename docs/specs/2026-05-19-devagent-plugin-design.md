@@ -1048,6 +1048,21 @@ measured tree likewise refuses rather than stamping a SHA the suites did not
 run against. Per-call opt-out: `DEVAGENT_TREE_GUARD_OVERRIDE=1`, truth-valued
 exactly like the scope override.
 
+Since #603 the optional `[project.<name>.suite_env]` table is exported into
+both suite child processes. It exists for a suite whose environment is not
+derivable from the tree — lawFirm keeps its data layer outside git by design,
+so every entry point dies without `LAWFIRM_DATA_ROOT` and the artifact recorded
+a red suite that said nothing about the branch. The alternative was
+INHERITANCE from the invoking shell, which makes the artifact a function of the
+operator's session rather than the tree — the #458 contamination shape one
+layer up — so the declaration is config-owned and the assignment wins over any
+inherited value. Names are validated against the POSIX env-name shape and empty
+values die loud (a silently-empty export is indistinguishable from the unset
+variable the table exists to supply). The artifact gains a trailing
+`suite_env: <NAMES…> | (none)` line recording the NAMES only — never the
+values, since the block is quoted into MR bodies — appended last so every
+prefix-anchored consumer of `head:`/`tree:`/`bats:`/`pytest:` is unmoved.
+
 ## 8. Permission gates
 
 Defined per project in `[project.<name>.permissions]`. Each gate:

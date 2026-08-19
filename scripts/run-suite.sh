@@ -7,6 +7,13 @@
 #     tree: <canonical path of the measured checkout>
 #     bats: <ok>/<plan> notok=<n>
 #     pytest: <passed> passed, <failed> failed
+#     suite_env: <NAMES…> | (none)
+# The optional [project.<name>.suite_env] config table (#603) is exported into
+# both suite child processes — for a project whose tests need environment that
+# is not derivable from the tree (lawFirm's LAWFIRM_DATA_ROOT, whose data layer
+# lives outside git by design). Declaring it in config rather than inheriting it
+# from the invoking shell is what keeps the artifact a function of the TREE and
+# not of the operator's session (#458).
 # The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
 # commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
 # checkout of the SAME project (a linked worktree, or a clone with the same
@@ -47,6 +54,11 @@ active_tree_resolve "$project"            # setter-globals; never $( … )  (#28
 active_guard_tree run-suite               # #571: strictly AFTER active_guard_scope
 work_dir="$ACTIVE_TREE_DIR"
 
+# #603: resolve the optional [project.<name>.suite_env] table BEFORE running
+# anything, so a malformed declaration dies before a suite burns minutes and
+# before any artifact exists to be half-written. Setter-globals; never $( … ).
+config_suite_env_resolve "$project"
+
 cd "$work_dir"
 
 # #565: refuse to manufacture an evidence artifact from a filesystem where
@@ -84,6 +96,7 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   utf8_locale_resolve \
     || die "run-suite: no UTF-8-capable locale found (tried \$LC_ALL, \$LC_CTYPE, \$LANG, then C.UTF-8/en_US.UTF-8/C.utf8/en_US.utf8) — bats would silently skip @test names containing non-ASCII characters (#565). Install a UTF-8 locale or export LC_ALL to one."
   tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
+           "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
            LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" bats --tap tests/ 2>&1 || true)"
   ok="$(printf '%s\n' "$tap"    | grep -c '^ok '     || true)"
   notok="$(printf '%s\n' "$tap" | grep -c '^not ok ' || true)"
@@ -100,7 +113,9 @@ fi
 
 pytest_line="pytest: (none)"
 if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
-  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE python3 -m pytest tests/ -q 2>&1 || true)"
+  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
+            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
+            python3 -m pytest tests/ -q 2>&1 || true)"
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
   # column 0, which pytest -q's summary ("285 passed, 9 skipped in Xs") always
   # is. The prior sed required a non-digit BEFORE the digits and so recorded 0
@@ -144,10 +159,23 @@ artifact="$issue_dir/analysis/${date_str}-suite-count.txt"
 # cd above. Inserted AFTER head:, so the SHA stays the artifact's first data line
 # and no prefix-anchored consumer moves.
 tree_canon="$(pwd -P)"
+# #603: NAMES ONLY, never values — a declared variable may legitimately hold a
+# token, and this artifact is quoted into MR bodies. Recording the names is what
+# lets a later reader tell a data-root-fed run from a bare one; without it, a red
+# artifact and a green one are indistinguishable on their face (register
+# Issue-106: an artifact pinned to a gitignored, mutable input needs a provenance
+# block INSIDE the artifact). Appended LAST so every prefix-anchored consumer of
+# head:/tree:/bats:/pytest: is unmoved.
+if [ "${#SUITE_ENV_NAMES[@]}" -eq 0 ]; then
+  suite_env_line="suite_env: (none)"
+else
+  suite_env_line="suite_env: ${SUITE_ENV_NAMES[*]}"
+fi
 {
   echo "head: $head  dirty: $dirty"
   echo "tree: $tree_canon"
   echo "$bats_line"
   echo "$pytest_line"
+  echo "$suite_env_line"
 } > "$artifact"
 echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

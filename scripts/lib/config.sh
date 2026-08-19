@@ -93,6 +93,65 @@ config_active_project() {
   die "config_active_project: $count projects configured; pass project explicitly"
 }
 
+# config_suite_env_resolve <project>
+#
+# Resolve the OPTIONAL [project.<name>.suite_env] table into two setter-globals:
+#
+#   SUITE_ENV_NAMES=( NAME … )           # declared names, in config order
+#   SUITE_ENV_ASSIGNMENTS=( NAME=VAL … ) # ready to splice into an `env` call
+#
+# Both are reset on every call and are EMPTY when the table is absent, so a
+# project that declares nothing is byte-identical to pre-#603 behaviour.
+#
+# SETTER-GLOBALS, never `$( … )` (register Issue-282/Issue-120): this returns two
+# values and `die`s on malformed input, and both properties are lost inside a
+# command substitution — the arrays would vanish with the subshell and a die
+# would only kill the subshell. Call it bare, exactly like active_tree_resolve.
+#
+# WHY THIS EXISTS (#603). run-suite.sh is the canonical evidence runner, and the
+# suite it runs may need environment that is neither in the tree nor derivable
+# from it — lawFirm's LAWFIRM_DATA_ROOT is the motivating case: the data layer
+# lives OUTSIDE git by design (its SCHEMA §1), so every entry point dies without
+# that variable and the artifact records a red suite that says nothing about the
+# branch. Before this, the only way the variable could reach the run was
+# INHERITANCE from whatever shell invoked run-suite — which makes the artifact a
+# function of the operator's session rather than of the tree (exactly the
+# contamination Issue-458 warns about, one layer up). Declaring it in config
+# makes the run harness-owned and reproducible: the same tree measured from any
+# shell yields the same artifact.
+#
+# Values are tilde-expanded (data roots are habitually written `~/…`). Names are
+# validated against the POSIX env-name shape and values must be non-empty — both
+# fail CLOSED, because a silently-dropped or silently-empty variable reproduces
+# the very failure this table exists to prevent, and it would do so while the
+# artifact still looked well-formed.
+config_suite_env_resolve() {
+  local project="$1" _k _v
+  [[ -n "$project" ]] || die "config_suite_env_resolve: project required"
+  SUITE_ENV_NAMES=()
+  SUITE_ENV_ASSIGNMENTS=()
+  # A missing table is the common case; list-keys exits nonzero and we stop.
+  # Capture into a var with an explicit guard, THEN test emptiness — a bare
+  # `|| true` on the loop tail would hide a real read failure as "no table"
+  # (register Issue-314).
+  local _keys _rc=0
+  _keys="$(_config_toml list-keys "$(config_path)" "project.${project}.suite_env" 2>/dev/null)" || _rc=$?
+  [[ "$_rc" -eq 0 ]] || return 0
+  [[ -n "$_keys" ]] || return 0
+  while IFS= read -r _k; do
+    [[ -n "$_k" ]] || continue
+    [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+      || die "config_suite_env_resolve: [project.${project}.suite_env] key '$_k' is not a valid environment-variable name (expected [A-Za-z_][A-Za-z0-9_]*)"
+    _v="$(config_get "project.${project}.suite_env.${_k}")" \
+      || die "config_suite_env_resolve: could not read [project.${project}.suite_env].${_k}"
+    [[ -n "$_v" ]] \
+      || die "config_suite_env_resolve: [project.${project}.suite_env].${_k} is empty — declare a value or remove the key; an empty export is indistinguishable from the unset variable this table exists to supply"
+    _v="$(expand_tilde "$_v")"
+    SUITE_ENV_NAMES+=("$_k")
+    SUITE_ENV_ASSIGNMENTS+=("${_k}=${_v}")
+  done <<< "$_keys"
+}
+
 # step_models_tier <project> <step-num> [issue_dir]
 # #150 surfacing + #151 dispatch consumer. Echoes the model tier for a workflow
 # step from the optional [project.<name>.step_models] table, or returns nonzero
