@@ -381,3 +381,43 @@ EOF
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 51 passed, 0 failed$' "$art"
 }
+
+@test "run-suite: an ALL-SKIPPED pytest suite records a truthful 0/0, not (error) (#466 review MAJOR-1)" {
+    # "1 skipped in 0.00s" is the normal shape for a platform/optional-dependency
+    # skipif suite. It RAN; its measurement is zero. Recording (error) would make a
+    # healthy project unshippable, with a diagnostic naming interpreter causes that do
+    # not apply and a DEVAGENT_PYTEST_PYTHON remedy that cannot help (register
+    # Issue-Fork-132: a new fail-closed gate must not turn a ROUTINE action into its
+    # trigger).
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "1 skipped in 0.00s"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 0 passed, 0 failed$' "$art"
+}
+
+@test "run-suite: a ZERO-COLLECT pytest tree records a truthful 0/0, not (error) (#466 review MAJOR-1)" {
+    # "no tests ran in 0.00s" — tests/test_*.py present but no test functions (a
+    # standalone-script suite). Same reasoning as the all-skipped case above.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "no tests ran in 0.00s"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 0 passed, 0 failed$' "$art"
+}
+
+@test "run-suite: an interpreter that cannot RUN still records (error) (#466 review MAJOR-1)" {
+    # The discrimination must not swing the other way: a genuine could-not-run has no
+    # skipped/deselected/no-tests-ran line, so it stays (error).
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    git add -A && git commit -q -m "add py test"
+    _stub_python3_pytest "ImportError while loading conftest: no module named pytest"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: (error)$' "$art"
+}

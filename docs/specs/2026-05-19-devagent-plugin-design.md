@@ -1066,8 +1066,11 @@ prefix-anchored consumer of `head:`/`tree:`/`bats:`/`pytest:` is unmoved.
 Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
 reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming
 both. `(none)` means the framework is absent from the measured tree; `(error)` means
-its tests exist but produced no counts (a missing interpreter, a venv without pytest, a
-collection error); anything else is a measurement. `run-suite.sh` prefers
+its tests exist but could not be RUN (a missing interpreter, a venv without pytest, an
+import/collection error). A suite that ran and had nothing to count — all skipped, or
+nothing collected — is a MEASUREMENT of zero and records `0 passed, 0 failed`, so a
+routine `skipif` suite stays shippable; conflating the two made healthy projects
+unshippable in the first draft of this change. `run-suite.sh` prefers
 `<tree>/.venv/bin/python` over ambient `python3`, because a Python project
 conventionally carries its interpreter in the tree and measuring with the system one
 recorded "0 passed" for a 51-test suite. The reconstruction is
@@ -1075,8 +1078,11 @@ recorded "0 passed" for a 51-test suite. The reconstruction is
 `<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
 `none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`
 suffix that claimed a measured zero for an absent framework and a `/ bats` prefix that
-reconciled only against itself. `(error)` fails preship outright with no bypass: an
-unmeasured suite is not a condition an operator can knowingly accept. The interpreter
+reconciled only against itself. `(error)` fails preship outright with no override: an
+unmeasured suite is not a condition an operator can knowingly accept. That refusal is
+repeated above the #149 no-Evidence back-compat exit, so removing the `## Evidence`
+block does not sidestep it — the #149 rule lets a legacy issue ship without a block, not
+any issue ship on evidence that was never taken. The interpreter
 search is overridable via `DEVAGENT_PYTEST_PYTHON` — the same `DEVAGENT_<TOOL>` seam
 `DEVAGENT_GIT`/`DEVAGENT_GH`/`DEVAGENT_CMAKE` use — so an unsupported virtualenv layout,
 or a linked worktree that an untracked venv never reached, is unsupported rather than

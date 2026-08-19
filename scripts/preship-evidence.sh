@@ -25,7 +25,9 @@
 # message names the exact correct line, so remediation is one edit. An artifact
 # recording `pytest: (error)` — tests present, no counts parsed — FAILS rather than
 # reconciling; that state means the suite was never measured, which no Evidence line can
-# honestly report, and it has no override by design. Stated blind spot: this canNOT
+# honestly report. There is no OVERRIDE for it, and — unlike every other check here —
+# it also runs ABOVE the no-Evidence back-compat exit, so it cannot be sidestepped by
+# deleting the Evidence block (review MAJOR-2). Stated blind spot: this canNOT
 # repair an artifact that already recorded `0 passed, 0 failed` for a suite that never
 # ran — those reconcile as `0 pytest` and are indistinguishable here from a real zero.
 # The fix is at the producer, for artifacts written at or after #466.
@@ -66,6 +68,23 @@ work_dir="$ACTIVE_TREE_DIR"
 
 # Back-compat: no ## Evidence block ⇒ WARN + rc 0 (#149).
 if ! grep -q '^## Evidence' "$mr"; then
+  # #466 (review MAJOR-2): the #149 rule lets a LEGACY issue ship without an Evidence
+  # block — it must not let ANY issue ship on evidence that was never taken. Deleting
+  # two lines from mr.md used to skip the (error) refusal entirely, while four homes
+  # claimed the gate could not be bypassed: an unenforced control wearing a guarantee
+  # (register lawFirm Issue-14 — a "cannot be verified" state whose refusal lives only
+  # in the test suite fails open at runtime). So the refusal is repeated HERE, on the
+  # one path that would otherwise skip it.
+  # It is a `die` on this path and a `fails+=` entry on the main path below, and the
+  # asymmetry is deliberate: there is no fails[] to accumulate into here, whereas below
+  # the contract is to report EVERY failure in one run. Same verdict, same message,
+  # two exits.
+  # "No artifact at all" stays the plain #149 path — absence is not a failed
+  # measurement, and the non-empty guard is what keeps it that way.
+  _early_artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
+  if [ -n "$_early_artifact" ] && grep -q '^pytest: (error)$' "$_early_artifact"; then
+    die "preship-evidence: artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest could not be RUN (missing interpreter, a venv without pytest, or an import/collection error). The suite was NOT measured, so nothing can honestly describe it, and removing the '## Evidence' block does not make it shippable (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite, then re-run run-suite."
+  fi
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
   exit 0
 fi
@@ -153,7 +172,7 @@ fi
 # copy would leave the operator two phrasings for one class of failure.
 unparseable="— refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite. Set DEVAGENT_PYTEST_PYTHON if run-suite cannot find your project's interpreter."
 if [ "$a_pytest_body" = "(error)" ]; then
-  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run them, or fix the venv, then re-run run-suite (#466). There is deliberately no bypass that would let this SHIP: unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept — the seam names a working interpreter, it does not silence the verdict.")
+  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run them, or fix the venv, then re-run run-suite (#466). There is no OVERRIDE for this — unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept, and the DEVAGENT_PYTEST_PYTHON seam names a working interpreter rather than silencing the verdict. Deleting the Evidence block does not help either: the same refusal runs above the #149 back-compat exit.")
 fi
 parts=()
 if [ "$a_bats_body" != "(none)" ]; then

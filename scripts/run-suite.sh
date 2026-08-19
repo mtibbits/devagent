@@ -9,7 +9,8 @@
 #     pytest: <passed> passed, <failed> failed | (none) | (error)
 #     suite_env: <NAMES…> | (none)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
-# and `(error)` means its tests exist but produced no counts; preship-evidence.sh treats
+# and `(error)` means its tests exist but could not be RUN (a suite that ran and had
+# nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
 # those differently and refuses to ship on `(error)` (#466). bats has no `(error)` state
 # by construction: a bats run with no `1..N` plan line dies below rather than reaching
 # the artifact, so the asymmetry is deliberate.
@@ -155,17 +156,33 @@ if compgen -G "tests/test_*.py" >/dev/null 2>&1; then
   passed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+' || true)"
   failed="$(printf '%s\n' "$pout" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+' || true)"
   if [ -z "$passed" ] && [ -z "$failed" ]; then
-    # #466: TRI-STATE. pytest emitted no count at all: it never ran (missing
-    # interpreter, a venv without pytest, a `venv/`-spelled environment) or it hit a
-    # collection error. tests/test_*.py existing does NOT mean pytest can run them.
-    # This is "could not MEASURE", which is a DIFFERENT FACT from "this project has no
-    # pytest suite" — and the two must not share one token, because preship-evidence
-    # reconstructs the Evidence line from framework PRESENCE and would read a shared
-    # `(none)` as "no pytest here", silently dropping the unmeasured suite out of the
-    # green. An absent-vs-can't-determine ambiguity fails CLOSED (register Issue-243).
-    # Recording "0 passed, 0 failed" here would be the other false green, and it is
-    # what factorAI/Issue-85 and koopmanGNN/Issue-106 shipped.
-    pytest_line="pytest: (error)"
+    # #466: TRI-STATE, and the discrimination below is the load-bearing half of it.
+    # pytest emitted neither a passed nor a failed count. That has TWO causes with
+    # opposite meanings, and collapsing them is how the first draft of this change
+    # turned routine suites unshippable (review MAJOR-1):
+    #
+    #   RAN FINE, nothing to count — every test skipped (`1 skipped in 0.00s`, the
+    #   normal shape for a platform/optional-dependency `skipif` suite) or nothing
+    #   collected (`no tests ran in 0.00s`, e.g. a standalone-script suite under
+    #   tests/test_*.py). The suite WAS measured; its measurement is zero. That is a
+    #   truthful `0 passed, 0 failed` and it must stay shippable.
+    #
+    #   COULD NOT RUN — missing interpreter, a venv without pytest, a `venv/`-spelled
+    #   environment, an import/collection ERROR. Nothing was measured. Recording a
+    #   zero here is the false green factorAI/Issue-85 and koopmanGNN/Issue-106
+    #   shipped; recording `(none)` is the other one, because preship-evidence
+    #   reconstructs the Evidence line from framework PRESENCE and would read `(none)`
+    #   as "no pytest here", dropping the unmeasured suite out of the green entirely.
+    #
+    # pytest states the first case explicitly in its own summary, so key on that
+    # rather than on the exit code (which is 5 for no-collect, 0 for all-skipped —
+    # two codes for one meaning). Anything else is unmeasured and fails closed
+    # (register Issue-243: an absent-vs-can't-determine ambiguity fails CLOSED).
+    if printf '%s\n' "$pout" | grep -qE '^[0-9]+ (skipped|deselected|xfailed)|^no tests ran'; then
+      pytest_line="pytest: 0 passed, 0 failed"
+    else
+      pytest_line="pytest: (error)"
+    fi
   else
     pytest_line="pytest: ${passed:-0} passed, ${failed:-0} failed"
   fi

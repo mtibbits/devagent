@@ -217,3 +217,57 @@ _artifact_raw() {
             || { echo "no pytest-only form in $f"; return 1; }
     done
 }
+
+@test "preship-evidence: (error) refuses even with NO Evidence block — the gate is not bypassable (#466 review MAJOR-2)" {
+    # Deleting the Evidence block used to skip the (error) refusal entirely, because
+    # the #149 back-compat exit runs before the artifact is ever read — while four
+    # homes claimed the gate could not be bypassed. An unenforced measurement is not a
+    # control (register lawFirm Issue-14).
+    _artifact_raw "285/285 notok=0" "(error)"
+    { echo '## Summary'; echo 'x'; } > "$DEVDOC_DIR/Issue-1/mr.md"   # no ## Evidence
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"(error)"* ]]
+}
+
+@test "preship-evidence: a no-Evidence mr.md with a MEASURED artifact still passes (#149 back-compat)" {
+    # The MAJOR-2 fix must not swallow the #149 rule it sits above: a legacy issue with
+    # no Evidence block stays shippable when the suite was actually measured.
+    _artifact_raw "285/285 notok=0" "20 passed, 0 failed"
+    { echo '## Summary'; echo 'x'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: a no-Evidence mr.md with NO artifact at all still passes (#149 back-compat)" {
+    # The early check must not turn "no artifact" into a failure — that is the #149
+    # path proper, and the early glob is guarded on non-empty for exactly this reason.
+    rm -f "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    { echo '## Summary'; echo 'x'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence: an unparseable bats: line is REPORTED, not silently dropped (#466 review MINOR-1)" {
+    # The prior test asserted only rc!=0 and the absence of "/ bats" — both satisfied
+    # by the suite-line mismatch alone, so deleting the fails+= verdict left the suite
+    # green (mutation-proven in review). Pin the verdict itself: with a real pytest
+    # count beside it, dropping the verdict reconstructs a copyable "51 pytest @ <sha>"
+    # and a bats suite whose counts could not be read vanishes from the Evidence.
+    _artifact_raw "garbage" "51 passed, 0 failed"
+    _mr "51 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing to reconstruct"* ]]
+    [[ "$output" == *"bats:"* ]]
+}
+
+@test "preship-evidence: an unparseable pytest: line is REPORTED, not silently dropped (#466 review MINOR-1)" {
+    # Mirror of the above — this leg had no test at all.
+    _artifact_raw "285/285 notok=0" "garbage"
+    _mr "285/285 bats @ $HEAD_SHA" 1
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing to reconstruct"* ]]
+    [[ "$output" == *"pytest:"* ]]
+}

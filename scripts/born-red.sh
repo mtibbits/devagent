@@ -202,7 +202,10 @@ _run_pytest() { # dir file name(optional) → RED|GREEN; die on empty selection
   # vacuous pass this guard exists to prevent. Fail closed and name the seam (the same
   # absent-vs-can't-determine split #466 gives run-suite's artifact, register
   # Issue-243). One extra probe per new pytest file; born-red only walks new files.
-  "$PYTHON_INTERP" -m pytest --version >/dev/null 2>&1 \
+  # Probe INSIDE $dir, the same cwd the real runs below use: a relative
+  # DEVAGENT_PYTEST_PYTHON would otherwise resolve to a different file in the probe
+  # than in the run, so the probe could pass while the run fails.
+  ( cd "$dir" && "$PYTHON_INTERP" -m pytest --version >/dev/null 2>&1 ) \
     || die "born-red: '$PYTHON_INTERP' cannot run pytest in '$dir' — the baseline for '$file' is UNMEASURABLE, not RED, and recording it as RED would pass this gate vacuously (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite."
   if [ -n "$name" ]; then
     ( cd "$dir" && "$PYTHON_INTERP" -m pytest -q -k "$name" "$file" >/dev/null 2>&1 ) || rc=$?

@@ -300,7 +300,7 @@ the hermetic environment baked in and writes the provenance artifact
 bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
 ```
 
-The suite has three environmental requirements, and `run-suite.sh` enforces all three
+The suite has three environmental requirements. `run-suite.sh` enforces the first two by refusing to write an artifact at all; the third it RECORDS, and `preship-evidence.sh` refuses on the recorded value
 rather than producing an artifact it cannot stand behind — so a minimal
 container running these tests must provide them.
 
@@ -350,9 +350,14 @@ on either.
 `run-suite.sh` prefers `<tree>/.venv/bin/python` when it exists and falls back to
 ambient `python3` — a Python project conventionally carries its interpreter inside the
 tree, and measuring with the system one recorded `0 passed` for a 51-test suite. If
-neither can run pytest, the artifact records `pytest: (error)` rather than a zero count,
-and `preship-evidence.sh` fails on it: an unmeasured suite must not ship as a green
-(#466). Only the `.venv/` spelling is searched, so for any other layout — `venv/`,
+neither can RUN pytest, the artifact records `pytest: (error)` rather than a zero count,
+and `preship-evidence.sh` refuses it — including when the `## Evidence` block is absent,
+so the refusal cannot be sidestepped by deleting it. An unmeasured suite must not ship
+as a green (#466).
+
+A suite that RAN and had nothing to count is a different thing and stays shippable: all
+tests skipped, or nothing collected, records a truthful `pytest: 0 passed, 0 failed`.
+`(error)` means *could not run*, never *ran and found nothing*. Only the `.venv/` spelling is searched, so for any other layout — `venv/`,
 `.venv/Scripts/`, conda, uv, pyenv, or a linked worktree, where an untracked virtualenv
 never travels — point `DEVAGENT_PYTEST_PYTHON` at the interpreter instead:
 
