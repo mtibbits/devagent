@@ -54,6 +54,8 @@ flags_get() {
     /^## Comments \(/ { exit }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
+    /^[[:space:]]*```/ { fence = !fence; inblock = 0; next }
+    fence { next }
     /^## Workflow flags[[:space:]]*$/ { inblock=1; seen=0; next }
     inblock && /^#/ { inblock=0 }
     inblock && seen && /^[[:space:]]*$/ { inblock=0 }
@@ -228,6 +230,8 @@ flags_validate() {
     /^## Comments \(/ { exit }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
+    /^[[:space:]]*```/ { fence = !fence; inblock = 0; next }
+    fence { next }
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
