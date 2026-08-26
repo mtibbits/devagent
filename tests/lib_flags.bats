@@ -712,3 +712,47 @@ FIXTURE
   [[ "$output" == *"fence"* ]]           # the fence-close warn fires (positive half)
   [[ "$output" != *"boguskey"* ]]        # the key after the closing fence is NOT enumerated
 }
+
+@test "flags_validate: a fence marker hidden in a comment span still warns when a LATER fence balances the count (#582)" {
+  # Red-team MAJOR: resetting `swallowed` on every closing fence disarmed the END
+  # warn whenever the body carried a later balanced example, so the N11 loss (a
+  # closing fence eaten by an <!-- --> span, the live heading below it treated as
+  # fenced) became SILENT again -- a regression against master, where that heading
+  # is live. The scanner's fence parity diverges from the renderer's exactly when a
+  # fence marker is consumed by a comment span while a fence is open; that event is
+  # latched, and a heading swallowed after it warns at END whatever comes later.
+  local f="$BATS_TEST_TMPDIR/hidden-fence-then-later-example.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- an aside
+```
+-->
+## Workflow flags
+tier: oneshot
+
+Example:
+```
+foo
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unbalanced"* ]]
+  # the loss it reports is real -- the get side returns nothing for this body
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: the Rule C warn echoes the closing line sanitized and bounded (#582)" {
+  # Red-team MINOR: the closing line is remote tracker content and this is the one
+  # diagnostic that echoes a raw body line. Control bytes are replaced and the echo
+  # is truncated, so an issue body cannot drive the operator's terminal on every
+  # pull; the line stays nameable (AC2 -- N5/N6 still find their lines).
+  local f="$BATS_TEST_TMPDIR/rulec-hostile-line.md"
+  printf '## Workflow flags\n\033[31mEVIL\033[0m %0200d\nresearch: required\n' 0 > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EVIL"* ]]
+  [[ "$output" != *$'\033'* ]]
+  [ "${#output}" -lt 300 ]
+}
