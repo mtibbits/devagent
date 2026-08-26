@@ -51,8 +51,12 @@
 # diverges from the renderer's: a bare closing marker inside an `<!-- … -->` span
 # opened within a fence, an opening marker whose info string holds a comment, or
 # an opening marker hidden by a comment that began mid-line on prose (a comment
-# that begins at column 1 is an HTML block in the renderer too, so it hides nothing
-# and is not latched). Each is latched, so a heading skipped after it warns at END
+# that begins at line start is an HTML block in the renderer too, so it hides
+# nothing and is not latched). The latch is exact for those shapes and a heuristic
+# beyond them: the line-start test accepts any indentation, a later `<!--` inside
+# the span re-decides it, and the comment pair's own span has no CommonMark
+# counterpart when it began mid-line. Each latched shape means a heading skipped
+# after it warns at END
 # even if a later fence balances the count, and a heading parsed after it warns
 # that the block may be a documented example (measured exposure on 2026-08-26: 1
 # of 477 real bodies, Issue-582's own four-backtick span, none with a live block
