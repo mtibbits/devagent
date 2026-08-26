@@ -617,3 +617,29 @@ FIXTURE
   run flags_get "$f" tier
   [ "$status" -ne 0 ]
 }
+
+@test "flags_validate: an unbalanced fence that swallowed NO heading stays silent (#582 negative of N11)" {
+  # The END warn must be gated on a swallowed heading, not on fence parity alone:
+  # documentation with an odd number of fence lines (an unterminated example, an
+  # inline four-backtick span) is common and loses nothing. Added at Task 8 because
+  # M12 (drop the swallowed guard, warn on ANY unbalanced fence) left every existing
+  # fixture green -- the guard was present but unpinned, the "proves presence, not
+  # correctness" class the mutation matrix exists to catch (register: Issue-553).
+  local f="$BATS_TEST_TMPDIR/odd-fence-no-heading.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: oneshot
+
+Prose, then an unterminated example:
+
+```
+not a flags heading
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # the live block above the fence still parses
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
