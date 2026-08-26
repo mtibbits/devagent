@@ -29,8 +29,9 @@ tag`) will get their own dated sections below.
   warns naming the dropped key (the key is still dropped: the bare-value
   grammar is unchanged); and the fix's own two new close shapes warn too — a
   fence opened inside a live block (before or after its first key), and an
-  unbalanced fence that swallowed a flags heading (a closing fence inside a
-  comment span, or an opening fence whose info string holds a comment — the
+  unbalanced fence that swallowed a flags heading (a bare closing fence inside a
+  comment span opened within a fence, an opening fence whose info string holds a
+  comment, or an opening fence hidden by a comment begun mid-line on prose — each
   divergence is latched, so a later balanced example cannot disarm the warn, and
   a block parsed after it is flagged as possibly a documented example) — so the
   fence rule cannot itself introduce a silent loss. The one diagnostic that
@@ -48,8 +49,9 @@ tag`) will get their own dated sections below.
   rule toggles on any line starting with three backticks (a four-backtick
   inline span, a code span at line start, an indented code-block line), and a
   live block below such a line is reported by the END warn rather than lost
-  silently; the `^## Comments (` exit rule stays fence-blind; a literal `<!--`
-  on a fenced line still opens a comment span. See spec §6.3.
+  silently (a documented example below it is scanned live, with no diagnostic);
+  the `^## Comments (` exit rule stays fence-blind; a literal `<!--` on a fenced
+  line still opens a comment span. See spec §6.3.
 
 - **Chain hops carry their scope; the dispatch output names it (#578).**
   `next.sh` resolved the project once but emitted both of its model-facing

@@ -46,13 +46,17 @@
 # at line start, or a 4-space-indented code-block line each toggles state once, so
 # such a line ABOVE a live block has that block treated as documentation;
 # flags_validate warns at END when a flags heading was skipped inside a fence that
-# never closed. A fence marker hidden by a comment — a closing marker inside an
-# `<!-- … -->` span, or an opening marker whose info string holds a comment — is
-# the way the scanner's fence parity can diverge from the renderer's; it is
-# latched, so a heading skipped after it warns at END even if a later fence
-# balances the count, and a heading parsed after it warns that the block may be a
-# documented example (measured exposure on 2026-08-26: 1 of 477 real bodies,
-# Issue-582's own four-backtick span, none with a live block below); (b) the
+# never closed, and a documented example BELOW such a line is scanned live with no
+# diagnostic. A fence marker hidden by a comment is how the scanner's fence parity
+# diverges from the renderer's: a bare closing marker inside an `<!-- … -->` span
+# opened within a fence, an opening marker whose info string holds a comment, or
+# an opening marker hidden by a comment that began mid-line on prose (a comment
+# that begins at column 1 is an HTML block in the renderer too, so it hides nothing
+# and is not latched). Each is latched, so a heading skipped after it warns at END
+# even if a later fence balances the count, and a heading parsed after it warns
+# that the block may be a documented example (measured exposure on 2026-08-26: 1
+# of 477 real bodies, Issue-582's own four-backtick span, none with a live block
+# below); (b) the
 # `^## Comments (` exit rule stays fence-blind: a fenced example containing a
 # `## Comments (` line still truncates the scan and hides any live block below it;
 # (c) a literal `<!--` on a fenced line (text, in rendered markdown) opens a
@@ -269,8 +273,8 @@ flags_validate() {
       ckey = $0; sub(/:.*/, "", ckey)
       print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
-    /<!--/ { if (!fence && /^[[:space:]]*```/) divergent = 1; incomment = 1 }
-    incomment { if (fence && /^[[:space:]]*```/) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
+    /<!--/ { cblock = ($0 ~ /^[ ]*<!--/); if (!fence && /^[[:space:]]*```/) divergent = 1; incomment = 1 }
+    incomment { if ((fence && $0 ~ /^[[:space:]]*```[[:space:]]*$/) || (!fence && !cblock && /^[[:space:]]*```/)) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
       if (inblock)
         print "flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
