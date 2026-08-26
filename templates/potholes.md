@@ -116,6 +116,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A multi-limb contract rule can ship with one limb machine-owned and the others unowned, and the unowned limb is where the blocking finding lands → at plan time name an owner (guard or human checklist item) per clause (lawFirm Issue-11).
 - An existence check made via the filesystem inherits the platform's case-insensitivity — a mis-cased reference passes locally and 404s on a case-sensitive host, while a sibling pass keyed on exact identity disagrees → decide membership against the loaded authoritative set, never the filesystem, and plant a mis-cased control (lawFirm Issue-12).
 - A scanner whose regex misses a LEGAL input form drops it with no counter touched — totals undercount invisibly and a broken reference reports a clean run → count every seen-but-unjudged item into a skipped cell, disclose unsupported forms in the artifact's blind-spot list, and plant one mutation per SYNTAX the detector claims to cover (lawFirm Issue-12).
+- A fix that silences a false-positive diagnostic can disarm the loss-direction guard it shares state with — in a warn-only channel a false negative is strictly the worse trade → re-run the loss-direction fixtures before committing any "stop warning here" change, and add the "still warns there" negative in the same commit (Issue-582).
+- An inverse mutation that leaves the suite GREEN says the guard is unpinned, not over-guarded → add the negative fixture it lacks, and reject a plan row whose must-redden column is empty at tighten time (Issue-582).
+- A mutation row that goes inert after a later fix has found dead code → remove the code, retire the row with its reason recorded, and confirm its guard is still pinned by another row (Issue-582).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -281,6 +284,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A cited authorization/determination covers only the SOURCE it names — before extending its grant to a second source class, verify coverage or mark that limb UNREAD and fail closed (lawFirm Issue-10).
 - A closed allow-list that blocks invented references can steer a generator to a wrong-but-allowed one when the true referent is absent → absent-referent claims carry only their source-of-record token, and check named-reference/token agreement (lawFirm Issue-11).
 - An evidence probe whose DEFAULT output path is its canonical committed artifact clobbers the round the moment any later session re-runs it → defaults refuse to overwrite; re-takes require an explicit round-tagged out-path (lawFirm Issue-11).
+- A portability constraint a plan asserts ("POSIX only", "works on the minimal implementation") is a claim until the constrained implementation runs it → shim it into PATH, run every fixture, record the transcript in the evidence artifact, and repeat after each change to the constrained code (Issue-582).
 
 ## Docs / edit-neighborhood hygiene
 - A corrected derived figure reaches the paragraph that was quoted back, not its other homes -> after correcting a number, grep the whole artifact directory for the OLD value; a file contradicting itself two screens apart still books the wrong row green (lawFirm Issue-5).
