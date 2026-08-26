@@ -23,6 +23,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - `|| true` + a HEAD/default fallback on a load-bearing value hides a mis-base → make degradations loud; distinguish "genuinely absent" from "should-exist-but-didn't" first (Issue-72).
 - Two same-exit-code states that some caller must distinguish → mint distinct exit codes at the SOURCE; caller-side stderr-prose parsing is unguardable (a phrase-grep pins words, not behavior) (Issue-458).
 - `cd "$(cmd)"` with an empty substitution SUCCEEDS in place, silently disarming a derived-path failure branch → capture the result and test non-empty before the cd (Issue-571).
+- A tool that documents status exit codes is judged by THEM — deriving ran/failed/could-not-run by parsing its summary prose breaks on field ordering and vocabulary (a two-state summary matched a one-state prefix and recorded a clean false green) (Issue-466).
 
 ## Test discipline (born-red / vacuous pass)
 
@@ -72,6 +73,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A test-only ENV seam obliges every production caller to scrub it and the first that forgets fails silently → pass it as an ARGUMENT that REPLACES the ambient probes; an appended seam can still be answered from the environment, so it isolates nothing (Issue-565).
 - A verification token the prompt demands back verbatim SURFACES on every rendered output → strip it after the verify step, pin every user-facing surface token-free, and never elide that surface's prose from the evidence artifact — the elision is why the one pass that ran it missed the leak (lawFirm Issue-14).
 - A "cannot be verified" state whose refusal lives only in the TEST SUITE fails open at runtime → put the fail-closed branch in the shipped code path and let the suite pin it, not carry it (lawFirm Issue-14).
+- A delta claim needs ONE metric at BOTH ends, named next to the number — pairing different instruments at baseline and tip made the correction wrong by its own stated method (Issue-466).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -100,6 +102,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - One MR that closes N issues discharges workflow steps on ALL N issues' checklists → at ship and at merge-sync, walk every closed issue's checklist through close-out; a joint flow that books only its own issue leaves the siblings half-closed (Issue-118).
 - A forge can auto-close a UI-linked issue even when the PR body explicitly disclaims closing it → after any merge, verify every related issue's state on the forge; the body's Closes-set is not what the forge executes when a sidebar link exists (Issue-122).
 - An MR that must NOT close its issue → verify BEFORE merge that the forge parsed no closing link (query the PR's closing-issue references); body prose disclaiming the keyword is not a guarantee, and the post-merge state re-check is still owed (Issue-21).
+- Untracked components (interpreter dirs, dependency caches, data dirs) never travel into a linked worktree → any tree-derived resolution must state its fallback for the worktree-without-the-component case before that mode ships (Issue-466).
+- A rebase invalidates every SHA the workflow pinned — baseline, evidence head, prose commit refs — as a SET; re-derive them all and re-run the evidence validator, or the checker lies in both directions (Issue-466).
 
 ## Sweeps / fix-at-source / sibling sites
 - A getter/pattern with N consumers → fix at the SOURCE, enumerate all N up front, one regression test per site (fixing one and missing the twin is the classic) (Issue-82).
@@ -136,6 +140,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A change that transfers custody of live state invalidates the recovery paths that predate it → re-derive what snapshot-restore and revert DO under the new semantics before shipping them as safety nets; both "safe ways back" can be booby-trapped by the very change they backstop (fleet Issue-19).
 - A machine-readable contract authored for a consumer that does not exist yet rots silently → land its well-formedness check in the SAME change; the future consumer is not a defense against the next entry being added malformed (fleet Issue-20).
 - A gate that WARNS it cannot verify something and passes on the remaining rungs is weaker than its green suggests → execute the skipped check by hand and record it, or treat the pass as provisional (Issue-550).
+- A no-override refusal with no operator seam converts every configuration outside the validated set from "unsupported" into "unshippable" → pair the fail-closed verdict with an explicit escape seam and record the seam's use in the artifact (Issue-466).
+- The repo's CI gates and a diff-scoped local analyzer scan DISJOINT surfaces → before ship, run each CI gate's command verbatim over its own scope; a green analyze step predicts nothing about a gate keyed to a different file set or rule class (Issue-466).
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
