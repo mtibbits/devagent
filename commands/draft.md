@@ -184,10 +184,8 @@ rc 1 (a bad/unreadable per-issue marker) to the same empty string as rc 3
 stopping. **rc 1 ⇒ STOP** and fix or remove the marker.
 
 **rc 2 (the reserved `inherit`) stays INLINE** — decided and final (#583): it is
-not a dispatch trigger. `inherit` escapes a project thinking pin back to the
-class default, and this class's default is inline at the session model. The
-contract file carries the full rc table, the reasoning, and names the test that
-pins each code.
+not a dispatch trigger. The contract file carries the full rc table and the
+reasoning.
 
 Otherwise (nothing resolved AND no operator dispatch instruction) drafting is INLINE via
 `superpowers:writing-plans` — skip the contract entirely (it is conditionally-dead

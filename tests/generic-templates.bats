@@ -9,44 +9,50 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # enumeration-shaped step number attributed to the WRONG class
 # (`BAD <file>:<line> <n>-><class>`) and one per class member never seen under
 # its own anchor (`MISS <file> <class>-<n>`); print nothing when the home is
-# clean. Attribution = the nearest class anchor (the two body keys, or the class
-# NAMES thinking/checking in any case) within the preceding three lines, up to
-# the occurrence. Enumeration-shaped = a run of >= 2 class numbers separated by
-# space or slash, or a number immediately followed by its step name; anything
-# else (a per-step TOML key `"9" = …`, `#561`, `rc 2`) is not an enumeration.
+# clean. Attribution = the nearest class anchor (the body key
+# `implementation-model`, or the class NAMES thinking/checking in any case)
+# within the preceding three lines, up to the occurrence. Enumeration-shaped = a
+# run of >= 2 class numbers separated by space or slash, or a canonical
+# `<num> <name>` pair — the pairs are DERIVED from templates/checklist-standard.md
+# (register: Issue-439), so a renamed step or a mis-paired name is not an
+# enumeration and surfaces as MISS instead of silently passing; anything else
+# (a per-step TOML key `"9" = …`, `#561`, `rc 2`) is not an enumeration either.
+# ONE grep per file; the rest is bash builtins (register: Issue-566 — the
+# per-line grep form measured 6.3 s for the 11 homes, this one ~1 s).
 _class_assign() {
   local f="$1" thinking="$2" checking="$3"
-  local union names
-  union="($(printf '%s ' $thinking $checking | sed 's/ $//; s/ /|/g'))"
-  names='(draft|implement|quality|document|draftmr|improve|review|redmr|preship)'
+  local union="(${thinking// /|}|${checking// /|})" pairs="" num name
+  while read -r num name; do
+    [[ " $thinking $checking " == *" $num "* ]] || continue
+    pairs+="${pairs:+|}$num ?\\(?$name"
+  done < <(sed -n 's/^- \[.\] *\([0-9]*\)\. *\([A-Za-z][A-Za-z0-9_-]*\).*$/\1 \2/p' \
+             "$REPO/templates/checklist-standard.md")
   local -a L; mapfile -t L < "$f"
-  local -A seen_t=() seen_c=()
-  local i occ pre win cls n from cnt
-  for ((i = 0; i < ${#L[@]}; i++)); do
-    grep -qE "\b${union}\b" <<<"${L[i]}" || continue      # cheap prefilter (register: Issue-566)
-    while IFS= read -r occ; do
-      [ -n "$occ" ] || continue
-      pre="${L[i]%%"$occ"*}"
-      from=$(( i >= 3 ? i - 3 : 0 )); cnt=$(( i - from ))
-      win="$(printf '%s\n' "${L[@]:$from:$cnt}")"$'\n'"$pre"
-      cls="$(grep -oiE 'implementation-model|thinking|checking-model|checking' <<<"$win" \
-             | tail -1 | tr '[:upper:]' '[:lower:]')"
-      case "$cls" in
-        implementation-model|thinking) cls=thinking ;;
-        checking-model|checking)       cls=checking ;;
-        *) continue ;;                                    # no anchor in the window: unattributed prose
-      esac
-      for n in $(grep -oE "\b${union}\b" <<<"$occ"); do
-        if [ "$cls" = thinking ]; then
-          seen_t[$n]=1; [[ " $thinking " == *" $n "* ]] || echo "BAD $f:$((i + 1)) $n->$cls"
-        else
-          seen_c[$n]=1; [[ " $checking " == *" $n "* ]] || echo "BAD $f:$((i + 1)) $n->$cls"
-        fi
-      done
-    done < <(grep -oE "\b${union}\b([ /]${union}\b)+|\b${union}\b ?\(?${names}\b" <<<"${L[i]}")
-  done
-  for n in $thinking; do [ -n "${seen_t[$n]:-}" ] || echo "MISS $f thinking-$n"; done
-  for n in $checking; do [ -n "${seen_c[$n]:-}" ] || echo "MISS $f checking-$n"; done
+  local -A seen=()
+  local hit i occ pre win w s t best cls list tok from cnt
+  while IFS= read -r hit; do                       # "<lineno>:<match>"
+    i=$(( ${hit%%:*} - 1 )); occ="${hit#*:}"
+    pre="${L[i]%%"$occ"*}"
+    from=$(( i >= 3 ? i - 3 : 0 )); cnt=$(( i - from ))
+    printf -v win '%s\n' "${L[@]:from:cnt}"; win+="$pre"
+    w="${win,,}"; cls=; best=-1
+    for t in implementation-model thinking checking; do   # nearest anchor = latest last-occurrence
+      s="${w##*"$t"}"; [ "$s" != "$w" ] || continue
+      (( ${#w} - ${#s} > best )) && { best=$(( ${#w} - ${#s} )); cls=$t; }
+    done
+    case "$cls" in
+      implementation-model|thinking) cls=thinking; list="$thinking" ;;
+      checking)                      list="$checking" ;;
+      *) continue ;;                                # no anchor in the window: unattributed prose
+    esac
+    for tok in ${occ//\// }; do
+      [[ " $thinking $checking " == *" $tok "* ]] || continue
+      seen["$cls-$tok"]=1
+      [[ " $list " == *" $tok "* ]] || echo "BAD $f:$((i + 1)) $tok->$cls"
+    done
+  done < <(grep -noE "\b${union}\b([ /]${union}\b)+|\b(${pairs})\b" "$f")
+  for tok in $thinking; do [ -n "${seen[thinking-$tok]:-}" ] || echo "MISS $f thinking-$tok"; done
+  for tok in $checking; do [ -n "${seen[checking-$tok]:-}" ] || echo "MISS $f checking-$tok"; done
 }
 
 @test "no VOLK-specific token in the plugin templates (#136)" {
@@ -142,18 +148,16 @@ _class_assign() {
   # #561 shipped this as a UNION check and wrote its blind spot into the test: a
   # home that SWAPPED the two lists — claiming `implementation-model` steers the
   # checking numbers — passed, because the union is identical (found by the #561
-  # step-16 red team). #583 closes it: every enumeration-shaped occurrence is
-  # attributed to the nearest class anchor within the preceding three lines and
-  # must belong to that class; each class must be covered under its own anchor.
-  # LIMITS, stated beside what is asserted (register: Issue-558):
-  #  - only ENUMERATION-SHAPED occurrences count (see _class_assign); a lone
-  #    per-step TOML key or an issue number is not one;
-  #  - the anchor window is three lines: all 11 shapes anchor within 0-2 lines,
-  #    and an occurrence with no anchor in its window is IGNORED, so a home that
-  #    enumerated farther from its key would surface as MISS, never as a pass;
+  # step-16 red team). #583 closes it with per-class attribution (the rule lives
+  # in _class_assign's header). LIMITS, stated beside what is asserted (register:
+  # Issue-558):
+  #  - an enumeration with no anchor in its three-line window is IGNORED, so a
+  #    home that enumerates farther from its key surfaces as MISS, never as a pass;
   #  - the class NAMES are anchors (config.toml.skel enumerates by name), so the
-  #    ordinary word thinking/checking in prose within three lines above an
-  #    enumeration counts too — a collision reddens and names the line.
+  #    ordinary word thinking/checking within three lines above an enumeration
+  #    counts too — a collision reddens and names the line;
+  #  - a `<num> <name>` pair counts only as the canonical pairing from
+  #    templates/checklist-standard.md; a mis-paired name surfaces as MISS.
   # Both halves are mutation-tested below (register: Issue-151).
   local thinking checking
   thinking="$(sed -n 's/.*case " \(2 9[0-9 ]*\)" in.*/\1/p' "$REPO/scripts/lib/config.sh" | head -1)"
@@ -194,12 +198,13 @@ _class_assign() {
   printf '%s\n' \
     '| `implementation-model: <token>` | *thinking* | 5 improve · 15 review · 16 redmr · 17 preship |' \
     '| `checking-model: <token>` | *checking* | 2 draft · 9 implement · 10 quality · 11 document · 14 draftmr |' > "$m/table.md"
+  local union_re="(${thinking// /|}|${checking// /|})" n_union=$(( $(wc -w <<<"$thinking $checking") ))
   for f in "$m/template.md" "$m/skel.toml" "$m/table.md"; do
     out="$(_class_assign "$f" "$thinking" "$checking")"
     [[ "$out" == *BAD* ]] || { echo "guard is blind to a swapped list in $(basename "$f")" >&2; return 1; }
-    # ...and the union check this replaces WOULD have passed it: all nine
-    # numbers are still present (the exact blind spot #561 recorded).
-    [ "$(grep -oE '\b(2|5|9|10|11|14|15|16|17)\b' "$f" | sort -n -u | grep -c .)" -eq 9 ]
+    # ...and the union check this replaces WOULD have passed it: every class
+    # number is still present (the exact blind spot #561 recorded).
+    [ "$(grep -oE "\b${union_re}\b" "$f" | sort -n -u | grep -c .)" -eq "$n_union" ]
   done
   # MISS half (improve bug 5): a member absent under its own anchor, and an
   # enumeration too far below its anchor to be attributed — the blind spot the
@@ -219,4 +224,8 @@ _class_assign() {
   out="$(_class_assign "$m/far.md" "$thinking" "$checking")"
   [[ "$out" == *"MISS "*"thinking-2"* && "$out" != *BAD* ]] \
     || { echo "an enumeration 4 lines below its anchor must be MISS, not a pass or a BAD: [$out]" >&2; return 1; }
+  # a mis-paired name (right number, wrong step) is not enumeration-shaped
+  printf '%s\n' '- implementation-model: <token>' '  steers 2 draft, 9 implement, 10 quality, 11 review, 14 draftmr' > "$m/mispair.md"
+  out="$(_class_assign "$m/mispair.md" "$thinking" "$checking")"
+  [[ "$out" == *"MISS "*"thinking-11"* ]] || { echo "a mis-paired name must surface as MISS: [$out]" >&2; return 1; }
 }

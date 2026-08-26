@@ -29,16 +29,13 @@ conversation".
    default shape is inline at the session model: inline drafting already runs
    there, so there is nothing to up-delegate. The checking class dispatches on
    rc 2 only because ITS default shape is a fresh-context fork; planning is the
-   inverse (top of this file — a planner is better the more operator intent it
-   holds). Under the rejected alternative, dispatch-with-`model: inherit`, a
-   project thinking pin plus `implementation-model: inherit` would produce a
-   THIRD behavior — a fresh-context fork at the session model — and no marker
-   value could express "plain inline on this issue". That fresh-context shape
-   stays reachable on demand through the explicit operator instruction (rule 5's
-   `model: inherit` case). Each code in the table is pinned by
-   `tests/dispatch-contract.bats`, which executes this rule's snippet against
-   fixtures for rc 0, 1, 2 and 3 — the rc-0 case drives a keyed `thinking:`
-   marker through it (#561 DoD-8).
+   inverse (top of this file). Under the rejected alternative,
+   dispatch-with-`model: inherit`, a project thinking pin plus
+   `implementation-model: inherit` would produce a THIRD behavior — a
+   fresh-context fork at the session model — and no marker value could express
+   "plain inline on this issue". That fresh-context shape stays reachable on
+   demand through the explicit operator instruction (rule 5's `model: inherit`
+   case).
 
    Inline IS the fully-informed default here and dispatch exists for
    up-delegation — this deliberately differs from #151, where dispatch is

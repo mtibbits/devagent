@@ -18,7 +18,7 @@ REPO="${BATS_TEST_DIRNAME}/.."
 
 # #583: the rc cases at the end of this file need a project fixture (config +
 # state + issue dir) — the tests/step-model.bats pattern. The carrier sweeps
-# above read only $REPO and are unaffected (counted: 4 tests).
+# above read only $REPO and are unaffected.
 bats_require_minimum_version 1.5.0
 load 'helpers/common'
 setup() { devagent_test_setup; }
@@ -41,7 +41,7 @@ _contract_snippet() {
   local doc="$1" n
   n="$(grep -c '^ *```bash' "$doc")"
   [ "$n" -eq 1 ] || { echo "expected exactly one bash fence in $doc, got $n" >&2; return 1; }
-  awk '/^ *```bash/{f=1;next} /^ *```/{if(f)exit} f' "$doc" \
+  awk '/^ *```bash/{f=1;next} /^ *```/{if(f)exit} f{sub(/^ */,""); print}' "$doc" \
     | sed -e 's|\${CLAUDE_PLUGIN_ROOT}|'"$REPO"'|g' \
           -e 's|<project>|'"$TEST_PROJECT"'|g' \
           -e 's|<STEP>|2|g'
@@ -50,10 +50,19 @@ _contract_snippet() {
 # _run_draft_snippet — execute the draft contract's snippet VERBATIM in a child
 # bash (no `set -e`: the idiom captures rc=$? itself) and print exactly what the
 # wrapper then discriminates on: the exit code, the stdout tier, the stderr
-# provenance ($prov is load-bearing — command substitution alone would drop it).
+# provenance ($prov is what the idiom transports: the checking class stamps from
+# it, draft reads it for the rc-1 STOP message — so the tests assert it too).
 _run_draft_snippet() {
   local body; body="$(_contract_snippet "$DRAFT_CONTRACT")" || return 1
   bash -c "$body"$'\n''printf "rc=%s tier=%s prov=%s\n" "$rc" "$tier" "$prov"'
+}
+
+# _draft_resolves <expected-prefix> — run the snippet and assert its printed tuple
+# starts with the expected `rc=… tier=…`; the caller adds its own asserts on
+# $output, which `run` leaves set.
+_draft_resolves() {
+  run _run_draft_snippet
+  [ "$status" -eq 0 ] && [[ "$output" == "$1"* ]] || { echo "got: $output" >&2; return 1; }
 }
 
 _contract_carriers() {
@@ -186,9 +195,7 @@ _contract_carriers() {
   # with per-issue provenance on stderr, and rc 0 is the table's dispatch row.
   _add_step_models 'thinking = "opus"'
   _marker 'thinking: sonnet'
-  run _run_draft_snippet
-  [ "$status" -eq 0 ]
-  [[ "$output" == "rc=0 tier=sonnet prov="* ]] || { echo "got: $output" >&2; false; }
+  _draft_resolves 'rc=0 tier=sonnet prov='
   [[ "$output" == *"per-issue"* ]]
   [[ "$output" == *"$DEVDOC_DIR/Issue-1/.devagent-step-models"* ]]
   grep -qF '| 0 | a tier resolved | dispatch' "$DRAFT_CONTRACT"
@@ -197,9 +204,7 @@ _contract_carriers() {
 @test "draft rc 2: a per-issue 'thinking: inherit' is NOT a dispatch trigger — the table says stay INLINE (#583 decision)" {
   _add_step_models 'thinking = "opus"'
   _marker 'thinking: inherit'
-  run _run_draft_snippet
-  [ "$status" -eq 0 ]
-  [[ "$output" == "rc=2 tier= prov="* ]] || { echo "got: $output" >&2; false; }
+  _draft_resolves 'rc=2 tier= prov='
   [[ "$output" == *"per-issue"* ]]
   [[ "$output" == *"inherit"* ]]
   # rc 2 must never collapse into rc 3 (it is the escape from a pin), and the
@@ -209,26 +214,21 @@ _contract_carriers() {
 
 @test "draft rc 2 via the config table: thinking = \"inherit\" is the same inline escape (#583)" {
   _add_step_models 'thinking = "inherit"'
-  run _run_draft_snippet
-  [ "$status" -eq 0 ]
-  [[ "$output" == "rc=2 tier= prov="* ]] || { echo "got: $output" >&2; false; }
+  _draft_resolves 'rc=2 tier= prov='
   [[ "$output" == *"config tier"* ]]
   [[ "$output" != *"per-issue"* ]]
 }
 
 @test "draft rc 3: nothing configured — stay INLINE (#583)" {
-  run _run_draft_snippet
-  [ "$status" -eq 0 ]
-  [ "$output" = "rc=3 tier= prov=" ] || { echo "got: $output" >&2; false; }
+  _draft_resolves 'rc=3 tier= prov='
+  [ "$output" = "rc=3 tier= prov=" ]
   grep -qE '^ *\| 3 \| nothing configured \| stay INLINE' "$DRAFT_CONTRACT"
 }
 
 @test "draft rc 1: a malformed keyed marker STOPS — never a silent inline (#583; #561)" {
   _add_step_models 'thinking = "opus"'
   _marker 'thinking: a b'
-  run _run_draft_snippet
-  [ "$status" -eq 0 ]
-  [[ "$output" == "rc=1 tier= prov="* ]] || { echo "got: $output" >&2; false; }
+  _draft_resolves 'rc=1 tier= prov='
   # the INTENDED path's message, not a bare code (register: Issue-Fork-132)
   [[ "$output" == *"exactly one token"* ]]
   grep -qE '^ *\| 1 \| .* \| \*\*STOP' "$DRAFT_CONTRACT"
@@ -256,10 +256,11 @@ _assert_rc2_final() {  # <file>
   _assert_rc2_final "$REPO/commands/draft.md"
 }
 
-@test "the thinking-class resolution idiom is byte-aligned with the checking-class one; the draft table has all four rc rows (#583)" {
+@test "the thinking-class resolution idiom is byte-aligned with the checking-class one (#583)" {
   # AC: "align the thinking-class idiom with the checking contract". Both docs
   # carry ONE fenced snippet; after placeholder substitution (<STEP> -> 2) they
-  # must be identical, so the two idioms cannot drift apart again.
+  # must be identical, so the two idioms cannot drift apart again. (Each rc row
+  # of the draft table is pinned by its own rc test above.)
   # Extract UNPIPED so the fence-count precondition's rc is not swallowed (register:
   # Issue-314 — improve bug 4), and refuse an empty snippet before comparing: two
   # empty strings are equal, which is the vacuous pass this pin must never take.
@@ -267,10 +268,5 @@ _assert_rc2_final() {  # <file>
   a="$(_contract_snippet "$DRAFT_CONTRACT")" || { echo "draft snippet extraction failed" >&2; false; }
   b="$(_contract_snippet "$CHECKING_CONTRACT")" || { echo "checking snippet extraction failed" >&2; false; }
   [ -n "$a" ] && [ -n "$b" ] || { echo "empty snippet: draft=[$a] checking=[$b]" >&2; false; }
-  a="$(sed 's/^ *//' <<<"$a")"; b="$(sed 's/^ *//' <<<"$b")"
   [ "$a" = "$b" ] || { printf 'draft:\n%s\nchecking:\n%s\n' "$a" "$b" >&2; false; }
-  local code
-  for code in 0 1 2 3; do
-    grep -qE "^ *\| $code \| " "$DRAFT_CONTRACT" || { echo "draft rc table lacks row $code" >&2; false; }
-  done
 }
