@@ -245,8 +245,8 @@ issue_labels() {
 # this file), all non-fatal: an inline `<!--` on a key line still starts a comment
 # span and drops that key (the bare-value grammar), but this machine warns naming
 # the key; a block closed by a non-key line while no key has been seen (the #553
-# clause) warns naming that line; a fence opened inside a live keyed block warns;
-# and at END an unbalanced fence that swallowed a flags heading warns.
+# clause) warns naming that line; a fence opened inside a live block, keyed or
+# not, warns; and at END an unbalanced fence that swallowed a flags heading warns.
 flags_validate() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -259,7 +259,7 @@ flags_validate() {
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
-      if (fence == 0 && inblock && seen)
+      if (inblock)
         print "flags.sh: warn: ## Workflow flags block closed by a code fence — keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
       fence = !fence; inblock = 0; next
     }

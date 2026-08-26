@@ -27,8 +27,9 @@ tag`) will get their own dated sections below.
   supersedes that entry's warn-less trade-off; an inline `<!--` on a key line
   warns naming the dropped key (the key is still dropped: the bare-value
   grammar is unchanged); and the fix's own two new close shapes warn too — a
-  fence opened inside a live keyed block, and an unbalanced fence that
-  swallowed a flags heading (a closing fence inside a comment span) — so the
+  fence opened inside a live block (before or after its first key), and an
+  unbalanced fence that swallowed a flags heading (a closing fence inside a
+  comment span) — so the
   fence rule cannot itself introduce a silent loss. `flags_get` stays silent by
   design: `pull.sh` calls it five times per pull. `pull.sh` now runs
   `flags_validate` on EVERY pull, immediately after the fetched body lands,
