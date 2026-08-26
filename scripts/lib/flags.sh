@@ -45,9 +45,12 @@
 # fence grammar — a FOUR-backtick inline span (````), a triple-backtick code span
 # at line start, or a 4-space-indented code-block line each toggles state once, so
 # such a line ABOVE a live block has that block treated as documentation;
-# flags_validate warns at END when the fence never closed and a flags heading was
-# skipped inside it (measured exposure on 2026-08-26: 1 of 476 real bodies,
-# Issue-582's own four-backtick span, none with a live block below); (b) the
+# flags_validate warns at END when a flags heading was skipped inside a fence that
+# never closed, or after a fence marker was hidden inside an `<!-- … -->` span —
+# the one way the scanner's fence parity can diverge from the renderer's, latched
+# so a later balanced example cannot disarm the warn (measured exposure on
+# 2026-08-26: 1 of 477 real bodies, Issue-582's own four-backtick span, none with
+# a live block below); (b) the
 # `^## Comments (` exit rule stays fence-blind: a fenced example containing a
 # `## Comments (` line still truncates the scan and hides any live block below it;
 # (c) a literal `<!--` on a fenced line (text, in rendered markdown) opens a
@@ -250,8 +253,10 @@ issue_labels() {
 # this file), all non-fatal: an inline `<!--` on a key line still starts a comment
 # span and drops that key (the bare-value grammar), but this machine warns naming
 # the key; a block closed by a non-key line while no key has been seen (the #553
-# clause) warns naming that line; a fence opened inside a live block, keyed or
-# not, warns; and at END an unbalanced fence that swallowed a flags heading warns.
+# clause) warns naming that line (quoted, control bytes replaced, bounded — it is
+# remote content); a fence opened inside a live block, keyed or not, warns; and at
+# END a heading swallowed by a fence that never closed, or by one whose closing
+# marker a comment span hid, warns.
 flags_validate() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -262,19 +267,21 @@ flags_validate() {
       print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
     /<!--/ { incomment = 1 }
-    incomment { if ($0 ~ /-->/) incomment = 0; next }
+    incomment { if (fence && /^[[:space:]]*```/) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
       if (inblock)
         print "flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
       fence = !fence; if (!fence) swallowed = 0; inblock = 0; next
     }
-    fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) swallowed = 1; next }
+    fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) { swallowed = 1; if (divergent) swallowed_div = 1 }; next }
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
     inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ {
       inblock = 0
-      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: " $0 " — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
+      cline = $0; gsub(/[[:cntrl:]]/, "?", cline)
+      if (length(cline) > 60) cline = substr(cline, 1, 60) "..."
+      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: '\''" cline "'\'' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
     }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
@@ -283,8 +290,8 @@ flags_validate() {
         print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
     }
     END {
-      if (fence && swallowed)
-        print "flags.sh: warn: unbalanced code fence — a ## Workflow flags heading was treated as documentation and IGNORED; check for a fence marker inside an <!-- --> span" > "/dev/stderr"
+      if ((fence && swallowed) || swallowed_div)
+        print "flags.sh: warn: unbalanced code fence (never closed, or a fence marker hidden inside an <!-- --> span) — a ## Workflow flags heading was treated as documentation and IGNORED" > "/dev/stderr"
     }
   ' "$file"
 }

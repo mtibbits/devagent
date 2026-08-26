@@ -30,14 +30,16 @@ tag`) will get their own dated sections below.
   grammar is unchanged); and the fix's own two new close shapes warn too — a
   fence opened inside a live block (before or after its first key), and an
   unbalanced fence that swallowed a flags heading (a closing fence inside a
-  comment span) — so the
-  fence rule cannot itself introduce a silent loss. `flags_get` stays silent by
+  comment span; that divergence is latched, so a later balanced example cannot
+  disarm the warn) — so the fence rule cannot itself introduce a silent loss.
+  The one diagnostic that echoes a body line (the Rule C close) prints it quoted,
+  control bytes replaced and bounded, since it is remote content. `flags_get` stays silent by
   design: `pull.sh` calls it five times per pull. `pull.sh` now runs
   `flags_validate` on EVERY pull, immediately after the fetched body lands,
   instead of only at first scaffold, so a key edited onto the body after
   scaffold is validated on the next re-pull (it stays inert — scaffold-only
   keys are scaffold-only by design). **No corpus body changes meaning:** over
-  the 476 issue bodies in the local devdoc, old and new `flags_get` agree on
+  the 477 issue bodies in the local devdoc, old and new `flags_get` agree on
   every one of the five keys, and the new `flags_validate` emits zero warnings;
   by design, a body whose keys sat inside a fence, or after a fence inside a
   live block, now loses them — with a warning. Three documented residuals: the
