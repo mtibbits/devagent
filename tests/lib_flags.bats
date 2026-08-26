@@ -756,3 +756,55 @@ FIXTURE
   [[ "$output" != *$'\033'* ]]
   [ "${#output}" -lt 300 ]
 }
+
+@test "flags_validate: a heading parsed after a comment-hidden fence marker warns that parity may be inverted (#582)" {
+  # Red-team r2 MINOR 1: once a fence marker has been eaten by a comment span the
+  # scanner's fence parity is inverted for the rest of the body, so a LATER
+  # documented example parses as live config (defect (1) of this issue) while the
+  # only warn fired -- the fence-close one -- points the wrong way. The heading
+  # rule now says so whenever the divergence latch is set. Behaviour (the block
+  # parses) is unchanged, as at master; the diagnostic is what was missing.
+  local f="$BATS_TEST_TMPDIR/hidden-fence-then-live-example.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- aside
+```
+-->
+prose
+```
+## Workflow flags
+tier: oneshot
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: an opening fence whose info string holds a comment is a latched divergence too (#582)" {
+  # Red-team r2 MINOR 1, second shape: a valid CommonMark opening fence such as
+  # `\`\`\` <!-- x -->` is consumed by the comment pair before the fence rule sees
+  # it, so parity inverts with no closing marker ever hidden. The <!-- rule now
+  # latches when the line itself is a fence marker outside any fence.
+  local f="$BATS_TEST_TMPDIR/info-string-comment-fence.md"
+  printf '``` <!-- x -->\n## Workflow flags\ntier: oneshot\n```\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+}
+
+@test "flags_validate: the Rule C echo drops a UTF-8 C1 control (CSI) in a C locale too (#582)" {
+  # Red-team r2 MINOR 2: [[:cntrl:]] is locale-dependent -- under LC_ALL=C (and
+  # always under byte-based mawk) the two-byte CSI U+009B passed through raw, and
+  # xterm honours it. The sanitizer now keeps printable ASCII only, which every awk
+  # and every locale agree on.
+  local f="$BATS_TEST_TMPDIR/rulec-c1-control.md"
+  printf '## Workflow flags\n\302\233[31mEVIL\302\233[0m x\nresearch: required\n' > "$f"
+  LC_ALL=C run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EVIL"* ]]
+  [[ "$output" != *$'\302\233'* ]]
+}
