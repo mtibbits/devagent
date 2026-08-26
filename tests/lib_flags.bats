@@ -667,3 +667,46 @@ FIXTURE
   run flags_get "$f" research
   [ "$status" -ne 0 ]
 }
+
+@test "flags_validate: a CLOSED fenced example does not arm the unbalanced-fence warn for a later lone toggle (#582)" {
+  # Review finding: `swallowed` was never reset when a fence closed, so a
+  # documented example (a balanced fence around the heading) followed later by a
+  # lone toggle line -- the four-backtick spelling this issue's own body uses --
+  # warned "unbalanced ... heading IGNORED" although nothing was lost, and sent
+  # the author hunting for a comment-span fence that does not exist. The reset on
+  # the closing fence keeps N11 (the swallowing fence never closes) intact.
+  local f="$BATS_TEST_TMPDIR/closed-example-then-lone-toggle.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: oneshot
+
+Documented example of the grammar:
+
+```
+## Workflow flags
+tier: perf
+```
+
+```` a four-backtick span alone on its line toggles fence state once
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: keys after a CLOSING fence are not enumerated -- the block does not resume (#582 twin of N2)" {
+  # PIN of the validate machine's `inblock = 0` on the fence line: green at HEAD
+  # by construction, so its evidence is mutation M15 (drop that clause in
+  # flags_validate ONLY), under which the block resumes after the closing fence
+  # and `boguskey` is enumerated as unknown. N2 pins the flags_get twin; without
+  # this the validate half was landable drift (review finding; DoD row 8).
+  local f="$BATS_TEST_TMPDIR/keys-after-closing-fence.md"
+  printf '## Workflow flags\ntier: oneshot\n```\nexample\n```\nboguskey: x\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]           # the fence-close warn fires (positive half)
+  [[ "$output" != *"boguskey"* ]]        # the key after the closing fence is NOT enumerated
+}
