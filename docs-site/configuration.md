@@ -48,6 +48,20 @@ on_merge       = "Done"
 
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"
+
+[project.myproj.suite_env]     # optional; exported into run-suite.sh's bats and
+                               # pytest child processes (step-14 evidence, #603).
+                               # For a suite that needs environment which is not
+                               # derivable from the tree — e.g. a data root kept
+                               # outside git. Declaring it here rather than
+                               # relying on the invoking shell keeps the evidence
+                               # artifact a function of the TREE, not of the
+                               # operator's session. Values are tilde-expanded;
+                               # an empty value or a non-identifier key dies
+                               # loud. The artifact records the NAMES only
+                               # (`suite_env: FOO BAR`), never the values, so a
+                               # declared secret is not quoted into an MR body.
+MYPROJ_DATA_ROOT = "~/src/myprojData"
 ```
 
 ## The five-verb backend contract
