@@ -300,9 +300,10 @@ the hermetic environment baked in and writes the provenance artifact
 bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
 ```
 
-The suite has two environmental requirements, and `run-suite.sh` enforces both
-rather than producing an artifact it cannot stand behind — so a minimal
-container running these tests must provide them.
+The suite has three environmental requirements. `run-suite.sh` enforces the first two
+by refusing to write an artifact at all, rather than producing one it cannot stand
+behind. The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
+A minimal container running these tests must provide all three.
 
 **A POSIX filesystem where `chmod` actually changes the mode.**
 `tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets
@@ -345,6 +346,30 @@ LC_ALL=C.UTF-8 bats tests/some-file.bats
 has no UTF-8 locale, so a bare `bats tests/` reports the condition rather than
 hiding it — and it asserts both platform branches above, so it is not vacuous
 on either.
+
+**A pytest-capable interpreter for a tree that has `tests/test_*.py`.**
+`run-suite.sh` prefers `<tree>/.venv/bin/python` when it exists and falls back to
+ambient `python3` — a Python project conventionally carries its interpreter inside the
+tree, and measuring with the system one recorded `0 passed` for a 51-test suite. If
+neither can RUN pytest, the artifact records `pytest: (error)` rather than a zero count,
+and `preship-evidence.sh` refuses it — including when the `## Evidence` block is absent,
+so the refusal cannot be sidestepped by deleting it. An unmeasured suite must not ship
+as a green (#466).
+
+A suite that RAN and had nothing to count is a different thing and stays shippable: all
+tests skipped, or nothing collected, records a truthful `pytest: 0 passed, 0 failed`.
+`(error)` means *could not run*, never *ran and found nothing*. Only the `.venv/` spelling is searched, so for any other layout — `venv/`,
+`.venv/Scripts/`, conda, uv, pyenv, or a linked worktree, where an untracked virtualenv
+never travels — point `DEVAGENT_PYTEST_PYTHON` at the interpreter instead:
+
+```sh
+DEVAGENT_PYTEST_PYTHON=/path/to/python bash scripts/run-suite.sh <project>
+```
+
+That names a working interpreter; it does not silence the `(error)` verdict, so the
+fail-closed property is unweakened. `born-red.sh` resolves the interpreter the same way
+(both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
+at all — an unmeasurable baseline is not a red one.
 
 ## Git hooks (opt-in)
 

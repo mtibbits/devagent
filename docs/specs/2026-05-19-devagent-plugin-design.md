@@ -1063,6 +1063,65 @@ variable the table exists to supply). The artifact gains a trailing
 values, since the block is quoted into MR bodies — appended last so every
 prefix-anchored consumer of `head:`/`tree:`/`bats:`/`pytest:` is unmoved.
 
+Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
+reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming
+both. `(none)` means the framework is absent from the measured tree; `(error)` means
+its tests exist but could not be RUN (a missing interpreter, a venv without pytest, an
+import/collection error). A suite that ran and had nothing to count — all skipped, all
+xpassed, or nothing collected — is a MEASUREMENT of zero, so a routine `skipif` suite
+stays shippable. The two are told apart by pytest's EXIT CODE, not by its prose: 0 and 5
+are measurements; 1 is ambiguous (tests failed and no-pytest-module share it) and is
+resolved by whether any category count was parsed; anything else is unmeasured. An
+earlier draft grepped the summary text instead and recorded a clean zero for
+`1 skipped, 1 error` while refusing a healthy `1 xpassed`.
+
+The pytest line carries a third field, `<errors> errors`, and `preship-evidence.sh`
+gates on it: a collection or fixture ERROR is not a "failed", so `2 passed, 1 error`
+previously reconciled green — the pytest analogue of the bats truncation invariant
+(#406). A two-field line from before this change still parses, with the field defaulting
+to zero. The artifact also gains a `python: <interpreter> | (none)` line, because
+`DEVAGENT_PYTEST_PYTHON` and the fallback arm both admit an interpreter from outside the
+measured tree: without it, two operators at one commit can produce different counts in
+otherwise identical artifacts, and an `(error)` is undiagnosable. Framework PRESENCE is
+probed with `find tests -name 'test_*.py'`, matching the recursive collection pytest
+itself performs — a non-recursive glob called a `tests/unit/` suite absent, and since
+presence is load-bearing for the reconstruction the suite then vanished from the
+Evidence entirely. `run-suite.sh` prefers
+`<tree>/.venv/bin/python` over ambient `python3`, because a Python project
+conventionally carries its interpreter in the tree and measuring with the system one
+recorded "0 passed" for a 51-test suite. Each venv candidate must also be able to RUN
+pytest (`-m pytest --version`), not merely exist: an application venv with pytest
+installed only system-wide is a routine shape, and selecting it on existence alone
+turned a tree that measured fine into an unshippable `(error)`. The explicit
+`DEVAGENT_PYTEST_PYTHON` is deliberately NOT probed — an operator's stated choice must
+fail loudly rather than silently fall through to an interpreter they did not name. The reconstruction is
+`<ok>/<plan> bats, <passed> pytest @ <sha>` when both are present,
+`<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
+`none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`
+suffix that claimed a measured zero for an absent framework and a `/ bats` prefix that
+reconciled only against itself. `(error)` fails preship outright with no override: an
+unmeasured suite is not a condition an operator can knowingly accept. That refusal is
+repeated above the #149 no-Evidence back-compat exit, so removing the `## Evidence`
+block does not sidestep it — the #149 rule lets a legacy issue ship without a block, not
+any issue ship on evidence that was never taken. The interpreter
+search is overridable via `DEVAGENT_PYTEST_PYTHON` — the same `DEVAGENT_<TOOL>` seam
+`DEVAGENT_GIT`/`DEVAGENT_GH`/`DEVAGENT_CMAKE` use — so an unsupported virtualenv layout,
+or a linked worktree that an untracked venv never reached, is unsupported rather than
+unshippable. The seam names a working interpreter; it cannot silence the verdict.
+
+Interpreter resolution is single-sourced in `scripts/lib/python-interp.sh`
+(`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). Both
+pytest-invoking scripts use it: `run-suite.sh` and `born-red.sh`. born-red had the same
+defect in a more dangerous form — `_run_pytest` reads a non-zero exit as "RED at
+baseline", so on a venv project every new test classified `baseline=RED` and the gate
+passed VACUOUSLY. It now also refuses outright when the resolved interpreter cannot run
+pytest at all: an unmeasurable baseline is not a red one, and recording it as red is the
+vacuous pass the guard exists to prevent. The fallback-tree argument is what makes both
+correct under `use_worktree = true`, where an untracked virtualenv never reaches the
+ephemeral or linked worktree. bats has no
+`(error)` state, because a run with no `1..N` plan line dies in `run-suite.sh` before an
+artifact exists.
+
 ## 8. Permission gates
 
 Defined per project in `[project.<name>.permissions]`. Each gate:

@@ -16,9 +16,16 @@
      #572: pass the project explicitly). Machine-checked by preship (#359) — do not
      hand-edit the two lines below. The optional 'born-red:' line is filled from a
      born-red artifact (#362) when present.
-     A project with NEITHER bats nor pytest uses the no-framework form instead:
-       suite: none @ <sha>
-     (preship reconciles it against a `bats: (none)` + `pytest: (none)` artifact — #411). -->
+     The suite: line names ONLY the frameworks the tree actually has (#466) — write
+     whichever ONE of these four the artifact describes:
+       both        ->  suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
+       bats only   ->  suite: <bats-ok>/<bats-plan> bats @ <sha>
+       pytest only ->  suite: <pytest-passed> pytest @ <sha>
+       neither     ->  suite: none @ <sha>            (#411)
+     "bats only" means the artifact reads `pytest: (none)`; never write ", 0 pytest" for
+     an absent framework — it reads as a measured zero (#572 MINOR-5). An artifact
+     reading `pytest: (error)` is NOT shippable at all: the suite was never measured;
+     fix the interpreter and re-run run-suite. -->
 suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
 files: <n> changed
 

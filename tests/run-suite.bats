@@ -95,23 +95,50 @@ EOF
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -q '^pytest: 285 passed, 0 failed$' "$art"
+    grep -q '^pytest: 285 passed, 0 failed, 0 errors$' "$art"
 }
 
-@test "run-suite records pytest: (none) when pytest emits no count at all (false-green guard)" {
-    # tests/test_*.py existing does NOT mean pytest can run them: a missing
-    # interpreter (Windows Store shim) or a collection error emits no summary.
-    # Recording "0 passed, 0 failed" would read "ran clean" for a suite that
-    # was never measured; the explicit (none) form is what preship-evidence's
-    # no-framework reconciliation requires. (Behavior landed alongside #572;
-    # authored as a concurrent operator edit, pinned by this test.)
+@test "run-suite records pytest: (error) when tests exist but pytest emits no count (#466)" {
+    # Was the "(none) false-green guard" until #466. Its INTENT is preserved and
+    # strengthened, not dropped: never record a green for a suite that was never
+    # measured. What changes is the TOKEN. `(none)` was doing two jobs — "this project
+    # has no pytest suite" and "this project's pytest suite could not be measured" —
+    # and preship-evidence reconstructs the Evidence line from framework PRESENCE, so
+    # the shared token let an unmeasured suite vanish out of the green entirely.
+    # Splitting it makes the fail-safe un-violatable by construction (register
+    # Issue-243). tests/test_*.py existing does NOT mean pytest can run them: a missing
+    # interpreter (Windows Store shim), a venv without pytest, a `venv/`-spelled
+    # environment, or a collection error all emit no summary.
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
-    _stub_python3_pytest "pytest exploded: no summary counts in this output"
+    # A collection error: pytest exits non-zero and prints no category count. (The
+    # original form of this test stubbed rc 0 with unparseable output — a combination
+    # real pytest never produces, since a 0 exit always carries a summary. The tri-state
+    # now keys on the exit code, so the stub has to be a shape that can actually occur.)
+    _stub_python3_pytest_rc "ImportError while loading conftest: no module named pytest" 4
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -q '^pytest: (none)$' "$art"
+    grep -q '^pytest: (error)$' "$art"
+}
+
+@test "run-suite prefers <tree>/.venv/bin/python over ambient python3 (#466)" {
+    # factor-ai Issue-9: a 51-test pytest suite recorded "0 passed" because the project
+    # keeps its interpreter in .venv/ and run-suite measured with ambient python3.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "51 passed in 44.69s"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    git add -A && git commit -q -m "add py test and venv"
+    # Ambient python3 still answers config/state calls (_stub_python3_pytest delegates
+    # every non-pytest call to the real interpreter), but produces NO pytest summary —
+    # so a non-zero count in the artifact can ONLY have come from .venv/bin/python.
+    # That is the venv proof: a behavioural assertion, not a provenance label.
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$art"
 }
 
 @test "run-suite parses a mixed failed+passed pytest summary (order-independent)" {
@@ -121,7 +148,7 @@ EOF
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -q '^pytest: 282 passed, 3 failed$' "$art"
+    grep -q '^pytest: 282 passed, 3 failed, 0 errors$' "$art"
 }
 
 @test "run-suite artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
@@ -317,4 +344,158 @@ EOF
     grep -q '^suite_env: DEVAGENT_SUITE_PROBE$' "$art"
     run grep -q 's3cr3t-value' "$art"
     [ "$status" -ne 0 ]
+}
+
+@test "run-suite: DEVAGENT_PYTEST_PYTHON overrides the interpreter search (#466)" {
+    # The seam exists so an unsupported venv layout (`venv/`, `.venv/Scripts/`, conda,
+    # uv, pyenv) or a linked worktree — where an untracked .venv never travels — is
+    # merely unsupported rather than UNSHIPPABLE, since the (error) arm has no bypass.
+    # Point it at an interpreter that reports a count while BOTH ambient python3 and a
+    # present .venv report none: only the override can produce the recorded number.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "venv also cannot run pytest"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    mkdir -p "$DEVAGENT_TMP/elsewhere"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "7 passed in 0.10s"' \
+        > "$DEVAGENT_TMP/elsewhere/python"
+    chmod +x "$DEVAGENT_TMP/elsewhere/python"
+    git add -A && git commit -q -m "add py test and a pytest-less venv"
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/elsewhere/python" \
+        PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 7 passed, 0 failed, 0 errors$' "$art"
+}
+
+@test "run-suite: an unset DEVAGENT_PYTEST_PYTHON does not disturb the .venv preference (#466)" {
+    # Guards the seam's empty case: `${DEVAGENT_PYTEST_PYTHON:-}` must fall through to
+    # the search, not resolve to an empty command.
+    echo 'def test_ok(): pass' > tests/test_stub.py
+    mkdir -p .venv/bin
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "51 passed in 44.69s"' > .venv/bin/python
+    chmod +x .venv/bin/python
+    git add -A && git commit -q -m "add py test and venv"
+    _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
+    DEVAGENT_PYTEST_PYTHON="" PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$art"
+}
+
+# #466: _stub_python3_pytest emits a summary and exits 0. These cases need control of
+# the EXIT CODE too, since that is what the tri-state now keys on. $1=summary $2=rc
+_stub_python3_pytest_rc() {
+    local summary="$1" rc="$2" real_py3
+    real_py3="$(command -v python3)"
+    cat > "$DEVAGENT_TMP/binstub/python3" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*) echo "$summary"; exit $rc ;;
+  *) exec $real_py3 "\$@" ;;
+esac
+EOF
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+}
+_seed_py() { echo 'def test_ok(): pass' > tests/test_stub.py; git add -A && git commit -q -m "add py test"; }
+_art() { ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt; }
+_run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"; }
+
+@test "run-suite: an ALL-SKIPPED suite (rc 0) records a truthful 0/0 (#466 review MAJOR-1)" {
+    # The normal shape for a platform/optional-dependency skipif suite. It RAN; its
+    # measurement is zero. Recording (error) made healthy projects unshippable.
+    _seed_py; _stub_python3_pytest_rc "1 skipped in 0.00s" 0
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+}
+
+@test "run-suite: a ZERO-COLLECT tree (rc 5) records a truthful 0/0 (#466 review MAJOR-1)" {
+    _seed_py; _stub_python3_pytest_rc "no tests ran in 0.00s" 5
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+}
+
+@test "run-suite: an ALL-XPASSED suite (rc 0) records 0/0, not (error) (#466 redmr)" {
+    # `1 xpassed` was omitted from the first fix's hand-written category list, so a
+    # healthy suite recorded (error). Also pins that `xpassed` is not read as `passed`.
+    _seed_py; _stub_python3_pytest_rc "1 xpassed in 0.00s" 0
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+}
+
+@test "run-suite: a suite that SKIPPED and ERRORED is NOT recorded green (#466 redmr BLOCKING)" {
+    # pytest orders its summary `failed, passed, skipped, …, error`, so
+    # "1 skipped, 1 error" matched a `^[0-9]+ skipped` prefix and recorded a clean
+    # 0 passed, 0 failed — a false green in the exact class this file exists to close.
+    _seed_py; _stub_python3_pytest_rc "1 skipped, 1 error in 0.01s" 1
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 0 passed, 0 failed, 1 errors$' "$(_art)"
+    run grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-suite: pytest ERRORS beside passes are recorded, not swallowed (#466 redmr)" {
+    # "2 passed, 1 error" recorded `0 failed` and shipped green: an error is not a
+    # "failed", and nothing in the chain could see it.
+    _seed_py; _stub_python3_pytest_rc "2 passed, 1 error in 0.01s" 1
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 2 passed, 0 failed, 1 errors$' "$(_art)"
+}
+
+@test "run-suite: a real test FAILURE (rc 1 with counts) is measured, not (error) (#466)" {
+    _seed_py; _stub_python3_pytest_rc "1 failed, 2 passed in 0.01s" 1
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 2 passed, 1 failed, 0 errors$' "$(_art)"
+}
+
+@test "run-suite: a MISSING pytest module (rc 1, no counts) still records (error) (#466)" {
+    # rc 1 is ambiguous — "tests failed" and "no pytest module" share it. The
+    # discriminator is whether any count was parsed.
+    _seed_py; _stub_python3_pytest_rc "No module named pytest" 1
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: (error)$' "$(_art)"
+}
+
+@test "run-suite: an INTERNAL pytest error (rc 3) records (error) (#466)" {
+    _seed_py; _stub_python3_pytest_rc "INTERNALERROR> boom" 3
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: (error)$' "$(_art)"
+}
+
+@test "run-suite: a pytest suite in a SUBDIRECTORY is found, not called absent (#466 redmr)" {
+    # The presence glob was non-recursive while `pytest tests/` collects recursively,
+    # so tests/unit/test_*.py read as "no pytest here" — and since #466 makes presence
+    # load-bearing, the suite vanished from the Evidence entirely.
+    mkdir -p tests/unit && echo 'def test_ok(): pass' > tests/unit/test_stub.py
+    git add -A && git commit -q -m "add nested py test"
+    _stub_python3_pytest_rc "51 passed in 1.00s" 0
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$(_art)"
+    run grep -q '^pytest: (none)$' "$(_art)"
+    [ "$status" -ne 0 ]
+}
+
+@test "run-suite: the artifact records WHICH interpreter ran pytest (#466 redmr)" {
+    # The artifact is no longer a function of the tree alone — DEVAGENT_PYTEST_PYTHON and
+    # the fallback arm both admit an outside interpreter — so it must say which one ran,
+    # or an (error) is undiagnosable and the fallback arm is unauditable.
+    _seed_py
+    mkdir -p "$DEVAGENT_TMP/elsewhere"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "7 passed in 0.10s"' > "$DEVAGENT_TMP/elsewhere/python"
+    chmod +x "$DEVAGENT_TMP/elsewhere/python"
+    _stub_python3_pytest_rc "ambient cannot run pytest" 1
+    DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/elsewhere/python" \
+        PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -q "^python: $DEVAGENT_TMP/elsewhere/python$" "$(_art)"
+}
+
+@test "run-suite: python: is (none) for a tree with no pytest suite (#466 redmr)" {
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -q '^python: (none)$' "$(_art)"
 }

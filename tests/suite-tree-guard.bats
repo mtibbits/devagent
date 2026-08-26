@@ -143,7 +143,7 @@ _mk_wt() {
     grep -q "^head: $WT_HEAD" "$art"          # measured the WORKTREE, not source_dir
     grep -q "^tree: $(cd "$WT" && pwd -P)$" "$art"
     { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats, 0 pytest @ $WT_HEAD"; echo "files: 1 changed"; } \
+      echo "suite: 1/1 bats @ $WT_HEAD"; echo "files: 1 changed"; } \
       > "$DEVDOC_DIR/Issue-1/mr.md"
     run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -156,7 +156,7 @@ _mk_wt() {
     printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
         "$SRC_HEAD" "$(cd "$WT" && pwd -P)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
     { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats, 0 pytest @ $SRC_HEAD"; echo "files: 1 changed"; } \
+      echo "suite: 1/1 bats @ $SRC_HEAD"; echo "files: 1 changed"; } \
       > "$DEVDOC_DIR/Issue-1/mr.md"
     run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
@@ -171,7 +171,7 @@ _mk_wt() {
     printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
         "$SRC_HEAD" "/nonexistent/other-env/devagent" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
     { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats, 0 pytest @ $SRC_HEAD"; echo "files: 1 changed"; } \
+      echo "suite: 1/1 bats @ $SRC_HEAD"; echo "files: 1 changed"; } \
       > "$DEVDOC_DIR/Issue-1/mr.md"
     run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]

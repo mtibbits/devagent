@@ -69,11 +69,23 @@ re-typed.
    (`<project>` = the resolved project; pass it explicitly — #572 guards the
    bare form against wrong-scope resolution.)
 
-   From the newest `analysis/<date>-suite-count.txt`, write exactly
-   `suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <head-sha>` —
-   UNLESS the artifact shows both `bats: (none)` and `pytest: (none)` (a project
-   with neither framework), in which case write the no-framework form
-   `suite: none @ <head-sha>` (#411) — and `files: <n> changed`
+   From the newest `analysis/<date>-suite-count.txt`, write the `suite:` line naming
+   ONLY the frameworks the artifact reports present (#466). A framework whose line reads
+   `(none)` is ABSENT from the tree and must not appear in the Evidence at all:
+
+   | artifact | `suite:` line |
+   |---|---|
+   | `bats: <ok>/<plan>` + `pytest: <n> passed` | `<ok>/<plan> bats, <n> pytest @ <head-sha>` |
+   | `bats: <ok>/<plan>` + `pytest: (none)` | `<ok>/<plan> bats @ <head-sha>` |
+   | `bats: (none)` + `pytest: <n> passed` | `<n> pytest @ <head-sha>` |
+   | `bats: (none)` + `pytest: (none)` | `none @ <head-sha>` (#411) |
+
+   Never write `, 0 pytest` for a `pytest: (none)` artifact — a measured zero and an
+   absent framework are different facts, and the first is a false green (#572 MINOR-5).
+   An artifact reading `pytest: (error)` means `tests/test_*.py` exist but produced no
+   counts: the suite was NOT measured, preship fails on it, and no Evidence line is
+   writable — fix the interpreter and re-run run-suite before continuing.
+   Also write `files: <n> changed`
    (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`).
    If an `analysis/<date>-born-red.txt` exists, add
    `born-red: <its verdict>`. preship's verification #4 (#359) hard-checks

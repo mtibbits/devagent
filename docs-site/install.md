@@ -19,10 +19,14 @@ the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
 - Contributors additionally need **`bats`** and **`shellcheck >= 0.9.0`**
   (the test suite and the CI lint gate).
 
-Contributors running the test suite have two further requirements — a POSIX
-filesystem where `chmod` actually changes the mode, and a UTF-8 locale. On
-Windows that means a WSL clone on ext4, not a `/mnt/c` checkout or native Git
-Bash. `scripts/run-suite.sh` enforces both. See
+Contributors running the test suite have three further requirements — a POSIX
+filesystem where `chmod` actually changes the mode, a UTF-8 locale, and, for a tree
+with `tests/test_*.py`, an interpreter that can run pytest. On Windows that means a
+WSL clone on ext4. `scripts/run-suite.sh` enforces the first two by refusing to write
+an artifact at all. The third it RECORDS: it prefers `<tree>/.venv/bin/python` over
+ambient `python3`, and if no candidate can run pytest the artifact reads
+`pytest: (error)` and `scripts/preship-evidence.sh` refuses it. Set
+`DEVAGENT_PYTEST_PYTHON` to point at an interpreter for any other layout (#466). See
 [Running the test suite](../README.md#running-the-test-suite).
 
 ## Install the plugin

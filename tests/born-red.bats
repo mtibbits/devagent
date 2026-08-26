@@ -248,3 +248,76 @@ EOF
     run bash -c "cd '$SOURCE_DIR' && git worktree list | wc -l"
     [ "$output" -eq 1 ]
 }
+
+@test "born-red: prefers <tree>/.venv/bin/python over ambient python3 (#466)" {
+    # The sibling of run-suite's defect: _run_pytest read a non-zero exit as RED, so on
+    # a venv project — where ambient python3 cannot import pytest — every new test
+    # classified baseline=RED and this gate passed VACUOUSLY.
+    #
+    # The interpreter is STUBBED deterministically rather than gated on real pytest.
+    # The pre-existing AC10 test guards on `python3 -m pytest --version` and SKIPS under
+    # devagent_test_setup even where ambient pytest works, so born-red's pytest path had
+    # no executing coverage at all (register Issue-151 — a guard that filters after
+    # discovering is vacuous). Stubbing is also what this file already does for `bats`,
+    # and for the same reason.
+    real_py3="$(command -v python3)"
+    # Ambient python3: answers config/state calls, cannot run pytest.
+    cat > "$DEVAGENT_TMP/binstub/python3" <<STUB
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*) echo "No module named pytest" >&2; exit 1 ;;
+  *) exec $real_py3 "\$@" ;;
+esac
+STUB
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+    # Venv python: --version succeeds, and the test is GREEN at baseline (exit 0
+    # unconditionally) — i.e. a NEVER-RED test, which born-red must FLAG.
+    #
+    # The direction matters. Asserting PASS here would NOT discriminate: pre-#466 the
+    # ambient stub exits non-zero, born-red reads that as baseline=RED, and the verdict
+    # is PASS — vacuously, which is the whole defect. Measured: the PASS form of this
+    # test passed against the UNFIXED script. So assert the outcome only the venv
+    # interpreter can produce — a correctly FLAGGED never-red test (register
+    # Issue-Fork-132: two failure paths sharing one exit code fake a born-red assert).
+    mkdir -p "$SOURCE_DIR/.venv/bin"
+    cat > "$SOURCE_DIR/.venv/bin/python" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *--version*) echo "pytest 9.0.0"; exit 0 ;;
+esac
+exit 0
+STUB
+    chmod +x "$SOURCE_DIR/.venv/bin/python"
+    cat > "$SOURCE_DIR/tests/test_feature.py" <<'PYEOF'
+def test_answer():
+    assert True
+PYEOF
+    _run_br_stub
+    [ "$status" -ne 0 ]
+    # FLAGGED carries a count suffix ("FLAGGED (1 green-at-baseline)"), unlike PASS.
+    grep -q '^verdict: FLAGGED' "$(_artifact)"
+    grep -q 'baseline=GREEN' "$(_artifact)"
+    grep -q 'test_feature.py' "$(_artifact)"
+}
+
+@test "born-red: an interpreter that cannot run pytest DIES, never classifies RED (#466)" {
+    # An unmeasurable baseline is not a RED baseline. Before #466 this shape was the
+    # vacuous pass: rc!=0 from a missing pytest module read as "red at baseline".
+    real_py3="$(command -v python3)"
+    cat > "$DEVAGENT_TMP/binstub/python3" <<STUB
+#!/usr/bin/env bash
+case "\$*" in
+  *pytest*) echo "No module named pytest" >&2; exit 1 ;;
+  *) exec $real_py3 "\$@" ;;
+esac
+STUB
+    chmod +x "$DEVAGENT_TMP/binstub/python3"
+    cat > "$SOURCE_DIR/tests/test_feature.py" <<'PYEOF'
+def test_answer():
+    assert True
+PYEOF
+    _run_br_stub
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"UNMEASURABLE"* ]]
+    [[ "$output" == *"DEVAGENT_PYTEST_PYTHON"* ]]
+}
