@@ -374,6 +374,21 @@ CTX
   grep -q '^Template: standard$' "$DEVDOC/Issue-704/checklist.md"
 }
 
+@test "#582: flags_validate runs on a RE-PULL, so a post-scaffold key is validated" {
+  # AC4. First pull scaffolds from the stub's default body; the key is then added to
+  # the issue body on the forge and the issue re-pulled. At HEAD the second pull runs
+  # NO validation (flags_validate sits inside the scaffold branch), so this is red.
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 705
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"boguskey"* ]]
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: oneshot\nboguskey: x\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 705
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "unknown ## Workflow flags key 'boguskey'"
+  # ...and the SCAFFOLD-only contract is unchanged: the late tier is still inert
+  grep -q '^Template: standard$' "$DEVDOC/Issue-705/checklist.md"
+}
+
 # ---- #561: per-issue model steering — body keys and the tier: compat shim ----
 #
 # Every case asserts the MARKER CONTENT pull.sh wrote AND resolves it through the
