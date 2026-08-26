@@ -19,8 +19,9 @@ tag`) will get their own dated sections below.
   fence opened inside a live block was scanned as more keys. Both awk machines
   (`flags_get`, `flags_validate`) now toggle fence state on a line whose first
   non-blank characters are three backticks, close any open block there, and
-  skip fenced lines before any other rule sees them; the pair sits below the
-  HTML-comment pair so a fence marker inside an `<!-- -->` span never toggles.
+  skip fenced lines before the heading, block-close and key rules see them; the
+  pair sits below the HTML-comment pair so a fence marker inside an `<!-- -->`
+  span never toggles.
   Three losses that were silent are now named by `flags_validate`, non-fatally
   (warn-and-ignore, forward-compat): the #553 close — a mis-cased or indented
   first key still ends the block, but the closing line is named, which
@@ -35,13 +36,16 @@ tag`) will get their own dated sections below.
   `flags_validate` on EVERY pull, immediately after the fetched body lands,
   instead of only at first scaffold, so a key edited onto the body after
   scaffold is validated on the next re-pull (it stays inert — scaffold-only
-  keys are scaffold-only by design). **No body that parsed correctly before
-  changes meaning:** over the 476 issue bodies in the local devdoc, old and new
-  `flags_get` agree on every one of the five keys, and the new `flags_validate`
-  emits zero warnings. Two documented residuals: a four-backtick inline span
-  toggles fence state once (a live block below one would be reported by the
-  END warn, not lost silently), and the `^## Comments (` exit rule stays
-  fence-blind. See spec §6.3.
+  keys are scaffold-only by design). **No corpus body changes meaning:** over
+  the 476 issue bodies in the local devdoc, old and new `flags_get` agree on
+  every one of the five keys, and the new `flags_validate` emits zero warnings;
+  by design, a body whose keys sat inside a fence, or after a fence inside a
+  live block, now loses them — with a warning. Three documented residuals: the
+  rule toggles on any line starting with three backticks (a four-backtick
+  inline span, a code span at line start, an indented code-block line), and a
+  live block below such a line is reported by the END warn rather than lost
+  silently; the `^## Comments (` exit rule stays fence-blind; a literal `<!--`
+  on a fenced line still opens a comment span. See spec §6.3.
 
 - **Chain hops carry their scope; the dispatch output names it (#578).**
   `next.sh` resolved the project once but emitted both of its model-facing

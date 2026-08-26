@@ -35,20 +35,26 @@
 # comment is invisible in rendered markdown and must never parse as live
 # config (#537 redmr BLOCKING). Fenced code blocks never parse either (#582): a
 # line whose first non-blank characters are three backticks toggles fence state
-# and closes any open block, and fenced lines are skipped before any other rule
-# sees them — so a fenced `## Workflow flags` heading is documentation, and a fence
-# opened inside a live block ends it (flags_validate warns). The fence pair sits
-# BELOW the comment pair on purpose, so a fence marker inside an `<!-- … -->` span
-# never toggles state. Two residuals, recorded at the code site so they are not
-# re-proposed as bugs: (a) a FOUR-backtick inline span (````) matches the fence
-# rule and toggles state once, so a body using that spelling ABOVE a live block has
-# that block treated as documentation — flags_validate warns at END when a fence
-# never closed and a flags heading was skipped inside it; measured exposure on
-# 2026-08-26: 1 of 476 real bodies (Issue-582's own), none with a live block below;
-# (b) the `^## Comments (` exit rule stays fence-blind: a fenced example containing
-# a `## Comments (` line still truncates the scan and hides any live block below it
-# — identical before #582, and not cleanly reorderable because the fence pair must
-# stay below the comment pair.
+# and closes any open block, and fenced lines are skipped before the heading,
+# block-close and key rules see them — so a fenced `## Workflow flags` heading is
+# documentation, and a fence opened inside a live block ends it (flags_validate
+# warns). The fence pair sits BELOW the `^## Comments (` exit and the comment pair
+# on purpose, so a fence marker inside an `<!-- … -->` span never toggles state.
+# Three residuals, recorded at the code site so they are not re-proposed as bugs:
+# (a) the rule keys on the first three backticks of a line, not on CommonMark's
+# fence grammar — a FOUR-backtick inline span (````), a triple-backtick code span
+# at line start, or a 4-space-indented code-block line each toggles state once, so
+# such a line ABOVE a live block has that block treated as documentation;
+# flags_validate warns at END when the fence never closed and a flags heading was
+# skipped inside it (measured exposure on 2026-08-26: 1 of 476 real bodies,
+# Issue-582's own four-backtick span, none with a live block below); (b) the
+# `^## Comments (` exit rule stays fence-blind: a fenced example containing a
+# `## Comments (` line still truncates the scan and hides any live block below it;
+# (c) a literal `<!--` on a fenced line (text, in rendered markdown) opens a
+# comment span, and with no `-->` it eats the rest of the body, live blocks
+# included, with no END warn (the heading is swallowed by the comment, not the
+# fence). (b) and (c) are identical before #582 and not cleanly reorderable,
+# because the fence pair must stay below the comment pair.
 #
 # Source-only file: do not execute directly.
 
@@ -259,8 +265,8 @@ flags_validate() {
     incomment { if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
       if (inblock)
-        print "flags.sh: warn: ## Workflow flags block closed by a code fence — keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
-      fence = !fence; inblock = 0; next
+        print "flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
+      fence = !fence; if (!fence) swallowed = 0; inblock = 0; next
     }
     fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) swallowed = 1; next }
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
@@ -268,7 +274,7 @@ flags_validate() {
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
     inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ {
       inblock = 0
-      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: " $0 " — keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
+      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: " $0 " — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
     }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {

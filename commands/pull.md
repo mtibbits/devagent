@@ -30,7 +30,8 @@ block quoted in a comment, or shown inside a fenced code block, never fires
 (#582). Scaffold-only: a tier key added after the first pull is inert on
 re-pull; the post-scaffold path is `/devagent:revise --retier <tier>`. Block
 diagnostics (`flags_validate`, #582) run on EVERY pull, so a late key is
-validated — warned about if malformed — even though it stays inert.
+validated — warned about if the key is unknown or the block is malformed —
+even though it stays inert; value validation stays die-class and scaffold-only.
 
 Duplicate `tier:` lines are FIRST-match-wins, so a body combining a template
 tier with a model annotation (below) must use one line of each key.

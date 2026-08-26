@@ -363,9 +363,11 @@ FIXTURE
   # was a deliberately rejected alternative then). #582 promoted fence awareness into
   # shipped scope, so this fixture is now ALSO covered by the fence rule and passes
   # for two reasons. The empty-block rule it was written for is still owned by the
-  # guards at :348 (G1), :441 (G8) and :389 (G2); the #582 mutation matrix's M8/M9
-  # (the #553 M1/M2 replays) prove those still redden when the empty-block rule is
-  # deleted in either machine. Fixture and assertions deliberately unchanged.
+  # #553 guards named "an empty flags heading followed by prose ..." (G1 for
+  # flags_get, G2 for flags_validate) and "an INDENTED first in-block line ..."
+  # (G8); the #582 mutation matrix's M8/M9 (the #553 M1/M2 replays) prove those
+  # still redden when the rule is deleted in either machine. Fixture and
+  # assertions deliberately unchanged.
   local f="$BATS_TEST_TMPDIR/fenced-example.md"
   cat > "$f" <<'FIXTURE'
 ## Finding
