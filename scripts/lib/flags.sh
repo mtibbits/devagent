@@ -228,19 +228,34 @@ flags_validate() {
   [[ -f "$file" ]] || return 0
   awk -v known=" $(flags_known_keys) " '
     /^## Comments \(/ { exit }
+    inblock && !incomment && /^[a-z][a-z-]*:/ && /<!--/ {
+      ckey = $0; sub(/:.*/, "", ckey)
+      print "flags.sh: warn: inline <!-- on ## Workflow flags key '''" ckey "''' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
+    }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
-    /^[[:space:]]*```/ { fence = !fence; inblock = 0; next }
-    fence { next }
+    /^[[:space:]]*```/ {
+      if (fence == 0 && inblock && seen)
+        print "flags.sh: warn: ## Workflow flags block closed by a code fence — keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
+      fence = !fence; inblock = 0; next
+    }
+    fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) swallowed = 1; next }
     /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
-    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock = 0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ {
+      inblock = 0
+      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: " $0 " — keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
+    }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
       key = $0; sub(/:.*/, "", key)
       if (index(known, " " key " ") == 0)
         print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
+    }
+    END {
+      if (fence && swallowed)
+        print "flags.sh: warn: unbalanced code fence — a ## Workflow flags heading was treated as documentation and IGNORED; check for a fence marker inside an <!-- --> span" > "/dev/stderr"
     }
   ' "$file"
 }
