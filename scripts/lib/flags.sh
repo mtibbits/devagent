@@ -43,8 +43,8 @@
 # in this file, one per machine.) Two residuals, recorded at the code site so they
 # are not re-proposed as bugs: (a) a FOUR-backtick inline span (````) matches the
 # fence rule and toggles state once, so a body using that spelling ABOVE a live
-# block has that block treated as documentation — measured exposure 1 of 457 real
-# bodies (Issue-582's own), 0 with a live block; flags_validate warns at END when
+# block has that block treated as documentation — measured exposure 1 of 476 real
+# bodies on 2026-08-26 (Issue-582's own), 0 with a live block; flags_validate warns at END when
 # a fence never closed and a flags heading was skipped inside it, so the loss is
 # not silent; (b) the `^## Comments (` exit rule stays fence-blind: a fenced example
 # containing a `## Comments (` line still truncates the scan and hides any live
