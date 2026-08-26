@@ -230,7 +230,7 @@ flags_validate() {
     /^## Comments \(/ { exit }
     inblock && !incomment && /^[a-z][a-z-]*:/ && /<!--/ {
       ckey = $0; sub(/:.*/, "", ckey)
-      print "flags.sh: warn: inline <!-- on ## Workflow flags key '''" ckey "''' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
+      print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
