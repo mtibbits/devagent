@@ -12,16 +12,18 @@
 # seen yet, it ends at the first non-blank line that is not a col-1 key (#553: an EMPTY
 # flags heading followed by prose otherwise left the block open, so a later col-1
 # `key: value` prose line still parsed as a live flag — die-class since #561's model
-# keys, so a hard pull failure rather than a warning). That last clause is deliberately
-# warn-LESS: a block whose first in-block non-blank line is a mis-cased or indented key
-# (`Tier: oneshot`) closes there, silently dropping every key below it, so "a typo is
-# not silently inert" does not hold for that shape — accepted, with a warn-on-close
-# follow-up in #553's future-enhancements. Why the two rules #553 proposed cannot work
+# keys, so a hard pull failure rather than a warning). Since #582 that last clause is
+# no longer warn-less: a block whose first in-block non-blank line is a mis-cased or
+# indented key (`Tier: oneshot`) still closes there, but flags_validate WARNS, naming
+# the closing line and stating that the keys below it are ignored. flags_get stays
+# silent by design — pull.sh calls it five times per pull, so a get-side warn would
+# print each diagnostic five times; every diagnostic lives in the single every-pull
+# flags_validate call instead. Why the two rules #553 proposed cannot work
 # (both keyed on a blank; the conventional and defective shapes share their first three
 # lines, so the discriminator is the THIRD): CHANGELOG #553.
-# (This comment DESCRIBES the third clause rather than quoting it: a guard in
-# tests/lib_flags.bats counts that rule's occurrences in this file, and spelling its
-# matching form here would make the count wrong — #561.)
+# (This comment DESCRIBES the third clause and the fence toggle rather than quoting
+# either: guards in tests/lib_flags.bats count each rule's spelling in this file, one
+# per machine, and a matching form here would make a count wrong — #561, #582.)
 # unknown keys are ignored by each consumer (forward
 # compatibility); legal values are per-key. Value lines are BARE: trailing
 # inline prose is part of the value and fails per-key validation downstream
@@ -31,7 +33,41 @@
 # (`<!-- … -->`) are skipped entirely (the reap.sh/lessons-lint.sh
 # incomment idiom): template boilerplate that quotes a flags block inside a
 # comment is invisible in rendered markdown and must never parse as live
-# config (#537 redmr BLOCKING).
+# config (#537 redmr BLOCKING). Fenced code blocks never parse either (#582): a
+# line whose first non-blank characters are three backticks toggles fence state
+# and closes any open block, and fenced lines are skipped before the heading,
+# block-close and key rules see them — so a fenced `## Workflow flags` heading is
+# documentation, and a fence opened inside a live block ends it (flags_validate
+# warns). The fence pair sits BELOW the `^## Comments (` exit and the comment pair
+# on purpose, so a fence marker inside an `<!-- … -->` span never toggles state.
+# Three residuals, recorded at the code site so they are not re-proposed as bugs:
+# (a) the rule keys on the first three backticks of a line, not on CommonMark's
+# fence grammar — a FOUR-backtick inline span (````), a triple-backtick code span
+# at line start, or a 4-space-indented code-block line each toggles state once, so
+# such a line ABOVE a live block has that block treated as documentation;
+# flags_validate warns at END when a flags heading was skipped inside a fence that
+# never closed, and a documented example BELOW such a line is scanned live with no
+# diagnostic. A fence marker hidden by a comment is how the scanner's fence parity
+# diverges from the renderer's: a bare closing marker inside an `<!-- … -->` span
+# opened within a fence, an opening marker whose info string holds a comment, or
+# an opening marker hidden by a comment that began mid-line on prose (a comment
+# that begins at line start is an HTML block in the renderer too, so it hides
+# nothing and is not latched). The latch is exact for those shapes and a heuristic
+# beyond them: the line-start test accepts any indentation, a later `<!--` inside
+# the span re-decides it, and the comment pair's own span has no CommonMark
+# counterpart when it began mid-line. Each latched shape means a heading skipped
+# after it warns at END
+# even if a later fence balances the count, and a heading parsed after it warns
+# that the block may be a documented example (measured exposure on 2026-08-26: 1
+# of 477 real bodies, Issue-582's own four-backtick span, none with a live block
+# below); (b) the
+# `^## Comments (` exit rule stays fence-blind: a fenced example containing a
+# `## Comments (` line still truncates the scan and hides any live block below it;
+# (c) a literal `<!--` on a fenced line (text, in rendered markdown) opens a
+# comment span, and with no `-->` it eats the rest of the body, live blocks
+# included, with no END warn (the heading is swallowed by the comment, not the
+# fence). (b) and (c) are identical before #582 and not cleanly reorderable,
+# because the fence pair must stay below the comment pair.
 #
 # Source-only file: do not execute directly.
 
@@ -54,6 +90,8 @@ flags_get() {
     /^## Comments \(/ { exit }
     /<!--/ { incomment = 1 }
     incomment { if ($0 ~ /-->/) incomment = 0; next }
+    /^[[:space:]]*```/ { fence = !fence; inblock = 0; next }
+    fence { next }
     /^## Workflow flags[[:space:]]*$/ { inblock=1; seen=0; next }
     inblock && /^#/ { inblock=0 }
     inblock && seen && /^[[:space:]]*$/ { inblock=0 }
@@ -218,25 +256,57 @@ issue_labels() {
 # line ENDS it (#553), so such a line is not merely skipped, it closes the block. This
 # machine is the deliberate twin of flags_get's; the grammar and its rationale are
 # stated once at the top of this file.
-# CONSUMPTION NOTE: pull.sh calls this only in the scaffold branch, so a key added
-# after first scaffold is never validated. CAVEAT (inherited #537 grammar): an inline
-# `<!--` on a key line starts a comment span and silently drops that key.
+# CONSUMPTION NOTE: pull.sh calls this on EVERY pull, immediately after the fetched
+# body lands (#582), so a key added after first scaffold is validated on the next
+# re-pull (it stays INERT — scaffold-only keys are scaffold-only by #537/#561 design).
+# DIAGNOSTICS live here and only here (#582; flags_get stays silent, see the top of
+# this file), all non-fatal: an inline `<!--` on a key line still starts a comment
+# span and drops that key (the bare-value grammar), but this machine warns naming
+# the key; a block closed by a non-key line while no key has been seen (the #553
+# clause) warns naming that line (quoted, printable ASCII only, bounded — it is
+# remote content); a fence opened inside a live block, keyed or not, warns; a
+# heading parsed after a comment-hidden fence marker warns that parity may be
+# inverted; and at END a heading swallowed by a fence that never closed, or by
+# one that a hidden marker inverted, warns.
 flags_validate() {
   local file="$1"
   [[ -f "$file" ]] || return 0
   awk -v known=" $(flags_known_keys) " '
     /^## Comments \(/ { exit }
-    /<!--/ { incomment = 1 }
-    incomment { if ($0 ~ /-->/) incomment = 0; next }
-    /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
+    inblock && !incomment && /^[a-z][a-z-]*:/ && /<!--/ {
+      ckey = $0; sub(/:.*/, "", ckey)
+      print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
+    }
+    /<!--/ { cblock = ($0 ~ /^[ ]*<!--/); incomment = 1 }
+    incomment { if ((fence && $0 ~ /^[[:space:]]*```[[:space:]]*$/) || (!fence && !cblock && /^[[:space:]]*```/)) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
+    /^[[:space:]]*```/ {
+      if (inblock)
+        print "flags.sh: warn: ## Workflow flags block closed by a code fence — any keys below the fenced example are IGNORED; move the example outside the block" > "/dev/stderr"
+      fence = !fence; if (!fence) swallowed = 0; inblock = 0; next
+    }
+    fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) { swallowed = 1; if (divergent) swallowed_div = 1 }; next }
+    /^## Workflow flags[[:space:]]*$/ {
+      if (divergent)
+        print "flags.sh: warn: a fence marker above this ## Workflow flags block was hidden inside an <!-- --> span — fence parity may be inverted, so this block may be a documented example; check the fences above it" > "/dev/stderr"
+      inblock = 1; seen = 0; next
+    }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
-    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ { inblock = 0 }
+    inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ {
+      inblock = 0
+      cline = $0; gsub(/[^ -~]/, "?", cline)
+      if (length(cline) > 60) cline = substr(cline, 1, 60) "..."
+      print "flags.sh: warn: ## Workflow flags block closed at a non-key line: '\''" cline "'\'' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
+    }
     inblock && /^[a-z][a-z-]*:/ { seen = 1 }
     inblock && /^[a-z][a-z-]*:/ {
       key = $0; sub(/:.*/, "", key)
       if (index(known, " " key " ") == 0)
         print "flags.sh: warn: unknown ## Workflow flags key '\''" key "'\'' — ignored (forward-compat)" > "/dev/stderr"
+    }
+    END {
+      if ((fence && swallowed) || swallowed_div)
+        print "flags.sh: warn: unbalanced code fence (never closed, or a fence marker hidden inside an <!-- --> span) — a ## Workflow flags heading was treated as documentation and IGNORED" > "/dev/stderr"
     }
   ' "$file"
 }

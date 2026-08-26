@@ -12,6 +12,47 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The `## Workflow flags` scanner is fence-aware, and its silent losses now
+  warn on every pull (#582).** A fenced code block in an issue body — the
+  natural way to DOCUMENT the grammar — parsed as live config: a fenced
+  `## Workflow flags` heading opened a block whose keys steered the pull, and a
+  fence opened inside a live block was scanned as more keys. Both awk machines
+  (`flags_get`, `flags_validate`) now toggle fence state on a line whose first
+  non-blank characters are three backticks, close any open block there, and
+  skip fenced lines before the heading, block-close and key rules see them; the
+  pair sits below the HTML-comment pair so a fence marker inside an `<!-- -->`
+  span never toggles.
+  Three losses that were silent are now named by `flags_validate`, non-fatally
+  (warn-and-ignore, forward-compat): the #553 close — a mis-cased or indented
+  first key still ends the block, but the closing line is named, which
+  supersedes that entry's warn-less trade-off; an inline `<!--` on a key line
+  warns naming the dropped key (the key is still dropped: the bare-value
+  grammar is unchanged); and the fix's own two new close shapes warn too — a
+  fence opened inside a live block (before or after its first key), and an
+  unbalanced fence that swallowed a flags heading (a bare closing fence inside a
+  comment span opened within a fence, an opening fence whose info string holds a
+  comment, or an opening fence hidden by a comment begun mid-line on prose — each
+  divergence is latched, so a later balanced example cannot disarm the warn, and
+  a block parsed after it is flagged as possibly a documented example) — so the
+  fence rule cannot itself introduce a silent loss. The one diagnostic that
+  echoes a body line (the Rule C close) prints it quoted, printable ASCII only
+  and bounded, since it is remote content. `flags_get` stays silent by
+  design: `pull.sh` calls it five times per pull. `pull.sh` now runs
+  `flags_validate` on EVERY pull, immediately after the fetched body lands,
+  instead of only at first scaffold, so a key edited onto the body after
+  scaffold is validated on the next re-pull (it stays inert — scaffold-only
+  keys are scaffold-only by design). **No corpus body changes meaning:** over
+  the 477 issue bodies in the local devdoc, old and new `flags_get` agree on
+  every one of the five keys, and the new `flags_validate` emits zero warnings;
+  by design, a body whose keys sat inside a fence, or after a fence inside a
+  live block, now loses them — with a warning. Three documented residuals: the
+  rule toggles on any line starting with three backticks (a four-backtick
+  inline span, a code span at line start, an indented code-block line), and a
+  live block below such a line is reported by the END warn rather than lost
+  silently (a documented example below it is scanned live, with no diagnostic);
+  the `^## Comments (` exit rule stays fence-blind; a literal `<!--` on a fenced
+  line still opens a comment span. See spec §6.3.
+
 - **Chain hops carry their scope; the dispatch output names it (#578).**
   `next.sh` resolved the project once but emitted both of its model-facing
   commands without it, so every hop of an `--auto`/`--through` chain

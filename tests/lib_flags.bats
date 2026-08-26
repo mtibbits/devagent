@@ -359,11 +359,15 @@ FIXTURE
 }
 
 @test "flags_get: the fenced example in issue 553's own body does not parse (#553)" {
-  # FENCE-BLIND ON PURPOSE. This guard must pass on the empty-block rule alone.
-  # Teaching the scanner to skip ``` fences is a deliberately REJECTED alternative
-  # for #553 (recorded in the issue's future-enhancements file), so do not "improve"
-  # this into a fence test -- doing so would silently move a rejected alternative
-  # into shipped scope and stop testing the rule this file is guarding.
+  # Written for #553 as a FENCE-BLIND guard of the empty-block rule (fence-skipping
+  # was a deliberately rejected alternative then). #582 promoted fence awareness into
+  # shipped scope, so this fixture is now ALSO covered by the fence rule and passes
+  # for two reasons. The empty-block rule it was written for is still owned by the
+  # #553 guards named "an empty flags heading followed by prose ..." (G1 for
+  # flags_get, G2 for flags_validate) and "an INDENTED first in-block line ..."
+  # (G8); the #582 mutation matrix's M8/M9 (the #553 M1/M2 replays) prove those
+  # still redden when the rule is deleted in either machine. Fixture and
+  # assertions deliberately unchanged.
   local f="$BATS_TEST_TMPDIR/fenced-example.md"
   cat > "$f" <<'FIXTURE'
 ## Finding
@@ -454,4 +458,423 @@ FIXTURE
   run flags_get "$f" tier
   [ "$status" -ne 0 ]
   [ -z "$output" ]
+}
+
+# --- #582: markdown fence awareness -------------------------------------------
+#
+# ASCII-only test names on purpose (see the #553 note above).
+
+@test "flags_get: a FENCED Workflow-flags heading plus col-1 keys is documentation, not config (#582)" {
+  # AC1 born-red. At HEAD this fixture parses LIVE: flags_get prints 'required' rc 0.
+  # Paired with a positive so a scanner that simply returned nothing cannot pass
+  # (register: Issue-318 / Issue-572).
+  local f="$BATS_TEST_TMPDIR/fenced-heading-keys.md"
+  cat > "$f" <<'FIXTURE'
+Documented example of the grammar:
+
+```
+## Workflow flags
+tier: oneshot
+research: required
+```
+
+## Workflow flags
+tier: perf
+FIXTURE
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # the UNFENCED block below it still parses -- the negative is paired
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "perf" ]
+}
+
+@test "flags_get: a fence opened INSIDE a live block ends it; in-fence keys never parse (#582)" {
+  local f="$BATS_TEST_TMPDIR/fence-inside-block.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: standard
+```
+checking-model: opus
+```
+spike: required
+FIXTURE
+  # the pre-fence key still reads (positive half)
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "standard" ]
+  # the in-fence key does NOT (prints 'opus' rc 0 at HEAD)
+  run flags_get "$f" checking-model
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # and the block does not resume after the closing fence
+  run flags_get "$f" spike
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: a fenced block's keys are not enumerated (#582 twin half)" {
+  # The flags_validate half of the same defect, so reverting the fence rule in ONE
+  # machine reddens something behavioural (the #553 M2 discipline).
+  local f="$BATS_TEST_TMPDIR/fenced-validate.md"
+  printf '```\n## Workflow flags\nboguskey: x\n```\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"boguskey"* ]]
+}
+
+@test "flags.sh: the fence rule appears in BOTH state machines (#582 anti-drift)" {
+  # Shaped exactly like the #553 anti-drift count: asserts -eq 2, never -ne 0, which
+  # would conflate "clean" with "grep errored" (register: Issue-337).
+  # BLIND SPOT, stated deliberately: this proves the rule TEXT is present twice, NOT
+  # that the two awk programs are semantically identical -- N1/N2 and N3 own the
+  # behavioural halves, one per machine.
+  run grep -cE 'fence[[:space:]]*=[[:space:]]*!fence' "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 2 ]
+}
+
+@test "flags_validate: a block closed by a MIS-CASED first key warns, naming the line (#582)" {
+  local f="$BATS_TEST_TMPDIR/rulec-miscased.md"
+  printf '## Workflow flags\nTier: oneshot\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]                          # non-fatal, forward-compat contract
+  [[ "$output" == *"Tier: oneshot"* ]]         # NAMES the closing line (AC2)
+  [[ "$output" == *"flags.sh: warn:"* ]]       # is a diagnostic on the shipped channel
+  # Deliberately NOT asserted: the word "closed". AC2's claim is that the closing
+  # line is named and the loss is stated — not one English phrasing of it. Pinning
+  # the word would redden this guard on a wording improvement ("ended at"), which is
+  # the guard-weakening habit the register warns about (register: Issue-561).
+}
+
+@test "flags_validate: a block closed by an INDENTED first line warns too (#582)" {
+  # The other half of Rule C's predicate. A separate @test, not another assertion in
+  # the one above: a multi-assertion guard reddens only at its FIRST failing assert,
+  # so each leg needs its own born-red observation (register: Issue-123).
+  local f="$BATS_TEST_TMPDIR/rulec-indented.md"
+  printf '## Workflow flags\n\n  indented prose\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"indented prose"* ]]
+}
+
+@test "flags_validate: an inline HTML comment on a key line warns, naming the key (#582)" {
+  local f="$BATS_TEST_TMPDIR/inline-comment-key.md"
+  printf '## Workflow flags\ntier: oneshot <!-- why -->\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tier"* ]]                  # the dropped key is NAMED (AC3)
+  [[ "$output" != *"research"* ]]              # the healthy key is not warned about
+}
+
+@test "flags_get: an inline comment still drops the key, and the NEXT key still parses (#582 PIN)" {
+  # PIN, green at HEAD by construction: #582 adds a DIAGNOSTIC, it does not change the
+  # bare-value grammar (tests/lib_flags.bats:111 pins trailing prose as part of the value).
+  local f="$BATS_TEST_TMPDIR/inline-comment-get.md"
+  printf '## Workflow flags\ntier: oneshot <!-- why -->\nresearch: required\n' > "$f"
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" research
+  [ "$status" -eq 0 ]
+  [ "$output" = "required" ]
+}
+
+@test "flags_validate: a fence opened INSIDE a live block warns that the block closed (#582)" {
+  # N10 — improve Bug 2. Task 4's `inblock = 0` on a fence line is itself a
+  # block-close by a non-key line; AC2 does not carve it out.
+  local f="$BATS_TEST_TMPDIR/fence-in-live-block.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: standard
+```
+checking-model: opus
+```
+spike: required
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]
+  [[ "$output" == *"IGNORED"* ]]
+}
+
+@test "flags_validate: an unbalanced fence that swallowed a flags heading warns at END (#582)" {
+  # N11 — improve Bug 1: a CLOSING fence inside an <!-- --> span leaves fence state
+  # ON, so a downstream LIVE block is eaten. Without this the fence fix would ADD a
+  # silent flag loss, which is the defect class this issue exists to remove (#535).
+  local f="$BATS_TEST_TMPDIR/fence-swallowed-by-comment.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- an aside
+```
+-->
+
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unbalanced"* ]]
+  # And the loss it reports is real — the get side returns nothing for this body:
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: an unbalanced fence that swallowed NO heading stays silent (#582 negative of N11)" {
+  # The END warn must be gated on a swallowed heading, not on fence parity alone:
+  # documentation with an odd number of fence lines (an unterminated example, an
+  # inline four-backtick span) is common and loses nothing. Added at Task 8 because
+  # M12 (drop the swallowed guard, warn on ANY unbalanced fence) left every existing
+  # fixture green -- the guard was present but unpinned, the "proves presence, not
+  # correctness" class the mutation matrix exists to catch (register: Issue-553).
+  local f="$BATS_TEST_TMPDIR/odd-fence-no-heading.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: oneshot
+
+Prose, then an unterminated example:
+
+```
+not a flags heading
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # the live block above the fence still parses
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: a fence opened right after the heading, before any key, warns too (#582)" {
+  # Found at quality review (altitude): the fence-close warn was gated on a key
+  # having been SEEN, so heading / fence / keys / fence / keys warned nowhere --
+  # Rule C never sees a fence line, and the fence warn required a key. The keys
+  # below the fenced example are lost either way, so the warn fires on any open
+  # block, keyed or not; the documentation shape (fence BEFORE the heading) has
+  # no open block when its fence arrives and stays silent (N3, research-step).
+  local f="$BATS_TEST_TMPDIR/fence-right-after-heading.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+```
+tier: oneshot
+```
+research: required
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]
+  [[ "$output" == *"IGNORED"* ]]
+  # and the loss it reports is real on the get side
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: a CLOSED fenced example does not arm the unbalanced-fence warn for a later lone toggle (#582)" {
+  # Review finding: `swallowed` was never reset when a fence closed, so a
+  # documented example (a balanced fence around the heading) followed later by a
+  # lone toggle line -- the four-backtick spelling this issue's own body uses --
+  # warned "unbalanced ... heading IGNORED" although nothing was lost, and sent
+  # the author hunting for a comment-span fence that does not exist. The reset on
+  # the closing fence keeps N11 (the swallowing fence never closes) intact.
+  local f="$BATS_TEST_TMPDIR/closed-example-then-lone-toggle.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: oneshot
+
+Documented example of the grammar:
+
+```
+## Workflow flags
+tier: perf
+```
+
+```` a four-backtick span alone on its line toggles fence state once
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: keys after a CLOSING fence are not enumerated -- the block does not resume (#582 twin of N2)" {
+  # PIN of the validate machine's `inblock = 0` on the fence line: green at HEAD
+  # by construction, so its evidence is mutation M15 (drop that clause in
+  # flags_validate ONLY), under which the block resumes after the closing fence
+  # and `boguskey` is enumerated as unknown. N2 pins the flags_get twin; without
+  # this the validate half was landable drift (review finding; DoD row 8).
+  local f="$BATS_TEST_TMPDIR/keys-after-closing-fence.md"
+  printf '## Workflow flags\ntier: oneshot\n```\nexample\n```\nboguskey: x\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]           # the fence-close warn fires (positive half)
+  [[ "$output" != *"boguskey"* ]]        # the key after the closing fence is NOT enumerated
+}
+
+@test "flags_validate: a fence marker hidden in a comment span still warns when a LATER fence balances the count (#582)" {
+  # Red-team MAJOR: resetting `swallowed` on every closing fence disarmed the END
+  # warn whenever the body carried a later balanced example, so the N11 loss (a
+  # closing fence eaten by an <!-- --> span, the live heading below it treated as
+  # fenced) became SILENT again -- a regression against master, where that heading
+  # is live. The scanner's fence parity diverges from the renderer's exactly when a
+  # fence marker is consumed by a comment span while a fence is open; that event is
+  # latched, and a heading swallowed after it warns at END whatever comes later.
+  local f="$BATS_TEST_TMPDIR/hidden-fence-then-later-example.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- an aside
+```
+-->
+## Workflow flags
+tier: oneshot
+
+Example:
+```
+foo
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unbalanced"* ]]
+  # the loss it reports is real -- the get side returns nothing for this body
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: the Rule C warn echoes the closing line sanitized and bounded (#582)" {
+  # Red-team MINOR: the closing line is remote tracker content and this is the one
+  # diagnostic that echoes a raw body line. Control bytes are replaced and the echo
+  # is truncated, so an issue body cannot drive the operator's terminal on every
+  # pull; the line stays nameable (AC2 -- N5/N6 still find their lines).
+  local f="$BATS_TEST_TMPDIR/rulec-hostile-line.md"
+  printf '## Workflow flags\n\033[31mEVIL\033[0m %0200d\nresearch: required\n' 0 > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EVIL"* ]]
+  [[ "$output" != *$'\033'* ]]
+  [ "${#output}" -lt 300 ]
+}
+
+@test "flags_validate: a heading parsed after a comment-hidden fence marker warns that parity may be inverted (#582)" {
+  # Red-team r2 MINOR 1: once a fence marker has been eaten by a comment span the
+  # scanner's fence parity is inverted for the rest of the body, so a LATER
+  # documented example parses as live config (defect (1) of this issue) while the
+  # only warn fired -- the fence-close one -- points the wrong way. The heading
+  # rule now says so whenever the divergence latch is set. Behaviour (the block
+  # parses) is unchanged, as at master; the diagnostic is what was missing. The
+  # flags_get assertions pin that residual so a future fix to it reddens here on
+  # purpose -- delete them when the residual is fixed.
+  local f="$BATS_TEST_TMPDIR/hidden-fence-then-live-example.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- aside
+```
+-->
+prose
+```
+## Workflow flags
+tier: oneshot
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: an opening fence whose info string holds a comment is a latched divergence too (#582)" {
+  # Red-team r2 MINOR 1, second shape: a valid CommonMark opening fence such as
+  # `\`\`\` <!-- x -->` is consumed by the comment pair before the fence rule sees
+  # it, so parity inverts with no closing marker ever hidden. The <!-- rule now
+  # latches when the line itself is a fence marker outside any fence.
+  local f="$BATS_TEST_TMPDIR/info-string-comment-fence.md"
+  printf '``` <!-- x -->\n## Workflow flags\ntier: oneshot\n```\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+}
+
+@test "flags_validate: the Rule C echo drops a UTF-8 C1 control (CSI) in a C locale too (#582)" {
+  # Red-team r2 MINOR 2: [[:cntrl:]] is locale-dependent -- under LC_ALL=C (and
+  # always under byte-based mawk) the two-byte CSI U+009B passed through raw, and
+  # xterm honours it. The sanitizer now keeps printable ASCII only, which every awk
+  # and every locale agree on.
+  local f="$BATS_TEST_TMPDIR/rulec-c1-control.md"
+  printf '## Workflow flags\n\302\233[31mEVIL\302\233[0m x\nresearch: required\n' > "$f"
+  LC_ALL=C run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EVIL"* ]]
+  [[ "$output" != *$'\302\233'* ]]
+}
+
+@test "flags_validate: a comment begun mid-line on prose that hides an opening fence is latched (#582)" {
+  # Red-team r3 MINOR 1: `prose <!-- aside` is paragraph text in CommonMark (an
+  # unterminated inline comment is literal), so the bare fence on the next line
+  # OPENS a code block there; the scanner's comment pair ate it, parity inverted,
+  # and the heading below parsed live with only the misdirected fence-close warn.
+  # Latched now; the block still parses (residual class, as at master).
+  local f="$BATS_TEST_TMPDIR/midline-comment-hides-opening-fence.md"
+  cat > "$f" <<'FIXTURE'
+prose <!-- aside
+```
+-->
+## Workflow flags
+tier: oneshot
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: a column-1 comment that swallows a fence marker is an HTML block, not a divergence (#582 PIN)" {
+  # PIN (green at HEAD): a `<!--` at column 1 starts an HTML block in CommonMark
+  # that swallows the marker in the renderer too, so parity stays in step and no
+  # inverted warn may fire. Its evidence is mutation M23 (latch blindly on any
+  # consumed marker), under which this body warns falsely.
+  local f="$BATS_TEST_TMPDIR/col1-comment-swallows-fence.md"
+  cat > "$f" <<'FIXTURE'
+<!-- aside
+```
+-->
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: a marker-shaped CONTENT line inside a fence does not latch a divergence (#582)" {
+  # Red-team r3 MINOR 2: a closing fence carries no info string, so a line such as
+  # backticks followed by `<!-- not a close -->` inside an open fence is content in
+  # CommonMark and the scanner agrees (the comment pair consumes it, nothing
+  # toggles) -- yet the latch fired on it and a later live heading warned falsely.
+  # Only a BARE marker consumed while a fence is open latches now.
+  local f="$BATS_TEST_TMPDIR/marker-shaped-content-in-fence.md"
+  cat > "$f" <<'FIXTURE'
+```
+line
+``` <!-- not a close -->
+more
+```
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
 }
