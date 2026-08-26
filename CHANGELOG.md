@@ -12,6 +12,36 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The `## Workflow flags` scanner is fence-aware, and its silent losses now
+  warn on every pull (#582).** A fenced code block in an issue body — the
+  natural way to DOCUMENT the grammar — parsed as live config: a fenced
+  `## Workflow flags` heading opened a block whose keys steered the pull, and a
+  fence opened inside a live block was scanned as more keys. Both awk machines
+  (`flags_get`, `flags_validate`) now toggle fence state on a line whose first
+  non-blank characters are three backticks, close any open block there, and
+  skip fenced lines before any other rule sees them; the pair sits below the
+  HTML-comment pair so a fence marker inside an `<!-- -->` span never toggles.
+  Three losses that were silent are now named by `flags_validate`, non-fatally
+  (warn-and-ignore, forward-compat): the #553 close — a mis-cased or indented
+  first key still ends the block, but the closing line is named, which
+  supersedes that entry's warn-less trade-off; an inline `<!--` on a key line
+  warns naming the dropped key (the key is still dropped: the bare-value
+  grammar is unchanged); and the fix's own two new close shapes warn too — a
+  fence opened inside a live keyed block, and an unbalanced fence that
+  swallowed a flags heading (a closing fence inside a comment span) — so the
+  fence rule cannot itself introduce a silent loss. `flags_get` stays silent by
+  design: `pull.sh` calls it five times per pull. `pull.sh` now runs
+  `flags_validate` on EVERY pull, immediately after the fetched body lands,
+  instead of only at first scaffold, so a key edited onto the body after
+  scaffold is validated on the next re-pull (it stays inert — scaffold-only
+  keys are scaffold-only by design). **No body that parsed correctly before
+  changes meaning:** over the 476 issue bodies in the local devdoc, old and new
+  `flags_get` agree on every one of the five keys, and the new `flags_validate`
+  emits zero warnings. Two documented residuals: a four-backtick inline span
+  toggles fence state once (a live block below one would be reported by the
+  END warn, not lost silently), and the `^## Comments (` exit rule stays
+  fence-blind. See spec §6.3.
+
 - **Chain hops carry their scope; the dispatch output names it (#578).**
   `next.sh` resolved the project once but emitted both of its model-facing
   commands without it, so every hop of an `--auto`/`--through` chain

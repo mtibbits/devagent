@@ -12,11 +12,13 @@
 # seen yet, it ends at the first non-blank line that is not a col-1 key (#553: an EMPTY
 # flags heading followed by prose otherwise left the block open, so a later col-1
 # `key: value` prose line still parsed as a live flag — die-class since #561's model
-# keys, so a hard pull failure rather than a warning). That last clause is deliberately
-# warn-LESS: a block whose first in-block non-blank line is a mis-cased or indented key
-# (`Tier: oneshot`) closes there, silently dropping every key below it, so "a typo is
-# not silently inert" does not hold for that shape — accepted, with a warn-on-close
-# follow-up in #553's future-enhancements. Why the two rules #553 proposed cannot work
+# keys, so a hard pull failure rather than a warning). Since #582 that last clause is
+# no longer warn-less: a block whose first in-block non-blank line is a mis-cased or
+# indented key (`Tier: oneshot`) still closes there, but flags_validate WARNS, naming
+# the closing line and stating that the keys below it are ignored. flags_get stays
+# silent by design — pull.sh calls it five times per pull, so a get-side warn would
+# print each diagnostic five times; every diagnostic lives in the single every-pull
+# flags_validate call instead. Why the two rules #553 proposed cannot work
 # (both keyed on a blank; the conventional and defective shapes share their first three
 # lines, so the discriminator is the THIRD): CHANGELOG #553.
 # (This comment DESCRIBES the third clause rather than quoting it: a guard in
@@ -31,7 +33,23 @@
 # (`<!-- … -->`) are skipped entirely (the reap.sh/lessons-lint.sh
 # incomment idiom): template boilerplate that quotes a flags block inside a
 # comment is invisible in rendered markdown and must never parse as live
-# config (#537 redmr BLOCKING).
+# config (#537 redmr BLOCKING). Fenced code blocks never parse either (#582): a
+# line whose first non-blank characters are three backticks toggles fence state
+# and closes any open block, and fenced lines are skipped before any other rule
+# sees them — so a fenced `## Workflow flags` heading is documentation, and a fence
+# opened inside a live block ends it. The fence pair sits BELOW the comment pair on
+# purpose, so a fence marker inside an `<!-- … -->` span never toggles state. (The
+# toggle is described, not quoted, here: tests/lib_flags.bats counts its spelling
+# in this file, one per machine.) Two residuals, recorded at the code site so they
+# are not re-proposed as bugs: (a) a FOUR-backtick inline span (````) matches the
+# fence rule and toggles state once, so a body using that spelling ABOVE a live
+# block has that block treated as documentation — measured exposure 1 of 457 real
+# bodies (Issue-582's own), 0 with a live block; flags_validate warns at END when
+# a fence never closed and a flags heading was skipped inside it, so the loss is
+# not silent; (b) the `^## Comments (` exit rule stays fence-blind: a fenced example
+# containing a `## Comments (` line still truncates the scan and hides any live
+# block below it — identical before #582, and not cleanly reorderable because the
+# fence pair must stay below the comment pair.
 #
 # Source-only file: do not execute directly.
 
@@ -220,9 +238,15 @@ issue_labels() {
 # line ENDS it (#553), so such a line is not merely skipped, it closes the block. This
 # machine is the deliberate twin of flags_get's; the grammar and its rationale are
 # stated once at the top of this file.
-# CONSUMPTION NOTE: pull.sh calls this only in the scaffold branch, so a key added
-# after first scaffold is never validated. CAVEAT (inherited #537 grammar): an inline
-# `<!--` on a key line starts a comment span and silently drops that key.
+# CONSUMPTION NOTE: pull.sh calls this on EVERY pull, immediately after the fetched
+# body lands (#582), so a key added after first scaffold is validated on the next
+# re-pull (it stays INERT — scaffold-only keys are scaffold-only by #537/#561 design).
+# DIAGNOSTICS live here and only here (#582; flags_get stays silent, see the top of
+# this file), all non-fatal: an inline `<!--` on a key line still starts a comment
+# span and drops that key (the bare-value grammar), but this machine warns naming
+# the key; a block closed by a non-key line while no key has been seen (the #553
+# clause) warns naming that line; a fence opened inside a live keyed block warns;
+# and at END an unbalanced fence that swallowed a flags heading warns.
 flags_validate() {
   local file="$1"
   [[ -f "$file" ]] || return 0

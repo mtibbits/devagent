@@ -359,11 +359,13 @@ FIXTURE
 }
 
 @test "flags_get: the fenced example in issue 553's own body does not parse (#553)" {
-  # FENCE-BLIND ON PURPOSE. This guard must pass on the empty-block rule alone.
-  # Teaching the scanner to skip ``` fences is a deliberately REJECTED alternative
-  # for #553 (recorded in the issue's future-enhancements file), so do not "improve"
-  # this into a fence test -- doing so would silently move a rejected alternative
-  # into shipped scope and stop testing the rule this file is guarding.
+  # Written for #553 as a FENCE-BLIND guard of the empty-block rule (fence-skipping
+  # was a deliberately rejected alternative then). #582 promoted fence awareness into
+  # shipped scope, so this fixture is now ALSO covered by the fence rule and passes
+  # for two reasons. The empty-block rule it was written for is still owned by the
+  # guards at :348 (G1), :441 (G8) and :389 (G2); the #582 mutation matrix's M8/M9
+  # (the #553 M1/M2 replays) prove those still redden when the empty-block rule is
+  # deleted in either machine. Fixture and assertions deliberately unchanged.
   local f="$BATS_TEST_TMPDIR/fenced-example.md"
   cat > "$f" <<'FIXTURE'
 ## Finding
