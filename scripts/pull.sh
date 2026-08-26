@@ -68,13 +68,12 @@ main() {
   fi
   mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
 
-  # #582: block-level flags diagnostics (unknown key, Rule C close, inline comment
-  # on a key line, fence-close, unbalanced fence). Runs on EVERY pull, not only at
+  # #582: block-level flags diagnostics (the roster lives in flags_validate's
+  # docblock). Runs on EVERY pull, as soon as the fetched body lands, not only at
   # first scaffold: a flags key edited onto the issue body AFTER scaffold arrives
   # here on the next re-pull, and until #582 that path performed no validation at
-  # all. Non-fatal by contract (warn-and-ignore, forward-compat), and placed BEFORE
-  # every write on this path, so the #561 fail-closed ordering (validate before any
-  # write) is strengthened, never weakened.
+  # all. Warn-only by contract (forward-compat): it never dies, so it cannot
+  # pre-empt the die-class validations that still run inside the scaffold branch.
   flags_validate "$issue_dir/issue.md"
 
   # Scaffold checklist if missing; do not stomp on user edits.

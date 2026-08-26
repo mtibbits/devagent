@@ -21,9 +21,9 @@
 # flags_validate call instead. Why the two rules #553 proposed cannot work
 # (both keyed on a blank; the conventional and defective shapes share their first three
 # lines, so the discriminator is the THIRD): CHANGELOG #553.
-# (This comment DESCRIBES the third clause rather than quoting it: a guard in
-# tests/lib_flags.bats counts that rule's occurrences in this file, and spelling its
-# matching form here would make the count wrong — #561.)
+# (This comment DESCRIBES the third clause and the fence toggle rather than quoting
+# either: guards in tests/lib_flags.bats count each rule's spelling in this file, one
+# per machine, and a matching form here would make a count wrong — #561, #582.)
 # unknown keys are ignored by each consumer (forward
 # compatibility); legal values are per-key. Value lines are BARE: trailing
 # inline prose is part of the value and fails per-key validation downstream
@@ -37,19 +37,18 @@
 # line whose first non-blank characters are three backticks toggles fence state
 # and closes any open block, and fenced lines are skipped before any other rule
 # sees them — so a fenced `## Workflow flags` heading is documentation, and a fence
-# opened inside a live block ends it. The fence pair sits BELOW the comment pair on
-# purpose, so a fence marker inside an `<!-- … -->` span never toggles state. (The
-# toggle is described, not quoted, here: tests/lib_flags.bats counts its spelling
-# in this file, one per machine.) Two residuals, recorded at the code site so they
-# are not re-proposed as bugs: (a) a FOUR-backtick inline span (````) matches the
-# fence rule and toggles state once, so a body using that spelling ABOVE a live
-# block has that block treated as documentation — measured exposure 1 of 476 real
-# bodies on 2026-08-26 (Issue-582's own), 0 with a live block; flags_validate warns at END when
-# a fence never closed and a flags heading was skipped inside it, so the loss is
-# not silent; (b) the `^## Comments (` exit rule stays fence-blind: a fenced example
-# containing a `## Comments (` line still truncates the scan and hides any live
-# block below it — identical before #582, and not cleanly reorderable because the
-# fence pair must stay below the comment pair.
+# opened inside a live block ends it (flags_validate warns). The fence pair sits
+# BELOW the comment pair on purpose, so a fence marker inside an `<!-- … -->` span
+# never toggles state. Two residuals, recorded at the code site so they are not
+# re-proposed as bugs: (a) a FOUR-backtick inline span (````) matches the fence
+# rule and toggles state once, so a body using that spelling ABOVE a live block has
+# that block treated as documentation — flags_validate warns at END when a fence
+# never closed and a flags heading was skipped inside it; measured exposure on
+# 2026-08-26: 1 of 476 real bodies (Issue-582's own), none with a live block below;
+# (b) the `^## Comments (` exit rule stays fence-blind: a fenced example containing
+# a `## Comments (` line still truncates the scan and hides any live block below it
+# — identical before #582, and not cleanly reorderable because the fence pair must
+# stay below the comment pair.
 #
 # Source-only file: do not execute directly.
 
