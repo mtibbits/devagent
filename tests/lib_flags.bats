@@ -529,3 +529,89 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" -eq 2 ]
 }
+
+@test "flags_validate: a block closed by a MIS-CASED first key warns, naming the line (#582)" {
+  local f="$BATS_TEST_TMPDIR/rulec-miscased.md"
+  printf '## Workflow flags\nTier: oneshot\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]                          # non-fatal, forward-compat contract
+  [[ "$output" == *"Tier: oneshot"* ]]         # NAMES the closing line (AC2)
+  [[ "$output" == *"flags.sh: warn:"* ]]       # is a diagnostic on the shipped channel
+  # Deliberately NOT asserted: the word "closed". AC2's claim is that the closing
+  # line is named and the loss is stated — not one English phrasing of it. Pinning
+  # the word would redden this guard on a wording improvement ("ended at"), which is
+  # the guard-weakening habit the register warns about (register: Issue-561).
+}
+
+@test "flags_validate: a block closed by an INDENTED first line warns too (#582)" {
+  # The other half of Rule C's predicate. A separate @test, not another assertion in
+  # the one above: a multi-assertion guard reddens only at its FIRST failing assert,
+  # so each leg needs its own born-red observation (register: Issue-123).
+  local f="$BATS_TEST_TMPDIR/rulec-indented.md"
+  printf '## Workflow flags\n\n  indented prose\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"indented prose"* ]]
+}
+
+@test "flags_validate: an inline HTML comment on a key line warns, naming the key (#582)" {
+  local f="$BATS_TEST_TMPDIR/inline-comment-key.md"
+  printf '## Workflow flags\ntier: oneshot <!-- why -->\nresearch: required\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tier"* ]]                  # the dropped key is NAMED (AC3)
+  [[ "$output" != *"research"* ]]              # the healthy key is not warned about
+}
+
+@test "flags_get: an inline comment still drops the key, and the NEXT key still parses (#582 PIN)" {
+  # PIN, green at HEAD by construction: #582 adds a DIAGNOSTIC, it does not change the
+  # bare-value grammar (tests/lib_flags.bats:111 pins trailing prose as part of the value).
+  local f="$BATS_TEST_TMPDIR/inline-comment-get.md"
+  printf '## Workflow flags\ntier: oneshot <!-- why -->\nresearch: required\n' > "$f"
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  run flags_get "$f" research
+  [ "$status" -eq 0 ]
+  [ "$output" = "required" ]
+}
+
+@test "flags_validate: a fence opened INSIDE a live block warns that the block closed (#582)" {
+  # N10 — improve Bug 2. Task 4's `inblock = 0` on a fence line is itself a
+  # block-close by a non-key line; AC2 does not carve it out.
+  local f="$BATS_TEST_TMPDIR/fence-in-live-block.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: standard
+```
+checking-model: opus
+```
+spike: required
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]
+  [[ "$output" == *"IGNORED"* ]]
+}
+
+@test "flags_validate: an unbalanced fence that swallowed a flags heading warns at END (#582)" {
+  # N11 — improve Bug 1: a CLOSING fence inside an <!-- --> span leaves fence state
+  # ON, so a downstream LIVE block is eaten. Without this the fence fix would ADD a
+  # silent flag loss, which is the defect class this issue exists to remove (#535).
+  local f="$BATS_TEST_TMPDIR/fence-swallowed-by-comment.md"
+  cat > "$f" <<'FIXTURE'
+```
+<!-- an aside
+```
+-->
+
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unbalanced"* ]]
+  # And the loss it reports is real — the get side returns nothing for this body:
+  run flags_get "$f" tier
+  [ "$status" -ne 0 ]
+}
