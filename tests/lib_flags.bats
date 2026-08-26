@@ -643,3 +643,27 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" = "oneshot" ]
 }
+
+@test "flags_validate: a fence opened right after the heading, before any key, warns too (#582)" {
+  # Found at quality review (altitude): the fence-close warn was gated on a key
+  # having been SEEN, so heading / fence / keys / fence / keys warned nowhere --
+  # Rule C never sees a fence line, and the fence warn required a key. The keys
+  # below the fenced example are lost either way, so the warn fires on any open
+  # block, keyed or not; the documentation shape (fence BEFORE the heading) has
+  # no open block when its fence arrives and stays silent (N3, research-step).
+  local f="$BATS_TEST_TMPDIR/fence-right-after-heading.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+```
+tier: oneshot
+```
+research: required
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"fence"* ]]
+  [[ "$output" == *"IGNORED"* ]]
+  # and the loss it reports is real on the get side
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+}
