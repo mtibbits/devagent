@@ -455,3 +455,77 @@ FIXTURE
   [ "$status" -ne 0 ]
   [ -z "$output" ]
 }
+
+# --- #582: markdown fence awareness -------------------------------------------
+#
+# ASCII-only test names on purpose (see the #553 note above).
+
+@test "flags_get: a FENCED Workflow-flags heading plus col-1 keys is documentation, not config (#582)" {
+  # AC1 born-red. At HEAD this fixture parses LIVE: flags_get prints 'required' rc 0.
+  # Paired with a positive so a scanner that simply returned nothing cannot pass
+  # (register: Issue-318 / Issue-572).
+  local f="$BATS_TEST_TMPDIR/fenced-heading-keys.md"
+  cat > "$f" <<'FIXTURE'
+Documented example of the grammar:
+
+```
+## Workflow flags
+tier: oneshot
+research: required
+```
+
+## Workflow flags
+tier: perf
+FIXTURE
+  run flags_get "$f" research
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # the UNFENCED block below it still parses -- the negative is paired
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "perf" ]
+}
+
+@test "flags_get: a fence opened INSIDE a live block ends it; in-fence keys never parse (#582)" {
+  local f="$BATS_TEST_TMPDIR/fence-inside-block.md"
+  cat > "$f" <<'FIXTURE'
+## Workflow flags
+tier: standard
+```
+checking-model: opus
+```
+spike: required
+FIXTURE
+  # the pre-fence key still reads (positive half)
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "standard" ]
+  # the in-fence key does NOT (prints 'opus' rc 0 at HEAD)
+  run flags_get "$f" checking-model
+  [ "$status" -ne 0 ]
+  [ -z "$output" ]
+  # and the block does not resume after the closing fence
+  run flags_get "$f" spike
+  [ "$status" -ne 0 ]
+}
+
+@test "flags_validate: a fenced block's keys are not enumerated (#582 twin half)" {
+  # The flags_validate half of the same defect, so reverting the fence rule in ONE
+  # machine reddens something behavioural (the #553 M2 discipline).
+  local f="$BATS_TEST_TMPDIR/fenced-validate.md"
+  printf '```\n## Workflow flags\nboguskey: x\n```\n' > "$f"
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"boguskey"* ]]
+}
+
+@test "flags.sh: the fence rule appears in BOTH state machines (#582 anti-drift)" {
+  # Shaped exactly like the #553 anti-drift count: asserts -eq 2, never -ne 0, which
+  # would conflate "clean" with "grep errored" (register: Issue-337).
+  # BLIND SPOT, stated deliberately: this proves the rule TEXT is present twice, NOT
+  # that the two awk programs are semantically identical -- N1/N2 and N3 own the
+  # behavioural halves, one per machine.
+  run grep -cE 'fence[[:space:]]*=[[:space:]]*!fence' "$PLUGIN_ROOT/scripts/lib/flags.sh"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 2 ]
+}
