@@ -763,7 +763,9 @@ FIXTURE
   # documented example parses as live config (defect (1) of this issue) while the
   # only warn fired -- the fence-close one -- points the wrong way. The heading
   # rule now says so whenever the divergence latch is set. Behaviour (the block
-  # parses) is unchanged, as at master; the diagnostic is what was missing.
+  # parses) is unchanged, as at master; the diagnostic is what was missing. The
+  # flags_get assertions pin that residual so a future fix to it reddens here on
+  # purpose -- delete them when the residual is fixed.
   local f="$BATS_TEST_TMPDIR/hidden-fence-then-live-example.md"
   cat > "$f" <<'FIXTURE'
 ```
@@ -807,4 +809,72 @@ FIXTURE
   [ "$status" -eq 0 ]
   [[ "$output" == *"EVIL"* ]]
   [[ "$output" != *$'\302\233'* ]]
+}
+
+@test "flags_validate: a comment begun mid-line on prose that hides an opening fence is latched (#582)" {
+  # Red-team r3 MINOR 1: `prose <!-- aside` is paragraph text in CommonMark (an
+  # unterminated inline comment is literal), so the bare fence on the next line
+  # OPENS a code block there; the scanner's comment pair ate it, parity inverted,
+  # and the heading below parsed live with only the misdirected fence-close warn.
+  # Latched now; the block still parses (residual class, as at master).
+  local f="$BATS_TEST_TMPDIR/midline-comment-hides-opening-fence.md"
+  cat > "$f" <<'FIXTURE'
+prose <!-- aside
+```
+-->
+## Workflow flags
+tier: oneshot
+```
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: a column-1 comment that swallows a fence marker is an HTML block, not a divergence (#582 PIN)" {
+  # PIN (green at HEAD): a `<!--` at column 1 starts an HTML block in CommonMark
+  # that swallows the marker in the renderer too, so parity stays in step and no
+  # inverted warn may fire. Its evidence is mutation M23 (latch blindly on any
+  # consumed marker), under which this body warns falsely.
+  local f="$BATS_TEST_TMPDIR/col1-comment-swallows-fence.md"
+  cat > "$f" <<'FIXTURE'
+<!-- aside
+```
+-->
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
+}
+
+@test "flags_validate: a marker-shaped CONTENT line inside a fence does not latch a divergence (#582)" {
+  # Red-team r3 MINOR 2: a closing fence carries no info string, so a line such as
+  # backticks followed by `<!-- not a close -->` inside an open fence is content in
+  # CommonMark and the scanner agrees (the comment pair consumes it, nothing
+  # toggles) -- yet the latch fired on it and a later live heading warned falsely.
+  # Only a BARE marker consumed while a fence is open latches now.
+  local f="$BATS_TEST_TMPDIR/marker-shaped-content-in-fence.md"
+  cat > "$f" <<'FIXTURE'
+```
+line
+``` <!-- not a close -->
+more
+```
+## Workflow flags
+tier: oneshot
+FIXTURE
+  run flags_validate "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"inverted"* ]]
+  run flags_get "$f" tier
+  [ "$status" -eq 0 ]
+  [ "$output" = "oneshot" ]
 }
