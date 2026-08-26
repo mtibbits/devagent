@@ -30,10 +30,12 @@ tag`) will get their own dated sections below.
   grammar is unchanged); and the fix's own two new close shapes warn too — a
   fence opened inside a live block (before or after its first key), and an
   unbalanced fence that swallowed a flags heading (a closing fence inside a
-  comment span; that divergence is latched, so a later balanced example cannot
-  disarm the warn) — so the fence rule cannot itself introduce a silent loss.
-  The one diagnostic that echoes a body line (the Rule C close) prints it quoted,
-  control bytes replaced and bounded, since it is remote content. `flags_get` stays silent by
+  comment span, or an opening fence whose info string holds a comment — the
+  divergence is latched, so a later balanced example cannot disarm the warn, and
+  a block parsed after it is flagged as possibly a documented example) — so the
+  fence rule cannot itself introduce a silent loss. The one diagnostic that
+  echoes a body line (the Rule C close) prints it quoted, printable ASCII only
+  and bounded, since it is remote content. `flags_get` stays silent by
   design: `pull.sh` calls it five times per pull. `pull.sh` now runs
   `flags_validate` on EVERY pull, immediately after the fetched body lands,
   instead of only at first scaffold, so a key edited onto the body after

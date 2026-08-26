@@ -46,11 +46,13 @@
 # at line start, or a 4-space-indented code-block line each toggles state once, so
 # such a line ABOVE a live block has that block treated as documentation;
 # flags_validate warns at END when a flags heading was skipped inside a fence that
-# never closed, or after a fence marker was hidden inside an `<!-- … -->` span —
-# the one way the scanner's fence parity can diverge from the renderer's, latched
-# so a later balanced example cannot disarm the warn (measured exposure on
-# 2026-08-26: 1 of 477 real bodies, Issue-582's own four-backtick span, none with
-# a live block below); (b) the
+# never closed. A fence marker hidden by a comment — a closing marker inside an
+# `<!-- … -->` span, or an opening marker whose info string holds a comment — is
+# the way the scanner's fence parity can diverge from the renderer's; it is
+# latched, so a heading skipped after it warns at END even if a later fence
+# balances the count, and a heading parsed after it warns that the block may be a
+# documented example (measured exposure on 2026-08-26: 1 of 477 real bodies,
+# Issue-582's own four-backtick span, none with a live block below); (b) the
 # `^## Comments (` exit rule stays fence-blind: a fenced example containing a
 # `## Comments (` line still truncates the scan and hides any live block below it;
 # (c) a literal `<!--` on a fenced line (text, in rendered markdown) opens a
@@ -253,10 +255,11 @@ issue_labels() {
 # this file), all non-fatal: an inline `<!--` on a key line still starts a comment
 # span and drops that key (the bare-value grammar), but this machine warns naming
 # the key; a block closed by a non-key line while no key has been seen (the #553
-# clause) warns naming that line (quoted, control bytes replaced, bounded — it is
-# remote content); a fence opened inside a live block, keyed or not, warns; and at
-# END a heading swallowed by a fence that never closed, or by one whose closing
-# marker a comment span hid, warns.
+# clause) warns naming that line (quoted, printable ASCII only, bounded — it is
+# remote content); a fence opened inside a live block, keyed or not, warns; a
+# heading parsed after a comment-hidden fence marker warns that parity may be
+# inverted; and at END a heading swallowed by a fence that never closed, or by
+# one that a hidden marker inverted, warns.
 flags_validate() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -266,7 +269,7 @@ flags_validate() {
       ckey = $0; sub(/:.*/, "", ckey)
       print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
-    /<!--/ { incomment = 1 }
+    /<!--/ { if (!fence && /^[[:space:]]*```/) divergent = 1; incomment = 1 }
     incomment { if (fence && /^[[:space:]]*```/) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
       if (inblock)
@@ -274,12 +277,16 @@ flags_validate() {
       fence = !fence; if (!fence) swallowed = 0; inblock = 0; next
     }
     fence { if ($0 ~ /^## Workflow flags[[:space:]]*$/) { swallowed = 1; if (divergent) swallowed_div = 1 }; next }
-    /^## Workflow flags[[:space:]]*$/ { inblock = 1; seen = 0; next }
+    /^## Workflow flags[[:space:]]*$/ {
+      if (divergent)
+        print "flags.sh: warn: a fence marker above this ## Workflow flags block was hidden inside an <!-- --> span — fence parity may be inverted, so this block may be a documented example; check the fences above it" > "/dev/stderr"
+      inblock = 1; seen = 0; next
+    }
     inblock && /^#/ { inblock = 0 }
     inblock && seen && /^[[:space:]]*$/ { inblock = 0 }
     inblock && !seen && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[a-z][a-z-]*:/ {
       inblock = 0
-      cline = $0; gsub(/[[:cntrl:]]/, "?", cline)
+      cline = $0; gsub(/[^ -~]/, "?", cline)
       if (length(cline) > 60) cline = substr(cline, 1, 60) "..."
       print "flags.sh: warn: ## Workflow flags block closed at a non-key line: '\''" cline "'\'' — any keys below it are IGNORED (a key must be a col-1 lowercase key: value; check for a capital letter or a leading space)" > "/dev/stderr"
     }
