@@ -273,7 +273,7 @@ flags_validate() {
       ckey = $0; sub(/:.*/, "", ckey)
       print "flags.sh: warn: inline <!-- on ## Workflow flags key '\''" ckey "'\'' — the key is IGNORED; put the comment outside the block" > "/dev/stderr"
     }
-    /<!--/ { cblock = ($0 ~ /^[ ]*<!--/); if (!fence && /^[[:space:]]*```/) divergent = 1; incomment = 1 }
+    /<!--/ { cblock = ($0 ~ /^[ ]*<!--/); incomment = 1 }
     incomment { if ((fence && $0 ~ /^[[:space:]]*```[[:space:]]*$/) || (!fence && !cblock && /^[[:space:]]*```/)) divergent = 1; if ($0 ~ /-->/) incomment = 0; next }
     /^[[:space:]]*```/ {
       if (inblock)
