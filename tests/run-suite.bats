@@ -433,7 +433,8 @@ _run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-s
     _seed_py; _stub_python3_pytest_rc "1 skipped, 1 error in 0.01s" 1
     _run_rs; [ "$status" -eq 0 ]
     grep -q '^pytest: 0 passed, 0 failed, 1 errors$' "$(_art)"
-    ! grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+    run grep -q '^pytest: 0 passed, 0 failed, 0 errors$' "$(_art)"
+    [ "$status" -ne 0 ]
 }
 
 @test "run-suite: pytest ERRORS beside passes are recorded, not swallowed (#466 redmr)" {
@@ -473,7 +474,8 @@ _run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-s
     _stub_python3_pytest_rc "51 passed in 1.00s" 0
     _run_rs; [ "$status" -eq 0 ]
     grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$(_art)"
-    ! grep -q '^pytest: (none)$' "$(_art)"
+    run grep -q '^pytest: (none)$' "$(_art)"
+    [ "$status" -ne 0 ]
 }
 
 @test "run-suite: the artifact records WHICH interpreter ran pytest (#466 redmr)" {
