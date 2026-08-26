@@ -68,6 +68,15 @@ main() {
   fi
   mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
 
+  # #582: block-level flags diagnostics (unknown key, Rule C close, inline comment
+  # on a key line, fence-close, unbalanced fence). Runs on EVERY pull, not only at
+  # first scaffold: a flags key edited onto the issue body AFTER scaffold arrives
+  # here on the next re-pull, and until #582 that path performed no validation at
+  # all. Non-fatal by contract (warn-and-ignore, forward-compat), and placed BEFORE
+  # every write on this path, so the #561 fail-closed ordering (validate before any
+  # write) is strengthened, never weakened.
+  flags_validate "$issue_dir/issue.md"
+
   # Scaffold checklist if missing; do not stomp on user edits.
   # Template resolution sits AFTER the fetch (and only in the scaffold
   # branch — re-pulls skip it) so the fetched body's `## Workflow flags`
@@ -262,9 +271,6 @@ main() {
         log_append "$issue_dir" "pull" "warn: ${_fl} flag set but row ${_row} absent — no-op"
       fi
     done
-    # #535: block-level unknown-key WARN (deferred here from #537). Scaffold-branch
-    # only — a key added after first scaffold is inert and unvalidated (documented).
-    flags_validate "$issue_dir/issue.md"
   fi
 
   # Mark step 0 done; log
