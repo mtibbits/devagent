@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 setup() {
   LINT="$BATS_TEST_DIRNAME/../scripts/lessons-lint.sh"
   TPL="$BATS_TEST_DIRNAME/../templates/lessonsLearned_template.md"

@@ -2,6 +2,8 @@
 # #572: the resolver-scope triage table is a CONTRACT enumerated in two homes —
 # the doc and the scripts. One sweep test over both (register: Issue-458).
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 DOC="$REPO/docs/resolver-scope-triage.md"
 

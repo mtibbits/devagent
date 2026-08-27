@@ -5,6 +5,8 @@
 # canaries (#116 style): the mapping notes deliberately retain the historical
 # tokens, so bare-token greps would be wrong.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${DEVAGENT_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)}"
 
 @test "redteam_mr.md no longer mandates its own severity scale (#134)" {

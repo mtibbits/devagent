@@ -5,6 +5,8 @@
 # this rung is local-only: it skips there; admissible evidence is a local
 # non-skip run recorded in the issue's devDoc analysis dir.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 @test "claude plugin validate (non-strict) passes at repo root (#532)" {
     command -v claude >/dev/null 2>&1 || skip "claude CLI not installed (CI)"
     run claude plugin validate "$BATS_TEST_DIRNAME/.."

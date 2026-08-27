@@ -34,6 +34,8 @@
 #     then the sed): _join_continuations merges them, and the comment-line filter
 #     (leading `#`) then drops the joined line. Contrived, not in-tree style.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # Shared FLAG regex — used by the HEAD-clean test and every planted self-test so

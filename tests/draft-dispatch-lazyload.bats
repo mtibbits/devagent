@@ -6,6 +6,8 @@
 # load condition (which would make the operator-instructed / empty-tier dispatch
 # path run without the contract).
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 DRAFT="$REPO/commands/draft.md"
 CONTRACT="$REPO/docs/draft-dispatch-contract.md"

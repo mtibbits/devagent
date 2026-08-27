@@ -5,6 +5,11 @@
 # suite. Regression guard for the 44+-test exposure (measured 68 here).
 
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+# #585: bare-setup file, so the guard is sourced at FILE scope like every other one.
+# This file also sources it INSIDE test 2 on purpose — that is the assertion under
+# test, not the file's own hermeticity. Until the enrollment grep was anchored to
+# column 0, that in-test line was what made this file look guarded.
+. "$REPO/tests/lib/hermetic-env.bash"
 
 @test "every setup layer sources the hermetic-env guard (#322)" {
   local layer

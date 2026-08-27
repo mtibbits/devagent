@@ -25,6 +25,8 @@
 # able by pattern from prose and is not gated — every real command takes args, so
 # this is a review-caught edge, not a mechanical one.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 ROOT="$BATS_TEST_DIRNAME/.."
 
 CORRECT_RE='CLAUDE_PLUGIN_ROOT[}]?/scripts/'

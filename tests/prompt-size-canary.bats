@@ -28,6 +28,8 @@
 #   skills/capture/SKILL.md       2553   1200   3300
 #   skills/ship/SKILL.md          2249   1000   3000
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # file:floor:ceiling — the curated per-invocation list. agents/ entries are also

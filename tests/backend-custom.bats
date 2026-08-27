@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 ISSUE="${BATS_TEST_DIRNAME}/../scripts/issue/custom.sh"
 CODE="${BATS_TEST_DIRNAME}/../scripts/code/custom.sh"
 

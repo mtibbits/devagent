@@ -3,6 +3,8 @@
 # VOLK-specific criteria injected into a non-VOLK project. VOLK's specifics live
 # in its devdoc override (registry L2), not the plugin defaults.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # _class_assign <file> <thinking-list> <checking-list> — #583. Print one line per

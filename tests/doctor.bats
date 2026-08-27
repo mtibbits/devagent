@@ -1,37 +1,16 @@
 #!/usr/bin/env bats
 
 load 'lib/bats-helpers'
+load 'lib/doctor-harness'
 
 setup() {
   setup_tmp_devagent_home
-  # Real dirs the doctor must find.
-  mkdir -p "$DA_HOME/fake-src" "$DA_HOME/fake-devdoc"
-  cat > "$DA_HOME/config.toml" <<TOML
-[defaults]
-checklist_template = "standard"
-
-[project.volk]
-source_dir = "$DA_HOME/fake-src"
-devdoc_dir = "$DA_HOME/fake-devdoc"
-default_baseline = "origin/main"
-
-[project.volk.issue_source]
-backend    = "github"
-repo       = "gnuradio/volk"
-dir_prefix = "Issue-"
-
-[project.volk.code_source]
-backend  = "github"
-upstream = "gnuradio/volk"
-fork     = "mtibbits/volk"
-TOML
-  # Have the state file + secrets dir bootstrapped.
-  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
-  source "$PLUGIN_ROOT/scripts/lib/io.sh"
-  source "$PLUGIN_ROOT/scripts/lib/state.sh"
-  source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
-  state_init volk
-  secrets_bootstrap
+  seed_doctor_project
+  # #585: default to `enabled` — the quiet state. doctor's superpowers check then
+  # emits nothing, so none of this file's substring assertions can be perturbed by
+  # it, and no live `claude plugin list` subprocess runs. doctor-recommended.bats is
+  # where the other three states are exercised on purpose.
+  stub_claude_cli enabled
 }
 teardown() { teardown_tmp_devagent_home; }
 

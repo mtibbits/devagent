@@ -5,6 +5,8 @@
 # fail-open reads, and drift-parity of the generalized gate with git-guard.sh's
 # reference gate.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 LIB="$REPO/hooks/lib/hook-common.sh"
 
