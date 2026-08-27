@@ -95,8 +95,7 @@ machine.
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship \
-  "Preship: A/B ACs pass, F findings located, push-preview MATCH|MISMATCH; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" preship "Preship: A/B ACs pass, F findings located, push-preview MATCH|MISMATCH; note: $NOTE"
 ```
 
 ## Completion handoff

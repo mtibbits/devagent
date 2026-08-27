@@ -25,6 +25,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - `cd "$(cmd)"` with an empty substitution SUCCEEDS in place, silently disarming a derived-path failure branch → capture the result and test non-empty before the cd (Issue-571).
 - A tool that documents status exit codes is judged by THEM — deriving ran/failed/could-not-run by parsing its summary prose breaks on field ordering and vocabulary (a two-state summary matched a one-state prefix and recorded a clean false green) (Issue-466).
 - An error-suppressing flag (`-ErrorAction SilentlyContinue`, `2>/dev/null`) collapses ABSENT and CANNOT-DETERMINE into one empty result → never let it stand between you and a state claim; report "undetermined" when the query can fail for permission reasons (fleet Issue-73).
+- `${s%%"$m"*}` yields the prefix of the FIRST match → per-occurrence attribution over `grep -o` output needs a per-line cursor, and a same-text-twice-on-one-line fixture (Issue-583).
+- A helper that prints its diagnostic to stdout AND returns non-zero inside a `$(...)` capture under `set -e` is silent — the caller aborts at the assignment before printing what it captured → route the diagnostic to stderr (Issue-583).
 
 ## Test discipline (born-red / vacuous pass)
 - A probe over a multi-VERSION source must tag WHICH version each transcribed value came from — an untagged reading silently binds a golden to the wrong version, and every downstream expectation inherits it (lawFirm Issue-9).
@@ -120,7 +122,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An inverse mutation that leaves the suite GREEN says the guard is unpinned, not over-guarded → add the negative fixture it lacks, and reject a plan row whose must-redden column is empty at tighten time (Issue-582).
 - A mutation row that goes inert after a later fix has found dead code → remove the code, retire the row with its reason recorded, and confirm its guard is still pinned by another row (Issue-582).
 - When the operative call is silent on success, an ALLOW read is only the ABSENCE of the deny string → pair the stream read with a side-effect check so a no-op cannot false-pass (Issue-584).
-
+- A LIMITS list is itself a set of claims: for every "surfaces as a miss, never as a pass" sentence, construct the input it describes and run the guard on it before shipping the sentence — the first such list shipped was wrong in the fail-open direction (Issue-583).
+- Prose that restates a machine-checked number (diff stat, SHA, commit count) goes stale on the next gate's commit → fill it from the same artifact/tree, at the same moment, as the machine-checked line (Issue-583).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -185,7 +188,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Duplicating a seam rather than coupling to it makes every guard the twin has and this copy lacks a live defect → diff the twin's guards line-by-line at implementation time and record the union, not the shape (lawFirm Issue-7).
 - A follow-up that NAMES a duplicated seam is a seam half-remembered → enumerate the guards to carry across, or the factoring closes the seam while leaving open the very gap that raised its priority (lawFirm Issue-7).
 - A permission matcher can refuse a MULTI-LINE command whose first line prefix-matches the grant → a snippet's emission shape (prefix, quoting, AND line count) is part of the grant contract; sweep for backslash-continued forms alongside quoting drift (Issue-584).
-
+- When a change enrols a NEW home in a claim ("all N homes now state X"), the guard's asserted-home list must grow to N with it → derive the pin list from the claim, not from the pre-change test (Issue-583).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -233,7 +236,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - When a claim is "this later commit changed nothing observable", REPLAY it rather than reading the argument — regenerating the artifact at the new SHA converts an inspection argument into byte-identical evidence, usually cheaply (lawFirm Issue-7).
 - Content rewritten AFTER the only semantic review carries mechanical re-verification only, and a random sample is no likelier to hit it → emit a derived changed-line manifest that points the human gate at exactly those lines (lawFirm Issue-11).
 - A fork skill probed from a bare headless prompt measures the prompt's missing Skill-tool grant, not the fork → model the real wrapper→fork dispatch path in the fixture (Issue-584).
-
+- A feature the workflow itself consumes can be evidenced by enabling it on the issue that ships it → write the marker/flag into the issue's own working directory during implement so the later gates exercise it for free (Issue-583).
 
 ## Premise freshness / contracts / classification
 - A working tree checked out on a SIBLING'S unmerged branch makes every file read answer "what does this branch have", not "what does the baseline have" → resolve each baseline claim via `git show <baseline>:<path>` explicitly; the misread recurs per convention consulted, not once (lawFirm Issue-9).
@@ -341,6 +344,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A repo's first CLI entry point inherits every module-level import chain on every invocation and every subprocess test → measure import cost, and defer heavyweight chains into their sole consumer, especially when a documented mode never needs them (lawFirm Issue-12).
 - Any edit to CAPTURED output is a provenance event: choose the verb that matches what happened (removed vs restated), mark the edit at its site, and sweep every home that describes it — author prose inside a capture fence with no marker falsifies the record (lawFirm Issue-15).
 - A later dedup/point-don't-restate pass can silently undo an earlier BINDING decision → before deleting content, re-read the plan's merged findings/definition-of-done for a decision covering it; stable identifiers are not restatement drift, and an override of a binding item is a logged deviation (lawFirm Issue-15).
+- An executed-doc test couples every doc it extracts from → announce the coupling INSIDE each coupled doc (an editor note beside the fence), not only in the test's failure message (Issue-583).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).

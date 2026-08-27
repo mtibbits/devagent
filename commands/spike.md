@@ -77,8 +77,7 @@ the worktree's destruction: `teardown` verifies the worktree and branch are gone
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" spike \
-  "spike.md written (V verified, F falsified, I inconclusive)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" spike "spike.md written (V verified, F falsified, I inconclusive)"
 ```
 
 ## Completion handoff

@@ -3,6 +3,7 @@ name: core-scope
 description: "Step 4: evaluate whether an issue's implementation plan is correctly scoped before implementation"
 when_to_use: After /devagent:draft has produced an imPlan.md and before /devagent:improve. Run as part of /devagent:scope.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-scope
@@ -102,8 +103,7 @@ docs/chore and the questions don't apply, surface that explicitly:
 After completion:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" scope \
-  "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" scope "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
 ```
 
 The format above is contract: `statusreport.sh` (via

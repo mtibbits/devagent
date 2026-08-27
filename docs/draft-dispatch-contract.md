@@ -13,27 +13,33 @@ conversation".
    tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 2>"$err")"; rc=$?
    prov="$(cat "$err")"; rm -f "$err"
    ```
+   <!-- This fenced snippet is byte-pinned to the checking-class contract's by
+        tests/dispatch-contract.bats, which also executes it per exit code and
+        requires exactly ONE bash fence per contract file: add no second bash
+        example here, and reflow this snippet only together with its sibling. -->
 
    (canonical step number 2; the thinking class).
 
    | rc | meaning | action |
    |----|---------|--------|
    | 0 | a tier resolved | dispatch a fresh-context planner with that model override |
-   | 2 | the reserved `inherit` token | **stay INLINE** — unchanged from pre-#561 behavior; see the note below |
+   | 2 | the reserved `inherit` token | **stay INLINE** — FINAL (#583); see the note below |
    | 3 | nothing configured | stay INLINE |
    | 1 | **error: a bad/unreadable marker** | **STOP.** Fix or remove the marker; never silently fall inline |
 
-   **rc 2 keeps its pre-#561 behavior, deliberately (#561 review F1).** Before
-   #561 this rule resolved with `$(… || true)`, which mapped rc 2 to an empty
-   string ⇒ stay inline; that is preserved above. It is also the coherent reading
-   for THIS step: rc 2 means "inherit the session model", and inline drafting
-   already runs at the session model, so there is nothing to up-delegate. Contrast
-   the checking class, where rc 2 must dispatch-with-inherit because those steps
-   need fresh context regardless of model.
-   Whether rc 2 should instead dispatch a fork carrying `model: inherit` is a
-   real question, and it is deliberately NOT decided here — #561's scope was rc 1.
-   It is recorded as a follow-up in that issue's
-   `imPlan-potentialFutureEnhancements.md`.
+   **rc 2 stays INLINE — decided and final (#583; ratifies the #561 review-F1
+   choice, which had shipped as an open question).** `inherit` is the operator's
+   escape from a project pin back to the class's DEFAULT shape, and this class's
+   default shape is inline at the session model: inline drafting already runs
+   there, so there is nothing to up-delegate. The checking class dispatches on
+   rc 2 only because ITS default shape is a fresh-context fork; planning is the
+   inverse (top of this file). Under the rejected alternative,
+   dispatch-with-`model: inherit`, a project thinking pin plus
+   `implementation-model: inherit` would produce a THIRD behavior — a
+   fresh-context fork at the session model — and no marker value could express
+   "plain inline on this issue". That fresh-context shape stays reachable on
+   demand through the explicit operator instruction (rule 5's `model: inherit`
+   case).
 
    Inline IS the fully-informed default here and dispatch exists for
    up-delegation — this deliberately differs from #151, where dispatch is
@@ -54,7 +60,10 @@ conversation".
         dispatch-contract doc as a POINTER STUB rather than a full-contract
         carrier, so writing that filename anywhere in this file silently drops
         THIS file out of the asserted carrier set. Do not "helpfully" add it --
-        and note this comment cannot name it either, for exactly that reason. -->
+        and note this comment cannot name it either, for exactly that reason.
+        Nor may this file name the step-14 draft-MR command: the class-map sweep
+        in tests/generic-templates.bats selects the homes it checks by that
+        command's bare name, and this file would then count as a twelfth home. -->
 
    **Per-issue `.devagent-step-models` markers DO apply to this step (#561).**
    The KEYED marker form (`thinking: <token>`) covers the thinking class, so a

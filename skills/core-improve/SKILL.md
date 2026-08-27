@@ -3,6 +3,7 @@ name: core-improve
 description: "Step 5: surface latent bugs, side effects, and ambiguities in an implementation plan before pruning"
 when_to_use: After /devagent:scope has appended scope evaluation and before /devagent:prune. Run as part of /devagent:improve.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 context: fork
 agent: devagent:plan-improver
 ---
@@ -31,8 +32,9 @@ You have no conversation history — that is what makes the check real. Resolve
 everything from disk and state:
 
 1. The invoking session names the PROJECT and ISSUE DIR. If it did not, resolve
-   them: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/state.sh" get <project> active_issue`
-   and `... get <project> issue_dir` (an env-pinned session exports
+   them: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/where.sh" "${DEVAGENT_ACTIVE_PROJECT:-<project>}"`
+   (prints `Active issue: Issue-N`; the issue dir is `<devdoc_dir>/Issue-N`, where
+   `devdoc_dir` is the project's key in `~/.claude/devagent/config.toml`; an env-pinned session exports
    `DEVAGENT_ACTIVE_PROJECT` / `DEVAGENT_ACTIVE_ISSUE`, which take precedence).
 2. Read `<issue-dir>/imPlan.md` (the plan under check, including its Scope
    evaluation and its `## Load-bearing unknowns` section) and `<issue-dir>/spike.md`

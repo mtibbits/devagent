@@ -92,7 +92,7 @@ if grep -nE 'scripts/checklist-log\.sh' "$skill_md" \
 fi
 #
 # (b) any OTHER script INVOKED via bash. #458 fork prompts genuinely invoke
-# scripts (core-redmr calls template.sh, core-preship calls state.sh), and the
+# scripts (core-redmr calls template.sh, core-preship calls where.sh), and the
 # old guard only covered checklist-log — so the files most likely to grow new
 # script calls were the ones it did not watch. Keyed on `bash …` so that prose
 # merely NAMING a script (core-lessons-learned mentions `scripts/lessons-lint.sh`

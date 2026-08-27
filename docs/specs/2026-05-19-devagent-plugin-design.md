@@ -947,8 +947,13 @@ skill files, summarized here so the mechanism is discoverable:
   5/16/17 ⇒ agent default, §7.4 rung 5). **Steps 5, 16 and 17 are bound
   structurally** (#458/#527): `skills/core-improve`, `skills/core-redmr` and
   `skills/core-preship` carry
-  `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the
-  fresh-context dispatch — the harness supplies the agent's system prompt, its
+  `context: fork` + `agent: devagent:<agent>` (plus, since #584, the #548
+  script grant in `allowed-tools`, which the probe ladder showed reaches the
+  dispatched agent's own script calls without acting as a tool ceiling — so it
+  auto-approves every `scripts/*` invocation the fork makes, mutating ones
+  included; the read-only contract in the agent prompt stays the load-bearing
+  isolation layer, an accepted #529-class residual), so
+  invoking the skill IS the fresh-context dispatch — the harness supplies the agent's system prompt, its
   pinned effort, and its Write/Edit denial, instead of the mechanism depending
   on the model choosing to spawn a generic subagent correctly. (The model
   default is wrapper-carried, not agent-pinned — §7.4 rung 5 has the measured
@@ -957,7 +962,10 @@ skill files, summarized here so the mechanism is discoverable:
   so authorship stays with the checker.
 - **Thinking steps** — `draft` today (#284): the *inverse* — inline is the
   fully-informed default, and dispatch is an opt-in *up-delegation* keyed
-  on a non-empty §7.4 `thinking` tier. Intent is packaged to
+  on a RESOLVED §7.4 `thinking` tier (resolver rc 0); the reserved `inherit`
+  (rc 2) is not a trigger and stays inline — decided and final (#583; the
+  draft contract carries the reasoning; an explicit operator dispatch
+  instruction still overrides, contract rule 1). Intent is packaged to
   `<issue-dir>/intent.md` (goals / constraints / rejected alternatives /
   answers), never pasted as conversation. Because a dispatched planner
   cannot ask the operator, it uses the two-round **question-return

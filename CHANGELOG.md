@@ -12,6 +12,47 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **Core-skill script calls no longer prompt mid-chain (#584).** The #548
+  composite grant now sits on the 10 `core-*` skills whose bodies make a
+  plugin-script call (census at `fea468e`: 13 calls; the four judgment-only
+  core skills make none and stay grant-less), taking the Bash-grant carrier
+  count from 57 to 67. Two body corrections rode along, both behavior-
+  preserving: the seven `checklist-log.sh` invocations are emitted in the
+  `bash "..."` form the literal-prefix matcher can match (the bare form never
+  matched and also relied on an exec bit Git Bash cannot set), and the three
+  fork skills' fallback `scripts/state.sh` instruction - a path that never
+  existed - now names `scripts/where.sh`. The live ladder also showed the
+  permission matcher refuses a backslash-continued (multi-line) command even
+  when its first line prefix-matches, so every continuation-form script
+  snippet in the tree (7 core skills, 8 step wrappers, 2 `capture.sh` sites)
+  is now a single line. A hermetic probe ladder measured
+  `allowed-tools` on a SKILL.md as additive (a per-skill auto-approve list, not
+  a ceiling) and confirmed the grant reaches a `context: fork` skill's
+  dispatched agent, so the bare pair ships with no per-file tool lists. The
+  drift guard gains a body-call => grant implication canary with the subject
+  set pinned by name and a mutation control that enters through the guard.
+
+- **Draft's rc-2 (`inherit`) path is decided — stay inline, final, and pinned
+  (#583).** `docs/draft-dispatch-contract.md` and `commands/draft.md` shipped
+  the stay-inline choice as an open question (#561 review F1) and named
+  dispatch-with-`model: inherit` as the alternative; no test pinned either
+  reading. Ratified: `inherit` is the operator's escape from a project pin back
+  to the class's default shape, and the thinking class's default is inline at
+  the session model (the checking class dispatches on rc 2 only because its
+  default shape is a fresh-context fork). No behavior changes; the one wording
+  CORRECTION is §7.5, which said dispatch keys on a *non-empty* thinking tier — a
+  config-table `inherit` is non-empty yet resolves rc 2 and never dispatched.
+  `tests/dispatch-contract.bats` now executes the contract's own resolution
+  snippet against fixtures for every exit code — the rc-0 case drives a KEYED
+  `.devagent-step-models` marker through the wrapper idiom, the first mechanical
+  consumption of the keyed form (#561 DoD-8) — and pins the draft snippet
+  byte-equal to the checking-class one. The #561 class-map sweep guard
+  (`tests/generic-templates.bats`) now checks per-class ASSIGNMENT rather than
+  the union: a home whose numbers sit under the wrong key — within three lines
+  of an `implementation-model` / class-name anchor — fails, where the old union
+  check passed a swap; a restatement farther from any anchor is still
+  unattributed (the test states that limit; `UNATTR` reporting is the follow-up).
+
 - **The `## Workflow flags` scanner is fence-aware, and its silent losses now
   warn on every pull (#582).** A fenced code block in an issue body — the
   natural way to DOCUMENT the grammar — parsed as live config: a fenced
