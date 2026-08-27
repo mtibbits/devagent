@@ -72,17 +72,18 @@ fi
 # Restore source tree to base branch.
 ( cd "$source_dir" && "$DEVAGENT_GIT" checkout "$base_branch" )
 
-# #586: drain the pending register promotion NOW — the only moment the base
-# branch is checked out AND this session owns the checkout, so the edit and its
-# scoped commit happen inside one script run. rc 3 = deferred (stays pending,
-# stays loud). Re-running cleanup after a die here is safe (--apply is idempotent).
+# #586/#611: drain the pending register promotion NOW, after the source-tree
+# restore. The drain commits each devdoc-resident layer file ITSELF (one
+# path-scoped commit per layer, operator identity) — the devdoc commit below
+# never carries them. rc 3 = deferred (stays pending, stays loud). Re-running
+# cleanup after a die here is safe (--apply is idempotent).
 if [ -f "$issue_dir/potholes-promotion.md" ]; then
     pp_rc=0
     "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || pp_rc=$?
     if [ "$pp_rc" -eq 3 ]; then
-        warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; re-run promote-potholes.sh $project $issue_dir --apply once the register is clean"
+        warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; see the reason above (commit_devdoc flag, dirty/untracked register, mid-merge, containment, or a held lock) and re-run promote-potholes.sh $project $issue_dir --apply"
     elif [ "$pp_rc" -ne 0 ]; then
-        die "cleanup: pothole promotion FAILED (rc=$pp_rc) — register left unmodified (#586)"
+        die "cleanup: pothole promotion FAILED (rc=$pp_rc) — the failing layer was restored; any layer commit reported above is already in devdoc history and the staging file stays pending (#586/#611)"
     fi
 fi
 
@@ -160,8 +161,11 @@ if [ "$commit_devdoc" = "true" ]; then
     # #140: --porcelain reports untracked files too. A fresh Issue-NNN/ dir from
     # pull.sh this cycle is entirely untracked; the old `git diff` guard saw only
     # tracked modifications and silently skipped the commit.
-    if [ -n "$("$DEVAGENT_GIT" status --porcelain)" ]; then
-        "$DEVAGENT_GIT" add -A
+    # #611: scoped to devdoc_dir (`-- .`): from a subdirectory of the devDoc
+    # repo an unscoped -A stages the WHOLE worktree, including a workflow
+    # register at the repo root left dirty by a concurrent session.
+    if [ -n "$("$DEVAGENT_GIT" status --porcelain -- .)" ]; then
+        "$DEVAGENT_GIT" add -A -- .
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
             commit -m "devdoc: $issue_arg cleanup"
         if "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then
