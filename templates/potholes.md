@@ -27,6 +27,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An error-suppressing flag (`-ErrorAction SilentlyContinue`, `2>/dev/null`) collapses ABSENT and CANNOT-DETERMINE into one empty result → never let it stand between you and a state claim; report "undetermined" when the query can fail for permission reasons (fleet Issue-73).
 - `${s%%"$m"*}` yields the prefix of the FIRST match → per-occurrence attribution over `grep -o` output needs a per-line cursor, and a same-text-twice-on-one-line fixture (Issue-583).
 - A helper that prints its diagnostic to stdout AND returns non-zero inside a `$(...)` capture under `set -e` is silent — the caller aborts at the assignment before printing what it captured → route the diagnostic to stderr (Issue-583).
+- A script that writes then commits must snapshot before the write and restore on any post-write failure, dying with the staging record still pending — otherwise the retry defers on its own dirt forever (Issue-586).
 
 ## Test discipline (born-red / vacuous pass)
 - A probe over a multi-VERSION source must tag WHICH version each transcribed value came from — an untagged reading silently binds a golden to the wrong version, and every downstream expectation inherits it (lawFirm Issue-9).
@@ -162,6 +163,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A rebase invalidates every SHA the workflow pinned — baseline, evidence head, prose commit refs — as a SET; re-derive them all and re-run the evidence validator, or the checker lies in both directions (Issue-466).
 - A CLI that resolves scope from an ambient pointer acts on the wrong target whenever that pointer names other work -> pass the scope explicitly; the warning line is the only signal, and a run that is not a no-op edits the wrong project silently (lectio Issue-7).
 - A scope-pinning env var can redirect a state read to a per-context table, so a top-level key is never consulted and the "recorded tree" silently falls back to the configured one → set the CONTEXT-scoped key and print the resolver's own output before trusting the run (Issue-570).
+- A write into the shared source tree that no workflow step commits is a loss, not a delay: name the committing step, or stage to a per-issue file and drain it from the step that owns the base branch (Issue-586).
+- Path-containment rails must canonicalise both sides (cd && pwd -P) before comparing — Git Bash /c/… never equals c:/… — and an unresolvable side must die, not degenerate the glob to /* (Issue-586).
 
 ## Sweeps / fix-at-source / sibling sites
 - A cache/warm tier added beside a primary path must emit the primary's fields FIELD-FOR-FIELD, and its validator must assert TRUTH (the named file exists and names its own key), never presence — a presence check re-creates the divergence one level up (lawFirm Issue-9).
@@ -306,6 +309,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A "mechanical sweep" premise is only as good as a census taken at HEAD → make the census the first plan task and route every falsified premise through question-return, not a guessed fix (Issue-584).
 - An operator approval is pinned to the ARTIFACT VERSION it was given on — a later redeploy to the same URL, even a presentation-only one, leaves the approval covering something nobody reviewed → record the delta and re-invite review before the irreversible act the approval gates (Issue-462).
 - An evidence/verification script older than the fix that scopes it cannot honour that scope no matter which input you set → grep the TOOL for the fix's function before debugging its inputs; a stale clone runs the pre-fix resolver (Issue-570).
+- A detector over historical prose is designed from the live corpus, not the imagined one: grep every line it will run on and pin a must-trip and a must-not-trip case from real entries (Issue-586).
+- A machine-parsed log field gets exactly one spelling per outcome and is never subject to the prose deny-list; the step's own arithmetic (0, none) must map to the non-claim spelling (Issue-586).
 
 
 ## Docs / edit-neighborhood hygiene
