@@ -12,6 +12,22 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **Core-skill script calls no longer prompt mid-chain (#584).** The #548
+  composite grant now sits on the 10 `core-*` skills whose bodies make a
+  plugin-script call (census at `fea468e`: 13 calls; the four judgment-only
+  core skills make none and stay grant-less), taking the Bash-grant carrier
+  count from 57 to 67. Two body corrections rode along, both behavior-
+  preserving: the seven `checklist-log.sh` invocations are emitted in the
+  `bash "..."` form the literal-prefix matcher can match (the bare form never
+  matched and also relied on an exec bit Git Bash cannot set), and the three
+  fork skills' fallback `scripts/state.sh` instruction - a path that never
+  existed - now names `scripts/where.sh`. A hermetic probe ladder measured
+  `allowed-tools` on a SKILL.md as additive (a per-skill auto-approve list, not
+  a ceiling) and confirmed the grant reaches a `context: fork` skill's
+  dispatched agent, so the bare pair ships with no per-file tool lists. The
+  drift guard gains a body-call => grant implication canary with the subject
+  set pinned by name and a mutation control that enters through the guard.
+
 - **The `## Workflow flags` scanner is fence-aware, and its silent losses now
   warn on every pull (#582).** A fenced code block in an issue body — the
   natural way to DOCUMENT the grammar — parsed as live config: a fenced

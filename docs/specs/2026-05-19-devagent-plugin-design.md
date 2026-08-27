@@ -947,8 +947,10 @@ skill files, summarized here so the mechanism is discoverable:
   5/16/17 ⇒ agent default, §7.4 rung 5). **Steps 5, 16 and 17 are bound
   structurally** (#458/#527): `skills/core-improve`, `skills/core-redmr` and
   `skills/core-preship` carry
-  `context: fork` + `agent: devagent:<agent>`, so invoking the skill IS the
-  fresh-context dispatch — the harness supplies the agent's system prompt, its
+  `context: fork` + `agent: devagent:<agent>` (plus, since #584, the #548
+  script grant in `allowed-tools`, which the probe ladder showed reaches the
+  dispatched agent's own script calls without acting as a tool ceiling), so
+  invoking the skill IS the fresh-context dispatch — the harness supplies the agent's system prompt, its
   pinned effort, and its Write/Edit denial, instead of the mechanism depending
   on the model choosing to spawn a generic subagent correctly. (The model
   default is wrapper-carried, not agent-pinned — §7.4 rung 5 has the measured

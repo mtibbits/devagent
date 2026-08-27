@@ -58,7 +58,7 @@ earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223
 `${CLAUDE_PLUGIN_ROOT}` substitutes inside `allowed-tools`, and devAgent ships the
 probe-verified quoted grant form
 `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)`
-that matches the quoted script invocations the command bodies emit (#548 decision doc).
+that matches the quoted script invocations the command bodies emit (#548 decision doc). Since #584 the same grant sits on every `core-*` skill whose body makes a script call, so an `--auto` chain does not stall on a step-internal call either (the four judgment-only core skills make none and carry no grant).
 On older Claude Code (measured at 2.1.211 in #533, where the substitution does not fire;
 older versions are untested but assumed the same, and the exact landing version between
 2.1.211 and 2.1.223 is unmeasured, so intermediate versions may or may not prompt)
