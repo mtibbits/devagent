@@ -12,6 +12,16 @@ setup() {
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 x
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
+    # #586: the register must resolve to a FIXTURE (never the plugin default —
+    # the drain would write the repo's real templates/potholes.md). Written
+    # BEFORE the devdoc seed commit so the existing tests' devdoc diff is
+    # unchanged. Seed citations are never Issue-1 (the issue under test).
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '# Pothole register' '' \
+        '## Bash exit-status & control flow' '- an existing line (Issue-7).' '' \
+        '## Docs / edit-neighborhood hygiene' '- another existing line (Issue-8).' \
+        > "$DEVDOC_DIR/templates/potholes.md"
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVDOC_DIR/templates/potholes.md"
     ( cd "$DEVDOC_DIR" \
       && git -c init.defaultBranch=main init -q \
       && git config user.email t@example.com \
@@ -240,4 +250,47 @@ SH
     # Behavior unchanged: pointer cleared + closeout stamped.
     grep -q '^active_issue *= *""' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
     grep -q '^last_step_name *= *"cleanup"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "#586: cleanup DIES before the tree restore when a promotion claim is unbacked" {
+    printf '%s\n' '- 2026-08-01 10:00  lessonslearned: lessonsLearned.md written: 4 entries; 2 patterns promoted to potholes register' \
+        >> "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"CLAIMS a register promotion"* ]]
+    # died BEFORE the side effect: the tree is still on the issue branch
+    cur="$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )"
+    [ "$cur" = "feat/1-x" ]
+}
+
+@test "#586: cleanup drains a PENDING promotion after the restore and commits it on the base branch" {
+    mkdir -p "$SOURCE_DIR/templates"
+    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
+    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
+        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -q 'a neutral line (Issue-1).' "$SOURCE_DIR/templates/potholes.md"
+    run bash -c "cd '$SOURCE_DIR' && git log -1 --format=%s"
+    [[ "$output" == "chore: promote pothole-register entries from #1" ]]
+    cur="$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )"
+    [ "$cur" = "main" ]
+    grep -q '^status: applied' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
+}
+
+@test "#586: a DEFERRED drain (dirty register) warns and completes cleanup" {
+    mkdir -p "$SOURCE_DIR/templates"
+    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
+    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
+        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    printf '%s\n' '- foreign (Issue-3).' >> "$SOURCE_DIR/templates/potholes.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]                       # a deferral is not a failure
+    [[ "$output" == *pending* ]]
+    grep -q '^status: pending' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
 }
