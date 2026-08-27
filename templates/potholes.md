@@ -119,6 +119,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A fix that silences a false-positive diagnostic can disarm the loss-direction guard it shares state with — in a warn-only channel a false negative is strictly the worse trade → re-run the loss-direction fixtures before committing any "stop warning here" change, and add the "still warns there" negative in the same commit (Issue-582).
 - An inverse mutation that leaves the suite GREEN says the guard is unpinned, not over-guarded → add the negative fixture it lacks, and reject a plan row whose must-redden column is empty at tighten time (Issue-582).
 - A mutation row that goes inert after a later fix has found dead code → remove the code, retire the row with its reason recorded, and confirm its guard is still pinned by another row (Issue-582).
+- When the operative call is silent on success, an ALLOW read is only the ABSENCE of the deny string → pair the stream read with a side-effect check so a no-op cannot false-pass (Issue-584).
+
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -182,6 +184,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An allow-list entry that matches nothing is a permanently open hole -> assert every entry is actually DETECTED, not merely permitted (Issue-5).
 - Duplicating a seam rather than coupling to it makes every guard the twin has and this copy lacks a live defect → diff the twin's guards line-by-line at implementation time and record the union, not the shape (lawFirm Issue-7).
 - A follow-up that NAMES a duplicated seam is a seam half-remembered → enumerate the guards to carry across, or the factoring closes the seam while leaving open the very gap that raised its priority (lawFirm Issue-7).
+- A permission matcher can refuse a MULTI-LINE command whose first line prefix-matches the grant → a snippet's emission shape (prefix, quoting, AND line count) is part of the grant contract; sweep for backslash-continued forms alongside quoting drift (Issue-584).
+
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -206,6 +210,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A scheduled job on battery-powered hardware silently does not run under default power settings → pass the run-on-battery flags explicitly and sweep EVERY installer that registers a task, since one home fixed is how the other drifts (fleet Issue-73).
 - A fail-closed gate keyed on a PRESENCE proxy ("a test directory exists") blocks every project the proxy misfires on, and its own comment admitting the proxy is conservative does not make it harmless → key it on a content probe, and record which branch it took inside the artifact so a reader can tell a full-fidelity run from an unverified one (Issue-4).
 - A guard whose own comment admits it is guesswork ships a hole whose cheapest repair is to widen it -> when the comment explaining a deferral is longer than the fix, take the fix, and re-open a deferral whose premise ("that would be new machinery") turns out false (lectio Issue-7).
+- A hermetic harness that isolates only the tool's CONFIG dir still resolves the tool's STATE home → give the ladder a scratch state root with a fixture positioned at the step under test, restore it between runs, and record it in every stream artifact (Issue-584).
+
 
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
@@ -226,6 +232,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A fix answering a VACUITY finding ("your guard cannot fire") is the highest-risk fix class — the old failure and the new one are both invisible to a green suite -> re-dispatch the gate that raised it rather than self-certifying the repair (lawFirm Issue-6).
 - When a claim is "this later commit changed nothing observable", REPLAY it rather than reading the argument — regenerating the artifact at the new SHA converts an inspection argument into byte-identical evidence, usually cheaply (lawFirm Issue-7).
 - Content rewritten AFTER the only semantic review carries mechanical re-verification only, and a random sample is no likelier to hit it → emit a derived changed-line manifest that points the human gate at exactly those lines (lawFirm Issue-11).
+- A fork skill probed from a bare headless prompt measures the prompt's missing Skill-tool grant, not the fork → model the real wrapper→fork dispatch path in the fixture (Issue-584).
+
 
 ## Premise freshness / contracts / classification
 - A working tree checked out on a SIBLING'S unmerged branch makes every file read answer "what does this branch have", not "what does the baseline have" → resolve each baseline claim via `git show <baseline>:<path>` explicitly; the misread recurs per convention consulted, not once (lawFirm Issue-9).
@@ -285,6 +293,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A closed allow-list that blocks invented references can steer a generator to a wrong-but-allowed one when the true referent is absent → absent-referent claims carry only their source-of-record token, and check named-reference/token agreement (lawFirm Issue-11).
 - An evidence probe whose DEFAULT output path is its canonical committed artifact clobbers the round the moment any later session re-runs it → defaults refuse to overwrite; re-takes require an explicit round-tagged out-path (lawFirm Issue-11).
 - A portability constraint a plan asserts ("POSIX only", "works on the minimal implementation") is a claim until the constrained implementation runs it → shim it into PATH, run every fixture, record the transcript in the evidence artifact, and repeat after each change to the constrained code (Issue-582).
+- A per-file tool allow-list can be ADDITIVE, not a ceiling → prove it with a grant-less control before adding tools to "restore" a ceiling; a listed tool is a widening (Issue-584).
+- A "mechanical sweep" premise is only as good as a census taken at HEAD → make the census the first plan task and route every falsified premise through question-return, not a guessed fix (Issue-584).
+
 
 ## Docs / edit-neighborhood hygiene
 - A corrected derived figure reaches the paragraph that was quoted back, not its other homes -> after correcting a number, grep the whole artifact directory for the OLD value; a file contradicting itself two screens apart still books the wrong row green (lawFirm Issue-5).
