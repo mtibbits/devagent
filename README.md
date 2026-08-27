@@ -371,6 +371,38 @@ fail-closed property is unweakened. `born-red.sh` resolves the interpreter the s
 (both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
 at all — an unmeasurable baseline is not a red one.
 
+### Writing a new test file
+
+Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
+developer's shell must not change a verdict. `tests/lib/hermetic-env.bash` is the
+single home for that — it unsets the #240 session pins and neutralizes a hostile
+global gitconfig, `TZ`, and locale. How a file gets it depends on its shape:
+
+- A file that `load`s a setup layer (`load 'lib/bats-helpers'`, `load 'helpers/fixtures'`)
+  inherits the guard from that layer. Nothing to do.
+- A **bare-setup** file — one that `load`s nothing — must source it directly, at file
+  scope, in column 0:
+
+  ```sh
+  . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+  ```
+
+  At file scope, not inside a test body: `tests/lib_setup_layers.bats` anchors its
+  check to column 0, because a line indented inside `if false; then … fi` would
+  otherwise read as guarded.
+
+`tests/lib_setup_layers.bats` enforces both arms and fails naming the file and the
+line to add. A file that genuinely must vary what the guard pins — today only
+`tests/locale-registration.bats`, which varies `LC_ALL` on purpose — goes in that
+file's `HERMETIC_EXEMPT` array as `name|reason`, with the reason machine-checked. The
+list is capped at two: a third entry refuses, because a growing exemption list is a
+backlog wearing the costume of a decision.
+
+A test that shells out to the `claude` CLI takes a live dependency on the developer's
+machine. `tests/doctor-hermetic.bats` enforces that any file invoking `scripts/doctor.sh`
+loads `tests/lib/doctor-harness.bash`, which PATH-shadows `claude` with a deterministic
+stub; loading the harness installs the stub, so the two cannot drift apart.
+
 ## Git hooks (opt-in)
 
 CI gates `tests/*.bats` against shellcheck **SC2314** — "In bats, `!` does
