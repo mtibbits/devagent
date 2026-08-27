@@ -32,8 +32,8 @@ disk and state:
 
 1. The invoking session names the PROJECT and ISSUE DIR. If it did not, resolve
    them: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/where.sh" "${DEVAGENT_ACTIVE_PROJECT:-<project>}"`
-   (prints `Active issue: Issue-N`; the issue dir is `<devdoc>/<dir_prefix>Issue-N`,
-   both keys from `[project.<name>]` in `~/.claude/devagent/config.toml`; an env-pinned session exports
+   (prints `Active issue: Issue-N`; the issue dir is `<devdoc_dir>/Issue-N`, where
+   `devdoc_dir` is the project's key in `~/.claude/devagent/config.toml`; an env-pinned session exports
    `DEVAGENT_ACTIVE_PROJECT` / `DEVAGENT_ACTIVE_ISSUE`, which take precedence).
 2. Read `<issue-dir>/issue.md` (the acceptance criteria under verification) and
    `<issue-dir>/mr.md` (the claims you cross-check).
