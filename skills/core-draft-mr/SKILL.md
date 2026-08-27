@@ -115,8 +115,7 @@ fill template stub only?" rather than skipping outright.
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" draftmr \
-  "mr.md drafted from mr_template.md (template source: $TEMPLATE_PATH); note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" draftmr "mr.md drafted from mr_template.md (template source: $TEMPLATE_PATH); note: $NOTE"
 ```
 
 ## Templates referenced

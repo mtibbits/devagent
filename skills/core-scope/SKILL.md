@@ -103,8 +103,7 @@ docs/chore and the questions don't apply, surface that explicitly:
 After completion:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" scope \
-  "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" scope "Scope evaluation appended; N ambiguities, M preconditions, size=X LOC; note: $NOTE"
 ```
 
 The format above is contract: `statusreport.sh` (via

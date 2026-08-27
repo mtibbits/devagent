@@ -95,8 +95,7 @@ notes still have value for lessons-learned.
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" impact \
-  "impact.md written: Q quantifiable claims, L qualitative notes; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" impact "impact.md written: Q quantifiable claims, L qualitative notes; note: $NOTE"
 ```
 
 ## Templates referenced
