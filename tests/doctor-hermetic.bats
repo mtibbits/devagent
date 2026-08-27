@@ -15,35 +15,31 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # shape, and exclude self by name rather than by accident.
 #
 # Tracked set, NUL-delimited, with :(glob) magic so `*` cannot cross `/` (#566).
+# THE predicate, in one place. Both _doctor_invokers and the shape probe below call
+# this — deliberately, and the reason is the whole point of the probe: an earlier
+# version had the probe grep its own private copy of this expression, so narrowing the
+# selector left every test green and the probe "pinning the seven shapes" pinned
+# nothing. A guard that tests a copy of the thing it guards is not a guard.
+#
+# Deliberately broad: any non-comment line naming the path enrols the file. Two
+# narrower predicates each lost real invocation shapes —
+#   `\b(run|bash|exec)\b.*/doctor\.sh`   missed  out=$(…)  and  if …; then
+#   the regex that replaced it            missed  "$SCRIPTS"/doctor.sh
+#                                                 "${SCRIPTS}"/doctor.sh
+# and the second was committed AS a widening. Over-matching costs one spurious `load`
+# line in a file that only mentions the script; under-matching costs a silent
+# machine-dependent test, which is the class this issue exists to close.
+_names_doctor_sh() {
+  grep -vE '^[[:space:]]*#' "$1" | grep -qE '/doctor\.sh'
+}
+
 _doctor_invokers() {
   local f
   while IFS= read -r -d '' f; do
     [ "${f##*/}" = "${BATS_TEST_FILENAME##*/}" ] && continue      # never self (see below)
-    # Match the PATH, on any non-comment line — deliberately the broadest possible
-    # predicate, after two narrower ones each missed real invocation shapes:
-    #   `\b(run|bash|exec)\b.*/doctor\.sh`  missed  out=$(…) and `if …; then`
-    #   the regex that replaced it            missed  "$SCRIPTS"/doctor.sh
-    #                                                 "${SCRIPTS}"/doctor.sh
-    # The second was committed AS a widening and was in fact a narrowing, because
-    # `[^"]*` cannot cross a closing quote. Both misses are the same failure: a file
-    # takes a live `claude plugin list` dependency and the canary stays green.
-    #
-    # So: stop trying to describe an invocation. Any non-comment line naming the path
-    # enrols the file. Over-matching costs one spurious `load` line in a file that
-    # only mentions the script; under-matching costs a silent machine-dependent test,
-    # which is the defect class this whole issue exists to close. The `_shape_probe`
-    # test below pins the seven shapes, so the next person to "improve" this regex
-    # finds out immediately.
-    #
-    # Self-exclusion IS required here, and that is a consequence of the broad
-    # predicate: this file carries the path on non-comment lines, in the _SHAPES
-    # fixtures below. An earlier narrow selector excluded this file by construction,
-    # and the assertion that pinned that is gone — the shape probe replaces it and is
-    # a stronger guard, because it fails on a narrowing rather than only on a
-    # name-grep regression.
-    grep -vE '^[[:space:]]*#' "$REPO/$f" \
-      | grep -qE '/doctor\.sh' \
-      && printf '%s\n' "$f"
+    # Self-exclusion IS required, and is a consequence of the broad predicate: this
+    # file carries the path on non-comment lines, in the _SHAPES fixtures below.
+    _names_doctor_sh "$REPO/$f" && printf '%s\n' "$f"
   done < <(git -C "$REPO" ls-files -z -- ':(glob)tests/*.bats')
   return 0
 }
@@ -69,7 +65,7 @@ _SHAPES=(
     # parse bats. Writing a real test file here would also put the literal test-case
     # token inside this file, which bats' own parser scans for.
     printf '%s\n' "$shape" > "$tmp"
-    grep -vE '^[[:space:]]*#' "$tmp" | grep -qE '/doctor\.sh' || missed+=("$shape")
+    _names_doctor_sh "$tmp" || missed+=("$shape")
   done
   [ ${#missed[@]} -eq 0 ] || {
     echo 'selector MISSES these invocation shapes:' >&2
@@ -78,7 +74,7 @@ _SHAPES=(
   }
   # And it must still reject a file that merely NAMES the script in a comment.
   printf '%s\n' '# see scripts/doctor.sh for details' > "$tmp"
-  run bash -c "grep -vE '^[[:space:]]*#' '$tmp' | grep -qE '/doctor\.sh'"
+  run _names_doctor_sh "$tmp"
   [ "$status" -ne 0 ]
 }
 

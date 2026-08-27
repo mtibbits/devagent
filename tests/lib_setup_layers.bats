@@ -103,17 +103,42 @@ _bare_setup_files() {
   done < <(git -C "$REPO" ls-files -z -- ':(glob)tests/*.bats')
 }
 
+# THE predicate, in one place, so the probe below exercises the guard rather than a
+# copy of it. Anchored to column 0, which is where the sweep put all 41 of them: the
+# leading `[[:space:]]*` this replaced admitted an INDENTED match, including a guard
+# line inside `if false; then … fi` (#565: a source grep passes on disabled code), and
+# it was already hiding tests/hermetic-env.bats, which matched only on a line inside
+# its own test body and so read as guarded while running non-hermetic.
+_sources_guard() {
+  grep -qE '^(\.|source)[[:space:]].*hermetic-env' "$1"
+}
+
+@test "the guard predicate accepts a file-scope source and rejects a disabled one (#585)" {
+  # Fixtures, not the real tree: an inline predicate that only ever sees already-correct
+  # files cannot show it rejects the wrong ones. Sibling of the shape probe in
+  # doctor-hermetic.bats, added for the same reason — a guard that tests a copy of
+  # itself is not a guard.
+  local t="$BATS_TEST_TMPDIR/f.bats"
+  printf '%s\n' '. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"'        > "$t"
+  _sources_guard "$t"
+  printf '%s\n' 'source "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"'   > "$t"
+  _sources_guard "$t"
+  # Indented — the shape that let a disabled guard read as present.
+  printf '%s\n' '  . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"'      > "$t"
+  run _sources_guard "$t"; [ "$status" -ne 0 ]
+  # Inside a disabled branch.
+  printf '%s\n%s\n%s\n' 'if false; then' '  . "lib/hermetic-env.bash"' 'fi' > "$t"
+  run _sources_guard "$t"; [ "$status" -ne 0 ]
+  # Mentioned in a comment only.
+  printf '%s\n' '# source lib/hermetic-env.bash here'                   > "$t"
+  run _sources_guard "$t"; [ "$status" -ne 0 ]
+}
+
 @test "every BARE-SETUP bats file sources the hermetic-env guard (#585)" {
   local missing=() f
   while read -r f; do
     _exempt_names | grep -qx "$f" && continue
-    # Anchored to column 0, which is where the sweep put all 40 of them. The leading
-    # `[[:space:]]*` this replaced admitted an INDENTED match — including a guard line
-    # inside `if false; then … fi`, which a planted fixture confirmed keeps the class
-    # reading as closed while that file runs non-hermetic (#565: a source grep passes
-    # on disabled code).
-    grep -qE '^(\.|source)[[:space:]].*hermetic-env' "$REPO/tests/$f" \
-      || missing+=("$f")
+    _sources_guard "$REPO/tests/$f" || missing+=("$f")
   done < <(_bare_setup_files)
   # printf repeats its FORMAT once per argument, so a combined header+list would
   # print the header per file. Emit the header once, then the names.
