@@ -18,7 +18,10 @@ Per `commands/draft.md`.
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify checklist log has > 2 entries (otherwise nothing to learn from).
 3. Invoke `core-lessons-learned`. The skill calls
-   `scripts/checklist-log.sh`.
+   `scripts/checklist-log.sh`. `[pattern]` register promotions are STAGED
+   via `scripts/promote-potholes.sh --add` into
+   `<issue-dir>/potholes-promotion.md` (#586) — nothing is written to the
+   register at this step; `/devagent:cleanup` drains and commits it.
 
 ## Halt and ask if
 

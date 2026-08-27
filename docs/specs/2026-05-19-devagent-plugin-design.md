@@ -306,6 +306,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
+├── potholes-promotion.md   # #586: staged [pattern]→register lines; drained by cleanup
 ├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
@@ -576,7 +577,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue` |
+| 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 21 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
@@ -1397,7 +1398,7 @@ v1 artifact list:
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
-| `potholes` | draft (pothole register read → `## Potholes considered`, #286), lessonslearned (`[pattern]`→register promote) |
+| `potholes` | draft (pothole register read → `## Potholes considered`, #286), lessonslearned (`[pattern]`→register promote, staged via `promote-potholes.sh --add`), cleanup (pending-promotion drain, #586) |
 
 Migration on first install: existing files at
 `~/src/devAgent/{commitMessageTemplate,pr-redteam-prompt,PULL_REQUEST_TEMPLATE}.md`

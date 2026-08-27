@@ -120,7 +120,7 @@ order:
    the shipped defaults.
 
 Example keys: `imPlan_template` (step 2), `mr_template` (step 14),
-`potholes` (steps 2/22), `checklist-standard` (issue scaffolding). Inspect
+`potholes` (steps 2/22/23), `checklist-standard` (issue scaffolding). Inspect
 what resolves where with `/devagent:template list` and
 `/devagent:template show <key>`.
 
