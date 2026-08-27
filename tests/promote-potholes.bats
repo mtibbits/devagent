@@ -135,7 +135,7 @@ use_source_register() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"DEFER"* ]]
     # an unset source_dir must not fail the advisory open
-    sed -i "/^\[project.$TEST_PROJECT\]/,/^\[/{s/^source_dir .*$/source_dir = \"\/nonexistent\/nowhere\"/}" "$HOME/.claude/devagent/config.toml"
+    _devagent_toml set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" '"/nonexistent/nowhere"'
     run bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- another neutral line (Issue-1)."
     [ "$status" -eq 0 ]
     [[ "$output" == *"DEFER"* ]]
