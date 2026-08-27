@@ -277,6 +277,10 @@ case "${1:-}" in
             warn "promote-potholes: $repo is mid-merge (MERGE_HEAD present) — $issue_id stays pending; finish the merge and re-run --apply"
             exit 3
         fi
+        if [ -L "$target" ]; then                             # a link would write THROUGH the containment bound
+            warn "promote-potholes: $ly register $target is a symlink — refusing to write through it; $issue_id stays pending"
+            exit 3
+        fi
         mkdir -p "$(dirname "$target")"                     # empty dir: invisible to git
         rel="$(_canon "$(dirname "$target")")/$(basename "$target")"; rel="${rel#"$repo"/}"
         st="$("$DEVAGENT_GIT" -C "$repo" status --porcelain -- "$rel")"

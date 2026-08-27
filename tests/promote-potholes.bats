@@ -440,6 +440,18 @@ devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); 
     [ ! -e "$SOURCE_DIR/templates/potholes.md" ]
 }
 
+@test "--apply DEFERS (rc 3) on a SYMLINKED layer path (never writes through the containment bound)" {
+    mkdir -p "$DEVAGENT_TMP/elsewhere" "$DEVDOC_DIR/templates"
+    printf '# outside\n' > "$DEVAGENT_TMP/elsewhere/reg.md"
+    ln -s "$DEVAGENT_TMP/elsewhere/reg.md" "$PROJ_REG"
+    devdoc_commit link
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]
+    [[ "$output" == *symlink* ]]
+    run grep -q 'a neutral line' "$DEVAGENT_TMP/elsewhere/reg.md"; [ "$status" -ne 0 ]
+}
+
 @test "--apply DEFERS (rc 3) naming the lock when a second writer holds it; a stale lock is never swept by a devdoc commit" {
     bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
     mkdir -p "$PROJ_REG.lock"

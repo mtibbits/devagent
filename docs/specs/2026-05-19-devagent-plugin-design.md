@@ -120,6 +120,11 @@ ship_as_draft      = false               # default; overridable per-project and 
                                          #   dirty tree. Default off. A [project.<name>] git_guard
                                          #   value overrides this for the active project (#433).
 
+[paths]                                  # #611: GLOBAL top-level table (every project) — today one key
+potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pothole register; absolute after ~ expansion; default none
+# [project.<name>.paths] may override potholes_workflow, and may add
+# potholes_domain_nouns = ["matter", "docket"]   # words that mark a line as domain content (the workflow layer refuses them)
+
 [project.volk]
 source_dir       = "~/src/volk"
 source_remote    = "git@gitlab.com:mtibbits/volk.git"   # our fork
@@ -170,11 +175,6 @@ remove_others_in_namespace = "status:"
 coding_standards = "codingStandards.md"
 commit_template  = "commitMessageTemplate.md"
 # unspecified artifacts fall through to <devdoc>/templates/ then plugin templates/
-
-[paths]                                  # #611: GLOBAL file paths (every project) — today one key
-potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pothole register; ABSOLUTE; default none
-# [project.volk.paths] may override potholes_workflow, and may add
-# potholes_domain_nouns = ["matter", "docket"]   # words that mark a line as domain content (the workflow layer refuses them)
 
 [project.volk.step_models]               # optional model tiers per step class (#150/#151/#291); see §7.4
 checking = "opus"                        # improve(5) / review(15) / redmr(16) / preship(17)

@@ -209,6 +209,18 @@ CL
   [[ "$output" == *"OK   private-project fixture list covers config"* ]]
 }
 
+@test "doctor: potholes_workflow register row per project — not configured / absent / present (#611)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: not configured"* ]]
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" paths.potholes_workflow "\"$DA_HOME/wf.md\""
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: $DA_HOME/wf.md (absent"* ]]
+  printf '# WF\n' > "$DA_HOME/wf.md"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: $DA_HOME/wf.md"* ]]
+  [[ "$output" != *"(absent"* ]]
+}
+
 @test "doctor: a non-public project key absent from the fixture list WARNS (never fails) and names it (#611)" {
   python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.zzqnew.source_dir '"/tmp"'
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk

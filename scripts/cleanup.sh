@@ -11,6 +11,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
+. "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -163,9 +164,20 @@ if [ "$commit_devdoc" = "true" ]; then
     # tracked modifications and silently skipped the commit.
     # #611: scoped to devdoc_dir (`-- .`): from a subdirectory of the devDoc
     # repo an unscoped -A stages the WHOLE worktree, including a workflow
-    # register at the repo root left dirty by a concurrent session.
-    if [ -n "$("$DEVAGENT_GIT" status --porcelain -- .)" ]; then
-        "$DEVAGENT_GIT" add -A -- .
+    # register at the repo root left dirty by a concurrent session. The
+    # register LAYER FILES are the drain's to commit, never this commit's: a
+    # layer the drain DEFERred on (dirty/untracked — another session's edit)
+    # must not be swept here under devagent@local (#611 review). Exclude
+    # every layer path that lives under devdoc_dir.
+    _dc="$(pwd -P)"; excl=()
+    for _lp in "$(potholes_project_path "$project")" "$(potholes_workflow_path "$project" || true)"; do
+        [ -n "$_lp" ] && [ -d "$(dirname "$_lp")" ] || continue
+        _lpc="$(cd "$(dirname "$_lp")" && pwd -P)/$(basename "$_lp")"
+        case "$_lpc" in "$_dc"/*) excl+=(":(exclude)${_lpc#"$_dc"/}") ;; esac
+    done
+    unset _dc _lp _lpc
+    if [ -n "$("$DEVAGENT_GIT" status --porcelain -- . "${excl[@]}")" ]; then
+        "$DEVAGENT_GIT" add -A -- . "${excl[@]}"
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
             commit -m "devdoc: $issue_arg cleanup"
         if "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then

@@ -140,6 +140,19 @@ check_one_project() {
   [[ -z "$tpl" ]] && tpl="$(config_get_default checklist_template 2>/dev/null || echo standard)"
   check_template_resolves "$tpl" "$project"
 
+  # #611: the shared workflow pothole register, surfaced per project (a
+  # [project.<name>.paths] override may differ from the global [paths] key).
+  local wf
+  if ! wf="$(potholes_workflow_path "$project")"; then
+    check "potholes_workflow register" fail "lookup failed (a relative [paths] potholes_workflow, or an unreadable config) — see above"
+  elif [[ -z "$wf" ]]; then
+    check "potholes_workflow register: not configured ([paths] potholes_workflow — shared lessons cannot be staged)" ok
+  elif [[ -s "$wf" ]]; then
+    check "potholes_workflow register: $wf" ok
+  else
+    check "potholes_workflow register: $wf (absent — bootstrapped by the first --apply)" ok
+  fi
+
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
   if [[ -x "$hook" ]]; then

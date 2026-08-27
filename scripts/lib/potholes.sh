@@ -21,7 +21,7 @@
 # the distribute capture would otherwise satisfy EVERY project's Issue-42);
 # the seed, the project layer and temp files accept the bare form too.
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
-POTHOLES_CITE_TAIL_RE=' *\(([A-Za-z-]+ )?Issue-[A-Za-z0-9-]+\)\.$'
+POTHOLES_CITE_TAIL_RE=' *\(([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+\)\.$'
 potholes_cite_re() {   # <project> <issue_id> <layer>
   if [ "$3" = workflow ]; then printf '\\(%s %s\\)\n' "$1" "$2"
   else printf '\\((%s )?%s\\)\n' "$1" "$2"; fi
@@ -30,13 +30,17 @@ potholes_cite_re() {   # <project> <issue_id> <layer>
 potholes_seed_path() { printf '%s\n' "$(template_plugin_dir)/potholes.md"; }
 
 # The workflow/project paths cost 1-2 config reads (python3 spawns) each, and
-# one script run asks for them several times — memoised per project.
+# one script run asks for them several times — memoised per project. The memo
+# runs in the CALLER's shell (never inside a `$( )` or `< <( )`), so a lookup
+# failure dies loudly here instead of vanishing with a subshell (#611 review).
 _POTHOLES_MEMO_PROJECT=""; _POTHOLES_MEMO_WF=""; _POTHOLES_MEMO_PR=""
 _potholes_memo() {
   local project="$1" d
   [ "$_POTHOLES_MEMO_PROJECT" = "$project" ] && [ -n "$_POTHOLES_MEMO_PROJECT" ] && return 0
-  _POTHOLES_MEMO_WF="$(template_project_paths_override "$project" potholes_workflow)"
-  _POTHOLES_MEMO_PR="$(template_project_paths_override "$project" potholes)"
+  _POTHOLES_MEMO_WF="$(template_project_paths_override "$project" potholes_workflow)" \
+    || die "potholes: workflow register lookup failed for '$project' — see above"
+  _POTHOLES_MEMO_PR="$(template_project_paths_override "$project" potholes)" \
+    || die "potholes: project register lookup failed for '$project' — see above"
   if [ -z "$_POTHOLES_MEMO_PR" ]; then
     d="$(template_devdoc_dir "$project")"
     [ -n "$d" ] && _POTHOLES_MEMO_PR="${d%/}/templates/potholes.md"
@@ -48,10 +52,11 @@ potholes_project_path()  { _potholes_memo "$1"; printf '%s\n' "$_POTHOLES_MEMO_P
 
 # potholes_layer_files <project> — "<layer> <path>" per PRESENT file, seed first.
 potholes_layer_files() {
-  local project="$1" s w p
-  s="$(potholes_seed_path)";                [ -s "$s" ] && printf 'seed %s\n' "$s"
-  w="$(potholes_workflow_path "$project")"; [ -n "$w" ] && [ -s "$w" ] && printf 'workflow %s\n' "$w"
-  p="$(potholes_project_path "$project")";  [ -n "$p" ] && [ -s "$p" ] && printf 'project %s\n' "$p"
+  local project="$1" s
+  _potholes_memo "$project"
+  s="$(potholes_seed_path)"; [ -s "$s" ] && printf 'seed %s\n' "$s"
+  [ -n "$_POTHOLES_MEMO_WF" ] && [ -s "$_POTHOLES_MEMO_WF" ] && printf 'workflow %s\n' "$_POTHOLES_MEMO_WF"
+  [ -n "$_POTHOLES_MEMO_PR" ] && [ -s "$_POTHOLES_MEMO_PR" ] && printf 'project %s\n' "$_POTHOLES_MEMO_PR"
   return 0
 }
 
@@ -61,6 +66,7 @@ _potholes_layers_into() {
   local project="$1" line
   local -n _l="$2" _p="$3"
   _l=(); _p=()
+  _potholes_memo "$project"          # in THIS shell, before the process substitution below
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     _l+=("${line%% *}"); _p+=("${line#* }")
@@ -109,7 +115,7 @@ potholes_show_union() {
     FNR == 1 { i++; if (i > 1) print ""; printf "# layer: %s\n# source: %s\n\n", L[i], FILENAME }
     /^- / {
       k = $0
-      sub(/ *\(([A-Za-z-]+ )?Issue-[A-Za-z0-9-]+\)\.$/, "", k)
+      sub(/ *\(([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+\)\.$/, "", k)
       if (k in seen) next
       seen[k] = 1
     }

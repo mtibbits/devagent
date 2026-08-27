@@ -18,7 +18,7 @@ the auth doctor hook, auth-secret presence and reachability.
 
 Forward arguments verbatim.
 
-Two #611 rows, WARN only: `seed carries no private project name` runs the
+Per project, `potholes_workflow register: <path|not configured|absent>` names the shared workflow register the project resolves (FAIL on a relative path or unreadable config). Two global #611 rows, WARN only: `seed carries no private project name` runs the
 private-project-name predicate over the shipped `templates/potholes.md` for
 every non-public project key in the live config (the suite canary skips until
 the seed is curated; doctor is ungated), and `private-project fixture list

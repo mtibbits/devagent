@@ -100,9 +100,14 @@ teardown() { teardown_phase9_env; }
   run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
   [ "$output" = "${TEST_TMP}/proj-wf.md" ]          # project wins over global
   printf '[project.testproj]\ndevdoc_dir = "%s/devdoc"\nsource_dir = "%s/src"\n\n[paths]\npotholes_workflow = "relative/wf.md"\n' "${TEST_TMP}" "${TEST_TMP}" > "${TEST_TMP}/config.toml"
-  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
+  # The CLI form every production caller uses (a die inside $( ) only exits the subshell — #611 review):
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" --project "${DEVAGENT_TEST_PROJECT}" list
   [ "$status" -ne 0 ]
   [[ "$output" == *ABSOLUTE* ]]
+  [[ "$output" == *"potholes_workflow"*"layer=ERROR"* ]]
+  [[ "$output" != *"layer=unset"* ]]
+  run bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" --project "${DEVAGENT_TEST_PROJECT}" show potholes
+  [ "$status" -ne 0 ]
 }
 
 @test "no [paths] table → template_project_paths_override is empty, as today (#611 back-compat)" {

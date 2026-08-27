@@ -312,6 +312,13 @@ SH
     [[ "$output" == *pending* ]]
     grep -q '^status: pending' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    # #611 review: the DEFERred layer file is NOT swept by cleanup's own devdoc commit
+    run bash -c "cd '$DEVDOC_DIR' && git log -1 --format=%s"
+    [ "$output" = "devdoc: Issue-1 cleanup" ]
+    run bash -c "cd '$DEVDOC_DIR' && git show --stat --format= HEAD"
+    [[ "$output" != *"templates/potholes.md"* ]]
+    run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
+    [[ "$output" == " M templates/potholes.md" ]]            # the foreign edit is still theirs to commit
 }
 
 @test "#611: commit_devdoc=false → the drain DEFERS naming the flag and cleanup completes without any devdoc commit" {

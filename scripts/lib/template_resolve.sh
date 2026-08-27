@@ -68,7 +68,7 @@ template_project_paths_override() {
   if [ -z "${override}" ] && [ "${key}" = potholes_workflow ]; then
     local _grc=0
     override="$(config_get_global_path "${key}" 2>/dev/null)" || _grc=$?
-    [ "${_grc}" -le 1 ] || die "template_project_paths_override: global [paths].${key} lookup failed (rc ${_grc})"
+    [ "${_grc}" -le 1 ] || die "template_project_paths_override: global [paths].${key} lookup failed (rc ${_grc}: $([ -f "$(config_path)" ] && echo 'config unreadable/invalid TOML' || echo 'config file missing'))"
     if [ -n "${override}" ] && [ "${override#/}" = "${override}" ]; then
       die "template_project_paths_override: [paths].${key} must be an ABSOLUTE path (got '${override}') — a relative global path would name a different file per project"
     fi
@@ -106,7 +106,8 @@ template_resolve() {
   local project="$1" key="$2"
   local path
 
-  path="$(template_project_paths_override "${project}" "${key}")"
+  path="$(template_project_paths_override "${project}" "${key}")" \
+    || die "template_resolve: paths override lookup for '${key}' failed — see above"   # #611: a die inside \$( ) only exits the subshell
   if [ -n "${path}" ]; then
     if [ -f "${path}" ]; then
       printf 'path=%s\nlayer=project\n' "${path}"
@@ -157,7 +158,10 @@ template_list() {
   # #611: the workflow register has no plugin fallback, so it is not a KEYS
   # member (it would print MISSING on every project) — its own row kind.
   local w
-  w="$(potholes_workflow_path "${project}")"
+  if ! w="$(potholes_workflow_path "${project}")"; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow ERROR "(lookup failed — see stderr; a relative [paths] potholes_workflow or an unreadable config)"
+    return 1
+  fi
   if [ -z "${w}" ]; then
     printf '%-32s layer=%-7s %s\n' potholes_workflow unset "(not configured — [paths] potholes_workflow)"
   elif [ -s "${w}" ]; then
