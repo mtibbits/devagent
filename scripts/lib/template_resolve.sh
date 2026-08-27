@@ -154,12 +154,25 @@ template_list() {
       printf '%-32s layer=%-7s %s\n' "${key}" "MISSING" "(none)"
     fi
   done
+  # #611: the workflow register has no plugin fallback, so it is not a KEYS
+  # member (it would print MISSING on every project) — its own row kind.
+  local w
+  w="$(potholes_workflow_path "${project}")"
+  if [ -z "${w}" ]; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow unset "(not configured — [paths] potholes_workflow)"
+  elif [ -s "${w}" ]; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow workflow "${w}"
+  else
+    printf '%-32s layer=%-7s %s\n' potholes_workflow absent "${w} (bootstrapped by the first --apply)"
+  fi
 }
 
 # template_show <project> <key> — print resolved layer banner + file contents.
 template_show() {
   local project="$1" key="$2"
   local out p l
+  # #611: the register is a UNION of layers; one layer → today's form, below.
+  if [ "${key}" = potholes ] && potholes_show_union "${project}"; then return 0; fi
   if ! out="$(template_resolve "${project}" "${key}")"; then
     printf 'template_show: no template found for key: %s\n' "${key}" >&2
     return 1
@@ -170,3 +183,7 @@ template_show() {
   printf '# source: %s\n\n' "${p}"
   cat "${p}"
 }
+
+# #611: layer helpers for the potholes register (need the functions above).
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/potholes.sh"
