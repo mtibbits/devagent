@@ -32,6 +32,27 @@ tag`) will get their own dated sections below.
   drift guard gains a body-call => grant implication canary with the subject
   set pinned by name and a mutation control that enters through the guard.
 
+- **Draft's rc-2 (`inherit`) path is decided — stay inline, final, and pinned
+  (#583).** `docs/draft-dispatch-contract.md` and `commands/draft.md` shipped
+  the stay-inline choice as an open question (#561 review F1) and named
+  dispatch-with-`model: inherit` as the alternative; no test pinned either
+  reading. Ratified: `inherit` is the operator's escape from a project pin back
+  to the class's default shape, and the thinking class's default is inline at
+  the session model (the checking class dispatches on rc 2 only because its
+  default shape is a fresh-context fork). No behavior changes; the one wording
+  CORRECTION is §7.5, which said dispatch keys on a *non-empty* thinking tier — a
+  config-table `inherit` is non-empty yet resolves rc 2 and never dispatched.
+  `tests/dispatch-contract.bats` now executes the contract's own resolution
+  snippet against fixtures for every exit code — the rc-0 case drives a KEYED
+  `.devagent-step-models` marker through the wrapper idiom, the first mechanical
+  consumption of the keyed form (#561 DoD-8) — and pins the draft snippet
+  byte-equal to the checking-class one. The #561 class-map sweep guard
+  (`tests/generic-templates.bats`) now checks per-class ASSIGNMENT rather than
+  the union: a home whose numbers sit under the wrong key — within three lines
+  of an `implementation-model` / class-name anchor — fails, where the old union
+  check passed a swap; a restatement farther from any anchor is still
+  unattributed (the test states that limit; `UNATTR` reporting is the follow-up).
+
 - **The `## Workflow flags` scanner is fence-aware, and its silent losses now
   warn on every pull (#582).** A fenced code block in an issue body — the
   natural way to DOCUMENT the grammar — parsed as live config: a fenced
