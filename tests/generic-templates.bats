@@ -30,15 +30,22 @@ _class_assign() {
              "$REPO/templates/checklist-standard.md")
   # Guard the derivation like the class lists are guarded: an empty alternation
   # would make every pair invisible and red the sweep as a MISS storm with no
-  # named cause (#583 review, minor 6). Printed on STDOUT so the caller's `out`
-  # capture reports it as the drift line.
-  [ -n "$pairs" ] || { echo "ERR $f: no '<num> <name>' pairs derived from templates/checklist-standard.md"; return 1; }
+  # named cause (#583 review, minor 6). Printed on STDERR: the callers capture
+  # stdout with `out="$(_class_assign …)"`, and a non-zero return aborts the test
+  # at that assignment under `set -e` BEFORE anything captured is printed, so a
+  # stdout diagnostic would be swallowed (#583 redmr minor 4) — stderr survives.
+  [ -n "$pairs" ] || { echo "ERR $f: no '<num> <name>' pairs derived from templates/checklist-standard.md" >&2; return 1; }
   local -a L; mapfile -t L < "$f"
   local -A seen=()
-  local hit i occ pre win w s t best cls list tok from cnt
+  local hit i occ pre win w s t best cls list tok from cnt rest last=-1 cur=0
   while IFS= read -r hit; do                       # "<lineno>:<match>"
     i=$(( ${hit%%:*} - 1 )); occ="${hit#*:}"
-    pre="${L[i]%%"$occ"*}"
+    # grep -no reports a line's occurrences in order; a per-line cursor gives the
+    # Nth occurrence of the SAME text the Nth prefix, not the first one's — a
+    # swapped copy after an identical list on one line would otherwise inherit
+    # the first copy's anchor and never read as BAD (#583 redmr minor 7; dup.md).
+    [ "$i" -eq "$last" ] || { last=$i; cur=0; }
+    rest="${L[i]:cur}"; pre="${L[i]:0:cur}${rest%%"$occ"*}"; cur=$(( ${#pre} + ${#occ} ))
     from=$(( i >= 3 ? i - 3 : 0 )); cnt=$(( i - from ))
     printf -v win '%s\n' "${L[@]:from:cnt}"; win+="$pre"
     w="${win,,}"; cls=; best=-1
@@ -250,4 +257,9 @@ _class_assign() {
   printf '%s\n' '- implementation-model: <token>' '  steers 2 draft, 9 implement, 10 quality, 11 review, 14 draftmr' > "$m/mispair.md"
   out="$(_class_assign "$m/mispair.md" "$thinking" "$checking")"
   [[ "$out" == *"MISS "*"thinking-11"* ]] || { echo "a mis-paired name must surface as MISS: [$out]" >&2; return 1; }
+  # the same list twice on ONE line, the second copy under the other anchor: the
+  # per-line cursor must give the second copy its own prefix (#583 redmr minor 7)
+  printf '%s\n' '# Classes: thinking = steps 2 9 10 11 14; checking = steps 2 9 10 11 14 (swapped copy)' > "$m/dup.md"
+  out="$(_class_assign "$m/dup.md" "$thinking" "$checking")"
+  [[ "$out" == *"BAD "*"->checking"* ]] || { echo "a duplicated list under the second anchor on one line must read as BAD: [$out]" >&2; return 1; }
 }

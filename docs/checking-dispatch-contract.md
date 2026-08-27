@@ -41,6 +41,10 @@ Per-step deltas each wrapper supplies (nothing else varies):
    tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> <STEP> 2>"$err")"; rc=$?
    prov="$(cat "$err")"; rm -f "$err"
    ```
+   <!-- This fenced snippet is byte-pinned to the thinking-class (draft)
+        contract's by tests/dispatch-contract.bats, which requires exactly ONE
+        bash fence per contract file: add no second bash example here, and
+        reflow this snippet only together with its sibling (#583). -->
 
    (`$prov` is load-bearing: the per-issue provenance note arrives on stderr,
    and command substitution alone would discard it — the `(per-issue)` stamp

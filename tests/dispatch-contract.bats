@@ -238,18 +238,21 @@ _contract_carriers() {
 # #561 shipped the rc-2 choice as an open question in two homes and named the
 # inverse as a follow-up. Each home must now state the decision as final and no
 # longer call it open. One @test PER HOME (register: Issue-123 — a multi-assertion
-# guard reddens only at its first failing assert; per-home tests keep both homes
+# guard reddens only at its first failing assert; per-home tests keep each home
 # independently red-capable). Pinned as a CLAIM (a phrase family), not one
 # sentence (register: Issue-561 — a guard that reddens on improved wording trains
 # people to weaken guards). Known width of that trade: the positive leg also
 # admits wording like "stays inline until the final ruling" — it pins that the
-# decision is STATED with "final"; the negative leg is what bans the open-question
-# wording, file-wide (so an unrelated "provisional" reds it and names its line).
+# decision is STATED with "final"; the negative leg bans the open-question FAMILY
+# (not decided / undecided / TBD / to be decided / provisional), file-wide, so an
+# unrelated hit reds it and names its line. "open question" itself is NOT banned:
+# the contract legitimately records that #561 "shipped as an open question" (past
+# tense), so that phrase would self-red (#583 redmr minor 5).
 _assert_rc2_final() {  # <file>
   grep -qiE 'stays? INLINE[^.]*final' "$1" \
     || { echo "no final rc-2 decision stated in $1" >&2; return 1; }
-  run grep -ciE 'deliberately NOT decided|left undecided|provisional' "$1"
-  [ "$output" -eq 0 ] || { echo "$1 still calls the rc-2 decision open (banned wording, file-wide): $(grep -niE 'deliberately NOT decided|left undecided|provisional' "$1")" >&2; return 1; }
+  run grep -ciE 'not (yet )?decided|undecided|\bTBD\b|to be decided|provisional' "$1"
+  [ "$output" -eq 0 ] || { echo "$1 still calls the rc-2 decision open (banned wording, file-wide): $(grep -niE 'not (yet )?decided|undecided|\bTBD\b|to be decided|provisional' "$1")" >&2; return 1; }
 }
 
 @test "the rc-2 stay-inline decision is FINAL in the draft contract (#583)" {
@@ -258,6 +261,12 @@ _assert_rc2_final() {  # <file>
 
 @test "the rc-2 stay-inline decision is FINAL in the draft.md stub (#583)" {
   _assert_rc2_final "$REPO/commands/draft.md"
+}
+
+@test "the rc-2 stay-inline decision is FINAL in the spec §7.5 bullet (#583)" {
+  # the home this change newly enrolled in the claim — and, until the #583 red
+  # team, the one nothing guarded (register: fix-every-home-of-the-fact)
+  _assert_rc2_final "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
 }
 
 @test "the thinking-class resolution idiom is byte-aligned with the checking-class one (#583)" {

@@ -13,6 +13,10 @@ conversation".
    tier="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/step-model.sh" <project> 2 2>"$err")"; rc=$?
    prov="$(cat "$err")"; rm -f "$err"
    ```
+   <!-- This fenced snippet is byte-pinned to the checking-class contract's by
+        tests/dispatch-contract.bats, which also executes it per exit code and
+        requires exactly ONE bash fence per contract file: add no second bash
+        example here, and reflow this snippet only together with its sibling. -->
 
    (canonical step number 2; the thinking class).
 
@@ -56,7 +60,10 @@ conversation".
         dispatch-contract doc as a POINTER STUB rather than a full-contract
         carrier, so writing that filename anywhere in this file silently drops
         THIS file out of the asserted carrier set. Do not "helpfully" add it --
-        and note this comment cannot name it either, for exactly that reason. -->
+        and note this comment cannot name it either, for exactly that reason.
+        Nor may this file name the step-14 draft-MR command: the class-map sweep
+        in tests/generic-templates.bats selects the homes it checks by that
+        command's bare name, and this file would then count as a twelfth home. -->
 
    **Per-issue `.devagent-step-models` markers DO apply to this step (#561).**
    The KEYED marker form (`thinking: <token>`) covers the thinking class, so a

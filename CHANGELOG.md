@@ -28,8 +28,10 @@ tag`) will get their own dated sections below.
   consumption of the keyed form (#561 DoD-8) — and pins the draft snippet
   byte-equal to the checking-class one. The #561 class-map sweep guard
   (`tests/generic-templates.bats`) now checks per-class ASSIGNMENT rather than
-  the union: a home whose numbers sit under the wrong key fails, where the old
-  union check passed a swap.
+  the union: a home whose numbers sit under the wrong key — within three lines
+  of an `implementation-model` / class-name anchor — fails, where the old union
+  check passed a swap; a restatement farther from any anchor is still
+  unattributed (the test states that limit; `UNATTR` reporting is the follow-up).
 
 - **The `## Workflow flags` scanner is fence-aware, and its silent losses now
   warn on every pull (#582).** A fenced code block in an issue body — the
