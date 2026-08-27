@@ -23,7 +23,10 @@ teardown() { devagent_test_teardown; }
 
 # Move the register into the SOURCE repo (committed) so --apply owns the commit.
 use_source_register() {
-    use_source_register
+    mkdir -p "$SOURCE_DIR/templates"
+    cp "$REG" "$SOURCE_DIR/templates/potholes.md"
+    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg )
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
 }
 
 # --- floor -------------------------------------------------------------------
