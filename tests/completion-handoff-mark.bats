@@ -16,6 +16,8 @@
 # test scopes to them, and tests/handoff-single-source.bats enforces the skill
 # side is empty.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # All files carrying a Completion-handoff section (command-side only since #440).

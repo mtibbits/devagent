@@ -48,6 +48,8 @@
 # both .claude-plugin manifests, the design spec, docs-site/index.md). Budget
 # roughly an eight-site update, not a one-line one.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # A user-invocable skill = a SKILL.md whose FRONTMATTER `user-invocable:` is absent

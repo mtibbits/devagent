@@ -5,6 +5,8 @@
 # bare-path cite steers a reader to hand-edit the shared plugin copy (the #136
 # failure mode) instead of creating a project/devdoc override.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 @test "no bare plugin-path template cite outside the allowlist (#342)" {

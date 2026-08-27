@@ -4,6 +4,8 @@
 # class ship.sh's #148 gate EXCLUDES. Opt-in default-off, fail-open, fires once per
 # identical untracked state, respects .gitignore.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 HOOK="$REPO/hooks/preship-dirty-tree.sh"
 

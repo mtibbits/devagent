@@ -10,6 +10,8 @@
 # guards against false-positives on legitimate terse artifacts (the floor is
 # UNCONDITIONAL — it gates every carrier, including improve/review/redmr).
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 LINT="$REPO/scripts/dispatch-lint.sh"
 FX="$REPO/tests/fixtures/dispatch-lint"

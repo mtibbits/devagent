@@ -8,6 +8,8 @@
 # Motivation / Evidence / Reviewer notes (none in the template) and never
 # mentioned Related issues.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 SKILL="${REPO}/skills/core-draft-mr/SKILL.md"
 TEMPLATE="${REPO}/templates/mr_template.md"

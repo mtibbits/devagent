@@ -7,6 +7,8 @@
 # re-duplication check), the "14 dimensions" typo is fixed, and a monolithic
 # devdoc override still resolves and shadows all tiers (§12 registry migration).
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 T="$REPO/templates"
 SHARED="$T/redteam_issue_shared.md"

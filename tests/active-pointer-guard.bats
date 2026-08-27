@@ -4,6 +4,8 @@
 # fires ONLY under a DEVAGENT_ACTIVE_PROJECT env pin; defense-in-depth over the #282
 # script-layer gate.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 HOOK="$REPO/hooks/active-pointer-guard.sh"
 

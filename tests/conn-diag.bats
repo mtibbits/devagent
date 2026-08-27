@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 setup() { . "$BATS_TEST_DIRNAME/../scripts/lib/conn-diag.sh"; }
 
 @test "auth: HTTP 403 → auth message, rc0 (#269)" {

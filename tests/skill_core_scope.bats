@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 setup() {
   HARNESS="$BATS_TEST_DIRNAME/lib/skill-fixture-check.sh"
   SKILL="$BATS_TEST_DIRNAME/../skills/core-scope"

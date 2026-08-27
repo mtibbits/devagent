@@ -19,6 +19,8 @@
 #   - scripts/lib/checklist.sh         (no-project plugin-default checklist fallback, :25)
 # init.sh's `templates/config.toml.skel` is non-.md and excluded by the `.md` anchor.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # The one shared FLAG regex + allowlist filter, so the HEAD-green test and the

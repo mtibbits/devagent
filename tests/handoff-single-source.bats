@@ -5,6 +5,8 @@
 # reached via their command, whose copy drives the mark-done + STOP + CHAIN
 # handoff). This canary stops the 25-way duplication from re-growing.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 # Signatures that identify the block. The historical failure mode is a byte-
 # identical copy, so the structural literals catch the real risk; we also key on

@@ -5,6 +5,8 @@
 # This resolver is what every bats-invoking surface pins itself with.
 # Mechanism: README, "Running the test suite".
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
 setup() {

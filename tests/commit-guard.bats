@@ -4,6 +4,8 @@
 # only for a `git commit` missing -s when an issue is active for the resolved project
 # AND cwd is inside that project's source_dir.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 HOOK="$REPO/hooks/commit-guard.sh"
 

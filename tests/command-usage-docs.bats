@@ -3,6 +3,8 @@
 # accept (contracts re-derived from HEAD). Canary — pins each corrected form so
 # the docs can't drift back.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 C="$REPO/commands"
 
