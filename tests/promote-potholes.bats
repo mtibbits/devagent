@@ -104,6 +104,9 @@ use_source_register() {
     sed -i 's/register: 3 staged pending cleanup/register: none staged/' "$ID/checklist.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]
+    sed -i 's/register: none staged/register: 0 staged pending cleanup/' "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 0 ]                       # the skill's literal arithmetic; not a claim
 }
 
 @test "--check: the machine field is a claim even when free text carries a deny-list word" {
@@ -129,6 +132,11 @@ use_source_register() {
     cp "$REG" "$DEVAGENT_TMP/elsewhere.md"
     export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVAGENT_TMP/elsewhere.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DEFER"* ]]
+    # an unset source_dir must not fail the advisory open
+    sed -i "/^\[project.$TEST_PROJECT\]/,/^\[/{s/^source_dir .*$/source_dir = \"\/nonexistent\/nowhere\"/}" "$HOME/.claude/devagent/config.toml"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- another neutral line (Issue-1)."
     [ "$status" -eq 0 ]
     [[ "$output" == *"DEFER"* ]]
 }

@@ -107,7 +107,9 @@ case "${1:-}" in
             echo "     scripts/promote-potholes.sh --add. Applied to the resolved potholes"
             echo "     register by --apply, which cleanup.sh (step 23) runs after its tree"
             echo "     restore. Lines are appended VERBATIM at the END of the named section."
-            echo "     Do not hand-edit the status line. -->"
+            echo "     The status line is machine-written; the ONE sanctioned hand-edit is"
+            echo "     closing a DEFERRED cross-project entry after landing its lines by hand:"
+            echo "     status: applied by-hand <sha>. -->"
             echo
             echo "status: pending"
         } > "$stage"
@@ -116,8 +118,9 @@ case "${1:-}" in
     # Say NOW what --apply will do later: a register outside this project's repos
     # (another project's plugin-default register) is never written by the drain.
     _src="$(expand_tilde "$(config_get_project_field "$project" source_dir 2>/dev/null || true)")"
+    _src_c="$(_canon "$_src" || true)"; _doc_c="$(_canon "$devdoc_dir" || true)"
     case "$(_canon "$(dirname "$reg")" || true)" in
-        "$(_canon "$_src" || true)"/*|"$(_canon "$devdoc_dir" || true)"/*) ;;
+        "${_src_c:-/dev/null/none}"/*|"${_doc_c:-/dev/null/none}"/*) ;;
         *) warn "--add: register $reg is outside this project's source_dir/devdoc_dir — cleanup will DEFER (rc 3); land it by hand from the register's own repo (promote-potholes.sh $project --list-pending shows the backlog)" ;;
     esac
     # Plain append, in staging order; --apply tracks the current heading as it
@@ -135,7 +138,7 @@ case "${1:-}" in
               | grep -E '^- .*[[:space:]]lessonslearned:' | sed 's/; *note:.*$//' || true)"
         # The machine field is unconditional; only free text is subject to the
         # deferral deny-list (else "3 promoted, 1 candidate skipped" un-claims itself).
-        claim="$(printf '%s\n' "$ll" | grep -iE 'register: [0-9]+ staged' || true)"
+        claim="$(printf '%s\n' "$ll" | grep -iE 'register: [1-9][0-9]* staged' || true)"   # "0 staged" is not a claim
         free="$(printf '%s\n' "$ll" | grep -ivE 'register: [0-9]+ staged' \
                  | grep -iE 'promot.*(register|pothole)' \
                  | grep -ivE 'defer|refus|skip|not promoted|no promotion|not committed|none staged|candidate' || true)"
@@ -251,7 +254,7 @@ case "${1:-}" in
         if [ "$owner" = self ] && ! "$DEVAGENT_GIT" -C "$repo" commit -s -q \
             -m "chore: promote pothole-register entries from #${issue_n}" -- "$rel"; then
             cat "$tmp.orig" > "$reg"
-            die "--apply: commit failed in $repo — register restored, $issue_id stays pending (fix git identity/hooks and re-run --apply)"
+            die "--apply: commit failed in $repo — register restored, $issue_id stays pending (git identity/hooks, or a partial commit refused mid-merge — check MERGE_HEAD; then re-run --apply)"
         fi
     fi
     rm -f "$tmp" "$tmp.orig"; trap - EXIT

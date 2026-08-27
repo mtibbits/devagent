@@ -25,8 +25,9 @@ Per `commands/draft.md`.
    project whose register resolves to the plugin default (every project but
    devagent today) the drain DEFERS by design — `--add` warns, and the staged
    lines are landed by hand from the devagent tree (`promote-potholes.sh
-   <project> --list-pending` shows the backlog) until the cross-project
-   staging follow-up ships.
+   <project> --list-pending` shows the backlog) and the entry is closed by
+   the one sanctioned hand-edit of its status line, `status: applied by-hand
+   <sha>`, until the cross-project staging follow-up ships.
 
 ## Halt and ask if
 
