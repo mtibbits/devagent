@@ -18,22 +18,68 @@ REPO="${BATS_TEST_DIRNAME}/.."
 _doctor_invokers() {
   local f
   while IFS= read -r -d '' f; do
-    # Deliberately NO self-exclusion by filename. Keying on the invocation SHAPE is
-    # what keeps this file out of its own result set, and the assertion below pins
-    # that. An `[ "$f" = "$BATS_TEST_FILENAME" ] && continue` line would make the
-    # assertion unfalsifiable — it would pass even if the selector regressed to a
-    # bare name grep, which is the regression it exists to catch.
+    [ "${f##*/}" = "${BATS_TEST_FILENAME##*/}" ] && continue      # never self (see below)
+    # Match the PATH, on any non-comment line — deliberately the broadest possible
+    # predicate, after two narrower ones each missed real invocation shapes:
+    #   `\b(run|bash|exec)\b.*/doctor\.sh`  missed  out=$(…) and `if …; then`
+    #   the regex that replaced it            missed  "$SCRIPTS"/doctor.sh
+    #                                                 "${SCRIPTS}"/doctor.sh
+    # The second was committed AS a widening and was in fact a narrowing, because
+    # `[^"]*` cannot cross a closing quote. Both misses are the same failure: a file
+    # takes a live `claude plugin list` dependency and the canary stays green.
     #
-    # Strip comment lines FIRST, then look for the script path used as a COMMAND.
-    # `run "$X/doctor.sh"`, `run bash "$X/doctor.sh"`, `out=$("$X/doctor.sh" …)` and
-    # `if "$X/doctor.sh" …; then` are all invocations; a bare mention in prose is not.
-    # Keying on run/bash/exec alone missed the last two shapes, so a future file in
-    # either would have taken a live `claude plugin list` dependency invisibly.
+    # So: stop trying to describe an invocation. Any non-comment line naming the path
+    # enrols the file. Over-matching costs one spurious `load` line in a file that
+    # only mentions the script; under-matching costs a silent machine-dependent test,
+    # which is the defect class this whole issue exists to close. The `_shape_probe`
+    # test below pins the seven shapes, so the next person to "improve" this regex
+    # finds out immediately.
+    #
+    # Self-exclusion IS required here, and that is a consequence of the broad
+    # predicate: this file carries the path on non-comment lines, in the _SHAPES
+    # fixtures below. An earlier narrow selector excluded this file by construction,
+    # and the assertion that pinned that is gone — the shape probe replaces it and is
+    # a stronger guard, because it fails on a narrowing rather than only on a
+    # name-grep regression.
     grep -vE '^[[:space:]]*#' "$REPO/$f" \
-      | grep -qE '(\b(run|bash|exec)\b[^|]*|\$\(|`|^[[:space:]]*(if|while|until)\b[^|]*|^[[:space:]]*)"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?[^"]*/doctor\.sh' \
+      | grep -qE '/doctor\.sh' \
       && printf '%s\n' "$f"
   done < <(git -C "$REPO" ls-files -z -- ':(glob)tests/*.bats')
   return 0
+}
+
+# The shapes a contributor might plausibly write. Every one must enrol the file.
+# Kept beside the selector so a future rewrite is measured against them, not eyeballed.
+_SHAPES=(
+  'run "$SCRIPTS/doctor.sh" volk'
+  'run "$SCRIPTS"/doctor.sh volk'
+  'run "${SCRIPTS}"/doctor.sh volk'
+  'run bash -c "$SCRIPTS/doctor.sh volk"'
+  'out=$("$SCRIPTS/doctor.sh" volk)'
+  'if "$SCRIPTS/doctor.sh" volk; then :; fi'
+  'cd "$REPO/scripts" && run ./doctor.sh volk'
+)
+
+@test "the invoker selector matches every plausible invocation shape (#585)" {
+  # A selector that under-matches lets a file take a live `claude plugin list`
+  # dependency invisibly. Two successive regexes each missed shapes in this list.
+  local shape missed=() tmp="$BATS_TEST_TMPDIR/shape.txt"
+  for shape in "${_SHAPES[@]}"; do
+    # The fixture only has to carry the LINE — the selector greps lines, it does not
+    # parse bats. Writing a real test file here would also put the literal test-case
+    # token inside this file, which bats' own parser scans for.
+    printf '%s\n' "$shape" > "$tmp"
+    grep -vE '^[[:space:]]*#' "$tmp" | grep -qE '/doctor\.sh' || missed+=("$shape")
+  done
+  [ ${#missed[@]} -eq 0 ] || {
+    echo 'selector MISSES these invocation shapes:' >&2
+    printf '%s\n' "${missed[@]}" >&2
+    false
+  }
+  # And it must still reject a file that merely NAMES the script in a comment.
+  printf '%s\n' '# see scripts/doctor.sh for details' > "$tmp"
+  run bash -c "grep -vE '^[[:space:]]*#' '$tmp' | grep -qE '/doctor\.sh'"
+  [ "$status" -ne 0 ]
 }
 
 @test "every bats file invoking doctor.sh loads the doctor harness (#585)" {
@@ -64,11 +110,9 @@ _doctor_invokers() {
   grep -qx 'tests/doctor.bats'             "$BATS_TEST_TMPDIR/invokers.txt"
   grep -qx 'tests/doctor-recommended.bats' "$BATS_TEST_TMPDIR/invokers.txt"
   grep -qx 'tests/revise.bats'             "$BATS_TEST_TMPDIR/invokers.txt"
-  # And it must NOT select this file, whose text names doctor.sh repeatedly without
-  # ever running it. Asserted IN-PROCESS: `run bash -c '_doctor_invokers | …'` cannot
-  # see this file's functions, so it would pass on an empty pipeline regardless.
+  # The selector excludes this file explicitly, so assert that held.
   grep -qx "tests/${BATS_TEST_FILENAME##*/}" "$BATS_TEST_TMPDIR/invokers.txt" && {
-    echo 'selector self-matched — it is keying on the name, not the invocation shape' >&2
+    echo 'self-exclusion failed' >&2
     false
   }
   true

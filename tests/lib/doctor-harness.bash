@@ -117,6 +117,17 @@ EOF
   esac
 }
 
+# Install the quiet stub at SOURCE time (#585). The enrollment canary in
+# tests/doctor-hermetic.bats asserts a file LOADS this harness; without this line that
+# is not the same as asserting the stub is installed, so a file could load the harness,
+# forget to call stub_claude_cli, and take a live `claude plugin list` dependency while
+# the canary stayed green. Loading now IS the guarantee.
+#
+# `enabled` is the silent state, so it cannot perturb any caller's assertions. Callers
+# that exercise another state just call stub_claude_cli again — it is idempotent about
+# PATH. Guarded on BATS_TEST_TMPDIR so sourcing this file outside bats is inert.
+[ -n "${BATS_TEST_TMPDIR:-}" ] && stub_claude_cli enabled
+
 # Make `claude` unresolvable WITHOUT losing the rest of its directory (#585, from
 # Issue-541 review minor 9). The predecessor stripped every PATH DIRECTORY holding a
 # `claude`; on the author's machine ~/.local/bin also holds pytest, py.test, uv, uvx
@@ -128,7 +139,7 @@ EOF
 # consumer is the test named for it. A hard failure there would make that test's
 # verdict a function of the machine — precisely what this issue removes.
 curated_path_without_claude() {
-  local newpath="" d shadow entry n=0
+  local newpath="" d shadow entry n=0 dropped=0
   local IFS=:
   for d in $PATH; do
     [ -n "$d" ] || continue                       # an empty PATH element means CWD
@@ -148,13 +159,21 @@ curated_path_without_claude() {
       # whole issue removes. Paying ~1.2 s in that case is the lesser evil, and it is
       # the same order as the ~5 s this issue saves elsewhere.
       #
-      # Deliberately NOT `ln -s "$d"/*` — a claude-free glob would still miss dotfiles
-      # and would misbehave on an empty dir with nullglob off.
+      # Per-entry rather than one `ln -s "$d"/* "$shadow"/`, so a single failing link
+      # does not abort the rest. Known limit, stated rather than implied by a comment
+      # that claimed otherwise: `"$d"/*` does not match dotfiles, so a dot-prefixed
+      # executable in a claude-bearing dir is dropped from the curated PATH. No PATH
+      # dir on any supported setup has one; if that changes, add `dotglob`.
+      #
+      # A link that fails is COUNTED, not swallowed: a silently-missing binary makes
+      # the consuming test fail for a reason unrelated to claude, which is the kind of
+      # misdirection this issue exists to remove.
       for entry in "$d"/*; do
         [ -e "$entry" ] || continue               # unmatched glob
         [ "${entry##*/}" = claude ] && continue
-        ln -s "$entry" "$shadow/${entry##*/}" 2>/dev/null || true
+        ln -s "$entry" "$shadow/${entry##*/}" 2>/dev/null || dropped=$((dropped + 1))
       done
+      [ "$dropped" -eq 0 ] || echo "curated_path_without_claude: $dropped entry(ies) of $d could not be linked into the curated PATH" >&2
       newpath="${newpath:+$newpath:}$shadow"
       n=$((n + 1))
     else

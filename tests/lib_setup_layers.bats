@@ -8,10 +8,6 @@
 REPO="${BATS_TEST_DIRNAME}/.."
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
-# The #566 probe below plants an untracked .bats in tests/ to prove the enumerator
-# ignores it. Remove it here too: an interrupted run would otherwise leave a stray
-# file that the next `bats tests/` collects as a real test file.
-teardown() { rm -f "$REPO/tests/zzz-untracked-585-probe.bats"; }
 
 # Extract every `load <name>` directive from the given files, stripping an
 # optional wrapping quote. #428: the name may be BARE, single-quoted, OR
@@ -111,7 +107,12 @@ _bare_setup_files() {
   local missing=() f
   while read -r f; do
     _exempt_names | grep -qx "$f" && continue
-    grep -qE '^[[:space:]]*(\.|source)[[:space:]].*hermetic-env' "$REPO/tests/$f" \
+    # Anchored to column 0, which is where the sweep put all 40 of them. The leading
+    # `[[:space:]]*` this replaced admitted an INDENTED match — including a guard line
+    # inside `if false; then … fi`, which a planted fixture confirmed keeps the class
+    # reading as closed while that file runs non-hermetic (#565: a source grep passes
+    # on disabled code).
+    grep -qE '^(\.|source)[[:space:]].*hermetic-env' "$REPO/tests/$f" \
       || missing+=("$f")
   done < <(_bare_setup_files)
   # printf repeats its FORMAT once per argument, so a combined header+list would
@@ -151,16 +152,22 @@ _bare_setup_files() {
   run type -t _bare_setup_files
   [ "$output" = function ]
 
-  local stray="$REPO/tests/zzz-untracked-585-probe.bats"
-  printf '@test "x" { :; }\n' > "$stray"
+  # Prove the enumerator reads git without WRITING to the tree. The earlier version
+  # planted an untracked .bats in tests/ and removed it afterwards; an interrupt
+  # between those two points left a stray file that ship.sh's untracked gate refuses
+  # on and that the next `bats tests/` collects as real. A subset assertion fails on a
+  # filesystem glob for exactly the same reason and touches nothing.
   _bare_setup_files > "$BATS_TEST_TMPDIR/selected.txt"
-  rm -f "$stray"
-  grep -qx 'zzz-untracked-585-probe.bats' "$BATS_TEST_TMPDIR/selected.txt" && {
-    echo 'enumerator selected an UNTRACKED file — it is globbing the filesystem, not reading git' >&2
+  git -C "$REPO" ls-files -z -- ':(glob)tests/*.bats' \
+    | tr '\0' '\n' | sed 's|.*/||' | sort -u > "$BATS_TEST_TMPDIR/tracked.txt"
+  local strays; strays="$(comm -23 <(sort -u "$BATS_TEST_TMPDIR/selected.txt") "$BATS_TEST_TMPDIR/tracked.txt")"
+  [ -z "$strays" ] || {
+    echo 'enumerator selected files git does not track — it is globbing the filesystem:' >&2
+    printf '%s\n' "$strays" >&2
     false
   }
-  # Positive control: the same run must still have selected the tracked members, or
-  # the negative above is satisfied by an enumerator that returns nothing at all.
+  # Positive control: the negative above is also satisfied by an enumerator that
+  # returns nothing at all.
   grep -qx 'session-rehydrate.bats' "$BATS_TEST_TMPDIR/selected.txt"
 }
 

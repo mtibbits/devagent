@@ -84,6 +84,26 @@ print('OK')
   [ ! -e "$BATS_TEST_TMPDIR/LAUNCHED_WRONGLY" ]
 }
 
+@test "--emit-settings PLUS args emits to the named path AND launches (#585)" {
+  # The third documented usage form, and the one the emit_only predicate exists to
+  # distinguish from emit-alone. Tests 4 and 5 pin the other two; without this one the
+  # branch that the launcher's longest comment defends has no test.
+  local bin="$BATS_TEST_TMPDIR/bin3"; mkdir -p "$bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/argv3.txt"\necho LAUNCHED\n' \
+    "$BATS_TEST_TMPDIR" > "$bin/claude"
+  chmod +x "$bin/claude"
+  local out="$BATS_TEST_TMPDIR/both.json"
+  PATH="$bin:$PATH" run bash "$TOOL" --emit-settings "$out" -p hi
+  [ "$status" -eq 0 ]
+  [[ "$output" == *LAUNCHED* ]]
+  [ -s "$out" ]                                  # emitted to the NAMED path
+  run cat "$BATS_TEST_TMPDIR/argv3.txt"
+  [[ "${lines[0]}" == "--settings" ]]
+  [[ "${lines[1]}" == "$out" ]]                  # and launched with that same file
+  [[ "${lines[2]}" == "-p" ]]
+  [[ "${lines[3]}" == "hi" ]]
+}
+
 @test "the launcher refuses to run if claude is not on PATH (#585)" {
   # A missing binary must be a loud refusal, not a 127 the caller reads as a traversal
   # that found nothing (#316/#572).
