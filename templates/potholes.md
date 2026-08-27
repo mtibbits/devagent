@@ -24,6 +24,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Two same-exit-code states that some caller must distinguish → mint distinct exit codes at the SOURCE; caller-side stderr-prose parsing is unguardable (a phrase-grep pins words, not behavior) (Issue-458).
 - `cd "$(cmd)"` with an empty substitution SUCCEEDS in place, silently disarming a derived-path failure branch → capture the result and test non-empty before the cd (Issue-571).
 - A tool that documents status exit codes is judged by THEM — deriving ran/failed/could-not-run by parsing its summary prose breaks on field ordering and vocabulary (a two-state summary matched a one-state prefix and recorded a clean false green) (Issue-466).
+- `${s%%"$m"*}` yields the prefix of the FIRST match → per-occurrence attribution over `grep -o` output needs a per-line cursor, and a same-text-twice-on-one-line fixture (Issue-583).
+- A helper that prints its diagnostic to stdout AND returns non-zero inside a `$(...)` capture under `set -e` is silent — the caller aborts at the assignment before printing what it captured → route the diagnostic to stderr (Issue-583).
 
 ## Test discipline (born-red / vacuous pass)
 
@@ -74,6 +76,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A verification token the prompt demands back verbatim SURFACES on every rendered output → strip it after the verify step, pin every user-facing surface token-free, and never elide that surface's prose from the evidence artifact — the elision is why the one pass that ran it missed the leak (lawFirm Issue-14).
 - A "cannot be verified" state whose refusal lives only in the TEST SUITE fails open at runtime → put the fail-closed branch in the shipped code path and let the suite pin it, not carry it (lawFirm Issue-14).
 - A delta claim needs ONE metric at BOTH ends, named next to the number — pairing different instruments at baseline and tip made the correction wrong by its own stated method (Issue-466).
+- A LIMITS list is itself a set of claims: for every "surfaces as a miss, never as a pass" sentence, construct the input it describes and run the guard on it before shipping the sentence — the first such list shipped was wrong in the fail-open direction (Issue-583).
+- Prose that restates a machine-checked number (diff stat, SHA, commit count) goes stale on the next gate's commit → fill it from the same artifact/tree, at the same moment, as the machine-checked line (Issue-583).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -123,6 +127,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A def-time parameter default freezes an import-time value and defeats runtime redirection -> pass a None sentinel and resolve inside the function when the value can vary per run (Issue-107).
 - A fix landed mid-review inherits the plan's parallel-surface sweep obligations — enumerate the changed claim's prose homes for the FIX commit exactly as the plan did for its own tasks (Issue-123).
 - Before adding a probe/helper, grep for the QUESTION it decides, not the name you would give it — two implementations that can disagree about one question is the defect, and a fresh file's self-justifying rationale is unaudited (Issue-565).
+- When a change enrols a NEW home in a claim ("all N homes now state X"), the guard's asserted-home list must grow to N with it → derive the pin list from the claim, not from the pre-change test (Issue-583).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -156,6 +161,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A checker's prediction you cannot EXECUTE is still a finding — record it as an open risk, not as covered; a test line added but never run is not coverage (Issue-561).
 - Numbers in a shipping record are re-derived at the FINAL sha in the same pass that writes the record -> a count carried forward across even three commits shipped false twice (Issue-107).
 - Writing "see artifact X for Y" is a claim to VERIFY: open X and confirm Y is derivable there, and re-read a finding's own words before logging it addressed — a partial fix logged as complete is caught only by the next checker, if at all (Issue-550).
+- A feature the workflow itself consumes can be evidenced by enabling it on the issue that ships it → write the marker/flag into the issue's own working directory during implement so the later gates exercise it for free (Issue-583).
 
 ## Premise freshness / contracts / classification
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -223,6 +229,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - An outward checklist box is a falsifiable claim about the branch — derive each box from a command at the final SHA (trailer sweep, tip equality, count re-run); a box checked from memory ships a false certification the verifier will catch (Issue-119).
 - A residual honestly recorded in a deep artifact but absent from the maintainer-facing summary reads as CLOSED → whatever the deepest artifact admits, the MR body must admit too; deferring a class is fine, claiming it closed is not (fleet Issue-20).
 - A comment beside an assertion can claim more than the assertion buys → for each claim, name the input that makes THAT line fail first; if a neighbouring assertion always catches it first, say belt-and-braces (Issue-550).
+- An executed-doc test couples every doc it extracts from → announce the coupling INSIDE each coupled doc (an editor note beside the fence), not only in the test's failure message (Issue-583).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
