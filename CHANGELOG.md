@@ -21,7 +21,11 @@ tag`) will get their own dated sections below.
   `bash "..."` form the literal-prefix matcher can match (the bare form never
   matched and also relied on an exec bit Git Bash cannot set), and the three
   fork skills' fallback `scripts/state.sh` instruction - a path that never
-  existed - now names `scripts/where.sh`. A hermetic probe ladder measured
+  existed - now names `scripts/where.sh`. The live ladder also showed the
+  permission matcher refuses a backslash-continued (multi-line) command even
+  when its first line prefix-matches, so every continuation-form script
+  snippet in the tree (7 core skills, 8 step wrappers, 2 `capture.sh` sites)
+  is now a single line. A hermetic probe ladder measured
   `allowed-tools` on a SKILL.md as additive (a per-skill auto-approve list, not
   a ceiling) and confirmed the grant reaches a `context: fork` skill's
   dispatched agent, so the bare pair ships with no per-file tool lists. The
