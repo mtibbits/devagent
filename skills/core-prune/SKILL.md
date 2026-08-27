@@ -88,7 +88,7 @@ confirmation.
 ## Logging
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" prune \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" prune \
   "Pruned P items to imPlan-potentialFutureEnhancements.md; K tasks remain; note: $NOTE"
 ```
 

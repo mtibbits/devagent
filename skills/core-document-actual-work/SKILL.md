@@ -124,7 +124,7 @@ surface that this means no record of what was actually built.
 ## Logging
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" document \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" document \
   "actualWork.md written: D deviations, F follow-ups; note: $NOTE"
 ```
 
