@@ -43,6 +43,17 @@ config_get_project_field() {
   esac
 }
 
+# config_get_global_path <key> — #611: the top-level [paths] table. Global,
+# every-project file paths; today the only consumer is potholes_workflow (the
+# shared workflow register). Tilde-expanded like project paths.*; rc from
+# config_get (1 = absent) so callers' `|| true` keep working.
+config_get_global_path() {
+  local key="$1" val
+  [[ -n "$key" ]] || { echo "config_get_global_path: key required" >&2; return 2; }
+  val="$(config_get "paths.${key}")" || return $?
+  expand_tilde "$val"
+}
+
 config_list_projects() {
   _config_toml list-tables "$(config_path)" \
     | awk -F. '$1=="project" && NF==2 { print $2 }'

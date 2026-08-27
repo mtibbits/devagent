@@ -87,3 +87,26 @@ teardown() { teardown_phase9_env; }
 @test "imPlan_template carries the Potholes considered section (#286)" {
   grep -q '^## Potholes considered' "${DEVAGENT_REPO_ROOT}/templates/imPlan_template.md"
 }
+
+@test "global [paths] table is a fallback for potholes_workflow only, absolute paths only (#611)" {
+  printf '\n[paths]\nmr_template = "%s/mr.md"\npotholes_workflow = "%s/wf.md"\n' "${TEST_TMP}" "${TEST_TMP}" >> "${TEST_TMP}/config.toml"
+  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj mr_template"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]                                      # other keys never read the global table
+  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
+  [ "$status" -eq 0 ]
+  [ "$output" = "${TEST_TMP}/wf.md" ]
+  printf '\n[project.testproj.paths]\npotholes_workflow = "%s/proj-wf.md"\n' "${TEST_TMP}" >> "${TEST_TMP}/config.toml"
+  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
+  [ "$output" = "${TEST_TMP}/proj-wf.md" ]          # project wins over global
+  printf '[project.testproj]\ndevdoc_dir = "%s/devdoc"\nsource_dir = "%s/src"\n\n[paths]\npotholes_workflow = "relative/wf.md"\n' "${TEST_TMP}" "${TEST_TMP}" > "${TEST_TMP}/config.toml"
+  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *ABSOLUTE* ]]
+}
+
+@test "no [paths] table → template_project_paths_override is empty, as today (#611 back-compat)" {
+  run bash -c ". '${DEVAGENT_LIB}/template_resolve.sh'; template_project_paths_override testproj potholes_workflow"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}

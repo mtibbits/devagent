@@ -60,6 +60,19 @@ template_project_paths_override() {
   fi
   local override
   override="$(config_get_project_field "${project}" "paths.${key}" 2>/dev/null || true)"
+  # #611: the global [paths] table is a fallback for potholes_workflow ONLY
+  # (gating keeps the other keys off a second python3 spawn per resolve —
+  # measured 0.027 s each). rc is DISCRIMINATED, never `|| true`: 1 = absent
+  # (fine), anything else (127 = function not in this source-set, 2 = bad
+  # TOML) dies rather than silently dropping the rung (register Issue-316).
+  if [ -z "${override}" ] && [ "${key}" = potholes_workflow ]; then
+    local _grc=0
+    override="$(config_get_global_path "${key}" 2>/dev/null)" || _grc=$?
+    [ "${_grc}" -le 1 ] || die "template_project_paths_override: global [paths].${key} lookup failed (rc ${_grc})"
+    if [ -n "${override}" ] && [ "${override#/}" = "${override}" ]; then
+      die "template_project_paths_override: [paths].${key} must be an ABSOLUTE path (got '${override}') — a relative global path would name a different file per project"
+    fi
+  fi
   [ -n "${override}" ] || return 0
   if [ "${override#/}" != "${override}" ]; then
     printf '%s\n' "${override}"           # absolute
