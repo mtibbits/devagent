@@ -16,6 +16,56 @@
 
 REPO="${BATS_TEST_DIRNAME}/.."
 
+# #583: the rc cases at the end of this file need a project fixture (config +
+# state + issue dir) — the tests/step-model.bats pattern. The carrier sweeps
+# above read only $REPO and are unaffected.
+bats_require_minimum_version 1.5.0
+load 'helpers/common'
+setup() { devagent_test_setup; }
+teardown() { devagent_test_teardown; }
+
+DRAFT_CONTRACT="$REPO/docs/draft-dispatch-contract.md"
+CHECKING_CONTRACT="$REPO/docs/checking-dispatch-contract.md"
+
+_add_step_models() {  # $1 = TOML lines for the table body
+  printf '[project.%s.step_models]\n%s\n' "$TEST_PROJECT" "$1" \
+    >> "$HOME/.claude/devagent/config.toml"
+}
+_marker() { printf '%s' "$1" > "$DEVDOC_DIR/Issue-1/.devagent-step-models"; }
+
+# _contract_snippet <doc> — rule 1's fenced resolution idiom, extracted from the
+# contract ITSELF (so this test cannot drift from what the wrapper runs), with the
+# placeholders substituted for the fixture. Exactly ONE bash fence per doc is a
+# pinned precondition: a second fence would silently change what runs here.
+_contract_snippet() {
+  local doc="$1" n
+  n="$(grep -c '^ *```bash' "$doc")"
+  [ "$n" -eq 1 ] || { echo "expected exactly one bash fence in $doc, got $n" >&2; return 1; }
+  awk '/^ *```bash/{f=1;next} /^ *```/{if(f)exit} f{sub(/^ */,""); print}' "$doc" \
+    | sed -e 's|\${CLAUDE_PLUGIN_ROOT}|'"$REPO"'|g' \
+          -e 's|<project>|'"$TEST_PROJECT"'|g' \
+          -e 's|<STEP>|2|g'
+}
+
+# _run_draft_snippet — execute the draft contract's snippet VERBATIM in a child
+# bash (no `set -e`: the idiom captures rc=$? itself) and print exactly what the
+# wrapper then discriminates on: the exit code, the stdout tier, the stderr
+# provenance ($prov is what the idiom transports — the checking class stamps its
+# artifact header from it, and it is the only provenance channel the wrapper
+# has; command substitution alone would drop it — so the tests assert it too).
+_run_draft_snippet() {
+  local body; body="$(_contract_snippet "$DRAFT_CONTRACT")" || return 1
+  bash -c "$body"$'\n''printf "rc=%s tier=%s prov=%s\n" "$rc" "$tier" "$prov"'
+}
+
+# _draft_resolves <expected-prefix> — run the snippet and assert its printed tuple
+# starts with the expected `rc=… tier=…`; the caller adds its own asserts on
+# $output, which `run` leaves set.
+_draft_resolves() {
+  run _run_draft_snippet
+  [ "$status" -eq 0 ] && [[ "$output" == "$1"* ]] || { echo "got: $output" >&2; return 1; }
+}
+
 _contract_carriers() {
   grep -rl 'step-model.sh' "$REPO/skills" "$REPO/commands"
   # #441: the #284 draft planner contract was extracted from commands/draft.md
@@ -132,4 +182,104 @@ _contract_carriers() {
   grep -qF 'intent_template' "$f"
   # draft.md retains a stub that points to the extracted contract.
   grep -qF 'draft-dispatch-contract.md' "$REPO/commands/draft.md"
+}
+
+# ---- #583: the four exit codes at step 2, executed through the contract's own
+# snippet. The rc cases are PINS (the resolver already behaves this way — they
+# are green at baseline by design); the two decision assertions further down
+# are the born-red ones. Stated so a green run is not mistaken for a born-red
+# proof (register: Issue-282).
+
+@test "draft rc 0: the contract's own snippet consumes a KEYED thinking marker — dispatch (#583; #561 DoD-8)" {
+  # The wrapper half of the keyed-marker contract, exercised for the first time:
+  # a `thinking: <tok>` marker beats the project thinking pin, arrives on stdout
+  # with per-issue provenance on stderr, and rc 0 is the table's dispatch row.
+  _add_step_models 'thinking = "opus"'
+  _marker 'thinking: sonnet'
+  _draft_resolves 'rc=0 tier=sonnet prov='
+  [[ "$output" == *"per-issue"* ]]
+  [[ "$output" == *"$DEVDOC_DIR/Issue-1/.devagent-step-models"* ]]
+  grep -qF '| 0 | a tier resolved | dispatch' "$DRAFT_CONTRACT"
+}
+
+@test "draft rc 2: a per-issue 'thinking: inherit' is NOT a dispatch trigger — the table says stay INLINE (#583 decision)" {
+  _add_step_models 'thinking = "opus"'
+  _marker 'thinking: inherit'
+  _draft_resolves 'rc=2 tier= prov='
+  [[ "$output" == *"per-issue"* ]]
+  [[ "$output" == *"inherit"* ]]
+  # rc 2 must never collapse into rc 3 (it is the escape from a pin), and the
+  # row the wrapper reads for it is the decided one.
+  grep -qE '^ *\| 2 \| .*`inherit`.* \| \*\*stay INLINE\*\*' "$DRAFT_CONTRACT"
+}
+
+@test "draft rc 2 via the config table: thinking = \"inherit\" is the same inline escape (#583)" {
+  _add_step_models 'thinking = "inherit"'
+  _draft_resolves 'rc=2 tier= prov='
+  [[ "$output" == *"config tier"* ]]
+  [[ "$output" != *"per-issue"* ]]
+}
+
+@test "draft rc 3: nothing configured — stay INLINE (#583)" {
+  _draft_resolves 'rc=3 tier= prov='
+  [ "$output" = "rc=3 tier= prov=" ]
+  grep -qE '^ *\| 3 \| nothing configured \| stay INLINE' "$DRAFT_CONTRACT"
+}
+
+@test "draft rc 1: a malformed keyed marker STOPS — never a silent inline (#583; #561)" {
+  _add_step_models 'thinking = "opus"'
+  _marker 'thinking: a b'
+  _draft_resolves 'rc=1 tier= prov='
+  # the INTENDED path's message, not a bare code (register: Issue-Fork-132)
+  [[ "$output" == *"exactly one token"* ]]
+  grep -qE '^ *\| 1 \| .* \| \*\*STOP' "$DRAFT_CONTRACT"
+}
+
+# #561 shipped the rc-2 choice as an open question in two homes and named the
+# inverse as a follow-up. Each home must now state the decision as final and no
+# longer call it open. One @test PER HOME (register: Issue-123 — a multi-assertion
+# guard reddens only at its first failing assert; per-home tests keep each home
+# independently red-capable). Pinned as a CLAIM (a phrase family), not one
+# sentence (register: Issue-561 — a guard that reddens on improved wording trains
+# people to weaken guards). Known width of that trade: the positive leg also
+# admits wording like "stays inline until the final ruling" — it pins that the
+# decision is STATED with "final"; the negative leg bans the open-question FAMILY
+# (not decided / undecided / TBD / to be decided / provisional), file-wide, so an
+# unrelated hit reds it and names its line. "open question" itself is NOT banned:
+# the contract legitimately records that #561 "shipped as an open question" (past
+# tense), so that phrase would self-red (#583 redmr minor 5).
+_assert_rc2_final() {  # <file>
+  grep -qiE 'stays? INLINE[^.]*final' "$1" \
+    || { echo "no final rc-2 decision stated in $1" >&2; return 1; }
+  run grep -ciE 'not (yet )?decided|undecided|\bTBD\b|to be decided|provisional' "$1"
+  [ "$output" -eq 0 ] || { echo "$1 still calls the rc-2 decision open (banned wording, file-wide): $(grep -niE 'not (yet )?decided|undecided|\bTBD\b|to be decided|provisional' "$1")" >&2; return 1; }
+}
+
+@test "the rc-2 stay-inline decision is FINAL in the draft contract (#583)" {
+  _assert_rc2_final "$DRAFT_CONTRACT"
+}
+
+@test "the rc-2 stay-inline decision is FINAL in the draft.md stub (#583)" {
+  _assert_rc2_final "$REPO/commands/draft.md"
+}
+
+@test "the rc-2 stay-inline decision is FINAL in the spec §7.5 bullet (#583)" {
+  # the home this change newly enrolled in the claim — and, until the #583 red
+  # team, the one nothing guarded (register: fix-every-home-of-the-fact)
+  _assert_rc2_final "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+}
+
+@test "the thinking-class resolution idiom is byte-aligned with the checking-class one (#583)" {
+  # AC: "align the thinking-class idiom with the checking contract". Both docs
+  # carry ONE fenced snippet; after placeholder substitution (<STEP> -> 2) they
+  # must be identical, so the two idioms cannot drift apart again. (Each rc row
+  # of the draft table is pinned by its own rc test above.)
+  # Extract UNPIPED so the fence-count precondition's rc is not swallowed (register:
+  # Issue-314 — improve bug 4), and refuse an empty snippet before comparing: two
+  # empty strings are equal, which is the vacuous pass this pin must never take.
+  local a b
+  a="$(_contract_snippet "$DRAFT_CONTRACT")" || { echo "draft snippet extraction failed" >&2; false; }
+  b="$(_contract_snippet "$CHECKING_CONTRACT")" || { echo "checking snippet extraction failed" >&2; false; }
+  [ -n "$a" ] && [ -n "$b" ] || { echo "empty snippet: draft=[$a] checking=[$b]" >&2; false; }
+  [ "$a" = "$b" ] || { printf 'draft:\n%s\nchecking:\n%s\n' "$a" "$b" >&2; false; }
 }
