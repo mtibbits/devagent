@@ -232,6 +232,7 @@ _CORE_SKILL_FILES = [
     p for p in _SKILL_FILES if os.path.basename(os.path.dirname(p)).startswith("core-")
 ]
 _BODY_CALL = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/'
+NL = chr(10)
 
 
 def _has_operative_call(path):
@@ -303,6 +304,17 @@ def test_core_call_guard_can_fire(tmp_path):
         encoding="utf-8",
     )
     assert not _has_operative_call(str(q))
+    # ...and the positive half: a granted call-bearing file passes the same door.
+    r = tmp_path / "skills" / "core-z" / "SKILL.md"
+    r.parent.mkdir(parents=True)
+    r.write_text(
+        "---" + NL + "name: core-z" + NL + "user-invocable: false" + NL
+        + "allowed-tools: " + _PLUGIN_SCRIPT_GRANT + NL + "---" + NL
+        + "run: " + _BODY_CALL + "a1b2c3nonce.sh\" p" + NL,
+        encoding="utf-8",
+    )
+    assert _has_operative_call(str(r))
+    _assert_core_grant(str(r))
 
 
 def test_command_bash_canary_is_not_vacuous():
@@ -316,8 +328,9 @@ def _split_fm(path):
         text = fh.read()
     if not text.startswith("---"):
         return None, text
-    _, fm_text, body = text.split("---", 2)
-    return fm_text, body
+    parts = text.split("---", 2)
+    assert len(parts) == 3, f"{os.path.relpath(path, _REPO)}: unterminated frontmatter block"
+    return parts[1], parts[2]
 
 
 def _load_fm(path):

@@ -31,10 +31,7 @@ Args: `[issue|epic] <free-form text>`
 3. Call the script for each chosen artifact:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" \
-     --type "<type>" \
-     --subtype "<subtype>"  \
-     --title "<title>"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type "<type>" --subtype "<subtype>" --title "<title>"
    ```
 
    For epics, omit `--subtype`. The script prints the slug; record it.

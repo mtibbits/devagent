@@ -73,8 +73,7 @@ silently flip `[-]`→`[x]`.
 After completion:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" research \
-  "research.md written (Q questions, F findings, U open unknowns)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" research "research.md written (Q questions, F findings, U open unknowns)"
 ```
 
 ## Completion handoff
