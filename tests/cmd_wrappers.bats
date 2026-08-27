@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 bats_require_minimum_version 1.5.0   # #526: run --separate-stderr for the offender-naming test
 
 CMD_DIR="$BATS_TEST_DIRNAME/../commands"

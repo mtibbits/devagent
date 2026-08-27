@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 
 load 'helpers/fixtures'
+# #585: this file invokes doctor.sh, which shells out to `claude plugin list`.
+. "${BATS_TEST_DIRNAME}/lib/doctor-harness.bash"
 
 setup() {
   fixture_init volk Issue-676
@@ -169,6 +171,9 @@ PARKED
     grep -qE '^last_step_name[[:space:]]*=[[:space:]]*""$' "$FIX_STATE_FILE"
     grep -qE '^last_step[[:space:]]*=[[:space:]]*0$' "$FIX_STATE_FILE"
     # doctor no longer false-FAILs step coherence on the freshly-revised issue.
+    # #585: shim `claude` so this test does not take a live dependency on the
+    # developer's plugin state.
+    stub_claude_cli enabled
     run "$DEVAGENT_ROOT/scripts/doctor.sh" volk
     [[ "$output" != *"last_step_name=ship"* ]]
 }

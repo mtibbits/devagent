@@ -2,6 +2,8 @@
 # backend-contract.bats — aggregator that runs the per-backend contract
 # suites in a known order and prints a one-line summary per backend.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 setup() {
   BATS_DIR="${BATS_TEST_DIRNAME}"
 }

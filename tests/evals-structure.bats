@@ -13,6 +13,8 @@
 # they measure the harness, not a skill body — and must not weaken the
 # fixture+rubric+baseline guard on steering cases).
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 EVALS="$REPO/evals/evals.json"
 SMOKE="$REPO/evals/smoke/smoke.json"

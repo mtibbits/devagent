@@ -8,6 +8,8 @@
 # pass until #276 hardened the analyzer. These tests lock the restored order
 # and the reworded doctrine.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 
 # Line number of a step entry in a checklist template (empty if absent).

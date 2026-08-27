@@ -13,6 +13,8 @@
 # fires once ~58% of the text is gone. The contracts themselves are pinned by the
 # #125/#116 literal greps in tests/command-usage-docs.bats.
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 REPO="${BATS_TEST_DIRNAME}/.."
 SKILL="$REPO/skills/next/SKILL.md"
 

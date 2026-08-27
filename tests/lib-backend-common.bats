@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
+
 setup() {
   source "${BATS_TEST_DIRNAME}/../scripts/lib/backend-common.sh"
 }
