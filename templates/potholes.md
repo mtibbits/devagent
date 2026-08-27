@@ -124,6 +124,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - When the operative call is silent on success, an ALLOW read is only the ABSENCE of the deny string → pair the stream read with a side-effect check so a no-op cannot false-pass (Issue-584).
 - A LIMITS list is itself a set of claims: for every "surfaces as a miss, never as a pass" sentence, construct the input it describes and run the guard on it before shipping the sentence — the first such list shipped was wrong in the fail-open direction (Issue-583).
 - Prose that restates a machine-checked number (diff stat, SHA, commit count) goes stale on the next gate's commit → fill it from the same artifact/tree, at the same moment, as the machine-checked line (Issue-583).
+- A change to a manifest/config that clients CACHE is unmeasured by a fresh install — the population carrying the bug is the one holding the stale artifact → run two probes (fresh + upgrade-from-broken) and ship the recovery command in the user-facing doc (Issue-541).
+- A negative-state token that CONTAINS the positive one as a substring makes a bare grep pass on the failing state → pin the exact marker and scope the match to the record, not to a line window (Issue-541).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -159,6 +161,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Untracked components (interpreter dirs, dependency caches, data dirs) never travel into a linked worktree → any tree-derived resolution must state its fallback for the worktree-without-the-component case before that mode ships (Issue-466).
 - A rebase invalidates every SHA the workflow pinned — baseline, evidence head, prose commit refs — as a SET; re-derive them all and re-run the evidence validator, or the checker lies in both directions (Issue-466).
 - A CLI that resolves scope from an ambient pointer acts on the wrong target whenever that pointer names other work -> pass the scope explicitly; the warning line is the only signal, and a run that is not a no-op edits the wrong project silently (lectio Issue-7).
+- A scope-pinning env var can redirect a state read to a per-context table, so a top-level key is never consulted and the "recorded tree" silently falls back to the configured one → set the CONTEXT-scoped key and print the resolver's own output before trusting the run (Issue-570).
 
 ## Sweeps / fix-at-source / sibling sites
 - A cache/warm tier added beside a primary path must emit the primary's fields FIELD-FOR-FIELD, and its validator must assert TRUTH (the named file exists and names its own key), never presence — a presence check re-creates the divergence one level up (lawFirm Issue-9).
@@ -189,6 +192,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A follow-up that NAMES a duplicated seam is a seam half-remembered → enumerate the guards to carry across, or the factoring closes the seam while leaving open the very gap that raised its priority (lawFirm Issue-7).
 - A permission matcher can refuse a MULTI-LINE command whose first line prefix-matches the grant → a snippet's emission shape (prefix, quoting, AND line count) is part of the grant contract; sweep for backslash-continued forms alongside quoting drift (Issue-584).
 - When a change enrols a NEW home in a claim ("all N homes now state X"), the guard's asserted-home list must grow to N with it → derive the pin list from the claim, not from the pre-change test (Issue-583).
+- A swept CLASS derived by a PHRASING regex is walk-past-able — a differently-worded member slips through while the canary greens on the safe change → derive the class from the minimal invariant token plus a commented allow-list of legitimate non-members (Issue-541).
+- An issue's own acceptance criterion can be factually FALSE, so implementing it literally ships a false claim → verify each AC against source before building it, state the truth, disclose the deviation, and get the tracker amended so the correction has an addressee (Issue-570).
 
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
@@ -237,6 +242,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Content rewritten AFTER the only semantic review carries mechanical re-verification only, and a random sample is no likelier to hit it → emit a derived changed-line manifest that points the human gate at exactly those lines (lawFirm Issue-11).
 - A fork skill probed from a bare headless prompt measures the prompt's missing Skill-tool grant, not the fork → model the real wrapper→fork dispatch path in the fixture (Issue-584).
 - A feature the workflow itself consumes can be evidenced by enabling it on the issue that ships it → write the marker/flag into the issue's own working directory during implement so the later gates exercise it for free (Issue-583).
+- A dispatched checker's tool allow-list derived from the invocation line alone starves the tools its wrapper runs BEFORE the code under test, and the empty transcript is indistinguishable from a stall → derive the allow-list from the wrapper's whole step and budget turns for its pre-work (Issue-541).
 
 ## Premise freshness / contracts / classification
 - A working tree checked out on a SIBLING'S unmerged branch makes every file read answer "what does this branch have", not "what does the baseline have" → resolve each baseline claim via `git show <baseline>:<path>` explicitly; the misread recurs per convention consulted, not once (lawFirm Issue-9).
@@ -298,6 +304,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A portability constraint a plan asserts ("POSIX only", "works on the minimal implementation") is a claim until the constrained implementation runs it → shim it into PATH, run every fixture, record the transcript in the evidence artifact, and repeat after each change to the constrained code (Issue-582).
 - A per-file tool allow-list can be ADDITIVE, not a ceiling → prove it with a grant-less control before adding tools to "restore" a ceiling; a listed tool is a widening (Issue-584).
 - A "mechanical sweep" premise is only as good as a census taken at HEAD → make the census the first plan task and route every falsified premise through question-return, not a guessed fix (Issue-584).
+- An operator approval is pinned to the ARTIFACT VERSION it was given on — a later redeploy to the same URL, even a presentation-only one, leaves the approval covering something nobody reviewed → record the delta and re-invite review before the irreversible act the approval gates (Issue-462).
+- An evidence/verification script older than the fix that scopes it cannot honour that scope no matter which input you set → grep the TOOL for the fix's function before debugging its inputs; a stale clone runs the pre-fix resolver (Issue-570).
 
 
 ## Docs / edit-neighborhood hygiene
@@ -345,6 +353,9 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Any edit to CAPTURED output is a provenance event: choose the verb that matches what happened (removed vs restated), mark the edit at its site, and sweep every home that describes it — author prose inside a capture fence with no marker falsifies the record (lawFirm Issue-15).
 - A later dedup/point-don't-restate pass can silently undo an earlier BINDING decision → before deleting content, re-read the plan's merged findings/definition-of-done for a decision covering it; stable identifiers are not restatement drift, and an override of a binding item is a logged deviation (lawFirm Issue-15).
 - An executed-doc test couples every doc it extracts from → announce the coupling INSIDE each coupled doc (an editor note beside the fence), not only in the test's failure message (Issue-583).
+- A doc line is classified by the SECTION that frames it, not by when it was written — a historical note under a "current state" heading is a live false claim → read the enclosing heading before granting append-only immunity (Issue-541).
+- An identity assertion ("same URL/ID as last round") logged only as a parenthetical inside another step's line makes silent drift unfalsifiable → one log line per round carrying the round label and the equality it asserts; an unlogged round is an unauditable round (Issue-462).
+- A fix that removes a mutable global input can RELOCATE the staleness rather than close it (a guard that fires only on unset still reuses a stale non-empty value) → ask where the staleness moves to and say so, or the same wrong-destination class returns wearing a new source (Issue-570).
 
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).

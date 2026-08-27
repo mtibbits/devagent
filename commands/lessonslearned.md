@@ -18,7 +18,16 @@ Per `commands/draft.md`.
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify checklist log has > 2 entries (otherwise nothing to learn from).
 3. Invoke `core-lessons-learned`. The skill calls
-   `scripts/checklist-log.sh`.
+   `scripts/checklist-log.sh`. `[pattern]` register promotions are STAGED
+   via `promote-potholes.sh --add` into
+   `<issue-dir>/potholes-promotion.md` (#586) — nothing is written to the
+   register at this step; `/devagent:cleanup` drains and commits it. For a
+   project whose register resolves to the plugin default (every project but
+   devagent today) the drain DEFERS by design — `--add` warns, and the staged
+   lines are landed by hand from the devagent tree (`promote-potholes.sh
+   <project> --list-pending` shows the backlog) and the entry is closed by
+   the one sanctioned hand-edit of its status line, `status: applied by-hand
+   <sha>`, until the cross-project staging follow-up ships.
 
 ## Halt and ask if
 
