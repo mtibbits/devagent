@@ -44,6 +44,8 @@ TOML
   source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
   state_init volk
   secrets_bootstrap
+  # shellcheck disable=SC2034  # both are the return channel: the .bats files that
+  # load this harness read $SCRIPTS and $STUBBIN from their own test bodies.
   SCRIPTS="$PLUGIN_ROOT/scripts"
   STUBBIN="$DA_HOME/stubbin"
   mkdir -p "$STUBBIN"
