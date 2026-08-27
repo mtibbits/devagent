@@ -70,20 +70,39 @@ issues, not at the end of the current one.
    (`/devagent:reap` harvests these). Tag `reference` for a fact to
    remember, `norm` for an operator-working-style change, `pattern` for
    something that generalises beyond this issue.
-7. **Promote patterns to the register (#286).** For each entry whose
+7. **Stage patterns for the register (#286, #586).** For each entry whose
    tag set includes `pattern` (any form — `pattern`, `[pattern, norm]`,
-   etc.) AND that generalises beyond this issue, ALSO append a one-line
-   distillation of it, with its `(Issue-N)` source citation, to the
+   etc.) AND that generalises beyond this issue, stage a one-line
+   distillation of it, with its `(Issue-N)` source citation, for the
    resolved `potholes` register (§12 walk: project paths → devdoc →
    plugin default; `template.sh --project <p> show potholes` prints its
-   path). Rules: dedupe by citation — skip if the register already
-   carries a line citing this issue for the same rule; keep the one-liner
-   PROJECT-NEUTRAL (strip domain nouns — the register is a shipped
-   plugin template scanned by `generic-templates.bats`, so a
+   path). **Do NOT edit the register file yourself** — it lives in the
+   shared source tree, where an uncommitted edit is stashed or reverted by
+   the next session's gate; that is the #586 defect (four lessonsLearned
+   files diagnose it; 11 verified lines were orphaned for months). Stage
+   each line instead, one command per line:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add "<section heading>" "- <one-line distillation> (Issue-N)."
+   ```
+
+   The script refuses an unknown section heading, a wrong/missing
+   citation, a multi-line value, and a line naming the project; it writes
+   `<issue-dir>/potholes-promotion.md` (durable in devdoc) and is
+   idempotent. `/devagent:cleanup` (step 23) applies and commits the
+   staged lines on the base branch and flips the file to
+   `status: applied <sha>`; cleanup also REFUSES a log line that claims a
+   promotion the register does not carry, so the Logging line below must
+   say `staged`, never `promoted`.
+   Rules for the line itself: dedupe by citation — skip if the register
+   already carries a line citing this issue for the same rule; keep the
+   one-liner PROJECT-NEUTRAL (strip domain nouns — the register is a
+   shipped plugin template scanned by `generic-templates.bats`, so a
    project-specific token would redden that canary in an unrelated
-   issue); place it under the closest existing trigger-domain heading.
-   Not every `pattern` entry belongs — promote the ones that will fire
-   on FUTURE issues of other kinds, not the one-off.
+   issue); pick the closest existing trigger-domain heading
+   (`grep '^## ' <register>`). Not every `pattern` entry belongs — stage
+   the ones that will fire on FUTURE issues of other kinds, not the
+   one-off.
 8. **Brevity check.** If an entry is more than 4 lines total, split
    it or trim. Long lessons are unread lessons.
 
@@ -105,8 +124,12 @@ to learn; mark step `[-]` skipped?" for operator confirmation.
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" lessonslearned "lessonsLearned.md written: L entries (A actionable, R reference, N norm, P pattern); note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" lessonslearned "lessonsLearned.md written: L entries (A actionable, R reference, N norm, P pattern); register: S staged pending cleanup; note: $NOTE"
 ```
+
+`S` is the number of lines actually staged (`grep -c '^- '
+<issue-dir>/potholes-promotion.md`), not the pattern-tag count; when none
+were staged write `register: none staged` instead.
 
 ## Templates referenced
 

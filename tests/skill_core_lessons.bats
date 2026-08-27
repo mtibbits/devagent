@@ -31,3 +31,20 @@ setup() {
   [ -s "$FIXT/checklist.md" ]
   [ -s "$FIXT/actualWork.md" ]
 }
+
+@test "core-lessons-learned STAGES promotions via the script, never editing the register in the tree (#586)" {
+  grep -qF 'promote-potholes.sh' "$SKILL/SKILL.md"
+  grep -qF -- '--add' "$SKILL/SKILL.md"
+  # the old "append it to the resolved potholes register" instruction must be gone
+  run grep -niE 'append .{0,40}(to the )?resolved `?potholes' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+  # the durability rationale is stated where the operator reads it
+  grep -qiF 'uncommitted' "$SKILL/SKILL.md"
+}
+
+@test "core-lessons-learned's promote command is a SINGLE line under the existing Bash grant (#584)" {
+  # a multi-line command is refused by the permission matcher even when its first
+  # line prefix-matches the grant (register: Issue-584)
+  run awk '/promote-potholes\.sh/ && /\\$/' "$SKILL/SKILL.md"
+  [ -z "$output" ]
+}
