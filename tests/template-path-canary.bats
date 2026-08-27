@@ -26,7 +26,7 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # The one shared FLAG regex + allowlist filter, so the HEAD-green test and the
 # planted-violation self-test exercise the SAME logic.
 FLAG_RE='templates/[^"]*\.md"'
-ALLOWLIST_RE='/(template_resolve|artifact|checklist)\.sh:'
+ALLOWLIST_RE='/(template_resolve|potholes|artifact|checklist)\.sh:'   # potholes.sh (#611) is resolver code beside template_resolve.sh
 
 @test "no templates/<key>.md concatenation outside the resolver/fallback allowlist (#425)" {
   run grep -rnE "$FLAG_RE" "$REPO/scripts"

@@ -13,6 +13,9 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the c
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 # shellcheck source=/dev/null
+# shellcheck disable=SC2034  # consumed by template_resolve.sh (sourced next), which keys its
+# source-set off DEVAGENT_ROOT — paths.sh above set it to the devagent HOME, not the plugin.
+DEVAGENT_ROOT="$PLUGIN_ROOT"   # template_resolve.sh keys its source-set off DEVAGENT_ROOT, never an ambient value
 source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
 
 declare -i ERRORS=0
@@ -224,7 +227,7 @@ if [[ -f "$(config_path)" ]]; then
   # owns moving the known citations. Also: every non-public config project key
   # must be in the fixture list, so a newly `init`ed project is flagged on the
   # operator's box before its name can reach the seed.
-  seed="$PLUGIN_ROOT/templates/potholes.md"
+  seed="$(potholes_seed_path)"   # via the resolver (#425 canary), never a hand-rolled path
   fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
   if [[ -f "$seed" && -f "$fx" ]]; then
     pub=" $(sed -n 's/^# public: *//p' "$fx" | tr '\n' ' ') "
@@ -240,7 +243,10 @@ if [[ -f "$(config_path)" ]]; then
     else
       check "private-project fixture list covers config" ok
     fi
-    if (( ${#live[@]} )); then
+    if ! type potholes_private_name_hits >/dev/null 2>&1; then
+      # Issue-316: a missing function must not drive the WARN branch with an empty hit list.
+      check "seed carries no private project name" fail "predicate potholes_private_name_hits not loaded (scripts/lib/potholes.sh)"
+    elif (( ${#live[@]} )); then
       if hits="$(potholes_private_name_hits "$seed" "${live[@]}")"; then
         check "seed carries no private project name" ok
       else
