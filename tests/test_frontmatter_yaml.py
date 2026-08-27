@@ -228,15 +228,14 @@ def test_no_bash_grant_beyond_the_canonical_pair(path):
 # the set pin below and the 67 pin above; the implication canary reddens only if
 # the new skill LACKS the grant. Budget a two-line update, plus the
 # tests/skills-no-bang-exec.bats @test 4 set pin that adding any skill already reddens.
-_CORE_SKILL_FILES = sorted(glob.glob(os.path.join(_REPO, "skills", "core-*", "SKILL.md")))
+_CORE_SKILL_FILES = [
+    p for p in _SKILL_FILES if os.path.basename(os.path.dirname(p)).startswith("core-")
+]
 _BODY_CALL = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/'
 
 
 def _has_operative_call(path):
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    body = text.split("---", 2)[2] if text.startswith("---") else text
-    return _BODY_CALL in body
+    return _BODY_CALL in _split_fm(path)[1]
 
 
 def _assert_core_grant(path):
@@ -257,7 +256,7 @@ def _assert_core_grant(path):
 )
 def test_core_skill_with_operative_call_carries_grant(path):
     if not _has_operative_call(path):
-        return
+        pytest.skip("no operative body call — grant not required (#584)")
     _assert_core_grant(path)
 
 
@@ -311,17 +310,26 @@ def test_command_bash_canary_is_not_vacuous():
 
 
 # #449: invocation-control invariants.
-def _load_fm(path):
+def _split_fm(path):
+    """(frontmatter_text, body) — frontmatter_text is None when there is no block."""
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     if not text.startswith("---"):
+        return None, text
+    _, fm_text, body = text.split("---", 2)
+    return fm_text, body
+
+
+def _load_fm(path):
+    fm_text, _ = _split_fm(path)
+    if fm_text is None:
         return {}
-    return yaml.safe_load(text.split("---", 2)[1]) or {}
+    return yaml.safe_load(fm_text) or {}
 
 
 def test_all_core_skills_are_not_user_invocable():
     """The 14 internal core-* skills must be hidden from the user / menu."""
-    core = sorted(glob.glob(os.path.join(_REPO, "skills", "core-*", "SKILL.md")))
+    core = _CORE_SKILL_FILES
     assert core, "no core-* skills discovered — canary would false-green"
     missing = [
         os.path.relpath(p, _REPO)
