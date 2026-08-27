@@ -3,6 +3,7 @@ name: core-prune
 description: "Step 6: move deferred/dismissed items from the plan to the future-enhancements file, leaving a minimal load-bearing plan"
 when_to_use: After /devagent:improve has tagged items and before /devagent:tighten. Run as part of /devagent:prune.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-prune

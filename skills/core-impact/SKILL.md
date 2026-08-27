@@ -3,6 +3,7 @@ name: core-impact
 description: "Step 21: measure and record the real-world impact of a merged change before lessons-learned"
 when_to_use: After /devagent:updatewbs (step 20) and before /devagent:lessonslearned (step 22). Run as part of /devagent:impact.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-impact

@@ -3,6 +3,7 @@ name: core-document-actual-work
 description: "Step 11: record what was actually built versus planned, terse when there is no deviation"
 when_to_use: After /devagent:quality and before /devagent:commit. Run as part of /devagent:document.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-document-actual-work

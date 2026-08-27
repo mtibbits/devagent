@@ -3,6 +3,7 @@ name: core-draft-mr
 description: "Step 14: draft the merge-request body from imPlan, actualWork, and analyzer output"
 when_to_use: After /devagent:analyze and before /devagent:review. Run as part of /devagent:draftmr.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-draft-mr

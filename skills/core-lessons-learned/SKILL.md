@@ -3,6 +3,7 @@ name: core-lessons-learned
 description: "Step 22: extract reusable lessons from a completed issue"
 when_to_use: After /devagent:impact and before /devagent:cleanup. Run as part of /devagent:lessonslearned.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-lessons-learned

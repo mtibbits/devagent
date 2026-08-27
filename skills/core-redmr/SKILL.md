@@ -3,6 +3,7 @@ name: core-redmr
 description: "Step 16: red-team adversarial review of the MR body and diff before shipping"
 when_to_use: After /devagent:review and before /devagent:ship. Run as part of /devagent:redmr.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 context: fork
 agent: devagent:redteam-reviewer
 ---

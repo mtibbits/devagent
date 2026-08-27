@@ -3,6 +3,7 @@ name: core-improve
 description: "Step 5: surface latent bugs, side effects, and ambiguities in an implementation plan before pruning"
 when_to_use: After /devagent:scope has appended scope evaluation and before /devagent:prune. Run as part of /devagent:improve.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 context: fork
 agent: devagent:plan-improver
 ---

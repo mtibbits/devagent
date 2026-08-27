@@ -3,6 +3,7 @@ name: core-preship
 description: "Step 17: verify in fresh context that the committed branch meets the issue's acceptance criteria and contains every blocking finding before ship"
 when_to_use: After /devagent:redmr and before /devagent:ship. Run as part of /devagent:preship.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 context: fork
 agent: devagent:preship-verifier
 ---
