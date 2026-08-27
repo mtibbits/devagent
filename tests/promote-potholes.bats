@@ -457,8 +457,8 @@ devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); 
 @test "--apply on a bootstrapped file whose commit FAILS leaves no file, no index entry, no dir; stays pending" {
     ( cd "$DEVDOC_REPO" && git config user.email "" && git config user.name "" )
     bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
-    GIT_AUTHOR_NAME= GIT_AUTHOR_EMAIL= GIT_COMMITTER_NAME= GIT_COMMITTER_EMAIL= EMAIL= \
-        run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    run env GIT_AUTHOR_NAME='' GIT_AUTHOR_EMAIL='' GIT_COMMITTER_NAME='' GIT_COMMITTER_EMAIL='' EMAIL='' \
+        bash "$PP" "$TEST_PROJECT" "$ID" --apply
     [ "$status" -eq 1 ]
     [[ "$output" == *"restored"* ]]
     [ ! -e "$PROJ_REG" ]; [ ! -d "$DEVDOC_DIR/templates" ]
@@ -472,8 +472,8 @@ devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); 
     seed_project_layer
     ( cd "$DEVDOC_REPO" && git config user.email "" && git config user.name "" )
     bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
-    GIT_AUTHOR_NAME= GIT_AUTHOR_EMAIL= GIT_COMMITTER_NAME= GIT_COMMITTER_EMAIL= EMAIL= \
-        run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    run env GIT_AUTHOR_NAME='' GIT_AUTHOR_EMAIL='' GIT_COMMITTER_NAME='' GIT_COMMITTER_EMAIL='' EMAIL='' \
+        bash "$PP" "$TEST_PROJECT" "$ID" --apply
     [ "$status" -eq 1 ]
     run bash -c "cd '$DEVDOC_REPO' && git status --porcelain -- testproj/templates/potholes.md"
     [ -z "$output" ]
