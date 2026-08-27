@@ -126,7 +126,11 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Prose that restates a machine-checked number (diff stat, SHA, commit count) goes stale on the next gate's commit → fill it from the same artifact/tree, at the same moment, as the machine-checked line (Issue-583).
 - A change to a manifest/config that clients CACHE is unmeasured by a fresh install — the population carrying the bug is the one holding the stale artifact → run two probes (fresh + upgrade-from-broken) and ship the recovery command in the user-facing doc (Issue-541).
 - A negative-state token that CONTAINS the positive one as a substring makes a bare grep pass on the failing state → pin the exact marker and scope the match to the record, not to a line window (Issue-541).
-
+- A guard and its own probe must share ONE predicate — a probe that re-spells the matcher tests a copy, so mutating the real one leaves every test green and the "pinned" property is unpinned (Issue-585).
+- Treat the fix for a vacuity finding as unreviewed code and mutation-test it: three consecutive gates each caught a guard that could not fail, twice inside the fix for the previous one (Issue-585).
+- A source-grep guard that accepts an INDENTED match accepts a disabled one → anchor to column 0, then re-count the class; anchoring exposed a file passing the check on a line inside its own test body (Issue-585).
+- A control run is what separates a real discriminator from a vacuous one → run every probe against the case it must NOT match before trusting it; a self-report probe answered identically with and without the capability (Issue-585).
+- An independent second count catches a silently-empty work list → verify a batch edit with an instrument that does not read the same list the loop consumed (Issue-585).
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
 - A function that reads state to decide what to write must decide inside the lock → prefer a locked primitive (`set-many-if`, `--print-old`) over a read-then-write pair (Issue-240).
@@ -162,7 +166,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A rebase invalidates every SHA the workflow pinned — baseline, evidence head, prose commit refs — as a SET; re-derive them all and re-run the evidence validator, or the checker lies in both directions (Issue-466).
 - A CLI that resolves scope from an ambient pointer acts on the wrong target whenever that pointer names other work -> pass the scope explicitly; the warning line is the only signal, and a run that is not a no-op edits the wrong project silently (lectio Issue-7).
 - A scope-pinning env var can redirect a state read to a per-context table, so a top-level key is never consulted and the "recorded tree" silently falls back to the configured one → set the CONTEXT-scoped key and print the resolver's own output before trusting the run (Issue-570).
-
+- A DEFAULT git pathspec lets `*` cross `/` → use `:(glob)` magic wherever the wildcard is meant to stop at a directory boundary, or the enumeration silently reaches into subdirectories (Issue-585).
 ## Sweeps / fix-at-source / sibling sites
 - A cache/warm tier added beside a primary path must emit the primary's fields FIELD-FOR-FIELD, and its validator must assert TRUTH (the named file exists and names its own key), never presence — a presence check re-creates the divergence one level up (lawFirm Issue-9).
 - A consistency check between two sets, written in ONE direction, reads as covering both -> implement both directions in the same change or state why only one exists; the unguarded direction is where the silent drop lives (lawFirm Issue-5).
@@ -194,7 +198,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - When a change enrols a NEW home in a claim ("all N homes now state X"), the guard's asserted-home list must grow to N with it → derive the pin list from the claim, not from the pre-change test (Issue-583).
 - A swept CLASS derived by a PHRASING regex is walk-past-able — a differently-worded member slips through while the canary greens on the safe change → derive the class from the minimal invariant token plus a commented allow-list of legitimate non-members (Issue-541).
 - An issue's own acceptance criterion can be factually FALSE, so implementing it literally ships a false claim → verify each AC against source before building it, state the truth, disclose the deviation, and get the tracker amended so the correction has an addressee (Issue-570).
-
+- "Widening" a matcher is a claim to MEASURE: run old and new over a fixture list and diff the match sets — a replacement committed as a widening lost the shapes the original caught and shipped as a coverage regression (Issue-585).
 ## New gate / shared-fixture blast radius
 - Adding a guard/gate that reads shared fixture state → grep the fixture and COUNT affected tests FIRST; the fixture edit is Step 0, not a later debugging session (Issue-242).
 - A new `die` in a step script → trace its `--auto`-chain interaction in the plan; a die mid-chain is a different product than one on direct invocation, and warnings can't gate autonomous flows (Issue-242).
@@ -219,8 +223,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A fail-closed gate keyed on a PRESENCE proxy ("a test directory exists") blocks every project the proxy misfires on, and its own comment admitting the proxy is conservative does not make it harmless → key it on a content probe, and record which branch it took inside the artifact so a reader can tell a full-fidelity run from an unverified one (Issue-4).
 - A guard whose own comment admits it is guesswork ships a hole whose cheapest repair is to widen it -> when the comment explaining a deferral is longer than the fix, take the fix, and re-open a deferral whose premise ("that would be new machinery") turns out false (lectio Issue-7).
 - A hermetic harness that isolates only the tool's CONFIG dir still resolves the tool's STATE home → give the ladder a scratch state root with a fixture positioned at the step under test, restore it between runs, and record it in every stream artifact (Issue-584).
-
-
+- Read a step's EXIT CODE before recording it done — a step marked done while its script exited non-zero publishes a false record the next reader inherits (Issue-585).
+- When evidence needs a capability ABSENT, look for an invocation-scoped switch before mutating global state: a per-invocation settings override removed exactly the target and left everything else, with nothing to restore and no crashed-run failure mode (Issue-585).
 ## Dispatched fresh-context checking
 - Keep review/redmr/improve in dispatched fresh-context subagents — highest value exactly where the change "looks trivial and the tests are green" (Issue-316).
 - A dispatched checker returning 0 tool-uses / echoing an instruction fragment is a MISFIRE, not a clean pass → verify the artifact was written; re-dispatch with a "do the work with tools" nudge (Issue-315).
@@ -243,7 +247,8 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A fork skill probed from a bare headless prompt measures the prompt's missing Skill-tool grant, not the fork → model the real wrapper→fork dispatch path in the fixture (Issue-584).
 - A feature the workflow itself consumes can be evidenced by enabling it on the issue that ships it → write the marker/flag into the issue's own working directory during implement so the later gates exercise it for free (Issue-583).
 - A dispatched checker's tool allow-list derived from the invocation line alone starves the tools its wrapper runs BEFORE the code under test, and the empty transcript is indistinguishable from a stall → derive the allow-list from the wrapper's whole step and budget turns for its pre-work (Issue-541).
-
+- The commit that FIXES a review finding is the one commit no gate has seen → re-run the analyzer and re-stamp evidence after it, and say which SHA each artifact covers; that commit is where the next blocking regression lands (Issue-585).
+- A prose claim of execution in a headless transcript is inadmissible — a `-p` run captures final text, not tool calls → read the machine event stream, and withdraw the prose claim rather than letting it stand (Issue-585).
 ## Premise freshness / contracts / classification
 - A working tree checked out on a SIBLING'S unmerged branch makes every file read answer "what does this branch have", not "what does the baseline have" → resolve each baseline claim via `git show <baseline>:<path>` explicitly; the misread recurs per convention consulted, not once (lawFirm Issue-9).
 - Re-derive an audit-issue's premises at HEAD before planning — it may be half-done, the A-vs-B menu may have changed, or the prerequisite may already have landed (Issue-116).
@@ -356,6 +361,7 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A doc line is classified by the SECTION that frames it, not by when it was written — a historical note under a "current state" heading is a live false claim → read the enclosing heading before granting append-only immunity (Issue-541).
 - An identity assertion ("same URL/ID as last round") logged only as a parenthetical inside another step's line makes silent drift unfalsifiable → one log line per round carrying the round label and the equality it asserts; an unlogged round is an unauditable round (Issue-462).
 - A fix that removes a mutable global input can RELOCATE the staleness rather than close it (a guard that fires only on unset still reuses a stale non-empty value) → ask where the staleness moves to and say so, or the same wrong-destination class returns wearing a new source (Issue-570).
-
+- An evidence run that cannot be repeated must concede that in the MAINTAINER-facing document, not only in its own artifact header (Issue-585).
+- A verification proxy narrowed after it starts failing must be disclosed AS a narrowing, naming the old command — silently widening an exclusion after failing your own check is what a reviewer is looking for (Issue-585).
 ## Version / registry-string comparison
 - Version strings from heterogeneous sources (registry DisplayVersion, package managers) pad components differently (`26.02` vs `26.02.00.0`) and `[version]`/semver treats missing parts as lower → normalize component count before any behind/at-max comparison (fleet Issue-4).
