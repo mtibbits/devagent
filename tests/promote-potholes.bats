@@ -33,6 +33,7 @@ use_source_register() {
 
 @test "the script exists and is executable (anti-vacuous floor, #572)" {
     [ -f "$PP" ]
+    [ -x "$PP" ]
     run bash "$PP"
     [ "$status" -eq 2 ]                 # usage, not 127
 }
@@ -103,6 +104,43 @@ use_source_register() {
     sed -i 's/register: 3 staged pending cleanup/register: none staged/' "$ID/checklist.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]
+}
+
+@test "--check: the machine field is a claim even when free text carries a deny-list word" {
+    printf '%s\n' "$LL register: 3 staged pending cleanup; 1 candidate skipped as already covered" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 1 ]
+}
+
+@test "--apply restores the register and stays pending when the commit fails (no uncommitted edit left behind)" {
+    use_source_register
+    ( cd "$SOURCE_DIR" && git config user.email "" && git config user.name "" )
+    bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    GIT_AUTHOR_NAME= GIT_AUTHOR_EMAIL= GIT_COMMITTER_NAME= GIT_COMMITTER_EMAIL= EMAIL= \
+        run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"register restored"* ]]
+    run bash -c "cd '$SOURCE_DIR' && git status --porcelain templates/potholes.md"
+    [ -z "$output" ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+}
+
+@test "--add WARNS when the register is outside the project's repos (cleanup will defer)" {
+    cp "$REG" "$DEVAGENT_TMP/elsewhere.md"
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVAGENT_TMP/elsewhere.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"DEFER"* ]]
+}
+
+@test "--apply chore commit cites a fork issue as #Fork-N, not #N" {
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-7"; cp "$ID/checklist.md" "$DEVDOC_DIR/Issue-Fork-7/checklist.md"
+    use_source_register
+    bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-Fork-7" --add "Docs / edit-neighborhood hygiene" "- a fork line (Issue-Fork-7)."
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-Fork-7" --apply
+    [ "$status" -eq 0 ]
+    run bash -c "cd '$SOURCE_DIR' && git log -1 --format=%s"
+    [[ "$output" == "chore: promote pothole-register entries from #Fork-7" ]]
 }
 
 @test "--check FAILS when the staging file says applied but the register lacks the line" {

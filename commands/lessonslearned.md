@@ -21,7 +21,12 @@ Per `commands/draft.md`.
    `scripts/checklist-log.sh`. `[pattern]` register promotions are STAGED
    via `promote-potholes.sh --add` into
    `<issue-dir>/potholes-promotion.md` (#586) — nothing is written to the
-   register at this step; `/devagent:cleanup` drains and commits it.
+   register at this step; `/devagent:cleanup` drains and commits it. For a
+   project whose register resolves to the plugin default (every project but
+   devagent today) the drain DEFERS by design — `--add` warns, and the staged
+   lines are landed by hand from the devagent tree (`promote-potholes.sh
+   <project> --list-pending` shows the backlog) until the cross-project
+   staging follow-up ships.
 
 ## Halt and ask if
 

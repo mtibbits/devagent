@@ -64,7 +64,7 @@ issue_dir="${1:-}"; [ -n "$issue_dir" ] || usage
 shift
 [ -d "$issue_dir" ] || die "no such issue dir: $issue_dir"
 issue_id="$(basename "$issue_dir")"          # e.g. Issue-586
-issue_n="${issue_id##*-}"
+issue_n="${issue_id#Issue-}"          # Fork-132 stays Fork-132, never #132
 stage="$issue_dir/potholes-promotion.md"
 
 # Resolve the register ONCE, via the §12 walk.
@@ -88,7 +88,7 @@ case "${1:-}" in
     [ -n "$section" ] && [ -n "$line" ] || usage
     case "$line" in *$'\n'*) die "--add: the line must be a SINGLE line" ;; esac
     grep -qxF "## $section" "$reg" \
-        || die "--add: no section '## $section' in $reg — use a heading that already exists (grep '^## ' \"$reg\")"
+        || die "--add: no section '## $section' in $reg — use a heading that already exists (grep '^## ' \"$reg\"; a CRLF file also fails this exact match)"
     case "$line" in "- "*) ;; *) die "--add: the line must start with '- '" ;; esac
     printf '%s' "$line" | grep -qiE "\((${project} )?${issue_id}\)\.$" \
         || die "--add: the line must end with its own citation '(${issue_id}).'"
@@ -113,6 +113,13 @@ case "${1:-}" in
         } > "$stage"
     fi
     grep -qxF -- "$line" "$stage" && { info "--add: already staged (idempotent): $line"; exit 0; }
+    # Say NOW what --apply will do later: a register outside this project's repos
+    # (another project's plugin-default register) is never written by the drain.
+    _src="$(expand_tilde "$(config_get_project_field "$project" source_dir 2>/dev/null || true)")"
+    case "$(_canon "$(dirname "$reg")" || true)" in
+        "$(_canon "$_src" || true)"/*|"$(_canon "$devdoc_dir" || true)"/*) ;;
+        *) warn "--add: register $reg is outside this project's source_dir/devdoc_dir — cleanup will DEFER (rc 3); land it by hand from the register's own repo (promote-potholes.sh $project --list-pending shows the backlog)" ;;
+    esac
     # Plain append, in staging order; --apply tracks the current heading as it
     # streams the file, so a repeated heading is harmless.
     { echo; echo "## $section"; echo "$line"; } >> "$stage"
@@ -124,10 +131,15 @@ case "${1:-}" in
     if [ -f "$issue_dir/checklist.md" ]; then
         # The free-form `note:` tail is stripped BEFORE matching, so an operator
         # note can neither make nor unmake a claim.
-        claim="$(awk '/^## Log/{p=1;next} /^## /{p=0} p' "$issue_dir/checklist.md" \
-                 | grep -E '^- .*[[:space:]]lessonslearned:' | sed 's/; *note:.*$//' \
-                 | grep -iE 'register: [0-9]+ staged|promot.*(register|pothole)' \
+        ll="$(awk '/^## Log/{p=1;next} /^## /{p=0} p' "$issue_dir/checklist.md" \
+              | grep -E '^- .*[[:space:]]lessonslearned:' | sed 's/; *note:.*$//' || true)"
+        # The machine field is unconditional; only free text is subject to the
+        # deferral deny-list (else "3 promoted, 1 candidate skipped" un-claims itself).
+        claim="$(printf '%s\n' "$ll" | grep -iE 'register: [0-9]+ staged' || true)"
+        free="$(printf '%s\n' "$ll" | grep -ivE 'register: [0-9]+ staged' \
+                 | grep -iE 'promot.*(register|pothole)' \
                  | grep -ivE 'defer|refus|skip|not promoted|no promotion|not committed|none staged|candidate' || true)"
+        claim="${claim}${claim:+${free:+$'\n'}}${free}"
     fi
     st=""; [ -f "$stage" ] && st="$(sed -n 's/^status: *//p' "$stage" | head -1)"
     case "$st" in
@@ -193,7 +205,7 @@ case "${1:-}" in
     # shared tree), validate, then overwrite. Never restore by checkout — the
     # shared tree may hold uncommitted work.
     tmp="$(mktemp "${TMPDIR:-/tmp}/potholes.XXXXXX")"
-    trap 'rm -f "$tmp" "$tmp.2"' EXIT
+    trap 'rm -f "$tmp" "$tmp.2" "$tmp.orig"' EXIT
     cp "$reg" "$tmp"
     section=""; applied=0
     while IFS= read -r l; do
@@ -211,7 +223,7 @@ case "${1:-}" in
                   /^## /{
                     if (ins==1) { print ENVIRON["L"]; ins=2 }
                     for(i=1;i<=nb;i++) print b[i]; nb=0
-                    print; if ($0==ENVIRON["S"]) ins=1; next
+                    print; if (ins==0 && $0==ENVIRON["S"]) ins=1; next
                   }
                   {
                     if (ins==1 && $0 ~ /^[[:space:]]*$/) { b[++nb]=$0; next }
@@ -230,13 +242,19 @@ case "${1:-}" in
         v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$tmp")"
         [ "$v" = "0" ] || die "--apply: append produced $v 'bullet immediately before a ## heading' violations — register NOT modified"
         _cited "$tmp" || die "--apply: post-apply register carries no ${issue_id} citation — register NOT modified"
+        cp "$reg" "$tmp.orig"
         cat "$tmp" > "$reg"      # preserve the target's mode/inode
         # Commit scoped to the ONE path (U1: a pathspec commit leaves the index alone).
-        [ "$owner" = self ] && { "$DEVAGENT_GIT" -C "$repo" commit -s -q \
-            -m "chore: promote pothole-register entries from #${issue_n}" -- "$rel" \
-            || die "--apply: commit failed in $repo (register edit left in the tree — commit it by hand)"; }
+        # On failure put the ORIGINAL back (Rail 2 proved the path clean, so this is
+        # a restore to HEAD, not a discard) — an uncommitted register edit in the
+        # shared tree is the very hazard this script exists to close.
+        if [ "$owner" = self ] && ! "$DEVAGENT_GIT" -C "$repo" commit -s -q \
+            -m "chore: promote pothole-register entries from #${issue_n}" -- "$rel"; then
+            cat "$tmp.orig" > "$reg"
+            die "--apply: commit failed in $repo — register restored, $issue_id stays pending (fix git identity/hooks and re-run --apply)"
+        fi
     fi
-    rm -f "$tmp"; trap - EXIT
+    rm -f "$tmp" "$tmp.orig"; trap - EXIT
     # Nothing to write (lines already carried) is success, not a die.
     sha=devdoc; [ "$owner" = self ] && sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --short HEAD)"
     sed -i "s/^status: pending$/status: applied ${sha}/" "$stage"

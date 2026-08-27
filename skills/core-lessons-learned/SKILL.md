@@ -90,7 +90,10 @@ issues, not at the end of the current one.
    `<issue-dir>/potholes-promotion.md` (durable in devdoc) and is
    idempotent. `/devagent:cleanup` (step 23) applies and commits the
    staged lines on the base branch and flips the file to
-   `status: applied <sha>`; cleanup also REFUSES a log line that claims a
+   `status: applied <sha>` (a register outside this project's repos — the
+   plugin default, for every project but devagent — DEFERS at cleanup and is
+   landed by hand from the register's own repo; `--add` warns when that is
+   the case); cleanup also REFUSES a log line that claims a
    promotion the register does not carry, so the Logging line below must
    say `staged`, never `promoted`.
    Rules for the line itself: dedupe by citation — skip if the register

@@ -43,9 +43,13 @@ Immediately AFTER the tree restore, cleanup DRAINS that pending file with
 `--apply`: the lines are appended at the end of their named sections and
 committed on the base branch as `chore: promote pothole-register entries from
 #N`, scoped to the register path only (a concurrent session's staged files are
-left alone). The commit is NOT pushed. rc 3 (register dirty in git, source repo
-not on the base branch, or the register resolving outside the project's own
-repos) is a DEFERRAL: cleanup warns, completes, and the file stays
+left alone). The commit is NOT pushed. A register that resolves at the DEVDOC
+layer is written and stamped `applied devdoc` — cleanup's own devdoc commit
+carries it, so `permissions.commit_devdoc` must be true or the drain defers.
+rc 3 (register dirty in git, source repo not on the base branch, the register
+resolving outside the project's own repos — every non-devagent project today,
+whose register is the plugin default — or devdoc commits not permitted) is a
+DEFERRAL: cleanup warns, completes, and the file stays
 `status: pending` — `promote-potholes.sh <project> --list-pending` lists the
 backlog and `--apply` can be re-run by hand once the register is clean. Any
 other non-zero rc dies AFTER the restore (tree on the base branch, step 23
