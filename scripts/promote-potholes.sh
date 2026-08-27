@@ -51,7 +51,7 @@ config_is_project "$project" || die "unknown project '$project'"
 shift
 # project_devdoc_dir, not a raw field read: it honours DEVAGENT_TEST_DEVDOC, the
 # same leg template_resolve walks.
-devdoc_dir="$(expand_tilde "$(project_devdoc_dir "$project")")"
+devdoc_dir="$(project_devdoc_dir "$project")"   # already tilde-expanded (config.sh whitelist)
 
 # --list-pending needs no issue.
 if [ "${1:-}" = "--list-pending" ]; then
@@ -100,7 +100,7 @@ _repo_of() {
 _commit_devdoc_raw() { config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false; }
 
 # Citation-STRIPPED body of a line (the token may legitimately carry the project).
-_body() { printf '%s' "$1" | sed -E 's/ *\(([A-Za-z-]+ )?Issue-[A-Za-z0-9-]+\)\.$//'; }
+_body() { printf '%s' "$1" | sed -E "s/${POTHOLES_CITE_TAIL_RE}//"; }
 
 # _skeleton <layer> — a NEW layer file: header comment + title. The staged
 # sections are appended by the drain (a union-valid heading absent from the
@@ -151,7 +151,7 @@ case "${1:-}" in
             || die "--add: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"
         # Optional operator noun list: fixed-string, word-bounded, case-insensitive.
         # rc 3 (wrong type) dies; rc 1 (absent) is the common case.
-        nouns_rc=0; nouns="$(_config_toml get-list "$(config_path)" "project.${project}.paths.potholes_domain_nouns" 2>/dev/null)" || nouns_rc=$?
+        nouns_rc=0; nouns="$(config_get_project_list "$project" paths.potholes_domain_nouns 2>/dev/null)" || nouns_rc=$?
         [ "$nouns_rc" -ne 3 ] || die "--add: [project.$project.paths] potholes_domain_nouns must be an array of strings"
         if [ "$nouns_rc" -eq 0 ] && [ -n "$nouns" ]; then
             hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$nouns") | head -1 || true)"
@@ -348,8 +348,7 @@ case "${1:-}" in
         # be satisfied by another layer's earlier promotion and prove nothing.
         v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$tmp")"
         [ "$v" = "0" ] || die "--apply: append produced $v 'bullet immediately before a ## heading' violations — $ly register NOT modified"
-        _cre="\\((${project} )?${issue_id}\\)"; [ "$ly" = workflow ] && _cre="\\(${project} ${issue_id}\\)"
-        grep -qiE -- "$_cre" "$tmp" \
+        grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$tmp" \
             || die "--apply: post-apply $ly register carries no ${issue_id} citation — NOT modified"
         cat "$tmp" > "$target"                                 # preserve mode/inode of an existing file
         if [ "$bootstrapped" -eq 1 ]; then

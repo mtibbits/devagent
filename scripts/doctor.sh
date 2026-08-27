@@ -14,8 +14,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 # shellcheck source=/dev/null
 # shellcheck disable=SC2034  # consumed by template_resolve.sh (sourced next), which keys its
-# source-set off DEVAGENT_ROOT — paths.sh above set it to the devagent HOME, not the plugin.
-DEVAGENT_ROOT="$PLUGIN_ROOT"   # template_resolve.sh keys its source-set off DEVAGENT_ROOT, never an ambient value
+# source-set off DEVAGENT_ROOT — pinned to the plugin so an ambient/other-lib value cannot redirect it.
+DEVAGENT_ROOT="$PLUGIN_ROOT"
 source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
 
 declare -i ERRORS=0
@@ -230,13 +230,13 @@ if [[ -f "$(config_path)" ]]; then
   seed="$(potholes_seed_path)"   # via the resolver (#425 canary), never a hand-rolled path
   fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
   if [[ -f "$seed" && -f "$fx" ]]; then
-    pub=" $(sed -n 's/^# public: *//p' "$fx" | tr '\n' ' ') "
+    pub=" $(potholes_fixture_public "$fx" | tr '\n' ' ') "
     live=(); missing=()
     while IFS= read -r p; do
       [[ -z "$p" ]] && continue
       [[ "${pub,,}" == *" ${p,,} "* ]] && continue
       live+=("$p")
-      grep -v '^#' "$fx" | grep -qixF -- "$p" || missing+=("$p")
+      potholes_fixture_private_names "$fx" | grep -qixF -- "$p" || missing+=("$p")
     done < <(config_list_projects)
     if (( ${#missing[@]} )); then
       check "private-project fixture list covers config" warn "not listed in $fx: ${missing[*]}"

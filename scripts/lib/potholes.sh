@@ -15,19 +15,36 @@
 # The workflow/project paths are printed even when the file does not exist
 # yet: promote-potholes.sh --apply bootstraps them.
 
+# Citation grammar, in ONE place. POTHOLES_CITE_TAIL_RE strips a trailing
+# citation (sed -E); potholes_cite_re builds the layer-aware match: the SHARED
+# workflow file must carry the project token (a bare (Issue-42) moved there by
+# the distribute capture would otherwise satisfy EVERY project's Issue-42);
+# the seed, the project layer and temp files accept the bare form too.
+# shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
+POTHOLES_CITE_TAIL_RE=' *\(([A-Za-z-]+ )?Issue-[A-Za-z0-9-]+\)\.$'
+potholes_cite_re() {   # <project> <issue_id> <layer>
+  if [ "$3" = workflow ]; then printf '\\(%s %s\\)\n' "$1" "$2"
+  else printf '\\((%s )?%s\\)\n' "$1" "$2"; fi
+}
+
 potholes_seed_path() { printf '%s\n' "$(template_plugin_dir)/potholes.md"; }
 
-potholes_workflow_path() { template_project_paths_override "$1" potholes_workflow; }
-
-potholes_project_path() {
-  local p d
-  p="$(template_project_paths_override "$1" potholes)"
-  if [ -z "$p" ]; then
-    d="$(template_devdoc_dir "$1")"
-    [ -n "$d" ] && p="${d%/}/templates/potholes.md"
+# The workflow/project paths cost 1-2 config reads (python3 spawns) each, and
+# one script run asks for them several times — memoised per project.
+_POTHOLES_MEMO_PROJECT=""; _POTHOLES_MEMO_WF=""; _POTHOLES_MEMO_PR=""
+_potholes_memo() {
+  local project="$1" d
+  [ "$_POTHOLES_MEMO_PROJECT" = "$project" ] && [ -n "$_POTHOLES_MEMO_PROJECT" ] && return 0
+  _POTHOLES_MEMO_WF="$(template_project_paths_override "$project" potholes_workflow)"
+  _POTHOLES_MEMO_PR="$(template_project_paths_override "$project" potholes)"
+  if [ -z "$_POTHOLES_MEMO_PR" ]; then
+    d="$(template_devdoc_dir "$project")"
+    [ -n "$d" ] && _POTHOLES_MEMO_PR="${d%/}/templates/potholes.md"
   fi
-  printf '%s\n' "$p"
+  _POTHOLES_MEMO_PROJECT="$project"
 }
+potholes_workflow_path() { _potholes_memo "$1"; printf '%s\n' "$_POTHOLES_MEMO_WF"; }
+potholes_project_path()  { _potholes_memo "$1"; printf '%s\n' "$_POTHOLES_MEMO_PR"; }
 
 # potholes_layer_files <project> — "<layer> <path>" per PRESENT file, seed first.
 potholes_layer_files() {
@@ -38,42 +55,40 @@ potholes_layer_files() {
   return 0
 }
 
-# _potholes_paths_into <project> <array-name> — fill an array with present layer paths.
-_potholes_paths_into() {
+# _potholes_layers_into <project> <layers-array> <paths-array> — fill two
+# parallel arrays (layer names, paths) with the PRESENT layers, seed first.
+_potholes_layers_into() {
   local project="$1" line
-  local -n _out="$2"
-  _out=()
+  local -n _l="$2" _p="$3"
+  _l=(); _p=()
   while IFS= read -r line; do
-    [ -n "$line" ] && _out+=("${line#* }")
+    [ -n "$line" ] || continue
+    _l+=("${line%% *}"); _p+=("${line#* }")
   done < <(potholes_layer_files "$project")
 }
 
 # potholes_union_headings <project> — every '## ' heading across the present layers.
 potholes_union_headings() {
-  local -a files
-  _potholes_paths_into "$1" files
+  local -a _layers files
+  _potholes_layers_into "$1" _layers files
   [ "${#files[@]}" -gt 0 ] || return 0
   grep -h '^## ' -- "${files[@]}" | sort -u
 }
 
 # potholes_cited_union <project> <issue_id> [file…] — does ANY present layer (or an
-# extra file, e.g. a temp copy about to be written) cite the issue? Closing paren
-# load-bearing (Issue-1 must not match Issue-10)). The SHARED workflow file must
-# carry the project token — a bare (Issue-42) moved there by the distribute
-# capture would otherwise satisfy EVERY project's Issue-42; the seed, the
-# project layer and extra files accept the bare form and this project's token.
+# extra file, e.g. a temp copy about to be written, matched with the bare-form
+# grammar) cite the issue? Closing paren load-bearing (Issue-1 must not match
+# Issue-10)); the per-layer grammar is potholes_cite_re's.
 potholes_cited_union() {
   local project="$1" issue_id="$2"; shift 2
-  local -a files=("$@") layers
-  _potholes_paths_into "$project" layers
-  files+=("${layers[@]}")
-  local f re wf
-  wf="$(potholes_workflow_path "$project")"
-  for f in "${files[@]}"; do
-    [ -s "$f" ] || continue
-    re="\\((${project} )?${issue_id}\\)"
-    [ -n "$wf" ] && [ "$f" = "$wf" ] && re="\\(${project} ${issue_id}\\)"
-    grep -qiE -- "$re" "$f" && return 0
+  local -a files=("$@") lnames=() layers paths
+  [ "${#files[@]}" -eq 0 ] || lnames=("${files[@]/*/extra}")   # every extra file uses the bare-form grammar
+  _potholes_layers_into "$project" layers paths
+  files+=("${paths[@]}"); lnames+=("${layers[@]}")
+  local i
+  for i in "${!files[@]}"; do
+    [ -s "${files[i]}" ] || continue
+    grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "${lnames[i]}")" "${files[i]}" && return 0
   done
   return 1
 }
@@ -84,12 +99,9 @@ potholes_cited_union() {
 # Bullets are deduped by their citation-STRIPPED text: the seed cites (Issue-N)
 # where the workflow layer cites (<project> Issue-N) for the same lesson.
 potholes_show_union() {
-  local project="$1" line
-  local -a layers=() paths=()
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    layers+=("${line%% *}"); paths+=("${line#* }")
-  done < <(potholes_layer_files "$project")
+  local project="$1"
+  local -a layers paths
+  _potholes_layers_into "$project" layers paths
   [ "${#paths[@]}" -gt 1 ] || return 1
   printf '# === template potholes (layers=%s) ===\n' "$(IFS=,; printf '%s' "${layers[*]}")"
   LAYERS="${layers[*]}" awk '
@@ -103,6 +115,11 @@ potholes_show_union() {
     }
     { print }' "${paths[@]}"
 }
+
+# Fixture-list parsers shared by doctor and the suite canary (one grammar):
+# '#' comments, one '# public: <name>…' allowlist line, one private name per line.
+potholes_fixture_private_names() { grep -v '^#' "$1" | sed '/^[[:space:]]*$/d'; }
+potholes_fixture_public()        { sed -n 's/^# public: *//p' "$1"; }
 
 # potholes_private_name_hits <seed> <name>… — ONE predicate shared by the suite
 # canary (tests/potholes-seed-canary.bats) and doctor (register: a guard and its

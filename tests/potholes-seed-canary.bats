@@ -9,10 +9,10 @@ REPO="${BATS_TEST_DIRNAME}/.."
 SEED="$REPO/templates/potholes.md"
 FX="$REPO/tests/fixtures/private-project-names.txt"
 
-_names()   { grep -v '^#' "$FX" | sed '/^[[:space:]]*$/d'; }
-_public()  { sed -n 's/^# public: *//p' "$FX"; }
-_curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} -->'; }
 _lib()     { . "$REPO/scripts/lib/template_resolve.sh"; }
+_names()   { _lib; potholes_fixture_private_names "$FX"; }     # the SAME parser doctor uses
+_public()  { _lib; potholes_fixture_public "$FX"; }
+_curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} -->'; }
 
 @test "fixture list is well-formed: a public allowlist and at least one private name" {
   [ -n "$(_public)" ]

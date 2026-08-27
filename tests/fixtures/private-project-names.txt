@@ -6,7 +6,6 @@
 # non-public key missing here, so add every new private project on init.
 # public: devagent volk
 lawFirm
-lawfirm
 fleet
 lectio
 factor-ai
