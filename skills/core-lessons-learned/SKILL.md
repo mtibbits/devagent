@@ -70,41 +70,49 @@ issues, not at the end of the current one.
    (`/devagent:reap` harvests these). Tag `reference` for a fact to
    remember, `norm` for an operator-working-style change, `pattern` for
    something that generalises beyond this issue.
-7. **Stage patterns for the register (#286, #586).** For each entry whose
+7. **Stage patterns for the register (#286, #586, #611).** For each entry whose
    tag set includes `pattern` (any form — `pattern`, `[pattern, norm]`,
    etc.) AND that generalises beyond this issue, stage a one-line
-   distillation of it, with its `(Issue-N)` source citation, for the
-   resolved `potholes` register (§12 walk: project paths → devdoc →
-   plugin default; `template.sh --project <p> show potholes` prints its
-   path). **Do NOT edit the register file yourself** — it lives in the
-   shared source tree, where an uncommitted edit is stashed or reverted by
-   the next session's gate (the #586 defect). Stage each line instead, one
-   command per line:
+   distillation, ROUTED to a register layer — `--layer` is mandatory, there
+   is no default, and the routing is YOUR judgment (the script enforces only
+   the citation form and the shared-layer leak rails):
+   - `--layer project` — the lesson is about THIS project's code or domain
+     (domain nouns are fine; the project register is private). Cite `(Issue-N)`.
+   - `--layer workflow` — the lesson would fire on ANOTHER project's issue
+     (workflow, tooling, review discipline). Cite `(<project> Issue-N)` with
+     the config spelling of the project; keep the line project-neutral — the
+     body must not name the project or a `paths.potholes_domain_nouns` term.
+
+   **Do NOT edit any register file yourself** — an uncommitted edit in a
+   shared tree is stashed or reverted by the next session's gate (the #586
+   defect). Stage each line instead, one command per line. The register is
+   read as a UNION of seed + workflow + project (`template.sh --project <p>
+   show potholes` prints it; `grep '^## '` for the legal headings — a heading
+   may appear once per layer; treat every copy as ONE section, identity is
+   the heading text):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add "<section heading>" "- <one-line distillation> (Issue-N)."
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add --layer project|workflow "<section heading>" "- <one-line distillation> (<citation>)."
    ```
 
-   The script refuses an unknown section heading, a wrong/missing
-   citation, a multi-line value, and a line naming the project; it writes
-   `<issue-dir>/potholes-promotion.md` (durable in devdoc) and is
-   idempotent. `/devagent:cleanup` (step 23) applies and commits the
-   staged lines on the base branch and flips the file to
-   `status: applied <sha>` (a register outside this project's repos — the
-   plugin default, for every project but devagent — DEFERS at cleanup and is
-   landed by hand from the register's own repo; `--add` warns when that is
-   the case); cleanup also REFUSES a log line that claims a
-   promotion the register does not carry, so the Logging line below must
-   say `staged`, never `promoted`.
-   Rules for the line itself: dedupe by citation — skip if the register
-   already carries a line citing this issue for the same rule; keep the
-   one-liner PROJECT-NEUTRAL (strip domain nouns — the register is a
-   shipped plugin template scanned by `generic-templates.bats`, so a
-   project-specific token would redden that canary in an unrelated
-   issue); pick the closest existing trigger-domain heading
-   (`grep '^## ' <register>`). Not every `pattern` entry belongs — stage
-   the ones that will fire on FUTURE issues of other kinds, not the
-   one-off.
+   The script refuses a missing/unknown layer, a wrong citation form for the
+   layer, an unknown section, a multi-line value, and (workflow layer) a body
+   naming the project or a domain noun; `--layer workflow` with no
+   `[paths] potholes_workflow` configured is refused HERE, loudly — configure
+   the key first, and only then consider re-routing to `project` (a shared
+   lesson forked into a private register is what the design exists to avoid).
+   It writes `<issue-dir>/potholes-promotion.md` (durable in devdoc) and is
+   idempotent. `/devagent:cleanup` (step 23) drains it: each layer file
+   (bootstrapped if absent) gets its own path-scoped commit in the devdoc
+   repo, and the file flips to `status: applied <sha>[,<sha>]`. A DEFER (rc 3
+   — `commit_devdoc` not true, dirty/untracked target, mid-merge, containment,
+   held lock) keeps the file pending and says why; `--add` warns at staging
+   time about the ones it can already see. cleanup also REFUSES a log line
+   that claims a promotion no layer carries, so the Logging line below must
+   say `staged`, never `promoted`. Rules for the line itself:
+   dedupe by citation — skip if a layer already cites this issue for the same rule;
+   pick the closest existing heading. Not every `pattern` entry belongs —
+   stage the ones that will fire on FUTURE issues, not the one-off.
 8. **Brevity check.** If an entry is more than 4 lines total, split
    it or trim. Long lessons are unread lessons.
 

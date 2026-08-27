@@ -17,3 +17,10 @@ missing or errors, an undetermined state, not an absence claim) and, via
 the auth doctor hook, auth-secret presence and reachability.
 
 Forward arguments verbatim.
+
+Two #611 rows, WARN only: `seed carries no private project name` runs the
+private-project-name predicate over the shipped `templates/potholes.md` for
+every non-public project key in the live config (the suite canary skips until
+the seed is curated; doctor is ungated), and `private-project fixture list
+covers config` reports any non-public config project key missing from
+`tests/fixtures/private-project-names.txt`.

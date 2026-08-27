@@ -88,7 +88,8 @@ verbatim, substituting this step's per-step deltas:
   checklist item the checker never RECEIVES is a dead tripwire (#286).
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — the checker resolves the
   pothole register itself via `template.sh --project <project> show potholes`
-  (#286: self-resolution is what makes the tripwire un-droppable).
+  (#286: self-resolution is what makes the tripwire un-droppable; #611: the
+  output is the union of seed + workflow + project layers).
 - **`<CLASS>`** (rung-6 dispatch-lint class) — none; improve is not a verdict
   class, so run `dispatch-lint.sh <artifact> subagent` with no `--class`.
 - **`<REJECT-SLUG>`** (rung-6 rejected-artifact slug) — `improve`.

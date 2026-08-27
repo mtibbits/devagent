@@ -144,6 +144,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # NB: an override path that does not exist falls through SILENTLY to the
 # plugin default. Custom-workflow authoring rules (gate step names, required
 # steps, custom commands): see commands/template.md.
+# Shared WORKFLOW pothole register (#611): one absolute path, read by every
+# project as a union with the plugin seed and the project's own
+# <devdoc>/templates/potholes.md. Global table; a [project.<name>.paths]
+# potholes_workflow overrides it per project. Optional per-project
+# potholes_domain_nouns = ["..."] lists words the shared layer refuses.
+# [paths]
+# potholes_workflow = "~/src/devDoc/templates/potholes.md"
+
 [project.{{PROJECT}}.permissions]
 push_mr            = false
 merge_mr           = false

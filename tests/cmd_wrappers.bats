@@ -385,3 +385,10 @@ S
   # shellcheck disable=SC2154  # $stderr is set by `run --separate-stderr` (bats idiom)
   [[ "$stderr" == *core-oops* ]]
 }
+
+@test "lessonslearned.md/cleanup.md describe the layered drain, not the by-hand landing (#611)" {
+  grep -qF -- '--layer' "$CMD_DIR/lessonslearned.md"
+  grep -qF 'commit_devdoc' "$CMD_DIR/cleanup.md"
+  for f in lessonslearned cleanup; do run grep -n 'every project but devagent' "$CMD_DIR/$f.md"; [ "$status" -eq 1 ]; done
+  grep -qi 'once per layer' "$CMD_DIR/draft.md"
+}

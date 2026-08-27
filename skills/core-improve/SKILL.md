@@ -47,10 +47,12 @@ everything from disk and state:
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" --project <project> show potholes
    ```
 
-   That walks the §12 registry (project paths → devdoc override → plugin
-   default `templates/potholes.md`) and prints the resolved source path plus
-   its content. Halt-and-report in your artifact if it cannot be resolved;
-   never check with less and stay silent about it.
+   That prints the UNION of the register's layers (#611: plugin seed + the
+   shared workflow register + this project's register, `# layer:` markers when
+   more than one is present; a `## ` heading may appear once per layer — treat
+   every copy as one section). Halt-and-report in your artifact if it cannot
+   be resolved; reading the plugin seed alone is checking with less — never do
+   it silently.
 4. **Spike tripwire (#536) — only on a `spike: required` issue** (checklist row 23 is
    not `[-]`; unflagged issues that merely declare unknowns do NOT fire this):
    - a declared `## Load-bearing unknowns` entry with NO matching verdict in

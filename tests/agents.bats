@@ -155,3 +155,10 @@ setup() {
       || { echo "caveat lacks the adjudication pointer (#529): $f" >&2; false; }
   done <<<"$subjects"
 }
+
+@test "plan-improver no longer permits reading the plugin default as a fallback (#611)" {
+  run grep -n 'read the plugin default directly' "$IMPROVE"
+  [ "$status" -eq 1 ]
+  grep -qi 'checking with less' "$IMPROVE"
+  grep -qi 'once per layer' "$IMPROVE"
+}

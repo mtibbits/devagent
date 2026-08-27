@@ -120,7 +120,16 @@ order:
    the shipped defaults.
 
 Example keys: `imPlan_template` (step 2), `mr_template` (step 14),
-`potholes` (steps 2/22/23), `checklist-standard` (issue scaffolding). Inspect
+`potholes` (steps 2/22/23), `checklist-standard` (issue scaffolding).
+
+The pothole register is layered (#611): `show potholes` prints the union of the
+plugin seed, the shared workflow register and the project's own register. The
+workflow register is named by a global `[paths] potholes_workflow = "<absolute
+path>"` (a per-project `[project.<name>.paths]` value overrides it); it is the
+one key that reads the global table, and it has no plugin fallback, so
+`template list` shows it as its own row. Optional
+`[project.<name>.paths] potholes_domain_nouns = [...]` lists words the shared
+layer refuses at staging time. Inspect
 what resolves where with `/devagent:template list` and
 `/devagent:template show <key>`.
 

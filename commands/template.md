@@ -32,6 +32,18 @@ by a banner indicating which layer it came from.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" $ARGUMENTS
 ```
 
+## The potholes register (#611)
+
+`show potholes` prints the UNION of the register's layers — the plugin seed,
+the shared workflow register (`[paths] potholes_workflow`, or the per-project
+override) and this project's register (`[project.<p>.paths] potholes`, else
+`<devdoc>/templates/potholes.md`) — with `# layer:` markers when more than one
+is present; a seed-only project gets the ordinary single-file banner.
+`potholes_workflow` has no devdoc or plugin rung, so `list` shows it as its own
+row (`layer=unset` when not configured, `layer=absent` until the first drain
+bootstraps the file, `layer=workflow` once present) rather than a `MISSING`
+registry key.
+
 ## Custom workflow templates (#120)
 
 Checklist templates (`checklist-<name>`) and `revision_block` resolve via

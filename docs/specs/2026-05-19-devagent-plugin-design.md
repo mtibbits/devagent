@@ -171,6 +171,11 @@ coding_standards = "codingStandards.md"
 commit_template  = "commitMessageTemplate.md"
 # unspecified artifacts fall through to <devdoc>/templates/ then plugin templates/
 
+[paths]                                  # #611: GLOBAL file paths (every project) — today one key
+potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pothole register; ABSOLUTE; default none
+# [project.volk.paths] may override potholes_workflow, and may add
+# potholes_domain_nouns = ["matter", "docket"]   # words that mark a line as domain content (the workflow layer refuses them)
+
 [project.volk.step_models]               # optional model tiers per step class (#150/#151/#291); see §7.4
 checking = "opus"                        # improve(5) / review(15) / redmr(16) / preship(17)
 # thinking = "opus"                      # draft(2) / implement(9) / quality(10) / document(11) / draftmr(14)
@@ -306,7 +311,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
-├── potholes-promotion.md   # #586: staged [pattern]→register lines; drained by cleanup
+├── potholes-promotion.md   # #586/#611: staged [pattern]→register lines, one `layer:` per block; drained by cleanup
 ├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
@@ -1375,6 +1380,10 @@ Artifact resolution order is fixed and explicit:
 2. `<devdoc>/templates/<name>.md`
 3. `~/src/devAgent/templates/<name>.md`
 
+For the single key `potholes_workflow` a global `[paths].potholes_workflow`
+(§3.2) sits between rung 1 and rung 2 (#611); no other key reads the global
+table.
+
 v1 artifact list:
 
 | Key | Used by |
@@ -1398,7 +1407,8 @@ v1 artifact list:
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
-| `potholes` | draft (pothole register read → `## Potholes considered`, #286), lessonslearned (`[pattern]`→register promote, staged via `promote-potholes.sh --add`), cleanup (pending-promotion drain, #586) |
+| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611) |
+| `potholes_workflow` | the shared workflow layer — `[project.<p>.paths]` then global `[paths]`; no devdoc or plugin rung, so not a registry key (its own `template list` row; #611) |
 
 Migration on first install: existing files at
 `~/src/devAgent/{commitMessageTemplate,pr-redteam-prompt,PULL_REQUEST_TEMPLATE}.md`
