@@ -61,31 +61,30 @@ devdoc_dir="$(config_get_project_field "$project" devdoc_dir)"
 baseline="$(config_get_project_field "$project" default_baseline)"
 base_branch="${baseline##*/}"
 
-# #586: a promotion CLAIM must be backed by a register line. Runs BEFORE any
-# side effect (same placement rationale as the #242 gate above) — a false claim
-# must die while the tree is still where the operator left it. The escape is to
-# correct the log line to name the deferral and its reason.
-"$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --check \
-    || die "pothole-promotion check failed (#586) — see above"
+# #586: refuse a promotion CLAIM the register does not carry, BEFORE any side
+# effect (the #242 placement). A claim can only come from a lessonslearned: log
+# line or a staging file, so the common case skips the process entirely.
+if [ -f "$issue_dir/potholes-promotion.md" ] || grep -q 'lessonslearned:' "$issue_dir/checklist.md" 2>/dev/null; then
+    "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --check \
+        || die "pothole-promotion check failed (#586) — see above"
+fi
 
 # Restore source tree to base branch.
 ( cd "$source_dir" && "$DEVAGENT_GIT" checkout "$base_branch" )
 
-# #586: drain this issue's pending register promotion NOW. This is the only
-# moment in the workflow when the base branch is checked out AND this session
-# owns the checkout, so the register edit and its scoped commit happen inside one
-# script run — no stash, no cross-session window. rc 3 = deferred (register
-# dirty / not on base / outside the project's repos); the staging file stays
-# pending and stays loud. Re-running cleanup after a die here is safe: --check
-# passes on a pending file and --apply is idempotent.
-_pp_rc=0
-"$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || _pp_rc=$?
-case "$_pp_rc" in
-    0) ;;
-    3) warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; re-run promote-potholes.sh $project $issue_dir --apply once the register is clean" ;;
-    *) die "cleanup: pothole promotion FAILED (rc=$_pp_rc) — register left unmodified (#586)" ;;
-esac
-unset _pp_rc
+# #586: drain the pending register promotion NOW — the only moment the base
+# branch is checked out AND this session owns the checkout, so the edit and its
+# scoped commit happen inside one script run. rc 3 = deferred (stays pending,
+# stays loud). Re-running cleanup after a die here is safe (--apply is idempotent).
+if [ -f "$issue_dir/potholes-promotion.md" ]; then
+    pp_rc=0
+    "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || pp_rc=$?
+    if [ "$pp_rc" -eq 3 ]; then
+        warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; re-run promote-potholes.sh $project $issue_dir --apply once the register is clean"
+    elif [ "$pp_rc" -ne 0 ]; then
+        die "cleanup: pothole promotion FAILED (rc=$pp_rc) — register left unmodified (#586)"
+    fi
+fi
 
 # Bookkeeping first — updates checklist.md so devdoc has something to commit.
 # Clear the per-issue context and GC any leftover snapshot for this issue

@@ -29,7 +29,7 @@ from the issue's checklist are not gated (research/docs-only templates).
 
 ## Precondition (#586) — pothole-register promotions
 
-`cleanup.sh` runs `scripts/promote-potholes.sh <project> <issue-dir> --check`
+`cleanup.sh` runs `promote-potholes.sh <project> <issue-dir> --check`
 BEFORE the tree restore and refuses while a `lessonslearned:` log line CLAIMS
 a register promotion (`… promoted to the potholes register`) that the resolved
 register does not carry (no `(Issue-N)` citation). A pending

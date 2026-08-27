@@ -21,6 +21,11 @@ setup() {
 }
 teardown() { devagent_test_teardown; }
 
+# Move the register into the SOURCE repo (committed) so --apply owns the commit.
+use_source_register() {
+    use_source_register
+}
+
 # --- floor -------------------------------------------------------------------
 
 @test "the script exists and is executable (anti-vacuous floor, #572)" {
@@ -80,6 +85,21 @@ teardown() { devagent_test_teardown; }
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]
     [[ "$output" == *PENDING* ]]
+}
+
+@test "--check ignores the free-form note: tail (a note cannot make or unmake a claim)" {
+    printf '%s\n' "$LL 3 patterns promoted to the potholes register; note: deferred the flaky candidate to reap" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 1 ]
+}
+
+@test "--check reads the machine field: 'register: N staged' with no staging file is a claim; 'none staged' is not" {
+    printf '%s\n' "$LL register: 3 staged pending cleanup; note: (none)" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 1 ]
+    sed -i 's/register: 3 staged pending cleanup/register: none staged/' "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 0 ]
 }
 
 @test "--check FAILS when the staging file says applied but the register lacks the line" {
@@ -168,6 +188,33 @@ teardown() { devagent_test_teardown; }
     grep -qxF -- "$line" "$REG"
 }
 
+@test "--apply on a devdoc-resident register DEFERS (rc 3) when commit_devdoc is not true (nobody would commit it)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    run grep -q 'a neutral line' "$REG"
+    [ "$status" -ne 0 ]
+}
+
+@test "--apply on a devdoc-resident register stamps 'applied devdoc' (cleanup's devdoc commit carries it)" {
+    bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    grep -q '^status: applied devdoc$' "$ID/potholes-promotion.md"
+}
+
+@test "--apply preserves STAGING order within a section (plain append, no LIFO)" {
+    bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- first (Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- second (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    run awk '/^## Docs/{f=1;next} f&&/^## /{exit} f&&/Issue-1/' "$REG"
+    [ "${lines[0]}" = "- first (Issue-1)." ]
+    [ "${lines[1]}" = "- second (Issue-1)." ]
+}
+
 @test "--apply is a no-op (rc 0) when there is no staging file" {
     run bash "$PP" "$TEST_PROJECT" "$ID" --apply
     [ "$status" -eq 0 ]
@@ -183,10 +230,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "--apply REFUSES (rc 3) and stays pending when the register is dirty in git" {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$REG" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    use_source_register
     bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
     printf '%s\n' '- a FOREIGN session line (Issue-3).' >> "$SOURCE_DIR/templates/potholes.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --apply
@@ -198,10 +242,8 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "--apply REFUSES (rc 3) when the source repo is not on the base branch (a stranded commit is the defect)" {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$REG" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git checkout -q -b feat/1-x )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    use_source_register
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
     run bash "$PP" "$TEST_PROJECT" "$ID" --apply
     [ "$status" -eq 3 ]
@@ -209,10 +251,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "--apply commits ONLY the register path, leaving a concurrent staged file alone (U1)" {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$REG" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    use_source_register
     echo foreign > "$SOURCE_DIR/other.txt"
     ( cd "$SOURCE_DIR" && git add other.txt )
     bash "$PP" "$TEST_PROJECT" "$ID" --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."

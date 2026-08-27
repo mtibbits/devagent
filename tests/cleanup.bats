@@ -33,6 +33,17 @@ setup() {
 }
 teardown() { devagent_test_teardown; }
 
+# #586: register committed in the SOURCE repo (on main, so the restore keeps it)
+# with one line staged for Issue-1.
+stage_in_source_register() {
+    mkdir -p "$SOURCE_DIR/templates"
+    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
+    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
+    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+    bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
+        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+}
+
 @test "cleanup.sh switches source tree to main, commits devdoc, clears active_issue" {
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -264,12 +275,7 @@ SH
 }
 
 @test "#586: cleanup drains a PENDING promotion after the restore and commits it on the base branch" {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
-    bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
-        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    stage_in_source_register
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q 'a neutral line (Issue-1).' "$SOURCE_DIR/templates/potholes.md"
@@ -281,12 +287,7 @@ SH
 }
 
 @test "#586: a DEFERRED drain (dirty register) warns and completes cleanup" {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
-    bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
-        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    stage_in_source_register
     printf '%s\n' '- foreign (Issue-3).' >> "$SOURCE_DIR/templates/potholes.md"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]                       # a deferral is not a failure

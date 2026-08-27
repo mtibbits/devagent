@@ -78,9 +78,8 @@ issues, not at the end of the current one.
    plugin default; `template.sh --project <p> show potholes` prints its
    path). **Do NOT edit the register file yourself** — it lives in the
    shared source tree, where an uncommitted edit is stashed or reverted by
-   the next session's gate; that is the #586 defect (four lessonsLearned
-   files diagnose it; 11 verified lines were orphaned for months). Stage
-   each line instead, one command per line:
+   the next session's gate (the #586 defect). Stage each line instead, one
+   command per line:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add "<section heading>" "- <one-line distillation> (Issue-N)."
