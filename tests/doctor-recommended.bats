@@ -14,18 +14,6 @@ setup() {
 }
 teardown() { teardown_tmp_devagent_home; }
 
-# Strip every PATH dir that carries a `claude` executable (the CI case:
-# no claude CLI at all).
-remove_claude_from_path() {
-  local newpath="" d
-  local IFS=:
-  for d in $PATH; do
-    [ -x "$d/claude" ] && continue
-    newpath="${newpath:+$newpath:}$d"
-  done
-  export PATH="$newpath"
-}
-
 @test "doctor WARNs when superpowers is not installed (recommend, never die)" {
   stub_claude_cli absent      # list carries OTHER plugins but no superpowers (poison control)
   run bash "$SCRIPTS/doctor.sh" volk
@@ -56,11 +44,52 @@ remove_claude_from_path() {
   [[ "$output" != *"recommended: claude plugin install"* ]]
 }
 
+@test "curated_path_without_claude hides claude WITHOUT stripping its neighbours (#585)" {
+  # Issue-541 review minor 9. The predecessor stripped every PATH DIRECTORY holding a
+  # `claude`; on this author's machine that took pytest, py.test, uv, uvx and
+  # git-filter-repo with it. Build a dir holding `claude` plus a bystander, put it on
+  # PATH, and require that only `claude` disappears.
+  local shared="$BATS_TEST_TMPDIR/shared"; mkdir -p "$shared"
+  printf '#!/usr/bin/env bash\necho REAL_CLAUDE\n'  > "$shared/claude"
+  printf '#!/usr/bin/env bash\necho BYSTANDER\n'    > "$shared/bystander-585"
+  chmod +x "$shared/claude" "$shared/bystander-585"
+  export PATH="$shared:$PATH"
+
+  # Control: both resolvable BEFORE (#Fork-149 — without this the post-assertion is
+  # satisfied just as well by a fixture that never worked).
+  command -v claude >/dev/null
+  command -v bystander-585 >/dev/null
+
+  curated_path_without_claude
+
+  run command -v claude
+  [ "$status" -ne 0 ]                      # gone
+  run command -v bystander-585
+  [ "$status" -eq 0 ]                      # survived
+  # And the ordinary toolchain doctor.sh needs is still reachable.
+  command -v git >/dev/null
+  command -v grep >/dev/null
+}
+
 @test "doctor skips the check silently when no claude CLI on PATH (CI)" {
-  remove_claude_from_path
+  # Must work on BOTH kinds of machine: one where claude is installed (the helper
+  # hides it) and a CI runner where it never was (the helper no-ops). A helper that
+  # hard-failed on the second would make this test's verdict a function of the
+  # machine — the very thing this issue removes.
+  curated_path_without_claude
+  run command -v claude
+  [ "$status" -ne 0 ]                      # the postcondition, however it was reached
   run bash "$SCRIPTS/doctor.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" != *"recommended: claude plugin install"* ]]
+}
+
+@test "curated_path_without_claude is a safe no-op when claude was never there (#585)" {
+  # The CI shape, forced, so it is pinned on a developer machine too.
+  curated_path_without_claude            # first call hides the real one
+  run curated_path_without_claude        # second call has nothing left to hide
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no-op"* ]]
 }
 
 @test "the stub SHADOWS the real claude CLI — doctor reports the stub's state, not the machine's (#585)" {

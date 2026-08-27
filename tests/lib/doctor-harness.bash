@@ -109,3 +109,51 @@ EOF
     *) export PATH="$STUBBIN:$PATH" ;;
   esac
 }
+
+# Make `claude` unresolvable WITHOUT losing the rest of its directory (#585, from
+# Issue-541 review minor 9). The predecessor stripped every PATH DIRECTORY holding a
+# `claude`; on the author's machine ~/.local/bin also holds pytest, py.test, uv, uvx
+# and git-filter-repo, so a one-executable intent carried a directory-wide blast
+# radius. For each claude-bearing dir, substitute a shadow dir symlinking every OTHER
+# entry; leave claude-free dirs exactly as they are.
+#
+# NOT an error when there is no claude to hide: that is the CI shape, and the first
+# consumer is the test named for it. A hard failure there would make that test's
+# verdict a function of the machine — precisely what this issue removes.
+curated_path_without_claude() {
+  local newpath="" d shadow entry count n=0
+  local IFS=:
+  for d in $PATH; do
+    [ -n "$d" ] || continue                       # an empty PATH element means CWD
+    if [ -x "$d/claude" ]; then
+      # Under BATS_TEST_TMPDIR so bats reaps the shadow dirs with the test; a bare
+      # `mktemp -d` left one behind per call, and this helper cannot trap (callers
+      # keep running).
+      shadow="$(mktemp -d "${BATS_TEST_TMPDIR:-${TMPDIR:-/tmp}}/nopath-XXXXXX")"
+      # Cost is proportional to the claude-bearing dir's SIZE, which is a property of
+      # the installer and not of this repo: 8 entries for ~/.local/bin, several
+      # thousand for a /usr/bin install, twice per suite run (#123 — a cost
+      # measurement is machine-bound). Refuse rather than silently pay it, and say
+      # what to do instead.
+      count=$(find "$d" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
+      [ "$count" -le 200 ] || {
+        echo "curated_path_without_claude: $d holds $count entries — refusing to build a symlink farm that large. Install claude to a private bin dir, or stub it instead of hiding it." >&2
+        return 1
+      }
+      # Deliberately NOT `ln -s "$d"/*` — a claude-free glob would still miss dotfiles
+      # and would misbehave on an empty dir with nullglob off.
+      for entry in "$d"/*; do
+        [ -e "$entry" ] || continue               # unmatched glob
+        [ "${entry##*/}" = claude ] && continue
+        ln -s "$entry" "$shadow/${entry##*/}" 2>/dev/null || true
+      done
+      newpath="${newpath:+$newpath:}$shadow"
+      n=$((n + 1))
+    else
+      newpath="${newpath:+$newpath:}$d"
+    fi
+  done
+  export PATH="$newpath"
+  [ "$n" -gt 0 ] || echo "curated_path_without_claude: no claude on PATH (already absent — no-op)"
+  return 0
+}
