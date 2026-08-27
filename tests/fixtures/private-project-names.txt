@@ -1,0 +1,13 @@
+# tests/fixtures/private-project-names.txt — #611. Names of PRIVATE projects that
+# must never appear in the shipped seed templates/potholes.md (the plugin is
+# public). One name per line, matched case-insensitively; the citation form
+# "(<name> Issue-" is the primary match, a word-bounded bare mention secondary.
+# doctor diffs the live config's project keys against this list and reports any
+# non-public key missing here, so add every new private project on init.
+# public: devagent volk
+lawFirm
+lawfirm
+fleet
+lectio
+factor-ai
+todo-board

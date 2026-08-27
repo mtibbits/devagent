@@ -199,3 +199,21 @@ CL
   [[ "$hook_gate" == *'/^\['* ]]                 # the section-trigger line is captured
   [ "$hook_gate" = "$doctor_gate" ] || { echo "gate DRIFT:"; diff <(echo "$hook_gate") <(echo "$doctor_gate"); false; }
 }
+
+# --- #611: seed canary + fixture coverage rows -------------------------------
+
+@test "doctor: seed canary + fixture coverage rows are OK for a public-only config (#611)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK   seed carries no private project name"* ]]
+  [[ "$output" == *"OK   private-project fixture list covers config"* ]]
+}
+
+@test "doctor: a non-public project key absent from the fixture list WARNS (never fails) and names it (#611)" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.zzqnew.source_dir '"/tmp"'
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"WARN private-project fixture list covers config"*zzqnew* ]]
+}
+# No doctor test asserts a hit against the LIVE seed: that would couple the suite to
+# content the distribute capture is chartered to remove. The predicate's ability to
+# fire is proven by the planted control in potholes-seed-canary.bats.

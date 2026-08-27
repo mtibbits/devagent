@@ -12,6 +12,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the c
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
 
 declare -i ERRORS=0
 
@@ -216,6 +218,37 @@ if [[ -f "$(config_path)" ]]; then
     check "git-reflex guard: OFF despite git_guard=true — the hook's gate needs a LITERALLY BARE line (no trailing comment or extra tokens); the guard will NOT fire. Fix: git_guard = true" fail
   else
     check "git-reflex guard: off (opt-in; set [defaults] or [project.<name>] git_guard = true to enable)" ok
+  fi
+  # #611: private project names vs the shipped seed — ungated here (the suite
+  # canary skips until the seed is curated); WARN only, the distribute capture
+  # owns moving the known citations. Also: every non-public config project key
+  # must be in the fixture list, so a newly `init`ed project is flagged on the
+  # operator's box before its name can reach the seed.
+  seed="$PLUGIN_ROOT/templates/potholes.md"
+  fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
+  if [[ -f "$seed" && -f "$fx" ]]; then
+    pub=" $(sed -n 's/^# public: *//p' "$fx" | tr '\n' ' ') "
+    live=(); missing=()
+    while IFS= read -r p; do
+      [[ -z "$p" ]] && continue
+      [[ "${pub,,}" == *" ${p,,} "* ]] && continue
+      live+=("$p")
+      grep -v '^#' "$fx" | grep -qixF -- "$p" || missing+=("$p")
+    done < <(config_list_projects)
+    if (( ${#missing[@]} )); then
+      check "private-project fixture list covers config" warn "not listed in $fx: ${missing[*]}"
+    else
+      check "private-project fixture list covers config" ok
+    fi
+    if (( ${#live[@]} )); then
+      if hits="$(potholes_private_name_hits "$seed" "${live[@]}")"; then
+        check "seed carries no private project name" ok
+      else
+        check "seed carries no private project name" warn "$(printf '%s' "$hits" | tr '\n' ';') — moved by the distribute capture"
+      fi
+    else
+      check "seed carries no private project name" ok
+    fi
   fi
 else
   check "config exists" fail "no $(config_path) — run /devagent:init"
