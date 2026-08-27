@@ -20,29 +20,35 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   [[ " $(_public) " == *" devagent "* ]]
 }
 
-@test "every listed private name already appears elsewhere in this repo — the list is never a first disclosure (#611 red-team)" {
+@test "every listed private name already appeared in the repo BEFORE this change — the list is never a first disclosure (#611 red-team r2)" {
+  # Measured at the merge base with the default branch, never at HEAD: a name
+  # introduced by the same change cannot vouch for itself, and this file's own
+  # literals never count as prior art.
+  base="$(cd "$REPO" && git merge-base HEAD origin/master 2>/dev/null || git -C "$REPO" rev-parse origin/master)"
   mapfile -t names < <(_names)
   for n in "${names[@]}"; do
-    hits="$(cd "$REPO" && git grep -Iliw -- "$n" HEAD -- . ':(exclude)tests/fixtures/private-project-names.txt' | wc -l)"
-    [ "$hits" -ge 1 ] || { echo "'$n' appears nowhere but the fixture — remove it" >&2; return 1; }
+    hits="$(cd "$REPO" && git grep -Iliw -- "$n" "$base" -- . ':(exclude)tests/fixtures/private-project-names.txt' ':(exclude)tests/potholes-seed-canary.bats' | wc -l)"
+    [ "$hits" -ge 1 ] || { echo "'$n' is absent from the repo at merge-base $base — it would be a first disclosure; remove it" >&2; return 1; }
   done
 }
 
 @test "predicate FAILS (rc 2), never 'clean', on an unreadable seed" {
   _lib
-  run potholes_private_name_hits "$BATS_TEST_TMPDIR/does-not-exist.md" lawFirm
+  run potholes_private_name_hits "$BATS_TEST_TMPDIR/does-not-exist.md" zzqAcme
   [ "$status" -eq 2 ]
 }
 
 @test "control: the predicate FIRES on a planted private citation and a bare word; the public allowlist is enforced by the caller" {
   _lib
   planted="$BATS_TEST_TMPDIR/seed.md"
-  printf '%s\n' '- x (LawFirm Issue-3).' '- a fleet of ships (Issue-4).' '- y (devagent Issue-5).' > "$planted"
-  run potholes_private_name_hits "$planted" lawFirm fleet
+  # Synthesised names: the control must not spell a real private name (this
+  # file would then be prior art for the disclosure guard above).
+  printf '%s\n' '- x (ZzqAcme Issue-3).' '- a zzqarmada of ships (Issue-4).' '- y (devagent Issue-5).' > "$planted"
+  run potholes_private_name_hits "$planted" zzqAcme zzqarmada
   [ "$status" -eq 1 ]
-  [[ "$output" == *"lawFirm citations=1"* ]]
-  [[ "$output" == *"fleet citations=0 words=1"* ]]
-  run potholes_private_name_hits "$planted" lectio         # silent on a name the file does not carry
+  [[ "$output" == *"zzqAcme citations=1"* ]]
+  [[ "$output" == *"zzqarmada citations=0 words=1"* ]]
+  run potholes_private_name_hits "$planted" zzqnowhere    # silent on a name the file does not carry
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   # the PUBLIC allowlist is the CALLER's filter, not the predicate's: _names never yields a public name

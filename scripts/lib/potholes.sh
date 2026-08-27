@@ -7,7 +7,9 @@
 # `local: -n: invalid option` from inside a sourced lib.
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
   echo "potholes.sh: bash >= 4.4 required (found ${BASH_VERSION}) — devAgent's scripts need a modern bash (Git Bash, WSL and Linux all provide 5.x)" >&2
-  return 1 2>/dev/null || exit 1
+  # A `return` is swallowed by callers without set -e (doctor, template.sh) and
+  # the next call then misreports a config fault; exit unless sourced interactively.
+  case "$-" in *i*) return 1 ;; *) exit 1 ;; esac
 fi
 # Requires template_resolve.sh (which sources paths/io/config) sourced FIRST;
 # template_resolve.sh sources this file at its end, so any consumer of the
@@ -34,17 +36,31 @@ fi
 # The project layer and temp files accept the bare form.
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
 POTHOLES_CITE_TAIL_RE=' *\(([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+\)\.$'
+# _potholes_plugin_name <dir> — the "name" in <dir>/.claude-plugin/plugin.json, or "".
+_potholes_plugin_name() {
+  [ -f "$1/.claude-plugin/plugin.json" ] || return 1
+  # first "name" key wins — the manifest's top-level name precedes author.name
+  sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/.claude-plugin/plugin.json" | head -1
+}
 _POTHOLES_OWNER_MEMO=""   # "<project>=yes|no"
-_potholes_owns_seed() {   # <project> — is the project's source_dir the plugin root?
-  local sd
+# _potholes_owns_seed <project> — does the project DEVELOP the plugin whose seed
+# is being read? Keyed on PROVENANCE, not filesystem identity: the seed's own
+# tree (dirname of the seed, up one) and the project's source_dir must both
+# carry a .claude-plugin/plugin.json with the same "name". The installed copy
+# under ~/.claude/plugins/cache and the source checkout then agree (red-team r2:
+# a plugin_root() comparison was true only when run from the source tree).
+_potholes_owns_seed() {
+  local sd seed_root sn pn
   if [ -n "$_POTHOLES_OWNER_MEMO" ] && [ "${_POTHOLES_OWNER_MEMO%%=*}" = "$1" ]; then
     [ "${_POTHOLES_OWNER_MEMO#*=}" = yes ]; return
   fi
+  _POTHOLES_OWNER_MEMO="$1=no"
   sd="$(config_get_project_field "$1" source_dir 2>/dev/null || true)"
-  if [ -n "$sd" ] && [ -d "$sd" ] && [ "$(cd "$sd" && pwd -P)" = "$(cd "$(plugin_root)" && pwd -P)" ]; then
-    _POTHOLES_OWNER_MEMO="$1=yes"; return 0
-  fi
-  _POTHOLES_OWNER_MEMO="$1=no"; return 1
+  seed_root="$(dirname "$(dirname "$(potholes_seed_path)")")"
+  [ -n "$sd" ] && [ -d "$sd" ] || return 1
+  sn="$(_potholes_plugin_name "$seed_root" || true)"; pn="$(_potholes_plugin_name "$sd" || true)"
+  if [ -n "$sn" ] && [ "$sn" = "$pn" ]; then _POTHOLES_OWNER_MEMO="$1=yes"; return 0; fi
+  return 1
 }
 potholes_cite_re() {   # <project> <issue_id> <layer>
   case "$3" in
@@ -118,10 +134,12 @@ potholes_cited_union() {
   [ "${#files[@]}" -eq 0 ] || lnames=("${files[@]/*/extra}")   # every extra file uses the bare-form grammar
   _potholes_layers_into "$project" layers paths
   files+=("${paths[@]}"); lnames+=("${layers[@]}")
-  local i
+  local i re
+  _potholes_owns_seed "$project" || true     # memoise in THIS shell, not inside the $( ) below
   for i in "${!files[@]}"; do
     [ -s "${files[i]}" ] || continue
-    grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "${lnames[i]}")" "${files[i]}" && return 0
+    re="$(potholes_cite_re "$project" "$issue_id" "${lnames[i]}")"
+    grep -qiE -- "$re" "${files[i]}" && return 0
   done
   return 1
 }

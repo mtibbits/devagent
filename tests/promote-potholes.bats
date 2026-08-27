@@ -92,9 +92,17 @@ devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); 
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]                                        # the project-token form in the seed does count (Retired sections included)
     sed -i '$d' "$SEED"
-    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" "$DEVAGENT_ROOT"   # now testproj IS the plugin's project
+    # Ownership is PROVENANCE: the seed's tree and the project's source_dir carry
+    # the same .claude-plugin/plugin.json name (the harness never forces it —
+    # SOURCE_DIR is a plain scratch repo, DEVAGENT_PLUGIN_TEMPLATES a scratch dir).
+    mkdir -p "$DEVAGENT_TMP/.claude-plugin" "$SOURCE_DIR/.claude-plugin"
+    printf '{ "name": "zzqplugin" }\n' > "$DEVAGENT_TMP/.claude-plugin/plugin.json"
+    printf '{ "name": "other-plugin" }\n' > "$SOURCE_DIR/.claude-plugin/plugin.json"
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 1 ]                                        # a DIFFERENT plugin's project: still refused
+    printf '{ "name": "zzqplugin" }\n' > "$SOURCE_DIR/.claude-plugin/plugin.json"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 0 ]                                        # now testproj develops the plugin whose seed this is
 }
 
 @test "--check names every layer file it searched when it FAILS" {

@@ -270,6 +270,9 @@ if [[ -f "$(config_path)" ]]; then
     else
       check "seed carries no private project name" ok
     fi
+  else
+    # FAIL CLOSED (red-team r2): a missing input must never read as "checked".
+    check "seed carries no private project name" fail "check did not run — seed ($seed) or fixture ($fx) missing"
   fi
 else
   check "config exists" fail "no $(config_path) — run /devagent:init"

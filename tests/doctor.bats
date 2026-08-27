@@ -221,6 +221,15 @@ CL
   [[ "$output" != *"(absent"* ]]
 }
 
+@test "doctor: the private-name check FAILS closed when its fixture is missing (#611 red-team r2)" {
+  # Run a COPY of the plugin with the fixture removed: doctor derives PLUGIN_ROOT from its own path.
+  cp -r "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/plugin"
+  rm -f "$BATS_TEST_TMPDIR/plugin/tests/fixtures/private-project-names.txt"
+  run "$BATS_TEST_TMPDIR/plugin/scripts/doctor.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL seed carries no private project name"*"fixture"* ]]
+}
+
 @test "doctor: a non-public project key absent from the suite fixture is INFO only — never a nudge to add it to the public repo (#611 red-team)" {
   python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.zzqnew.source_dir '"/tmp"'
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
