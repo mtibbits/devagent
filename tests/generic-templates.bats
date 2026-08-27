@@ -15,8 +15,9 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # run of >= 2 class numbers separated by space or slash, or a canonical
 # `<num> <name>` pair — the pairs are DERIVED from templates/checklist-standard.md
 # (register: Issue-439), so a renamed step or a mis-paired name is not an
-# enumeration and surfaces as MISS instead of silently passing; anything else
-# (a per-step TOML key `"9" = …`, `#561`, `rc 2`) is not an enumeration either.
+# enumeration: it is IGNORED, and surfaces as MISS only when it was the home's
+# sole statement of that member (see the LIMITS list in the sweep test); anything
+# else (a per-step TOML key `"9" = …`, `#561`, `rc 2`) is not an enumeration either.
 # ONE grep per file; the rest is bash builtins (register: Issue-566 — the
 # per-line grep form measured 6.3 s for the 11 homes, this one ~1 s).
 _class_assign() {
@@ -27,6 +28,11 @@ _class_assign() {
     pairs+="${pairs:+|}$num ?\\(?$name"
   done < <(sed -n 's/^- \[.\] *\([0-9]*\)\. *\([A-Za-z][A-Za-z0-9_-]*\).*$/\1 \2/p' \
              "$REPO/templates/checklist-standard.md")
+  # Guard the derivation like the class lists are guarded: an empty alternation
+  # would make every pair invisible and red the sweep as a MISS storm with no
+  # named cause (#583 review, minor 6). Printed on STDOUT so the caller's `out`
+  # capture reports it as the drift line.
+  [ -n "$pairs" ] || { echo "ERR $f: no '<num> <name>' pairs derived from templates/checklist-standard.md"; return 1; }
   local -a L; mapfile -t L < "$f"
   local -A seen=()
   local hit i occ pre win w s t best cls list tok from cnt
@@ -151,14 +157,29 @@ _class_assign() {
   # step-16 red team). #583 closes it with per-class attribution (the rule lives
   # in _class_assign's header). LIMITS, stated beside what is asserted (register:
   # Issue-558):
-  #  - an enumeration with no anchor in its three-line window is IGNORED, so a
-  #    home that enumerates farther from its key surfaces as MISS, never as a pass;
+  #  - an enumeration with no anchor in its three-line window is IGNORED. That
+  #    surfaces as MISS only when it is the home's SOLE enumeration of that class
+  #    (far.md below); a home that also enumerates correctly under its anchor
+  #    HIDES a far, mis-anchored duplicate — the #583 review ran exactly that
+  #    (correct anchored lists, then the checking numbers restated as "the
+  #    thinking class" four lines below a bare mention of it): a clean pass. The
+  #    spec and config.toml.skel carry unanchored restatements today, so this is
+  #    the guard's live blind spot, not a theoretical one (follow-up: emit UNATTR
+  #    for unanchored enumerations and pin the per-file count);
   #  - the class NAMES are anchors (config.toml.skel enumerates by name), so the
   #    ordinary word thinking/checking within three lines above an enumeration
   #    counts too — a collision reddens and names the line;
   #  - a `<num> <name>` pair counts only as the canonical pairing from
-  #    templates/checklist-standard.md; a mis-paired name surfaces as MISS.
+  #    templates/checklist-standard.md; a mis-paired name is ignored, so it
+  #    surfaces as MISS under the same sole-statement condition (mispair.md);
+  #  - the subject set is the homes that name `draftmr` (below): a home that
+  #    documents only the checking list is never swept — inherited from #561's
+  #    selector, and narrower than "assignment" reads.
   # Both halves are mutation-tested below (register: Issue-151).
+  # Why the lists are DERIVED from config.sh rather than typed here (kept from
+  # the #561 comment): #560 renumbered these steps three commits before #561, and
+  # #561's own capture shipped the PRE-#560 numbers — a typed list drifts, a
+  # derived one cannot (register: Issue-439).
   local thinking checking
   thinking="$(sed -n 's/.*case " \(2 9[0-9 ]*\)" in.*/\1/p' "$REPO/scripts/lib/config.sh" | head -1)"
   checking="$(sed -n 's/.*case " \(5 15[0-9 ]*\)" in.*/\1/p' "$REPO/scripts/lib/config.sh" | head -1)"
@@ -204,7 +225,8 @@ _class_assign() {
     [[ "$out" == *BAD* ]] || { echo "guard is blind to a swapped list in $(basename "$f")" >&2; return 1; }
     # ...and the union check this replaces WOULD have passed it: every class
     # number is still present (the exact blind spot #561 recorded).
-    [ "$(grep -oE "\b${union_re}\b" "$f" | sort -n -u | grep -c .)" -eq "$n_union" ]
+    [ "$(grep -oE "\b${union_re}\b" "$f" | sort -n -u | grep -c .)" -eq "$n_union" ] \
+      || { echo "union-would-have-passed proof broke for $(basename "$f"): the swapped fixture no longer carries every class number" >&2; return 1; }
   done
   # MISS half (improve bug 5): a member absent under its own anchor, and an
   # enumeration too far below its anchor to be attributed — the blind spot the

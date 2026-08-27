@@ -50,8 +50,9 @@ _contract_snippet() {
 # _run_draft_snippet — execute the draft contract's snippet VERBATIM in a child
 # bash (no `set -e`: the idiom captures rc=$? itself) and print exactly what the
 # wrapper then discriminates on: the exit code, the stdout tier, the stderr
-# provenance ($prov is what the idiom transports: the checking class stamps from
-# it, draft reads it for the rc-1 STOP message — so the tests assert it too).
+# provenance ($prov is what the idiom transports — the checking class stamps its
+# artifact header from it, and it is the only provenance channel the wrapper
+# has; command substitution alone would drop it — so the tests assert it too).
 _run_draft_snippet() {
   local body; body="$(_contract_snippet "$DRAFT_CONTRACT")" || return 1
   bash -c "$body"$'\n''printf "rc=%s tier=%s prov=%s\n" "$rc" "$tier" "$prov"'
@@ -240,12 +241,15 @@ _contract_carriers() {
 # guard reddens only at its first failing assert; per-home tests keep both homes
 # independently red-capable). Pinned as a CLAIM (a phrase family), not one
 # sentence (register: Issue-561 — a guard that reddens on improved wording trains
-# people to weaken guards).
+# people to weaken guards). Known width of that trade: the positive leg also
+# admits wording like "stays inline until the final ruling" — it pins that the
+# decision is STATED with "final"; the negative leg is what bans the open-question
+# wording, file-wide (so an unrelated "provisional" reds it and names its line).
 _assert_rc2_final() {  # <file>
   grep -qiE 'stays? INLINE[^.]*final' "$1" \
     || { echo "no final rc-2 decision stated in $1" >&2; return 1; }
   run grep -ciE 'deliberately NOT decided|left undecided|provisional' "$1"
-  [ "$output" -eq 0 ] || { echo "$1 still calls the rc-2 decision open" >&2; return 1; }
+  [ "$output" -eq 0 ] || { echo "$1 still calls the rc-2 decision open (banned wording, file-wide): $(grep -niE 'deliberately NOT decided|left undecided|provisional' "$1")" >&2; return 1; }
 }
 
 @test "the rc-2 stay-inline decision is FINAL in the draft contract (#583)" {

@@ -959,7 +959,8 @@ skill files, summarized here so the mechanism is discoverable:
   fully-informed default, and dispatch is an opt-in *up-delegation* keyed
   on a RESOLVED §7.4 `thinking` tier (resolver rc 0); the reserved `inherit`
   (rc 2) is not a trigger and stays inline — decided and final (#583; the
-  draft contract carries the reasoning). Intent is packaged to
+  draft contract carries the reasoning; an explicit operator dispatch
+  instruction still overrides, contract rule 1). Intent is packaged to
   `<issue-dir>/intent.md` (goals / constraints / rejected alternatives /
   answers), never pasted as conversation. Because a dispatched planner
   cannot ask the operator, it uses the two-round **question-return
