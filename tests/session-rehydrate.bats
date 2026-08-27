@@ -6,10 +6,17 @@
 
 REPO="${BATS_TEST_DIRNAME}/.."
 HOOK="$REPO/hooks/session-rehydrate.sh"
+# #585: bare-setup file (no `load`), so the #322 guard is sourced directly. Without it
+# an ambient DEVAGENT_ACTIVE_ISSUE from the developer's shell reaches where.sh and
+# silences the hook, reddening the two "PRINTS where.sh output" tests below.
+. "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
 setup() {
   DA="$BATS_TEST_TMPDIR/da"; mkdir -p "$DA/state"
   export DA_HOME="$DA"
+  # Deliberately redundant with the guard above: this file's third and fourth tests
+  # assert the no-pointer branch, and the local statement of intent belongs here
+  # rather than only in a distant shared file.
   unset DEVAGENT_ACTIVE_PROJECT
 }
 # one configured project 'acme' with the dirs where.sh needs; no active issue is fine
