@@ -37,7 +37,7 @@ and a stale cache false-passes — and run each rung in a FRESH headless session
 | `binding-honoured` | the fork quotes the first sentence that exists ONLY in `agents/preship-verifier.md` (direct attestation the plugin-scoped agent bound) |
 | `disallowed-tools-enforced` | Write/Edit **TOOLS** absent from the fork's schema at schema-resolution — evidenced by the **structural tool-call refusal / resolved-schema report** (path-absence alone is only corroboration; it cannot tell denial from the model choosing not to write). Measured as tool-denial, NOT "cannot write" (Bash retained; no sandbox overclaim, spec §7.4). Path-absence-only ⇒ INCONCLUSIVE, not PASS |
 | `model-routing-observable` | per-subagent model IDs from `subagents/*.jsonl` — unpinned fork inherits the session model; an explicit `model:` param is honoured |
-| `plugin-root-grant-automatch` | the quoted two-token `${CLAUDE_PLUGIN_ROOT}` grant auto-approves a real command's script call — Bash tool_result read mechanically from stream-json, never the prose (#548; a denied run can narrate success) |
+| `plugin-root-grant-automatch` | the quoted two-token `${CLAUDE_PLUGIN_ROOT}` grant auto-approves a real command's script call AND a core-* skill body's call reached through its wrapper, on the FIRST attempt (a backslash-continuation emission is refused, #584) — Bash tool_result read mechanically from stream-json, never the prose (#548; a denied run can narrate success); runs on a scratch `DA_HOME` fixture, never the live state |
 
 `smoke.json`'s `meta.criteria` is authoritative (3 runs / ≥2 pass /
 below-baseline = regression, per #460); this prose restates it.
