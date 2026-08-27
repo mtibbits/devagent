@@ -56,7 +56,12 @@ TOML
 # Idempotent — re-calling replaces the fixture without re-prepending PATH.
 stub_claude_cli() {
   local state="$1" fixture
-  : "${STUBBIN:?stub_claude_cli: STUBBIN is unset — call seed_doctor_project first, or set it}"
+  # Default STUBBIN rather than demanding it. seed_doctor_project sets it, but a
+  # caller that only needs the stub (revise.bats loads helpers/fixtures, not
+  # bats-helpers) should not have to hand-build the directory first — that is a
+  # special case layered on shared infrastructure, and the next such caller would
+  # copy it.
+  : "${STUBBIN:=${BATS_TEST_TMPDIR:?stub_claude_cli: no STUBBIN and no BATS_TEST_TMPDIR}/stubbin}"
   mkdir -p "$STUBBIN"
   fixture="$STUBBIN/list-output.txt"
   if [ "$state" = failing ]; then

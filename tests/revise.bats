@@ -172,8 +172,7 @@ PARKED
     grep -qE '^last_step[[:space:]]*=[[:space:]]*0$' "$FIX_STATE_FILE"
     # doctor no longer false-FAILs step coherence on the freshly-revised issue.
     # #585: shim `claude` so this test does not take a live dependency on the
-    # developer's plugin state. STUBBIN is not seeded by helpers/fixtures.
-    STUBBIN="${BATS_TEST_TMPDIR}/stubbin"; mkdir -p "$STUBBIN"
+    # developer's plugin state.
     stub_claude_cli enabled
     run "$DEVAGENT_ROOT/scripts/doctor.sh" volk
     [[ "$output" != *"last_step_name=ship"* ]]
