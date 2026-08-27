@@ -6,7 +6,7 @@
 # (README states it); fail with the cause named rather than a cryptic
 # `local: -n: invalid option` from inside a sourced lib.
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
-  echo "potholes.sh: bash >= 4.4 required (found ${BASH_VERSION}) — devAgent's scripts need a modern bash (Git Bash / WSL / Linux ship 5.x)" >&2
+  echo "potholes.sh: bash >= 4.4 required (found ${BASH_VERSION}) — devAgent's scripts need a modern bash (Git Bash, WSL and Linux all provide 5.x)" >&2
   return 1 2>/dev/null || exit 1
 fi
 # Requires template_resolve.sh (which sources paths/io/config) sourced FIRST;
