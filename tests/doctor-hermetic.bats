@@ -18,13 +18,19 @@ REPO="${BATS_TEST_DIRNAME}/.."
 _doctor_invokers() {
   local f
   while IFS= read -r -d '' f; do
-    [ "${f##*/}" = "${BATS_TEST_FILENAME##*/}" ] && continue      # never self
-    # Strip comment lines FIRST, then look for a runner ahead of the script path on
-    # the same line. The measured call shapes are `run "$PLUGIN_ROOT/scripts/doctor.sh"`,
-    # `run bash "$SCRIPTS/doctor.sh"` and `run "$DEVAGENT_ROOT/scripts/doctor.sh"`, so the
-    # variable is NOT adjacent to the filename — an intervening path segment is the norm.
+    # Deliberately NO self-exclusion by filename. Keying on the invocation SHAPE is
+    # what keeps this file out of its own result set, and the assertion below pins
+    # that. An `[ "$f" = "$BATS_TEST_FILENAME" ] && continue` line would make the
+    # assertion unfalsifiable — it would pass even if the selector regressed to a
+    # bare name grep, which is the regression it exists to catch.
+    #
+    # Strip comment lines FIRST, then look for the script path used as a COMMAND.
+    # `run "$X/doctor.sh"`, `run bash "$X/doctor.sh"`, `out=$("$X/doctor.sh" …)` and
+    # `if "$X/doctor.sh" …; then` are all invocations; a bare mention in prose is not.
+    # Keying on run/bash/exec alone missed the last two shapes, so a future file in
+    # either would have taken a live `claude plugin list` dependency invisibly.
     grep -vE '^[[:space:]]*#' "$REPO/$f" \
-      | grep -qE '\b(run|bash|exec)\b.*/doctor\.sh' \
+      | grep -qE '(\b(run|bash|exec)\b[^|]*|\$\(|`|^[[:space:]]*(if|while|until)\b[^|]*|^[[:space:]]*)"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?[^"]*/doctor\.sh' \
       && printf '%s\n' "$f"
   done < <(git -C "$REPO" ls-files -z -- ':(glob)tests/*.bats')
   return 0
@@ -44,13 +50,26 @@ _doctor_invokers() {
 
 @test "the doctor.sh-invoker enumeration is not vacuously empty (#151)" {
   # If this selector ever stops matching, the canary above passes silently (#439).
-  local n; n="$(_doctor_invokers | wc -l)"
-  [ "$n" -eq 3 ]
-  _doctor_invokers | grep -qx 'tests/doctor.bats'
-  _doctor_invokers | grep -qx 'tests/doctor-recommended.bats'
-  _doctor_invokers | grep -qx 'tests/revise.bats'
+  # #572: a negative assertion is vacuously satisfied by a missing function, so
+  # prove the function exists before asserting anything about its output.
+  run type -t _doctor_invokers
+  [ "$output" = function ]
+
+  _doctor_invokers > "$BATS_TEST_TMPDIR/invokers.txt"
+  # `-ge 3` plus membership, not `-eq 3`: an exact pin would redden on a legitimate
+  # FOURTH file that invokes doctor.sh AND loads the harness, which is the state this
+  # canary is trying to produce.
+  local n; n="$(wc -l < "$BATS_TEST_TMPDIR/invokers.txt")"
+  [ "$n" -ge 3 ]
+  grep -qx 'tests/doctor.bats'             "$BATS_TEST_TMPDIR/invokers.txt"
+  grep -qx 'tests/doctor-recommended.bats' "$BATS_TEST_TMPDIR/invokers.txt"
+  grep -qx 'tests/revise.bats'             "$BATS_TEST_TMPDIR/invokers.txt"
   # And it must NOT select this file, whose text names doctor.sh repeatedly without
-  # ever running it. A regression to a naive name grep reddens here.
-  run bash -c '_doctor_invokers | grep -qx "tests/${BATS_TEST_FILENAME##*/}"'
-  [ "$status" -ne 0 ]
+  # ever running it. Asserted IN-PROCESS: `run bash -c '_doctor_invokers | …'` cannot
+  # see this file's functions, so it would pass on an empty pipeline regardless.
+  grep -qx "tests/${BATS_TEST_FILENAME##*/}" "$BATS_TEST_TMPDIR/invokers.txt" && {
+    echo 'selector self-matched — it is keying on the name, not the invocation shape' >&2
+    false
+  }
+  true
 }

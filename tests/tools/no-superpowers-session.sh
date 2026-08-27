@@ -55,7 +55,11 @@ else
   settings="${TMPDIR:-/tmp}/no-superpowers-session.json"
 fi
 
-printf '{"enabledPlugins":{"%s":false}}\n' "$SP_KEY" > "$settings"
+# Write atomically. The default path is fixed and shared, so two concurrent launches
+# (or `bats -j`) would otherwise race; identical content makes the race benign but a
+# reader could still see a partial file.
+printf '{"enabledPlugins":{"%s":false}}\n' "$SP_KEY" > "$settings.tmp.$$"
+mv -f "$settings.tmp.$$" "$settings"
 
 [ "$emit_only" -eq 1 ] && { echo "$settings"; exit 0; }
 

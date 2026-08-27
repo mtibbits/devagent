@@ -8,6 +8,11 @@
 REPO="${BATS_TEST_DIRNAME}/.."
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
+# The #566 probe below plants an untracked .bats in tests/ to prove the enumerator
+# ignores it. Remove it here too: an interrupted run would otherwise leave a stray
+# file that the next `bats tests/` collects as a real test file.
+teardown() { rm -f "$REPO/tests/zzz-untracked-585-probe.bats"; }
+
 # Extract every `load <name>` directive from the given files, stripping an
 # optional wrapping quote. #428: the name may be BARE, single-quoted, OR
 # double-quoted — a `load "layer"` used to escape this canary (the same
@@ -136,11 +141,27 @@ _bare_setup_files() {
     < <(_bare_setup_files)
   # And the enumerator really is reading git, not the filesystem (#566): a file that
   # exists on disk but is untracked must NOT appear.
+  #
+  # Run it IN-PROCESS. `run bash -c '_bare_setup_files | …'` cannot work: bash -c
+  # starts a fresh shell that has never seen this file's functions, so the pipeline
+  # is empty, grep returns 1, and the assertion passes no matter what the enumerator
+  # does. That vacuous form let a revert to `printf '%s\0' tests/*.bats` keep all
+  # five tests green — the #572 class (a negative assertion satisfied by a missing
+  # function), which is why the type probe below comes first.
+  run type -t _bare_setup_files
+  [ "$output" = function ]
+
   local stray="$REPO/tests/zzz-untracked-585-probe.bats"
   printf '@test "x" { :; }\n' > "$stray"
-  run bash -c '_bare_setup_files | grep -qx zzz-untracked-585-probe.bats'
+  _bare_setup_files > "$BATS_TEST_TMPDIR/selected.txt"
   rm -f "$stray"
-  [ "$status" -ne 0 ]
+  grep -qx 'zzz-untracked-585-probe.bats' "$BATS_TEST_TMPDIR/selected.txt" && {
+    echo 'enumerator selected an UNTRACKED file — it is globbing the filesystem, not reading git' >&2
+    false
+  }
+  # Positive control: the same run must still have selected the tracked members, or
+  # the negative above is satisfied by an enumerator that returns nothing at all.
+  grep -qx 'session-rehydrate.bats' "$BATS_TEST_TMPDIR/selected.txt"
 }
 
 @test "the exemption list is honored AND is not a silent blanket (#585)" {

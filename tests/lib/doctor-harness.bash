@@ -128,7 +128,7 @@ EOF
 # consumer is the test named for it. A hard failure there would make that test's
 # verdict a function of the machine — precisely what this issue removes.
 curated_path_without_claude() {
-  local newpath="" d shadow entry count n=0
+  local newpath="" d shadow entry n=0
   local IFS=:
   for d in $PATH; do
     [ -n "$d" ] || continue                       # an empty PATH element means CWD
@@ -138,15 +138,16 @@ curated_path_without_claude() {
       # keep running).
       shadow="$(mktemp -d "${BATS_TEST_TMPDIR:-${TMPDIR:-/tmp}}/nopath-XXXXXX")"
       # Cost is proportional to the claude-bearing dir's SIZE, which is a property of
-      # the installer and not of this repo: 8 entries for ~/.local/bin, several
-      # thousand for a /usr/bin install, twice per suite run (#123 — a cost
-      # measurement is machine-bound). Refuse rather than silently pay it, and say
-      # what to do instead.
-      count=$(find "$d" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
-      [ "$count" -le 200 ] || {
-        echo "curated_path_without_claude: $d holds $count entries — refusing to build a symlink farm that large. Install claude to a private bin dir, or stub it instead of hiding it." >&2
-        return 1
-      }
+      # where claude was installed, not of this repo (#123 — a cost measurement is
+      # machine-bound). Measured: ~7 symlinks and instant for a private bin dir;
+      # 1.19 s for a 2215-entry /usr/bin.
+      #
+      # An earlier version REFUSED above 200 entries. That was worse: it made four
+      # tests fail outright on any machine with a system-wide claude install — a test
+      # verdict that is a function of the machine, which is the defect class this
+      # whole issue removes. Paying ~1.2 s in that case is the lesser evil, and it is
+      # the same order as the ~5 s this issue saves elsewhere.
+      #
       # Deliberately NOT `ln -s "$d"/*` — a claude-free glob would still miss dotfiles
       # and would misbehave on an empty dir with nullglob off.
       for entry in "$d"/*; do
