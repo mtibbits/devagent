@@ -77,8 +77,9 @@ stage="$issue_dir/potholes-promotion.md"
 # (unconfigured) and either layer file may not exist yet (bootstrapped by --apply).
 seed="$(potholes_seed_path)"
 [ -f "$seed" ] || die "promote-potholes: plugin seed missing at $seed"
-wf="$(potholes_workflow_path "$project")"
-pr="$(potholes_project_path "$project")"
+_potholes_memo "$project"          # in THIS shell: one lookup for the whole run, and a failure dies here
+wf="$_POTHOLES_MEMO_WF"
+pr="$_POTHOLES_MEMO_PR"
 [ -n "$pr" ] || die "promote-potholes: project register path unresolvable (devdoc_dir unset?) for '$project'"
 
 # Path forms diverge on this platform (MSYS `/c/…`, config `c:/…`, git `C:/…`),

@@ -169,14 +169,22 @@ if [ "$commit_devdoc" = "true" ]; then
     # layer the drain DEFERred on (dirty/untracked — another session's edit)
     # must not be swept here under devagent@local (#611 review). Exclude
     # every layer path that lives under devdoc_dir.
-    _dc="$(pwd -P)"; excl=()
-    for _lp in "$(potholes_project_path "$project")" "$(potholes_workflow_path "$project" || true)"; do
+    # FAIL CLOSED: a lookup that dies inside $( ) would leave excl empty and
+    # re-arm the sweep, so each rc is read in THIS shell and a failure refuses
+    # the whole devdoc commit (red-team #611).
+    _dc="$(pwd -P)"; excl=(); _lk=1
+    _lp_pr="$(potholes_project_path "$project")"  || _lk=0
+    _lp_wf="$(potholes_workflow_path "$project")" || _lk=0
+    if [ "$_lk" -ne 1 ]; then
+        warn "cleanup: register layer lookup failed (see above) — devdoc commit REFUSED so no layer file can be swept; fix [paths] potholes_workflow / the config and commit devdoc by hand"
+    fi
+    for _lp in "$_lp_pr" "$_lp_wf"; do
         [ -n "$_lp" ] && [ -d "$(dirname "$_lp")" ] || continue
         _lpc="$(cd "$(dirname "$_lp")" && pwd -P)/$(basename "$_lp")"
         case "$_lpc" in "$_dc"/*) excl+=(":(exclude)${_lpc#"$_dc"/}") ;; esac
     done
-    unset _dc _lp _lpc
-    if [ -n "$("$DEVAGENT_GIT" status --porcelain -- . "${excl[@]}")" ]; then
+    unset _dc _lp _lpc _lp_pr _lp_wf
+    if [ "$_lk" -eq 1 ] && [ -n "$("$DEVAGENT_GIT" status --porcelain -- . "${excl[@]}")" ]; then
         "$DEVAGENT_GIT" add -A -- . "${excl[@]}"
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
             commit -m "devdoc: $issue_arg cleanup"

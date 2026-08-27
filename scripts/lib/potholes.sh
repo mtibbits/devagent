@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # scripts/lib/potholes.sh — #611 two-layer pothole register.
+#
+# bash >= 4.4: namerefs (local -n) and empty-array expansion under set -u. The
+# resolver sources this lib unconditionally, so the floor is plugin-wide
+# (README states it); fail with the cause named rather than a cryptic
+# `local: -n: invalid option` from inside a sourced lib.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  echo "potholes.sh: bash >= 4.4 required (found ${BASH_VERSION}) — devAgent's scripts need a modern bash (Git Bash / WSL / Linux ship 5.x)" >&2
+  return 1 2>/dev/null || exit 1
+fi
 # Requires template_resolve.sh (which sources paths/io/config) sourced FIRST;
 # template_resolve.sh sources this file at its end, so any consumer of the
 # resolver gets these for free.
@@ -18,13 +27,31 @@
 # Citation grammar, in ONE place. POTHOLES_CITE_TAIL_RE strips a trailing
 # citation (sed -E); potholes_cite_re builds the layer-aware match: the SHARED
 # workflow file must carry the project token (a bare (Issue-42) moved there by
-# the distribute capture would otherwise satisfy EVERY project's Issue-42);
-# the seed, the project layer and temp files accept the bare form too.
+# the distribute capture would otherwise satisfy EVERY project's Issue-42), and
+# so must the SEED for every project except the one whose source_dir IS the
+# plugin — the seed's 60 bare (Issue-N) citations are that project's own
+# history and would otherwise satisfy any project's Issue-N (red-team #611).
+# The project layer and temp files accept the bare form.
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
 POTHOLES_CITE_TAIL_RE=' *\(([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+\)\.$'
+_POTHOLES_OWNER_MEMO=""   # "<project>=yes|no"
+_potholes_owns_seed() {   # <project> — is the project's source_dir the plugin root?
+  local sd
+  if [ -n "$_POTHOLES_OWNER_MEMO" ] && [ "${_POTHOLES_OWNER_MEMO%%=*}" = "$1" ]; then
+    [ "${_POTHOLES_OWNER_MEMO#*=}" = yes ]; return
+  fi
+  sd="$(config_get_project_field "$1" source_dir 2>/dev/null || true)"
+  if [ -n "$sd" ] && [ -d "$sd" ] && [ "$(cd "$sd" && pwd -P)" = "$(cd "$(plugin_root)" && pwd -P)" ]; then
+    _POTHOLES_OWNER_MEMO="$1=yes"; return 0
+  fi
+  _POTHOLES_OWNER_MEMO="$1=no"; return 1
+}
 potholes_cite_re() {   # <project> <issue_id> <layer>
-  if [ "$3" = workflow ]; then printf '\\(%s %s\\)\n' "$1" "$2"
-  else printf '\\((%s )?%s\\)\n' "$1" "$2"; fi
+  case "$3" in
+    workflow) printf '\\(%s %s\\)\n' "$1" "$2" ;;
+    seed)     if _potholes_owns_seed "$1"; then printf '\\((%s )?%s\\)\n' "$1" "$2"; else printf '\\(%s %s\\)\n' "$1" "$2"; fi ;;
+    *)        printf '\\((%s )?%s\\)\n' "$1" "$2" ;;
+  esac
 }
 
 potholes_seed_path() { printf '%s\n' "$(template_plugin_dir)/potholes.md"; }
@@ -135,10 +162,15 @@ potholes_fixture_public()        { sed -n 's/^# public: *//p' "$1"; }
 # allowlist is the CALLER's filter — this predicate knows nothing of it.
 potholes_private_name_hits() {
   local seed="$1"; shift
-  local name c w rc=0
+  local name c w rc=0 grc
   for name in "$@"; do
-    c="$(grep -ciE "\\(${name} Issue-" -- "$seed")" || true      # grep -c prints 0 on no match
-    w="$(grep -ciwF -- "${name}" "$seed")" || true
+    # grep -c: rc 0 hits, rc 1 none (prints 0), rc >= 2 could not run — the
+    # last must never read as "clean" (Issue-316). -F on both: names are
+    # literals, never patterns.
+    grc=0; c="$(grep -ciF -- "(${name} Issue-" "$seed")" || grc=$?
+    [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
+    grc=0; w="$(grep -ciwF -- "${name}" "$seed")" || grc=$?
+    [ "$grc" -le 1 ] || { echo "potholes_private_name_hits: cannot read $seed (grep rc $grc)" >&2; return 2; }
     if [ "${c:-0}" -gt 0 ] || [ "${w:-0}" -gt 0 ]; then
       printf '%s citations=%s words=%s\n' "$name" "$c" "$w"; rc=1
     fi

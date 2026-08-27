@@ -237,9 +237,10 @@ if [[ -f "$(config_path)" ]]; then
   fi
   # #611: private project names vs the shipped seed — ungated here (the suite
   # canary skips until the seed is curated); WARN only, the distribute capture
-  # owns moving the known citations. Also: every non-public config project key
-  # must be in the fixture list, so a newly `init`ed project is flagged on the
-  # operator's box before its name can reach the seed.
+  # owns moving the known citations. The roster is the LIVE config's project
+  # keys (private, on the operator's box) minus the public allowlist; a key not
+  # in the suite fixture is reported as INFO only — the fixture must never grow
+  # a new private name (red-team #611).
   seed="$(potholes_seed_path)"   # via the resolver (#425 canary), never a hand-rolled path
   fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
   if [[ -f "$seed" && -f "$fx" ]]; then
@@ -252,18 +253,19 @@ if [[ -f "$(config_path)" ]]; then
       potholes_fixture_private_names "$fx" | grep -qixF -- "$p" || missing+=("$p")
     done < <(config_list_projects)
     if (( ${#missing[@]} )); then
-      check "private-project fixture list covers config" warn "not listed in $fx: ${missing[*]}"
-    else
-      check "private-project fixture list covers config" ok
+      echo "  INFO private project(s) checked live only (not in the suite fixture, by design): ${missing[*]}"
     fi
     if ! type potholes_private_name_hits >/dev/null 2>&1; then
       # Issue-316: a missing function must not drive the WARN branch with an empty hit list.
       check "seed carries no private project name" fail "predicate potholes_private_name_hits not loaded (scripts/lib/potholes.sh)"
     elif (( ${#live[@]} )); then
-      if hits="$(potholes_private_name_hits "$seed" "${live[@]}")"; then
+      hrc=0; hits="$(potholes_private_name_hits "$seed" "${live[@]}")" || hrc=$?
+      if [[ "$hrc" -eq 0 ]]; then
         check "seed carries no private project name" ok
-      else
+      elif [[ "$hrc" -eq 1 ]]; then
         check "seed carries no private project name" warn "$(printf '%s' "$hits" | tr '\n' ';') — moved by the distribute capture"
+      else
+        check "seed carries no private project name" fail "seed unreadable ($seed) — the predicate could not run"
       fi
     else
       check "seed carries no private project name" ok

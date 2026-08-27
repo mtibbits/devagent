@@ -20,6 +20,20 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   [[ " $(_public) " == *" devagent "* ]]
 }
 
+@test "every listed private name already appears elsewhere in this repo — the list is never a first disclosure (#611 red-team)" {
+  mapfile -t names < <(_names)
+  for n in "${names[@]}"; do
+    hits="$(cd "$REPO" && git grep -Iliw -- "$n" HEAD -- . ':(exclude)tests/fixtures/private-project-names.txt' | wc -l)"
+    [ "$hits" -ge 1 ] || { echo "'$n' appears nowhere but the fixture — remove it" >&2; return 1; }
+  done
+}
+
+@test "predicate FAILS (rc 2), never 'clean', on an unreadable seed" {
+  _lib
+  run potholes_private_name_hits "$BATS_TEST_TMPDIR/does-not-exist.md" lawFirm
+  [ "$status" -eq 2 ]
+}
+
 @test "control: the predicate FIRES on a planted private citation and a bare word; the public allowlist is enforced by the caller" {
   _lib
   planted="$BATS_TEST_TMPDIR/seed.md"

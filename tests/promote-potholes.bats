@@ -83,9 +83,16 @@ devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); 
     [ "$status" -eq 0 ]
 }
 
-@test "--check PASSES on a pre-split citation that lives in the SEED (Retired sections included)" {
-    printf '%s\n' '' '## Retired' '- an old line (Issue-1).' >> "$SEED"
+@test "--check: a SEED citation counts only in the project's own form — bare (Issue-N) satisfies the plugin-owning project alone (red-team #611)" {
     printf '%s\n' "$LL 1 pattern promoted to the potholes register" >> "$ID/checklist.md"
+    printf '%s\n' '' '## Retired' '- an old bare line (Issue-1).' >> "$SEED"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 1 ]                                        # testproj does not own the plugin: the seed's bare form is someone else's Issue-1
+    printf '%s\n' "- a pre-split line ($TEST_PROJECT Issue-1)." >> "$SEED"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check
+    [ "$status" -eq 0 ]                                        # the project-token form in the seed does count (Retired sections included)
+    sed -i '$d' "$SEED"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" "$DEVAGENT_ROOT"   # now testproj IS the plugin's project
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]
 }

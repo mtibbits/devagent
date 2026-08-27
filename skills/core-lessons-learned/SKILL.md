@@ -92,7 +92,7 @@ issues, not at the end of the current one.
    the heading text):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add --layer project|workflow "<section heading>" "- <one-line distillation> (<citation>)."
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --add --layer <project|workflow> "<section heading>" "- <one-line distillation> (<citation>)."
    ```
 
    The script refuses a missing/unknown layer, a wrong citation form for the

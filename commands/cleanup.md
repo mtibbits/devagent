@@ -42,7 +42,7 @@ or to reword the log line as a deferral/skip with its reason. A `--check` die
 leaves the tree exactly where it was.
 
 Immediately AFTER the tree restore, cleanup DRAINS that pending file with
-`--apply`. Rails, in order, all evaluated before any write: the project's raw
+`--apply`. Rails, in order, all evaluated before any register file is written (the lock directory and the target's parent directory are created during the rail phase; both are invisible to git while empty): the project's raw
 `permissions.commit_devdoc` must be `true` (false → DEFER before any gate, so
 `DA_YES=1` cannot stand in for the operator's flag); each staged layer's file
 must be inside the git repo that holds `devdoc_dir` (containment — a workflow

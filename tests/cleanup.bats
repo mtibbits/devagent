@@ -331,6 +331,19 @@ SH
     [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
 }
 
+@test "#611 red-team: a FAILED layer lookup refuses the devdoc commit instead of re-arming the sweep" {
+    devagent_config_set "$HOME/.claude/devagent/config.toml" paths.potholes_workflow "relative/wf.md"   # relative global key → resolver dies
+    printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
+    before="$(cd "$DEVDOC_DIR" && git rev-parse HEAD)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"devdoc commit REFUSED"* ]]
+    [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
+    run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
+    [[ "$output" == " M templates/potholes.md" ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
 @test "#611: cleanup's own devdoc commit never sweeps a dirty file OUTSIDE devdoc_dir (a workflow register at the repo root)" {
     parent="$DEVAGENT_TMP/devdoc"
     rm -rf "$DEVDOC_DIR/.git"
