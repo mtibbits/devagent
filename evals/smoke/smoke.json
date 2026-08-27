@@ -58,21 +58,25 @@
     },
     {
       "id": "plugin-root-grant-automatch",
-      "target": "commands/*.md + skills/{capture,next,ship}/SKILL.md allowed-tools (the quoted two-token ${CLAUDE_PLUGIN_ROOT} grant form, #548)",
-      "procedure": "Hermetic headless probe: temp CLAUDE_CONFIG_DIR seeded with .credentials.json + an EMPTY settings.json; claude -p --plugin-dir <this repo> '/devagent:status' with --verbose --output-format stream-json; read the Bash tool_result from the stream mechanically (never the prose - a denied run can narrate success, #548 caught exactly that).",
-      "measured": "whether the Bash tool_result is real script output (ALLOW) vs 'This command requires approval' (DENY), plus the emitted command string byte-captured from the stream",
-      "expected": "ALLOW: the quoted grant form prefix-matches the quoted body invocation on CC >= 2.1.223. A DENY on a newer CC means the substitution or the literal-prefix matcher regressed - re-run the #548 Q-cell matrix before touching the grants.",
+      "target": "commands/*.md + skills/{capture,next,ship}/SKILL.md + the 10 call-bearing skills/core-*/SKILL.md (document-actual-work, draft-mr, impact, improve, lessons-learned, preship, prune, redmr, scope, tighten) allowed-tools (the quoted two-token ${CLAUDE_PLUGIN_ROOT} grant form, #548/#584)",
+      "procedure": "Hermetic headless probe: temp CLAUDE_CONFIG_DIR seeded with .credentials.json + an EMPTY settings.json; ALSO a scratch DA_HOME holding a fixture config.toml (one project) + state file + a fixture issue dir positioned at step 4 (issue.md, imPlan.md with no Scope evaluation, checklist.md steps 0-3 marked, analysis/<date>-rederive.txt) - never the real ~/.claude/devagent; claude -p --plugin-dir <this repo> --model sonnet '/devagent:scope <fixture-project> Issue-1 -- <note naming DA_HOME and the issue dir>' with --verbose --output-format stream-json, cwd = DA_HOME; restore the fixture issue between runs. Read the Bash tool_result for the core-scope body's checklist-log.sh call from the stream mechanically (never the prose - a denied run can narrate success, #548), then confirm the scope: log line landed in the fixture checklist.md, and assert the FIRST attempt is single-line and ALLOW (a backslash-continuation emission is refused by the matcher, #584).",
+      "measured": "whether the FIRST Bash tool_result for the core skill's operative call is an ALLOW - i.e. NOT 'This command requires approval' (checklist-log.sh is silent on success, so the ALLOW read is the ABSENCE of the deny string, corroborated by the log line landing in the fixture checklist.md) - plus the emitted command string byte-captured from the stream and whether it contains a newline",
+      "expected": "ALLOW on the first attempt: the quoted grant form prefix-matches the single-line quoted body invocation on CC >= 2.1.223, for a command wrapper AND for a core-* skill body reached through it. A DENY on a newer CC means the substitution, the literal-prefix matcher, or multi-line handling regressed - re-run the #548 Q-cell matrix and the #584 probe ladder before touching the grants or the body snippets.",
       "trigger": "every Claude Code upgrade / plugin reinstall",
       "baseline": {
-        "date": "2026-08-06",
+        "date": "2026-08-26",
         "model": "sonnet (probe child; grant matching is model-independent, but retyping fidelity is not)",
         "pass_rate": "3/3",
         "runs": [
           "#548 run1: live-final.jsonl - /devagent:status ALLOW with real dashboard output, CC 2.1.223 (pre-sweep controls DENIED: live-sj1.jsonl, live-post-sweep2.jsonl)",
           "#548 run2: ladder-run2.jsonl - ALLOW, real output (stream-json, mechanical read)",
-          "#548 run3: ladder-run3.jsonl - ALLOW, real output (stream-json, mechanical read)"
+          "#548 run3: ladder-run3.jsonl - ALLOW, real output (stream-json, mechanical read)",
+          "#584 run1: 2026-08-26-ladder-run1.jsonl - /devagent:scope on the DA_HOME fixture, core-scope's checklist-log.sh FIRST attempt single-line ALLOW, checklist-mark.sh ALLOW, CC 2.1.223 @ d8a9f02 (one unrelated Glob denial on a path outside the allow-list)",
+          "#584 run2: 2026-08-26-ladder-run2.jsonl - ALLOW first attempt, 0 denials (stream-json, mechanical read)",
+          "#584 run3: 2026-08-26-ladder-run3.jsonl - ALLOW first attempt, 0 denials (stream-json, mechanical read)",
+          "#584 controls: 2026-08-26-ladder-control-deny.jsonl (pre-Task-4 SHA 71ea578: the body's backslash-continuation emission DENIED; single-line retry ALLOWED via the wrapper's grant) and 2026-08-26-ladder-r1-run1-pre4c.jsonl (post-grant, pre-Task-4c: first attempt in continuation shape DENIED - the finding that produced Task 4c)"
         ],
-        "note": "FILLED at #548 ship with the full 3-session ladder per meta.criteria (3 runs, >=2 pass). Fixture Q-matrix corroboration in devDoc Issue-548/analysis/2026-08-06-probe-env.txt; decision doc decision-skill-dir-probe.md."
+        "note": "Re-FILLED at #584 with a 3-run ladder on a scratch DA_HOME fixture (subject: core-scope reached via /devagent:scope). Probe matrix for the U1-U4 unknowns (skill-side automatch, additive-not-ceiling, fork reach, nested path) in devDoc Issue-584/analysis/2026-08-26-probe-ceiling.txt. #548's original /devagent:status runs retained above as history."
       }
     }
   ]

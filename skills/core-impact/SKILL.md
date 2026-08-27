@@ -3,6 +3,7 @@ name: core-impact
 description: "Step 21: measure and record the real-world impact of a merged change before lessons-learned"
 when_to_use: After /devagent:updatewbs (step 20) and before /devagent:lessonslearned (step 22). Run as part of /devagent:impact.
 user-invocable: false
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-impact
@@ -94,8 +95,7 @@ notes still have value for lessons-learned.
 ## Logging
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh "$ISSUE_DIR" impact \
-  "impact.md written: Q quantifiable claims, L qualitative notes; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" impact "impact.md written: Q quantifiable claims, L qualitative notes; note: $NOTE"
 ```
 
 ## Templates referenced

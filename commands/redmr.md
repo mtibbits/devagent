@@ -32,8 +32,7 @@ Per `commands/draft.md`.
    parser-compatible format from spec §14.4:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" redmr \
-     "Red-team: B blocking, M major, m minor, I info (template: $TEMPLATE_PATH); note: $NOTE"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" redmr "Red-team: B blocking, M major, m minor, I info (template: $TEMPLATE_PATH); note: $NOTE"
    ```
 
    The `N blocking` token is machine-parsed by statusreport (`failed_redteam`,

@@ -42,8 +42,7 @@ top-level capture — `file.sh` files a capture's `draft.md` and nothing else,
 so a child left under `children/` is not filable:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" \
-  --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>"
 ```
 
 - The script prints the new slug. Write the scaffolded child's body into

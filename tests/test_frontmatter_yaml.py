@@ -165,9 +165,10 @@ def test_bash_grant_is_the_canonical_pair(path):
 
 def test_canonical_pair_canary_is_not_vacuous():
     # The canary above returns early on grant-less files; prove the subject
-    # set is the full 57 Bash-grant carriers (54 commands + 3 skills), so a
-    # glob/layout change cannot silently empty it (#439). DELIBERATE EQUALITY
-    # PIN, not a floor — update the count when adding/removing a grant carrier.
+    # set is the full 67 Bash-grant carriers (54 commands + 3 user-invocable
+    # skills + the 10 call-bearing core-* skills, #584), so a glob/layout
+    # change cannot silently empty it (#439). DELIBERATE EQUALITY PIN, not a
+    # floor — update the count when adding/removing a grant carrier.
     n = 0
     for path in _GRANT_BEARING_FILES:
         with open(path, encoding="utf-8") as fh:
@@ -177,8 +178,8 @@ def test_canonical_pair_canary_is_not_vacuous():
         fm = yaml.safe_load(text.split("---", 2)[1]) or {}
         if "Bash" in str(fm.get("allowed-tools") or ""):
             n += 1
-    assert n == 57, (
-        f"expected 57 Bash-grant carriers, found {n} — deliberate pin: if you "
+    assert n == 67, (
+        f"expected 67 Bash-grant carriers, found {n} — deliberate pin: if you "
         f"added/removed a grant-carrying command or skill on purpose, update "
         f"this count (see #548)"
     )
@@ -212,22 +213,136 @@ def test_no_bash_grant_beyond_the_canonical_pair(path):
     )
 
 
+# #584: a core-* skill whose BODY emits a plugin-script invocation must CARRY the
+# grant, or that call raises a prompt mid-chain — an --auto hard stop. The sweep
+# globs already reach skills/core-*/SKILL.md (#452/#531); what was unguarded is the
+# body-call -> grant IMPLICATION. Matches only the canonical quoted, bash-prefixed
+# emission (the only form the #548 literal-prefix matcher can match), so prose
+# merely NAMING a bare `scripts/x.sh` is not a false positive — the same
+# discrimination tests/lib/skill-fixture-check.sh guard (b) makes.
+# DO NOT spell this literal inside any SKILL.md comment (#561, fleet Issue-73): the
+# scan subject IS those files, and an explanatory comment would self-satisfy the
+# guard. Body-only by construction (frontmatter is split off first), so a grant line
+# cannot satisfy it either.
+# COST OF ADDING A CORE SKILL: a core-* skill that grows an operative call reddens
+# the set pin below and the 67 pin above; the implication canary reddens only if
+# the new skill LACKS the grant. Budget a two-line update, plus the
+# tests/skills-no-bang-exec.bats @test 4 set pin that adding any skill already reddens.
+_CORE_SKILL_FILES = [
+    p for p in _SKILL_FILES if os.path.basename(os.path.dirname(p)).startswith("core-")
+]
+_BODY_CALL = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/'
+NL = chr(10)
+
+
+def _has_operative_call(path):
+    return _BODY_CALL in _split_fm(path)[1]
+
+
+def _assert_core_grant(path):
+    # The guard proper. Both the parametrized test and the mutation control enter
+    # through THIS function, so a regression here reddens the control too
+    # (lawFirm Issue-8: a control that only exercises the helper is unarmed).
+    grant = str(_load_fm(path).get("allowed-tools") or "")
+    assert _PLUGIN_SCRIPT_GRANT in grant, (
+        f"{os.path.relpath(path, _REPO)}: emits a plugin-script call but carries no "
+        f"#548 grant — the call prompts mid-chain (--auto hard stop, #584). "
+        f"Got: {grant!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", _CORE_SKILL_FILES,
+    ids=[os.path.relpath(p, _REPO) for p in _CORE_SKILL_FILES],
+)
+def test_core_skill_with_operative_call_carries_grant(path):
+    if not _has_operative_call(path):
+        pytest.skip("no operative body call — grant not required (#584)")
+    _assert_core_grant(path)
+
+
+def test_core_skill_operative_call_subject_set_is_pinned():
+    # #439/#337: a guard whose glob stops selecting its subjects passes SILENTLY.
+    # DELIBERATE EQUALITY PIN on the matched SET (names, not just a count), so a
+    # swap of one skill for another cannot net out invisibly.
+    have = sorted(
+        os.path.basename(os.path.dirname(p))
+        for p in _CORE_SKILL_FILES if _has_operative_call(p)
+    )
+    expected = [
+        "core-document-actual-work", "core-draft-mr", "core-impact",
+        "core-improve", "core-lessons-learned", "core-preship",
+        "core-prune", "core-redmr", "core-scope", "core-tighten",
+    ]
+    assert have == expected, (
+        f"core-* skills emitting an operative call changed: {have} — if a skill "
+        f"gained or lost one on purpose, sweep its grant and update this pin (#584)"
+    )
+
+
+def test_core_call_guard_can_fire(tmp_path):
+    # Mutation control (#582/lawFirm Issue-5): an inverse mutation that leaves the
+    # suite green means the guard is unpinned. Planted under tmp_path — no repo
+    # mutation (the #425/#531 self-test shape). Enters through _assert_core_grant,
+    # the same door as the parametrized guard.
+    p = tmp_path / "skills" / "core-x" / "SKILL.md"
+    p.parent.mkdir(parents=True)
+    p.write_text(
+        "---\nname: core-x\nuser-invocable: false\n---\n"
+        'run: ' + _BODY_CALL + 'a1b2c3nonce.sh" p\n',
+        encoding="utf-8",
+    )
+    assert _has_operative_call(str(p))
+    with pytest.raises(AssertionError):
+        _assert_core_grant(str(p))
+    # ...and the negative half: a prose-only mention must NOT enroll a skill.
+    q = tmp_path / "skills" / "core-y" / "SKILL.md"
+    q.parent.mkdir(parents=True)
+    q.write_text(
+        "---\nname: core-y\nuser-invocable: false\n---\n"
+        "the lint `scripts/lessons-lint.sh` rejects ad-hoc tags\n",
+        encoding="utf-8",
+    )
+    assert not _has_operative_call(str(q))
+    # ...and the positive half: a granted call-bearing file passes the same door.
+    r = tmp_path / "skills" / "core-z" / "SKILL.md"
+    r.parent.mkdir(parents=True)
+    r.write_text(
+        "---" + NL + "name: core-z" + NL + "user-invocable: false" + NL
+        + "allowed-tools: " + _PLUGIN_SCRIPT_GRANT + NL + "---" + NL
+        + "run: " + _BODY_CALL + "a1b2c3nonce.sh\" p" + NL,
+        encoding="utf-8",
+    )
+    assert _has_operative_call(str(r))
+    _assert_core_grant(str(r))
+
+
 def test_command_bash_canary_is_not_vacuous():
     assert _COMMAND_FILES, "no commands/*.md discovered — canary would false-green"
 
 
 # #449: invocation-control invariants.
-def _load_fm(path):
+def _split_fm(path):
+    """(frontmatter_text, body) — frontmatter_text is None when there is no block."""
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     if not text.startswith("---"):
+        return None, text
+    parts = text.split("---", 2)
+    assert len(parts) == 3, f"{os.path.relpath(path, _REPO)}: unterminated frontmatter block"
+    return parts[1], parts[2]
+
+
+def _load_fm(path):
+    fm_text, _ = _split_fm(path)
+    if fm_text is None:
         return {}
-    return yaml.safe_load(text.split("---", 2)[1]) or {}
+    return yaml.safe_load(fm_text) or {}
 
 
 def test_all_core_skills_are_not_user_invocable():
     """The 14 internal core-* skills must be hidden from the user / menu."""
-    core = sorted(glob.glob(os.path.join(_REPO, "skills", "core-*", "SKILL.md")))
+    core = _CORE_SKILL_FILES
     assert core, "no core-* skills discovered — canary would false-green"
     missing = [
         os.path.relpath(p, _REPO)

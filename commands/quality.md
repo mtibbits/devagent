@@ -55,8 +55,7 @@ Per `commands/draft.md`.
 7. On completion:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality \
-  "Quality pass: K simplify findings applied, S standards findings applied; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" quality "Quality pass: K simplify findings applied, S standards findings applied; note: $NOTE"
 ```
 
 ## Halt and ask if

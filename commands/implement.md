@@ -52,8 +52,7 @@ Per `commands/draft.md`.
 6. On full completion, append a single summary log entry:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement \
-  "Plan implemented: N tasks done, F files changed, all tests pass; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement "Plan implemented: N tasks done, F files changed, all tests pass; note: $NOTE"
 ```
 
 ## Halt and ask if

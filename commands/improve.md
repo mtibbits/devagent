@@ -58,8 +58,7 @@ dir, remainder = `$NOTE`; `--` halts positional consumption.
 6. Log the finding counts:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" improve \
-     "Improvements appended; B bugs, S side-effects, A ambiguities; note: $NOTE"
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" improve "Improvements appended; B bugs, S side-effects, A ambiguities; note: $NOTE"
    ```
 
 ## Dispatch contract
