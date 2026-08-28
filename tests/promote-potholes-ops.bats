@@ -232,3 +232,83 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
     grep -q '^status: pending$' "$ID/potholes-promotion.md"
     run bash "$PP" "$TEST_PROJECT" --list-pending; [[ "$output" == *"(2 ops)"* ]]
 }
+
+# --- --retire / --amend staging -----------------------------------------------------
+
+@test "--retire stages a keyed block; the result line carries [section], the mechanism, old tokens + own token" {
+    seed_special_layer
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "$SPECIAL" "the --foo guard in bar.sh"
+    [ "$status" -eq 0 ]
+    grep -qxF -- 'op: retire' "$ID/potholes-promotion.md"
+    grep -qxF -- "old: $SPECIAL" "$ID/potholes-promotion.md"
+    grep -qxF -- 'mechanism: the --foo guard in bar.sh' "$ID/potholes-promotion.md"
+    grep -qxF -- '## Docs / edit-neighborhood hygiene' "$ID/potholes-promotion.md"
+    [ "$(grep -c '^- ' "$ID/potholes-promotion.md")" -eq 0 ]                   # no bare bullet in an op block
+    [ ! -e "$PROJ_REG.lock" ]; run bash -c "cd '$DEVDOC_REPO' && git status --porcelain -- testproj/templates"; [ -z "$output" ]
+}
+
+@test "--retire refuses: --layer missing; heading target; multi-hit; mechanism with ')' or 'Issue-'; multi-line args" {
+    seed_project_layer
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire "- a project line (Issue-9)." m;                    [ "$status" -eq 1 ]; [[ "$output" == *"--layer"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "## Project-only heading" m;         [ "$status" -eq 1 ]; [[ "$output" == *"bullet"* ]]
+    printf '%s\n' '- a project line (Issue-9).' >> "$PROJ_REG"; devdoc_commit dup
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m;      [ "$status" -eq 1 ]; [[ "$output" == *"2 times"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." "a (paren) mech";   [ "$status" -eq 1 ]; [[ "$output" == *")"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." "see Issue-4";      [ "$status" -eq 1 ]; [[ "$output" == *"Issue-"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." "$(printf 'a\nb')"; [ "$status" -eq 1 ]
+    [ ! -e "$ID/potholes-promotion.md" ]
+}
+
+@test "--retire refuses a seed-only line with the distribute-issue message; a line absent everywhere says not found" {
+    seed_project_layer
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"seed line"*"distribute"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- nowhere (Issue-7)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
+}
+
+@test "--retire / --amend refuse a bullet that sits ABOVE the first heading (no section — never an empty '## ' block)" {
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '# Pothole register (project)' '- orphan (Issue-9).' '' '## Project-only heading' '- p (Issue-10).' > "$PROJ_REG"; devdoc_commit orphan
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- orphan (Issue-9)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- orphan (Issue-9)." "- orphan2 (Issue-9; Issue-1)."
+    [ "$status" -eq 1 ]
+    [ ! -e "$ID/potholes-promotion.md" ]
+}
+
+@test "--retire refuses a target that lives only in the Retired section (cannot retire twice)" {
+    seed_project_layer
+    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project '- [x] r — mechanised by y (Issue-9; Issue-2).' m
+    [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
+}
+
+@test "--amend stages a keyed block; the new line must keep every old token and add the own token; per-layer form enforced" {
+    seed_project_layer
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- a project line (Issue-9)." "- a project line, sharper (Issue-9; Issue-1)."
+    [ "$status" -eq 0 ]
+    grep -qxF -- 'op: amend' "$ID/potholes-promotion.md"
+    grep -qxF -- 'old: - a project line (Issue-9).' "$ID/potholes-promotion.md"
+    grep -qxF -- 'new: - a project line, sharper (Issue-9; Issue-1).' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p, sharper (Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"Issue-10"* ]]                        # dropped the old token
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p, sharper (Issue-10)."
+    [ "$status" -eq 1 ]                                                          # own token missing
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p, sharper ($TEST_PROJECT Issue-10; Issue-1)."
+    [ "$status" -eq 1 ]                                                          # qualified token in the project layer
+}
+
+@test "--amend cannot rewrite a Retired line back into an active shape" {
+    seed_project_layer
+    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project '- [x] r — mechanised by y (Issue-9; Issue-2).' '- r again (Issue-9; Issue-2; Issue-1).'
+    [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
+}
+
+@test "--amend workflow layer: the replacement passes the project-name rail on a multi-token tail" {
+    use_workflow
+    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- w (lawFirm Issue-2)." > "$WF"; devdoc_commit wf
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer workflow "- w (lawFirm Issue-2)." "- w, merged (lawFirm Issue-2; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 0 ]
+}

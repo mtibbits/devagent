@@ -155,6 +155,42 @@ _section_count() {   # <file> <heading> — bullets under that heading; 0 for an
     [ -f "$1" ] || { echo 0; return; }
     S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
 }
+# Exact whole-line operations, scoped to the ACTIVE region: under a '## '
+# heading that is not the Retired heading. A bullet ABOVE the first heading (a
+# bootstrapped skeleton's preamble, a hand edit) belongs to no section — neither
+# a hit nor a legal target. Values travel via ENVIRON — never -v, never a regex
+# (a line may carry '(' '[' '*' '$' '\\').
+_hits() {        # <file> <line> → count
+    [ -f "$1" ] || { echo 0; return; }
+    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]{c++} END{print c+0}' "$1"
+}
+_section_of() {  # <file> <line> → the heading of the first active hit (never empty when _hits >= 1)
+    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]{print sec; exit}' "$1"
+}
+_in_retired() {  # <file> <line> → rc 0 iff the exact line is under the Retired heading
+    [ -f "$1" ] || return 1
+    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec==ENVIRON["RH"] && $0==ENVIRON["L"]{f=1} END{exit !f}' "$1"
+}
+_retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retired line
+    local sec="${1#\#\# }" body toks own joined
+    body="$(_body "$2")"; body="${body#- }"
+    own="$(_own_tok "$4")"
+    toks="$(potholes_cite_tokens "$2")"
+    joined="$(printf '%s\n' "$toks" | paste -sd ';' | sed 's/;/; /g')"
+    if printf '%s\n' "$toks" | grep -qixF -- "$own"; then
+        printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$joined"
+    else
+        printf -- '- [%s] %s — mechanised by %s (%s; %s).' "$sec" "$body" "$3" "$joined" "$own"
+    fi
+}
+_amend_tokens_ok() { # <old> <new> — the new line keeps every old token
+    local ot nt t
+    ot="$(potholes_cite_tokens "$1")" || { warn "$MODE: <old-line> has no well-formed citation: $1"; return 1; }
+    nt="$(potholes_cite_tokens "$2")" || { warn "$MODE: <new-line> has no well-formed citation: $2"; return 1; }
+    while IFS= read -r t; do
+        printf '%s\n' "$nt" | grep -qixF -- "$t" || { warn "$MODE: <new-line> drops the old line's token '$t' — an amend is a citation, keep every member's token"; return 1; }
+    done <<< "$ot"
+}
 _stage_init() {
     [ -f "$stage" ] && return 0
     {
@@ -268,6 +304,53 @@ case "${1:-}" in
         || warn "--add: section '## $section' of the $layer layer file $target already holds $cnt bullets (cap $POTHOLES_SECTION_CAP) — consolidate before adding (core-lessons-learned 7b); staging anyway, --apply never refuses a full section"
     { echo; echo "## $section"; echo "layer: $layer"; echo "op: add"; echo "$line"; } >> "$stage"
     info "staged for $issue_id ($layer layer): $line"
+    ;;
+
+--retire|--amend)
+    MODE="$1"; shift
+    layer=""
+    if [ "${1:-}" = "--layer" ]; then layer="${2:-}"; shift 2 || usage; fi
+    old="${1:-}"; arg2="${2:-}"
+    [ -n "$old" ] && [ -n "$arg2" ] || usage
+    _layer_target "$layer"; target="$TARGET"
+    case "$old$arg2" in *$'\n'*) die "$MODE: <old-line> and its argument must be SINGLE lines" ;; esac
+    case "$old" in "- "*) ;; *) die "$MODE: <old-line> must be a bullet starting with '- ' — a heading is not a legal target: $old" ;; esac
+    n="$(_hits "$target" "$old")"
+    if [ "$n" -eq 0 ]; then
+        grep -qxF -- "$old" "$seed" \
+            && die "$MODE: seed line — land via the distribute issue (the plugin seed is never edited by an op; record the candidate as an [actionable] lesson for that issue): $old"
+        die "$MODE: <old-line> not found outside '$POTHOLES_RETIRED_HEADING' in the $layer layer $target: $old"
+    fi
+    [ "$n" -eq 1 ] || die "$MODE: <old-line> occurs $n times in $target — it must occur exactly once: $old"
+    section="$(_section_of "$target" "$old")"
+    [ -n "$section" ] || die "$MODE: <old-line> sits above the first '## ' heading of $target — not in any section, not a legal target"
+    if [ "$MODE" = --retire ]; then
+        mech="$arg2"
+        # The ')' / 'Issue-' ban is the issue's contract. It is DEFENSIVE, not
+        # load-bearing for the strippers (all three anchor on the line END and
+        # are exercised against a body carrying '(' ')' '[' '*' '$' '\\'): it keeps
+        # ad-hoc audits (`grep -c 'Issue-N)'`) and a reader's eye from finding a
+        # second citation-shaped thing on a retired line. --amend's <new-line> is
+        # a whole line under the end-rule and needs no such ban.
+        case "$mech" in *")"*) die "--retire: <mechanism> may not contain ')' — a retired line must carry exactly one citation-shaped tail: $mech" ;; esac
+        case "$mech" in *Issue-*) die "--retire: <mechanism> may not contain the substring 'Issue-': $mech" ;; esac
+        result="$(_retire_result "$section" "$old" "$mech" "$layer")"
+        _rails "$layer" "$result" || die "--retire: the retired line fails a rail (see above): $result"
+        _stage_init
+        grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
+        { echo; echo "$section"; echo "layer: $layer"; echo "op: retire"; echo "old: $old"; echo "mechanism: $mech"; } >> "$stage"
+        info "staged retire for $issue_id ($layer layer): $old → $result"
+    else
+        new="$(_normalise_own_token "$layer" "$arg2")"
+        _rails "$layer" "$new" || die "--amend: <new-line> refused (see above)"
+        _amend_tokens_ok "$old" "$new" || die "--amend: refused (see above)"
+        _stage_init
+        grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
+        { echo; echo "$section"; echo "layer: $layer"; echo "op: amend"; echo "old: $old"; echo "new: $new"; } >> "$stage"
+        info "staged amend for $issue_id ($layer layer): $old → $new"
+    fi
+    [ "$(_commit_devdoc_raw)" = true ] \
+        || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3); the staged op is kept"
     ;;
 
 --check)
