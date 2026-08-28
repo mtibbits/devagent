@@ -6,6 +6,9 @@
 # rung still resolves every other key), the project layer at the devdoc default
 # path, and an optional workflow file at the devdoc REPO root — the production
 # shape (devDoc repo root, every project's devdoc_dir inside).
+# #338: every loaded setup layer sources the hermetic-env guard (pins / git config / TZ / locale).
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
+
 potholes_fixture_setup() {
     devagent_test_setup
     export DEVAGENT_PLUGIN_TEMPLATES="$DEVAGENT_TMP/plugin_templates"
