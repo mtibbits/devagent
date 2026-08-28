@@ -41,7 +41,10 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 : "${DEVAGENT_GIT:=git}"
 
 usage() {
-    echo "usage: promote-potholes.sh <project> <issue-dir> --add --layer project|workflow <section> <line> | --apply | --check
+    echo "usage: promote-potholes.sh <project> <issue-dir> --add    --layer project|workflow <section> <line>
+       promote-potholes.sh <project> <issue-dir> --retire --layer project|workflow <old-line> <mechanism>
+       promote-potholes.sh <project> <issue-dir> --amend  --layer project|workflow <old-line> <new-line>
+       promote-potholes.sh <project> <issue-dir> --drop <op-number>   |  --apply  |  --check
        promote-potholes.sh <project> --list-pending" >&2
     exit 2
 }
@@ -60,7 +63,7 @@ if [ "${1:-}" = "--list-pending" ]; then
         [ -e "$f" ] || continue
         grep -q '^status: pending' "$f" || continue
         found=1
-        printf 'pending: %s (%s lines)\n' "$f" "$(grep -c '^- ' "$f")"
+        printf 'pending: %s (%s ops)\n' "$f" "$(grep -c '^## ' "$f")"
     done
     [ "$found" -eq 1 ] || echo "no pending pothole promotions for $project"
     exit 0
@@ -100,8 +103,76 @@ _repo_of() {
 # stand in for it).
 _commit_devdoc_raw() { config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false; }
 
-# Citation-STRIPPED body of a line (the token may legitimately carry the project).
+# Citation-STRIPPED body of a line — the WHOLE multi-token suffix (a token may
+# legitimately carry the project; the body may not).
 _body() { printf '%s' "$1" | sed -E "s/${POTHOLES_CITE_TAIL_RE}//"; }
+
+MODE=""
+TARGET=""
+# _layer_target <layer> — SETTER: fills $TARGET with the ONE devdoc-resident file
+# that layer names. A setter, never `$(…)`-captured: it die-exits, and a
+# die-exiting resolver inside a command substitution is the Issue-120 shape
+# (the apply engine below is this file's first `set -e`-off context).
+_layer_target() {
+    case "$1" in
+        project)  TARGET="$pr" ;;
+        workflow) [ -n "$wf" ] || die "$MODE: --layer workflow, but no workflow register is configured ([paths] potholes_workflow, or [project.$project.paths] potholes_workflow) — configure it, or route this line to --layer project"
+                  TARGET="$wf" ;;
+        "")       die "$MODE: --layer project|workflow is REQUIRED (no default) — domain content → project; would fire on another project's issue → workflow" ;;
+        *)        die "$MODE: unknown layer '$1' (project|workflow)" ;;
+    esac
+}
+_own_tok() { case "$1" in workflow) printf '%s %s' "$project" "$issue_id" ;; *) printf '%s' "$issue_id" ;; esac; }
+# _normalise_own_token <layer> <line> — the own token in the config spelling (case-insensitive match).
+_normalise_own_token() {
+    [ "$1" = workflow ] || { printf '%s\n' "$2"; return; }
+    printf '%s\n' "$2" | sed -E "s/(\(|; )${project} ${issue_id}(;|\))/\1${project} ${issue_id}\2/I"
+}
+# _rails <layer> <line> — every per-line rail, shared by --add, the retire result
+# and the amend replacement (one predicate for every op, Issue-585). Reason on
+# stderr, rc 1 — the caller decides die (staging) vs DEFER (--apply).
+_rails() {
+    local layer="$1" line="$2" body hit nouns nouns_rc
+    case "$line" in *$'\n'*) warn "$MODE: the line must be a SINGLE line"; return 1 ;; esac
+    case "$line" in "- "*) ;; *) warn "$MODE: the line must start with '- ': $line"; return 1 ;; esac
+    potholes_line_cite_ok "$project" "$issue_id" "$layer" "$line" || { warn "$MODE: citation rail failed for the $layer layer"; return 1; }
+    body="$(_body "$line")"
+    if [ "$layer" = workflow ]; then
+        if printf '%s' "$body" | grep -qiF -- "$project"; then
+            warn "$MODE: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"; return 1
+        fi
+        # Optional operator noun list: fixed-string, word-bounded, case-insensitive.
+        # rc 3 (wrong type) refuses; rc 1 (absent) is the common case.
+        nouns_rc=0; nouns="$(config_get_project_list "$project" paths.potholes_domain_nouns 2>/dev/null)" || nouns_rc=$?
+        [ "$nouns_rc" -ne 3 ] || { warn "$MODE: [project.$project.paths] potholes_domain_nouns must be an array of strings"; return 1; }
+        if [ "$nouns_rc" -eq 0 ] && [ -n "$nouns" ]; then
+            hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$nouns") | head -1 || true)"
+            [ -z "$hit" ] || { warn "$MODE: the body matches paths.potholes_domain_nouns ('$hit') — domain content belongs in --layer project"; return 1; }
+        fi
+    fi
+}
+_section_count() {   # <file> <heading> — bullets under that heading; 0 for an absent file
+    [ -f "$1" ] || { echo 0; return; }
+    S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
+}
+_stage_init() {
+    [ -f "$stage" ] && return 0
+    {
+        echo "# Pothole promotion — $issue_id"
+        echo
+        echo "<!-- #586/#611/#612: written by step 22 (core-lessons-learned item 7) via"
+        echo "     scripts/promote-potholes.sh --add | --retire | --amend. One op per '## '"
+        echo "     block: 'layer:' then 'op: add|retire|amend' and its keyed lines"
+        echo "     ('- <line>' for add; 'old:' + 'mechanism:' for retire; 'old:' + 'new:'"
+        echo "     for amend). A block without 'op:' is an add. Drained by --apply, which"
+        echo "     cleanup.sh (step 23) runs after its tree restore: every op is validated"
+        echo "     against a temp copy of every target file, then each file is written and"
+        echo "     committed path-scoped. Sanctioned hand-edits: 'status: applied by-hand"
+        echo "     <sha>' after landing lines by hand, and '--drop <op>' for a stale op. -->"
+        echo
+        echo "status: pending"
+    } > "$stage"
+}
 
 # _skeleton <layer> — a NEW layer file: header comment + title. The staged
 # sections are appended by the drain (a union-valid heading absent from the
@@ -123,61 +194,20 @@ _skeleton() {
 
 case "${1:-}" in
 --add)
-    shift
+    MODE=--add; shift
     layer=""
     if [ "${1:-}" = "--layer" ]; then layer="${2:-}"; shift 2 || usage; fi
     section="${1:-}"; line="${2:-}"
     [ -n "$section" ] && [ -n "$line" ] || usage
     # Routing is the SKILL's judgment (core-lessons-learned item 7); the script
     # enforces only what is decidable: the layer is named, and its citation form.
-    case "$layer" in
-        project|workflow) ;;
-        "") die "--add: --layer project|workflow is REQUIRED (no default) — domain content → project; would fire on another project's issue → workflow" ;;
-        *)  die "--add: unknown layer '$layer' (project|workflow)" ;;
-    esac
-    case "$line" in *$'\n'*) die "--add: the line must be a SINGLE line" ;; esac
-    case "$line" in "- "*) ;; *) die "--add: the line must start with '- '" ;; esac
-    body="$(_body "$line")"
-    case "$layer" in
-    project)
-        printf '%s' "$line" | grep -qE "\(${issue_id}\)\.$" \
-            || die "--add: a project-layer line must end with its own citation '(${issue_id}).'"
-        ;;
-    workflow)
-        [ -n "$wf" ] || die "--add: --layer workflow, but no workflow register is configured ([paths] potholes_workflow, or [project.$project.paths] potholes_workflow) — configure it, or route this line to --layer project"
-        printf '%s' "$line" | grep -qiE "\(${project} ${issue_id}\)\.$" \
-            || die "--add: a workflow-layer line must end with '(${project} ${issue_id}).' — the shared register cites the project"
-        line="${body} (${project} ${issue_id})."      # normalise to the config spelling
-        ! printf '%s' "$body" | grep -qiF -- "$project" \
-            || die "--add: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"
-        # Optional operator noun list: fixed-string, word-bounded, case-insensitive.
-        # rc 3 (wrong type) dies; rc 1 (absent) is the common case.
-        nouns_rc=0; nouns="$(config_get_project_list "$project" paths.potholes_domain_nouns 2>/dev/null)" || nouns_rc=$?
-        [ "$nouns_rc" -ne 3 ] || die "--add: [project.$project.paths] potholes_domain_nouns must be an array of strings"
-        if [ "$nouns_rc" -eq 0 ] && [ -n "$nouns" ]; then
-            hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$nouns") | head -1 || true)"
-            [ -z "$hit" ] || die "--add: the body matches paths.potholes_domain_nouns ('$hit') — domain content belongs in --layer project"
-        fi
-        ;;
-    esac
+    _layer_target "$layer"; target="$TARGET"
+    [ "## $section" != "$POTHOLES_RETIRED_HEADING" ] || die "--add: '$POTHOLES_RETIRED_HEADING' is not a legal target — it is written only by --retire"
+    line="$(_normalise_own_token "$layer" "$line")"
+    _rails "$layer" "$line" || die "--add: refused (see above)"
     potholes_union_headings "$project" | grep -qxF -- "## $section" \
         || die "--add: no section '## $section' in any register layer — use a heading that already exists (template.sh --project $project show potholes | grep '^## ')"
-    if [ ! -f "$stage" ]; then
-        {
-            echo "# Pothole promotion — $issue_id"
-            echo
-            echo "<!-- #586/#611: written by step 22 (core-lessons-learned item 7) via"
-            echo "     scripts/promote-potholes.sh --add --layer project|workflow. Drained by"
-            echo "     --apply, which cleanup.sh (step 23) runs after its tree restore: each"
-            echo "     block's lines are appended VERBATIM at the END of the named section of"
-            echo "     that layer's file (bootstrapped if absent) and committed there, one"
-            echo "     path-scoped commit per layer file. The status line is machine-written;"
-            echo "     the ONE sanctioned hand-edit is closing a DEFERRED entry after landing"
-            echo "     its lines by hand: status: applied by-hand <sha>. -->"
-            echo
-            echo "status: pending"
-        } > "$stage"
-    fi
+    _stage_init
     grep -qxF -- "$line" "$stage" && { info "--add: already staged (idempotent): $line"; exit 0; }
     # Say NOW what --apply will do later — cheap, so the operator hears it at
     # step 22 where the line can still be re-routed, not at cleanup.
@@ -188,7 +218,10 @@ case "${1:-}" in
         [ -n "$_wr" ] && [ "$_wr" = "$_dr" ] \
             || warn "--add: the workflow register $wf is not inside the git repo holding devdoc_dir ($devdoc_dir) — the containment rail will DEFER (rc 3) at cleanup"
     fi
-    { echo; echo "## $section"; echo "layer: $layer"; echo "$line"; } >> "$stage"
+    cnt="$(_section_count "$target" "## $section")"
+    [ "$cnt" -lt "$POTHOLES_SECTION_CAP" ] \
+        || warn "--add: section '## $section' of the $layer layer file $target already holds $cnt bullets (cap $POTHOLES_SECTION_CAP) — consolidate before adding (core-lessons-learned 7b); staging anyway, --apply never refuses a full section"
+    { echo; echo "## $section"; echo "layer: $layer"; echo "op: add"; echo "$line"; } >> "$stage"
     info "staged for $issue_id ($layer layer): $line"
     ;;
 

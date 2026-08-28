@@ -102,3 +102,67 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
     [[ "$output" != *"Retired"* ]]
     potholes_cited_union "$TEST_PROJECT" Issue-1                               # the CHECK union reads the FILE
 }
+
+# --- --add on the shared grammar --------------------------------------------------
+
+@test "--add: a merged multi-token line is legal; every token must take the layer's form; the own token must be present" {
+    use_workflow
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- merged (lawFirm Issue-9; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 0 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- merged (Issue-9; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"Issue-9"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- merged (lawFirm Issue-9; lawFirm Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"$TEST_PROJECT Issue-1"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- merged (Issue-9; Issue-1)."
+    [ "$status" -eq 0 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- merged ($TEST_PROJECT Issue-9; Issue-1)."
+    [ "$status" -eq 1 ]
+}
+
+@test "--add: the body-strip strips the WHOLE multi-token suffix — a devagent-authored merged workflow line passes the project-name rail" {
+    use_workflow
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- neutral body ($TEST_PROJECT Issue-3; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 0 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- the $TEST_PROJECT body (lawFirm Issue-3; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"names the project"* ]]
+}
+
+@test "--add: own token normalised to the config spelling inside a multi-token list" {
+    use_workflow
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- merged (lawFirm Issue-9; TESTPROJ Issue-1)."
+    [ "$status" -eq 0 ]
+    grep -qxF -- "- merged (lawFirm Issue-9; $TEST_PROJECT Issue-1)." "$ID/potholes-promotion.md"
+}
+
+@test "--add refuses the Retired section as a target" {
+    seed_project_layer
+    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Retired (mechanised)" "- x (Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"Retired"* ]]
+    [ ! -e "$ID/potholes-promotion.md" ]
+}
+
+@test "--add writes an 'op: add' keyed block; --list-pending counts blocks" {
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- one (Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- two (Issue-1)."
+    [ "$(grep -c '^op: add$' "$ID/potholes-promotion.md")" -eq 2 ]
+    run bash "$PP" "$TEST_PROJECT" --list-pending
+    [[ "$output" == *"(2 ops)"* ]]
+}
+
+@test "--add WARNS (never refuses) at >= POTHOLES_SECTION_CAP bullets in the target section of the target LAYER FILE, naming section, count and cap; the union is not counted" {
+    mkdir -p "$DEVDOC_DIR/templates"
+    { printf '%s\n' '# P' '' '## Docs / edit-neighborhood hygiene'
+      for i in $(seq 1 25); do printf -- '- filler %s (Issue-%s).\n' "$i" "$i"; done
+      printf '%s\n' '' '## Bash exit-status & control flow' '- one (Issue-3).'; } > "$PROJ_REG"
+    devdoc_commit full
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- x (Issue-1)."
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Docs / edit-neighborhood hygiene"*"25"*"25"* ]]
+    grep -qxF -- '- x (Issue-1).' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Bash exit-status & control flow" "- y (Issue-1)."
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"cap"* ]]                        # 1 bullet in the file's section; the seed's 1 is not added to it
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply      # a full section never blocks the drain
+    [ "$status" -eq 0 ]
+}
