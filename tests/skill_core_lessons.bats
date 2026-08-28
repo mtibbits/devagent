@@ -50,3 +50,12 @@ setup() {
   run awk '/promote-potholes\.sh/ && /\\$/' "$SKILL/SKILL.md"
   [ -z "$output" ]
 }
+
+@test "item 7 makes --layer mandatory and states the routing judgment for both layers (#611)" {
+  grep -qF -- '--add --layer' "$SKILL/SKILL.md"
+  grep -qF -- '`--layer project`' "$SKILL/SKILL.md"
+  grep -qF -- '`--layer workflow`' "$SKILL/SKILL.md"
+  grep -qF -- '(<project> Issue-N)' "$SKILL/SKILL.md"
+  run grep -n 'every project but devagent' "$SKILL/SKILL.md"
+  [ "$status" -eq 1 ]
+}

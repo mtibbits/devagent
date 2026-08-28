@@ -110,3 +110,12 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   run grep -E '^/devagent:(init|pull|file|capture) *$' "$SITE/quickstart.md"
   [ "$status" -eq 1 ]
 }
+
+@test "docs-site: the bash floor on the install page matches README and the potholes.sh guard (#611)" {
+  readme="$(grep -oE 'bash`? \(?≥ [0-9]+\.[0-9]+' "$PLUGIN_ROOT/README.md" | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  page="$(grep -oE 'bash`? ≥ [0-9]+\.[0-9]+' "$SITE/install.md" | grep -oE '[0-9]+\.[0-9]+' | sort -u)"
+  guard="$(grep -oE 'bash >= [0-9]+\.[0-9]+' "$PLUGIN_ROOT/scripts/lib/potholes.sh" | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  [ -n "$readme" ] && [ "$readme" = "$guard" ]
+  [ "$(printf '%s\n' "$page" | wc -l)" -eq 1 ] && [ "$page" = "$readme" ]
+  run grep -nE 'bash`? ≥ 4\b[^.]' "$SITE/install.md"; [ "$status" -eq 1 ]      # no stale "≥ 4" left
+}

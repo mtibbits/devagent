@@ -46,12 +46,17 @@ is not detected), so the read-only rule above is the load-bearing layer.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" --project <project> show potholes
    ```
 
-   Read it and judge every DOMAIN TRIGGER. If it cannot be resolved, say so in
-   your report as a dispatch defect and read the plugin default directly
-   (`${CLAUDE_PLUGIN_ROOT}/templates/potholes.md`) — do not silently check
-   with less. Self-resolution is deliberate (#286): a tripwire whose input
-   arrives via a packaging list the dispatcher can forget is a dead tripwire;
-   one you resolve yourself cannot rot.
+   Read it and judge every DOMAIN TRIGGER. The output is a UNION of layers
+   (#611: plugin seed + shared workflow register + this project's register,
+   with `# layer:` markers when more than one is present; a `## ` heading may
+   appear once per layer — treat every copy as ONE section, identity is the
+   heading text). If the command cannot be run or fails, record that as a
+   dispatch defect in your artifact's first finding and STOP the tripwire
+   there — reading the plugin seed `templates/potholes.md` alone is
+   "checking with less" and is NOT a permitted fallback: the entries that fire on this
+   project live in the other layers. Self-resolution is deliberate (#286): a
+   tripwire whose input arrives via a packaging list the dispatcher can forget
+   is a dead tripwire; one you resolve yourself cannot rot.
 3. **You cannot write files.** Write/Edit are structurally unavailable to you.
    Your final message IS the artifact: return the complete findings body and
    nothing else. The dispatching session writes it to disk verbatim, triages,

@@ -14,6 +14,14 @@ ship_as_draft = false
 # LITERALLY BARE line (no trailing comment) or the hook's gate won't see it.
 # git_guard = false
 
+# Shared WORKFLOW pothole register (#611): one absolute path, read by every
+# project as a union with the plugin seed and the project's own
+# <devdoc>/templates/potholes.md. Global table; a [project.<name>.paths]
+# potholes_workflow overrides it per project. Optional per-project
+# potholes_domain_nouns = ["..."] lists words the shared layer refuses.
+# [paths]                       # TOP-LEVEL table: keep it above the first [project.*] header
+# potholes_workflow = "~/src/devDoc/templates/potholes.md"
+
 [project.{{PROJECT}}]
 source_dir       = "{{SOURCE_DIR}}"
 devdoc_dir       = "{{DEVDOC_DIR}}"

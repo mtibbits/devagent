@@ -12,6 +12,11 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the c
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
+# shellcheck source=/dev/null
+# shellcheck disable=SC2034  # consumed by template_resolve.sh (sourced next), which keys its
+# source-set off DEVAGENT_ROOT — pinned to the plugin so an ambient/other-lib value cannot redirect it.
+DEVAGENT_ROOT="$PLUGIN_ROOT"
+source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
 
 declare -i ERRORS=0
 
@@ -135,6 +140,19 @@ check_one_project() {
   [[ -z "$tpl" ]] && tpl="$(config_get_default checklist_template 2>/dev/null || echo standard)"
   check_template_resolves "$tpl" "$project"
 
+  # #611: the shared workflow pothole register, surfaced per project (a
+  # [project.<name>.paths] override may differ from the global [paths] key).
+  local wf
+  if ! wf="$(potholes_workflow_path "$project")"; then
+    check "potholes_workflow register" fail "lookup failed (a relative [paths] potholes_workflow, or an unreadable config) — see above"
+  elif [[ -z "$wf" ]]; then
+    check "potholes_workflow register: not configured ([paths] potholes_workflow — shared lessons cannot be staged)" ok
+  elif [[ -s "$wf" ]]; then
+    check "potholes_workflow register: $wf" ok
+  else
+    check "potholes_workflow register: $wf (absent — bootstrapped by the first --apply)" ok
+  fi
+
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
   if [[ -x "$hook" ]]; then
@@ -216,6 +234,45 @@ if [[ -f "$(config_path)" ]]; then
     check "git-reflex guard: OFF despite git_guard=true — the hook's gate needs a LITERALLY BARE line (no trailing comment or extra tokens); the guard will NOT fire. Fix: git_guard = true" fail
   else
     check "git-reflex guard: off (opt-in; set [defaults] or [project.<name>] git_guard = true to enable)" ok
+  fi
+  # #611: private project names vs the shipped seed — ungated here (the suite
+  # canary skips until the seed is curated); WARN only, the distribute capture
+  # owns moving the known citations. The roster is the LIVE config's project
+  # keys (private, on the operator's box) minus the public allowlist; a key not
+  # in the suite fixture is reported as INFO only — the fixture must never grow
+  # a new private name (red-team #611).
+  seed="$(potholes_seed_path)"   # via the resolver (#425 canary), never a hand-rolled path
+  fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
+  if [[ -f "$seed" && -f "$fx" ]]; then
+    pub=" $(potholes_fixture_public "$fx" | tr '\n' ' ') "
+    live=(); missing=()
+    while IFS= read -r p; do
+      [[ -z "$p" ]] && continue
+      [[ "${pub,,}" == *" ${p,,} "* ]] && continue
+      live+=("$p")
+      potholes_fixture_private_names "$fx" | grep -qixF -- "$p" || missing+=("$p")
+    done < <(config_list_projects)
+    if (( ${#missing[@]} )); then
+      echo "  INFO private project(s) checked live only (not in the suite fixture, by design): ${missing[*]}"
+    fi
+    if ! type potholes_private_name_hits >/dev/null 2>&1; then
+      # Issue-316: a missing function must not drive the WARN branch with an empty hit list.
+      check "seed carries no private project name" fail "predicate potholes_private_name_hits not loaded (scripts/lib/potholes.sh)"
+    elif (( ${#live[@]} )); then
+      hrc=0; hits="$(potholes_private_name_hits "$seed" "${live[@]}")" || hrc=$?
+      if [[ "$hrc" -eq 0 ]]; then
+        check "seed carries no private project name" ok
+      elif [[ "$hrc" -eq 1 ]]; then
+        check "seed carries no private project name" warn "$(printf '%s' "$hits" | tr '\n' ';') — moved by the distribute capture"
+      else
+        check "seed carries no private project name" fail "seed unreadable ($seed) — the predicate could not run"
+      fi
+    else
+      check "seed carries no private project name" ok
+    fi
+  else
+    # FAIL CLOSED (red-team r2): a missing input must never read as "checked".
+    check "seed carries no private project name" fail "check did not run — seed ($seed) or fixture ($fx) missing"
   fi
 else
   check "config exists" fail "no $(config_path) — run /devagent:init"

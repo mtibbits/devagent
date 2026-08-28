@@ -19,15 +19,17 @@ Per `commands/draft.md`.
 2. Verify checklist log has > 2 entries (otherwise nothing to learn from).
 3. Invoke `core-lessons-learned`. The skill calls
    `scripts/checklist-log.sh`. `[pattern]` register promotions are STAGED
-   via `promote-potholes.sh --add` into
-   `<issue-dir>/potholes-promotion.md` (#586) — nothing is written to the
-   register at this step; `/devagent:cleanup` drains and commits it. For a
-   project whose register resolves to the plugin default (every project but
-   devagent today) the drain DEFERS by design — `--add` warns, and the staged
-   lines are landed by hand from the devagent tree (`promote-potholes.sh
-   <project> --list-pending` shows the backlog) and the entry is closed by
-   the one sanctioned hand-edit of its status line, `status: applied by-hand
-   <sha>`, until the cross-project staging follow-up ships.
+   via `promote-potholes.sh --add --layer project|workflow` into
+   `<issue-dir>/potholes-promotion.md` (#586/#611) — nothing is written to
+   any register at this step. The layer is the skill's judgment (domain
+   content → `project`, would fire on another project's issue → `workflow`);
+   `/devagent:cleanup` drains both layers into the devdoc repo with one
+   path-scoped commit per layer file. A DEFER (`commit_devdoc` not true —
+   the one-flag fix the message names — dirty/untracked target, mid-merge,
+   containment, held lock) keeps the staging file pending with its reason;
+   `promote-potholes.sh <project> --list-pending` shows the backlog and
+   `--apply` is re-run once fixed. The one sanctioned hand-edit of the status
+   line, `status: applied by-hand <sha>`, remains for lines landed by hand.
 
 ## Halt and ask if
 

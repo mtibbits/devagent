@@ -168,3 +168,28 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"resolved empty"* ]]
 }
+
+# --- #611: global [paths] + _toml.py get-list -------------------------------
+
+@test "_toml.py get-list prints one element per line; rc 3 on a non-array; rc 1 missing [#611]" {
+  f="$BATS_TEST_TMPDIR/c.toml"
+  printf '[project.p.paths]\npotholes_domain_nouns = ["law", "matter id"]\npotholes = "x.md"\n' > "$f"
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.paths.potholes_domain_nouns
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "law" ]
+  [ "${lines[1]}" = "matter id" ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.paths.potholes
+  [ "$status" -eq 3 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.paths.nope
+  [ "$status" -eq 1 ]
+}
+
+@test "config_get_global_path reads [paths] with tilde expansion; rc 1 when absent [#611]" {
+  printf '[paths]\npotholes_workflow = "~/wf.md"\n' > "$DA_HOME/config.toml"
+  run config_get_global_path potholes_workflow
+  [ "$status" -eq 0 ]
+  [ "$output" = "$HOME/wf.md" ]
+  printf '[defaults]\n' > "$DA_HOME/config.toml"
+  run config_get_global_path potholes_workflow
+  [ "$status" -ne 0 ]
+}

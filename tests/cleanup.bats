@@ -22,6 +22,11 @@ setup() {
         '## Docs / edit-neighborhood hygiene' '- another existing line (Issue-8).' \
         > "$DEVDOC_DIR/templates/potholes.md"
     export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVDOC_DIR/templates/potholes.md"
+    # #611: the seed is a fixture too — a full COPY of the plugin templates with
+    # only potholes.md replaced, so every other key still resolves.
+    export DEVAGENT_PLUGIN_TEMPLATES="$DEVAGENT_TMP/plugin_templates"
+    cp -r "$DEVAGENT_ROOT/templates" "$DEVAGENT_PLUGIN_TEMPLATES"
+    cp "$DEVDOC_DIR/templates/potholes.md" "$DEVAGENT_PLUGIN_TEMPLATES/potholes.md"
     ( cd "$DEVDOC_DIR" \
       && git -c init.defaultBranch=main init -q \
       && git config user.email t@example.com \
@@ -33,15 +38,10 @@ setup() {
 }
 teardown() { devagent_test_teardown; }
 
-# #586: register committed in the SOURCE repo (on main, so the restore keeps it)
-# with one line staged for Issue-1.
-stage_in_source_register() {
-    mkdir -p "$SOURCE_DIR/templates"
-    cp "$DEVDOC_DIR/templates/potholes.md" "$SOURCE_DIR/templates/potholes.md"
-    ( cd "$SOURCE_DIR" && git add -A && git commit -q -m reg && git branch -f main HEAD )
-    export TEMPLATE_PATHS_OVERRIDE_potholes="$SOURCE_DIR/templates/potholes.md"
+# #611: a line staged for the PROJECT layer (the devdoc register the setup committed).
+stage_in_project_layer() {
     bash "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-1" \
-        --add "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+        --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
 }
 
 @test "cleanup.sh switches source tree to main, commits devdoc, clears active_issue" {
@@ -274,24 +274,85 @@ SH
     [ "$cur" = "feat/1-x" ]
 }
 
-@test "#586: cleanup drains a PENDING promotion after the restore and commits it on the base branch" {
-    stage_in_source_register
+@test "#586/#611: cleanup drains a PENDING promotion after the restore, committing the devdoc register ITSELF, then its own devdoc commit carries the rest" {
+    stage_in_project_layer
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    grep -q 'a neutral line (Issue-1).' "$SOURCE_DIR/templates/potholes.md"
-    run bash -c "cd '$SOURCE_DIR' && git log -1 --format=%s"
-    [[ "$output" == "chore: promote pothole-register entries from #1" ]]
+    grep -q 'a neutral line (Issue-1).' "$DEVDOC_DIR/templates/potholes.md"
+    run bash -c "cd '$DEVDOC_DIR' && git log -2 --format='%s|%ae'"
+    [ "${lines[0]}" = "devdoc: Issue-1 cleanup|devagent@local" ]
+    [ "${lines[1]}" = "chore: promote pothole-register entries from #1|t@example.com" ]
+    run bash -c "cd '$DEVDOC_DIR' && git show --stat --format= HEAD"
+    [[ "$output" != *"templates/potholes.md"* ]]           # never via cleanup's git add -A
+    run bash -c "cd '$DEVDOC_DIR' && git show --stat --format= HEAD~1"
+    [[ "$output" == *"templates/potholes.md"* ]]
     cur="$( cd "$SOURCE_DIR" && git rev-parse --abbrev-ref HEAD )"
     [ "$cur" = "main" ]
     grep -q '^status: applied' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
 }
 
-@test "#586: a DEFERRED drain (dirty register) warns and completes cleanup" {
-    stage_in_source_register
-    printf '%s\n' '- foreign (Issue-3).' >> "$SOURCE_DIR/templates/potholes.md"
+@test "#611: end-to-end on a FRESH project with no layer file — --add then cleanup bootstraps, lands and commits in one run" {
+    rm -f "$DEVDOC_DIR/templates/potholes.md"; ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "no register" )
+    stage_in_project_layer
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -f "$DEVDOC_DIR/templates/potholes.md" ]
+    grep -q 'a neutral line (Issue-1).' "$DEVDOC_DIR/templates/potholes.md"
+    run bash -c "cd '$DEVDOC_DIR' && git log --format=%s | grep -c 'promote pothole-register'"
+    [ "$output" = "1" ]
+    run bash -c "cd '$DEVDOC_DIR' && git status --porcelain"
+    [ -z "$output" ]
+}
+
+@test "#586/#611: a DEFERRED drain (dirty register) warns and completes cleanup" {
+    stage_in_project_layer
+    printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]                       # a deferral is not a failure
     [[ "$output" == *pending* ]]
     grep -q '^status: pending' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    # #611 review: the DEFERred layer file is NOT swept by cleanup's own devdoc commit
+    run bash -c "cd '$DEVDOC_DIR' && git log -1 --format=%s"
+    [ "$output" = "devdoc: Issue-1 cleanup" ]
+    run bash -c "cd '$DEVDOC_DIR' && git show --stat --format= HEAD"
+    [[ "$output" != *"templates/potholes.md"* ]]
+    run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
+    [[ "$output" == " M templates/potholes.md" ]]            # the foreign edit is still theirs to commit
+}
+
+@test "#611: commit_devdoc=false → the drain DEFERS naming the flag and cleanup completes without any devdoc commit" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    stage_in_project_layer
+    before="$(cd "$DEVDOC_DIR" && git rev-parse HEAD)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *commit_devdoc* ]]
+    [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
+}
+
+@test "#611 red-team: a FAILED layer lookup refuses the devdoc commit instead of re-arming the sweep" {
+    devagent_config_set "$HOME/.claude/devagent/config.toml" paths.potholes_workflow "relative/wf.md"   # relative global key → resolver dies
+    printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
+    before="$(cd "$DEVDOC_DIR" && git rev-parse HEAD)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"devdoc commit REFUSED"* ]]
+    [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
+    run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
+    [[ "$output" == " M templates/potholes.md" ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "#611: cleanup's own devdoc commit never sweeps a dirty file OUTSIDE devdoc_dir (a workflow register at the repo root)" {
+    parent="$DEVAGENT_TMP/devdoc"
+    rm -rf "$DEVDOC_DIR/.git"
+    ( cd "$parent" && git -c init.defaultBranch=main init -q && git config user.email t@example.com && git config user.name Test && git add -A && git commit -q -m seed )
+    printf '# stray edit\n' > "$parent/templates-wf.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run bash -c "cd '$parent' && git status --porcelain"
+    [[ "$output" == *"?? templates-wf.md"* ]]                # still untracked, not committed
+    run bash -c "cd '$parent' && git log -1 --format=%s"
+    [ "$output" = "devdoc: Issue-1 cleanup" ]
 }

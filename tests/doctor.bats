@@ -199,3 +199,45 @@ CL
   [[ "$hook_gate" == *'/^\['* ]]                 # the section-trigger line is captured
   [ "$hook_gate" = "$doctor_gate" ] || { echo "gate DRIFT:"; diff <(echo "$hook_gate") <(echo "$doctor_gate"); false; }
 }
+
+# --- #611: seed canary + fixture coverage rows -------------------------------
+
+@test "doctor: seed canary row is OK for a public-only config (#611)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK   seed carries no private project name"* ]]
+  [[ "$output" != *"INFO private project"* ]]
+}
+
+@test "doctor: potholes_workflow register row per project — not configured / absent / present (#611)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: not configured"* ]]
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" paths.potholes_workflow "\"$DA_HOME/wf.md\""
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: $DA_HOME/wf.md (absent"* ]]
+  printf '# WF\n' > "$DA_HOME/wf.md"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes_workflow register: $DA_HOME/wf.md"* ]]
+  [[ "$output" != *"(absent"* ]]
+}
+
+@test "doctor: the private-name check FAILS closed when its fixture is missing (#611 red-team r2)" {
+  # Run a COPY of the plugin with the fixture removed: doctor derives PLUGIN_ROOT from its own path.
+  cp -r "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/plugin"
+  rm -f "$BATS_TEST_TMPDIR/plugin/tests/fixtures/private-project-names.txt"
+  run "$BATS_TEST_TMPDIR/plugin/scripts/doctor.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL seed carries no private project name"*"fixture"* ]]
+}
+
+@test "doctor: a non-public project key absent from the suite fixture is INFO only — never a nudge to add it to the public repo (#611 red-team)" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.zzqnew.source_dir '"/tmp"'
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INFO private project(s) checked live only"*zzqnew* ]]
+  [[ "$output" != *"WARN private-project"* ]]
+  [[ "$output" != *"fixture list covers"* ]]
+}
+# No doctor test asserts a hit against the LIVE seed: that would couple the suite to
+# content the distribute capture is chartered to remove. The predicate's ability to
+# fire is proven by the planted control in potholes-seed-canary.bats.

@@ -84,8 +84,12 @@ that project.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/template.sh" --project "$project" show potholes
    ```
 
-   The register is a curated list of `[pattern]` lessons keyed by DOMAIN
-   TRIGGER, each citing its source `(Issue-N)`. Judge which triggers MATCH
+   The output is the UNION of the register's layers (#611: the plugin seed +
+   the shared workflow register + this project's own register, `# layer:`
+   markers when more than one is present; a `## ` heading may appear
+   once per layer — treat every copy as ONE section). Each layer is a curated list of
+   `[pattern]` lessons keyed by DOMAIN TRIGGER, each citing its source
+   (`(Issue-N)`, or `(<project> Issue-N)` in the shared layer). Judge which triggers MATCH
    this issue's change, then emit a `## Potholes considered` section in the
    plan (the `imPlan_template` carries the skeleton) listing: (a) each MATCHING
    trigger with the mitigation the plan adopts, and (b) triggers reviewed and

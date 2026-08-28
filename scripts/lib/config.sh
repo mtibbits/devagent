@@ -43,6 +43,26 @@ config_get_project_field() {
   esac
 }
 
+# config_get_global_path <key> — #611: the top-level [paths] table. Global,
+# every-project file paths; today the only consumer is potholes_workflow (the
+# shared workflow register). Tilde-expanded like project paths.*; rc from
+# config_get (1 = absent) so callers' `|| true` keep working.
+config_get_global_path() {
+  local key="$1" val
+  [[ -n "$key" ]] || { echo "config_get_global_path: key required" >&2; return 2; }
+  val="$(config_get "paths.${key}")" || return $?
+  expand_tilde "$val"
+}
+
+# config_get_project_list <project> <field> — #611: an array-of-strings field,
+# one element per line. rc 1 absent, rc 3 not an array of strings (from
+# _toml.py get-list) — distinct so a caller can die on the latter only.
+config_get_project_list() {
+  local project="$1" field="$2"
+  [[ -n "$project" && -n "$field" ]] || { echo "config_get_project_list: project and field required" >&2; return 2; }
+  _config_toml get-list "$(config_path)" "project.${project}.${field}"
+}
+
 config_list_projects() {
   _config_toml list-tables "$(config_path)" \
     | awk -F. '$1=="project" && NF==2 { print $2 }'
