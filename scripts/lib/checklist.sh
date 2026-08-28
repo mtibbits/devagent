@@ -291,9 +291,15 @@ _checklist_valid_glyph() {
 # <glyph> (e.g. 'x' '!' 'P' '~' ' '), one per line in file order. mawk-safe:
 # POSIX 2-arg match() + substr()/sub(), NOT gawk's 3-arg capture-array form
 # match(s, r, arr), which mawk parse-errors on (#73/#313). Callers apply
-# their own first/last/bound logic. Deliberately NOT revision-scoped: the
-# recovery callers (stuck/unstuck/resume) act on raw glyphs across the whole
-# file — a [!]/[P] mark is unique and a revision block never re-introduces one.
+# their own first/last/bound logic. Deliberately NOT revision-scoped, and after
+# #587 the only recovery caller left is stuck.sh, which wants the file-wide scan
+# by design (it asks for the last [x] BELOW the current step). The former
+# rationale here — that a [!]/[P] row is unique to the file and no revision
+# block ever re-introduces one — is FALSE: closeout numbers are REUSED across revision
+# blocks (#76), so a [!]/[P] can sit in an older block while the active block
+# holds a pending twin of the same number. That is exactly the #587 bug. A
+# caller that must act on the ROW carrying a glyph uses
+# checklist_find_glyph_line below, which returns the LINE, never the number.
 checklist_steps_with_glyph() {
   local file="$1" glyph="$2"
   [[ -f "$file" ]] || die "checklist_steps_with_glyph: no such file '$file'"
@@ -306,6 +312,108 @@ checklist_steps_with_glyph() {
       print num + 0
     }
   ' "$file"
+}
+
+# checklist_find_glyph_line <file> <glyph>
+# Prints "<line>:<step-number>" for the row the RECOVERY callers (unstuck.sh,
+# checklist-unstuck.sh, resume.sh) must act on: the first row carrying <glyph>
+# inside the ACTIVE revision block if one is there, else the first such row
+# file-wide (the #76 legacy fallback). Prints nothing (rc 0) when no row carries
+# the glyph; the caller decides whether that is fatal.
+#
+# #587: the LINE is the answer, not the step number. Closeout numbers are REUSED
+# across revision blocks (#76), so a caller that carries the NUMBER out of this
+# scan and marks it with checklist_mark re-resolves it through
+# _checklist_scope_start into the ACTIVE block, flipping the wrong block's twin
+# while the real [!]/[P] survives (#558 r3 BLOCKING-2, re-found at two more
+# sites in #587). Pair this with checklist_mark_line, never with checklist_mark.
+# _checklist_scope_start is NOT the bug and is deliberately unchanged: its
+# active-block re-scoping is correct for callers that mean the active block.
+#
+# mawk-safe: POSIX 2-arg match() + substr()/sub(), not gawk match(s,r,arr)
+# (#73/#313). The glyph is compared as the COLUMN-4 character of "- [G]" and is
+# never interpolated into a regex: '?' and '.' are legal glyphs and would be
+# metacharacters. That is the SAME predicate checklist_steps_with_glyph uses, on
+# purpose: one question, one matcher (Issue-585).
+checklist_find_glyph_line() {
+  local file="$1" glyph="$2"
+  [[ -f "$file" ]] || die "checklist_find_glyph_line: no such file '$file'"
+  awk -v glyph="$glyph" '
+    /^## Revision / { blk = NR }
+    match($0, /^- \[.\][ \t]+[0-9]+\./) {
+      if (substr($0, 4, 1) != glyph) next    # box char is column 4: "- [G]"
+      num = substr($0, RSTART, RLENGTH)
+      sub(/^- \[.\][ \t]+/, "", num)
+      sub(/\.$/, "", num)
+      n++; ln[n] = NR; sn[n] = num + 0
+    }
+    END {
+      for (i = 1; i <= n; i++) if (ln[i] > blk) { print ln[i] ":" sn[i]; exit }
+      if (n) print ln[1] ":" sn[1]
+    }
+  ' "$file"
+}
+
+# checklist_step_name_at_line <file> <line>
+# Prints the step NAME on <line>, whatever glyph the row carries. Returns 1 with
+# no STDOUT when that line is not a step row, and names the reason on STDERR
+# with the token "not a checklist step row" — a diagnostic printed to stdout
+# inside $( ... ) is swallowed by the caller's capture (Issue-583), and a bare
+# rc that pins no message is indistinguishable from an unrelated failure or from
+# a missing function's 127 (Issue-Fork-132 / Issue-572). NOT die(): the callers
+# (unstuck.sh, checklist-unstuck.sh) add their own context.
+# Name = _checklist_line_re's definition ([A-Za-z][A-Za-z0-9_-]*), the same
+# token unstuck.sh already logged.
+checklist_step_name_at_line() {
+  local file="$1" line="$2" name
+  [[ -f "$file" ]] || die "checklist_step_name_at_line: no such file '$file'"
+  name="$(awk -v ln="$line" '
+    NR == ln && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/) {
+      seg = substr($0, RSTART, RLENGTH)
+      sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", seg)
+      print seg
+      exit
+    }
+  ' "$file")"
+  if [[ -z "$name" ]]; then
+    printf '%s\n' \
+      "checklist_step_name_at_line: line $line of '$file' is not a checklist step row" >&2
+    return 1
+  fi
+  printf '%s\n' "$name"
+}
+
+# checklist_mark_line <file> <line> <glyph>
+# Sets the glyph of the step row at <line>. No number resolution, no revision
+# re-scoping (#587): the caller has already located the row.
+#
+# Fail-CLOSED: dies unless the row afterwards really carries <glyph>, so a caller
+# that removes a STUCK sentinel after marking cannot remove it over a row that
+# did not flip. The refusal lives in the shipped code path, not only in the suite
+# (lawFirm Issue-14). Same-dir atomic write + mode preserve (#329).
+checklist_mark_line() {
+  local file="$1" line="$2" glyph="$3" tmp now
+  [[ -f "$file" ]] || die "checklist_mark_line: no such file '$file'"
+  [[ "$line" =~ ^[0-9]+$ ]] || die "checklist_mark_line: bad line '$line'"
+  _checklist_valid_glyph "$glyph" || die "checklist_mark_line: bad glyph '$glyph'"
+  awk -v ln="$line" '
+    NR == ln && match($0, /^- \[.\][ \t]+[0-9]+\./) { found = 1 }
+    END { exit (found ? 0 : 1) }
+  ' "$file" || die "checklist_mark_line: line $line of '$file' is not a checklist step row"
+  tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
+  if awk -v ln="$line" -v glyph="$glyph" '
+      NR == ln && match($0, /^- \[.\][ \t]+[0-9]+\./) { sub(/^- \[.\]/, "- [" glyph "]") }
+      { print }
+    ' "$file" > "$tmp"; then
+    [ -e "$file" ] && chmod --reference="$file" "$tmp"
+    mv "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    die "checklist_mark_line: awk failed processing '$file' (file left intact)"
+  fi
+  now="$(awk -v ln="$line" 'NR == ln { print substr($0, 4, 1); exit }' "$file")"
+  [[ "$now" == "$glyph" ]] \
+    || die "checklist_mark_line: line $line of '$file' did not take glyph '$glyph' (reads '[$now]') - do NOT treat the step as cleared"
 }
 
 # checklist_mark <file> <step-num> <glyph> [expected-name]

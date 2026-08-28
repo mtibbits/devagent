@@ -40,11 +40,17 @@ main() {
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
-    # First [P] step number, mawk-safe via checklist_steps_with_glyph.
-    local parked_steps parked_step
-    parked_steps="$(checklist_steps_with_glyph "$checklist" P)"
-    parked_step="${parked_steps%%$'\n'*}"
-    [[ -n "$parked_step" ]] && checklist_mark "$checklist" "$parked_step" "~"
+    # #587: mark the LINE that carries [P], not its step NUMBER. park.sh marks
+    # the ACTIVE block, but a park that predates a /devagent:revise leaves the
+    # [P] in an OLDER block whose number the new block REUSES - a number-keyed
+    # mark then flipped the new block's pending twin and left the issue looking
+    # parked in its own checklist while resume reported success.
+    local found parked_row
+    found="$(checklist_find_glyph_line "$checklist" P)"
+    if [[ -n "$found" ]]; then
+      parked_row="${found%%:*}"
+      checklist_mark_line "$checklist" "$parked_row" "~"
+    fi
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi
 

@@ -43,21 +43,27 @@ main() {
   fi
 
   local checklist="$issue_dir/checklist.md"
-  # Find the [!] step (the first one). mawk-safe via checklist_steps_with_glyph.
-  local stuck_steps stuck_step
-  stuck_steps="$(checklist_steps_with_glyph "$checklist" '!')"
-  stuck_step="${stuck_steps%%$'\n'*}"
-  [[ -n "$stuck_step" ]] || die "STUCK file present but no [!] step in checklist"
+  # #587: find the LINE that actually carries [!] - ACTIVE revision block first,
+  # else file-wide (#76) - and mark THAT line. Carrying only the step NUMBER out
+  # of a file-wide scan and handing it to checklist_mark re-resolved the number
+  # into the ACTIVE block, flipping that block's twin of a REUSED closeout number
+  # while the real [!] survived and STUCK was deleted anyway (#558 r3
+  # BLOCKING-2 shape, unfixed at this site until #587).
+  local found row name
+  found="$(checklist_find_glyph_line "$checklist" '!')"
+  [[ -n "$found" ]] || die "STUCK file present but no [!] step in checklist"
+  row="${found%%:*}"
+  name="$(checklist_step_name_at_line "$checklist" "$row")"     || die "cannot read the step name at line $row of $checklist"
 
   local glyph=" "
   [[ "$mode" == "inprogress" ]] && glyph="~"
-  checklist_mark "$checklist" "$stuck_step" "$glyph"
+  # Fail-closed: checklist_mark_line dies unless the row really took the glyph,
+  # so set -e stops before the STUCK sentinel is removed below.
+  checklist_mark_line "$checklist" "$row" "$glyph"
 
-  local name
-  name="$(checklist_step_name "$checklist" "$stuck_step")"
   rm -f "$issue_dir/STUCK"
   log_append "$issue_dir" "$name" "unstuck — flipped to [$glyph]"
-  info "cleared STUCK at $issue_dir; step $stuck_step ($name) → [$glyph]"
+  info "cleared STUCK at $issue_dir; step ${found#*:} ($name) → [$glyph]"
 }
 
 main "$@"

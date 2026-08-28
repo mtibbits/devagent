@@ -4,6 +4,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PLUGIN_ROOT/scripts/lib/paths.sh"
 source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 
 usage() {
   echo "usage: checklist-unstuck.sh (--pending|--in-progress) <issue-dir>" >&2
@@ -21,37 +22,19 @@ file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 [[ -f "$issue_dir/STUCK" ]] || die "no STUCK file at $issue_dir/STUCK"
 
-# Find the step currently marked [!]. Candidates come from the checklist's
-# own rows — no numeric bound to keep in step with the templates (#558 r2:
-# the 0..21 loop could not unstick 22/23 and reported a FALSE "no step is
-# currently [!]"). A [!] in the active revision block wins; a [!] only in an
-# older block is the legacy file-wide fallback (#76). The mark targets the
-# found LINE, never the step number: closeout numbers are REUSED across
-# revision blocks, and a number-keyed mark re-scopes to the ACTIVE block —
-# flipping the wrong block's row while the [!] survives (r3 BLOCKING-2).
-found="$(awk '
-  /^## Revision / { blk = NR }
-  match($0, /^- \[!\][ \t]+[0-9]+\./) {
-    num = substr($0, RSTART, RLENGTH)
-    sub(/^- \[!\][ \t]+/, "", num); sub(/\.$/, "", num)
-    rows[++n] = NR ":" (num + 0)
-  }
-  END {
-    for (i = 1; i <= n; i++) {
-      split(rows[i], a, ":")
-      if (a[1] > blk) { print rows[i]; exit }
-    }
-    if (n) print rows[1]
-  }
-' "$file")"
+# #587: the row-selection scan and the by-line mark now live in
+# scripts/lib/checklist.sh, shared with unstuck.sh and resume.sh. This file had
+# the CORRECT shape (#558 r3 BLOCKING-2) while the other two kept the
+# find-then-rescope bug; extracting it is what stops the next editor from fixing
+# one site and not its twins (#82). Semantics are unchanged: a [!] in the active
+# revision block wins, a [!] only in an older block is the legacy file-wide
+# fallback (#76), and the mark targets the found LINE, never the step number.
+found="$(checklist_find_glyph_line "$file" '!')"
 [[ -n "$found" ]] || die "no step is currently [!] in $file"
 row="${found%%:*}"; target="${found#*:}"
 
-name="$(awk -v ln="$row" 'NR == ln {
-  sub(/^- \[!\][ \t]+[0-9]+\.[ \t]+/, ""); sub(/[ \t]+$/, ""); print; exit
-}' "$file")"
-[[ -n "$name" ]] || die "cannot read the step name at line $row of $file"
-sed -i "${row}s/^- \[!\]/- [$new]/" "$file"
+name="$(checklist_step_name_at_line "$file" "$row")"   || die "cannot read the step name at line $row of $file"
+checklist_mark_line "$file" "$row" "$new"
 rm -f "$issue_dir/STUCK"
 log_append "$issue_dir" "$name" "UNSTUCK (now [$new])"
 echo "step $target ($name) cleared → [$new]"
