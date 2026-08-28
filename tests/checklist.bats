@@ -329,3 +329,88 @@ _seed_242() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+# --- checklist_find_glyph_line / _mark_line / _step_name_at_line (#587) -----
+@test "checklist_find_glyph_line returns line:num for an old-block-only glyph" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+- [x]  0. pull
+- [!]  2. draft
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '!'
+  [ "$output" = "2:2" ]
+}
+
+@test "checklist_find_glyph_line prefers the ACTIVE revision block" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+- [!]  2. draft
+
+## Revision 2
+
+- [x]  2. draft
+- [!] 23. cleanup
+EOC
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '!'
+  [ "$output" = "6:23" ]                # double-digit number survives
+}
+
+@test "checklist_find_glyph_line falls back file-wide with no revision headings" {
+  printf '%s\n' '- [x]  0. pull' '- [P]  2. draft' > "$ISSUE_DIR/checklist.md"
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" P
+  [ "$output" = "2:2" ]
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '!'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]                      # absent glyph -> empty, rc 0
+}
+
+@test "checklist_find_glyph_line matches metacharacter glyphs literally" {
+  # '?' and '.' are regex metacharacters; the glyph is compared as the column-4
+  # CHARACTER, never interpolated into a pattern.
+  printf '%s\n' '- [?]  4. scope' '- [x]  5. improve' > "$ISSUE_DIR/checklist.md"
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '?'
+  [ "$output" = "1:4" ]
+  run checklist_find_glyph_line "$ISSUE_DIR/checklist.md" '.'
+  [ -z "$output" ]                      # '.' must NOT match '?' or 'x'
+}
+
+@test "checklist_mark_line marks the named line and nothing else" {
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+- [!]  2. draft
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  checklist_mark_line "$ISSUE_DIR/checklist.md" 1 '~'
+  run grep -cE '^- \[~\][[:space:]]+2\. draft' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+  run grep -cE '^- \[ \][[:space:]]+2\. draft' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+}
+
+@test "checklist_mark_line refuses a non-step line and a bad glyph" {
+  printf '%s\n' '## Log' '- [ ]  2. draft' > "$ISSUE_DIR/checklist.md"
+  run checklist_mark_line "$ISSUE_DIR/checklist.md" 1 '~'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a checklist step row"* ]]
+  run checklist_mark_line "$ISSUE_DIR/checklist.md" 2 Q
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"bad glyph"* ]]
+  grep -qE '^- \[ \][[:space:]]+2\. draft' "$ISSUE_DIR/checklist.md"   # unchanged
+}
+
+@test "checklist_step_name_at_line reads the name off any glyph, and refuses a non-row" {
+  printf '%s\n' '## Log' '- [P] 23. cleanup' > "$ISSUE_DIR/checklist.md"
+  run checklist_step_name_at_line "$ISSUE_DIR/checklist.md" 2
+  [ "$output" = "cleanup" ]
+  run checklist_step_name_at_line "$ISSUE_DIR/checklist.md" 1
+  [ "$status" -ne 0 ]
+  # Pin the MESSAGE, not just the rc. A bare `-ne 0` is satisfied by a missing
+  # function's 127 (Issue-572) and by any unrelated failure (Issue-Fork-132),
+  # so the refusal must be attributable to THIS path. The helper emits this
+  # token on stderr (never stdout — Issue-583) before returning 1.
+  [[ "$output" == *"not a checklist step row"* ]]
+}
