@@ -399,27 +399,18 @@ case "${1:-}" in
     [ -n "$doc_repo" ] || { warn "promote-potholes: devdoc_dir $devdoc_dir is not inside a git repo — $issue_id stays pending"; exit 3; }
 
     _parse_stage
-    # INTERIM guard (#612 Task 4; replaced by the op engine in Task 6): never
-    # drain zero lines and stamp applied while a retire/amend op is staged.
-    for k in "${OP_KIND[@]}"; do [ "$k" = add ] || die "--apply: op kind '$k' staged but the op engine is not landed yet — $issue_id stays pending"; done
-    W_SEC=(); W_LINE=(); P_SEC=(); P_LINE=()
-    for j in "${!OP_KIND[@]}"; do
-        case "${OP_LAYER[j]}" in
-            workflow) W_SEC+=("${OP_SEC[j]}"); W_LINE+=("${OP_A[j]}") ;;
-            project)  P_SEC+=("${OP_SEC[j]}"); P_LINE+=("${OP_A[j]}") ;;
-        esac
-    done
 
     # Every rail for EVERY staged layer BEFORE any write, so a DEFER on the
     # second layer never strands a half-drained run. Locks are taken here and
     # released by the EXIT trap — a die can never leak one.
     LOCKS=()
     tmp="$(mktemp "${TMPDIR:-/tmp}/potholes.XXXXXX")"
-    _release() { local L; for L in "${LOCKS[@]}"; do rmdir "$L" 2>/dev/null || true; done; rm -f "$tmp" "$tmp.2" "$tmp.orig"; }
+    _release() { local L; for L in "${LOCKS[@]}"; do rmdir "$L" 2>/dev/null || true; done; rm -f "$tmp" "$tmp".*; }
     trap _release EXIT
     L_NAME=(); L_TARGET=(); L_REPO=(); L_REL=()
     for ly in workflow project; do
-        if [ "$ly" = workflow ]; then n=${#W_LINE[@]}; target="$wf"; else n=${#P_LINE[@]}; target="$pr"; fi
+        n=0; for k in "${OP_LAYER[@]}"; do [ "$k" = "$ly" ] && n=$((n+1)); done
+        if [ "$ly" = workflow ]; then target="$wf"; else target="$pr"; fi
         [ "$n" -gt 0 ] || continue
         [ -n "$target" ] || { warn "promote-potholes: $ly-layer lines are staged but no $ly register path is configured — $issue_id stays pending"; exit 3; }
         repo="$(_repo_of "$target" || true)"
@@ -462,82 +453,139 @@ case "${1:-}" in
         permission_gate "$project" commit_devdoc "promote-potholes plan: commit ${L_REL[*]} in $doc_repo (branch $cur) for $issue_id"
     fi
 
+
+    # --- op engine (#612) ---------------------------------------------------------
+    _defer() { warn "promote-potholes: $*"; warn "promote-potholes: $issue_id stays pending — nothing was written (rc 3)"; exit 3; }
+    _delete_line()  { RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} !(sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"])' "$1" > "$1.2" && mv "$1.2" "$1"; }
+    _replace_line() { RH="$POTHOLES_RETIRED_HEADING" L="$2" N="$3" awk 'BEGIN{sec=""} /^## /{sec=$0} { if (sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]) print ENVIRON["N"]; else print }' "$1" > "$1.2" && mv "$1.2" "$1"; }
+    _append_in_section() {   # <file> <heading> <line> — at the END of the section; heading added at EOF if absent
+        # A heading valid in the UNION but absent from THIS layer file is added at
+        # the end (blank line first: never a bullet directly before a heading).
+        grep -qxF -- "$2" "$1" || printf '\n%s\n' "$2" >> "$1"
+        # Append at the END of the section: buffer the blank run before the next
+        # heading so the line lands after the last bullet and the blank run
+        # survives (the #570 hazard). ENVIRON, not -v: -v processes C escapes and
+        # would corrupt a `\(`.
+        S="$2" L="$3" awk '
+          BEGIN{ins=0; nb=0}
+          /^## /{
+            if (ins==1) { print ENVIRON["L"]; ins=2 }
+            for(k=1;k<=nb;k++) print b[k]; nb=0
+            print; if (ins==0 && $0==ENVIRON["S"]) ins=1; next
+          }
+          {
+            if (ins==1 && $0 ~ /^[[:space:]]*$/) { b[++nb]=$0; next }
+            for(k=1;k<=nb;k++) print b[k]; nb=0; print
+          }
+          END{
+            if (ins==1) { print ENVIRON["L"]; ins=2 }
+            for(k=1;k<=nb;k++) print b[k]
+            if (ins!=2) exit 9
+          }' "$1" > "$1.2" || return 1
+        mv "$1.2" "$1"
+    }
+    # _validate_op <index> <temp> — rc 0 changed | rc 4 already applied | exit 3 DEFER.
+    # A zero-hit is ALREADY APPLIED only when the op's EXACT result line is present
+    # (retire: the result under Retired; amend: new present, old absent; add: the
+    # line) — never "some line carries this issue's token", which would mark a
+    # stale sibling op applied.
+    _validate_op() {
+        local j="$1" t="$2" kind="${OP_KIND[$1]}" sec="${OP_SEC[$1]}" a="${OP_A[$1]}" b="${OP_B[$1]}" ly="${OP_LAYER[$1]}" n m res q
+        q="op $((j+1)) ($kind, $ly layer, '$sec')"
+        MODE=--apply
+        case "$kind" in
+        add)
+            [ "$sec" != "$POTHOLES_RETIRED_HEADING" ] || _defer "$q: the Retired section is not a legal add target: $a"
+            grep -qxF -- "$a" "$t" && return 4
+            _rails "$ly" "$a" || _defer "$q: rail failed: $a"
+            _append_in_section "$t" "$sec" "$a" || _defer "$q: section '$sec' could not be appended to: $a"
+            ;;
+        retire)
+            case "$a" in "- "*) ;; *) _defer "$q: old line is not a bullet ('- '): $a" ;; esac
+            res="$(_retire_result "$sec" "$a" "$b" "$ly")"
+            n="$(_hits "$t" "$a")"
+            if [ "$n" -eq 0 ]; then
+                _in_retired "$t" "$res" && return 4
+                _defer "$q: STALE — old line absent and its retired form absent (another issue's consolidate consumed it first?): $a — close it with '--drop $((j+1))' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"
+            fi
+            [ "$n" -eq 1 ] || _defer "$q: old line occurs $n times (must be exactly once): $a"
+            _rails "$ly" "$res" || _defer "$q: the retired line fails a rail: $res"
+            _delete_line "$t" "$a"
+            _append_in_section "$t" "$POTHOLES_RETIRED_HEADING" "$res" || _defer "$q: could not append to '$POTHOLES_RETIRED_HEADING': $res"
+            ;;
+        amend)
+            case "$a" in "- "*) ;; *) _defer "$q: old line is not a bullet ('- '): $a" ;; esac
+            n="$(_hits "$t" "$a")"; m="$(_hits "$t" "$b")"
+            if [ "$n" -eq 0 ] && [ "$m" -ge 1 ]; then return 4; fi
+            [ "$n" -ge 1 ] || _defer "$q: STALE — neither the old nor the new line is present (another issue's consolidate consumed it first?): old: $a — close it with '--drop $((j+1))' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"
+            [ "$m" -eq 0 ] || _defer "$q: REFUSED — old AND new both present (an add of the new line staged beside this amend?): old: $a / new: $b"
+            [ "$n" -eq 1 ] || _defer "$q: old line occurs $n times (must be exactly once): $a"
+            _rails "$ly" "$b" || _defer "$q: the replacement fails a rail: $b"
+            _replace_line "$t" "$a" "$b"
+            ;;
+        esac
+        return 0
+    }
+
+    # VALIDATION — every op of every layer, SEQUENTIALLY (op 2 sees op 1's result),
+    # against temp copies; nothing is written until all pass. Locks are already
+    # held (rail phase) and stay held through the last commit.
+    declare -A CHANGED=() BOOT=()
+    for i in "${!L_NAME[@]}"; do
+        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; t="$tmp.$ly"
+        if [ -f "$target" ]; then cp "$target" "$t"; cp "$target" "$t.orig"; BOOT[$ly]=0
+        else _skeleton "$ly" > "$t"; BOOT[$ly]=1; fi
+        c=0
+        for j in "${!OP_KIND[@]}"; do
+            [ "${OP_LAYER[j]}" = "$ly" ] || continue
+            vrc=0; _validate_op "$j" "$t" || vrc=$?
+            case "$vrc" in 0) c=$((c+1)) ;; 4) ;; *) exit "$vrc" ;; esac
+        done
+        CHANGED[$ly]=$c
+        [ "$c" -gt 0 ] || continue
+        # Postconditions on the temp copy: format contract + citation. Citation
+        # check scoped to THIS file: the union would be satisfied by another
+        # layer's earlier promotion and prove nothing.
+        v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$t")"
+        [ "$v" = "0" ] || _defer "$ly layer: the ops would produce $v 'bullet immediately before a ## heading' violation(s) — $target NOT modified"
+        grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$t" \
+            || _defer "$ly layer: after the ops the register carries no ${issue_id} citation — $target NOT modified"
+    done
+
+    # WRITE + COMMIT — per file; a failure restores THAT file and dies, earlier
+    # commits stand (the re-run converges: their ops read as already applied).
+    # Commit scoped to the ONE path, with the operator's identity (-s), like a
+    # source-tree chore; cleanup's own devdoc commit (devagent@local) never
+    # carries these files. On failure a bootstrapped file is REMOVED (rm --cached
+    # + rm -f + the empty dir) so cleanup's `git add -A` cannot sweep the
+    # skeleton; an existing one gets its original bytes.
     shas=""
     for i in "${!L_NAME[@]}"; do
-        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; repo="${L_REPO[i]}"; rel="${L_REL[i]}"
-        if [ "$ly" = workflow ]; then SECS=("${W_SEC[@]}"); LINES=("${W_LINE[@]}"); else SECS=("${P_SEC[@]}"); LINES=("${P_LINE[@]}"); fi
-        bootstrapped=0
-        if [ -f "$target" ]; then
-            cp "$target" "$tmp"; cp "$target" "$tmp.orig"
-        else
-            bootstrapped=1
-            _skeleton "$ly" > "$tmp"
-        fi
-        applied=0
-        for j in "${!LINES[@]}"; do
-            l="${LINES[j]}"; section="${SECS[j]}"
-            grep -qxF -- "$l" "$tmp" && continue              # dedupe by exact line
-            # A heading valid in the UNION but absent from THIS layer file is added
-            # at the end (blank line first: never a bullet directly before a heading).
-            grep -qxF -- "$section" "$tmp" || printf '\n%s\n' "$section" >> "$tmp"
-            # Append at the END of the section: buffer the blank run before the
-            # next heading so the line lands after the last bullet and the blank
-            # run survives (the #570 hazard). ENVIRON, not -v: -v processes C
-            # escapes and would corrupt a `\(`.
-            S="$section" L="$l" awk '
-              BEGIN{ins=0; nb=0}
-              /^## /{
-                if (ins==1) { print ENVIRON["L"]; ins=2 }
-                for(k=1;k<=nb;k++) print b[k]; nb=0
-                print; if (ins==0 && $0==ENVIRON["S"]) ins=1; next
-              }
-              {
-                if (ins==1 && $0 ~ /^[[:space:]]*$/) { b[++nb]=$0; next }
-                for(k=1;k<=nb;k++) print b[k]; nb=0; print
-              }
-              END{
-                if (ins==1) { print ENVIRON["L"]; ins=2 }
-                for(k=1;k<=nb;k++) print b[k]
-                if (ins!=2) exit 9
-              }' "$tmp" > "$tmp.2" || die "--apply: section '${section#\#\# }' not found in $target"
-            mv "$tmp.2" "$tmp"; applied=$((applied+1))
-        done
-        [ "$applied" -gt 0 ] || continue                       # this layer already carries every line
-        # Postconditions BEFORE the file is replaced: format contract + citation.
-        # Citation check scoped to THIS file (the pre-#611 shape): the union would
-        # be satisfied by another layer's earlier promotion and prove nothing.
-        v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$tmp")"
-        [ "$v" = "0" ] || die "--apply: append produced $v 'bullet immediately before a ## heading' violations — $ly register NOT modified"
-        grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$tmp" \
-            || die "--apply: post-apply $ly register carries no ${issue_id} citation — NOT modified"
-        cat "$tmp" > "$target"                                 # preserve mode/inode of an existing file
-        if [ "$bootstrapped" -eq 1 ]; then
+        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; repo="${L_REPO[i]}"; rel="${L_REL[i]}"; t="$tmp.$ly"
+        [ "${CHANGED[$ly]}" -gt 0 ] || continue                # this layer already carries every op's result
+        cat "$t" > "$target"                                   # preserve mode/inode of an existing file
+        if [ "${BOOT[$ly]}" -eq 1 ]; then
             "$DEVAGENT_GIT" -C "$repo" add -- "$rel"           # an untracked path needs it before a pathspec commit
         fi
-        # Commit scoped to the ONE path, with the operator's identity (-s), like a
-        # source-tree chore; cleanup's own devdoc commit (devagent@local) never
-        # carries these files. On failure put things back: a bootstrapped file is
-        # REMOVED (rm --cached + rm -f + the empty dir) so cleanup's `git add -A`
-        # cannot sweep the skeleton; an existing one gets its original bytes.
         if ! "$DEVAGENT_GIT" -C "$repo" commit -s -q \
             -m "chore: promote pothole-register entries from #${issue_n}" \
             -m "layer: $ly; register: $rel; branch: $cur" -- "$rel"; then
-            if [ "$bootstrapped" -eq 1 ]; then
+            if [ "${BOOT[$ly]}" -eq 1 ]; then
                 "$DEVAGENT_GIT" -C "$repo" rm --cached -q -- "$rel" 2>/dev/null || true
                 rm -f "$target"
                 rmdir "$target.lock" 2>/dev/null || true       # release first, so an empty templates/ can go too
                 rmdir "$(dirname "$target")" 2>/dev/null || true
             else
-                cat "$tmp.orig" > "$target"
+                cat "$t.orig" > "$target"
             fi
             die "--apply: commit failed in $repo — $ly register restored, $issue_id stays pending (git identity/hooks; fix, then re-run --apply)${shas:+; earlier layer commit(s) $shas already landed}"
         fi
         sha="$("$DEVAGENT_GIT" -C "$repo" rev-parse --short HEAD)"
         shas="${shas:+$shas,}$sha"
-        info "promote-potholes: $applied line(s) promoted for $issue_id into $target ($ly layer) — committed $sha on $cur (NOT pushed)"
+        info "promote-potholes: ${CHANGED[$ly]} op(s) applied for $issue_id to $target ($ly layer) — committed $sha on $cur (NOT pushed)"
     done
     # Nothing new to write anywhere is success: the registers already carry every
-    # line at the devdoc HEAD, which is what the stamp then records.
+    # op's result at the devdoc HEAD, which is what the stamp then records.
     [ -n "$shas" ] || shas="$("$DEVAGENT_GIT" -C "$doc_repo" rev-parse --short HEAD)"
     sed -i "s/^status: pending$/status: applied ${shas}/" "$stage"
     ;;

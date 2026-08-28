@@ -312,3 +312,186 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
     run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer workflow "- w (lawFirm Issue-2)." "- w, merged (lawFirm Issue-2; $TEST_PROJECT Issue-1)."
     [ "$status" -eq 0 ]
 }
+
+# --- --apply: ops --------------------------------------------------------------------
+
+@test "--apply retire: exact whole-line move (special characters intact) into '## Retired (mechanised)' at the END of the layer file; one path-scoped commit; --check + postcondition pass on a retire-only issue" {
+    seed_special_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "$SPECIAL" "the --foo guard"
+    printf '%s\n' "$LL register: 1 staged; retired: 1, amended: 0" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    run grep -cxF -- "$SPECIAL" "$PROJ_REG"; [ "$output" = "0" ]
+    expected='- [Docs / edit-neighborhood hygiene] a line with (parens) [brackets] *stars* $dollar and \back — mechanised by the --foo guard (Issue-9; Issue-1).'
+    grep -qxF -- "$expected" "$PROJ_REG"
+    [ "$(grep -n '^## Retired (mechanised)$' "$PROJ_REG" | cut -d: -f1)" -gt "$(grep -n '^## Project-only heading$' "$PROJ_REG" | cut -d: -f1)" ]
+    run awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$PROJ_REG"; [ "$output" = "0" ]
+    grep -qxF -- '- plain (Issue-11).' "$PROJ_REG"                              # neighbours untouched
+    sha="$(cd "$DEVDOC_REPO" && git rev-parse --short HEAD)"
+    grep -qx "status: applied $sha" "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check; [ "$status" -eq 0 ]           # Retired-only citation satisfies --check
+    run bash "$DEVAGENT_ROOT/scripts/template.sh" --project "$TEST_PROJECT" show potholes
+    [[ "$output" != *"mechanised by the --foo guard"* ]]                        # and is absent from the READ union
+}
+
+@test "--apply retire: absent Retired heading is created; present one is appended to" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m1
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." m2
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    [ "$(grep -c '^## Retired (mechanised)$' "$PROJ_REG")" -eq 1 ]
+    [ "$(sed -n '/^## Retired (mechanised)$/,$p' "$PROJ_REG" | grep -c '^- ')" -eq 2 ]
+}
+
+@test "--apply amend: exact in-place replacement; the old text is gone, position kept" {
+    seed_special_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "$SPECIAL" "- merged: (parens) [brackets] (Issue-9; Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    run grep -cxF -- "$SPECIAL" "$PROJ_REG"; [ "$output" = "0" ]
+    grep -qxF -- '- merged: (parens) [brackets] (Issue-9; Issue-1).' "$PROJ_REG"
+    [ "$(grep -n 'merged: (parens)' "$PROJ_REG" | cut -d: -f1)" -lt "$(grep -n '^- plain (Issue-11)' "$PROJ_REG" | cut -d: -f1)" ]
+}
+
+@test "--apply: ops validate SEQUENTIALLY — an add of L staged beside an amend →L is REFUSED (old+new both present), rc 3, nothing written, op + line quoted" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add   --layer project "Docs / edit-neighborhood hygiene" "- L (Issue-9; Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- a project line (Issue-9)." "- L (Issue-9; Issue-1)."
+    before="$(cd "$DEVDOC_REPO" && git rev-parse HEAD)"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"op 2"* ]] && [[ "$output" == *"- L (Issue-9; Issue-1)."* ]] && [[ "$output" == *"both present"* ]]
+    run grep -q 'L (Issue-9; Issue-1)' "$PROJ_REG"; [ "$status" -ne 0 ]        # op 1 was NOT written either
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    [ ! -e "$PROJ_REG.lock" ]
+}
+
+@test "--apply: zero-hit with the exact result present is ALREADY APPLIED (retire + amend + add); a token-only match is not" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m
+    bash "$PP" "$TEST_PROJECT" "$ID" --amend  --layer project "- p (Issue-10)." "- p2 (Issue-10; Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --add    --layer project "Project-only heading" "- added (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    sha="$(cd "$DEVDOC_REPO" && git rev-parse --short HEAD)"
+    sed -i 's/^status: applied .*/status: pending/' "$ID/potholes-promotion.md"   # simulate a run that crashed after the commit
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse --short HEAD)" = "$sha" ]             # converged: nothing re-committed
+    [ "$(grep -c 'mechanised by m' "$PROJ_REG")" -eq 1 ]; [ "$(grep -c -- '- p2 ' "$PROJ_REG")" -eq 1 ]; [ "$(grep -c -- '- added ' "$PROJ_REG")" -eq 1 ]
+    # a SIBLING retire whose own result is absent is not "already applied" just because a Retired line carries this issue's token
+    sed -i 's/^status: applied .*/status: pending/' "$ID/potholes-promotion.md"
+    bash "$PP" "$TEST_PROJECT" "$ID" --drop 1; bash "$PP" "$TEST_PROJECT" "$ID" --drop 1; bash "$PP" "$TEST_PROJECT" "$ID" --drop 1
+    printf '%s\n' '## Project-only heading' 'layer: project' 'op: retire' 'old: - vanished (Issue-12).' 'mechanism: z' >> "$ID/potholes-promotion.md"
+    sed -i 's/^status: dropped.*/status: pending/' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"STALE"* ]] && [[ "$output" == *"by-hand"* ]] && [[ "$output" == *"--drop"* ]]
+}
+
+@test "--apply: stale amend (old and new both absent) DEFERs naming the two closes; multi-hit DEFERs; a heading or Retired-region target DEFERs" {
+    seed_project_layer
+    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: amend' 'old: - gone (Issue-3).' 'new: - gone2 (Issue-3; Issue-1).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 3 ]; [[ "$output" == *"STALE"*"--drop"*"by-hand"* ]]
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: retire' 'old: ## Project-only heading' 'mechanism: m' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 3 ]; [[ "$output" == *"bullet"* ]]
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: amend' 'old: - [x] r — mechanised by y (Issue-9; Issue-2).' 'new: - r (Issue-9; Issue-2; Issue-1).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 3 ]; [[ "$output" == *"STALE"* ]]   # a Retired-only line is invisible to the active region
+    sed -i 's/^- p (Issue-10)\.$/&\n- p (Issue-10)./' "$PROJ_REG"; devdoc_commit dup    # duplicate IN the active region (an append would land under Retired)
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Project-only heading' 'layer: project' 'op: retire' 'old: - p (Issue-10).' 'mechanism: m' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 3 ]; [[ "$output" == *"2 times"* ]]
+    run bash -c "cd '$DEVDOC_REPO' && git status --porcelain -- testproj/templates"; [ -z "$output" ]
+}
+
+@test "--apply STALE: executing the message's own remedy end-to-end recovers — --drop N (N == the quoted op) then cleanup's --check/--apply pass; the by-hand close without a landed token is refused honestly" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add    --layer project "Project-only heading" "- keep (Issue-1)."
+    printf '%s\n' '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: retire' 'old: - vanished (Issue-12).' 'mechanism: z' >> "$ID/potholes-promotion.md"
+    printf '%s\n' "$LL register: 2 staged; retired: 1, amended: 0" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"op 2"*"--drop 2"* ]]
+    n="$(printf '%s\n' "$output" | grep -oE -- "--drop [0-9]+" | head -1 | cut -d' ' -f2)"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --drop "$n"; [ "$status" -eq 0 ]            # the remedy AS PRINTED
+    run grep -q 'vanished' "$ID/potholes-promotion.md"; [ "$status" -ne 0 ]
+    grep -q '^- keep (Issue-1)\.$' "$ID/potholes-promotion.md"                     # the sibling op survived
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check; [ "$status" -eq 0 ]              # still pending: an IOU
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    grep -qxF -- '- keep (Issue-1).' "$PROJ_REG"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check; [ "$status" -eq 0 ]              # applied, cited: cleanup would proceed
+    # the OTHER close, taken wrongly: by-hand with nothing landed → --check refuses (a lie is not a close)
+    mkdir -p "$DEVDOC_DIR/Issue-3"; cp "$ID/checklist.md" "$DEVDOC_DIR/Issue-3/checklist.md"
+    printf '%s\n' '# Pothole promotion — Issue-3' 'status: applied by-hand deadbee' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: retire' 'old: - vanished (Issue-12).' 'mechanism: z' > "$DEVDOC_DIR/Issue-3/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-3" --check; [ "$status" -eq 1 ]
+}
+
+@test "--apply re-runs the per-line rails at drain time — a domain noun configured AFTER staging DEFERs (rc 3) with the line quoted, nothing written" {
+    use_workflow
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer workflow "Docs / edit-neighborhood hygiene" "- the docket rule ($TEST_PROJECT Issue-1)."
+    printf '%s\n' "[project.$TEST_PROJECT.paths]" 'potholes_domain_nouns = ["docket"]' >> "$HOME/.claude/devagent/config.toml"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"docket"* ]] && [[ "$output" == *"op 1"* ]]
+    [ ! -e "$WF" ]; grep -q '^status: pending' "$ID/potholes-promotion.md"
+}
+
+@test "--apply: a rail failure on a hand-edited op DEFERs (rc 3), never dies" {
+    seed_project_layer
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: amend' 'old: - a project line (Issue-9).' 'new: - no own token (Issue-9).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"Issue-1"* ]]
+    grep -qxF -- '- a project line (Issue-9).' "$PROJ_REG"
+}
+
+@test "--apply: two-file staging where the SECOND file's commit fails — first commit stands, second restored, rc 1, pending; the re-run converges to applied" {
+    use_workflow; seed_project_layer
+    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- w (lawFirm Issue-2)." > "$WF"; devdoc_commit wf
+    bash "$PP" "$TEST_PROJECT" "$ID" --amend  --layer workflow "- w (lawFirm Issue-2)." "- w2 (lawFirm Issue-2; $TEST_PROJECT Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project  "- a project line (Issue-9)." m
+    cat > "$DEVDOC_REPO/.git/hooks/pre-commit" <<'HOOK'
+#!/bin/sh
+git diff --cached --name-only | grep -q 'testproj/templates/potholes.md' && exit 1
+exit 0
+HOOK
+    chmod +x "$DEVDOC_REPO/.git/hooks/pre-commit"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 1 ]; [[ "$output" == *"restored"* ]] && [[ "$output" == *"already landed"* ]]
+    grep -qxF -- "- w2 (lawFirm Issue-2; $TEST_PROJECT Issue-1)." "$WF"          # workflow commit stands
+    grep -qxF -- '- a project line (Issue-9).' "$PROJ_REG"                        # project file restored
+    run bash -c "cd '$DEVDOC_REPO' && git status --porcelain -- testproj/templates"; [ -z "$output" ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    [ ! -e "$WF.lock" ] && [ ! -e "$PROJ_REG.lock" ]
+    rm "$DEVDOC_REPO/.git/hooks/pre-commit"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]            # workflow op: already applied; project op: applies
+    grep -q 'mechanised by m' "$PROJ_REG"
+    sha="$(cd "$DEVDOC_REPO" && git rev-parse --short HEAD)"; grep -qx "status: applied $sha" "$ID/potholes-promotion.md"
+    [ "$(cd "$DEVDOC_REPO" && git log --format=%s | grep -c 'promote pothole-register')" -eq 2 ]
+}
+
+@test "--apply: an op-only run takes the parent's lock before its first snapshot — a held lock DEFERs (simulated concurrent closeout), nothing written" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m
+    mkdir -p "$PROJ_REG.lock"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"$PROJ_REG.lock"* ]]
+    grep -qxF -- '- a project line (Issue-9).' "$PROJ_REG"
+    rmdir "$PROJ_REG.lock"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+}
+
+@test "--apply: the format postcondition runs on the temp copy — an add into an EMPTY section whose heading is immediately followed by the next heading produces 'bullet before heading', rc 3, nothing written" {
+    # Reachable only through add (retire deletes; amend replaces in place). The #570 awk prints the new
+    # bullet when it meets the NEXT heading, so a layer file hand-edited to '## A' directly above '## B'
+    # (no blank line) yields '- L' immediately before '## B'.
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '# Pothole register (project)' '' '## Docs / edit-neighborhood hygiene' '## Project-only heading' '- p (Issue-10).' > "$PROJ_REG"; devdoc_commit tight
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- x (Issue-1)."
+    before="$(cd "$DEVDOC_REPO" && git rev-parse HEAD)"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"bullet immediately before"* ]]
+    run grep -q 'x (Issue-1)' "$PROJ_REG"; [ "$status" -ne 0 ]
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+}
