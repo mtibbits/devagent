@@ -192,6 +192,51 @@ _skeleton() {
         "# Pothole register ($1)"
 }
 
+# --- staging-file parser (#612): one op per '## ' block --------------------------
+# Parallel arrays, one entry per op. add: A=line, B="" · retire: A=old,
+# B=mechanism · amend: A=old, B=new. Block index == op index == the --drop
+# number == the "op N" the DEFER messages quote (one op per block, enforced).
+OP_SEC=(); OP_LAYER=(); OP_KIND=(); OP_A=(); OP_B=()
+_b_reset() { b_sec=""; b_layer=""; b_op=""; b_lines=(); b_old=""; b_new=""; b_mech=""; }
+_b_flush() {   # close the current block into the OP_* arrays; malformed → die (rc 1, a parse error)
+    [ -n "$b_sec" ] || return 0
+    [ -n "$b_layer" ] || die "--apply: staged block '$b_sec' has no 'layer:' line in $stage — re-stage it with --layer project|workflow"
+    case "$b_layer" in project|workflow) ;; *) die "--apply: unknown layer '$b_layer' in $stage" ;; esac
+    case "${b_op:-add}" in
+        add)
+            [ "${#b_lines[@]}" -gt 0 ] || die "--apply: add block '$b_sec' has no '- ' line in $stage"
+            [ "${#b_lines[@]}" -eq 1 ] || die "--apply: add block '$b_sec' holds ${#b_lines[@]} '- ' lines in $stage — one op per block (a hand-edit; --add never writes this); re-stage one line per block"
+            [ -z "$b_old$b_new$b_mech" ] || die "--apply: add block '$b_sec' carries old:/new:/mechanism: keys in $stage"
+            OP_SEC+=("$b_sec"); OP_LAYER+=("$b_layer"); OP_KIND+=(add); OP_A+=("${b_lines[0]}"); OP_B+=("") ;;
+        retire)
+            [ -n "$b_old" ] && [ -n "$b_mech" ] || die "--apply: retire block '$b_sec' needs 'old:' and 'mechanism:' in $stage"
+            [ "${#b_lines[@]}" -eq 0 ] && [ -z "$b_new" ] || die "--apply: retire block '$b_sec' has a stray '- ' or 'new:' line in $stage: ${b_lines[*]:-$b_new}"
+            OP_SEC+=("$b_sec"); OP_LAYER+=("$b_layer"); OP_KIND+=(retire); OP_A+=("$b_old"); OP_B+=("$b_mech") ;;
+        amend)
+            [ -n "$b_old" ] && [ -n "$b_new" ] || die "--apply: amend block '$b_sec' needs 'old:' and 'new:' in $stage"
+            [ "${#b_lines[@]}" -eq 0 ] && [ -z "$b_mech" ] || die "--apply: amend block '$b_sec' has a stray '- ' or 'mechanism:' line in $stage: ${b_lines[*]:-$b_mech}"
+            OP_SEC+=("$b_sec"); OP_LAYER+=("$b_layer"); OP_KIND+=(amend); OP_A+=("$b_old"); OP_B+=("$b_new") ;;
+        *)  die "--apply: unknown op '$b_op' in block '$b_sec' of $stage (add|retire|amend)" ;;
+    esac
+    _b_reset
+}
+_parse_stage() {
+    local l; _b_reset
+    while IFS= read -r l; do
+        case "$l" in
+            "## "*)         _b_flush; b_sec="$l" ;;
+            "layer: "*)     b_layer="${l#layer: }" ;;
+            "op: "*)        b_op="${l#op: }" ;;
+            "old: "*)       b_old="${l#old: }" ;;
+            "new: "*)       b_new="${l#new: }" ;;
+            "mechanism: "*) b_mech="${l#mechanism: }" ;;
+            "- "*)          [ -n "$b_sec" ] || die "--apply: staged line before any '## ' section in $stage"
+                            b_lines+=("$l") ;;
+        esac
+    done < <(grep -E '^(## |layer: |op: |old: |new: |mechanism: |- )' "$stage")
+    _b_flush
+}
+
 case "${1:-}" in
 --add)
     MODE=--add; shift
@@ -244,6 +289,7 @@ case "${1:-}" in
     case "$st" in
         pending*) info "promote-potholes: $issue_id has a PENDING register promotion ($stage) — cleanup will drain it"
                   claim="" ;;    # the staging file IS the promise; honoured at --apply
+        dropped*) info "promote-potholes: $issue_id staging file is dropped (all ops) — neither a promise nor a claim" ;;
         applied*) claim="${claim}${claim:+$'\n'}staging file: $stage says applied" ;;
     esac
     if [ -n "$claim" ] && ! potholes_cited_union "$project" "$issue_id"; then
@@ -269,24 +315,17 @@ case "${1:-}" in
     doc_repo="$(_repo_of "$devdoc_dir" || true)"
     [ -n "$doc_repo" ] || { warn "promote-potholes: devdoc_dir $devdoc_dir is not inside a git repo — $issue_id stays pending"; exit 3; }
 
-    # Parse the staging file into per-layer (section, line) lists. A block with
-    # no `layer:` line is an ERROR — #586 landed 2026-08-27 and none exist.
-    section=""; layer=""
+    _parse_stage
+    # INTERIM guard (#612 Task 4; replaced by the op engine in Task 6): never
+    # drain zero lines and stamp applied while a retire/amend op is staged.
+    for k in "${OP_KIND[@]}"; do [ "$k" = add ] || die "--apply: op kind '$k' staged but the op engine is not landed yet — $issue_id stays pending"; done
     W_SEC=(); W_LINE=(); P_SEC=(); P_LINE=()
-    while IFS= read -r l; do
-        case "$l" in
-            "## "*)     section="$l"; layer="" ;;
-            "layer: "*) layer="${l#layer: }" ;;
-            "- "*)
-                [ -n "$section" ] || die "--apply: staged line before any '## ' section in $stage"
-                [ -n "$layer" ] || die "--apply: staged block '$section' has no 'layer:' line in $stage — re-stage it with --add --layer project|workflow"
-                case "$layer" in
-                    workflow) W_SEC+=("$section"); W_LINE+=("$l") ;;
-                    project)  P_SEC+=("$section"); P_LINE+=("$l") ;;
-                    *) die "--apply: unknown layer '$layer' in $stage" ;;
-                esac ;;
+    for j in "${!OP_KIND[@]}"; do
+        case "${OP_LAYER[j]}" in
+            workflow) W_SEC+=("${OP_SEC[j]}"); W_LINE+=("${OP_A[j]}") ;;
+            project)  P_SEC+=("${OP_SEC[j]}"); P_LINE+=("${OP_A[j]}") ;;
         esac
-    done < <(grep -E '^(## |layer: |- )' "$stage")
+    done
 
     # Every rail for EVERY staged layer BEFORE any write, so a DEFER on the
     # second layer never strands a half-drained run. Locks are taken here and
@@ -418,6 +457,22 @@ case "${1:-}" in
     # line at the devdoc HEAD, which is what the stamp then records.
     [ -n "$shas" ] || shas="$("$DEVAGENT_GIT" -C "$doc_repo" rev-parse --short HEAD)"
     sed -i "s/^status: pending$/status: applied ${shas}/" "$stage"
+    ;;
+
+--drop)
+    n="${2:-}"
+    [[ "$n" =~ ^[1-9][0-9]*$ ]] || usage
+    [ -f "$stage" ] || die "--drop: no staging file at $stage"
+    grep -q '^status: pending' "$stage" || die "--drop: $stage is not pending ($(sed -n 's/^status: *//p' "$stage" | head -1)) — a drained file is a record, not a queue"
+    total="$(grep -c '^## ' "$stage" || true)"
+    [ "$n" -le "$total" ] || die "--drop: op $n does not exist — $stage holds $total op block(s)"
+    N="$n" awk '/^## /{k++} !(k==ENVIRON["N"]+0)' "$stage" > "$stage.2" && mv "$stage.2" "$stage"
+    if [ "$total" -eq 1 ]; then
+        sed -i 's/^status: pending$/status: dropped (all ops)/' "$stage"
+        info "--drop: removed the last op from $stage — status: dropped (all ops); if the lessonslearned: log line still claims 'register: N staged', reword it (--check will say so)"
+    else
+        info "--drop: removed op $n of $total from $stage ($((total-1)) remain pending)"
+    fi
     ;;
 
 *) usage ;;

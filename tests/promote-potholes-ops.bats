@@ -166,3 +166,69 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
     run bash "$PP" "$TEST_PROJECT" "$ID" --apply      # a full section never blocks the drain
     [ "$status" -eq 0 ]
 }
+
+# --- staging blocks / --drop ------------------------------------------------------
+
+@test "--apply: a block without op: is an add (legacy); an unknown op: dies (rc 1) writing nothing" {
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' '- legacy (Issue-1).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]; grep -qxF -- '- legacy (Issue-1).' "$PROJ_REG"
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: frobnicate' '- x (Issue-1).' > "$ID/potholes-promotion.md"
+    before="$(cd "$DEVDOC_REPO" && git rev-parse HEAD)"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 1 ]; [[ "$output" == *"frobnicate"* ]]
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
+    run grep -q 'x (Issue-1)' "$PROJ_REG"; [ "$status" -ne 0 ]
+}
+
+@test "--apply: a retire/amend block with a stray bare '- ' line dies (never read as a second add)" {
+    seed_project_layer
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: retire' 'old: - a project line (Issue-9).' 'mechanism: foo' '- stray (Issue-1).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 1 ]; [[ "$output" == *"stray"* ]]
+    run grep -q 'stray' "$PROJ_REG"; [ "$status" -ne 0 ]
+}
+
+@test "--apply: an add block with TWO bare bullets dies (one op per block) — nothing written" {
+    printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
+        '## Docs / edit-neighborhood hygiene' 'layer: project' '- a (Issue-1).' '- b (Issue-1).' > "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 1 ]; [[ "$output" == *"one op per block"* ]]
+    [ ! -e "$PROJ_REG" ]
+}
+
+@test "--drop refuses on a non-pending file; dropping the last op flips status to dropped, which --apply ignores and --check reads as no promise" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- one (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --drop 1; [ "$status" -eq 1 ]; [[ "$output" == *"not pending"* ]]
+    grep -q '^## Docs' "$ID/potholes-promotion.md"                              # record intact
+    mkdir -p "$DEVDOC_DIR/Issue-2"; cp "$ID/checklist.md" "$DEVDOC_DIR/Issue-2/checklist.md"
+    bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-2" --add --layer project "Docs / edit-neighborhood hygiene" "- two (Issue-2)."
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-2" --drop 1; [ "$status" -eq 0 ]
+    grep -qx 'status: dropped (all ops)' "$DEVDOC_DIR/Issue-2/potholes-promotion.md"
+    before="$(cd "$DEVDOC_REPO" && git rev-parse HEAD)"
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-2" --apply; [ "$status" -eq 0 ]
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-2" --check; [ "$status" -eq 0 ]                      # no log claim, no promise: clean
+    printf '%s\n' "$LL register: 1 staged; retired: 0, amended: 0" >> "$DEVDOC_DIR/Issue-2/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$DEVDOC_DIR/Issue-2" --check; [ "$status" -eq 1 ]                      # the stale log claim is honestly refused, with the fix named
+    [[ "$output" == *"correct the log line"* ]]
+}
+
+@test "--drop <n> removes the nth block; out of range refuses; --list-pending count follows" {
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- one (Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- two (Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- three (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --drop 4;  [ "$status" -eq 1 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --drop 0;  [ "$status" -eq 2 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --drop 2;  [ "$status" -eq 0 ]
+    run grep -c '^## ' "$ID/potholes-promotion.md"; [ "$output" = "2" ]
+    run grep -q 'two (Issue-1)' "$ID/potholes-promotion.md"; [ "$status" -ne 0 ]
+    grep -q '^- one (Issue-1)\.$' "$ID/potholes-promotion.md"; grep -q '^- three (Issue-1)\.$' "$ID/potholes-promotion.md"
+    grep -q '^status: pending$' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" --list-pending; [[ "$output" == *"(2 ops)"* ]]
+}
