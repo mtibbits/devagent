@@ -500,6 +500,12 @@ Created:     2026-05-19 17:08
 
 Cleared by `/devagent:unstuck`, which removes the file, flips `[!]`
 back to `[~]` or `[ ]` (operator chooses), and appends a log entry.
+The row flipped is the one that actually carries `[!]` — in the active
+revision block if one is there, otherwise the first in the file — located
+by line rather than by step number, because closeout numbers are reused
+across revision blocks; STUCK is removed only after that row has taken the
+new glyph (#587). `/devagent:checklist-unstuck` applies the same rule to an
+explicit issue directory.
 
 ## 6. Commands
 
