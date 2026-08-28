@@ -24,7 +24,12 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   # Measured at the merge base with the default branch, never at HEAD: a name
   # introduced by the same change cannot vouch for itself, and this file's own
   # literals never count as prior art.
-  base="$(cd "$REPO" && git merge-base HEAD origin/master 2>/dev/null || git -C "$REPO" rev-parse origin/master)"
+  # A shallow or master-less clone (CI fetch-depth:1 on a PR ref) has no
+  # origin/master: skip WITH the reason rather than die at status 128 — the
+  # workflow checks out full history so this row is live there, not skipped.
+  git -C "$REPO" rev-parse --verify -q 'origin/master^{commit}' >/dev/null \
+    || skip "origin/master is not resolvable in this clone (shallow / no default-branch ref) — the disclosure guard needs the merge base"
+  base="$(cd "$REPO" && git merge-base HEAD origin/master 2>/dev/null)" || base="$(git -C "$REPO" rev-parse origin/master)"
   mapfile -t names < <(_names)
   for n in "${names[@]}"; do
     hits="$(cd "$REPO" && git grep -Iliw -- "$n" "$base" -- . ':(exclude)tests/fixtures/private-project-names.txt' ':(exclude)tests/potholes-seed-canary.bats' | wc -l)"

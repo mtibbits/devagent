@@ -20,7 +20,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      # #611: tests/potholes-seed-canary.bats measures the private-name
+      # fixture at the merge base with origin/master; a fetch-depth:1 PR
+      # checkout has neither the ref nor the history, and the guard would skip.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
