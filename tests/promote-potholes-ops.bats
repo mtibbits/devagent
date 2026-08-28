@@ -495,3 +495,51 @@ HOOK
     [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
     grep -q '^status: pending' "$ID/potholes-promotion.md"
 }
+
+# --- --check on the grammar -----------------------------------------------------------
+
+@test "--check: a merged workflow line backs BOTH projects' claims; a bare token in the workflow layer backs neither" {
+    use_workflow
+    # the second project: a COPY of the fixture's project block set with the names substituted (bounded — no more keys than testproj has)
+    sed -n "/^\[project.$TEST_PROJECT\]/,/^\[project.$TEST_PROJECT.issue_workflow\]/p" "$HOME/.claude/devagent/config.toml" \
+        | sed "s/project\.$TEST_PROJECT/project.lawFirm/; s#$DEVDOC_DIR#$DEVAGENT_TMP/devdoc/lawFirm#" >> "$HOME/.claude/devagent/config.toml"
+    printf '%s\n' 'on_draft_start = "In Progress"' >> "$HOME/.claude/devagent/config.toml"
+    mkdir -p "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9"; cp "$ID/checklist.md" "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9/checklist.md"
+    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-9)." > "$WF"
+    printf '%s\n' "$LL register: 1 staged; retired: 0, amended: 1" >> "$ID/checklist.md"
+    printf '%s\n' "$LL register: 1 staged; retired: 0, amended: 1" >> "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 0 ]
+    run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 0 ]
+    # controls: each claim reddens on its OWN token, independently
+    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-10; lawFirm Issue-9)." > "$WF"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 1 ]
+    run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 0 ]
+    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-90)." > "$WF"
+    run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 1 ]
+    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- bare (Issue-1; lawFirm Issue-9)." > "$WF"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 1 ]
+}
+
+@test "--check: the machine field with retired/amended counters is a claim; an op-only pending staging file honours it" {
+    seed_project_layer
+    printf '%s\n' "$LL register: 1 staged; retired: 1, amended: 0; note: x" >> "$ID/checklist.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check; [ "$status" -eq 1 ]
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m
+    run bash "$PP" "$TEST_PROJECT" "$ID" --check; [ "$status" -eq 0 ]; [[ "$output" == *PENDING* ]]
+    run bash "$PP" "$TEST_PROJECT" --list-pending; [[ "$output" == *"(1 ops)"* ]]
+}
+
+# --- docs -----------------------------------------------------------------------------
+
+@test "docs: the skill carries 7a retire-on-fix, 7b consolidate, 7c stage, and the retired/amended Logging fields; both commands, cleanup.sh and the spec name the ops" {
+    S="$DEVAGENT_ROOT/skills/core-lessons-learned/SKILL.md"
+    grep -q '7a\. \*\*Retire-on-fix' "$S"; grep -q '7b\. \*\*Consolidate-before-add' "$S"; grep -q '7c\. \*\*Stage' "$S"
+    grep -q 'register: S staged; retired: R, amended: M' "$S"
+    grep -q 'seed family' "$S"                                     # a seed-only match yields an add citing the seed family
+    grep -qiF 'uncommitted' "$S"; grep -qi 'dedupe by citation' "$S"   # the two phrases tests/skill_core_lessons.bats pins inside item 7
+    grep -q 'STALE\|stale' "$DEVAGENT_ROOT/scripts/cleanup.sh"          # cleanup's DEFER message names the new rc-3 class and its closes
+    grep -q -- '--drop' "$DEVAGENT_ROOT/scripts/cleanup.sh"
+    grep -q -- '--retire' "$DEVAGENT_ROOT/commands/lessonslearned.md"
+    grep -q -- '--drop' "$DEVAGENT_ROOT/commands/cleanup.md"
+    grep -q 'Retired (mechanised)' "$DEVAGENT_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+}
