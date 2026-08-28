@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# scripts/promote-potholes.sh — #586/#611. Durable [pattern] → pothole-register
-# promotion across the register's LAYERS. Step 22 STAGES lines into
+# scripts/promote-potholes.sh — #586/#611/#612. Durable [pattern] → pothole-register
+# promotion across the register's LAYERS. Step 22 STAGES ops (add, retire, amend) into
 # <issue-dir>/potholes-promotion.md (a devdoc file, immune to the shared source
 # tree's stash/revert/gate churn), each line routed to a layer by the skill's
 # judgment; step 23 (cleanup, right after its tree restore) DRAINS that file into
@@ -13,15 +13,26 @@
 # citation postcondition — are over the UNION of every present layer.
 #
 # Modes:
-#   <project> <issue-dir> --add --layer project|workflow "<section>" "<line>"
+#   <project> <issue-dir> --add    --layer project|workflow "<section>" "<line>"
+#   <project> <issue-dir> --retire --layer project|workflow "<old-line>" "<mechanism>"
+#   <project> <issue-dir> --amend  --layer project|workflow "<old-line>" "<new-line>"
+#   <project> <issue-dir> --drop <op>                          remove a stale op block
 #   <project> <issue-dir> --apply                              drain + commit
 #   <project> <issue-dir> --check                              claim vs union
 #   <project> --list-pending                                   undrained backlog
 #
-# Exit: 0 ok | 1 refused/failed (loud) | 2 usage | 3 apply DEFERRED, staging
-#       file retained pending (commit_devdoc not true, target dirty/untracked,
-#       repo mid-merge, layer path outside the repo holding devdoc_dir, lock
-#       held). Callers treat 3 as a warn, 1 as a die.
+# Grammar (#612, scripts/lib/potholes.sh): every line ends `(<tok>[; <tok>]*).`,
+# each token in its layer's form; retire moves a line verbatim into
+# `## Retired (mechanised)` (kept for --check, hidden from the READ union).
+# --apply validates EVERY op sequentially against temp copies of EVERY target
+# (locks held throughout), then writes + commits per file; re-runs converge.
+#
+# Exit: 0 ok | 1 refused/failed (loud; also staging-file PARSE errors) | 2 usage
+#       | 3 apply DEFERRED, staging file retained pending (commit_devdoc not
+#       true, target dirty/untracked, repo mid-merge, layer path outside the repo
+#       holding devdoc_dir, lock held, or any failed op VALIDATION — stale,
+#       multi-hit, old+new both present, a rail — with the op and line quoted).
+#       Callers treat 3 as a warn, 1 as a die.
 #
 # The --check CLAIM predicate, in one sentence: a `lessonslearned:` log entry
 # whose machine field says `register: N staged`, or whose text (the free-form

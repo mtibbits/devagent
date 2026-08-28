@@ -82,7 +82,7 @@ if [ -f "$issue_dir/potholes-promotion.md" ]; then
     pp_rc=0
     "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || pp_rc=$?
     if [ "$pp_rc" -eq 3 ]; then
-        warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; see the reason above (commit_devdoc flag, dirty/untracked register, mid-merge, containment, or a held lock) and re-run promote-potholes.sh $project $issue_dir --apply"
+        warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; see the reason above. Environment causes (commit_devdoc flag, dirty/untracked register, mid-merge, containment, held lock): fix and re-run promote-potholes.sh $project $issue_dir --apply. An op-validation cause (#612: STALE, multi-hit, old+new both present, a failed rail — the op and line are quoted): close the op with promote-potholes.sh $project $issue_dir --drop <op> (then reword the lessonslearned: log line if it counted that op), or land it by hand and set 'status: applied by-hand <sha>'; re-running --apply alone re-DEFERs"
     elif [ "$pp_rc" -ne 0 ]; then
         die "cleanup: pothole promotion FAILED (rc=$pp_rc) — the failing layer was restored; any layer commit reported above is already in devdoc history and the staging file stays pending (#586/#611)"
     fi
