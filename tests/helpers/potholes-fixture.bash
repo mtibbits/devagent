@@ -1,4 +1,5 @@
 # tests/helpers/potholes-fixture.bash — shared by tests/promote-potholes.bats
+# shellcheck disable=SC2034  # SEED/PROJ_REG/WF/PP/ID/LL are read by the bats files that load this helper
 # (#586/#611 staging + drain + check) and tests/promote-potholes-ops.bats (#612
 # retire/amend/drop/cap/grammar). Three layers, all FIXTURES: a plugin-seed COPY
 # under DEVAGENT_PLUGIN_TEMPLATES with only potholes.md replaced (so the plugin
