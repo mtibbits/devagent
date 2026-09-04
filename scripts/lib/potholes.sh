@@ -43,7 +43,7 @@ fi
 # (potholes_show_union) EXCLUDES each layer's Retired section; the CHECK union
 # (potholes_cited_union) reads the layer FILES, Retired included.
 POTHOLES_PROJ_RE='[A-Za-z0-9_-]+'
-POTHOLES_ISSUE_RE='Issue-(Fork-)?[0-9]+'     # N's alphabet, stated ONCE (#613): [0-9]+ or Fork-[0-9]+ — the issue-dir id form
+POTHOLES_ISSUE_RE='Issue-(Fork-)?[0-9]+'     # #613: tightened from Issue-[A-Za-z0-9-]+
 POTHOLES_TOK_RE="(${POTHOLES_PROJ_RE} )?${POTHOLES_ISSUE_RE}"
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
 POTHOLES_CITE_TAIL_RE=" *\\(${POTHOLES_TOK_RE}(; ${POTHOLES_TOK_RE})*\\)\\.\$"
@@ -159,7 +159,7 @@ potholes_section_count() {
   S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
 }
 
-# potholes_file_check <layer> <file> — the register FILE contract (#613): ONE
+# potholes_file_check <layer> <file> [<label>] — the register FILE contract (#613): ONE
 # predicate for every writer and the suite. promote-potholes.sh --apply runs it on
 # each temp copy before writing (so a pre-existing violation DEFERs, line quoted);
 # the Issue-613 migration runs it on every file it writes; tests/potholes-
@@ -170,8 +170,9 @@ potholes_section_count() {
 #   3  every token of every citation is in the layer's form
 #   4  retired-shaped lines only under POTHOLES_RETIRED_HEADING, and only those there
 #   5  LF only — no CR byte anywhere
-# One "<file>:<line>: <reason>" per violation on stderr; rc 1 on any, 0 clean,
-# 2 unreadable / unknown layer (never "clean", Issue-316).
+# One "<file>:<line>: <reason>" per violation on stderr — <label> (default: <file>)
+# is the path printed, so a caller checking a temp copy names the real file; rc 1
+# on any, 0 clean, 2 unreadable / unknown layer (never "clean", Issue-316).
 potholes_file_check() {
   local layer="$1" f="$2" form rf
   [ -r "$f" ] || { echo "potholes_file_check: cannot read $f" >&2; return 2; }
@@ -179,17 +180,15 @@ potholes_file_check() {
     seed|project|workflow) form="$(potholes_layer_form "$layer")"; rf="$(potholes_token_form_reason "$layer" '%s')" ;;
     *) echo "potholes_file_check: unknown layer '$layer' (seed|project|workflow)" >&2; return 2 ;;
   esac
-  # shellcheck disable=SC2016  # an awk program, not shell
-  LAYER="$layer" FORM="$form" RF="$rf" RH="$POTHOLES_RETIRED_HEADING" TAIL="$POTHOLES_CITE_TAIL_RE" \
-  RL="$POTHOLES_RETIRED_LINE_RE" F="$f" awk '
+  FORM="$form" RF="$rf" RH="$POTHOLES_RETIRED_HEADING" TAIL="$POTHOLES_CITE_TAIL_RE" \
+  RL="$POTHOLES_RETIRED_LINE_RE" F="${3:-$f}" awk '
     function bad(reason) { printf "%s:%d: %s\n", ENVIRON["F"], FNR, reason > "/dev/stderr"; rc = 1 }
-    BEGIN { rc = 0; prev = ""; retired = 0 }
     /\r/   { bad("CR byte — register files are LF only") }
     /^## / { if (prev ~ /^- /) bad("bullet immediately before a ## heading"); retired = ($0 == ENVIRON["RH"]) }
     /^- /  {
       if ($0 !~ ENVIRON["TAIL"]) bad("bullet does not end in the citation grammar (<tok>[; <tok>]*).")
       else {
-        t = $0; sub(/^.*\(/, "", t); sub(/\)\.$/, "", t); n = split(t, toks, "; ")
+        t = $0; sub(/^.*\(/, "", t); sub(/\)\.$/, "", t); n = split(t, toks, "; ")   # potholes_cite_tokens, in awk
         for (i = 1; i <= n; i++) if (toks[i] !~ ENVIRON["FORM"]) bad(sprintf(ENVIRON["RF"], toks[i]))
       }
       isret = ($0 ~ ENVIRON["RL"])
@@ -201,14 +200,15 @@ potholes_file_check() {
 }
 
 # potholes_line_sha1 <line> — sha1 of the LF-normalised line (one trailing CR
-# stripped, no newline appended): the #613 ledger key. A CRLF and an LF copy of
-# one line hash alike, so a ledger row survives a line-ending accident.
+# stripped, no newline appended): the #613 ledger key, defined here so a ledger
+# reader can re-derive it (the Issue-613 migration mirrors it in Python). A CRLF
+# and an LF copy of one line hash alike, so a row survives a line-ending accident.
 potholes_line_sha1() { printf '%s' "${1%$'\r'}" | sha1sum | cut -d' ' -f1; }
 
 # potholes_seed_sweep <file> [<word>…] — the #613 privacy sweep the curated seed
 # must pass: ONE predicate for the migration (which passes the operator's
-# usernames) and tests/potholes-seed-canary.bats (which passes $USER and the git
-# e-mail local part). Universe, DECLARED: a fork-tracker token (Issue-Fork-);
+# usernames) and tests/potholes-seed-canary.bats (which passes the git e-mail
+# local part). Universe, DECLARED: a fork-tracker token (Issue-Fork-);
 # home paths (/home/, /Users/, ~/, /mnt/<drive>/) — drive forms like /c/ and c:/
 # are NOT in it (they are lesson content, not locations); URLs and
 # .local/.lan/.internal hosts; e-mail addresses; each <word> whole, case-
@@ -217,16 +217,18 @@ potholes_line_sha1() { printf '%s' "${1%$'\r'}" | sha1sum | cut -d' ' -f1; }
 # not run (never "clean", Issue-316).
 potholes_seed_sweep() {
   local seed="$1"; shift
-  local -a kinds=(fork path host email) flags=(-E -E -E -E)
+  local -a kinds=(fork path host email)
   local -a pats=('Issue-Fork-' '(^|[^A-Za-z0-9_])(/home/|/Users/|~/|/mnt/[a-z]/)'
                  '([a-z]+://|[A-Za-z0-9-]+\.(local|lan|internal)\b)' '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
-  local w i out grc rc=0
+  local w i f out l grc rc=0
   [ -r "$seed" ] || { echo "potholes_seed_sweep: cannot read $seed" >&2; return 2; }
-  for w in "$@"; do [ -n "$w" ] && { kinds+=("word:$w"); flags+=(-iwF); pats+=("$w"); }; done
+  for w in "$@"; do [ -n "$w" ] && { kinds+=("word:$w"); pats+=("$w"); }; done
   for i in "${!kinds[@]}"; do
-    grc=0; out="$(grep -n "${flags[i]}" -- "${pats[i]}" "$seed")" || grc=$?
+    case "${kinds[i]}" in word:*) f=-iwF ;; *) f=-E ;; esac      # words are whole-word literals
+    grc=0; out="$(grep -n "$f" -- "${pats[i]}" "$seed")" || grc=$?
     [ "$grc" -le 1 ] || { echo "potholes_seed_sweep: grep rc $grc on $seed" >&2; return 2; }
-    [ -z "$out" ] || { printf '%s\n' "$out" | sed "s/^\([0-9]*\):/\1: ${kinds[i]//\//\\/}: /"; rc=1; }
+    [ -z "$out" ] && continue
+    while IFS= read -r l; do printf '%s: %s: %s\n' "${l%%:*}" "${kinds[i]}" "${l#*:}"; done <<< "$out"; rc=1
   done
   return $rc
 }

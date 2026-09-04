@@ -21,6 +21,8 @@ _over_cap() {
   done < <(grep '^## ' "$SEED")
 }
 _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} -->'; }
+# The gated rows: skip (never fail) on a pre-#613 seed so the marker row alone names the cause.
+_gate()    { _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker (a pre-#613 seed)"; _lib; }
 
 @test "fixture list is well-formed: a public allowlist and at least one private name" {
   [ -n "$(_public)" ]
@@ -68,9 +70,8 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   for pub in $(_public); do run grep -qixF -- "$pub" <(_names); [ "$status" -eq 1 ]; done
 }
 
-@test "seed carries no private project name (gated: skipped until the seed is curated)" {
-  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — a pre-#613 seed; the curated seed always carries it"
-  _lib
+@test "seed carries no private project name (gated on the curated marker)" {
+  _gate
   mapfile -t names < <(_names)
   run potholes_private_name_hits "$SEED" "${names[@]}"
   [ "$status" -eq 0 ]
@@ -79,42 +80,36 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
 
 @test "the seed IS curated (#613): line 1 is the '<!-- curated: ledger <sha> -->' marker, so every gated row above and below runs live" {
   _curated
-  sha="$(head -1 "$SEED" | sed -E 's/^<!-- curated: ledger ([0-9a-f]+) -->$/\1/')"; [ "${#sha}" -ge 7 ]
 }
 
 @test "seed: no section exceeds POTHOLES_SECTION_CAP (gated on the curated marker)" {
-  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — a pre-#613 seed; the curated seed always carries it"
-  _lib
+  _gate
   over="$(_over_cap)"
   [ -z "$over" ] || { printf '%s\n' "$over" >&2; false; }
 }
 
 @test "seed: total bullets <= POTHOLES_SEED_TOTAL_CAP (gated on the curated marker)" {
-  _curated || skip "seed line 1 lacks the curated marker"
-  _lib
+  _gate
   n="$(grep -c '^- ' "$SEED")"; [ "$n" -le "$POTHOLES_SEED_TOTAL_CAP" ] || { echo "seed holds $n bullets (cap $POTHOLES_SEED_TOTAL_CAP)" >&2; false; }
 }
 
 @test "seed: privacy sweep — no fork-tracker token, home path, host, e-mail or operator username (gated); the planted control fires" {
-  _curated || skip "seed line 1 lacks the curated marker"
-  _lib
+  _gate
   # the operator word is the git e-mail local part with a noreply numeric prefix stripped — never $USER
   # (a generic login such as "user" would match "user-facing"); empty in CI, where the four fixed kinds still run
   run potholes_seed_sweep "$SEED" "$(git config user.email 2>/dev/null | cut -d@ -f1 | sed 's/^[0-9]*+//')"
   [ "$status" -eq 0 ]; [ -z "$output" ]
   printf '%s\n' '- a (Issue-Fork-3).' '- b /home/zzquser/x (Issue-4).' > "$BATS_TEST_TMPDIR/p.md"
-  run potholes_seed_sweep "$BATS_TEST_TMPDIR/p.md"; [ "$status" -eq 1 ]; [ "$(printf '%s\n' "$output" | wc -l)" -eq 2 ]
+  run potholes_seed_sweep "$BATS_TEST_TMPDIR/p.md"; [ "$status" -eq 1 ]; [ "${#lines[@]}" -eq 2 ]
 }
 
 @test "seed passes the register file contract as the seed layer (gated) — bare devagent tokens only" {
-  _curated || skip "seed line 1 lacks the curated marker"
-  _lib
+  _gate
   run potholes_file_check seed "$SEED"; [ "$status" -eq 0 ]; [ -z "$output" ]
   run grep -cE '\([A-Za-z]+ Issue-' "$SEED"; [ "$status" -eq 1 ]     # no project-qualified token at all
 }
 
 @test "seed: every section heading of the pre-#613 register is still present (the union's --add targets live here)" {
-  _lib
   for h in 'Bash exit-status & control flow' 'Test discipline (born-red / vacuous pass)' 'State / TOML / atomicity' 'Git / ambient checkout / forge state' 'Sweeps / fix-at-source / sibling sites' 'New gate / shared-fixture blast radius' 'Dispatched fresh-context checking' 'Premise freshness / contracts / classification' 'Docs / edit-neighborhood hygiene' 'Version / registry-string comparison'; do
     grep -qxF -- "## $h" "$SEED" || { echo "missing heading: ## $h" >&2; false; }
   done

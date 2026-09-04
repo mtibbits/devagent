@@ -647,16 +647,14 @@ case "${1:-}" in
         done
         CHANGED[$ly]=$c
         [ "$c" -gt 0 ] || continue
-        # Postconditions on the temp copy: the register FILE contract (ONE
-        # predicate, potholes_file_check — shared with the #613 migration and
-        # the suite; it covers the WHOLE file, so a pre-existing violation DEFERs
-        # too, every line quoted against the REAL path) + citation. Citation
-        # check scoped to THIS file: the union would be satisfied by another
-        # layer's earlier promotion and prove nothing. rc 2 (unreadable copy) is
-        # a harness fault, never a register verdict (Issue-316) — die, not DEFER.
-        pc_rc=0; pc="$(potholes_file_check "$ly" "$t" 2>&1)" || pc_rc=$?
+        # Postconditions on the temp copy: the register FILE contract over the WHOLE
+        # file (potholes_file_check, #613 — a pre-existing violation DEFERs too, each
+        # line labelled with the real path), then the citation, scoped to THIS file
+        # (the union would be satisfied by another layer's earlier promotion). rc 2
+        # (unreadable copy) is a harness fault, never a register verdict (Issue-316).
+        pc_rc=0; pc="$(potholes_file_check "$ly" "$t" "$target" 2>&1)" || pc_rc=$?
         [ "$pc_rc" -ne 2 ] || die "--apply: potholes_file_check could not read the $ly temp copy ($t): $pc"
-        [ "$pc_rc" -eq 0 ] || _defer "$ly layer: the ops would leave the register violating its format contract — $target NOT modified:"$'\n'"${pc//"$t:"/"$target:"}"
+        [ "$pc_rc" -eq 0 ] || _defer "$ly layer: the ops would leave the register violating its format contract — $target NOT modified; fix the quoted line by hand, then re-run --apply:"$'\n'"$pc"
         grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$t" \
             || _defer "$ly layer: after the ops the register carries no ${issue_id} citation — $target NOT modified"
     done

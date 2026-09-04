@@ -27,7 +27,9 @@ _file() { printf '%s\n' "$@" > "$T/f.md"; }
 @test "file_check: bullet immediately before a heading — line number + the phrase --apply's test pins" {
   _file '# R' '' '## A' '- x (Issue-1).' '## B' '- z (Issue-4).'
   run potholes_file_check project "$T/f.md"; [ "$status" -eq 1 ]
-  [[ "$output" == *":5: bullet immediately before a ## heading"* ]]
+  [[ "$output" == *"$T/f.md:5: bullet immediately before a ## heading"* ]]
+  run potholes_file_check project "$T/f.md" /real/layer.md; [ "$status" -eq 1 ]        # the optional label names the real file
+  [[ "$output" == *"/real/layer.md:5: bullet immediately before"* ]]; [[ "$output" != *"$T/f.md"* ]]
 }
 
 @test "file_check: a citation-less bullet and the seed's mis-tokened shape are reported; the retokened form passes" {
