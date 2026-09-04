@@ -41,7 +41,7 @@ teardown() { devagent_test_teardown; }
 
 @test "--check PASSES on a citation present ONLY in the workflow layer (the cleanup re-run case)" {
     use_workflow
-    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- our line ($TEST_PROJECT Issue-1)." > "$WF"
+    seed_workflow_layer "- our line ($TEST_PROJECT Issue-1)."
     printf '%s\n' "$LL 1 pattern promoted to the potholes register" >> "$ID/checklist.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --check
     [ "$status" -eq 0 ]

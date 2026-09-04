@@ -67,6 +67,9 @@ shift
 # same leg template_resolve walks.
 devdoc_dir="$(project_devdoc_dir "$project")"   # already tilde-expanded (config.sh whitelist)
 
+# _op_count <staging-file> — its op blocks (one op per '## ' block; _parse_stage enforces it).
+_op_count() { grep -c '^## ' "$1" || true; }
+
 # --list-pending needs no issue.
 if [ "${1:-}" = "--list-pending" ]; then
     found=0
@@ -74,7 +77,7 @@ if [ "${1:-}" = "--list-pending" ]; then
         [ -e "$f" ] || continue
         grep -q '^status: pending' "$f" || continue
         found=1
-        printf 'pending: %s (%s ops)\n' "$f" "$(grep -c '^## ' "$f")"
+        printf 'pending: %s (%s ops)\n' "$f" "$(_op_count "$f")"
     done
     [ "$found" -eq 1 ] || echo "no pending pothole promotions for $project"
     exit 0
@@ -165,17 +168,16 @@ _rails() {
     local layer="$1" line="$2" body hit
     _bullet_shape "$line" || return 1
     potholes_line_cite_ok "$project" "$issue_id" "$layer" "$line" || { warn "$MODE: citation rail failed for the $layer layer"; return 1; }
-    if [ "$layer" = workflow ]; then
-        body="$(_body "$line")"
-        if printf '%s' "$body" | grep -qiF -- "$project"; then
-            warn "$MODE: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"; return 1
-        fi
-        _nouns   # rc 3 (wrong type) refuses; rc 1 (absent) is the common case
-        [ "$_NOUNS_RC" -ne 3 ] || { warn "$MODE: [project.$project.paths] potholes_domain_nouns must be an array of strings"; return 1; }
-        if [ "$_NOUNS_RC" -eq 0 ] && [ -n "$_NOUNS" ]; then
-            hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$_NOUNS") | head -1 || true)"
-            [ -z "$hit" ] || { warn "$MODE: the body matches paths.potholes_domain_nouns ('$hit') — domain content belongs in --layer project"; return 1; }
-        fi
+    [ "$layer" = workflow ] || return 0                   # the rest are the SHARED file's leak rails
+    body="$(_body "$line")"
+    if printf '%s' "$body" | grep -qiF -- "$project"; then
+        warn "$MODE: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"; return 1
+    fi
+    _nouns   # rc 3 (wrong type) refuses; rc 1 (absent) is the common case
+    [ "$_NOUNS_RC" -ne 3 ] || { warn "$MODE: [project.$project.paths] potholes_domain_nouns must be an array of strings"; return 1; }
+    if [ "$_NOUNS_RC" -eq 0 ] && [ -n "$_NOUNS" ]; then
+        hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$_NOUNS") | head -1 || true)"
+        [ -z "$hit" ] || { warn "$MODE: the body matches paths.potholes_domain_nouns ('$hit') — domain content belongs in --layer project"; return 1; }
     fi
 }
 # _op_shape_ok <kind> <old> <arg2> — the per-op argument rules, shared by the
@@ -196,7 +198,7 @@ _op_shape_ok() {
         ot="$(potholes_cite_tokens "$old")" || { warn "$MODE: <old-line> has no well-formed citation: $old"; return 1; }
         nt="$(potholes_cite_tokens "$b")"   || { warn "$MODE: <new-line> has no well-formed citation: $b"; return 1; }
         while IFS= read -r t; do
-            printf '%s\n' "$nt" | grep -qixF -- "$t" || { warn "$MODE: <new-line> drops the old line's token '$t' — an amend is a citation, keep every member's token"; return 1; }
+            potholes_tokens_has "$nt" "$t" || { warn "$MODE: <new-line> drops the old line's token '$t' — an amend is a citation, keep every member's token"; return 1; }
         done <<< "$ot" ;;
     esac
 }
@@ -227,8 +229,8 @@ _region_awk() {   # <mode> <file> <line> [<new>]
       END { if (m == "count") print c; if (m == "in_retired") exit !f }'
     case "$mode" in
         delete|replace)   # rewrite in place; the read modes never touch the tree beside a real register
-            MODE_="$mode" RH="$POTHOLES_RETIRED_HEADING" L="$3" N="${4:-}" awk "$prog" "$f" > "$f.2" \
-                && mv "$f.2" "$f" || { rm -f "$f.2"; return 1; } ;;
+            if MODE_="$mode" RH="$POTHOLES_RETIRED_HEADING" L="$3" N="${4:-}" awk "$prog" "$f" > "$f.2"
+            then mv "$f.2" "$f"; else rm -f "$f.2"; return 1; fi ;;
         *)  MODE_="$mode" RH="$POTHOLES_RETIRED_HEADING" L="$3" awk "$prog" "$f" ;;
     esac
 }
@@ -242,8 +244,14 @@ _retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retir
     body="$(_body "$2")"; body="${body#- }"
     own="$(potholes_own_token "$project" "$issue_id" "$4")"
     toks="$(potholes_cite_tokens "$2")"
-    printf '%s\n' "$toks" | grep -qixF -- "$own" || toks="${toks}"$'\n'"$own"
+    potholes_tokens_has "$toks" "$own" || toks="${toks}"$'\n'"$own"
     printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$(printf '%s\n' "$toks" | potholes_cite_join)"
+}
+# Say NOW what --apply will DEFER on later — cheap, so the operator hears it at
+# step 22 where the op can still be re-routed, not at cleanup.
+_warn_commit_devdoc() {
+    [ "$(_commit_devdoc_raw)" = true ] \
+        || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3) until the flag is flipped; the staged op is kept"
 }
 _stage_init() {
     [ -f "$stage" ] && return 0
@@ -344,10 +352,7 @@ case "${1:-}" in
         || die "--add: no section '## $section' in any register layer — use a heading that already exists (template.sh --project $project show potholes | grep '^## ')"
     _stage_init
     grep -qxF -- "$line" "$stage" && { info "--add: already staged (idempotent): $line"; exit 0; }
-    # Say NOW what --apply will do later — cheap, so the operator hears it at
-    # step 22 where the line can still be re-routed, not at cleanup.
-    [ "$(_commit_devdoc_raw)" = true ] \
-        || warn "--add: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3) until the flag is flipped; the staged line is kept"
+    _warn_commit_devdoc
     if [ "$layer" = workflow ]; then
         _wr="$(_repo_of "$wf" || true)"; _dr="$(_repo_of "$devdoc_dir" || true)"
         [ -n "$_wr" ] && [ "$_wr" = "$_dr" ] \
@@ -393,8 +398,7 @@ case "${1:-}" in
     grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
     { echo; echo "$section"; echo "layer: $layer"; echo "op: $kind"; echo "old: $old"; echo "$key: $val"; } >> "$stage"
     info "staged $kind for $issue_id ($layer layer): $old → $result"
-    [ "$(_commit_devdoc_raw)" = true ] \
-        || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3); the staged op is kept"
+    _warn_commit_devdoc
     ;;
 
 --check)
@@ -453,9 +457,8 @@ case "${1:-}" in
     trap _release EXIT
     L_NAME=(); L_TARGET=(); L_REPO=(); L_REL=()
     for ly in workflow project; do
-        n=0; for k in "${OP_LAYER[@]}"; do [ "$k" = "$ly" ] && n=$((n+1)); done
+        case " ${OP_LAYER[*]} " in *" $ly "*) ;; *) continue ;; esac   # no op names this layer
         if [ "$ly" = workflow ]; then target="$wf"; else target="$pr"; fi
-        [ "$n" -gt 0 ] || continue
         [ -n "$target" ] || { warn "promote-potholes: $ly-layer lines are staged but no $ly register path is configured — $issue_id stays pending"; exit 3; }
         repo="$(_repo_of "$target" || true)"
         # Containment: the repo holding the layer path MUST be the repo holding
@@ -500,6 +503,9 @@ case "${1:-}" in
 
     # --- op engine (#612) ---------------------------------------------------------
     _defer() { warn "promote-potholes: $*"; warn "promote-potholes: $issue_id stays pending — nothing was written (rc 3)"; exit 3; }
+    # _stale <q> <diagnosis> <what> <op-number> — the two closes, spelled once (tests pin them).
+    _stale() { _defer "$1: STALE — $2 (another issue's consolidate consumed it first?): $3 — close it with '--drop $4' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"; }
+    _one_hit() { [ "$2" -eq 1 ] || _defer "$1: old line occurs $2 times (must be exactly once): $3"; }   # <q> <n> <old>
     _append_in_section() {   # <file> <heading> <line> — at the END of the section; heading added at EOF if absent
         # A heading valid in the UNION but absent from THIS layer file is added at
         # the end (blank line first: never a bullet directly before a heading).
@@ -547,9 +553,9 @@ case "${1:-}" in
             n="$(_hits "$t" "$a")"
             if [ "$n" -eq 0 ]; then
                 _in_retired "$t" "$res" && return 4
-                _defer "$q: STALE — old line absent and its retired form absent (another issue's consolidate consumed it first?): $a — close it with '--drop $((j+1))' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"
+                _stale "$q" "old line absent and its retired form absent" "$a" "$((j+1))"
             fi
-            [ "$n" -eq 1 ] || _defer "$q: old line occurs $n times (must be exactly once): $a"
+            _one_hit "$q" "$n" "$a"
             _rails "$ly" "$res" || _defer "$q: the retired line fails a rail: $res"
             _delete_line "$t" "$a"
             _append_in_section "$t" "$POTHOLES_RETIRED_HEADING" "$res" || _defer "$q: could not append to '$POTHOLES_RETIRED_HEADING': $res"
@@ -558,9 +564,9 @@ case "${1:-}" in
             _op_shape_ok amend "$a" "$b" || _defer "$q: refused (see above): $a"
             n="$(_hits "$t" "$a")"; m="$(_hits "$t" "$b")"
             if [ "$n" -eq 0 ] && [ "$m" -ge 1 ]; then return 4; fi
-            [ "$n" -ge 1 ] || _defer "$q: STALE — neither the old nor the new line is present (another issue's consolidate consumed it first?): old: $a — close it with '--drop $((j+1))' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"
+            [ "$n" -ge 1 ] || _stale "$q" "neither the old nor the new line is present" "old: $a" "$((j+1))"
             [ "$m" -eq 0 ] || _defer "$q: REFUSED — old AND new both present (an add of the new line staged beside this amend?): old: $a / new: $b"
-            [ "$n" -eq 1 ] || _defer "$q: old line occurs $n times (must be exactly once): $a"
+            _one_hit "$q" "$n" "$a"
             _rails "$ly" "$b" || _defer "$q: the replacement fails a rail: $b"
             _replace_line "$t" "$a" "$b"
             ;;
@@ -637,7 +643,7 @@ case "${1:-}" in
     [[ "$n" =~ ^[1-9][0-9]*$ ]] || usage
     [ -f "$stage" ] || die "--drop: no staging file at $stage"
     grep -q '^status: pending' "$stage" || die "--drop: $stage is not pending ($(sed -n 's/^status: *//p' "$stage" | head -1)) — a drained file is a record, not a queue"
-    total="$(grep -c '^## ' "$stage" || true)"
+    total="$(_op_count "$stage")"
     [ "$n" -le "$total" ] || die "--drop: op $n does not exist — $stage holds $total op block(s)"
     N="$n" awk '/^## /{k++} !(k==ENVIRON["N"]+0)' "$stage" > "$stage.2" && mv "$stage.2" "$stage"
     if [ "$total" -eq 1 ]; then

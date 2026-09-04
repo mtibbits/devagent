@@ -77,12 +77,13 @@ _potholes_owns_seed() {
   return 1
 }
 potholes_cite_re() {   # <project> <issue_id> <layer> — the own token may sit anywhere in the list
+  local tok
   case "$3" in
-    workflow) printf '\\(([^)]*; )?%s %s(; [^)]*)?\\)\n' "$1" "$2" ;;
-    seed)     if _potholes_owns_seed "$1"; then printf '\\(([^)]*; )?(%s )?%s(; [^)]*)?\\)\n' "$1" "$2"
-              else printf '\\(([^)]*; )?%s %s(; [^)]*)?\\)\n' "$1" "$2"; fi ;;
-    *)        printf '\\(([^)]*; )?(%s )?%s(; [^)]*)?\\)\n' "$1" "$2" ;;
+    workflow) tok="$1 $2" ;;                                        # the shared file always names the project
+    seed)     if _potholes_owns_seed "$1"; then tok="($1 )?$2"; else tok="$1 $2"; fi ;;
+    *)        tok="($1 )?$2" ;;
   esac
+  printf '\\(([^)]*; )?%s(; [^)]*)?\\)\n' "$tok"
 }
 
 # potholes_cite_tokens <line> — the tokens of a line's citation, one per line;
@@ -96,6 +97,13 @@ potholes_cite_tokens() {
   printf '%s\n' "$t" | sed 's/; /\n/g'
 }
 potholes_cite_join() { paste -sd ';' | sed 's/;/; /g'; }
+# potholes_tokens_has <tokens> <tok> — is <tok> in the newline-separated
+# <tokens> (case-insensitive)? Pure bash — the callers loop over tokens.
+potholes_tokens_has() {
+  local t
+  while IFS= read -r t; do [ "${t,,}" = "${2,,}" ] && return 0; done <<< "$1"
+  return 1
+}
 
 # potholes_own_token <project> <issue_id> <layer> — the calling issue's token in
 # the layer's form (workflow: project-qualified; any other layer: bare).

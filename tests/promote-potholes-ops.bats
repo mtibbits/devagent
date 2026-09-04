@@ -301,7 +301,7 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
 
 @test "--amend workflow layer: the replacement passes the project-name rail on a multi-token tail" {
     use_workflow
-    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- w (lawFirm Issue-2)." > "$WF"; devdoc_commit wf
+    seed_workflow_layer "- w (lawFirm Issue-2)."; devdoc_commit wf
     run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer workflow "- w (lawFirm Issue-2)." "- w, merged (lawFirm Issue-2; $TEST_PROJECT Issue-1)."
     [ "$status" -eq 0 ]
 }
@@ -440,7 +440,7 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
 
 @test "--apply: two-file staging where the SECOND file's commit fails — first commit stands, second restored, rc 1, pending; the re-run converges to applied" {
     use_workflow; seed_project_layer
-    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- w (lawFirm Issue-2)." > "$WF"; devdoc_commit wf
+    seed_workflow_layer "- w (lawFirm Issue-2)."; devdoc_commit wf
     bash "$PP" "$TEST_PROJECT" "$ID" --amend  --layer workflow "- w (lawFirm Issue-2)." "- w2 (lawFirm Issue-2; $TEST_PROJECT Issue-1)."
     bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project  "- a project line (Issue-9)." m
     cat > "$DEVDOC_REPO/.git/hooks/pre-commit" <<'HOOK'
@@ -498,18 +498,18 @@ HOOK
         | sed "s/project\.$TEST_PROJECT/project.lawFirm/; s#$DEVDOC_DIR#$DEVAGENT_TMP/devdoc/lawFirm#" >> "$HOME/.claude/devagent/config.toml"
     printf '%s\n' 'on_draft_start = "In Progress"' >> "$HOME/.claude/devagent/config.toml"
     mkdir -p "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9"; cp "$ID/checklist.md" "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9/checklist.md"
-    mkdir -p "$(dirname "$WF")"; printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-9)." > "$WF"
+    seed_workflow_layer "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-9)."
     printf '%s\n' "$LL register: 1 staged; retired: 0, amended: 1" >> "$ID/checklist.md"
     printf '%s\n' "$LL register: 1 staged; retired: 0, amended: 1" >> "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9/checklist.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 0 ]
     run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 0 ]
     # controls: each claim reddens on its OWN token, independently
-    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-10; lawFirm Issue-9)." > "$WF"
+    seed_workflow_layer "- merged ($TEST_PROJECT Issue-10; lawFirm Issue-9)."
     run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 1 ]
     run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 0 ]
-    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-90)." > "$WF"
+    seed_workflow_layer "- merged ($TEST_PROJECT Issue-1; lawFirm Issue-90)."
     run bash "$PP" lawFirm "$DEVAGENT_TMP/devdoc/lawFirm/Issue-9" --check;           [ "$status" -eq 1 ]
-    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "- bare (Issue-1; lawFirm Issue-9)." > "$WF"
+    seed_workflow_layer "- bare (Issue-1; lawFirm Issue-9)."
     run bash "$PP" "$TEST_PROJECT" "$ID" --check;                                   [ "$status" -eq 1 ]
 }
 

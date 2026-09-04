@@ -45,4 +45,10 @@ seed_retired_line() {
     printf '%s\n' '' '## Retired (mechanised)' "$RETIRED_LINE" >> "$PROJ_REG"
     ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m retired )
 }
+# The workflow layer under the shared Docs heading, holding the given bullets
+# (uncommitted — devdoc_commit when the test needs it tracked).
+seed_workflow_layer() {
+    mkdir -p "$(dirname "$WF")"
+    printf '%s\n' '# WF' '' '## Docs / edit-neighborhood hygiene' "$@" > "$WF"
+}
 devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); }
