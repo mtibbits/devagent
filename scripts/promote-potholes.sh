@@ -278,6 +278,30 @@ _stage_open() {
         *)        die "$MODE: $stage has an unrecognised status line ('$st') — fix it by hand: pending | applied <sha> | applied by-hand <sha> | dropped (all ops)" ;;
     esac
 }
+# _staged_block <needle-line> — the first staged block (its non-blank lines from
+# the '## ' heading on) carrying <needle-line> exactly, or nothing. Idempotency
+# is keyed on the WHOLE block: a byte-identical re-run is a no-op, a DIFFERENT
+# op on the same line is refused — keyed on the line alone, a 7a retire
+# followed by a 7b amend of the same line was swallowed as "already staged"
+# (red-team #612).
+_staged_block() {
+    [ -f "$stage" ] || return 0
+    L="$1" awk '
+      /^## / { if (hit && !found) { fblk = blk; found = 1 } blk = $0; hit = 0; next }
+      blk != "" && !/^[[:space:]]*$/ { blk = blk "\n" $0; if ($0 == ENVIRON["L"]) hit = 1 }
+      END { if (hit && !found) { fblk = blk; found = 1 } if (found) print fblk }' "$stage"
+}
+# _stage_put <block> <needle-line> — append <block> unless the SAME block is
+# staged (rc 0, no-op); die when a different op already names <needle-line>.
+_stage_put() {
+    local have
+    have="$(_staged_block "$2")"
+    if [ -n "$have" ]; then
+        [ "$have" = "$1" ] && { info "$MODE: already staged (idempotent): ${2#old: }"; exit 0; }
+        die "$MODE: a DIFFERENT op is already staged for this line in $stage — one op per line; --drop it first, or keep it:"$'\n'"$have"
+    fi
+    printf '\n%s\n' "$1" >> "$stage"
+}
 _stage_init() {
     [ -f "$stage" ] && return 0
     {
@@ -377,7 +401,9 @@ case "${1:-}" in
     potholes_union_headings "$project" | grep -qxF -- "## $section" \
         || die "--add: no section '## $section' in any register layer — use a heading that already exists (template.sh --project $project show potholes | grep '^## ')"
     _stage_open
-    grep -qxF -- "$line" "$stage" && { info "--add: already staged (idempotent): $line"; exit 0; }
+    blk="$(printf '%s\n' "## $section" "layer: $layer" "op: add" "$line")"
+    [ -n "$(_staged_block "$line")" ] && [ "$(_staged_block "$line")" != "$blk" ] \
+        && die "--add: this line is already staged as a DIFFERENT op in $stage — one op per line; --drop it first, or keep it:"$'\n'"$(_staged_block "$line")"
     _warn_commit_devdoc
     if [ "$layer" = workflow ]; then
         _wr="$(_repo_of "$wf" || true)"; _dr="$(_repo_of "$devdoc_dir" || true)"
@@ -387,7 +413,7 @@ case "${1:-}" in
     cnt="$(potholes_section_count "$target" "## $section")"
     [ "$cnt" -lt "$POTHOLES_SECTION_CAP" ] \
         || warn "--add: section '## $section' of the $layer layer file $target already holds $cnt bullets (cap $POTHOLES_SECTION_CAP) — consolidate before adding (core-lessons-learned 7b); staging anyway, --apply never refuses a full section"
-    { echo; echo "## $section"; echo "layer: $layer"; echo "op: add"; echo "$line"; } >> "$stage"
+    _stage_put "$blk" "$line"
     info "staged for $issue_id ($layer layer): $line"
     ;;
 
@@ -422,8 +448,7 @@ case "${1:-}" in
         result="$val"
     fi
     _stage_open
-    grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
-    { echo; echo "$section"; echo "layer: $layer"; echo "op: $kind"; echo "old: $old"; echo "$key: $val"; } >> "$stage"
+    _stage_put "$(printf '%s\n' "$section" "layer: $layer" "op: $kind" "old: $old" "$key: $val")" "old: $old"
     info "staged $kind for $issue_id ($layer layer): $old → $result"
     _warn_commit_devdoc
     ;;

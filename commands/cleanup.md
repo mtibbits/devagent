@@ -65,7 +65,10 @@ replaces its line in place. Two failure classes: a staging file `--apply`
 cannot PARSE (a hand-edit — a block without `layer:`, an unknown `op:`, two
 bullets in one block) is rc 1 and cleanup DIES, fix the file and re-run; a
 failed VALIDATION is rc 3 with the op and line quoted and cleanup warns and
-continues. A zero-hit whose exact result is already present is
+continues. Rolling the plugin back below #612 while an op-only (retire/amend)
+staging file is pending stamps it `applied` with nothing written — the
+pre-#612 parser sees no `- ` line — so re-stage or `mv` such a file aside
+before a rollback. A zero-hit whose exact result is already present is
 ALREADY APPLIED (a partial run converges on re-run); a STALE op names its two
 closes, `promote-potholes.sh … --drop <op>` or `status: applied by-hand
 <sha>`. The file is `git add`ed if new and committed with the operator's

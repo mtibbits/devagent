@@ -74,10 +74,11 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     potholes_lib
     [ "$POTHOLES_SECTION_CAP" -eq 25 ]
     [ "$(grep -c '^POTHOLES_SECTION_CAP=' "$DEVAGENT_ROOT/scripts/lib/potholes.sh")" -eq 1 ]
-    run grep -nE '(^|[^0-9])25([^0-9]|$)' "$DEVAGENT_ROOT/scripts/promote-potholes.sh"
-    [ "$status" -eq 1 ]                                                        # NO literal 25 anywhere in the script — it reads the lib constant
-    run grep -nE '(^|[^0-9])25([^0-9]|$)' "$DEVAGENT_ROOT/skills/core-lessons-learned/SKILL.md"
-    [ "$status" -eq 1 ]                                                        # nor in the skill prose (Task 9): the warning carries the number
+    grep -q 'POTHOLES_SECTION_CAP' "$DEVAGENT_ROOT/scripts/promote-potholes.sh"          # the script reads the lib constant …
+    run grep -nE -- '-(lt|le|gt|ge|eq|ne) +25([^0-9]|$)' "$DEVAGENT_ROOT/scripts/promote-potholes.sh"
+    [ "$status" -eq 1 ]                    # … and never compares against a literal 25 (an issue number like #25 is fine)
+    run grep -nE '(≥|>=|<=|>|<|at|than|holds) *25([^0-9]|$)|25 (lines|bullets|entries)' "$DEVAGENT_ROOT/skills/core-lessons-learned/SKILL.md"
+    [ "$status" -eq 1 ]                    # nor does the skill prose retype the cap (Task 9): the warning carries the number
 }
 
 @test "show potholes: the READ union omits every layer's Retired section; the CHECK union still sees it" {
@@ -282,6 +283,33 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- no citation here" m
     [ "$status" -eq 1 ]; [[ "$output" == *"no well-formed citation"* ]]
     [ ! -e "$ID/potholes-promotion.md" ]
+}
+
+@test "staging idempotency is keyed on the WHOLE op: a byte-identical re-run is a no-op (rc 0); a DIFFERENT op on the same line refuses (rc 1) naming the staged block; --add of one line under two sections refuses" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." m
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." m
+    [ "$status" -eq 0 ]; [[ "$output" == *"idempotent"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p merged (Issue-10; Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"DIFFERENT op"* ]] && [[ "$output" == *"mechanism: m"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." "other mechanism"
+    [ "$status" -eq 1 ]; [[ "$output" == *"DIFFERENT op"* ]]
+    [ "$(grep -c '^## ' "$ID/potholes-promotion.md")" -eq 1 ]
+    bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- a project line (Issue-9)." "- a project line, merged (Issue-9; Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- a project line (Issue-9)." "- a project line, other (Issue-9; Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"DIFFERENT op"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a project line (Issue-9)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"DIFFERENT op"* ]]
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Project-only heading" "- new (Issue-1)."
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Project-only heading" "- new (Issue-1)."
+    [ "$status" -eq 0 ]; [[ "$output" == *"idempotent"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- new (Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"DIFFERENT op"* ]]
+    [ "$(grep -c '^## ' "$ID/potholes-promotion.md")" -eq 3 ]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    grep -qxF -- '- a project line, merged (Issue-9; Issue-1).' "$PROJ_REG"
+    grep -qxF -- '- new (Issue-1).' "$PROJ_REG"
+    grep -q 'mechanised by m' "$PROJ_REG"
 }
 
 @test "--retire refuses a seed-only line with the distribute-issue message; a line absent everywhere says not found" {
@@ -559,7 +587,7 @@ HOOK
 @test "docs: the skill carries 7a retire-on-fix, 7b consolidate, 7c stage, and the retired/amended Logging fields; both commands, cleanup.sh and the spec name the ops" {
     S="$DEVAGENT_ROOT/skills/core-lessons-learned/SKILL.md"
     grep -q '7a\. \*\*Retire-on-fix' "$S"; grep -q '7b\. \*\*Consolidate-before-add' "$S"; grep -q '7c\. \*\*Stage' "$S"
-    grep -q 'register: S staged; retired: R, amended: M' "$S"
+    grep -q 'register: S staged; retired: T, amended: M' "$S"
     grep -q 'seed family' "$S"                                     # a seed-only match yields an add citing the seed family
     grep -qiF 'uncommitted' "$S"; grep -qi 'dedupe by citation' "$S"   # the two phrases tests/skill_core_lessons.bats pins inside item 7
     grep -q 'STALE\|stale' "$DEVAGENT_ROOT/scripts/cleanup.sh"          # cleanup's DEFER message names the new rc-3 class and its closes

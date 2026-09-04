@@ -181,13 +181,13 @@ to learn; mark step `[-]` skipped?" for operator confirmation.
 ## Logging
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" lessonslearned "lessonsLearned.md written: L entries (A actionable, R reference, N norm, P pattern); register: S staged; retired: R, amended: M; note: $NOTE"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" lessonslearned "lessonsLearned.md written: L entries (A actionable, R reference, N norm, P pattern); register: S staged; retired: T, amended: M; note: $NOTE"
 ```
 
 `S` is the number of op blocks in `<issue-dir>/potholes-promotion.md`
 (`grep -c '^## '` — one op per block, so blocks == ops; `promote-potholes.sh
-<project> --list-pending` prints the same count), `R`/`M` the retire/amend
-blocks among them, so S ≥ R + M in ONE unit — never the pattern-tag count.
+<project> --list-pending` prints the same count), `T`/`M` the retire/amend
+blocks among them, so S ≥ T + M in ONE unit — never the pattern-tag count.
 When nothing was staged write `register: none staged` (no `retired:`/`amended:`
 fields) — `0` and `none` are non-claims; `--check` reads `S` literally and a
 staged retire/amend backs the claim exactly like an add.

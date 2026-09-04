@@ -33,7 +33,7 @@ Per `commands/draft.md`.
    Retire-on-fix and consolidate-before-add (#612) stage `--retire` /
    `--amend` ops the same way — keyed `op:` blocks in the staging file, one op
    per block, validated sequentially at the drain — and the Logging line
-   carries `retired: R, amended: M` beside `register: S staged`. A STALE op is
+   carries `retired: T, amended: M` beside `register: S staged`. A STALE op is
    closed with `--drop <op>`.
 
 ## Halt and ask if
