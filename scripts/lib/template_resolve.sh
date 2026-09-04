@@ -60,6 +60,19 @@ template_project_paths_override() {
   fi
   local override
   override="$(config_get_project_field "${project}" "paths.${key}" 2>/dev/null || true)"
+  # #611: the global [paths] table is a fallback for potholes_workflow ONLY
+  # (gating keeps the other keys off a second python3 spawn per resolve —
+  # measured 0.027 s each). rc is DISCRIMINATED, never `|| true`: 1 = absent
+  # (fine), anything else (127 = function not in this source-set, 2 = bad
+  # TOML) dies rather than silently dropping the rung (register Issue-316).
+  if [ -z "${override}" ] && [ "${key}" = potholes_workflow ]; then
+    local _grc=0
+    override="$(config_get_global_path "${key}" 2>/dev/null)" || _grc=$?
+    [ "${_grc}" -le 1 ] || die "template_project_paths_override: global [paths].${key} lookup failed (rc ${_grc}: $([ -f "$(config_path)" ] && echo 'config unreadable/invalid TOML' || echo 'config file missing'))"
+    if [ -n "${override}" ] && [ "${override#/}" = "${override}" ]; then
+      die "template_project_paths_override: [paths].${key} must be an ABSOLUTE path (got '${override}') — a relative global path would name a different file per project"
+    fi
+  fi
   [ -n "${override}" ] || return 0
   if [ "${override#/}" != "${override}" ]; then
     printf '%s\n' "${override}"           # absolute
@@ -93,7 +106,8 @@ template_resolve() {
   local project="$1" key="$2"
   local path
 
-  path="$(template_project_paths_override "${project}" "${key}")"
+  path="$(template_project_paths_override "${project}" "${key}")" \
+    || die "template_resolve: paths override lookup for '${key}' failed — see above"   # #611: a die inside \$( ) only exits the subshell
   if [ -n "${path}" ]; then
     if [ -f "${path}" ]; then
       printf 'path=%s\nlayer=project\n' "${path}"
@@ -141,12 +155,28 @@ template_list() {
       printf '%-32s layer=%-7s %s\n' "${key}" "MISSING" "(none)"
     fi
   done
+  # #611: the workflow register has no plugin fallback, so it is not a KEYS
+  # member (it would print MISSING on every project) — its own row kind.
+  local w
+  if ! w="$(potholes_workflow_path "${project}")"; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow ERROR "(lookup failed — see stderr; a relative [paths] potholes_workflow or an unreadable config)"
+    return 1
+  fi
+  if [ -z "${w}" ]; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow unset "(not configured — [paths] potholes_workflow)"
+  elif [ -s "${w}" ]; then
+    printf '%-32s layer=%-7s %s\n' potholes_workflow workflow "${w}"
+  else
+    printf '%-32s layer=%-7s %s\n' potholes_workflow absent "${w} (bootstrapped by the first --apply)"
+  fi
 }
 
 # template_show <project> <key> — print resolved layer banner + file contents.
 template_show() {
   local project="$1" key="$2"
   local out p l
+  # #611: the register is a UNION of layers; one layer → today's form, below.
+  if [ "${key}" = potholes ] && potholes_show_union "${project}"; then return 0; fi
   if ! out="$(template_resolve "${project}" "${key}")"; then
     printf 'template_show: no template found for key: %s\n' "${key}" >&2
     return 1
@@ -157,3 +187,7 @@ template_show() {
   printf '# source: %s\n\n' "${p}"
   cat "${p}"
 }
+
+# #611: layer helpers for the potholes register (need the functions above).
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/potholes.sh"

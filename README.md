@@ -50,7 +50,7 @@ the repo is public this note no longer applies.
 `claude plugin update devagent@devagent` picks up new commits without an
 uninstall + reinstall.
 
-Requires a `bash` + `python3` toolchain (the workflow scripts) and, for the auth
+Requires a `bash` (≥ 4.4 — the resolver libs use namerefs) + `python3` toolchain (the workflow scripts) and, for the auth
 subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;

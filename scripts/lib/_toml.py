@@ -404,6 +404,26 @@ def main(argv: list[str]) -> int:
         print(v if isinstance(v, str) else _emit_value(v))
         return 0
 
+    if verb == "get-list":
+        # #611: an array-of-strings value, one element per line (a `get` prints
+        # the TOML literal, which no shell caller should re-parse). rc 1 missing
+        # key, rc 3 wrong type — distinct, so a caller can die on the latter.
+        try:
+            data = _load(file, retry=True)
+        except Exception as e:
+            print(f"_toml: {file}: {e}", file=sys.stderr)
+            return 2
+        try:
+            v = _walk(data, rest[0])
+        except KeyError:
+            return 1
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            print(f"_toml: '{rest[0]}' is not an array of strings", file=sys.stderr)
+            return 3
+        for x in v:
+            print(x)
+        return 0
+
     if verb == "list-tables":
         data = _load(file, retry=True)
         for t in _list_tables(data):

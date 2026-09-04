@@ -12,6 +12,21 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **unstuck/resume flip the row that carries `[!]`/`[P]`, wherever it sits
+  (#587).** `scripts/unstuck.sh` and `scripts/resume.sh` scanned the checklist
+  file-wide, carried out only the step NUMBER, and handed it to `checklist_mark`,
+  which re-scopes a reused closeout number into the ACTIVE revision block — so a
+  `[!]`/`[P]` left in an older block flipped the active block's twin (or
+  regressed its `[x]` row to `[ ]`) while the real mark survived and STUCK was
+  deleted anyway. The find-the-line / mark-that-line shape `checklist-unstuck.sh`
+  gained in #558 now lives in `scripts/lib/checklist.sh`
+  (`checklist_find_glyph_line`, `checklist_step_name_at_line`,
+  `checklist_mark_line`) and all three entry points — `/devagent:unstuck`,
+  `/devagent:resume`, `/devagent:checklist-unstuck` — ride it. `checklist_mark_line`
+  is fail-closed (post-write verify), so STUCK is never removed over a row that
+  did not flip. Both unstuck entry points stay; `next.sh`'s hint keeps naming
+  `/devagent:unstuck`, now fixed.
+
 - **Core-skill script calls no longer prompt mid-chain (#584).** The #548
   composite grant now sits on the 10 `core-*` skills whose bodies make a
   plugin-script call (census at `fea468e`: 13 calls; the four judgment-only
@@ -351,8 +366,8 @@ tag`) will get their own dated sections below.
   (`checklist_mark` refuses when the number's row name does not match the
   calling step), and command-doc handoffs mark by NAME, which is
   scheme-proof. Callers outside those two classes (e.g. `unstuck.sh`'s
-  file-wide `[!]` scan) are NOT guarded — one more reason to migrate before
-  resuming:
+  file-wide `[!]` scan) are NOT guarded (fixed in #587, which marks the
+  located row by line); migration is still recommended before resuming:
 
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --dry-run --all

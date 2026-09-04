@@ -287,3 +287,38 @@ SH
   run python3 "$T" get "$S" parked.Issue-676
   [ "$status" -eq 0 ]
 }
+
+@test "resume flips the [P] row in an OLDER revision block, not the active block's twin (#587)" {
+  # park marks the ACTIVE block, but a park that predates a /devagent:revise
+  # leaves the [P] in an OLDER block whose number the new block REUSES.
+  # resume.sh's number-keyed mark then flips the new block's pending twin and
+  # the issue is left looking parked in its own checklist.
+  f="$DEVDOC/Issue-676/checklist.md"
+  "$PLUGIN_ROOT/scripts/park.sh" volk                   # -> rev-1 `- [P]  2. draft`
+  cat >> "$f" <<'EOC'
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run "$PLUGIN_ROOT/scripts/resume.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  # RELATIVE, not absolute: park.sh's and resume.sh's log_append entries are
+  # inserted at the END of `## Log` (scripts/lib/log.sh), before
+  # `## Revision 2`, shifting every row below. Heading and rows shift together.
+  rev2="$(grep -n '^## Revision 2' "$f" | cut -d: -f1)"
+  [ -n "$rev2" ]
+  run grep -cE '^- \[~\][[:space:]]+2\. draft' "$f"
+  [ "$output" = "1" ]
+  hit="$(grep -nE '^- \[~\][[:space:]]+2\. draft' "$f" | cut -d: -f1)"
+  [ "$hit" -lt "$rev2" ]           # the row that CARRIED [P] is the one flipped
+  run grep -cE '^- \[P\]' "$f"
+  [ "$output" = "0" ]
+  run grep -cE '^- \[ \][[:space:]]+2\. draft' "$f"
+  [ "$output" = "1" ]
+  twin="$(grep -nE '^- \[ \][[:space:]]+2\. draft' "$f" | cut -d: -f1)"
+  [ "$twin" -gt "$rev2" ]          # rev-2's twin untouched, still in its block
+  # Resume's state machine is not touched by this issue — pin it so the rewire
+  # cannot silently regress the promote/restore path.
+  grep -qE '^active_issue *= *"Issue-676"' "$DA_HOME/state/volk.toml"
+}

@@ -6,11 +6,11 @@
 devAgent is developed and tested on **Linux**, inside
 [Claude Code](https://claude.com/claude-code). macOS is currently untested:
 the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
-`readlink -f`) and bash ≥ 4, and CI runs Linux only. You need:
+`readlink -f`) and bash ≥ 4.4 (the resolver libs use namerefs), and CI runs Linux only. You need:
 
 - **Claude Code** — developed and verified against **2.1.223**; earlier
   versions are untested.
-- **`bash` ≥ 4**, **`python3` ≥ 3.11** (or 3.8-3.10 plus `tomli`, e.g.
+- **`bash` ≥ 4.4**, **`python3` ≥ 3.11** (or 3.8-3.10 plus `tomli`, e.g.
   `apt install python3-tomli` — the TOML parser moved into the stdlib as
   `tomllib` in 3.11), **`jq`**, and **`git`** — the workflow
   scripts' toolchain.
