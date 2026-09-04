@@ -40,11 +40,15 @@ main() {
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
-    # First [P] step number, mawk-safe via checklist_steps_with_glyph.
-    local parked_steps parked_step
-    parked_steps="$(checklist_steps_with_glyph "$checklist" P)"
-    parked_step="${parked_steps%%$'\n'*}"
-    [[ -n "$parked_step" ]] && checklist_mark "$checklist" "$parked_step" "~"
+    # #587: locate the row that CARRIES [P] (a park that predates a revise
+    # leaves it in an older block) and mark that LINE — never its step number
+    # (the full why lives on checklist_find_glyph_line).
+    local found parked_row
+    found="$(checklist_find_glyph_line "$checklist" P)"
+    if [[ -n "$found" ]]; then
+      parked_row="${found%%:*}"
+      checklist_mark_line "$checklist" "$parked_row" "~"
+    fi
     ( log_append "$issue_dir" "resume" "issue resumed" ) 2>/dev/null || true
   fi
 

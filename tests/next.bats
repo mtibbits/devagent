@@ -286,3 +286,47 @@ CL
   grep -q 'active_project = "other"' "$DA_HOME/state/_active.toml"
 }
 
+
+@test "next STUCK hint names a command that actually clears the row (#587)" {
+  # The fixture carries a ## Log section: unstuck.sh log_append requires one.
+  f="$DEVDOC/Issue-676/checklist.md"
+  cat > "$f" <<'EOC'
+- [x]  0. pull
+- [x]  2. draft
+- [ ]  4. scope
+
+## Log
+
+## Revision 2
+
+- [x]  2. draft
+- [!]  4. scope
+EOC
+  echo "Reason: blocked" > "$DEVDOC/Issue-676/STUCK"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"/devagent:unstuck"* ]]
+  # Follow the hint, then assert the RECOVERED STATE, not the message.
+  run "$PLUGIN_ROOT/scripts/unstuck.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -f "$DEVDOC/Issue-676/STUCK" ]
+  # RELATIVE, not absolute. unstuck.sh's log_append inserts its entry at the END
+  # of the `## Log` section — BEFORE `## Revision 2` — so every row below shifts
+  # down by one (scripts/lib/log.sh). The heading shifts WITH them, so the
+  # OFFSET is invariant: heading, blank, `- [x]  2. draft`, `- [~]  4. scope`
+  # => the target row is rev2 + 3.
+  rev2="$(grep -n '^## Revision 2' "$f" | cut -d: -f1)"
+  [ -n "$rev2" ]
+  run grep -cE '^- \[~\][[:space:]]+4\. scope' "$f"
+  [ "$output" = "1" ]
+  hit="$(grep -nE '^- \[~\][[:space:]]+4\. scope' "$f" | cut -d: -f1)"
+  [ "$hit" -eq "$((rev2 + 3))" ]        # the ACTIVE block row, not rev-1's twin
+  run grep -cE '^- \[ \][[:space:]]+4\. scope' "$f"
+  [ "$output" = "1" ]                   # rev-1 copy untouched
+  run grep -cE '^- \[!\]' "$f"
+  [ "$output" = "0" ]
+  # next now proceeds instead of halting.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"STUCK"* ]]
+}
