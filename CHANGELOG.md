@@ -366,8 +366,8 @@ tag`) will get their own dated sections below.
   (`checklist_mark` refuses when the number's row name does not match the
   calling step), and command-doc handoffs mark by NAME, which is
   scheme-proof. Callers outside those two classes (e.g. `unstuck.sh`'s
-  file-wide `[!]` scan) are NOT guarded — fixed in #587, which marks the
-  located row by line — one more reason to migrate before resuming:
+  file-wide `[!]` scan) are NOT guarded (fixed in #587, which marks the
+  located row by line); migration is still recommended before resuming:
 
   ```bash
   bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-checklist-numbering.sh" --dry-run --all

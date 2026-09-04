@@ -369,7 +369,7 @@ checklist_step_name_at_line() {
   local file="$1" line="$2" content
   [[ -f "$file" ]] || die "checklist_step_name_at_line: no such file '$file'"
   [[ "$line" =~ ^[0-9]+$ ]] || die "checklist_step_name_at_line: bad line '$line'"
-  content="$(sed -n "${line}p" "$file")"
+  content="$(sed -n "${line}{p;q}" "$file")"
   if [[ "$content" =~ $_checklist_line_re ]]; then
     printf '%s\n' "${BASH_REMATCH[3]}"
     return 0
