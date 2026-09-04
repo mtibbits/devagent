@@ -29,12 +29,20 @@ potholes_fixture_setup() {
 }   # plain shell variables, exactly as the original setup() — no export
 
 use_workflow()   { export TEMPLATE_PATHS_OVERRIDE_potholes_workflow="$WF"; }
-# A committed project layer with two sections (one absent from the seed).
+potholes_lib()   { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }   # the lib under test, in the test shell
+# A committed project layer with two sections (one absent from the seed);
+# extra arguments are additional bullets under the first section.
 seed_project_layer() {
     mkdir -p "$DEVDOC_DIR/templates"
     printf '%s\n' '# Pothole register (project)' '' \
-        '## Docs / edit-neighborhood hygiene' '- a project line (Issue-9).' '' \
+        '## Docs / edit-neighborhood hygiene' '- a project line (Issue-9).' "$@" '' \
         '## Project-only heading' '- p (Issue-10).' > "$PROJ_REG"
     ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m proj )
+}
+# Append a committed Retired section holding one retired line to the project layer.
+RETIRED_LINE='- [x] r — mechanised by y (Issue-9; Issue-2).'
+seed_retired_line() {
+    printf '%s\n' '' '## Retired (mechanised)' "$RETIRED_LINE" >> "$PROJ_REG"
+    ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m retired )
 }
 devdoc_commit() { ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m "$1" ); }

@@ -81,15 +81,18 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
 @test "seed: no section exceeds POTHOLES_SECTION_CAP (gated: skipped until the seed is curated by the distribute issue)" {
   _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — the distribute capture owns consolidating the backlog"
   _lib
-  run awk -v cap="$POTHOLES_SECTION_CAP" '/^## /{s=$0} /^- /{c[s]++} END{for(k in c) if (c[k]>cap) {print c[k], k; bad=1}; exit bad}' "$SEED"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  over=(); while read -r h; do
+    n="$(potholes_section_count "$SEED" "$h")"; [ "$n" -le "$POTHOLES_SECTION_CAP" ] || over+=("$n $h")
+  done < <(grep '^## ' "$SEED")
+  [ "${#over[@]}" -eq 0 ] || { printf '%s\n' "${over[@]}" >&2; false; }
 }
 
 @test "gate condition is still true for the cap row: seed uncurated AND at least one section is over the cap today (flip both when distribute lands)" {
   run _curated
   [ "$status" -ne 0 ]
   _lib
-  run awk -v cap="$POTHOLES_SECTION_CAP" '/^## /{s=$0} /^- /{c[s]++} END{for(k in c) if (c[k]>cap) bad=1; exit bad}' "$SEED"
-  [ "$status" -eq 1 ]                                     # the gated row WOULD fail today — it is not vacuous
+  over=0; while read -r h; do
+    [ "$(potholes_section_count "$SEED" "$h")" -le "$POTHOLES_SECTION_CAP" ] || over=1
+  done < <(grep '^## ' "$SEED")
+  [ "$over" -eq 1 ]                                       # the gated row WOULD fail today — it is not vacuous
 }

@@ -42,7 +42,9 @@ fi
 # and its probe share one predicate, Issue-585). Two unions: the READ union
 # (potholes_show_union) EXCLUDES each layer's Retired section; the CHECK union
 # (potholes_cited_union) reads the layer FILES, Retired included.
-POTHOLES_TOK_RE='([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+'
+POTHOLES_PROJ_RE='[A-Za-z0-9_-]+'
+POTHOLES_ISSUE_RE='Issue-[A-Za-z0-9-]+'
+POTHOLES_TOK_RE="(${POTHOLES_PROJ_RE} )?${POTHOLES_ISSUE_RE}"
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
 POTHOLES_CITE_TAIL_RE=" *\\(${POTHOLES_TOK_RE}(; ${POTHOLES_TOK_RE})*\\)\\.\$"
 POTHOLES_RETIRED_HEADING='## Retired (mechanised)'   # written only by --retire; excluded from the READ union
@@ -84,34 +86,48 @@ potholes_cite_re() {   # <project> <issue_id> <layer> — the own token may sit 
 }
 
 # potholes_cite_tokens <line> — the tokens of a line's citation, one per line;
-# rc 1 when the line does not end in a well-formed tail.
+# rc 1 when the line does not end in a well-formed tail. potholes_cite_join is
+# its inverse (tokens on stdin → the "; "-joined list), so no caller re-spells
+# the separator.
 potholes_cite_tokens() {
   local t
   printf '%s' "$1" | grep -qE -- "$POTHOLES_CITE_TAIL_RE" || return 1
   t="${1##*(}"; t="${t%).}"            # tokens carry no '(' so the LAST '(' opens the citation
   printf '%s\n' "$t" | sed 's/; /\n/g'
 }
+potholes_cite_join() { paste -sd ';' | sed 's/;/; /g'; }
+
+# potholes_own_token <project> <issue_id> <layer> — the calling issue's token in
+# the layer's form (workflow: project-qualified; any other layer: bare).
+potholes_own_token() { case "$3" in workflow) printf '%s %s' "$1" "$2" ;; *) printf '%s' "$2" ;; esac; }
 
 # potholes_line_cite_ok <project> <issue_id> <layer> <line> — every token is in
 # the LAYER's form and the caller's own token is present (case-insensitive).
 # Reason on stderr, rc 1. Any layer other than workflow takes the bare form.
 potholes_line_cite_ok() {
-  local project="$1" issue_id="$2" layer="$3" line="$4" toks t own=0 want lt lw
+  local project="$1" issue_id="$2" layer="$3" line="$4" toks t own=0 want form
   toks="$(potholes_cite_tokens "$line")" \
     || { echo "line must end with a citation '(<tok>[; <tok>]*).': $line" >&2; return 1; }
-  case "$layer" in workflow) want="$project $issue_id" ;; *) want="$issue_id" ;; esac
-  lw="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
+  want="$(potholes_own_token "$project" "$issue_id" "$layer")"
+  case "$layer" in workflow) form="^${POTHOLES_PROJ_RE} ${POTHOLES_ISSUE_RE}\$" ;; *) form="^${POTHOLES_ISSUE_RE}\$" ;; esac
   while IFS= read -r t; do
-    case "$layer" in
-      workflow) printf '%s' "$t" | grep -qE '^[A-Za-z0-9_-]+ Issue-[A-Za-z0-9-]+$' \
-                  || { echo "workflow-layer token '$t' must be '<project> Issue-N' — the shared register cites the project" >&2; return 1; } ;;
-      *)        printf '%s' "$t" | grep -qE '^Issue-[A-Za-z0-9-]+$' \
-                  || { echo "project-layer token '$t' must be bare 'Issue-N'" >&2; return 1; } ;;
-    esac
-    lt="$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]')"
-    [ "$lt" = "$lw" ] && own=1
+    if ! [[ "$t" =~ $form ]]; then
+      case "$layer" in
+        workflow) echo "workflow-layer token '$t' must be '<project> Issue-N' — the shared register cites the project" >&2 ;;
+        *)        echo "project-layer token '$t' must be bare 'Issue-N'" >&2 ;;
+      esac
+      return 1
+    fi
+    [ "${t,,}" = "${want,,}" ] && own=1
   done <<< "$toks"
   [ "$own" -eq 1 ] || { echo "citation lacks this issue's own token '$want': $line" >&2; return 1; }
+}
+
+# potholes_section_count <file> <heading> — bullets under that heading; 0 for an
+# absent file. Shared by --add's warn-cap and the seed-cap canary.
+potholes_section_count() {
+  [ -f "$1" ] || { echo 0; return; }
+  S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
 }
 
 potholes_seed_path() { printf '%s\n' "$(template_plugin_dir)/potholes.md"; }
@@ -192,25 +208,24 @@ potholes_cited_union() {
 # ONLY when >1 layer is present (rc 1 and no output otherwise, so template_show
 # falls back to the single-layer form — byte-identical to pre-#611 output).
 # Bullets are deduped by their citation-STRIPPED text (the whole multi-token
-# suffix): the seed cites (Issue-N) where the workflow layer cites
-# (<project> Issue-N; …) for the same lesson. Each layer's Retired section
-# (#612) is skipped: this is the READ union — retired lines stop costing reads.
-# The awk literal re-spells POTHOLES_CITE_TAIL_RE (awk cannot take the anchored
-# ERE from ENVIRON portably); tests/promote-potholes-ops.bats pins the pair.
+# suffix, POTHOLES_CITE_TAIL_RE as a dynamic awk regex): the seed cites (Issue-N)
+# where the workflow layer cites (<project> Issue-N; …) for the same lesson.
+# Each layer's Retired section (#612) is skipped: this is the READ union —
+# retired lines stop costing reads.
 potholes_show_union() {
   local project="$1"
   local -a layers paths
   _potholes_layers_into "$project" layers paths
   [ "${#paths[@]}" -gt 1 ] || return 1
   printf '# === template potholes (layers=%s) ===\n' "$(IFS=,; printf '%s' "${layers[*]}")"
-  LAYERS="${layers[*]}" RH="$POTHOLES_RETIRED_HEADING" awk '
+  LAYERS="${layers[*]}" RH="$POTHOLES_RETIRED_HEADING" RE="$POTHOLES_CITE_TAIL_RE" awk '
     BEGIN { split(ENVIRON["LAYERS"], L, " ") }
     FNR == 1 { i++; skip = 0; if (i > 1) print ""; printf "# layer: %s\n# source: %s\n\n", L[i], FILENAME }
     /^## / { skip = ($0 == ENVIRON["RH"]) }
     skip { next }
     /^- / {
       k = $0
-      sub(/ *\(([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+(; ([A-Za-z0-9_-]+ )?Issue-[A-Za-z0-9-]+)*\)\.$/, "", k)
+      sub(ENVIRON["RE"], "", k)
       if (k in seen) next
       seen[k] = 1
     }

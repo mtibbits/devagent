@@ -10,13 +10,7 @@ teardown() { devagent_test_teardown; }
 # A committed project layer holding a line with every shell-special character
 # an exact-line op must survive.
 SPECIAL='- a line with (parens) [brackets] *stars* $dollar and \back (Issue-9).'
-seed_special_layer() {
-    mkdir -p "$DEVDOC_DIR/templates"
-    printf '%s\n' '# Pothole register (project)' '' \
-        '## Docs / edit-neighborhood hygiene' "$SPECIAL" '- plain (Issue-11).' '' \
-        '## Project-only heading' '- p (Issue-10).' > "$PROJ_REG"
-    ( cd "$DEVDOC_REPO" && git add -A && git commit -q -m proj )
-}
+seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
 
 # --- floor -------------------------------------------------------------------
 
@@ -27,10 +21,9 @@ seed_special_layer() {
 }
 
 # --- grammar (lib) --------------------------------------------------------------
-_lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 
 @test "grammar: potholes_cite_tokens splits a multi-token tail; rejects a bad tail" {
-    _lib
+    potholes_lib
     run potholes_cite_tokens '- x (devagent Issue-541; lawFirm Issue-9).'
     [ "$status" -eq 0 ]
     [ "$output" = $'devagent Issue-541\nlawFirm Issue-9' ]
@@ -41,7 +34,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 }
 
 @test "grammar: potholes_line_cite_ok — every token in the layer's form AND the own token present" {
-    _lib
+    potholes_lib
     run potholes_line_cite_ok testproj Issue-1 workflow '- x (lawFirm Issue-9; testproj Issue-1).'
     [ "$status" -eq 0 ]                                                        # own token not first: fine
     run potholes_line_cite_ok testproj Issue-1 workflow '- x (Issue-9; testproj Issue-1).'
@@ -57,7 +50,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 }
 
 @test "grammar: potholes_cite_re matches the own token anywhere in a multi-token list, never as a prefix" {
-    _lib
+    potholes_lib
     re="$(potholes_cite_re testproj Issue-1 workflow)"
     printf '%s\n' '- x (lawFirm Issue-9; testproj Issue-1).' | grep -qE -- "$re"
     printf '%s\n' '- x (testproj Issue-1; lawFirm Issue-9).' | grep -qE -- "$re"
@@ -78,7 +71,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 }
 
 @test "grammar: POTHOLES_SECTION_CAP is defined once in the lib; neither the script nor the skill retypes the number" {
-    _lib
+    potholes_lib
     [ "$POTHOLES_SECTION_CAP" -eq 25 ]
     [ "$(grep -c '^POTHOLES_SECTION_CAP=' "$DEVAGENT_ROOT/scripts/lib/potholes.sh")" -eq 1 ]
     run grep -nE '(^|[^0-9])25([^0-9]|$)' "$DEVAGENT_ROOT/scripts/promote-potholes.sh"
@@ -97,7 +90,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
     [[ "$output" != *"a retired line"* ]]
     [[ "$output" != *"## Retired (mechanised)"* ]]
     [[ "$output" == *"- a project line (Issue-9)."* ]]                         # active lines still shown
-    _lib
+    potholes_lib
     run potholes_union_headings "$TEST_PROJECT"
     [[ "$output" != *"Retired"* ]]
     potholes_cited_union "$TEST_PROJECT" Issue-1                               # the CHECK union reads the FILE
@@ -136,7 +129,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 
 @test "--add refuses the Retired section as a target" {
     seed_project_layer
-    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    seed_retired_line
     run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Retired (mechanised)" "- x (Issue-1)."
     [ "$status" -eq 1 ]; [[ "$output" == *"Retired"* ]]
     [ ! -e "$ID/potholes-promotion.md" ]
@@ -279,8 +272,8 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 
 @test "--retire refuses a target that lives only in the Retired section (cannot retire twice)" {
     seed_project_layer
-    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
-    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project '- [x] r — mechanised by y (Issue-9; Issue-2).' m
+    seed_retired_line
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "$RETIRED_LINE" m
     [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
 }
 
@@ -301,8 +294,8 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 
 @test "--amend cannot rewrite a Retired line back into an active shape" {
     seed_project_layer
-    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
-    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project '- [x] r — mechanised by y (Issue-9; Issue-2).' '- r again (Issue-9; Issue-2; Issue-1).'
+    seed_retired_line
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "$RETIRED_LINE" '- r again (Issue-9; Issue-2; Issue-1).'
     [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
 }
 
@@ -388,7 +381,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"; }
 
 @test "--apply: stale amend (old and new both absent) DEFERs naming the two closes; multi-hit DEFERs; a heading or Retired-region target DEFERs" {
     seed_project_layer
-    printf '%s\n' '' '## Retired (mechanised)' '- [x] r — mechanised by y (Issue-9; Issue-2).' >> "$PROJ_REG"; devdoc_commit r
+    seed_retired_line
     printf '%s\n' '# Pothole promotion — Issue-1' 'status: pending' '' \
         '## Docs / edit-neighborhood hygiene' 'layer: project' 'op: amend' 'old: - gone (Issue-3).' 'new: - gone2 (Issue-3; Issue-1).' > "$ID/potholes-promotion.md"
     run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 3 ]; [[ "$output" == *"STALE"*"--drop"*"by-hand"* ]]

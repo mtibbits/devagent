@@ -133,74 +133,117 @@ _layer_target() {
         *)        die "$MODE: unknown layer '$1' (project|workflow)" ;;
     esac
 }
-_own_tok() { case "$1" in workflow) printf '%s %s' "$project" "$issue_id" ;; *) printf '%s' "$issue_id" ;; esac; }
-# _normalise_own_token <layer> <line> — the own token in the config spelling (case-insensitive match).
+# _normalise_own_token <layer> <line> — the own token in the config spelling:
+# split → map the case-insensitive match → join (no separator regex here).
 _normalise_own_token() {
-    [ "$1" = workflow ] || { printf '%s\n' "$2"; return; }
-    printf '%s\n' "$2" | sed -E "s/(\(|; )${project} ${issue_id}(;|\))/\1${project} ${issue_id}\2/I"
+    local want toks t out=""
+    want="$(potholes_own_token "$project" "$issue_id" "$1")"
+    toks="$(potholes_cite_tokens "$2")" || { printf '%s\n' "$2"; return; }   # a bad tail is _rails' finding, not ours
+    while IFS= read -r t; do
+        [ "${t,,}" = "${want,,}" ] && t="$want"
+        out="${out}${t}"$'\n'
+    done <<< "$toks"
+    printf '%s (%s).\n' "$(_body "$2")" "$(printf '%s' "$out" | potholes_cite_join)"
+}
+# _bullet_shape <line> — single line, '- ' prefix. Owned here, called by every
+# rail and every old-line check (one predicate, Issue-585). Reason on stderr, rc 1.
+_bullet_shape() {
+    case "$1" in *$'\n'*) warn "$MODE: the line must be a SINGLE line"; return 1 ;; esac
+    case "$1" in "- "*) ;; *) warn "$MODE: the line must be a bullet starting with '- ' — a heading is not a legal target: $1"; return 1 ;; esac
+}
+# Optional operator noun list, read ONCE per process (a python3 spawn per read).
+_NOUNS_LOADED=0; _NOUNS=""; _NOUNS_RC=0
+_nouns() {
+    [ "$_NOUNS_LOADED" -eq 1 ] && return 0
+    _NOUNS="$(config_get_project_list "$project" paths.potholes_domain_nouns 2>/dev/null)" || _NOUNS_RC=$?
+    _NOUNS_LOADED=1
 }
 # _rails <layer> <line> — every per-line rail, shared by --add, the retire result
-# and the amend replacement (one predicate for every op, Issue-585). Reason on
-# stderr, rc 1 — the caller decides die (staging) vs DEFER (--apply).
+# and the amend replacement, at staging AND at --apply. Reason on stderr, rc 1 —
+# the caller decides die (staging) vs DEFER (--apply).
 _rails() {
-    local layer="$1" line="$2" body hit nouns nouns_rc
-    case "$line" in *$'\n'*) warn "$MODE: the line must be a SINGLE line"; return 1 ;; esac
-    case "$line" in "- "*) ;; *) warn "$MODE: the line must start with '- ': $line"; return 1 ;; esac
+    local layer="$1" line="$2" body hit
+    _bullet_shape "$line" || return 1
     potholes_line_cite_ok "$project" "$issue_id" "$layer" "$line" || { warn "$MODE: citation rail failed for the $layer layer"; return 1; }
-    body="$(_body "$line")"
     if [ "$layer" = workflow ]; then
+        body="$(_body "$line")"
         if printf '%s' "$body" | grep -qiF -- "$project"; then
             warn "$MODE: the line names the project ('$project') in its body — the workflow register is shared; strip the noun or use --layer project"; return 1
         fi
-        # Optional operator noun list: fixed-string, word-bounded, case-insensitive.
-        # rc 3 (wrong type) refuses; rc 1 (absent) is the common case.
-        nouns_rc=0; nouns="$(config_get_project_list "$project" paths.potholes_domain_nouns 2>/dev/null)" || nouns_rc=$?
-        [ "$nouns_rc" -ne 3 ] || { warn "$MODE: [project.$project.paths] potholes_domain_nouns must be an array of strings"; return 1; }
-        if [ "$nouns_rc" -eq 0 ] && [ -n "$nouns" ]; then
-            hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$nouns") | head -1 || true)"
+        _nouns   # rc 3 (wrong type) refuses; rc 1 (absent) is the common case
+        [ "$_NOUNS_RC" -ne 3 ] || { warn "$MODE: [project.$project.paths] potholes_domain_nouns must be an array of strings"; return 1; }
+        if [ "$_NOUNS_RC" -eq 0 ] && [ -n "$_NOUNS" ]; then
+            hit="$(printf '%s\n' "$body" | grep -iowF -f <(printf '%s\n' "$_NOUNS") | head -1 || true)"
             [ -z "$hit" ] || { warn "$MODE: the body matches paths.potholes_domain_nouns ('$hit') — domain content belongs in --layer project"; return 1; }
         fi
     fi
 }
-_section_count() {   # <file> <heading> — bullets under that heading; 0 for an absent file
-    [ -f "$1" ] || { echo 0; return; }
-    S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
+# _op_shape_ok <kind> <old> <arg2> — the per-op argument rules, shared by the
+# staging modes and _validate_op so a hand-edited block obeys what --retire /
+# --amend enforced: the old line is a bullet; a retire mechanism carries neither
+# ')' nor 'Issue-' (DEFENSIVE — the strippers anchor on the line end and are
+# exercised against a body carrying '(' ')' '[' '*' '$' '\\'; the ban keeps a
+# retired line to exactly one citation-shaped tail for ad-hoc audits); an amend
+# keeps every old token (an amend is a citation). Reason on stderr, rc 1.
+_op_shape_ok() {
+    local kind="$1" old="$2" b="$3" ot nt t
+    _bullet_shape "$old" || return 1
+    case "$kind" in
+    retire)
+        case "$b" in *")"*) warn "$MODE: <mechanism> may not contain ')' — a retired line must carry exactly one citation-shaped tail: $b"; return 1 ;; esac
+        case "$b" in *Issue-*) warn "$MODE: <mechanism> may not contain the substring 'Issue-': $b"; return 1 ;; esac ;;
+    amend)
+        ot="$(potholes_cite_tokens "$old")" || { warn "$MODE: <old-line> has no well-formed citation: $old"; return 1; }
+        nt="$(potholes_cite_tokens "$b")"   || { warn "$MODE: <new-line> has no well-formed citation: $b"; return 1; }
+        while IFS= read -r t; do
+            printf '%s\n' "$nt" | grep -qixF -- "$t" || { warn "$MODE: <new-line> drops the old line's token '$t' — an amend is a citation, keep every member's token"; return 1; }
+        done <<< "$ot" ;;
+    esac
 }
-# Exact whole-line operations, scoped to the ACTIVE region: under a '## '
-# heading that is not the Retired heading. A bullet ABOVE the first heading (a
-# bootstrapped skeleton's preamble, a hand edit) belongs to no section — neither
-# a hit nor a legal target. Values travel via ENVIRON — never -v, never a regex
-# (a line may carry '(' '[' '*' '$' '\\').
-_hits() {        # <file> <line> → count
-    [ -f "$1" ] || { echo 0; return; }
-    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]{c++} END{print c+0}' "$1"
+# Exact whole-line operations over the ACTIVE region — under a '## ' heading
+# that is not the Retired heading; a bullet ABOVE the first heading (a
+# bootstrapped skeleton's preamble, a hand edit) belongs to no section and is
+# neither a hit nor a legal target. ONE awk program, mode-switched, so the
+# region predicate is spelled once. Values travel via ENVIRON — never -v, never
+# a regex (a line may carry '(' '[' '*' '$' '\\').
+#   count | section | in_retired            → stdout / rc, file untouched
+#   delete | replace <new>                  → rewrite the file in place
+_region_awk() {   # <mode> <file> <line> [<new>]
+    local mode="$1" f="$2" prog
+    case "$mode" in
+        count)      [ -f "$f" ] || { echo 0; return; } ;;
+        in_retired) [ -f "$f" ] || return 1 ;;
+    esac
+    # shellcheck disable=SC2016  # an awk program, not shell
+    prog='
+      BEGIN { sec = ""; m = ENVIRON["MODE_"]; c = 0; f = 0 }
+      /^## / { sec = $0 }
+      { active = (sec != "" && sec != ENVIRON["RH"]); hit = (active && $0 == ENVIRON["L"]) }
+      m == "count"      { if (hit) c++; next }
+      m == "section"    { if (hit) { print sec; exit }; next }
+      m == "in_retired" { if (sec == ENVIRON["RH"] && $0 == ENVIRON["L"]) f = 1; next }
+      m == "delete"     { if (!hit) print; next }
+      m == "replace"    { if (hit) print ENVIRON["N"]; else print; next }
+      END { if (m == "count") print c; if (m == "in_retired") exit !f }'
+    case "$mode" in
+        delete|replace)   # rewrite in place; the read modes never touch the tree beside a real register
+            MODE_="$mode" RH="$POTHOLES_RETIRED_HEADING" L="$3" N="${4:-}" awk "$prog" "$f" > "$f.2" \
+                && mv "$f.2" "$f" || { rm -f "$f.2"; return 1; } ;;
+        *)  MODE_="$mode" RH="$POTHOLES_RETIRED_HEADING" L="$3" awk "$prog" "$f" ;;
+    esac
 }
-_section_of() {  # <file> <line> → the heading of the first active hit (never empty when _hits >= 1)
-    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]{print sec; exit}' "$1"
-}
-_in_retired() {  # <file> <line> → rc 0 iff the exact line is under the Retired heading
-    [ -f "$1" ] || return 1
-    RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} sec==ENVIRON["RH"] && $0==ENVIRON["L"]{f=1} END{exit !f}' "$1"
-}
+_hits()         { _region_awk count      "$1" "$2"; }
+_section_of()   { _region_awk section    "$1" "$2"; }
+_in_retired()   { _region_awk in_retired "$1" "$2" >/dev/null; }
+_delete_line()  { _region_awk delete     "$1" "$2"; }
+_replace_line() { _region_awk replace    "$1" "$2" "$3"; }
 _retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retired line
-    local sec="${1#\#\# }" body toks own joined
+    local sec="${1#\#\# }" body toks own
     body="$(_body "$2")"; body="${body#- }"
-    own="$(_own_tok "$4")"
+    own="$(potholes_own_token "$project" "$issue_id" "$4")"
     toks="$(potholes_cite_tokens "$2")"
-    joined="$(printf '%s\n' "$toks" | paste -sd ';' | sed 's/;/; /g')"
-    if printf '%s\n' "$toks" | grep -qixF -- "$own"; then
-        printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$joined"
-    else
-        printf -- '- [%s] %s — mechanised by %s (%s; %s).' "$sec" "$body" "$3" "$joined" "$own"
-    fi
-}
-_amend_tokens_ok() { # <old> <new> — the new line keeps every old token
-    local ot nt t
-    ot="$(potholes_cite_tokens "$1")" || { warn "$MODE: <old-line> has no well-formed citation: $1"; return 1; }
-    nt="$(potholes_cite_tokens "$2")" || { warn "$MODE: <new-line> has no well-formed citation: $2"; return 1; }
-    while IFS= read -r t; do
-        printf '%s\n' "$nt" | grep -qixF -- "$t" || { warn "$MODE: <new-line> drops the old line's token '$t' — an amend is a citation, keep every member's token"; return 1; }
-    done <<< "$ot"
+    printf '%s\n' "$toks" | grep -qixF -- "$own" || toks="${toks}"$'\n'"$own"
+    printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$(printf '%s\n' "$toks" | potholes_cite_join)"
 }
 _stage_init() {
     [ -f "$stage" ] && return 0
@@ -310,7 +353,7 @@ case "${1:-}" in
         [ -n "$_wr" ] && [ "$_wr" = "$_dr" ] \
             || warn "--add: the workflow register $wf is not inside the git repo holding devdoc_dir ($devdoc_dir) — the containment rail will DEFER (rc 3) at cleanup"
     fi
-    cnt="$(_section_count "$target" "## $section")"
+    cnt="$(potholes_section_count "$target" "## $section")"
     [ "$cnt" -lt "$POTHOLES_SECTION_CAP" ] \
         || warn "--add: section '## $section' of the $layer layer file $target already holds $cnt bullets (cap $POTHOLES_SECTION_CAP) — consolidate before adding (core-lessons-learned 7b); staging anyway, --apply never refuses a full section"
     { echo; echo "## $section"; echo "layer: $layer"; echo "op: add"; echo "$line"; } >> "$stage"
@@ -324,8 +367,8 @@ case "${1:-}" in
     old="${1:-}"; arg2="${2:-}"
     [ -n "$old" ] && [ -n "$arg2" ] || usage
     _layer_target "$layer"; target="$TARGET"
-    case "$old$arg2" in *$'\n'*) die "$MODE: <old-line> and its argument must be SINGLE lines" ;; esac
-    case "$old" in "- "*) ;; *) die "$MODE: <old-line> must be a bullet starting with '- ' — a heading is not a legal target: $old" ;; esac
+    case "$arg2" in *$'\n'*) die "$MODE: the second argument must be a SINGLE line" ;; esac
+    _bullet_shape "$old" || die "$MODE: <old-line> refused (see above)"
     n="$(_hits "$target" "$old")"
     if [ "$n" -eq 0 ]; then
         grep -qxF -- "$old" "$seed" \
@@ -336,30 +379,20 @@ case "${1:-}" in
     section="$(_section_of "$target" "$old")"
     [ -n "$section" ] || die "$MODE: <old-line> sits above the first '## ' heading of $target — not in any section, not a legal target"
     if [ "$MODE" = --retire ]; then
-        mech="$arg2"
-        # The ')' / 'Issue-' ban is the issue's contract. It is DEFENSIVE, not
-        # load-bearing for the strippers (all three anchor on the line END and
-        # are exercised against a body carrying '(' ')' '[' '*' '$' '\\'): it keeps
-        # ad-hoc audits (`grep -c 'Issue-N)'`) and a reader's eye from finding a
-        # second citation-shaped thing on a retired line. --amend's <new-line> is
-        # a whole line under the end-rule and needs no such ban.
-        case "$mech" in *")"*) die "--retire: <mechanism> may not contain ')' — a retired line must carry exactly one citation-shaped tail: $mech" ;; esac
-        case "$mech" in *Issue-*) die "--retire: <mechanism> may not contain the substring 'Issue-': $mech" ;; esac
-        result="$(_retire_result "$section" "$old" "$mech" "$layer")"
+        kind=retire; key=mechanism; val="$arg2"
+        _op_shape_ok retire "$old" "$val" || die "--retire: refused (see above)"
+        result="$(_retire_result "$section" "$old" "$val" "$layer")"
         _rails "$layer" "$result" || die "--retire: the retired line fails a rail (see above): $result"
-        _stage_init
-        grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
-        { echo; echo "$section"; echo "layer: $layer"; echo "op: retire"; echo "old: $old"; echo "mechanism: $mech"; } >> "$stage"
-        info "staged retire for $issue_id ($layer layer): $old → $result"
     else
-        new="$(_normalise_own_token "$layer" "$arg2")"
-        _rails "$layer" "$new" || die "--amend: <new-line> refused (see above)"
-        _amend_tokens_ok "$old" "$new" || die "--amend: refused (see above)"
-        _stage_init
-        grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
-        { echo; echo "$section"; echo "layer: $layer"; echo "op: amend"; echo "old: $old"; echo "new: $new"; } >> "$stage"
-        info "staged amend for $issue_id ($layer layer): $old → $new"
+        kind=amend; key=new; val="$(_normalise_own_token "$layer" "$arg2")"
+        _rails "$layer" "$val" || die "--amend: <new-line> refused (see above)"
+        _op_shape_ok amend "$old" "$val" || die "--amend: refused (see above)"
+        result="$val"
     fi
+    _stage_init
+    grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
+    { echo; echo "$section"; echo "layer: $layer"; echo "op: $kind"; echo "old: $old"; echo "$key: $val"; } >> "$stage"
+    info "staged $kind for $issue_id ($layer layer): $old → $result"
     [ "$(_commit_devdoc_raw)" = true ] \
         || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3); the staged op is kept"
     ;;
@@ -415,8 +448,8 @@ case "${1:-}" in
     # second layer never strands a half-drained run. Locks are taken here and
     # released by the EXIT trap — a die can never leak one.
     LOCKS=()
-    tmp="$(mktemp "${TMPDIR:-/tmp}/potholes.XXXXXX")"
-    _release() { local L; for L in "${LOCKS[@]}"; do rmdir "$L" 2>/dev/null || true; done; rm -f "$tmp" "$tmp".*; }
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/potholes.XXXXXX")"    # one temp copy per layer lives here
+    _release() { local L; for L in "${LOCKS[@]}"; do rmdir "$L" 2>/dev/null || true; done; rm -rf "$tmp"; }
     trap _release EXIT
     L_NAME=(); L_TARGET=(); L_REPO=(); L_REL=()
     for ly in workflow project; do
@@ -467,8 +500,6 @@ case "${1:-}" in
 
     # --- op engine (#612) ---------------------------------------------------------
     _defer() { warn "promote-potholes: $*"; warn "promote-potholes: $issue_id stays pending — nothing was written (rc 3)"; exit 3; }
-    _delete_line()  { RH="$POTHOLES_RETIRED_HEADING" L="$2" awk 'BEGIN{sec=""} /^## /{sec=$0} !(sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"])' "$1" > "$1.2" && mv "$1.2" "$1"; }
-    _replace_line() { RH="$POTHOLES_RETIRED_HEADING" L="$2" N="$3" awk 'BEGIN{sec=""} /^## /{sec=$0} { if (sec!="" && sec!=ENVIRON["RH"] && $0==ENVIRON["L"]) print ENVIRON["N"]; else print }' "$1" > "$1.2" && mv "$1.2" "$1"; }
     _append_in_section() {   # <file> <heading> <line> — at the END of the section; heading added at EOF if absent
         # A heading valid in the UNION but absent from THIS layer file is added at
         # the end (blank line first: never a bullet directly before a heading).
@@ -503,16 +534,15 @@ case "${1:-}" in
     _validate_op() {
         local j="$1" t="$2" kind="${OP_KIND[$1]}" sec="${OP_SEC[$1]}" a="${OP_A[$1]}" b="${OP_B[$1]}" ly="${OP_LAYER[$1]}" n m res q
         q="op $((j+1)) ($kind, $ly layer, '$sec')"
-        MODE=--apply
         case "$kind" in
         add)
             [ "$sec" != "$POTHOLES_RETIRED_HEADING" ] || _defer "$q: the Retired section is not a legal add target: $a"
-            grep -qxF -- "$a" "$t" && return 4
+            [ "$(_hits "$t" "$a")" -eq 0 ] || return 4
             _rails "$ly" "$a" || _defer "$q: rail failed: $a"
             _append_in_section "$t" "$sec" "$a" || _defer "$q: section '$sec' could not be appended to: $a"
             ;;
         retire)
-            case "$a" in "- "*) ;; *) _defer "$q: old line is not a bullet ('- '): $a" ;; esac
+            _op_shape_ok retire "$a" "$b" || _defer "$q: refused (see above): $a"
             res="$(_retire_result "$sec" "$a" "$b" "$ly")"
             n="$(_hits "$t" "$a")"
             if [ "$n" -eq 0 ]; then
@@ -525,7 +555,7 @@ case "${1:-}" in
             _append_in_section "$t" "$POTHOLES_RETIRED_HEADING" "$res" || _defer "$q: could not append to '$POTHOLES_RETIRED_HEADING': $res"
             ;;
         amend)
-            case "$a" in "- "*) ;; *) _defer "$q: old line is not a bullet ('- '): $a" ;; esac
+            _op_shape_ok amend "$a" "$b" || _defer "$q: refused (see above): $a"
             n="$(_hits "$t" "$a")"; m="$(_hits "$t" "$b")"
             if [ "$n" -eq 0 ] && [ "$m" -ge 1 ]; then return 4; fi
             [ "$n" -ge 1 ] || _defer "$q: STALE — neither the old nor the new line is present (another issue's consolidate consumed it first?): old: $a — close it with '--drop $((j+1))' (then reword the lessonslearned: log line if it counted this op), or land a line carrying this issue's token by hand and set 'status: applied by-hand <sha>'"
@@ -542,8 +572,9 @@ case "${1:-}" in
     # against temp copies; nothing is written until all pass. Locks are already
     # held (rail phase) and stay held through the last commit.
     declare -A CHANGED=() BOOT=()
+    MODE=--apply
     for i in "${!L_NAME[@]}"; do
-        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; t="$tmp.$ly"
+        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; t="$tmp/$ly"
         if [ -f "$target" ]; then cp "$target" "$t"; cp "$target" "$t.orig"; BOOT[$ly]=0
         else _skeleton "$ly" > "$t"; BOOT[$ly]=1; fi
         c=0
@@ -572,7 +603,7 @@ case "${1:-}" in
     # skeleton; an existing one gets its original bytes.
     shas=""
     for i in "${!L_NAME[@]}"; do
-        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; repo="${L_REPO[i]}"; rel="${L_REL[i]}"; t="$tmp.$ly"
+        ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; repo="${L_REPO[i]}"; rel="${L_REL[i]}"; t="$tmp/$ly"
         [ "${CHANGED[$ly]}" -gt 0 ] || continue                # this layer already carries every op's result
         cat "$t" > "$target"                                   # preserve mode/inode of an existing file
         if [ "${BOOT[$ly]}" -eq 1 ]; then
