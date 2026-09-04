@@ -19,20 +19,18 @@ file="${1:-}"
 awk '
   BEGIN { split("actionable reference norm pattern", v, " "); for (i in v) valid[v[i]]=1; bad=0
           boldlead="^-[ \t]+\\*\\*" }
-  # #525/#588: the ONE flat-entry opener shared by the tag rule and the flat-bullet
-  # rule below — flush the open entry (its no-tag check) and open a new entry on
-  # the current line. Both callers gate on the same column-0 predicate, boldlead,
-  # so the two rules cannot drift apart.
-  function flat_open() {
+  # Every entry opener and END run the same no-tag flush; the openers differ only
+  # in the prefix stripped from the recorded claim. flat_open is the ONE opener
+  # for column-0 bold-lead bullets (#525/#588): both flat rules call it and gate
+  # on the same predicate, boldlead, so they cannot drift apart.
+  function flush() {
     if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
-    in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^-[ \t]*/,"",etext)
   }
+  function open_entry(strip) { flush(); in_entry=1; tagged=0; eline=NR; etext=$0; sub(strip,"",etext) }
+  function flat_open() { open_entry("^-[ \t]*") }
   /<!--/ { incomment=1 }
   incomment { if ($0 ~ /-->/) incomment=0; next }
-  /^### / {
-    if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
-    in_entry=1; tagged=0; eline=NR; etext=$0; sub(/^### */,"",etext); seen_heading=1; next
-  }
+  /^### / { open_entry("^### *"); seen_heading=1; next }
   # A tag-bearing bullet: "- Tags: [..]", "- [tag] ..", "- [..]", or (#588) the
   # bold-lead "- **[tag] ..". The bracket must LEAD the bullet (after an optional
   # "**" and/or "Tags:") — intentionally STRICTER than reap.sh block 4 (which
@@ -77,7 +75,7 @@ awk '
     next
   }
   END {
-    if (in_entry && !tagged) { printf "  line %d: entry has no tag: %s\n", eline, etext; bad=1 }
+    flush()
     if (bad) { printf "lessons-lint: FAIL %s (off-taxonomy or untagged entries above)\n", FILENAME > "/dev/stderr"; exit 1 }
   }
 ' "$file"
