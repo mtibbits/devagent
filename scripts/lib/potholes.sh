@@ -43,13 +43,17 @@ fi
 # (potholes_show_union) EXCLUDES each layer's Retired section; the CHECK union
 # (potholes_cited_union) reads the layer FILES, Retired included.
 POTHOLES_PROJ_RE='[A-Za-z0-9_-]+'
-POTHOLES_ISSUE_RE='Issue-[A-Za-z0-9-]+'
+POTHOLES_ISSUE_RE='Issue-(Fork-)?[0-9]+'     # N's alphabet, stated ONCE (#613): [0-9]+ or Fork-[0-9]+ — the issue-dir id form
 POTHOLES_TOK_RE="(${POTHOLES_PROJ_RE} )?${POTHOLES_ISSUE_RE}"
 # shellcheck disable=SC2034  # consumed by scripts that source this lib (promote-potholes.sh _body)
 POTHOLES_CITE_TAIL_RE=" *\\(${POTHOLES_TOK_RE}(; ${POTHOLES_TOK_RE})*\\)\\.\$"
 POTHOLES_RETIRED_HEADING='## Retired (mechanised)'   # written only by --retire; excluded from the READ union
 # shellcheck disable=SC2034  # consumed by promote-potholes.sh (--add warn-cap) and tests/potholes-seed-canary.bats
 POTHOLES_SECTION_CAP=25                              # --add warns at >= this many bullets in the target LAYER FILE's section
+# shellcheck disable=SC2034  # consumed by tests/potholes-seed-canary.bats and the Issue-613 migration
+POTHOLES_SEED_TOTAL_CAP=100                          # the curated seed's hard bullet ceiling (#613)
+# Retired-line SHAPE — written by #612's _retire_result; #613's potholes_file_check polices WHERE it may sit.
+POTHOLES_RETIRED_LINE_RE='^- \[[^]]+\] .* — mechanised by '
 # _potholes_plugin_name <dir> — the "name" in <dir>/.claude-plugin/plugin.json, or "".
 _potholes_plugin_name() {
   [ -f "$1/.claude-plugin/plugin.json" ] || return 1
@@ -109,6 +113,26 @@ potholes_tokens_has() {
 # the layer's form (workflow: project-qualified; any other layer: bare).
 potholes_own_token() { case "$3" in workflow) printf '%s %s' "$1" "$2" ;; *) printf '%s' "$2" ;; esac; }
 
+# potholes_layer_form <layer> — the token FORM regex for a layer (workflow:
+# '<project> Issue-N'; any other layer: bare 'Issue-N'). ONE spelling, shared by
+# potholes_line_cite_ok (staging rails) and potholes_file_check (the file
+# contract, #613) — a guard and its probe share a predicate (Issue-585).
+potholes_layer_form() {
+  case "$1" in
+    workflow) printf '^%s %s$\n' "$POTHOLES_PROJ_RE" "$POTHOLES_ISSUE_RE" ;;
+    *)        printf '^%s$\n' "$POTHOLES_ISSUE_RE" ;;
+  esac
+}
+# potholes_token_form_reason <layer> <tok> — the diagnostic for a token outside
+# the layer's form; <tok> may be a printf '%s' placeholder (potholes_file_check
+# hands the format to awk's sprintf).
+potholes_token_form_reason() {
+  case "$1" in
+    workflow) printf "workflow-layer token '%s' must be '<project> Issue-N' — the shared register cites the project\n" "$2" ;;
+    *)        printf "%s-layer token '%s' must be bare 'Issue-N'\n" "$1" "$2" ;;
+  esac
+}
+
 # potholes_line_cite_ok <project> <issue_id> <layer> <line> — every token is in
 # the LAYER's form and the caller's own token is present (case-insensitive).
 # Reason on stderr, rc 1. Any layer other than workflow takes the bare form.
@@ -117,13 +141,10 @@ potholes_line_cite_ok() {
   toks="$(potholes_cite_tokens "$line")" \
     || { echo "line must end with a citation '(<tok>[; <tok>]*).': $line" >&2; return 1; }
   want="$(potholes_own_token "$project" "$issue_id" "$layer")"
-  case "$layer" in workflow) form="^${POTHOLES_PROJ_RE} ${POTHOLES_ISSUE_RE}\$" ;; *) form="^${POTHOLES_ISSUE_RE}\$" ;; esac
+  form="$(potholes_layer_form "$layer")"
   while IFS= read -r t; do
     if ! [[ "$t" =~ $form ]]; then
-      case "$layer" in
-        workflow) echo "workflow-layer token '$t' must be '<project> Issue-N' — the shared register cites the project" >&2 ;;
-        *)        echo "project-layer token '$t' must be bare 'Issue-N'" >&2 ;;
-      esac
+      potholes_token_form_reason "$layer" "$t" >&2
       return 1
     fi
     [ "${t,,}" = "${want,,}" ] && own=1
@@ -136,6 +157,78 @@ potholes_line_cite_ok() {
 potholes_section_count() {
   [ -f "$1" ] || { echo 0; return; }
   S="$2" awk '/^## /{in_=($0==ENVIRON["S"])} in_ && /^- /{c++} END{print c+0}' "$1"
+}
+
+# potholes_file_check <layer> <file> — the register FILE contract (#613): ONE
+# predicate for every writer and the suite. promote-potholes.sh --apply runs it on
+# each temp copy before writing (so a pre-existing violation DEFERs, line quoted);
+# the Issue-613 migration runs it on every file it writes; tests/potholes-
+# postcondition.bats pins it. Layer: seed | project (bare tokens) | workflow
+# (project-qualified tokens).
+#   1  no bullet immediately before a '## ' heading
+#   2  every '- ' line ends in the citation grammar (POTHOLES_CITE_TAIL_RE)
+#   3  every token of every citation is in the layer's form
+#   4  retired-shaped lines only under POTHOLES_RETIRED_HEADING, and only those there
+#   5  LF only — no CR byte anywhere
+# One "<file>:<line>: <reason>" per violation on stderr; rc 1 on any, 0 clean,
+# 2 unreadable / unknown layer (never "clean", Issue-316).
+potholes_file_check() {
+  local layer="$1" f="$2" form rf
+  [ -r "$f" ] || { echo "potholes_file_check: cannot read $f" >&2; return 2; }
+  case "$layer" in
+    seed|project|workflow) form="$(potholes_layer_form "$layer")"; rf="$(potholes_token_form_reason "$layer" '%s')" ;;
+    *) echo "potholes_file_check: unknown layer '$layer' (seed|project|workflow)" >&2; return 2 ;;
+  esac
+  # shellcheck disable=SC2016  # an awk program, not shell
+  LAYER="$layer" FORM="$form" RF="$rf" RH="$POTHOLES_RETIRED_HEADING" TAIL="$POTHOLES_CITE_TAIL_RE" \
+  RL="$POTHOLES_RETIRED_LINE_RE" F="$f" awk '
+    function bad(reason) { printf "%s:%d: %s\n", ENVIRON["F"], FNR, reason > "/dev/stderr"; rc = 1 }
+    BEGIN { rc = 0; prev = ""; retired = 0 }
+    /\r/   { bad("CR byte — register files are LF only") }
+    /^## / { if (prev ~ /^- /) bad("bullet immediately before a ## heading"); retired = ($0 == ENVIRON["RH"]) }
+    /^- /  {
+      if ($0 !~ ENVIRON["TAIL"]) bad("bullet does not end in the citation grammar (<tok>[; <tok>]*).")
+      else {
+        t = $0; sub(/^.*\(/, "", t); sub(/\)\.$/, "", t); n = split(t, toks, "; ")
+        for (i = 1; i <= n; i++) if (toks[i] !~ ENVIRON["FORM"]) bad(sprintf(ENVIRON["RF"], toks[i]))
+      }
+      isret = ($0 ~ ENVIRON["RL"])
+      if (isret && !retired) bad("retired-shaped line outside the Retired section")
+      if (!isret && retired) bad("non-retired line inside the Retired section")
+    }
+    { prev = $0 }
+    END { exit rc }' "$f"
+}
+
+# potholes_line_sha1 <line> — sha1 of the LF-normalised line (one trailing CR
+# stripped, no newline appended): the #613 ledger key. A CRLF and an LF copy of
+# one line hash alike, so a ledger row survives a line-ending accident.
+potholes_line_sha1() { printf '%s' "${1%$'\r'}" | sha1sum | cut -d' ' -f1; }
+
+# potholes_seed_sweep <file> [<word>…] — the #613 privacy sweep the curated seed
+# must pass: ONE predicate for the migration (which passes the operator's
+# usernames) and tests/potholes-seed-canary.bats (which passes $USER and the git
+# e-mail local part). Universe, DECLARED: a fork-tracker token (Issue-Fork-);
+# home paths (/home/, /Users/, ~/, /mnt/<drive>/) — drive forms like /c/ and c:/
+# are NOT in it (they are lesson content, not locations); URLs and
+# .local/.lan/.internal hosts; e-mail addresses; each <word> whole, case-
+# insensitively. Project NAMES are potholes_private_name_hits' business.
+# Prints "<line>: <kind>: <text>" per hit; rc 1 iff any; rc 2 when grep could
+# not run (never "clean", Issue-316).
+potholes_seed_sweep() {
+  local seed="$1"; shift
+  local -a kinds=(fork path host email) flags=(-E -E -E -E)
+  local -a pats=('Issue-Fork-' '(^|[^A-Za-z0-9_])(/home/|/Users/|~/|/mnt/[a-z]/)'
+                 '([a-z]+://|[A-Za-z0-9-]+\.(local|lan|internal)\b)' '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
+  local w i out grc rc=0
+  [ -r "$seed" ] || { echo "potholes_seed_sweep: cannot read $seed" >&2; return 2; }
+  for w in "$@"; do [ -n "$w" ] && { kinds+=("word:$w"); flags+=(-iwF); pats+=("$w"); }; done
+  for i in "${!kinds[@]}"; do
+    grc=0; out="$(grep -n "${flags[i]}" -- "${pats[i]}" "$seed")" || grc=$?
+    [ "$grc" -le 1 ] || { echo "potholes_seed_sweep: grep rc $grc on $seed" >&2; return 2; }
+    [ -z "$out" ] || { printf '%s\n' "$out" | sed "s/^\([0-9]*\):/\1: ${kinds[i]//\//\\/}: /"; rc=1; }
+  done
+  return $rc
 }
 
 potholes_seed_path() { printf '%s\n' "$(template_plugin_dir)/potholes.md"; }
