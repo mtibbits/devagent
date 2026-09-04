@@ -433,7 +433,7 @@ case "${1:-}" in
     n="$(_hits "$target" "$old")"
     if [ "$n" -eq 0 ]; then
         grep -qxF -- "$old" "$seed" \
-            && die "$MODE: seed line — land via the distribute issue (the plugin seed is never edited by an op; record the candidate as an [actionable] lesson for that issue): $old"
+            && die "$MODE: seed line — the plugin seed is a curated excerpt edited only by a seed-curation PR (#613 ledger); it is never the target of an op: record the candidate as an [actionable] lesson: $old"
         die "$MODE: <old-line> not found outside '$POTHOLES_RETIRED_HEADING' in the $layer layer $target: $old"
     fi
     [ "$n" -eq 1 ] || die "$MODE: <old-line> occurs $n times in $target — it must occur exactly once: $old"

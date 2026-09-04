@@ -12,6 +12,21 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The plugin seed `templates/potholes.md` is a curated public excerpt (#613).**
+  The 340-bullet register moved into the private devDoc layers once, every line
+  routed by its citation and recorded in `<devDoc>/templates/potholes-migration-ledger.tsv`
+  (`kept | merged-into F<n> | retired <mechanism>`); the seed keeps ≤ 100
+  bullets (≤ 25 per section), bare `(Issue-N)` devagent citations only, every
+  section heading, and a line-1 `<!-- curated: ledger <sha> -->` marker that
+  turns the gated rows of `tests/potholes-seed-canary.bats` live (private
+  names, section cap, total cap, privacy sweep, file contract, headings). The
+  register FILE contract is one lib predicate, `potholes_file_check`, which
+  `promote-potholes.sh --apply` runs over the whole temp copy (a pre-existing
+  violation in a layer file DEFERs the drain naming `<file>:<line>`), beside
+  `potholes_line_sha1` and `potholes_seed_sweep`; `POTHOLES_ISSUE_RE` is
+  tightened to `Issue-(Fork-)?[0-9]+`. `--retire`/`--amend` still refuse a seed
+  line, now naming the seed-curation PR path.
+
 - **unstuck/resume flip the row that carries `[!]`/`[P]`, wherever it sits
   (#587).** `scripts/unstuck.sh` and `scripts/resume.sh` scanned the checklist
   file-wide, carried out only the step NUMBER, and handed it to `checklist_mark`,

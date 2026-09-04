@@ -129,7 +129,14 @@ path>"` (a per-project `[project.<name>.paths]` value overrides it); it is the
 one key that reads the global table, and it has no plugin fallback, so
 `template list` shows it as its own row. Optional
 `[project.<name>.paths] potholes_domain_nouns = [...]` lists words the shared
-layer refuses at staging time. Inspect
+layer refuses at staging time.
+
+The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
+most 100 entries, 25 per section, citing devagent issues only, with a line-1
+marker naming the private migration ledger that says where every earlier entry
+went. Your private layers hold the full register; step 22 writes only to those.
+
+Inspect
 what resolves where with `/devagent:template list` and
 `/devagent:template show <key>`.
 

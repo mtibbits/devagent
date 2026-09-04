@@ -32,7 +32,7 @@ fi
 # project-qualified); POTHOLES_CITE_TAIL_RE only recognises the shape (sed -E /
 # grep -E). potholes_cite_re builds the layer-aware CHECK match, the own token
 # anywhere in the list: the SHARED workflow file must carry the project token (a
-# bare (Issue-42) moved there by the distribute capture would otherwise satisfy
+# bare (Issue-42) moved there by the #613 migration would otherwise satisfy
 # EVERY project's Issue-42), and so must the SEED for every project except the
 # one whose source_dir IS the plugin — the seed's bare (Issue-N) citations are
 # that project's own history (red-team #611). The project layer and temp files

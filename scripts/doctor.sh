@@ -235,9 +235,9 @@ if [[ -f "$(config_path)" ]]; then
   else
     check "git-reflex guard: off (opt-in; set [defaults] or [project.<name>] git_guard = true to enable)" ok
   fi
-  # #611: private project names vs the shipped seed — ungated here (the suite
-  # canary skips until the seed is curated); WARN only, the distribute capture
-  # owns moving the known citations. The roster is the LIVE config's project
+  # #611: private project names vs the shipped seed — WARN only (the suite
+  # canary tests/potholes-seed-canary.bats is the gate, live since #613 curated
+  # the seed; a hit here is a seed-curation regression, fixed by PR). The roster is the LIVE config's project
   # keys (private, on the operator's box) minus the public allowlist; a key not
   # in the suite fixture is reported as INFO only — the fixture must never grow
   # a new private name (red-team #611).
@@ -263,7 +263,7 @@ if [[ -f "$(config_path)" ]]; then
       if [[ "$hrc" -eq 0 ]]; then
         check "seed carries no private project name" ok
       elif [[ "$hrc" -eq 1 ]]; then
-        check "seed carries no private project name" warn "$(printf '%s' "$hits" | tr '\n' ';') — moved by the distribute capture"
+        check "seed carries no private project name" warn "$(printf '%s' "$hits" | tr '\n' ';') — seed-curation regression (#613): move the line to a devDoc layer by PR"
       else
         check "seed carries no private project name" fail "seed unreadable ($seed) — the predicate could not run"
       fi

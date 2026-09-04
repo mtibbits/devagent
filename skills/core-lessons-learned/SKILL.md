@@ -96,8 +96,8 @@ issues, not at the end of the current one.
    `- [<section>] <text> — mechanised by <mechanism> (<its tokens>; <this issue's token>).`
    — it keeps its text (the citation proof `--check` needs) and leaves the READ
    union. A line that lives only in the plugin SEED is refused ("seed line —
-   land via the distribute issue"): record it as an `[actionable]` lesson
-   naming that issue instead. PARTIAL → amend (7b's command) to name the
+   … edited only by a seed-curation PR", #613): record it as an `[actionable]`
+   lesson instead — the seed is a curated excerpt, never an op target. PARTIAL → amend (7b's command) to name the
    mechanism and what it does NOT cover.
 
    7b. **Consolidate-before-add.** For each candidate line, grep the UNION

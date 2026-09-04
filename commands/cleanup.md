@@ -56,8 +56,12 @@ validated SEQUENTIALLY against a temp copy of every target file — hit counts,
 the per-line rails re-run against the CURRENT config (single line, `- `
 prefix, the multi-token citation grammar, and — workflow layer — the
 project-name and `potholes_domain_nouns` rails, so a noun configured after
-staging DEFERs the drain with the line quoted), format and citation
-postconditions — and only then is each file written: adds append at the END
+staging DEFERs the drain with the line quoted), the register FILE contract
+(`potholes_file_check`, #613 — over the WHOLE temp copy, so a pre-existing
+register-contract violation in the layer file DEFERs too, quoting
+`<file>:<line>: <reason>` against the real path: fix that line by hand, then
+re-run `--apply`) and the citation postcondition — and only then is each file
+written: adds append at the END
 of their named section (a union-valid heading the file lacks is added), a
 retire rewrites its line as `- [<section>] <text> — mechanised by <mechanism>
 (<tokens>).` under `## Retired (mechanised)` at the file's end, an amend

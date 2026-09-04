@@ -317,10 +317,10 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     run grep -q 'mechanised by m' "$PROJ_REG"; [ "$status" -ne 0 ]              # the dropped retire never landed
 }
 
-@test "--retire refuses a seed-only line with the distribute-issue message; a line absent everywhere says not found" {
+@test "--retire refuses a seed-only line with the seed-curation message; a line absent everywhere says not found" {
     seed_project_layer
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
-    [ "$status" -eq 1 ]; [[ "$output" == *"seed line"*"distribute"* ]]
+    [ "$status" -eq 1 ]; [[ "$output" == *"seed line"*"seed-curation"* ]]
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- nowhere (Issue-7)." m
     [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
 }

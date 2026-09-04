@@ -238,6 +238,6 @@ CL
   [[ "$output" != *"WARN private-project"* ]]
   [[ "$output" != *"fixture list covers"* ]]
 }
-# No doctor test asserts a hit against the LIVE seed: that would couple the suite to
-# content the distribute capture is chartered to remove. The predicate's ability to
+# No doctor test asserts a hit against the LIVE seed: #613 curated it, and
+# tests/potholes-seed-canary.bats asserts the live seed is clean. The predicate's ability to
 # fire is proven by the planted control in potholes-seed-canary.bats.

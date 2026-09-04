@@ -69,7 +69,7 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
 }
 
 @test "seed carries no private project name (gated: skipped until the seed is curated)" {
-  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — the distribute capture owns moving the private citations"
+  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — a pre-#613 seed; the curated seed always carries it"
   _lib
   mapfile -t names < <(_names)
   run potholes_private_name_hits "$SEED" "${names[@]}"
@@ -82,8 +82,8 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   sha="$(head -1 "$SEED" | sed -E 's/^<!-- curated: ledger ([0-9a-f]+) -->$/\1/')"; [ "${#sha}" -ge 7 ]
 }
 
-@test "seed: no section exceeds POTHOLES_SECTION_CAP (gated: skipped until the seed is curated by the distribute issue)" {
-  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — the distribute capture owns consolidating the backlog"
+@test "seed: no section exceeds POTHOLES_SECTION_CAP (gated on the curated marker)" {
+  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — a pre-#613 seed; the curated seed always carries it"
   _lib
   over="$(_over_cap)"
   [ -z "$over" ] || { printf '%s\n' "$over" >&2; false; }
