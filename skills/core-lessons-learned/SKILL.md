@@ -103,8 +103,11 @@ issues, not at the end of the current one.
    7b. **Consolidate-before-add.** For each candidate line, grep the UNION
    (all layers, not just the target) for the same pothole FAMILY — same
    section AND same failure shape, not a shared noun. When a member lives in a
-   devdoc layer, stage a merged REPLACEMENT that keeps every member's specific
-   trigger recognisable and carries every member's token plus this issue's:
+   devdoc layer, stage a merged REPLACEMENT of exactly ONE devdoc-resident
+   member (an `--amend` replaces one line) that keeps every member's specific
+   trigger recognisable and carries every member's token plus this issue's;
+   the other members' lines stay — retire each under 7a if the merge makes it
+   redundant:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --amend --layer <project|workflow> "- <the exact old line>" "- <merged line> (<old tokens>; <this issue's token>)."
@@ -112,7 +115,8 @@ issues, not at the end of the current one.
 
    When the only match is in the SEED (never replaced by an op), stage an
    `--add` whose body names the seed family it extends. Never stage an `--add`
-   of L beside an `--amend` → L: `--apply` refuses the pair.
+   of L beside an `--amend` → L, nor two `--amend` ops → the same L: `--apply`
+   refuses both (old AND new present).
 
    7c. **Stage the remaining adds**, routed to a layer — `--layer` is mandatory,
    no default, the routing is YOUR judgment (the script enforces only the

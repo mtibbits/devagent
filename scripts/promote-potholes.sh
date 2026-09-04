@@ -22,8 +22,9 @@
 #   <project> --list-pending                                   undrained backlog
 #
 # Grammar (#612, scripts/lib/potholes.sh): every line ends `(<tok>[; <tok>]*).`,
-# each token in its layer's form; retire moves a line verbatim into
-# `## Retired (mechanised)` (kept for --check, hidden from the READ union).
+# each token in its layer's form; retire rewrites a line as `- [<section>] <text>
+# — mechanised by <mechanism> (<tokens>).` under `## Retired (mechanised)` (kept
+# for --check, hidden from the READ union).
 # --apply validates EVERY op sequentially against temp copies of EVERY target
 # (locks held throughout), then writes + commits per file; re-runs converge.
 #
@@ -67,8 +68,15 @@ shift
 # same leg template_resolve walks.
 devdoc_dir="$(project_devdoc_dir "$project")"   # already tilde-expanded (config.sh whitelist)
 
-# _op_count <staging-file> — its op blocks (one op per '## ' block; _parse_stage enforces it).
-_op_count() { grep -c '^## ' "$1" || true; }
+# _op_count <staging-file> — its op blocks (one op per '## ' block; _parse_stage
+# enforces it). grep -c: rc 0 hits, rc 1 none (prints 0), rc >= 2 could not read —
+# which must never read as "0 ops" (Issue-316); rc 2 to the caller.
+_op_count() {
+    local c grc=0
+    c="$(grep -c '^## ' "$1")" || grc=$?
+    [ "$grc" -le 1 ] || { warn "promote-potholes: cannot read $1 (grep rc $grc)"; return 2; }
+    printf '%s\n' "${c:-0}"
+}
 
 # --list-pending needs no issue.
 if [ "${1:-}" = "--list-pending" ]; then
@@ -77,7 +85,8 @@ if [ "${1:-}" = "--list-pending" ]; then
         [ -e "$f" ] || continue
         grep -q '^status: pending' "$f" || continue
         found=1
-        printf 'pending: %s (%s ops)\n' "$f" "$(_op_count "$f")"
+        n="$(_op_count "$f")" || die "--list-pending: unreadable staging file $f"
+        printf 'pending: %s (%s ops)\n' "$f" "$n"
     done
     [ "$found" -eq 1 ] || echo "no pending pothole promotions for $project"
     exit 0
@@ -243,7 +252,7 @@ _retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retir
     local sec="${1#\#\# }" body toks own
     body="$(_body "$2")"; body="${body#- }"
     own="$(potholes_own_token "$project" "$issue_id" "$4")"
-    toks="$(potholes_cite_tokens "$2")"
+    toks="$(potholes_cite_tokens "$2")" || { warn "$MODE: <old-line> has no well-formed citation: $2"; return 1; }
     potholes_tokens_has "$toks" "$own" || toks="${toks}"$'\n'"$own"
     printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$(printf '%s\n' "$toks" | potholes_cite_join)"
 }
@@ -252,6 +261,22 @@ _retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retir
 _warn_commit_devdoc() {
     [ "$(_commit_devdoc_raw)" = true ] \
         || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3) until the flag is flipped; the staged op is kept"
+}
+# _stage_open — _stage_init, then refuse to queue onto a DRAINED file: a drained
+# file is a record, not a queue (the --drop rule). `dropped (all ops)` holds no
+# op and drained nothing, so a new op re-opens it as pending; an op appended to
+# an `applied` file would be accepted and never drained (review #612).
+_stage_open() {
+    local st
+    _stage_init
+    st="$(sed -n 's/^status: *//p' "$stage" | head -1)"
+    case "$st" in
+        pending*) ;;
+        dropped*) sed -i 's/^status: dropped.*$/status: pending/' "$stage"
+                  info "$MODE: re-opened $stage (was: $st) — pending again" ;;
+        applied*) die "$MODE: $stage is already drained ($st) — a drained file is a record, not a queue; move it aside (mv $stage $stage.drained) and stage again, or land the line by hand and say so in the lessonslearned: log line" ;;
+        *)        die "$MODE: $stage has an unrecognised status line ('$st') — fix it by hand: pending | applied <sha> | applied by-hand <sha> | dropped (all ops)" ;;
+    esac
 }
 _stage_init() {
     [ -f "$stage" ] && return 0
@@ -342,6 +367,7 @@ case "${1:-}" in
     if [ "${1:-}" = "--layer" ]; then layer="${2:-}"; shift 2 || usage; fi
     section="${1:-}"; line="${2:-}"
     [ -n "$section" ] && [ -n "$line" ] || usage
+    case "$section" in *$'\n'*) die "--add: <section> must be a SINGLE line" ;; esac
     # Routing is the SKILL's judgment (core-lessons-learned item 7); the script
     # enforces only what is decidable: the layer is named, and its citation form.
     _layer_target "$layer"; target="$TARGET"
@@ -350,7 +376,7 @@ case "${1:-}" in
     _rails "$layer" "$line" || die "--add: refused (see above)"
     potholes_union_headings "$project" | grep -qxF -- "## $section" \
         || die "--add: no section '## $section' in any register layer — use a heading that already exists (template.sh --project $project show potholes | grep '^## ')"
-    _stage_init
+    _stage_open
     grep -qxF -- "$line" "$stage" && { info "--add: already staged (idempotent): $line"; exit 0; }
     _warn_commit_devdoc
     if [ "$layer" = workflow ]; then
@@ -386,15 +412,16 @@ case "${1:-}" in
     if [ "$MODE" = --retire ]; then
         kind=retire; key=mechanism; val="$arg2"
         _op_shape_ok retire "$old" "$val" || die "--retire: refused (see above)"
-        result="$(_retire_result "$section" "$old" "$val" "$layer")"
+        result="$(_retire_result "$section" "$old" "$val" "$layer")" || die "--retire: refused (see above)"
         _rails "$layer" "$result" || die "--retire: the retired line fails a rail (see above): $result"
     else
         kind=amend; key=new; val="$(_normalise_own_token "$layer" "$arg2")"
+        [ "$val" != "$old" ] || die "--amend: <new-line> is identical to <old-line> (after own-token normalisation) — nothing to amend"
         _rails "$layer" "$val" || die "--amend: <new-line> refused (see above)"
         _op_shape_ok amend "$old" "$val" || die "--amend: refused (see above)"
         result="$val"
     fi
-    _stage_init
+    _stage_open
     grep -qxF -- "old: $old" "$stage" && { info "$MODE: already staged (idempotent): $old"; exit 0; }
     { echo; echo "$section"; echo "layer: $layer"; echo "op: $kind"; echo "old: $old"; echo "$key: $val"; } >> "$stage"
     info "staged $kind for $issue_id ($layer layer): $old → $result"
@@ -549,7 +576,7 @@ case "${1:-}" in
             ;;
         retire)
             _op_shape_ok retire "$a" "$b" || _defer "$q: refused (see above): $a"
-            res="$(_retire_result "$sec" "$a" "$b" "$ly")"
+            res="$(_retire_result "$sec" "$a" "$b" "$ly")" || _defer "$q: refused (see above): $a"
             n="$(_hits "$t" "$a")"
             if [ "$n" -eq 0 ]; then
                 _in_retired "$t" "$res" && return 4
@@ -557,7 +584,7 @@ case "${1:-}" in
             fi
             _one_hit "$q" "$n" "$a"
             _rails "$ly" "$res" || _defer "$q: the retired line fails a rail: $res"
-            _delete_line "$t" "$a"
+            _delete_line "$t" "$a" || _defer "$q: could not delete the old line from the temp copy: $a"
             _append_in_section "$t" "$POTHOLES_RETIRED_HEADING" "$res" || _defer "$q: could not append to '$POTHOLES_RETIRED_HEADING': $res"
             ;;
         amend)
@@ -565,10 +592,10 @@ case "${1:-}" in
             n="$(_hits "$t" "$a")"; m="$(_hits "$t" "$b")"
             if [ "$n" -eq 0 ] && [ "$m" -ge 1 ]; then return 4; fi
             [ "$n" -ge 1 ] || _stale "$q" "neither the old nor the new line is present" "old: $a" "$((j+1))"
-            [ "$m" -eq 0 ] || _defer "$q: REFUSED — old AND new both present (an add of the new line staged beside this amend?): old: $a / new: $b"
+            [ "$m" -eq 0 ] || _defer "$q: REFUSED — old AND new both present (an add of the new line staged beside this amend, or a second amend onto the same merged line — one member is replaced per merged line): old: $a / new: $b"
             _one_hit "$q" "$n" "$a"
             _rails "$ly" "$b" || _defer "$q: the replacement fails a rail: $b"
-            _replace_line "$t" "$a" "$b"
+            _replace_line "$t" "$a" "$b" || _defer "$q: could not replace the old line in the temp copy: $a"
             ;;
         esac
         return 0
@@ -643,7 +670,7 @@ case "${1:-}" in
     [[ "$n" =~ ^[1-9][0-9]*$ ]] || usage
     [ -f "$stage" ] || die "--drop: no staging file at $stage"
     grep -q '^status: pending' "$stage" || die "--drop: $stage is not pending ($(sed -n 's/^status: *//p' "$stage" | head -1)) — a drained file is a record, not a queue"
-    total="$(_op_count "$stage")"
+    total="$(_op_count "$stage")" || die "--drop: unreadable staging file $stage"
     [ "$n" -le "$total" ] || die "--drop: op $n does not exist — $stage holds $total op block(s)"
     N="$n" awk '/^## /{k++} !(k==ENVIRON["N"]+0)' "$stage" > "$stage.2" && mv "$stage.2" "$stage"
     if [ "$total" -eq 1 ]; then

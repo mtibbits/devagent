@@ -59,9 +59,13 @@ project-name and `potholes_domain_nouns` rails, so a noun configured after
 staging DEFERs the drain with the line quoted), format and citation
 postconditions — and only then is each file written: adds append at the END
 of their named section (a union-valid heading the file lacks is added), a
-retire moves its line verbatim into `## Retired (mechanised)` at the file's
-end, an amend replaces its line in place. A failed validation is rc 3 with the
-op and line quoted; a zero-hit whose exact result is already present is
+retire rewrites its line as `- [<section>] <text> — mechanised by <mechanism>
+(<tokens>).` under `## Retired (mechanised)` at the file's end, an amend
+replaces its line in place. Two failure classes: a staging file `--apply`
+cannot PARSE (a hand-edit — a block without `layer:`, an unknown `op:`, two
+bullets in one block) is rc 1 and cleanup DIES, fix the file and re-run; a
+failed VALIDATION is rc 3 with the op and line quoted and cleanup warns and
+continues. A zero-hit whose exact result is already present is
 ALREADY APPLIED (a partial run converges on re-run); a STALE op names its two
 closes, `promote-potholes.sh … --drop <op>` or `status: applied by-hand
 <sha>`. The file is `git add`ed if new and committed with the operator's

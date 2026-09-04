@@ -252,6 +252,38 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     [ ! -e "$ID/potholes-promotion.md" ]
 }
 
+@test "staging onto a DRAINED file: dropped (all ops) re-opens as pending and drains; applied refuses every mode (rc 1, 'record, not a queue'), nothing appended" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Project-only heading" "- one (Issue-1)."
+    bash "$PP" "$TEST_PROJECT" "$ID" --drop 1
+    grep -q '^status: dropped (all ops)' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Project-only heading" "- two (Issue-1)."
+    [ "$status" -eq 0 ]; [[ "$output" == *"re-opened"* ]]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply; [ "$status" -eq 0 ]
+    grep -qxF -- '- two (Issue-1).' "$PROJ_REG"
+    grep -q '^status: applied' "$ID/potholes-promotion.md"
+    before="$(cat "$ID/potholes-promotion.md")"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Project-only heading" "- three (Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"record, not a queue"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- p (Issue-10)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"record, not a queue"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p2 (Issue-10; Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"record, not a queue"* ]]
+    [ "$(cat "$ID/potholes-promotion.md")" = "$before" ]
+}
+
+@test "staging refusals: a no-op amend (new == old), a multi-line --add <section>, a retire of a citation-less line — nothing staged" {
+    seed_project_layer '- no citation here'
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer project "- p (Issue-10)." "- p (Issue-10)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"identical"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "$(printf 'Project-only heading\nBOGUS')" "- x (Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"SINGLE line"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- no citation here" m
+    [ "$status" -eq 1 ]; [[ "$output" == *"no well-formed citation"* ]]
+    [ ! -e "$ID/potholes-promotion.md" ]
+}
+
 @test "--retire refuses a seed-only line with the distribute-issue message; a line absent everywhere says not found" {
     seed_project_layer
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
