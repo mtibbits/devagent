@@ -40,11 +40,9 @@ main() {
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
-    # #587: mark the LINE that carries [P], not its step NUMBER. park.sh marks
-    # the ACTIVE block, but a park that predates a /devagent:revise leaves the
-    # [P] in an OLDER block whose number the new block REUSES - a number-keyed
-    # mark then flipped the new block's pending twin and left the issue looking
-    # parked in its own checklist while resume reported success.
+    # #587: locate the row that CARRIES [P] (a park that predates a revise
+    # leaves it in an older block) and mark that LINE — never its step number
+    # (the full why lives on checklist_find_glyph_line).
     local found parked_row
     found="$(checklist_find_glyph_line "$checklist" P)"
     if [[ -n "$found" ]]; then

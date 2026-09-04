@@ -43,16 +43,12 @@ main() {
   fi
 
   local checklist="$issue_dir/checklist.md"
-  # #587: find the LINE that actually carries [!] - ACTIVE revision block first,
-  # else file-wide (#76) - and mark THAT line. Carrying only the step NUMBER out
-  # of a file-wide scan and handing it to checklist_mark re-resolved the number
-  # into the ACTIVE block, flipping that block's twin of a REUSED closeout number
-  # while the real [!] survived and STUCK was deleted anyway (#558 r3
-  # BLOCKING-2 shape, unfixed at this site until #587).
-  local found row name
+  # #587: locate the row that CARRIES [!] and mark that LINE — never carry a
+  # step number out of the scan (the full why lives on checklist_find_glyph_line).
+  local found row step name
   found="$(checklist_find_glyph_line "$checklist" '!')"
   [[ -n "$found" ]] || die "STUCK file present but no [!] step in checklist"
-  row="${found%%:*}"
+  row="${found%%:*}"; step="${found#*:}"
   name="$(checklist_step_name_at_line "$checklist" "$row")"     || die "cannot read the step name at line $row of $checklist"
 
   local glyph=" "
@@ -63,7 +59,7 @@ main() {
 
   rm -f "$issue_dir/STUCK"
   log_append "$issue_dir" "$name" "unstuck — flipped to [$glyph]"
-  info "cleared STUCK at $issue_dir; step ${found#*:} ($name) → [$glyph]"
+  info "cleared STUCK at $issue_dir; step $step ($name) → [$glyph]"
 }
 
 main "$@"

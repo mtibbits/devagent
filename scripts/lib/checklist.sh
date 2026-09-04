@@ -362,25 +362,21 @@ checklist_find_glyph_line() {
 # rc that pins no message is indistinguishable from an unrelated failure or from
 # a missing function's 127 (Issue-Fork-132 / Issue-572). NOT die(): the callers
 # (unstuck.sh, checklist-unstuck.sh) add their own context.
-# Name = _checklist_line_re's definition ([A-Za-z][A-Za-z0-9_-]*), the same
-# token unstuck.sh already logged.
+# The row grammar (glyph, number, name charset) comes from _checklist_line_re —
+# this file's single source of what a step row looks like — so a future grammar
+# change cannot silently miss this reader.
 checklist_step_name_at_line() {
-  local file="$1" line="$2" name
+  local file="$1" line="$2" content
   [[ -f "$file" ]] || die "checklist_step_name_at_line: no such file '$file'"
-  name="$(awk -v ln="$line" '
-    NR == ln && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/) {
-      seg = substr($0, RSTART, RLENGTH)
-      sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", seg)
-      print seg
-      exit
-    }
-  ' "$file")"
-  if [[ -z "$name" ]]; then
-    printf '%s\n' \
-      "checklist_step_name_at_line: line $line of '$file' is not a checklist step row" >&2
-    return 1
+  [[ "$line" =~ ^[0-9]+$ ]] || die "checklist_step_name_at_line: bad line '$line'"
+  content="$(sed -n "${line}p" "$file")"
+  if [[ "$content" =~ $_checklist_line_re ]]; then
+    printf '%s\n' "${BASH_REMATCH[3]}"
+    return 0
   fi
-  printf '%s\n' "$name"
+  printf '%s\n' \
+    "checklist_step_name_at_line: line $line of '$file' is not a checklist step row" >&2
+  return 1
 }
 
 # checklist_mark_line <file> <line> <glyph>
