@@ -132,7 +132,6 @@ match this issue and dispose of each match in `## Potholes considered`.
 - A source-grep guard that accepts an INDENTED match accepts a disabled one → anchor to column 0, then re-count the class; anchoring exposed a file passing the check on a line inside its own test body (Issue-585).
 - A control run is what separates a real discriminator from a vacuous one → run every probe against the case it must NOT match before trusting it; a self-report probe answered identically with and without the capability (Issue-585).
 - An independent second count catches a silently-empty work list → verify a batch edit with an instrument that does not read the same list the loop consumed (Issue-585).
-- A test asserting absolute line numbers in a file the code under test also APPENDS to is wrong at every SHA — the insertion shifts rows; anchor position asserts relative to a structural heading and re-derive offsets from the fixture (devagent Issue-587).
 
 ## State / TOML / atomicity
 - `sed`-append into a state TOML creates duplicate keys tomllib rejects → sed-REPLACE or route through the canonical `_toml.py` layer; never hand-roll a sectioned-config writer (Issue-116).
@@ -173,7 +172,6 @@ match this issue and dispose of each match in `## Potholes considered`.
 - Path-containment rails must canonicalise both sides (cd && pwd -P) before comparing — Git Bash /c/… never equals c:/… — and an unresolvable side must die, not degenerate the glob to /* (Issue-586).
 
 - A DEFAULT git pathspec lets `*` cross `/` → use `:(glob)` magic wherever the wildcard is meant to stop at a directory boundary, or the enumeration silently reaches into subdirectories (Issue-585).
-- A long-lived test clone fetched only per-branch never updates its default-branch ref, so any merge-base-keyed check silently grades a months-old tree — refresh the default branch before suite runs (devagent Issue-587).
 
 ## Sweeps / fix-at-source / sibling sites
 - A cache/warm tier added beside a primary path must emit the primary's fields FIELD-FOR-FIELD, and its validator must assert TRUTH (the named file exists and names its own key), never presence — a presence check re-creates the divergence one level up (lawFirm Issue-9).
