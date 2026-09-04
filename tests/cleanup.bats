@@ -310,6 +310,7 @@ SH
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]                       # a deferral is not a failure
     [[ "$output" == *pending* ]]
+    [[ "$output" == *"--drop"* ]]             # #612: the multi-cause message names the op-validation close too
     grep -q '^status: pending' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
     # #611 review: the DEFERred layer file is NOT swept by cleanup's own devdoc commit

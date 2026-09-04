@@ -311,7 +311,7 @@ Issue-676/
 ├── checklist.md                         # the canonical workflow tracker
 ├── issue.md                             # raw fetched issue + comments
 ├── intent.md            # #284: operator-intent digest for dispatched planning
-├── potholes-promotion.md   # #586/#611: staged [pattern]→register lines, one `layer:` per block; drained by cleanup
+├── potholes-promotion.md   # #586/#611/#612: staged register ops (add/retire/amend), one `op:` block each with its `layer:`; drained by cleanup
 ├── .devagent-step-models  # optional: per-issue model steering — a bare token (checking steps, #291) or keyed `checking:`/`thinking:` lines (both classes, #561); §7.4
 ├── imPlan.md
 ├── imPlan-potentialFutureEnhancements.md
@@ -1413,7 +1413,7 @@ v1 artifact list:
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
-| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611) |
+| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 22 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612) |
 | `potholes_workflow` | the shared workflow layer — `[project.<p>.paths]` then global `[paths]`; no devdoc or plugin rung, so not a registry key (its own `template list` row; #611) |
 
 Migration on first install: existing files at

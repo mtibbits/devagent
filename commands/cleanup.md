@@ -48,12 +48,31 @@ Immediately AFTER the tree restore, cleanup DRAINS that pending file with
 must be inside the git repo that holds `devdoc_dir` (containment — a workflow
 file at the devDoc repo root is in-bounds for every project whose devdoc_dir
 is inside that repo, a mistyped absolute path is not); that repo must not be
-mid-merge; the target path must be clean and tracked-or-absent; and a `mkdir`
+mid-merge; the target path must be clean and tracked-or-absent; a `mkdir`
 lock `<file>.lock` beside the file must be free (a held lock is named in the
 DEFER — `rmdir` a stale one from a killed run). Then, per layer: an absent
-file is bootstrapped, the lines are appended at the END of their named
-sections (a union-valid heading the file lacks is added), the file is
-`git add`ed if new and committed with the operator's identity (`-s`) as
+file is bootstrapped; then every op (`add`, `retire`, `amend`, #612) is
+validated SEQUENTIALLY against a temp copy of every target file — hit counts,
+the per-line rails re-run against the CURRENT config (single line, `- `
+prefix, the multi-token citation grammar, and — workflow layer — the
+project-name and `potholes_domain_nouns` rails, so a noun configured after
+staging DEFERs the drain with the line quoted), format and citation
+postconditions — and only then is each file written: adds append at the END
+of their named section (a union-valid heading the file lacks is added), a
+retire rewrites its line as `- [<section>] <text> — mechanised by <mechanism>
+(<tokens>).` under `## Retired (mechanised)` at the file's end, an amend
+replaces its line in place. Two failure classes: a staging file `--apply`
+cannot PARSE (a hand-edit — a block without `layer:`, an unknown `op:`, two
+bullets in one block) is rc 1 and cleanup DIES, fix the file and re-run; a
+failed VALIDATION is rc 3 with the op and line quoted and cleanup warns and
+continues. Rolling the plugin back below #612 while an op-only (retire/amend)
+staging file is pending stamps it `applied` with nothing written — the
+pre-#612 parser sees no `- ` line — so re-stage or `mv` such a file aside
+before a rollback. A zero-hit whose exact result is already present is
+ALREADY APPLIED (a partial run converges on re-run); a STALE op names its two
+closes, `promote-potholes.sh … --drop <op>` or `status: applied by-hand
+<sha>`. The file is `git add`ed if new and committed with the operator's
+identity (`-s`) as
 `chore: promote pothole-register entries from #N`, scoped to that ONE path —
 never through cleanup's own `git add -A` devdoc commit, which is itself scoped
 to `devdoc_dir`. The staging file flips to `status: applied <sha>[,<sha>]`

@@ -12,6 +12,13 @@ FX="$REPO/tests/fixtures/private-project-names.txt"
 _lib()     { . "$REPO/scripts/lib/template_resolve.sh"; }
 _names()   { _lib; potholes_fixture_private_names "$FX"; }     # the SAME parser doctor uses
 _public()  { _lib; potholes_fixture_public "$FX"; }
+# "<count> <heading>" per seed section over POTHOLES_SECTION_CAP (after _lib).
+_over_cap() {
+  local h n
+  while read -r h; do
+    n="$(potholes_section_count "$SEED" "$h")"; [ "$n" -le "$POTHOLES_SECTION_CAP" ] || echo "$n $h"
+  done < <(grep '^## ' "$SEED")
+}
 _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} -->'; }
 
 @test "fixture list is well-formed: a public allowlist and at least one private name" {
@@ -76,4 +83,18 @@ _curated() { head -1 "$SEED" | grep -qE '^<!-- curated: ledger [0-9a-f]{7,40} --
   mapfile -t names < <(_names)
   run potholes_private_name_hits "$SEED" "${names[@]}"
   [ "$status" -eq 1 ]
+}
+
+@test "seed: no section exceeds POTHOLES_SECTION_CAP (gated: skipped until the seed is curated by the distribute issue)" {
+  _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha> -->' marker — the distribute capture owns consolidating the backlog"
+  _lib
+  over="$(_over_cap)"
+  [ -z "$over" ] || { printf '%s\n' "$over" >&2; false; }
+}
+
+@test "gate condition is still true for the cap row: seed uncurated AND at least one section is over the cap today (flip both when distribute lands)" {
+  run _curated
+  [ "$status" -ne 0 ]
+  _lib
+  [ -n "$(_over_cap)" ]                                   # the gated row WOULD fail today — it is not vacuous
 }
