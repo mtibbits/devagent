@@ -314,7 +314,7 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     grep -qxF -- '- p merged (Issue-10; Issue-1).' "$PROJ_REG"
     grep -qxF -- '- a project line, merged (Issue-9; Issue-1).' "$PROJ_REG"
     grep -qxF -- '- new (Issue-1).' "$PROJ_REG"
-    ! grep -q 'mechanised by m' "$PROJ_REG"                                     # the dropped retire never landed
+    run grep -q 'mechanised by m' "$PROJ_REG"; [ "$status" -ne 0 ]              # the dropped retire never landed
 }
 
 @test "--retire refuses a seed-only line with the distribute-issue message; a line absent everywhere says not found" {
