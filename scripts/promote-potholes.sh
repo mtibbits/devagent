@@ -278,27 +278,33 @@ _stage_open() {
         *)        die "$MODE: $stage has an unrecognised status line ('$st') — fix it by hand: pending | applied <sha> | applied by-hand <sha> | dropped (all ops)" ;;
     esac
 }
-# _staged_block <needle-line> — the first staged block (its non-blank lines from
-# the '## ' heading on) carrying <needle-line> exactly, or nothing. Idempotency
-# is keyed on the WHOLE block: a byte-identical re-run is a no-op, a DIFFERENT
-# op on the same line is refused — keyed on the line alone, a 7a retire
-# followed by a 7b amend of the same line was swallowed as "already staged"
-# (red-team #612).
+# _staged_block <needle-line> — the op number, then the first staged block (its
+# non-blank lines from the '## ' heading on) carrying <needle-line> exactly; or
+# nothing. Idempotency is keyed on the WHOLE block: a byte-identical re-run is
+# a no-op, a DIFFERENT op on the same line is refused — keyed on the line
+# alone, a 7a retire followed by a 7b amend of the same line was swallowed as
+# "already staged" (red-team #612). The two needle namespaces — an add's
+# '- <line>' and a retire/amend's 'old: <line>' — are disjoint by construction:
+# an added line carries THIS issue's token, a register line being retired or
+# amended cannot (it would mean a drained file, which _stage_open refuses).
 _staged_block() {
     [ -f "$stage" ] || return 0
     L="$1" awk '
-      /^## / { if (hit && !found) { fblk = blk; found = 1 } blk = $0; hit = 0; next }
+      /^## / { if (hit && !found) { fidx = k; fblk = blk; found = 1 } k++; blk = $0; hit = 0; next }
       blk != "" && !/^[[:space:]]*$/ { blk = blk "\n" $0; if ($0 == ENVIRON["L"]) hit = 1 }
-      END { if (hit && !found) { fblk = blk; found = 1 } if (found) print fblk }' "$stage"
+      END { if (hit && !found) { fidx = k; fblk = blk; found = 1 } if (found) { print fidx; print fblk } }' "$stage"
 }
 # _stage_put <block> <needle-line> — append <block> unless the SAME block is
-# staged (rc 0, no-op); die when a different op already names <needle-line>.
+# staged (rc 0, no-op); die when a different op already names <needle-line>,
+# printing the `--drop <n>` that clears it (a remedy must be executable as
+# printed — the _stale message sets the precedent).
 _stage_put() {
-    local have
+    local have idx
     have="$(_staged_block "$2")"
     if [ -n "$have" ]; then
+        idx="${have%%$'\n'*}"; have="${have#*$'\n'}"
         [ "$have" = "$1" ] && { info "$MODE: already staged (idempotent): ${2#old: }"; exit 0; }
-        die "$MODE: a DIFFERENT op is already staged for this line in $stage — one op per line; --drop it first, or keep it:"$'\n'"$have"
+        die "$MODE: a DIFFERENT op (op $idx) is already staged for this line in $stage — one op per line; keep it, or clear it with 'promote-potholes.sh $project $issue_dir --drop $idx' and re-stage:"$'\n'"$have"
     fi
     printf '\n%s\n' "$1" >> "$stage"
 }
@@ -402,8 +408,6 @@ case "${1:-}" in
         || die "--add: no section '## $section' in any register layer — use a heading that already exists (template.sh --project $project show potholes | grep '^## ')"
     _stage_open
     blk="$(printf '%s\n' "## $section" "layer: $layer" "op: add" "$line")"
-    [ -n "$(_staged_block "$line")" ] && [ "$(_staged_block "$line")" != "$blk" ] \
-        && die "--add: this line is already staged as a DIFFERENT op in $stage — one op per line; --drop it first, or keep it:"$'\n'"$(_staged_block "$line")"
     _warn_commit_devdoc
     if [ "$layer" = workflow ]; then
         _wr="$(_repo_of "$wf" || true)"; _dr="$(_repo_of "$devdoc_dir" || true)"

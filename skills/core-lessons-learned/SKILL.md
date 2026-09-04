@@ -113,7 +113,10 @@ issues, not at the end of the current one.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/promote-potholes.sh" "$PROJECT" "$ISSUE_DIR" --amend --layer <project|workflow> "- <the exact old line>" "- <merged line> (<old tokens>; <this issue's token>)."
    ```
 
-   When the only match is in the SEED (never replaced by an op), stage an
+   A line already staged for a 7a retire is not an amend candidate — one op
+   per line: pick another devdoc-resident member, or `--drop` the retire and
+   amend instead. When the only match is in the SEED (never replaced by an
+   op), stage an
    `--add` whose body names the seed family it extends. Never stage an `--add`
    of L beside an `--amend` → L, nor two `--amend` ops → the same L: `--apply`
    refuses both (old AND new present).
@@ -140,13 +143,17 @@ issues, not at the end of the current one.
    (`POTHOLES_SECTION_CAP` in `scripts/lib/potholes.sh`; the warning prints the
    count and the cap) — consolidate (7b) first. The script refuses a
    missing/unknown layer, a wrong token form, an unknown or Retired section, a
-   multi-line value, a heading or Retired-region target, a multi-hit target,
-   and (workflow) a body naming the project or a domain noun; `--layer
+   multi-line value, a heading or Retired-region target, a multi-hit target, a
+   second op on a line another staged op already names (one op per line — the
+   refusal prints the `--drop <n>` that clears the first), a no-op amend, any
+   op onto an already-drained (`applied`) staging file, and (workflow) a body
+   naming the project or a domain noun; `--layer
    workflow` with no `[paths] potholes_workflow` configured is refused HERE,
    loudly — configure the key first, and only then consider re-routing to
    `project` (a shared lesson forked into a private register is what the
    design exists to avoid). It writes `<issue-dir>/potholes-promotion.md`
-   (durable in devdoc; keyed `op:` blocks, one op per block; idempotent).
+   (durable in devdoc; keyed `op:` blocks, one op per block and one op per
+   line; a byte-identical re-run is a no-op).
    `/devagent:cleanup` (step 23) drains it: every op is validated against a
    temp copy of every target file, then each layer file (bootstrapped if
    absent) is written and gets its own path-scoped commit in the devdoc repo,
