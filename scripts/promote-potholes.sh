@@ -42,8 +42,8 @@
 # still pending (the staging file IS the promise; --apply honours it).
 #
 # Working trees are LF on every platform (plugin .gitattributes `* text=auto
-# eol=lf`; devDoc .gitattributes scoped to the register files, #611), so no
-# line-ending handling here.
+# eol=lf`; devDoc .gitattributes scoped to the register files, #611);
+# potholes_file_check (#613) REFUSES a CR byte rather than handling it.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -647,11 +647,16 @@ case "${1:-}" in
         done
         CHANGED[$ly]=$c
         [ "$c" -gt 0 ] || continue
-        # Postconditions on the temp copy: format contract + citation. Citation
+        # Postconditions on the temp copy: the register FILE contract (ONE
+        # predicate, potholes_file_check — shared with the #613 migration and
+        # the suite; it covers the WHOLE file, so a pre-existing violation DEFERs
+        # too, every line quoted against the REAL path) + citation. Citation
         # check scoped to THIS file: the union would be satisfied by another
-        # layer's earlier promotion and prove nothing.
-        v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$t")"
-        [ "$v" = "0" ] || _defer "$ly layer: the ops would produce $v 'bullet immediately before a ## heading' violation(s) — $target NOT modified"
+        # layer's earlier promotion and prove nothing. rc 2 (unreadable copy) is
+        # a harness fault, never a register verdict (Issue-316) — die, not DEFER.
+        pc_rc=0; pc="$(potholes_file_check "$ly" "$t" 2>&1)" || pc_rc=$?
+        [ "$pc_rc" -ne 2 ] || die "--apply: potholes_file_check could not read the $ly temp copy ($t): $pc"
+        [ "$pc_rc" -eq 0 ] || _defer "$ly layer: the ops would leave the register violating its format contract — $target NOT modified:"$'\n'"${pc//"$t:"/"$target:"}"
         grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$t" \
             || _defer "$ly layer: after the ops the register carries no ${issue_id} citation — $target NOT modified"
     done

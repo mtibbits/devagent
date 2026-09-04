@@ -589,6 +589,30 @@ HOOK
 
 # --- docs -----------------------------------------------------------------------------
 
+@test "--apply DEFERs (rc 3) when the target layer file ALREADY violates the register contract (a CRLF bullet) — #613: the file contract covers the whole temp copy, line quoted, nothing written" {
+    mkdir -p "$DEVDOC_DIR/templates"
+    printf '%s\n' '# Pothole register (project)' '' '## Docs / edit-neighborhood hygiene' > "$PROJ_REG"
+    printf -- '- a CRLF line (Issue-9).\r\n' >> "$PROJ_REG"; devdoc_commit crlf
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- x (Issue-1)."
+    before="$(cd "$DEVDOC_REPO" && git rev-parse HEAD)"
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"$PROJ_REG:4: CR byte"* ]]; [[ "$output" == *"NOT modified"* ]]   # the REAL path, not the temp copy (improve B4)
+    # every quoted ':4: CR byte' is prefixed by the REAL path — the temp copy ($tmp/<layer>) is never named
+    [ "$(grep -c ':4: CR byte' <<< "$output")" -ge 1 ]
+    [ "$(grep -c ':4: CR byte' <<< "$output")" -eq "$(grep -cF -- "$PROJ_REG:4: CR byte" <<< "$output")" ]
+    run grep -q 'x (Issue-1)' "$PROJ_REG"; [ "$status" -ne 0 ]
+    [ "$(cd "$DEVDOC_REPO" && git rev-parse HEAD)" = "$before" ]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    # one predicate: the script calls the lib function and no longer re-spells the heading-adjacency awk
+    [ "$(grep -c 'potholes_file_check' "$PP")" -ge 1 ]
+    [ "$(grep -c "prev ~ /\^- / && /\^## /" "$PP")" -eq 0 ]
+    # second limb never exercised by an existing --apply row (improve S2): a retired-shaped line in an ACTIVE section
+    printf '%s\n' '# Pothole register (project)' '' '## Docs / edit-neighborhood hygiene' '- [Docs] r — mechanised by y (Issue-9).' > "$PROJ_REG"; devdoc_commit retired-out-of-place
+    run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]; [[ "$output" == *"$PROJ_REG:4: retired-shaped line outside the Retired section"* ]]
+    run grep -q 'x (Issue-1)' "$PROJ_REG"; [ "$status" -ne 0 ]
+}
+
 @test "docs: the skill carries 7a retire-on-fix, 7b consolidate, 7c stage, and the retired/amended Logging fields; both commands, cleanup.sh and the spec name the ops" {
     S="$DEVAGENT_ROOT/skills/core-lessons-learned/SKILL.md"
     grep -q '7a\. \*\*Retire-on-fix' "$S"; grep -q '7b\. \*\*Consolidate-before-add' "$S"; grep -q '7c\. \*\*Stage' "$S"
