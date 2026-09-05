@@ -132,6 +132,7 @@ EOF
     grep -q 'STALE CHECKOUT' "$(_art)"
     grep -q "merge --ff-only origin/main" "$(_art)"           # the remedy is a command, not a verb
     grep -q '✓ lib.sh' "$(_art)"                               # named-file probes still run
+    [[ "$(grep -m1 '^## ' "$(_art)")" == '## Checkout vs baseline'* ]]   # the gap row OPENS the artifact, as every carrier says
 }
 
 @test "rederive: HEAD at default_baseline → behind 0, no stale flag (#590)" {
@@ -372,4 +373,47 @@ EOF
     _run
     [ "$status" -ne 0 ]
     [[ "$output" == *"ls-tree"* ]] && [[ "$output" == *"failed"* ]]
+}
+
+@test "rederive: a basename whose only hit lives under a non-ASCII dir resolves — ls-tree C-quoting (#590 review)" {
+    ( cd "$SOURCE_DIR" && mkdir -p dössier && echo s > dössier/SKILL.md && git add -A && git commit -qm nonascii )
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '✓ SKILL.md → dössier/SKILL.md (resolved: one tracked path ends in /SKILL.md)' "$(_art)"
+    run grep -c '✗ SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: a C-quoted second hit still makes the basename ambiguous, never a false one-hit ✓ (#590 review)" {
+    ( cd "$SOURCE_DIR" && mkdir -p dössier sk && echo a > dössier/SKILL.md && echo b > sk/SKILL.md && git add -A && git commit -qm two )
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '~ SKILL.md — ambiguous: 2 tracked paths end in /SKILL.md (dössier/SKILL.md, sk/SKILL.md)' "$(_art)"
+    run grep -c '✓ SKILL.md → sk/SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: since-log keeps its heading with (none) when no named file resolves at HEAD (#590 review)" {
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+See `missing.sh`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '^## Merged commits touching these files since 2020-01-01' "$(_art)"
+    grep -q '^  (none)$' "$(_art)"
 }

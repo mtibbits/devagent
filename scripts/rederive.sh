@@ -133,8 +133,11 @@ mapfile -t files < <(printf '%s\n' "${files[@]:-}" | grep -v '^$' | sort -u || t
 # rc-1-vs-2 ambiguity (an awk failure aborts the assignment under pipefail with
 # awk's own stderr — loud by construction). One hit → resolved, several →
 # ambiguous (advisory, not a premise), none → genuinely absent (✗). The
-# extractor above is unchanged.
-head_tree="$("$DEVAGENT_GIT" -C "$source_dir" ls-tree -r --name-only HEAD)" \
+# extractor above is unchanged. core.quotePath=false: by default ls-tree
+# C-quotes any path holding a non-ASCII byte ("d\303\266ssier/SKILL.md"), which
+# a string compare never matches — a false ✗, or a false one-hit ✓ when the
+# quoted path was the second hit (step-15 review).
+head_tree="$("$DEVAGENT_GIT" -C "$source_dir" -c core.quotePath=false ls-tree -r --name-only HEAD)" \
   || die "rederive: git ls-tree HEAD failed in $source_dir"
 # rederive_resolve <token> — setter-globals: RES_KIND (exact|resolved|ambiguous|
 # absent), RES_PATH (the one path for exact/resolved), RES_HITS (array of the
@@ -208,9 +211,11 @@ fi
       echo "## Named functions (advisory — not path-verified)"
       for fn in "${funcs[@]}"; do echo "  · $fn"; done
     fi
-    if [ "${#since_paths[@]}" -gt 0 ] && [ -n "$created" ]; then
+    if [ "${#files[@]}" -gt 0 ] && [ -n "$created" ]; then
       echo "## Merged commits touching these files since $created (what landed while queued)"
-      log="$("$DEVAGENT_GIT" -C "$source_dir" log --oneline "--since=$created" -- "${since_paths[@]}" 2>/dev/null || true)"
+      log=""                                   # nothing resolved → an empty pathspec would walk every commit
+      [ "${#since_paths[@]}" -eq 0 ] \
+        || log="$("$DEVAGENT_GIT" -C "$source_dir" log --oneline "--since=$created" -- "${since_paths[@]}" 2>/dev/null || true)"
       if [ -n "$log" ]; then printf '%s\n' "$log" | sed 's/^/  /'; else echo "  (none)"; fi
     fi
   fi
