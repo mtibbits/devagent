@@ -13,10 +13,12 @@
 >
 > These four are the ONLY legal tags. Any other tag (e.g. `[process]`,
 > `[testing]`) is rejected by `scripts/lessons-lint.sh`. Every entry must
-> carry at least one, in one of the two recognized shapes: the `### claim`
+> carry at least one, in one of the two canonical shapes: the `### claim`
 > + `- Tags: [...]` form below, or the flat inline `- [tag] <claim>` form.
 > A bare bold bullet `- **<claim>**` with no tag is NOT an entry shape — since
 > #525 the lint fails a file written wholly in that untagged flat-bullet shape.
+> The legacy bold-lead form `- **[tag] <claim>.**` is TOLERATED by the lint
+> (#588) so Fable-era files do not false-flag; it is not a recommended shape.
 
 ## Entries
 
