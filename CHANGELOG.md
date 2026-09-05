@@ -33,7 +33,7 @@ tag`) will get their own dated sections below.
   DEFER. The canary's operator-handle sweep takes its words from the fork
   owners the live config declares, never from commit metadata. Public record
   of what the caps held out: 16 seed-eligible devagent lessons — by source line
-  in `templates/potholes.md` at `2438f4d`: L23 (Issue-72), L41 (Issue-94), L44 (Issue-32), L65 (Issue-85), L101 (Issue-4), L105 (Issue-5), L106 (Issue-5), L107 (Issue-5), L151 (Issue-33), L180 (Issue-76), L197 (Issue-4), L198 (Issue-5), L199 (Issue-5), L200 (Issue-5), L266 (Issue-21), L309 (Issue-5) — remain in this
+  in `templates/potholes.md` at `2438f4d`: L23 (Issue-72), L41 (Issue-94), L44 (Issue-32), L65 (Issue-85), L101 (Issue-4), L105 (Issue-5), L106 (Issue-5), L107 (Issue-5), L151 (Issue-33), L78 (Issue-106), L197 (Issue-4), L198 (Issue-5), L199 (Issue-5), L200 (Issue-5), L266 (Issue-21), L309 (Issue-5) — remain in this
   repo's history and are candidates for the next seed-curation PR. The
   `Issue-(Fork-)?N` grammar means a tracker's `dir_prefix` must be `Issue-` or
   `Issue-Fork-` (stated in the config skeleton and spec §12).
