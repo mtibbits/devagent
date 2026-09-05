@@ -25,7 +25,9 @@ tag`) will get their own dated sections below.
   violation in a layer file DEFERs the drain naming `<file>:<line>`), beside
   `potholes_line_sha1` and `potholes_seed_sweep`; `POTHOLES_ISSUE_RE` is
   tightened to `Issue-(Fork-)?[0-9]+`. `--retire`/`--amend` still refuse a seed
-  line, now naming the seed-curation PR path.
+  line, now naming the devdoc body-twin the union read dedupes away (every
+  curated seed line has one — that twin is the op target) or, when no layer
+  carries the lesson, the seed-curation PR path.
 
 - **unstuck/resume flip the row that carries `[!]`/`[P]`, wherever it sits
   (#587).** `scripts/unstuck.sh` and `scripts/resume.sh` scanned the checklist

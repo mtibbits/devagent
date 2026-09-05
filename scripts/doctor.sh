@@ -237,10 +237,10 @@ if [[ -f "$(config_path)" ]]; then
   fi
   # #611: private project names vs the shipped seed — WARN only (the suite
   # canary tests/potholes-seed-canary.bats is the gate, live since #613 curated
-  # the seed; a hit here is a seed-curation regression, fixed by PR). The roster is the LIVE config's project
-  # keys (private, on the operator's box) minus the public allowlist; a key not
-  # in the suite fixture is reported as INFO only — the fixture must never grow
-  # a new private name (red-team #611).
+  # the seed; a hit here is a seed-curation regression, fixed by PR). The
+  # roster is the LIVE config's project keys (private, on the operator's box)
+  # minus the public allowlist; a key not in the suite fixture is reported as
+  # INFO only — the fixture must never grow a new private name (red-team #611).
   seed="$(potholes_seed_path)"   # via the resolver (#425 canary), never a hand-rolled path
   fx="$PLUGIN_ROOT/tests/fixtures/private-project-names.txt"
   if [[ -f "$seed" && -f "$fx" ]]; then

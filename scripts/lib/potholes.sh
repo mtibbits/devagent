@@ -167,7 +167,8 @@ potholes_section_count() {
 # (project-qualified tokens).
 #   1  no bullet immediately before a '## ' heading
 #   2  every '- ' line ends in the citation grammar (POTHOLES_CITE_TAIL_RE)
-#   3  every token of every citation is in the layer's form
+#   3  every token of every citation is in the layer's form (FORM only — the
+#      seed's extra rule, no fork token, is potholes_seed_sweep's, not the form's)
 #   4  retired-shaped lines only under POTHOLES_RETIRED_HEADING, and only those there
 #   5  LF only — no CR byte anywhere
 # One "<file>:<line>: <reason>" per violation on stderr — <label> (default: <file>)
@@ -183,6 +184,7 @@ potholes_file_check() {
   FORM="$form" RF="$rf" RH="$POTHOLES_RETIRED_HEADING" TAIL="$POTHOLES_CITE_TAIL_RE" \
   RL="$POTHOLES_RETIRED_LINE_RE" F="${3:-$f}" awk '
     function bad(reason) { printf "%s:%d: %s\n", ENVIRON["F"], FNR, reason > "/dev/stderr"; rc = 1 }
+    BEGIN { rc = 0; prev = ""; retired = 0 }   # explicit: "never clean" AND "never spuriously dirty" are both load-bearing (Issue-316)
     /\r/   { bad("CR byte — register files are LF only") }
     /^## / { if (prev ~ /^- /) bad("bullet immediately before a ## heading"); retired = ($0 == ENVIRON["RH"]) }
     /^- /  {

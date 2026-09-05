@@ -61,8 +61,8 @@ staging DEFERs the drain with the line quoted), the register FILE contract
 register-contract violation in the layer file DEFERs too, quoting
 `<file>:<line>: <reason>` against the real path: fix that line by hand, then
 re-run `--apply`) and the citation postcondition — and only then is each file
-written: adds append at the END
-of their named section (a union-valid heading the file lacks is added), a
+written: adds append at the END of their named section (a union-valid heading
+the file lacks is added), a
 retire rewrites its line as `- [<section>] <text> — mechanised by <mechanism>
 (<tokens>).` under `## Retired (mechanised)` at the file's end, an amend
 replaces its line in place. Two failure classes: a staging file `--apply`

@@ -321,8 +321,37 @@ seed_special_layer() { seed_project_layer "$SPECIAL" '- plain (Issue-11).'; }
     seed_project_layer
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
     [ "$status" -eq 1 ]; [[ "$output" == *"seed line"*"seed-curation"* ]]
+    [[ "$output" == *"no devdoc layer carries this lesson"*"[actionable] lesson"* ]]   # no twin: the follow-up remedy
+    [[ "$output" != *"target THAT line"* ]]
     run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- nowhere (Issue-7)." m
     [ "$status" -eq 1 ]; [[ "$output" == *"not found"* ]]
+}
+
+@test "--retire / --amend on a seed line whose body-twin lives in a devdoc layer names the twin as the target (#613 review I2)" {
+    # Every curated seed line has a body-identical workflow twin differing only by
+    # citation form; the union read dedupes the twin away, so an op copied from the
+    # union hits the seed refusal — which must point at the editable line, not at
+    # filing a follow-up.
+    use_workflow; seed_workflow_layer "- a seed line ($TEST_PROJECT Issue-7)."; devdoc_commit wf
+    seed_project_layer
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"seed line"*"seed-curation"* ]]
+    [[ "$output" == *"lives in the workflow layer $WF as: - a seed line ($TEST_PROJECT Issue-7)."*"target THAT line"* ]]
+    [[ "$output" != *"[actionable] lesson"* ]]
+    run bash "$PP" "$TEST_PROJECT" "$ID" --amend --layer workflow "- a seed line (Issue-7)." "- a seed line, amended ($TEST_PROJECT Issue-7; $TEST_PROJECT Issue-1)."
+    [ "$status" -eq 1 ]; [[ "$output" == *"target THAT line"* ]]
+    [ ! -e "$ID/potholes-promotion.md" ]                                       # refused: nothing staged
+    # a project-layer twin is found too (workflow first, then project)
+    rm -f "$WF"; devdoc_commit nowf
+    printf '%s\n' '- a seed line (Issue-7).' >> "$PROJ_REG"; devdoc_commit twin   # bare form: the project layer's own spelling
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer workflow "- a seed line (Issue-7)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"lives in the project layer $PROJ_REG as: - a seed line (Issue-7)."* ]]
+    # a twin that sits ONLY under Retired is not a target: the no-twin remedy applies
+    printf '%s\n' '- a seed line (Issue-7).' > "$PROJ_REG.new"
+    grep -vxF -- '- a seed line (Issue-7).' "$PROJ_REG" > "$PROJ_REG.tmp"; mv "$PROJ_REG.tmp" "$PROJ_REG"; rm -f "$PROJ_REG.new"
+    printf '%s\n' '' '## Retired (mechanised)' '- [x] a seed line — mechanised by y (Issue-7).' >> "$PROJ_REG"; devdoc_commit retired
+    run bash "$PP" "$TEST_PROJECT" "$ID" --retire --layer project "- a seed line (Issue-7)." m
+    [ "$status" -eq 1 ]; [[ "$output" == *"no devdoc layer carries this lesson"* ]]
 }
 
 @test "--retire / --amend refuse a bullet that sits ABOVE the first heading (no section — never an empty '## ' block)" {

@@ -95,9 +95,14 @@ _gate()    { _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha>
 
 @test "seed: privacy sweep — no fork-tracker token, home path, host, e-mail or operator username (gated); the planted control fires" {
   _gate
-  # the operator word is the git e-mail local part with a noreply numeric prefix stripped — never $USER
-  # (a generic login such as "user" would match "user-facing"); empty in CI, where the four fixed kinds still run
-  run potholes_seed_sweep "$SEED" "$(git config user.email 2>/dev/null | cut -d@ -f1 | sed 's/^[0-9]*+//')"
+  # the operator word is the LAST COMMITTER's e-mail local part with a noreply numeric prefix stripped —
+  # never $USER (a generic login such as "user" would match "user-facing"), and never `git config
+  # user.email`: hermetic-env.bash nulls GIT_CONFIG_GLOBAL/SYSTEM, so that read is EMPTY under the
+  # harness and the limb silently never fired (Issue-613 review I1). Commit metadata survives the null;
+  # an empty word is a skip WITH the reason, never a word-less green.
+  word="$(git -C "$REPO" log -1 --format=%ae 2>/dev/null | cut -d@ -f1 | sed 's/^[0-9]*+//')"
+  [ -n "$word" ] || skip "no committer e-mail at HEAD (empty history?) — the operator-username limb has no word"
+  run potholes_seed_sweep "$SEED" "$word"
   [ "$status" -eq 0 ]; [ -z "$output" ]
   printf '%s\n' '- a (Issue-Fork-3).' '- b /home/zzquser/x (Issue-4).' > "$BATS_TEST_TMPDIR/p.md"
   run potholes_seed_sweep "$BATS_TEST_TMPDIR/p.md"; [ "$status" -eq 1 ]; [ "${#lines[@]}" -eq 2 ]
@@ -106,7 +111,7 @@ _gate()    { _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha>
 @test "seed passes the register file contract as the seed layer (gated) — bare devagent tokens only" {
   _gate
   run potholes_file_check seed "$SEED"; [ "$status" -eq 0 ]; [ -z "$output" ]
-  run grep -cE '\([A-Za-z]+ Issue-' "$SEED"; [ "$status" -eq 1 ]     # no project-qualified token at all
+  run grep -cE "\\(${POTHOLES_PROJ_RE} Issue-" "$SEED"; [ "$status" -eq 1 ]     # no project-qualified token at all — the lib's own key grammar
 }
 
 @test "seed: every section heading of the pre-#613 register is still present (the union's --add targets live here)" {
