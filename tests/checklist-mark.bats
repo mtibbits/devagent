@@ -75,10 +75,8 @@ CKEOF
     printf '## Revision 1\n\n- [ ]  0. pull\n' > "$d/checklist.md"
     run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" nosuchstep x
     [ "$status" -ne 0 ]
-    # Pin the WRAPPER-distinctive token (`checklist-mark: ` prefix): a bare rc is
-    # satisfied by a missing function's 127 and by any unrelated failure, and the
-    # bare `no step named` is ALSO produced by the library's #589 die, so it would
-    # stay green if the pre-probe (KEPT, Task 10) were ever deleted.
+    # `checklist-mark: ` prefix = the WRAPPER's die; the library's #589 die also
+    # says "no step named".
     [[ "$output" == *"checklist-mark: no step named"* ]]
     grep -qE '^- \[ \]  0\. pull' "$d/checklist.md"    # nothing was marked
 }

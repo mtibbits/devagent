@@ -228,11 +228,8 @@ EOF
 }
 
 @test "checklist_mark refuses the whole-file fallback for a name-less caller (#589)" {
-  # Was: "checklist_mark falls back to whole file for steps not in active
-  # revision" (#74/#76), which PINNED the fail-open shape #589 removes. Rewritten
-  # to pin the NEW contract at the same fixture. `_append_rev2` writes a rev-2
-  # block carrying only rows 2/4/9, which is what makes "a reused number absent
-  # from the active block" reachable in tests at all.
+  # Rewritten from the #74/#76 "falls back to whole file" test, which pinned the
+  # fail-open shape #589 removes; same fixture, new contract.
   checklist_init "$ISSUE_DIR" standard   # standard rev 1 carries all 24 rows (#558)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
@@ -442,16 +439,11 @@ EOC
 EOC
   run checklist_mark "$ISSUE_DIR/checklist.md" 23 x
   [ "$status" -ne 0 ]
-  # Pin the MESSAGE, not the bare rc: a negative assertion is vacuously satisfied
-  # by a missing function's 127 (Issue-572) and by any unrelated failure
-  # (Issue-Fork-132). The token lives on STDERR (Issue-583).
+  # Pin the message and the remedies it names (not the bare rc); then the delta:
+  # no row anywhere took the glyph.
   [[ "$output" == *"refusing a name-less mark"* ]]
-  # ... and the remedy the message names must be the one that works (lawFirm
-  # Issue-8: a refusal naming a call that cannot recover is as bad as naming none).
   [[ "$output" == *"4th argument"* ]]
   [[ "$output" == *"--by-name"* ]]
-  # Assert the DELTA, not mere absence of an [x] (Issue-318): the rev-1 row is
-  # still exactly as the fixture wrote it, and NO row anywhere took the glyph.
   run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
   [ "$output" = "0" ]
   grep -qE '^- \[ \] 23\. cleanup' "$ISSUE_DIR/checklist.md"
@@ -478,10 +470,8 @@ EOC
 }
 
 @test "checklist_mark: a number absent EVERYWHERE still dies not-found, not with the #589 message (#589)" {
-  # The #589 predicate (start == 0 && active > 0) is also true for a typo: a
-  # number NO block carries. That case must keep the pre-existing `not found`
-  # die, because a diagnostic must never assert a row that does not exist
-  # (Issue-Fork-225; improve 2026-09-05, Bugs item 2).
+  # A number NO block carries keeps the pre-existing `not found` die: the #589
+  # message must never assert a row that does not exist.
   cat > "$ISSUE_DIR/checklist.md" <<'EOC'
 ## Revision 1
 

@@ -13,6 +13,6 @@ step's name as the optional 4th argument: it arms `checklist_mark`'s wrong-row
 guard, so a number that resolves to a different step's row fails loud instead
 of silently flipping it (#558 r3 m3/r4 m1).
 
-Since #589 a numeric mark WITHOUT the name is refused outright when that number is
-absent from the active revision block (it would otherwise flip an older revision's
-row); pass the name, or use `--by-name`.
+Since #589, on a checklist that has `## Revision` blocks, a numeric mark WITHOUT
+the name is refused outright when that number is absent from the active block (it
+would otherwise flip an older revision's row); pass the name, or use `--by-name`.
