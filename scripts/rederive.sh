@@ -122,6 +122,37 @@ done
 for fl in "${filelines[@]:-}"; do [ -n "$fl" ] && files+=("${fl%%:*}"); done
 mapfile -t files < <(printf '%s\n' "${files[@]:-}" | grep -v '^$' | sort -u || true)
 
+# --- Name resolution (#590) ---------------------------------------------------
+# Tokens are often a bare basename (`SKILL.md`) or a path suffix
+# (`capture/capture.sh`), not a repo path; `cat-file -e HEAD:<tok>` fails on
+# those, and Issue-570's artifact carried six ✗ rows of which zero were real —
+# on a gate the draft must dispose of row by row. Resolve against the HEAD tree
+# (ls-tree, not ls-files: the index may hold staged-uncommitted paths) by EXACT
+# suffix at a `/` boundary — awk string compare, no regex, so no escaping and no
+# rc-1-vs-2 ambiguity (an awk failure aborts the assignment under pipefail with
+# awk's own stderr — loud by construction). One hit → resolved, several →
+# ambiguous (advisory, not a premise), none → genuinely absent (✗). The
+# extractor above is unchanged.
+head_tree="$("$DEVAGENT_GIT" -C "$source_dir" ls-tree -r --name-only HEAD)" \
+  || die "rederive: git ls-tree HEAD failed in $source_dir"
+# rederive_resolve <token> — setter-globals: RES_KIND (exact|resolved|ambiguous|
+# absent), RES_PATH (the one path for exact/resolved), RES_HITS (newline list
+# for ambiguous).
+rederive_resolve() {
+  local t="$1" hits
+  RES_KIND=absent; RES_PATH=""; RES_HITS=""
+  if "$DEVAGENT_GIT" -C "$source_dir" cat-file -e "HEAD:$t" 2>/dev/null; then
+    RES_KIND=exact; RES_PATH="$t"; return 0
+  fi
+  RES_HITS="$(printf '%s\n' "$head_tree" | awk -v t="$t" \
+    'length($0) >= length(t) && substr($0, length($0)-length(t)+1) == t && (length($0) == length(t) || substr($0, length($0)-length(t), 1) == "/")')"
+  [ -n "$RES_HITS" ] || return 0                   # absent
+  mapfile -t hits <<< "$RES_HITS"
+  if [ "${#hits[@]}" -eq 1 ]; then RES_KIND=resolved; RES_PATH="${hits[0]}"
+  else RES_KIND=ambiguous; fi
+}
+declare -a since_paths=()
+
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
 artifact="$issue_dir/analysis/${date_str}-rederive.txt"
@@ -145,28 +176,40 @@ fi
     if [ "${#files[@]}" -gt 0 ]; then
       echo "## Named files (exists at HEAD?)"
       for f in "${files[@]}"; do
-        if "$DEVAGENT_GIT" -C "$source_dir" cat-file -e "HEAD:$f" 2>/dev/null; then
-          echo "  ✓ $f"
-        else
-          echo "  ✗ $f  — NOT at HEAD (falsified premise — address in Preconditions)"
-        fi
+        rederive_resolve "$f"
+        case "$RES_KIND" in
+          exact)     echo "  ✓ $f"; since_paths+=("$f") ;;
+          resolved)  echo "  ✓ $f → $RES_PATH (resolved: one tracked path ends in /$f)"; since_paths+=("$RES_PATH") ;;
+          ambiguous) mapfile -t hits <<< "$RES_HITS"
+                     echo "  ~ $f — ambiguous: ${#hits[@]} tracked paths end in /$f ($(printf '%s, ' "${hits[@]:0:3}" | sed 's/, $//')${hits[3]:+, …}); advisory, not a falsified premise — cite the full path if it matters" ;;
+          *)         echo "  ✗ $f  — NOT at HEAD (falsified premise — address in Preconditions)" ;;
+        esac
       done
     fi
     if [ "${#filelines[@]}" -gt 0 ]; then
       echo "## Cited lines at HEAD (drift check)"
       for fl in "${filelines[@]}"; do
         f="${fl%%:*}"; ln="${fl##*:}"
-        cur="$("$DEVAGENT_GIT" -C "$source_dir" show "HEAD:$f" 2>/dev/null | sed -n "${ln}p" || true)"
-        echo "  $fl → ${cur:-<file/line absent at HEAD>}"
+        rederive_resolve "$f"
+        case "$RES_KIND" in
+          exact|resolved)
+            cur="$("$DEVAGENT_GIT" -C "$source_dir" show "HEAD:$RES_PATH" 2>/dev/null | sed -n "${ln}p" || true)"
+            if [ "$RES_KIND" = resolved ]; then echo "  $fl → ($RES_PATH) ${cur:-<file/line absent at HEAD>}"
+            else echo "  $fl → ${cur:-<file/line absent at HEAD>}"; fi ;;
+          ambiguous)
+            mapfile -t hits <<< "$RES_HITS"
+            echo "  $fl → <ambiguous: ${#hits[@]} tracked paths end in /$f>" ;;
+          *) echo "  $fl → <file/line absent at HEAD>" ;;
+        esac
       done
     fi
     if [ "${#funcs[@]}" -gt 0 ]; then
       echo "## Named functions (advisory — not path-verified)"
       for fn in "${funcs[@]}"; do echo "  · $fn"; done
     fi
-    if [ "${#files[@]}" -gt 0 ] && [ -n "$created" ]; then
+    if [ "${#since_paths[@]}" -gt 0 ] && [ -n "$created" ]; then
       echo "## Merged commits touching these files since $created (what landed while queued)"
-      log="$("$DEVAGENT_GIT" -C "$source_dir" log --oneline "--since=$created" -- "${files[@]}" 2>/dev/null || true)"
+      log="$("$DEVAGENT_GIT" -C "$source_dir" log --oneline "--since=$created" -- "${since_paths[@]}" 2>/dev/null || true)"
       if [ -n "$log" ]; then printf '%s\n' "$log" | sed 's/^/  /'; else echo "  (none)"; fi
     fi
   fi

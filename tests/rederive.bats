@@ -263,3 +263,106 @@ EOF
     [ "$status" -ne 0 ]
     [[ "$output" == *"rev-list"* ]] && [[ "$output" == *"failed"* ]]   # THIS die, not some other red (#337)
 }
+
+@test "rederive: bare basename that matches ONE tracked path → ✓ resolved, feeds the since-log, never ✗ (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p skills/x && echo s > skills/x/SKILL.md && git add -A && git commit -qm addskill )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '✓ SKILL.md → skills/x/SKILL.md (resolved: one tracked path ends in /SKILL.md)' "$(_art)"
+    grep -qE '^  [0-9a-f]+ addskill$' "$(_art)"   # the RESOLVED path is what the since-log walks
+    run grep -c '✗ SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: a path SUFFIX (dir/file) resolves the same way (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p scripts/capture && echo c > scripts/capture/capture.sh && git add -A && git commit -qm addcap )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `capture/capture.sh`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '✓ capture/capture.sh → scripts/capture/capture.sh (resolved' "$(_art)"
+}
+
+@test "rederive: ambiguous basename → ~ advisory row listing the hits, never ✗ (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p skills/a skills/b && echo a > skills/a/SKILL.md && echo b > skills/b/SKILL.md \
+      && git add -A && git commit -qm two )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '~ SKILL.md — ambiguous: 2 tracked paths end in /SKILL.md (skills/a/SKILL.md, skills/b/SKILL.md); advisory, not a falsified premise' "$(_art)"
+    run grep -c '✗ SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: genuinely absent paths still ✗ — wrong full path, near-miss basename, missing file (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p skills/a && echo a > skills/a/SKILL.md && git add -A && git commit -qm one )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `skills/foo/SKILL.md`, `xSKILL.md` and `missing.sh`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '✗ skills/foo/SKILL.md' "$(_art)"     # a suffix match must not rescue a WRONG full path
+    grep -q '✗ xSKILL.md' "$(_art)"               # the `/` boundary: xSKILL.md is not SKILL.md
+    grep -q '✗ missing.sh' "$(_art)"
+    run grep -c '✓ skills/foo/SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: line-cite on a bare basename resolves and shows the line (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p sub && printf 'one\ntwo\n' > sub/util.sh && git add -A && git commit -qm util )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `util.sh:2`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q 'util.sh:2 → (sub/util.sh) two' "$(_art)"
+}
+
+@test "rederive: line-cite on an ambiguous basename says so instead of 'absent' (#590)" {
+    ( cd "$SOURCE_DIR" && mkdir -p p q && echo 1 > p/util.sh && echo 2 > q/util.sh && git add -A && git commit -qm utils )
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+See `util.sh:1`.
+EOF
+    _run
+    [ "$status" -eq 0 ]
+    grep -q 'util.sh:1 → <ambiguous: 2 tracked paths end in /util.sh>' "$(_art)"
+    run grep -c 'file/line absent' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: dies loud when ls-tree faults (#590)" {
+    _origin; _faulty ls-tree
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+References `lib.sh`.
+EOF
+    _run
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"ls-tree"* ]] && [[ "$output" == *"failed"* ]]
+}
