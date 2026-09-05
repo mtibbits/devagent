@@ -42,8 +42,8 @@
 # still pending (the staging file IS the promise; --apply honours it).
 #
 # Working trees are LF on every platform (plugin .gitattributes `* text=auto
-# eol=lf`; devDoc .gitattributes scoped to the register files, #611), so no
-# line-ending handling here.
+# eol=lf`; devDoc .gitattributes scoped to the register files, #611);
+# potholes_file_check (#613) REFUSES a CR byte rather than handling it.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -244,6 +244,24 @@ _region_awk() {   # <mode> <file> <line> [<new>]
     esac
 }
 _hits()         { _region_awk count      "$1" "$2"; }
+# _body_twin <line> — "<layer> layer <file> as: <line>" for the FIRST active-region
+# devdoc line whose citation-stripped body equals <line>'s (workflow first, then
+# project); rc 1 when none. Exact body match (fixed string, whole line after the
+# tail strip) — a twin differs from its seed copy only by citation form.
+_body_twin() {
+    local body t ly f l
+    body="$(_body "$1")"
+    for t in "workflow:$wf" "project:$pr"; do
+        ly="${t%%:*}"; f="${t#*:}"
+        [ -n "$f" ] && [ -f "$f" ] || continue
+        while IFS= read -r l; do
+            [ "$(_body "$l")" = "$body" ] || continue
+            [ "$(_hits "$f" "$l")" -ge 1 ] || continue           # active region only — a Retired twin is not a target
+            printf '%s layer %s as: %s\n' "$ly" "$f" "$l"; return 0
+        done < <(grep -F -- "${body#- }" "$f" | grep '^- ' || true)
+    done
+    return 1
+}
 _section_of()   { _region_awk section    "$1" "$2"; }
 _in_retired()   { _region_awk in_retired "$1" "$2" >/dev/null; }
 _delete_line()  { _region_awk delete     "$1" "$2"; }
@@ -432,8 +450,14 @@ case "${1:-}" in
     _bullet_shape "$old" || die "$MODE: <old-line> refused (see above)"
     n="$(_hits "$target" "$old")"
     if [ "$n" -eq 0 ]; then
-        grep -qxF -- "$old" "$seed" \
-            && die "$MODE: seed line — land via the distribute issue (the plugin seed is never edited by an op; record the candidate as an [actionable] lesson for that issue): $old"
+        if grep -qxF -- "$old" "$seed"; then
+            # The union read shows a seed lesson in the SEED's spelling and hides its
+            # body-identical devdoc twin (dedupe by citation-stripped body) — every
+            # curated seed line has one (#613 ledger). Name the twin: it IS the op target.
+            twin="$(_body_twin "$old")" \
+                && die "$MODE: seed line — the plugin seed is a curated excerpt edited only by a seed-curation PR (#613 ledger); it is never the target of an op. The same lesson lives in the $twin — target THAT line (the union read shows the seed's spelling; open the layer file for the exact text)"
+            die "$MODE: seed line — the plugin seed is a curated excerpt edited only by a seed-curation PR (#613 ledger); it is never the target of an op, and no devdoc layer carries this lesson: record the candidate as an [actionable] lesson: $old"
+        fi
         die "$MODE: <old-line> not found outside '$POTHOLES_RETIRED_HEADING' in the $layer layer $target: $old"
     fi
     [ "$n" -eq 1 ] || die "$MODE: <old-line> occurs $n times in $target — it must occur exactly once: $old"
@@ -647,11 +671,14 @@ case "${1:-}" in
         done
         CHANGED[$ly]=$c
         [ "$c" -gt 0 ] || continue
-        # Postconditions on the temp copy: format contract + citation. Citation
-        # check scoped to THIS file: the union would be satisfied by another
-        # layer's earlier promotion and prove nothing.
-        v="$(awk 'prev ~ /^- / && /^## / {c++} {prev=$0} END{print c+0}' "$t")"
-        [ "$v" = "0" ] || _defer "$ly layer: the ops would produce $v 'bullet immediately before a ## heading' violation(s) — $target NOT modified"
+        # Postconditions on the temp copy: the register FILE contract over the WHOLE
+        # file (potholes_file_check, #613 — a pre-existing violation DEFERs too, each
+        # line labelled with the real path), then the citation, scoped to THIS file
+        # (the union would be satisfied by another layer's earlier promotion). rc 2
+        # (unreadable copy) is a harness fault, never a register verdict (Issue-316).
+        pc_rc=0; pc="$(potholes_file_check "$ly" "$t" "$target" 2>&1)" || pc_rc=$?
+        [ "$pc_rc" -ne 2 ] || die "--apply: potholes_file_check could not read the $ly temp copy ($t): $pc"
+        [ "$pc_rc" -eq 0 ] || _defer "$ly layer: the ops would leave the register violating its format contract — $target NOT modified; fix the quoted line by hand, then re-run --apply:"$'\n'"$pc"
         grep -qiE -- "$(potholes_cite_re "$project" "$issue_id" "$ly")" "$t" \
             || _defer "$ly layer: after the ops the register carries no ${issue_id} citation — $target NOT modified"
     done
