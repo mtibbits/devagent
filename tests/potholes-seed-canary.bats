@@ -93,25 +93,48 @@ _gate()    { _curated || skip "seed line 1 lacks the '<!-- curated: ledger <sha>
   n="$(grep -c '^- ' "$SEED")"; [ "$n" -le "$POTHOLES_SEED_TOTAL_CAP" ] || { echo "seed holds $n bullets (cap $POTHOLES_SEED_TOTAL_CAP)" >&2; false; }
 }
 
-@test "seed: privacy sweep — no fork-tracker token, home path, host, e-mail or operator username (gated); the planted control fires" {
+@test "seed: privacy sweep — no fork-tracker token, home path, host or e-mail (gated); the planted control fires" {
   _gate
-  # the operator word is the LAST COMMITTER's e-mail local part with a noreply numeric prefix stripped —
-  # never $USER (a generic login such as "user" would match "user-facing"), and never `git config
-  # user.email`: hermetic-env.bash nulls GIT_CONFIG_GLOBAL/SYSTEM, so that read is EMPTY under the
-  # harness and the limb silently never fired (Issue-613 review I1). Commit metadata survives the null;
-  # an empty word is a skip WITH the reason, never a word-less green.
-  word="$(git -C "$REPO" log -1 --format=%ae 2>/dev/null | cut -d@ -f1 | sed 's/^[0-9]*+//')"
-  [ -n "$word" ] || skip "no committer e-mail at HEAD (empty history?) — the operator-username limb has no word"
-  run potholes_seed_sweep "$SEED" "$word"
+  run potholes_seed_sweep "$SEED"
   [ "$status" -eq 0 ]; [ -z "$output" ]
   printf '%s\n' '- a (Issue-Fork-3).' '- b /home/zzquser/x (Issue-4).' > "$BATS_TEST_TMPDIR/p.md"
   run potholes_seed_sweep "$BATS_TEST_TMPDIR/p.md"; [ "$status" -eq 1 ]; [ "${#lines[@]}" -eq 2 ]
 }
 
+# The operator's forge handles, DECLARED: the owner half of every code_source.fork /
+# issue_source_fork.repo in the LIVE config — a property of who runs this box, stable
+# across commits. Never $USER (a generic login such as "user" matches "user-facing"),
+# never `git config user.email` (hermetic-env.bash nulls it — the limb was silently
+# word-less, Issue-613 review I1), and never commit metadata (%ae drifts with every
+# commit and a role local part — ci@, docs@, test@ — is ordinary seed prose, so the
+# row reddened for a reason unrelated to the seed, Issue-613 redmr). No config (CI)
+# ⇒ no words ⇒ the handle row skips WITH the reason; the fixed kinds run regardless.
+_operator_words() {
+  local cfg p f
+  cfg="$(config_path 2>/dev/null)" && [ -f "$cfg" ] || return 0
+  while IFS= read -r p; do
+    for f in "$(config_get_project_field "$p" code_source.fork 2>/dev/null || true)" \
+             "$(config_get_project_field "$p" issue_source_fork.repo 2>/dev/null || true)"; do
+      [ -n "$f" ] && printf '%s\n' "${f%%/*}"
+    done
+  done < <(config_list_projects 2>/dev/null || true) | sort -u
+}
+
+@test "seed: privacy sweep — no operator forge handle (the fork owners the live config declares; gated); the planted control fires" {
+  _gate
+  mapfile -t words < <(_operator_words)
+  [ "${#words[@]}" -gt 0 ] || skip "no fork owner declared in a live config (none here, e.g. CI) — the operator-handle limb has no word"
+  run potholes_seed_sweep "$SEED" "${words[@]}"
+  [ "$status" -eq 0 ]; [ -z "$output" ]
+  printf '%s\n' "- a lesson by ${words[0]} about x (Issue-4)." > "$BATS_TEST_TMPDIR/p.md"
+  run potholes_seed_sweep "$BATS_TEST_TMPDIR/p.md" "${words[@]}"; [ "$status" -eq 1 ]; [[ "$output" == *"word:${words[0]}:"* ]]
+}
+
 @test "seed passes the register file contract as the seed layer (gated) — bare devagent tokens only" {
   _gate
   run potholes_file_check seed "$SEED"; [ "$status" -eq 0 ]; [ -z "$output" ]
-  run grep -cE "\\(${POTHOLES_PROJ_RE} Issue-" "$SEED"; [ "$status" -eq 1 ]     # no project-qualified token at all — the lib's own key grammar
+  # belt-and-braces over the CITATION TAIL only — a body parenthetical such as "(the Issue-586 rule)" is prose, not a token (Issue-613 redmr)
+  run grep -cE "\\(([^)]*; )?${POTHOLES_PROJ_RE} ${POTHOLES_ISSUE_RE}(; [^)]*)?\\)\\.\$" "$SEED"; [ "$status" -eq 1 ]
 }
 
 @test "seed: every section heading of the pre-#613 register is still present (the union's --add targets live here)" {

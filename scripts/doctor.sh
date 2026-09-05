@@ -153,6 +153,29 @@ check_one_project() {
     check "potholes_workflow register: $wf (absent — bootstrapped by the first --apply)" ok
   fi
 
+  # #613 (redmr): the register FILE contract over each PRESENT devdoc layer — the
+  # predicate --apply runs on its temp copy before writing, so a pre-existing
+  # violation is a diagnostic here rather than a DEFER at the next closeout's
+  # drain (which cleanup only warns about). Absent files are the rows above.
+  local pr ly f crc cout
+  pr="$(potholes_project_path "$project" 2>/dev/null || true)"
+  for ly in workflow project; do
+    if [[ "$ly" == workflow ]]; then f="${wf:-}"; else f="$pr"; fi
+    [[ -n "$f" && -s "$f" ]] || continue
+    if ! type potholes_file_check >/dev/null 2>&1; then
+      check "potholes register contract ($ly layer)" fail "predicate potholes_file_check not loaded (scripts/lib/potholes.sh)"
+      continue
+    fi
+    crc=0; cout="$(potholes_file_check "$ly" "$f" 2>&1)" || crc=$?
+    if [[ "$crc" -eq 0 ]]; then
+      check "potholes register contract ($ly layer): $f" ok
+    elif [[ "$crc" -eq 1 ]]; then
+      check "potholes register contract ($ly layer)" warn "$(printf '%s' "$cout" | tr '\n' ';') — the next --apply (cleanup's drain) DEFERs on this; fix the quoted line by hand (#613)"
+    else
+      check "potholes register contract ($ly layer)" fail "$f unreadable — the predicate could not run"
+    fi
+  done
+
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
   if [[ -x "$hook" ]]; then

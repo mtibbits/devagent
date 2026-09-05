@@ -132,9 +132,12 @@ one key that reads the global table, and it has no plugin fallback, so
 layer refuses at staging time.
 
 The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
-most 100 entries, 25 per section, citing devagent issues only, with a line-1
-marker naming the private migration ledger that says where every earlier entry
-went. Your private layers hold the full register; step 22 writes only to those.
+most 100 entries, 25 per section, citing devagent issues only. Its line-1
+marker names a commit in the plugin author's private devDoc — the migration
+ledger that records where every pre-#613 entry went — and is not resolvable
+from a public install; the entries that left the seed are in the plugin's own
+git history at `2438f4d`. On a fresh install the excerpt IS the register; the
+private layers you accumulate hold the rest, and step 22 writes only to those.
 
 Inspect
 what resolves where with `/devagent:template list` and

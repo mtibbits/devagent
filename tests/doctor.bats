@@ -221,6 +221,23 @@ CL
   [[ "$output" != *"(absent"* ]]
 }
 
+@test "doctor: register contract row per PRESENT layer — a pre-existing violation WARNs naming <file>:<line> (#613 redmr)" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" paths.potholes_workflow "\"$DA_HOME/wf.md\""
+  printf '%s\n' '# WF' '' '## S' '- a bare token in the shared layer (Issue-1).' > "$DA_HOME/wf.md"
+  mkdir -p "$DA_HOME/fake-devdoc/templates"
+  printf '%s\n' '# P' '' '## S' '- a clean project line (Issue-2).' > "$DA_HOME/fake-devdoc/templates/potholes.md"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"WARN potholes register contract (workflow layer)"*"$DA_HOME/wf.md:4: workflow-layer token 'Issue-1' must be '<project> Issue-N'"*"DEFERs"* ]]
+  [[ "$output" == *"OK   potholes register contract (project layer): $DA_HOME/fake-devdoc/templates/potholes.md"* ]]
+  printf '%s\n' '# WF' '' '## S' '- a qualified token (volk Issue-1).' > "$DA_HOME/wf.md"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" == *"OK   potholes register contract (workflow layer): $DA_HOME/wf.md"* ]]
+  [[ "$output" != *"WARN potholes register contract"* ]]
+  rm -f "$DA_HOME/wf.md" "$DA_HOME/fake-devdoc/templates/potholes.md"       # absent layers: no contract row at all
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" != *"potholes register contract"* ]]
+}
+
 @test "doctor: the private-name check FAILS closed when its fixture is missing (#611 red-team r2)" {
   # Run a COPY of the plugin with the fixture removed: doctor derives PLUGIN_ROOT from its own path.
   cp -r "$PLUGIN_ROOT" "$BATS_TEST_TMPDIR/plugin"

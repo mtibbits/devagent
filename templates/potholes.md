@@ -7,7 +7,9 @@
        - one line per entry, keyed by a DOMAIN TRIGGER (the situation that fires it);
        - each entry ends with its citation `(Issue-N[; Issue-M]).` — devagent issue numbers only;
        - at most 25 entries per section and 100 in the file (tests/potholes-seed-canary.bats);
-       - line 1 names the migration ledger commit that says where every pre-#613 line went.
+       - line 1 names the commit of the plugin author's PRIVATE migration ledger (where every
+         pre-#613 line went) — not resolvable from a public install; what left this file is in
+         this repo's own history at 2438f4d.
      The workflow never writes this file: step 22 stages lessons into the private layers
      (scripts/promote-potholes.sh --add --layer); the seed changes only by PR. Keep EVERY
      section heading, even one with no entries here — `--add` validates its section against

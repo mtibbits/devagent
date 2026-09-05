@@ -100,7 +100,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # [project.{{PROJECT}}.issue_source_fork]
 # backend    = "github"
 # repo       = "you/your-fork"
-# dir_prefix = "Issue-Fork-"
+# dir_prefix = "Issue-Fork-"          # register grammar (#613): issue ids must be Issue-N or Issue-Fork-N (POTHOLES_ISSUE_RE)
 
 # Optional model-tier map (#150 surfacing, #151 dispatch consumer). next.sh prints one hint at dispatch and
 # catchup shows the current step's tier; tier names (not model IDs) are
@@ -162,7 +162,7 @@ transition_issue   = false   # (#219) allow sync to fire the remote on_merge tra
 [project.{{PROJECT}}.issue_source]
 backend = "{{ISSUE_BACKEND}}"
 repo = "{{ISSUE_REPO}}"
-dir_prefix = "Issue-"
+dir_prefix = "Issue-"                  # must stay "Issue-" (or "Issue-Fork-" for a fork tracker): the pothole register cites issues as Issue-N / Issue-Fork-N only (#613)
 
 [project.{{PROJECT}}.code_source]
 backend = "{{CODE_BACKEND}}"
