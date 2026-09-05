@@ -100,9 +100,15 @@ issues, not at the end of the current one.
    `- [<section>] <text> — mechanised by <mechanism> (<its tokens>; <this issue's token>).`
    — it keeps its text (the citation proof `--check` needs) and leaves the READ
    union. A line that lives only in the plugin SEED is refused ("seed line —
-   land via the distribute issue"): record it as an `[actionable]` lesson
-   naming that issue instead. PARTIAL → amend (7b's command) to name the
-   mechanism and what it does NOT cover.
+   … edited only by a seed-curation PR", #613) — the seed is a curated
+   excerpt, never an op target. The union read shows a deduped lesson in the
+   SEED's spelling and hides its body-identical devdoc twin — a register that
+   was distributed from this seed (#613) carries one per seed line, differing
+   only by citation form; an install with no private layers has none: when
+   the refusal names a twin ("lives in the <layer> layer … as: <line>"),
+   target THAT line; when it says no layer carries the lesson, record it as
+   an `[actionable]` lesson instead. PARTIAL → amend (7b's command) to name the mechanism and what it
+   does NOT cover.
 
    7b. **Consolidate-before-add.** For each candidate line, grep the UNION
    (all layers, not just the target) for the same pothole FAMILY — same
