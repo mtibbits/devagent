@@ -39,7 +39,13 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "rederive: issue_dir not set or missing"
 issue_md="$issue_dir/issue.md"
 [ -f "$issue_md" ] || die "rederive: no issue.md at $issue_md (run /devagent:pull first)"
-source_dir="$(config_get_project_field "$project" source_dir)"
+# The MEASURED tree is the issue's recorded worktree when use_worktree put the
+# branch there, else source_dir (#571's rule; pre-branch nothing is recorded).
+# Reading source_dir unconditionally would, on a worktree project, probe the
+# base branch every revision: a false STALE CHECKOUT plus ✗ for every file the
+# branch itself added (step-16 red-team).
+active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
+source_dir="$ACTIVE_TREE_DIR"
 [ -d "$source_dir/.git" ] || [ -f "$source_dir/.git" ] || die "rederive: source_dir is not a git repo: $source_dir"
 
 # Filing date: prefer the tracker's Created: header (pull writes it, #361); fall
@@ -100,7 +106,16 @@ else
     if [ "$head_branch" = "$issue_branch" ]; then
       gap_line="ℹ HEAD $head_short on issue branch $issue_branch $gap — revision-time drift, not a premise; rebasing is a ship-time decision"
     elif [ "$behind" -gt 0 ]; then
-      gap_line="✗ HEAD $head_short $gap — STALE CHECKOUT: every ✓ below was checked against a tree $behind commit(s) behind the base the branch will be cut from (falsified premise — on the base branch run: git -C $source_dir merge --ff-only $base_ref, then re-run the prober via /devagent:draft; or state the delta in Preconditions)"
+      # The remedy is a runnable command only when default_baseline IS the base
+      # the branch will be cut from; a marker overrides that base (branch.sh
+      # reads it, this prober does not), so naming a merge of default_baseline
+      # would fast-forward the wrong ref.
+      if [ -n "$marker_note" ]; then
+        remedy="a .devagent-baseline marker overrides the base, so this count is informational — check the marker's ref by hand, or state the delta in Preconditions"
+      else
+        remedy="on the base branch run: git -C $source_dir merge --ff-only $base_ref, then re-run the prober via /devagent:draft; or state the delta in Preconditions"
+      fi
+      gap_line="✗ HEAD $head_short $gap — STALE CHECKOUT: every ✓ below was checked against a tree $behind commit(s) behind the base the branch will be cut from (falsified premise — $remedy)"
     else
       gap_line="✓ HEAD $head_short $gap"
     fi
@@ -133,12 +148,20 @@ mapfile -t files < <(printf '%s\n' "${files[@]:-}" | grep -v '^$' | sort -u || t
 # rc-1-vs-2 ambiguity (an awk failure aborts the assignment under pipefail with
 # awk's own stderr — loud by construction). One hit → resolved, several →
 # ambiguous (advisory, not a premise), none → genuinely absent (✗). The
-# extractor above is unchanged. core.quotePath=false: by default ls-tree
-# C-quotes any path holding a non-ASCII byte ("d\303\266ssier/SKILL.md"), which
-# a string compare never matches — a false ✗, or a false one-hit ✓ when the
-# quoted path was the second hit (step-15 review).
-head_tree="$("$DEVAGENT_GIT" -C "$source_dir" -c core.quotePath=false ls-tree -r --name-only HEAD)" \
-  || die "rederive: git ls-tree HEAD failed in $source_dir"
+# extractor above is unchanged. The tree is read NUL-delimited (-z): on the
+# newline form git C-quotes any path holding a non-ASCII byte, a `"`, a `\` or
+# a control character (core.quotePath governs only the first), and a quoted
+# line never matches a string compare — a false ✗, or a false one-hit ✓ when
+# the quoted path was the second hit (steps 15/16). -z output is never quoted;
+# the accepted residual is a path containing a newline itself, which tr splits.
+# Read only when a token needs it, and only when HEAD is a commit: an unborn
+# HEAD is not a git FAULT, so it prints ✗ rows and rc 0 like any absent input
+# instead of dying (advisory contract).
+head_tree=""
+if [ "${#files[@]}" -gt 0 ] && "$DEVAGENT_GIT" -C "$source_dir" rev-parse --verify --quiet 'HEAD^{commit}' >/dev/null 2>&1; then
+  head_tree="$("$DEVAGENT_GIT" -C "$source_dir" ls-tree -r --name-only -z HEAD | tr '\0' '\n')" \
+    || die "rederive: git ls-tree HEAD failed in $source_dir"
+fi
 # rederive_resolve <token> — setter-globals: RES_KIND (exact|resolved|ambiguous|
 # absent), RES_PATH (the one path for exact/resolved), RES_HITS (array of the
 # matching paths for ambiguous).

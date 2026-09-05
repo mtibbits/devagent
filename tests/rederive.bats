@@ -417,3 +417,87 @@ EOF2
     grep -q '^## Merged commits touching these files since 2020-01-01' "$(_art)"
     grep -q '^  (none)$' "$(_art)"
 }
+
+@test "rederive: a basename whose only hit lives under a dir named with a double quote resolves — git C-quotes it regardless of core.quotePath (#590 redmr)" {
+    ( cd "$SOURCE_DIR" && mkdir -p 'has"quote' && echo s > 'has"quote/SKILL.md' && git add -A && git commit -qm quote )
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -qF '✓ SKILL.md → has"quote/SKILL.md (resolved: one tracked path ends in /SKILL.md)' "$(_art)"
+    run grep -c '✗ SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: a C-quoted (backslash) second hit still makes the basename ambiguous, never a false one-hit ✓ (#590 redmr)" {
+    ( cd "$SOURCE_DIR" && mkdir -p 'back\slash' plain && echo a > 'back\slash/SKILL.md' && echo b > plain/SKILL.md \
+      && git add -A && git commit -qm two )
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+See `SKILL.md`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -qF '~ SKILL.md — ambiguous: 2 tracked paths end in /SKILL.md (back\slash/SKILL.md, plain/SKILL.md)' "$(_art)"
+    run grep -c '✓ SKILL.md → plain/SKILL.md' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: measures the issue's RECORDED worktree — ℹ on its branch and its added file ✓, never STALE (#590 redmr)" {
+    _origin
+    WT="$DEVAGENT_TMP/wt"
+    git -C "$SOURCE_DIR" worktree add -q -b fix/wt "$WT" HEAD
+    ( cd "$WT" && echo d > delta.sh && git add -A && git commit -qm delta )      # exists ONLY on the worktree's branch
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" worktree_path "$WT"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch fix/wt
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+References `delta.sh`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q 'ℹ HEAD [0-9a-f]* on issue branch fix/wt vs origin/main: behind 0, ahead 1 (fetch: ok)' "$(_art)"
+    grep -q '✓ delta.sh' "$(_art)"
+    run grep -c 'STALE CHECKOUT' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "rederive: an unborn HEAD (repo with no commits) stays advisory — ✗ rows and rc 0, no die (#590 redmr)" {
+    rm -rf "$SOURCE_DIR/.git" && git -C "$SOURCE_DIR" init -q
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+References `lib.sh`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q '? behind-count undetermined' "$(_art)"
+    grep -q '✗ lib.sh' "$(_art)"
+}
+
+@test "rederive: with a .devagent-baseline marker the STALE row points at the marker, not at a merge --ff-only of default_baseline (#590 redmr)" {
+    _commit c2; _commit c3; _origin
+    ( cd "$SOURCE_DIR" && git reset -q --hard HEAD~2 )
+    printf '%s' 'origin/other' > "$DEVDOC_DIR/Issue-1/.devagent-baseline"
+    _issue <<'EOF2'
+# t
+- Created: 2020-01-01
+
+References `lib.sh`.
+EOF2
+    _run
+    [ "$status" -eq 0 ]
+    grep -q 'STALE CHECKOUT' "$(_art)"
+    grep -q 'marker overrides the base' "$(_art)"
+    run grep -c 'merge --ff-only' "$(_art)"
+    [ "$status" -eq 1 ]
+}

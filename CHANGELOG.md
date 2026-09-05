@@ -31,8 +31,12 @@ tag`) will get their own dated sections below.
   a `~ … ambiguous` advisory row; none → the same `✗` as before (Issue-570's
   artifact carried six ✗ rows, zero real). Plumbing: `upstream_fetch` sets
   `UPSTREAM_FETCH_STATUS` (skipped|ok|failed) and runs its fetch with
-  `GIT_TERMINAL_PROMPT=0`, so a credential prompt fails instead of hanging an
-  unattended step (ship and mergetoall inherit that). Carriers:
+  `GIT_TERMINAL_PROMPT=0`, so git's own credential prompt fails instead of
+  hanging an unattended step (ship and mergetoall inherit that; an ssh prompt or
+  a black-holed remote is not covered — a fetch timeout is a recorded
+  follow-up). The prober measures the issue's recorded worktree when
+  `use_worktree` put the branch there (#571's `active_tree_resolve`), else
+  `source_dir`. Carriers:
   `commands/draft.md`, the imPlan template's Preconditions note, `core-scope`
   question 7, and the `commands/branch.md` override rules describe the new rows.
 - **The plugin seed `templates/potholes.md` is a curated public excerpt (#613).**

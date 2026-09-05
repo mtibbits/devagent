@@ -15,19 +15,19 @@ command -v warn >/dev/null 2>&1 || warn() { printf '%s\n' "$*" >&2; }
 # UPSTREAM_FETCH_STATUS — "skipped" (no/unconfigured remote), "ok", or
 # "failed" — so an artifact can say whether its counts follow a fresh fetch
 # or the last-known remote state (setter-global: survives no `$(...)`). The
-# fetch runs with GIT_TERMINAL_PROMPT=0: a remote that would ask for
-# credentials FAILS (→ "failed" + warn) instead of hanging an unattended step.
+# fetch runs with GIT_TERMINAL_PROMPT=0: git's OWN credential prompt (HTTP
+# auth) FAILS (→ "failed" + warn) instead of hanging an unattended step. Not
+# covered: an ssh passphrase/host-key prompt, an askpass helper, or a remote
+# that black-holes the connection — a fetch timeout is a recorded follow-up.
+# shellcheck disable=SC2034  # UPSTREAM_FETCH_STATUS is the return channel — read by rederive.sh (#590)
 upstream_fetch() {
     local work_dir="$1" remote="${2:-}"
-    # shellcheck disable=SC2034  # return channel — read by rederive.sh (#590)
     UPSTREAM_FETCH_STATUS="skipped"
     [ -n "$remote" ] || return 0
     "$DEVAGENT_GIT" -C "$work_dir" remote get-url "$remote" >/dev/null 2>&1 || return 0
     if GIT_TERMINAL_PROMPT=0 "$DEVAGENT_GIT" -C "$work_dir" fetch --quiet "$remote" 2>/dev/null; then
-        # shellcheck disable=SC2034  # return channel (see above)
         UPSTREAM_FETCH_STATUS="ok"
     else
-        # shellcheck disable=SC2034  # return channel (see above)
         UPSTREAM_FETCH_STATUS="failed"
         warn "upstream_fetch: fetch of '$remote' failed; behind-counts may be stale"
     fi
