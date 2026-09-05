@@ -17,8 +17,11 @@ file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 if (( by_name == 1 )); then
   # #558: name-keyed marking survives a checklist carrying two numbering schemes.
-  # checklist_mark_by_name is no-op-safe on an absent name, so probe first —
-  # a silent no-op on a load-bearing write hides the miss (Issue-72).
+  # #589 made checklist_mark_by_name itself fail-closed on an absent name; this
+  # pre-probe is KEPT as the CLI's own, user-shaped refusal (it names the wrapper
+  # and the file, not a library function). It shares the library's resolver
+  # (checklist_step_state_by_name), so probe and writer cannot disagree about
+  # whether the name exists.
   checklist_step_state_by_name "$file" "$step" >/dev/null \
     || die "checklist-mark: no step named '$step' in $file"
   checklist_mark_by_name "$file" "$step" "$glyph"

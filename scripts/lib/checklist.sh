@@ -419,8 +419,13 @@ checklist_mark_line() {
 # older checklist silently flips a DIFFERENT row: post-#558 commit.sh marking
 # 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and  #558-old-scheme
 # `next.sh --auto` then re-dispatched commit forever). The check turns that
-# silent wrong-row write into a loud stop naming the remedy. Omitting the
-# argument keeps the historical unchecked behavior for ad-hoc/manual callers.
+# silent wrong-row write into a loud stop naming the remedy. #589: omitting the
+# argument is still allowed, but ONLY where it cannot resolve file-wide — on a
+# checklist that has `## Revision` headings, a name-less mark of a number absent
+# from the ACTIVE block is refused rather than flipping an older block's row.
+# Callers whose number comes from checklist_current_step are active-block scoped
+# by construction and never reach that refusal (the caller enumeration lives in
+# the issue's blast-radius artifact, not in this comment).
 checklist_mark() {
   local file="$1" target="$2" glyph="$3" expect_name="${4:-}"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
@@ -493,8 +498,10 @@ checklist_mark() {
 # NAME matches, scoped to the ACTIVE revision block (#76). The name-keyed WRITER
 # (#363): the existing by-name funcs are readers, and checklist_mark is keyed by
 # NUMBER; sync needs to flip closeout steps by name (numbers vary by template).
-# No-op-safe: an absent name leaves the file byte-identical. Same-dir atomic write
-# + mode-preserve (#329).
+# Fail-CLOSED since #589: an absent name leaves the bytes unchanged and DIES (was:
+# returned 0 silently, so its consumer scripts/sync.sh:32 got no signal when the
+# flip never landed). Any row that does not carry the glyph afterwards dies the
+# same way. Same-dir atomic write + mode-preserve (#329).
 checklist_mark_by_name() {
   local file="$1" target="$2" glyph="$3" tmp start now
   [[ -f "$file" ]] || die "checklist_mark_by_name: no such file '$file'"
