@@ -69,11 +69,6 @@ base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || 
 marker_note=""
 [ -r "$issue_dir/.devagent-baseline" ] \
   && marker_note="; a .devagent-baseline marker is present — step 8 cuts from it, this count is vs default_baseline"
-head_short="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --short HEAD)" \
-  || die "rederive: git rev-parse HEAD failed in $source_dir"
-head_branch="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --abbrev-ref HEAD)" \
-  || die "rederive: git rev-parse --abbrev-ref HEAD failed in $source_dir"
-issue_branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 if [ -z "$base_ref" ]; then
   base_src="(none configured)"
   gap_line="? behind-count undetermined — no default_baseline configured for project '$project'"
@@ -96,12 +91,18 @@ else
     counts="$("$DEVAGENT_GIT" -C "$source_dir" rev-list --left-right --count "${base_ref}...HEAD")" \
       || die "rederive: git rev-list ${base_ref}...HEAD failed in $source_dir"
     behind="${counts%%[[:space:]]*}"; ahead="${counts##*[[:space:]]}"
-    if [ -n "$issue_branch" ] && [ "$head_branch" = "$issue_branch" ]; then
-      gap_line="ℹ HEAD $head_short on issue branch $issue_branch vs $base_ref: behind $behind, ahead $ahead ($fetch_note$stale_note) — revision-time drift, not a premise; rebasing is a ship-time decision"
+    head_short="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --short HEAD)" \
+      || die "rederive: git rev-parse HEAD failed in $source_dir"
+    head_branch="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --abbrev-ref HEAD)" \
+      || die "rederive: git rev-parse --abbrev-ref HEAD failed in $source_dir"
+    issue_branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
+    gap="vs $base_ref: behind $behind, ahead $ahead ($fetch_note$stale_note)"
+    if [ "$head_branch" = "$issue_branch" ]; then
+      gap_line="ℹ HEAD $head_short on issue branch $issue_branch $gap — revision-time drift, not a premise; rebasing is a ship-time decision"
     elif [ "$behind" -gt 0 ]; then
-      gap_line="✗ HEAD $head_short vs $base_ref: behind $behind, ahead $ahead ($fetch_note$stale_note) — STALE CHECKOUT: every ✓ below was checked against a tree $behind commit(s) behind the base the branch will be cut from (falsified premise — on the base branch run: git -C $source_dir merge --ff-only $base_ref, then re-run the prober via /devagent:draft; or state the delta in Preconditions)"
+      gap_line="✗ HEAD $head_short $gap — STALE CHECKOUT: every ✓ below was checked against a tree $behind commit(s) behind the base the branch will be cut from (falsified premise — on the base branch run: git -C $source_dir merge --ff-only $base_ref, then re-run the prober via /devagent:draft; or state the delta in Preconditions)"
     else
-      gap_line="✓ HEAD $head_short vs $base_ref: behind 0, ahead $ahead ($fetch_note$stale_note)"
+      gap_line="✓ HEAD $head_short $gap"
     fi
   else
     gap_line="? behind-count undetermined — default_baseline '$base_ref' does not resolve in $source_dir ($fetch_note)"
@@ -136,22 +137,22 @@ mapfile -t files < <(printf '%s\n' "${files[@]:-}" | grep -v '^$' | sort -u || t
 head_tree="$("$DEVAGENT_GIT" -C "$source_dir" ls-tree -r --name-only HEAD)" \
   || die "rederive: git ls-tree HEAD failed in $source_dir"
 # rederive_resolve <token> — setter-globals: RES_KIND (exact|resolved|ambiguous|
-# absent), RES_PATH (the one path for exact/resolved), RES_HITS (newline list
-# for ambiguous).
+# absent), RES_PATH (the one path for exact/resolved), RES_HITS (array of the
+# matching paths for ambiguous).
 rederive_resolve() {
   local t="$1" hits
-  RES_KIND=absent; RES_PATH=""; RES_HITS=""
+  RES_KIND=absent; RES_PATH=""; RES_HITS=()
   if "$DEVAGENT_GIT" -C "$source_dir" cat-file -e "HEAD:$t" 2>/dev/null; then
     RES_KIND=exact; RES_PATH="$t"; return 0
   fi
-  RES_HITS="$(printf '%s\n' "$head_tree" | awk -v t="$t" \
+  hits="$(printf '%s\n' "$head_tree" | awk -v t="$t" \
     'length($0) >= length(t) && substr($0, length($0)-length(t)+1) == t && (length($0) == length(t) || substr($0, length($0)-length(t), 1) == "/")')"
-  [ -n "$RES_HITS" ] || return 0                   # absent
-  mapfile -t hits <<< "$RES_HITS"
-  if [ "${#hits[@]}" -eq 1 ]; then RES_KIND=resolved; RES_PATH="${hits[0]}"
+  [ -n "$hits" ] || return 0                       # absent
+  mapfile -t RES_HITS <<< "$hits"
+  if [ "${#RES_HITS[@]}" -eq 1 ]; then RES_KIND=resolved; RES_PATH="${RES_HITS[0]}"
   else RES_KIND=ambiguous; fi
 }
-declare -a since_paths=()
+declare -a since_paths=() RES_HITS=()
 
 date_str="$(date_tag)"   # #413: honor the #338 DEVAGENT_DATE_OVERRIDE freeze seam
 mkdir -p "$issue_dir/analysis"
@@ -177,29 +178,29 @@ fi
       echo "## Named files (exists at HEAD?)"
       for f in "${files[@]}"; do
         rederive_resolve "$f"
+        [ -n "$RES_PATH" ] && since_paths+=("$RES_PATH")   # exact + resolved feed the since-log
         case "$RES_KIND" in
-          exact)     echo "  ✓ $f"; since_paths+=("$f") ;;
-          resolved)  echo "  ✓ $f → $RES_PATH (resolved: one tracked path ends in /$f)"; since_paths+=("$RES_PATH") ;;
-          ambiguous) mapfile -t hits <<< "$RES_HITS"
-                     echo "  ~ $f — ambiguous: ${#hits[@]} tracked paths end in /$f ($(printf '%s, ' "${hits[@]:0:3}" | sed 's/, $//')${hits[3]:+, …}); advisory, not a falsified premise — cite the full path if it matters" ;;
+          exact)     echo "  ✓ $f" ;;
+          resolved)  echo "  ✓ $f → $RES_PATH (resolved: one tracked path ends in /$f)" ;;
+          ambiguous) printf -v joined '%s, ' "${RES_HITS[@]:0:3}"; joined="${joined%, }"
+                     echo "  ~ $f — ambiguous: ${#RES_HITS[@]} tracked paths end in /$f ($joined${RES_HITS[3]:+, …}); advisory, not a falsified premise — cite the full path if it matters" ;;
           *)         echo "  ✗ $f  — NOT at HEAD (falsified premise — address in Preconditions)" ;;
         esac
       done
     fi
     if [ "${#filelines[@]}" -gt 0 ]; then
       echo "## Cited lines at HEAD (drift check)"
+      absent='<file/line absent at HEAD>'
       for fl in "${filelines[@]}"; do
         f="${fl%%:*}"; ln="${fl##*:}"
         rederive_resolve "$f"
         case "$RES_KIND" in
           exact|resolved)
             cur="$("$DEVAGENT_GIT" -C "$source_dir" show "HEAD:$RES_PATH" 2>/dev/null | sed -n "${ln}p" || true)"
-            if [ "$RES_KIND" = resolved ]; then echo "  $fl → ($RES_PATH) ${cur:-<file/line absent at HEAD>}"
-            else echo "  $fl → ${cur:-<file/line absent at HEAD>}"; fi ;;
-          ambiguous)
-            mapfile -t hits <<< "$RES_HITS"
-            echo "  $fl → <ambiguous: ${#hits[@]} tracked paths end in /$f>" ;;
-          *) echo "  $fl → <file/line absent at HEAD>" ;;
+            via=""; [ "$RES_KIND" = resolved ] && via="($RES_PATH) "
+            echo "  $fl → ${via}${cur:-$absent}" ;;
+          ambiguous) echo "  $fl → <ambiguous: ${#RES_HITS[@]} tracked paths end in /$f>" ;;
+          *)         echo "  $fl → $absent" ;;
         esac
       done
     fi

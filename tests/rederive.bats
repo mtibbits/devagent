@@ -211,8 +211,8 @@ EOF
     grep -q 'base: (none configured)' "$(_art)"
 }
 
-@test "rederive: a local-branch base fetches nothing and says so neutrally; a FAILED fetch is stamped, count uses the last-known ref (#590)" {
-    # Local-branch base: default_baseline = int (no slash), one commit ahead of main.
+@test "rederive: a local-branch base fetches nothing and says so neutrally (#590)" {
+    # default_baseline = int (no slash), one commit ahead of main.
     ( cd "$SOURCE_DIR" && git branch int && git checkout -q int && echo i >> lib.sh \
       && git commit -qam int && git checkout -q main )
     devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.default_baseline" int
@@ -225,11 +225,18 @@ EOF
     _run
     [ "$status" -eq 0 ]
     grep -q '✗ HEAD [0-9a-f]* vs int: behind 1, ahead 0 (fetch: n/a (local branch))' "$(_art)"
-    # FAILED fetch: a configured origin whose URL is dead, tracking ref already present.
-    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.default_baseline" origin/main
+}
+
+@test "rederive: a FAILED fetch is stamped and the count uses the last-known ref (#590)" {
+    # A configured origin whose URL is dead, tracking ref already present.
     _origin
     ( cd "$SOURCE_DIR" && git remote set-url origin "$DEVAGENT_TMP/does-not-exist.git" )
-    rm -f "$DEVDOC_DIR/Issue-1/analysis/"*-rederive.txt
+    _issue <<'EOF'
+# t
+- Created: 2020-01-01
+
+References `lib.sh`.
+EOF
     _run
     [ "$status" -eq 0 ]
     grep -q "✓ HEAD [0-9a-f]* vs origin/main: behind 0, ahead 0 (fetch: FAILED (offline?); count is against the last-known 'origin' state)" "$(_art)"
