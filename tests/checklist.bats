@@ -227,11 +227,23 @@ EOF
   [ "$output" = "4" ]
 }
 
-@test "checklist_mark falls back to whole file for steps not in active revision" {
+@test "checklist_mark refuses the whole-file fallback for a name-less caller (#589)" {
+  # Was: "checklist_mark falls back to whole file for steps not in active
+  # revision" (#74/#76), which PINNED the fail-open shape #589 removes. Rewritten
+  # to pin the NEW contract at the same fixture. `_append_rev2` writes a rev-2
+  # block carrying only rows 2/4/9, which is what makes "a reused number absent
+  # from the active block" reachable in tests at all.
   checklist_init "$ISSUE_DIR" standard   # standard rev 1 carries all 24 rows (#558)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
-  checklist_mark "$f" 23 x                # 23 lives only in revision 1
+  run checklist_mark "$f" 23 x            # 23 lives only in revision 1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing a name-less mark"* ]]
+  run grep -cE '^- \[x\] 23\. cleanup' "$f"
+  [ "$output" = "0" ]                     # exact count, not `-ne 0` (Issue-337)
+  # The file-wide resolution itself is unchanged — only the name-less WRITE is
+  # refused. With the name, the same row still marks (readers keep their contract).
+  checklist_mark "$f" 23 x cleanup
   run checklist_step_state "$f" 23
   [ "$output" = "x" ]
 }
