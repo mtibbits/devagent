@@ -423,9 +423,10 @@ checklist_mark_line() {
 # 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and  #558-old-scheme
 # `next.sh --auto` then re-dispatched commit forever). The check turns that
 # silent wrong-row write into a loud stop naming the remedy. #589: omitting the
-# argument is refused in exactly one case — a checklist with `## Revision`
+# argument gains exactly one NEW refusal — a checklist with `## Revision`
 # headings where the number is absent from the ACTIVE block (the write would fall
-# through to an older block's row). Legacy checklists and active-block numbers
+# through to an older block's row); a number absent everywhere still dies the
+# older `not found`. Legacy checklists and active-block numbers
 # are unaffected; callers marking `$cur` from checklist_current_step are
 # active-block scoped by construction.
 checklist_mark() {
@@ -449,8 +450,10 @@ checklist_mark() {
   # `not found` die below (a diagnostic must not assert a row that does not exist).
   # The resolver keeps its 0=file-wide return (readers depend on it); a
   # name-passing caller was already row-confirmed by the #558 guard above.
+  # `|| true`: under an errexit caller a failing awk here must fall through to
+  # the write's own `awk failed` die below, not exit with a bare rc.
   if [[ -z "$expect_name" && "$start" == "0" ]]; then
-    active="$(_checklist_active_start "$file")"
+    active="$(_checklist_active_start "$file" || true)"
     if (( active > 0 )) && checklist_step_state "$file" "$target" >/dev/null; then
       die "checklist_mark: refusing a name-less mark of step $target in '$file': that number is absent from the active revision block, so the write would flip an OLDER revision's row (#589). Pass the step name as the 4th argument, or use scripts/checklist-mark.sh --by-name <issue-dir> <name> '$glyph'."
     fi
@@ -493,9 +496,9 @@ checklist_mark() {
 # keyed by NUMBER; sync needs to flip closeout steps by name (numbers vary by
 # template). Fail-CLOSED since #589: an absent name leaves the bytes unchanged
 # and DIES (was: returned 0 silently, so its consumer _sync_closeout_unblock in
-# scripts/sync.sh got no signal when the flip never landed). Any row that does
-# not carry the glyph afterwards dies the same way. Same-dir atomic write +
-# mode-preserve (#329).
+# scripts/sync.sh got no signal when the flip never landed). The read-back
+# checks the RESOLVED row (the first the resolver finds) and dies the same way
+# when it does not carry the glyph. Same-dir atomic write + mode-preserve (#329).
 checklist_mark_by_name() {
   local file="$1" target="$2" glyph="$3" tmp start now
   [[ -f "$file" ]] || die "checklist_mark_by_name: no such file '$file'"

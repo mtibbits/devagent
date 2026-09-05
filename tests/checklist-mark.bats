@@ -103,4 +103,7 @@ CKEOF
     run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$d" 23 x cleanup
     [ "$status" -eq 0 ]
     grep -qE '^- \[x\] 23\. cleanup' "$d/checklist.md"
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" cleanup '~'
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[~\] 23\. cleanup' "$d/checklist.md"
 }

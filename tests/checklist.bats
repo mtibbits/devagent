@@ -168,9 +168,13 @@ _shim_awk() {
   mkdir -p "$SHIM_DIR"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$SHIM_DIR/awk"
   chmod +x "$SHIM_DIR/awk"
-  run env PATH="$SHIM_DIR:$PATH" bash -c \
+  # Under the errexit flags every production caller runs with: the die must
+  # still carry its message, never a bare rc (#589 review: the guard's own awk
+  # call sits in the caller's errexit context).
+  run env PATH="$SHIM_DIR:$PATH" bash -euo pipefail -c \
     "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/checklist.sh'; checklist_mark '$ISSUE_DIR/checklist.md' 7 x"
   [ "$status" -ne 0 ]
+  [[ "$output" == *"awk failed processing"* ]]
   [ "$(cat "$ISSUE_DIR/checklist.md")" = "$before" ]
 }
 
@@ -527,6 +531,11 @@ EOC
   [ "$output" = "1" ]
   run grep -cE '^- \[ \] 21\. impact' "$ISSUE_DIR/checklist.md"
   [ "$output" = "1" ]
+  # A re-mark with the glyph already set is a clean no-op through the #589
+  # read-back (every commands/*.md re-run hits this path).
+  cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" impact ' '
+  cmp -s "$BATS_TEST_TMPDIR/before.md" "$ISSUE_DIR/checklist.md"
 }
 
 @test "checklist_mark and _by_name still resolve file-wide with no revision headings (#589 G3a)" {
