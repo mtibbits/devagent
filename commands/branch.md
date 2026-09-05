@@ -35,6 +35,9 @@ Rules:
   `default_baseline` or `HEAD` (that silent fallback, on the *default* path, is
   the separate concern tracked by #72).
 - No marker ⇒ unchanged behavior (cut from `default_baseline`).
+- The step-2 rederive prober (#590) notes the marker's PRESENCE in its
+  `## Checkout vs baseline` heading but never reads it: its behind-count is
+  against `default_baseline`. Only `branch.sh` parses the ref.
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/branch.sh" $ARGUMENTS`
 

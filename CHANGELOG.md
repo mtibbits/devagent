@@ -12,6 +12,29 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The rederive prober compares the checkout to its baseline and resolves bare
+  basenames (#590).** `scripts/rederive.sh` now opens its artifact with a
+  `## Checkout vs baseline` line — `behind N, ahead M` against `default_baseline`
+  after a best-effort fetch whose outcome (`ok` / `skipped` / `FAILED` / `n/a`)
+  is stamped on the line. Pre-branch, `behind > 0` is a `✗ … STALE CHECKOUT`
+  falsified premise whose remedy names the `merge --ff-only` to run (Issue-570
+  ran draft through improve three commits behind its base with every file probe
+  ✓); on the recorded issue branch (every revision re-runs draft) the same
+  numbers print as an `ℹ` row — expected drift, not a premise. An unconfigured
+  or unresolvable base prints an explicit `? behind-count undetermined` line,
+  never a silent 0; a faulting `rev-parse`/`rev-list`/`ls-tree` dies loud. A
+  `.devagent-baseline` marker is acknowledged by existence in the heading and
+  never parsed (only `branch.sh` reads it). A backticked bare basename or path
+  suffix (`SKILL.md`, `capture/capture.sh`) is matched against the HEAD tree by
+  exact suffix at a `/` boundary: one hit → `✓ tok → path (resolved …)` and the
+  resolved path feeds the since-log and the `file:line` drift check; several →
+  a `~ … ambiguous` advisory row; none → the same `✗` as before (Issue-570's
+  artifact carried six ✗ rows, zero real). Plumbing: `upstream_fetch` sets
+  `UPSTREAM_FETCH_STATUS` (skipped|ok|failed) and runs its fetch with
+  `GIT_TERMINAL_PROMPT=0`, so a credential prompt fails instead of hanging an
+  unattended step (ship and mergetoall inherit that). Carriers:
+  `commands/draft.md`, the imPlan template's Preconditions note, `core-scope`
+  question 7, and the `commands/branch.md` override rules describe the new rows.
 - **The plugin seed `templates/potholes.md` is a curated public excerpt (#613).**
   The 340-bullet register moved into the private devDoc layers once, every line
   routed by its citation and recorded in `<devDoc>/templates/potholes-migration-ledger.tsv`

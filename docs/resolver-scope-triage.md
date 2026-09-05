@@ -30,7 +30,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
 | `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:36`) |
 | `record-scope.sh` | PROTECTED | writes `.devagent-scope` into another project's issue dir, driving `commit_autostage` | validates (`:29`) |
-| `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir | validates (`:27`) |
+| `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir | validates (`:34`) |
 | `revise.sh` | PROTECTED | appends a revision block to another project's `checklist.md` and mutates its state | no-validation |
 | `run-suite.sh` | PROTECTED | `cd`s into another project's resolved tree (`worktree_path` else `source_dir`, #571), runs its suite and writes the canonical evidence artifact | validates (`:38`) |
 | `statusreport.sh` | PROTECTED | writes `StatusReports/<date>.md`, then `git add` + `git commit -s` in another project's devdoc repo and pins its state | validates (`:46`) |
