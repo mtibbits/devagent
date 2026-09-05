@@ -168,9 +168,13 @@ _shim_awk() {
   mkdir -p "$SHIM_DIR"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$SHIM_DIR/awk"
   chmod +x "$SHIM_DIR/awk"
-  run env PATH="$SHIM_DIR:$PATH" bash -c \
+  # Under the errexit flags every production caller runs with: the die must
+  # still carry its message, never a bare rc (#589 review: the guard's own awk
+  # call sits in the caller's errexit context).
+  run env PATH="$SHIM_DIR:$PATH" bash -euo pipefail -c \
     "source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'; source '$PLUGIN_ROOT/scripts/lib/checklist.sh'; checklist_mark '$ISSUE_DIR/checklist.md' 7 x"
   [ "$status" -ne 0 ]
+  [[ "$output" == *"awk failed processing"* ]]
   [ "$(cat "$ISSUE_DIR/checklist.md")" = "$before" ]
 }
 
@@ -227,11 +231,20 @@ EOF
   [ "$output" = "4" ]
 }
 
-@test "checklist_mark falls back to whole file for steps not in active revision" {
+@test "checklist_mark refuses the whole-file fallback for a name-less caller (#589)" {
+  # Rewritten from the #74/#76 "falls back to whole file" test, which pinned the
+  # fail-open shape #589 removes; same fixture, new contract.
   checklist_init "$ISSUE_DIR" standard   # standard rev 1 carries all 24 rows (#558)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
-  checklist_mark "$f" 23 x                # 23 lives only in revision 1
+  run checklist_mark "$f" 23 x            # 23 lives only in revision 1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing a name-less mark"* ]]
+  run grep -cE '^- \[x\] 23\. cleanup' "$f"
+  [ "$output" = "0" ]                     # exact count, not `-ne 0` (Issue-337)
+  # The file-wide resolution itself is unchanged — only the name-less WRITE is
+  # refused. With the name, the same row still marks (readers keep their contract).
+  checklist_mark "$f" 23 x cleanup
   run checklist_step_state "$f" 23
   [ "$output" = "x" ]
 }
@@ -413,4 +426,145 @@ EOC
   # so the refusal must be attributable to THIS path. The helper emits this
   # token on stderr (never stdout — Issue-583) before returning 1.
   [[ "$output" == *"not a checklist step row"* ]]
+}
+
+# --- #589: the WRITERS fail closed; the resolvers keep their 0=file-wide contract
+@test "checklist_mark dies on a name-less mark of a number absent from the active revision (#589)" {
+  # G1/AC1. At the unfixed baseline this returns 0 and flips revision 1's row.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_mark "$ISSUE_DIR/checklist.md" 23 x
+  [ "$status" -ne 0 ]
+  # Pin the message and the remedies it names (not the bare rc); then the delta:
+  # no row anywhere took the glyph.
+  [[ "$output" == *"refusing a name-less mark"* ]]
+  [[ "$output" == *"4th argument"* ]]
+  [[ "$output" == *"--by-name"* ]]
+  run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "0" ]
+  grep -qE '^- \[ \] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark: the refused mark succeeds via the remedies the message names (#589)" {
+  # Execute the diagnostic's own instructions end to end and assert the RECOVERED
+  # state (lawFirm Issue-8). Two remedies, one test, because they are one claim.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  # Remedy 1: pass the step name as the 4th argument.
+  checklist_mark "$ISSUE_DIR/checklist.md" 23 x cleanup
+  grep -qE '^- \[x\] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+  # Remedy 2: mark by NAME.
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" cleanup '~'
+  grep -qE '^- \[~\] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark: a number absent EVERYWHERE still dies not-found, not with the #589 message (#589)" {
+  # A number NO block carries keeps the pre-existing `not found` die: the #589
+  # message must never assert a row that does not exist.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_mark "$ISSUE_DIR/checklist.md" 99 x
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"step 99 not found"* ]]
+  [[ "$output" != *"refusing a name-less mark"* ]]
+  run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "0" ]
+}
+
+@test "checklist_mark_by_name dies when no row carries the name (#589)" {
+  # G2/AC2. At the unfixed baseline this returns 0 with the file byte-identical,
+  # so sync.sh's closeout unblock gets no signal that the flip never landed.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+
+## Revision 2
+
+- [?] 21. impact
+EOC
+  cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run checklist_mark_by_name "$ISSUE_DIR/checklist.md" nosuchstep x
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"checklist_mark_by_name: no step named"* ]]
+  # The file must be byte-identical: the refusal must not be paid for with a
+  # half-applied write (the same-dir atomic write + mode preserve, #329).
+  cmp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+}
+
+@test "checklist_mark_by_name still marks a present name, in the active block (#589)" {
+  # The STAYS-SILENT branch of the same guard (Issue-558: enumerate both branches).
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [?] 21. impact
+
+## Revision 2
+
+- [?] 21. impact
+EOC
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" impact ' '
+  # Delta assert: rev-2 flipped, rev-1 untouched (#318).
+  run grep -cE '^- \[\?\] 21\. impact' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+  run grep -cE '^- \[ \] 21\. impact' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+  # A re-mark with the glyph already set is a clean no-op through the #589
+  # read-back (every commands/*.md re-run hits this path).
+  cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" impact ' '
+  cmp -s "$BATS_TEST_TMPDIR/before.md" "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark and _by_name still resolve file-wide with no revision headings (#589 G3a)" {
+  # Legacy checklist: _checklist_active_start is 0, so the #589 guard must never
+  # fire. Both writers keep the historical file-wide behavior.
+  printf '%s\n' '- [ ]  0. pull' '- [ ]  9. implement' > "$ISSUE_DIR/checklist.md"
+  checklist_mark "$ISSUE_DIR/checklist.md" 9 x
+  grep -qE '^- \[x\]  9\. implement' "$ISSUE_DIR/checklist.md"
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" pull '~'
+  grep -qE '^- \[~\]  0\. pull' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark_by_name still reaches a revision-1-only row by NAME (#589 G3b)" {
+  # Revision blocks reuse only 2 and 4..23 (templates/revision_block.md), so
+  # 0 pull / 1 research / 3 spike stay revision-1-only after a revise and must
+  # remain reachable by name.
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"
+  checklist_mark_by_name "$f" pull x
+  grep -qE '^- \[x\]  0\. pull' "$f"
+}
+
+@test "checklist_mark still reaches a revision-1-only row by NUMBER plus name (#589 G3c)" {
+  # The #558 guard confirms the row before the write, so a name-PASSING caller
+  # that falls through file-wide proceeds exactly as before the fix.
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
+  checklist_mark "$f" 0 x pull
+  grep -qE '^- \[x\]  0\. pull' "$f"
 }

@@ -10,5 +10,4 @@
 # public: devagent volk
 lawFirm
 fleet
-lectio
 factor-ai
