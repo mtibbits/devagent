@@ -526,3 +526,34 @@ EOC
   run grep -cE '^- \[ \] 21\. impact' "$ISSUE_DIR/checklist.md"
   [ "$output" = "1" ]
 }
+
+@test "checklist_mark and _by_name still resolve file-wide with no revision headings (#589 G3a)" {
+  # Legacy checklist: _checklist_active_start is 0, so the #589 guard must never
+  # fire. Both writers keep the historical file-wide behavior.
+  printf '%s\n' '- [ ]  0. pull' '- [ ]  9. implement' > "$ISSUE_DIR/checklist.md"
+  checklist_mark "$ISSUE_DIR/checklist.md" 9 x
+  grep -qE '^- \[x\]  9\. implement' "$ISSUE_DIR/checklist.md"
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" pull '~'
+  grep -qE '^- \[~\]  0\. pull' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark_by_name still reaches a revision-1-only row by NAME (#589 G3b)" {
+  # Revision blocks reuse only 2 and 4..23 (templates/revision_block.md), so
+  # 0 pull / 1 research / 3 spike stay revision-1-only after a revise and must
+  # remain reachable by name.
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"
+  checklist_mark_by_name "$f" pull x
+  grep -qE '^- \[x\]  0\. pull' "$f"
+}
+
+@test "checklist_mark still reaches a revision-1-only row by NUMBER plus name (#589 G3c)" {
+  # The #558 guard confirms the row before the write, so a name-PASSING caller
+  # that falls through file-wide proceeds exactly as before the fix.
+  checklist_init "$ISSUE_DIR" standard
+  local f="$ISSUE_DIR/checklist.md"
+  _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
+  checklist_mark "$f" 0 x pull
+  grep -qE '^- \[x\]  0\. pull' "$f"
+}
