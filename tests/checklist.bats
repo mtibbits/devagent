@@ -486,3 +486,43 @@ EOC
   run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
   [ "$output" = "0" ]
 }
+
+@test "checklist_mark_by_name dies when no row carries the name (#589)" {
+  # G2/AC2. At the unfixed baseline this returns 0 with the file byte-identical,
+  # so sync.sh's closeout unblock gets no signal that the flip never landed.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+
+## Revision 2
+
+- [?] 21. impact
+EOC
+  cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run checklist_mark_by_name "$ISSUE_DIR/checklist.md" nosuchstep x
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"checklist_mark_by_name: no step named"* ]]
+  # The file must be byte-identical: the refusal must not be paid for with a
+  # half-applied write (the same-dir atomic write + mode preserve, #329).
+  cmp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+}
+
+@test "checklist_mark_by_name still marks a present name, in the active block (#589)" {
+  # The STAYS-SILENT branch of the same guard (Issue-558: enumerate both branches).
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [?] 21. impact
+
+## Revision 2
+
+- [?] 21. impact
+EOC
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" impact ' '
+  # Delta assert: rev-2 flipped, rev-1 untouched (#318).
+  run grep -cE '^- \[\?\] 21\. impact' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+  run grep -cE '^- \[ \] 21\. impact' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "1" ]
+}
