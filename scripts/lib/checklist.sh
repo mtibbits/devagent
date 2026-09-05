@@ -434,8 +434,30 @@ checklist_mark() {
       die "checklist_mark: refusing to mark step $target as '$expect_name' — that row is '$actual_name' in $file. This checklist predates the #558 renumber (numbers are positions, not IDs). Migrate it with scripts/migrate-checklist-numbering.sh, or start a fresh revision with /devagent:revise."
     fi
   fi
-  local tmp start
+  local tmp start active
   start="$(_checklist_scope_start "$file" "$target")"
+  # #589: a NAME-LESS caller that falls through to file-wide (start == 0) on a
+  # checklist that HAS revision blocks is asking for a number the ACTIVE block does
+  # not carry — the write would flip an OLDER block's row instead, silently. Fail
+  # CLOSED here, in the shipped code path, not only in the suite (lawFirm Issue-14).
+  # The resolver itself is deliberately unchanged: it is shared with READERS that
+  # legitimately read revision-1-only rows, and it runs inside $( ... ) where a die
+  # is the non-fatal-resolve anti-pattern (#120). What this does NOT decide: a
+  # name-PASSING caller that falls through is allowed through untouched — its #558
+  # guard above has already confirmed the row by name.
+  if [[ -z "$expect_name" && "$start" == "0" ]]; then
+    active="$(_checklist_active_start "$file")"
+    if [[ "$active" =~ ^[0-9]+$ ]] && (( active > 0 )); then
+      # Two causes share this predicate: the number lives only in an OLDER block
+      # (the #589 defect) or NOWHERE (a typo). Only the first gets the #589
+      # message; the second keeps the existing `not found` die so the diagnostic
+      # never asserts a row that does not exist (Issue-Fork-225). The probe's
+      # resolver already returns 0 here, so this read IS file-wide.
+      checklist_step_state "$file" "$target" >/dev/null \
+        || die "checklist_mark: step $target not found in '$file'"
+      die "checklist_mark: refusing a name-less mark of step $target in '$file' - that number is absent from the active revision block, so the write would fall back file-wide and flip an OLDER revision's row (#589). Pass the step name as the 4th argument, or mark by name with scripts/checklist-mark.sh --by-name <issue-dir> <name> '$glyph'."
+    fi
+  fi
   # #329: same-dir temp → mv is an atomic rename on one filesystem (a bare
   # tmpfs mktemp + cross-fs mv can leave a TRUNCATED checklist on a mid-mv crash).
   tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
