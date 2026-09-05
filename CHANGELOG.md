@@ -39,6 +39,20 @@ tag`) will get their own dated sections below.
   `source_dir`. Carriers:
   `commands/draft.md`, the imPlan template's Preconditions note, `core-scope`
   question 7, and the `commands/branch.md` override rules describe the new rows.
+- **The checklist writers fail closed (#589).** `checklist_mark` refuses a
+  name-less mark of a step number that is absent from the ACTIVE `## Revision`
+  block but present in an older one — the write used to fall through the
+  resolver's file-wide return and silently flip the older revision's row. The
+  refusal names both remedies: pass the calling step's own name as the 4th
+  argument, or mark by name with `checklist-mark.sh --by-name`. A number absent
+  from every block still dies `not found`. `checklist_mark_by_name` now reads
+  its row back after the write and dies, file byte-identical, when no row
+  carries the requested glyph — it used to return 0 silently, so `sync.sh`'s
+  closeout unblock had no signal when a flip never landed. Readers,
+  name-passing callers, and legacy no-heading checklists are unchanged; the
+  one operator-visible change is that `checklist-mark.sh <issue-dir> N <glyph>`
+  after a `/devagent:revise` now exits 1 instead of flipping the old row.
+
 - **The plugin seed `templates/potholes.md` is a curated public excerpt (#613).**
   The 340-bullet register moved into the private devDoc layers once, every line
   routed by its citation and recorded in `<devDoc>/templates/potholes-migration-ledger.tsv`

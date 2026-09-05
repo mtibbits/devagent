@@ -70,9 +70,40 @@ CKEOF
   grep -qE '^- \[x\] 10\. quality' "$ISSUE_DIR/checklist.md"
 }
 
-@test "checklist-mark: --by-name rejects an unknown step name (#558)" {
+@test "checklist-mark: --by-name rejects an unknown step name (#558/#589)" {
     local d="$BATS_TEST_TMPDIR/Issue-998"; mkdir -p "$d"
     printf '## Revision 1\n\n- [ ]  0. pull\n' > "$d/checklist.md"
     run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" nosuchstep x
     [ "$status" -ne 0 ]
+    # `checklist-mark: ` prefix = the WRAPPER's die; the library's #589 die also
+    # says "no step named".
+    [[ "$output" == *"checklist-mark: no step named"* ]]
+    grep -qE '^- \[ \]  0\. pull' "$d/checklist.md"    # nothing was marked
+}
+
+@test "checklist-mark: numeric path refuses a name-less mark outside the active revision (#589)" {
+    local d="$BATS_TEST_TMPDIR/Issue-997"; mkdir -p "$d"
+    cat > "$d/checklist.md" <<'CKEOF'
+# Issue-997 — Workflow checklist
+
+## Revision 1
+
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+CKEOF
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$d" 23 x
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing a name-less mark"* ]]
+    run grep -cE '^- \[x\]' "$d/checklist.md"
+    [ "$output" = "0" ]
+    # The message's own remedies, from the CLI, both recover.
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$d" 23 x cleanup
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[x\] 23\. cleanup' "$d/checklist.md"
+    run bash "$PLUGIN_ROOT/scripts/checklist-mark.sh" --by-name "$d" cleanup '~'
+    [ "$status" -eq 0 ]
+    grep -qE '^- \[~\] 23\. cleanup' "$d/checklist.md"
 }

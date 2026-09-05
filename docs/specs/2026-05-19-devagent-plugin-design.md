@@ -267,8 +267,11 @@ name-adjacent step/number pairing on live surfaces and, with `--list-bare`,
 emits the undecidable bare-`step N` sites for human triage. `checklist_mark`
 takes an optional 4th argument — the calling step's own NAME — and refuses to
 write when the number's row carries a different name; every script-backed step
-passes it. `checklist-mark.sh --by-name` marks by step name for callers that
-run outside a revision block. Lines that deliberately cite pre-#558 numbers
+passes it. Without the name, a mark of a number that is absent from the active
+revision block but present in an older one is refused outright rather than
+falling through to the older row (#589). `checklist-mark.sh --by-name` marks by
+step name for callers that run outside a revision block, and dies when no row
+carries the requested glyph after the write (#589). Lines that deliberately cite pre-#558 numbers
 carry a `#558-old-scheme` marker so the checker exemption is greppable.
 
 All writes to state files go through `scripts/lib/_toml.py`, which

@@ -84,6 +84,9 @@ _checklist_active_start() {
 # closeout steps 19-23 ARE reused in every revision block (#76) and therefore
 # resolve to the active block once a revision is present. (The by-NAME analog
 # used by the #149/#242 gates is _checklist_scope_start_by_name, below.)
+# #589: checklist_mark REFUSES a name-less write on the absent-from-active-block
+# fall-through while readers keep relying on it; changing the 0 contract must
+# update that guard.
 _checklist_scope_start() {
   local file="$1" target="$2" start
   start="$(_checklist_active_start "$file")"
@@ -419,8 +422,13 @@ checklist_mark_line() {
 # older checklist silently flips a DIFFERENT row: post-#558 commit.sh marking
 # 12 on a pre-#558 checklist hit `12. draftmr`, left `10. commit` pending, and  #558-old-scheme
 # `next.sh --auto` then re-dispatched commit forever). The check turns that
-# silent wrong-row write into a loud stop naming the remedy. Omitting the
-# argument keeps the historical unchecked behavior for ad-hoc/manual callers.
+# silent wrong-row write into a loud stop naming the remedy. #589: omitting the
+# argument gains exactly one NEW refusal — a checklist with `## Revision`
+# headings where the number is absent from the ACTIVE block (the write would fall
+# through to an older block's row); a number absent everywhere still dies the
+# older `not found`. Legacy checklists and active-block numbers
+# are unaffected; callers marking `$cur` from checklist_current_step are
+# active-block scoped by construction.
 checklist_mark() {
   local file="$1" target="$2" glyph="$3" expect_name="${4:-}"
   [[ -f "$file" ]] || die "checklist_mark: no such file '$file'"
@@ -434,8 +442,22 @@ checklist_mark() {
       die "checklist_mark: refusing to mark step $target as '$expect_name' — that row is '$actual_name' in $file. This checklist predates the #558 renumber (numbers are positions, not IDs). Migrate it with scripts/migrate-checklist-numbering.sh, or start a fresh revision with /devagent:revise."
     fi
   fi
-  local tmp start
+  local tmp start active
   start="$(_checklist_scope_start "$file" "$target")"
+  # #589: name-less, fell through file-wide, the file HAS revision blocks, and the
+  # number exists somewhere => it lives only in an OLDER block and the write would
+  # flip that row silently. A number absent everywhere is left to the post-write
+  # `not found` die below (a diagnostic must not assert a row that does not exist).
+  # The resolver keeps its 0=file-wide return (readers depend on it); a
+  # name-passing caller was already row-confirmed by the #558 guard above.
+  # `|| true`: under an errexit caller a failing awk here must fall through to
+  # the write's own `awk failed` die below, not exit with a bare rc.
+  if [[ -z "$expect_name" && "$start" == "0" ]]; then
+    active="$(_checklist_active_start "$file" || true)"
+    if (( active > 0 )) && checklist_step_state "$file" "$target" >/dev/null; then
+      die "checklist_mark: refusing a name-less mark of step $target in '$file': that number is absent from the active revision block, so the write would flip an OLDER revision's row (#589). Pass the step name as the 4th argument, or use scripts/checklist-mark.sh --by-name <issue-dir> <name> '$glyph'."
+    fi
+  fi
   # #329: same-dir temp → mv is an atomic rename on one filesystem (a bare
   # tmpfs mktemp + cross-fs mv can leave a TRUNCATED checklist on a mid-mv crash).
   tmp="$(mktemp "$(dirname "$file")/.tmp.XXXXXX")"
@@ -468,13 +490,17 @@ checklist_mark() {
 }
 
 # checklist_mark_by_name <file> <name> <glyph> — set the glyph of the step whose
-# NAME matches, scoped to the ACTIVE revision block (#76). The name-keyed WRITER
-# (#363): the existing by-name funcs are readers, and checklist_mark is keyed by
-# NUMBER; sync needs to flip closeout steps by name (numbers vary by template).
-# No-op-safe: an absent name leaves the file byte-identical. Same-dir atomic write
-# + mode-preserve (#329).
+# NAME matches, scoped to the ACTIVE revision block when the name is there, else
+# file-wide (#76; revision-1-only names like pull/research/spike). The name-keyed
+# WRITER (#363): the existing by-name funcs are readers, and checklist_mark is
+# keyed by NUMBER; sync needs to flip closeout steps by name (numbers vary by
+# template). Fail-CLOSED since #589: an absent name leaves the bytes unchanged
+# and DIES (was: returned 0 silently, so its consumer _sync_closeout_unblock in
+# scripts/sync.sh got no signal when the flip never landed). The read-back
+# checks the RESOLVED row (the first the resolver finds) and dies the same way
+# when it does not carry the glyph. Same-dir atomic write + mode-preserve (#329).
 checklist_mark_by_name() {
-  local file="$1" target="$2" glyph="$3" tmp start
+  local file="$1" target="$2" glyph="$3" tmp start now
   [[ -f "$file" ]] || die "checklist_mark_by_name: no such file '$file'"
   _checklist_valid_glyph "$glyph" || die "checklist_mark_by_name: bad glyph '$glyph'"
   start="$(_checklist_scope_start_by_name "$file" "$target")"
@@ -495,6 +521,12 @@ checklist_mark_by_name() {
     rm -f "$tmp"
     die "checklist_mark_by_name: awk failed processing '$file' (file left intact)"
   fi
+  # #589: fail closed. Read back through the resolver the write used, so a
+  # file-wide resolution (legacy checklist, rev-1-only name) reads the row that
+  # was flipped; an absent name reads empty and dies.
+  now="$(checklist_step_state_by_name "$file" "$target" || true)"
+  [[ "$now" == "$glyph" ]] \
+    || die "checklist_mark_by_name: no step named '$target' carries glyph '$glyph' in '$file' after the write (reads '[$now]'; empty means no row has that name) - do NOT treat the step as marked"
 }
 
 checklist_advance() {
