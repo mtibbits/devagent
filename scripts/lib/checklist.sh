@@ -496,7 +496,7 @@ checklist_mark() {
 # No-op-safe: an absent name leaves the file byte-identical. Same-dir atomic write
 # + mode-preserve (#329).
 checklist_mark_by_name() {
-  local file="$1" target="$2" glyph="$3" tmp start
+  local file="$1" target="$2" glyph="$3" tmp start now
   [[ -f "$file" ]] || die "checklist_mark_by_name: no such file '$file'"
   _checklist_valid_glyph "$glyph" || die "checklist_mark_by_name: bad glyph '$glyph'"
   start="$(_checklist_scope_start_by_name "$file" "$target")"
@@ -517,6 +517,17 @@ checklist_mark_by_name() {
     rm -f "$tmp"
     die "checklist_mark_by_name: awk failed processing '$file' (file left intact)"
   fi
+  # #589: fail CLOSED. Mirrors checklist_mark's own post-write sanity and
+  # checklist_mark_line's read-back. The read-back goes through
+  # checklist_step_state_by_name, which resolves with the SAME
+  # _checklist_scope_start_by_name the write used — one question, one matcher
+  # (Issue-585) — so a legitimate file-wide resolution (legacy checklist, or a
+  # name unique to revision 1) reads back exactly the row that was flipped.
+  # Captured into a var and THEN tested, so an absent name (rc 1, empty stdout)
+  # drives the refusal instead of being swallowed by a `|| true` tail (Issue-314).
+  now="$(checklist_step_state_by_name "$file" "$target" || true)"
+  [[ "$now" == "$glyph" ]] \
+    || die "checklist_mark_by_name: no step named '$target' carries glyph '$glyph' in '$file' after the write (reads '[$now]'; empty means no row has that name) - do NOT treat the step as marked"
 }
 
 checklist_advance() {
