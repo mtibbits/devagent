@@ -414,3 +414,75 @@ EOC
   # token on stderr (never stdout — Issue-583) before returning 1.
   [[ "$output" == *"not a checklist step row"* ]]
 }
+
+# --- #589: the WRITERS fail closed; the resolvers keep their 0=file-wide contract
+@test "checklist_mark dies on a name-less mark of a number absent from the active revision (#589)" {
+  # G1/AC1. At the unfixed baseline this returns 0 and flips revision 1's row.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ]  0. pull
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_mark "$ISSUE_DIR/checklist.md" 23 x
+  [ "$status" -ne 0 ]
+  # Pin the MESSAGE, not the bare rc: a negative assertion is vacuously satisfied
+  # by a missing function's 127 (Issue-572) and by any unrelated failure
+  # (Issue-Fork-132). The token lives on STDERR (Issue-583).
+  [[ "$output" == *"refusing a name-less mark"* ]]
+  # ... and the remedy the message names must be the one that works (lawFirm
+  # Issue-8: a refusal naming a call that cannot recover is as bad as naming none).
+  [[ "$output" == *"4th argument"* ]]
+  [[ "$output" == *"--by-name"* ]]
+  # Assert the DELTA, not mere absence of an [x] (Issue-318): the rev-1 row is
+  # still exactly as the fixture wrote it, and NO row anywhere took the glyph.
+  run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "0" ]
+  grep -qE '^- \[ \] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark: the refused mark succeeds via the remedies the message names (#589)" {
+  # Execute the diagnostic's own instructions end to end and assert the RECOVERED
+  # state (lawFirm Issue-8). Two remedies, one test, because they are one claim.
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  # Remedy 1: pass the step name as the 4th argument.
+  checklist_mark "$ISSUE_DIR/checklist.md" 23 x cleanup
+  grep -qE '^- \[x\] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+  # Remedy 2: mark by NAME.
+  checklist_mark_by_name "$ISSUE_DIR/checklist.md" cleanup '~'
+  grep -qE '^- \[~\] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+}
+
+@test "checklist_mark: a number absent EVERYWHERE still dies not-found, not with the #589 message (#589)" {
+  # The #589 predicate (start == 0 && active > 0) is also true for a typo: a
+  # number NO block carries. That case must keep the pre-existing `not found`
+  # die, because a diagnostic must never assert a row that does not exist
+  # (Issue-Fork-225; improve 2026-09-05, Bugs item 2).
+  cat > "$ISSUE_DIR/checklist.md" <<'EOC'
+## Revision 1
+
+- [ ] 23. cleanup
+
+## Revision 2
+
+- [ ]  2. draft
+EOC
+  run checklist_mark "$ISSUE_DIR/checklist.md" 99 x
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"step 99 not found"* ]]
+  [[ "$output" != *"refusing a name-less mark"* ]]
+  run grep -cE '^- \[x\]' "$ISSUE_DIR/checklist.md"
+  [ "$output" = "0" ]
+}
