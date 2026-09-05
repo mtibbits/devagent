@@ -5,6 +5,11 @@
 # against a stale premise (7 issues were — #274's `PR:` line existed nowhere;
 # #116 sat queued while #276 landed option B). Writes
 # <issue-dir>/analysis/<date>-rederive.txt; the MODEL judges the ✗s (never blocks).
+# Also reports whether HEAD itself is current against default_baseline after a
+# best-effort fetch, and flags a pre-branch checkout behind that base as a STALE
+# CHECKOUT premise (#590: Issue-570 planned three commits behind it); a bare
+# basename or path suffix is resolved against the HEAD tree before it is called
+# absent.
 # Fails loud on git errors (#117); 0 extractable inputs → an explicit line (visible).
 set -euo pipefail
 
@@ -19,6 +24,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/upstream.sh
+. "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -42,6 +49,63 @@ date_note=""
 if [ -z "$created" ]; then
   created="$(sed -n 's/.*[Cc]reated:[[:space:]]*\([0-9][0-9-]*\).*/\1/p' "$issue_dir/checklist.md" 2>/dev/null | head -1)"
   [ -n "$created" ] && date_note=" (fallback: checklist scaffold date, not the tracker filing date)"
+fi
+
+# --- Is HEAD itself current? (#590) -------------------------------------------
+# The named-file probes below answer "does X exist at HEAD"; this answers "is
+# HEAD the tree the branch will be cut from" (Issue-570 ran draft→improve on a
+# checkout three commits behind its base and every probe said ✓). Compare
+# against default_baseline after a best-effort fetch of its remote, and stamp
+# which fetch branch ran so a reader can tell a fresh count from a last-known
+# one. Tri-state on purpose (#243): a count, or an explicit "undetermined" with
+# its reason — never a silent 0. Every revision re-runs this step ON the issue
+# branch (revise.sh re-copies the draft row), where being behind the base is
+# expected drift: that shape prints as ℹ, not as a premise. A #162
+# .devagent-baseline marker is acknowledged by EXISTENCE only — its content is
+# read by branch.sh at step 8; parsing it here could die on a non-git error,
+# which this advisory prober must not do. A rev-list FAULT on a resolvable
+# ref dies (#117).
+base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
+marker_note=""
+[ -r "$issue_dir/.devagent-baseline" ] \
+  && marker_note="; a .devagent-baseline marker is present — step 8 cuts from it, this count is vs default_baseline"
+head_short="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --short HEAD)" \
+  || die "rederive: git rev-parse HEAD failed in $source_dir"
+head_branch="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --abbrev-ref HEAD)" \
+  || die "rederive: git rev-parse --abbrev-ref HEAD failed in $source_dir"
+issue_branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
+if [ -z "$base_ref" ]; then
+  base_src="(none configured)"
+  gap_line="? behind-count undetermined — no default_baseline configured for project '$project'"
+else
+  base_src="default_baseline"
+  stale_note=""
+  case "$base_ref" in
+    */*)
+      base_remote="${base_ref%%/*}"
+      upstream_fetch "$source_dir" "$base_remote"        # skipped | ok | failed — never fatal
+      case "$UPSTREAM_FETCH_STATUS" in
+        ok)     fetch_note="fetch: ok" ;;
+        failed) fetch_note="fetch: FAILED (offline?)"
+                stale_note="; count is against the last-known '$base_remote' state" ;;
+        *)      fetch_note="fetch: skipped ('$base_remote' is not a configured remote — treated as a local ref)" ;;
+      esac ;;
+    *)  fetch_note="fetch: n/a (local branch)" ;;
+  esac
+  if "$DEVAGENT_GIT" -C "$source_dir" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null 2>&1; then
+    counts="$("$DEVAGENT_GIT" -C "$source_dir" rev-list --left-right --count "${base_ref}...HEAD")" \
+      || die "rederive: git rev-list ${base_ref}...HEAD failed in $source_dir"
+    behind="${counts%%[[:space:]]*}"; ahead="${counts##*[[:space:]]}"
+    if [ -n "$issue_branch" ] && [ "$head_branch" = "$issue_branch" ]; then
+      gap_line="ℹ HEAD $head_short on issue branch $issue_branch vs $base_ref: behind $behind, ahead $ahead ($fetch_note$stale_note) — revision-time drift, not a premise; rebasing is a ship-time decision"
+    elif [ "$behind" -gt 0 ]; then
+      gap_line="✗ HEAD $head_short vs $base_ref: behind $behind, ahead $ahead ($fetch_note$stale_note) — STALE CHECKOUT: every ✓ below was checked against a tree $behind commit(s) behind the base the branch will be cut from (falsified premise — on the base branch run: git -C $source_dir merge --ff-only $base_ref, then re-run the prober via /devagent:draft; or state the delta in Preconditions)"
+    else
+      gap_line="✓ HEAD $head_short vs $base_ref: behind 0, ahead $ahead ($fetch_note$stale_note)"
+    fi
+  else
+    gap_line="? behind-count undetermined — default_baseline '$base_ref' does not resolve in $source_dir ($fetch_note)"
+  fi
 fi
 
 # Extract backtick tokens that look like code inputs.
@@ -73,6 +137,8 @@ fi
   echo "issue: $(basename "$issue_dir")   filing date: ${created:-unknown}${date_note}   age: ${age_days}d"
   echo "note: assumes the local issue.md is current (pull owns refetch)."
   echo "---"
+  echo "## Checkout vs baseline (is HEAD itself current? #590; base: $base_src$marker_note)"
+  echo "  $gap_line"
   if [ "${#files[@]}" -eq 0 ] && [ "${#funcs[@]}" -eq 0 ]; then
     echo "0 named inputs found (heuristic extracted nothing — derive inputs by hand)."
   else
@@ -105,6 +171,6 @@ fi
     fi
   fi
   echo "---"
-  echo "ADVISORY: the draft judges every ✗ (falsified premise → question-return or a plan delta)."
+  echo "ADVISORY: the draft judges every ✗ — a stale checkout or a falsified premise → question-return or a plan delta; ℹ and ~ rows are informational, not premises."
 } > "$artifact"
 echo "rederive: wrote $artifact (${#files[@]} files, ${#filelines[@]} line-cites)" >&2
