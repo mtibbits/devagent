@@ -27,7 +27,7 @@ commit_readme_change() {
 # $SOURCE_DIR at $base with build dir $1; any further args pass through.
 run_static_analyzer() {
     local build_dir="$1"; shift
-    cd "$DEVAGENT_TMP"
+    cd "$DEVAGENT_TMP" || return 1
     run python3 "$DEVAGENT_ROOT/static_analysis_diff.py" \
         --repo "$SOURCE_DIR" "$base" "$build_dir" "$@" --skip $SKIP_TOOLS
 }
