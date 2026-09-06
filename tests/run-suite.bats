@@ -499,3 +499,193 @@ _run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-s
     [ "$status" -eq 0 ]
     grep -q '^python: (none)$' "$(_art)"
 }
+
+# --- #593: suite_jobs → bats --jobs N (test FILES in parallel, tests in a file in order) ---
+#
+# The knob is config-owned (a project opts in after auditing its suite) with a
+# one-run env override for the A/B measurement — the analyze_timeout /
+# DEVAGENT_ANALYZE_TIMEOUT shape. Validated BEFORE any suite runs, so a bad
+# value dies in milliseconds and leaves no artifact. bats is stubbed to RECORD
+# ITS ARGV (a source grep of run-suite.sh would pass on disabled code, #565);
+# `parallel` is stubbed through devagent_stub because bats --jobs needs GNU
+# parallel and Debian's moreutils ships an unrelated `parallel` with no
+# --version — and the stub log lets the serial controls assert the probe never
+# ran. In the fail-closed tests the NEGATIVE legs come first: a multi-assert
+# test reddens only at its first failing line (Issue-123), and at the unfixed
+# tree the run proceeds and writes, so those legs are what must be seen red.
+_set_suite_jobs() {   # an integer lands bare (set-int); anything else lands as a quoted string
+    # The #335 shared helpers, never a `sed -i` on TOML state (#429): the key lands
+    # INSIDE [project.testproj]. The grep pins the TOML shape the skel documents.
+    local cfg="$HOME/.claude/devagent/config.toml" key="project.$TEST_PROJECT.suite_jobs"
+    case "$1" in
+        *[!0-9]*) devagent_config_set     "$cfg" "$key" "$1"; grep -q "^suite_jobs = \"$1\"\$" "$cfg" ;;
+        *)        devagent_config_set_int "$cfg" "$key" "$1"; grep -q "^suite_jobs = $1\$" "$cfg" ;;
+    esac
+}
+_stub_bats_record_argv() {   # binstub, not DEVAGENT_STUB_BIN: setup()'s bats stub lives there, first on _run_rs's PATH
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'printf "%s\n" "$*" > "$DEVAGENT_TMP/seen-bats-argv"' \
+        'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+}
+# gnu = the real banner; bad = moreutils' `parallel` (no --version) — an absent
+# binary takes the same branch (an empty banner).
+_stub_gnu_parallel() { devagent_stub parallel 'GNU parallel 20231122'; }
+_stub_bad_parallel() { devagent_stub parallel '' 1; }
+
+@test "#593 suite_jobs: a non-integer config value dies loud BEFORE any suite runs" {
+    _set_suite_jobs four
+    _stub_bats_record_argv
+    _run_rs
+    [ ! -e "$DEVAGENT_TMP/seen-bats-argv" ]                       # bats never ran (negative leg first)
+    [ -z "$(_art 2>/dev/null)" ]                                  # no artifact written
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"suite_jobs must be a positive integer"* ]]
+    [[ "$output" == *"[project.$TEST_PROJECT] suite_jobs"* ]]
+}
+
+@test "#593 suite_jobs: zero dies loud (1 is the serial floor)" {
+    _set_suite_jobs 0
+    _stub_bats_record_argv
+    _run_rs
+    [ ! -e "$DEVAGENT_TMP/seen-bats-argv" ]
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"suite_jobs must be a positive integer"* ]]
+}
+
+@test "#593 suite_jobs: a bad DEVAGENT_SUITE_JOBS dies loud and names the env var" {
+    _stub_bats_record_argv
+    DEVAGENT_SUITE_JOBS=abc _run_rs
+    [ ! -e "$DEVAGENT_TMP/seen-bats-argv" ]
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"suite_jobs must be a positive integer"* ]]
+    [[ "$output" == *"DEVAGENT_SUITE_JOBS"* ]]
+}
+
+@test "#593 suite_jobs=4 passes --jobs 4 --no-parallelize-within-files to bats" {
+    _set_suite_jobs 4
+    _stub_bats_record_argv
+    _stub_gnu_parallel
+    _run_rs
+    [ "$status" -eq 0 ]
+    devagent_assert_logged 'parallel --version'          # the probe ran, and accepted the banner
+    seen="$(cat "$DEVAGENT_TMP/seen-bats-argv")"
+    [[ "$seen" == *"--jobs 4"* ]]
+    [[ "$seen" == *"--no-parallelize-within-files"* ]]
+    [[ "$seen" == *"--tap"* ]]
+}
+
+@test "#593 BORN-RED control: with no suite_jobs, bats gets no --jobs at all" {
+    # The mutation-proof for the test above: same stub, no key. If --jobs ever
+    # appears here the flag is arriving from somewhere other than the config.
+    # Green on both sides of the change by design (a CONTROL, not a born-red test).
+    _stub_bats_record_argv
+    _run_rs
+    [ "$status" -eq 0 ]
+    run grep -c -- '--jobs' "$DEVAGENT_TMP/seen-bats-argv"
+    [ "$status" -eq 1 ]                                   # precise no-match (#337)
+}
+
+@test "#593 suite_jobs=1 explicitly is serial: no --jobs, no parallel probe" {
+    # CONTROL (green on both sides): an explicit 1 must never touch `parallel`.
+    _set_suite_jobs 1
+    _stub_bats_record_argv
+    _stub_bad_parallel                                    # would die if probed
+    _run_rs
+    [ "$status" -eq 0 ]
+    devagent_refute_logged parallel                       # and the log proves it was never invoked
+    run grep -c -- '--jobs' "$DEVAGENT_TMP/seen-bats-argv"
+    [ "$status" -eq 1 ]
+}
+
+@test "#593 DEVAGENT_SUITE_JOBS=1 overrides a configured 4 (the A/B seam)" {
+    # CONTROL (green on both sides): the override is what Task 7's serial runs use.
+    _set_suite_jobs 4
+    _stub_bats_record_argv
+    _stub_bad_parallel                                    # would die if probed
+    DEVAGENT_SUITE_JOBS=1 _run_rs
+    [ "$status" -eq 0 ]
+    devagent_refute_logged parallel
+    run grep -c -- '--jobs' "$DEVAGENT_TMP/seen-bats-argv"
+    [ "$status" -eq 1 ]
+}
+
+@test "#593 DEVAGENT_SUITE_JOBS=2 with no config key passes --jobs 2" {
+    _stub_bats_record_argv
+    _stub_gnu_parallel
+    DEVAGENT_SUITE_JOBS=2 _run_rs
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$DEVAGENT_TMP/seen-bats-argv")" == *"--jobs 2"* ]]
+}
+
+@test "#593 suite_jobs=4 with no GNU parallel dies loud, names the remedy, and never runs bats" {
+    # moreutils' `parallel` is the real-world false positive for a bare
+    # `command -v parallel`; a wholly absent binary takes the same branch (an
+    # empty banner — tighten-verified). bats 1.10.0's own probe is miswired and
+    # would instead let the run reach `parallel: command not found` inside the
+    # TAP stream.
+    _set_suite_jobs 4
+    _stub_bats_record_argv
+    _stub_bad_parallel
+    _run_rs
+    [ ! -e "$DEVAGENT_TMP/seen-bats-argv" ]                       # negative leg first
+    [ -z "$(_art 2>/dev/null)" ]
+    [ "$status" -ne 0 ]
+    devagent_assert_logged 'parallel --version'          # the probe ran, and rejected the answer
+    [[ "$output" == *"needs GNU parallel"* ]]
+    [[ "$output" == *"suite_jobs = 1"* ]]
+    [[ "$output" == *"DEVAGENT_SUITE_JOBS=1"* ]]
+}
+
+@test "#593 the suite child never sees DEVAGENT_SUITE_JOBS (the runner scrubs it, like the #240 pins)" {
+    # The runner is invoked with the override set; a bats file that in turn invokes
+    # run-suite.sh (this one) must not inherit it, or the env branch silently wins
+    # over every config-driven assertion in the suite (Issue-565/578: the production
+    # caller is the one that has to scrub). The stub is plain bash, so it sees
+    # exactly what the runner passes.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'printf "%s" "${DEVAGENT_SUITE_JOBS-<UNSET>}" > "$DEVAGENT_TMP/seen-child-jobs"' \
+        'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    DEVAGENT_SUITE_JOBS=1 _run_rs
+    [ "$(cat "$DEVAGENT_TMP/seen-child-jobs")" = "<UNSET>" ]
+    [ "$status" -eq 0 ]
+}
+
+@test "#593 artifact: bats_jobs records the effective job count, appended after suite_env" {
+    _set_suite_jobs 4
+    _stub_bats_record_argv
+    _stub_gnu_parallel
+    _run_rs; [ "$status" -eq 0 ]
+    art="$(_art)"
+    grep -q '^bats_jobs: 4$' "$art"
+    # Relative order, not an absolute line: the artifact's contract is "append
+    # LAST", and the next line someone appends must not redden this test
+    # (Issue-587). Prefix consumers are unmoved because bats: stays exactly one
+    # line and `^bats:` cannot match `bats_jobs:`.
+    [ "$(grep -n '^bats_jobs:' "$art" | cut -d: -f1)" -gt "$(grep -n '^suite_env:' "$art" | cut -d: -f1)" ]
+    [ "$(grep -c '^bats:' "$art")" -eq 1 ]
+    grep -q '^bats: 1/1 notok=0$' "$art"
+}
+
+@test "#593 artifact: a serial run records bats_jobs: 1" {
+    _run_rs; [ "$status" -eq 0 ]                          # setup()'s default bats stub; no key, no override
+    grep -q '^bats_jobs: 1$' "$(_art)"
+}
+
+@test "#593 artifact: DEVAGENT_SUITE_JOBS=2 is what gets recorded, not the config value" {
+    _set_suite_jobs 4
+    _stub_bats_record_argv
+    _stub_gnu_parallel
+    DEVAGENT_SUITE_JOBS=2 _run_rs
+    [ "$status" -eq 0 ]
+    grep -q '^bats_jobs: 2$' "$(_art)"
+}
+
+@test "#593 artifact: a tree with no bats suite records bats_jobs: (none)" {
+    git rm -q tests/x.bats && git commit -q -m "no bats"
+    _set_suite_jobs 4                                     # configured, but nothing to run
+    _run_rs; [ "$status" -eq 0 ]
+    grep -q '^bats: (none)$' "$(_art)"
+    grep -q '^bats_jobs: (none)$' "$(_art)"
+}

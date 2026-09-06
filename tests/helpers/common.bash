@@ -231,6 +231,7 @@ devagent_state_set()  { _devagent_toml set "$1" "$2" "\"$3\""; }
 # project.<proj>.permissions.push_mr.
 devagent_config_set()      { _devagent_toml set      "$1" "$2" "\"$3\""; }
 devagent_config_set_bool() { _devagent_toml set-bool "$1" "$2" "$3"; }
+devagent_config_set_int()  { _devagent_toml set-int  "$1" "$2" "$3"; }   # bare integer, e.g. suite_jobs (#593)
 devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
 
 # --- #335: checklist step helpers --------------------------------------------

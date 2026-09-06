@@ -21,10 +21,11 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 }
 
 @test "hermetic-env neutralizes the #240 pins and hostile git config (#322)" {
-  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99
+  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99 DEVAGENT_SUITE_JOBS=9
   . "$REPO/tests/lib/hermetic-env.bash"
   [ -z "${DEVAGENT_ACTIVE_PROJECT:-}" ]
   [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]
+  [ -z "${DEVAGENT_SUITE_JOBS:-}" ]                       # #593: the one-run jobs override
   [ "$GIT_CONFIG_GLOBAL" = /dev/null ]
   [ "$GIT_CONFIG_SYSTEM" = /dev/null ]
 }

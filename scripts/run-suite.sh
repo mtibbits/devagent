@@ -9,6 +9,7 @@
 #     pytest: <passed> passed, <failed> failed, <errors> errors | (none) | (error)
 #     python: <interpreter that ran pytest> | (none)
 #     suite_env: <NAMES…> | (none)
+#     bats_jobs: <N> | (none)   (#593: effective `suite_jobs`; (none) when bats is absent)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
 # nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
@@ -27,6 +28,11 @@
 # lives outside git by design). Declaring it in config rather than inheriting it
 # from the invoking shell is what keeps the artifact a function of the TREE and
 # not of the operator's session (#458).
+# The optional [project.<name>] suite_jobs key (#593, integer ≥ 1, default 1)
+# runs bats test FILES N at a time (`bats --jobs N --no-parallelize-within-files`,
+# GNU parallel required); DEVAGENT_SUITE_JOBS overrides it for one run and is
+# scrubbed from both suite children. The effective value is the artifact's last
+# line, bats_jobs:.
 # The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
 # commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
 # checkout of the SAME project (a linked worktree, or a clone with the same
@@ -74,6 +80,21 @@ work_dir="$ACTIVE_TREE_DIR"
 # before any artifact exists to be half-written. Setter-globals; never $( … ).
 config_suite_env_resolve "$project"
 
+# #593: [project.<name>] suite_jobs (integer ≥ 1; default 1 = the pre-#593 serial
+# behaviour for a project that has not audited its suite), overridden for ONE run
+# by DEVAGENT_SUITE_JOBS (the A/B seam; the analyze_timeout shape, as branches so
+# the die can name its source). Validated here, before either suite runs, for the
+# same reason as suite_env above; the effective value lands in the artifact.
+if [ -n "${DEVAGENT_SUITE_JOBS:-}" ]; then
+  suite_jobs="$DEVAGENT_SUITE_JOBS"; suite_jobs_src="DEVAGENT_SUITE_JOBS"
+else
+  suite_jobs="$(config_get_project_field "$project" suite_jobs 2>/dev/null || true)"
+  suite_jobs_src="[project.$project] suite_jobs"
+fi
+: "${suite_jobs:=1}"
+[[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]] \
+  || die "run-suite: suite_jobs must be a positive integer, got '$suite_jobs' from $suite_jobs_src — 1 runs bats serially, N>1 runs test files N at a time via bats --jobs (#593)"
+
 cd "$work_dir"
 
 # #565: refuse to manufacture an evidence artifact from a filesystem where
@@ -103,6 +124,7 @@ head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 bats_line="bats: (none)"
+bats_jobs_line="bats_jobs: (none)"
 if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   # #565: bats registers @test names in a CHILD process that inherits this
   # environment; without a UTF-8 locale a non-ASCII name can be silently skipped
@@ -110,9 +132,35 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   # its own plan. See README "Running the test suite" for the mechanism.
   utf8_locale_resolve \
     || die "run-suite: no UTF-8-capable locale found (tried \$LC_ALL, \$LC_CTYPE, \$LANG, then C.UTF-8/en_US.UTF-8/C.utf8/en_US.utf8) — bats would silently skip @test names containing non-ASCII characters (#565). Install a UTF-8 locale or export LC_ALL to one."
-  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
+  bats_flags=()
+  if [ "$suite_jobs" -gt 1 ]; then
+    # #593: `bats --jobs` runs test FILES through GNU parallel. bats 1.10.0's own
+    # presence probe (bats-exec-suite: `! type -p parallel && parallel --version
+    # && …`) is miswired — an ABSENT binary skips its abort, the run reaches
+    # `parallel: command not found` inside the TAP stream, and this script
+    # would then report "suite truncated", pinning the wrong remedy. So the
+    # question is answered here, before bats runs. Captured into a variable,
+    # not piped to grep: `parallel --version` prints several lines and an early
+    # grep -q exit would SIGPIPE it into a false negative under pipefail. The
+    # banner check, not `command -v`: Debian's moreutils also installs a
+    # `parallel` that is not GNU parallel (no --version). The probe assumes bats'
+    # default binary name; BATS_PARALLEL_BINARY_NAME / `rush` are out of scope.
+    parallel_banner="$(parallel --version 2>/dev/null || true)"
+    [[ "$parallel_banner" == "GNU parallel "* ]] \
+      || die "run-suite: suite_jobs=$suite_jobs needs GNU parallel on PATH (bats --jobs runs test files through it) and none was found (from $suite_jobs_src). Install the 'parallel' package (Debian/Ubuntu: apt-get install parallel), or run serially: set suite_jobs = 1 in [project.$project] (or remove the key — 1 is the default), or DEVAGENT_SUITE_JOBS=1 (#593)."
+    # Across FILES only: each test file is one member of the process pool and
+    # the tests inside it still run in order. The parallel-safety audit
+    # (Issue-593 analysis/*-parallel-safety-audit.md) is at that granularity;
+    # within-file parallelism needs a per-TEST audit and is not enabled.
+    bats_flags=(--jobs "$suite_jobs" --no-parallelize-within-files)
+  fi
+  # -u DEVAGENT_SUITE_JOBS: the one-run override must not reach the suite — a
+  # test that itself invokes this runner would otherwise inherit it and the env
+  # branch would silently win over its config (#593; the #240 pin shape).
+  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
-           LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" bats --tap tests/ 2>&1 || true)"
+           LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" \
+           bats --tap "${bats_flags[@]+"${bats_flags[@]}"}" tests/ 2>&1 || true)"
   ok="$(printf '%s\n' "$tap"    | grep -c '^ok '     || true)"
   notok="$(printf '%s\n' "$tap" | grep -c '^not ok ' || true)"
   plan="$(printf '%s\n' "$tap"  | sed -n 's/^1\.\.\([0-9][0-9]*\)$/\1/p' | tail -1)"
@@ -124,6 +172,7 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   [ "$((ok + notok))" -eq "$plan" ] \
     || die "run-suite: suite truncated — accounted for $((ok + notok)) of $plan planned tests (ok=$ok notok=$notok); a killed/crashed bats run leaves ok+notok<plan"
   bats_line="bats: $ok/$plan notok=$notok"
+  bats_jobs_line="bats_jobs: $suite_jobs"
 fi
 
 pytest_line="pytest: (none)"
@@ -172,7 +221,7 @@ if [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
   # Both faults are the same mistake: reading prose where an authoritative signal
   # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
   pout=""; prc=0
-  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE \
+  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
@@ -238,8 +287,9 @@ tree_canon="$(pwd -P)"
 # lets a later reader tell a data-root-fed run from a bare one; without it, a red
 # artifact and a green one are indistinguishable on their face (register
 # Issue-106: an artifact pinned to a gitignored, mutable input needs a provenance
-# block INSIDE the artifact). Appended LAST so every prefix-anchored consumer of
-# head:/tree:/bats:/pytest: is unmoved.
+# block INSIDE the artifact). Appended after python: so every prefix-anchored
+# consumer of head:/tree:/bats:/pytest: is unmoved — a consumer anchors on a
+# line's prefix, never on its line number, so an appended line moves nothing.
 if [ "${#SUITE_ENV_NAMES[@]}" -eq 0 ]; then
   suite_env_line="suite_env: (none)"
 else
@@ -252,5 +302,7 @@ fi
   echo "$pytest_line"
   echo "$python_line"
   echo "$suite_env_line"
+  # #593: appended after suite_env:, under the same rule.
+  echo "$bats_jobs_line"
 } > "$artifact"
 echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

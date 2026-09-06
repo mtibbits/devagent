@@ -371,6 +371,26 @@ fail-closed property is unweakened. `born-red.sh` resolves the interpreter the s
 (both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
 at all — an unmeasurable baseline is not a red one.
 
+**Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
+FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a
+file still run in order), which cut this repo's bats leg from ~9 minutes to well under
+half of that at four jobs. It needs GNU parallel on PATH (the `parallel` package —
+Debian's moreutils `parallel` is a different program); with `suite_jobs > 1` and no
+GNU parallel, `run-suite.sh` dies loud naming the remedy rather than letting bats
+report a truncated run — so a second clone of a project that has opted in (a WSL
+clone with its own `config.toml`, say) needs the package too, or `suite_jobs = 1` in
+that clone's config. `DEVAGENT_SUITE_JOBS=1` forces one serial run (the A/B seam; it
+is never inherited by the suite itself), and the artifact's last line, `bats_jobs:`,
+records what actually ran. Opt a project in only after auditing its suite at file
+granularity (shared HOME, `/tmp`, ports, git state — `tests/README.md` "Parallel
+execution" has the rules for this repo); a test that fails only under
+`suite_jobs > 1` is a hermeticity defect in that test, never a reason to go back to
+serial. Invoking bats directly:
+
+```sh
+LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
+```
+
 ### Writing a new test file
 
 Every test file must be hermetic: one stray `export DEVAGENT_ACTIVE_ISSUE=…` in a
