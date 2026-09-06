@@ -11,13 +11,26 @@ command -v warn >/dev/null 2>&1 || warn() { printf '%s\n' "$*" >&2; }
 
 # upstream_fetch <work_dir> <remote> — best-effort; never fatal. Silent no-op
 # when <remote> is empty or not configured (only warn when a *configured*
-# remote's fetch actually fails).
+# remote's fetch actually fails). #590: records which branch it took in
+# UPSTREAM_FETCH_STATUS — "skipped" (no/unconfigured remote), "ok", or
+# "failed" — so an artifact can say whether its counts follow a fresh fetch
+# or the last-known remote state (setter-global: survives no `$(...)`). The
+# fetch runs with GIT_TERMINAL_PROMPT=0: git's OWN credential prompt (HTTP
+# auth) FAILS (→ "failed" + warn) instead of hanging an unattended step. Not
+# covered: an ssh passphrase/host-key prompt, an askpass helper, or a remote
+# that black-holes the connection — a fetch timeout is a recorded follow-up.
+# shellcheck disable=SC2034  # UPSTREAM_FETCH_STATUS is the return channel — read by rederive.sh (#590)
 upstream_fetch() {
     local work_dir="$1" remote="${2:-}"
+    UPSTREAM_FETCH_STATUS="skipped"
     [ -n "$remote" ] || return 0
     "$DEVAGENT_GIT" -C "$work_dir" remote get-url "$remote" >/dev/null 2>&1 || return 0
-    "$DEVAGENT_GIT" -C "$work_dir" fetch --quiet "$remote" 2>/dev/null \
-        || warn "upstream_fetch: fetch of '$remote' failed; behind-counts may be stale"
+    if GIT_TERMINAL_PROMPT=0 "$DEVAGENT_GIT" -C "$work_dir" fetch --quiet "$remote" 2>/dev/null; then
+        UPSTREAM_FETCH_STATUS="ok"
+    else
+        UPSTREAM_FETCH_STATUS="failed"
+        warn "upstream_fetch: fetch of '$remote' failed; behind-counts may be stale"
+    fi
     return 0
 }
 

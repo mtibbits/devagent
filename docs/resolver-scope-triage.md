@@ -5,7 +5,8 @@ The 18 scripts that resolve the active project — the 17 call sites of
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
 `active_guard_scope`) or EXEMPT (read-only and self-identifying; no guard).
-Line anchors are at the pre-change baseline `86efe8c`.
+Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
+row, re-anchored after #590 moved its guard.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
@@ -30,7 +31,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
 | `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:36`) |
 | `record-scope.sh` | PROTECTED | writes `.devagent-scope` into another project's issue dir, driving `commit_autostage` | validates (`:29`) |
-| `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir | validates (`:27`) |
+| `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir and runs a best-effort `git fetch` in its `source_dir` (#590) | validates (`:34`) |
 | `revise.sh` | PROTECTED | appends a revision block to another project's `checklist.md` and mutates its state | no-validation |
 | `run-suite.sh` | PROTECTED | `cd`s into another project's resolved tree (`worktree_path` else `source_dir`, #571), runs its suite and writes the canonical evidence artifact | validates (`:38`) |
 | `statusreport.sh` | PROTECTED | writes `StatusReports/<date>.md`, then `git add` + `git commit -s` in another project's devdoc repo and pins its state | validates (`:46`) |
