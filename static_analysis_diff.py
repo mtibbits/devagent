@@ -147,15 +147,6 @@ _UNTRACKED_SOURCE_SUFFIXES = (".cc", ".c", ".h", ".py", ".cmake", "CMakeLists.tx
 _BUILD_DIR_PREFIX = "build-"
 
 
-def _is_under(path: Path, directory: Path) -> bool:
-    """True when `path` is inside `directory` (both already resolved)."""
-    try:
-        path.relative_to(directory)
-        return True
-    except ValueError:
-        return False
-
-
 def get_untracked_ranges(files: Optional[list[str]] = None,
                          exclude_dirs: Optional[list[str]] = None
                          ) -> dict[str, list[LineRange]]:
@@ -206,31 +197,33 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
         print(f"error: git ls-files failed: {result.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    excluded = []
+    # Candidates are repo-root-relative POSIX paths (--full-name; main() has
+    # chdir-ed to the root), so each exclude dir becomes a root-relative prefix
+    # ONCE and every candidate is a string comparison — no per-candidate stat or
+    # realpath (measured: one Path.resolve() per path cost 1.6 s on Linux and
+    # 15 s on Windows over a 50k-file build tree). realpath on BOTH sides keeps a
+    # symlinked root (macOS /tmp) consistent with git's own view; a dir outside
+    # the root (or the root itself — not a build dir) can name no candidate.
+    root = os.path.realpath(os.getcwd())
+    prefixes = []
     for d in exclude_dirs or []:
         try:
-            excluded.append(Path(d).resolve())
-        except OSError:
+            rel = os.path.relpath(os.path.realpath(d), root)
+        except ValueError:  # Windows: a different drive
             continue
+        if rel != os.curdir and not rel.startswith(os.pardir):
+            prefixes.append(rel.replace(os.sep, "/") + "/")
 
     ranges: dict[str, list[LineRange]] = {}
     for path in result.stdout.split("\0"):
         if not path or not path.endswith(_UNTRACKED_SOURCE_SUFFIXES):
             continue
-        # Exclude BEFORE reading: a swept build tree is thousands of files, and the
-        # read is the cost (resolve is cheap).
         if path.split("/", 1)[0].startswith(_BUILD_DIR_PREFIX):
             continue
-        try:
-            resolved = Path(path).resolve()
-        except OSError:
-            print(f"warning: skipping unreadable untracked candidate: {path}",
-                  file=sys.stderr)
-            continue
-        if any(_is_under(resolved, d) for d in excluded):
+        if any(path.startswith(p) for p in prefixes):
             continue
         try:
-            text = Path(path).read_text(errors="replace")
+            data = Path(path).read_bytes()
         except OSError:
             # Listed by git but unreadable now (a race, a broken symlink, a
             # permission error, a mis-decoded name): skip it rather than abort the
@@ -238,10 +231,13 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
             print(f"warning: skipping unreadable untracked candidate: {path}",
                   file=sys.stderr)
             continue
-        # An EMPTY file gets LineRange(1, 1): a real (if vacuous) whole-file range
-        # keeps the invariant "every untracked file in scope carries exactly one
-        # range", and no tool can report a finding on a line that is not there.
-        ranges[path] = [LineRange(1, max(1, len(text.splitlines())))]
+        # Count newlines (what every linter calls a line; a final unterminated
+        # line still counts) without decoding. An EMPTY file gets LineRange(1, 1):
+        # a real (if vacuous) whole-file range keeps the invariant "every untracked
+        # file in scope carries exactly one range", and no tool can report a
+        # finding on a line that is not there.
+        lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        ranges[path] = [LineRange(1, max(1, lines))]
 
     return dict(sorted(ranges.items()))
 
@@ -1140,8 +1136,7 @@ def main():
     # brand-new file is analyzed instead of reported as "No changed files found".
     untracked = get_untracked_ranges(args.files,
                                      [args.build_dir, asan_dir, ubsan_dir, tsan_dir])
-    for f, rs in untracked.items():
-        ranges.setdefault(f, []).extend(rs)
+    ranges.update(untracked)   # disjoint keys: a diff hunk never names an untracked path
     if untracked:
         # Loud AND artifact-visible: in markdown mode `progress` is stdout, which
         # analyze-static.sh tees into <issue-dir>/analysis/. A stderr-only warning
@@ -1231,7 +1226,6 @@ def main():
         results.append(r)
 
     # -- Phase 3: sanitizer builds (sequential, each needs its own build dir) --
-    # (asan_dir / tsan_dir are derived above the scope computation — #591.)
 
     if "asan" not in skip and "asanubsan" not in skip:
         print(f"Running ASan+UBSan (build dir: {asan_dir})...", flush=True, file=progress)

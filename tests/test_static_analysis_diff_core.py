@@ -344,15 +344,16 @@ def test_untracked_suffixes_each_reach_a_runner(monkeypatch, tmp_path):
     # ruff / cmake-lint probe their venv binary with os.path.isfile before running;
     # make the probe succeed so the argv is built.
     monkeypatch.setattr(sad.os.path, "isfile", lambda p: True)
+    seen = []
+
+    def fake_run(cmd, *args, **kwargs):
+        seen.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
     for suffix in sad._UNTRACKED_SOURCE_SUFFIXES:
         name = suffix if suffix == "CMakeLists.txt" else "probe" + suffix
         (tmp_path / name).write_text("x\n")
-        seen = []
-
-        def fake_run(cmd, *args, **kwargs):
-            seen.append(list(cmd))
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-        monkeypatch.setattr(sad.subprocess, "run", fake_run)
+        seen.clear()
         for runner in (sad.run_cpplint, sad.run_ruff, sad.run_cmake_lint):
             runner([name], str(tmp_path))
         assert any(name in cmd for cmd in seen), f"{suffix} reaches no runner"
