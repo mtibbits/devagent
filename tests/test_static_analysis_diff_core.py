@@ -26,11 +26,44 @@ sad = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sad)
 
 
-def _stub_git_diff(monkeypatch, stdout, returncode=0, stderr=""):
-    """Install a subprocess.run that returns canned `git diff` output."""
+def _git_subcommand(cmd) -> str:
+    """The git subcommand in `cmd`, past any leading `-C <dir>` / `-c <k=v>` pair."""
+    i = 1
+    while i + 1 < len(cmd) and cmd[i] in ("-C", "-c"):
+        i += 2
+    return cmd[i] if i < len(cmd) else ""
+
+
+def _stub_git(monkeypatch, *, diff="", ls_files="", returncode=0, stderr="",
+              calls=None):
+    """subprocess.run fake that dispatches on the git SUBCOMMAND (#591).
+
+    The pre-#591 fake returned ONE canned string for every call, so any code path
+    making a second git call fed `git diff` text to the other parser (or an empty
+    string to the diff parser). Route on the subcommand instead, and record every
+    call in `calls` (subcommand -> [argv, ...]) when one is given, so a test can
+    assert about the call it MEANS rather than about whichever ran last.
+    """
+    outputs = {"diff": diff, "ls-files": ls_files}
+
     def fake_run(cmd, *args, **kwargs):
-        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+        sub = _git_subcommand(cmd)
+        if calls is not None:
+            calls.setdefault(sub, []).append(list(cmd))
+        return subprocess.CompletedProcess(
+            cmd, returncode, stdout=outputs.get(sub, ""), stderr=stderr)
+
     monkeypatch.setattr(sad.subprocess, "run", fake_run)
+
+
+def _stub_git_diff(monkeypatch, stdout, returncode=0, stderr=""):
+    """Install a subprocess.run that returns canned `git diff` output.
+
+    Kept as the four existing call sites' entry point — their bodies are unchanged
+    — but now routed through _stub_git, so a `git ls-files` call reaching this fake
+    gets an empty result instead of diff text.
+    """
+    _stub_git(monkeypatch, diff=stdout, returncode=returncode, stderr=stderr)
 
 
 # --------------------------------------------------------------------------
