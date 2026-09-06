@@ -12,6 +12,33 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **Untracked new source files enter the analyzer's changed-line scope (#591).**
+  `static_analysis_diff.py` scoped from `git diff` alone, which lists TRACKED
+  changes only — a brand-new file that had never been `git add`-ed produced no
+  hunks, so every per-file tool skipped it and step 13 passed vacuously for exactly
+  the file with the least review history. A new `get_untracked_ranges()` enumerates
+  untracked, non-ignored candidates with
+  `git ls-files --others --exclude-standard --full-name -z` (read-only — no
+  `git add`, no `git add -N`, no temp commit) and gives each a whole-file
+  `LineRange(1, <line count>)`, so cpplint, codespell, ruff, flake8, bandit, mypy
+  and cmake-lint run on it and `filter_novel` counts every line as changed; markdown
+  runs print one artifact-visible progress line,
+  `Untracked files (whole-file scope): …` (stderr under `--json`, #119), and the
+  summary labels now say "changed lines or untracked files". The compile-database
+  tools (cppcheck, clang-tidy, iwyu, compiler warnings) and `git clang-format`
+  cannot reach a file the build / index does not know and still report it clean —
+  a documented limit. Candidates are limited to the suffixes the `run_*` filters
+  already select on (`.cc .c .h .py .cmake CMakeLists.txt`) and exclude the
+  analyzer's own `build_dir` / `-asan` / `-ubsan` / `-tsan` dirs and any root-level
+  `build-*` dir (the #324/#351 convention `analyze-sanitizers.sh` builds into
+  whatever `build_dir` is configured), which a target project's `.gitignore` may
+  not cover. `scripts/analyze-shellcheck.sh` gets the same treatment for
+  `*.sh` / `*.bats` / `*.bash` (unquoted via `core.quotePath=false`, so a
+  non-ASCII name is not silently dropped), keyed on untrackedness so a tracked file
+  whose only hunks are pure deletions keeps its empty range, with an
+  `untracked (whole-file scope):` header line in its artifact. A `--files` run
+  never widens beyond its pathspecs, `.gitignore`d files stay out, and a
+  tracked-only tree's output is byte-identical to before.
 - **The checklist writers fail closed (#589).** `checklist_mark` refuses a
   name-less mark of a step number that is absent from the ACTIVE `## Revision`
   block but present in an older one — the write used to fall through the

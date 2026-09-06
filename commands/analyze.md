@@ -14,6 +14,15 @@ projects; new-findings-on-changed-lines gate; artifact under
 `<issue-dir>/analysis/`), or `none` (the step marks itself `[-]` with a logged
 reason). An unknown value fails loud naming the legal three.
 
+Both the `cmake` and `shellcheck` families also scope UNTRACKED, non-ignored source
+files as whole files (#591): `git diff` cannot see a file that was never
+`git add`-ed, so without this a brand-new file passed the gate silently while every
+linter skipped it. The enumeration is read-only (nothing is staged), honours
+`.gitignore`, skips the analyzer's own build dirs, and the artifact names every
+file it pulled in. Only the per-file tools act on the whole-file range; the
+compile-database tools and `git clang-format` see an untracked file once the
+build / index knows it.
+
 Under the `cmake` family the step **fails loud** (#117): if any sanitizer leg
 (ASan/UBSan/TSan) fails at configure, build, or ctest, all three legs still run
 (aggregate evidence) and then step 13 exits nonzero — the checklist step stays
