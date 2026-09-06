@@ -52,11 +52,17 @@ ask.
    not an answer.
 7. **Premise freshness (#361).** Is the rederive artifact
    (`<issue-dir>/analysis/<date>-rederive.txt`, written by the draft step)
-   present, and are all its `✗` rows (named inputs absent at HEAD) disposed of
-   in the plan's `## Preconditions`? If the artifact is **absent**, do NOT
-   silently pass — mark this step `[!]` with reason "no rederive artifact" (the
+   present, and are all its `✗` rows disposed of in the plan's
+   `## Preconditions` — both named inputs absent at HEAD and a
+   `✗ … STALE CHECKOUT` line (#590: a pre-branch checkout behind
+   `default_baseline` — the plan must say the base was fast-forwarded and the
+   prober re-run, or state the delta)? A `? behind-count undetermined` line is
+   disposed of by naming why. If the artifact is **absent**, do NOT silently
+   pass — mark this step `[!]` with reason "no rederive artifact" (the
    chain-safe halt `next.sh` honors; run `/devagent:draft`'s rederive, then
-   re-scope). If a `✗` is unaddressed, that is an unresolved ambiguity.
+   re-scope). If a `✗` is unaddressed, that is an unresolved ambiguity. `ℹ`
+   (issue-branch drift on a revision) and `~` (ambiguous-name) rows are
+   informational and need no disposal.
 
 ## Output format (append to imPlan.md)
 

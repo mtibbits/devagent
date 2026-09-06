@@ -54,13 +54,27 @@ that project.
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/rederive.sh" "$project"
    ```
 
-   It writes `<issue-dir>/analysis/<date>-rederive.txt`: per named file
-   exists-at-HEAD ✓/✗, cited-line drift, and commits that landed touching
+   It writes `<issue-dir>/analysis/<date>-rederive.txt`: first whether HEAD
+   itself is current — `behind N, ahead M` against `default_baseline` after a
+   best-effort fetch whose outcome is stamped on the line (#590: Issue-570
+   planned three commits behind its base with every file probe ✓). Pre-branch,
+   `behind > 0` prints as `✗ … STALE CHECKOUT`; on the recorded issue branch
+   (every revision re-runs this step) the same numbers print as an `ℹ` row —
+   expected drift, not a premise. Then per named file exists-at-HEAD ✓/✗ (a bare
+   basename or path suffix matching exactly one tracked path is ✓ with the
+   resolved path shown; several matches print a `~` ambiguous row, which is
+   advisory, not a premise), cited-line drift, and commits that landed touching
    those files since the tracker filing date. ADVISORY — but **every ✗ is a
-   falsified premise**: the plan's `## Preconditions` MUST dispose of each one
-   (correct the record + route the decision back per the #284 question-return
-   path, or state an explicit plan delta). A "0 named inputs found" line means
-   derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
+   falsified premise**: a STALE CHECKOUT means every ✓ was checked against the
+   wrong tree — run the `merge --ff-only` command the row names on the base
+   branch and re-run this prober, or state the delta — and the plan's
+   `## Preconditions` MUST dispose of each ✗ row (correct the record + route
+   the decision back per the #284 question-return path, or state an explicit
+   plan delta). A `? behind-count undetermined` line names why (no
+   `default_baseline`, or a ref that does not resolve) — dispose of it too. A
+   `.devagent-baseline` marker is acknowledged in the heading by existence only;
+   the count is still against `default_baseline`. A "0 named inputs found" line
+   means derive inputs by hand. (This `## Pre-plan inputs` block is the shared home
    for premise-freshness checks; #286's pothole register appends here.)
 
    **Declare the plan's bets — `## Load-bearing unknowns` (#536).** Fill the plan's

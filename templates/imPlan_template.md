@@ -44,7 +44,11 @@ What this change deliberately does NOT do.
 
 What must already be true at HEAD for this plan to make sense. **Dispose of every
 `✗` row from the rederive artifact** (`analysis/<date>-rederive.txt`, #361) here —
-a named input absent at HEAD is a falsified premise.
+a named input absent at HEAD is a falsified premise, and a `✗ … STALE CHECKOUT`
+line (a pre-branch checkout behind `default_baseline`, #590) means every ✓ was
+checked against the wrong tree: run the row's `merge --ff-only` and re-probe, or
+state the delta. `ℹ` (issue-branch drift) and `~` (ambiguous name) rows are
+informational; a `? behind-count undetermined` line says why.
 
 ## Potholes considered
 

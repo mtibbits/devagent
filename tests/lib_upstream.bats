@@ -87,3 +87,34 @@ EOF
     DEVAGENT_GIT="$fakegit" run branch_conflicts_upstream "$REPO" feat main
     [ "$status" -ne 0 ]   # fail-safe: no conflict reported, no hard-stop
 }
+
+@test "upstream_fetch: UPSTREAM_FETCH_STATUS records skipped / ok / failed (#590)" {
+    # No remote configured → skipped (the silent no-op branch).
+    upstream_fetch "$REPO" origin
+    [ "$UPSTREAM_FETCH_STATUS" = "skipped" ]
+    # Empty remote name → skipped.
+    upstream_fetch "$REPO" ""
+    [ "$UPSTREAM_FETCH_STATUS" = "skipped" ]
+    # A reachable local bare remote → ok.
+    git init -q --bare "$DEVAGENT_TMP/bare.git"
+    ( cd "$REPO" && git remote add origin "$DEVAGENT_TMP/bare.git" && git push -q origin main )
+    upstream_fetch "$REPO" origin
+    [ "$UPSTREAM_FETCH_STATUS" = "ok" ]
+    # Configured but unreachable → failed; the call still returns 0 (bats would
+    # fail this test on a non-zero return, so the line below IS the rc assert).
+    ( cd "$REPO" && git remote set-url origin "$DEVAGENT_TMP/does-not-exist.git" )
+    upstream_fetch "$REPO" origin 2>/dev/null
+    [ "$UPSTREAM_FETCH_STATUS" = "failed" ]
+}
+
+@test "upstream_fetch: the fetch runs with GIT_TERMINAL_PROMPT=0 — a credential prompt fails, never hangs (#590)" {
+    # A recording git shim: answers every subcommand with rc 0 and logs the
+    # prompt guard it saw on the fetch call.
+    printf '%s\n' '#!/usr/bin/env bash' \
+      'case " $* " in *" fetch "*) echo "prompt=${GIT_TERMINAL_PROMPT:-unset}" >> "$DEVAGENT_STUB_LOG" ;; esac' \
+      'exit 0' > "$DEVAGENT_STUB_BIN/git-rec"
+    chmod +x "$DEVAGENT_STUB_BIN/git-rec"
+    DEVAGENT_GIT="$DEVAGENT_STUB_BIN/git-rec" upstream_fetch "$REPO" origin
+    [ "$UPSTREAM_FETCH_STATUS" = "ok" ]
+    devagent_assert_logged "prompt=0"
+}
