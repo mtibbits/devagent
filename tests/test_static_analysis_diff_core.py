@@ -216,6 +216,149 @@ def test_run_clang_format_diffs_working_tree_not_head(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# get_untracked_ranges (#591 — untracked, non-ignored source files)
+# --------------------------------------------------------------------------
+
+def _nul(*paths):
+    """`git ls-files -z` output: NUL-TERMINATED, no trailing newline."""
+    return "".join(p + "\0" for p in paths)
+
+
+def test_get_untracked_ranges_gives_a_whole_file_range(monkeypatch, tmp_path):
+    (tmp_path / "new.py").write_text("a = 1\nb = 2\nc = 3\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("new.py"))
+    ranges = sad.get_untracked_ranges()
+    assert [(r.start, r.count) for r in ranges["new.py"]] == [(1, 3)]
+
+
+def test_get_untracked_ranges_empty_file_gets_one_line_range(monkeypatch, tmp_path):
+    # A 0-line file must neither crash nor produce a nonsense LineRange(1, 0).
+    (tmp_path / "empty.py").write_text("")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("empty.py"))
+    ranges = sad.get_untracked_ranges()
+    assert [(r.start, r.count) for r in ranges["empty.py"]] == [(1, 1)]
+
+
+def test_get_untracked_ranges_filters_to_source_suffixes(monkeypatch, tmp_path):
+    # The candidate set mirrors the run_* filters; an unfiltered ls-files would
+    # feed codespell a target project's build clutter and arbitrary text.
+    for name in ("a.py", "b.cc", "c.h", "d.cmake", "CMakeLists.txt",
+                 "notes.txt", "README.md"):
+        (tmp_path / name).write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul(
+        "a.py", "b.cc", "c.h", "d.cmake", "CMakeLists.txt", "notes.txt", "README.md"))
+    assert sorted(sad.get_untracked_ranges()) == [
+        "CMakeLists.txt", "a.py", "b.cc", "c.h", "d.cmake"]
+
+
+def test_get_untracked_ranges_excludes_analyzer_build_dirs(monkeypatch, tmp_path):
+    # A target project's .gitignore may not carry build-*/; a CMake configure in
+    # the repo then leaves thousands of generated sources ls-files WOULD list.
+    # Two exclusion keys (improve bug 1): the EXPLICIT dirs main() passes
+    # (build_dir + its -asan/-ubsan/-tsan siblings) AND, unconditionally, any
+    # root-level `build-*` component — analyze-sanitizers.sh builds at
+    # <source_dir>/build-<project>-<issue>-{asan,ubsan,tsan} regardless of an
+    # operator-configured build_dir, so `build-proj-Issue-1-ubsan` below is NOT
+    # in the explicit list and must still be excluded. `builder/` (no hyphen)
+    # must SURVIVE: the rejected bare build*/ proxy would have dropped it.
+    (tmp_path / "new.py").write_text("x\n")
+    for d in ("bd", "bd-asan", "bd-ubsan", "bd-tsan",
+              "build-proj-Issue-1-ubsan", "builder"):
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "gen.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul(
+        "new.py", "bd/gen.py", "bd-asan/gen.py", "bd-ubsan/gen.py",
+        "bd-tsan/gen.py", "build-proj-Issue-1-ubsan/gen.py", "builder/gen.py"))
+    ranges = sad.get_untracked_ranges(
+        None, [str(tmp_path / "bd"), str(tmp_path / "bd-asan"),
+               str(tmp_path / "bd-ubsan"), str(tmp_path / "bd-tsan")])
+    # new.py and builder/gen.py are the POSITIVE controls: without them, "the
+    # generated files are absent" is equally satisfied by an enumeration that
+    # found nothing (Issue-337).
+    assert sorted(ranges) == ["builder/gen.py", "new.py"]
+
+
+def test_get_untracked_ranges_passes_files_pathspec(monkeypatch, tmp_path):
+    (tmp_path / "a.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    calls = {}
+    _stub_git(monkeypatch, ls_files=_nul("a.py"), calls=calls)
+    sad.get_untracked_ranges(files=["a.py"])
+    cmd = calls["ls-files"][0]
+    assert cmd[cmd.index("--") + 1:] == ["a.py"]
+
+
+def test_get_untracked_ranges_uses_nul_and_full_name(monkeypatch, tmp_path):
+    # -z: ls-files QUOTES a non-ASCII name by default ("caf\303\251.py"), which
+    # would never match normalize_path()'s output in filter_novel().
+    # --full-name: ls-files prints CWD-relative paths by default, unlike
+    # `git diff`'s repo-root-relative `+++ b/` names (both measured, #591).
+    (tmp_path / "has space.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    calls = {}
+    _stub_git(monkeypatch, ls_files=_nul("has space.py"), calls=calls)
+    ranges = sad.get_untracked_ranges()
+    assert "-z" in calls["ls-files"][0]
+    assert "--full-name" in calls["ls-files"][0]
+    assert "has space.py" in ranges          # behavioural leg: the split is on NUL
+
+
+def test_get_untracked_ranges_clean_tree_adds_nothing(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files="")
+    assert sad.get_untracked_ranges() == {}
+
+
+def test_get_untracked_ranges_skips_a_listed_but_unreadable_path(monkeypatch, tmp_path, capsys):
+    # Listed by git, gone by the time we read it (a race, a broken symlink): skip
+    # it, never abort the whole analyze run — but SAY SO (improve bug 4: a silent
+    # skip collapses absent / unreadable / mis-decoded into a pass with no
+    # evidence). real.py is the positive control.
+    (tmp_path / "real.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("real.py", "vanished.py"))
+    assert sorted(sad.get_untracked_ranges()) == ["real.py"]
+    assert "skipping unreadable untracked candidate: vanished.py" in capsys.readouterr().err
+
+
+def test_get_untracked_ranges_exits_on_git_failure(monkeypatch, tmp_path):
+    # Parity with get_changed_ranges: a swallowed enumeration failure IS an empty
+    # untracked set, i.e. the vacuous pass this function removes (Issue-314).
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files="", returncode=128, stderr="fatal: not a git repo")
+    with pytest.raises(SystemExit) as exc:
+        sad.get_untracked_ranges()
+    assert exc.value.code == 1
+
+
+def test_untracked_suffixes_each_reach_a_runner(monkeypatch, tmp_path):
+    # improve tripwire (lawfirm Issue-7 / devagent Issue-5): the candidate suffix
+    # set hand-mirrors the run_* filters. An entry no runner selects is a
+    # permanently open hole, so assert each one is DETECTED — it lands in at
+    # least one per-file runner's argv (read from the fake, not from the source).
+    monkeypatch.chdir(tmp_path)
+    # ruff / cmake-lint probe their venv binary with os.path.isfile before running;
+    # make the probe succeed so the argv is built.
+    monkeypatch.setattr(sad.os.path, "isfile", lambda p: True)
+    for suffix in sad._UNTRACKED_SOURCE_SUFFIXES:
+        name = suffix if suffix == "CMakeLists.txt" else "probe" + suffix
+        (tmp_path / name).write_text("x\n")
+        seen = []
+
+        def fake_run(cmd, *args, **kwargs):
+            seen.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        monkeypatch.setattr(sad.subprocess, "run", fake_run)
+        for runner in (sad.run_cpplint, sad.run_ruff, sad.run_cmake_lint):
+            runner([name], str(tmp_path))
+        assert any(name in cmd for cmd in seen), f"{suffix} reaches no runner"
+
+
+# --------------------------------------------------------------------------
 # parse_file_line
 # --------------------------------------------------------------------------
 
