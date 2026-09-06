@@ -456,3 +456,15 @@ def test_filter_novel_returns_same_list():
     ranges = {"a.cc": [sad.LineRange(1, 1)]}
     findings = [_finding("a.cc", 1)]
     assert sad.filter_novel(findings, ranges) is findings
+
+
+def test_filter_novel_untracked_whole_file_range_marks_interior_lines():
+    # #591: an untracked file enters scope as LineRange(1, N). A finding on an
+    # INTERIOR line must come out novel — a test that only checked line 1 would
+    # pass against a range that was never actually whole-file.
+    ranges = {"new.py": [sad.LineRange(1, 40)]}
+    interior = _finding("new.py", 17)
+    past_end = _finding("new.py", 41)
+    sad.filter_novel([interior, past_end], ranges)
+    assert interior.novel is True
+    assert past_end.novel is False
