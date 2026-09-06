@@ -30,11 +30,14 @@ tag`) will get their own dated sections below.
   a documented limit. Candidates are limited to the suffixes the `run_*` filters
   already select on (`.cc .c .h .py .cmake CMakeLists.txt`) and exclude the
   analyzer's own `build_dir` / `-asan` / `-ubsan` / `-tsan` dirs and any root-level
-  `build-*` dir (the #324/#351 convention `analyze-sanitizers.sh` builds into
-  whatever `build_dir` is configured), which a target project's `.gitignore` may
-  not cover. `scripts/analyze-shellcheck.sh` gets the same treatment for
-  `*.sh` / `*.bats` / `*.bash` (unquoted via `core.quotePath=false`, so a
-  non-ASCII name is not silently dropped), keyed on untrackedness so a tracked file
+  `build-*` dir — where `analyze-sanitizers.sh` builds regardless of the configured
+  `build_dir` (#324/#351) — which a target project's `.gitignore` may not cover.
+  Names are decoded as UTF-8 (never the locale's encoding), and a listed candidate
+  that cannot be read is named on the same artifact-visible stream instead of
+  vanishing. `scripts/analyze-shellcheck.sh` gets the same treatment for
+  `*.sh` / `*.bats` / `*.bash` (both its `git diff` and its `git ls-files` run with
+  `core.quotePath=false`, so a non-ASCII name — tracked or untracked — is not
+  silently dropped), keyed on untrackedness so a tracked file
   whose only hunks are pure deletions keeps its empty range, with an
   `untracked (whole-file scope):` header line in its artifact. A `--files` run
   never widens beyond its pathspecs, `.gitignore`d files stay out, and a
