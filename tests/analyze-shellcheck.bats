@@ -187,6 +187,22 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shell
     grep -q 'café.sh:2' "$(_artifact)"
 }
 
+@test "a TRACKED shell file with a non-ASCII name is scoped, not silently dropped (#591)" {
+    # redmr 2026-09-06 MINOR: core.quotePath=false was applied to the untracked
+    # enumeration only. `git diff --name-only` QUOTES the same name
+    # ("caf\303\251.sh") by default, so a TRACKED café.sh failed the -f test and
+    # vanished from scope — the identical silent direction, one call up. Both
+    # files are committed since baseline (tracked, never untracked); plain.sh is
+    # the positive control. The finding sits on line 2 of each.
+    printf '#!/usr/bin/env bash\ncd /accent\n' > "$SOURCE_DIR/café.sh"
+    printf '#!/usr/bin/env bash\ncd /plain\n' > "$SOURCE_DIR/plain.sh"
+    ( cd "$SOURCE_DIR" && git add café.sh plain.sh && git commit -q -m "add both" )
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'plain.sh:2' "$(_artifact)"   # positive control
+    grep -q 'café.sh:2' "$(_artifact)"
+}
+
 @test "the artifact header names each untracked file on one exact line (#591)" {
     # The shell family's artifact-visible notice — the twin of the python
     # `Untracked files (whole-file scope):` line. Anchored both ends: no trailing

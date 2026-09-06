@@ -65,9 +65,12 @@ out="$issue_dir/analysis/$(date_tag)-shellcheck.txt"
 # One pathspec for BOTH scope producers — this diff and the untracked enumeration
 # below (#591): a suffix added to one call and not the other would put a tracked
 # file of that kind in scope while an untracked one silently stayed out.
+# core.quotePath=false on both as well: --name-only QUOTES a non-ASCII name
+# ("caf\303\251.sh") exactly as ls-files does, and the quoted form fails the -f
+# test below and vanishes — the same silent drop, one call up (redmr 2026-09-06).
 shell_pathspec=('*.sh' '*.bats' '*.bash')
-diff_list="$(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
-                 -- "${shell_pathspec[@]}")" \
+diff_list="$(git -C "$source_dir" -c core.quotePath=false diff --name-only \
+                 --diff-filter=d "$baseline" -- "${shell_pathspec[@]}")" \
     || die "git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 13 left unmarked, fix the baseline and re-run)"
 files=()
 while IFS= read -r f; do
