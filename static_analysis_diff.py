@@ -1105,8 +1105,36 @@ def main():
     print(f"Base ref: {args.base_ref}", file=progress)
     print(f"Build dir: {args.build_dir}", file=progress)
 
+    # #591: the analyzer's own build dirs are candidates for EXCLUSION from the
+    # untracked sweep, so derive them before scope is computed (moved up from the
+    # sanitizer phase; pure string ops on args, unchanged otherwise).
+    asan_dir = args.asan_build_dir or (args.build_dir + "-asan")
+    tsan_dir = args.tsan_build_dir or (args.build_dir + "-tsan")
+    # No --ubsan-build-dir flag exists (analyze-sanitizers.sh owns that leg), so the
+    # sibling is derived by convention only; the unconditional root-level build-*
+    # rule inside get_untracked_ranges() covers the sanitizer script's real dirs
+    # whatever build_dir is (improve bug 1).
+    ubsan_dir = args.build_dir + "-ubsan"
+
     # Get changed line ranges
     ranges = get_changed_ranges(args.base_ref, args.files)
+
+    # #591: untracked, non-ignored source files join scope with a whole-file range.
+    # Merged BEFORE the empty-scope exit, so a tree whose ONLY change is a
+    # brand-new file is analyzed instead of reported as "No changed files found".
+    untracked = get_untracked_ranges(args.files,
+                                     [args.build_dir, asan_dir, ubsan_dir, tsan_dir])
+    for f, rs in untracked.items():
+        ranges.setdefault(f, []).extend(rs)
+    if untracked:
+        # Loud AND artifact-visible: in markdown mode `progress` is stdout, which
+        # analyze-static.sh tees into <issue-dir>/analysis/. A stderr-only warning
+        # is how this gap survived. Under --json it joins the other progress lines
+        # on stderr (#119: stdout carries only the JSON document). Printed only
+        # when non-empty, so a tracked-only run's output is unchanged.
+        print(f"Untracked files (whole-file scope): {', '.join(untracked)}",
+              file=progress)
+
     if not ranges:
         print("No changed files found in diff.", file=progress)
         if args.json:
@@ -1187,8 +1215,7 @@ def main():
         results.append(r)
 
     # -- Phase 3: sanitizer builds (sequential, each needs its own build dir) --
-    asan_dir = args.asan_build_dir or (args.build_dir + "-asan")
-    tsan_dir = args.tsan_build_dir or (args.build_dir + "-tsan")
+    # (asan_dir / tsan_dir are derived above the scope computation — #591.)
 
     if "asan" not in skip and "asanubsan" not in skip:
         print(f"Running ASan+UBSan (build dir: {asan_dir})...", flush=True, file=progress)
