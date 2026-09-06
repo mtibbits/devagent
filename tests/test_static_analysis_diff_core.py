@@ -12,6 +12,8 @@ package), subprocess.run is monkeypatched with canned `git diff` output, and
 normalize_path uses tmp_path — no real git, tools, or build.
 """
 import importlib.util
+import io
+import locale
 import subprocess
 from pathlib import Path
 
@@ -35,14 +37,20 @@ def _git_subcommand(cmd) -> str:
 
 
 def _stub_git(monkeypatch, *, diff="", ls_files="", returncode=0, stderr="",
-              calls=None):
+              calls=None, calls_kwargs=None):
     """subprocess.run fake that dispatches on the git SUBCOMMAND (#591).
 
     The pre-#591 fake returned ONE canned string for every call, so any code path
     making a second git call fed `git diff` text to the other parser (or an empty
     string to the diff parser). Route on the subcommand instead, and record every
-    call in `calls` (subcommand -> [argv, ...]) when one is given, so a test can
+    call in `calls` (subcommand -> [argv, ...]) — and its keyword arguments in
+    `calls_kwargs` (subcommand -> [kwargs, ...]) — when given, so a test can
     assert about the call it MEANS rather than about whichever ran last.
+
+    A BYTES canned output is decoded the way subprocess.run would decode it for
+    the kwargs the caller passed (the requested `encoding`/`errors`, else the
+    locale's preferred encoding), so a bytes fixture measures the CALLER's
+    decoding choice rather than the fake's (redmr 2026-09-06 MAJOR).
     """
     outputs = {"diff": diff, "ls-files": ls_files}
 
@@ -50,8 +58,13 @@ def _stub_git(monkeypatch, *, diff="", ls_files="", returncode=0, stderr="",
         sub = _git_subcommand(cmd)
         if calls is not None:
             calls.setdefault(sub, []).append(list(cmd))
-        return subprocess.CompletedProcess(
-            cmd, returncode, stdout=outputs.get(sub, ""), stderr=stderr)
+        if calls_kwargs is not None:
+            calls_kwargs.setdefault(sub, []).append(dict(kwargs))
+        out = outputs.get(sub, "")
+        if isinstance(out, bytes):
+            out = out.decode(kwargs.get("encoding") or locale.getpreferredencoding(False),
+                             kwargs.get("errors") or "strict")
+        return subprocess.CompletedProcess(cmd, returncode, stdout=out, stderr=stderr)
 
     monkeypatch.setattr(sad.subprocess, "run", fake_run)
 
@@ -312,6 +325,25 @@ def test_get_untracked_ranges_uses_nul_and_full_name(monkeypatch, tmp_path):
     assert "has space.py" in ranges          # behavioural leg: the split is on NUL
 
 
+def test_get_untracked_ranges_decodes_names_as_utf8(monkeypatch, tmp_path):
+    # redmr 2026-09-06 MAJOR: `text=True` decoded the ls-files bytes with the
+    # LOCALE encoding, so on a cp1252 host a UTF-8 `café.py` arrived as
+    # `cafÃ©.py`, failed the read and was dropped — a plain filename taking the
+    # silent path this issue removes. Git emits path bytes as stored (UTF-8);
+    # decode them so, with surrogateescape so an undecodable byte still
+    # round-trips through open(). The bytes fixture makes the fake decode exactly
+    # as subprocess would for the kwargs the caller passed; the kwargs pin is the
+    # host-independent leg (a UTF-8 host passes the behavioural leg either way).
+    (tmp_path / "café.py").write_text("x\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    kw = {}
+    _stub_git(monkeypatch, ls_files=_nul("café.py").encode("utf-8"), calls_kwargs=kw)
+    ranges = sad.get_untracked_ranges()
+    assert kw["ls-files"][0].get("encoding") == "utf-8"
+    assert kw["ls-files"][0].get("errors") == "surrogateescape"
+    assert "café.py" in ranges
+
+
 def test_get_untracked_ranges_clean_tree_adds_nothing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _stub_git(monkeypatch, ls_files="")
@@ -328,6 +360,14 @@ def test_get_untracked_ranges_skips_a_listed_but_unreadable_path(monkeypatch, tm
     _stub_git(monkeypatch, ls_files=_nul("real.py", "vanished.py"))
     assert sorted(sad.get_untracked_ranges()) == ["real.py"]
     assert "skipping unreadable untracked candidate: vanished.py" in capsys.readouterr().err
+    # redmr 2026-09-06 MAJOR: main() hands over its progress stream (stdout in
+    # markdown mode, which analyze-static.sh tees into the artifact). A
+    # stderr-only warning is invisible in the artifact — the very silence this
+    # issue closes — so the skip must follow whatever stream the caller names.
+    buf = io.StringIO()
+    assert sorted(sad.get_untracked_ranges(progress=buf)) == ["real.py"]
+    assert "skipping unreadable untracked candidate: vanished.py" in buf.getvalue()
+    assert capsys.readouterr().err == ""
 
 
 def test_get_untracked_ranges_exits_on_git_failure(monkeypatch, tmp_path):

@@ -96,6 +96,22 @@ run_static_analyzer() {
     [[ "$output" == *"Untracked files (whole-file scope): new.py"* ]]
 }
 
+@test "static_analysis_diff.py: an unreadable untracked candidate's warning reaches STDOUT (#591)" {
+    # redmr 2026-09-06 MAJOR: the skip warning went to stderr ALONE, which
+    # analyze-static.sh does not tee — the one place the sweep drops a candidate
+    # was invisible in the artifact. A dangling symlink is a candidate git lists
+    # that read_bytes() cannot open. Same stdout-only capture as the test above.
+    commit_readme_change
+    ln -s missing.py "$SOURCE_DIR/dangling.py" 2>/dev/null \
+        || skip "ln -s not permitted on this host"
+    printf 'x = 1\n' > "$SOURCE_DIR/seen.py"
+    cd "$DEVAGENT_TMP"
+    run bash -c "python3 '$DEVAGENT_ROOT/static_analysis_diff.py' --repo '$SOURCE_DIR' '$base' '$SOURCE_DIR/build' --skip $SKIP_TOOLS 2>/dev/null"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Untracked files (whole-file scope): seen.py"* ]]   # positive control
+    [[ "$output" == *"skipping unreadable untracked candidate: dangling.py"* ]]
+}
+
 @test "static_analysis_diff.py: a gitignored untracked file stays out of scope (#591)" {
     printf 'ignored.py\n' > "$SOURCE_DIR/.gitignore"
     ( cd "$SOURCE_DIR" && git add .gitignore && git commit -q -m gitignore )

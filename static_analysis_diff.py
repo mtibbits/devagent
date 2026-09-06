@@ -32,7 +32,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TextIO
 
 
 @dataclass
@@ -150,7 +150,8 @@ _BUILD_DIR_PREFIX = "build-"
 
 
 def get_untracked_ranges(files: Optional[list[str]] = None,
-                         exclude_dirs: Optional[list[str]] = None
+                         exclude_dirs: Optional[list[str]] = None,
+                         progress: Optional[TextIO] = None
                          ) -> dict[str, list[LineRange]]:
     """Whole-file ranges for UNTRACKED, non-ignored source files (#591).
 
@@ -175,7 +176,11 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
     exactly as `git status` does, so ignored build output stays out. `-z` is what
     keeps a non-ASCII or space-bearing name from arriving QUOTED
     (`"caf\\303\\251.py"`), which would never match normalize_path()'s output in
-    filter_novel(); `--full-name` keeps paths repo-root-relative like `git diff`'s
+    filter_novel(), and the bytes are decoded as UTF-8 (with surrogateescape, so an
+    undecodable byte still round-trips through open()) — git emits a path's bytes
+    as stored, and decoding them with the LOCALE's encoding (`text=True`) turned
+    `café.py` into an unreadable `cafÃ©.py` on a cp1252 Windows host (redmr
+    2026-09-06); `--full-name` keeps paths repo-root-relative like `git diff`'s
     `+++ b/` names, which ls-files does NOT do by default (it prints relative to the
     caller's cwd).
 
@@ -189,11 +194,19 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
                   (_BUILD_DIR_PREFIX): the sanitizer legs build there regardless of
                   an operator-configured build_dir. A root-level file of that name
                   is not a build dir and stays in scope.
+    progress:     the stream a skipped candidate is reported on. main() passes its
+                  own progress stream (stdout in markdown mode, which
+                  analyze-static.sh tees into the artifact; stderr under --json);
+                  defaults to stderr. A stderr-only warning is invisible in the
+                  artifact (redmr 2026-09-06) — the silence this function removes.
     """
+    if progress is None:
+        progress = sys.stderr
     cmd = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
     if files:
         cmd += ["--"] + files
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True,
+                            encoding="utf-8", errors="surrogateescape")
     if result.returncode != 0:
         # Fail loud exactly like get_changed_ranges(): a swallowed enumeration
         # failure IS an empty untracked set, i.e. the silent gate this removes.
@@ -230,10 +243,11 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
             data = Path(path).read_bytes()
         except OSError:
             # Listed by git but unreadable now (a race, a broken symlink, a
-            # permission error, a mis-decoded name): skip it rather than abort the
-            # whole analyze run — but SAY SO, so the skip is evidence, not silence.
+            # permission error): skip it rather than abort the whole analyze run —
+            # but SAY SO on the caller's progress stream, so the skip is evidence
+            # in the ARTIFACT, not a stderr line nothing tees (redmr 2026-09-06).
             print(f"warning: skipping unreadable untracked candidate: {path}",
-                  file=sys.stderr)
+                  file=progress)
             continue
         # Count newlines (what every linter calls a line; a final unterminated
         # line still counts) without decoding. An EMPTY file gets LineRange(1, 1):
@@ -1139,7 +1153,8 @@ def main():
     # Merged BEFORE the empty-scope exit, so a tree whose ONLY change is a
     # brand-new file is analyzed instead of reported as "No changed files found".
     untracked = get_untracked_ranges(args.files,
-                                     [args.build_dir, asan_dir, ubsan_dir, tsan_dir])
+                                     [args.build_dir, asan_dir, ubsan_dir, tsan_dir],
+                                     progress=progress)
     ranges.update(untracked)   # disjoint keys: a diff hunk never names an untracked path
     if untracked:
         # Loud AND artifact-visible: in markdown mode `progress` is stdout, which
