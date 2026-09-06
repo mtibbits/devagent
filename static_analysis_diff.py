@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run static analysis tools and filter findings to changed lines only.
+"""Run static analysis tools and filter findings to changed lines (untracked files whole).
 
 Usage:
     static_analysis_diff.py <base_ref> <build_dir> [--files FILE...]
@@ -7,6 +7,19 @@ Usage:
 Examples:
     static_analysis_diff.py origin/main /tmp/build-pr1
     static_analysis_diff.py feat/32-with-minmax /tmp/build-pr33 --files lib/qa_utils.cc apps/volk_profile.cc
+
+Scope: changed lines vs `base_ref` in the WORKING TREE, plus every untracked,
+non-ignored source file as a WHOLE FILE (#591 — `git diff` cannot see a file that
+was never `git add`-ed, so without this a brand-new file passed the gate silently).
+Enumeration is read-only; `.gitignore`d files, files outside a `--files` list, files
+whose suffix no per-file tool selects on, and anything under the analyzer's own
+build_dir / -asan / -ubsan / -tsan dirs or a root-level `build-*` dir stay out.
+Reach: the whole-file range is acted on by the per-file tools (cpplint, codespell,
+ruff, flake8, bandit, mypy, cmake-lint). The compile-database tools (cppcheck,
+clang-tidy, iwyu, compiler warnings) see an untracked file only once CMake does,
+and `git clang-format` diffs the INDEX against `base_ref`, so none of them reaches
+a file git does not track — they report it clean, and that is a known limit, not
+a pass.
 """
 
 import argparse
@@ -76,6 +89,9 @@ def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict
     step inspects uncommitted edits — it runs before commit in the workflow, so a
     HEAD-anchored diff would be empty and every linter would skip vacuously. On a
     clean committed tree `git diff base_ref` equals `base_ref..HEAD`.
+
+    This is TRACKED changes only: a file that has never been `git add`-ed produces no
+    hunks. `get_untracked_ranges()` (#591) covers those, and `main()` merges the two.
     """
     cmd = ["git", "diff", "--unified=0", base_ref]
     if files:
@@ -1031,14 +1047,14 @@ def print_summary(results: list[ToolResult], ranges: dict[str, list[LineRange]])
         all_novel.extend(f for f in r.findings if f.novel)
 
     if all_novel:
-        print("\n## Novel Findings (in changed lines)\n")
+        print("\n## Novel Findings (in changed lines or untracked files)\n")
         print("| Tool | Severity | File | Line | Message |")
         print("|------|----------|------|------|---------|")
         for f in all_novel:
             line_str = str(f.line) if f.line > 0 else "-"
             print(f"| {f.tool} | {f.severity} | {f.file} | {line_str} | {f.message} |")
     else:
-        print("\n**No novel findings in changed lines.**")
+        print("\n**No novel findings in changed lines or untracked files.**")
 
 
 def _finalize_pool_result(name, produce, ranges, progress) -> ToolResult:

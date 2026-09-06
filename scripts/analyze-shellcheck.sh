@@ -2,9 +2,11 @@
 # scripts/analyze-shellcheck.sh — #55: the bash analyzer family for step 13.
 # Diff-scoped: shellcheck --severity=warning runs once over the shell files
 # changed vs baseline (working-tree endpoint, matching static_analysis_diff.py's
-# deliberate choice so uncommitted review-fix edits stay visible), and a finding
-# is NEW iff its line falls inside a changed hunk's new-side range — the same
-# novelty gate as the C path's filter_novel(). No baseline run, no worktree.
+# deliberate choice so uncommitted review-fix edits stay visible) PLUS every
+# untracked, non-ignored *.sh/*.bats/*.bash as a whole file (#591, matching that
+# file's untracked scope), and a finding is NEW iff its line falls inside a changed
+# hunk's new-side range — or anywhere in an untracked file — the same novelty gate
+# as the C path's filter_novel(). No baseline run, no worktree.
 # Report-not-fail: new findings are surfaced in the artifact; failure semantics
 # for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
 # known hazard and the origin of this issue's sibling CWD bug).
@@ -96,7 +98,7 @@ while IFS= read -r f; do
 done <<< "$untracked_list"
 
 {
-    echo "=== shellcheck (diff-scoped) ==="
+    echo "=== shellcheck (diff-scoped + untracked) ==="
     echo "date: $(date_tag)"
     echo "baseline: $baseline"
     echo "scope: ${#files[@]} file(s)"
@@ -172,7 +174,7 @@ new_count="$(printf '%s' "$new_findings" | grep -c ':' || true)"
 
 {
     echo "total findings in scoped files: $total_count"
-    echo "NEW findings: $new_count (on changed lines vs baseline)"
+    echo "NEW findings: $new_count (on changed lines vs baseline, or anywhere in an untracked file)"
     if [ "$new_count" -gt 0 ]; then
         printf '%s' "$new_findings"
         echo "-- review before the commit gate (#117 owns hard-fail semantics)"

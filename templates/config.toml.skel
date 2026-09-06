@@ -45,8 +45,9 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #
 # analyze: step-13 analyzer family (#55). Absent or "" = "cmake" (cppcheck via
 # compile_commands.json + ASan/UBSan/TSan — the pre-#55 behavior). "shellcheck"
-# = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash;
-# a finding is NEW only when its line is in a changed hunk vs baseline, so
+# = diff-scoped shellcheck --severity=warning over changed *.sh/*.bats/*.bash (plus
+#   untracked ones as whole files, #591); a finding is NEW only when its line is in
+#   a changed hunk vs baseline — or anywhere in an untracked file — so
 # pre-existing repo noise never blocks; sanitizers are skipped (bats is the
 # dynamic coverage). "none" = step 13 self-marks [-] with a logged reason (no
 # manual skip needed). Any other value fails loud at analyze time.
