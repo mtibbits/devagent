@@ -140,10 +140,12 @@ _UNTRACKED_SOURCE_SUFFIXES = (".cc", ".c", ".h", ".py", ".cmake", "CMakeLists.tx
 # The analyzer's own build-dir convention (#324/#351): analyze-static.sh's fallback
 # is <source_dir>/build-<project>-<issue>, and analyze-sanitizers.sh ALWAYS builds
 # <source_dir>/build-<project>-<issue>-{asan,ubsan,tsan} at the repo root, whatever
-# build_dir was configured. A candidate whose first path component carries this
-# hyphenated prefix is never a source file of the target project (devAgent's own
-# .gitignore declares the same glob). Deliberately NOT the bare `build*/` proxy —
-# `builder/` and `build_tools/` are real source dirs and must survive.
+# build_dir was configured. A candidate whose first DIRECTORY component carries
+# this hyphenated prefix is never a source file of the target project (devAgent's
+# own .gitignore declares the same glob). Deliberately NOT the bare `build*/`
+# proxy — `builder/` and `build_tools/` are real source dirs and must survive —
+# and a root-level FILE named `build-docs.py` is a candidate like any other: the
+# rule keys on a directory, never on the file's own name.
 _BUILD_DIR_PREFIX = "build-"
 
 
@@ -183,9 +185,10 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
     exclude_dirs: directories whose contents are never candidates — the analyzer's
                   own build_dir and its -asan/-ubsan/-tsan siblings, which a TARGET
                   project's .gitignore may not cover (devAgent's own does). A
-                  root-level `build-*` component is excluded UNCONDITIONALLY
+                  root-level `build-*` DIRECTORY is excluded UNCONDITIONALLY
                   (_BUILD_DIR_PREFIX): the sanitizer legs build there regardless of
-                  an operator-configured build_dir.
+                  an operator-configured build_dir. A root-level file of that name
+                  is not a build dir and stays in scope.
     """
     cmd = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
     if files:
@@ -218,7 +221,8 @@ def get_untracked_ranges(files: Optional[list[str]] = None,
     for path in result.stdout.split("\0"):
         if not path or not path.endswith(_UNTRACKED_SOURCE_SUFFIXES):
             continue
-        if path.split("/", 1)[0].startswith(_BUILD_DIR_PREFIX):
+        first, sep, _ = path.partition("/")
+        if sep and first.startswith(_BUILD_DIR_PREFIX):
             continue
         if any(path.startswith(p) for p in prefixes):
             continue

@@ -259,27 +259,32 @@ def test_get_untracked_ranges_excludes_analyzer_build_dirs(monkeypatch, tmp_path
     # the repo then leaves thousands of generated sources ls-files WOULD list.
     # Two exclusion keys (improve bug 1): the EXPLICIT dirs main() passes
     # (build_dir + its -asan/-ubsan/-tsan siblings) AND, unconditionally, any
-    # root-level `build-*` component — analyze-sanitizers.sh builds at
+    # root-level `build-*` DIRECTORY — analyze-sanitizers.sh builds at
     # <source_dir>/build-<project>-<issue>-{asan,ubsan,tsan} regardless of an
     # operator-configured build_dir, so `build-proj-Issue-1-ubsan` below is NOT
     # in the explicit list and must still be excluded. `builder/` (no hyphen)
-    # must SURVIVE: the rejected bare build*/ proxy would have dropped it.
+    # must SURVIVE: the rejected bare build*/ proxy would have dropped it. So
+    # must a root-level FILE named `build-docs.py` (review 2026-09-05): the
+    # prefix rule keys on a directory component, and a file's own name is not
+    # one — dropping it would be the silent skip AC1 exists to close.
     (tmp_path / "new.py").write_text("x\n")
+    (tmp_path / "build-docs.py").write_text("x\n")
     for d in ("bd", "bd-asan", "bd-ubsan", "bd-tsan",
               "build-proj-Issue-1-ubsan", "builder"):
         (tmp_path / d).mkdir()
         (tmp_path / d / "gen.py").write_text("x\n")
     monkeypatch.chdir(tmp_path)
     _stub_git(monkeypatch, ls_files=_nul(
-        "new.py", "bd/gen.py", "bd-asan/gen.py", "bd-ubsan/gen.py",
-        "bd-tsan/gen.py", "build-proj-Issue-1-ubsan/gen.py", "builder/gen.py"))
+        "new.py", "build-docs.py", "bd/gen.py", "bd-asan/gen.py",
+        "bd-ubsan/gen.py", "bd-tsan/gen.py", "build-proj-Issue-1-ubsan/gen.py",
+        "builder/gen.py"))
     ranges = sad.get_untracked_ranges(
         None, [str(tmp_path / "bd"), str(tmp_path / "bd-asan"),
                str(tmp_path / "bd-ubsan"), str(tmp_path / "bd-tsan")])
-    # new.py and builder/gen.py are the POSITIVE controls: without them, "the
-    # generated files are absent" is equally satisfied by an enumeration that
-    # found nothing (Issue-337).
-    assert sorted(ranges) == ["builder/gen.py", "new.py"]
+    # new.py, build-docs.py and builder/gen.py are the POSITIVE controls: without
+    # them, "the generated files are absent" is equally satisfied by an
+    # enumeration that found nothing (Issue-337).
+    assert sorted(ranges) == ["build-docs.py", "builder/gen.py", "new.py"]
 
 
 def test_get_untracked_ranges_passes_files_pathspec(monkeypatch, tmp_path):
