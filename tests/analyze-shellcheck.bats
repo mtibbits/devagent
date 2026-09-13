@@ -129,3 +129,86 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shell
     [[ "$output" == *"shellcheck"* ]]
     [ ! -f "$(_artifact)" ]
 }
+
+@test "untracked shell file is scoped with a whole-file range and its finding is NEW (#591)" {
+    # The TRACKED sibling of this test is "file added since baseline is scoped and
+    # scanned (#55)", which `git add`s the file. This one does NOT: an untracked
+    # *.sh produced no diff hunks at all, so it never entered scope and every
+    # warning in it counted as pre-existing. The SC2164 sits on line 3 — an
+    # INTERIOR line, so a line-1-only range cannot pass this.
+    printf '#!/usr/bin/env bash\necho one\ncd /untracked-new\n' > "$SOURCE_DIR/fresh.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'fresh.sh' "$(_artifact)"
+    grep -q 'fresh.sh:3' "$(_artifact)"
+    grep -qE 'NEW findings: [1-9]' "$(_artifact)"
+}
+
+@test "a gitignored untracked shell file is NOT scoped (#591)" {
+    printf 'skipme.sh\n' > "$SOURCE_DIR/.gitignore"
+    ( cd "$SOURCE_DIR" && git add .gitignore && git commit -q -m gitignore )
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" \
+        baseline_sha "$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
+    printf '#!/usr/bin/env bash\ncd /ignored\n' > "$SOURCE_DIR/skipme.sh"
+    printf '#!/usr/bin/env bash\ncd /seen\n' > "$SOURCE_DIR/seen.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    # POSITIVE CONTROL: the sweep DID run, so skipme.sh's absence is an exclusion
+    # rather than an empty enumeration (register: Issue-337).
+    grep -q 'seen.sh' "$(_artifact)"
+    # Precise no-match (rc 1), never `-ne 0`: grep's rc 2 ("could not open the
+    # artifact") satisfies `-ne 0` vacuously (register: Issue-337).
+    run grep -c 'skipme\.sh' "$(_artifact)"
+    [ "$status" -eq 1 ]
+}
+
+@test "a TRACKED file with only pure-deletion hunks gets no whole-file range (#591)" {
+    # #591's whole-file range is keyed on UNTRACKEDNESS, never on "this file has
+    # no hunks". tool.sh's baseline SC2164 is on line 2; a 1..N range for a
+    # deletion-only diff would report that pre-existing finding as NEW. The #55
+    # "trailing pure-deletion hunk" test shares this property incidentally — this
+    # one NAMES it, so a regression reddens with its reason attached.
+    sed -i '$d' "$SOURCE_DIR/tool.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'tool.sh' "$(_artifact)"          # it IS in scope
+    grep -q 'NEW findings: 0' "$(_artifact)"  # but carries no range
+}
+
+@test "an untracked shell file with a non-ASCII name is scoped, not silently dropped (#591)" {
+    # ls-files QUOTES such a name by default ("caf\303\251.sh" — measured on git
+    # 2.55); the quoted form fails the -f test and vanishes, the silent direction
+    # this issue removes (improve bug 2). The finding sits on line 2 of each file.
+    printf '#!/usr/bin/env bash\ncd /accent\n' > "$SOURCE_DIR/café.sh"
+    printf '#!/usr/bin/env bash\ncd /plain\n' > "$SOURCE_DIR/plain.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'plain.sh:2' "$(_artifact)"   # positive control
+    grep -q 'café.sh:2' "$(_artifact)"
+}
+
+@test "a TRACKED shell file with a non-ASCII name is scoped, not silently dropped (#591)" {
+    # redmr 2026-09-06 MINOR: core.quotePath=false was applied to the untracked
+    # enumeration only. `git diff --name-only` QUOTES the same name
+    # ("caf\303\251.sh") by default, so a TRACKED café.sh failed the -f test and
+    # vanished from scope — the identical silent direction, one call up. Both
+    # files are committed since baseline (tracked, never untracked); plain.sh is
+    # the positive control. The finding sits on line 2 of each.
+    printf '#!/usr/bin/env bash\ncd /accent\n' > "$SOURCE_DIR/café.sh"
+    printf '#!/usr/bin/env bash\ncd /plain\n' > "$SOURCE_DIR/plain.sh"
+    ( cd "$SOURCE_DIR" && git add café.sh plain.sh && git commit -q -m "add both" )
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'plain.sh:2' "$(_artifact)"   # positive control
+    grep -q 'café.sh:2' "$(_artifact)"
+}
+
+@test "the artifact header names each untracked file on one exact line (#591)" {
+    # The shell family's artifact-visible notice — the twin of the python
+    # `Untracked files (whole-file scope):` line. Anchored both ends: no trailing
+    # space, nothing else on the line.
+    printf '#!/usr/bin/env bash\necho ok\n' > "$SOURCE_DIR/fresh.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q '^untracked (whole-file scope): fresh.sh$' "$(_artifact)"
+}

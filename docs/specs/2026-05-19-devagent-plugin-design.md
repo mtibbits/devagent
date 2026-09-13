@@ -1600,6 +1600,16 @@ ordering. A per-phase analyzer failure fails the step loudly rather than
 being swallowed (#117); output is written under
 `<issue-dir>/analysis/YYYY-MM-DD-<tool>.txt`.
 
+Untracked, non-ignored source files are the one addition to that scope (#591):
+`git diff` cannot see a file that was never `git add`-ed, so each is enumerated
+read-only with `git ls-files --others --exclude-standard` and scoped as a WHOLE
+FILE, with a progress line naming them in the artifact. The whole-file range is
+acted on by the per-file tools (cpplint, codespell, ruff, flake8, bandit, mypy,
+cmake-lint); the compile-database tools and `git clang-format` see an untracked
+file only once the build / index knows it. Ignored files, files outside a `--files`
+list, and anything under the analyzer's own build dirs (`build_dir`, its
+`-asan`/`-ubsan`/`-tsan` siblings, any root-level `build-*`) stay out.
+
 - **`cmake`** (C/C++ projects, the default) — `analyze-static.sh` wraps the
   36 KB `~/src/devAgent/static_analysis_diff.py` (cppcheck, cpplint,
   clang-tidy, scan-build, include-what-you-use), then `analyze-sanitizers.sh`
@@ -1607,7 +1617,8 @@ being swallowed (#117); output is written under
   build dir, slower). Both run sequentially; no checklist sub-step tracking.
 - **`shellcheck`** (bash projects, e.g. devAgent itself) — diff-scoped
   `shellcheck` over the changed shell lines, with the same changed-line
-  novelty gate as the C path (only findings new vs the baseline count).
+  novelty gate as the C path (only findings new vs the baseline count);
+  untracked *.sh / *.bats / *.bash join that scope whole-file (#591).
 - **`none`** — the step self-marks `[-]` with a logged reason (projects with
   no analyzable source, e.g. docs-only repos).
 
