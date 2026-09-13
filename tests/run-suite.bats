@@ -660,20 +660,25 @@ _stub_bad_parallel() { devagent_stub parallel '' 1; }
 }
 
 @test "#593 the suite child never sees bats' own parallelism env (it would make bats_jobs FALSE)" {
-    # bats reads BATS_NUMBER_OF_PARALLEL_JOBS and BATS_NO_PARALLELIZE_ACROSS_FILES from
-    # the ENVIRONMENT (bats-exec-suite:6,8), so without a scrub the operator's session
-    # decides the mode and the artifact still reports suite_jobs. This is the serial
-    # leg, where an inherited count is worst: no --no-parallelize-within-files goes on
-    # the command line, so bats would also parallelise WITHIN files — the mode the
-    # #593 audit does not cover — while `bats_jobs: 1` claims plain serial.
+    # bats reads all three of these from the ENVIRONMENT, not from argv
+    # (bats-exec-suite:6,7,8), so without a scrub the operator's session decides the
+    # mode while the artifact still reports suite_jobs. This is the serial leg, where
+    # an inherited count is worst: no --no-parallelize-within-files goes on the command
+    # line, so bats would also parallelise WITHIN files — the mode the #593 audit does
+    # not cover — while `bats_jobs: 1` claims plain serial. BATS_PARALLEL_BINARY_NAME
+    # defeats the probe rather than the artifact: bats would reach for a binary the
+    # GNU-parallel banner check never looked at, and an absent one lands inside the TAP
+    # stream as the "truncated suite" die — the misdiagnosis the probe exists to break.
     printf '%s\n' '#!/usr/bin/env bash' \
         '{ printf "j=%s " "${BATS_NUMBER_OF_PARALLEL_JOBS-<UNSET>}"' \
-        '  printf "x=%s\n" "${BATS_NO_PARALLELIZE_ACROSS_FILES-<UNSET>}"' \
+        '  printf "x=%s " "${BATS_NO_PARALLELIZE_ACROSS_FILES-<UNSET>}"' \
+        '  printf "b=%s\n" "${BATS_PARALLEL_BINARY_NAME-<UNSET>}"' \
         '} > "$DEVAGENT_TMP/seen-child-bats-env"' \
         'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
-    BATS_NUMBER_OF_PARALLEL_JOBS=4 BATS_NO_PARALLELIZE_ACROSS_FILES=1 _run_rs
-    [ "$(cat "$DEVAGENT_TMP/seen-child-bats-env")" = "j=<UNSET> x=<UNSET>" ]
+    BATS_NUMBER_OF_PARALLEL_JOBS=4 BATS_NO_PARALLELIZE_ACROSS_FILES=1 \
+        BATS_PARALLEL_BINARY_NAME=rush _run_rs
+    [ "$(cat "$DEVAGENT_TMP/seen-child-bats-env")" = "j=<UNSET> x=<UNSET> b=<UNSET>" ]
     [ "$status" -eq 0 ]
     grep -q '^bats_jobs: 1$' "$(_art)"
 }

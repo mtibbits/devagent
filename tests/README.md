@@ -59,7 +59,10 @@ a new file inherits:
 - Nothing writes into the plugin tree (`$PLUGIN_ROOT`, `$BATS_TEST_DIRNAME/..`).
 - Git identity is per-repo under tmp; `lib/hermetic-env.bash` nulls the global
   config, TZ and locale, and unsets the session pins and `DEVAGENT_SUITE_JOBS`.
-- Network fixtures use `lib/fixture-server.sh`, which takes an OS-assigned port.
+- Network fixtures use `lib/fixture-server.sh`, which picks a free port from the
+  OS. The probe→bind window between picking the port and the server process
+  binding it is a known residual (unobserved so far); a `server did not come up`
+  failure under `suite_jobs > 1` is the shape to suspect.
 - A nested `bats` inside a test stays serial (bats does not export its job count).
 
 A test that passes serially and fails only under `suite_jobs > 1` is a

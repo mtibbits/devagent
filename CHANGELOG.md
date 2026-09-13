@@ -19,13 +19,15 @@ tag`) will get their own dated sections below.
   Issue-593's analysis dir. `DEVAGENT_SUITE_JOBS` overrides it for one run and
   is scrubbed from both suite children (and unset per test by
   `tests/lib/hermetic-env.bash`), so a test that invokes the runner cannot
-  inherit it; bats' own `BATS_NUMBER_OF_PARALLEL_JOBS` and
-  `BATS_NO_PARALLELIZE_ACROSS_FILES` are scrubbed alongside it, since bats reads
-  those from the environment and an inherited value would make the new
-  `bats_jobs:` line false in either direction. The value is validated before either suite runs; N > 1 first
-  checks for GNU parallel by banner (bats 1.10.0's own probe is miswired — an
-  absent binary surfaced inside the TAP stream as a "truncated" suite) and dies
-  naming the package and the `suite_jobs = 1` seam. The artifact gains a
+  inherit it. Scrubbed alongside it: `BATS_NUMBER_OF_PARALLEL_JOBS` and
+  `BATS_NO_PARALLELIZE_ACROSS_FILES`, which bats reads from the environment, so
+  an inherited value would make the new `bats_jobs:` line false in either
+  direction; and `BATS_PARALLEL_BINARY_NAME`, which would otherwise let bats
+  reach for a binary the probe below never checked. The value is validated
+  before either suite runs; N > 1 first checks for GNU parallel by banner (bats
+  1.10.0's own probe is miswired — an absent binary surfaced inside the TAP
+  stream as a "truncated" suite) and dies naming the package and the
+  `suite_jobs = 1` seam. The artifact gains a
   trailing `bats_jobs: <N> | (none)` line. Carriers: README "Running the test
   suite", `tests/README.md` "Parallel execution", the config skeleton,
   `docs-site/configuration.md`, the spec's run-suite section, and the

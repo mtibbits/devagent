@@ -145,27 +145,35 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
     # grep -q exit would SIGPIPE it into a false negative under pipefail. The
     # banner check, not `command -v`: Debian's moreutils also installs a
     # `parallel` that is not GNU parallel (no --version). The probe assumes bats'
-    # default binary name; BATS_PARALLEL_BINARY_NAME / `rush` are out of scope.
+    # default binary name, and the scrub below makes that assumption TRUE rather
+    # than merely documented: `rush` and friends stay out of scope by exclusion.
     parallel_banner="$(parallel --version 2>/dev/null || true)"
     [[ "$parallel_banner" == "GNU parallel "* ]] \
       || die "run-suite: suite_jobs=$suite_jobs needs GNU parallel on PATH (bats --jobs runs test files through it) and none was found (from $suite_jobs_src). Install the 'parallel' package (Debian/Ubuntu: apt-get install parallel), or run serially: set suite_jobs = 1 in [project.$project] (or remove the key — 1 is the default), or DEVAGENT_SUITE_JOBS=1 (#593)."
     # Across FILES only: each test file is one member of the process pool and
-    # the tests inside it still run in order. The parallel-safety audit
-    # (Issue-593 analysis/*-parallel-safety-audit.md) is at that granularity;
-    # within-file parallelism needs a per-TEST audit and is not enabled.
+    # the tests inside it still run in order. The parallel-safety audit is at
+    # that granularity, and the per-file rules a new test has to meet live in
+    # tests/README.md "Parallel execution" (#593) — in the repo, unlike the
+    # audit itself. Within-file parallelism needs a per-TEST audit and is off.
     bats_flags=(--jobs "$suite_jobs" --no-parallelize-within-files)
   fi
   # -u DEVAGENT_SUITE_JOBS: the one-run override must not reach the suite — a
   # test that itself invokes this runner would otherwise inherit it and the env
   # branch would silently win over its config (#593; the #240 pin shape).
-  # -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES: the only two
-  # parallelism knobs bats reads from the ENVIRONMENT rather than from argv
-  # (bats-exec-suite:6,8; bats-exec-file:5 reads the count again for the within-file
-  # pool). Either one inherited makes `bats_jobs:` FALSE, in both directions: with no
+  # -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES
+  # -u BATS_PARALLEL_BINARY_NAME: the parallelism knobs bats reads from the
+  # ENVIRONMENT rather than from argv (bats-exec-suite:6,7,8; bats-exec-file:5 reads
+  # the count again for the within-file pool). The first two inherited make
+  # `bats_jobs:` FALSE, in both directions: with no
   # --jobs flag an inherited count of 4 also parallelises WITHIN files — the mode the
   # #593 audit does not cover — while the artifact records 1; and an inherited
   # BATS_NO_PARALLELIZE_ACROSS_FILES turns a --jobs 4 run serial while the artifact
-  # records 4. The header's producer rule (DIE when the artifact would be FALSE) is
+  # records 4. The third would defeat the probe above rather than the artifact: an
+  # inherited BATS_PARALLEL_BINARY_NAME=rush leaves the probe asking GNU parallel for
+  # a banner while bats reaches for a binary nobody checked, and an absent `rush`
+  # surfaces inside the TAP stream as the "truncated suite" die — the precise
+  # misdiagnosis the probe exists to prevent, arriving through the one name it does
+  # not read. The header's producer rule (DIE when the artifact would be FALSE) is
   # served here by removing the input instead: the artifact is a function of the TREE,
   # not of the operator's session (#458). scripts/born-red.sh:34-36 scrubs the whole
   # BATS_* family for the reentrancy variant of the same hazard.
@@ -174,6 +182,7 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
   tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
            -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
+           -u BATS_PARALLEL_BINARY_NAME \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
            LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" \
            bats --tap "${bats_flags[@]+"${bats_flags[@]}"}" tests/ 2>&1 || true)"
