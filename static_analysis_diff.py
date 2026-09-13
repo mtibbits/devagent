@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run static analysis tools and filter findings to changed lines only.
+"""Run static analysis tools and filter findings to changed lines (untracked files whole).
 
 Usage:
     static_analysis_diff.py <base_ref> <build_dir> [--files FILE...]
@@ -7,6 +7,19 @@ Usage:
 Examples:
     static_analysis_diff.py origin/main /tmp/build-pr1
     static_analysis_diff.py feat/32-with-minmax /tmp/build-pr33 --files lib/qa_utils.cc apps/volk_profile.cc
+
+Scope: changed lines vs `base_ref` in the WORKING TREE, plus every untracked,
+non-ignored source file as a WHOLE FILE (#591 — `git diff` cannot see a file that
+was never `git add`-ed, so without this a brand-new file passed the gate silently).
+Enumeration is read-only; `.gitignore`d files, files outside a `--files` list, files
+whose suffix no per-file tool selects on, and anything under the analyzer's own
+build_dir / -asan / -ubsan / -tsan dirs or a root-level `build-*` dir stay out.
+Reach: the whole-file range is acted on by the per-file tools (cpplint, codespell,
+ruff, flake8, bandit, mypy, cmake-lint). The compile-database tools (cppcheck,
+clang-tidy, iwyu, compiler warnings) see an untracked file only once CMake does,
+and `git clang-format` diffs the INDEX against `base_ref`, so none of them reaches
+a file git does not track — they report it clean, and that is a known limit, not
+a pass.
 """
 
 import argparse
@@ -19,7 +32,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TextIO
 
 
 @dataclass
@@ -76,6 +89,9 @@ def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict
     step inspects uncommitted edits — it runs before commit in the workflow, so a
     HEAD-anchored diff would be empty and every linter would skip vacuously. On a
     clean committed tree `git diff base_ref` equals `base_ref..HEAD`.
+
+    This is TRACKED changes only: a file that has never been `git add`-ed produces no
+    hunks. `get_untracked_ranges()` (#591) covers those, and `main()` merges the two.
     """
     cmd = ["git", "diff", "--unified=0", base_ref]
     if files:
@@ -106,6 +122,142 @@ def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict
                 ranges[current_file].append(LineRange(start, count))
 
     return ranges
+
+
+# Untracked candidates must match one of these to enter changed-line scope (#591).
+# It MIRRORS the per-file selectors in the run_* filters below: cpplint /
+# clang-format (".cc", ".c", ".h"), clang-tidy / iwyu / compiler (".cc", ".c"),
+# cmake-lint ((".cmake", "CMakeLists.txt"), matched with the same endswith() idiom
+# run_cmake_lint uses) and ruff / flake8 / bandit / mypy (".py"). codespell and
+# cppcheck have no suffix filter of their own (codespell takes the whole changed
+# set; cppcheck keys off compile_commands.json), so they INHERIT this set rather
+# than widening it — an unfiltered `ls-files --others` would feed codespell a
+# target project's build clutter and arbitrary text. Keep in sync with those
+# filters: test_untracked_suffixes_each_reach_a_runner asserts every entry here is
+# selected by at least one runner.
+_UNTRACKED_SOURCE_SUFFIXES = (".cc", ".c", ".h", ".py", ".cmake", "CMakeLists.txt")
+
+# The analyzer's own build-dir convention (#324/#351): analyze-static.sh's fallback
+# is <source_dir>/build-<project>-<issue>, and analyze-sanitizers.sh ALWAYS builds
+# <source_dir>/build-<project>-<issue>-{asan,ubsan,tsan} at the repo root, whatever
+# build_dir was configured. A candidate whose first DIRECTORY component carries
+# this hyphenated prefix is never a source file of the target project (devAgent's
+# own .gitignore declares the same glob). Deliberately NOT the bare `build*/`
+# proxy — `builder/` and `build_tools/` are real source dirs and must survive —
+# and a root-level FILE named `build-docs.py` is a candidate like any other: the
+# rule keys on a directory, never on the file's own name.
+_BUILD_DIR_PREFIX = "build-"
+
+
+def get_untracked_ranges(files: Optional[list[str]] = None,
+                         exclude_dirs: Optional[list[str]] = None,
+                         progress: Optional[TextIO] = None
+                         ) -> dict[str, list[LineRange]]:
+    """Whole-file ranges for UNTRACKED, non-ignored source files (#591).
+
+    `git diff` lists TRACKED changes only, so a brand-new source file that has
+    never been `git add`-ed produced no hunks: every per-file linter skipped it and
+    the gate passed vacuously for exactly the file with the least review history.
+    Each untracked candidate is therefore scoped as a WHOLE FILE —
+    `LineRange(1, <line count>)` — so the per-file tools (cpplint, codespell, ruff,
+    flake8, bandit, mypy, cmake-lint) run on it and filter_novel() counts every one
+    of its lines as changed.
+
+    Reach (a known limit, not a pass): the compile-database tools (cppcheck,
+    clang-tidy, iwyu, compiler warnings) see an untracked file only once CMake
+    does, and `git clang-format` diffs the INDEX against base_ref, so none of them
+    reaches a file git does not track — they report it clean.
+
+    Enumeration is READ-ONLY: no `git add`, no `git add -N` (intent-to-add would
+    change later `git status`/commit behaviour), no temp commit. Staging is step
+    12's job.
+
+    `--exclude-standard` honours .gitignore, .git/info/exclude and core.excludesFile
+    exactly as `git status` does, so ignored build output stays out. `-z` is what
+    keeps a non-ASCII or space-bearing name from arriving QUOTED
+    (`"caf\\303\\251.py"`), which would never match normalize_path()'s output in
+    filter_novel(), and the bytes are decoded as UTF-8 (with surrogateescape, so an
+    undecodable byte still round-trips through open()) — git emits a path's bytes
+    as stored, and decoding them with the LOCALE's encoding (`text=True`) turned
+    `café.py` into an unreadable `cafÃ©.py` on a cp1252 Windows host (redmr
+    2026-09-06); `--full-name` keeps paths repo-root-relative like `git diff`'s
+    `+++ b/` names, which ls-files does NOT do by default (it prints relative to the
+    caller's cwd).
+
+    files:        the same `--files` pathspecs get_changed_ranges() received, passed
+                  after `--`, so a --files run can never widen to untracked files
+                  outside the list.
+    exclude_dirs: directories whose contents are never candidates — the analyzer's
+                  own build_dir and its -asan/-ubsan/-tsan siblings, which a TARGET
+                  project's .gitignore may not cover (devAgent's own does). A
+                  root-level `build-*` DIRECTORY is excluded UNCONDITIONALLY
+                  (_BUILD_DIR_PREFIX): the sanitizer legs build there regardless of
+                  an operator-configured build_dir. A root-level file of that name
+                  is not a build dir and stays in scope.
+    progress:     the stream a skipped candidate is reported on. main() passes its
+                  own progress stream (stdout in markdown mode, which
+                  analyze-static.sh tees into the artifact; stderr under --json);
+                  defaults to stderr. A stderr-only warning is invisible in the
+                  artifact (redmr 2026-09-06) — the silence this function removes.
+    """
+    if progress is None:
+        progress = sys.stderr
+    cmd = ["git", "ls-files", "--others", "--exclude-standard", "--full-name", "-z"]
+    if files:
+        cmd += ["--"] + files
+    result = subprocess.run(cmd, capture_output=True,
+                            encoding="utf-8", errors="surrogateescape")
+    if result.returncode != 0:
+        # Fail loud exactly like get_changed_ranges(): a swallowed enumeration
+        # failure IS an empty untracked set, i.e. the silent gate this removes.
+        print(f"error: git ls-files failed: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    # Candidates are repo-root-relative POSIX paths (--full-name; main() has
+    # chdir-ed to the root), so each exclude dir becomes a root-relative prefix
+    # ONCE and every candidate is a string comparison — no per-candidate stat or
+    # realpath (measured: one Path.resolve() per path cost 1.6 s on Linux and
+    # 15 s on Windows over a 50k-file build tree). realpath on BOTH sides keeps a
+    # symlinked root (macOS /tmp) consistent with git's own view; a dir outside
+    # the root (or the root itself — not a build dir) can name no candidate.
+    root = os.path.realpath(os.getcwd())
+    prefixes = []
+    for d in exclude_dirs or []:
+        try:
+            rel = os.path.relpath(os.path.realpath(d), root)
+        except ValueError:  # Windows: a different drive
+            continue
+        if rel != os.curdir and not rel.startswith(os.pardir):
+            prefixes.append(rel.replace(os.sep, "/") + "/")
+
+    ranges: dict[str, list[LineRange]] = {}
+    for path in result.stdout.split("\0"):
+        if not path or not path.endswith(_UNTRACKED_SOURCE_SUFFIXES):
+            continue
+        first, sep, _ = path.partition("/")
+        if sep and first.startswith(_BUILD_DIR_PREFIX):
+            continue
+        if any(path.startswith(p) for p in prefixes):
+            continue
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            # Listed by git but unreadable now (a race, a broken symlink, a
+            # permission error): skip it rather than abort the whole analyze run —
+            # but SAY SO on the caller's progress stream, so the skip is evidence
+            # in the ARTIFACT, not a stderr line nothing tees (redmr 2026-09-06).
+            print(f"warning: skipping unreadable untracked candidate: {path}",
+                  file=progress)
+            continue
+        # Count newlines (what every linter calls a line; a final unterminated
+        # line still counts) without decoding. An EMPTY file gets LineRange(1, 1):
+        # a real (if vacuous) whole-file range keeps the invariant "every untracked
+        # file in scope carries exactly one range", and no tool can report a
+        # finding on a line that is not there.
+        lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        ranges[path] = [LineRange(1, max(1, lines))]
+
+    return dict(sorted(ranges.items()))
 
 
 def line_in_ranges(line: int, ranges: list[LineRange]) -> bool:
@@ -909,14 +1061,14 @@ def print_summary(results: list[ToolResult], ranges: dict[str, list[LineRange]])
         all_novel.extend(f for f in r.findings if f.novel)
 
     if all_novel:
-        print("\n## Novel Findings (in changed lines)\n")
+        print("\n## Novel Findings (in changed lines or untracked files)\n")
         print("| Tool | Severity | File | Line | Message |")
         print("|------|----------|------|------|---------|")
         for f in all_novel:
             line_str = str(f.line) if f.line > 0 else "-"
             print(f"| {f.tool} | {f.severity} | {f.file} | {line_str} | {f.message} |")
     else:
-        print("\n**No novel findings in changed lines.**")
+        print("\n**No novel findings in changed lines or untracked files.**")
 
 
 def _finalize_pool_result(name, produce, ranges, progress) -> ToolResult:
@@ -983,8 +1135,36 @@ def main():
     print(f"Base ref: {args.base_ref}", file=progress)
     print(f"Build dir: {args.build_dir}", file=progress)
 
+    # #591: the analyzer's own build dirs are candidates for EXCLUSION from the
+    # untracked sweep, so derive them before scope is computed (moved up from the
+    # sanitizer phase; pure string ops on args, unchanged otherwise).
+    asan_dir = args.asan_build_dir or (args.build_dir + "-asan")
+    tsan_dir = args.tsan_build_dir or (args.build_dir + "-tsan")
+    # No --ubsan-build-dir flag exists (analyze-sanitizers.sh owns that leg), so the
+    # sibling is derived by convention only; the unconditional root-level build-*
+    # rule inside get_untracked_ranges() covers the sanitizer script's real dirs
+    # whatever build_dir is (improve bug 1).
+    ubsan_dir = args.build_dir + "-ubsan"
+
     # Get changed line ranges
     ranges = get_changed_ranges(args.base_ref, args.files)
+
+    # #591: untracked, non-ignored source files join scope with a whole-file range.
+    # Merged BEFORE the empty-scope exit, so a tree whose ONLY change is a
+    # brand-new file is analyzed instead of reported as "No changed files found".
+    untracked = get_untracked_ranges(args.files,
+                                     [args.build_dir, asan_dir, ubsan_dir, tsan_dir],
+                                     progress=progress)
+    ranges.update(untracked)   # disjoint keys: a diff hunk never names an untracked path
+    if untracked:
+        # Loud AND artifact-visible: in markdown mode `progress` is stdout, which
+        # analyze-static.sh tees into <issue-dir>/analysis/. A stderr-only warning
+        # is how this gap survived. Under --json it joins the other progress lines
+        # on stderr (#119: stdout carries only the JSON document). Printed only
+        # when non-empty, so a tracked-only run's output is unchanged.
+        print(f"Untracked files (whole-file scope): {', '.join(untracked)}",
+              file=progress)
+
     if not ranges:
         print("No changed files found in diff.", file=progress)
         if args.json:
@@ -1065,8 +1245,6 @@ def main():
         results.append(r)
 
     # -- Phase 3: sanitizer builds (sequential, each needs its own build dir) --
-    asan_dir = args.asan_build_dir or (args.build_dir + "-asan")
-    tsan_dir = args.tsan_build_dir or (args.build_dir + "-tsan")
 
     if "asan" not in skip and "asanubsan" not in skip:
         print(f"Running ASan+UBSan (build dir: {asan_dir})...", flush=True, file=progress)

@@ -12,6 +12,8 @@ package), subprocess.run is monkeypatched with canned `git diff` output, and
 normalize_path uses tmp_path — no real git, tools, or build.
 """
 import importlib.util
+import io
+import locale
 import subprocess
 from pathlib import Path
 
@@ -26,11 +28,55 @@ sad = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sad)
 
 
-def _stub_git_diff(monkeypatch, stdout, returncode=0, stderr=""):
-    """Install a subprocess.run that returns canned `git diff` output."""
+def _git_subcommand(cmd) -> str:
+    """The git subcommand in `cmd`, past any leading `-C <dir>` / `-c <k=v>` pair."""
+    i = 1
+    while i + 1 < len(cmd) and cmd[i] in ("-C", "-c"):
+        i += 2
+    return cmd[i] if i < len(cmd) else ""
+
+
+def _stub_git(monkeypatch, *, diff="", ls_files="", returncode=0, stderr="",
+              calls=None, calls_kwargs=None):
+    """subprocess.run fake that dispatches on the git SUBCOMMAND (#591).
+
+    The pre-#591 fake returned ONE canned string for every call, so any code path
+    making a second git call fed `git diff` text to the other parser (or an empty
+    string to the diff parser). Route on the subcommand instead, and record every
+    call in `calls` (subcommand -> [argv, ...]) — and its keyword arguments in
+    `calls_kwargs` (subcommand -> [kwargs, ...]) — when given, so a test can
+    assert about the call it MEANS rather than about whichever ran last.
+
+    A BYTES canned output is decoded the way subprocess.run would decode it for
+    the kwargs the caller passed (the requested `encoding`/`errors`, else the
+    locale's preferred encoding), so a bytes fixture measures the CALLER's
+    decoding choice rather than the fake's (redmr 2026-09-06 MAJOR).
+    """
+    outputs = {"diff": diff, "ls-files": ls_files}
+
     def fake_run(cmd, *args, **kwargs):
-        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+        sub = _git_subcommand(cmd)
+        if calls is not None:
+            calls.setdefault(sub, []).append(list(cmd))
+        if calls_kwargs is not None:
+            calls_kwargs.setdefault(sub, []).append(dict(kwargs))
+        out = outputs.get(sub, "")
+        if isinstance(out, bytes):
+            out = out.decode(kwargs.get("encoding") or locale.getpreferredencoding(False),
+                             kwargs.get("errors") or "strict")
+        return subprocess.CompletedProcess(cmd, returncode, stdout=out, stderr=stderr)
+
     monkeypatch.setattr(sad.subprocess, "run", fake_run)
+
+
+def _stub_git_diff(monkeypatch, stdout, returncode=0, stderr=""):
+    """Install a subprocess.run that returns canned `git diff` output.
+
+    Kept as the four existing call sites' entry point — their bodies are unchanged
+    — but now routed through _stub_git, so a `git ls-files` call reaching this fake
+    gets an empty result instead of diff text.
+    """
+    _stub_git(monkeypatch, diff=stdout, returncode=returncode, stderr=stderr)
 
 
 # --------------------------------------------------------------------------
@@ -183,6 +229,182 @@ def test_run_clang_format_diffs_working_tree_not_head(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# get_untracked_ranges (#591 — untracked, non-ignored source files)
+# --------------------------------------------------------------------------
+
+def _nul(*paths):
+    """`git ls-files -z` output: NUL-TERMINATED, no trailing newline."""
+    return "".join(p + "\0" for p in paths)
+
+
+def test_get_untracked_ranges_gives_a_whole_file_range(monkeypatch, tmp_path):
+    (tmp_path / "new.py").write_text("a = 1\nb = 2\nc = 3\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("new.py"))
+    ranges = sad.get_untracked_ranges()
+    assert [(r.start, r.count) for r in ranges["new.py"]] == [(1, 3)]
+
+
+def test_get_untracked_ranges_empty_file_gets_one_line_range(monkeypatch, tmp_path):
+    # A 0-line file must neither crash nor produce a nonsense LineRange(1, 0).
+    (tmp_path / "empty.py").write_text("")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("empty.py"))
+    ranges = sad.get_untracked_ranges()
+    assert [(r.start, r.count) for r in ranges["empty.py"]] == [(1, 1)]
+
+
+def test_get_untracked_ranges_filters_to_source_suffixes(monkeypatch, tmp_path):
+    # The candidate set mirrors the run_* filters; an unfiltered ls-files would
+    # feed codespell a target project's build clutter and arbitrary text.
+    for name in ("a.py", "b.cc", "c.h", "d.cmake", "CMakeLists.txt",
+                 "notes.txt", "README.md"):
+        (tmp_path / name).write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul(
+        "a.py", "b.cc", "c.h", "d.cmake", "CMakeLists.txt", "notes.txt", "README.md"))
+    assert sorted(sad.get_untracked_ranges()) == [
+        "CMakeLists.txt", "a.py", "b.cc", "c.h", "d.cmake"]
+
+
+def test_get_untracked_ranges_excludes_analyzer_build_dirs(monkeypatch, tmp_path):
+    # A target project's .gitignore may not carry build-*/; a CMake configure in
+    # the repo then leaves thousands of generated sources ls-files WOULD list.
+    # Two exclusion keys (improve bug 1): the EXPLICIT dirs main() passes
+    # (build_dir + its -asan/-ubsan/-tsan siblings) AND, unconditionally, any
+    # root-level `build-*` DIRECTORY — analyze-sanitizers.sh builds at
+    # <source_dir>/build-<project>-<issue>-{asan,ubsan,tsan} regardless of an
+    # operator-configured build_dir, so `build-proj-Issue-1-ubsan` below is NOT
+    # in the explicit list and must still be excluded. `builder/` (no hyphen)
+    # must SURVIVE: the rejected bare build*/ proxy would have dropped it. So
+    # must a root-level FILE named `build-docs.py` (review 2026-09-05): the
+    # prefix rule keys on a directory component, and a file's own name is not
+    # one — dropping it would be the silent skip AC1 exists to close.
+    (tmp_path / "new.py").write_text("x\n")
+    (tmp_path / "build-docs.py").write_text("x\n")
+    for d in ("bd", "bd-asan", "bd-ubsan", "bd-tsan",
+              "build-proj-Issue-1-ubsan", "builder"):
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "gen.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul(
+        "new.py", "build-docs.py", "bd/gen.py", "bd-asan/gen.py",
+        "bd-ubsan/gen.py", "bd-tsan/gen.py", "build-proj-Issue-1-ubsan/gen.py",
+        "builder/gen.py"))
+    ranges = sad.get_untracked_ranges(
+        None, [str(tmp_path / "bd"), str(tmp_path / "bd-asan"),
+               str(tmp_path / "bd-ubsan"), str(tmp_path / "bd-tsan")])
+    # new.py, build-docs.py and builder/gen.py are the POSITIVE controls: without
+    # them, "the generated files are absent" is equally satisfied by an
+    # enumeration that found nothing (Issue-337).
+    assert sorted(ranges) == ["build-docs.py", "builder/gen.py", "new.py"]
+
+
+def test_get_untracked_ranges_passes_files_pathspec(monkeypatch, tmp_path):
+    (tmp_path / "a.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    calls = {}
+    _stub_git(monkeypatch, ls_files=_nul("a.py"), calls=calls)
+    sad.get_untracked_ranges(files=["a.py"])
+    cmd = calls["ls-files"][0]
+    assert cmd[cmd.index("--") + 1:] == ["a.py"]
+
+
+def test_get_untracked_ranges_uses_nul_and_full_name(monkeypatch, tmp_path):
+    # -z: ls-files QUOTES a non-ASCII name by default ("caf\303\251.py"), which
+    # would never match normalize_path()'s output in filter_novel().
+    # --full-name: ls-files prints CWD-relative paths by default, unlike
+    # `git diff`'s repo-root-relative `+++ b/` names (both measured, #591).
+    (tmp_path / "has space.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    calls = {}
+    _stub_git(monkeypatch, ls_files=_nul("has space.py"), calls=calls)
+    ranges = sad.get_untracked_ranges()
+    assert "-z" in calls["ls-files"][0]
+    assert "--full-name" in calls["ls-files"][0]
+    assert "has space.py" in ranges          # behavioural leg: the split is on NUL
+
+
+def test_get_untracked_ranges_decodes_names_as_utf8(monkeypatch, tmp_path):
+    # redmr 2026-09-06 MAJOR: `text=True` decoded the ls-files bytes with the
+    # LOCALE encoding, so on a cp1252 host a UTF-8 `café.py` arrived as
+    # `cafÃ©.py`, failed the read and was dropped — a plain filename taking the
+    # silent path this issue removes. Git emits path bytes as stored (UTF-8);
+    # decode them so, with surrogateescape so an undecodable byte still
+    # round-trips through open(). The bytes fixture makes the fake decode exactly
+    # as subprocess would for the kwargs the caller passed; the kwargs pin is the
+    # host-independent leg (a UTF-8 host passes the behavioural leg either way).
+    (tmp_path / "café.py").write_text("x\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    kw = {}
+    _stub_git(monkeypatch, ls_files=_nul("café.py").encode("utf-8"), calls_kwargs=kw)
+    ranges = sad.get_untracked_ranges()
+    assert kw["ls-files"][0].get("encoding") == "utf-8"
+    assert kw["ls-files"][0].get("errors") == "surrogateescape"
+    assert "café.py" in ranges
+
+
+def test_get_untracked_ranges_clean_tree_adds_nothing(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files="")
+    assert sad.get_untracked_ranges() == {}
+
+
+def test_get_untracked_ranges_skips_a_listed_but_unreadable_path(monkeypatch, tmp_path, capsys):
+    # Listed by git, gone by the time we read it (a race, a broken symlink): skip
+    # it, never abort the whole analyze run — but SAY SO (improve bug 4: a silent
+    # skip collapses absent / unreadable / mis-decoded into a pass with no
+    # evidence). real.py is the positive control.
+    (tmp_path / "real.py").write_text("x\n")
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files=_nul("real.py", "vanished.py"))
+    assert sorted(sad.get_untracked_ranges()) == ["real.py"]
+    assert "skipping unreadable untracked candidate: vanished.py" in capsys.readouterr().err
+    # redmr 2026-09-06 MAJOR: main() hands over its progress stream (stdout in
+    # markdown mode, which analyze-static.sh tees into the artifact). A
+    # stderr-only warning is invisible in the artifact — the very silence this
+    # issue closes — so the skip must follow whatever stream the caller names.
+    buf = io.StringIO()
+    assert sorted(sad.get_untracked_ranges(progress=buf)) == ["real.py"]
+    assert "skipping unreadable untracked candidate: vanished.py" in buf.getvalue()
+    assert capsys.readouterr().err == ""
+
+
+def test_get_untracked_ranges_exits_on_git_failure(monkeypatch, tmp_path):
+    # Parity with get_changed_ranges: a swallowed enumeration failure IS an empty
+    # untracked set, i.e. the vacuous pass this function removes (Issue-314).
+    monkeypatch.chdir(tmp_path)
+    _stub_git(monkeypatch, ls_files="", returncode=128, stderr="fatal: not a git repo")
+    with pytest.raises(SystemExit) as exc:
+        sad.get_untracked_ranges()
+    assert exc.value.code == 1
+
+
+def test_untracked_suffixes_each_reach_a_runner(monkeypatch, tmp_path):
+    # improve tripwire (lawfirm Issue-7 / devagent Issue-5): the candidate suffix
+    # set hand-mirrors the run_* filters. An entry no runner selects is a
+    # permanently open hole, so assert each one is DETECTED — it lands in at
+    # least one per-file runner's argv (read from the fake, not from the source).
+    monkeypatch.chdir(tmp_path)
+    # ruff / cmake-lint probe their venv binary with os.path.isfile before running;
+    # make the probe succeed so the argv is built.
+    monkeypatch.setattr(sad.os.path, "isfile", lambda p: True)
+    seen = []
+
+    def fake_run(cmd, *args, **kwargs):
+        seen.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    for suffix in sad._UNTRACKED_SOURCE_SUFFIXES:
+        name = suffix if suffix == "CMakeLists.txt" else "probe" + suffix
+        (tmp_path / name).write_text("x\n")
+        seen.clear()
+        for runner in (sad.run_cpplint, sad.run_ruff, sad.run_cmake_lint):
+            runner([name], str(tmp_path))
+        assert any(name in cmd for cmd in seen), f"{suffix} reaches no runner"
+
+
+# --------------------------------------------------------------------------
 # parse_file_line
 # --------------------------------------------------------------------------
 
@@ -280,3 +502,15 @@ def test_filter_novel_returns_same_list():
     ranges = {"a.cc": [sad.LineRange(1, 1)]}
     findings = [_finding("a.cc", 1)]
     assert sad.filter_novel(findings, ranges) is findings
+
+
+def test_filter_novel_untracked_whole_file_range_marks_interior_lines():
+    # #591: an untracked file enters scope as LineRange(1, N). A finding on an
+    # INTERIOR line must come out novel — a test that only checked line 1 would
+    # pass against a range that was never actually whole-file.
+    ranges = {"new.py": [sad.LineRange(1, 40)]}
+    interior = _finding("new.py", 17)
+    past_end = _finding("new.py", 41)
+    sad.filter_novel([interior, past_end], ranges)
+    assert interior.novel is True
+    assert past_end.novel is False

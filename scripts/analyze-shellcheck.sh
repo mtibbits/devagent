@@ -2,9 +2,11 @@
 # scripts/analyze-shellcheck.sh — #55: the bash analyzer family for step 13.
 # Diff-scoped: shellcheck --severity=warning runs once over the shell files
 # changed vs baseline (working-tree endpoint, matching static_analysis_diff.py's
-# deliberate choice so uncommitted review-fix edits stay visible), and a finding
-# is NEW iff its line falls inside a changed hunk's new-side range — the same
-# novelty gate as the C path's filter_novel(). No baseline run, no worktree.
+# deliberate choice so uncommitted review-fix edits stay visible) PLUS every
+# untracked, non-ignored *.sh/*.bats/*.bash as a whole file (#591, matching that
+# file's untracked scope), and a finding is NEW iff its line falls inside a changed
+# hunk's new-side range — or anywhere in an untracked file — the same novelty gate
+# as the C path's filter_novel(). No baseline run, no worktree.
 # Report-not-fail: new findings are surfaced in the artifact; failure semantics
 # for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
 # known hazard and the origin of this issue's sibling CWD bug).
@@ -60,8 +62,15 @@ out="$issue_dir/analysis/$(date_tag)-shellcheck.txt"
 # ERROR, never merely because diffs exist, so `|| die` fires on exactly the
 # bad-ref case; an empty result (no shell files changed) falls through to the
 # legitimate empty-scope path below.
-diff_list="$(git -C "$source_dir" diff --name-only --diff-filter=d "$baseline" \
-                 -- '*.sh' '*.bats' '*.bash')" \
+# One pathspec for BOTH scope producers — this diff and the untracked enumeration
+# below (#591): a suffix added to one call and not the other would put a tracked
+# file of that kind in scope while an untracked one silently stayed out.
+# core.quotePath=false on both as well: --name-only QUOTES a non-ASCII name
+# ("caf\303\251.sh") exactly as ls-files does, and the quoted form fails the -f
+# test below and vanishes — the same silent drop, one call up (redmr 2026-09-06).
+shell_pathspec=('*.sh' '*.bats' '*.bash')
+diff_list="$(git -C "$source_dir" -c core.quotePath=false diff --name-only \
+                 --diff-filter=d "$baseline" -- "${shell_pathspec[@]}")" \
     || die "git diff against baseline '$baseline' failed (unresolvable ref? — no analysis performed; step 13 left unmarked, fix the baseline and re-run)"
 files=()
 while IFS= read -r f; do
@@ -69,12 +78,46 @@ while IFS= read -r f; do
     [ -f "$source_dir/$f" ] && files+=("$f")
 done <<< "$diff_list"
 
+# #591: `git diff` lists TRACKED changes only, so a brand-new *.sh that was never
+# `git add`-ed produced no hunks — it never entered scope and every warning in it
+# counted as pre-existing, the vacuous pass in exactly the least-reviewed file of
+# the branch. Enumerate the untracked, non-ignored shell files too. READ-ONLY: no
+# `git add`, no `git add -N`, no temp commit (staging is step 12's job).
+# --exclude-standard honours .gitignore / .git/info/exclude / core.excludesFile as
+# `git status` does, so ignored build output stays out; --full-name keeps the paths
+# repo-root relative like --name-only's (ls-files prints CWD-relative by default);
+# core.quotePath=false keeps a non-ASCII name from arriving QUOTED
+# ("caf\303\251.sh"), which would fail the -f test below and vanish silently.
+# Same `|| die` discipline as the diff above (#314): a swallowed enumeration
+# failure is an empty set, which is precisely the vacuous pass being closed here —
+# record-scope.sh:66 / io.sh:76 / born-red.sh:92 run this idiom with `|| true`,
+# deliberately NOT copied.
+untracked_list="$(git -C "$source_dir" -c core.quotePath=false ls-files --others \
+                     --exclude-standard --full-name -- "${shell_pathspec[@]}")" \
+    || die "git ls-files in '$source_dir' failed (no untracked enumeration performed; step 13 left unmarked, fix the repo state and re-run)"
+untracked=()
+declare -A is_untracked=()
+while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$source_dir/$f" ] || continue
+    untracked+=("$f")
+    is_untracked["$f"]=1
+done <<< "$untracked_list"
+files+=("${untracked[@]}")
+
 {
-    echo "=== shellcheck (diff-scoped) ==="
+    echo "=== shellcheck (diff-scoped + untracked) ==="
     echo "date: $(date_tag)"
     echo "baseline: $baseline"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
+    # #591: printed only when non-empty, so a tracked-only run's artifact is
+    # byte-identical to before. This line IS the shell family's artifact-visible
+    # notice (the twin of static_analysis_diff.py's `Untracked files (whole-file
+    # scope):` progress line) and tests/analyze-shellcheck.bats pins it exactly —
+    # one line, space-joined, no trailing space.
+    if [ "${#untracked[@]}" -gt 0 ]; then
+        echo "untracked (whole-file scope): ${untracked[*]}"
+    fi
 } > "$out"
 
 if [ "${#files[@]}" -eq 0 ]; then
@@ -91,6 +134,22 @@ findings="$(cd "$source_dir" && shellcheck --severity=warning -f gcc "${files[@]
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).
 new_findings=""
 for f in "${files[@]}"; do
+    # Fixed-string prefix match: the filename must not act as a regex
+    # (`a.b.sh` would cross-match `axb.sh` and inflate NEW).
+    file_hits="$(printf '%s\n' "$findings" | awk -v p="${f}:" 'index($0, p) == 1' || true)"
+    [ -n "$file_hits" ] || continue
+    if [[ -n "${is_untracked[$f]:-}" ]]; then
+        # #591: an untracked file has NO hunks — `git diff -U0 <baseline> -- <path>`
+        # prints nothing for a path git does not track (measured), so the range
+        # block below would leave $ranges empty and `continue` past it. Every line
+        # of it is new, so every finding in it is NEW — the shell twin of
+        # static_analysis_diff.py's whole-file range. Keyed on UNTRACKEDNESS, never
+        # on "no hunks": a tracked file whose only hunks are pure deletions must
+        # keep its empty range, or tool.sh's baseline SC2164 would be re-reported
+        # as NEW.
+        new_findings+="${file_hits}"$'\n'
+        continue
+    fi
     # The count-0 skip must be an `if` — a `[ ... ] &&` tail on the LAST hunk
     # (pure deletion, `+c,0`) would exit the $() nonzero and set -e kills us.
     ranges="$(git -C "$source_dir" diff -U0 "$baseline" -- "$f" \
@@ -102,10 +161,6 @@ for f in "${files[@]}"; do
               fi
           done)"
     [ -n "$ranges" ] || continue
-    # Fixed-string prefix match: the filename must not act as a regex
-    # (`a.b.sh` would cross-match `axb.sh` and inflate NEW).
-    file_hits="$(printf '%s\n' "$findings" | awk -v p="${f}:" 'index($0, p) == 1' || true)"
-    [ -n "$file_hits" ] || continue
     while IFS= read -r hit; do
         line="$(printf '%s' "$hit" | cut -d: -f2)"
         while read -r start end; do
@@ -122,7 +177,7 @@ new_count="$(printf '%s' "$new_findings" | grep -c ':' || true)"
 
 {
     echo "total findings in scoped files: $total_count"
-    echo "NEW findings: $new_count (on changed lines vs baseline)"
+    echo "NEW findings: $new_count (on changed lines vs baseline, or anywhere in an untracked file)"
     if [ "$new_count" -gt 0 ]; then
         printf '%s' "$new_findings"
         echo "-- review before the commit gate (#117 owns hard-fail semantics)"
