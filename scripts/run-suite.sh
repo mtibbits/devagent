@@ -9,7 +9,8 @@
 #     pytest: <passed> passed, <failed> failed, <errors> errors | (none) | (error)
 #     python: <interpreter that ran pytest> | (none)
 #     suite_env: <NAMES…> | (none)
-#     bats_jobs: <N> | (none)   (#593: effective `suite_jobs`; (none) when bats is absent)
+#     bats_jobs: <N> | (none)   (#593: effective `suite_jobs`; (none) when the tree has no
+#                              bats suite — a MISSING bats binary dies at the plan-line check)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
 # nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
@@ -157,7 +158,22 @@ if compgen -G "tests/*.bats" >/dev/null 2>&1; then
   # -u DEVAGENT_SUITE_JOBS: the one-run override must not reach the suite — a
   # test that itself invokes this runner would otherwise inherit it and the env
   # branch would silently win over its config (#593; the #240 pin shape).
+  # -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES: the only two
+  # parallelism knobs bats reads from the ENVIRONMENT rather than from argv
+  # (bats-exec-suite:6,8; bats-exec-file:5 reads the count again for the within-file
+  # pool). Either one inherited makes `bats_jobs:` FALSE, in both directions: with no
+  # --jobs flag an inherited count of 4 also parallelises WITHIN files — the mode the
+  # #593 audit does not cover — while the artifact records 1; and an inherited
+  # BATS_NO_PARALLELIZE_ACROSS_FILES turns a --jobs 4 run serial while the artifact
+  # records 4. The header's producer rule (DIE when the artifact would be FALSE) is
+  # served here by removing the input instead: the artifact is a function of the TREE,
+  # not of the operator's session (#458). scripts/born-red.sh:34-36 scrubs the whole
+  # BATS_* family for the reentrancy variant of the same hazard.
+  # Not absolute, for either set: SUITE_ENV_ASSIGNMENTS is spliced AFTER these flags,
+  # and `env -u X X=8` still exports X=8 — so a project that declares one of these
+  # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
   tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
+           -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
            LC_ALL="$UTF8_LOCALE" LANG="$UTF8_LOCALE" \
            bats --tap "${bats_flags[@]+"${bats_flags[@]}"}" tests/ 2>&1 || true)"

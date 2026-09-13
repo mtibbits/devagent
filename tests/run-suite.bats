@@ -523,8 +523,15 @@ _set_suite_jobs() {   # an integer lands bare (set-int); anything else lands as 
     esac
 }
 _stub_bats_record_argv() {   # binstub, not DEVAGENT_STUB_BIN: setup()'s bats stub lives there, first on _run_rs's PATH
+    # Records argv WORD-BRACKETED ([--jobs][4]), not "$*"-joined. An IFS-joined line
+    # cannot tell `--jobs 4` as two words from `--jobs 4` as ONE word — the latter is
+    # what a regression to bats_flags=("--jobs $suite_jobs") produces and what real
+    # bats rejects as an unknown option, yet both record the identical `$*` line. That
+    # splat is #593's only word-splitting hazard, so the assertion has to see the
+    # boundary. The `grep -c -- '--jobs'` no-match controls below are unaffected: they
+    # match the substring inside the brackets either way.
     printf '%s\n' '#!/usr/bin/env bash' \
-        'printf "%s\n" "$*" > "$DEVAGENT_TMP/seen-bats-argv"' \
+        '{ printf "[%s]" "$@"; echo; } > "$DEVAGENT_TMP/seen-bats-argv"' \
         'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
 }
@@ -570,9 +577,9 @@ _stub_bad_parallel() { devagent_stub parallel '' 1; }
     [ "$status" -eq 0 ]
     devagent_assert_logged 'parallel --version'          # the probe ran, and accepted the banner
     seen="$(cat "$DEVAGENT_TMP/seen-bats-argv")"
-    [[ "$seen" == *"--jobs 4"* ]]
-    [[ "$seen" == *"--no-parallelize-within-files"* ]]
-    [[ "$seen" == *"--tap"* ]]
+    [[ "$seen" == *"[--jobs][4]"* ]]                     # two argv words, not one (see the stub)
+    [[ "$seen" == *"[--no-parallelize-within-files]"* ]]
+    [[ "$seen" == *"[--tap]"* ]]
 }
 
 @test "#593 BORN-RED control: with no suite_jobs, bats gets no --jobs at all" {
@@ -615,7 +622,7 @@ _stub_bad_parallel() { devagent_stub parallel '' 1; }
     _stub_gnu_parallel
     DEVAGENT_SUITE_JOBS=2 _run_rs
     [ "$status" -eq 0 ]
-    [[ "$(cat "$DEVAGENT_TMP/seen-bats-argv")" == *"--jobs 2"* ]]
+    [[ "$(cat "$DEVAGENT_TMP/seen-bats-argv")" == *"[--jobs][2]"* ]]
 }
 
 @test "#593 suite_jobs=4 with no GNU parallel dies loud, names the remedy, and never runs bats" {
@@ -650,6 +657,25 @@ _stub_bad_parallel() { devagent_stub parallel '' 1; }
     DEVAGENT_SUITE_JOBS=1 _run_rs
     [ "$(cat "$DEVAGENT_TMP/seen-child-jobs")" = "<UNSET>" ]
     [ "$status" -eq 0 ]
+}
+
+@test "#593 the suite child never sees bats' own parallelism env (it would make bats_jobs FALSE)" {
+    # bats reads BATS_NUMBER_OF_PARALLEL_JOBS and BATS_NO_PARALLELIZE_ACROSS_FILES from
+    # the ENVIRONMENT (bats-exec-suite:6,8), so without a scrub the operator's session
+    # decides the mode and the artifact still reports suite_jobs. This is the serial
+    # leg, where an inherited count is worst: no --no-parallelize-within-files goes on
+    # the command line, so bats would also parallelise WITHIN files — the mode the
+    # #593 audit does not cover — while `bats_jobs: 1` claims plain serial.
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '{ printf "j=%s " "${BATS_NUMBER_OF_PARALLEL_JOBS-<UNSET>}"' \
+        '  printf "x=%s\n" "${BATS_NO_PARALLELIZE_ACROSS_FILES-<UNSET>}"' \
+        '} > "$DEVAGENT_TMP/seen-child-bats-env"' \
+        'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+    BATS_NUMBER_OF_PARALLEL_JOBS=4 BATS_NO_PARALLELIZE_ACROSS_FILES=1 _run_rs
+    [ "$(cat "$DEVAGENT_TMP/seen-child-bats-env")" = "j=<UNSET> x=<UNSET>" ]
+    [ "$status" -eq 0 ]
+    grep -q '^bats_jobs: 1$' "$(_art)"
 }
 
 @test "#593 artifact: bats_jobs records the effective job count, appended after suite_env" {

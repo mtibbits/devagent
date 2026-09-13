@@ -19,7 +19,10 @@ tag`) will get their own dated sections below.
   Issue-593's analysis dir. `DEVAGENT_SUITE_JOBS` overrides it for one run and
   is scrubbed from both suite children (and unset per test by
   `tests/lib/hermetic-env.bash`), so a test that invokes the runner cannot
-  inherit it. The value is validated before either suite runs; N > 1 first
+  inherit it; bats' own `BATS_NUMBER_OF_PARALLEL_JOBS` and
+  `BATS_NO_PARALLELIZE_ACROSS_FILES` are scrubbed alongside it, since bats reads
+  those from the environment and an inherited value would make the new
+  `bats_jobs:` line false in either direction. The value is validated before either suite runs; N > 1 first
   checks for GNU parallel by banner (bats 1.10.0's own probe is miswired — an
   absent binary surfaced inside the TAP stream as a "truncated" suite) and dies
   naming the package and the `suite_jobs = 1` seam. The artifact gains a

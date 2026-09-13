@@ -380,8 +380,8 @@ GNU parallel, `run-suite.sh` dies loud naming the remedy rather than letting bat
 report a truncated run — so a second clone of a project that has opted in (a WSL
 clone with its own `config.toml`, say) needs the package too, or `suite_jobs = 1` in
 that clone's config. `DEVAGENT_SUITE_JOBS=1` forces one serial run (the A/B seam; it
-is never inherited by the suite itself), and the artifact's last line, `bats_jobs:`,
-records what actually ran. Opt a project in only after auditing its suite at file
+is never inherited by the suite itself), and the artifact's `bats_jobs:` line records
+what actually ran. Opt a project in only after auditing its suite at file
 granularity (shared HOME, `/tmp`, ports, git state — `tests/README.md` "Parallel
 execution" has the rules for this repo); a test that fails only under
 `suite_jobs > 1` is a hermeticity defect in that test, never a reason to go back to

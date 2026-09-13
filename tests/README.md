@@ -43,7 +43,7 @@ of that file for what would need to change to make it run.
 
 ## Parallel execution
 
-When a project sets `suite_jobs = N` (N > 1; devagent's own config sets 4),
+When a project sets `suite_jobs = N` (N > 1) in its `config.toml`,
 `scripts/run-suite.sh` runs this suite with `bats --jobs N
 --no-parallelize-within-files` (#593): test FILES run N at a time, the tests
 inside one file still run in order. Every `.bats` file must therefore be
