@@ -5,6 +5,19 @@
 # claude plugin validate: non-strict rc=0 is the local rung (skips here — no
 # claude CLI in CI); the CI-enforced half is tests/test_plugin_versioning.py,
 # and --strict is documented-red by the #532 policy.
+#
+# Shape (2026-09-06): a serial `bats tests/` reached 14m58s on the 2-core runner
+# and was killed at the old 15-minute cap (master run 34005133521 ended at test
+# 2035 of 2039; pytest never ran). bats now runs as FOUR matrix shards: file i
+# (1-based, in byte-sorted tests/*.bats order) belongs to shard i mod 4, with
+# shard 4 taking the multiples of 4 — a new file joins a shard by position, so
+# there is no list to maintain. Each shard runs
+# `bats --jobs 2 --no-parallelize-within-files` (GNU parallel): files in a shard
+# run concurrently, tests within a file serially. Measured on the full 2052-test
+# suite: 2 workers across files is ~1.5x and green; within-file parallelism was
+# SLOWER (1.27x), so it stays off. From the serial profile the heaviest shard is
+# ~3.5 minutes; the 30-minute timeout is a ceiling, not a target. pytest (~3 s)
+# runs in its own job.
 name: test suite
 
 on:
@@ -16,9 +29,14 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  bats:
+    name: bats shard ${{ matrix.shard }} of 4
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       # #611: tests/potholes-seed-canary.bats measures the private-name
       # fixture at the merge base with origin/master; a fetch-depth:1 PR
@@ -30,17 +48,42 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bats python3-pytest python3-yaml
+          sudo apt-get install -y --no-install-recommends bats parallel
+          # GNU parallel prints a citation notice on every run until told
+          # otherwise; the bats manual's remedy for --jobs is this marker file.
+          mkdir -p ~/.parallel && touch ~/.parallel/will-cite
 
       # #565: bats registers @test names in a child process; without a UTF-8
       # locale a non-ASCII name can be silently skipped while still counted in
       # the plan. The runner happens to export one today — pin it rather than
-      # inherit it. Mechanism: README, "Running the test suite".
-      - name: Run bats suite
+      # inherit it. Mechanism: README, "Running the test suite". The same
+      # LC_ALL makes `sort` bytewise, so the shard split below is deterministic.
+      - name: Run bats shard
         env:
           LC_ALL: C.UTF-8
           LANG: C.UTF-8
-        run: bats tests/
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 4
+        run: |
+          mapfile -t files < <(find tests -maxdepth 1 -name '*.bats' | sort \
+            | awk -v n="$SHARDS" -v k="$SHARD" 'NR % n == k % n')
+          [ "${#files[@]}" -gt 0 ] || { echo "shard $SHARD/$SHARDS selected no files" >&2; exit 1; }
+          echo "shard $SHARD/$SHARDS: ${#files[@]} files"
+          printf '  %s\n' "${files[@]}"
+          bats --jobs 2 --no-parallelize-within-files "${files[@]}"
+
+  pytest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-pytest python3-yaml
 
       - name: Run pytest suite
         run: python3 -m pytest tests/ -v

@@ -347,6 +347,13 @@ has no UTF-8 locale, so a bare `bats tests/` reports the condition rather than
 hiding it — and it asserts both platform branches above, so it is not vacuous
 on either.
 
+CI (`.github/workflows/test.yml`) runs the bats files as four shards, each with
+`bats --jobs 2 --no-parallelize-within-files`: files in a shard run
+concurrently, tests within a file serially. A test may therefore not depend on
+another file's side effects, on the order files run in, or on a fixed path
+outside its own `$DEVAGENT_TMP`; `run-suite.sh` stays serial, so a test that
+passes there and fails in CI is usually sharing state across files.
+
 **A pytest-capable interpreter for a tree that has `tests/test_*.py`.**
 `run-suite.sh` prefers `<tree>/.venv/bin/python` when it exists and falls back to
 ambient `python3` — a Python project conventionally carries its interpreter inside the
