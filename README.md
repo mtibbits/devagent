@@ -351,8 +351,9 @@ CI (`.github/workflows/test.yml`) runs the bats files as four shards, each with
 `bats --jobs 2 --no-parallelize-within-files`: files in a shard run
 concurrently, tests within a file serially. A test may therefore not depend on
 another file's side effects, on the order files run in, or on a fixed path
-outside its own `$DEVAGENT_TMP`; `run-suite.sh` stays serial, so a test that
-passes there and fails in CI is usually sharing state across files.
+outside its own `$DEVAGENT_TMP`; `run-suite.sh` is serial unless the project
+opts in to `suite_jobs > 1` ("Parallel bats" below), so a test that passes under
+a serial `run-suite.sh` and fails in CI is usually sharing state across files.
 
 **A pytest-capable interpreter for a tree that has `tests/test_*.py`.**
 `run-suite.sh` prefers `<tree>/.venv/bin/python` when it exists and falls back to
@@ -377,6 +378,26 @@ That names a working interpreter; it does not silence the `(error)` verdict, so 
 fail-closed property is unweakened. `born-red.sh` resolves the interpreter the same way
 (both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
 at all — an unmeasurable baseline is not a red one.
+
+**Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
+FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a
+file still run in order), which cut this repo's bats leg from ~9 minutes to well under
+half of that at four jobs. It needs GNU parallel on PATH (the `parallel` package —
+Debian's moreutils `parallel` is a different program); with `suite_jobs > 1` and no
+GNU parallel, `run-suite.sh` dies loud naming the remedy rather than letting bats
+report a truncated run — so a second clone of a project that has opted in (a WSL
+clone with its own `config.toml`, say) needs the package too, or `suite_jobs = 1` in
+that clone's config. `DEVAGENT_SUITE_JOBS=1` forces one serial run (the A/B seam; it
+is never inherited by the suite itself), and the artifact's `bats_jobs:` line records
+what actually ran. Opt a project in only after auditing its suite at file
+granularity (shared HOME, `/tmp`, ports, git state — `tests/README.md` "Parallel
+execution" has the rules for this repo); a test that fails only under
+`suite_jobs > 1` is a hermeticity defect in that test, never a reason to go back to
+serial. Invoking bats directly:
+
+```sh
+LC_ALL=C.UTF-8 bats --jobs 4 --no-parallelize-within-files tests/
+```
 
 ### Writing a new test file
 

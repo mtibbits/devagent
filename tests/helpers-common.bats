@@ -38,6 +38,23 @@ CL()    { echo "$DEVDOC_DIR/Issue-1/checklist.md"; }
   [ "$output" = "true" ]
 }
 
+@test "devagent_config_set_int addresses a nested key" {
+  # The bare-integer twin of set_bool above (#593). `_set_suite_jobs` in
+  # run-suite.bats greps for `suite_jobs = 4` UNQUOTED, so the shape is the
+  # contract, not just the value: assert the TOML text as well as the read-back.
+  devagent_config_set_int "$(CFG)" "project.$TEST_PROJECT.suite_jobs" 4
+  run python3 "$(TOML)" get "$(CFG)" "project.$TEST_PROJECT.suite_jobs"
+  [ "$output" = "4" ]
+  grep -q "^suite_jobs = 4\$" "$(CFG)"                 # bare, not "4"
+}
+
+@test "devagent_config_set_int adds an absent nested key" {
+  devagent_config_set_int "$(CFG)" "project.$TEST_PROJECT.analyze_timeout" 1800
+  run python3 "$(TOML)" get "$(CFG)" "project.$TEST_PROJECT.analyze_timeout"
+  [ "$output" = "1800" ]
+  grep -q "^analyze_timeout = 1800\$" "$(CFG)"
+}
+
 @test "devagent_config_unset removes a key" {
   devagent_config_unset "$(CFG)" "project.$TEST_PROJECT.permissions.cleanup_on_merge"
   run python3 "$(TOML)" get "$(CFG)" "project.$TEST_PROJECT.permissions.cleanup_on_merge"

@@ -43,6 +43,27 @@ tag`) will get their own dated sections below.
   never widens beyond its pathspecs, `.gitignore`d files stay out, and a
   tracked-only tree's output is byte-identical to before.
 
+- **run-suite.sh runs bats test files in parallel for a project that opts in
+  (#593).** New `[project.<name>]` key `suite_jobs` (integer ≥ 1, default 1 =
+  serial) passes `--jobs N --no-parallelize-within-files` to bats; tests inside
+  one file still run in order, matching the file-granularity safety audit in
+  Issue-593's analysis dir. `DEVAGENT_SUITE_JOBS` overrides it for one run and
+  is scrubbed from both suite children (and unset per test by
+  `tests/lib/hermetic-env.bash`), so a test that invokes the runner cannot
+  inherit it. Scrubbed alongside it: `BATS_NUMBER_OF_PARALLEL_JOBS` and
+  `BATS_NO_PARALLELIZE_ACROSS_FILES`, which bats reads from the environment, so
+  an inherited value would make the new `bats_jobs:` line false in either
+  direction; and `BATS_PARALLEL_BINARY_NAME`, which would otherwise let bats
+  reach for a binary the probe below never checked. The value is validated
+  before either suite runs; N > 1 first checks for GNU parallel by banner (bats
+  1.10.0's own probe is miswired — an absent binary surfaced inside the TAP
+  stream as a "truncated" suite) and dies naming the package and the
+  `suite_jobs = 1` seam. The artifact gains a
+  trailing `bats_jobs: <N> | (none)` line. Carriers: README "Running the test
+  suite", `tests/README.md` "Parallel execution", the config skeleton,
+  `docs-site/configuration.md`, the spec's run-suite section, and the
+  core-draft-mr skill's artifact-read note.
+
 - **The rederive prober compares the checkout to its baseline and resolves bare
   basenames (#590).** `scripts/rederive.sh` now opens its artifact with a
   `## Checkout vs baseline` line — `behind N, ahead M` against `default_baseline`

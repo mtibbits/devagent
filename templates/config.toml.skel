@@ -61,6 +61,15 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # so concurrent chains sharing a source tree never collide; cleanup removes them.
 # analyze_timeout = 1800
 
+# suite_jobs: run bats test FILES N at a time in run-suite.sh (`bats --jobs N
+# --no-parallelize-within-files`; tests inside one file still run in order).
+# Default 1 = serial (an absent key means 1). Needs GNU parallel on PATH (the
+# `parallel` package); run-suite dies loud without it. DEVAGENT_SUITE_JOBS
+# overrides it for one run; the artifact's bats_jobs: line records what ran.
+# Opt in only after auditing the suite at file granularity — README
+# "Parallel bats" has the rules (#593).
+# suite_jobs = 1
+
 # --- Fork workflow (optional; uncomment + set to enable; defaults shown). ---
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
 # fork_only         = false              # never reference upstream (fork is the only remote)

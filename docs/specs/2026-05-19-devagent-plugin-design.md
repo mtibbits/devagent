@@ -1087,8 +1087,32 @@ inherited value. Names are validated against the POSIX env-name shape and empty
 values die loud (a silently-empty export is indistinguishable from the unset
 variable the table exists to supply). The artifact gains a trailing
 `suite_env: <NAMES…> | (none)` line recording the NAMES only — never the
-values, since the block is quoted into MR bodies — appended last so every
+values, since the block is quoted into MR bodies — appended after `python:` so every
 prefix-anchored consumer of `head:`/`tree:`/`bats:`/`pytest:` is unmoved.
+
+Since #593 the optional `[project.<name>]` `suite_jobs` key (integer ≥ 1,
+default 1) runs bats test FILES N at a time — `bats --tap --jobs N
+--no-parallelize-within-files tests/` — with `DEVAGENT_SUITE_JOBS` as the
+one-run override (the `analyze_timeout` / `DEVAGENT_ANALYZE_TIMEOUT` shape),
+scrubbed from both suite children like the #240 session pins so a test that
+itself invokes the runner cannot inherit it. Tests inside a file still run in
+order: the safety audit is at FILE granularity, the granularity that runs, and
+at that granularity "keep this one file serial" has no mechanism (bats 1.10.0
+offers a per-file WITHIN-file opt-out only) — the serial unit is the whole
+suite. The value is validated before either suite runs, and N > 1 first proves
+GNU parallel is on PATH by its `--version` banner — bats 1.10.0's own probe is
+miswired, so an absent binary would otherwise surface inside the TAP stream as
+`parallel: command not found` and be reported as a truncated suite; the die
+names the package and the `suite_jobs = 1` / `DEVAGENT_SUITE_JOBS=1` seam. The
+counting is unchanged: bats emits one `1..N` line and `parallel --keep-order`
+replays each file's block in file order, so `ok + notok == plan` still gates
+the artifact (measured on the folded `2>&1` stream: the only non-TAP lines are
+bats' own end-of-run warnings, none prefix-shaped). The artifact gains a
+trailing `bats_jobs: <N> | (none)` line, appended after `suite_env:`, so a
+parallel run is distinguishable from a serial one and every prefix-anchored
+consumer stays unmoved (`^bats:` cannot match `bats_jobs:`). Position is never
+contractual: a consumer anchors on a line's prefix, never on its line number, so
+the next line appended moves nothing.
 
 Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
 reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming

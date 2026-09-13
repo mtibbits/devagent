@@ -20,6 +20,10 @@ default_baseline = "origin/main"               # branch step's base
 fork_first       = false                       # branch/push via a fork
 ship_as_draft    = false                       # open MRs as drafts
 analyze          = "none"                      # step-13 analyzer family; default when absent: cmake
+suite_jobs       = 1                           # bats test files run N at a time (#593)
+                                               # needs GNU parallel on PATH; raise only after
+                                               # auditing the suite at file granularity
+                                               # (README "Parallel bats")
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,

@@ -72,7 +72,10 @@ re-typed.
 
    From the newest `analysis/<date>-suite-count.txt`, write the `suite:` line naming
    ONLY the frameworks the artifact reports present (#466). A framework whose line reads
-   `(none)` is ABSENT from the tree and must not appear in the Evidence at all:
+   `(none)` is ABSENT from the tree and must not appear in the Evidence at all. The
+   framework line is the one that starts `bats:`; the artifact's `bats_jobs:` line
+   is the run MODE (#593 — how many test files ran at a time), never a count, and never
+   appears in the Evidence:
 
    | artifact | `suite:` line |
    |---|---|
