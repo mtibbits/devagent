@@ -24,7 +24,11 @@ Per `commands/draft.md`.
    oneshot checklist.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt
    (branch produces the branch): with no branch step, implement acts as an
-   operational one-shot on the current tree and must produce no repo diff.
+   operational one-shot on the current tree, and must leave that tree with
+   no unpublished change — on the base branch, no commits beyond
+   `default_baseline`, no uncommitted paths — which `scripts/oneshot-zerodiff.sh`
+   checks and cleanup (23) refuses on (#595). "Must produce no repo diff" is not
+   the form: a shared tree cannot attribute a diff to one issue.
 3. Verify `imPlan.md` has a `## Definition of done` section (proves
    tighten ran). If absent, halt — UNLESS the active revision block
    contains no draft row (step 2): the producing step is absent, so the

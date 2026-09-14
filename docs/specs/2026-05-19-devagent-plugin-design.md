@@ -690,7 +690,7 @@ blocks may carry rows the current tier omits.
 
 | Tier | Rows | For |
 |---|---|---|
-| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. |
+| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (23) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
 | standard | all 24 rows | Full rails: features, bugfixes (default). |
 | perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |

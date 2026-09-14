@@ -91,4 +91,28 @@ file is removed outright — while an earlier layer's commit stands);
 re-running cleanup is safe — `--check` passes on a pending file and
 `--apply` is idempotent.
 
+## Precondition (#595) — the oneshot no-repo-diff boundary
+
+On a **oneshot**-tier issue only — `cleanup.sh` reads the `Template:` header
+itself, so every other tier pays one file read and spawns nothing —
+`${CLAUDE_PLUGIN_ROOT}/scripts/oneshot-zerodiff.sh <project> <issue>` runs
+BEFORE the tree restore and refuses on two verdicts: `violated` (the tree
+carries commits beyond `default_baseline`, and/or uncommitted paths) and
+`indeterminate` (the tree is on another branch, the baseline does not resolve,
+or the tree is unreadable — an unprovable invariant must not authorize
+completion). The check measures whether the tree carries UNPUBLISHED CHANGE; it
+cannot attribute that change to the issue, because the source tree is shared,
+so the refusal lists what it found and asks the operator to judge. The routine
+`indeterminate` is a shared tree left on a sibling issue's branch: check out
+the base branch and re-run. The fix for `violated` is the escalation valve the
+tier's own boundary paragraph names:
+`revise.sh <project> <issue> --retier standard`, which appends the standard
+rows and restarts the issue at draft (step 2). The escape seam is
+`echo "<reason>" > <issue-dir>/.devagent-oneshot-ack`: that verdict
+(`acknowledged`) completes, warns loudly, and leaves the reason in the issue dir
+— a reviewed de-scoping, not a fix. The ack is per-issue and persistent: it is
+only read on the oneshot path, so it silences every future revision of this
+issue while it stays `oneshot` and is inert after a retier. An empty ack file
+does not silence the check.
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`

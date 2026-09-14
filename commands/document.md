@@ -24,9 +24,26 @@ Per `commands/draft.md`.
    step (step 8), as in the research and oneshot checklists.
    A prerequisite whose producing step is absent from the issue's checklist is N/A, not a halt:
    skip this check and proceed without a diff baseline.
-3. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
+3. **Oneshot verify beat — classify the repo footprint (#595).** When
+   `checklist.md`'s `Template:` header is `oneshot`, run the boundary check.
+   `$project` is the project resolved in item 1; `$ISSUE_ID` is the issue
+   dir's basename (e.g. `Issue-595`):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/oneshot-zerodiff.sh" "$project" "$ISSUE_ID"
+   ```
+
+   Record its verdict line in actualWork.md as part of the execution evidence.
+   `clean` is the expected answer. `indeterminate` with "on '<branch>', not the
+   base branch" is the routine case — the shared tree is on a sibling issue's
+   branch; check out the base and re-run. `violated` means the tree carries
+   unpublished changes: judge whether this action produced them, and if so
+   escalate NOW with `/devagent:revise <project> --retier standard` (restarts
+   the issue at draft) rather than at cleanup (23), where the same check refuses
+   to close. This beat is ADVISORY — cleanup owns the enforcement.
+4. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
    `$NOTE`.
-4. The skill writes actualWork.md and calls `scripts/checklist-log.sh`.
+5. The skill writes actualWork.md and calls `scripts/checklist-log.sh`.
 
 ## Halt and ask if
 
@@ -52,6 +69,14 @@ writing the record surfaced a straggler in the source repo (a file
 implement/quality commits missed), `git add` and `git commit -s` it
 now. The commit step (12) comes next and verifies everything is
 committed; analyze (13) then runs against the committed work.
+
+**Not on a oneshot issue (#595).** The oneshot tier has no commit step (12) to
+carry such a commit, and a one-shot that commits has already left its tier —
+there is nothing to be a straggler FROM. Do not commit here: run the boundary
+check above, and escalate with `--retier standard` if the action really did
+change the repo. (Keyed on the `Template:` header, not on the absence of step
+12: the research tier omits 12 as well, and this paragraph does not apply to
+it.)
 
 ## Completion handoff
 
