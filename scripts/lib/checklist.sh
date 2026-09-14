@@ -578,9 +578,9 @@ checklist_next_actionable() {
 # is deliberate: a bare `sed | head -1` as the tail would export the pipeline's
 # status to an errexit caller (register Issue-314).
 checklist_template_name() {
-    local checklist="$1" out
-    [ -r "$checklist" ] || return 0
-    out="$(sed -n 's/^Template: //p' "$checklist" 2>/dev/null | head -1)" || out=""
-    printf '%s\n' "$out"
-    return 0
+  local checklist="$1" out
+  [ -r "$checklist" ] || return 0
+  out="$(sed -n 's/^Template: //p' "$checklist" | head -1)" || out=""
+  printf '%s\n' "$out"
+  return 0
 }

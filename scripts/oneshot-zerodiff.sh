@@ -80,24 +80,33 @@ project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
 
-# Target resolution: arg -> pin -> shared state (the cleanup.sh/#331 chain). The
-# pin is VALIDATED before it reaches a path — a traversal pin would otherwise
-# measure another issue's dir.
-issue_arg="${2:-}"; issue_arg="${issue_arg##*/}"
-[ "$issue_arg" != "--" ] || issue_arg=""
-[ -n "$issue_arg" ] || issue_arg="${DEVAGENT_ACTIVE_ISSUE:-}"
-if [ -n "$issue_arg" ]; then
-    _state_issue_id_ok "$issue_arg" \
-        || die "invalid issue id '$issue_arg' (allowed: A-Za-z0-9 _ -)"
-    issue_dir="$(issue_dir_for "$project" "$issue_arg")"
-else
-    issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
-    issue_dir="$(state_get "$project" issue_dir 2>/dev/null || true)"
+# Target resolution: arg -> pin -> shared state, through the lib that owns the
+# chain (active.sh: the commit.sh shape). The lib validates an arg or pin
+# against the issue-id charset and dies on a traversal, and a scan-GUESSED
+# issue is refused — a boundary verdict must name the issue the operator
+# meant, never one a scan adopted.
+issue_arg="${2:-}"
+if [ -z "$issue_arg" ]; then
+    active_resolve_issue_src "$project" || true
+    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
+        die "no active issue and no issue arg"
+    fi
+    issue_arg="$ACTIVE_RESOLVED_ISSUE"
 fi
+issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
 emit() {
     printf 'oneshot-zerodiff: %s basis=%s branch=%s tree=%s\n' "$1" "$2" "$3" "$4"
+}
+
+# indeterminate <basis> <branch> <tree> <reason> — the ONE fail-safe exit: the
+# verdict/rc pairing lives here so no cause can drift from rc 4. Each caller
+# keeps its own wording.
+indeterminate() {
+    emit indeterminate "$1" "$2" "$3"
+    warn "$4 (#595)."
+    exit 4
 }
 
 # Tier gate. cleanup.sh reads the tier itself and only invokes this script on a
@@ -134,21 +143,15 @@ wt="$(state_ctx_get "$project" worktree_path "$issue_arg" 2>/dev/null || true)"
 case "$wt" in null|'""') wt="" ;; esac
 if [ -n "$wt" ]; then
     if ! "$DEVAGENT_GIT" -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        emit indeterminate - - "$wt"
-        warn "recorded worktree_path '$wt' is not a usable git tree — a state fault (stale worktree_path from an aborted session?), not a boundary verdict. Cannot classify (#595)."
-        exit 4
+        indeterminate - - "$wt" "recorded worktree_path '$wt' is not a usable git tree — a state fault (stale worktree_path from an aborted session?), not a boundary verdict. Cannot classify"
     fi
 else
     src="$(config_get_project_field "$project" source_dir 2>/dev/null || true)"
     if [ -z "$src" ] || [ ! -d "$src" ]; then
-        emit indeterminate - - "${src:-<unset>}"
-        warn "source_dir is unset or missing for '$project' — a configuration fault, not a boundary verdict. Cannot classify (#595)."
-        exit 4
+        indeterminate - - "${src:-<unset>}" "source_dir is unset or missing for '$project' — a configuration fault, not a boundary verdict. Cannot classify"
     fi
     if ! "$DEVAGENT_GIT" -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        emit indeterminate - - "$src"
-        warn "source_dir '$src' is not a git work tree — cannot classify (#595)."
-        exit 4
+        indeterminate - - "$src" "source_dir '$src' is not a git work tree — cannot classify"
     fi
 fi
 # Both die branches are now excluded, so this is the one authoritative resolver
@@ -161,15 +164,11 @@ branch="$("$DEVAGENT_GIT" -C "$tree" rev-parse --abbrev-ref HEAD 2>/dev/null || 
 
 base_ref="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
 if [ -z "$base_ref" ]; then
-    emit indeterminate "<unset>" "$branch" "$tree"
-    warn "no default_baseline configured for '$project' — nothing to measure 'published' against. Cannot classify (#595)."
-    exit 4
+    indeterminate "<unset>" "$branch" "$tree" "no default_baseline configured for '$project' — nothing to measure 'published' against. Cannot classify"
 fi
 base_sha="$("$DEVAGENT_GIT" -C "$tree" rev-parse --verify "$base_ref" 2>/dev/null)" || base_sha=""
 if [ -z "$base_sha" ]; then
-    emit indeterminate "$base_ref@unresolved" "$branch" "$tree"
-    warn "default_baseline '$base_ref' does not resolve in $tree — refusing to fall back to HEAD, which would compare the tree against itself and report a clean verdict. Fetch the ref or fix default_baseline, then re-run (#595)."
-    exit 4
+    indeterminate "$base_ref@unresolved" "$branch" "$tree" "default_baseline '$base_ref' does not resolve in $tree — refusing to fall back to HEAD, which would compare the tree against itself and report a clean verdict. Fetch the ref or fix default_baseline, then re-run"
 fi
 basis="$base_ref@$base_sha"
 
@@ -183,9 +182,7 @@ basis="$base_ref@$base_sha"
 # work as "unpublished" and the retier remedy would be a false diagnosis.
 base_branch="${base_ref##*/}"
 if [ "$branch" != "$base_branch" ]; then
-    emit indeterminate "$basis" "$branch" "$tree"
-    warn "the source tree is on '$branch', not the base branch '$base_branch' — routine (a sibling issue's branch is checked out; cleanup restores the base only after this gate), but published state cannot be judged from here. Remedy: git -C '$tree' checkout '$base_branch' (stash or commit anything you want to keep first), then re-run (#595)."
-    exit 4
+    indeterminate "$basis" "$branch" "$tree" "the source tree is on '$branch', not the base branch '$base_branch' — routine (a sibling issue's branch is checked out; cleanup restores the base only after this gate), but published state cannot be judged from here. Remedy: git -C '$tree' checkout '$base_branch' (stash or commit anything you want to keep first), then re-run"
 fi
 
 # The commits half: the SHARED three-verdict contract, called unchanged. Its
@@ -199,21 +196,17 @@ verdict="$(zero_diff_classify "$DEVAGENT_GIT" "$tree" HEAD "$base_sha")"
 # git's rc is read in THIS shell: `2>/dev/null` alone would collapse ABSENT and
 # CANNOT-DETERMINE into one empty result and report a faulted status as a clean
 # tree (register fleet Issue-73).
-dirty_out=""; dirty_ok=1
+dirty_ok=1
 dirty_out="$("$DEVAGENT_GIT" -C "$tree" status --porcelain 2>/dev/null)" || dirty_ok=0
 if [ "$dirty_ok" -ne 1 ]; then
-    emit indeterminate "$basis" "$branch" "$tree"
-    warn "git status failed in $tree — cannot classify the working tree, and an unprovable invariant must not read as clean (#595)."
-    exit 4
+    indeterminate "$basis" "$branch" "$tree" "git status failed in $tree — cannot classify the working tree, and an unprovable invariant must not read as clean"
 fi
 
 case "$verdict" in
     empty)   violated=0 ;;
     commits) violated=1 ;;
     *)
-        emit indeterminate "$basis" "$branch" "$tree"
-        warn "zero_diff_classify returned '${verdict:-unknown}' against $basis in $tree — fail-safe: this never authorizes completion (#595)."
-        exit 4
+        indeterminate "$basis" "$branch" "$tree" "zero_diff_classify returned '${verdict:-unknown}' against $basis in $tree — fail-safe: this never authorizes completion"
         ;;
 esac
 [ -z "$dirty_out" ] || violated=1
@@ -232,6 +225,8 @@ if [ "$verdict" = commits ]; then
 fi
 
 emit violated "$basis" "$branch" "$tree"
+# stderr repeats the three stamps on purpose: the stdout line above is the
+# machine-read verdict; this block is the operator's, and reads alone.
 {
     printf 'oneshot boundary VIOLATED for %s — the source tree carries UNPUBLISHED CHANGES, and a one-shot must close with the tree as the published base left it.\n' "$issue_arg"
     printf '  tree:   %s (on %s)\n' "$tree" "$branch"
