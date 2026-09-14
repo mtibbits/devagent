@@ -568,3 +568,40 @@ EOC
   checklist_mark "$f" 0 x pull
   grep -qE '^- \[x\]  0\. pull' "$f"
 }
+
+@test "checklist_template_name reads the Template header (#595)" {
+  f="$BATS_TEST_TMPDIR/c.md"
+  printf '# X\n\nTemplate: oneshot\nCreated: now\n' > "$f"
+  [ "$(checklist_template_name "$f")" = "oneshot" ]
+}
+
+@test "checklist_template_name takes the FIRST header only (#595)" {
+  f="$BATS_TEST_TMPDIR/c.md"
+  printf 'Template: oneshot\nTemplate: standard\n' > "$f"
+  [ "$(checklist_template_name "$f")" = "oneshot" ]
+}
+
+@test "checklist_template_name is empty-and-rc0 on a missing file (#595)" {
+  run checklist_template_name "$BATS_TEST_TMPDIR/nope.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "checklist_template_name is empty-and-rc0 on a headerless file (#595)" {
+  f="$BATS_TEST_TMPDIR/c.md"
+  printf '# X\n\nno header here\n' > "$f"
+  run checklist_template_name "$f"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "no inline Template: parse survives outside the helper (#595)" {
+  # Subject derived from the RULE — the sed token itself — with the helper's
+  # own home allow-listed, so any NEW copy of the parse under scripts/ reddens
+  # this. What it does NOT own (register Issue-558): a parse spelled another
+  # way (`grep '^Template:'`, awk) is invisible to it; accepted, because the
+  # helper is the one home every doc names and the token is the house idiom.
+  run bash -c "grep -rlF \"sed -n 's/^Template: //p'\" '$PLUGIN_ROOT/scripts' | grep -v 'scripts/lib/checklist.sh'"
+  [ "$status" -eq 1 ]
+  grep -qE "^ *old_tier=.*checklist_template_name" "$PLUGIN_ROOT/scripts/revise.sh"
+}

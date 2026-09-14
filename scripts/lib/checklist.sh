@@ -566,3 +566,21 @@ checklist_next_actionable() {
     }
   ' "$file"
 }
+
+# #595: the ONE reader of a checklist's `Template:` header. revise.sh held the
+# only parse (an inline sed); this change adds two more consumers (the oneshot
+# boundary checker and cleanup.sh's guard clause), and two spellings of one
+# question is the defect (register Issue-565: grep for the QUESTION a probe
+# decides, not the name you would give it).
+# Echoes the template name, or nothing when the file is unreadable or has no
+# header. ALWAYS returns 0 — callers branch on emptiness, so this is safe inside
+# `$(...)` (the Issue-120 non-fatal-resolve shape). The capture-then-print form
+# is deliberate: a bare `sed | head -1` as the tail would export the pipeline's
+# status to an errexit caller (register Issue-314).
+checklist_template_name() {
+    local checklist="$1" out
+    [ -r "$checklist" ] || return 0
+    out="$(sed -n 's/^Template: //p' "$checklist" 2>/dev/null | head -1)" || out=""
+    printf '%s\n' "$out"
+    return 0
+}
