@@ -57,6 +57,36 @@ if [ -n "$offenders" ]; then
     die "closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
+# #595: enforce the ONESHOT no-repo-diff boundary mechanically, BEFORE any side
+# effect — the same placement the #242 and #586 gates use, and load-bearing
+# here: the tree restore below is a `git checkout`, which would carry a dirty
+# oneshot footprint onto the base branch.
+# The TIER READ LIVES HERE, not only in the checker, so a non-oneshot close
+# spawns no subprocess and its output is byte-identical to today (the checker
+# pays a bash spawn, seven lib sources and a python3 config read before its own
+# tier gate). cleanup.sh already sources lib/checklist.sh (line 11), and this
+# read goes through the SAME single-source helper the checker uses, so the two
+# can never disagree ("omits step 12" was never a oneshot key — research omits
+# 12 too).
+# The checker owns the whole predicate; this site owns only verdict->action.
+# --auto CHAIN TRACE (register Issue-242 — "a die mid-chain is a different
+# product than one on direct invocation, and warnings can't gate autonomous
+# flows"): cleanup is the chain's through-target (next.sh:64), so a die here
+# ends the chain non-zero with this message last, and nothing downstream is
+# stranded because cleanup is the last step. A warn would scroll past unread in
+# exactly the autonomous flow that most needs the gate.
+if [ "$(checklist_template_name "$issue_dir/checklist.md")" = oneshot ]; then
+    os_rc=0
+    "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$project" "$issue_arg" || os_rc=$?
+    case "$os_rc" in
+        0) : ;;   # clean — the invariant holds
+        5) : ;;   # operator-acknowledged; the checker already warned loudly
+        3) die "oneshot boundary VIOLATED — see above. A one-shot is an operational action, not a repo change. If this issue produced the listed changes, escalate with 'bash $DEVAGENT_ROOT/scripts/revise.sh $project $issue_arg --retier standard' (restarts the issue at draft, step 2) and re-run the chain; if it did not, land or clear them first. This check cannot attribute them — the tree is shared (#595)." ;;
+        4) die "oneshot boundary INDETERMINATE — see above. An invariant that cannot be proven must not authorize completion. Apply the remedy the checker named (the routine one: check out the base branch in the shared tree), then re-run. Reviewed de-scoping only: 'echo \"<reason>\" > $issue_dir/.devagent-oneshot-ack' records an acknowledgement and skips the check for this issue (#595)." ;;
+        *) die "oneshot boundary check could not RUN (rc=$os_rc) — a usage or tooling fault, not a boundary verdict; see above (#595)." ;;
+    esac
+fi
+
 source_dir="$(config_get_project_field "$project" source_dir)"
 devdoc_dir="$(config_get_project_field "$project" devdoc_dir)"
 baseline="$(config_get_project_field "$project" default_baseline)"

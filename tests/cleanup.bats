@@ -358,3 +358,91 @@ SH
     run bash -c "cd '$parent' && git log -1 --format=%s"
     [ "$output" = "devdoc: Issue-1 cleanup" ]
 }
+
+# --- #595: the oneshot no-repo-diff boundary gate -----------------------------
+
+# A genuine oneshot issue: the real template's rows (0/9/11/22/23) with
+# everything before cleanup terminal, so cleanup IS the current step. Built by
+# the checklist-init.sh SUBPROCESS, never by sourcing checklist_init here.
+make_oneshot_issue() {
+    local d="$DEVDOC_DIR/Issue-1" s
+    rm -f "$d/checklist.md"
+    ISSUE_ID=Issue-1 bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template oneshot --project "$TEST_PROJECT" "$d"
+    for s in 0 9 11 22; do mark_step "$d/checklist.md" "$s" x; done
+    ( cd "$SOURCE_DIR" && git checkout -q main \
+      && git update-ref refs/remotes/origin/main "$(git rev-parse main)" )
+}
+
+@test "cleanup REFUSES a oneshot with an unpublished commit (#595 AC1)" {
+    make_oneshot_issue
+    ( cd "$SOURCE_DIR" && echo x > f.txt && git add f.txt \
+      && git commit -q -m "the oneshot committed" )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"oneshot boundary VIOLATED"* ]]
+    [[ "$output" == *"--retier standard"* ]]
+    # Refused BEFORE any side effect: step unmarked, devdoc untouched, so the
+    # re-run after a retier starts clean.
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+    n=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
+    [ "$n" -eq 1 ]
+}
+
+@test "cleanup REFUSES a oneshot with a dirty tree (#595 AC1)" {
+    make_oneshot_issue
+    ( cd "$SOURCE_DIR" && echo changed >> README.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"oneshot boundary VIOLATED"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "cleanup REFUSES on indeterminate — fail-safe (#595 AC3)" {
+    make_oneshot_issue
+    ( cd "$SOURCE_DIR" && git update-ref -d refs/remotes/origin/main )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"INDETERMINATE"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "cleanup COMPLETES a clean oneshot (#595 AC2)" {
+    make_oneshot_issue
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "cleanup COMPLETES an acknowledged oneshot, loudly (#595 seam)" {
+    make_oneshot_issue
+    printf 'deploy target, not git-measurable\n' \
+        > "$DEVDOC_DIR/Issue-1/.devagent-oneshot-ack"
+    ( cd "$SOURCE_DIR" && echo x > f.txt && git add f.txt && git commit -q -m c )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"NOT CHECKED"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "a standard-tier cleanup spawns no checker at all (#595 AC2, r1 SE1/SE2)" {
+    # The positive-capability control (register Issue-107), and the tier read
+    # lives in cleanup.sh, so a non-oneshot close must not gain even the
+    # checker's n/a line.
+    grep -q '^Template: standard$' "$DEVDOC_DIR/Issue-1/checklist.md"
+    ( cd "$SOURCE_DIR" && echo dirty >> README.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"oneshot-zerodiff"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "an --auto chain STOPS on the oneshot boundary refusal (#595 U3)" {
+    make_oneshot_issue
+    ( cd "$SOURCE_DIR" && echo x > f.txt && git add f.txt \
+      && git commit -q -m "the oneshot committed" )
+    run "$DEVAGENT_ROOT/scripts/next.sh" "$TEST_PROJECT" --auto
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"step 23 (cleanup), script-backed"* ]]
+    [[ "$output" == *"oneshot boundary VIOLATED"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
