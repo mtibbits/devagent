@@ -12,6 +12,33 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The oneshot tier's no-repo-diff boundary is enforced mechanically (#595).**
+  "An operational action, not a repo change" lived in prose in three documents
+  and nothing caught a one-shot that quietly produced commits. The oneshot tier
+  has no branch step, so no `baseline_sha` exists and `zero_diff_classify`
+  answered `indeterminate` forever. What a branchless tier measures is now
+  defined as **whether the source tree carries unpublished change** — on the
+  base branch, no commits beyond `default_baseline`, no uncommitted paths —
+  rather than whether the issue itself produced a diff, which a shared source
+  tree cannot attribute. A new `scripts/oneshot-zerodiff.sh` owns the
+  predicate: it calls the shared `zero_diff_classify` unchanged for the commits
+  half, adds a `git status --porcelain` probe for the dirty half (a dirty-only
+  tree classifies as `empty`), compares the checked-out branch to the base, and
+  mints one exit code per verdict. `cleanup.sh` reads the tier itself and
+  refuses before any side effect on `violated` or `indeterminate`, directing
+  the operator to `revise.sh --retier standard`; every other tier pays one
+  header read and never spawns the checker. A shared tree left on a sibling
+  issue's branch is the routine `indeterminate`, with a one-line remedy; a
+  recorded linked worktree is `indeterminate` with a remedy that names the
+  tier. The refusal never asserts authorship.
+  `echo "<reason>" > <issue-dir>/.devagent-oneshot-ack` is an auditable escape
+  seam for trees git cannot measure.
+  `commands/document.md`'s straggler instruction — which told a oneshot to
+  commit and promised a step 12 that tier does not have — is carved out, and
+  `commands/implement.md`'s "must produce no repo diff" is reframed to the
+  decidable form; both key on the tier name, since the research tier omits
+  step 12 too.
+
 - **Untracked new source files enter the analyzer's changed-line scope (#591).**
   `static_analysis_diff.py` scoped from `git diff` alone, which lists TRACKED
   changes only — a brand-new file that had never been `git add`-ed produced no

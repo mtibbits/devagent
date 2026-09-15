@@ -566,3 +566,23 @@ checklist_next_actionable() {
     }
   ' "$file"
 }
+
+# #595: the ONE reader of a checklist's `Template:` header. revise.sh held the
+# only parse (an inline sed); this change adds two more consumers (the oneshot
+# boundary checker and cleanup.sh's guard clause), and two spellings of one
+# question is the defect (register Issue-565: grep for the QUESTION a probe
+# decides, not the name you would give it).
+# Echoes the template name, or nothing when the file is unreadable or has no
+# header. ALWAYS returns 0 — callers branch on emptiness, so this is safe inside
+# `$(...)` (the Issue-120 non-fatal-resolve shape). ONE process, no pipeline:
+# `q` stops sed at the first header, so there is no early-closing reader to
+# SIGPIPE the writer under pipefail — `sed | head -1` did, and `|| out=""` then
+# threw away a correctly-read `oneshot` and silently DISABLED the #595 gate
+# (step-15 review I1, reproduced on a 200k-line file). First header wins.
+checklist_template_name() {
+  local checklist="$1" out
+  [ -r "$checklist" ] || return 0
+  out="$(sed -n '/^Template: /{s///p;q;}' "$checklist")" || out=""
+  printf '%s\n' "$out"
+  return 0
+}

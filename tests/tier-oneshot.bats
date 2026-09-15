@@ -110,3 +110,53 @@ teardown() { teardown_tmp_devagent_home; }
   run grep -E 'standard \| docs-only \| research \| perf' "$spec" "$PLUGIN_ROOT/templates/config.toml.skel"
   [ "$status" -ne 0 ]
 }
+
+# --- #595: the mechanical boundary check is named in every prose home ---------
+
+@test "checklist-oneshot boundary paragraph names the check and stays true after a retier (#595 AC4)" {
+  tpl="$PLUGIN_ROOT/templates/checklist-oneshot.md"
+  grep -q 'oneshot-zerodiff.sh' "$tpl"
+  grep -q 'default_baseline' "$tpl"
+  # retier leaves this prose on a standard checklist (revise.md:39-42): the
+  # enforcement claim must be scoped to the header, not stated flat
+  grep -qE 'While this checklist.s .Template:. reads .oneshot.' "$tpl"
+  # the pre-existing #537 pins must survive the rewrite
+  grep -q "execution evidence" "$tpl"
+  grep -q "not a repo change" "$tpl"
+}
+
+@test "implement.md:27 — the issue's second prose home — carries the reframed invariant (#595 r2 SE2)" {
+  f="$PLUGIN_ROOT/commands/implement.md"
+  grep -q 'oneshot-zerodiff.sh' "$f"
+  grep -q 'no unpublished change' "$f"
+  # the #537 carve-out pins survive
+  grep -q "branch produces the branch" "$f"
+  grep -q "producing step is absent from the issue's checklist is N/A" "$f"
+}
+
+@test "document.md keys the verify beat on the TIER and carves the straggler commit out (#595)" {
+  f="$PLUGIN_ROOT/commands/document.md"
+  grep -q 'oneshot-zerodiff.sh' "$f"
+  grep -q 'Not on a oneshot issue' "$f"
+  # the permitted shape: the beat's trigger sentence names the Template: header
+  grep -qE 'Template:. header is .oneshot.' "$f"
+}
+
+@test "cleanup.md documents the oneshot boundary precondition, canary-safe (#595 AC4)" {
+  f="$PLUGIN_ROOT/commands/cleanup.md"
+  grep -q 'CLAUDE_PLUGIN_ROOT}/scripts/oneshot-zerodiff.sh' "$f"
+  grep -q -- '--retier standard' "$f"
+  grep -q 'restarts the issue at draft' "$f"
+  grep -q '.devagent-oneshot-ack' "$f"
+}
+
+@test "spec's oneshot tier row names the mechanical enforcement (#595 AC4)" {
+  spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  run grep -cE '^\| oneshot \|.*oneshot-zerodiff' "$spec"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+  # redmr M3: the per-issue directory inventory (§3.5) and the step-23 row
+  # both name what this diff added — the ack file and the refusal.
+  grep -qE '^├── \.devagent-oneshot-ack .*#595' "$spec"
+  grep -qE '^\| 23 \| .*oneshot-zerodiff\.sh.*#595' "$spec"
+}

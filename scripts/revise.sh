@@ -91,7 +91,7 @@ if [[ -n "$RETIER" ]]; then
   # both halves — the block append AND the issue-keyed state transaction).
   # No comments.md required: this is a tier change, not MR feedback.
   tier_require_legal "$RETIER"
-  old_tier="$(sed -n 's/^Template: //p' "$issue_dir/checklist.md" | head -1)"
+  old_tier="$(checklist_template_name "$issue_dir/checklist.md")"
   tpl="$(_checklist_template_path "$RETIER" "$PROJECT")"
   [[ -f "$tpl" ]] || die "checklist template not found: $tpl"
   {
