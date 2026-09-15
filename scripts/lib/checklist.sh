@@ -574,13 +574,15 @@ checklist_next_actionable() {
 # decides, not the name you would give it).
 # Echoes the template name, or nothing when the file is unreadable or has no
 # header. ALWAYS returns 0 — callers branch on emptiness, so this is safe inside
-# `$(...)` (the Issue-120 non-fatal-resolve shape). The capture-then-print form
-# is deliberate: a bare `sed | head -1` as the tail would export the pipeline's
-# status to an errexit caller (register Issue-314).
+# `$(...)` (the Issue-120 non-fatal-resolve shape). ONE process, no pipeline:
+# `q` stops sed at the first header, so there is no early-closing reader to
+# SIGPIPE the writer under pipefail — `sed | head -1` did, and `|| out=""` then
+# threw away a correctly-read `oneshot` and silently DISABLED the #595 gate
+# (step-15 review I1, reproduced on a 200k-line file). First header wins.
 checklist_template_name() {
   local checklist="$1" out
   [ -r "$checklist" ] || return 0
-  out="$(sed -n 's/^Template: //p' "$checklist" | head -1)" || out=""
+  out="$(sed -n '/^Template: /{s///p;q;}' "$checklist")" || out=""
   printf '%s\n' "$out"
   return 0
 }

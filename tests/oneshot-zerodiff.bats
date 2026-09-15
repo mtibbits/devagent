@@ -115,6 +115,34 @@ CHK() { run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" == *"worktree_path"* ]]
 }
 
+@test "a VALID linked worktree_path is indeterminate; remedy is the tier, not a checkout (#595 review I3)" {
+    # `git checkout main` in a linked worktree fails ('already used by
+    # worktree'), so the routine remedy must not be the one printed here.
+    ( cd "$SOURCE_DIR" && git worktree add -q "$DEVAGENT_TMP/wt" -b feat/1-linked )
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" context.Issue-1.worktree_path "$DEVAGENT_TMP/wt"
+    CHK
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"tree=$DEVAGENT_TMP/wt"* ]]
+    [[ "$output" == *"LINKED git worktree"* ]]
+    [[ "$output" == *"--retier standard"* ]]
+    [[ "$output" == *"worktree remove"* ]]
+    [[ "$output" != *"checkout 'main'"* ]]
+    [[ "$output" != *"violated"* ]]
+}
+
+@test "a VALID separate-clone worktree_path is the MEASURED tree, per the #571 contract (#595 review I2)" {
+    # commit/ship/run-suite/preship-evidence all act on the recorded tree; the
+    # gate measures the same one and stamps it. source_dir's own state is out of
+    # scope in this shape — documented in the script's LIMITS.
+    git clone -q "$SOURCE_DIR" "$DEVAGENT_TMP/clone"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" context.Issue-1.worktree_path "$DEVAGENT_TMP/clone"
+    ( cd "$SOURCE_DIR" && echo changed >> README.md )
+    CHK
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"oneshot-zerodiff: clean"* ]]
+    [[ "$output" == *"tree=$DEVAGENT_TMP/clone"* ]]
+}
+
 @test ".devagent-oneshot-ack is the acknowledged seam: rc 5, loud (#595)" {
     printf 'deploy target, not git-measurable\n' > "$DEVDOC_DIR/Issue-1/.devagent-oneshot-ack"
     ( cd "$SOURCE_DIR" && echo x > f.txt && git add f.txt && git commit -q -m c )

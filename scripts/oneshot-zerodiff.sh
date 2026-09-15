@@ -57,6 +57,18 @@
 #    which is correct for "where do I cut a branch from" and fail-OPEN here: it
 #    would compare the tree against itself and print `clean`. A different
 #    question deserves a different resolver (register Issue-565).
+#  * The MEASURED tree is the recorded worktree_path when one exists, else
+#    source_dir — active_tree_resolve, the #571 contract commit.sh, ship.sh,
+#    run-suite.sh and preship-evidence.sh all share. A recorded tree that is a
+#    separate clone is measured INSTEAD of source_dir (source_dir's own state
+#    is then out of scope here, and cleanup.sh's base-branch restore of
+#    source_dir is pre-existing, tier-independent behaviour); a recorded tree
+#    that is a LINKED worktree sits on its issue branch by construction, so it
+#    is `indeterminate` with a remedy that fits (below), never `clean`.
+#  * A checklist with NO `Template:` header (pre-#537) reads as not-oneshot:
+#    fail-OPEN by decision, for backward compatibility, and the only such
+#    branch in this design. A oneshot issue that wants the gate carries the
+#    header (checklist-init.sh writes it).
 #  * No pipeline in this file has an early-closing reader. `git … | head` under
 #    `set -o pipefail` dies with SIGPIPE (rc 141) past the tenth line and would
 #    truncate the refusal BEFORE its remedies (round-2 improve B2, reproduced) —
@@ -182,6 +194,16 @@ basis="$base_ref@$base_sha"
 # work as "unpublished" and the retier remedy would be a false diagnosis.
 base_branch="${base_ref##*/}"
 if [ "$branch" != "$base_branch" ]; then
+    # A LINKED worktree (git-dir under the main checkout's common dir) cannot
+    # check out a branch the main checkout holds, so the routine remedy below
+    # would fail when typed (step-15 review I3). Such a tree is a standard-tier
+    # step-8 artifact — a oneshot has no branch step — so the remedy is the
+    # tier, not the checkout.
+    git_dir="$("$DEVAGENT_GIT" -C "$tree" rev-parse --git-dir 2>/dev/null || true)"
+    common_dir="$("$DEVAGENT_GIT" -C "$tree" rev-parse --git-common-dir 2>/dev/null || true)"
+    if [ -n "$git_dir" ] && [ "$git_dir" != "$common_dir" ]; then
+        indeterminate "$basis" "$branch" "$tree" "the recorded worktree '$tree' is a LINKED git worktree on '$branch', not the base branch '$base_branch'. The base branch is held by the main checkout, so it cannot be checked out here; a linked worktree is the standard tier's branch-step artifact, and a one-shot has no branch step. If '$branch' carries this issue's work the issue is not a one-shot: bash $DEVAGENT_ROOT/scripts/revise.sh $project $issue_arg --retier standard. If it carries none, remove the worktree ($DEVAGENT_GIT -C '$tree' worktree remove .) and record the decision in $ack, then re-run"
+    fi
     indeterminate "$basis" "$branch" "$tree" "the source tree is on '$branch', not the base branch '$base_branch' — routine (a sibling issue's branch is checked out; cleanup restores the base only after this gate), but published state cannot be judged from here. Remedy: git -C '$tree' checkout '$base_branch' (stash or commit anything you want to keep first), then re-run"
 fi
 

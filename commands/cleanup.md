@@ -94,7 +94,7 @@ re-running cleanup is safe — `--check` passes on a pending file and
 ## Precondition (#595) — the oneshot no-repo-diff boundary
 
 On a **oneshot**-tier issue only — `cleanup.sh` reads the `Template:` header
-itself, so every other tier pays one file read and spawns nothing —
+itself, so every other tier pays one header read and never spawns the checker —
 `${CLAUDE_PLUGIN_ROOT}/scripts/oneshot-zerodiff.sh <project> <issue>` runs
 BEFORE the tree restore and refuses on two verdicts: `violated` (the tree
 carries commits beyond `default_baseline`, and/or uncommitted paths) and
@@ -113,6 +113,11 @@ rows and restarts the issue at draft (step 2). The escape seam is
 — a reviewed de-scoping, not a fix. The ack is per-issue and persistent: it is
 only read on the oneshot path, so it silences every future revision of this
 issue while it stays `oneshot` and is inert after a retier. An empty ack file
-does not silence the check.
+does not silence the check. Two documented limits: the measured tree is the
+recorded `worktree_path` when one exists (the #571 contract every evidence
+step shares), else `source_dir` — a linked worktree is `indeterminate` with a
+remedy that names the tier, since the base branch cannot be checked out there;
+and a checklist with no `Template:` header (pre-#537) reads as not-oneshot, so
+the gate does not run — fail-open by decision, for backward compatibility.
 
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`

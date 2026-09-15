@@ -26,11 +26,13 @@ tag`) will get their own dated sections below.
   tree classifies as `empty`), compares the checked-out branch to the base, and
   mints one exit code per verdict. `cleanup.sh` reads the tier itself and
   refuses before any side effect on `violated` or `indeterminate`, directing
-  the operator to `revise.sh --retier standard`; every other tier pays one file
-  read and spawns nothing. A shared tree left on a sibling issue's branch is
-  the routine `indeterminate`, with a one-line remedy. The refusal never
-  asserts authorship. `echo "<reason>" > <issue-dir>/.devagent-oneshot-ack` is
-  an auditable escape seam for trees git cannot measure.
+  the operator to `revise.sh --retier standard`; every other tier pays one
+  header read and never spawns the checker. A shared tree left on a sibling
+  issue's branch is the routine `indeterminate`, with a one-line remedy; a
+  recorded linked worktree is `indeterminate` with a remedy that names the
+  tier. The refusal never asserts authorship.
+  `echo "<reason>" > <issue-dir>/.devagent-oneshot-ack` is an auditable escape
+  seam for trees git cannot measure.
   `commands/document.md`'s straggler instruction — which told a oneshot to
   commit and promised a step 12 that tier does not have — is carved out, and
   `commands/implement.md`'s "must produce no repo diff" is reframed to the

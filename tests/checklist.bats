@@ -595,13 +595,21 @@ EOC
   [ -z "$output" ]
 }
 
+@test "checklist_template_name survives a file longer than a pipe buffer (#595 review I1)" {
+  # `sed | head -1` SIGPIPEd past the buffer under pipefail and `|| out=""`
+  # returned empty — the gate's own trigger failing OPEN. 200k headers.
+  f="$BATS_TEST_TMPDIR/c.md"
+  seq 200000 | sed 's/.*/Template: oneshot/' > "$f"
+  ( set -euo pipefail; [ "$(checklist_template_name "$f")" = "oneshot" ] )
+}
+
 @test "no inline Template: parse survives outside the helper (#595)" {
   # Subject derived from the RULE — the sed token itself — with the helper's
   # own home allow-listed, so any NEW copy of the parse under scripts/ reddens
   # this. What it does NOT own (register Issue-558): a parse spelled another
   # way (`grep '^Template:'`, awk) is invisible to it; accepted, because the
   # helper is the one home every doc names and the token is the house idiom.
-  run bash -c "grep -rlF \"sed -n 's/^Template: //p'\" '$PLUGIN_ROOT/scripts' | grep -v 'scripts/lib/checklist.sh'"
+  run bash -c "grep -rlE \"sed -n '(s|/)\\^Template: \" '$PLUGIN_ROOT/scripts' | grep -v 'scripts/lib/checklist.sh'"
   [ "$status" -eq 1 ]
   grep -qE "^ *old_tier=.*checklist_template_name" "$PLUGIN_ROOT/scripts/revise.sh"
 }
