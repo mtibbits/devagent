@@ -155,4 +155,8 @@ teardown() { teardown_tmp_devagent_home; }
   run grep -cE '^\| oneshot \|.*oneshot-zerodiff' "$spec"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
+  # redmr M3: the per-issue directory inventory (§3.5) and the step-23 row
+  # both name what this diff added — the ack file and the refusal.
+  grep -qE '^├── \.devagent-oneshot-ack .*#595' "$spec"
+  grep -qE '^\| 23 \| .*oneshot-zerodiff\.sh.*#595' "$spec"
 }

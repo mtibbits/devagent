@@ -413,6 +413,19 @@ make_oneshot_issue() {
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
 }
 
+@test "a bare cleanup re-run after a clean oneshot close still completes (#595 redmr M1)" {
+    # After state_cleanup_finish active_issue is "" and issue_dir is left
+    # standing; pre-#595 a bare re-run completed on that slot, and the gate
+    # must not turn it into 'could not RUN (rc=1)'.
+    make_oneshot_issue
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"could not RUN"* ]]
+    [[ "$output" == *"oneshot-zerodiff: clean"* ]]
+}
+
 @test "cleanup COMPLETES an acknowledged oneshot, loudly (#595 seam)" {
     make_oneshot_issue
     printf 'deploy target, not git-measurable\n' \

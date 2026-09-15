@@ -65,9 +65,10 @@ fi
 # spawns no subprocess and its output is byte-identical to today (the checker
 # pays a bash spawn, seven lib sources and a python3 config read before its own
 # tier gate). cleanup.sh already sources lib/checklist.sh (line 11), and this
-# read goes through the SAME single-source helper the checker uses, so the two
-# can never disagree ("omits step 12" was never a oneshot key — research omits
-# 12 too).
+# read goes through the same single-source helper the checker uses, and the
+# checker resolves its TARGET through the same arg -> pin -> shared-slot chain
+# as above (redmr M1), so both read the one checklist this close is about
+# ("omits step 12" was never a oneshot key — research omits 12 too).
 # The checker owns the whole predicate; this site owns only verdict->action.
 # --auto CHAIN TRACE (register Issue-242 — "a die mid-chain is a different
 # product than one on direct invocation, and warnings can't gate autonomous

@@ -143,6 +143,43 @@ CHK() { run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" Issue-1
     [[ "$output" == *"tree=$DEVAGENT_TMP/clone"* ]]
 }
 
+@test "bare invocation after a close reads the shared issue_dir slot — clean, rc 0 (#595 redmr M1)" {
+    # state_cleanup_finish blanks active_issue and leaves issue_dir (active.sh:
+    # "deliberately unchanged"); cleanup.sh's bare re-run follows issue_dir, so
+    # the checker must too — it died rc 1 here, a regression on a clean tree.
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue ""
+    run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"oneshot-zerodiff: clean"* ]]
+}
+
+@test "bare invocation with NO resolvable target is indeterminate, rc 4, never rc 1 (#595 redmr M1)" {
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue ""
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir ""
+    run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"no issue to check"* ]]
+}
+
+@test "a malformed issue id is the one rc-1 shape: usage, not a verdict (#595)" {
+    run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" 'Issue-1/../Issue-2'
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"oneshot-zerodiff:"* ]]
+}
+
+@test "a default_baseline with more than one slash is a documented LIMIT: permanent indeterminate (#595 redmr m1)" {
+    # `${base_ref##*/}` keeps only the last segment — cleanup.sh's own
+    # derivation, kept identical. Pinned so the LIMITS bullet stays a claim
+    # with a row behind it (register Issue-583).
+    ( cd "$SOURCE_DIR" && git checkout -q -b release/2.0 \
+      && git update-ref refs/remotes/origin/release/2.0 "$(git rev-parse HEAD)" )
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.default_baseline" "origin/release/2.0"
+    CHK
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"branch=release/2.0"* ]]
+    [[ "$output" == *"not the base branch '2.0'"* ]]
+}
+
 @test ".devagent-oneshot-ack is the acknowledged seam: rc 5, loud (#595)" {
     printf 'deploy target, not git-measurable\n' > "$DEVDOC_DIR/Issue-1/.devagent-oneshot-ack"
     ( cd "$SOURCE_DIR" && echo x > f.txt && git add f.txt && git commit -q -m c )
@@ -165,6 +202,15 @@ CHK() { run "$DEVAGENT_ROOT/scripts/oneshot-zerodiff.sh" "$TEST_PROJECT" Issue-1
     CHK
     [ "$status" -eq 0 ]
     [[ "$output" == *"oneshot-zerodiff: n/a"* ]]
+}
+
+@test "source pin: active_tree_resolve's die set is exactly the pre-flighted one (#595 redmr m2)" {
+    # The checker's "cannot die" claim is true only while active_tree_resolve
+    # has exactly these die calls (stale worktree; source_dir unset; source_dir
+    # missing), each excluded by the pre-flight. A fourth would surface as rc 1
+    # in cleanup.sh's `*)` arm; make it redden here instead.
+    run bash -c "awk '/^active_tree_resolve\(\)/,/^}/' '$DEVAGENT_ROOT/scripts/lib/active.sh' | grep -c 'die \"active_tree_resolve'"
+    [ "$output" -eq 3 ]
 }
 
 @test "source pins: calls zero_diff_classify; no rev-list, no baseline_resolve, no early-closing pipe (#595)" {

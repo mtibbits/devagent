@@ -33,15 +33,18 @@
 #   0 clean          on the base branch, no unpublished commits, no dirty paths
 #   3 violated       unpublished commits and/or uncommitted paths
 #   4 indeterminate  cannot classify — FAIL SAFE, never authorizes completion.
-#                    Six separately-worded causes, each naming its remedy: the
-#                    tree is on another branch (the ROUTINE trigger — a sibling
-#                    issue's branch is checked out and cleanup restores the base
-#                    only AFTER this gate), a stale recorded worktree_path, an
-#                    unset/missing/non-git source_dir, an unset default_baseline,
-#                    an unresolvable default_baseline, a faulted git status.
+#                    One separately-worded cause per fault, each naming its
+#                    remedy: the tree is on another branch (the ROUTINE trigger
+#                    — a sibling issue's branch is checked out and cleanup
+#                    restores the base only AFTER this gate), a recorded LINKED
+#                    worktree, a stale recorded worktree_path, an
+#                    unset/missing/non-git source_dir, an unset
+#                    default_baseline, an unresolvable default_baseline, a
+#                    faulted git status, no resolvable target issue at all.
 #   5 acknowledged   .devagent-oneshot-ack present — operator escape seam
-#   1 usage error ONLY. Every tree/state/config fault above is 4, never 1: a
-#     fault must not be reported as a boundary verdict.
+#   1 usage error ONLY: a missing/unknown project or a malformed issue id.
+#     Every tree/state/config fault above is 4, never 1: a fault must not be
+#     reported as a boundary verdict.
 #
 # LIMITS — each with its own fixture row, because a LIMITS list is itself a set
 # of claims (register Issue-583):
@@ -69,6 +72,12 @@
 #    fail-OPEN by decision, for backward compatibility, and the only such
 #    branch in this design. A oneshot issue that wants the gate carries the
 #    header (checklist-init.sh writes it).
+#  * A default_baseline with more than one `/` (origin/release/2.0) is
+#    UNSUPPORTED: the base-branch name is the last path segment — the same
+#    derivation cleanup.sh's restore uses, kept identical so the two agree —
+#    so such a project reads a permanent `indeterminate` here (and a failed
+#    checkout at the restore, pre-existing). Pinned by a row; the shared
+#    `base_branch_of()` cure is a recorded follow-up.
 #  * No pipeline in this file has an early-closing reader. `git … | head` under
 #    `set -o pipefail` dies with SIGPIPE (rc 141) past the tenth line and would
 #    truncate the refusal BEFORE its remedies (round-2 improve B2, reproduced) —
@@ -92,21 +101,27 @@ project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
 
-# Target resolution: arg -> pin -> shared state, through the lib that owns the
-# chain (active.sh: the commit.sh shape). The lib validates an arg or pin
-# against the issue-id charset and dies on a traversal, and a scan-GUESSED
-# issue is refused — a boundary verdict must name the issue the operator
-# meant, never one a scan adopted.
+# Target resolution — cleanup.sh's OWN chain (cleanup.sh:31-41), so the gate
+# measures the issue cleanup decided on: an arg or pin names the issue and the
+# dir is derived from it; bare, the SHARED slot is read — active_issue for the
+# name, issue_dir for the dir — INCLUDING the stale-issue_dir edge after a
+# close (active.sh: "deliberately unchanged"), where a bare re-run of cleanup
+# completed before #595 and must still (redmr M1: an rc-1 die here was a
+# regression). issue_context_dir is that chain's dir half, single-sourced. The
+# lib validates an arg or pin against the issue-id charset and dies on a
+# traversal (usage: the ONE rc-1 shape); a scan never names the target — a
+# boundary verdict is about the issue the operator meant, never one a scan
+# adopted — so bare-with-no-slot is `indeterminate` below, not a guess.
 issue_arg="${2:-}"
-if [ -z "$issue_arg" ]; then
-    active_resolve_issue_src "$project" || true
-    if [ -z "$ACTIVE_RESOLVED_ISSUE" ] || [ "$ACTIVE_ISSUE_RESOLVED_FROM" = "scan" ]; then
-        die "no active issue and no issue arg"
-    fi
+if [ -n "$issue_arg" ] || [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
+    active_resolve_issue_src "$project" "$issue_arg"
     issue_arg="$ACTIVE_RESOLVED_ISSUE"
+else
+    issue_arg="$(state_get "$project" active_issue 2>/dev/null || true)"
+    case "$issue_arg" in null|'""') issue_arg="" ;; esac
 fi
-issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "issue_dir not set or missing"
+issue_dir="$(issue_context_dir "$project" "${2:-}" 2>/dev/null || true)"
+issue_label="${issue_arg:-${issue_dir##*/}}"
 
 emit() {
     printf 'oneshot-zerodiff: %s basis=%s branch=%s tree=%s\n' "$1" "$2" "$3" "$4"
@@ -120,6 +135,10 @@ indeterminate() {
     warn "$4 (#595)."
     exit 4
 }
+
+if [ -z "$issue_dir" ] || [ ! -d "$issue_dir" ]; then
+    indeterminate - - - "no issue to check for '$project' — no issue arg, no session pin, and the shared state names no usable issue_dir (${issue_dir:-<unset>}). A state fault, not a boundary verdict: name the issue (oneshot-zerodiff.sh $project <Issue-N>) or /devagent:use it, then re-run"
+fi
 
 # Tier gate. cleanup.sh reads the tier itself and only invokes this script on a
 # oneshot, so this branch serves DIRECT invocation (the step-11 verify beat, an
@@ -142,7 +161,7 @@ fi
 ack="$issue_dir/.devagent-oneshot-ack"
 if [ -s "$ack" ]; then
     emit acknowledged - - -
-    warn "oneshot boundary NOT CHECKED for $issue_arg — $ack records an operator acknowledgement: $(head -1 "$ack"). This is a reviewed de-scoping, not a clean verdict (#595)."
+    warn "oneshot boundary NOT CHECKED for $issue_label — $ack records an operator acknowledgement: $(head -1 "$ack"). This is a reviewed de-scoping, not a clean verdict (#595)."
     exit 5
 fi
 
@@ -202,7 +221,7 @@ if [ "$branch" != "$base_branch" ]; then
     git_dir="$("$DEVAGENT_GIT" -C "$tree" rev-parse --git-dir 2>/dev/null || true)"
     common_dir="$("$DEVAGENT_GIT" -C "$tree" rev-parse --git-common-dir 2>/dev/null || true)"
     if [ -n "$git_dir" ] && [ "$git_dir" != "$common_dir" ]; then
-        indeterminate "$basis" "$branch" "$tree" "the recorded worktree '$tree' is a LINKED git worktree on '$branch', not the base branch '$base_branch'. The base branch is held by the main checkout, so it cannot be checked out here; a linked worktree is the standard tier's branch-step artifact, and a one-shot has no branch step. If '$branch' carries this issue's work the issue is not a one-shot: bash $DEVAGENT_ROOT/scripts/revise.sh $project $issue_arg --retier standard. If it carries none, remove the worktree ($DEVAGENT_GIT -C '$tree' worktree remove .) and record the decision in $ack, then re-run"
+        indeterminate "$basis" "$branch" "$tree" "the recorded worktree '$tree' is a LINKED git worktree on '$branch', not the base branch '$base_branch'. The base branch is held by the main checkout, so it cannot be checked out here; a linked worktree is the standard tier's branch-step artifact, and a one-shot has no branch step. If '$branch' carries this issue's work the issue is not a one-shot: bash $DEVAGENT_ROOT/scripts/revise.sh $project $issue_label --retier standard. If it carries none, remove the worktree ($DEVAGENT_GIT -C '$tree' worktree remove .) and record the decision in $ack, then re-run"
     fi
     indeterminate "$basis" "$branch" "$tree" "the source tree is on '$branch', not the base branch '$base_branch' — routine (a sibling issue's branch is checked out; cleanup restores the base only after this gate), but published state cannot be judged from here. Remedy: git -C '$tree' checkout '$base_branch' (stash or commit anything you want to keep first), then re-run"
 fi
@@ -250,7 +269,7 @@ emit violated "$basis" "$branch" "$tree"
 # stderr repeats the three stamps on purpose: the stdout line above is the
 # machine-read verdict; this block is the operator's, and reads alone.
 {
-    printf 'oneshot boundary VIOLATED for %s — the source tree carries UNPUBLISHED CHANGES, and a one-shot must close with the tree as the published base left it.\n' "$issue_arg"
+    printf 'oneshot boundary VIOLATED for %s — the source tree carries UNPUBLISHED CHANGES, and a one-shot must close with the tree as the published base left it.\n' "$issue_label"
     printf '  tree:   %s (on %s)\n' "$tree" "$branch"
     printf '  basis:  %s\n' "$basis"
     if [ -n "$commits_list" ]; then
@@ -269,7 +288,7 @@ emit violated "$basis" "$branch" "$tree"
     printf '  THIS DOES NOT ASSERT THE ONE-SHOT WROTE THEM — the tree is shared. Judge the lists above, then:\n'
     printf '  If this one-shot produced them, escalate the tier:\n'
     printf '    bash %s/scripts/revise.sh %s %s --retier standard\n' \
-        "$DEVAGENT_ROOT" "$project" "$issue_arg"
+        "$DEVAGENT_ROOT" "$project" "$issue_label"
     printf '    (a revision: appends the standard rows and RESTARTS THE ISSUE AT DRAFT (step 2) — the full standard rail from there; never destructive)\n'
     printf '  If they are NOT this one-shot'\''s, land them or clear them and re-run — commit and push, or `git fetch` when %s is merely stale locally. Do not discard work you have not inspected.\n' "$base_ref"
     printf '  Reviewed de-scoping only: `echo "<reason>" > %s` records an acknowledgement and skips this check for this issue (persists across revisions).\n' "$ack"
