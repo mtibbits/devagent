@@ -3,7 +3,7 @@
   "description": "A Claude Code plugin that runs development through a fixed 24-step issue workflow with on-disk state preservation, across GitHub/GitLab/JIRA.",
   "owner": {
     "name": "Matt Tibbits",
-    "email": "tibbits@gmail.com"
+    "url": "https://github.com/mtibbits/devagent/issues"
   },
   "plugins": [
     {

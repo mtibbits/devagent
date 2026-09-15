@@ -216,7 +216,7 @@ Create `.claude-plugin/marketplace.json`:
   "description": "Workflow state preservation for multi-issue development across GitHub/GitLab/JIRA.",
   "owner": {
     "name": "Matt Tibbits",
-    "email": "tibbits@gmail.com"
+    "url": "https://github.com/mtibbits/devagent/issues"
   },
   "plugins": [
     {
