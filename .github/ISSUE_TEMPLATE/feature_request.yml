@@ -1,0 +1,42 @@
+name: Feature request
+description: A change to what devAgent does, or a new command, step behaviour, backend or template.
+title: "feature: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        devAgent's workflow is deliberately fixed (24 numbered steps, on-disk state), so changes to the step contract, config schema or artifact formats affect every project using the plugin. Describing the problem before the solution helps that get worked out before any code exists.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does devAgent get in the way today? A concrete example beats a general statement.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like to happen? Name the command, step, config key or template you think it touches, if you know.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything you tried or rejected, including working around it with config, a custom template, or a custom backend.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface does this touch
+      options:
+        - A slash command's behaviour
+        - The 24-step workflow contract
+        - Config schema (config.toml)
+        - Templates or artifact formats
+        - A tracker or forge backend
+        - Documentation only
+        - Not sure
+    validations:
+      required: true

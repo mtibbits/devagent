@@ -1,0 +1,72 @@
+name: Bug report
+description: Something devAgent did, or failed to do, that does not match its documentation.
+title: "bug: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please strip real tokens, private repository names and personal paths before pasting anything below.
+        For a security problem, do not file a bug: see SECURITY.md and use the Security tab's private report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you run, and what did devAgent do?
+      placeholder: "/devagent:next myproject --auto stopped at step 12 with ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What the README, a command body, or docs-site/ says should happen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact command or slash command, and any state it needs (a fresh project, a parked issue, a particular checklist glyph).
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of /devagent:doctor
+      description: Paste the doctor output for the affected project. Redact private paths and names.
+      render: text
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: From `claude --version`.
+      placeholder: "2.1.223"
+    validations:
+      required: true
+  - type: input
+    id: devagent-commit
+    attributes:
+      label: devAgent commit
+      description: The installed commit SHA, from `claude plugin list`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and shell
+      description: For example "Ubuntu 24.04 / bash 5.2", "Windows 11 / WSL Ubuntu", or "Windows 11 / Git Bash".
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Tracker and forge backend
+      options:
+        - GitHub
+        - GitLab
+        - JIRA tracker + GitHub or GitLab forge
+        - Not backend related
+    validations:
+      required: true
