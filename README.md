@@ -4,7 +4,8 @@ devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
 provides **58 slash commands** driving a **24-step workflow** (21 mandatory steps + 3 optional), works against
-GitHub, GitLab, and JIRA trackers/forges, and layers capture + issue red-team,
+GitHub, GitLab, and JIRA issue trackers and GitHub and GitLab code forges (JIRA
+is tracker-only; pair it with either forge), and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
 
 See `docs/specs/2026-05-19-devagent-plugin-design.md` for the design spec and
@@ -41,17 +42,20 @@ Installs from before #541: run `claude plugin update devagent@devagent`
 once — the old manifest declared superpowers as a hard dependency, and a
 cached copy of it keeps devAgent disabled until updated.
 
-**Private-repo access.** While `mtibbits/devagent` is private,
-`claude plugin marketplace add` clones it over your configured git access — you
-need read access to the repo (an SSH key, or `gh auth` with `repo` scope). Once
-the repo is public this note no longer applies.
-
 **Updates.** The plugin is versioned by git commit SHA (no pinned `version`), so
 `claude plugin update devagent@devagent` picks up new commits without an
 uninstall + reinstall.
 
-Requires a `bash` (≥ 4.4 — the resolver libs use namerefs) + `python3` toolchain (the workflow scripts) and, for the auth
-subsystem, `gh`/`glab`/`curl` as appropriate for your backend.
+**Prerequisites.** The workflow scripts need `bash` ≥ 4.4 (the resolver libs use
+namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. The
+backend and auth scripts additionally call `gh` (GitHub), `glab` or `curl`
+(GitLab), or `curl` (JIRA), as appropriate for your backend.
+
+**Supported platforms.** devAgent is developed and tested on **Linux**, including
+WSL on Windows; CI runs Linux only. macOS is currently untested: the scripts
+assume GNU coreutils (`stat -c`, GNU `sed -i`, `readlink -f`). Native Git Bash on
+Windows can run the plugin but is not a supported environment for the test suite
+(see [Running the test suite](#running-the-test-suite)).
 
 **Claude Code version.** Developed and verified against Claude Code **2.1.223**;
 earlier versions are untested. Workflow-script calls auto-approve: as of 2.1.223,
@@ -226,7 +230,7 @@ violation and will break the future `--keyring` migration.
 
 devAgent supports four issue backends out of the box: `github`,
 `gitlab`, `jira`, and a `custom` stub. The `custom` backend is a
-starting point for implementing a tracker that ships does not support
+starting point for implementing a tracker that devAgent does not ship
 (in-house Jira-likes, Redmine, Bugzilla, ServiceNow, etc.).
 
 To add a new backend:
