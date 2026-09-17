@@ -119,3 +119,37 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   [ "$(printf '%s\n' "$page" | wc -l)" -eq 1 ] && [ "$page" = "$readme" ]
   run grep -nE 'bash`? ≥ 4\b[^.]' "$SITE/install.md"; [ "$status" -eq 1 ]      # no stale "≥ 4" left
 }
+
+@test "docs-site: every live Claude Code version home carries the verified-against pin (#579)" {
+  # Audit of the pin's homes AS A SET. The literal-pin test above proves the pin
+  # is PRESENT in README and install.md; it cannot see a second live home that
+  # still names an older version, and it never looked at the bug-report form.
+  # The pin is read from README's verified-against sentence, then one sweep over
+  # the user-facing roots requires every version token to equal it.
+  #
+  # RECORDED EXEMPTION: a line carrying a historical measurement marker
+  # ("measured at/on", "unmeasured", "re-verified on") states what was observed
+  # on a named past version and must NOT be re-stamped on a bump. CHANGELOG,
+  # docs/specs, evals/ and tests/ are history or floor claims (">= X") and sit
+  # outside the roots for the same reason.
+  pin="$(grep -oE 'verified against Claude Code \*\*[0-9]+\.[0-9]+\.[0-9]+\*\*' "$PLUGIN_ROOT/README.md" \
+          | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+  [ -n "$pin" ] && [ "$(printf '%s\n' "$pin" | wc -l)" -eq 1 ]
+  live=0; stale=""
+  while IFS= read -r hit; do
+    text="${hit#*:*:}"
+    [[ "$text" =~ measured|re-verified ]] && continue
+    while IFS= read -r v; do
+      live=$((live + 1))
+      [ "$v" = "$pin" ] || stale+="${hit}"$'\n'
+    done < <(grep -oE '[0-9]+\.[0-9]+\.[0-9]{3}' <<<"$text")
+  done < <(cd "$PLUGIN_ROOT" && grep -rnIE '[0-9]+\.[0-9]+\.[0-9]{3}' README.md docs-site .github/ISSUE_TEMPLATE)
+  if [ -n "$stale" ]; then
+    echo "live Claude Code version home disagrees with the README pin ($pin):" >&2
+    printf '%s' "$stale" >&2
+    return 1
+  fi
+  # Floor: README x2, install.md x2, the bug-report placeholder. An emptied
+  # sweep must not pass vacuously.
+  [ "$live" -ge 5 ]
+}
