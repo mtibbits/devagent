@@ -127,10 +127,10 @@ potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pot
 
 [project.volk]
 source_dir       = "~/src/volk"
-source_remote    = "git@gitlab.com:mtibbits/volk.git"   # our fork
+source_remote    = "git@gitlab.com:example/volk.git"   # our fork
 upstream_remote  = "https://github.com/gnuradio/volk"
 devdoc_dir       = "~/src/devDoc/volk"
-devdoc_remote    = "git@gitlab.com:mtibbits/devDoc.git"  # optional
+devdoc_remote    = "git@gitlab.com:example/devDoc.git"  # optional
 fork_first       = true
 ship_as_draft    = true                  # always open MRs as draft on this project
 include_coauthor = false                 # strip Co-Authored-By from commit msg + PR body (default true)

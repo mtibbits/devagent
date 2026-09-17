@@ -57,9 +57,8 @@ so there is no list to maintain.
   (`fix`, `chore`, `perf`, and so on) and the title is imperative and under
   72 characters. Put issue references in the body (`Closes #N`, `Related: #N`),
   not the subject. The `Co-Authored-By:` trailer is accepted for AI-assisted
-  work. This is the convention `templates/commit_template.md` and the git
-  history actually use; `docs/commit-conventions.md` is a vendored document
-  from another project and is being superseded (#579).
+  work. `docs/commit-conventions.md` has the full rules, a template and
+  examples.
 - **Tests are born red.** A behaviour change ships with a bats or pytest test
   that fails on the old code and passes on the new. If a test cannot be made
   to fail first, say so in the PR and explain what it is guarding instead.

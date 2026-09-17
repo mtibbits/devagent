@@ -1,93 +1,89 @@
-# VOLK Commit Message Conventions
+# devAgent commit message conventions
 
-**Sources:** GREP1 coding guidelines, `docs/CONTRIBUTING.md`, analysis of the last 100 commits on `origin/main`, and reviewer feedback.
+These are the conventions for commits to this repository. They describe what
+`scripts/commit.sh` produces from `templates/commit_template.md` (workflow
+step 12), so a hand-written commit and a workflow-written one look the same.
 
----
+A project that *uses* devAgent is not bound by this page: it overrides
+`commit_template` in its own devdoc `templates/` directory and follows its own
+upstream's rules.
 
-## Rules
+## Subject line
 
-### Subject line
+- **`<type>: <title>`.** `<type>` is the branch prefix for the issue's type,
+  taken from `branch_prefix_map` in the config. The shipped map is
+  `bug → fix`, `feature → feat`, `docs → docs`, `perf → perf`,
+  `chore → chore`.
+- **Imperative mood** in the title: "add", "fix", "remove", not "added" or
+  "fixes".
+- **Under 72 characters**, so `git log --oneline` stays readable.
+- **No issue numbers in the subject.** They go in the body. The one exception
+  is mechanical: PRs are squash-merged, and GitHub appends `(#N)` to the squash
+  subject on `master`.
 
-- **Component prefix** (lowercase, with colon): `cmake:`, `ci:`, `tests:`, or the kernel/file name being changed. Optional on small self-evident changes, but preferred.
-- **Imperative mood:** "fix", "add", "remove", "update" — not "fixed", "added", "removed".
-- **Lowercase first word** after the prefix.
-- **Keep under 72 characters.** Aim for under 55.
-- **Do NOT use Conventional Commits prefixes** (`feat:`, `fix:`, `chore:`). Use the component/scope as the prefix instead.
-- **Do not reference issue numbers in the subject line.** Put them in the body.
-- **Write for `git log --oneline`:** a reviewer scanning 50 commits should understand yours without opening the diff.
+## Body
 
-### Body (optional but encouraged for non-trivial changes)
+- Separated from the subject by a blank line, wrapped at 72 characters.
+- Say **what** changed and **why**. The diff already shows how.
+- Reference issues on their own lines: `Closes #N` to close on merge,
+  `Related: #N` for context. Use a full URL for another repository.
+- A workflow-written commit also carries `Per-issue dev doc: Issue-N/`, which
+  names the issue's artifact directory in the maintainer's devdoc repository.
 
-- Separated from subject by a blank line.
-- Wrap lines at 72 characters.
-- Explain **what** changed and **why**, not how (the diff shows how).
-- Reference issues with `Fixes #N` or `Related: <URL>` on their own lines.
-- For cross-repo references, use the full URL.
+## Trailers
 
-### Trailers
-
-- **`Signed-off-by:`** is **required** on every commit (`git commit -s`). The project uses DCO.
-- **`Co-Authored-By:`** is not used in this project. Omit it.
-
----
+- **`Signed-off-by:` is required on every commit** (`git commit -s`). The
+  project uses the Developer Certificate of Origin
+  (https://developercertificate.org/). `commit.sh` always passes `-s`; do not
+  write the trailer into a template by hand.
+- **`Co-Authored-By:` is accepted** and is normal here for AI-assisted work.
+  A project that does not want it sets `include_coauthor = false`, and
+  `commit.sh` and `ship.sh` strip the trailer.
 
 ## Template
 
 ```
-<scope>: <imperative verb> <what changed>
+<type>: <imperative title under 72 chars>
 
-<Optional body: explain why this change is needed. Wrap at 72 chars.
-For kernel changes, note which proto-kernels are affected.
-For bug fixes, describe the symptom and root cause.>
+<Why this change is needed, and what it does. Wrap at 72 chars.
+For a bug fix, describe the symptom and the root cause.>
 
-<Optional issue references:>
-Fixes #NNN
-Related: https://github.com/gnuradio/volk/issues/NNN
+Closes #NNN
+Related: #NNN
 
-Signed-off-by: Your Name <your@email.com>
+Signed-off-by: Your Name <you@example.com>
 ```
-
----
 
 ## Examples
 
-### Short (no body needed)
+### Short
 
 ```
-fix RVV index_max/min kernels returning wrong index
+docs: correct the step count on the workflow page
 
-Signed-off-by: Magnus Lundmark <magnuslundmark@gmail.com>
+Closes #123
+
+Signed-off-by: Your Name <you@example.com>
 ```
 
-### With body (build system)
+### With a body
 
 ```
-cmake: allow custom CMAKE_BUILD_TYPE values
+fix: checklist mark refuses a row it cannot find
 
-VOLK_CHECK_BUILD_TYPE() issued FATAL_ERROR for build types not in its
-hardcoded allowlist, blocking distros like Gentoo that use custom
-CMAKE_BUILD_TYPE names. Downgrade to WARNING so configuration completes
-while still informing the user that VOLK-specific flags won't apply.
+checklist-mark.sh fell back to the first pending row when the named
+step was absent, so a typo in --by-name silently marked the wrong
+step. Exit 2 with the list of known step names instead.
 
-Fixes #383
+Closes #123
 
-Signed-off-by: Matt Tibbits <matt@example.com>
+Signed-off-by: Your Name <you@example.com>
+Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
-### With body (refactor)
+## What to avoid
 
-```
-volk_common: math cores to own file; robustify C++ usage
-
-As Greg Troxel figured out, isnan() might not be globally available on
-every C++ compiler (where it might be std::isnan); same for isinf.
-
-Move that functionality, used by very few kernels, into volk_mathfun.h,
-hopefully fix the compiler-doesn't-automatically-using std::isnan.
-
-While doing that, also make sure #defined constants are UPPERCASE, and
-all functions are volk_ prefixed. This is C - we can't be cluttering
-the one namespace we have.
-
-Signed-off-by: Marcus Muller <mmueller@gnuradio.org>
-```
+- A subject with no type prefix, or one that describes the activity rather
+  than the change ("updates", "WIP", "address review").
+- Unrelated changes in one commit. One change per PR (see `CONTRIBUTING.md`).
+- A commit without `Signed-off-by`. It will not be merged.

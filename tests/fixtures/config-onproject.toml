@@ -4,7 +4,7 @@ ship_as_draft = false
 
 [project.volk]
 source_dir = "~/src/volk"
-source_remote = "git@gitlab.com:mtibbits/volk.git"
+source_remote = "git@gitlab.com:example/volk.git"
 upstream_remote = "https://github.com/gnuradio/volk"
 devdoc_dir = "~/src/devDoc/volk"
 fork_first = true
