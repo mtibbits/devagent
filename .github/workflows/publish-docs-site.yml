@@ -1,0 +1,126 @@
+# Builds the onboarding site from docs-site/ and, once the operator switches it
+# on, publishes it to GitHub Pages (#465).
+#
+# DEPLOY IS OFF UNTIL THE OPERATOR TURNS IT ON. GitHub Pages is unavailable to
+# this repository while it is private (#463), and a deploy attempted against a
+# repo with Pages disabled fails — which would redden master on every docs
+# push. So the deploy half runs only when ALL of these hold:
+#     the repository is mtibbits/devagent        (forks never deploy)
+#     the ref is refs/heads/master               (one Pages site per repo)
+#     the repository variable DOCS_SITE_DEPLOY is exactly 'true'
+# An unset variable reads as the empty string, so the default is OFF. The
+# expression lives in ONE place, the build job's `gate` step; the upload step
+# and the deploy job both read its output. Flip-day steps, in order, are in
+# docs/pages-deployment.md.
+#
+# With the gate off this workflow still earns its keep: it is the lane that has
+# pandoc, so it is where tests/build-docs-site.bats actually executes (test.yml
+# has no pandoc and skips most of that file), and it uploads the rendered site
+# as a plain artifact for review.
+#
+# `paths:` keeps it off pushes that cannot change the site. The list is pinned
+# by tests/test_publish_docs_site_workflow.py; keep push and pull_request equal.
+#
+# Mechanism precedent: mtibbits/volk, branch dev/all-prs,
+# .github/workflows/publish_docs.yml — keyless OIDC deploy, no stored secret.
+name: publish docs site
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs-site/**'
+      - 'scripts/build-docs-site.sh'
+      - 'scripts/docs-site/**'
+      - 'tests/build-docs-site.bats'
+      - '.github/workflows/publish-docs-site.yml'
+  pull_request:
+    paths:
+      - 'docs-site/**'
+      - 'scripts/build-docs-site.sh'
+      - 'scripts/docs-site/**'
+      - 'tests/build-docs-site.bats'
+      - '.github/workflows/publish-docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No workflow-level `concurrency:`. One-site-per-repo is a property of the
+# DEPLOY, so the `pages` group sits on the deploy job. At workflow level it
+# would queue every PR's build behind master's, and GitHub cancels a PENDING
+# run in a group when a newer one queues — two quick pushes to a docs PR would
+# leave a cancelled build that reads like a verdict.
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      deploy: ${{ steps.gate.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy gate
+        id: gate
+        run: echo "deploy=${{ github.repository == 'mtibbits/devagent' && github.ref == 'refs/heads/master' && vars.DOCS_SITE_DEPLOY == 'true' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pandoc and bats
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pandoc bats
+
+      - name: pandoc version
+        run: pandoc --version | head -1
+
+      # This is the lane that owns the site, so a skip here is a failure: it
+      # would mean the pandoc-gated tests ran nowhere.
+      - name: Builder tests (no skips allowed)
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        # pipefail is load-bearing: a bare `run:` is `bash -e`, WITHOUT pipefail,
+        # so `bats | tee` would take tee's status and a red test would pass.
+        run: |
+          set -o pipefail
+          bats tests/build-docs-site.bats | tee "$RUNNER_TEMP/bats.out"
+          if grep -q '# skip' "$RUNNER_TEMP/bats.out"; then
+            echo "::error::tests/build-docs-site.bats skipped a test in the lane that must run them all"
+            exit 1
+          fi
+
+      - name: Build site
+        run: bash scripts/build-docs-site.sh --out "$RUNNER_TEMP/site"
+
+      - name: Upload Pages artifact
+        if: steps.gate.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/site
+
+      - name: Upload review artifact (deploy gate off)
+        if: steps.gate.outputs.deploy != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: ${{ runner.temp }}/site
+          retention-days: 7
+
+  deploy:
+    if: needs.build.outputs.deploy == 'true'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
