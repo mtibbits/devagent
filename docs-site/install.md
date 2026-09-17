@@ -3,7 +3,7 @@
 
 ## Prerequisites & supported platforms
 
-devAgent is developed and tested on **Linux**, inside
+devAgent is developed and tested on **Linux** (including WSL on Windows), inside
 [Claude Code](https://claude.com/claude-code). macOS is currently untested:
 the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
 `readlink -f`) and bash ≥ 4.4 (the resolver libs use namerefs), and CI runs Linux only. You need:
@@ -83,11 +83,5 @@ every workflow script call prompts; approve-and-remember there, or upgrade. The 
 occasionally retype a command in a form that misses the literal prefix match (e.g. a
 different drive-letter case) — that falls back to a one-off prompt, never to a wider
 grant. Never widen to bare `Bash`.
-
-## While the repo is private
-
-`claude plugin marketplace add` clones over your configured git access — you
-need read access to `mtibbits/devagent` (an SSH key, or `gh auth` with `repo`
-scope). Once the repo is public this note no longer applies.
 
 [← devAgent onboarding](./index.md)
