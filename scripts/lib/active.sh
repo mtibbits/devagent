@@ -125,7 +125,7 @@ active_resolve_project_try() {
 # The project the operator is DEMONSTRABLY working in, derived independently of
 # the resolver: the configured project whose source_dir is $PWD or an ancestor
 # of it. Identity is `[ a -ef b ]` (device+inode), NEVER string equality —
-# `pwd` yields /c/Programs/... where config.toml spells c:/Programs/..., and
+# `pwd` yields /c/src/... where config.toml spells c:/src/..., and
 # devDoc tracks koopmanGNN/ where config spells KoopmanGNN (the #553
 # correction). -ef makes drive-form and case stop mattering.
 # The project→source_dir list is enumerated ONCE, before the ancestor walk
@@ -413,14 +413,14 @@ active_tree_resolve() {
 #                             project" is two clauses in order: a shared
 #                             --git-common-dir (a linked git worktree), else an equal
 #                             `remote get-url origin` (a separate CLONE — the
-#                             ~/devagent-wsl shape, and the likeliest live divergence).
+#                             second-clone shape, and the likeliest live divergence).
 # STATED BLIND SPOT — the clone clause FAILS OPEN, by decision, in two shapes:
 #   * either side has no `origin` remote (every bats fixture repo, any local-only
 #     checkout): the URLs read empty and the clause cannot decide, so the run
 #     PROCEEDS on ACTIVE_TREE_DIR;
 #   * the two clones' origins differ past the cosmetic normalization below —
 #     different transports (ssh vs https), or a clone made FROM a local path
-#     (measured 2026-08-07: ~/devagent-wsl's origin is /mnt/c/Programs/src/devagent,
+#     (measured 2026-08-07: a WSL clone whose origin is a /mnt/c/... local path,
 #     so THAT pair is not covered): the URLs read as different projects.
 # KNOWN FALSE-REFUSAL SHAPE (documented, not handled): a source_dir configured as a
 # SUBDIRECTORY of a repo (monorepo subproject) makes cwd-inside-the-measured-tree
@@ -472,8 +472,8 @@ active_guard_tree() {
   local top c_cwd c_tree u_cwd u_tree why
   top="$("$git" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$top" ] || return 0
-  # identity by device+inode, NEVER string equality: `pwd` yields /c/Programs/...
-  # where git yields C:/Programs/... (the #553 correction, active_context_project).
+  # identity by device+inode, NEVER string equality: `pwd` yields /c/src/...
+  # where git yields C:/src/... (the #553 correction, active_context_project).
   [ "$top" -ef "$ACTIVE_TREE_DIR" ] && return 0
   # Clause 1 — linked worktree: both sides' common dirs via _active_common_root.
   c_cwd="$(_active_common_root "$top")" || c_cwd=""
