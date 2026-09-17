@@ -383,6 +383,14 @@ fail-closed property is unweakened. `born-red.sh` resolves the interpreter the s
 (both go through `scripts/lib/python-interp.sh`) and refuses when it cannot run pytest
 at all — an unmeasurable baseline is not a red one.
 
+**pandoc, for one file (optional).** `tests/build-docs-site.bats` renders
+`docs-site/` and needs `pandoc` 3.x. Where pandoc is absent — including the
+`test suite` workflow's runners — its rendering tests skip with a reason (the
+input-refusal tests still run). pandoc is a contributor tool for this one file;
+the plugin itself never calls it. The skipped tests are not unrun:
+`.github/workflows/publish-docs-site.yml` installs pandoc, runs the file, and
+fails if anything in it skips.
+
 **Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
 FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a
 file still run in order), which cut this repo's bats leg from ~9 minutes to well under

@@ -13,6 +13,9 @@ rather than repeating it.
   `python3`.
 - For the test suite: `bats` 1.10 or newer, GNU `parallel` (bats `--jobs`),
   `pytest`, and `shellcheck` (CI runs it over `scripts/` and `hooks/`).
+- Optional, only for `tests/build-docs-site.bats`: `pandoc` 3.x. Without it
+  that file's rendering tests skip, saying so; CI runs them in the
+  `publish docs site` workflow, which installs pandoc.
 - Optional, only for the auth subsystem's live paths: `gh`, `glab`, `curl`.
   The tests stub all three; you do not need accounts to run the suite.
 - Claude Code, if you want to exercise a change through the slash commands
