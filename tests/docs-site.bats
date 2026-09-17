@@ -95,6 +95,35 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   [ "$status" -eq 1 ]
 }
 
+@test "docs-site: the retired permanent-step-ID claim never appears in a page or README (#558)" {
+  # #558 renumbered the steps into execution order, so "permanent IDs" is a
+  # claim the code no longer backs. One multi-file grep; precise no-match.
+  run grep -liE 'permanent(ly)?[ -]+numbered|permanent (step )?ids?' \
+      "${PAGES[@]/#/$SITE/}" "$PLUGIN_ROOT/README.md"
+  [ "$status" -eq 1 ]
+  # The live claim is byte-shared by its three homes.
+  for f in "$SITE/index.md" "$SITE/workflow.md" "$PLUGIN_ROOT/README.md"; do
+    grep -qF 'numbered 0–23 in' "$f"
+  done
+}
+
+@test "docs-site: install-page prerequisite and platform claims trace to README (#579)" {
+  # install.md declares README as a derive source. Every toolchain binary the
+  # page names must be named by README too, and the platform posture tokens
+  # are shared, so neither side can drift alone.
+  for tool in bash python3 jq git gh glab curl tomli; do
+    grep -qF "\`$tool\`" "$SITE/install.md"
+    grep -qF "\`$tool\`" "$PLUGIN_ROOT/README.md"
+  done
+  for f in "$SITE/install.md" "$PLUGIN_ROOT/README.md"; do
+    grep -qF 'developed and tested on **Linux**' "$f"
+    grep -qF 'macOS is currently untested' "$f"
+    grep -qF 'readlink -f' "$f"
+    run grep -liE 'repo(sitory)? is private|private-repo access' "$f"
+    [ "$status" -eq 1 ]
+  done
+}
+
 @test "docs-site: quickstart command lines are full-arity and gate-honest" {
   # Review findings 2-4 + preship class: a fenced /devagent:<verb> line must
   # satisfy the verb's own usage — init takes <project> (init.sh exits 2
