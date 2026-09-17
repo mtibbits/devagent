@@ -67,9 +67,13 @@ teardown() { devagent_test_teardown; }
     msg="$( cd "$SOURCE_DIR" && git log -1 --pretty=%B )"
     # Subject: type=feature → feat; title="add a.txt".
     [ "$( echo "$msg" | head -1 )" = "feat: add a.txt" ]
-    # Conventions doc must NOT leak into the body.
-    run grep -q "VOLK Commit Message Conventions" <<<"$msg"
-    [ "$status" -ne 0 ]
+    # Conventions doc must NOT leak into the body. The title is DERIVED from the
+    # doc (#579: the old literal named a vendored doc that #630 replaced, which
+    # left this negative assertion vacuous — it could no longer match anything).
+    doc_title="$(head -1 "$DEVAGENT_ROOT/docs/commit-conventions.md" | sed 's/^# *//')"
+    [ -n "$doc_title" ]
+    run grep -qiF "$doc_title" <<<"$msg"
+    [ "$status" -eq 1 ]
     # HTML authoring comment must NOT leak.
     run grep -q "Placeholder semantics" <<<"$msg"
     [ "$status" -ne 0 ]
