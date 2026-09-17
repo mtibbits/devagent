@@ -63,7 +63,7 @@ _mk_wt() {
 }
 
 @test "#571 AC1: a separate CLONE of the same project REFUSES (widened clause)" {
-    # The ~/devagent-wsl shape: not a linked worktree (own .git), same origin URL.
+    # The second-clone shape: not a linked worktree (own .git), same origin URL.
     git -C "$SOURCE_DIR" remote add origin https://example.invalid/acme/testproj.git
     CLONE="$DEVAGENT_TMP/clone"
     git clone -q "$SOURCE_DIR" "$CLONE"
