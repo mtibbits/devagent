@@ -56,9 +56,10 @@ State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] b
 
 ## The revision loop
 
-- `/devagent:revise` opens a new revision pass: it pulls reviewer feedback
-  via `/devagent:comments` and re-runs the workflow from the draft step —
-  the revision's first pending step.
+- Run `/devagent:comments` first to fetch reviewer feedback, then
+  `/devagent:revise` opens a new revision pass that re-runs the workflow from
+  the draft step — the revision's first pending step. `revise` does not fetch
+  comments itself and stops with a pointer to `comments` if they are missing.
 - `/devagent:stuck` marks the current step stuck with a reason;
   `/devagent:unstuck` clears it and resumes.
 - `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at

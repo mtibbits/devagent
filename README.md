@@ -87,9 +87,9 @@ with those rows pre-marked `[-]` (skipped):
 - **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
 - **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 updatewbs` · `21 impact` · `22 lessonslearned` · `23 cleanup`
 
-`/devagent:revise` opens a new revision pass (pulling reviewer feedback via
-`/devagent:comments` and re-running from `draft` — the revision's first pending
-step); `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
+`/devagent:comments` fetches reviewer feedback, then `/devagent:revise` opens a
+new revision pass that re-runs from `draft` — the revision's first pending step
+(`revise` refuses until `comments` has run; it does not fetch them itself); `/devagent:where` and `/devagent:catchup` rehydrate an issue's state at
 any point.
 
 ## Commands
@@ -189,7 +189,7 @@ Every backend script supports:
 | store    | Non-interactive ingest: read token from a file                   |
 | rotate   | Atomic: create new, swap into place, destroy old                 |
 | destroy  | `shred -u` then `unlink`                                         |
-| status   | Print backend, scopes, expiry, last-used (never the token)       |
+| status   | Print presence, file mode/size/mtime, scopes when known (never the token) |
 | exec     | Set the env var (`GH_TOKEN` / `GITLAB_TOKEN` / `JIRA_TOKEN`)     |
 |          | and exec the trailing command. Token never on argv.              |
 
@@ -303,6 +303,12 @@ the hermetic environment baked in and writes the provenance artifact
 ```sh
 bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
 ```
+
+`$CLAUDE_PLUGIN_ROOT` is set inside a Claude Code session; in a plain shell use
+the path to your clone. The runner needs `<project>` configured in devAgent with
+an active issue (the artifact lands in that issue's directory). With only a
+clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
+— see `CONTRIBUTING.md`.
 
 The suite has three environmental requirements. `run-suite.sh` enforces the first two
 by refusing to write an artifact at all, rather than producing one it cannot stand
