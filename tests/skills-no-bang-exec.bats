@@ -43,10 +43,11 @@
 # COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
 # renaming ANY skill reddens @test 4 — that is the intended forcing function. Adding
 # a USER-INVOCABLE one also reddens @test 1 here and, in tests/cmd_wrappers.bats,
-# the `capture next ship` set pin and the `-eq 3` / `n + s -eq 58` counts — and that
-# file pins the "58 slash commands" literal in SIX doc homes (README, CHANGELOG,
-# both .claude-plugin manifests, the design spec, docs-site/index.md). Budget
-# roughly an eight-site update, not a one-line one.
+# the `capture next ship` set pin and the derived-totals test, which names every
+# doc home whose "<N> slash commands" claim no longer matches the tree (README,
+# CHANGELOG, both .claude-plugin manifests, the design spec, docs-site/index.md).
+# Since #579 the totals are derived, so the update is the doc homes it names, not
+# the guard itself.
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
