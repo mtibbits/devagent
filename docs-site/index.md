@@ -17,7 +17,7 @@ trades improvisation for auditability:
 - **Every issue gets a `checklist.md`** that tracks its progress through the
   workflow, step by step. Any session — today's or next week's — can pick an
   issue up exactly where it stopped.
-- **Steps are permanently numbered IDs.** Each step leaves an on-disk
+- **Steps are numbered 0–23 in execution order.** Each step leaves an on-disk
   artifact (a plan, a scope evaluation, review findings, an MR body), so the
   full history of a change is reviewable after the fact.
 - **Fresh-session handoff is built in.** `/devagent:where` and
