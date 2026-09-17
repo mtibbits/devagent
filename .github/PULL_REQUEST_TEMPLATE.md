@@ -14,7 +14,7 @@
 ## Checklist
 - [ ] Every commit is signed off (`git commit -s`, Developer Certificate of Origin)
 - [ ] Commit subject reads `<type>: <title>` with issue references in the body
-- [ ] Suite passes: `bash scripts/run-suite.sh <project>` (or `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/`)
+- [ ] Suite passes: `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` (or `bash scripts/run-suite.sh <project>` if you run devAgent on this repo)
 - [ ] A behaviour change ships with a test that was red first
 - [ ] `shellcheck -x -s bash` is clean over touched files under `scripts/` and `hooks/`
 - [ ] Docs updated in the same PR (README, `docs-site/`, the command body) where behaviour changed

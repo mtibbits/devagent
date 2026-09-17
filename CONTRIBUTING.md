@@ -12,7 +12,8 @@ rather than repeating it.
 - `bash` 4.4 or newer (the resolver libraries use namerefs), `git`, `jq`,
   `python3`.
 - For the test suite: `bats` 1.10 or newer, GNU `parallel` (bats `--jobs`),
-  `pytest`, and `shellcheck` (CI runs it over `scripts/` and `hooks/`).
+  `pytest` with PyYAML (`python3-yaml`; one test module imports `yaml`), and
+  `shellcheck` 0.9.0 or newer.
 - Optional, only for the auth subsystem's live paths: `gh`, `glab`, `curl`.
   The tests stub all three; you do not need accounts to run the suite.
 - Claude Code, if you want to exercise a change through the slash commands
@@ -31,18 +32,21 @@ explains the mechanism behind both requirements.
 
 ## Running the suite
 
-The canonical runner is `scripts/run-suite.sh`, which pins the hermetic
-environment and refuses to write a result it cannot stand behind:
+With nothing but a clone, run the suites directly and pin the locale yourself:
+
+```sh
+LC_ALL=C.UTF-8 bats tests/                  # or one file: bats tests/some-file.bats
+python3 -m pytest tests/ -v
+```
+
+The maintainer's runner is `scripts/run-suite.sh`, which pins the hermetic
+environment and refuses to write a result it cannot stand behind. It needs
+devAgent installed and configured with a project and an active issue (it writes
+its result into that issue's directory), so it is not available to a plain
+clone:
 
 ```sh
 bash scripts/run-suite.sh <project>
-```
-
-For a single file while you work, pin the locale yourself:
-
-```sh
-LC_ALL=C.UTF-8 bats tests/some-file.bats
-python3 -m pytest tests/ -v
 ```
 
 CI runs bats as four shards with `--jobs 2` across files and tests within a
@@ -63,8 +67,10 @@ so there is no list to maintain.
   that fails on the old code and passes on the new. If a test cannot be made
   to fail first, say so in the PR and explain what it is guarding instead.
 - **shellcheck clean.** `shellcheck -x -s bash` over anything you touch under
-  `scripts/` and `hooks/`; CI enforces it. Silence a finding with a targeted
-  `# shellcheck disable=` and a reason, never a file-wide one.
+  `scripts/` and `hooks/`. CI enforces the floor only: `--severity=error` over
+  `scripts/`, plus SC2314 over `tests/*.bats`; `hooks/` and the lower
+  severities are held to the same standard in review. Silence a finding with a
+  targeted `# shellcheck disable=` and a reason, never a file-wide one.
 - **One change per PR.** Unrelated fixes go in their own PR, even when small.
 - **Docs travel with the change.** The README, `docs-site/`, and the
   `commands/*.md` bodies are the user-facing homes; `docs/specs/` is the

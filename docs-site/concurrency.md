@@ -65,7 +65,8 @@ Issues pause and resume without losing place:
 - `/devagent:switch` — park the current issue and resume a different one in
   one step.
 
-Parked issues show `[P]` in `/devagent:status`, the multi-project dashboard
+Parked issues are listed on a `Parked:` line in `/devagent:status` (the `[P]`
+glyph lives in the issue's checklist), the multi-project dashboard
 of active issues, stuck steps, and parked work.
 
 [← devAgent onboarding](./index.md)

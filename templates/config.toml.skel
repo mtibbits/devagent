@@ -159,8 +159,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # an explicit path (quote the hyphenated key):
 #   [project.{{PROJECT}}.paths]
 #   "checklist-standard" = "templates/my-standard.md"   # devdoc-relative
-# NB: an override path that does not exist falls through SILENTLY to the
-# plugin default. Custom-workflow authoring rules (gate step names, required
+# NB: an override path that does not exist falls through to the next layer
+# with a warning on stderr. Custom-workflow authoring rules (gate step names, required
 # steps, custom commands): see commands/template.md.
 [project.{{PROJECT}}.permissions]
 push_mr            = false

@@ -30,7 +30,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
                                # false = stop and ask (autonomous paths
                                # skip instead of asking). All ship false.
 push_mr          = true        # step 18 pushes + opens the MR unprompted
-merge_mr         = false       # merging the MR itself
+merge_mr         = false       # legacy alias of merge_to_all_prs; no step merges the MR
 merge_to_all_prs = false       # step 19 local integration branch
 commit_devdoc    = true        # step 23 commits the devdoc unprompted
 transition_issue = true        # tracker state transitions fire unprompted
@@ -108,7 +108,8 @@ The markdown shape produced by `fetch` and `comment-list` is fixed across
 backends, so everything downstream is backend-agnostic. To add your own
 tracker or forge, copy `scripts/issue/custom.sh` (and `scripts/code/custom.sh`
 for the forge half), implement each verb, point `backend = "<yourname>"` at
-it, and verify with `bats tests/backend-<yourname>.bats`.
+it, and verify with a `tests/backend-<yourname>.bats` you write yourself —
+copy `tests/backend-contract.bats` as the starting point.
 
 ## Templates (the §12 registry)
 
@@ -118,7 +119,7 @@ order:
 
 1. A per-project `paths` override in `config.toml` (a file path; relative
    paths resolve against `devdoc_dir`). Beware: an override path that does
-   not exist falls through **silently** to the plugin default.
+   not exist falls through to the next layer with a warning on stderr.
 2. Your devdoc's `templates/` directory — per-project customization.
 3. The plugin's own `templates/` directory (under the plugin cache dir) —
    the shipped defaults.
