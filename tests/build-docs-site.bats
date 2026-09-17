@@ -41,18 +41,14 @@ need_pandoc() {
 
 setup_file() {
   command -v pandoc >/dev/null 2>&1 || return 0
-  REAL_OUT="$(mktemp -d)/site"
+  REAL_OUT="$BATS_FILE_TMPDIR/site"
   export REAL_OUT
   bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
 setup() {
-  FX="$(mktemp -d)"
+  FX="$BATS_TEST_TMPDIR"
   mkdir -p "$FX/src"
-}
-
-teardown() {
-  rm -rf "$FX"
 }
 
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
@@ -70,6 +66,10 @@ fx_page() {
   local name="$1"; shift
   { printf '# %s\n\n' "$name"; printf '%s\n' "$@"; } > "$FX/src/$name.md"
 }
+
+# nav_of <html> — the <nav> block only. The theme CSS names aria-current and
+# page bodies link sibling pages, so nav assertions must not see the whole file.
+nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
 
 # ---------------------------------------------------------------- REAL site
 
@@ -151,19 +151,18 @@ fx_page() {
   grep -qF '<title>Install | devAgent</title>' "$REAL_OUT/install.html"
   grep -qF '<title>Multi-project &amp; concurrency | devAgent</title>' "$REAL_OUT/concurrency.html"
   # the nav label is escaped by THIS script (sed), the <title> by pandoc — pin both
-  # (scoped to <nav>: index.md's body links the same page, and pandoc escapes that one)
-  sed -n '/<nav/,/<\/nav>/p' "$REAL_OUT/index.html" | grep -qF '>Multi-project &amp; concurrency</a>'
+  # (index.md's body links the same page, and pandoc escapes that one)
+  nav_of "$REAL_OUT/index.html" | grep -qF '>Multi-project &amp; concurrency</a>'
   local html page
   for html in "$REAL_OUT"/*.html; do
     page="$(basename "$html")"
-    # scoped to the <nav> block: the theme CSS names the same attribute
-    [ "$(sed -n '/<nav/,/<\/nav>/p' "$html" | grep -c 'aria-current="page"')" -eq 1 ]
+    [ "$(nav_of "$html" | grep -c 'aria-current="page"')" -eq 1 ]
     grep -qF "<a href=\"$page\" aria-current=\"page\">" "$html"
-    [ "$(sed -n '/<nav/,/<\/nav>/p' "$html" | grep -c '<a href=')" -eq 6 ]
+    [ "$(nav_of "$html" | grep -c '<a href=')" -eq 6 ]
   done
   # nav order is index.md's bullet list, not the alphabetical glob
   local navorder
-  navorder="$(sed -n '/<nav/,/<\/nav>/p' "$REAL_OUT/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  navorder="$(nav_of "$REAL_OUT/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
   echo "nav order rendered: $navorder" >&2
   echo "(derived from docs-site/index.md's 'Where to go next' bullets — see docs-site/README.md; if that list changed on purpose, this expectation moves with it)" >&2
   [ "$navorder" = 'href="index.html" href="install.html" href="quickstart.html" href="workflow.html" href="configuration.html" href="concurrency.html" ' ]
@@ -321,4 +320,17 @@ fx_page() {
   grep -qF 'href="https://forge.example/blob/main/LICENSE"' "$FX/out/index.html"
   grep -qF 'href="https://example.org/x.md"' "$FX/out/index.html"
   grep -qF 'href="index.html"' "$FX/out/other.html"
+}
+
+@test "build-docs-site: fixture nav order — index, then the list's order, then pages the list omits" {
+  need_pandoc
+  fx_page index "- [Zeta](./zeta.md)" "- [Alpha](./alpha.md)"
+  fx_page zeta "z"
+  fx_page alpha "a"
+  fx_page mid "the list does not name this page"
+  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  [ "$status" -eq 0 ]
+  local navorder
+  navorder="$(nav_of "$FX/out/mid.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  [ "$navorder" = 'href="index.html" href="zeta.html" href="alpha.html" href="mid.html" ' ]
 }

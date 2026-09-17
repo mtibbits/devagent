@@ -87,16 +87,15 @@ def test_every_path_filter_names_something_tracked(entry):
 
 
 def test_gate_expression_is_spelled_exactly_once_with_all_three_clauses(wf, text):
+    # comments restate the rule in prose, never as the expression itself
+    code = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
     for clause in GATE_CLAUSES:
-        # comments restate the rule in prose, never as the expression itself
-        code = "\n".join(
-            line for line in text.splitlines() if not line.lstrip().startswith("#")
-        )
         assert code.count(clause) == 1, clause
     gate = [s for s in _steps(wf["jobs"]["build"]) if s.get("id") == "gate"]
     assert len(gate) == 1
     run = gate[0]["run"]
-    assert all(clause in run for clause in GATE_CLAUSES)
     assert " && ".join(GATE_CLAUSES) in run, "clauses must be AND-ed, in one expression"
     assert "||" not in run
     assert wf["jobs"]["build"]["outputs"] == {"deploy": "${{ steps.gate.outputs.deploy }}"}
@@ -118,9 +117,10 @@ def test_everything_that_can_publish_reads_the_one_gate(wf):
 
 
 def test_gate_step_runs_before_anything_that_reads_it(wf):
-    ids = [s.get("id") for s in _steps(wf["jobs"]["build"])]
+    steps = _steps(wf["jobs"]["build"])
+    ids = [s.get("id") for s in steps]
     readers = [
-        i for i, s in enumerate(_steps(wf["jobs"]["build"]))
+        i for i, s in enumerate(steps)
         if "steps.gate.outputs.deploy" in str(s.get("if", ""))
     ]
     assert readers and ids.index("gate") < min(readers)

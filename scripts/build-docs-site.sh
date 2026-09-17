@@ -80,10 +80,9 @@ html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/
 # Everything down to the pandoc probe needs no pandoc, so its refusals are
 # testable in a lane that has none.
 order=(index)
-in_order() { local x; for x in "${order[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
-is_page()  { local x; for x in "${pages[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+contains() { local n="$1" x; shift; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
 while IFS= read -r linked; do
-  if is_page "$linked" && ! in_order "$linked"; then order+=("$linked"); fi
+  if contains "$linked" "${pages[@]}" && ! contains "$linked" "${order[@]}"; then order+=("$linked"); fi
 done < <(grep -oE '^- \[[^]]*\]\(\./[A-Za-z0-9_-]+\.md\)' "$src/index.md" | sed -E 's/^.*\]\(\.\///; s/\.md\)$//')
 # A site with pages beyond index.md whose list matched NONE of them means the
 # list changed shape ("* " bullets, a nested list, a moved section) and the
@@ -93,7 +92,7 @@ done < <(grep -oE '^- \[[^]]*\]\(\./[A-Za-z0-9_-]+\.md\)' "$src/index.md" | sed 
 if [ "${#pages[@]}" -gt 1 ] && [ "${#order[@]}" -eq 1 ]; then
   die 4 "index.md's page list names no page: expected top-level bullets like '- [Title](./page.md)' in $src/index.md"
 fi
-for p in "${pages[@]}"; do in_order "$p" || order+=("$p"); done
+for p in "${pages[@]}"; do contains "$p" "${order[@]}" || order+=("$p"); done
 
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"
@@ -112,11 +111,11 @@ if [ -e "$out" ]; then
 fi
 mkdir -p "$out"
 
-
-declare -A title=()
+declare -A title=() label=()
 for p in "${pages[@]}"; do
   t="$(page_title "$src/$p.md")" || die 5 "no top-level '# ' heading in $src/$p.md"
   title[$p]="$t"
+  label[$p]="$(printf '%s' "$t" | html_escape)"
 done
 
 work="$(mktemp -d)"
@@ -127,12 +126,9 @@ for p in "${pages[@]}"; do
   {
     printf '<nav aria-label="Pages">\n<div class="navhead">devAgent docs</div>\n'
     for q in "${order[@]}"; do
-      label="$(printf '%s' "${title[$q]}" | html_escape)"
-      if [ "$q" = "$p" ]; then
-        printf '<a href="%s.html" aria-current="page">%s</a>\n' "$q" "$label"
-      else
-        printf '<a href="%s.html">%s</a>\n' "$q" "$label"
-      fi
+      cur=''
+      [ "$q" = "$p" ] && cur=' aria-current="page"'
+      printf '<a href="%s.html"%s>%s</a>\n' "$q" "$cur" "${label[$q]}"
     done
     printf '</nav>\n'
   } > "$nav"
