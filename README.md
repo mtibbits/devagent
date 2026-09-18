@@ -24,6 +24,10 @@ claude plugin marketplace add mtibbits/devagent
 claude plugin install devagent@devagent
 ```
 
+The install reports two `userConfig` options not yet set (`devdoc_root`,
+`default_project`); they only seed the `/devagent:init` interview and can be
+left unset — `config.toml` is the source of truth once init has run.
+
 **Recommended — superpowers.** When the
 [`superpowers`](https://github.com/anthropics/claude-plugins-official)
 plugin is installed, devAgent's implement and review steps — and draft on
@@ -35,6 +39,8 @@ hard-required; plugin dependencies do not auto-install, so this is a
 separate, optional command):
 
 ```sh
+# Not configured on a fresh install (measured on 2.1.260)
+claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 ```
 
