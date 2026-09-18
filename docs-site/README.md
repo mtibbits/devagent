@@ -1,8 +1,9 @@
 # docs-site — content-drift policy
 
 This directory holds the devAgent onboarding site: six content pages, plain
-markdown, no generator. This file is the site's maintenance policy, not one
-of the pages. (The Pages deployment workflow may exclude it from the
+markdown, nothing generated is committed. `scripts/build-docs-site.sh` renders
+them with pandoc at publish time. This file is the site's maintenance policy,
+not one of the pages. (`scripts/build-docs-site.sh` leaves it out of the
 published site; its content is public-safe either way.)
 
 ## Derivation rule
@@ -46,6 +47,20 @@ sources (drift on either side reddens), and its header comment — which lives
 next to the assertions and is edited with them — enumerates the pinned
 surface. Anything the suite does not pin is held only by the derivation rule
 above and by review.
+
+**A second suite reads these pages.** `tests/build-docs-site.bats` builds the
+site and derives expectations from the markdown: each page's code-fence count
+and `workflow.md`'s table rows must survive rendering, the two
+`claude plugin …` lines in `install.md` must appear verbatim in the HTML,
+`install.md`'s and `concurrency.md`'s H1s are pinned as page titles, and the
+site's navigation order is read from `index.md`'s "Where to go next" bullet
+list — which must stay a top-level `- [Title](./page.md)` list. If no bullet
+is in that form the build refuses (exit 4); if a single bullet drifts, that
+page silently moves to the end of the nav and the nav-order assertion in
+`tests/build-docs-site.bats` reddens instead. That suite needs pandoc, so most
+of it runs in the
+`publish docs site` workflow rather than `test suite`. If it reddens after a
+deliberate page edit, the expectation moves with the page.
 
 ## Pending mechanism
 

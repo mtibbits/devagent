@@ -12,6 +12,19 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The onboarding site can be built and published (#465).**
+  `scripts/build-docs-site.sh` renders the `docs-site/` pages to a static
+  site with pandoc, straight from the tracked markdown — no rendered copy is
+  committed. It rewrites page-to-page links, sends links that leave
+  `docs-site/` to the forge, and fails the build on a link it cannot classify
+  or that resolves to nothing, and refuses a pandoc older than 3.x. A new
+  `publish docs site` workflow runs the builder's tests, builds, and can deploy
+  to GitHub Pages by keyless OIDC. **Deploy is off** until the repository
+  variable `DOCS_SITE_DEPLOY` is set to `true`, because GitHub Pages is not
+  enabled on the repository yet and a deploy against a Pages-disabled repo
+  fails; `docs/pages-deployment.md` has the switch-on steps. New optional test
+  prerequisite: pandoc 3.x, for `tests/build-docs-site.bats` only.
+
 - **The oneshot tier's no-repo-diff boundary is enforced mechanically (#595).**
   "An operational action, not a repo change" lived in prose in three documents
   and nothing caught a one-shot that quietly produced commits. The oneshot tier
