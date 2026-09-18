@@ -1,8 +1,9 @@
 # Builds the onboarding site from docs-site/ and, once the operator switches it
 # on, publishes it to GitHub Pages (#465).
 #
-# DEPLOY IS OFF UNTIL THE OPERATOR TURNS IT ON. GitHub Pages is unavailable to
-# this repository while it is private (#463), and a deploy attempted against a
+# DEPLOY IS OFF UNTIL THE OPERATOR TURNS IT ON. GitHub Pages is not enabled on
+# this repository yet (#463 chose public repo + Pages; the repo went public
+# 2026-09-18, enabling Pages is still owed), and a deploy attempted against a
 # repo with Pages disabled fails — which would redden master on every docs
 # push. So the deploy half runs only when ALL of these hold:
 #     the repository is mtibbits/devagent        (forks never deploy)
@@ -81,11 +82,20 @@ jobs:
           LANG: C.UTF-8
         # pipefail is load-bearing: a bare `run:` is `bash -e`, WITHOUT pipefail,
         # so `bats | tee` would take tee's status and a red test would pass.
+        # The skip detector greps TAP's `# skip` token, so the formatter is
+        # pinned rather than left to bats' not-a-tty default; and a file that
+        # registers zero tests prints `1..0` and exits 0, so the plan line is
+        # checked too.
         run: |
           set -o pipefail
-          bats tests/build-docs-site.bats | tee "$RUNNER_TEMP/bats.out"
+          bats --formatter tap tests/build-docs-site.bats | tee "$RUNNER_TEMP/bats.out"
           if grep -q '# skip' "$RUNNER_TEMP/bats.out"; then
             echo "::error::tests/build-docs-site.bats skipped a test in the lane that must run them all"
+            exit 1
+          fi
+          planned="$(sed -n 's/^1\.\.\([0-9]\+\)$/\1/p' "$RUNNER_TEMP/bats.out")"
+          if [ -z "$planned" ] || [ "$planned" -lt 1 ]; then
+            echo "::error::tests/build-docs-site.bats registered no tests"
             exit 1
           fi
 
@@ -104,7 +114,7 @@ jobs:
         with:
           name: docs-site
           path: ${{ runner.temp }}/site
-          retention-days: 7
+          retention-days: 30
 
   deploy:
     if: needs.build.outputs.deploy == 'true'

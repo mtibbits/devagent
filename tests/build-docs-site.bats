@@ -184,6 +184,14 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
   [[ "$output" == *"unknown argument: --nope"* ]]
 }
 
+@test "build-docs-site: --blob-base with an attribute-breaking character -> exit 2" {
+  # page.html interpolates \$blob_base\$ into an href unescaped (pandoc templates
+  # have no escape filter), so the value is validated at the argument instead.
+  run bash "$BUILD" --blob-base 'https://x/" onmouseover="alert(1)'
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--blob-base must not contain"* ]]
+}
+
 @test "build-docs-site: pandoc absent -> exit 3, nothing written" {
   fx_bin
   fx_page index "hello"

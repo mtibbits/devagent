@@ -17,11 +17,12 @@ bash scripts/build-docs-site.sh --out /tmp/devagent-site
 Needs pandoc 3.x. `--out` must be absent or empty; the script never deletes.
 Open `/tmp/devagent-site/index.html`.
 
-## Turning publishing on (operator, after the repository is public)
+## Turning publishing on (operator)
 
-GitHub Pages is not available to this repository while it is private
-(decision record: #463). The steps below were therefore **written before they
-could be run**. The read-only calls were exercised against `mtibbits/volk`,
+`mtibbits/devagent` has been public since 2026-09-18, but Pages is not enabled
+on it — `gh api repos/mtibbits/devagent/pages` returns 404, and no
+`github-pages` environment exists yet (decision record: #463). The steps below
+were therefore **written before they could be run**. The read-only calls were exercised against `mtibbits/volk`,
 which publishes the same way; the state-changing calls have not been executed
 against this repository. Whoever runs them first corrects this section from
 what actually happened.
@@ -63,7 +64,8 @@ what actually happened.
 
    Use a fresh run, not a re-run of an old one: a Pages artifact expires.
 
-4. Check every page. The list comes from the directory, so it cannot go stale:
+4. Check every page, from a checkout of `master`. The list comes from the
+   directory, so it cannot go stale:
 
    ```sh
    base="$(gh api repos/mtibbits/devagent/pages -q .html_url)"

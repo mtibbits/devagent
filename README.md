@@ -389,7 +389,8 @@ at all — an unmeasurable baseline is not a red one.
 input-refusal tests still run). pandoc is a contributor tool for this one file;
 the plugin itself never calls it. The skipped tests are not unrun:
 `.github/workflows/publish-docs-site.yml` installs pandoc, runs the file, and
-fails if anything in it skips.
+fails if anything in it skips; `docs/pages-deployment.md` has the local build
+command.
 
 **Parallel bats (optional).** `suite_jobs = N` in `[project.<name>]` runs bats test
 FILES N at a time (`bats --jobs N --no-parallelize-within-files`; the tests inside a

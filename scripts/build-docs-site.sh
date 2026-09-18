@@ -51,6 +51,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+case "$blob_base" in
+  *[\"\'\<\>\ ]*) die 2 "--blob-base must not contain quotes, angle brackets or spaces: $blob_base" ;;
+esac
 [ -d "$src" ] || die 4 "source dir not found: $src"
 
 shopt -s nullglob

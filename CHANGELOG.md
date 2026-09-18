@@ -18,11 +18,11 @@ tag`) will get their own dated sections below.
   committed. It rewrites page-to-page links, sends links that leave
   `docs-site/` to the forge, and fails the build on a link it cannot classify
   or that resolves to nothing, and refuses a pandoc older than 3.x. A new
-  `publish docs site` workflow runs the
-  builder's tests, builds, and can deploy to GitHub Pages by keyless OIDC.
-  **Deploy is off** until the repository variable `DOCS_SITE_DEPLOY` is set to
-  `true`, because Pages is unavailable while the repository is private;
-  `docs/pages-deployment.md` has the switch-on steps. New optional test
+  `publish docs site` workflow runs the builder's tests, builds, and can deploy
+  to GitHub Pages by keyless OIDC. **Deploy is off** until the repository
+  variable `DOCS_SITE_DEPLOY` is set to `true`, because GitHub Pages is not
+  enabled on the repository yet and a deploy against a Pages-disabled repo
+  fails; `docs/pages-deployment.md` has the switch-on steps. New optional test
   prerequisite: pandoc 3.x, for `tests/build-docs-site.bats` only.
 
 - **The oneshot tier's no-repo-diff boundary is enforced mechanically (#595).**

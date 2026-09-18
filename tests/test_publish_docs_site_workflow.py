@@ -1,8 +1,9 @@
 """#465: structural pins on .github/workflows/publish-docs-site.yml.
 
 The workflow's deploy half must stay OFF until the operator sets the repository
-variable DOCS_SITE_DEPLOY: GitHub Pages is unavailable while the repo is
-private, and an ungated deploy would redden master on every docs push.
+variable DOCS_SITE_DEPLOY: GitHub Pages is not enabled on the repository yet,
+and a deploy against a Pages-disabled repo fails — which would redden master on
+every docs push.
 
 WHAT THESE PINS OWN: the shape of the file — that the gate expression carries
 all three clauses, that it is spelled in exactly one place, that every step or
@@ -139,10 +140,14 @@ def test_write_permissions_live_on_the_deploy_job_only(wf):
 def test_build_lane_runs_the_builder_tests_and_refuses_skips(wf):
     runs = [s.get("run", "") for s in _steps(wf["jobs"]["build"])]
     pandoc_at = next(i for i, r in enumerate(runs) if r.startswith("pandoc --version"))
-    bats_at = next(i for i, r in enumerate(runs) if "bats tests/build-docs-site.bats" in r)
+    bats_at = next(i for i, r in enumerate(runs) if "tests/build-docs-site.bats" in r)
     build_at = next(i for i, r in enumerate(runs) if "scripts/build-docs-site.sh" in r)
     assert pandoc_at < bats_at < build_at
     assert "# skip" in runs[bats_at] and "exit 1" in runs[bats_at]
+    # `# skip` is a TAP token; pin the formatter the detector depends on, and
+    # the plan-line check that catches a file registering zero tests (`1..0`).
+    assert "bats --formatter tap tests/build-docs-site.bats" in runs[bats_at]
+    assert "registered no tests" in runs[bats_at]
 
 
 def test_builder_test_step_cannot_pass_on_a_red_test(wf):

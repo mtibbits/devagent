@@ -54,8 +54,11 @@ and `workflow.md`'s table rows must survive rendering, the two
 `claude plugin …` lines in `install.md` must appear verbatim in the HTML,
 `install.md`'s and `concurrency.md`'s H1s are pinned as page titles, and the
 site's navigation order is read from `index.md`'s "Where to go next" bullet
-list — which must stay a top-level `- [Title](./page.md)` list, or the build
-refuses (exit 4). That suite needs pandoc, so most of it runs in the
+list — which must stay a top-level `- [Title](./page.md)` list. If no bullet
+is in that form the build refuses (exit 4); if a single bullet drifts, that
+page silently moves to the end of the nav and the nav-order assertion in
+`tests/build-docs-site.bats` reddens instead. That suite needs pandoc, so most
+of it runs in the
 `publish docs site` workflow rather than `test suite`. If it reddens after a
 deliberate page edit, the expectation moves with the page.
 
