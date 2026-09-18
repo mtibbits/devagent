@@ -42,18 +42,18 @@ which branches are still untested.
    environment immediately, and it already carried
    `{"custom_branch_policies":true,"protected_branches":false}` with `master`
    listed — nothing to add, and the first deploy from `master` succeeded.
-   Not observed (untested branches): a `null` policy (any branch may deploy;
-   nothing to do); a 404 (the environment was not created — proceed to step 3
-   and re-read this after the first run); a custom policy that does not list
-   `master`, which you add with:
+   Not observed (untested branches):
+   - a `null` policy — any branch may deploy; nothing to do.
+   - a 404 — the environment was not created; proceed to step 3 and re-read
+     this after the first run.
+   - a custom policy that omits `master` — add it:
 
    ```sh
    gh api -X POST repos/mtibbits/devagent/environments/github-pages/deployment-branch-policies \
      -f name=master -f type=branch
    ```
 
-   The default branch did not need it here. A missing policy fails only the
-   deploy job, with the build job still green.
+   A missing policy fails only the deploy job, with the build job still green.
 
 3. Switch the gate on, then trigger a fresh run:
 
