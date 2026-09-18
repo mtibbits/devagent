@@ -48,10 +48,10 @@ which branches are still untested.
      this after the first run.
    - a custom policy that omits `master` — add it:
 
-   ```sh
-   gh api -X POST repos/mtibbits/devagent/environments/github-pages/deployment-branch-policies \
-     -f name=master -f type=branch
-   ```
+     ```sh
+     gh api -X POST repos/mtibbits/devagent/environments/github-pages/deployment-branch-policies \
+       -f name=master -f type=branch
+     ```
 
    A missing policy fails only the deploy job, with the build job still green.
 

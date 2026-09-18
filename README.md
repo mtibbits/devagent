@@ -36,8 +36,8 @@ its inline (non-dispatched) path — use its skills. When it is absent, those
 steps fall back to compact built-in paths and print a one-line install
 nudge; devAgent itself always loads either way, and `/devagent:doctor`
 warns when the plugin is missing or disabled (#541: recommended, never
-hard-required; plugin dependencies do not auto-install, so this is a
-separate, optional command):
+hard-required; plugin dependencies do not auto-install, so these are
+separate, optional commands):
 
 ```sh
 # Not configured on a fresh install (measured on 2.1.260)

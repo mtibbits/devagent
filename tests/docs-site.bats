@@ -49,11 +49,17 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qF 'claude plugin install devagent@devagent' "$f"
     grep -qF 'claude plugin install superpowers@claude-plugins-official' "$f"
     # #465 r2 walkthrough finding A: the official marketplace is not configured on a
-    # fresh install, so the superpowers command needs this line first — both homes.
-    grep -qF 'claude plugin marketplace add anthropics/claude-plugins-official' "$f"
-    # Finding B: the install's userConfig notice is explained, both homes (a fragment
-    # anchored to its sentence, short enough never to straddle a wrap).
+    # fresh install, so the superpowers command needs the marketplace-add line
+    # DIRECTLY BEFORE it — adjacency, not just presence — and the shared comment
+    # line above them carries the version the negative was measured on.
+    grep -A1 -F 'claude plugin marketplace add anthropics/claude-plugins-official' "$f" \
+      | grep -qF 'claude plugin install superpowers@claude-plugins-official'
+    grep -qF '# Not configured on a fresh install (measured on 2.1.260)' "$f"
+    # Finding B: the install's userConfig notice is explained, both homes. The
+    # sentence anchor cannot straddle a wrap; the option names are pinned over
+    # whitespace-normalised text so the paragraph may wrap anywhere.
     grep -qF '`userConfig` options not yet set' "$f"
+    tr -s '[:space:]' ' ' <"$f" | grep -qF 'options not yet set (`devdoc_root`, `default_project`)'
     # Deliberate literal pin, not derive-from-README: a version bump must be a
     # CONSCIOUS edit here too, because it is the trigger for re-running the
     # plugin-root-grant-automatch smoke rung (#548).
