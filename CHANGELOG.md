@@ -3,12 +3,16 @@
 All notable changes to devAgent are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-devAgent is currently versioned by its **git commit SHA** (the marketplace entry
-carries no pinned `version`), so every commit on `master` is a release and
-`claude plugin update` tracks new commits without a reinstall. When a stable
-release cadence is adopted (a go-public decision — see #532, ratified
-2026-07-20: SHA-tracking stays until then), tagged versions (`claude plugin
-tag`) will get their own dated sections below.
+devAgent is released as tagged semver versions. `.claude-plugin/plugin.json`
+carries the release `version` (the marketplace entry carries none — Claude
+Code uses the plugin.json value when both are set, so a second copy can only
+go stale). Each release is an annotated `devagent--v<version>` git tag created
+with `claude plugin tag --push`, a dated section below, and a GitHub release
+whose notes are that section. A marketplace install is pinned to the version
+string and picks up the next release on `claude plugin update`. Until 1.0.0
+the plugin was versioned by git commit SHA with no release cadence (#532,
+ratified 2026-07-20 while the repository was private, re-taken at go-public);
+the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
@@ -18,6 +22,27 @@ tag`) will get their own dated sections below.
   real transcript, README and the repository homepage carry the URL, and the
   install page gained the official-marketplace step and the `userConfig` note
   that a clean-machine install walkthrough (attached to #465) found missing.
+
+## [1.0.0] — 2026-09-18
+
+First tagged release, cut at go-public (#463, #464). Everything in this section
+had already shipped SHA-by-SHA to `master` before the tag existed.
+
+- **The plugin carries a version: `plugin.json` `version: 1.0.0` (#532
+  re-take).** Behavior change for every install from the GitHub marketplace,
+  stated here because #532 required it never be claimed as "no change": until
+  now `claude plugin update devagent@devagent` followed `master` commit by
+  commit; from this release it resolves to the version string and only sees an
+  update when that string changes, so a merge to `master` reaches installed
+  users at the next release rather than immediately. A marketplace added from
+  a local checkout loads it in place and is not pinned. Measured on Claude Code
+  2.1.223: `claude plugin validate --strict` now passes (it was
+  documented-red on the missing version), and `claude plugin tag --dry-run`
+  resolves `devagent--v1.0.0`. `tests/test_plugin_versioning.py` inverts from
+  "no version anywhere" to "semver in plugin.json, none in the marketplace
+  entry, matching CHANGELOG section", and `tests/plugin-validate.bats` wires
+  the strict gate plus the tag dry-run. README, the docs-site install page and
+  SECURITY.md describe the release policy instead of SHA-tracking.
 
 - **The onboarding site can be built and published (#465).**
   `scripts/build-docs-site.sh` renders the `docs-site/` pages to a static
@@ -580,7 +605,7 @@ tag`) will get their own dated sections below.
   run `claude plugin update devagent@devagent` once to heal (measured —
   the update alone flips the plugin to `✔ enabled`, superpowers still absent).
 
-Current capabilities as of this commit:
+Current capabilities as of this release:
 
 ### Core
 - **58 slash commands** driving a fixed **24-step issue workflow** (21 mandatory,

@@ -64,8 +64,10 @@ claude plugin install superpowers@claude-plugins-official
 
 ## Updates
 
-The plugin is versioned by git commit SHA (no pinned `version`), so updating
-picks up new commits without an uninstall + reinstall:
+Releases are tagged semver versions (`.claude-plugin/plugin.json` carries the
+`version`), so updating picks up the next release without an uninstall +
+reinstall. Merges to `master` between releases do not reach an installed
+plugin; a release does:
 
 ```sh
 claude plugin update devagent@devagent

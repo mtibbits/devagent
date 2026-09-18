@@ -49,9 +49,11 @@ Installs from before #541: run `claude plugin update devagent@devagent`
 once — the old manifest declared superpowers as a hard dependency, and a
 cached copy of it keeps devAgent disabled until updated.
 
-**Updates.** The plugin is versioned by git commit SHA (no pinned `version`), so
-`claude plugin update devagent@devagent` picks up new commits without an
-uninstall + reinstall.
+**Updates.** Releases are tagged semver versions (`.claude-plugin/plugin.json`
+carries the `version`), so `claude plugin update devagent@devagent` picks up the
+next release without an uninstall + reinstall. Merges to `master` between
+releases do not reach an installed plugin; see
+[Versioning & releases](#versioning--releases).
 
 **Prerequisites.** The workflow scripts need `bash` ≥ 4.4 (the resolver libs use
 namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. The
@@ -484,30 +486,42 @@ gate; the hook is a faster local mirror, not a replacement.
 
 ## Versioning & releases
 
-**Policy (ratified, #532): SHA-tracking — no `version` field anywhere.**
-The marketplace entry and `.claude-plugin/plugin.json` both deliberately set
-no `version` while devAgent is under active iteration. Per the Claude Code
-plugin docs, an unset version means each commit is versioned by its git SHA,
-so `/plugin update` picks up new commits without an `uninstall` + `install`
-round-trip.
+**Policy (re-taken at go-public 2026-09-18, #532): tagged semver releases.**
+`.claude-plugin/plugin.json` carries the release `version`; the marketplace
+entry deliberately carries none — Claude Code uses the plugin.json value
+without warning when both are set, so a second copy can only go stale. Until
+1.0.0 the plugin was versioned by git commit SHA (the #532 branch (a) policy,
+ratified 2026-07-20 while the repository was private); that decision named the
+go-public flip as its revisit trigger, and its branch (b) is now in force. The
+decision doc in devDoc `Issue-532/decision-plugin-versioning.md` records both
+takes with the measured evidence.
 
-Do **not** re-add a `version` to `.claude-plugin/plugin.json`: a plugin.json
-`version` wins over the marketplace entry and silently re-pins the plugin for
-every installed user, reintroducing the reinstall tax (#445). This is enforced
-by `tests/test_plugin_versioning.py` (CI) and recorded with the measured
-evidence in the #532 decision doc.
+What a version pins: a marketplace install resolves to the `version` string
+and only sees an update when that string changes. Merging to `master` no
+longer reaches installed users by itself — a release does. A marketplace added
+from a local checkout (`claude plugin marketplace add <path>`) loads that
+checkout in place and is not pinned.
 
-Consequence, accepted: `claude plugin validate --strict` fails on the missing
-version (measured on 2.1.211, re-verified on 2.1.223 — #548) and stays red by design. The wired check is the
-**non-strict** `claude plugin validate` (rc=0). Both invocations — the
-non-strict check and the strict inverse canary — live in
-`tests/plugin-validate.bats`, a local-only rung, since CI has no claude CLI;
-the CI-enforcing half is the pytest guard above. Real conformance coverage
-comes from the pytest frontmatter canaries (#447): `--strict` is manifest-only
-and never opens agent/skill files.
+Cutting a release, all on a clean `master`:
 
-When a stable release cadence is wanted (go-public, #404), revisit #532
-branch (b): explicit versions with
-[`claude plugin tag`](https://docs.claude.com/en/docs/claude-code/plugins), a
-`CHANGELOG.md` section per release, and an explicit migration note — adding a
-version changes `/plugin update` behavior for every installed user.
+1. Bump `version` in `.claude-plugin/plugin.json`. Patch for fixes; minor for
+   added commands, steps or options; major for a change that breaks an
+   existing project's `config.toml`, devdoc layout or command contract.
+2. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new
+   `## [<version>] — <date>` heading; `tests/test_plugin_versioning.py` fails
+   until the section for the manifest version exists.
+3. Merge that change, then run `claude plugin tag --push`. It validates the
+   plugin, checks that plugin.json and the marketplace entry agree, refuses a
+   dirty tree or an existing tag, and pushes the annotated
+   `devagent--v<version>` tag — the name Claude Code's dependency resolver
+   reads when another plugin declares a version constraint on devAgent.
+4. Publish the GitHub release on that tag with the CHANGELOG section as its
+   notes: `gh release create devagent--v<version> --title "devagent <version>"
+   --notes-file <section>`.
+
+Guards: `tests/test_plugin_versioning.py` (CI) requires a semver `version` in
+plugin.json, none in the marketplace entry, and a matching CHANGELOG section.
+`tests/plugin-validate.bats` (local-only — CI has no claude CLI) runs
+`claude plugin validate --strict` (rc=0 once the version landed, measured on
+2.1.223; it was documented-red on the missing version before) and
+`claude plugin tag --dry-run`.
