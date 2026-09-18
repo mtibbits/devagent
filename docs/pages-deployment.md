@@ -19,13 +19,10 @@ Open `/tmp/devagent-site/index.html`.
 
 ## Turning publishing on (operator)
 
-`mtibbits/devagent` has been public since 2026-09-18, but Pages is not enabled
-on it — `gh api repos/mtibbits/devagent/pages` returns 404, and no
-`github-pages` environment exists yet (decision record: #463). The steps below
-were therefore **written before they could be run**. The read-only calls were exercised against `mtibbits/volk`,
-which publishes the same way; the state-changing calls have not been executed
-against this repository. Whoever runs them first corrects this section from
-what actually happened.
+These steps were executed against this repository on 2026-09-18 (the
+transcript is on #465). What follows is what happened, not what was expected;
+outcomes that were NOT observed are marked as such, so the next operator knows
+which branches are still untested.
 
 1. Enable Pages with the workflow build type, and note the site URL it reports:
 
@@ -41,21 +38,22 @@ what actually happened.
    gh api repos/mtibbits/devagent/environments/github-pages/deployment-branch-policies -q '.branch_policies[].name'
    ```
 
-   If the first prints `null` or nothing, any branch may deploy and there is
-   nothing to do.
-   If it returns 404, the environment does not exist yet: enabling Pages does
-   not necessarily create it, the first deploy does, and a new environment has
-   no branch restriction — proceed to step 3 and re-read this after that run.
-   If it reports `custom_branch_policies: true` and the second does not list
-   `master`, add it:
+   Observed on 2026-09-18: enabling Pages in step 1 created the `github-pages`
+   environment immediately, and it already carried
+   `{"custom_branch_policies":true,"protected_branches":false}` with `master`
+   listed — nothing to add, and the first deploy from `master` succeeded.
+   Not observed (untested branches): a `null` policy (any branch may deploy;
+   nothing to do); a 404 (the environment was not created — proceed to step 3
+   and re-read this after the first run); a custom policy that does not list
+   `master`, which you add with:
 
    ```sh
    gh api -X POST repos/mtibbits/devagent/environments/github-pages/deployment-branch-policies \
      -f name=master -f type=branch
    ```
 
-   Whether a default branch needs this is not yet known. A missing policy fails
-   only the deploy job, with the build job still green.
+   The default branch did not need it here. A missing policy fails only the
+   deploy job, with the build job still green.
 
 3. Switch the gate on, then trigger a fresh run:
 
@@ -90,9 +88,10 @@ gh variable delete DOCS_SITE_DEPLOY -R mtibbits/devagent
 The published site stays up until Pages itself is disabled; this only stops new
 deploys.
 
-## What is still owed after the flip
+## After the flip (2026-09-18)
 
-Tracked on #465, which stays open until these are done: every page confirmed
-live (step 4 above), a clean-machine install walkthrough transcript, the live
-URL added to `README.md` and the repository's homepage field, and this file's
-"Turning publishing on" section corrected from the real transcript.
+Every page confirmed live (step 4: six `200`s); `README.md` and the repository
+homepage field carry https://mtibbits.github.io/devagent/; the clean-machine
+install walkthrough is attached to #465 and its two findings are fixed on the
+install page. Nothing is owed. A docs push to `master` now deploys for real;
+"Turning publishing off" above is the off switch.
