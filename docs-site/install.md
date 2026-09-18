@@ -42,9 +42,10 @@ claude plugin marketplace add mtibbits/devagent
 claude plugin install devagent@devagent
 ```
 
-The install reports two `userConfig` options not yet set (`devdoc_root`,
-`default_project`); they only seed the `/devagent:init` interview and can be
-left unset — `config.toml` is the source of truth once init has run.
+The install reports two `userConfig`
+options not yet set (`devdoc_root`, `default_project`); they only seed the
+`/devagent:init` interview and can be left unset — `config.toml` is the source
+of truth once init has run.
 
 ## Recommended: superpowers
 
