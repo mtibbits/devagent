@@ -16,6 +16,13 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **The onboarding site is live at https://mtibbits.github.io/devagent/ (#465).**
+  Pages was enabled and `DOCS_SITE_DEPLOY` set on 2026-09-18; every docs push
+  to `master` now deploys. `docs/pages-deployment.md` is corrected from the
+  real transcript, README and the repository homepage carry the URL, and the
+  install page gained the official-marketplace step and the `userConfig` note
+  that a clean-machine install walkthrough (attached to #465) found missing.
+
 ## [1.0.0] — 2026-09-18
 
 First tagged release, cut at go-public (#463, #464). Everything in this section

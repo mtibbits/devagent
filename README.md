@@ -10,7 +10,8 @@ revision, WBS, and status-report subsystems on top of the core loop.
 
 See `docs/specs/2026-05-19-devagent-plugin-design.md` for the design spec and
 `docs/plans/` for the incremental build history. New to devAgent? Start with
-the onboarding pages in `docs-site/` (`docs-site/index.md`).
+the onboarding site at https://mtibbits.github.io/devagent/ (source:
+`docs-site/`, beginning at `docs-site/index.md`).
 
 ## Install
 
@@ -24,6 +25,10 @@ claude plugin marketplace add mtibbits/devagent
 claude plugin install devagent@devagent
 ```
 
+The install reports two `userConfig` options not yet set (`devdoc_root`,
+`default_project`); they only seed the `/devagent:init` interview and can be
+left unset.
+
 **Recommended — superpowers.** When the
 [`superpowers`](https://github.com/anthropics/claude-plugins-official)
 plugin is installed, devAgent's implement and review steps — and draft on
@@ -31,10 +36,12 @@ its inline (non-dispatched) path — use its skills. When it is absent, those
 steps fall back to compact built-in paths and print a one-line install
 nudge; devAgent itself always loads either way, and `/devagent:doctor`
 warns when the plugin is missing or disabled (#541: recommended, never
-hard-required; plugin dependencies do not auto-install, so this is a
-separate, optional command):
+hard-required; plugin dependencies do not auto-install, so these are
+separate, optional commands):
 
 ```sh
+# Not configured on a fresh install (measured on 2.1.260; not version-specific)
+claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 ```
 
