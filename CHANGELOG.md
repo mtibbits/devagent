@@ -12,6 +12,13 @@ tag`) will get their own dated sections below.
 
 ## [Unreleased]
 
+- **The onboarding site is live at https://mtibbits.github.io/devagent/ (#465).**
+  Pages was enabled and `DOCS_SITE_DEPLOY` set on 2026-09-18; every docs push
+  to `master` now deploys. `docs/pages-deployment.md` is corrected from the
+  real transcript, README and the repository homepage carry the URL, and the
+  install page gained the official-marketplace step and the `userConfig` note
+  that a clean-machine install walkthrough (attached to #465) found missing.
+
 - **The onboarding site can be built and published (#465).**
   `scripts/build-docs-site.sh` renders the `docs-site/` pages to a static
   site with pandoc, straight from the tracked markdown — no rendered copy is
