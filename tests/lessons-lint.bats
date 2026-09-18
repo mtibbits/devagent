@@ -275,3 +275,115 @@ LL
   run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
   [ "$status" -eq 0 ]
 }
+
+# --- #594: two false positives closed, both directions pinned (Issue-585) -------
+# Fixtures are copied verbatim from the live corpus (Issue-586): the wikilink
+# bullets from volk/Issue-Fork-58 "Carried memories", the bracket-leading
+# headings from devagent/Issue-536:3 and devagent/Issue-530:32.
+
+@test "lessons-lint: a '- [[wikilink]]' bullet is a link, not a tag: it does not flag (#594)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+### a structured claim
+- Tags: [pattern]
+
+## Carried memories
+
+*None new.* Existing memories already cover the lessons:
+- [[feedback_subagent_delegation_rubric]] — reinforced (reviews caught real bugs)
+- [[feedback_inspect_generated_machine_c]] — reinforced (this PR's check formalizes the manual inspection step from that memory)
+- [[feedback_verify_call_site]] — reinforced (plan-vs-reality mismatch on `generic` deps)
+- [[project_dispatch_path_test_gap]] — partially closed by this PR (the check formalizes one piece of dispatch-path coverage)
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"off-taxonomy tag"* ]]
+}
+
+@test "lessons-lint: the wikilink exemption does not swallow real tag bullets (#594 must-trip half)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+### a structured claim
+- [actionable] real claim
+- [[feedback_verify_call_site]] — reinforced
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+  cat > "$BATS_TEST_TMPDIR/ll2.md" <<'LL'
+# Lessons — X
+### a structured claim
+- [bogus] x
+- [[feedback_verify_call_site]] — reinforced
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll2.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"off-taxonomy tag [bogus]"* ]]
+  [[ "$output" != *"feedback_verify_call_site"* ]]
+}
+
+@test "lessons-lint: a '### [pattern] claim' heading tags its own entry (#594)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons learned — Issue-536
+
+### [pattern] Before extracting a block, ADD the test that covers the line the extraction could break — an unedited green suite only proves what the suite already pinned
+Tags: refactor, coverage, equivalence, actionable
+"branch.bats passes unedited" was offered as refactor-equivalence, but every worktree test INJECTED
+`worktree_root`.
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"entry has no tag"* ]]
+}
+
+@test "lessons-lint: a '### [process] claim' heading reports off-taxonomy, not no-tag (#594 flip: do not 'fix' it back)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+
+### [process] An MR claim about COMMIT STRUCTURE must match `git log` — a maintainer will check it
+Tags: [process]
+I wrote "Part A is a self-standing commit prefix" but committed both parts in
+one commit; redmr caught it.
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"off-taxonomy tag [process]"* ]]
+  [[ "$output" != *"entry has no tag"* ]]
+}
+
+@test "lessons-lint: a '### [[wikilink]] claim' heading is an untagged heading, never routed to the tag check (#594)" {
+  # The hunk-2/hunk-3 drift pin: the wikilink exemption holds for headings as it
+  # does for bullets. The heading stays untagged (one honest finding) and its
+  # bracket is never read as a token.
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+### [[some page]] claim
+- Evidence: something
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"entry has no tag"* ]]
+  [[ "$output" != *"off-taxonomy tag"* ]]
+}
+
+@test "lessons-lint: a heading whose bracket does not LEAD stays untagged (#232 strictness, #594)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+### claim mentioning [pattern] mid-sentence
+- Evidence: something
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"entry has no tag"* ]]
+}
+
+@test "lessons-lint: a wikilink bullet does not tag the untagged entry above it (#594, the volk/Issue-Fork-53:40 class)" {
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+### an untagged structured claim
+- [[page]] — note
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"entry has no tag: an untagged structured claim"* ]]
+  [[ "$output" != *"off-taxonomy tag"* ]]
+}
