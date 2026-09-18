@@ -7,10 +7,11 @@ is the surface this policy covers.
 
 ## Supported versions
 
-Only `master` is supported. The plugin is installed and updated by commit SHA
-(`claude plugin update devagent@devagent`), there are no release branches, and
-fixes are not backported. A report against an older commit is welcome, but the
-fix lands on `master` and the remedy is to update.
+Only the latest release is supported. Releases are semver tags cut from
+`master` (`claude plugin update devagent@devagent` picks up the next one),
+there are no release branches, and fixes are not backported. A report against
+an older release or commit is welcome, but the fix lands on `master`, ships in
+the next release, and the remedy is to update.
 
 ## Reporting a vulnerability
 

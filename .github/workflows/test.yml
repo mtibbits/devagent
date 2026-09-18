@@ -2,9 +2,10 @@
 # bats 1.10.0-1 and python3-pytest 7.4.4 ship on ubuntu-24.04 via apt.
 # Tests are hermetic: stubs replace gh/glab/curl; HOME is redirected
 # per test; fixture HTTP server runs on a random port.
-# claude plugin validate: non-strict rc=0 is the local rung (skips here — no
-# claude CLI in CI); the CI-enforced half is tests/test_plugin_versioning.py,
-# and --strict is documented-red by the #532 policy.
+# claude plugin validate: the strict gate and the tag dry-run are the local
+# rung (skip here — no claude CLI in CI); the CI-enforced half is
+# tests/test_plugin_versioning.py (semver version in plugin.json, none in the
+# marketplace entry, matching CHANGELOG section — #532 re-taken at go-public).
 #
 # Shape (2026-09-06): a serial `bats tests/` reached 14m58s on the 2-core runner
 # and was killed at the old 15-minute cap (master run 34005133521 ended at test

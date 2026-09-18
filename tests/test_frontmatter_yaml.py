@@ -37,9 +37,10 @@ def test_frontmatter_sweep_is_not_vacuous():
 
 # #447: `claude plugin validate --strict` (which would reject unrecognized skill
 # frontmatter keys) did NOT exist in claude 2.1.75; it exists by 2.1.211 but is
-# manifest-only (never opens skill files — #458 probe) and stays documented-red
-# on the no-version policy (#532 decision), so this canary REMAINS the CI
-# regression gate for the whole unrecognized-key class. It closed the
+# manifest-only (never opens skill files — #458 probe); it passes since 1.0.0
+# put a version in plugin.json (#532 re-take) but still never reaches skill
+# frontmatter, so this canary REMAINS the CI regression gate for the whole
+# unrecognized-key class. It closed the
 # `when-to-use:` (kebab, silently-dropped) → `when_to_use:` (snake, recognized)
 # rename. Keys per the documented skill frontmatter reference
 # (https://code.claude.com/docs/en/skills.md#frontmatter-reference).

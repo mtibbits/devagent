@@ -48,8 +48,8 @@ body:
   - type: input
     id: devagent-commit
     attributes:
-      label: devAgent commit
-      description: The installed commit SHA, from `claude plugin list`.
+      label: devAgent version
+      description: The installed version (or commit SHA for a pre-1.0.0 install), from `claude plugin list`.
     validations:
       required: true
   - type: input
