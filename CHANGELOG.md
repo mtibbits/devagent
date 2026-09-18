@@ -583,7 +583,7 @@ Current capabilities as of this commit:
 - `next`/`capture`/`ship` converted from commands to user-invocable skills with
   `references/`; `next` thinned 5,764 → 2,209 chars whole-file (operative body
   5,565 → 1,916, pinned under 2,000 by #439's size canary).
-- Backends: **GitHub, GitLab, and JIRA** (issue trackers + code forges).
+- Backends: **GitHub and GitLab** (issue tracker + code forge) and **JIRA** (issue tracker only).
 - Subsystems: capture + issue red-team, revision, WBS, status reports, and an
   auth subsystem (PAT / SSH-key lifecycle).
 

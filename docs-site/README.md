@@ -16,7 +16,7 @@ sources it derives from:
 ```
 
 A directory counts as measured provenance (install.md's `jq` prerequisite is
-measured against `scripts/`, which the repo README's toolchain line omits).
+measured against `scripts/`).
 **Edit the SOURCE first, then the page** — the site restates repo truth; it
 never originates it.
 
