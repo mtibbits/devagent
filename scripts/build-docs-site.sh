@@ -15,7 +15,9 @@
 #                                           (default: <repo>/build-docs-site,
 #                                            which .gitignore's build-*/ covers)
 #   --blob-base  where links that leave docs-site/ (../README.md) point
-#                (default: https://github.com/mtibbits/devagent/blob/master/)
+#                (default: https://github.com/mtibbits/devagent/blob/master/);
+#                no quotes, angle brackets or spaces — page.html interpolates
+#                it into an href unescaped, so the value is checked here
 #
 # Requires pandoc 3.x (CI installs the ubuntu-24.04 package). An older pandoc
 # is refused up front: its failures would otherwise be reported against a page.

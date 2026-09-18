@@ -43,6 +43,9 @@ what actually happened.
 
    If the first prints `null` or nothing, any branch may deploy and there is
    nothing to do.
+   If it returns 404, the environment does not exist yet: enabling Pages does
+   not necessarily create it, the first deploy does, and a new environment has
+   no branch restriction — proceed to step 3 and re-read this after that run.
    If it reports `custom_branch_policies: true` and the second does not list
    `master`, add it:
 
@@ -69,6 +72,7 @@ what actually happened.
 
    ```sh
    base="$(gh api repos/mtibbits/devagent/pages -q .html_url)"
+   base="${base%/}/"
    for f in docs-site/*.md; do
      p="$(basename "$f" .md)"; [ "$p" = README ] && continue
      printf '%s %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "${base}${p}.html")" "${p}.html"

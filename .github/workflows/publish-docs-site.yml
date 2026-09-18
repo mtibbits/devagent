@@ -51,7 +51,9 @@ permissions:
 # DEPLOY, so the `pages` group sits on the deploy job. At workflow level it
 # would queue every PR's build behind master's, and GitHub cancels a PENDING
 # run in a group when a newer one queues — two quick pushes to a docs PR would
-# leave a cancelled build that reads like a verdict.
+# leave a cancelled build that reads like a verdict. The deploy-job group
+# relocates that cancellation rather than avoiding it: two rapid master pushes
+# leave a cancelled deploy on the middle commit, and the newest one wins.
 
 jobs:
   build:
