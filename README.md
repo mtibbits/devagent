@@ -40,7 +40,7 @@ hard-required; plugin dependencies do not auto-install, so these are
 separate, optional commands):
 
 ```sh
-# Not configured on a fresh install (measured on 2.1.260)
+# Not configured on a fresh install (measured on 2.1.260; not version-specific)
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 ```

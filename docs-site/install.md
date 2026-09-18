@@ -57,7 +57,7 @@ plugin is missing or disabled. It is recommended, never hard-required
 ([#541](https://github.com/mtibbits/devagent/issues/541)):
 
 ```sh
-# Not configured on a fresh install (measured on 2.1.260)
+# Not configured on a fresh install (measured on 2.1.260; not version-specific)
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 ```

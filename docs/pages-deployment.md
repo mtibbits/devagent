@@ -19,10 +19,13 @@ Open `/tmp/devagent-site/index.html`.
 
 ## Turning publishing on (operator)
 
-These steps were executed against this repository on 2026-09-18 (the
-transcript is on #465). What follows is what happened, not what was expected;
-outcomes that were NOT observed are marked as such, so the next operator knows
-which branches are still untested.
+These steps were executed against this repository on 2026-09-18; the
+transcript is a comment on #465, and the two workflow runs it names are
+35308905744 (the first `master` run after the pipeline merged: build, deploy
+skipped with the gate off) and 35309395578 (the switch-on run: build and
+deploy). What follows is what happened, not what was expected; outcomes that
+were NOT observed are marked as such, so the next operator knows which
+branches are still untested.
 
 1. Enable Pages with the workflow build type, and note the site URL it reports:
 
@@ -41,11 +44,12 @@ which branches are still untested.
    Observed on 2026-09-18: enabling Pages in step 1 created the `github-pages`
    environment immediately, and it already carried
    `{"custom_branch_policies":true,"protected_branches":false}` with `master`
-   listed — nothing to add, and the first deploy from `master` succeeded.
+   listed — nothing to add.
    Not observed (untested branches):
    - a `null` policy — any branch may deploy; nothing to do.
-   - a 404 — the environment was not created; proceed to step 3 and re-read
-     this after the first run.
+   - a 404 — the environment was not created: enabling Pages does not
+     necessarily create it, the first deploy does, and a new environment has
+     no branch restriction; proceed to step 3 and re-read this after that run.
    - a custom policy that omits `master` — add it:
 
      ```sh
@@ -64,6 +68,10 @@ which branches are still untested.
    ```
 
    Use a fresh run, not a re-run of an old one: a Pages artifact expires.
+
+   Observed on 2026-09-18: the dispatched run (35309395578) built and deployed
+   `43f9e27`; the earlier `master` run (35308905744) had built and skipped the
+   deploy with the gate off, which is the gate working.
 
 4. Check every page, from a checkout of `master`. The list comes from the
    directory, so it cannot go stale:
@@ -93,5 +101,5 @@ deploys.
 Every page confirmed live (step 4: six `200`s); `README.md` and the repository
 homepage field carry https://mtibbits.github.io/devagent/; the clean-machine
 install walkthrough is attached to #465 and its two findings are fixed on the
-install page. Nothing is owed. A docs push to `master` now deploys for real;
-"Turning publishing off" above is the off switch.
+install page. Nothing from the flip itself is owed. A docs push to `master`
+now deploys for real; "Turning publishing off" above is the off switch.

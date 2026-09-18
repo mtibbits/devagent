@@ -54,7 +54,7 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     # line above them carries the version the negative was measured on.
     grep -A1 -F 'claude plugin marketplace add anthropics/claude-plugins-official' "$f" \
       | grep -qF 'claude plugin install superpowers@claude-plugins-official'
-    grep -qF '# Not configured on a fresh install (measured on 2.1.260)' "$f"
+    grep -qF '# Not configured on a fresh install' "$f"
     # Finding B: the install's userConfig notice is explained, both homes. The
     # sentence anchor cannot straddle a wrap; the option names are pinned over
     # whitespace-normalised text so the paragraph may wrap anywhere.
