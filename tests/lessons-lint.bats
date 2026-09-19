@@ -387,3 +387,39 @@ LL
   [[ "$output" == *"entry has no tag: an untagged structured claim"* ]]
   [[ "$output" != *"off-taxonomy tag"* ]]
 }
+
+@test "lessons-lint: a BOLD-lead wikilink bullet is still an entry, and an untagged one fails (#594 review L2)" {
+  # The wikilink exemption consumes the line before the #525 flat-entry rule can
+  # see it, so a flat file made wholly of "- **[[page]] claim.**" bullets used to
+  # pass vacuously — the very shape #525 exists to refuse.
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+- **[[some page]] only entry.**
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"entry has no tag"* ]]
+  [[ "$output" == *"[[some page]] only entry."* ]]
+}
+
+@test "lessons-lint: opening a bold-lead wikilink entry does not flag a tagged or an indented one (#594 review L2, must-not-trip half)" {
+  # A tagged bold-lead entry followed by a wikilink reference bullet stays clean,
+  # an INDENTED bold wikilink sub-bullet is not an entry opener, and after a
+  # "### " heading the file is structured so no flat entry opens at all.
+  cat > "$BATS_TEST_TMPDIR/ll.md" <<'LL'
+# Lessons — X
+- **[reference] a real flat entry.**
+  - **[[some page]] a bold sub-bullet.**
+- [[some page]] — a plain link bullet
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll.md"
+  [ "$status" -eq 0 ]
+  cat > "$BATS_TEST_TMPDIR/ll2.md" <<'LL'
+# Lessons — X
+### [norm] a structured claim
+- **[[some page]] — reinforced.**
+LL
+  run bash "$LINT" "$BATS_TEST_TMPDIR/ll2.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"off-taxonomy tag"* ]]
+}

@@ -64,10 +64,16 @@ exec awk '
     if ($0 ~ /^### *\[[^[]/) tagcheck()
     next
   }
-  # #594: a "- [[wikilink]]" bullet is a LINK. It opens no entry (it is not
-  # bold-lead) and tags none, so it is consumed BEFORE the tag-bullet rule can
-  # read its "[[page]" as a tag token.
-  /^[ \t]*-[ \t]+(\*\*)?(Tags:[ \t]*)?\[\[/ { next }
+  # #594: a "- [[wikilink]]" bullet is a LINK. It tags nothing, so it is consumed
+  # BEFORE the tag-bullet rule can read its "[[page]" as a tag token. But a
+  # column-0 BOLD-lead one, "- **[[page]] claim.**", is still an ENTRY by the
+  # #525 rule below, which this next would otherwise swallow: open it here, so a
+  # flat file of such bullets fails as untagged instead of passing vacuously
+  # (#594 review L2). Same boldlead/seen_heading gate as that rule.
+  /^[ \t]*-[ \t]+(\*\*)?(Tags:[ \t]*)?\[\[/ {
+    if (!seen_heading && $0 ~ boldlead) flat_open()
+    next
+  }
   # A tag-bearing bullet: "- Tags: [..]", "- [tag] ..", "- [..]", or (#588) the
   # bold-lead "- **[tag] ..". The bracket must LEAD the bullet (after an optional
   # "**" and/or "Tags:") — intentionally STRICTER than reap.sh block 4 (which

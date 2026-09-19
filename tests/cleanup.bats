@@ -549,3 +549,20 @@ make_oneshot_issue() {
     [[ "$output" == *"could not lint"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
 }
+
+@test "the refusal's DE-SCOPING remedy works end to end: --by-name marks [-], the closeout lands (#594 review L1)" {
+    # The skip remedy is a product surface like the first one: printed as a
+    # pasteable command, so it is held to running as printed. Without --by-name
+    # checklist-mark reads "lessonslearned" as a step NUMBER and exits 1.
+    rm -f "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"checklist-mark --by-name"* ]]
+    # Execute it literally, through the script the slash command wraps.
+    run "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$DEVDOC_DIR/Issue-1" lessonslearned -
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 '-' lessonslearned
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}

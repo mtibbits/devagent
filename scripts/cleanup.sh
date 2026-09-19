@@ -68,7 +68,7 @@ fi
 # Policy and remedies in full: commands/cleanup.md, "Precondition (#594)".
 ll="$issue_dir/lessonsLearned.md"
 ll_remedy() {
-    printf '%s' "Fix first: every entry needs a tag from the closed taxonomy (actionable reference norm pattern) — add a '- Tags: [<tag>]' line under a '### claim' heading, or an indented '  - Tags: [<tag>]' line under a flat '- **claim**' bullet (shapes: templates/lessonsLearned_template.md); check with 'bash $DEVAGENT_ROOT/scripts/lessons-lint.sh $ll', then re-run. Reviewed de-scoping only: with NO lessons file at all, '/devagent:checklist-mark $issue_dir lessonslearned -' records the step as skipped and leaves this issue out of the reap pipeline; a file that is PRESENT is linted whatever the glyph says (#594)."
+    printf '%s' "Fix first: every entry needs a tag from the closed taxonomy (actionable reference norm pattern) — add a '- Tags: [<tag>]' line under a '### claim' heading, or an indented '  - Tags: [<tag>]' line under a flat '- **claim**' bullet (shapes: templates/lessonsLearned_template.md); check with 'bash \"$DEVAGENT_ROOT/scripts/lessons-lint.sh\" \"$ll\"', then re-run. Reviewed de-scoping only: with NO lessons file at all, '/devagent:checklist-mark --by-name \"$issue_dir\" lessonslearned -' records the step as skipped and leaves this issue out of the reap pipeline; a file that is PRESENT is linted whatever the glyph says (#594)."
 }
 if [ -f "$ll" ]; then
     ll_rc=0
