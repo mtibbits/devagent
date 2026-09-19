@@ -30,7 +30,7 @@ from the issue's checklist are not gated (research/docs-only templates).
 ## Precondition (#594) — the lessons file lints clean
 
 Right after the #242 check and BEFORE any side effect, `cleanup.sh` runs
-`scripts/lessons-lint-corpus.sh <issue-dir>/lessonsLearned.md` and refuses a
+`lessons-lint-corpus.sh <issue-dir>/lessonsLearned.md` and refuses a
 file that does not lint clean, quoting the offenders. Step 22 writes that file
 and this step commits it, so this is the one scripted point every new lessons
 file passes through — the lint is enforced here, not merely available. The gate
