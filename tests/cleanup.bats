@@ -10,6 +10,9 @@ setup() {
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 x
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 x
+    # #594: lessonslearned [x] means the file exists and lints clean — seeded
+    # BEFORE the devdoc seed commit so the existing devdoc-diff assertions hold.
+    seed_lessons_learned "$DEVDOC_DIR/Issue-1"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     # #586: the register must resolve to a FIXTURE (never the plugin default —
@@ -69,6 +72,7 @@ stage_in_project_layer() {
     # was arg→SHARED state = Issue-1, naming the other session's issue.
     mkdir -p "$DEVDOC_DIR/Issue-2"
     sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     msg="$( cd "$DEVDOC_DIR" && git log -1 --format='%s' )"
@@ -82,6 +86,7 @@ stage_in_project_layer() {
     # diff guard was blind to untracked files).
     mkdir -p "$DEVDOC_DIR/Issue-2"
     sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-2"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-2"
     before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
@@ -229,6 +234,7 @@ EOF
     # wiped them).
     mkdir -p "$DEVDOC_DIR/Issue-2"
     cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     ( cd "$DEVDOC_DIR" && git add . && git commit -q -m "seed Issue-2" )
     unset DEVAGENT_ACTIVE_ISSUE
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-2
