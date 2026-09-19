@@ -57,25 +57,19 @@ if [ -n "$offenders" ]; then
     die "closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
-# #594: the lessons lint is ENFORCED here — step 22 (model writes the file) ->
-# step 23 (this script commits devdoc) is the whole write path for a new
-# lessonsLearned.md, so this is the one scripted chokepoint every new corpus
-# file passes through. Pre-side-effect, like #242 above: a die leaves the tree
-# on the issue branch and a re-run after the fix is safe.
-# KEYED ON THE FILE, not the glyph proxy: a PRESENT file is linted whatever the
-# glyph says (a red file under a [-] still lands in the corpus); lessonslearned
-# [x] additionally REQUIRES the file (a gate whose input is missing reports
-# that as a failure, never a silent pass — Issue-611); [-] or no such row means
-# absence is tolerated — the existing auditable skip seam, no new bypass.
-# The glyph capture is errexit-safe (the checklist.sh spelling): the helper
-# returns 1 on an absent row, which a bare assignment would turn into a silent
-# abort under set -e. A lint that COULD NOT RUN (walker rc 2) is a die too: an
-# invariant that cannot be proven does not authorize completion (#595 rc-4).
-# --auto CHAIN TRACE (register Issue-242): cleanup is the chain's last step, so
-# this die ends the chain non-zero with the remedy last and strands nothing.
+# #594: the lessons lint is ENFORCED here. Step 22 writes lessonsLearned.md and
+# this step commits it, so this is the one scripted chokepoint every new corpus
+# file passes through. Pre-side-effect, the #242 placement: a die leaves the
+# tree on the issue branch and a re-run after the fix is safe; cleanup is the
+# --auto chain's last step, so the die strands nothing (register Issue-242).
+# KEYED ON THE FILE, not the glyph proxy: present => linted whatever the glyph;
+# lessonslearned [x] + absent => refused (a missing input is a failure,
+# Issue-611); [-] or no row + absent => no subject — the existing auditable skip.
+# Policy and remedies in full: commands/cleanup.md, "Precondition (#594)".
 ll="$issue_dir/lessonsLearned.md"
-ll_glyph="$(checklist_step_state_by_name "$issue_dir/checklist.md" lessonslearned 2>/dev/null || true)"
-ll_remedy="Fix first: every entry needs a tag from the closed taxonomy (actionable reference norm pattern) — add a '- Tags: [<tag>]' line under a '### claim' heading, or an indented '  - Tags: [<tag>]' line under a flat '- **claim**' bullet (shapes: templates/lessonsLearned_template.md); check with 'bash $DEVAGENT_ROOT/scripts/lessons-lint.sh $ll', then re-run. Reviewed de-scoping only: with NO lessons file at all, '/devagent:checklist-mark $issue_dir lessonslearned -' records the step as skipped and leaves this issue out of the reap pipeline; a file that is PRESENT is linted whatever the glyph says (#594)."
+ll_remedy() {
+    printf '%s' "Fix first: every entry needs a tag from the closed taxonomy (actionable reference norm pattern) — add a '- Tags: [<tag>]' line under a '### claim' heading, or an indented '  - Tags: [<tag>]' line under a flat '- **claim**' bullet (shapes: templates/lessonsLearned_template.md); check with 'bash $DEVAGENT_ROOT/scripts/lessons-lint.sh $ll', then re-run. Reviewed de-scoping only: with NO lessons file at all, '/devagent:checklist-mark $issue_dir lessonslearned -' records the step as skipped and leaves this issue out of the reap pipeline; a file that is PRESENT is linted whatever the glyph says (#594)."
+}
 if [ -f "$ll" ]; then
     ll_rc=0
     ll_out="$("$DEVAGENT_ROOT/scripts/lessons-lint-corpus.sh" "$ll" 2>&1)" || ll_rc=$?
@@ -83,12 +77,15 @@ if [ -f "$ll" ]; then
         0) : ;;
         1) die "the lessons file /devagent:lessonslearned wrote does not lint clean:
 $ll_out
-$ll_remedy" ;;
+$(ll_remedy)" ;;
+        # rc 2 = could not RUN: an unproven invariant does not close (#595 rc-4).
         *) die "the lessons lint could not RUN (rc=$ll_rc) — a tooling fault, not a lint verdict, and an unproven file does not close an issue:
 $ll_out" ;;
     esac
-elif [ "$ll_glyph" = x ]; then
-    die "lessonslearned is [x] but there is no lessonsLearned.md at $ll — run /devagent:lessonslearned to write it. $ll_remedy"
+# "|| true": the helper returns 1 on an absent row, which a bare capture turns
+# into a silent abort under set -e (register devagent Issue-589).
+elif [ "$(checklist_step_state_by_name "$issue_dir/checklist.md" lessonslearned 2>/dev/null || true)" = x ]; then
+    die "lessonslearned is [x] but there is no lessonsLearned.md at $ll — run /devagent:lessonslearned to write it. $(ll_remedy)"
 fi
 
 # #595: enforce the ONESHOT no-repo-diff boundary mechanically, BEFORE any side

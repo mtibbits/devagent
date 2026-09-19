@@ -468,13 +468,8 @@ make_oneshot_issue() {
 
 # --- #594: the lessons-lint gate (keyed on the FILE, not the glyph) ------------
 
-# A lessons file carrying one untagged flat entry — red under lessons-lint.sh.
-plant_red_lessons() {
-    printf '%s\n' '# Lessons learned' '' '- **An untagged claim.**' > "$1/lessonsLearned.md"
-}
-
 @test "cleanup REFUSES a red lessonsLearned.md, naming file and finding, before any side effect (#594)" {
-    plant_red_lessons "$DEVDOC_DIR/Issue-1"
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 1 ]
     [[ "$output" == *"Issue-1/lessonsLearned.md"* ]]
@@ -504,7 +499,7 @@ plant_red_lessons() {
 
 @test "cleanup REFUSES a red lessonsLearned.md even under a [-] glyph: the gate is keyed on the file (#594)" {
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 '-'
-    plant_red_lessons "$DEVDOC_DIR/Issue-1"
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 1 ]
     [[ "$output" == *"entry has no tag"* ]]
@@ -522,7 +517,7 @@ plant_red_lessons() {
 }
 
 @test "the refusal's FIRST remedy works end to end: tag the entry, re-run, the closeout lands (#594)" {
-    plant_red_lessons "$DEVDOC_DIR/Issue-1"
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 1 ]
     # The message names the remedy it is about to be held to.
@@ -548,8 +543,8 @@ plant_red_lessons() {
 }
 
 @test "cleanup REFUSES when the lessons lint COULD NOT RUN: an unproven invariant does not close (#594)" {
-    printf '%s\n' '#!/usr/bin/env bash' 'echo "stub: cannot lint" >&2' 'exit 2' > "$DEVAGENT_TMP/stub-lint.sh"
-    LESSONS_LINT="$DEVAGENT_TMP/stub-lint.sh" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    devagent_stub stub-lint "stub: cannot lint" 2
+    LESSONS_LINT="$DEVAGENT_STUB_BIN/stub-lint" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 1 ]
     [[ "$output" == *"could not lint"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup

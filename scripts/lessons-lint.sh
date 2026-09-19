@@ -20,7 +20,9 @@ file="${1:-}"
 [ -n "$file" ] || { echo "usage: lessons-lint.sh <lessonsLearned.md>" >&2; exit 2; }
 [ -f "$file" ] || { echo "lessons-lint: no such file: $file" >&2; exit 2; }
 
-awk '
+# exec: awk is this script's last act and its exit status IS the verdict, so the
+# corpus walker pays one process per file, not two (#594).
+exec awk '
   BEGIN { split("actionable reference norm pattern", v, " "); for (i in v) valid[v[i]]=1; bad=0
           boldlead="^-[ \t]+\\*\\*" }
   # Every entry opener and END run the same no-tag flush; the openers differ only
@@ -55,11 +57,11 @@ awk '
   # tag. open_entry runs FIRST (it clears tagged), so a heading can never
   # retro-tag the entry above it. Leading only: a bracket mid-claim is prose
   # (#232 strictness). A heading that leads with a "[[wikilink]]" is a link, not
-  # a tag: it stays an ordinary untagged heading, the same exemption as the
-  # wikilink-bullet rule below.
+  # a tag: the "[^[]" keeps it an ordinary untagged heading, the same exemption
+  # as the wikilink-bullet rule below.
   /^### / {
     open_entry("^### *"); seen_heading=1
-    if ($0 ~ /^### *\[/ && $0 !~ /^### *\[\[/) tagcheck()
+    if ($0 ~ /^### *\[[^[]/) tagcheck()
     next
   }
   # #594: a "- [[wikilink]]" bullet is a LINK. It opens no entry (it is not

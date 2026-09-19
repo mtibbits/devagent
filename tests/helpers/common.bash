@@ -315,3 +315,9 @@ seed_lessons_learned() {
     printf '%s\n' '# Lessons learned' '' '### a seeded fixture claim' \
         '- Tags: [reference]' > "$1/lessonsLearned.md"
 }
+
+# The RED counterpart: one untagged flat entry, which lessons-lint.sh refuses.
+seed_red_lessons() {
+    # <issue-dir>
+    printf '%s\n' '# Lessons learned' '' '- **An untagged claim.**' > "$1/lessonsLearned.md"
+}

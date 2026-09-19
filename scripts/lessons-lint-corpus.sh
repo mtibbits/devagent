@@ -24,9 +24,9 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # shellcheck source=lib/io.sh
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 
-# io.sh's die hard-codes exit 1 (the offenders verdict); the rc-2 class is
-# emitted here.
-cannot() { printf '%s\n' "lessons-lint-corpus: $*" >&2; exit 2; }
+# io.sh's die hard-codes exit 1 (the offenders verdict); this is the ONE exit
+# point for the rc-2 class.
+cannot() { info "$*"; exit 2; }
 
 [ "$#" -ge 1 ] || cannot "usage: lessons-lint-corpus.sh <root-dir | file>..."
 lint="${LESSONS_LINT:-$DEVAGENT_ROOT/scripts/lessons-lint.sh}"
@@ -37,7 +37,7 @@ for arg in "$@"; do
   if [ -d "$arg" ]; then
     while IFS= read -r -d '' f; do
       subjects+=("$f")
-    done < <(find "$arg" -name lessonsLearned.md -not -path '*/.git/*' -print0 | sort -z)
+    done < <(find "$arg" -name .git -prune -o -name lessonsLearned.md -print0 | sort -z)
   elif [ -f "$arg" ]; then
     subjects+=("$arg")
   else
@@ -54,11 +54,10 @@ for f in "${subjects[@]}"; do
   case "$rc" in
     0) ;;
     1) red=$((red + 1)); printf 'RED %s\n%s\n' "$f" "$out" ;;
-    *) cnr=$((cnr + 1)); printf 'COULD-NOT-RUN %s\n%s\n' "$f" "$out"
-       printf '%s\n' "lessons-lint-corpus: could not lint (rc $rc): $f" >&2 ;;
+    *) cnr=$((cnr + 1)); printf 'COULD-NOT-RUN (rc %s) %s\n%s\n' "$rc" "$f" "$out" ;;
   esac
 done
 
 printf '%s\n' "lessons-lint-corpus: scanned ${#subjects[@]} files, $red red, $cnr could-not-run"
-[ "$cnr" -eq 0 ] || exit 2
+[ "$cnr" -eq 0 ] || cannot "could not lint $cnr of ${#subjects[@]} lessons files (COULD-NOT-RUN above)"
 [ "$red" -eq 0 ] || die "$red of ${#subjects[@]} lessons files are red (offenders above)"
