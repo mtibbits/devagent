@@ -65,6 +65,25 @@ issues, not at the end of the current one.
    flat-bullet, zero-tag files naming the file (the batch-11 gap — Issue-440–443,
    453–457, 459–460 shipped this way and silently escaped both reap and the lint).
 
+   **The lint is enforced at step 23 (#594).** `/devagent:cleanup` lints this
+   issue's `lessonsLearned.md` BEFORE any side effect and refuses a red file; a
+   file that is present is linted whatever the step's glyph says, and with
+   `lessonslearned` `[x]` a missing file is itself a refusal. Marking the step
+   `[-]` with no file written is the only skip, and it leaves the issue out of
+   the reap pipeline. Self-check before marking this step done:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-lint.sh" "$ISSUE_DIR/lessonsLearned.md"
+   ```
+
+   Two shapes the lint reads since #594, neither one recommended: a bracket that
+   LEADS a heading (`### [tag] <claim>`) tags that entry — TOLERATED, because
+   `/devagent:reap` does NOT read a heading's bracket, so **when the honest tag
+   is `actionable`, also add a `- Tags: [actionable]` bullet beneath the
+   heading** or reap never sees it; and a `- [[wikilink]]` bullet (or a
+   `### [[wikilink]]` heading) is a link, never a tag — it tags nothing, so the
+   entry above it still needs its own tag line.
+
 6. **Classify every entry — mandatory.** Each entry MUST carry ≥1 tag
    from the closed set `actionable | reference | norm | pattern` (no
    other tag is legal — `scripts/lessons-lint.sh` rejects ad-hoc tags).

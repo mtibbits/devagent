@@ -27,6 +27,29 @@ updatewbs/impact are recoverable bookkeeping, but they are exactly the steps
 skipped when "the code is merged, I'm done" (Issue-78/79/80). Steps absent
 from the issue's checklist are not gated (research/docs-only templates).
 
+## Precondition (#594) — the lessons file lints clean
+
+Right after the #242 check and BEFORE any side effect, `cleanup.sh` runs
+`scripts/lessons-lint-corpus.sh <issue-dir>/lessonsLearned.md` and refuses a
+file that does not lint clean, quoting the offenders. Step 22 writes that file
+and this step commits it, so this is the one scripted point every new lessons
+file passes through — the lint is enforced here, not merely available. The gate
+is keyed on the FILE, not on the step's glyph:
+
+- file present → linted, whatever the `lessonslearned` glyph says;
+- `lessonslearned` `[x]` and no file → refused (a missing input is a failure,
+  not a pass);
+- `lessonslearned` `[-]`, or no such row in the checklist, and no file → no
+  subject, cleanup proceeds.
+
+A lint that could not RUN (the walker's rc 2) refuses too. Remedies, fix first:
+give every entry a tag from the closed taxonomy `actionable reference norm
+pattern` in a shape `templates/lessonsLearned_template.md` documents, check with
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/lessons-lint.sh" <issue-dir>/lessonsLearned.md`,
+and re-run. Marking `lessonslearned` `[-]` with no file written is the reviewed
+de-scoping: auditable in the checklist, and it leaves the issue out of the
+`/devagent:reap` pipeline. A refusal leaves the tree exactly where it was.
+
 ## Precondition (#586/#611) — pothole-register promotions
 
 `cleanup.sh` runs `promote-potholes.sh <project> <issue-dir> --check`

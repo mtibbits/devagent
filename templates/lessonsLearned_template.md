@@ -19,6 +19,12 @@
 > #525 the lint fails a file written wholly in that untagged flat-bullet shape.
 > The legacy bold-lead form `- **[tag] <claim>.**` is TOLERATED by the lint
 > (#588) so Fable-era files do not false-flag; it is not a recommended shape.
+> A bracket LEADING a heading, `### [tag] <claim>`, is likewise TOLERATED (#594)
+> and not recommended: `/devagent:reap` cannot read a heading's bracket, so if
+> the honest tag is `actionable`, also add `- Tags: [actionable]` beneath the
+> heading. A `- [[wikilink]]` bullet is a link, never a tag.
+> `/devagent:cleanup` (step 23) lints this file and refuses a red one (#594);
+> marking `lessonslearned` `[-]` with no file written is the only skip.
 
 ## Entries
 
