@@ -22,6 +22,20 @@ the README's "Versioning & releases" section has the release procedure.
   real transcript, README and the repository homepage carry the URL, and the
   install page gained the official-marketplace step and the `userConfig` note
   that a clean-machine install walkthrough (attached to #465) found missing.
+- **`/devagent:cleanup` (step 23) now refuses a `lessonsLearned.md` that does
+  not lint clean (#594).** Behavior change: before any side effect, cleanup
+  runs the lessons lint over the issue's own file and stops with the offenders
+  and a fix-first remedy. A file that is present is linted whatever the
+  `lessonslearned` glyph says; `lessonslearned` `[x]` with no file is refused;
+  marking the step `[-]` with no file written is the skip. New
+  `scripts/lessons-lint-corpus.sh <root-dir | file>...` runs the lint over a set
+  of files (exit 0 clean / 1 offenders / 2 could not answer — an empty subject
+  set is never a pass).
+- **`scripts/lessons-lint.sh` closes two false positives (#594).** A bracket
+  that leads a heading (`### [tag] <claim>`) is read as that entry's tag
+  (tolerated, not recommended — `/devagent:reap` does not read a heading
+  bracket), and a `- [[wikilink]]` bullet is a link, never a tag. Its interface
+  and exit codes are unchanged.
 
 ## [1.0.0] — 2026-09-18
 

@@ -304,3 +304,20 @@ delete_step() {
         sed -i -E "/^- \[.\] +${step}\. /d" "$file"
     fi
 }
+
+# #594: cleanup.sh (step 23) REQUIRES a lint-clean lessonsLearned.md once
+# `lessonslearned` is [x]. A fixture that marks that step done seeds the file it
+# claims to have written. Opt-in per caller (NOT in devagent_test_setup): only
+# tests that reach the cleanup gate need it, and an unconditional seed would
+# perturb every devdoc-diff assertion in the suite.
+seed_lessons_learned() {
+    # <issue-dir>
+    printf '%s\n' '# Lessons learned' '' '### a seeded fixture claim' \
+        '- Tags: [reference]' > "$1/lessonsLearned.md"
+}
+
+# The RED counterpart: one untagged flat entry, which lessons-lint.sh refuses.
+seed_red_lessons() {
+    # <issue-dir>
+    printf '%s\n' '# Lessons learned' '' '- **An untagged claim.**' > "$1/lessonsLearned.md"
+}

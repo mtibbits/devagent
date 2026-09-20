@@ -10,6 +10,9 @@ setup() {
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 x
     mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 x
+    # #594: lessonslearned [x] means the file exists and lints clean — seeded
+    # BEFORE the devdoc seed commit so the existing devdoc-diff assertions hold.
+    seed_lessons_learned "$DEVDOC_DIR/Issue-1"
     ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x )
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
     # #586: the register must resolve to a FIXTURE (never the plugin default —
@@ -69,6 +72,7 @@ stage_in_project_layer() {
     # was arg→SHARED state = Issue-1, naming the other session's issue.
     mkdir -p "$DEVDOC_DIR/Issue-2"
     sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     msg="$( cd "$DEVDOC_DIR" && git log -1 --format='%s' )"
@@ -82,6 +86,7 @@ stage_in_project_layer() {
     # diff guard was blind to untracked files).
     mkdir -p "$DEVDOC_DIR/Issue-2"
     sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-2"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-2"
     before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
@@ -229,6 +234,7 @@ EOF
     # wiped them).
     mkdir -p "$DEVDOC_DIR/Issue-2"
     cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"   # #594: inherits lessonslearned [x]
     ( cd "$DEVDOC_DIR" && git add . && git commit -q -m "seed Issue-2" )
     unset DEVAGENT_ACTIVE_ISSUE
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-2
@@ -458,4 +464,105 @@ make_oneshot_issue() {
     [[ "$output" == *"step 23 (cleanup), script-backed"* ]]
     [[ "$output" == *"oneshot boundary VIOLATED"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+# --- #594: the lessons-lint gate (keyed on the FILE, not the glyph) ------------
+
+@test "cleanup REFUSES a red lessonsLearned.md, naming file and finding, before any side effect (#594)" {
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Issue-1/lessonsLearned.md"* ]]
+    [[ "$output" == *"entry has no tag"* ]]
+    [[ "$output" == *"(#594)"* ]]
+    # The die precedes the tree restore: still on the issue branch, 23 unmarked.
+    [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "cleanup REFUSES lessonslearned [x] with NO lessonsLearned.md: a missing input is a failure (#594)" {
+    rm -f "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no lessonsLearned.md"* ]]
+    [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "cleanup proceeds when lessonslearned is skipped [-] and the file is absent (#594 skip seam)" {
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 '-'
+    rm -f "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "cleanup REFUSES a red lessonsLearned.md even under a [-] glyph: the gate is keyed on the file (#594)" {
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 '-'
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"entry has no tag"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "cleanup passes a lint-clean lessonsLearned.md and the closeout is unchanged (#594)" {
+    before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"lessons-lint"* ]]
+    [ "$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )" -eq $((before + 1)) ]
+    [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "main" ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "the refusal's FIRST remedy works end to end: tag the entry, re-run, the closeout lands (#594)" {
+    seed_red_lessons "$DEVDOC_DIR/Issue-1"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    # The message names the remedy it is about to be held to.
+    [[ "$output" == *"- Tags: ["* ]]
+    [[ "$output" == *"actionable reference norm pattern"* ]]
+    # Execute it literally: an indented Tags line under the flat entry.
+    printf '%s\n' '  - Tags: [pattern]' >> "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    before=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )" -eq $((before + 1)) ]
+    [[ "$( cd "$DEVDOC_DIR" && git log -1 --format='%s' )" == *"Issue-1"* ]]
+    ( cd "$DEVDOC_DIR" && git ls-files --error-unmatch Issue-1/lessonsLearned.md )
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "cleanup proceeds with NO lessonslearned row and no file: the glyph read is errexit-safe (#594)" {
+    delete_step "$DEVDOC_DIR/Issue-1/checklist.md" 22
+    rm -f "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "cleanup REFUSES when the lessons lint COULD NOT RUN: an unproven invariant does not close (#594)" {
+    devagent_stub stub-lint "stub: cannot lint" 2
+    LESSONS_LINT="$DEVAGENT_STUB_BIN/stub-lint" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"could not lint"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+}
+
+@test "the refusal's DE-SCOPING remedy works end to end: --by-name marks [-], the closeout lands (#594 review L1)" {
+    # The skip remedy is a product surface like the first one: printed as a
+    # pasteable command, so it is held to running as printed. Without --by-name
+    # checklist-mark reads "lessonslearned" as a step NUMBER and exits 1.
+    rm -f "$DEVDOC_DIR/Issue-1/lessonsLearned.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"checklist-mark --by-name"* ]]
+    # Execute it literally, through the script the slash command wraps.
+    run "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$DEVDOC_DIR/Issue-1" lessonslearned -
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 '-' lessonslearned
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
 }
