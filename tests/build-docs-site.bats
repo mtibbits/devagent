@@ -136,14 +136,14 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
 
 @test "build-docs-site: real site — install commands survive rendering verbatim" {
   need_pandoc
-  # The two commands tests/docs-site.bats pins README<->install.md on; here the
+  # The three commands tests/docs-site.bats pins README<->install.md on; here the
   # pin continues one hop, markdown -> html.
   local cmd
   while IFS= read -r cmd; do
     [ -n "$cmd" ]
     grep -qF "$cmd" "$REAL_OUT/install.html"
   done < <(grep -E '^claude plugin (marketplace add|install devagent)' "$SITE/install.md")
-  [ "$(grep -cE '^claude plugin (marketplace add|install devagent)' "$SITE/install.md")" -ge 2 ]
+  [ "$(grep -cE '^claude plugin (marketplace add|install devagent)' "$SITE/install.md")" -ge 3 ]
 }
 
 @test "build-docs-site: real site — title from the H1, nav marks exactly the current page" {
