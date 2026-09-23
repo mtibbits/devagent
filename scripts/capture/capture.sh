@@ -52,13 +52,27 @@ USAGE
 
 # #597: a file's #252 content hash — devagent_hash_text, the SAME
 # normalization (lowercase, whitespace-collapsed) and 12-hex output reap.sh
-# keys on (reap.sh:296). Fails rather than hashing an unread file as "".
+# keys on. Fails rather than hashing an unread file as "".
 _capture_body_hash() {
   local text h
   text="$(cat -- "$1")" || return 2
   h="$(devagent_hash_text "${text}")"
   [[ "${h}" =~ ^[0-9a-f]{12}$ ]] || return 2
   printf '%s\n' "${h}"
+}
+
+# #597: exit 0 printing <slug> when <draft> already holds this body. Identity
+# is the WHOLE normalized body, never the slug alone: a slug-only key would
+# call a DIFFERENT sibling a no-op success (register: Issue-612).
+_capture_exit_if_same_body() {   # $1 = existing draft, $2 = its slug, $3 = body hash
+  local old
+  if ! old="$(_capture_body_hash "$1")"; then
+    echo "could not read existing $1" >&2; exit 2
+  fi
+  if [[ "${old}" == "$3" ]]; then
+    printf '%s\n' "$2"
+    exit 0
+  fi
 }
 
 TYPE=""; SUBTYPE="bug"; TITLE=""; SOURCE=""; FORCE=0; SLUG_SUFFIX=""
@@ -90,9 +104,11 @@ case "${TYPE}" in
       *) echo "unknown subtype: ${SUBTYPE}" >&2; exit 2 ;;
     esac
     template_name="issue_template-${SUBTYPE}"
+    h1_prefix=""
     ;;
   epic)
     template_name="epic_template"
+    h1_prefix="Epic: "                   # the epic template's own H1 (#597 A2)
     ;;
   *) echo "--type must be issue|epic" >&2; exit 2 ;;
 esac
@@ -116,12 +132,8 @@ if [[ -n "${BODY_FILE}" ]]; then
   [[ -f "${BODY_FILE}" ]] || { echo "--body-file not found: ${BODY_FILE}" >&2; exit 2; }
   [[ -r "${BODY_FILE}" ]] || { echo "--body-file not readable: ${BODY_FILE}" >&2; exit 2; }
   [[ -z "${SOURCE}" ]] || echo "warn: --source is ignored with --body-file" >&2
-  expected_h1="${TITLE}"
-  if [[ "${TYPE}" == "epic" ]]; then
-    expected_h1="Epic: ${TITLE}"       # the epic template's own H1 convention (A2)
-  fi
-  # The SAME function file.sh files the title with. `if ! v="$(...)"` captures
-  # the rc: a bare assignment is silent under set -e (register: Issue-589).
+  expected_h1="${h1_prefix}${TITLE}"
+  # The SAME function file.sh files the title with (register: Issue-585).
   if ! body_h1="$(devagent_draft_h1 "${BODY_FILE}")"; then
     echo "could not read ${BODY_FILE}" >&2; exit 2
   fi
@@ -146,30 +158,16 @@ if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
     echo "draft already exists: ${draft} (use --force to overwrite)" >&2
     exit 3
   fi
-  # Identity is the WHOLE normalized body, never the slug alone: a slug-only
-  # key would call a DIFFERENT sibling a no-op success (register: Issue-612).
   if ! body_hash="$(_capture_body_hash "${BODY_FILE}")"; then
     echo "could not hash ${BODY_FILE}" >&2; exit 2
   fi
-  if ! old_hash="$(_capture_body_hash "${draft}")"; then
-    echo "could not read existing ${draft}" >&2; exit 2
-  fi
-  if [[ "${old_hash}" == "${body_hash}" ]]; then
-    printf '%s\n' "${slug}"                    # content-identical re-run: no write
-    exit 0
-  fi
-  # #252: the SAME disambiguator reap.sh derives (reap.sh:342, "${h:0:6}"),
-  # appended by devagent_slug AFTER its 60-char cap, so it survives truncation.
+  _capture_exit_if_same_body "${draft}" "${slug}" "${body_hash}"
+  # #252: the SAME disambiguator reap.sh derives ("${h:0:6}"), appended by
+  # devagent_slug AFTER its 60-char cap, so it survives truncation.
   slug="$(devagent_slug "${TITLE}" "${body_hash:0:6}")"
   draft="$(devagent_capture_dir "${slug}")/draft.md"
   if [[ -e "${draft}" ]]; then
-    if ! old_hash="$(_capture_body_hash "${draft}")"; then
-      echo "could not read existing ${draft}" >&2; exit 2
-    fi
-    if [[ "${old_hash}" == "${body_hash}" ]]; then
-      printf '%s\n' "${slug}"
-      exit 0
-    fi
+    _capture_exit_if_same_body "${draft}" "${slug}" "${body_hash}"
     # One retry, as specified. The remedy must NOT be --force: that would
     # overwrite a sibling's draft (commands/crrf.md's standing prohibition;
     # register volk Issue-Fork-132 / Issue-594).
@@ -179,8 +177,7 @@ if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
     exit 3
   fi
 fi
-dir="$(devagent_ensure_capture_dir "${slug}")"
-draft="${dir}/draft.md"
+devagent_ensure_capture_dir "${slug}" >/dev/null
 
 if [[ -n "${BODY_FILE}" ]]; then
   if [[ "${BODY_FILE}" -ef "${draft}" ]]; then

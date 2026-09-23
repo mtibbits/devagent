@@ -240,14 +240,22 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 
 # --- #597: --on-collision suffix resolves a sibling slug collision ----------
 
-@test "capture: default collision behavior is unchanged by the new flags (#597 AC3)" {
+_597_seed_sibling() {   # captures _597_body at the base slug; writes a DIFFERENT same-title body to "${B2}"
   _597_body "Corn planting"
   "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
-  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${BATS_TEST_TMPDIR}/b2.md"
+  B2="${BATS_TEST_TMPDIR}/b2.md"
+  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+}
+
+_597_ndirs() {   # how many corn-planting capture dirs exist
+  ls -1d "${TMP_DEVDOC}"/Captures/2026-05-19-corn-planting* | wc -l
+}
+
+@test "capture: default collision behavior is unchanged by the new flags (#597 AC3)" {
+  _597_seed_sibling
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting" \
-    --body-file "${BATS_TEST_TMPDIR}/b2.md"
+    --type issue --subtype bug --title "Corn planting" --body-file "${B2}"
   [ "$status" -eq 3 ]                            # no --on-collision ⇒ the #559 U4 signal
   [[ "$output" == *"already exists"* ]]
   grep -qF 'not the template' \
@@ -255,11 +263,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 }
 
 @test "capture: --on-collision suffix resolves a DIFFERENT-body collision (#597 AC2)" {
-  _597_body "Corn planting"
-  "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
-  B2="${BATS_TEST_TMPDIR}/b2.md"
-  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+  _597_seed_sibling
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting" \
     --body-file "${B2}" --on-collision suffix
@@ -275,11 +279,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 @test "capture: the collision suffix IS the #252 content-derived one (#597 AC2)" {
   # Delegation pin: the suffix equals reap.sh's ${h:0:6}, not a second scheme.
   source "${REPO_ROOT}/scripts/capture/lib/hash.sh"
-  _597_body "Corn planting"
-  "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
-  B2="${BATS_TEST_TMPDIR}/b2.md"
-  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+  _597_seed_sibling
   h="$(devagent_hash_text "$(cat "${B2}")")"
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting" \
@@ -300,9 +300,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
     --body-file "${BODY}" --on-collision suffix
   [ "$status" -eq 0 ]
   [ "$output" = "$first" ]                       # same slug printed
-  # and no second directory was minted
-  run bash -c "ls -1d '${TMP_DEVDOC}'/Captures/2026-05-19-corn-planting* | wc -l"
-  [ "$output" -eq 1 ]
+  [ "$(_597_ndirs)" -eq 1 ]                      # and no second directory was minted
 }
 
 @test "capture: --on-collision suffix requires --body-file (#597 AC2)" {
@@ -322,11 +320,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 }
 
 @test "capture: re-running a suffixed (different) body is idempotent too (#597 AC2)" {
-  _597_body "Corn planting"
-  "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
-  B2="${BATS_TEST_TMPDIR}/b2.md"
-  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+  _597_seed_sibling
   run "${REPO_ROOT}/scripts/capture/capture.sh" \
     --type issue --subtype bug --title "Corn planting" \
     --body-file "${B2}" --on-collision suffix
@@ -337,8 +331,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
     --body-file "${B2}" --on-collision suffix
   [ "$status" -eq 0 ]
   [ "$output" = "$first" ]                       # the SAME suffixed slug
-  run bash -c "ls -1d '${TMP_DEVDOC}'/Captures/2026-05-19-corn-planting* | wc -l"
-  [ "$output" -eq 2 ]                            # base + one suffixed, no third
+  [ "$(_597_ndirs)" -eq 2 ]                      # base + one suffixed, no third
 }
 
 @test "capture: a whitespace/case variant of an existing body is that body (#597 AC2, A5)" {
@@ -353,8 +346,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
   [ "$status" -eq 0 ]
   [ "$output" = "2026-05-19-corn-planting" ]     # the existing slug
   cmp "${BODY}" "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"  # untouched
-  run bash -c "ls -1d '${TMP_DEVDOC}'/Captures/2026-05-19-corn-planting* | wc -l"
-  [ "$output" -eq 1 ]
+  [ "$(_597_ndirs)" -eq 1 ]
 }
 
 @test "capture: --slug-suffix with --on-collision suffix is a usage error (#597 A3)" {
@@ -371,11 +363,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
   # Branch 6: a genuine 6-hex collision is contrived, so PLANT a different
   # draft at the suffixed slug the real body would take.
   source "${REPO_ROOT}/scripts/capture/lib/hash.sh"
-  _597_body "Corn planting"
-  "${REPO_ROOT}/scripts/capture/capture.sh" \
-    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
-  B2="${BATS_TEST_TMPDIR}/b2.md"
-  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+  _597_seed_sibling
   h="$(devagent_hash_text "$(cat "${B2}")")"
   occupied="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting-${h:0:6}"
   mkdir -p "${occupied}"
@@ -393,9 +381,13 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 # Coupling: commands/crrf.md's "## 2. Capture" bash fence is extracted and run
 # here. Editing that fence's flags edits this test (register: Issue-461/583).
 
+_597_fence() {   # the first bash fence under crrf.md's "## 2. Capture" heading
+  awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
+    "${REPO_ROOT}/commands/crrf.md"
+}
+
 @test "capture: crrf.md's promote fence names the #597 flags (#597 AC4)" {
-  FENCE="$(awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
-    "${REPO_ROOT}/commands/crrf.md")"
+  FENCE="$(_597_fence)"
   [ -n "$FENCE" ]                                # anti-vacuous (register: Issue-151)
   [[ "$FENCE" == *"--body-file"* ]]
   [[ "$FENCE" == *"--on-collision suffix"* ]]
@@ -404,8 +396,7 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
 }
 
 @test "capture: crrf.md's promote fence actually runs (#597 AC4)" {
-  FENCE="$(awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
-    "${REPO_ROOT}/commands/crrf.md")"
+  FENCE="$(_597_fence)"
   [ -n "$FENCE" ]
   export CLAUDE_PLUGIN_ROOT="${REPO_ROOT}"
   CHILD="${BATS_TEST_TMPDIR}/01-corn-planting.md"
