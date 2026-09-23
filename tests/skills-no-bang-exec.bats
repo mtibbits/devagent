@@ -45,7 +45,9 @@
 # pinned here: the grammar itself (the STATED BLIND SPOT above applies equally to the
 # positive pin), and whether the harness would auto-execute a bang line that is
 # INDENTED or sits inside a ``` FENCE — @test 9 pins the shape this repo ships, and
-# wrapping one of the six lines in a fence leaves all four @tests green.
+# wrapping one of the six lines in a fence leaves all four @tests green. Also NOT
+# pinned: a command in a SUBDIRECTORY of commands/ — the scan is one level deep
+# (`commands/*.md`), so @test 7's "seventh carrier" means a top-level one.
 # agents/*.md carry zero, but are a different invocation surface and are not pinned.
 #
 # COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
@@ -56,10 +58,10 @@
 # CHANGELOG, both .claude-plugin manifests, the design spec, docs-site/index.md).
 # Since #579 the totals are derived, so the update is the doc homes it names, not
 # the guard itself.
-# Adding a COMMAND that carries a bang-exec line reddens @test 7 (#596); the six
-# names are literals in @test 7, 8 and 9, so update all three. Adding a command
-# WITHOUT one reddens nothing in this file; tests/cmd_wrappers.bats derives the
-# command total from the tree (#579).
+# Adding a COMMAND that carries a bang-exec line reddens @test 7 (#596); the
+# expected set is the one `_auto_exec_cmds` literal. Adding a command WITHOUT one
+# reddens nothing in this file; tests/cmd_wrappers.bats derives the command total
+# from the tree (#579).
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
@@ -189,6 +191,17 @@ _all_commands() {
   printf '%s\n' "${all[@]}" | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
+# #596: the ONE home of the expected auto-exec command set, sorted as the helpers
+# print — @test 7 (set), 8 (count) and 9 (column 0) all assert against it.
+_auto_exec_cmds=(analyze branch cleanup commit mergetoall sync)
+
+# "<name>:1 ..." for every expected command: the value @test 8 and 9 expect.
+_each_once() {
+  local n want=""
+  for n in "${_auto_exec_cmds[@]}"; do want+="$n:1 "; done
+  printf '%s' "${want% }"
+}
+
 @test "exactly the three known user-invocable skills (glob-drop + unexpected-addition guard, #439)" {
   run _user_invocable_skills
   [ "$status" -eq 0 ]
@@ -305,7 +318,7 @@ _all_commands() {
   [ "$status" -eq 0 ]
   # exact SET. Only this @test catches a stray SEVENTH carrier; a DROPPED carrier
   # also reddens @test 8, which names the six (belt-and-braces, Issue-550).
-  [ "$output" = "analyze branch cleanup commit mergetoall sync" ] || {
+  [ "$output" = "${_auto_exec_cmds[*]}" ] || {
     echo "bang-exec carrier set drifted: got ($output)" >&2; return 1; }
 }
 
@@ -314,10 +327,9 @@ _all_commands() {
   [ "$status" -eq 0 ]
   [ "$output" = "function" ]
 
-  local -a six=(analyze branch cleanup commit mergetoall sync)
-  run _bang_counts "$REPO/commands" .md "$_bang_exec_re" "${six[@]}"
+  run _bang_counts "$REPO/commands" .md "$_bang_exec_re" "${_auto_exec_cmds[@]}"
   [ "$status" -eq 0 ]
-  [ "$output" = "analyze:1 branch:1 cleanup:1 commit:1 mergetoall:1 sync:1" ] || {
+  [ "$output" = "$(_each_once)" ] || {
     echo "per-command bang-exec count drifted: $output" >&2; return 1; }
 }
 
@@ -325,10 +337,9 @@ _all_commands() {
   # Separate @test, not a third assertion in @test 8: a multi-assertion guard
   # reddens only at its FIRST failing assert (Issue-123), and the mutation matrix
   # needs this leg to redden independently of the set and count legs.
-  local -a six=(analyze branch cleanup commit mergetoall sync)
-  run _bang_counts "$REPO/commands" .md "$_bang_exec_col0_re" "${six[@]}"
+  run _bang_counts "$REPO/commands" .md "$_bang_exec_col0_re" "${_auto_exec_cmds[@]}"
   [ "$status" -eq 0 ]
-  [ "$output" = "analyze:1 branch:1 cleanup:1 commit:1 mergetoall:1 sync:1" ] || {
+  [ "$output" = "$(_each_once)" ] || {
     echo "a bang-exec line is no longer at column 0: $output" >&2; return 1; }
 }
 
