@@ -36,7 +36,8 @@ Writes <devdoc>/Captures/<slug>/draft.md from the resolved template — or, with
                         content hash, the form reap.sh uses). A
                         content-identical (whitespace/case-insensitive) re-run
                         prints the existing slug and writes nothing. Requires
-                        --body-file; cannot be combined with --slug-suffix.
+                        --body-file; cannot be combined with --slug-suffix or
+                        --force.
 
 Exit: 0 ok | 2 usage | 3 collision unresolved (the slug's draft exists) |
 5 body H1 does not match --title
@@ -126,6 +127,12 @@ if [[ "${ON_COLLISION}" == "suffix" ]]; then
     echo "--slug-suffix and --on-collision suffix are mutually exclusive (both set the slug suffix)" >&2
     exit 2
   fi
+  # --force skips the collision block entirely, so it would overwrite the very
+  # sibling the suffix exists to keep.
+  if [[ "${FORCE}" -eq 1 ]]; then
+    echo "--force and --on-collision suffix are mutually exclusive (suffix never overwrites; drop one)" >&2
+    exit 2
+  fi
 fi
 
 if [[ -n "${BODY_FILE}" ]]; then
@@ -138,7 +145,7 @@ if [[ -n "${BODY_FILE}" ]]; then
     echo "could not read ${BODY_FILE}" >&2; exit 2
   fi
   if [[ -z "${body_h1}" ]]; then
-    { echo "body has no '# ' H1 heading: ${BODY_FILE}"
+    { echo "body has no non-empty '# ' H1 heading: ${BODY_FILE}"
       echo "  expected: # ${expected_h1}"; } >&2
     exit 5
   fi
@@ -155,7 +162,13 @@ slug="$(devagent_slug "${TITLE}" "${SLUG_SUFFIX}")"
 draft="$(devagent_capture_dir "${slug}")/draft.md"
 if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
   if [[ "${ON_COLLISION}" != "suffix" ]]; then
-    echo "draft already exists: ${draft} (use --force to overwrite)" >&2
+    # Flag-less callers keep the byte-identical message; a --body-file caller
+    # is told the non-overwriting remedy first (register: volk Fork-132).
+    if [[ -n "${BODY_FILE}" ]]; then
+      echo "draft already exists: ${draft} (use --on-collision suffix to keep both, or --force to overwrite)" >&2
+    else
+      echo "draft already exists: ${draft} (use --force to overwrite)" >&2
+    fi
     exit 3
   fi
   if ! body_hash="$(_capture_body_hash "${BODY_FILE}")"; then

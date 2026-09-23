@@ -63,7 +63,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <
   later crrf re-run over the same children hashes differently. Exit **3**
   now means a different child already holds even the suffixed slug: give
   this child a distinct title and matching H1. Never pass `--force` — it
-  would overwrite a sibling's draft.
+  would overwrite a sibling's draft, which is why `capture.sh` refuses it
+  alongside `--on-collision suffix` (exit 2).
 - Add a `Parent epic: <epic-slug>` line to the promoted child's `draft.md`.
   Append the epic's tracker URL to that line only **after** the epic's
   `filed.toml` exists — an issue number is provisional until the tracker

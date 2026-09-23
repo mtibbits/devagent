@@ -359,6 +359,44 @@ _597_ndirs() {   # how many corn-planting capture dirs exist
   [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting-02" ]
 }
 
+@test "capture: --force with --on-collision suffix is a usage error (#597 review I1)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --force \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--force and --on-collision suffix are mutually exclusive"* ]]
+  grep -qF 'not the template' \
+    "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"   # the sibling survives
+  [ "$(_597_ndirs)" -eq 1 ]
+}
+
+@test "capture: a --body-file collision names --on-collision suffix before --force (#597 review M2)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${B2}"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"--on-collision suffix"*"--force"* ]]   # the sanctioned remedy first (volk Fork-132)
+}
+
+@test "capture: the flag-less collision message is byte-unchanged (#597 review M2)" {
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" >/dev/null
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting"
+  [ "$status" -eq 3 ]
+  [ "$output" = "draft already exists: ${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md (use --force to overwrite)" ]
+}
+
+@test "capture: --body-file with an empty '# ' heading exits 5 naming it empty (#597 review M3)" {
+  BODY="${BATS_TEST_TMPDIR}/emptyh1.md"
+  printf '# \n\nBody under an empty heading.\n' > "${BODY}"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"no non-empty '# ' H1 heading"* ]]
+}
+
 @test "capture: an occupied suffixed slug exits 3 with a remedy, never --force (#597 AC2)" {
   # Branch 6: a genuine 6-hex collision is contrived, so PLANT a different
   # draft at the suffixed slug the real body would take.

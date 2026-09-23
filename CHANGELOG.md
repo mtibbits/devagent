@@ -44,7 +44,8 @@ the README's "Versioning & releases" section has the release procedure.
   existing-slug collision with the #252 content-derived suffix (first six
   hex of the body's content hash) in one retry and prints the final slug.
   A content-identical (whitespace/case-insensitive) re-run is a no-op. It
-  requires `--body-file` and cannot be combined with `--slug-suffix`.
+  requires `--body-file` and cannot be combined with `--slug-suffix` or
+  `--force`.
   Both flags are optional: without them, behavior is unchanged, including
   the exit-3 collision signal and `--force`. The H1 extraction is now one
   shared helper (`scripts/capture/lib/draft.sh`) that `file.sh` also
