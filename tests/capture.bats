@@ -159,3 +159,81 @@ EOF
   [ "$output" != "2026-05-19-corn-planting" ]
   [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
 }
+
+# --- #597: --body-file writes a supplied body instead of the template -------
+
+_597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
+  BODY="${BATS_TEST_TMPDIR}/body-${BATS_TEST_NUMBER}.md"
+  printf '# %s\n\nHarvested body, not the template.\n' "$1" > "${BODY}"
+}
+
+@test "capture: --body-file writes the supplied body verbatim (#597 AC1)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting" ]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  cmp "${BODY}" "${draft}"                       # byte-identical, not "contains"
+  run grep -F 'Acceptance criteria' "${draft}"   # the template did NOT render
+  [ "$status" -eq 1 ]
+}
+
+@test "capture: --body-file H1 != --title exits 5 and writes nothing (#597 AC1)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Soy planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]                            # rc-precise: not 2, not 3
+  [[ "$output" == *"H1"* ]]
+  [[ "$output" == *"Soy planting"* ]]
+  # fail BEFORE any side effect: no capture dir, no draft
+  [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-soy-planting" ]
+}
+
+@test "capture: --body-file with no '# ' heading exits 5 (#597 AC1)" {
+  BODY="${BATS_TEST_TMPDIR}/noh1.md"
+  printf 'Corn planting\n=====\n' > "${BODY}"    # setext H1: file.sh cannot read it either
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"H1"* ]]
+}
+
+@test "capture: --body-file that does not exist is a usage error (#597 AC1)" {
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${BATS_TEST_TMPDIR}/absent.md"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--body-file not found"* ]]   # NOT "--body-file": HEAD's "unknown arg" has it
+}
+
+@test "capture: --body-file H1 equality is what file.sh will read (#597 AC1)" {
+  # Delegation pin: the accepted body's H1, read by the SAME function file.sh
+  # calls for the tracker title, equals --title. No re-spelled awk here
+  # (register: devagent Issue-94 equivalence by construction; Issue-585).
+  source "${REPO_ROOT}/scripts/capture/lib/draft.sh"
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  draft="${TMP_DEVDOC}/Captures/${output}/draft.md"
+  [ "$(devagent_draft_h1 "${draft}")" = "Corn planting" ]
+}
+
+@test "capture: --body-file --type epic accepts '# Epic: <title>' (#597 AC1, A2)" {
+  _597_body "Epic: Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type epic --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting" ]
+  cmp "${BODY}" "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+}
+
+@test "capture: --body-file --type epic with a bare '# <title>' exits 5 (#597 AC1, A2)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type epic --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"Epic: Corn planting"* ]]     # the message shows the EXPECTED H1
+  [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting" ]
+}
