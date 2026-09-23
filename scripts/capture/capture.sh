@@ -50,6 +50,17 @@ Env:
 USAGE
 }
 
+# #597: a file's #252 content hash — devagent_hash_text, the SAME
+# normalization (lowercase, whitespace-collapsed) and 12-hex output reap.sh
+# keys on (reap.sh:296). Fails rather than hashing an unread file as "".
+_capture_body_hash() {
+  local text h
+  text="$(cat -- "$1")" || return 2
+  h="$(devagent_hash_text "${text}")"
+  [[ "${h}" =~ ^[0-9a-f]{12}$ ]] || return 2
+  printf '%s\n' "${h}"
+}
+
 TYPE=""; SUBTYPE="bug"; TITLE=""; SOURCE=""; FORCE=0; SLUG_SUFFIX=""
 BODY_FILE=""; ON_COLLISION="fail"
 while [[ $# -gt 0 ]]; do
@@ -129,12 +140,47 @@ if [[ -n "${BODY_FILE}" ]]; then
 fi
 
 slug="$(devagent_slug "${TITLE}" "${SLUG_SUFFIX}")"
+draft="$(devagent_capture_dir "${slug}")/draft.md"
+if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
+  if [[ "${ON_COLLISION}" != "suffix" ]]; then
+    echo "draft already exists: ${draft} (use --force to overwrite)" >&2
+    exit 3
+  fi
+  # Identity is the WHOLE normalized body, never the slug alone: a slug-only
+  # key would call a DIFFERENT sibling a no-op success (register: Issue-612).
+  if ! body_hash="$(_capture_body_hash "${BODY_FILE}")"; then
+    echo "could not hash ${BODY_FILE}" >&2; exit 2
+  fi
+  if ! old_hash="$(_capture_body_hash "${draft}")"; then
+    echo "could not read existing ${draft}" >&2; exit 2
+  fi
+  if [[ "${old_hash}" == "${body_hash}" ]]; then
+    printf '%s\n' "${slug}"                    # content-identical re-run: no write
+    exit 0
+  fi
+  # #252: the SAME disambiguator reap.sh derives (reap.sh:342, "${h:0:6}"),
+  # appended by devagent_slug AFTER its 60-char cap, so it survives truncation.
+  slug="$(devagent_slug "${TITLE}" "${body_hash:0:6}")"
+  draft="$(devagent_capture_dir "${slug}")/draft.md"
+  if [[ -e "${draft}" ]]; then
+    if ! old_hash="$(_capture_body_hash "${draft}")"; then
+      echo "could not read existing ${draft}" >&2; exit 2
+    fi
+    if [[ "${old_hash}" == "${body_hash}" ]]; then
+      printf '%s\n' "${slug}"
+      exit 0
+    fi
+    # One retry, as specified. The remedy must NOT be --force: that would
+    # overwrite a sibling's draft (commands/crrf.md's standing prohibition;
+    # register volk Issue-Fork-132 / Issue-594).
+    { echo "draft already exists after the one --on-collision suffix retry: ${draft}"
+      echo "  a different body shares this title and its 6-hex content-hash suffix"
+      echo "  remedy: give this capture a distinct --title (and the matching H1), then re-run"; } >&2
+    exit 3
+  fi
+fi
 dir="$(devagent_ensure_capture_dir "${slug}")"
 draft="${dir}/draft.md"
-if [[ -e "${draft}" && "${FORCE}" -ne 1 ]]; then
-  echo "draft already exists: ${draft} (use --force to overwrite)" >&2
-  exit 3
-fi
 
 if [[ -n "${BODY_FILE}" ]]; then
   if [[ "${BODY_FILE}" -ef "${draft}" ]]; then
