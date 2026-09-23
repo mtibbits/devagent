@@ -388,3 +388,33 @@ _597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
   [[ "$output" != *"--force"* ]]                 # never the sibling-overwriting bypass
   grep -qF 'third, unrelated' "${occupied}/draft.md"   # the occupant survives
 }
+
+# --- #597: crrf.md's promote-loop fence is EXECUTED, not just read ----------
+# Coupling: commands/crrf.md's "## 2. Capture" bash fence is extracted and run
+# here. Editing that fence's flags edits this test (register: Issue-461/583).
+
+@test "capture: crrf.md's promote fence names the #597 flags (#597 AC4)" {
+  FENCE="$(awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
+    "${REPO_ROOT}/commands/crrf.md")"
+  [ -n "$FENCE" ]                                # anti-vacuous (register: Issue-151)
+  [[ "$FENCE" == *"--body-file"* ]]
+  [[ "$FENCE" == *"--on-collision suffix"* ]]
+  run grep -F -- '--slug-suffix' "${REPO_ROOT}/commands/crrf.md"
+  [ "$status" -eq 1 ]                            # the manual retry prose is gone
+}
+
+@test "capture: crrf.md's promote fence actually runs (#597 AC4)" {
+  FENCE="$(awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
+    "${REPO_ROOT}/commands/crrf.md")"
+  [ -n "$FENCE" ]
+  export CLAUDE_PLUGIN_ROOT="${REPO_ROOT}"
+  CHILD="${BATS_TEST_TMPDIR}/01-corn-planting.md"
+  printf '# Corn planting\n\nScaffolded child body.\n' > "${CHILD}"
+  CMD="${FENCE//<bug|feature|docs|perf|chore>/bug}"
+  CMD="${CMD//\"<child title>\"/\"Corn planting\"}"
+  CMD="${CMD//<epic-dir>\/children\/NN-<kebab-title>.md/${CHILD}}"
+  run bash -c "$CMD"
+  [ "$status" -eq 0 ]
+  [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
+  cmp "${CHILD}" "${TMP_DEVDOC}/Captures/${output}/draft.md"
+}
