@@ -16,6 +16,17 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **The review step now tells its reviewer the report contract the lint
+  enforces (#598).** `commands/review.md` gains a Report contract block that
+  the main session appends to the dispatched reviewer's prompt on both paths
+  (the `superpowers:requesting-code-review` path and the superpowers-absent
+  fallback): the two artifact header lines, which the main session writes,
+  and the verdict signals `dispatch-lint.sh --class review` accepts. An
+  upstream reviewer that was never told the contract wrote to its own house
+  style and failed the lint with "no verdict signal", costing a re-dispatch.
+  `tests/dispatch-lint.bats` derives the lint's signal set and pins that the
+  block names exactly that set, once. Prompt and test only; `dispatch-lint.sh`
+  is unchanged.
 - **The six auto-exec commands are now pinned, not merely described (#596).**
   `tests/skills-no-bang-exec.bats` gains a positive counterpart to #550's negative
   canary: the set of `commands/*.md` carrying a bang-exec line is asserted to be
