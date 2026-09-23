@@ -218,7 +218,7 @@ suite_mode_reference() {
        # numbers numerically, so :10: does not precede :2:.
        hits="$(LC_ALL=C sort -t: -k1,1 -k2,2n <<<"$hits")" || return 2
        SUITE_MODE_HIT="${hits%%$'\n'*}"
-       SUITE_MODE_COUNT="$(grep -c '' <<<"$hits")" || return 2
+       local -a lines; mapfile -t lines <<<"$hits"; SUITE_MODE_COUNT=${#lines[@]}
        return 0 ;;
     1) return 1 ;;
     *) return 2 ;;

@@ -38,18 +38,31 @@ _stub_noop_chmod() {
     chmod +x "$DEVAGENT_TMP/binstub/chmod" "$DEVAGENT_TMP/binstub/stat"
 }
 
+_run_suite() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"; }
+_art() { ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt; }
 _no_artifact() {
     run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt 2>/dev/null | wc -l"
     [ "$output" = "0" ]
 }
 
+# _wrap_stub <cmd> <intercept-line>: a binstub that runs <intercept-line> and
+# otherwise execs the REAL <cmd>, so only the call under test is faked.
+_wrap_stub() {
+    local real; real="$(command -v "$1")"
+    printf '%s\n' '#!/usr/bin/env bash' "$2" "exec '$real' \"\$@\"" > "$DEVAGENT_TMP/binstub/$1"
+    chmod +x "$DEVAGENT_TMP/binstub/$1"
+}
+
+# The producer's one no-op spelling (run-suite.sh), pinned exactly.
+NOOP_LINE='file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)'
+
 # The guard must stay SILENT where its trigger is legitimately absent
 # (#Fork-195) — a project with no suite at all still gets its artifact.
 @test "#565: a tests-less tree still writes its artifact (preflight does not fire)" {
     git commit -q --allow-empty -m "no tests here"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -eq 0 ]
-    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    art="$(_art)"
     grep -q '^bats: (none)$' "$art"
     grep -qx 'file_modes: (none)' "$art"
 }
@@ -59,9 +72,9 @@ _no_artifact() {
     local t="$SOURCE_DIR/.pc"; : > "$t"; chmod 600 "$t"
     [ "$(stat -c '%a' "$t" 2>/dev/null)" = 600 ] || skip "chmod is a no-op here; the die branch is asserted below"
     rm -f "$t"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -eq 0 ]
-    grep -qx 'file_modes: posix' "$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -qx 'file_modes: posix' "$(_art)"
 }
 
 # Drives the real refusal branch on ANY platform via _stub_noop_chmod. Since #600
@@ -70,7 +83,7 @@ _no_artifact() {
 @test "#565: run-suite REFUSES and writes NO artifact when chmod is a no-op and the suite references a mode" {
     _seed_suite 'chmod 600 "$f"'
     _stub_noop_chmod
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -ne 0 ]
     [[ "$output" == *"chmod is a NO-OP"* ]]
     [[ "$output" == *"false evidence"* ]]
@@ -96,11 +109,11 @@ _no_artifact() {
 @test "#600: chmod no-op + a suite that references no file mode PROCEEDS and records it" {
     _seed_suite '@test "t" { true; }'
     _stub_noop_chmod
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -eq 0 ]
     [[ "$output" == *"no test file references a file mode"* ]]   # the stderr warn
-    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -qx 'file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)' "$art"
+    art="$(_art)"
+    grep -qx "$NOOP_LINE" "$art"
     grep -q '^bats: 1/1 ' "$art"            # a real artifact, not a stub of one
 }
 
@@ -109,7 +122,7 @@ _no_artifact() {
     mkdir -p tests/helpers && echo 'umask 077' > tests/helpers/common.bash
     _seed_suite '@test "t" { true; }'
     _stub_noop_chmod
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -ne 0 ]
     [[ "$output" == *"first: tests/helpers/common.bash:1:"* ]]
     _no_artifact
@@ -120,7 +133,7 @@ _no_artifact() {
     echo 'os.chmod(p, m)' > conftest.py
     _seed_suite '@test "t" { true; }'
     _stub_noop_chmod
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -ne 0 ]
     [[ "$output" == *"first: conftest.py:1:"* ]]
     _no_artifact
@@ -131,15 +144,12 @@ _no_artifact() {
 @test "#600: a nested-only pytest tree is gated (never file_modes: (none))" {
     mkdir -p tests/unit && echo 'def test_ok(): pass' > tests/unit/test_x.py
     git add -A && git commit -q -m "nested pytest only"
-    local real_py3; real_py3="$(command -v python3)"
-    printf '%s\n' '#!/usr/bin/env bash' 'case "$*" in *pytest*) echo "1 passed in 0.01s" ;;' \
-        "*) exec '$real_py3' \"\$@\" ;; esac" > "$DEVAGENT_TMP/binstub/python3"
-    chmod +x "$DEVAGENT_TMP/binstub/python3"
+    _wrap_stub python3 'case "$*" in *pytest*) echo "1 passed in 0.01s"; exit 0 ;; esac'
     _stub_noop_chmod
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _run_suite
     [ "$status" -eq 0 ]
-    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
-    grep -qx 'file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)' "$art"
+    art="$(_art)"
+    grep -qx "$NOOP_LINE" "$art"
     grep -q '^pytest: 1 passed' "$art"
 }
 
@@ -148,11 +158,8 @@ _no_artifact() {
 @test "#600: a failed mode scan REFUSES (fail closed), no artifact" {
     _seed_suite '@test "t" { true; }'
     _stub_noop_chmod
-    local real; real="$(command -v grep)"
-    printf '%s\n' '#!/usr/bin/env bash' \
-        '[ "$1" = "-RnIE" ] && exit 2' "exec '$real' \"\$@\"" > "$DEVAGENT_TMP/binstub/grep"
-    chmod +x "$DEVAGENT_TMP/binstub/grep"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _wrap_stub grep '[ "$1" = "-RnIE" ] && exit 2'
+    _run_suite
     [ "$status" -ne 0 ]
     [[ "$output" == *"could not scan"* ]]
     _no_artifact
@@ -165,11 +172,8 @@ _no_artifact() {
 @test "#600: a grep that matches nothing fails the positive control and REFUSES" {
     _seed_suite '@test "t" { true; }'
     _stub_noop_chmod
-    local real; real="$(command -v grep)"
-    printf '%s\n' '#!/usr/bin/env bash' \
-        'case "$*" in *"chmod|fchmod"*) exit 1 ;; esac' "exec '$real' \"\$@\"" > "$DEVAGENT_TMP/binstub/grep"
-    chmod +x "$DEVAGENT_TMP/binstub/grep"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    _wrap_stub grep 'case "$*" in *"chmod|fchmod"*) exit 1 ;; esac'
+    _run_suite
     [ "$status" -ne 0 ]
     [[ "$output" == *"could not scan"* ]]
     _no_artifact
@@ -180,16 +184,18 @@ _no_artifact() {
 # (analysis/<date>-mutation.txt) names the row each ERE clause's deletion reddens.
 # The must-not-match rows include the REAL false positives the issue's own
 # suggested regex hit (lectio, factorAI, lawfirm; #600 draft measurement).
-_mode_case() {  # <expected-rc> <line>
-    local d; d="$(mktemp -d "$DEVAGENT_TMP/mc.XXXXXX")"
-    mkdir -p "$d/tests"; printf '%s\n' "$2" > "$d/tests/t.txt"
-    local rc=0; suite_mode_reference "$d/tests" || rc=$?
+_load_predicate() {
+    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
+    type suite_mode_reference >/dev/null   # absence reddens HERE, not as a false rc (#337)
+}
+_mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
+    mkdir -p "$DEVAGENT_TMP/mc"; printf '%s\n' "$2" > "$DEVAGENT_TMP/mc/t.txt"
+    local rc=0; suite_mode_reference "$DEVAGENT_TMP/mc" || rc=$?
     [ "$rc" -eq "$1" ] || { echo "rc=$rc want=$1 line: $2"; return 1; }
 }
 
 @test "#600: suite_mode_reference matches every mode-token row" {
-    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
-    type suite_mode_reference >/dev/null   # absence reddens HERE, not as a false rc (#337)
+    _load_predicate
     local -a hit=(
         'chmod 600 "$f"'
         'os.fchmod(fd, m)'
@@ -229,8 +235,7 @@ _mode_case() {  # <expected-rc> <line>
 }
 
 @test "#600: suite_mode_reference ignores non-mode near-misses (incl. measured false positives)" {
-    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
-    type suite_mode_reference >/dev/null
+    _load_predicate
     local -a miss=(
         'def test_mode():'
         'def test_mode_split_ensemble_not_overstated_and_rhat_flags_it():'
@@ -251,8 +256,7 @@ _mode_case() {  # <expected-rc> <line>
 }
 
 @test "#600: suite_mode_reference names the lexically-first hit, counts all, fails CLOSED on error" {
-    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
-    type suite_mode_reference >/dev/null
+    _load_predicate
     mkdir -p "$DEVAGENT_TMP/s/tests" && cd "$DEVAGENT_TMP/s"
     # b.bats written FIRST, and a.bats hits at lines 2 and 10: the first hit must
     # be a.bats:2 whatever the readdir order and despite "10" < "2" lexically.
@@ -269,8 +273,7 @@ _mode_case() {  # <expected-rc> <line>
 }
 
 @test "#600: suite_mode_reference follows a symlinked helper" {
-    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
-    type suite_mode_reference >/dev/null
+    _load_predicate
     mkdir -p "$DEVAGENT_TMP/y/tests" "$DEVAGENT_TMP/y/shared" && cd "$DEVAGENT_TMP/y"
     echo 'umask 077' > shared/helper.bash
     ln -s ../shared/helper.bash tests/helper.bash
@@ -280,8 +283,7 @@ _mode_case() {  # <expected-rc> <line>
 }
 
 @test "#600: suite_mode_reference fails CLOSED when grep cannot match its own control" {
-    . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
-    type suite_mode_reference >/dev/null
+    _load_predicate
     mkdir -p "$DEVAGENT_TMP/z/tests" "$DEVAGENT_TMP/g1" && cd "$DEVAGENT_TMP/z"
     echo 'true' > tests/a.bats
     printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$DEVAGENT_TMP/g1/grep"

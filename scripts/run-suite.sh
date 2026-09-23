@@ -101,14 +101,21 @@ fi
 
 cd "$work_dir"
 
+# Suite presence, probed ONCE and shared by the #565 gate and both suite branches
+# below, so the gate cannot drift from what actually runs (#600; #605 was exactly
+# that drift). pytest's probe is recursive because `pytest tests/` collects
+# recursively (#466 redmr, at the pytest branch).
+has_bats=false;   compgen -G "tests/*.bats" >/dev/null 2>&1 && has_bats=true
+has_pytest=false; [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ] && has_pytest=true
+
 # #565: refuse to manufacture an evidence artifact from a filesystem where chmod is
 # a no-op AND the suite could be asserting modes. A mode-asserting suite fails
 # wholesale on such a mount, so its artifact would record a red suite that says
 # nothing about the branch — and preship-evidence.sh consumes it as authority.
 # posix_modes_representable (#289) is checked on BOTH the measured tree and TMPDIR,
 # because tests create their fixtures in the latter. Fires only where there is a
-# suite to run — the same presence probes the suites below use (pytest's is
-# recursive, #605), so file_modes: (none) means ABSENT, never NOT LOOKED FOR.
+# suite to run — has_bats/has_pytest above, the same flags the suites below use,
+# so file_modes: (none) means ABSENT, never NOT LOOKED FOR.
 # #600: "has a suite" alone was the trigger, and it blocked every Windows project
 # whose tests never touch a mode (lectio, pure pytest). Where chmod is a no-op the
 # suite source (tests/, plus a root conftest.py pytest would load) is now scanned by
@@ -116,8 +123,7 @@ cd "$work_dir"
 # file_modes:, worded as what was NOT seen — never "modes verified" — because the
 # scan is a proxy (its LIMITS are in its own comment); a scan that cannot run refuses.
 file_modes_line="file_modes: (none)"
-if compgen -G "tests/*.bats" >/dev/null 2>&1 \
-   || [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
+if $has_bats || $has_pytest; then
   # Residual, deliberate: posix_modes_representable is FAIL-OPEN on an
   # unprobeable dir (mktemp/chmod/stat failure) because its original caller is
   # an audit that must still run. For this gate that direction is inverted, so a
@@ -148,7 +154,7 @@ if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; e
 
 bats_line="bats: (none)"
 bats_jobs_line="bats_jobs: (none)"
-if compgen -G "tests/*.bats" >/dev/null 2>&1; then
+if $has_bats; then
   # #565: bats registers @test names in a CHILD process that inherits this
   # environment; without a UTF-8 locale a non-ASCII name can be silently skipped
   # while still counted in the 1..N plan, so the artifact would be thinner than
@@ -229,7 +235,7 @@ python_line="python: (none)"
 # tests/unit/test_*.py "absent", and since #466 makes presence load-bearing for the
 # Evidence reconstruction, the whole suite then vanished from the green instead of
 # merely showing as `, 0 pytest`. `(none)` must mean ABSENT, never NOT LOOKED FOR.
-if [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
+if $has_pytest; then
   # #466: Python projects conventionally carry their interpreter in <tree>/.venv/, where
   # the AMBIENT python3 has no pytest — measuring a 51-test suite with system python3
   # recorded "0 passed" (factor-ai Issue-9). Prefer the tree's own venv: the artifact is
