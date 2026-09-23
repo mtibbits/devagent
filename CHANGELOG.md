@@ -24,8 +24,10 @@ the README's "Versioning & releases" section has the release procedure.
   it) or when the scan cannot run; otherwise it proceeds, and a new trailing artifact
   line records `file_modes: posix`, `file_modes: no-op; no test file references a file
   mode (…)`, or `file_modes: (none)`. The scan is a proxy and the artifact says so; a
-  mode dependency living only in the code under test is not seen. devAgent's own suite
-  still refuses there. On native Windows a `.venv/Scripts/` interpreter still needs
+  mode dependency living only in the code under test, or in test-support code loaded
+  from outside the scanned paths, is not seen. devAgent's own suite still refuses
+  there, and a tree whose only pytest files are nested (`tests/unit/test_*.py`), which
+  the old non-recursive trigger never gated, is now scanned too. On native Windows a `.venv/Scripts/` interpreter still needs
   `DEVAGENT_PYTEST_PYTHON` (#466).
 - **The six auto-exec commands are now pinned, not merely described (#596).**
   `tests/skills-no-bang-exec.bats` gains a positive counterpart to #550's negative

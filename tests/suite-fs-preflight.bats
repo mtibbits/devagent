@@ -227,11 +227,16 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
         'mkdir --mode=700 "$d"'
         'install -m 600 a b'
         'install --mode=600 a b'
+        'mkdir -p -m 700 "$d"'
+        'mkdir -m700 "$d"'
+        'mkdir -pm 700 "$d"'
+        'install -Dm644 a b'
+        'install -m644 a b'
         'os.open(p, flags, 0o600)'
     )
     local n=0 l
     for l in "${hit[@]}"; do _mode_case 0 "$l"; n=$((n + 1)); done
-    [ "$n" -eq 31 ]   # subject COUNT, so a silently emptied array cannot pass (#151)
+    [ "$n" -eq 36 ]   # subject COUNT, so a silently emptied array cannot pass (#151)
 }
 
 @test "#600: suite_mode_reference ignores non-mode near-misses (incl. measured false positives)" {
@@ -249,10 +254,12 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
         'lsof -l'
         'ls tests/'
         'ls -a "$d"'
+        'mkdir -p "$d"'
+        'install -D a b'
     )
     local n=0 l
     for l in "${miss[@]}"; do _mode_case 1 "$l"; n=$((n + 1)); done
-    [ "$n" -eq 12 ]
+    [ "$n" -eq 14 ]
 }
 
 @test "#600: suite_mode_reference names the lexically-first hit, counts all, fails CLOSED on error" {
@@ -290,4 +297,27 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
     chmod +x "$DEVAGENT_TMP/g1/grep"
     local rc=0; ( PATH="$DEVAGENT_TMP/g1:$PATH"; suite_mode_reference tests ) || rc=$?
     [ "$rc" -eq 2 ]
+}
+
+# A scan error must say WHICH path failed, or a fail-closed refusal is undiagnosable
+# (#600 review): a dangling symlink is the routine trigger under grep -R.
+@test "#600: suite_mode_reference reports the path a failed scan could not read" {
+    _load_predicate
+    mkdir -p "$DEVAGENT_TMP/e/tests" && cd "$DEVAGENT_TMP/e"
+    echo 'true' > tests/a.bats
+    ln -s does-not-exist tests/broken
+    local rc=0; suite_mode_reference tests || rc=$?
+    [ "$rc" -eq 2 ]
+    [[ "$SUITE_MODE_ERR" == *"tests/broken"* ]]
+}
+
+@test "#600: a scan refusal names the unreadable path" {
+    _seed_suite '@test "t" { true; }'
+    ln -s does-not-exist tests/broken
+    _stub_noop_chmod
+    _run_suite
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"could not scan"* ]]
+    [[ "$output" == *"tests/broken"* ]]
+    _no_artifact
 }

@@ -1135,7 +1135,9 @@ no-op value states what was NOT seen rather than claiming modes verified, and
 `posix` means "no no-op detected" (the probe fails open on an unprobeable
 directory). The proxy over-fires by design — a `chmod +x` on a stub or a bare
 `ls -l` counts as a reference — and its stated residual is a mode dependency living
-only in the code under test.
+only in the code under test, or in test-support code loaded from outside the scanned
+paths. A scan error names grep's first error line (a dangling symlink under `-R` is the
+routine cause).
 
 Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
 reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming

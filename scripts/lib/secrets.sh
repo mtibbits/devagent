@@ -192,8 +192,10 @@ posix_modes_representable() {
 # tell a suite that could be asserting modes (refuse) from one that cannot (proceed and
 # say so in the artifact). A PROXY, and the artifact says so. It sees tokens that SET or
 # READ a mode in the scanned files; it does NOT see a mode dependency that lives only in
-# the code under test, a `[ -x` / `-w` test operator, `find -perm`, or the target of a
-# symlink that a `core.symlinks=false` checkout materialised as a text file. Tokens are
+# the code under test, test-support code loaded from OUTSIDE the scanned paths (a bats
+# `load '../lib/x'`, a pytest plugin elsewhere), a `[ -x` / `-w` test operator,
+# `find -perm`, or the target of a symlink that a `core.symlinks=false` checkout
+# materialised as a text file. Tokens are
 # word-bounded with a portable ERE class rather than `\b`: unbounded, `st_mode` matched
 # inside `test_mode_split` and `permission` matched licence prose (#600 draft measurement
 # over three real pure-pytest suites). `chmod +x` on a stub and a bare `ls -l` count as
@@ -203,16 +205,27 @@ posix_modes_representable() {
 # untracked files included, which is why this is not a tracked-only `git grep`.
 # rc 0 = found (SUITE_MODE_HIT = lexically-first `file:line:text`, SUITE_MODE_COUNT =
 # hit lines), 1 = none, 2 = could not determine — callers must fail CLOSED on 2
-# (register Issue-243). A positive control runs first through the same grep and ERE: a
-# dialect that silently matches nothing would otherwise report every suite clean.
+# (register Issue-243); on 2, SUITE_MODE_ERR carries grep's first error line (a
+# dangling symlink under -R is the routine cause) so the refusal names what failed.
+# A positive control runs first through the same grep and ERE: a dialect that silently
+# matches NOTHING would otherwise report every suite clean. It does not detect a grep
+# that drops only SOME alternatives — the per-alternative rows in
+# tests/suite-fs-preflight.bats pin those for the grep the suite runs under.
 # Setter-globals: call bare (`… || rc=$?`), never inside $( … ) (register Issue-282).
-SUITE_MODE_TOKEN_RE='(^|[^[:alnum:]_])(chmod|fchmod|lchmod|umask|st_mode|S_IMODE|S_I[RWX](USR|GRP|OTH)|S_IRWX[UGO]|os\.access|[RWX]_OK|PermissionError|EACCES|copymode|filemode|stat( +-[A-Za-z]+)* +(-c|-f|--format|--printf)|stat +-[A-Za-z]*[cf]|ls( +-[A-Za-z]+)* +-[A-Za-z]*l[A-Za-z]*|(mkdir|install) +(-m|--mode)|0o[0-7]{3,4})([^[:alnum:]_]|$)'
-# shellcheck disable=SC2034  # SUITE_MODE_HIT/COUNT are consumed by callers (run-suite.sh), not here
+SUITE_MODE_TOKEN_RE='(^|[^[:alnum:]_])(chmod|fchmod|lchmod|umask|st_mode|S_IMODE|S_I[RWX](USR|GRP|OTH)|S_IRWX[UGO]|os\.access|[RWX]_OK|PermissionError|EACCES|copymode|filemode|stat( +-[A-Za-z]+)* +(-c|-f|--format|--printf)|stat +-[A-Za-z]*[cf]|ls( +-[A-Za-z]+)* +-[A-Za-z]*l[A-Za-z]*|(mkdir|install)( +-[A-Za-z]+)* +(-[A-Za-z]*m[0-7]*|--mode)|0o[0-7]{3,4})([^[:alnum:]_]|$)'
+# shellcheck disable=SC2034  # SUITE_MODE_HIT/COUNT/ERR are consumed by callers (run-suite.sh), not here
 suite_mode_reference() {
-  local hits rc=0
-  SUITE_MODE_HIT=""; SUITE_MODE_COUNT=0
-  grep -qE -- "$SUITE_MODE_TOKEN_RE" <<<'chmod 600 x' 2>/dev/null || return 2
-  hits="$(grep -RnIE -- "$SUITE_MODE_TOKEN_RE" "$@" 2>/dev/null)" || rc=$?
+  local hits rc=0 errf
+  SUITE_MODE_HIT=""; SUITE_MODE_COUNT=0; SUITE_MODE_ERR=""
+  if ! grep -qE -- "$SUITE_MODE_TOKEN_RE" <<<'chmod 600 x' 2>/dev/null; then
+    SUITE_MODE_ERR="grep failed its positive control (no match for 'chmod 600 x')"
+    return 2
+  fi
+  errf="$(mktemp "${TMPDIR:-/tmp}/suite-mode-err.XXXXXX")" \
+    || { SUITE_MODE_ERR="mktemp failed"; return 2; }
+  hits="$(grep -RnIE -- "$SUITE_MODE_TOKEN_RE" "$@" 2>"$errf")" || rc=$?
+  IFS= read -r SUITE_MODE_ERR <"$errf" || true
+  rm -f "$errf"
   case "$rc" in
     0) # Sorted so "first" does not depend on readdir order (NTFS vs ext4); line
        # numbers numerically, so :10: does not precede :2:.

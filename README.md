@@ -339,7 +339,8 @@ suite with no hit, `run-suite.sh` proceeds and records
 in the artifact, so a reader can tell that run from a `file_modes: posix` one. (`posix`
 means the probe found `chmod` effective; the probe fails open on a directory it cannot
 probe at all, so read it as "no no-op detected".) The scan is a proxy (#600): it cannot
-see a mode dependency that lives only in the code under test, and a suite that merely
+see a mode dependency that lives only in the code under test or in test-support code
+loaded from outside the scanned paths, and a suite that merely
 `chmod +x`es a stub counts as a reference — over-refusing is the safe direction. A scan
 that cannot run refuses. On native Windows a `.venv/Scripts/` interpreter still needs
 `DEVAGENT_PYTEST_PYTHON` (the pytest requirement below).

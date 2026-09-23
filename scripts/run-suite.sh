@@ -143,7 +143,7 @@ if $has_bats || $has_pytest; then
       0) die "run-suite: chmod is a NO-OP under '$_noop_dir' and this suite references a file mode ($SUITE_MODE_COUNT lines; first: ${SUITE_MODE_HIT:0:200}) — it cannot pass on this filesystem, so any artifact written here would be false evidence (#565). Run the suite on a native POSIX filesystem; on Windows that means a WSL clone on ext4 with its own ~/.claude/devagent/config.toml, not a /mnt/c checkout or native Git Bash. See README 'Running the test suite'." ;;
       1) warn "run-suite: chmod is a no-op under '$_noop_dir', but no test file references a file mode — proceeding; the artifact records file_modes: no-op (#600)."
          file_modes_line="file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)" ;;
-      *) die "run-suite: chmod is a NO-OP under '$_noop_dir' and run-suite could not scan ${_mode_scan[*]} for file-mode references — it cannot tell whether this suite asserts modes, so it refuses rather than risk false evidence (#565/#600). Fix the unreadable file or broken grep, or run the suite on a native POSIX filesystem (see README 'Running the test suite')." ;;
+      *) die "run-suite: chmod is a NO-OP under '$_noop_dir' and run-suite could not scan ${_mode_scan[*]} for file-mode references (${SUITE_MODE_ERR:0:200}) — it cannot tell whether this suite asserts modes, so it refuses rather than risk false evidence (#565/#600). Fix the unreadable file or broken grep, or run the suite on a native POSIX filesystem (see README 'Running the test suite')." ;;
     esac
   fi
 fi
