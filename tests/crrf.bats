@@ -52,8 +52,9 @@ setup() { DOC="$(<"$F")"; }
   # Q2 — children are PROMOTED to their own top-level captures, then filed.
   [[ "$DOC" == *'scripts/capture/capture.sh'* ]]
   [[ "$DOC" == *'--type issue --subtype'* ]]
-  [[ "$DOC" == *'--slug-suffix'* ]]              # U4: collision disambiguator
-  [[ "$DOC" == *'content hash'* ]]               # #252 idempotent suffix form
+  [[ "$DOC" == *'--body-file'* ]]                # #597: the body is passed, not hand-written
+  [[ "$DOC" == *'--on-collision suffix'* ]]      # #597: collision disambiguator, in-script
+  [[ "$DOC" == *'content hash'* ]]               # #252 idempotent suffix form (phrase retained)
   [[ "$DOC" == *'Parent epic:'* ]]               # linkage home 1 (child draft)
   [[ "$DOC" == *'staging copies superseded'* ]]  # children/NN-*.md disposition
   [[ "$DOC" == *'epic draft is filed as well'* ]]  # case-safe: no leading article
