@@ -241,6 +241,8 @@ _routes() {
     # Each region is bounded by markers: the invoke line, the Fallback label and
     # the nudge line (all pinned by tests/cmd_wrappers.bats), then item 5a's
     # label and item 6's number.
+    # The backticks below are literal markdown code markup, not an expansion.
+    # shellcheck disable=SC2016
     sp="$(sed -n '/Invoke `superpowers:requesting-code-review` with the diff scope/,/Fallback (superpowers absent)/p' "$review")"
     fb="$(sed -n '/Fallback (superpowers absent)/,/recommended: claude plugin install/p' "$review")"
     rt="$(sed -n '/^5a\. \*\*Report validation/,/^6\. /p' "$review")"
