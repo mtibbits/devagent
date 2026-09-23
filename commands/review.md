@@ -39,8 +39,9 @@ Per `commands/draft.md`.
    lints the saved report, and the reviewer never reads this file, so it
    can meet the lint first-pass only if the prompt it receives states the
    contract. The upstream skill has you fill its reviewer template into
-   the dispatch prompt; append the lines INSIDE this fence (not the fence
-   markers), verbatim, to the end of that prompt:
+   the dispatch prompt; append the lines INSIDE this fence (without the
+   fence markers or this list's 3-space indent), verbatim, to the end of
+   that prompt:
 
    ```text
    ## Report contract (devAgent) — in addition to any output format above
