@@ -194,36 +194,44 @@ posix_modes_representable() {
 # READ a mode in the scanned files; it does NOT see a mode dependency that lives only in
 # the code under test, test-support code loaded from OUTSIDE the scanned paths (a bats
 # `load '../lib/x'`, a pytest plugin elsewhere), a `[ -x` / `-w` test operator,
-# `find -perm`, or the target of a symlink that a `core.symlinks=false` checkout
+# `find -perm`, `oct(…)` comparisons and full-mode literals (`0o100600`, git's
+# `100644`/`100755`), or the target of a symlink that a `core.symlinks=false` checkout
 # materialised as a text file. Tokens are
 # word-bounded with a portable ERE class rather than `\b`: unbounded, `st_mode` matched
-# inside `test_mode_split` and `permission` matched licence prose (#600 draft measurement
+# inside `test_mode_split` and `permission` matched a test comment and a JSON key (#600
+# draft measurement
 # over three real pure-pytest suites). `chmod +x` on a stub and a bare `ls -l` count as
 # references: over-firing is the fail-closed direction.
-# Universe: the WORKING TREE under each <path>, recursively, following symlinks (`-R`; a
-# symlink loop is a grep error, so rc 2) — what bats and pytest actually execute,
-# untracked files included, which is why this is not a tracked-only `git grep`.
+# Universe: the WORKING TREE under each <path>, recursively, following symlinks (`-R`;
+# GNU grep reports a directory loop as a WARNING and skips the repeat, so every file is
+# still scanned once and the rc stays the match status; a dangling link IS an error,
+# rc 2) — what bats and pytest actually execute, untracked files included, which is why
+# this is not a tracked-only `git grep`. Scanned under LC_ALL=C: every byte is valid, so
+# a hit on a Latin-1/CP1252 line is printed and counted (a UTF-8 `grep -I` suppresses
+# such a line yet exits 0), and `[:alnum:]` does not vary with the host locale.
 # rc 0 = found (SUITE_MODE_HIT = lexically-first `file:line:text`, SUITE_MODE_COUNT =
 # hit lines), 1 = none, 2 = could not determine — callers must fail CLOSED on 2
 # (register Issue-243); on 2, SUITE_MODE_ERR carries grep's first error line (a
 # dangling symlink under -R is the routine cause) so the refusal names what failed.
-# A positive control runs first through the same grep and ERE: a dialect that silently
-# matches NOTHING would otherwise report every suite clean. It does not detect a grep
+# A positive control runs first through the same grep and ERE, on an indented
+# `os.chmod(` line so the leading boundary's class branch, `\.` and the trailing class
+# are all exercised: a dialect that silently matches NOTHING would otherwise report
+# every suite clean. It does not detect a grep
 # that drops only SOME alternatives — the per-alternative rows in
 # tests/suite-fs-preflight.bats pin those for the grep the suite runs under.
 # Setter-globals: call bare (`… || rc=$?`), never inside $( … ) (register Issue-282).
-SUITE_MODE_TOKEN_RE='(^|[^[:alnum:]_])(chmod|fchmod|lchmod|umask|st_mode|S_IMODE|S_I[RWX](USR|GRP|OTH)|S_IRWX[UGO]|os\.access|[RWX]_OK|PermissionError|EACCES|copymode|filemode|stat( +-[A-Za-z]+)* +(-c|-f|--format|--printf)|stat +-[A-Za-z]*[cf]|ls( +-[A-Za-z]+)* +-[A-Za-z]*l[A-Za-z]*|(mkdir|install)( +-[A-Za-z]+)* +(-[A-Za-z]*m[0-7]*|--mode)|0o[0-7]{3,4})([^[:alnum:]_]|$)'
+SUITE_MODE_TOKEN_RE='(^|[^[:alnum:]_])(chmod|fchmod|lchmod|umask|st_mode|S_IMODE|S_I[RWX](USR|GRP|OTH)|S_IRWX[UGO]|S_I(EXEC|READ|WRITE)|os\.access|[RWX]_OK|PermissionError|EACCES|copymode|[Ff]ile[Mm]ode|stat( +-[A-Za-z]+)* +(-c|-f|--format|--printf)|stat +-[A-Za-z]*[cf]|ls( +-[A-Za-z]+)* +-[A-Za-z]*l[A-Za-z]*|(mkdir|install)( +-[A-Za-z]+)* +(-[A-Za-z]*m[0-7]*|--mode)|0o[0-7]{3,4})([^[:alnum:]_]|$)'
 # shellcheck disable=SC2034  # SUITE_MODE_HIT/COUNT/ERR are consumed by callers (run-suite.sh), not here
 suite_mode_reference() {
   local hits rc=0 errf
   SUITE_MODE_HIT=""; SUITE_MODE_COUNT=0; SUITE_MODE_ERR=""
-  if ! grep -qE -- "$SUITE_MODE_TOKEN_RE" <<<'chmod 600 x' 2>/dev/null; then
-    SUITE_MODE_ERR="grep failed its positive control (no match for 'chmod 600 x')"
+  if ! LC_ALL=C grep -qE -- "$SUITE_MODE_TOKEN_RE" <<<'  os.chmod(p, 0o600)' 2>/dev/null; then
+    SUITE_MODE_ERR="grep failed its positive control (no match for '  os.chmod(p, 0o600)')"
     return 2
   fi
   errf="$(mktemp "${TMPDIR:-/tmp}/suite-mode-err.XXXXXX")" \
     || { SUITE_MODE_ERR="mktemp failed"; return 2; }
-  hits="$(grep -RnIE -- "$SUITE_MODE_TOKEN_RE" "$@" 2>"$errf")" || rc=$?
+  hits="$(LC_ALL=C grep -RnIE -- "$SUITE_MODE_TOKEN_RE" "$@" 2>"$errf")" || rc=$?
   IFS= read -r SUITE_MODE_ERR <"$errf" || true
   rm -f "$errf"
   case "$rc" in

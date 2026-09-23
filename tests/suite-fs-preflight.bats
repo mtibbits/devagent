@@ -207,6 +207,10 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
         'm & stat.S_IRGRP'
         'm & stat.S_IWOTH'
         'm & stat.S_IRWXG'
+        'm & stat.S_IEXEC'
+        'm & stat.S_IREAD'
+        'm & stat.S_IWRITE'
+        'git config core.fileMode false'
         'os.access(p, mode)'
         'flag = os.R_OK'
         'flag = os.W_OK'
@@ -236,7 +240,7 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
     )
     local n=0 l
     for l in "${hit[@]}"; do _mode_case 0 "$l"; n=$((n + 1)); done
-    [ "$n" -eq 36 ]   # subject COUNT, so a silently emptied array cannot pass (#151)
+    [ "$n" -eq 40 ]   # subject COUNT, so a silently emptied array cannot pass (#151)
 }
 
 @test "#600: suite_mode_reference ignores non-mode near-misses (incl. measured false positives)" {
@@ -320,4 +324,18 @@ _mode_case() {  # <expected-rc> <line> — one row, one file, rewritten per row
     [[ "$output" == *"could not scan"* ]]
     [[ "$output" == *"tests/broken"* ]]
     _no_artifact
+}
+
+# A hit on a line carrying a non-UTF-8 byte (a Latin-1/CP1252 source, likeliest on the
+# Windows hosts this branch runs on) must still be NAMED and COUNTED: a UTF-8 grep -I
+# suppresses the line yet exits 0 (#600 redmr).
+@test "#600: suite_mode_reference names and counts a hit on a non-UTF-8 line" {
+    _load_predicate
+    mkdir -p "$DEVAGENT_TMP/l/tests" && cd "$DEVAGENT_TMP/l"
+    printf 'os.chmod(p, 0o600)  # caf\xe9\n' > tests/test_latin.py
+    printf 'umask 077\n' > tests/z.bats
+    local rc=0; LC_ALL=C.UTF-8 suite_mode_reference tests || rc=$?
+    [ "$rc" -eq 0 ]
+    [[ "$SUITE_MODE_HIT" == "tests/test_latin.py:1:os.chmod(p, 0o600)"* ]]
+    [ "$SUITE_MODE_COUNT" -eq 2 ]
 }

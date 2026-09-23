@@ -1123,8 +1123,8 @@ suite. Where `posix_modes_representable` reports a no-op on the measured tree or
 TMPDIR, `suite_mode_reference` (`scripts/lib/secrets.sh`) scans the working tree
 under `tests/` recursively (following symlinks), plus a root `conftest.py`, for
 word-bounded mode tokens — word-bounded because the issue's unbounded proxy
-matched `st_mode` inside `test_mode_split` and `permission` in licence prose, and
-would have blocked every pure-pytest suite it was measured against. A hit dies
+matched `st_mode` inside `test_mode_split`, `permission` in a test comment (lectio)
+and in a `permission_denials` key (lawfirm), and would have blocked every pure-pytest suite it was measured against. A hit dies
 naming the lexically-first one and the hit count; no hit proceeds; a scan that
 cannot run dies, and so does a grep that fails a built-in positive control (a
 dialect that matches nothing must not read as "no reference"). The trigger uses the
