@@ -1118,6 +1118,25 @@ consumer stays unmoved (`^bats:` cannot match `bats_jobs:`). Position is never
 contractual: a consumer anchors on a line's prefix, never on its line number, so
 the next line appended moves nothing.
 
+Since #600 the #565 chmod refusal is keyed on CONTENT, not on the presence of a
+suite. Where `posix_modes_representable` reports a no-op on the measured tree or
+TMPDIR, `suite_mode_reference` (`scripts/lib/secrets.sh`) scans the working tree
+under `tests/` recursively (following symlinks), plus a root `conftest.py`, for
+word-bounded mode tokens — word-bounded because the issue's unbounded proxy
+matched `st_mode` inside `test_mode_split` and `permission` in licence prose, and
+would have blocked every pure-pytest suite it was measured against. A hit dies
+naming the lexically-first one and the hit count; no hit proceeds; a scan that
+cannot run dies, and so does a grep that fails a built-in positive control (a
+dialect that matches nothing must not read as "no reference"). The trigger uses the
+suites' own presence probes (pytest's recursive, #605), so `(none)` means no suite.
+The artifact gains a trailing `file_modes: posix | no-op; no test file references a
+file mode (scanned: tests/ + root conftest.py) | (none)` line after `bats_jobs:`; the
+no-op value states what was NOT seen rather than claiming modes verified, and
+`posix` means "no no-op detected" (the probe fails open on an unprobeable
+directory). The proxy over-fires by design — a `chmod +x` on a stub or a bare
+`ls -l` counts as a reference — and its stated residual is a mode dependency living
+only in the code under test.
+
 Since #466 the artifact's framework lines are a TRI-STATE, and `preship-evidence.sh`
 reconstructs the Evidence `suite:` line from framework PRESENCE rather than assuming
 both. `(none)` means the framework is absent from the measured tree; `(error)` means
