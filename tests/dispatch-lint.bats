@@ -201,10 +201,11 @@ _review_contract_paras() {  # <count|print> <space-separated tokens>
         || { echo "expected ONE token alternation in dispatch-lint.sh's code lines, got: [$alts]" >&2; false; }
     toks="$(printf '%s\n' "$alts" | sed -E 's/^[\]b[(]//; s/[)][\]b$//' | tr '|' ' ')"
     # The three non-token signals cannot be derived as a set; count the arm's
-    # `grep -Eq` calls instead (occurrences, not lines, comment lines excluded),
-    # so a new or dropped signal reddens here.
+    # quiet `grep` calls instead (any flag spelling: -Eq, -qE, -q -E, -Eqi;
+    # occurrences, not lines, comment lines excluded), so a new or dropped
+    # signal reddens here.
     n_alt="$(sed -n '/^  review|redmr|preship)/,/^    ;;/p' "$lint" \
-        | grep -v '^[[:space:]]*#' | grep -oE 'grep -Eq' | wc -l)"
+        | grep -v '^[[:space:]]*#' | grep -oE 'grep -[A-Za-z]*q[A-Za-z]*' | wc -l)"
     [ "$n_alt" -eq 4 ] \
         || { echo "dispatch-lint --class review has $n_alt signal alternatives, not 4: if the lint gained or lost a signal, update review.md's Report contract and this test together; if the lint's case arm was only reflowed or renamed, re-derive this count" >&2; false; }
     # Stated ONCE (AC2): exactly one paragraph of review.md names every token.

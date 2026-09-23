@@ -52,8 +52,9 @@ Per `commands/draft.md`.
    full set `dispatch-lint.sh --class review` accepts:
    - a whole-word token: `SHIP`, `SHIP-WITH-NITS`, `FIX-BEFORE-SHIP`,
      `NO-SHIP`, `PASS`, or `FAIL`;
-   - a count line that starts with a number, counting your Critical
-     (must-fix) findings as blocking, e.g. `1 blocking, 2 important, 3 minor`;
+   - a count line that starts with a number followed by the word
+     `blocking` (count your Critical, must-fix, findings as blocking),
+     e.g. `1 blocking, 2 important, 3 minor`;
    - a `## Blocking` section header;
    - a line that begins `Verdict:`.
    Simplest: end the report with a count line and a `Verdict:` line that
