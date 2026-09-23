@@ -159,3 +159,308 @@ EOF
   [ "$output" != "2026-05-19-corn-planting" ]
   [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
 }
+
+# --- #597: --body-file writes a supplied body instead of the template -------
+
+_597_body() {   # $1 = H1 text; writes "${BODY}" and echoes nothing
+  BODY="${BATS_TEST_TMPDIR}/body-${BATS_TEST_NUMBER}.md"
+  printf '# %s\n\nHarvested body, not the template.\n' "$1" > "${BODY}"
+}
+
+@test "capture: --body-file writes the supplied body verbatim (#597 AC1)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting" ]
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  cmp "${BODY}" "${draft}"                       # byte-identical, not "contains"
+  run grep -F 'Acceptance criteria' "${draft}"   # the template did NOT render
+  [ "$status" -eq 1 ]
+}
+
+@test "capture: --body-file H1 != --title exits 5 and writes nothing (#597 AC1)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Soy planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]                            # rc-precise: not 2, not 3
+  [[ "$output" == *"H1"* ]]
+  [[ "$output" == *"Soy planting"* ]]
+  # fail BEFORE any side effect: no capture dir, no draft
+  [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-soy-planting" ]
+}
+
+@test "capture: --body-file with no '# ' heading exits 5 (#597 AC1)" {
+  BODY="${BATS_TEST_TMPDIR}/noh1.md"
+  printf 'Corn planting\n=====\n' > "${BODY}"    # setext H1: file.sh cannot read it either
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"H1"* ]]
+}
+
+@test "capture: --body-file that does not exist is a usage error (#597 AC1)" {
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${BATS_TEST_TMPDIR}/absent.md"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--body-file not found"* ]]   # NOT "--body-file": HEAD's "unknown arg" has it
+}
+
+@test "capture: --body-file H1 equality is what file.sh will read (#597 AC1)" {
+  # Delegation pin: the accepted body's H1, read by the SAME function file.sh
+  # calls for the tracker title, equals --title. No re-spelled awk here
+  # (register: devagent Issue-94 equivalence by construction; Issue-585).
+  source "${REPO_ROOT}/scripts/capture/lib/draft.sh"
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  draft="${TMP_DEVDOC}/Captures/${output}/draft.md"
+  [ "$(devagent_draft_h1 "${draft}")" = "Corn planting" ]
+}
+
+@test "capture: --body-file --type epic accepts '# Epic: <title>' (#597 AC1, A2)" {
+  _597_body "Epic: Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type epic --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting" ]
+  cmp "${BODY}" "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+}
+
+@test "capture: --body-file --type epic with a bare '# <title>' exits 5 (#597 AC1, A2)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type epic --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"Epic: Corn planting"* ]]     # the message shows the EXPECTED H1
+  [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting" ]
+}
+
+# --- #597: --on-collision suffix resolves a sibling slug collision ----------
+
+_597_seed_sibling() {   # captures _597_body at the base slug; writes a DIFFERENT same-title body to "${B2}"
+  _597_body "Corn planting"
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
+  B2="${BATS_TEST_TMPDIR}/b2.md"
+  printf '# Corn planting\n\nA DIFFERENT sibling.\n' > "${B2}"
+}
+
+_597_ndirs() {   # how many corn-planting capture dirs exist
+  ls -1d "${TMP_DEVDOC}"/Captures/2026-05-19-corn-planting* | wc -l
+}
+
+@test "capture: default collision behavior is unchanged by the new flags (#597 AC3)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${B2}"
+  [ "$status" -eq 3 ]                            # no --on-collision ⇒ the #559 U4 signal
+  [[ "$output" == *"already exists"* ]]
+  grep -qF 'not the template' \
+    "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"   # first body intact
+}
+
+@test "capture: --on-collision suffix resolves a DIFFERENT-body collision (#597 AC2)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  [ "$output" != "2026-05-19-corn-planting" ]
+  [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
+  cmp "${B2}" "${TMP_DEVDOC}/Captures/${output}/draft.md"
+  # the SIBLING was not overwritten (crrf's "never pass --force" invariant)
+  grep -qF 'not the template' \
+    "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+}
+
+@test "capture: the collision suffix IS the #252 content-derived one (#597 AC2)" {
+  # Delegation pin: the suffix equals reap.sh's ${h:0:6}, not a second scheme.
+  source "${REPO_ROOT}/scripts/capture/lib/hash.sh"
+  _597_seed_sibling
+  h="$(devagent_hash_text "$(cat "${B2}")")"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  [ "$output" = "2026-05-19-corn-planting-${h:0:6}" ]
+}
+
+@test "capture: an identical-body re-run is idempotent (#597 AC2)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${BODY}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  first="$output"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${BODY}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  [ "${lines[-1]}" = "$first" ]                  # same slug printed
+  [[ "$output" == *"nothing written"* ]]         # and the no-op says so (#597 redmr)
+  [ "$(_597_ndirs)" -eq 1 ]                      # and no second directory was minted
+}
+
+@test "capture: --on-collision suffix requires --body-file (#597 AC2)" {
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --on-collision suffix
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--on-collision suffix requires --body-file"* ]]   # the specific message
+}
+
+@test "capture: an unknown --on-collision value is a usage error (#597 AC2)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${BODY}" --on-collision clobber
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--on-collision must be fail|suffix"* ]]
+}
+
+@test "capture: re-running a suffixed (different) body is idempotent too (#597 AC2)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  first="$output"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  [ "${lines[-1]}" = "$first" ]                  # the SAME suffixed slug
+  [[ "$output" == *"nothing written"* ]]
+  [ "$(_597_ndirs)" -eq 2 ]                      # base + one suffixed, no third
+}
+
+@test "capture: a whitespace/case variant of an existing body is that body (#597 AC2, A5)" {
+  _597_body "Corn planting"
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
+  V="${BATS_TEST_TMPDIR}/variant.md"
+  printf '# Corn planting\n\n  HARVESTED   body, not the TEMPLATE.\n\n\n' > "${V}"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${V}" --on-collision suffix
+  [ "$status" -eq 0 ]
+  [ "${lines[-1]}" = "2026-05-19-corn-planting" ] # the existing slug
+  [[ "$output" == *"nothing written"* ]]         # an edited-but-equivalent body is not silently dropped
+  cmp "${BODY}" "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"  # untouched
+  [ "$(_597_ndirs)" -eq 1 ]
+}
+
+@test "capture: --slug-suffix with --on-collision suffix is a usage error (#597 A3)" {
+  _597_body "Corn planting"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --slug-suffix 02 \
+    --body-file "${BODY}" --on-collision suffix
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"mutually exclusive"* ]]      # NOT "--slug-suffix": HEAD's usage has it
+  [ ! -e "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting-02" ]
+}
+
+@test "capture: --force with --on-collision suffix is a usage error (#597 review I1)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --force \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--force and --on-collision suffix are mutually exclusive"* ]]
+  grep -qF 'not the template' \
+    "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"   # the sibling survives
+  [ "$(_597_ndirs)" -eq 1 ]
+}
+
+@test "capture: a --body-file collision names --on-collision suffix before --force (#597 review M2)" {
+  _597_seed_sibling
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${B2}"
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"--on-collision suffix"*"--force"* ]]   # the sanctioned remedy first (volk Fork-132)
+}
+
+@test "capture: the flag-less collision message is byte-unchanged (#597 review M2)" {
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" >/dev/null
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting"
+  [ "$status" -eq 3 ]
+  [ "$output" = "draft already exists: ${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md (use --force to overwrite)" ]
+}
+
+@test "capture: --body-file naming the destination draft is refused, draft intact (#597 redmr)" {
+  _597_body "Corn planting"
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  cp "${draft}" "${BATS_TEST_TMPDIR}/before.md"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${draft}" --force
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--body-file is the destination draft"* ]]
+  cmp "${BATS_TEST_TMPDIR}/before.md" "${draft}"   # cat > would have truncated it (Issue-558)
+}
+
+@test "capture: --body-file with an empty '# ' heading exits 5 naming it empty (#597 review M3)" {
+  BODY="${BATS_TEST_TMPDIR}/emptyh1.md"
+  printf '# \n\nBody under an empty heading.\n' > "${BODY}"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}"
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"no non-empty '# ' H1 heading"* ]]
+}
+
+@test "capture: an occupied suffixed slug exits 3 with a remedy, never --force (#597 AC2)" {
+  # Branch 6: a genuine 6-hex collision is contrived, so PLANT a different
+  # draft at the suffixed slug the real body would take.
+  source "${REPO_ROOT}/scripts/capture/lib/hash.sh"
+  _597_seed_sibling
+  h="$(devagent_hash_text "$(cat "${B2}")")"
+  occupied="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting-${h:0:6}"
+  mkdir -p "${occupied}"
+  printf '# Corn planting\n\nA third, unrelated body.\n' > "${occupied}/draft.md"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" \
+    --body-file "${B2}" --on-collision suffix
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"distinct --title"* ]]        # the printed remedy (volk Fork-132)
+  [[ "$output" != *"--force"* ]]                 # never the sibling-overwriting bypass
+  grep -qF 'third, unrelated' "${occupied}/draft.md"   # the occupant survives
+}
+
+# --- #597: crrf.md's promote-loop fence is EXECUTED, not just read ----------
+# Coupling: commands/crrf.md's "## 2. Capture" bash fence is extracted and run
+# here. Editing that fence's flags edits this test (register: Issue-461/583).
+
+_597_fence() {   # the first bash fence under crrf.md's "## 2. Capture" heading
+  awk '/^## 2\. Capture/{s=1;next} s&&/^## /{exit} s&&/^```bash$/{f=1;next} f&&/^```$/{exit} f' \
+    "${REPO_ROOT}/commands/crrf.md"
+}
+
+@test "capture: crrf.md's promote fence names the #597 flags (#597 AC4)" {
+  FENCE="$(_597_fence)"
+  [ -n "$FENCE" ]                                # anti-vacuous (register: Issue-151)
+  [[ "$FENCE" == *"--body-file"* ]]
+  [[ "$FENCE" == *"--on-collision suffix"* ]]
+  run grep -F -- '--slug-suffix' "${REPO_ROOT}/commands/crrf.md"
+  [ "$status" -eq 1 ]                            # the manual retry prose is gone
+}
+
+@test "capture: crrf.md's promote fence actually runs (#597 AC4)" {
+  FENCE="$(_597_fence)"
+  [ -n "$FENCE" ]
+  export CLAUDE_PLUGIN_ROOT="${REPO_ROOT}"
+  CHILD="${BATS_TEST_TMPDIR}/epic dir/children/01-corn-planting.md"   # a space, as real devdoc paths have
+  mkdir -p "$(dirname "${CHILD}")"
+  printf '# Corn planting\n\nScaffolded child body.\n' > "${CHILD}"
+  CMD="${FENCE//<bug|feature|docs|perf|chore>/bug}"
+  CMD="${CMD//\"<child title>\"/\"Corn planting\"}"
+  CMD="${CMD//\"<epic-dir>\/children\/NN-<kebab-title>.md\"/\"${CHILD}\"}"
+  run bash -c "$CMD"
+  [ "$status" -eq 0 ]
+  [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]
+  cmp "${CHILD}" "${TMP_DEVDOC}/Captures/${output}/draft.md"
+}

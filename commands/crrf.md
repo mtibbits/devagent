@@ -42,25 +42,35 @@ top-level capture — `file.sh` files a capture's `draft.md` and nothing else,
 so a child left under `children/` is not filable:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>" --body-file "<epic-dir>/children/NN-<kebab-title>.md" --on-collision suffix
 ```
+<!-- Editor note: tests/capture.bats EXTRACTS and RUNS this fence (#597).
+     Changing its flags or placeholders changes that test. -->
 
-- The script prints the new slug. Write the scaffolded child's body into
-  that capture's `draft.md`, replacing the template-instantiated content
-  wholesale (the child file is a filled copy of the same issue template).
-  The child's H1 MUST equal the `--title` argument — `file.sh` takes the
-  tracker title from the draft's H1 while the slug came from `--title`; a
-  mismatch ships a tracker issue whose title and slug disagree.
+- `--body-file` writes the scaffolded child's body as the capture's
+  `draft.md` — no hand-editing after the fact — and the script prints the
+  final slug. It REFUSES with exit **5** when the body's H1 does not equal
+  `--title`: `file.sh` takes the tracker title from the draft's H1 while the
+  slug came from `--title`, so a mismatch would ship a tracker issue whose
+  title and slug disagree. Fix the child's H1, do not retry past the refusal.
+- `--on-collision suffix` resolves a date-plus-title collision between two
+  children itself: it retries once at the first six hex chars of the child
+  body's content hash — the idempotent, content-derived form `reap.sh`
+  already uses (#252) — and prints the final slug. A content-identical
+  (whitespace/case-insensitive) re-run of this command prints the existing
+  slug, writes nothing, and says so in a `note:` line on stderr — so an
+  edit that only changes case or spacing does NOT land. That idempotence
+  is per invocation, because the `Parent epic:` line added next changes
+  `draft.md` after the write, so a later crrf re-run over the same
+  children hashes differently. Exit **3**
+  now means a different child already holds even the suffixed slug: give
+  this child a distinct title and matching H1. Never pass `--force` — it
+  would overwrite a sibling's draft, which is why `capture.sh` refuses it
+  alongside `--on-collision suffix` (exit 2).
 - Add a `Parent epic: <epic-slug>` line to the promoted child's `draft.md`.
   Append the epic's tracker URL to that line only **after** the epic's
   `filed.toml` exists — an issue number is provisional until the tracker
   write succeeds, so never bake a URL you have not been handed.
-- `capture.sh` exits **3** (`draft already exists`) when two children
-  collide on the date-plus-title slug. That is a signal, not a failure:
-  re-run with `--slug-suffix` set to the first six hex chars of the child
-  body's content hash — the idempotent, content-derived form `reap.sh`
-  already uses (#252). Never pass `--force` — it would overwrite a
-  sibling's draft.
 - Leave `children/NN-*.md` in place as the binning record (the manifest
   states their disposition — see the Manifest section).
 
@@ -137,8 +147,10 @@ plus `DEVAGENT_PERMISSION_PUSH_MR` for filing (see `commands/file.md`).
 
 ## Non-goals
 
-- Changes no verb: `capture.sh`, `scaffold`, `redissue`, `file.sh` are
-  unmodified.
+- Changes no verb's behavior: `scaffold`, `redissue` and `file.sh` behave as
+  before, and the `capture.sh` flags this loop uses (`--body-file`,
+  `--on-collision suffix`) are optional additions from #597 that leave every
+  other caller unchanged.
 - Adds no permission model.
 - One invocation covers one discussed topic; no batching across
   conversations.

@@ -237,9 +237,9 @@
         "children/03-calibrate-moisture-sensors.md"
       ],
       "rubric": {
-        "verdict": "promote all three children to their own top-level captures via capture.sh, disambiguate the 01/03 title collision with --slug-suffix (never --force), red-team every draft, and file the epic as well — no pause for the multi-epic confirmation",
+        "verdict": "promote all three children to their own top-level captures via capture.sh --body-file, disambiguate the 01/03 title collision with --on-collision suffix (never --force), red-team every draft, and file the epic as well — no pause for the multi-epic confirmation",
         "must_name": [
-          "a capture.sh --type issue --subtype/--title invocation per child, with the 01/03 slug collision resolved by --slug-suffix (capture.sh exit 3 is the collision signal; --force would overwrite the sibling)",
+          "a capture.sh --type issue --subtype/--title/--body-file invocation per child, with the 01/03 slug collision resolved by --on-collision suffix (without it capture.sh exits 3, the collision signal; --force would overwrite the sibling)",
           "a Parent epic: line in each promoted child's draft.md, URL appended only after the epic's filed.toml exists; children/NN-*.md stay in place, declared staging copies superseded by the promoted captures in the manifest, children grouped under the epic"
         ]
       },
