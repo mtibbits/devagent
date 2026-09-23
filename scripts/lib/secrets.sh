@@ -16,6 +16,10 @@
 #   secrets_bootstrap              — mkdir + chmod 700 on the secrets dir
 #   secrets_audit                  — verify dir 700 and file 600 invariants
 #
+# Mode API:
+#   posix_modes_representable DIR  — can a file under DIR carry mode 600? (#289)
+#   suite_mode_reference PATH...   — does suite source reference a file mode? (#600)
+#
 # Environment:
 #   DEVAGENT_ROOT             (default ~/.claude/devagent)
 #   DEVAGENT_SECRETS_DIR      (default $DEVAGENT_ROOT/secrets)
@@ -181,6 +185,44 @@ posix_modes_representable() {
   if ! mode="$(stat -c '%a' "$probe" 2>/dev/null)"; then rm -f "$probe"; return 0; fi
   rm -f "$probe"
   [ "$mode" = "600" ]
+}
+
+# suite_mode_reference <path>... — does the suite source under <path>... REFERENCE a
+# file mode (#600)? The #565 run-suite gate asks this only where chmod is a no-op, to
+# tell a suite that could be asserting modes (refuse) from one that cannot (proceed and
+# say so in the artifact). A PROXY, and the artifact says so. It sees tokens that SET or
+# READ a mode in the scanned files; it does NOT see a mode dependency that lives only in
+# the code under test, a `[ -x` / `-w` test operator, `find -perm`, or the target of a
+# symlink that a `core.symlinks=false` checkout materialised as a text file. Tokens are
+# word-bounded with a portable ERE class rather than `\b`: unbounded, `st_mode` matched
+# inside `test_mode_split` and `permission` matched licence prose (#600 draft measurement
+# over three real pure-pytest suites). `chmod +x` on a stub and a bare `ls -l` count as
+# references: over-firing is the fail-closed direction.
+# Universe: the WORKING TREE under each <path>, recursively, following symlinks (`-R`; a
+# symlink loop is a grep error, so rc 2) — what bats and pytest actually execute,
+# untracked files included, which is why this is not a tracked-only `git grep`.
+# rc 0 = found (SUITE_MODE_HIT = lexically-first `file:line:text`, SUITE_MODE_COUNT =
+# hit lines), 1 = none, 2 = could not determine — callers must fail CLOSED on 2
+# (register Issue-243). A positive control runs first through the same grep and ERE: a
+# dialect that silently matches nothing would otherwise report every suite clean.
+# Setter-globals: call bare (`… || rc=$?`), never inside $( … ) (register Issue-282).
+SUITE_MODE_TOKEN_RE='(^|[^[:alnum:]_])(chmod|fchmod|lchmod|umask|st_mode|S_IMODE|S_I[RWX](USR|GRP|OTH)|S_IRWX[UGO]|os\.access|[RWX]_OK|PermissionError|EACCES|copymode|filemode|stat( +-[A-Za-z]+)* +(-c|-f|--format|--printf)|stat +-[A-Za-z]*[cf]|ls( +-[A-Za-z]+)* +-[A-Za-z]*l[A-Za-z]*|(mkdir|install) +(-m|--mode)|0o[0-7]{3,4})([^[:alnum:]_]|$)'
+# shellcheck disable=SC2034  # SUITE_MODE_HIT/COUNT are consumed by callers (run-suite.sh), not here
+suite_mode_reference() {
+  local hits rc=0
+  SUITE_MODE_HIT=""; SUITE_MODE_COUNT=0
+  grep -qE -- "$SUITE_MODE_TOKEN_RE" <<<'chmod 600 x' 2>/dev/null || return 2
+  hits="$(grep -RnIE -- "$SUITE_MODE_TOKEN_RE" "$@" 2>/dev/null)" || rc=$?
+  case "$rc" in
+    0) # Sorted so "first" does not depend on readdir order (NTFS vs ext4); line
+       # numbers numerically, so :10: does not precede :2:.
+       hits="$(LC_ALL=C sort -t: -k1,1 -k2,2n <<<"$hits")" || return 2
+       SUITE_MODE_HIT="${hits%%$'\n'*}"
+       SUITE_MODE_COUNT="$(grep -c '' <<<"$hits")" || return 2
+       return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 secrets_audit() {
