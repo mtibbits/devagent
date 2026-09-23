@@ -44,8 +44,8 @@
 # the column-0 convention, and @test 10 is their anti-vacuity fixture. Still NOT
 # pinned here: the grammar itself (the STATED BLIND SPOT above applies equally to the
 # positive pin), and whether the harness would auto-execute a bang line that is
-# INDENTED or sits inside a ``` FENCE — @test 9 pins the shape this repo ships, and a
-# fenced line leaves all four @tests green.
+# INDENTED or sits inside a ``` FENCE — @test 9 pins the shape this repo ships, and
+# wrapping one of the six lines in a fence leaves all four @tests green.
 # agents/*.md carry zero, but are a different invocation surface and are not pinned.
 #
 # COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
@@ -56,9 +56,10 @@
 # CHANGELOG, both .claude-plugin manifests, the design spec, docs-site/index.md).
 # Since #579 the totals are derived, so the update is the doc homes it names, not
 # the guard itself.
-# Adding a COMMAND that carries a bang-exec line reddens @test 7 (#596) — the
-# six-name set is a literal there. Adding a command WITHOUT one reddens nothing in
-# this file; tests/cmd_wrappers.bats derives the command total from the tree (#579).
+# Adding a COMMAND that carries a bang-exec line reddens @test 7 (#596); the six
+# names are literals in @test 7, 8 and 9, so update all three. Adding a command
+# WITHOUT one reddens nothing in this file; tests/cmd_wrappers.bats derives the
+# command total from the tree (#579).
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 
@@ -158,9 +159,10 @@ _bang_counts() {             # $1 = dir; $2 = path suffix; $3 = regex; $4.. = na
 # Sorted, space-separated, empty when clean; _bang_counts's rc 2 propagates.
 _bang_carriers() {           # $1 = dir; $2 = path suffix; $3.. = names
   local counts pair
-  local -a hit=()
+  local -a pairs=() hit=()
   counts="$(_bang_counts "$1" "$2" "$_bang_exec_re" "${@:3}")" || return $?
-  for pair in $counts; do
+  read -r -a pairs <<< "$counts"
+  for pair in "${pairs[@]}"; do
     if [ "${pair##*:}" -gt 0 ]; then hit+=("${pair%:*}"); fi
   done
   [ ${#hit[@]} -eq 0 ] && return 0
@@ -366,5 +368,8 @@ _all_commands() {
 
   # a missing subject is a hard 2, never a silent clean read (#337)
   run _bang_counts "$d" .md "$_bang_exec_re" nosuchcommand
+  [ "$status" -eq 2 ]
+  # ...and @test 7's carrier filter propagates it rather than reading "no carriers"
+  run _bang_carriers "$d" .md nosuchcommand
   [ "$status" -eq 2 ]
 }
