@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "${SCRIPT_DIR}/lib/paths.sh"
+# shellcheck source=lib/draft.sh
+source "${SCRIPT_DIR}/lib/draft.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -94,7 +96,7 @@ case "${TARGET}" in
 esac
 [[ -n "${repo}" ]] || { echo "repo for target=${TARGET} not configured" >&2; exit 2; }
 
-title="$(awk '/^# /{sub(/^# */,""); print; exit}' "${draft}")"
+title="$(devagent_draft_h1 "${draft}")"
 [[ -n "${title}" ]] || { echo "draft has no H1 title" >&2; exit 3; }
 
 backend="${DEVAGENT_ISSUE_BACKEND:-github}"
