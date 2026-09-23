@@ -16,6 +16,14 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **The six auto-exec commands are now pinned, not merely described (#596).**
+  `tests/skills-no-bang-exec.bats` gains a positive counterpart to #550's negative
+  canary: the set of `commands/*.md` carrying a bang-exec line is asserted to be
+  exactly {analyze, branch, cleanup, commit, mergetoall, sync}, one line each, at
+  column 0, with a fixture self-test for the scan. A command silently converted
+  off the auto-exec path, and a stray bang-exec line in a seventh command, now
+  both redden. Test-only; each leg is proven able to fail by a recorded mutation
+  matrix.
 - **The onboarding site is live at https://mtibbits.github.io/devagent/ (#465).**
   Pages was enabled and `DOCS_SITE_DEPLOY` set on 2026-09-18; every docs push
   to `master` now deploys. `docs/pages-deployment.md` is corrected from the
