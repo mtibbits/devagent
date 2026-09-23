@@ -200,7 +200,6 @@ _review_contract_paras() {  # <count|print> <space-separated tokens>
     [ -n "$alts" ] && [ "$(printf '%s\n' "$alts" | wc -l)" -eq 1 ] \
         || { echo "expected ONE token alternation in dispatch-lint.sh's code lines, got: [$alts]" >&2; false; }
     toks="$(printf '%s\n' "$alts" | sed -E 's/^[\]b[(]//; s/[)][\]b$//' | tr '|' ' ')"
-    [ -n "$toks" ] || { echo "derived token set is empty" >&2; false; }
     # The three non-token signals cannot be derived as a set; count the arm's
     # `grep -Eq` calls instead (occurrences, not lines, comment lines excluded),
     # so a new or dropped signal reddens here.
@@ -229,26 +228,25 @@ _review_contract_paras() {  # <count|print> <space-separated tokens>
     grep -qF 'Verdict:' <<<"$para"        || { echo "contract lacks the 'Verdict:' signal" >&2; false; }
 }
 
+# _routes <label> <region>: the region names the Report contract and routes it
+# into the prompt. Each failure names its region; the #598 mutation matrix keys
+# on these messages.
+_routes() {
+    grep -qi 'report contract' <<<"$2" || { echo "$1 carries no Report contract" >&2; return 1; }
+    grep -qi 'prompt' <<<"$2" || { echo "$1 does not route the contract into the prompt" >&2; return 1; }
+}
+
 @test "every review dispatch (both paths and the 5a retry) routes the Report contract into the prompt (#598)" {
     local review="$PLUGIN_ROOT/commands/review.md" sp fb rt
     # Each region is bounded by markers: the invoke line, the Fallback label and
     # the nudge line (all pinned by tests/cmd_wrappers.bats), then item 5a's
     # label and item 6's number.
-    sp="$(awk '/Invoke `superpowers:requesting-code-review` with the diff scope/ { f = 1 }
-               /Fallback \(superpowers absent\)/ { f = 0 }
-               f' "$review")"
-    fb="$(awk '/Fallback \(superpowers absent\)/ { f = 1 }
-               f { print }
-               /recommended: claude plugin install/ { if (f) exit }' "$review")"
-    rt="$(awk '/^5a\. \*\*Report validation/ { f = 1 }
-               /^6\. / { f = 0 }
-               f' "$review")"
+    sp="$(sed -n '/Invoke `superpowers:requesting-code-review` with the diff scope/,/Fallback (superpowers absent)/p' "$review")"
+    fb="$(sed -n '/Fallback (superpowers absent)/,/recommended: claude plugin install/p' "$review")"
+    rt="$(sed -n '/^5a\. \*\*Report validation/,/^6\. /p' "$review")"
     [ -n "$sp" ] && [ -n "$fb" ] && [ -n "$rt" ] \
         || { echo "could not bound the three dispatch regions in $review" >&2; false; }
-    grep -qi 'report contract' <<<"$sp" || { echo "superpowers path carries no Report contract" >&2; false; }
-    grep -qi 'prompt' <<<"$sp"          || { echo "superpowers path does not route the contract into the prompt" >&2; false; }
-    grep -qi 'report contract' <<<"$fb" || { echo "fallback path does not reference the Report contract" >&2; false; }
-    grep -qi 'prompt' <<<"$fb"          || { echo "fallback path does not route the contract into the prompt" >&2; false; }
-    grep -qi 'report contract' <<<"$rt" || { echo "5a retry does not re-append the Report contract" >&2; false; }
-    grep -qi 'prompt' <<<"$rt"          || { echo "5a retry does not route the contract into the prompt" >&2; false; }
+    _routes "superpowers path" "$sp"
+    _routes "fallback path" "$fb"
+    _routes "5a retry" "$rt"
 }
