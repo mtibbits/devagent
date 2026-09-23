@@ -35,7 +35,8 @@ Writes <devdoc>/Captures/<slug>/draft.md from the resolved template — or, with
                         content-derived suffix (first six hex of the body's
                         content hash, the form reap.sh uses). A
                         content-identical (whitespace/case-insensitive) re-run
-                        prints the existing slug and writes nothing. Requires
+                        prints the existing slug, writes nothing, and says so
+                        on stderr. Requires
                         --body-file; cannot be combined with --slug-suffix or
                         --force.
 
@@ -71,6 +72,8 @@ _capture_exit_if_same_body() {   # $1 = existing draft, $2 = its slug, $3 = body
     echo "could not read existing $1" >&2; exit 2
   fi
   if [[ "${old}" == "$3" ]]; then
+    # Said aloud: an edited body that normalizes to the old one lands nowhere.
+    echo "note: $1 already holds this body (content-identical after whitespace/case normalization); nothing written" >&2
     printf '%s\n' "$2"
     exit 0
   fi

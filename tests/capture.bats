@@ -299,7 +299,8 @@ _597_ndirs() {   # how many corn-planting capture dirs exist
     --type issue --subtype bug --title "Corn planting" \
     --body-file "${BODY}" --on-collision suffix
   [ "$status" -eq 0 ]
-  [ "$output" = "$first" ]                       # same slug printed
+  [ "${lines[-1]}" = "$first" ]                  # same slug printed
+  [[ "$output" == *"nothing written"* ]]         # and the no-op says so (#597 redmr)
   [ "$(_597_ndirs)" -eq 1 ]                      # and no second directory was minted
 }
 
@@ -330,7 +331,8 @@ _597_ndirs() {   # how many corn-planting capture dirs exist
     --type issue --subtype bug --title "Corn planting" \
     --body-file "${B2}" --on-collision suffix
   [ "$status" -eq 0 ]
-  [ "$output" = "$first" ]                       # the SAME suffixed slug
+  [ "${lines[-1]}" = "$first" ]                  # the SAME suffixed slug
+  [[ "$output" == *"nothing written"* ]]
   [ "$(_597_ndirs)" -eq 2 ]                      # base + one suffixed, no third
 }
 
@@ -344,7 +346,8 @@ _597_ndirs() {   # how many corn-planting capture dirs exist
     --type issue --subtype bug --title "Corn planting" \
     --body-file "${V}" --on-collision suffix
   [ "$status" -eq 0 ]
-  [ "$output" = "2026-05-19-corn-planting" ]     # the existing slug
+  [ "${lines[-1]}" = "2026-05-19-corn-planting" ] # the existing slug
+  [[ "$output" == *"nothing written"* ]]         # an edited-but-equivalent body is not silently dropped
   cmp "${BODY}" "${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"  # untouched
   [ "$(_597_ndirs)" -eq 1 ]
 }
@@ -386,6 +389,19 @@ _597_ndirs() {   # how many corn-planting capture dirs exist
     --type issue --subtype bug --title "Corn planting"
   [ "$status" -eq 3 ]
   [ "$output" = "draft already exists: ${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md (use --force to overwrite)" ]
+}
+
+@test "capture: --body-file naming the destination draft is refused, draft intact (#597 redmr)" {
+  _597_body "Corn planting"
+  "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${BODY}" >/dev/null
+  draft="${TMP_DEVDOC}/Captures/2026-05-19-corn-planting/draft.md"
+  cp "${draft}" "${BATS_TEST_TMPDIR}/before.md"
+  run "${REPO_ROOT}/scripts/capture/capture.sh" \
+    --type issue --subtype bug --title "Corn planting" --body-file "${draft}" --force
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--body-file is the destination draft"* ]]
+  cmp "${BATS_TEST_TMPDIR}/before.md" "${draft}"   # cat > would have truncated it (Issue-558)
 }
 
 @test "capture: --body-file with an empty '# ' heading exits 5 naming it empty (#597 review M3)" {
@@ -437,11 +453,12 @@ _597_fence() {   # the first bash fence under crrf.md's "## 2. Capture" heading
   FENCE="$(_597_fence)"
   [ -n "$FENCE" ]
   export CLAUDE_PLUGIN_ROOT="${REPO_ROOT}"
-  CHILD="${BATS_TEST_TMPDIR}/01-corn-planting.md"
+  CHILD="${BATS_TEST_TMPDIR}/epic dir/children/01-corn-planting.md"   # a space, as real devdoc paths have
+  mkdir -p "$(dirname "${CHILD}")"
   printf '# Corn planting\n\nScaffolded child body.\n' > "${CHILD}"
   CMD="${FENCE//<bug|feature|docs|perf|chore>/bug}"
   CMD="${CMD//\"<child title>\"/\"Corn planting\"}"
-  CMD="${CMD//<epic-dir>\/children\/NN-<kebab-title>.md/${CHILD}}"
+  CMD="${CMD//\"<epic-dir>\/children\/NN-<kebab-title>.md\"/\"${CHILD}\"}"
   run bash -c "$CMD"
   [ "$status" -eq 0 ]
   [ -f "${TMP_DEVDOC}/Captures/${output}/draft.md" ]

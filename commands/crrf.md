@@ -42,7 +42,7 @@ top-level capture — `file.sh` files a capture's `draft.md` and nothing else,
 so a child left under `children/` is not filable:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>" --body-file <epic-dir>/children/NN-<kebab-title>.md --on-collision suffix
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <bug|feature|docs|perf|chore> --title "<child title>" --body-file "<epic-dir>/children/NN-<kebab-title>.md" --on-collision suffix
 ```
 <!-- Editor note: tests/capture.bats EXTRACTS and RUNS this fence (#597).
      Changing its flags or placeholders changes that test. -->
@@ -58,9 +58,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/capture.sh" --type issue --subtype <
   body's content hash — the idempotent, content-derived form `reap.sh`
   already uses (#252) — and prints the final slug. A content-identical
   (whitespace/case-insensitive) re-run of this command prints the existing
-  slug and writes nothing; that idempotence is per invocation, because the
-  `Parent epic:` line added next changes `draft.md` after the write, so a
-  later crrf re-run over the same children hashes differently. Exit **3**
+  slug, writes nothing, and says so in a `note:` line on stderr — so an
+  edit that only changes case or spacing does NOT land. That idempotence
+  is per invocation, because the `Parent epic:` line added next changes
+  `draft.md` after the write, so a later crrf re-run over the same
+  children hashes differently. Exit **3**
   now means a different child already holds even the suffixed slug: give
   this child a distinct title and matching H1. Never pass `--force` — it
   would overwrite a sibling's draft, which is why `capture.sh` refuses it
