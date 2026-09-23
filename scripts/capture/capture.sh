@@ -38,8 +38,8 @@ Writes <devdoc>/Captures/<slug>/draft.md from the resolved template — or, with
                         prints the existing slug and writes nothing. Requires
                         --body-file; cannot be combined with --slug-suffix.
 
-Exit: 0 ok | 2 usage | 3 draft exists (collision unresolved) | 5 body H1 does
-not match --title
+Exit: 0 ok | 2 usage | 3 collision unresolved (the slug's draft exists) |
+5 body H1 does not match --title
 
 Env:
   DEVAGENT_DEVDOC_DIR   required
