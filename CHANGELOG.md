@@ -36,6 +36,19 @@ the README's "Versioning & releases" section has the release procedure.
   (tolerated, not recommended — `/devagent:reap` does not read a heading
   bracket), and a `- [[wikilink]]` bullet is a link, never a tag. Its interface
   and exit codes are unchanged.
+- **`scripts/capture/capture.sh` gains `--body-file` and `--on-collision
+  suffix` (#597).** `--body-file <path>` writes that file's bytes as
+  `draft.md` instead of rendering the template and exits **5** when the
+  body's H1 is not `<title>` (`Epic: <title>` for `--type epic`), which is
+  the invariant `file.sh` depends on. `--on-collision suffix` resolves an
+  existing-slug collision with the #252 content-derived suffix (first six
+  hex of the body's content hash) in one retry and prints the final slug.
+  A content-identical (whitespace/case-insensitive) re-run is a no-op. It
+  requires `--body-file` and cannot be combined with `--slug-suffix`.
+  Both flags are optional: without them, behavior is unchanged, including
+  the exit-3 collision signal and `--force`. The H1 extraction is now one
+  shared helper (`scripts/capture/lib/draft.sh`) that `file.sh` also
+  calls. `commands/crrf.md`'s promote loop is now a single invocation.
 
 ## [1.0.0] — 2026-09-18
 
