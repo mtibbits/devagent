@@ -14,6 +14,8 @@ set -euo pipefail
 # #269: classify the rc-2 "can't determine" cause (auth vs network vs rate-limit).
 # shellcheck source=../lib/conn-diag.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/conn-diag.sh"
+# shellcheck source=../lib/backend-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/backend-common.sh"
 
 usage() {
     cat >&2 <<'EOF'
@@ -70,35 +72,32 @@ case "$verb" in
             echo "code/github.sh: mr-comments: cannot parse PR URL '$1'" >&2
             exit 2
         fi
-        # An empty-body COMMENTED review is the container GitHub creates for an
-        # inline-comment batch (its content arrives via the inline call); a
-        # PENDING review is the viewer's own unsubmitted draft.
-        pr_blocks="$("$DEVAGENT_GH" pr view "$url" --json comments,reviews --jq '
-          ((.comments // [])[]
-            | "### @" + (.author.login // "unknown")
-              + " · " + ((.createdAt // "") | split("T")[0])
-              + "\n\n" + (.body // "")),
+        # One entry: `### @login · date[suffix]`, blank line, body. The
+        # conversation form is the same filter as issue/github.sh
+        # cmd_comment_list. An empty-body COMMENTED review is the container
+        # GitHub creates for an inline-comment batch (its content arrives via
+        # the inline call); a PENDING review is the viewer's own draft.
+        entry_def='def entry($who; $ts; $suffix):
+            "### @" + ($who // "unknown") + " · " + (($ts // "") | split("T")[0])
+            + $suffix + "\n\n" + (.body // "");'
+        pr_blocks="$("$DEVAGENT_GH" pr view "$url" --json comments,reviews --jq "$entry_def"'
+          ((.comments // [])[] | entry(.author.login; .createdAt; "")),
           ((.reviews // [])[]
             | select(.state != "PENDING")
             | select((.body // "") != "" or .state != "COMMENTED")
-            | "### @" + (.author.login // "unknown")
-              + " · " + ((.submittedAt // "") | split("T")[0])
-              + " · review: " + (.state // "UNKNOWN")
-              + "\n\n" + (.body // ""))
+            | entry(.author.login; .submittedAt; " · review: " + (.state // "UNKNOWN")))
           | @base64
-        ')" || exit $?
+        ')"
+        skip_inline=0
+        [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" = 1 ] && skip_inline=1
         inline_blocks=""
-        if [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" != 1 ]; then
-            # shellcheck disable=SC2016  # $ln is a jq variable, not shell
+        if [ "$skip_inline" = 0 ]; then
             inline_blocks="$("$DEVAGENT_GH" api --hostname "$host" --paginate \
-                "repos/$owner/$repo/pulls/$num/comments?per_page=100" --jq '
+                "repos/$owner/$repo/pulls/$num/comments?per_page=100" --jq "$entry_def"'
               .[]
               | (.line // .original_line) as $ln
-              | "### @" + (.user.login // "unknown")
-                + " · " + ((.created_at // "") | split("T")[0])
-                + " · " + (.path // "")
-                + (if $ln then ":" + ($ln | tostring) else "" end)
-                + "\n\n" + (.body // "")
+              | entry(.user.login; .created_at;
+                  " · " + (.path // "") + (if $ln then ":" + ($ln | tostring) else "" end))
               | @base64
             ')" || {
                 rc=$?
@@ -110,22 +109,16 @@ case "$verb" in
         while IFS= read -r enc; do
             [ -n "$enc" ] || continue
             # The trailing `x` keeps the body's own trailing newlines ($(...) strips them).
-            block="$(printf '%s' "$enc" | base64 -d && printf x)" || exit 1
+            block="$(printf '%s' "$enc" | base64 -d && printf x)"
             blocks+=("${block%x}")
         done <<<"$pr_blocks"$'\n'"$inline_blocks"
-        # Byte layout of the #84 filter under `jq -r`: header, then (if any)
-        # a blank line, blocks joined by a blank line, a newline; then jq's
-        # own trailing newline.
-        printf '## Comments (%d)\n' "${#blocks[@]}"
-        if [ "${#blocks[@]}" -gt 0 ]; then
-            printf '\n%s' "${blocks[0]}"
-            for block in "${blocks[@]:1}"; do printf '\n\n%s' "$block"; done
-            printf '\n'
+        # Same bytes as the #84 jq filter: header, blank line, each block
+        # followed by a blank line.
+        bc_emit_comments_header "${#blocks[@]}"
+        for block in "${blocks[@]}"; do printf '%s\n\n' "$block"; done
+        if [ "$skip_inline" = 1 ]; then
+            printf '> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)\n\n'
         fi
-        if [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" = 1 ]; then
-            printf '\n> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)\n'
-        fi
-        printf '\n'
         ;;
     merge-mr)
         [ $# -ge 1 ] || usage

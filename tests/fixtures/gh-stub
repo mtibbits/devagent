@@ -35,6 +35,15 @@ _has_flag() {
   return 1
 }
 
+_run_jq() {
+  # _run_jq <json> "$@"  → apply the caller's --jq filter to <json> (gh's built-in jq)
+  local json="$1"; shift
+  local filter="" prev="" a
+  for a in "$@"; do [ "$prev" = "--jq" ] && filter="$a"; prev="$a"; done
+  [ -n "$filter" ] || _assert_fail "missing --jq: $*"
+  printf '%s' "$json" | jq -r "$filter"
+}
+
 _issue_json() {
   local comments body labels
   case "${GH_STUB_CASE:-standard}" in
@@ -121,8 +130,10 @@ case "$sub $sub2" in
     if _has_flag state -- "$@"; then
       echo "open"
     elif _has_flag comments,reviews -- "$@"; then
-      # code/github.sh mr-comments (#592): one @base64 line per entry.
-      printf '### @bob · 2026-05-12\n\nFirst comment.' | base64 | tr -d '\n'; echo
+      # code/github.sh mr-comments (#592): raw forge JSON through the
+      # caller's own --jq, as gh does, so the stub models gh rather than
+      # the caller's internal framing.
+      _run_jq '{"comments":[{"author":{"login":"bob"},"createdAt":"2026-05-12T08:14:22Z","body":"First comment."}],"reviews":[]}' "$@"
     else
       _assert_fail "pr view: unexpected --json selection: $*"
     fi
@@ -141,10 +152,10 @@ case "$sub $sub2" in
 
   "api "*)
     # code/github.sh mr-comments (#592): `gh api … repos/<r>/pulls/<n>/comments…`
-    # emits one @base64 line per inline entry; the stub has none.
+    # → no inline comments, through the caller's --jq.
     # code/github.sh branch-exists: `gh api repos/<repo>/branches/<branch>`
     case " $* " in
-      *" repos/"*"/pulls/"*"/comments"*) ;;
+      *" repos/"*"/pulls/"*"/comments"*) _run_jq '[]' "$@" ;;
       *) echo "{}" ;;
     esac
     ;;
