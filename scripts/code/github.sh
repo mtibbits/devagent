@@ -77,6 +77,7 @@ case "$verb" in
         # cmd_comment_list. An empty-body COMMENTED review is the container
         # GitHub creates for an inline-comment batch (its content arrives via
         # the inline call); a PENDING review is the viewer's own draft.
+        # shellcheck disable=SC2016  # a jq program, not shell
         entry_def='def entry($who; $ts; $suffix):
             "### @" + ($who // "unknown") + " · " + (($ts // "") | split("T")[0])
             + $suffix + "\n\n" + (.body // "");'
@@ -92,6 +93,7 @@ case "$verb" in
         [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" = 1 ] && skip_inline=1
         inline_blocks=""
         if [ "$skip_inline" = 0 ]; then
+            # shellcheck disable=SC2016  # a jq program, not shell
             inline_blocks="$("$DEVAGENT_GH" api --hostname "$host" --paginate \
                 "repos/$owner/$repo/pulls/$num/comments?per_page=100" --jq "$entry_def"'
               .[]

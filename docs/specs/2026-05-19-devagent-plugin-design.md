@@ -1427,9 +1427,10 @@ This quoting breaks on spaces.
   the section then ends with the line
   `> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)`
   so the gap stays visible in `comments.md`.
-- **Input.** `<mr-url>` is `<scheme>://<host>/<owner>/<repo>/pull/<n>`,
-  optionally followed by a path, `#fragment` or `?query`, which are ignored.
-  Any other form is a usage error (exit 2).
+- **Input.** On github, `<mr-url>` is `[<scheme>://]<host>/<owner>/<repo>/pull/<n>`,
+  optionally followed by a path, `#fragment` or `?query`, which are ignored;
+  any other form is a usage error (exit 2). Other backends accept their
+  forge's own MR URL form (gitlab: `…/-/merge_requests/<iid>`).
 
 ### 9.4 Reference implementations (v1)
 

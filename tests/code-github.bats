@@ -38,9 +38,12 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json state --jq .state"
 }
 
-# #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON through real jq.
-# jq 1.7 is a valid proxy for gh's built-in gojq here: output byte-identical
-# for this filter, validated against real gh 2.45.0 (see Issue-84 analysis/).
+# #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON (`pr view`) or
+# $GH_STUB_API_JSON (`api`, #592) through real jq. jq 1.7 stands in for gh's
+# built-in gojq: byte-identity was validated against real gh 2.45.0 for the #84
+# conversation filter (Issue-84 analysis/); the #592 review/inline filters
+# (`def entry($…)`, `@base64`, `tostring`, `if … then … end`) only by a live
+# read-only smoke on gnuradio/volk#878 (Issue-592 actualWork).
 _jq_gh_stub() {
     cat > "$DEVAGENT_STUB_BIN/gh" <<STUB
 #!/usr/bin/env bash
