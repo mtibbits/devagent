@@ -35,19 +35,55 @@ Per `commands/draft.md`.
    `per-issue` provenance line) is a bad marker: STOP and fix or remove
    it — do NOT dispatch on inherit.
 
+   **Report contract — put it IN the dispatch prompt (#598).** Step 5a
+   lints the saved report, and the reviewer never reads this file, so it
+   can meet the lint first-pass only if the prompt it receives states the
+   contract. The upstream skill has you fill its reviewer template into
+   the dispatch prompt; append the lines INSIDE this fence (without the
+   fence markers or this list's 3-space indent), verbatim, to the end of
+   that prompt:
+
+   ```text
+   ## Report contract (devAgent) — in addition to any output format above
+   Your report is saved beneath two header lines that the dispatching
+   session writes itself: `context: subagent`, then a `model:` line. Do
+   not write them; begin with the report.
+   The report must carry at least one verdict signal from this set, the
+   full set `dispatch-lint.sh --class review` accepts:
+   - a whole-word token: `SHIP`, `SHIP-WITH-NITS`, `FIX-BEFORE-SHIP`,
+     `NO-SHIP`, `PASS`, or `FAIL`;
+   - a count line that starts with a number followed by the word
+     `blocking` (count your Critical, must-fix, findings as blocking),
+     e.g. `1 blocking, 2 important, 3 minor`;
+   - a `## Blocking` section header;
+   - a line that begins `Verdict:`.
+   Simplest: end the report with a count line and a `Verdict:` line that
+   names one of the tokens above.
+   ```
+   <!-- Editor note (#598): tests/dispatch-lint.bats derives the lint's
+        --class review signal set and asserts that the block above names
+        exactly that set, in backticks, in one blank-line-free paragraph,
+        once in this file. So: no blank line inside the fence; keep this
+        note directly under the fence (no blank line between them), and
+        never spell the signal tokens, or the section-header, verdict-line
+        and digit-led count-line literals, in this note: the test would
+        read them here instead of in the block. Edit the block and the
+        test together. -->
+
    **Fallback (superpowers absent):** if that Skill invocation errors
    (`Unknown skill: superpowers:requesting-code-review`, #541), run the
    review exactly as this wrapper already specifies — dispatch the
    fresh-context review subagent over `baseline_sha..HEAD` with the
-   coding-standards context and the same verdict/artifact contract —
-   without the upstream skill's framing. Print the nudge line verbatim
-   and continue:
+   coding-standards context and the Report contract block above appended
+   to its prompt — without the upstream skill's framing. Print the nudge
+   line verbatim and continue:
    `recommended: claude plugin install superpowers@claude-plugins-official`
 5. Save the review output to `<issue-dir>/analysis/YYYY-MM-DD-review.md`
    (**canonical location**; `<issue-dir>/review.md` at the root is accepted
    legacy — some recent issues wrote it there. #360: prefer `analysis/` going
    forward; statusreport surfaces a `context: inline` report from either place),
-   headed by the #151 artifact lines: `context: subagent` (or
+   headed by the #151 artifact lines, which YOU write above the returned
+   report (the Report contract leaves them to you): `context: subagent` (or
    `context: inline` when no subagent mechanism exists) and
    `model: <tier>|inherit|inherit (fallback from <tier>)|<tier> (per-issue)|inherit (per-issue)`.
 5a. **Report validation — retry-then-stuck (#360).** When the review ran
@@ -57,7 +93,9 @@ Per `commands/draft.md`.
    #117/#122/#76/#315 misfire class): archive the reject to
    `<issue-dir>/analysis/rejected/<date>-review-attempt<N>.md`, re-dispatch ONCE
    with an explicit "your previous response did no work — actually do the work
-   with tools" nudge, and on a second FAIL mark the step `[!]` with the reason.
+   with tools" nudge and the Report contract block from item 4 above
+   re-appended to the re-dispatch prompt, and on a second FAIL mark the step
+   `[!]` with the reason.
    Never adopt a garbled report as a review (the #315 lesson). Inline runs skip
    the lint.
 6. **Commit applied fixes (#148).** If addressing review findings

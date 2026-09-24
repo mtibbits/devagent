@@ -167,3 +167,89 @@ _body() { printf '# Report\n## Section\n- point one\n- point two\n- point three\
     run LINT "$D/r.md" subagent --class redmr
     [ "$status" -eq 0 ] || { echo "redmr class rejected -- $output" >&2; false; }
 }
+
+# ---- #598: the review wrapper's Report contract (commands/review.md) is a
+# SECOND home of this lint's --class review verdict-signal set: the main session
+# pastes it into the dispatched reviewer's prompt, so a drift between the two
+# homes makes a reviewer that obeys its prompt fail this lint. These two tests
+# are the sweep over both homes. The token set is DERIVED from the lint's own
+# grep, never re-spelled here (register: Issue-585). Declared blind spots and
+# couplings, each held by a row in the #598 mutation transcript:
+#  - a PARTIAL restatement elsewhere in review.md (fewer than every token) is
+#    not caught, and the contract must name each token in backticks;
+#  - comment lines in dispatch-lint.sh are ignored by both derivations: a
+#    commented alternation is not read, a commented alternative is not counted;
+#  - the alternative count is bounded by the case label `review|redmr|preship)`
+#    and the arm's `;;` line: renaming or reflowing those reddens the count,
+#    and its message names that remedy;
+#  - disabled code (an `if false` around the arm) keeps both tests green. The
+#    behaviour tests above catch that direction (lines 59-94 at 943a80e:
+#    "--class review needs a verdict token (#360)" and "accepts the house
+#    verdict shapes redmr/review actually emit (#405)").
+_review_contract_paras() {  # <count|print> <space-separated tokens>
+    awk -v mode="$1" -v toks="$2" 'BEGIN { RS = ""; n = split(toks, T, " ") }
+        { ok = 1
+          for (i = 1; i <= n; i++) if ($0 !~ ("(^|[^A-Za-z-])" T[i] "([^A-Za-z-]|$)")) ok = 0
+          if (ok) { c++; if (mode == "print") print } }
+        END { if (mode == "count") print c + 0 }' "$PLUGIN_ROOT/commands/review.md"
+}
+
+@test "review.md's Report contract names exactly the lint's --class review signal set, once (#598)" {
+    local lint="$PLUGIN_ROOT/scripts/dispatch-lint.sh" alts toks n_alt n para want got
+    alts="$(grep -v '^[[:space:]]*#' "$lint" | grep -oE '[\]b[(][A-Z|-]+[)][\]b' || true)"
+    [ -n "$alts" ] && [ "$(printf '%s\n' "$alts" | wc -l)" -eq 1 ] \
+        || { echo "expected ONE token alternation in dispatch-lint.sh's code lines, got: [$alts]" >&2; false; }
+    toks="$(printf '%s\n' "$alts" | sed -E 's/^[\]b[(]//; s/[)][\]b$//' | tr '|' ' ')"
+    # The three non-token signals cannot be derived as a set; count the arm's
+    # quiet `grep` calls instead (any flag spelling: -Eq, -qE, -q -E, -Eqi;
+    # occurrences, not lines, comment lines excluded), so a new or dropped
+    # signal reddens here.
+    n_alt="$(sed -n '/^  review|redmr|preship)/,/^    ;;/p' "$lint" \
+        | grep -v '^[[:space:]]*#' | grep -oE 'grep -[A-Za-z]*q[A-Za-z]*' | wc -l)"
+    [ "$n_alt" -eq 4 ] \
+        || { echo "dispatch-lint --class review has $n_alt signal alternatives, not 4: if the lint gained or lost a signal, update review.md's Report contract and this test together; if the lint's case arm was only reflowed or renamed, re-derive this count" >&2; false; }
+    # Stated ONCE (AC2): exactly one paragraph of review.md names every token.
+    n="$(_review_contract_paras count "$toks")"
+    [ "$n" -eq 1 ] \
+        || { echo "review.md paragraphs naming every lint token [$toks]: $n (want exactly 1)" >&2; false; }
+    para="$(_review_contract_paras print "$toks")"
+    # ...and names exactly the lint's tokens: a lint narrowing, or a token the
+    # lint does not accept, reddens in either direction.
+    want="$(tr ' ' '\n' <<<"$toks" | sort -u | tr '\n' ' ')"
+    # The backticks below are literal markdown code markup, not an expansion.
+    # shellcheck disable=SC2016
+    got="$(grep -oE '`[A-Z][A-Z-]*[A-Z]`' <<<"$para" | tr -d '`' | sort -u | tr '\n' ' ')"
+    [ "$got" = "$want" ] \
+        || { echo "contract's backticked token set [$got] != the lint's [$want]" >&2; false; }
+    # The three shape signals, matched over whitespace-normalised text so a
+    # re-wrap of the block cannot split a fragment (register: Issue-612).
+    para="$(tr -s '[:space:]' ' ' <<<"$para")"
+    grep -qE '[0-9]+ blocking' <<<"$para" || { echo "contract lacks the digit-led count-line signal" >&2; false; }
+    grep -qF '## Blocking' <<<"$para"     || { echo "contract lacks the '## Blocking' signal" >&2; false; }
+    grep -qF 'Verdict:' <<<"$para"        || { echo "contract lacks the 'Verdict:' signal" >&2; false; }
+}
+
+# _routes <label> <region>: the region names the Report contract and routes it
+# into the prompt. Each failure names its region; the #598 mutation matrix keys
+# on these messages.
+_routes() {
+    grep -qi 'report contract' <<<"$2" || { echo "$1 carries no Report contract" >&2; return 1; }
+    grep -qi 'prompt' <<<"$2" || { echo "$1 does not route the contract into the prompt" >&2; return 1; }
+}
+
+@test "every review dispatch (both paths and the 5a retry) routes the Report contract into the prompt (#598)" {
+    local review="$PLUGIN_ROOT/commands/review.md" sp fb rt
+    # Each region is bounded by markers: the invoke line, the Fallback label and
+    # the nudge line (all pinned by tests/cmd_wrappers.bats), then item 5a's
+    # label and item 6's number.
+    # The backticks below are literal markdown code markup, not an expansion.
+    # shellcheck disable=SC2016
+    sp="$(sed -n '/Invoke `superpowers:requesting-code-review` with the diff scope/,/Fallback (superpowers absent)/p' "$review")"
+    fb="$(sed -n '/Fallback (superpowers absent)/,/recommended: claude plugin install/p' "$review")"
+    rt="$(sed -n '/^5a\. \*\*Report validation/,/^6\. /p' "$review")"
+    [ -n "$sp" ] && [ -n "$fb" ] && [ -n "$rt" ] \
+        || { echo "could not bound the three dispatch regions in $review" >&2; false; }
+    _routes "superpowers path" "$sp"
+    _routes "fallback path" "$fb"
+    _routes "5a retry" "$rt"
+}

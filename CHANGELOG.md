@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **The review step now tells its reviewer the report contract the lint
+  enforces (#598).** `commands/review.md` gains a Report contract block that
+  the main session appends to the dispatched reviewer's prompt on both paths
+  (the `superpowers:requesting-code-review` path and the superpowers-absent
+  fallback) and on step 5a's re-dispatch: the two artifact header lines,
+  which the main session writes, and the verdict signals
+  `dispatch-lint.sh --class review` accepts. An upstream reviewer that was
+  never told the contract wrote to its own house style and failed the lint
+  with "no verdict signal", costing a re-dispatch. Two tests in
+  `tests/dispatch-lint.bats` derive the lint's signal set and pin that the
+  block names exactly that set, once, and that all three dispatch sites
+  route it into the prompt. Prompt and test only; `dispatch-lint.sh` is
+  unchanged.
 - **run-suite's chmod guard no longer blocks suites that never touch a file mode
   (#600).** Where `chmod` is a no-op (Windows noacl), `run-suite.sh` refused for any
   project whose tree carried a suite, so a pure-pytest project could never produce
