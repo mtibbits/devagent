@@ -118,3 +118,33 @@ EOF
   [ "$status" -ne 0 ]
   [ ! -f "$FIX_ISSUE_DIR/revisions/r1/comments.md" ]
 }
+
+# #592: real code/github.sh behind comments.sh, with only `gh` stubbed.
+_gh_review_stub() {
+  local bin="$BATS_TEST_TMPDIR/ghbin"; mkdir -p "$bin"
+  cat >"$bin/gh" <<'EOF'
+#!/usr/bin/env bash
+filter=""; prev=""; for a in "$@"; do [ "$prev" = "--jq" ] && filter="$a"; prev="$a"; done
+if [ "$1" = api ]; then
+  printf '%s' '[{"user":{"login":"jdemel"},"created_at":"2026-09-11T19:24:33Z","path":"kernels/x.h","line":324,"original_line":334,"body":"Use the fast path."}]' | jq -r "$filter"
+else
+  printf '%s' '{"comments":[],"reviews":[{"author":{"login":"jdemel"},"state":"COMMENTED","submittedAt":"2026-09-11T19:24:51Z","body":""}]}' | jq -r "$filter"
+fi
+EOF
+  chmod +x "$bin/gh"
+  echo "$bin/gh"
+}
+
+@test "comments captures an inline review comment on a PR with no conversation comments (#592)" {
+  local gh; gh="$(_gh_review_stub)"
+  run env HOME="$HOME" DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+    DEVAGENT_CODE_BACKEND_CMD="$DEVAGENT_ROOT/scripts/code/github.sh" \
+    DEVAGENT_GH="$gh" \
+    bash "$DEVAGENT_ROOT/scripts/comments.sh" volk Issue-676
+  [ "$status" -eq 0 ]
+  local f="$FIX_ISSUE_DIR/revisions/r1/comments.md"
+  grep -qx '## Comments (1)' "$f"
+  grep -qx '### @jdemel · 2026-09-11 · kernels/x.h:324' "$f"
+  grep -qx 'Use the fast path.' "$f"
+  [[ "$output" == *"(1 comments)"* ]]
+}

@@ -120,8 +120,9 @@ case "$sub $sub2" in
     # gh runs --jq internally; the stub returns the already-filtered output.
     if _has_flag state -- "$@"; then
       echo "open"
-    elif _has_flag comments -- "$@"; then
-      printf '## Comments (1)\n\n### @bob · 2026-05-12\n\nFirst comment.\n'
+    elif _has_flag comments,reviews -- "$@"; then
+      # code/github.sh mr-comments (#592): one @base64 line per entry.
+      printf '### @bob · 2026-05-12\n\nFirst comment.' | base64 | tr -d '\n'; echo
     else
       _assert_fail "pr view: unexpected --json selection: $*"
     fi
@@ -139,8 +140,13 @@ case "$sub $sub2" in
     ;;
 
   "api "*)
+    # code/github.sh mr-comments (#592): `gh api … repos/<r>/pulls/<n>/comments…`
+    # emits one @base64 line per inline entry; the stub has none.
     # code/github.sh branch-exists: `gh api repos/<repo>/branches/<branch>`
-    echo "{}"
+    case " $* " in
+      *" repos/"*"/pulls/"*"/comments"*) ;;
+      *) echo "{}" ;;
+    esac
     ;;
 
   *)

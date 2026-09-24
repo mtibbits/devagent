@@ -55,20 +55,77 @@ case "$verb" in
         ;;
     mr-comments)
         [ $# -eq 1 ] || usage
-        # §9.3 shape via gh's built-in jq (no external jq dependency here).
-        # Same filter as issue/github.sh cmd_comment_list. The old
-        # `pr view --comments` human view fails on gh 2.45.0 and has no
-        # `### @` lines for comments.sh to count (#84).
-        "$DEVAGENT_GH" pr view "$1" --json comments --jq '
-          def comment_block:
-            .comments | map(
-              "### @" + (.author.login // "unknown")
+        # §9.3 mr-comments shape (#592): conversation comments, then review
+        # summaries (` · review: STATE`), then inline comments (` · path:line`),
+        # under ONE `## Comments (N)` header counting all of them. Filters run
+        # in gh's built-in jq (no external jq dependency here). `--paginate
+        # --jq` filters PER PAGE and gh 2.45 has no --slurp, so each filter
+        # emits one @base64 block per line and the count/join happen here.
+        # Owner/repo/host come from the URL, never gh's {owner}/{repo}
+        # placeholders (those resolve from the ambient cwd's remote).
+        url="${1%%#*}"; url="${url%%\?*}"
+        rest="${url#*://}"; host="${rest%%/*}"
+        IFS=/ read -r owner repo kind num _ <<<"${rest#*/}"
+        if [ "$kind" != pull ] || ! [[ "$num" =~ ^[0-9]+$ ]] || [ -z "$owner" ] || [ -z "$repo" ]; then
+            echo "code/github.sh: mr-comments: cannot parse PR URL '$1'" >&2
+            exit 2
+        fi
+        # An empty-body COMMENTED review is the container GitHub creates for an
+        # inline-comment batch (its content arrives via the inline call); a
+        # PENDING review is the viewer's own unsubmitted draft.
+        pr_blocks="$("$DEVAGENT_GH" pr view "$url" --json comments,reviews --jq '
+          ((.comments // [])[]
+            | "### @" + (.author.login // "unknown")
               + " · " + ((.createdAt // "") | split("T")[0])
-              + "\n\n" + (.body // "")
-            ) | join("\n\n");
-          "## Comments (" + ((.comments | length) | tostring) + ")\n"
-          + (if (.comments | length) > 0 then "\n" + comment_block + "\n" else "" end)
-        '
+              + "\n\n" + (.body // "")),
+          ((.reviews // [])[]
+            | select(.state != "PENDING")
+            | select((.body // "") != "" or .state != "COMMENTED")
+            | "### @" + (.author.login // "unknown")
+              + " · " + ((.submittedAt // "") | split("T")[0])
+              + " · review: " + (.state // "UNKNOWN")
+              + "\n\n" + (.body // ""))
+          | @base64
+        ')" || exit $?
+        inline_blocks=""
+        if [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" != 1 ]; then
+            # shellcheck disable=SC2016  # $ln is a jq variable, not shell
+            inline_blocks="$("$DEVAGENT_GH" api --hostname "$host" --paginate \
+                "repos/$owner/$repo/pulls/$num/comments?per_page=100" --jq '
+              .[]
+              | (.line // .original_line) as $ln
+              | "### @" + (.user.login // "unknown")
+                + " · " + ((.created_at // "") | split("T")[0])
+                + " · " + (.path // "")
+                + (if $ln then ":" + ($ln | tostring) else "" end)
+                + "\n\n" + (.body // "")
+              | @base64
+            ')" || {
+                rc=$?
+                echo "code/github.sh: mr-comments: inline review comments could not be fetched — re-run /devagent:comments; to fetch without them set DEVAGENT_MR_COMMENTS_SKIP_INLINE=1" >&2
+                exit "$rc"
+            }
+        fi
+        blocks=()
+        while IFS= read -r enc; do
+            [ -n "$enc" ] || continue
+            # The trailing `x` keeps the body's own trailing newlines ($(...) strips them).
+            block="$(printf '%s' "$enc" | base64 -d && printf x)" || exit 1
+            blocks+=("${block%x}")
+        done <<<"$pr_blocks"$'\n'"$inline_blocks"
+        # Byte layout of the #84 filter under `jq -r`: header, then (if any)
+        # a blank line, blocks joined by a blank line, a newline; then jq's
+        # own trailing newline.
+        printf '## Comments (%d)\n' "${#blocks[@]}"
+        if [ "${#blocks[@]}" -gt 0 ]; then
+            printf '\n%s' "${blocks[0]}"
+            for block in "${blocks[@]:1}"; do printf '\n\n%s' "$block"; done
+            printf '\n'
+        fi
+        if [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" = 1 ]; then
+            printf '\n> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)\n'
+        fi
+        printf '\n'
         ;;
     merge-mr)
         [ $# -ge 1 ] || usage
