@@ -11,6 +11,8 @@
 #     suite_env: <NAMES…> | (none)
 #     bats_jobs: <N> | (none)   (#593: effective `suite_jobs`; (none) when the tree has no
 #                              bats suite — a MISSING bats binary dies at the plan-line check)
+#     file_modes: posix | no-op; no test file references a file mode (scanned: tests/ + root
+#                 conftest.py) | (none)   (#600: which #565 branch ran; (none) = no suite)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
 # nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
@@ -18,7 +20,8 @@
 # by construction: a bats run with no `1..N` plan line dies below rather than reaching
 # the artifact, so the asymmetry is deliberate.
 # Producer rule, so the next framework added knows which arm it belongs in: DIE when the
-# artifact would be FALSE (#565 chmod no-op, #406 truncation, a mid-run HEAD move);
+# artifact would be FALSE (#565 chmod no-op under a suite that references file modes,
+# #600; #406 truncation; a mid-run HEAD move);
 # record `(error)` when it would be UNKNOWN. bats has no unknown state — a run with no
 # plan line cannot reach the artifact — so its die is an INSTANCE of that rule, not an
 # exemption from it.
@@ -32,8 +35,8 @@
 # The optional [project.<name>] suite_jobs key (#593, integer ≥ 1, default 1)
 # runs bats test FILES N at a time (`bats --jobs N --no-parallelize-within-files`,
 # GNU parallel required); DEVAGENT_SUITE_JOBS overrides it for one run and is
-# scrubbed from both suite children. The effective value is the artifact's last
-# line, bats_jobs:.
+# scrubbed from both suite children. The effective value is the artifact's
+# bats_jobs: line.
 # The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
 # commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
 # checkout of the SAME project (a linked worktree, or a clone with the same
@@ -98,26 +101,51 @@ fi
 
 cd "$work_dir"
 
-# #565: refuse to manufacture an evidence artifact from a filesystem where
-# chmod is a no-op. A suite that asserts file modes fails wholesale on such a
-# mount (here, the auth/secrets tests), so the artifact would record a red suite
-# that says nothing about the branch — and preship-evidence.sh consumes it as
-# authority. posix_modes_representable is the repo's existing probe for this
-# (#289); it is checked on BOTH the measured tree and TMPDIR, because tests
-# create their fixtures in the latter. Fires only where there is actually a
-# suite to run: run-suite.sh serves every configured project, and a tests-less
-# tree legitimately records (none)/(none). Deliberately conservative — it
-# cannot tell whether a given project's tests assert modes without running them.
-if compgen -G "tests/*.bats" >/dev/null 2>&1 || compgen -G "tests/test_*.py" >/dev/null 2>&1; then
+# Suite presence, probed ONCE and shared by the #565 gate and both suite branches
+# below, so the gate cannot drift from what actually runs (#600; #605 was exactly
+# that drift). pytest's probe is recursive because `pytest tests/` collects
+# recursively (#466 redmr, at the pytest branch).
+has_bats=false;   compgen -G "tests/*.bats" >/dev/null 2>&1 && has_bats=true
+has_pytest=false; [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ] && has_pytest=true
+
+# #565: refuse to manufacture an evidence artifact from a filesystem where chmod is
+# a no-op AND the suite could be asserting modes. A mode-asserting suite fails
+# wholesale on such a mount, so its artifact would record a red suite that says
+# nothing about the branch — and preship-evidence.sh consumes it as authority.
+# posix_modes_representable (#289) is checked on BOTH the measured tree and TMPDIR,
+# because tests create their fixtures in the latter. Fires only where there is a
+# suite to run — has_bats/has_pytest above, the same flags the suites below use,
+# so file_modes: (none) means ABSENT, never NOT LOOKED FOR.
+# #600: "has a suite" alone was the trigger, and it blocked every Windows project
+# whose tests never touch a mode (lectio, pure pytest). Where chmod is a no-op the
+# suite source (tests/, plus a root conftest.py pytest would load) is now scanned by
+# suite_mode_reference: a reference refuses as before; none proceeds and SAYS so in
+# file_modes:, worded as what was NOT seen — never "modes verified" — because the
+# scan is a proxy (its LIMITS are in its own comment); a scan that cannot run refuses.
+file_modes_line="file_modes: (none)"
+if $has_bats || $has_pytest; then
   # Residual, deliberate: posix_modes_representable is FAIL-OPEN on an
   # unprobeable dir (mktemp/chmod/stat failure) because its original caller is
   # an audit that must still run. For this gate that direction is inverted, so a
-  # mount where chmod ERRORS (rather than no-ops) is not caught here. The noacl
-  # case this exists for IS caught, because there chmod succeeds and lies.
+  # mount where chmod ERRORS (rather than no-ops) is not caught here, and records
+  # `posix` — which therefore means "no no-op detected", not "modes proven". The
+  # noacl case this exists for IS caught, because there chmod succeeds and lies.
+  _noop_dir=""
   for _fs_dir in "$work_dir" "${TMPDIR:-/tmp}"; do
-    posix_modes_representable "$_fs_dir" \
-      || die "run-suite: chmod is a NO-OP under '$_fs_dir' — a suite that asserts file modes cannot pass on this filesystem, so any artifact written here would be false evidence (#565). Run the suite on a native POSIX filesystem; on Windows that means a WSL clone on ext4 with its own ~/.claude/devagent/config.toml, not a /mnt/c checkout or native Git Bash. See README 'Running the test suite'."
+    posix_modes_representable "$_fs_dir" || { _noop_dir="$_fs_dir"; break; }
   done
+  if [ -z "$_noop_dir" ]; then
+    file_modes_line="file_modes: posix"
+  else
+    _mode_scan=(tests); [ -f conftest.py ] && _mode_scan+=(conftest.py)
+    _mode_rc=0; suite_mode_reference "${_mode_scan[@]}" || _mode_rc=$?
+    case "$_mode_rc" in
+      0) die "run-suite: chmod is a NO-OP under '$_noop_dir' and this suite references a file mode ($SUITE_MODE_COUNT lines; first: ${SUITE_MODE_HIT:0:200}) — it cannot pass on this filesystem, so any artifact written here would be false evidence (#565). Run the suite on a native POSIX filesystem; on Windows that means a WSL clone on ext4 with its own ~/.claude/devagent/config.toml, not a /mnt/c checkout or native Git Bash. See README 'Running the test suite'." ;;
+      1) warn "run-suite: chmod is a no-op under '$_noop_dir', but no test file references a file mode — proceeding; the artifact records file_modes: no-op (#600)."
+         file_modes_line="file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)" ;;
+      *) die "run-suite: chmod is a NO-OP under '$_noop_dir' and run-suite could not scan ${_mode_scan[*]} for file-mode references (${SUITE_MODE_ERR:0:200}) — it cannot tell whether this suite asserts modes, so it refuses rather than risk false evidence (#565/#600). Fix the unreadable file or broken grep, or run the suite on a native POSIX filesystem (see README 'Running the test suite')." ;;
+    esac
+  fi
 fi
 
 head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
@@ -126,7 +154,7 @@ if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; e
 
 bats_line="bats: (none)"
 bats_jobs_line="bats_jobs: (none)"
-if compgen -G "tests/*.bats" >/dev/null 2>&1; then
+if $has_bats; then
   # #565: bats registers @test names in a CHILD process that inherits this
   # environment; without a UTF-8 locale a non-ASCII name can be silently skipped
   # while still counted in the 1..N plan, so the artifact would be thinner than
@@ -207,7 +235,7 @@ python_line="python: (none)"
 # tests/unit/test_*.py "absent", and since #466 makes presence load-bearing for the
 # Evidence reconstruction, the whole suite then vanished from the green instead of
 # merely showing as `, 0 pytest`. `(none)` must mean ABSENT, never NOT LOOKED FOR.
-if [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
+if $has_pytest; then
   # #466: Python projects conventionally carry their interpreter in <tree>/.venv/, where
   # the AMBIENT python3 has no pytest — measuring a 51-test suite with system python3
   # recorded "0 passed" (factor-ai Issue-9). Prefer the tree's own venv: the artifact is
@@ -329,5 +357,7 @@ fi
   echo "$suite_env_line"
   # #593: appended after suite_env:, under the same rule.
   echo "$bats_jobs_line"
+  # #600: appended after bats_jobs:, under the same prefix-not-position rule.
+  echo "$file_modes_line"
 } > "$artifact"
 echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

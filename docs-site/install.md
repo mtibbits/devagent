@@ -23,7 +23,8 @@ Contributors running the test suite have three further requirements — a POSIX
 filesystem where `chmod` actually changes the mode, a UTF-8 locale, and, for a tree
 with `tests/test_*.py`, an interpreter that can run pytest. On Windows that means a
 WSL clone on ext4. `scripts/run-suite.sh` enforces the first two by refusing to write
-an artifact at all. The third it RECORDS: it prefers `<tree>/.venv/bin/python` over
+an artifact at all — the first only when the suite references a file mode, which
+devAgent's own suite does (#600). The third it RECORDS: it prefers `<tree>/.venv/bin/python` over
 ambient `python3`, and if no candidate can run pytest the artifact reads
 `pytest: (error)` and `scripts/preship-evidence.sh` refuses it. Set
 `DEVAGENT_PYTEST_PYTHON` to point at an interpreter for any other layout (#466). See
