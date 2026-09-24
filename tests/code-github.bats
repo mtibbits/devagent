@@ -242,7 +242,8 @@ EOF
 
 @test "code/github.sh mr-comments conversation-only output is byte-identical to the #84 filter (#592 AC3)" {
     _jq_gh_stub
-    export GH_STUB_JSON="$(cat "$BATS_TEST_DIRNAME/fixtures/code-github/mr-comments-conversation.json")"
+    GH_STUB_JSON="$(cat "$BATS_TEST_DIRNAME/fixtures/code-github/mr-comments-conversation.json")"
+    export GH_STUB_JSON
     "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42 > "$DEVAGENT_TMP/out"
     cmp "$DEVAGENT_TMP/out" "$BATS_TEST_DIRNAME/fixtures/code-github/mr-comments-conversation.golden"
 }
