@@ -89,6 +89,11 @@ re-typed.
    An artifact reading `pytest: (error)` means `tests/test_*.py` exist but produced no
    counts: the suite was NOT measured, preship fails on it, and no Evidence line is
    writable — fix the interpreter and re-run run-suite before continuing.
+   An artifact whose `file_modes:` line starts `file_modes: no-op;` is a mode-UNVERIFIED
+   run (#600): chmod was a no-op and no test file referenced a file mode. Write the
+   Evidence lines as usual, but disclose it OUTSIDE the Evidence block — quote the
+   line under the body's testing notes — so the maintainer reads what the artifact
+   admits.
    Also write `files: <n> changed`
    (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`).
    If an `analysis/<date>-born-red.txt` exists, add

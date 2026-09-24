@@ -29,6 +29,19 @@ the README's "Versioning & releases" section has the release procedure.
   block names exactly that set, once, and that all three dispatch sites
   route it into the prompt. Prompt and test only; `dispatch-lint.sh` is
   unchanged.
+- **run-suite's chmod guard no longer blocks suites that never touch a file mode
+  (#600).** Where `chmod` is a no-op (Windows noacl), `run-suite.sh` refused for any
+  project whose tree carried a suite, so a pure-pytest project could never produce
+  evidence on native Windows. It now scans the suite source (`tests/` plus a root
+  `conftest.py`) for word-bounded file-mode tokens and refuses only on a hit (naming
+  it) or when the scan cannot run; otherwise it proceeds, and a new trailing artifact
+  line records `file_modes: posix`, `file_modes: no-op; no test file references a file
+  mode (…)`, or `file_modes: (none)`. The scan is a proxy and the artifact says so; a
+  mode dependency living only in the code under test, or in test-support code loaded
+  from outside the scanned paths, is not seen. devAgent's own suite still refuses
+  there, and a tree whose only pytest files are nested (`tests/unit/test_*.py`), which
+  the old non-recursive trigger never gated, is now scanned too. On native Windows a `.venv/Scripts/` interpreter still needs
+  `DEVAGENT_PYTEST_PYTHON` (#466).
 - **The six auto-exec commands are now pinned, not merely described (#596).**
   `tests/skills-no-bang-exec.bats` gains a positive counterpart to #550's negative
   canary: the set of `commands/*.md` carrying a bang-exec line is asserted to be

@@ -321,14 +321,29 @@ clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
 
 The suite has three environmental requirements. `run-suite.sh` enforces the first two
 by refusing to write an artifact at all, rather than producing one it cannot stand
-behind. The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
+behind — the first only for a suite that references file modes, as this repo's does
+(#600, below). The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
 A minimal container running these tests must provide all three.
 
 **A POSIX filesystem where `chmod` actually changes the mode.**
 `tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets
 store; on a mount where `chmod` is a no-op those tests can never pass, and the
 run tells you nothing about your branch. `run-suite.sh` probes this
-behaviourally and refuses.
+behaviourally. Where `chmod` is a no-op it then scans the suite source — `tests/`
+recursively, plus a root `conftest.py` — for file-mode tokens (`chmod`, `umask`,
+`st_mode`, `os.access`, `stat -c`, `ls -l`, `PermissionError`, `0o600`-style literals
+and similar). A hit refuses and names the first one; this repo's own suite always
+hits, so everything below about WSL applies to it unchanged. For another project's
+suite with no hit, `run-suite.sh` proceeds and records
+`file_modes: no-op; no test file references a file mode (scanned: tests/ + root conftest.py)`
+in the artifact, so a reader can tell that run from a `file_modes: posix` one. (`posix`
+means the probe found `chmod` effective; the probe fails open on a directory it cannot
+probe at all, so read it as "no no-op detected".) The scan is a proxy (#600): it cannot
+see a mode dependency that lives only in the code under test or in test-support code
+loaded from outside the scanned paths, and a suite that merely
+`chmod +x`es a stub counts as a reference — over-refusing is the safe direction. A scan
+that cannot run refuses. On native Windows a `.venv/Scripts/` interpreter still needs
+`DEVAGENT_PYTEST_PYTHON` (the pytest requirement below).
 
 On Windows that means **a WSL clone on a native Linux filesystem (ext4) — not a
 checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
