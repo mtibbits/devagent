@@ -1349,11 +1349,11 @@ push-branch  <remote> <branch>                              → exit 0
 create-mr    <repo> <title> <body-file> <head> <base>       → MR URL to stdout
                [--draft]
 mr-state     <mr-url>                                       → open|merged|closed|draft
-mr-comments  <mr-url>                                       → markdown to stdout
+mr-comments  <mr-url>                                       → markdown to stdout (§9.3)
 merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
 ```
 
-### 9.3 Markdown shape from `fetch`
+### 9.3 Markdown shapes: `fetch` and `mr-comments`
 
 ```markdown
 # <repo>#<num> — <title>
@@ -1377,6 +1377,59 @@ merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
 ```
 
 `pull.sh` writes this verbatim to `<issue-dir>/issue.md`.
+
+#### `mr-comments` output (code backends, #592)
+
+A code backend's `mr-comments` prints the `## Comments (N)` section of the
+shape above, and nothing else:
+
+```markdown
+## Comments (3)
+
+### @alice · 2026-05-12
+
+Conversation comment.
+
+### @bob · 2026-05-13 · review: CHANGES_REQUESTED
+
+Please split this function.
+
+### @bob · 2026-05-13 · scripts/foo.sh:42
+
+This quoting breaks on spaces.
+```
+
+- **One header, total count.** `N` is the number of entries: conversation
+  comments, review summaries and inline comments together. The empty form
+  is `## Comments (0)` followed by one blank line. `comments.sh` counts
+  `^### @` lines, which equals `N` unless a body itself contains a line
+  starting `### @`.
+- **Entry order.** Conversation comments first, then review summaries, then
+  inline comments; within each group, the order the forge returns.
+- **Entry lines.** A conversation comment is `### @<login> · <YYYY-MM-DD>`.
+  A review summary adds ` · review: <STATE>`, the forge's verdict verbatim
+  (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED`). An inline
+  comment adds ` · <path>:<line>`, using the comment's original line when it
+  is outdated, and ` · <path>` alone for a file-level comment. Replies are
+  ordinary entries; threads are not nested.
+- **What is not an entry.** A review in state `COMMENTED` with an empty body
+  is the container a forge creates for a batch of inline comments; those
+  arrive as inline entries, so the container is skipped. A `PENDING` review
+  is the viewer's own unsubmitted draft and is skipped.
+- **Conformance.** The ` · review: …` and ` · <path>[:<line>]` suffixes are
+  optional. A backend conforms when every entry starts
+  `### @<login> · <date>` and the header counts the entries; `code/gitlab.sh`
+  (conversation and diff notes, unanchored) and `code/custom.sh` conform
+  unchanged.
+- **Failure.** If any forge call fails, `mr-comments` exits non-zero and
+  prints no section, so `comments.sh` writes no partial file. On github,
+  `DEVAGENT_MR_COMMENTS_SKIP_INLINE=1` skips the inline-comment call only;
+  the section then ends with the line
+  `> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)`
+  so the gap stays visible in `comments.md`.
+- **Input.** `<mr-url>` is `<scheme>://<host>/<owner>/<repo>/pull/<n>`,
+  optionally followed by a path, `#fragment` or `?query`, which are ignored.
+  Any other form is a usage error (exit 2).
 
 ### 9.4 Reference implementations (v1)
 

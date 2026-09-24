@@ -300,8 +300,11 @@ Exit-code conventions across all backends:
 | 4    | not found (HTTP 404)                             |
 | 78   | not implemented (EX_CONFIG; reserved for stubs)  |
 
-The markdown shape produced by `fetch` and `comment-list` is fixed
-across backends (spec §9.3) — downstream code is backend-agnostic.
+The markdown shapes produced by `fetch`, `comment-list` and `mr-comments`
+are fixed across backends (spec §9.3) — downstream code is backend-agnostic.
+`mr-comments` entries may add an optional ` · review: <STATE>` or
+` · <path>:<line>` suffix; the github backend includes review summaries and
+inline code comments this way.
 
 ## Running the test suite
 
