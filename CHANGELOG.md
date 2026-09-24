@@ -16,6 +16,23 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **`/devagent:comments` now captures code-review feedback on GitHub
+  (#592).** `code/github.sh mr-comments` used to fetch only conversation
+  comments, so a PR reviewed only with inline comments wrote
+  `## Comments (0)`. It now adds review summaries (`### @user · date ·
+  review: STATE`, skipping the empty `COMMENTED` containers GitHub creates
+  for inline batches and `PENDING` drafts) and inline comments
+  (`### @user · date · path:line`, via `gh api …/pulls/N/comments`) after
+  the conversation comments. They sit under one `## Comments (N)` header
+  that now counts every entry. The shape is recorded in spec §9.3.
+  Conversation-only output is byte-identical (pinned by a golden generated
+  from the old filter). A failed forge call now fails the fetch instead of
+  writing a partial file. `DEVAGENT_MR_COMMENTS_SKIP_INLINE=1` fetches
+  without inline comments and marks the gap in the output. An `mr_url`
+  that is not a `…/pull/<n>` URL is now refused (exit 2). The gitlab and
+  custom backends are unchanged, because the suffixes are optional for
+  conformance.
+
 - **The review step now tells its reviewer the report contract the lint
   enforces (#598).** `commands/review.md` gains a Report contract block that
   the main session appends to the dispatched reviewer's prompt on both paths
