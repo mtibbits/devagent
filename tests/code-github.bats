@@ -57,6 +57,7 @@ if [ "\$1" = api ]; then
     [ "\${GH_STUB_API_RC:-0}" -eq 0 ] || { echo "HTTP 403" >&2; exit "\$GH_STUB_API_RC"; }
     printf '%s' "\${GH_STUB_API_JSON:-[]}" | jq -r "\$filter"
 else
+    [ "\${GH_STUB_PR_RC:-0}" -eq 0 ] || { echo "GraphQL: Could not resolve to a PullRequest" >&2; exit "\$GH_STUB_PR_RC"; }
     printf '%s' "\$GH_STUB_JSON" | jq -r "\$filter"
 fi
 STUB
@@ -301,7 +302,7 @@ EOF
     export GH_STUB_JSON='{"comments":[{"author":{"login":"a"},"createdAt":"2026-06-01T00:00:00Z","body":"x"}],"reviews":[]}'
     export GH_STUB_API_RC=1
     run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
-    [ "$status" -eq 1 ]
+    [ "$status" -ne 0 ]                                        # gh's rc, passed through as every verb here does
     [[ "$output" == *"HTTP 403"* ]]                            # the api call itself failed, not the stub guard
     [[ "$output" == *"DEVAGENT_MR_COMMENTS_SKIP_INLINE=1"* ]]
     [[ "$output" != *"## Comments"* ]]
@@ -334,3 +335,22 @@ EOF
     [[ "$output" == *"cannot parse PR URL"* ]]
     [ ! -s "$DEVAGENT_STUB_LOG" ]
 }
+
+@test "code/github.sh mr-comments fails closed when the pr view call fails (#592)" {
+    _jq_gh_stub
+    export GH_STUB_PR_RC=1
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Could not resolve to a PullRequest"* ]]  # gh's own failure, not the stub guard
+    [[ "$output" != *"## Comments"* ]]
+}
+
+@test "code/github.sh mr-comments hands gh the parsed URL, so a scheme-less one is not read as a cwd branch (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[]}'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments github.com/acme/testproj/pull/42/files
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json comments,reviews --jq"
+    devagent_assert_logged "gh api --hostname github.com --paginate repos/acme/testproj/pulls/42/comments?per_page=100 --jq"
+}
+

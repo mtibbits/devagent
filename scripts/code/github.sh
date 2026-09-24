@@ -72,6 +72,10 @@ case "$verb" in
             echo "code/github.sh: mr-comments: cannot parse PR URL '$1'" >&2
             exit 2
         fi
+        # gh reads a non-http(s) argument as a PR number or a branch of the
+        # cwd's repo, so hand it the URL just parsed, never the raw input.
+        scheme=https; [[ "$url" == *://* ]] && scheme="${url%%://*}"
+        url="$scheme://$host/$owner/$repo/pull/$num"
         # One entry: `### @login · date[suffix]`, blank line, body. The
         # conversation form is the same filter as issue/github.sh
         # cmd_comment_list. An empty-body COMMENTED review is the container
