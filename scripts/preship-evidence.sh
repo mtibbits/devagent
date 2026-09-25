@@ -82,7 +82,17 @@ if ! grep -q '^## Evidence' "$mr"; then
   # "No artifact at all" stays the plain #149 path — absence is not a failed
   # measurement, and the non-empty guard is what keeps it that way.
   _early_artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
-  if [ -n "$_early_artifact" ] && grep -q '^pytest: (error)$' "$_early_artifact"; then
+  # #601: read the pytest body with the SAME whitespace-tolerant parse as a_pytest_body
+  # below (keep the two spellings identical), so a padded '(error)' is refused here
+  # exactly as it is on the main path; the exact-match grep this replaced let
+  # 'pytest:   (error)' fall through to the WARN below. Declared blind spot: a TRAILING
+  # blank ('(error) ') is not '(error)' on either path. It is an unparseable line, and
+  # this back-compat path deliberately lets unparseable lines through (#149).
+  _early_pytest_body=""
+  if [ -n "$_early_artifact" ]; then
+    _early_pytest_body="$(sed -n 's/^pytest:[[:space:]]*\(.*\)$/\1/p' "$_early_artifact" | head -1)"
+  fi
+  if [ "$_early_pytest_body" = "(error)" ]; then
     die "preship-evidence: artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest could not be RUN (missing interpreter, a venv without pytest, or an import/collection error). The suite was NOT measured, so nothing can honestly describe it, and removing the '## Evidence' block does not make it shippable (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite, then re-run run-suite."
   fi
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
@@ -111,11 +121,15 @@ a_failed="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' "$artifact"
 # "failed", so `2 passed, 1 error` recorded `0 failed` and reconciled green. The bats
 # side has had its equivalent invariant since #406; this is pytest's.
 a_errors="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) errors\?.*/\1/p' "$artifact" | head -1)"
-# #466: the framework line BODIES verbatim, parsed HERE with the same sed idiom as the
-# numeric fields above rather than by inline greps further down — one parsing convention
-# for one file format, so a new state token or a schema tweak has a single home. The
-# numeric fields cannot answer the presence question: a_ok/a_passed are empty for BOTH
-# "(none)" and an unparseable line, and this checker must tell those apart.
+# #466: the framework line BODIES (everything after the separator whitespace, verbatim),
+# parsed HERE with the same sed idiom as the numeric fields above rather than by inline
+# greps further down — one parsing convention for one file format, so a new state
+# token or a schema tweak has a single home. The numeric fields cannot answer the
+# presence question: a_ok/a_passed are empty for BOTH "(none)" and an unparseable line,
+# and this checker must tell those apart. #601: the ':[[:space:]]*' strips LEADING
+# padding only, so 'bats:   (none)' reads as absent, while 'bats: (none) ' (a trailing
+# blank) is unparseable and fails closed. tests/preship-evidence.bats pins both, so these
+# two reads need no separate whitespace normalisation.
 a_bats_body="$(sed -n 's/^bats:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
 a_pytest_body="$(sed -n 's/^pytest:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
 

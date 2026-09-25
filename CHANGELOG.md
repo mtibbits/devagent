@@ -16,6 +16,21 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: preship-evidence's no-Evidence `(error)` refusal no longer depends on
+  whitespace (#601).** The refusal that runs above the #149 back-compat exit matched
+  `pytest: (error)` exactly. An artifact that padded the line (`pytest:   (error)`)
+  next to an mr.md with no `## Evidence` block therefore exited 0 with a warning,
+  while the same artifact with an Evidence block was refused. The refusal now reads
+  the pytest body with the main path's whitespace-tolerant parse. `run-suite.sh`
+  always writes the exact form, so artifacts it produced were never affected. A
+  trailing blank (`(error) `) remains an unparseable line, which the no-Evidence path
+  deliberately lets through: a declared blind spot. #601's headline report, that a
+  pytest-only project could not satisfy the Evidence check, was already fixed by #466
+  (#605), which reconstructs the suite line per framework. `tests/preship-evidence.bats`
+  gains five tests: padded `(none)` bodies and padded counts reconcile for each
+  framework, a trailing blank after `(none)` fails loudly as unparseable (one per
+  framework), and a padded `(error)` is refused with no Evidence block. Each is proven
+  able to fail by a recorded mutation matrix.
 - **`/devagent:comments` now captures code-review feedback on GitHub
   (#592).** `code/github.sh mr-comments` used to fetch only conversation
   comments, so a PR reviewed only with inline comments wrote
