@@ -104,8 +104,11 @@ Exit-code conventions across all backends:
 | 4 | not found (HTTP 404) |
 | 78 | not implemented (reserved for stubs) |
 
-The markdown shape produced by `fetch` and `comment-list` is fixed across
-backends, so everything downstream is backend-agnostic. To add your own
+The markdown shapes produced by `fetch`, `comment-list` and `mr-comments` are
+fixed across backends, so everything downstream is backend-agnostic.
+`mr-comments` entries may add an optional ` · review: <STATE>` or
+` · <path>:<line>` suffix; the github backend includes review summaries and
+inline code comments this way. To add your own
 tracker or forge, copy `scripts/issue/custom.sh` (and `scripts/code/custom.sh`
 for the forge half), implement each verb, point `backend = "<yourname>"` at
 it, and verify with a `tests/backend-<yourname>.bats` you write yourself —

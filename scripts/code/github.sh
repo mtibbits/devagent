@@ -14,6 +14,8 @@ set -euo pipefail
 # #269: classify the rc-2 "can't determine" cause (auth vs network vs rate-limit).
 # shellcheck source=../lib/conn-diag.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/conn-diag.sh"
+# shellcheck source=../lib/backend-common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/backend-common.sh"
 
 usage() {
     cat >&2 <<'EOF'
@@ -55,20 +57,74 @@ case "$verb" in
         ;;
     mr-comments)
         [ $# -eq 1 ] || usage
-        # §9.3 shape via gh's built-in jq (no external jq dependency here).
-        # Same filter as issue/github.sh cmd_comment_list. The old
-        # `pr view --comments` human view fails on gh 2.45.0 and has no
-        # `### @` lines for comments.sh to count (#84).
-        "$DEVAGENT_GH" pr view "$1" --json comments --jq '
-          def comment_block:
-            .comments | map(
-              "### @" + (.author.login // "unknown")
-              + " · " + ((.createdAt // "") | split("T")[0])
-              + "\n\n" + (.body // "")
-            ) | join("\n\n");
-          "## Comments (" + ((.comments | length) | tostring) + ")\n"
-          + (if (.comments | length) > 0 then "\n" + comment_block + "\n" else "" end)
-        '
+        # §9.3 mr-comments shape (#592): conversation comments, then review
+        # summaries (` · review: STATE`), then inline comments (` · path:line`),
+        # under ONE `## Comments (N)` header counting all of them. Filters run
+        # in gh's built-in jq (no external jq dependency here). `--paginate
+        # --jq` filters PER PAGE and gh 2.45 has no --slurp, so each filter
+        # emits one @base64 block per line and the count/join happen here.
+        # Owner/repo/host come from the URL, never gh's {owner}/{repo}
+        # placeholders (those resolve from the ambient cwd's remote).
+        url="${1%%#*}"; url="${url%%\?*}"
+        rest="${url#*://}"; host="${rest%%/*}"
+        IFS=/ read -r owner repo kind num _ <<<"${rest#*/}"
+        if [ "$kind" != pull ] || ! [[ "$num" =~ ^[0-9]+$ ]] || [ -z "$owner" ] || [ -z "$repo" ]; then
+            echo "code/github.sh: mr-comments: cannot parse PR URL '$1'" >&2
+            exit 2
+        fi
+        # gh reads a non-http(s) argument as a PR number or a branch of the
+        # cwd's repo, so hand it the URL just parsed, never the raw input.
+        scheme=https; [[ "$url" == *://* ]] && scheme="${url%%://*}"
+        url="$scheme://$host/$owner/$repo/pull/$num"
+        # One entry: `### @login · date[suffix]`, blank line, body. The
+        # conversation form is the same filter as issue/github.sh
+        # cmd_comment_list. An empty-body COMMENTED review is the container
+        # GitHub creates for an inline-comment batch (its content arrives via
+        # the inline call); a PENDING review is the viewer's own draft.
+        # shellcheck disable=SC2016  # a jq program, not shell
+        entry_def='def entry($who; $ts; $suffix):
+            "### @" + ($who // "unknown") + " · " + (($ts // "") | split("T")[0])
+            + $suffix + "\n\n" + (.body // "");'
+        pr_blocks="$("$DEVAGENT_GH" pr view "$url" --json comments,reviews --jq "$entry_def"'
+          ((.comments // [])[] | entry(.author.login; .createdAt; "")),
+          ((.reviews // [])[]
+            | select(.state != "PENDING")
+            | select((.body // "") != "" or .state != "COMMENTED")
+            | entry(.author.login; .submittedAt; " · review: " + (.state // "UNKNOWN")))
+          | @base64
+        ')"
+        skip_inline=0
+        [ "${DEVAGENT_MR_COMMENTS_SKIP_INLINE:-}" = 1 ] && skip_inline=1
+        inline_blocks=""
+        if [ "$skip_inline" = 0 ]; then
+            # shellcheck disable=SC2016  # a jq program, not shell
+            inline_blocks="$("$DEVAGENT_GH" api --hostname "$host" --paginate \
+                "repos/$owner/$repo/pulls/$num/comments?per_page=100" --jq "$entry_def"'
+              .[]
+              | (.line // .original_line) as $ln
+              | entry(.user.login; .created_at;
+                  " · " + (.path // "") + (if $ln then ":" + ($ln | tostring) else "" end))
+              | @base64
+            ')" || {
+                rc=$?
+                echo "code/github.sh: mr-comments: inline review comments could not be fetched — re-run /devagent:comments; to fetch without them set DEVAGENT_MR_COMMENTS_SKIP_INLINE=1" >&2
+                exit "$rc"
+            }
+        fi
+        blocks=()
+        while IFS= read -r enc; do
+            [ -n "$enc" ] || continue
+            # The trailing `x` keeps the body's own trailing newlines ($(...) strips them).
+            block="$(printf '%s' "$enc" | base64 -d && printf x)"
+            blocks+=("${block%x}")
+        done <<<"$pr_blocks"$'\n'"$inline_blocks"
+        # Same bytes as the #84 jq filter: header, blank line, each block
+        # followed by a blank line.
+        bc_emit_comments_header "${#blocks[@]}"
+        for block in "${blocks[@]}"; do printf '%s\n\n' "$block"; done
+        if [ "$skip_inline" = 1 ]; then
+            printf '> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)\n\n'
+        fi
         ;;
     merge-mr)
         [ $# -ge 1 ] || usage

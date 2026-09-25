@@ -38,9 +38,12 @@ teardown() { devagent_test_teardown; }
     devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json state --jq .state"
 }
 
-# #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON through real jq.
-# jq 1.7 is a valid proxy for gh's built-in gojq here: output byte-identical
-# for this filter, validated against real gh 2.45.0 (see Issue-84 analysis/).
+# #84: gh stub that emulates `--jq` by piping $GH_STUB_JSON (`pr view`) or
+# $GH_STUB_API_JSON (`api`, #592) through real jq. jq 1.7 stands in for gh's
+# built-in gojq: byte-identity was validated against real gh 2.45.0 for the #84
+# conversation filter (Issue-84 analysis/); the #592 review/inline filters
+# (`def entry($…)`, `@base64`, `tostring`, `if … then … end`) only by a live
+# read-only smoke on gnuradio/volk#878 (Issue-592 actualWork).
 _jq_gh_stub() {
     cat > "$DEVAGENT_STUB_BIN/gh" <<STUB
 #!/usr/bin/env bash
@@ -50,7 +53,13 @@ printf '\n' >> "$DEVAGENT_STUB_LOG"
 filter=""; prev=""
 for a in "\$@"; do [ "\$prev" = "--jq" ] && filter="\$a"; prev="\$a"; done
 [ -n "\$filter" ] || { echo "stub-gh: no --jq filter seen" >&2; exit 1; }
-printf '%s' "\$GH_STUB_JSON" | jq -r "\$filter"
+if [ "\$1" = api ]; then
+    [ "\${GH_STUB_API_RC:-0}" -eq 0 ] || { echo "HTTP 403" >&2; exit "\$GH_STUB_API_RC"; }
+    printf '%s' "\${GH_STUB_API_JSON:-[]}" | jq -r "\$filter"
+else
+    [ "\${GH_STUB_PR_RC:-0}" -eq 0 ] || { echo "GraphQL: Could not resolve to a PullRequest" >&2; exit "\$GH_STUB_PR_RC"; }
+    printf '%s' "\$GH_STUB_JSON" | jq -r "\$filter"
+fi
 STUB
     chmod +x "$DEVAGENT_STUB_BIN/gh"
 }
@@ -62,7 +71,7 @@ STUB
     [ "$status" -eq 0 ]
     # Needle deliberately stops at --jq: the filter body is an implementation
     # detail tests must not pin verbatim (multiline filter shares the log line).
-    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json comments --jq"
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json comments,reviews --jq"
     [[ "$output" == *"## Comments (2)"* ]]
     [[ "$output" == *"### @reviewer · 2026-06-12"* ]]
     [[ "$output" == *"### @alice · 2026-06-11"* ]]
@@ -234,3 +243,114 @@ EOF
     DEVAGENT_GH="$DEVAGENT_TMP/gh" run bash "$DEVAGENT_ROOT/scripts/code/github.sh" merged-pr-head me/repo whatever
     [ "$status" -ge 2 ]
 }
+
+@test "code/github.sh mr-comments conversation-only output is byte-identical to the #84 filter (#592 AC3)" {
+    _jq_gh_stub
+    GH_STUB_JSON="$(cat "$BATS_TEST_DIRNAME/fixtures/code-github/mr-comments-conversation.json")"
+    export GH_STUB_JSON
+    "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42 > "$DEVAGENT_TMP/out"
+    cmp "$DEVAGENT_TMP/out" "$BATS_TEST_DIRNAME/fixtures/code-github/mr-comments-conversation.golden"
+}
+
+@test "code/github.sh mr-comments empty output is byte-exact (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[]}'
+    "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42 > "$DEVAGENT_TMP/out"
+    printf '## Comments (0)\n\n' | cmp - "$DEVAGENT_TMP/out"
+}
+
+@test "code/github.sh mr-comments surfaces an inline comment when there are no conversation comments (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[{"author":{"login":"jdemel"},"state":"COMMENTED","submittedAt":"2026-09-11T19:24:51Z","body":""}]}'
+    export GH_STUB_API_JSON='[{"user":{"login":"jdemel"},"created_at":"2026-09-11T19:24:33Z","path":"kernels/volk/x.h","line":324,"original_line":334,"body":"Use the fast path here."}]'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"## Comments (1)"* ]]
+    [[ "$output" == *"### @jdemel · 2026-09-11 · kernels/volk/x.h:324"* ]]
+    [[ "$output" == *"Use the fast path here."* ]]
+    [[ "$output" != *"review:"* ]]          # empty COMMENTED container is dropped
+    [ "$(grep -c '^### @' <<<"$output")" -eq 1 ]
+    devagent_assert_logged "gh api --hostname github.com --paginate repos/acme/testproj/pulls/42/comments?per_page=100 --jq"
+}
+
+@test "code/github.sh mr-comments review entries carry their verdict; COMMENTED containers and PENDING are dropped (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[{"author":{"login":"alice"},"createdAt":"2026-06-10T00:00:00Z","body":"conv"}],"reviews":[{"author":{"login":"bob"},"state":"CHANGES_REQUESTED","submittedAt":"2026-06-11T00:00:00Z","body":"split it"},{"author":{"login":"carol"},"state":"APPROVED","submittedAt":"2026-06-12T00:00:00Z","body":""},{"author":{"login":"dan"},"state":"COMMENTED","submittedAt":"2026-06-12T00:00:00Z","body":""},{"author":{"login":"erin"},"state":"COMMENTED","submittedAt":"2026-06-13T00:00:00Z","body":"summary note"},{"author":{"login":"me"},"state":"PENDING","submittedAt":null,"body":"my draft"}]}'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"## Comments (4)"* ]]
+    [[ "$output" == *"### @bob · 2026-06-11 · review: CHANGES_REQUESTED"* ]]
+    [[ "$output" == *"### @carol · 2026-06-12 · review: APPROVED"* ]]
+    [[ "$output" == *"### @erin · 2026-06-13 · review: COMMENTED"* ]]
+    [[ "$output" != *"@dan"* ]]
+    [[ "$output" != *"my draft"* ]]
+    [[ "$output" == *"### @alice"*"### @bob"* ]]   # conversation before reviews
+}
+
+@test "code/github.sh mr-comments anchors outdated inline comments to original_line and file-level ones to the path (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[]}'
+    export GH_STUB_API_JSON='[{"user":{"login":"u1"},"created_at":"2026-06-01T00:00:00Z","path":"a.sh","line":null,"original_line":334,"body":"outdated"},{"user":{"login":"u2"},"created_at":"2026-06-02T00:00:00Z","path":"b.sh","line":null,"original_line":null,"body":"file-level"}]'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"### @u1 · 2026-06-01 · a.sh:334"* ]]
+    grep -qx '### @u2 · 2026-06-02 · b.sh' <<<"$output"
+}
+
+@test "code/github.sh mr-comments fails closed when the inline-comments call fails, naming the remedy (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[{"author":{"login":"a"},"createdAt":"2026-06-01T00:00:00Z","body":"x"}],"reviews":[]}'
+    export GH_STUB_API_RC=1
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -ne 0 ]                                        # gh's rc, passed through as every verb here does
+    [[ "$output" == *"HTTP 403"* ]]                            # the api call itself failed, not the stub guard
+    [[ "$output" == *"DEVAGENT_MR_COMMENTS_SKIP_INLINE=1"* ]]
+    [[ "$output" != *"## Comments"* ]]
+}
+
+@test "code/github.sh mr-comments DEVAGENT_MR_COMMENTS_SKIP_INLINE=1 skips the inline call and marks the gap (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[{"author":{"login":"a"},"createdAt":"2026-06-01T00:00:00Z","body":"x"}],"reviews":[]}'
+    export GH_STUB_API_RC=1
+    DEVAGENT_MR_COMMENTS_SKIP_INLINE=1 run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"## Comments (1)"* ]]
+    grep -qx '> inline review comments not fetched (DEVAGENT_MR_COMMENTS_SKIP_INLINE=1)' <<<"$output"
+    run grep -q '^gh api' "$DEVAGENT_STUB_LOG"
+    [ "$status" -eq 1 ]
+}
+
+@test "code/github.sh mr-comments passes a GHE host and strips a URL fragment (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[]}'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments 'https://ghe.example.com/org/repo/pull/7#discussion_r1'
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh api --hostname ghe.example.com --paginate repos/org/repo/pulls/7/comments?per_page=100 --jq"
+}
+
+@test "code/github.sh mr-comments refuses a non-PR URL without calling gh (#592)" {
+    _jq_gh_stub
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/issues/7
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"cannot parse PR URL"* ]]
+    [ ! -s "$DEVAGENT_STUB_LOG" ]
+}
+
+@test "code/github.sh mr-comments fails closed when the pr view call fails (#592)" {
+    _jq_gh_stub
+    export GH_STUB_PR_RC=1
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments https://github.com/acme/testproj/pull/42
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Could not resolve to a PullRequest"* ]]  # gh's own failure, not the stub guard
+    [[ "$output" != *"## Comments"* ]]
+}
+
+@test "code/github.sh mr-comments hands gh the parsed URL, so a scheme-less one is not read as a cwd branch (#592)" {
+    _jq_gh_stub
+    export GH_STUB_JSON='{"comments":[],"reviews":[]}'
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-comments github.com/acme/testproj/pull/42/files
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr view https://github.com/acme/testproj/pull/42 --json comments,reviews --jq"
+    devagent_assert_logged "gh api --hostname github.com --paginate repos/acme/testproj/pulls/42/comments?per_page=100 --jq"
+}
+
