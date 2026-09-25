@@ -298,27 +298,14 @@ _artifact_raw() {
     [ "$status" -eq 0 ]
 }
 
-# ---- #601: whitespace in a framework line must not decide the gate. #601 was filed
-# against the pre-#466 exact-match idiom (grep -q '^bats: (none)$'): a producer that
-# column-aligned its fields would silently take the wrong branch. Since #466 (2ccd6fd)
-# the main path reads each framework line with a sed on ':[[:space:]]*', which strips
-# LEADING padding and keeps the rest of the line verbatim, and the no-Evidence early
-# (error) refusal must use the same parse (test E pins it). These five tests pin that:
-#   - padded bodies (spaces before '(none)', a tab before a count) reconcile exactly as
-#     the single-space form does, for each framework;
-#   - a TRAILING blank after '(none)' is not '(none)': it lands in the named
-#     unparseable-artifact verdict (rc 1, loud), never in a silent branch;
-#   - a padded '(error)' is refused even when mr.md has no Evidence block.
-# Each test is proven able to fail by the #601 mutation matrix. Declared blind spots:
-#   - _artifact_raw always writes '<key>: ' before the body, so the padding here is that
-#     one space plus the body's own leading run; a regression that required exactly one
-#     literal space and then tolerated more would stay green;
-#   - a TRAILING-blank '(error)' with no Evidence block is an unparseable line, which
-#     the #149 back-compat exit deliberately lets through with its WARN.
-# The fixture greps are vacuity guards: without them a helper that trimmed its
-# arguments would leave the PASS and (error) tests green over unpadded artifacts.
-# Message-token legs: C/D's 'refusing to reconstruct' is proven by mutation; the other
-# tokens (A/B's PASS text, C/D's '<key>:' line, E's '(error)') are belt-and-braces.
+# #601: whitespace in a framework line must not decide the gate. Leading padding reads
+# as the single-space form, a trailing blank after '(none)' fails loudly as unparseable,
+# and a padded '(error)' is refused even with no Evidence block. The fixture greps are
+# vacuity guards against a helper that trims its arguments. Declared blind spots:
+# _artifact_raw always writes '<key>: ', so a parse needing exactly one literal space
+# stays green; a trailing-blank '(error)' with no Evidence block is unparseable, which
+# the #149 exit lets through with its WARN. Of the message tokens, only C/D's
+# 'refusing to reconstruct' is mutation-proven; the others are belt-and-braces.
 
 @test "preship-evidence: column-padded bats (none) and tab-padded pytest count reconcile pytest-only (#601)" {
     _artifact_raw "  (none)" $'\t158 passed, 0 failed, 0 errors'
