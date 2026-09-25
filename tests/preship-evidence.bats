@@ -297,3 +297,69 @@ _artifact_raw() {
     _run
     [ "$status" -eq 0 ]
 }
+
+# #601: whitespace in a framework line must not decide the gate. Leading padding reads
+# as the single-space form, a trailing blank after '(none)' fails loudly as unparseable,
+# and a padded '(error)' is refused even with no Evidence block. The fixture greps are
+# vacuity guards against a helper that trims its arguments. Declared blind spots:
+# _artifact_raw always writes '<key>: ', so a parse needing exactly one literal space
+# stays green; a trailing-blank '(error)' with no Evidence block is unparseable, which
+# the #149 exit lets through with its WARN. Of the message tokens, only C/D's
+# 'refusing to reconstruct' is mutation-proven; the others are belt-and-braces.
+
+@test "preship-evidence: column-padded bats (none) and tab-padded pytest count reconcile pytest-only (#601)" {
+    _artifact_raw "  (none)" $'\t158 passed, 0 failed, 0 errors'
+    grep -q '^bats:   (none)$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    grep -q $'^pytest: \t158 passed' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    _mr "158 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(158 pytest @ $HEAD_SHA; files=1)"* ]]
+}
+
+@test "preship-evidence: tab-padded bats count and column-padded pytest (none) reconcile bats-only (#601)" {
+    _artifact_raw $'\t285/285 notok=0' "  (none)"
+    grep -q $'^bats: \t285/285 notok=0$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    grep -q '^pytest:   (none)$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    _mr "285/285 bats @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"(285/285 bats @ $HEAD_SHA; files=1)"* ]]
+}
+
+@test "preship-evidence: trailing blank after bats (none) FAILS as unparseable, not silently absent (#601)" {
+    # Paired with a real pytest count so the suite line itself MATCHES (bats adds no
+    # part either way): the named verdict is then the only failure, and rc 1 is its alone.
+    _artifact_raw "(none) " "158 passed, 0 failed, 0 errors"
+    grep -q '^bats: (none) $' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    _mr "158 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'bats:' line"* ]]
+    [[ "$output" == *"refusing to reconstruct"* ]]
+    [[ "$output" != *"suite line mismatch"* ]]
+}
+
+@test "preship-evidence: trailing blank after pytest (none) FAILS as unparseable, not silently absent (#601)" {
+    _artifact_raw "285/285 notok=0" "(none) "
+    grep -q '^pytest: (none) $' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    _mr "285/285 bats @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'pytest:' line"* ]]
+    [[ "$output" == *"refusing to reconstruct"* ]]
+    [[ "$output" != *"suite line mismatch"* ]]
+}
+
+@test "preship-evidence: padded pytest (error) with NO Evidence block is still refused (#601)" {
+    # Before #601 the early refusal above the #149 exit matched '^pytest: (error)$'
+    # exactly, so this artifact exited 0 with the WARN while the main path refused it.
+    _artifact_raw "285/285 notok=0" "  (error)"
+    grep -q '^pytest:   (error)$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    { echo '## Summary'; echo 'x'; } > "$DEVDOC_DIR/Issue-1/mr.md"   # no ## Evidence
+    _run
+    # The not-the-WARN leg comes FIRST, so a red E names the #149 WARN path directly.
+    [[ "$output" != *"skipping evidence checks"* ]]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"(error)"* ]]
+}
