@@ -352,8 +352,8 @@ _artifact_raw() {
 }
 
 @test "preship-evidence: padded pytest (error) with NO Evidence block is still refused (#601)" {
-    # An exact-match '^pytest: (error)$' early refusal above the #149 exit lets this
-    # artifact exit 0 with the WARN, while the main path refuses it.
+    # Before #601 the early refusal above the #149 exit matched '^pytest: (error)$'
+    # exactly, so this artifact exited 0 with the WARN while the main path refused it.
     _artifact_raw "285/285 notok=0" "  (error)"
     grep -q '^pytest:   (error)$' "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
     { echo '## Summary'; echo 'x'; } > "$DEVDOC_DIR/Issue-1/mr.md"   # no ## Evidence

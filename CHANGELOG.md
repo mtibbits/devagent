@@ -21,7 +21,9 @@ the README's "Versioning & releases" section has the release procedure.
   `pytest: (error)` exactly. An artifact that padded the line (`pytest:   (error)`)
   next to an mr.md with no `## Evidence` block therefore exited 0 with a warning,
   while the same artifact with an Evidence block was refused. The refusal now reads
-  the pytest body with the main path's whitespace-tolerant parse. `run-suite.sh`
+  the pytest body with the main path's whitespace-tolerant parse. An unreadable
+  artifact on that path now aborts with the read error instead of warning and exiting
+  0, which fails closed as the main path already did. `run-suite.sh`
   always writes the exact form, so artifacts it produced were never affected. A
   trailing blank (`(error) `) remains an unparseable line, which the no-Evidence path
   deliberately lets through: a declared blind spot. #601's headline report, that a
