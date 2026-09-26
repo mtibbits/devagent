@@ -44,12 +44,12 @@ python3 -m pytest tests/ -v
 
 The maintainer's runner is `scripts/run-suite.sh`, which pins the hermetic
 environment and refuses to write a result it cannot stand behind. It needs
-devAgent installed and configured with a project and an active issue (it writes
-its result into that issue's directory), so it is not available to a plain
-clone:
+devAgent installed and configured with a project, and the issue it measures
+passed as `<Issue-N>` (it writes its result into that issue's directory), so it
+is not available to a plain clone:
 
 ```sh
-bash scripts/run-suite.sh <project>
+bash scripts/run-suite.sh <project> <Issue-N>
 ```
 
 CI runs bats as four shards with `--jobs 2` across files and tests within a

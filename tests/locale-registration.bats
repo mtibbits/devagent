@@ -98,7 +98,7 @@ _emits_raw_high_byte() {
     echo "SILENTLY SKIPS every @test name containing a non-ASCII character while still" >&2
     echo "printing a full plan. (On glibc the same names still register — the skip is an" >&2
     echo "MSYS property — but the suite is only ever measured under a pinned locale.)" >&2
-    echo "Re-run via: bash scripts/run-suite.sh <project>   — or export LC_ALL=C.UTF-8" >&2
+    echo "Re-run via: bash scripts/run-suite.sh <project> <Issue-N>   — or export LC_ALL=C.UTF-8" >&2
     echo "See README 'Running the test suite'." >&2
     false
   }

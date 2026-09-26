@@ -81,12 +81,15 @@ Since #571 the evidence pair (`run-suite.sh`, `preship-evidence.sh`) also
 guards WHICH CHECKOUT it measures: invocation from a linked worktree or
 equal-`origin` clone of the measured tree dies `TREE MISMATCH` even with an
 explicit project; escape is `DEVAGENT_TREE_GUARD_OVERRIDE=1`, same
-truth-valued semantics.
+truth-valued semantics. Since #659 `run-suite.sh` also refuses (`ISSUE
+UNSTATED`) unless its issue is passed (`run-suite.sh <project> <Issue-N>`) or
+pinned via `DEVAGENT_ACTIVE_ISSUE`; it never reads the shared slot.
 
 ## Confirming the active issue before a manual script invocation
 
 Workflow scripts act on the state file's `active_issue`, not on anything visible
-in the terminal. Before invoking one by hand — especially in a session that has
+in the terminal. (`run-suite.sh` is the exception since #659: it refuses rather
+than read it.) Before invoking one by hand — especially in a session that has
 switched issues or projects — read the resolved state first:
 
     head -15 ~/.claude/devagent/state/<project>.toml

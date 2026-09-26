@@ -64,11 +64,14 @@ re-typed.
    #120/#85/#284):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>   # writes analysis/<date>-suite-count.txt
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>   # writes analysis/<date>-suite-count.txt
    ```
 
-   (`<project>` = the resolved project; pass it explicitly — #572 guards the
-   bare form against wrong-scope resolution.)
+   (`<project>` = the resolved project; `<Issue-N>` = the issue you are drafting for,
+   the basename of its issue dir. Pass both: #572 guards a bare project, and since
+   #659 run-suite refuses to take the issue from shared state unless
+   DEVAGENT_ACTIVE_ISSUE is pinned. tests/run-suite.bats "#571/#659 AC5" runs this
+   command verbatim, so keep its shape.)
 
    From the newest `analysis/<date>-suite-count.txt`, write the `suite:` line naming
    ONLY the frameworks the artifact reports present (#466). A framework whose line reads

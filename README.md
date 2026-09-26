@@ -313,12 +313,15 @@ the hermetic environment baked in and writes the provenance artifact
 `<issue-dir>/analysis/<date>-suite-count.txt` that `preship-evidence.sh` reads:
 
 ```sh
-bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project>
+bash "$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh" <project> <Issue-N>
 ```
 
 `$CLAUDE_PLUGIN_ROOT` is set inside a Claude Code session; in a plain shell use
-the path to your clone. The runner needs `<project>` configured in devAgent with
-an active issue (the artifact lands in that issue's directory). With only a
+the path to your clone. The runner needs `<project>` configured in devAgent and
+the issue whose directory receives the artifact: pass it as `<Issue-N>`, or pin
+`DEVAGENT_ACTIVE_ISSUE` for the session (the argument wins when both are set).
+With neither it refuses with `ISSUE UNSTATED` and writes nothing, rather than take
+the issue from shared state another session can move (#659). With only a
 clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
 — see `CONTRIBUTING.md`.
 
@@ -416,7 +419,7 @@ tests skipped, or nothing collected, records a truthful `pytest: 0 passed, 0 fai
 never travels — point `DEVAGENT_PYTEST_PYTHON` at the interpreter instead:
 
 ```sh
-DEVAGENT_PYTEST_PYTHON=/path/to/python bash scripts/run-suite.sh <project>
+DEVAGENT_PYTEST_PYTHON=/path/to/python bash scripts/run-suite.sh <project> <Issue-N>
 ```
 
 That names a working interpreter; it does not silence the `(error)` verdict, so the
