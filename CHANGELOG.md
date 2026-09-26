@@ -30,15 +30,20 @@ the README's "Versioning & releases" section has the release procedure.
   argument rather than an environment variable, so there is nothing exported to
   leave set. The script checks only that the attestation is well-formed and bound
   to the artifact; that the caller really looked rests on the caller.
-  `DEVAGENT_TREE_GUARD_OVERRIDE` does not silence the failure. The PASS line now
-  ends with the tree check's verdict: `[tree=checked]`, `[tree=attested: …]` (the
-  attestation, verbatim) or `[tree=unstamped]` (an artifact with no `tree:` line,
-  which still skips the check). For any two-environment setup, in either
-  direction, the day-one path is the preship verifier: it performs the
-  producing-environment check and passes the attestation. Spec §7.5 and the
-  README's WSL section describe the flow. An `mr.md` without an `## Evidence`
-  block still warns and exits 0. `tests/suite-tree-guard.bats` replaces the old
-  warn-and-pass pin and gains twelve tests.
+  `DEVAGENT_TREE_GUARD_OVERRIDE` does not silence the failure. A missing or empty
+  value, a repeated `--attest-tree` or an unknown option is a usage error. The
+  PASS line now ends with the tree check's verdict: `[tree=checked]`,
+  `[tree=attested: …]` (the attestation, verbatim) or `[tree=unstamped]` (an
+  artifact with no `tree:` line, which still skips the check). For the sanctioned
+  flow, a WSL-produced artifact checked from Windows, the day-one path is the
+  preship verifier: it runs the two git commands in WSL and passes the
+  attestation. Any other pair of environments needs the same two commands run
+  where the artifact was produced. Spec §7.5 and the README's WSL section describe
+  the flow. Restart Claude Code sessions after updating: agent prompts load at
+  session start, so a live session keeps the old verifier instructions and
+  records FAIL on these checks. An `mr.md` without an `## Evidence` block still
+  warns and exits 0. `tests/suite-tree-guard.bats` replaces the old
+  warn-and-pass pin and gains thirteen tests.
 
 - **Fixed: preship-evidence's no-Evidence `(error)` refusal no longer depends on
   whitespace (#601).** The refusal that runs above the #149 back-compat exit matched
