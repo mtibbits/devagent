@@ -3,13 +3,20 @@
 # m2m3-preship-evidence.md, normative). core-preship's verification #4: cross-check
 # mr.md's ## Evidence block against the generated suite-count artifact + git, so a
 # hand-written wrong number (#120/#85/#284) or an mr.md stale against post-draftmr
-# fixes can't ship. The COMPARED TREE is state.worktree_path when recorded, else
-# source_dir (active_tree_resolve, #571) — the same tree run-suite measures — and
+# fixes can't ship. The COMPARED TREE is the resolved issue's worktree_path when
+# recorded, else source_dir (active_tree_resolve, #571) — the same tree run-suite
+# measures when both resolve the same issue — and
 # the artifact's tree: stamp is cross-checked against it, so the artifact and its
 # checker cannot agree with each other while both disagreeing with reality.
 # A tree: path that does not exist in THIS environment (an artifact produced
 # elsewhere, e.g. the WSL clone) is undecidable HERE, so it fails TREE UNATTESTED
 # unless the caller attests the tree for this run (#655; the vocabulary is below).
+# ISSUE PRECEDENCE (#659): the [issue] argument, else the DEVAGENT_ACTIVE_ISSUE pin
+# (the argument wins when both are set), else the SHARED per-project issue_dir slot,
+# with the tree from the shared worktree_path. run-suite.sh REFUSES at that last rung;
+# this script still reads it, because making its argument mandatory is a separate
+# decision (out of #659's scope). The slot is state another session moves: pass the
+# issue (preship-evidence.sh <project> <Issue-N>) wherever another session is active.
 # Back-compat: mr.md WITHOUT an Evidence block → single
 # WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; note
 # the tree resolution and guard above run first, so a dead recorded
@@ -156,7 +163,7 @@ ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\
 
 # Newest suite-count artifact.
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
-[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project\` at HEAD (#572: pass the project explicitly)"
+[ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project $(basename "$issue_dir")\` at HEAD (#572/#659: pass the project and the issue explicitly)"
 
 a_head="$(sed -n 's/^head:[[:space:]]*\([^ ]*\).*/\1/p' "$artifact" | head -1)"
 a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
@@ -193,9 +200,12 @@ fails=()
 #   no tree: line         -> unstamped: the #149 absent⇒no-gate pattern above (every
 #                            pre-#571 artifact).
 #   exists here and -ef   -> checked.
-#   exists here, not -ef  -> FAIL "produced from tree" (#571). A mismatch can also be
-#                            CAUSED by the pair's arity asymmetry (this script resolves
-#                            with $issue_arg; run-suite without one — see #571's plan).
+#   exists here, not -ef  -> FAIL "produced from tree" (#571). #659 retired the pair's
+#                            old arity asymmetry: run-suite now takes its issue from the
+#                            argument or the pin and refuses the shared slot. A mismatch
+#                            still follows when the two are pointed at DIFFERENT issues,
+#                            e.g. this script run bare and unpinned reads the shared
+#                            slot (header, ISSUE PRECEDENCE).
 #   absent here           -> undecidable HERE: the artifact came from another
 #                            environment (e.g. the WSL clone). Before #655 this arm
 #                            warned and passed on head: alone, so the rung never ran
