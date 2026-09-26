@@ -7,9 +7,10 @@
 # source_dir (active_tree_resolve, #571) — the same tree run-suite measures — and
 # the artifact's tree: stamp is cross-checked against it, so the artifact and its
 # checker cannot agree with each other while both disagreeing with reality.
-# Stated blind spot: a tree: path that does not exist in THIS environment (an
-# artifact produced elsewhere, e.g. the WSL clone) is undecidable → loud WARN,
-# head:-comparison fallback. Back-compat: mr.md WITHOUT an Evidence block → single
+# A tree: path that does not exist in THIS environment (an artifact produced
+# elsewhere, e.g. the WSL clone) is undecidable HERE, so it fails TREE UNATTESTED
+# unless the caller attests the tree for this run (#655; the vocabulary is below).
+# Back-compat: mr.md WITHOUT an Evidence block → single
 # WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; note
 # the tree resolution and guard above run first, so a dead recorded
 # worktree_path or a same-project-checkout invocation still refuses even for a
@@ -31,6 +32,33 @@
 # repair an artifact that already recorded `0 passed, 0 failed` for a suite that never
 # ran — those reconcile as `0 pytest` and are indistinguishable here from a real zero.
 # The fix is at the producer, for artifacts written at or after #466.
+#
+# #655 PROVENANCE-RUNG VOCABULARY. Stated once, here; the #580 unsupported-environment
+# sibling reuses these names instead of minting its own.
+#   Usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>']
+#   rung        one provenance check on the artifact. Today there is one, `tree` (the
+#               #571 stamp; its arms are listed at the rung below).
+#   verdict     the PASS line ends with ` [<rung>=<verdict>]`, one of:
+#                 checked     decided HERE;
+#                 attested    decided by the CALLER, in the environment that produced
+#                             the artifact, for this run; the attestation is echoed;
+#                 unstamped   the artifact predates the rung (no line to check).
+#   <RUNG> UNATTESTED   the failure tag (TREE UNATTESTED) for a rung this environment
+#               cannot decide and no attestation covers. rc 1, like every fails+= entry.
+#   --attest-<rung> '<attestation>'   the per-run input. For tree it is exactly
+#               'head=<full sha> dirty=no path=<the artifact's tree: path>' (also
+#               spelled --attest-tree=<...>): what `git -C <path> rev-parse HEAD` and
+#               `git -C <path> status --porcelain` printed when the caller ran them in
+#               the producing environment. It must match the artifact's head: and
+#               tree: exactly, so a pasted literal fails at the next commit. It is an
+#               ARGUMENT, never an env var, so there is no exported value to leave
+#               set (the standing shape #655 rejects). DEVAGENT_TREE_GUARD_OVERRIDE
+#               answers a different question (which checkout a run may act FROM) and
+#               does not silence a rung.
+#   Stated blind spot: an attestation is a CLAIM. This script checks that it is
+#   well-formed and bound to this artifact; it cannot check that the caller looked.
+#   One derived from the artifact itself, not from the producing tree, passes here;
+#   the verifier procedure forbids exactly that, and the PASS line records the claim.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -46,6 +74,26 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 
 : "${DEVAGENT_GIT:=git}"
+
+# #655: take the per-run attestation out of the argument list, leaving the positional
+# [project] [issue] contract unchanged. An ARGUMENT, never an env var: no exported
+# value outlives the run it describes (vocabulary in the header).
+attest_tree=""; _n_attest=0; _pos=()
+_attest_need="preship-evidence: --attest-tree needs a value: 'head=<full sha> dirty=no path=<tree>' (#655)"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --attest-tree)
+      [ $# -ge 2 ] && [ -n "$2" ] || die "$_attest_need"
+      attest_tree="$2"; _n_attest=$((_n_attest + 1)); shift 2 ;;
+    --attest-tree=*)
+      attest_tree="${1#--attest-tree=}"; _n_attest=$((_n_attest + 1)); shift
+      [ -n "$attest_tree" ] || die "$_attest_need" ;;
+    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] (#655)" ;;
+    *) _pos+=("$1"); shift ;;
+  esac
+done
+[ "$_n_attest" -le 1 ] || die "preship-evidence: --attest-tree given more than once — pass one attestation per run (#655)"
+set -- "${_pos[@]+"${_pos[@]}"}"
 
 active_resolve_project_try "${1:-}" 2>/dev/null || true
 project="$ACTIVE_RESOLVED_PROJECT"
@@ -138,22 +186,62 @@ cur_head="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse HEAD 2>/dev/null || true)"
 
 fails=()
 
-# #571 AC4: the artifact names the checkout that produced it; compare it to the
-# tree THIS check resolves, so the artifact and its checker can no longer agree
-# with each other while both disagreeing with reality. Absent line ⇒ skip (the
-# #149 absent⇒no-gate pattern above — every pre-#571 artifact). A tree: path
-# that does not EXIST in this environment is UNDECIDABLE, not a mismatch — the
-# artifact may come from another environment (the sanctioned WSL-suite flow), so
-# warn loudly and fall back to the head: checks; that shape is this checker's
-# stated blind spot. A mismatch can also be CAUSED by the pair's arity asymmetry
-# (this script resolves with $issue_arg; run-suite without one — see #571's plan).
+# #571/#655 TREE RUNG. The artifact names the checkout that produced it; compare it
+# with the tree THIS check resolves, so the artifact and its checker can no longer
+# agree with each other while both disagree with reality. Every arm, in the header's
+# vocabulary (the verdict ends the PASS line):
+#   no tree: line         -> unstamped: the #149 absent⇒no-gate pattern above (every
+#                            pre-#571 artifact).
+#   exists here and -ef   -> checked.
+#   exists here, not -ef  -> FAIL "produced from tree" (#571). A mismatch can also be
+#                            CAUSED by the pair's arity asymmetry (this script resolves
+#                            with $issue_arg; run-suite without one — see #571's plan).
+#   absent here           -> undecidable HERE: the artifact came from another
+#                            environment (e.g. the WSL clone). Before #655 this arm
+#                            warned and passed on head: alone, so the rung never ran
+#                            for any cross-environment preship. Now it FAILS
+#                            TREE UNATTESTED unless --attest-tree matches this
+#                            artifact's head: and tree: exactly, with dirty=no ->
+#                            attested, and the attestation is echoed on the PASS line.
+# The head:/dirty:/suite checks below run on EVERY arm: an attestation vouches for the
+# checkout, never for the counts.
+tree_unattested="TREE UNATTESTED"
 a_tree="$(sed -n 's/^tree:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
-if [ -n "$a_tree" ]; then
-  if [ ! -d "$a_tree" ]; then
-    warn "preship-evidence: artifact records tree '$a_tree', which does not exist in THIS environment — cannot verify which checkout produced the evidence; proceeding on the head: comparison alone. If the artifact was produced in another environment (e.g. the WSL clone), verify the tree there."
-  elif [ ! "$a_tree" -ef "$work_dir" ]; then
+tree_verdict="unstamped"; _attest_used=false
+if [ -z "$a_tree" ]; then
+  :
+elif [ -d "$a_tree" ]; then
+  if [ "$a_tree" -ef "$work_dir" ]; then
+    tree_verdict="checked"
+  else
     fails+=("artifact was produced from tree '$a_tree' but this check resolves '$work_dir' — re-run run-suite in the tree being shipped (#571)")
   fi
+elif [ -z "$attest_tree" ]; then
+  fails+=("$tree_unattested — the artifact records tree '$a_tree', which does not exist in THIS environment, so this check cannot tell which checkout produced the evidence (#571/#655). Either re-run run-suite in the tree being shipped, from an environment that can run the suite; or, when the artifact came from another environment (the sanctioned WSL flow), verify that tree THERE (git -C '<tree>' rev-parse HEAD must print the artifact's head:, and git -C '<tree>' status --porcelain must print nothing) and re-run this check adding --attest-tree 'head=<the sha it printed> dirty=no path=<that tree>'. The rung is then attested by you, not checked here, and the PASS line records your claim; an attestation binds to this artifact's head: and tree:, so every new artifact needs a new one.")
+else
+  _attest_used=true
+  _attest_re='^head=([[:xdigit:]]+) dirty=([^ ]+) path=(.+)$'
+  if [[ "$attest_tree" =~ $_attest_re ]]; then
+    _att_head="${BASH_REMATCH[1]}"; _att_dirty="${BASH_REMATCH[2]}"; _att_path="${BASH_REMATCH[3]}"
+    _n_fails="${#fails[@]}"
+    [ "$_att_path" = "$a_tree" ] \
+      || fails+=("$tree_unattested — --attest-tree names path '$_att_path' but the artifact records tree '$a_tree'; attest the tree the artifact names (#655)")
+    [ "$_att_head" = "$a_head" ] \
+      || fails+=("$tree_unattested — --attest-tree names head $_att_head but the artifact records head $a_head; attest the full SHA the producing tree prints now (#655)")
+    [ "$_att_dirty" = "no" ] \
+      || fails+=("$tree_unattested — --attest-tree reports dirty=$_att_dirty: the producing tree has uncommitted changes, so it is no longer the tree that was measured; commit or clean it there and re-run run-suite (#655)")
+    [ "${#fails[@]}" -gt "$_n_fails" ] \
+      || tree_verdict="attested: $attest_tree — verified by the caller in the producing environment, not checked here"
+  else
+    fails+=("$tree_unattested — malformed --attest-tree '$attest_tree': the one accepted form is 'head=<full sha> dirty=no path=<tree>' (#655)")
+  fi
+fi
+# An attestation the rung did not need (the checked, mismatch and unstamped arms) is
+# redundant: this environment decided, or there is no stamp to bind to. Refusing it
+# would fail an idempotent caller whose environments happen to coincide, so warn and
+# ignore it (the rule the #580 sibling's rungs copy).
+if [ -n "$attest_tree" ] && [ "$_attest_used" = false ]; then
+  warn "preship-evidence: --attest-tree ignored — the tree rung did not need it (#655)"
 fi
 [ "$a_head" = "$cur_head" ] || fails+=("artifact head ($a_head) != current HEAD ($cur_head) — re-run run-suite at HEAD")
 [ "$a_dirty" = "no" ] || fails+=("artifact records a dirty tree (dirty=$a_dirty) — commit or clean, then re-run run-suite")
@@ -233,4 +321,4 @@ if [ "${#fails[@]}" -gt 0 ]; then
   for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
   exit 1
 fi
-echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files)" >&2
+echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files) [tree=$tree_verdict]" >&2

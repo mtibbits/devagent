@@ -1071,10 +1071,21 @@ a test: either side lacking an `origin`, and origins differing beyond the
 cosmetic normalization (different transports, or a clone made from a local
 path). The suite-count artifact carries a canonical `tree:` stamp (after
 `head:`, which stays the first data line) that `preship-evidence.sh`
-cross-checks against its own resolved tree — absent line ⇒ skip (pre-#571
-artifacts); a stamped tree that does not exist in the checking environment ⇒
-loud warn + head-comparison fallback (cross-environment evidence, e.g. a
-WSL-produced artifact checked from Windows). A mid-run HEAD move in the
+cross-checks against its own resolved tree, and its PASS line ends with that
+check's verdict (#655) — absent line ⇒ skip, `[tree=unstamped]` (pre-#571
+artifacts); the stamped tree IS the resolved tree (`-ef`) ⇒
+`[tree=checked]`; a stamped tree that does not exist in the checking
+environment (cross-environment evidence, e.g. a WSL-produced artifact checked
+from Windows) ⇒ FAIL `TREE UNATTESTED`, unless the caller passes a per-run
+`--attest-tree 'head=<sha> dirty=no path=<tree>'` reporting what
+`git -C <tree> rev-parse HEAD` and `git -C <tree> status --porcelain` printed
+in the producing environment. The attestation must match the artifact's
+`head:` and `tree:` exactly and is echoed as `[tree=attested: …]`. It is an
+argument, never an environment variable, so there is no exported value to
+leave set. The script decides only that the attestation is well-formed and
+bound to this artifact; that the caller really looked rests on the caller.
+The preship verifier runs the check and attests. The opt-out below does not
+silence it. A mid-run HEAD move in the
 measured tree likewise refuses rather than stamping a SHA the suites did not
 run against. Per-call opt-out: `DEVAGENT_TREE_GUARD_OVERRIDE=1`, truth-valued
 exactly like the scope override.

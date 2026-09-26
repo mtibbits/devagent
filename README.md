@@ -352,8 +352,16 @@ On Windows that means **a WSL clone on a native Linux filesystem (ext4) — not 
 checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
-is fine for individual scripts — it is not a supported environment for the
-suite, and that is a property of the mount, not a defect to repair.
+is fine for individual scripts (a preship check there attests the WSL tree,
+below) — it is not a supported environment for the suite, and that is a
+property of the mount, not a defect to repair.
+
+A preship run from the Windows checkout cannot see the WSL tree that the
+suite-count artifact's `tree:` line names, so `preship-evidence.sh` fails
+`TREE UNATTESTED` until that tree is checked in WSL
+(`git -C <tree> rev-parse HEAD` and `git -C <tree> status --porcelain`) and
+the check re-runs with `--attest-tree 'head=<sha> dirty=no path=<tree>'`. The
+preship verifier does both itself (#655).
 
 **A UTF-8 locale.** Many `@test` names in this repo carry non-ASCII characters
 (em dash, `§`, `⇒`). bats encodes each name into a shell function name in a

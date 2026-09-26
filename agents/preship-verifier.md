@@ -79,7 +79,7 @@ verification passed; FAIL otherwise).
    (uncommitted tracked changes). Cross-check `mr.md`'s claims (commit count,
    test counts) against the preview.
 4. **Evidence cross-check.** Run the mechanized checker; a nonzero exit is a FAIL
-   recorded with its stderr:
+   recorded with its stderr (except `TREE UNATTESTED`, below):
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project>
@@ -91,15 +91,26 @@ verification passed; FAIL otherwise).
    It verifies `mr.md`'s `## Evidence` block against the newest
    `analysis/<date>-suite-count.txt` plus git (artifact head == HEAD of the tree
    the artifact was produced in — `worktree_path` else `source_dir`, with the
-   artifact's `tree:` stamp cross-checked against it (#571; a stamp naming a
-   tree that does not exist in this environment warns and falls back to the
-   head comparison), tree clean, suite green, the `suite:` line exact — and note it names only the
+   artifact's `tree:` stamp cross-checked against it (#571), tree clean, suite
+   green, the `suite:` line exact — and note it names only the
    frameworks the tree HAS, so a bats-only project's line is `<ok>/<plan> bats @ <sha>`
    and a pytest-only project's is `<n> pytest @ <sha>`, never `, 0 pytest` for an absent
    framework (#466); an artifact recording `pytest: (error)` fails outright because the
    suite was never measured —
    `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
-   block warns and passes (back-compat).
+   block warns and passes (back-compat). The PASS line ends with the tree
+   verdict: `[tree=checked|attested: ...|unstamped]`.
+
+   **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
+   clone seen from Windows). Check it where it was produced; for WSL, in the
+   Bash tool:
+   `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> rev-parse HEAD < /dev/null`
+   `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> status --porcelain < /dev/null`
+   Record both outputs. Only if HEAD is the artifact's `head:` and porcelain
+   is empty, re-run the checker adding
+   `--attest-tree 'head=<SHA printed> dirty=no path=<tree>'`; that run is the
+   verdict. Never take the SHA from the artifact; never run `run-suite.sh`.
+   Cannot run commands there: do not attest; FAIL (#655).
 
 5. **Spec-touch.** Does the committed diff ADD, RENAME, or REMOVE a config key, a
    command, a hook, or a top-level directory that the spec must name? Renames and
