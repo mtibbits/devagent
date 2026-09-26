@@ -22,7 +22,7 @@ setup() {
 teardown() { devagent_test_teardown; }
 
 @test "run-suite writes counts from grep+plan (not tail) and dirty state (#359)" {
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^bats: 2/3 notok=1$' "$art"
@@ -31,7 +31,7 @@ teardown() { devagent_test_teardown; }
 }
 
 @test "run-suite records notok>0 on a failing tree (#359 AC)" {
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q 'notok=1' "$art"
@@ -40,7 +40,7 @@ teardown() { devagent_test_teardown; }
 @test "run-suite dies loud when bats emits no plan line (#359)" {
     printf '%s\n' '#!/usr/bin/env bash' 'echo "some error, no plan"' > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"plan line"* ]]
 }
@@ -51,7 +51,7 @@ teardown() { devagent_test_teardown; }
     printf '%s\n' '#!/usr/bin/env bash' 'echo "1..5"' 'echo "ok 1 a"' 'echo "ok 2 b"' 'echo "ok 3 c"' \
         > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"truncated"* ]]
     [[ "$output" == *"3 of 5"* ]]
@@ -63,7 +63,7 @@ teardown() { devagent_test_teardown; }
     printf '%s\n' '#!/usr/bin/env bash' 'echo "1..3"' 'echo "ok 1 a"' 'echo "ok 2 b"' 'echo "not ok 3 c"' \
         > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^bats: 2/3 notok=1$' "$art"
@@ -92,7 +92,7 @@ EOF
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
     _stub_python3_pytest "285 passed, 9 skipped in 0.01s"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 285 passed, 0 failed, 0 errors$' "$art"
@@ -116,7 +116,7 @@ EOF
     # real pytest never produces, since a 0 exit always carries a summary. The tri-state
     # now keys on the exit code, so the stub has to be a shape that can actually occur.)
     _stub_python3_pytest_rc "ImportError while loading conftest: no module named pytest" 4
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: (error)$' "$art"
@@ -135,7 +135,7 @@ EOF
     # so a non-zero count in the artifact can ONLY have come from .venv/bin/python.
     # That is the venv proof: a behavioural assertion, not a provenance label.
     _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$art"
@@ -145,7 +145,7 @@ EOF
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
     _stub_python3_pytest "3 failed, 282 passed in 0.02s"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 282 passed, 3 failed, 0 errors$' "$art"
@@ -153,13 +153,13 @@ EOF
 
 @test "run-suite artifact name honors DEVAGENT_DATE_OVERRIDE (#413/#338)" {
     export DEVAGENT_DATE_OVERRIDE=2020-02-02
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [ -f "$DEVDOC_DIR/Issue-1/analysis/2020-02-02-suite-count.txt" ]
 }
 
 @test "#571 AC3: the head:/dirty: stamp survives, and the artifact records its tree" {
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     # head: is the FIRST data line and carries BOTH fields (register Issue-572)
@@ -172,14 +172,24 @@ EOF
     grep -q "^tree: $(cd "$SOURCE_DIR" && pwd -P)$" "$art"
 }
 
-@test "#571 AC5: the core-draft-mr skill's documented caller shape still works" {
-    # The EXACT argv shape skills/core-draft-mr/SKILL.md:66 carries at HEAD:
-    #     bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>
-    # (read from the file at implementation time; #572 made the project explicit.
-    # Running a VARIANT of a published command is not running it — register Issue-106.)
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run bash "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+@test "#571/#659 AC5: the core-draft-mr skill's documented command, run verbatim, lands in the issue it names" {
+    # The command is READ from the SKILL (register Issue-106: running a VARIANT of a
+    # published command is not running it), its two placeholders filled, and run
+    # under a SPACED plugin root (Issue-597: benign substitutions hide quoting
+    # defects). The SKILL carries the matching editor note (Issue-461/583).
+    local skill="$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" line cmd art
+    [ "$(grep -c 'scripts/run-suite\.sh"' "$skill")" -eq 1 ]      # one published form
+    line="$(grep 'scripts/run-suite\.sh"' "$skill")"
+    cmd="${line%%#*}"                                             # drop the trailing comment
+    cmd="$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ "$cmd" = 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>' ]
+    cmd="${cmd/<project>/$TEST_PROJECT}"; cmd="${cmd/<Issue-N>/Issue-2}"
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    ln -s "$DEVAGENT_ROOT" "$DEVAGENT_TMP/plugin root"
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_TMP/plugin root" PATH="$DEVAGENT_TMP/binstub:$PATH" run bash -c "$cmd"
     [ "$status" -eq 0 ]
-    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    _empty659 Issue-1                                              # not the shared slot's issue
+    art="$(ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt)"
     grep -qE '^head: [0-9a-f]+  dirty: (yes|no)$' "$art"
     run grep -c '^tree: ' "$art"
     [ "$output" -eq 1 ]
@@ -199,7 +209,7 @@ EOF
     # unsetting only LC_ALL/LANG does not model a locale-empty shell.
     # DEVAGENT_TMP is already exported by devagent_test_setup; the stub sees it.
     PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run env -u LC_ALL -u LC_CTYPE -u LANG "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run env -u LC_ALL -u LC_CTYPE -u LANG "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     seen="$(cat "$DEVAGENT_TMP/seen-lc-all")"
     [ "$seen" != "<unset>" ]
@@ -248,7 +258,7 @@ EOF
 DEVAGENT_SUITE_PROBE = "4242"
 EOF
     _stub_python3_record_env DEVAGENT_SUITE_PROBE
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "4242" ]
@@ -262,7 +272,7 @@ EOF
     echo 'def test_ok(): pass' > tests/test_stub.py
     git add -A && git commit -q -m "add py test"
     _stub_python3_record_env DEVAGENT_SUITE_PROBE
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "<UNSET>" ]
@@ -280,7 +290,7 @@ DEVAGENT_SUITE_PROBE = "fromconfig"
 EOF
     _stub_python3_record_env DEVAGENT_SUITE_PROBE
     DEVAGENT_SUITE_PROBE=fromshell PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "fromconfig" ]
 }
@@ -294,7 +304,7 @@ EOF
 DEVAGENT_SUITE_PROBE = "~/probe-dir"
 EOF
     _stub_python3_record_env DEVAGENT_SUITE_PROBE
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" = "$HOME/probe-dir" ]
     [ "$(cat "$DEVAGENT_TMP/seen-env.txt")" != "~/probe-dir" ]
@@ -309,7 +319,7 @@ EOF
 [project.$TEST_PROJECT.suite_env]
 DEVAGENT_SUITE_PROBE = ""
 EOF
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"is empty"* ]]
     # Died BEFORE writing an artifact.
@@ -323,7 +333,7 @@ EOF
 [project.$TEST_PROJECT.suite_env]
 "not-a-valid-name" = "x"
 EOF
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"not a valid environment-variable name"* ]]
 }
@@ -338,7 +348,7 @@ EOF
 DEVAGENT_SUITE_PROBE = "s3cr3t-value"
 EOF
     _stub_python3_pytest "5 passed in 0.01s"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^suite_env: DEVAGENT_SUITE_PROBE$' "$art"
@@ -364,7 +374,7 @@ EOF
     _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
     DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/elsewhere/python" \
         PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 7 passed, 0 failed, 0 errors$' "$art"
@@ -380,7 +390,7 @@ EOF
     git add -A && git commit -q -m "add py test and venv"
     _stub_python3_pytest "ambient python3 cannot run pytest in this tree"
     DEVAGENT_PYTEST_PYTHON="" PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q '^pytest: 51 passed, 0 failed, 0 errors$' "$art"
@@ -402,7 +412,7 @@ EOF
 }
 _seed_py() { echo 'def test_ok(): pass' > tests/test_stub.py; git add -A && git commit -q -m "add py test"; }
 _art() { ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt; }
-_run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"; }
+_run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1; }
 
 @test "run-suite: an ALL-SKIPPED suite (rc 0) records a truthful 0/0 (#466 review MAJOR-1)" {
     # The normal shape for a platform/optional-dependency skipif suite. It RAN; its
@@ -489,13 +499,13 @@ _run_rs() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-s
     _stub_python3_pytest_rc "ambient cannot run pytest" 1
     DEVAGENT_PYTEST_PYTHON="$DEVAGENT_TMP/elsewhere/python" \
         PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q "^python: $DEVAGENT_TMP/elsewhere/python$" "$(_art)"
 }
 
 @test "run-suite: python: is (none) for a tree with no pytest suite (#466 redmr)" {
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q '^python: (none)$' "$(_art)"
 }
@@ -719,4 +729,278 @@ _stub_bad_parallel() { devagent_stub parallel '' 1; }
     _run_rs; [ "$status" -eq 0 ]
     grep -q '^bats: (none)$' "$(_art)"
     grep -q '^bats_jobs: (none)$' "$(_art)"
+}
+
+# --- #659: run-suite takes its ISSUE from the argument or the pin, never shared state ---
+#
+# The fixture's SHARED slot (devagent_test_setup) names Issue-1 in BOTH active_issue
+# and issue_dir, and Issue-1 has a real directory, so "wrote into the slot's issue" is
+# observable. Issue-2/Issue-3 are OTHER issues with real directories. Every #659 pin
+# lives in THIS file, so one `bats --filter '#659'` run covers the mutation matrix
+# (Issue-659 plan, t659-mutations.py).
+_rs659()     { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$@"; }
+_st659()     { printf '%s' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"; }
+_issue659()  { mkdir -p "$DEVDOC_DIR/$1/analysis"; }
+_arts659()   { find "$DEVDOC_DIR" -name '*-suite-count.txt' | wc -l; }
+_empty659()  { [ -z "$(ls -A "$DEVDOC_DIR/$1/analysis" 2>/dev/null)" ]; }
+_tag659()    { sed -n 's/^issue_unstated="\(.*\)"$/\1/p' "$DEVAGENT_ROOT/scripts/run-suite.sh"; }
+_marker659() {   # a bats stub that leaves a marker, so "no suite ran" is observable
+    printf '%s\n' '#!/usr/bin/env bash' 'touch "$DEVAGENT_TMP/bats-ran"' \
+        'echo "1..3"' 'echo "ok 1 a"' 'echo "ok 2 b"' 'echo "not ok 3 c"' > "$DEVAGENT_TMP/binstub/bats"
+    chmod +x "$DEVAGENT_TMP/binstub/bats"
+}
+_mr659() {       # an mr.md with an Evidence block, so preship-evidence reaches its artifact read
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 2/3 bats @ 0000000"; echo "files: 1 changed"; } > "$DEVDOC_DIR/$1/mr.md"
+}
+# ONE predicate for the AC3 sweep AND its planted controls (register Issue-585). An
+# invocation is `run-suite.sh`, an optional quote or escape, whitespace, then a project
+# placeholder; it passes when the next token is an issue. The quote class is a BRACKET
+# on purpose: the `(\\?")?` spelling matched none of the quoted homes under GNU grep
+# 3.0 (Issue-659 plan, U4: a dialect false negative, register Issue-106).
+RS659_INV='run-suite\.sh[\\"]*[[:space:]]+(<project>|\$project)'
+RS659_OK='run-suite\.sh[\\"]*[[:space:]]+(<project>|\$project)[[:space:]]+(<Issue-N>|\$[A-Za-z_{(])'
+_rs659_inv()  { local rc=0; LC_ALL=C grep -rnHIE "$RS659_INV" "$@" || rc=$?; [ "$rc" -le 1 ] || return 2; }
+_rs659_bare() { LC_ALL=C grep -vE "$RS659_OK" || true; }   # stdin: invocation lines; out: the bare ones
+
+@test "#659 AC1/AC3: bare unpinned run-suite REFUSES while the shared slot names another issue; nothing runs or is written" {
+    # The two-session shape: another session's pull left the SHARED slot on Issue-1
+    # and this session named no issue. This is the BARE form itself (AC3).
+    _marker659
+    _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]                                 # no suite ran
+    [ "$(_arts659)" -eq 0 ]                                           # nothing written anywhere
+    [ "$status" -eq 1 ]
+    [ "$(_tag659)" = "ISSUE UNSTATED" ]                               # the tag, from the script
+    [[ "$output" == *"ISSUE UNSTATED"* ]]
+    [[ "$output" == *"'$DEVDOC_DIR/Issue-1'"* ]]                      # where it WOULD have written
+    [[ "$output" == *"run-suite.sh\" $TEST_PROJECT <Issue-N>"* ]]     # the corrected command
+    # Crossed with the overrides that decide NEIGHBOURING questions (register
+    # Issue-597): neither guard's opt-out silences the issue refusal.
+    DEVAGENT_SCOPE_GUARD_OVERRIDE=1 DEVAGENT_TREE_GUARD_OVERRIDE=1 _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ISSUE UNSTATED"* ]]
+}
+
+@test "#659 AC1/AC3: the #550 incident shape (active_issue empty, a STALE issue_dir) refuses too" {
+    # Issue-550/actualWork.md:74-78: WSL state carried active_issue = "" and an
+    # issue_dir still naming Issue-571; a bare run wrote Issue-550's artifact there.
+    # Also excludes a fall-back to the shared active_issue or to the checklist scan
+    # (Issue-1's checklist is incomplete, so a scan would pick it: matrix m1).
+    devagent_state_set "$(_st659)" active_issue ""
+    _marker659
+    _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ISSUE UNSTATED"* ]]
+    [[ "$output" == *"'$DEVDOC_DIR/Issue-1'"* ]]
+}
+
+@test "#659: an EMPTY shared slot (the post-cleanup state) refuses with the same tag" {
+    # Before #659 this died "issue_dir not set or missing", also rc 1, so the TAG is
+    # the assertion that can redden, not the rc (register Issue-Fork-132).
+    devagent_state_set "$(_st659)" active_issue ""
+    devagent_state_set "$(_st659)" issue_dir ""
+    _marker659
+    _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ISSUE UNSTATED"* ]]
+    [[ "$output" == *"the shared slot is empty"* ]]
+}
+
+@test "#659 AC1: the argument form writes into the ARGUMENT's issue while the shared slot names another" {
+    _issue659 Issue-2
+    _rs659 "$TEST_PROJECT" Issue-2
+    _empty659 Issue-1                                                 # the slot's issue got nothing
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt)"
+    grep -q '^bats: 2/3 notok=1$' "$art"
+    [[ "$output" == *"issue=Issue-2 from argument"* ]]                # the transcript names it
+}
+
+@test "#659 AC1: pinned-bare writes into the PIN's issue while the shared slot names another (control)" {
+    # GREEN BEFORE AND AFTER #659 by design: the pin is session-local, so pinned-bare
+    # stays legitimate (intent.md). If this reddens, the fix broke the pin.
+    _issue659 Issue-2
+    DEVAGENT_ACTIVE_ISSUE=Issue-2 _rs659 "$TEST_PROJECT"
+    _empty659 Issue-1
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt
+}
+
+@test "#659: the argument beats the pin (the resolver's order, stated in the header)" {
+    _issue659 Issue-2; _issue659 Issue-3
+    DEVAGENT_ACTIVE_ISSUE=Issue-3 _rs659 "$TEST_PROJECT" Issue-2
+    _empty659 Issue-3
+    _empty659 Issue-1
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt
+}
+
+@test "#659 AC2: the measured tree comes from the RESOLVED issue, not the shared slot's worktree_path" {
+    # The shared worktree_path belongs to Issue-1 (the shared active_issue); Issue-2
+    # records none, so its tree is source_dir. A half-fix that took the DIRECTORY from
+    # the argument but the TREE from the slot would stamp wt1 here (matrix m2).
+    _issue659 Issue-2
+    WT1="$DEVAGENT_TMP/wt1"
+    git -C "$SOURCE_DIR" worktree add -q -b wt1-branch "$WT1" HEAD
+    ( cd "$WT1" && git commit -q --allow-empty -m "wt1-only" )
+    devagent_state_set "$(_st659)" worktree_path "$WT1"
+    src_head="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _rs659 "$TEST_PROJECT" Issue-2
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt)"
+    grep -q "^head: $src_head " "$art"
+    grep -q "^tree: $(cd "$SOURCE_DIR" && pwd -P)$" "$art"
+}
+
+@test "#659 AC2: the resolved issue's OWN recorded worktree_path is the tree measured" {
+    _issue659 Issue-2
+    WT2="$DEVAGENT_TMP/wt2"
+    git -C "$SOURCE_DIR" worktree add -q -b wt2-branch "$WT2" HEAD
+    ( cd "$WT2" && git commit -q --allow-empty -m "wt2-only" )
+    wt2_head="$(git -C "$WT2" rev-parse HEAD)"
+    devagent_state_set "$(_st659)" "context.Issue-2.worktree_path" "$WT2"
+    _rs659 "$TEST_PROJECT" Issue-2
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt)"
+    grep -q "^head: $wt2_head " "$art"
+    grep -q "^tree: $(cd "$WT2" && pwd -P)$" "$art"
+}
+
+@test "#659: an invalid issue argument dies naming it, before any suite runs" {
+    _marker659
+    _rs659 "$TEST_PROJECT" 'Issue.2'
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'Issue.2' is not a valid issue id"* ]]
+}
+
+@test "#659: an issue argument with no issue directory dies naming it and writes nothing" {
+    _marker659
+    _rs659 "$TEST_PROJECT" Issue-404
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ ! -e "$DEVDOC_DIR/Issue-404" ]                                  # the refusal created nothing
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"$DEVDOC_DIR/Issue-404"* ]]
+}
+
+@test "#659: both remedies the refusal prints, executed as printed, land in the named issue" {
+    # Register Issue-594/Fork-132: run EVERY remedy the message prints (two), with the
+    # <Issue-N> placeholder filled and a SPACED plugin root (Issue-597).
+    _issue659 Issue-2; _issue659 Issue-3
+    _rs659 "$TEST_PROJECT"
+    [ "$status" -eq 1 ]
+    local arg_form pin_form
+    arg_form="$(printf '%s\n' "$output" | sed -n 's/.*Name the issue: \(bash [^<]*<Issue-N>\).*/\1/p')"
+    pin_form="$(printf '%s\n' "$output" | sed -n 's/.*(\(export DEVAGENT_ACTIVE_ISSUE=<Issue-N>\)).*/\1/p')"
+    [ -n "$arg_form" ]
+    [ -n "$pin_form" ]
+    ln -s "$DEVAGENT_ROOT" "$DEVAGENT_TMP/plugin root"
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_TMP/plugin root" PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run bash -c "${arg_form/<Issue-N>/Issue-2}"
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-2/analysis/"*-suite-count.txt
+    PATH="$DEVAGENT_TMP/binstub:$PATH" \
+        run bash -c "${pin_form/<Issue-N>/Issue-3}; exec '$DEVAGENT_ROOT/scripts/run-suite.sh' '$TEST_PROJECT'"
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-3/analysis/"*-suite-count.txt
+    _empty659 Issue-1
+}
+
+@test "#659: preship-evidence's no-artifact message prints run-suite WITH the issue, and that command runs" {
+    _mr659 Issue-1
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT"   # bare: the shared slot's issue
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no suite-count artifact"* ]]
+    local cmd
+    cmd="$(printf '%s\n' "$output" | sed -n 's/.*run `\(bash [^`]*\)` at HEAD.*/\1/p')"
+    [[ "$cmd" == *"run-suite.sh\" $TEST_PROJECT Issue-1" ]]
+    ln -s "$DEVAGENT_ROOT" "$DEVAGENT_TMP/plugin root"
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_TMP/plugin root" PATH="$DEVAGENT_TMP/binstub:$PATH" run bash -c "$cmd"
+    [ "$status" -eq 0 ]
+    ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT"
+    [[ "$output" != *"no suite-count artifact"* ]]                    # the remedy cleared it
+}
+
+@test "#659 AC3 sweep: every documented run-suite invocation passes the issue" {
+    # Subjects are DERIVED: every line under the shipped roots that invokes run-suite
+    # with a project placeholder. They are never the issue's list of seven homes
+    # (register Issue-458/461/583); the census found an eighth. CHANGELOG.md is
+    # outside the roots, because its migration line quotes the retired form on
+    # purpose. tests/ is outside too, except the one test that PRINTS a remedy to
+    # the operator. Filesystem grep, not git grep: the matrix runs on a .git-less
+    # copy (the Issue-566 tracked-set trade, stated).
+    local ctl inv bad n r
+    ctl="$DEVAGENT_TMP/ctl.md"
+    printf '%s\n' 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project>   # x' \
+                  'run-suite.sh\" $project <Issue-N>' \
+                  'bash scripts/run-suite.sh <project> <Issue-N>' > "$ctl"
+    inv="$(_rs659_inv "$ctl")"
+    [ "$(printf '%s\n' "$inv" | grep -c .)" -eq 3 ]                   # all three are subjects
+    bad="$(printf '%s\n' "$inv" | _rs659_bare)"
+    [ "$(printf '%s\n' "$bad" | grep -c .)" -eq 1 ]                   # only the bare one trips
+    [[ "$bad" == *'<project>   # x'* ]]
+    local roots=(README.md CONTRIBUTING.md .github templates skills commands agents hooks
+                 docs-site docs/specs scripts tests/locale-registration.bats)
+    for r in "${roots[@]}"; do [ -e "$DEVAGENT_ROOT/$r" ] || { echo "missing root: $r"; return 1; }; done
+    inv="$(cd "$DEVAGENT_ROOT" && _rs659_inv "${roots[@]}")" || { echo "grep failed over the roots"; return 1; }
+    bad="$(printf '%s\n' "$inv" | _rs659_bare)"
+    [ -z "$bad" ] || { echo "run-suite invoked without an issue:"; printf '%s\n' "$bad"; return 1; }
+    n="$(printf '%s\n' "$inv" | grep -c .)"
+    [ "$n" -ge 9 ] || { echo "only $n invocation lines (floor 9: the Task 1 census + the refusal)"; return 1; }
+}
+
+@test "#659 AC4: each evidence script's header states its issue precedence; the arity-asymmetry note is retired" {
+    # Prose IS the subject here, so a text pin is right. It is matched over
+    # comment-stripped, whitespace-normalised header text, so the prose may wrap
+    # anywhere (register Issue-612/465).
+    _hdr659() { awk '/^set -euo pipefail/{exit} {sub(/^#[ \t]*/, ""); print}' "$1" | tr -s '[:space:]' ' '; }   # [ \t]: mawk-safe
+    local h old
+    h="$(_hdr659 "$DEVAGENT_ROOT/scripts/run-suite.sh")"
+    [[ "$h" == *"ISSUE PRECEDENCE (#659)"* ]]
+    [[ "$h" == *"positional issue argument"* ]]
+    [[ "$h" == *"argument wins"* ]]
+    [[ "$h" == *"REFUSE with ISSUE UNSTATED"* ]]
+    h="$(_hdr659 "$DEVAGENT_ROOT/scripts/preship-evidence.sh")"
+    [[ "$h" == *"ISSUE PRECEDENCE (#659)"* ]]
+    [[ "$h" == *"argument wins"* ]]
+    [[ "$h" == *"SHARED per-project issue_dir slot"* ]]
+    # Retired: the note blaming tree mismatches on run-suite taking no issue. Planted
+    # control first: the retired line as it stood at dac0d78 (:198).
+    old='run-suite without one'
+    printf '%s\n' "#   with \$issue_arg; run-suite without one — see #571's plan)." | grep -qF "$old"
+    [ "$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/scripts/preship-evidence.sh" | grep -cF "$old")" -eq 0 ]
+}
+
+@test "#659 AC4: preship-evidence's stated precedence is its behaviour (argument, then pin, then the shared slot)" {
+    # Read through the no-artifact message, which names the resolved issue (Task 5).
+    _issue659 Issue-2; _issue659 Issue-3
+    _mr659 Issue-1; _mr659 Issue-2; _mr659 Issue-3
+    DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-3
+    [[ "$output" == *"run-suite.sh\" $TEST_PROJECT Issue-3\`"* ]]    # the argument beats the pin
+    DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT"
+    [[ "$output" == *"run-suite.sh\" $TEST_PROJECT Issue-2\`"* ]]    # the pin beats the slot
+    run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT"
+    [[ "$output" == *"run-suite.sh\" $TEST_PROJECT Issue-1\`"* ]]    # the shared slot, last
+}
+
+@test "#659: a wrong-PROJECT bare run still dies SCOPE MISMATCH first, not ISSUE UNSTATED (control)" {
+    # The issue refusal sits AFTER active_guard_scope, so the more fundamental error is
+    # named first: scope, then issue, then tree. GREEN BEFORE AND AFTER #659.
+    devagent_fixture_projB
+    _marker659
+    _rs659                                   # no project: projB from the pointer; cwd is testproj
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"SCOPE MISMATCH"* ]]
+    [[ "$output" != *"ISSUE UNSTATED"* ]]
 }

@@ -40,7 +40,7 @@ _mk_wt() {
     [ "$status" -eq 0 ]
     _mk_wt
     cd "$WT"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"TREE MISMATCH"* ]]
     [[ "$output" == *"$WT"* ]] && [[ "$output" == *"$SOURCE_DIR"* ]]
@@ -51,7 +51,7 @@ _mk_wt() {
 @test "#571 AC1: the same run from the configured tree still writes its artifact" {
     # the guard's OTHER branch — a rewrite that fixes one direction must be shown
     # not to have turned fail-closed into fail-open (#558)
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q "^head: $SRC_HEAD" "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
 }
@@ -60,7 +60,7 @@ _mk_wt() {
     _mk_wt
     cd "$WT"
     PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TREE_GUARD_OVERRIDE=1 \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     grep -q "^head: $SRC_HEAD" "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt
 }
@@ -78,7 +78,7 @@ _mk_wt() {
     [ ! "$A" -ef "$B" ]
     ( cd "$CLONE" && git -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m clone-only )
     cd "$CLONE"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"TREE MISMATCH"* ]]
     [[ "$output" == *"separate clone"* ]]
@@ -94,7 +94,7 @@ _mk_wt() {
     git -C "$SOURCE_DIR" remote add origin https://example.invalid/acme/testproj.git
     git -C "$SRC_B"     remote add origin https://example.invalid/acme/projB.git
     cd "$SRC_B"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" != *"TREE MISMATCH"* ]]
 }
@@ -105,14 +105,14 @@ _mk_wt() {
     # the blind spot is part of the contract, so it gets a test like any other clause).
     devagent_fixture_projB 1     # no origin on either side
     cd "$SRC_B"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
 
 @test "#571: cwd outside any git checkout does NOT trip the guard" {
     mkdir -p "$DEVAGENT_TMP/nowhere"
     cd "$DEVAGENT_TMP/nowhere"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
 
@@ -124,7 +124,7 @@ _mk_wt() {
         'git commit -q --allow-empty -m "concurrent move"' \
         'echo "1..1"' 'echo "ok 1 a"' > "$DEVAGENT_TMP/binstub/bats"
     chmod +x "$DEVAGENT_TMP/binstub/bats"
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"HEAD MOVED"* ]]
     [[ "$output" == *"$SRC_HEAD"* ]]        # names the SHA the stamp was taken at
@@ -140,7 +140,7 @@ _mk_wt() {
     BASE="$(git -C "$WT" rev-parse HEAD~1)"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
     ( cd "$SOURCE_DIR" && echo a > a.txt && echo b > b.txt && git add -A && git commit -q -m src )
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
     grep -q "^head: $WT_HEAD" "$art"          # measured the WORKTREE, not source_dir
@@ -309,7 +309,7 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 1 ]
     [[ "$output" == *"TREE UNATTESTED"* ]]
     DEVAGENT_DATE_OVERRIDE=2026-07-10 PATH="$DEVAGENT_TMP/binstub:$PATH" \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     _pe
     [ "$status" -eq 0 ]
@@ -318,7 +318,7 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
 }
 
 @test "#655: an --attest-tree the rung did not need is ignored with a warning" {
-    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
+    PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
     _mk_mr
