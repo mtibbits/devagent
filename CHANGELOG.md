@@ -16,6 +16,36 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed (breaking): run-suite must be told which issue it is measuring
+  (#659).** `scripts/run-suite.sh` took no issue argument (a second one was
+  silently ignored). Unless `DEVAGENT_ACTIVE_ISSUE` was pinned, it chose the issue
+  directory it writes into, and the tree it measures, from the project's SHARED
+  state slots, which another session's pull moves. An evidence run meant for one
+  issue could therefore land in another issue's `analysis/`, measured on that
+  issue's tree, with no warning; #550's remediation run did exactly that. The issue
+  now comes from the second positional argument (`run-suite.sh <project> <Issue-N>`)
+  or the session's `DEVAGENT_ACTIVE_ISSUE` pin, and the argument wins when both are
+  set. With neither, run-suite refuses with `ISSUE UNSTATED` before any suite runs
+  and writes nothing. The refusal names the directory the shared slot would have
+  chosen and prints the corrected command. The one resolved issue picks both the
+  artifact's directory and the measured tree. An invalid issue id, or one with no
+  issue directory, is refused before any suite runs. **Migration:** replace
+  `run-suite.sh <project>` with `run-suite.sh <project> <Issue-N>`; a session that
+  pins `DEVAGENT_ACTIVE_ISSUE` needs no change. This changes a documented command
+  contract, so the next release must be a MAJOR version bump (README, "Cutting a
+  release"). `.claude-plugin/plugin.json` is deliberately not bumped here: the bump
+  happens when the release is cut. Every documented caller now passes the issue:
+  the core-draft-mr skill, README, CONTRIBUTING, and the MR and PR templates. The
+  preship verifier now passes the issue to `preship-evidence.sh` too, so the ship
+  gate cannot check another issue's evidence.
+  `scripts/preship-evidence.sh` keeps its arity. Its header now states its issue
+  precedence (argument, then pin, then the shared `issue_dir` slot), and its
+  missing-artifact message prints the run-suite command with the issue. Restart
+  Claude Code sessions after updating: a live session keeps the old core-draft-mr
+  text, whose command now meets `ISSUE UNSTATED`, and the refusal prints the command
+  to run instead. `tests/run-suite.bats` gains 19 tests and rewrites "#571 AC5" to
+  run the skill's command verbatim.
+
 - **Changed: preship-evidence no longer passes an artifact whose checkout it
   cannot see (#655).** When the suite-count artifact's `tree:` names a path that
   does not exist where the check runs, `scripts/preship-evidence.sh` used to warn

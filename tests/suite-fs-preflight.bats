@@ -38,7 +38,7 @@ _stub_noop_chmod() {
     chmod +x "$DEVAGENT_TMP/binstub/chmod" "$DEVAGENT_TMP/binstub/stat"
 }
 
-_run_suite() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"; }
+_run_suite() { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1; }
 _art() { ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt; }
 _no_artifact() {
     run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt 2>/dev/null | wc -l"

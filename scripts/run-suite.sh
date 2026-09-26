@@ -37,8 +37,25 @@
 # GNU parallel required); DEVAGENT_SUITE_JOBS overrides it for one run and is
 # scrubbed from both suite children. The effective value is the artifact's
 # bats_jobs: line.
-# The MEASURED TREE is state.worktree_path when recorded, else source_dir — the
-# commit.sh/ship.sh rule, via active_tree_resolve (#571). Invoking from another
+# ISSUE PRECEDENCE (#659). Usage: run-suite.sh <project> <Issue-N>, or
+# run-suite.sh [project] in a session that pins DEVAGENT_ACTIVE_ISSUE. The project is
+# always the FIRST positional, so the issue is never passed alone (a lone Issue-N is
+# read as a project and dies "unknown project"); only both may be omitted, the project
+# then coming from DEVAGENT_ACTIVE_PROJECT or the active-project pointer and the issue
+# from the pin. The issue is:
+#   1. the positional issue argument (validated by active_resolve_issue_src);
+#   2. else the session's DEVAGENT_ACTIVE_ISSUE pin (the argument wins when both are set);
+#   3. else REFUSE with ISSUE UNSTATED, before any suite runs or anything is written;
+#      the message names the directory the shared slot would have chosen.
+# The SHARED per-project issue_dir / active_issue slots and the checklist scan are never
+# an issue source here: another session's pull, switch or cleanup moves them, and the
+# #550 remediation run wrote its artifact into Issue-571's directory through exactly
+# that slot. The ONE resolved id picks both the artifact's directory and the measured
+# tree below. preship-evidence.sh keeps the shared slot as its last rung (its header).
+# The MEASURED TREE is the resolved issue's worktree_path when recorded (its
+# [context.<issue>] table, or the top-level copy while that issue is the shared
+# active_issue: state_issue_get), else source_dir. That is the commit.sh/ship.sh
+# rule, via active_tree_resolve (#571). Invoking from another
 # checkout of the SAME project (a linked worktree, or a clone with the same
 # origin) REFUSES via active_guard_tree rather than silently measuring the
 # configured tree; a mid-run HEAD move also refuses, so the head: stamp always
@@ -73,9 +90,38 @@ project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "run-suite: project required (no arg and no active project)"
 config_is_project "$project" || die "run-suite: unknown project '$project'"
 active_guard_scope run-suite
-issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
-[ -d "$issue_dir" ] || die "run-suite: issue_dir not set or missing"
-active_tree_resolve "$project"            # setter-globals; never $( … )  (#282/#120)
+# #659 ISSUE (header "ISSUE PRECEDENCE"). Refuse here: AFTER the scope guard, so a
+# wrong-PROJECT run still dies SCOPE MISMATCH first; BEFORE the tree is resolved, any
+# suite runs, or analysis/ exists. The shared slot is read only to NAME it.
+issue_unstated="ISSUE UNSTATED"
+issue_arg="${2:-}"
+if [ -z "$issue_arg" ] && [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
+  _slot=""; _slot_rc=0
+  _slot="$(state_get "$project" issue_dir 2>/dev/null)" || _slot_rc=$?
+  [ "$_slot" = "null" ] && _slot=""
+  if [ -n "$_slot" ]; then _slot_note="it currently names '$_slot', where this run would have written"
+  elif [ "$_slot_rc" -eq 2 ]; then _slot_note="the state file is unparseable: $(state_path "$project")"
+  else _slot_note="the shared slot is empty"
+  fi
+  die "run-suite: $issue_unstated — no issue was passed and DEVAGENT_ACTIVE_ISSUE is not set, so the only source left is the SHARED per-project issue_dir slot ($_slot_note), which another session's pull, switch or cleanup moves (#659; the #550 remediation run wrote into Issue-571's directory this way). Nothing was run or written. Name the issue: bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project <Issue-N> — or pin it for this session (export DEVAGENT_ACTIVE_ISSUE=<Issue-N>) and re-run."
+fi
+# Resolve ONCE, in THIS shell (setter-globals; never $( … ), #282/#120): an invalid id
+# dies with the resolver's own message, which the old `issue_context_dir … 2>/dev/null`
+# swallowed (register Issue-316). The argument beats the pin (the resolver's order).
+active_resolve_issue_src "$project" "$issue_arg"
+issue="$ACTIVE_RESOLVED_ISSUE"
+# Exhaustive on purpose: state/scan are unreachable after the refusal above, and a
+# silent `*)` would mislabel them as the pin if that refusal ever moved (#659 quality).
+case "$ACTIVE_ISSUE_RESOLVED_FROM" in
+  arg) issue_src="argument" ;;
+  env) issue_src="DEVAGENT_ACTIVE_ISSUE" ;;
+  *)   die "run-suite: internal error — issue $issue resolved from '$ACTIVE_ISSUE_RESOLVED_FROM', which the #659 refusal should have made unreachable" ;;
+esac
+issue_dir="$(issue_context_dir "$project" "$issue")" \
+  || die "run-suite: could not derive the issue directory for $issue (from $issue_src) — is devdoc_dir configured for '$project'?"
+[ -d "$issue_dir" ] \
+  || die "run-suite: no issue directory for $issue (from $issue_src): $issue_dir — pull the issue first, or check the id (#659). Nothing was run or written."
+active_tree_resolve "$project" "$issue"   # #659 AC2: the SAME id; setter-globals, never $( … ) (#282/#120)
 active_guard_tree run-suite               # #571: strictly AFTER active_guard_scope
 work_dir="$ACTIVE_TREE_DIR"
 
@@ -360,4 +406,4 @@ fi
   # #600: appended after bats_jobs:, under the same prefix-not-position rule.
   echo "$file_modes_line"
 } > "$artifact"
-echo "run-suite: wrote $artifact ($bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2
+echo "run-suite: wrote $artifact (issue=$issue from $issue_src; $bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

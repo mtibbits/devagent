@@ -1090,6 +1090,15 @@ measured tree likewise refuses rather than stamping a SHA the suites did not
 run against. Per-call opt-out: `DEVAGENT_TREE_GUARD_OVERRIDE=1`, truth-valued
 exactly like the scope override.
 
+Since #659 `run-suite.sh` takes its ISSUE only from its second positional
+argument or the per-session `DEVAGENT_ACTIVE_ISSUE` pin (the argument wins when
+both are set). With neither it refuses with the literal `ISSUE UNSTATED` tag
+before any suite runs and before anything is written. It never falls back to the
+shared `issue_dir`/`active_issue` slots or the checklist scan, which another
+session moves. The one resolved id selects both the artifact's directory and the
+measured tree. `preship-evidence.sh` keeps argument → pin → the shared
+`issue_dir` slot.
+
 Since #603 the optional `[project.<name>.suite_env]` table is exported into
 both suite child processes. It exists for a suite whose environment is not
 derivable from the tree — lawFirm keeps its data layer outside git by design,

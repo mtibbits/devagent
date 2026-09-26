@@ -152,8 +152,8 @@ _from_a() {
   _from_a override "'$REPO/scripts/rederive.sh'"
   [ "$status" -eq 0 ]
   run bash -c "ls '$ISSUE_B/analysis/'*-rederive.txt"; [ "$status" -eq 0 ]
-  # 7. run-suite — writes B's suite-count artifact (no frameworks in B)
-  _from_a override "'$REPO/scripts/run-suite.sh'"
+  # 7. run-suite — pinned to Issue-9 (#659: an unpinned bare issue refuses); the PROJECT stays bare, which is what this leg exercises
+  DEVAGENT_ACTIVE_ISSUE=Issue-9 _from_a override "'$REPO/scripts/run-suite.sh'"
   [ "$status" -eq 0 ]
   run bash -c "ls '$ISSUE_B/analysis/'*-suite-count.txt"; [ "$status" -eq 0 ]
   # 8. preship-evidence — PASS about B's mr.md (consumes step 7's artifact)
@@ -205,7 +205,12 @@ _from_a() {
     "'$REPO/scripts/wbs-init.sh'" \
     "'$REPO/scripts/wbs-update.sh'" \
   ; do
-    _from_a guarded "$cmd"
+    # #659: pin run-suite's ISSUE so only the SCOPE guard can stop it. Unpinned, the
+    # issue refusal alone would keep B unchanged even with no scope guard (leg 3 vacuous).
+    case "$cmd" in
+      *run-suite.sh*) DEVAGENT_ACTIVE_ISSUE=Issue-9 _from_a guarded "$cmd" ;;
+      *)              _from_a guarded "$cmd" ;;
+    esac
     [ "$status" -ne 0 ]
     [[ "$output" == *"SCOPE MISMATCH"* ]]
     [[ "$output" == *"projB"*    ]]
@@ -248,7 +253,12 @@ _from_a() {
     "'$REPO/scripts/preship-evidence.sh'" \
     "'$REPO/scripts/transition-draft-start.sh'" \
   ; do
-    _from_a guarded "$cmd"
+    # #659: pin run-suite's ISSUE so only the SCOPE guard can stop it. Unpinned, the
+    # issue refusal alone would keep B unchanged even with no scope guard (leg 3 vacuous).
+    case "$cmd" in
+      *run-suite.sh*) DEVAGENT_ACTIVE_ISSUE=Issue-9 _from_a guarded "$cmd" ;;
+      *)              _from_a guarded "$cmd" ;;
+    esac
     [ "$status" -ne 0 ]
   done
   after="$(_snap)"
