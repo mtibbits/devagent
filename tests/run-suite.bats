@@ -813,6 +813,19 @@ _rs659_bare() { LC_ALL=C grep -vE "$RS659_OK" || true; }   # stdin: invocation l
     [[ "$output" == *"the shared slot is empty"* ]]
 }
 
+@test "#659: an UNPARSEABLE state file is named in the refusal, and nothing runs" {
+    # state_get returns 2 for an unparseable file, and the refusal's read suppresses
+    # state_get's own "needs repair" line, so the refusal itself names the file.
+    printf '%s\n' 'this = = is not toml [' >> "$(_st659)"
+    _marker659
+    _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ISSUE UNSTATED"* ]]
+    [[ "$output" == *"the state file is unparseable: $(_st659)"* ]]
+}
+
 @test "#659 AC1: the argument form writes into the ARGUMENT's issue while the shared slot names another" {
     _issue659 Issue-2
     _rs659 "$TEST_PROJECT" Issue-2
