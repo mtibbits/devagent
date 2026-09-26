@@ -82,11 +82,11 @@ verification passed; FAIL otherwise).
    recorded with its stderr (except `TREE UNATTESTED`, below):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N>
    ```
 
-   (`<project>` is the project name your dispatch prompt carries — pass it
-   explicitly; #572 guards the bare form against wrong-scope resolution.)
+   (`<project>` is the project your dispatch prompt carries; `<Issue-N>` is its
+   issue dir's basename. Pass both: bare, it reads the shared slot (#572/#659).)
 
    It verifies `mr.md`'s `## Evidence` block against the newest
    `analysis/<date>-suite-count.txt` plus git (artifact head == HEAD of the tree

@@ -35,13 +35,15 @@ the README's "Versioning & releases" section has the release procedure.
   contract, so the next release must be a MAJOR version bump (README, "Cutting a
   release"). `.claude-plugin/plugin.json` is deliberately not bumped here: the bump
   happens when the release is cut. Every documented caller now passes the issue:
-  the core-draft-mr skill, README, CONTRIBUTING, and the MR and PR templates.
+  the core-draft-mr skill, README, CONTRIBUTING, and the MR and PR templates. The
+  preship verifier now passes the issue to `preship-evidence.sh` too, so the ship
+  gate cannot check another issue's evidence.
   `scripts/preship-evidence.sh` keeps its arity. Its header now states its issue
   precedence (argument, then pin, then the shared `issue_dir` slot), and its
   missing-artifact message prints the run-suite command with the issue. Restart
   Claude Code sessions after updating: a live session keeps the old core-draft-mr
   text, whose command now meets `ISSUE UNSTATED`, and the refusal prints the command
-  to run instead. `tests/run-suite.bats` gains 17 tests and rewrites "#571 AC5" to
+  to run instead. `tests/run-suite.bats` gains 19 tests and rewrites "#571 AC5" to
   run the skill's command verbatim.
 
 - **Changed: preship-evidence no longer passes an artifact whose checkout it
