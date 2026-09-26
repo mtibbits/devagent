@@ -16,6 +16,30 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: preship-evidence no longer passes an artifact whose checkout it
+  cannot see (#655).** When the suite-count artifact's `tree:` names a path that
+  does not exist where the check runs, `scripts/preship-evidence.sh` used to warn
+  and pass on the `head:` comparison alone, so its tree check never ran there.
+  That is the normal shape of the sanctioned two-environment flow: an artifact
+  produced in a WSL clone and checked from Windows. It now fails with
+  `TREE UNATTESTED` unless the caller passes a per-run
+  `--attest-tree 'head=<sha> dirty=no path=<tree>'` stating what
+  `git -C <tree> rev-parse HEAD` and `git -C <tree> status --porcelain` printed
+  in the producing environment. The attestation must match the artifact's `head:`
+  and `tree:` exactly, so a pasted value fails at the next commit. It is an
+  argument rather than an environment variable, so there is nothing exported to
+  leave set. The script checks only that the attestation is well-formed and bound
+  to the artifact; that the caller really looked rests on the caller.
+  `DEVAGENT_TREE_GUARD_OVERRIDE` does not silence the failure. The PASS line now
+  ends with the tree check's verdict: `[tree=checked]`, `[tree=attested: …]` (the
+  attestation, verbatim) or `[tree=unstamped]` (an artifact with no `tree:` line,
+  which still skips the check). For any two-environment setup, in either
+  direction, the day-one path is the preship verifier: it performs the
+  producing-environment check and passes the attestation. Spec §7.5 and the
+  README's WSL section describe the flow. An `mr.md` without an `## Evidence`
+  block still warns and exits 0. `tests/suite-tree-guard.bats` replaces the old
+  warn-and-pass pin and gains twelve tests.
+
 - **Fixed: preship-evidence's no-Evidence `(error)` refusal no longer depends on
   whitespace (#601).** The refusal that runs above the #149 back-compat exit matched
   `pytest: (error)` exactly. An artifact that padded the line (`pytest:   (error)`)
