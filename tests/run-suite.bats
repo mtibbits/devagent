@@ -895,6 +895,27 @@ _rs659_bare() { LC_ALL=C grep -vE "$RS659_OK" || true; }   # stdin: invocation l
     [[ "$output" == *"'Issue.2' is not a valid issue id"* ]]
 }
 
+@test "#659: an invalid issue PIN dies naming it, before any suite runs" {
+    # The pin form of the test above (redmr MINOR): the refusal only checks that a pin
+    # is SET, so a malformed one must still die in the resolver, in this shell, before
+    # any suite runs. At dac0d78 the resolver's message was swallowed by 2>/dev/null.
+    _marker659
+    DEVAGENT_ACTIVE_ISSUE='Issue.2' _rs659 "$TEST_PROJECT"
+    [ ! -e "$DEVAGENT_TMP/bats-ran" ]
+    [ "$(_arts659)" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"DEVAGENT_ACTIVE_ISSUE 'Issue.2' is not a valid issue id"* ]]
+}
+
+@test "#659: the preship verifier passes the issue to preship-evidence" {
+    # The evidence READER's only documented caller (redmr MAJOR). Bare, preship-evidence
+    # resolves the SHARED slot, so the verifier could PASS another issue's evidence.
+    local f="$DEVAGENT_ROOT/agents/preship-verifier.md"
+    [ "$(grep -c 'scripts/preship-evidence\.sh"' "$f")" -ge 1 ]          # the subject exists
+    [ "$(printf '%s\n' 'x/scripts/preship-evidence.sh" <project>' | grep -vc '<project> <Issue-N>')" -eq 1 ]   # control: bare trips
+    [ "$(grep 'scripts/preship-evidence\.sh"' "$f" | grep -vc '<project> <Issue-N>')" -eq 0 ]
+}
+
 @test "#659: an issue argument with no issue directory dies naming it and writes nothing" {
     _marker659
     _rs659 "$TEST_PROJECT" Issue-404
