@@ -269,6 +269,23 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
         --attest-tree "head=$SRC_HEAD dirty=no path=$FOREIGN_TREE"
     [ "$status" -eq 1 ]
     [[ "$output" == *"given more than once"* ]]
+    # An EMPTY value is no value, in either spelling: a caller whose "$ATT" expanded
+    # empty is told its input was empty, not sent back to attest (redmr MINOR).
+    _pe --attest-tree ""
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-tree needs a value"* ]]
+    _pe --attest-tree=
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-tree needs a value"* ]]
+}
+
+@test "#655: an unknown --option is a usage error, not a scope error" {
+    # A mistyped flag used to fall through into the [project] [issue] positionals and
+    # die on scope or state, or be ignored (redmr MINOR); now it names itself.
+    _foreign_fixture
+    _pe --attest_tree "head=$SRC_HEAD dirty=no path=$FOREIGN_TREE"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown option '--attest_tree'"* ]]
 }
 
 @test "#655: a matching attestation does not rescue a stale artifact head" {
