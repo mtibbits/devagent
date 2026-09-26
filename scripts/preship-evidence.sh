@@ -211,7 +211,6 @@ elif [ -d "$a_tree" ]; then
   if [ "$a_tree" -ef "$work_dir" ]; then
     tree_verdict="checked"
   else
-    tree_verdict="mismatch"
     fails+=("artifact was produced from tree '$a_tree' but this check resolves '$work_dir' — re-run run-suite in the tree being shipped (#571)")
   fi
 elif [ -z "$attest_tree" ]; then

@@ -173,14 +173,18 @@ _mk_wt() {
 # execution"). $1 = the head to stamp (default SRC_HEAD). mr.md's suite line always
 # matches the artifact, so each test fails only on the rung it is about.
 FOREIGN_TREE="/nonexistent/other-env/devagent"
+# mr.md whose Evidence block matches a 1/1 bats artifact at $1 (default SRC_HEAD).
+_mk_mr() {
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 1/1 bats @ ${1:-$SRC_HEAD}"; echo "files: 1 changed"; } \
+      > "$DEVDOC_DIR/Issue-1/mr.md"
+}
 _foreign_fixture() {
     local h="${1:-$SRC_HEAD}"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
     printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
         "$h" "$FOREIGN_TREE" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
-    { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats @ $h"; echo "files: 1 changed"; } \
-      > "$DEVDOC_DIR/Issue-1/mr.md"
+    _mk_mr "$h"
 }
 # preship-evidence on the fixture issue; extra args (an attestation) pass through.
 _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1 "$@"; }
@@ -300,8 +304,7 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
-    { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats @ $SRC_HEAD"; echo "files: 1 changed"; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _mk_mr
     _pe --attest-tree "head=$SRC_HEAD dirty=no path=/nonexistent/unused"
     [ "$status" -eq 0 ]
     [[ "$output" == *"--attest-tree ignored"* ]]
@@ -315,8 +318,7 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
     printf 'head: %s  dirty: no\nbats: 1/1 notok=0\npytest: (none)\n' "$SRC_HEAD" \
         > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
-    { echo '## Summary'; echo x; echo '## Evidence'
-      echo "suite: 1/1 bats @ $SRC_HEAD"; echo "files: 1 changed"; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _mk_mr
     _pe
     [ "$status" -eq 0 ]
     [[ "$output" == *"[tree=unstamped]"* ]]
