@@ -79,13 +79,16 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # [project] [issue] contract unchanged. An ARGUMENT, never an env var: no exported
 # value outlives the run it describes (vocabulary in the header).
 attest_tree=""; _n_attest=0; _pos=()
+_attest_need="preship-evidence: --attest-tree needs a value: 'head=<full sha> dirty=no path=<tree>' (#655)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --attest-tree)
-      [ $# -ge 2 ] || die "preship-evidence: --attest-tree needs a value: 'head=<full sha> dirty=no path=<tree>' (#655)"
+      [ $# -ge 2 ] && [ -n "$2" ] || die "$_attest_need"
       attest_tree="$2"; _n_attest=$((_n_attest + 1)); shift 2 ;;
     --attest-tree=*)
-      attest_tree="${1#--attest-tree=}"; _n_attest=$((_n_attest + 1)); shift ;;
+      attest_tree="${1#--attest-tree=}"; _n_attest=$((_n_attest + 1)); shift
+      [ -n "$attest_tree" ] || die "$_attest_need" ;;
+    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] (#655)" ;;
     *) _pos+=("$1"); shift ;;
   esac
 done
@@ -233,10 +236,10 @@ else
     fails+=("$tree_unattested — malformed --attest-tree '$attest_tree': the one accepted form is 'head=<full sha> dirty=no path=<tree>' (#655)")
   fi
 fi
-# An attestation the rung did not need (checked, mismatch, unstamped) is redundant:
-# this environment decided, or there is no stamp to bind to. Refusing it would fail
-# an idempotent caller whose environments happen to coincide, so warn and ignore it
-# (the rule the #580 sibling's rungs copy).
+# An attestation the rung did not need (the checked, mismatch and unstamped arms) is
+# redundant: this environment decided, or there is no stamp to bind to. Refusing it
+# would fail an idempotent caller whose environments happen to coincide, so warn and
+# ignore it (the rule the #580 sibling's rungs copy).
 if [ -n "$attest_tree" ] && [ "$_attest_used" = false ]; then
   warn "preship-evidence: --attest-tree ignored — the tree rung did not need it (#655)"
 fi
