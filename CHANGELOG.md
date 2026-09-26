@@ -41,7 +41,7 @@ the README's "Versioning & releases" section has the release procedure.
   missing-artifact message prints the run-suite command with the issue. Restart
   Claude Code sessions after updating: a live session keeps the old core-draft-mr
   text, whose command now meets `ISSUE UNSTATED`, and the refusal prints the command
-  to run instead. `tests/run-suite.bats` gains <N> tests and rewrites "#571 AC5" to
+  to run instead. `tests/run-suite.bats` gains 16 tests and rewrites "#571 AC5" to
   run the skill's command verbatim.
 
 - **Changed: preship-evidence no longer passes an artifact whose checkout it
