@@ -100,7 +100,7 @@ if [ -z "$issue_arg" ] && [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
   _slot="$(state_get "$project" issue_dir 2>/dev/null)" || _slot_rc=$?
   [ "$_slot" = "null" ] && _slot=""
   if [ -n "$_slot" ]; then _slot_note="it currently names '$_slot', where this run would have written"
-  elif [ "$_slot_rc" -eq 2 ]; then _slot_note="the state file is unreadable"
+  elif [ "$_slot_rc" -eq 2 ]; then _slot_note="the state file is unparseable: $(state_path "$project")"
   else _slot_note="the shared slot is empty"
   fi
   die "run-suite: $issue_unstated — no issue was passed and DEVAGENT_ACTIVE_ISSUE is not set, so the only source left is the SHARED per-project issue_dir slot ($_slot_note), which another session's pull, switch or cleanup moves (#659; the #550 remediation run wrote into Issue-571's directory this way). Nothing was run or written. Name the issue: bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project <Issue-N> — or pin it for this session (export DEVAGENT_ACTIVE_ISSUE=<Issue-N>) and re-run."
@@ -110,7 +110,13 @@ fi
 # swallowed (register Issue-316). The argument beats the pin (the resolver's order).
 active_resolve_issue_src "$project" "$issue_arg"
 issue="$ACTIVE_RESOLVED_ISSUE"
-case "$ACTIVE_ISSUE_RESOLVED_FROM" in arg) issue_src="argument" ;; *) issue_src="DEVAGENT_ACTIVE_ISSUE" ;; esac
+# Exhaustive on purpose: state/scan are unreachable after the refusal above, and a
+# silent `*)` would mislabel them as the pin if that refusal ever moved (#659 quality).
+case "$ACTIVE_ISSUE_RESOLVED_FROM" in
+  arg) issue_src="argument" ;;
+  env) issue_src="DEVAGENT_ACTIVE_ISSUE" ;;
+  *)   die "run-suite: internal error — issue $issue resolved from '$ACTIVE_ISSUE_RESOLVED_FROM', which the #659 refusal should have made unreachable" ;;
+esac
 issue_dir="$(issue_context_dir "$project" "$issue")" \
   || die "run-suite: could not derive the issue directory for $issue (from $issue_src) — is devdoc_dir configured for '$project'?"
 [ -d "$issue_dir" ] \

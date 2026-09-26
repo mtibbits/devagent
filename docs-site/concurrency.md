@@ -57,7 +57,8 @@ refuses with `TREE MISMATCH` **even when the project was passed explicitly**
 `worktree_path`, or use the per-call `DEVAGENT_TREE_GUARD_OVERRIDE=1`.
 Since [#659](https://github.com/mtibbits/devagent/issues/659) `run-suite.sh` must
 also be told which ISSUE it measures: pass it
-(`run-suite.sh <project> <Issue-N>`) or pin `DEVAGENT_ACTIVE_ISSUE`. Unpinned
+(`run-suite.sh <project> <Issue-N>`) or pin `DEVAGENT_ACTIVE_ISSUE`; the
+argument wins when both are set. Unpinned
 and bare, it refuses with `ISSUE UNSTATED` instead of writing into whichever
 issue the shared state names.
 
