@@ -15,7 +15,7 @@
 #                 conftest.py) | (none)   (#600: which #565 branch ran; (none) = no suite)
 #     branch: <HEAD's branch>   (#660: run-suite refuses a detached HEAD, so never empty)
 #     upstream: <origin's tip of that branch, full sha> | (no-origin) | (unreachable) | (unpushed)
-#               (#660: after the bounded FRESHNESS fetch below; (no-origin) is the
+#               (#660: what origin answered in the FRESHNESS block below; (no-origin) is the
 #               single-tree case, the other two are degradations preship-evidence names)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
@@ -66,20 +66,21 @@
 # names the tree the suites actually ran against.
 # FRESHNESS (#660). The measured tree must be ON a branch and must contain its origin's
 # tip of that branch. A detached HEAD refuses DETACHED HEAD (naming the SHA). A HEAD
-# that does not contain origin/<branch> after a fetch bounded by DEVAGENT_FETCH_TIMEOUT
-# seconds (default 30) refuses BEHIND ORIGIN (naming both SHAs and the branch; a
-# diverged tree is behind). This applies in EVERY measured tree: the blessed WSL clone is
+# that does not contain origin's tip of <branch>, asked under a bound of
+# DEVAGENT_FETCH_TIMEOUT seconds (default 30), refuses BEHIND ORIGIN (naming both SHAs
+# and the branch; a diverged tree too). This applies in EVERY measured tree: the blessed WSL clone is
 # its own config's source_dir, so a source_dir exemption would exempt the #570 incident
 # this exists for. The comparison is recorded, never skipped: upstream: (no-origin)
 # for a tree with no origin (the single-tree case, not a degradation), (unreachable)
-# for a fetch that failed or timed out, (unpushed) when origin has no such branch.
+# when origin did not answer (failed or timed out), (unpushed) when it has no such branch.
 # preship-evidence.sh checks branch: against the issue's recorded branch. Order:
 # ISSUE UNSTATED, TREE MISMATCH, the config and filesystem refusals (all local),
 # then this one, the step that talks to the network, so the issue, tree, config and
 # filesystem refusals never wait on a fetch. Every one fires before any suite runs or
-# any artifact is written. The fetch itself writes exactly ONE ref, this tree's
-# refs/remotes/origin/<branch>: no prune and no FETCH_HEAD (upstream_fetch's header),
-# the one write run-suite makes outside analysis/. A diverged tree (each side has
+# any artifact is written. Origin is asked with one bounded ls-remote; only when HEAD
+# lacks its tip is the one branch fetched into refs/remotes/origin/<branch> (no prune,
+# no FETCH_HEAD; upstream_branch_tip's header), the one write run-suite makes outside
+# analysis/, and a fresh tree gets none at all. A diverged tree (each side has
 # commits the other lacks) refuses under the same tag, but its remedy INTEGRATES
 # origin's commits: a fast-forward cannot apply, a push is rejected, and dropping this
 # tree's commits is never the printed advice (whole-branch review, 2026-09-27).
@@ -178,6 +179,10 @@ fi
 fetch_timeout="${DEVAGENT_FETCH_TIMEOUT:-30}"
 [[ "$fetch_timeout" =~ ^[1-9][0-9]*$ ]] \
   || die "run-suite: DEVAGENT_FETCH_TIMEOUT must be a positive integer (seconds), got '$fetch_timeout' — it bounds the fetch that decides whether the measured tree is behind origin (#660). Unset it for the default, 30."
+# The one-run control variables no suite child may inherit (#240 session pins, #593 jobs,
+# #660 fetch bound): ONE list for both children, so a new knob cannot be scrubbed from one
+# child and forgotten in the other (quality, 2026-09-27).
+_child_unset=(-u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS -u DEVAGENT_FETCH_TIMEOUT)
 
 cd "$work_dir"
 
@@ -235,7 +240,7 @@ head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
 # compared is the SHA it vouches for. upstream_branch_tip is setter-global: never $( … ).
 head_detached="DETACHED HEAD"
 behind_origin="BEHIND ORIGIN"
-_head_ref=""; _ref_rc=0
+_ref_rc=0
 _head_ref="$("$DEVAGENT_GIT" symbolic-ref --quiet HEAD 2>/dev/null)" || _ref_rc=$?
 # The full ref, stripped by hand: `symbolic-ref --short` prints heads/<b> when a tag
 # shares the branch's name (measured, Issue-660 draft).
@@ -244,10 +249,8 @@ case "$_ref_rc:$_head_ref" in
   1:*) die "run-suite: $head_detached — $work_dir is not on a branch (HEAD is detached at $head), so its artifact could not say which branch it measured, and a detached SHA is exactly what a stale clone presents (#660; the #570 incident). Nothing was run or written. Check out the branch being shipped and re-run: git -C '$work_dir' checkout <branch> — fetch origin first if the branch is new to this tree; run-suite then fetches origin itself and refuses again, naming both SHAs, if the branch is behind it." ;;
   *)   die "run-suite: could not read which branch HEAD is on in $work_dir (git symbolic-ref exited $_ref_rc) — refusing rather than record a branch it cannot name (#660). Nothing was run or written." ;;
 esac
-_tip_rc=0
-upstream_branch_tip "$work_dir" "$head_branch" "$fetch_timeout" || _tip_rc=$?
-[ "$_tip_rc" -eq 0 ] \
-  || die "run-suite: $work_dir has an origin, but timeout(1) is not on PATH, so the fetch that decides whether this tree is behind origin/$head_branch cannot be bounded, and an unbounded fetch can hang an unattended chain (#660). Nothing was run or written. Put coreutils' timeout on PATH (Linux, WSL and Git Bash ship it)."
+upstream_branch_tip "$work_dir" "$head_branch" "$fetch_timeout" \
+  || die "run-suite: $work_dir has an origin, but timeout(1) is not on PATH, so the call that decides whether this tree is behind origin/$head_branch cannot be bounded, and an unbounded one can hang an unattended chain (#660). Nothing was run or written. Put coreutils' timeout on PATH (Linux, WSL and Git Bash ship it)."
 case "$UPSTREAM_TIP" in
   "(no-origin)") : ;;
   "(unreachable)"|"(unpushed)")
@@ -260,13 +263,11 @@ case "$UPSTREAM_TIP" in
       1)
         # Behind only, or diverged? The remedies differ, and a wrong one either cannot
         # apply (a fast-forward of a diverged tree) or discards work.
-        _div_rc=0
-        "$DEVAGENT_GIT" merge-base --is-ancestor "$head" "$UPSTREAM_TIP" 2>/dev/null || _div_rc=$?
-        if [ "$_div_rc" -eq 0 ]; then
-          die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, but origin's '$head_branch' is at $UPSTREAM_TIP, which that HEAD does not contain (fetched just now), so an artifact written here would vouch for an older tree than the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written (the fetch just refreshed this tree's origin/$head_branch). Bring the tree up to date and re-run: git -C '$work_dir' merge --ff-only origin/$head_branch"
+        if is_fast_forward "$work_dir" "$head" "$UPSTREAM_TIP"; then
+          die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, but origin's '$head_branch' is at $UPSTREAM_TIP (asked just now), which that HEAD does not contain, so an artifact written here would vouch for an older tree than the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written. Bring the tree up to date and re-run: git -C '$work_dir' merge --ff-only origin/$head_branch${UPSTREAM_TIP_WHY:+ (fetch origin first: $UPSTREAM_TIP_WHY)}"
         fi
-        die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, and origin's '$head_branch' is at $UPSTREAM_TIP: the two have DIVERGED (each has commits the other lacks; fetched just now), so an artifact written here would not vouch for the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written (the fetch just refreshed this tree's origin/$head_branch). Integrate origin's commits, keeping this tree's own, and re-run: git -C '$work_dir' merge --no-edit origin/$head_branch (or rebase onto it), then push. If this tree's history was rewritten on purpose (a rebase of an already-pushed branch), push it with git -C '$work_dir' push --force-with-lease origin $head_branch instead. Never discard this tree's commits to make this check pass." ;;
-      *) die "run-suite: could not compare HEAD $head with origin/$head_branch at $UPSTREAM_TIP (git merge-base --is-ancestor exited $_anc_rc) — refusing rather than guess whether this tree is behind (#660). No suite ran and no artifact was written." ;;
+        die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, and origin's '$head_branch' is at $UPSTREAM_TIP (asked just now): the two have DIVERGED (each has commits the other lacks), so an artifact written here would not vouch for the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written. Integrate origin's commits, keeping this tree's own, and re-run: git -C '$work_dir' merge --no-edit origin/$head_branch (or rebase onto it), then push. If this tree's history was rewritten on purpose (a rebase of an already-pushed branch), push it with git -C '$work_dir' push --force-with-lease origin $head_branch instead. Never discard this tree's commits to make this check pass." ;;
+      *) die "run-suite: could not compare HEAD $head with origin/$head_branch at $UPSTREAM_TIP (git merge-base --is-ancestor exited $_anc_rc) — refusing rather than guess whether this tree is behind (#660)${UPSTREAM_TIP_WHY:+; $UPSTREAM_TIP_WHY}. No suite ran and no artifact was written." ;;
     esac ;;
 esac
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
@@ -327,7 +328,7 @@ if $has_bats; then
   # Not absolute, for either set: SUITE_ENV_ASSIGNMENTS is spliced AFTER these flags,
   # and `env -u X X=8` still exports X=8 — so a project that declares one of these
   # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
-  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS -u DEVAGENT_FETCH_TIMEOUT \
+  tap="$(env "${_child_unset[@]}" \
            -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
            -u BATS_PARALLEL_BINARY_NAME \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
@@ -393,7 +394,7 @@ if $has_pytest; then
   # Both faults are the same mistake: reading prose where an authoritative signal
   # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
   pout=""; prc=0
-  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS -u DEVAGENT_FETCH_TIMEOUT \
+  pout="$(env "${_child_unset[@]}" \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at

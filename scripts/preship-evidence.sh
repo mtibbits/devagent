@@ -106,34 +106,29 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # #655/#660: take the per-run attestations out of the argument list, leaving the
 # positional [project] [issue] contract unchanged. ARGUMENTS, never env vars: no exported
 # value outlives the run it describes (vocabulary in the header).
-attest_tree=""; attest_upstream=""; _n_attest_tree=0; _n_attest_upstream=0; _pos=()
-_attest_need() {   # <flag>: the one usage error for a missing or empty value, per rung
+attest_tree=""; attest_upstream=""; _rep_flag=""; _rep_ref=""; _pos=()
+_attest_take() {   # <flag> <value>: the ONE table of per-rung attestation flags
+  local var form ref
   case "$1" in
-    --attest-tree)     die "preship-evidence: --attest-tree needs a value: 'head=<full sha> dirty=no path=<tree>' (#655)" ;;
-    --attest-upstream) die "preship-evidence: --attest-upstream needs a value: 'head=<full sha> upstream=<full sha>|(unpushed)' (#660)" ;;
+    --attest-tree)     var=attest_tree     form="'head=<full sha> dirty=no path=<tree>'"                  ref="#655" ;;
+    --attest-upstream) var=attest_upstream form="'head=<full sha> upstream=<full sha>|(unpushed)'" ref="#660" ;;
   esac
-}
-_attest_take() {   # <flag> <value>: record one attestation, counting repeats
-  case "$1" in
-    --attest-tree)     attest_tree="$2";     _n_attest_tree=$((_n_attest_tree + 1)) ;;
-    --attest-upstream) attest_upstream="$2"; _n_attest_upstream=$((_n_attest_upstream + 1)) ;;
-  esac
+  [ -n "$2" ] || die "preship-evidence: $1 needs a value: $form ($ref)"
+  # A repeat is reported after the loop, so an unknown option later in argv still wins.
+  if [ -n "${!var}" ] && [ -z "$_rep_flag" ]; then _rep_flag="$1"; _rep_ref="$ref"; fi
+  printf -v "$var" '%s' "$2"
 }
 while [ $# -gt 0 ]; do
   case "$1" in
     --attest-tree|--attest-upstream)
-      [ $# -ge 2 ] && [ -n "$2" ] || _attest_need "$1"
-      _attest_take "$1" "$2"; shift 2 ;;
+      _attest_take "$1" "${2-}"; shift 2 ;;
     --attest-tree=*|--attest-upstream=*)
-      _flag="${1%%=*}"; _val="${1#*=}"; shift
-      [ -n "$_val" ] || _attest_need "$_flag"
-      _attest_take "$_flag" "$_val" ;;
+      _attest_take "${1%%=*}" "${1#*=}"; shift ;;
     --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] (#655/#660)" ;;
     *) _pos+=("$1"); shift ;;
   esac
 done
-[ "$_n_attest_tree" -le 1 ] || die "preship-evidence: --attest-tree given more than once — pass one attestation per run (#655)"
-[ "$_n_attest_upstream" -le 1 ] || die "preship-evidence: --attest-upstream given more than once — pass one attestation per run (#660)"
+[ -z "$_rep_flag" ] || die "preship-evidence: $_rep_flag given more than once — pass one attestation per run ($_rep_ref)"
 set -- "${_pos[@]+"${_pos[@]}"}"
 
 active_resolve_project_try "${1:-}" 2>/dev/null || true
@@ -289,10 +284,13 @@ if [ -n "$attest_tree" ] && [ "$_attest_used" = false ]; then
 fi
 # #660 BRANCH (header).
 issue_label="$(basename "$issue_dir")"
-# `sed '/re/{s///p;q;}'`, not `sed … | head -1`: under this script's pipefail a sed
-# killed by SIGPIPE after head exits turns the read EMPTY (register Issue-595). One
-# match, then quit, so there is no pipe to break.
-a_branch="$(sed -n '/^branch:/{s/^branch:[[:space:]]*//p;q;}' "$artifact")"
+# _art_field <key>: one artifact field, first match, whitespace after the colon stripped.
+# `sed '/re/{s///p;q;}'`, not `sed … | head -1`: under this script's pipefail a sed killed
+# by SIGPIPE after head exits turns the read EMPTY (register Issue-595). One match, then
+# quit, so there is no pipe to break. The #660 fields read through it; the older reads
+# above keep their form (a file-wide change is its own issue).
+_art_field() { sed -n "/^$1:/{s/^$1:[[:space:]]*//p;q;}" "$artifact"; }
+a_branch="$(_art_field branch)"
 st_branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 case "$st_branch" in null|'""') st_branch="" ;; esac
 if [ -z "$a_branch" ]; then
@@ -304,14 +302,14 @@ elif [ "$a_branch" != "$st_branch" ]; then
 fi
 
 # #660 UPSTREAM RUNG (vocabulary in the header). What the producing tree's origin said
-# about its branch after run-suite's bounded fetch. Every arm:
+# about its branch when run-suite asked it (a bounded ls-remote). Every arm:
 #   <sha>          -> checked when the head being shipped contains it (merge-base
 #                     --is-ancestor, HERE); else FAIL, since that contradicts run-suite's
 #                     own BEHIND ORIGIN refusal.
 #   (no-origin)    -> no-origin: the single-tree case (nothing to compare, not a degradation).
 #   (unpushed)     -> origin has no such branch. With tree=checked it is the single-tree
 #                     case (B′): unpushed. Otherwise a DEGRADATION, as below.
-#   (unreachable)  -> the fetch failed or timed out: a DEGRADATION in every tree. A
+#   (unreachable)  -> origin did not answer (failed or timed out): a DEGRADATION in every tree. A
 #                     DEGRADATION FAILs UPSTREAM UNATTESTED unless a matching
 #                     --attest-upstream -> attested.
 #   no line/other  -> FAIL: no back-compat pass (a pre-#660 artifact), and one shape per state.
@@ -320,18 +318,24 @@ fi
 # undecidable here; the remedy is a fetch HERE, never an accusation that the producing
 # tree was behind: register Issue-458/243, improve B1).
 upstream_unattested="UPSTREAM UNATTESTED"
-a_upstream="$(sed -n '/^upstream:/{s/^upstream:[[:space:]]*//p;q;}' "$artifact")"
+a_upstream="$(_art_field upstream)"
 upstream_verdict=""; _up_attest_used=false
 # The branch as the messages quote it: quoted when the artifact names one, else a plain
 # phrase (the missing-line failure above already fired), never a quoted placeholder that
 # would read as a branch name.
 if [ -n "$a_branch" ]; then _up_br="'$a_branch'"; else _up_br="(branch unknown)"; fi
-_up_contains() {   # <sha>: sets _anc_rc — 0 contained; 1 not contained; other: undecidable HERE
-  _anc_rc=0
-  "$DEVAGENT_GIT" -C "$work_dir" merge-base --is-ancestor "$1" "$a_head" 2>/dev/null || _anc_rc=$?
-}
-_up_unknown() {    # <sha>: the message for the undecidable arm; prints only
-  printf '%s' "origin's $_up_br tip $1 is not an object in this checking tree (git merge-base --is-ancestor exited $_anc_rc), so containment cannot be decided here — fetch origin here (git -C '$work_dir' fetch origin), then re-run this check (#660)"
+# _up_containment <sha> <prefix> <not-contained message>: the ONE three-answer table (above).
+# Returns 0 only when the artifact's head contains <sha> here; otherwise appends the fitting
+# failure, prefixed with <prefix>, and returns 1.
+_up_containment() {
+  local rc=0
+  "$DEVAGENT_GIT" -C "$work_dir" merge-base --is-ancestor "$1" "$a_head" 2>/dev/null || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) fails+=("$2$3") ;;
+    *) fails+=("${2}origin's $_up_br tip $1 is not an object in this checking tree (git merge-base --is-ancestor exited $rc), so containment cannot be decided here — fetch origin here (git -C '$work_dir' fetch origin), then re-run this check (#660)") ;;
+  esac
+  return 1
 }
 case "$a_upstream" in
   "")
@@ -347,7 +351,7 @@ case "$a_upstream" in
       # step, after preship, so this is every forge-origin project's first-round state.
       upstream_verdict="unpushed"
     elif [ -z "$attest_upstream" ]; then
-      fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded fetch failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.")
+      fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded call to origin failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.")
     else
       _up_attest_used=true
       _up_re='^head=([[:xdigit:]]+) upstream=(\(unpushed\)|[[:xdigit:]]+)$'
@@ -355,15 +359,12 @@ case "$a_upstream" in
         _up_head="${BASH_REMATCH[1]}"; _up_tip="${BASH_REMATCH[2]}"; _n_fails="${#fails[@]}"
         [ "$_up_head" = "$a_head" ] \
           || fails+=("$upstream_unattested — --attest-upstream names head $_up_head but the artifact records head $a_head; attest the full SHA the producing tree prints now (#660)")
-        _up_note="verified by the caller in the producing environment, not checked here"
-        if [ "$_up_tip" != "(unpushed)" ]; then
+        if [ "$_up_tip" = "(unpushed)" ]; then
+          _up_note="verified by the caller in the producing environment, not checked here"
+        else
           _up_note="origin's tip as the caller saw it in the producing environment; containment checked here"
-          _up_contains "$_up_tip"
-          case "$_anc_rc" in
-            0) : ;;
-            1) fails+=("$upstream_unattested — --attest-upstream reports origin's $_up_br at $_up_tip, which the artifact's head $a_head does not contain here (git merge-base --is-ancestor exited 1): the producing tree is behind origin. Bring it up to date there and re-run run-suite (#660)") ;;
-            *) fails+=("$upstream_unattested — $(_up_unknown "$_up_tip")") ;;
-          esac
+          _up_containment "$_up_tip" "$upstream_unattested — " \
+            "--attest-upstream reports origin's $_up_br at $_up_tip, which the artifact's head $a_head does not contain here (git merge-base --is-ancestor exited 1): the producing tree is behind (or has diverged from) origin. Bring it up to date there and re-run run-suite, which prints the remedy (#660)" || :
         fi
         [ "${#fails[@]}" -gt "$_n_fails" ] \
           || upstream_verdict="attested: $attest_upstream — $_up_note"
@@ -373,12 +374,10 @@ case "$a_upstream" in
     fi ;;
   *)
     if [[ "$a_upstream" =~ ^[[:xdigit:]]+$ ]]; then
-      _up_contains "$a_upstream"
-      case "$_anc_rc" in
-        0) upstream_verdict="checked" ;;
-        1) fails+=("artifact records origin's $_up_br at $a_upstream, which its head $a_head does not contain here (git merge-base --is-ancestor exited 1) — run-suite refuses that shape (BEHIND ORIGIN), so this artifact did not come from it as recorded; re-run run-suite (#660)") ;;
-        *) fails+=("$(_up_unknown "$a_upstream")") ;;
-      esac
+      if _up_containment "$a_upstream" "" \
+           "artifact records origin's $_up_br at $a_upstream, which its head $a_head does not contain here (git merge-base --is-ancestor exited 1) — run-suite refuses that shape (BEHIND ORIGIN), so this artifact did not come from it as recorded; re-run run-suite (#660)"; then
+        upstream_verdict="checked"
+      fi
     else
       fails+=("artifact 'upstream:' line '$a_upstream' is none of <sha> | (no-origin) | (unreachable) | (unpushed) — re-run run-suite (#660)")
     fi ;;

@@ -1104,25 +1104,27 @@ in every measured tree: there is no exemption for a tree that is its own config'
 `source_dir`, because the blessed WSL clone is exactly that.
 - A HEAD that is not on a branch refuses with the literal `DETACHED HEAD` tag, naming
   the SHA.
-- Otherwise run-suite fetches the one branch from `origin` under a bound
-  (`DEVAGENT_FETCH_TIMEOUT` seconds, default 30), with the explicit refspec
-  `+refs/heads/<branch>:refs/remotes/origin/<branch>`, so a narrowed configured refspec
-  cannot leave a stale tip. When that fetch fails, a second bounded
-  `ls-remote --exit-code` tells a branch origin lacks (exit 2) from an unreachable
-  origin. A HEAD that does not contain `origin/<branch>` refuses with the literal
+- Otherwise run-suite asks `origin` with one bounded
+  `ls-remote --exit-code origin refs/heads/<branch>` (`DEVAGENT_FETCH_TIMEOUT` seconds,
+  default 30). Exit 2 means origin has no such branch; any other failure, or the bound
+  expiring, means origin is unreachable. Only when HEAD lacks origin's tip is that one
+  branch fetched (`+refs/heads/<branch>:refs/remotes/origin/<branch>`), so the printed
+  remedy's `origin/<branch>` is current even under a narrowed configured refspec. A HEAD
+  that does not contain origin's tip refuses with the literal
   `BEHIND ORIGIN` tag, naming both SHAs and the branch. A tree that is only behind is
   told to fast-forward. A DIVERGED tree is told to integrate origin's commits, and is
   never told to discard its own.
 - Both fire after the local refusals (issue, tree, config, filesystem) and before any
   suite runs or any artifact is written. The comparison uses the same HEAD the artifact
-  stamps. The fetch writes exactly one ref, the measured tree's
+  stamps. That fetch writes exactly one ref, the measured tree's
   `refs/remotes/origin/<branch>`. It prunes nothing and writes no `FETCH_HEAD`, so
-  pull-request refs and a concurrent `git pull` in a shared tree are untouched.
+  pull-request refs and a concurrent `git pull` in a shared tree are untouched. A tree
+  that already contains origin's tip gets no write at all.
 
 The artifact gains trailing `branch: <HEAD's branch>` and
 `upstream: <origin's tip> | (no-origin) | (unreachable) | (unpushed)` lines, appended
 after `file_modes:`. `(no-origin)` is the single-tree case and not a degradation. A
-failed or timed-out fetch records `(unreachable)`, and a branch origin lacks records
+failed or timed-out call to origin records `(unreachable)`, and a branch origin lacks records
 `(unpushed)`: recorded, never skipped.
 
 `preship-evidence.sh` fails when the artifact's `branch:` is missing, when the issue

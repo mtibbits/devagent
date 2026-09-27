@@ -23,7 +23,7 @@ the README's "Versioning & releases" section has the release procedure.
   `scripts/run-suite.sh` now refuses before any suite runs, and writes nothing, in two
   cases:
   - the measured tree's HEAD is detached (`DETACHED HEAD`, naming the SHA);
-  - after a fetch of `origin` bounded by `DEVAGENT_FETCH_TIMEOUT` seconds (default 30),
+  - after asking `origin` under a bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30),
     the HEAD does not contain `origin/<branch>` (`BEHIND ORIGIN`, naming both SHAs and
     the branch).
 
@@ -31,7 +31,7 @@ the README's "Versioning & releases" section has the release procedure.
   artifact gains `branch:` and `upstream:` lines. `upstream:` is one of:
   - origin's tip;
   - `(no-origin)`, for a tree with no origin (not a degradation);
-  - `(unreachable)`, when the fetch failed or timed out;
+  - `(unreachable)`, when origin did not answer (failed or timed out);
   - `(unpushed)`, when origin has no such branch.
 
   `scripts/preship-evidence.sh` now fails when the artifact's `branch:` is not the
@@ -46,9 +46,11 @@ the README's "Versioning & releases" section has the release procedure.
     verifier now does that, after running `git ls-remote` where the artifact was
     produced. With origin persistently unreachable preship cannot pass, and neither
     can ship.
-  - run-suite's bounded fetch writes exactly one ref, the measured tree's
-    `refs/remotes/origin/<branch>`, on every run that has an origin. It prunes nothing
-    and writes no `FETCH_HEAD`. It needs git 2.29 or later (`--no-write-fetch-head`).
+  - run-suite asks origin with one bounded `git ls-remote`, and fetches only when HEAD
+    lacks origin's tip. That fetch writes exactly one ref, the measured tree's
+    `refs/remotes/origin/<branch>`. It prunes nothing and writes no `FETCH_HEAD`, and a
+    tree that is already fresh gets no write at all. It needs git 2.29 or later
+    (`--no-write-fetch-head`).
   - A diverged measured tree refuses `BEHIND ORIGIN` too. Its printed remedy integrates
     origin's commits (`git merge --no-edit origin/<branch>`) and never discards this
     tree's own.

@@ -86,7 +86,7 @@ UNSTATED`) unless its issue is passed (`run-suite.sh <project> <Issue-N>`) or
 pinned via `DEVAGENT_ACTIVE_ISSUE` (the argument wins when both are set); it
 never takes its issue from the shared slot, reading it only to name it in the
 refusal. Since #660 `run-suite.sh` also refuses a measured tree that is detached
-(`DETACHED HEAD`) or behind `origin/<branch>` after a bounded fetch
+(`DETACHED HEAD`) or behind origin's tip of `<branch>`, asked under a bound
 (`BEHIND ORIGIN`). `preship-evidence.sh` checks the artifact's `branch:` against
 the issue's.
 

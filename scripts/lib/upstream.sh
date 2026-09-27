@@ -17,97 +17,95 @@ upstream_remote_configured() {
     "$DEVAGENT_GIT" -C "$1" remote get-url "$2" >/dev/null 2>&1
 }
 
-# upstream_fetch <work_dir> <remote> [timeout_secs refspec] — best-effort; never fatal.
-# Silent no-op when <remote> is empty or not configured (only warn when a *configured*
+# upstream_fetch <work_dir> <remote> — best-effort; never fatal. Silent no-op
+# when <remote> is empty or not configured (only warn when a *configured*
 # remote's fetch actually fails). #590: records which branch it took in
 # UPSTREAM_FETCH_STATUS — "skipped" (no/unconfigured remote), "ok", or
 # "failed" — so an artifact can say whether its counts follow a fresh fetch
 # or the last-known remote state (setter-global: survives no `$(...)`). The
 # fetch runs with GIT_TERMINAL_PROMPT=0: git's OWN credential prompt (HTTP
 # auth) FAILS (→ "failed" + warn) instead of hanging an unattended step. Not
-# covered WITHOUT a bound: an ssh passphrase/host-key prompt, an askpass helper,
-# or a remote that black-holes the connection.
-# #660: WITH [timeout_secs refspec] this is the FRESHNESS fetch — bounded (`timeout -k 5
-# <secs>`, which also ends those three hangs) and NARROW: exactly <refspec>, with
-# --no-write-fetch-head (git >= 2.29). Its one caller, upstream_branch_tip, passes
-# `+refs/heads/<branch>:refs/remotes/<remote>/<branch>`, so the ONE tracking ref it then
-# reads is refreshed even under a narrowed configured refspec (measured, Issue-660 draft),
-# and nothing else in the tree is written: no prune (a ref another refspec wrote under
-# refs/remotes/<remote>/, e.g. pull-request heads, or a tracking ref the user keeps after
-# its branch was deleted at the remote, survives) and no FETCH_HEAD (a concurrent
-# `git pull` in a shared tree reads it). The pruned all-heads fetch this replaced did all
-# three (measured, whole-branch review 2026-09-27). The configured refspec is not changed.
-# With no bound the fetch is the pre-#660 one, argv for argv. UPSTREAM_FETCH_RC is the
-# fetch's exit status (124, or 137 after the KILL, when the bound expired). A bounded call
-# needs timeout(1) on PATH; upstream_branch_tip checks that before calling.
-# shellcheck disable=SC2034  # UPSTREAM_FETCH_STATUS/_RC are the return channel — read by rederive.sh (#590) and upstream_branch_tip (#660)
+# covered: an ssh passphrase/host-key prompt, an askpass helper, or a remote
+# that black-holes the connection — bounded calls are upstream_branch_tip's (#660).
+# shellcheck disable=SC2034  # UPSTREAM_FETCH_STATUS is the return channel — read by rederive.sh (#590)
 upstream_fetch() {
-    local work_dir="$1" remote="${2:-}" secs="${3:-}" refspec="${4:-}"
-    local -a bound=() what=()
-    UPSTREAM_FETCH_STATUS="skipped"; UPSTREAM_FETCH_RC=0
+    local work_dir="$1" remote="${2:-}"
+    UPSTREAM_FETCH_STATUS="skipped"
     [ -n "$remote" ] || return 0
     upstream_remote_configured "$work_dir" "$remote" || return 0
-    if [ -n "$secs" ]; then
-        bound=(timeout -k 5 "$secs")
-        what=(--no-write-fetch-head "$remote" ${refspec:+"$refspec"})
-    else
-        what=("$remote")
-    fi
-    if GIT_TERMINAL_PROMPT=0 ${bound[@]+"${bound[@]}"} "$DEVAGENT_GIT" -C "$work_dir" fetch --quiet "${what[@]}" 2>/dev/null; then
+    if GIT_TERMINAL_PROMPT=0 "$DEVAGENT_GIT" -C "$work_dir" fetch --quiet "$remote" 2>/dev/null; then
         UPSTREAM_FETCH_STATUS="ok"
     else
-        UPSTREAM_FETCH_RC=$?
         UPSTREAM_FETCH_STATUS="failed"
         warn "upstream_fetch: fetch of '$remote' failed; behind-counts may be stale"
     fi
     return 0
 }
 
+# _upstream_bounded <work_dir> <secs> <git args...>   (#660)
+# The ONE home for a network call that must not hang an unattended chain: `timeout -k 5
+# <secs>` (which also ends an ssh passphrase/host-key prompt, an askpass helper, or a
+# black-holed connection) plus GIT_TERMINAL_PROMPT=0. git's stdout passes through; its
+# stderr is dropped (the caller words its own diagnosis). Exit 124, or 137 after the KILL,
+# means the bound expired. Needs timeout(1) on PATH; upstream_branch_tip checks that first.
+_upstream_bounded() {
+    local work_dir="$1" secs="$2"; shift 2
+    GIT_TERMINAL_PROMPT=0 timeout -k 5 "$secs" "$DEVAGENT_GIT" -C "$work_dir" "$@" 2>/dev/null
+}
+
 # upstream_branch_tip <work_dir> <branch> <timeout_secs>   (#660)
 # What `origin` says about <branch> right now. SETTER-GLOBALS — never command-substitute
 # this (register Issue-282):
-#   UPSTREAM_TIP      <sha>          origin's <branch>, fetched just now into
-#                                    refs/remotes/origin/<branch> (the one ref written)
+#   UPSTREAM_TIP      <sha>          origin's <branch>, as its ls-remote printed it
 #                     (no-origin)    no `origin` remote: the single-tree case, nothing to ask
-#                     (unreachable)  the fetch failed or its bound expired, and origin did
-#                                    not answer that it lacks <branch>
+#                     (unreachable)  origin did not answer within the bound, or failed
 #                     (unpushed)     origin answered that it has no <branch>
-#   UPSTREAM_TIP_WHY  (unreachable) only: "timed out after <secs>s" | "git fetch exited <rc>"
-# The one-branch fetch fails alike for a branch origin lacks and for an origin that cannot
-# be reached; git tells them apart only in prose. So a failed (not timed-out) fetch is
-# classified by a second bounded call whose EXIT CODE does: `ls-remote --exit-code` exits 2,
-# its documented "no matching ref", when origin answers without <branch>.
+#   UPSTREAM_TIP_WHY  "timed out after <secs>s" | "git ls-remote exited <rc>" for
+#                     (unreachable); "the refresh fetch exited <rc>" when a <sha> could not
+#                     be fetched (the caller then cannot compare, and refuses)
+# One question, by EXIT CODE: a bounded `ls-remote --exit-code origin refs/heads/<branch>`
+# (0 = the tip, 2 = its documented "no matching ref", 124/137 = the bound expired) — the
+# same command the preship verifier runs to attest. Then only when HEAD does not already
+# contain that tip (behind, diverged, or the object is not here yet) is the ONE branch
+# fetched, `+refs/heads/<branch>:refs/remotes/origin/<branch>` with --no-write-fetch-head
+# (git >= 2.29): so the caller can tell behind from diverged, and the printed remedy's
+# origin/<branch> is current even under a narrowed configured refspec (measured, Issue-660
+# draft). That ref is the only thing this ever writes: no prune (a ref another refspec
+# wrote under refs/remotes/origin/, e.g. pull-request heads, or one the user keeps after
+# its branch went, survives), no FETCH_HEAD (a concurrent `git pull` in a shared tree
+# reads it), and nothing at all when the tree is already fresh (whole-branch review and
+# quality, 2026-09-27; the pruned all-heads fetch this replaced did all three).
 # Returns 3 with UPSTREAM_TIP empty when origin exists but timeout(1) is not on PATH: the
-# fetch cannot be bounded, and #660 exists to rule an unbounded one out. Every other
+# call cannot be bounded, and #660 exists to rule an unbounded one out. Every other
 # outcome returns 0; the caller decides what a tip means (run-suite refuses a HEAD that
 # does not contain it).
 # Stated blind spot: in a SHALLOW clone a tip older than the shallow boundary is not
 # visible as an ancestor, so the caller's is-ancestor refuses (the fail-closed direction).
 # shellcheck disable=SC2034  # UPSTREAM_TIP/_WHY are the return channel — read by run-suite.sh (#660)
 upstream_branch_tip() {
-    local work_dir="$1" branch="$2" secs="$3" tip="" ls_rc=0
+    local work_dir="$1" branch="$2" secs="$3" out="" rc=0
     UPSTREAM_TIP=""; UPSTREAM_TIP_WHY=""
     if ! upstream_remote_configured "$work_dir" origin; then
         UPSTREAM_TIP="(no-origin)"; return 0
     fi
     command -v timeout >/dev/null 2>&1 || return 3
-    # 2>/dev/null: upstream_fetch's warn speaks of behind-counts; the caller words its own.
-    upstream_fetch "$work_dir" origin "$secs" "+refs/heads/${branch}:refs/remotes/origin/${branch}" 2>/dev/null
-    if [ "$UPSTREAM_FETCH_STATUS" != ok ]; then
-        case "$UPSTREAM_FETCH_RC" in
-            124|137) UPSTREAM_TIP="(unreachable)"; UPSTREAM_TIP_WHY="timed out after ${secs}s"; return 0 ;;
-        esac
-        GIT_TERMINAL_PROMPT=0 timeout -k 5 "$secs" "$DEVAGENT_GIT" -C "$work_dir" \
-            ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
-        if [ "$ls_rc" -eq 2 ]; then
-            UPSTREAM_TIP="(unpushed)"
-        else
-            UPSTREAM_TIP="(unreachable)"; UPSTREAM_TIP_WHY="git fetch exited $UPSTREAM_FETCH_RC"
-        fi
+    out="$(_upstream_bounded "$work_dir" "$secs" ls-remote --exit-code origin "refs/heads/${branch}")" || rc=$?
+    case "$rc" in
+        0)       UPSTREAM_TIP="$(printf '%s\n' "$out" | awk -v r="refs/heads/${branch}" '$2 == r { print $1; exit }')" ;;
+        2)       UPSTREAM_TIP="(unpushed)"; return 0 ;;
+        124|137) UPSTREAM_TIP="(unreachable)"; UPSTREAM_TIP_WHY="timed out after ${secs}s"; return 0 ;;
+        *)       UPSTREAM_TIP="(unreachable)"; UPSTREAM_TIP_WHY="git ls-remote exited $rc"; return 0 ;;
+    esac
+    if [ -z "$UPSTREAM_TIP" ]; then
+        UPSTREAM_TIP="(unreachable)"; UPSTREAM_TIP_WHY="git ls-remote exited 0 without a refs/heads/${branch} line"
         return 0
     fi
-    tip="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse --verify --quiet "refs/remotes/origin/${branch}^{commit}" 2>/dev/null)" || tip=""
-    UPSTREAM_TIP="${tip:-(unpushed)}"
+    "$DEVAGENT_GIT" -C "$work_dir" merge-base --is-ancestor "$UPSTREAM_TIP" HEAD 2>/dev/null && return 0
+    rc=0
+    _upstream_bounded "$work_dir" "$secs" fetch --quiet --no-write-fetch-head origin \
+        "+refs/heads/${branch}:refs/remotes/origin/${branch}" >/dev/null || rc=$?
+    [ "$rc" -eq 0 ] || UPSTREAM_TIP_WHY="the refresh fetch exited $rc"
+    return 0
 }
 
 # upstream_behind_count <work_dir> <base_ref> <upstream_ref>

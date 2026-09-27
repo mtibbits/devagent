@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # #660: evidence must come from a FRESH measured tree, and must say which branch it
 # measured. run-suite.sh refuses a detached HEAD (DETACHED HEAD). It also refuses a HEAD
-# that does not contain origin's tip of its branch after a bounded fetch (BEHIND ORIGIN),
+# that does not contain origin's tip of its branch, asked under a bound (BEHIND ORIGIN),
 # and it records branch: and upstream:. preship-evidence.sh checks branch: against the
 # issue's recorded branch, and reads upstream: as its second provenance rung (#655
 # vocabulary). Every origin here is a LOCAL bare repo under $DEVAGENT_TMP (no network,
@@ -191,12 +191,12 @@ _advance() {
     [ "$status" -eq 0 ]
     grep -q '^upstream: (unreachable)$' "$(_art)"
     [[ "$output" == *"recording upstream: (unreachable)"* ]]
-    [[ "$output" == *"git fetch exited"* ]]
+    [[ "$output" == *"git ls-remote exited"* ]]
 }
 
 @test "#660 AC2: a hung fetch is cut off by DEVAGENT_FETCH_TIMEOUT and recorded (unreachable)" {
     _origin
-    printf '%s\n' '#!/usr/bin/env bash' 'case " $* " in *" fetch "*) exec sleep 30 ;; esac' 'exec git "$@"' \
+    printf '%s\n' '#!/usr/bin/env bash' 'case " $* " in *" fetch "*|*" ls-remote "*) exec sleep 30 ;; esac' 'exec git "$@"' \
         > "$DEVAGENT_TMP/hang-git"
     chmod +x "$DEVAGENT_TMP/hang-git"
     local t0=$SECONDS
@@ -275,12 +275,12 @@ _advance() {
 
 # ---- preship-evidence: the branch check and the upstream rung ----------------------
 
-# An artifact in SOURCE_DIR's canonical tree (so the tree rung reads `checked` and each
-# test fails on its own rung only). $1 = upstream token ("" omits the line),
-# $2 = branch ("" omits), $3 = head (default HEAD).
+# The ONE artifact writer here. By default in SOURCE_DIR's canonical tree (so the tree rung
+# reads `checked` and each test fails on its own rung only). $1 = upstream token ("" omits
+# the line), $2 = branch ("" omits), $3 = head (default HEAD), $4 = tree (default canonical).
 _art660() {
-    local up="$1" br="$2" h="${3:-$(git -C "$SOURCE_DIR" rev-parse HEAD)}"
-    {   printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' "$h" "$(cd "$SOURCE_DIR" && pwd -P)"
+    local up="$1" br="$2" h="${3:-$(git -C "$SOURCE_DIR" rev-parse HEAD)}" t="${4:-$(cd "$SOURCE_DIR" && pwd -P)}"
+    {   printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' "$h" "$t"
         [ -z "$br" ] || printf 'branch: %s\n' "$br"
         [ -z "$up" ] || printf 'upstream: %s\n' "$up"
     } > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
@@ -293,12 +293,7 @@ _mr660() {   # an mr.md whose Evidence matches a 1/1 bats artifact at $1 (defaul
 # The cross-environment shape (#655): the artifact names a tree that does not exist
 # here. The path is a VALUE, never created (tests/README.md "Parallel execution").
 FOREIGN_TREE="/nonexistent/other-env/devagent"
-_foreign660() {   # $1 = upstream token
-    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: %s\n' \
-        "$(git -C "$SOURCE_DIR" rev-parse HEAD)" "$FOREIGN_TREE" "$1" \
-        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
-    _mr660
-}
+_foreign660() { _art660 "$1" main "" "$FOREIGN_TREE"; _mr660; }   # $1 = upstream token
 _att_tree() { printf 'head=%s dirty=no path=%s' "$(git -C "$SOURCE_DIR" rev-parse HEAD)" "$FOREIGN_TREE"; }
 # What ls-remote PRINTS for <branch> at SOURCE_DIR's origin: the attestation's value
 # comes from git's output, never from the artifact (the verifier's rule).
@@ -331,9 +326,7 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
 }
 
 @test "#660 AC3: an artifact with no branch: or upstream: line fails, and re-running run-suite clears it" {
-    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
-        "$(git -C "$SOURCE_DIR" rev-parse HEAD)" "$(cd "$SOURCE_DIR" && pwd -P)" \
-        > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"      # the pre-#660 shape
+    _art660 "" ""                                                          # the pre-#660 shape
     _mr660
     _pe
     [ "$status" -eq 1 ]
