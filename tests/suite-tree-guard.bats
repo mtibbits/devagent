@@ -17,6 +17,7 @@ setup() {
     mkdir -p tests && echo '# placeholder' > tests/x.bats
     git add -A && git commit -q -m "seed tests"
     SRC_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch main   # #660: the issue's branch
     mkdir -p "$DEVAGENT_TMP/binstub"
     printf '%s\n' '#!/usr/bin/env bash' 'echo "1..1"' 'echo "ok 1 a"' \
         > "$DEVAGENT_TMP/binstub/bats"
@@ -91,8 +92,11 @@ _mk_wt() {
     # decided by inequality — not by the fail-open empty-URL leg, which the next test
     # covers separately.
     devagent_fixture_projB 1     # separate git init → different --git-common-dir
-    git -C "$SOURCE_DIR" remote add origin https://example.invalid/acme/testproj.git
-    git -C "$SRC_B"     remote add origin https://example.invalid/acme/projB.git
+    # #660: LOCAL paths. run-suite now fetches the measured tree's origin, and a hostname
+    # would be a DNS lookup inside the suite (register lectio Issue-10). The clause compares
+    # the URL strings, which still differ; the fetch fails fast and records (unreachable).
+    git -C "$SOURCE_DIR" remote add origin "$DEVAGENT_TMP/origins/testproj.git"
+    git -C "$SRC_B"     remote add origin "$DEVAGENT_TMP/origins/projB.git"
     cd "$SRC_B"
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
@@ -137,6 +141,7 @@ _mk_wt() {
     # and file count, so a checker still reading source_dir fails on head: AND files:.
     _mk_wt
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" worktree_path "$WT"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch wt-branch   # #660: run-suite measures the worktree, on wt-branch
     BASE="$(git -C "$WT" rev-parse HEAD~1)"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASE"
     ( cd "$SOURCE_DIR" && echo a > a.txt && echo b > b.txt && git add -A && git commit -q -m src )
@@ -157,7 +162,7 @@ _mk_wt() {
 @test "#571 AC4: an artifact stamped with a FOREIGN tree is rejected by preship-evidence" {
     _mk_wt
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
-    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
+    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: (no-origin)\n' \
         "$SRC_HEAD" "$(cd "$WT" && pwd -P)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
     { echo '## Summary'; echo x; echo '## Evidence'
       echo "suite: 1/1 bats @ $SRC_HEAD"; echo "files: 1 changed"; } \
@@ -182,7 +187,7 @@ _mk_mr() {
 _foreign_fixture() {
     local h="${1:-$SRC_HEAD}"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
-    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\n' \
+    printf 'head: %s  dirty: no\ntree: %s\nbats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: (no-origin)\n' \
         "$h" "$FOREIGN_TREE" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
     _mk_mr "$h"
 }
@@ -333,7 +338,7 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     # tests/preship-evidence.bats pins that such artifacts still PASS; this pins
     # the verdict they now print.
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
-    printf 'head: %s  dirty: no\nbats: 1/1 notok=0\npytest: (none)\n' "$SRC_HEAD" \
+    printf 'head: %s  dirty: no\nbats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: (no-origin)\n' "$SRC_HEAD" \
         > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
     _mk_mr
     _pe
@@ -389,6 +394,6 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     grep -qF -- "$tag" "$DEVAGENT_ROOT/agents/preship-verifier.md" || { echo "verifier does not name $tag"; return 1; }
 }
 # Back-compat pin for artifacts with NO tree: line (every pre-#571 artifact):
-# tests/preship-evidence.bats's _artifact helper writes exactly that shape and its
-# tests stay green untouched — do not "modernize" that helper to add tree:.
-# #655 N11 above pins that shape's PASS-line verdict (tree=unstamped).
+# tests/preship-evidence.bats's _artifact helper writes exactly that shape (tree-less,
+# but since #660 carrying branch:/upstream:, which every artifact must). Keep it
+# tree-less. #655 N11 above pins that shape's PASS-line verdict (tree=unstamped).

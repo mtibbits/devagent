@@ -88,6 +88,7 @@ EOF
 active_issue = "Issue-9"
 issue_dir    = "$ISSUE_B"
 baseline_sha = "$B_BASE"
+branch       = "main"
 revision     = 1
 mr_url       = "https://example.test/projB/mr/9"
 EOF
