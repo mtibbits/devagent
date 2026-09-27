@@ -13,6 +13,10 @@
 #                              bats suite — a MISSING bats binary dies at the plan-line check)
 #     file_modes: posix | no-op; no test file references a file mode (scanned: tests/ + root
 #                 conftest.py) | (none)   (#600: which #565 branch ran; (none) = no suite)
+#     branch: <HEAD's branch>   (#660: run-suite refuses a detached HEAD, so never empty)
+#     upstream: <origin's tip of that branch, full sha> | (no-origin) | (unreachable) | (unpushed)
+#               (#660: what origin answered in the FRESHNESS block below; (no-origin) is the
+#               single-tree case, the other two are degradations preship-evidence names)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
 # nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
@@ -60,6 +64,28 @@
 # origin) REFUSES via active_guard_tree rather than silently measuring the
 # configured tree; a mid-run HEAD move also refuses, so the head: stamp always
 # names the tree the suites actually ran against.
+# FRESHNESS (#660). The measured tree must be ON a branch and must contain its origin's
+# tip of that branch. A detached HEAD refuses DETACHED HEAD (naming the SHA). A HEAD
+# that does not contain origin's tip of <branch>, asked under a per-call bound of
+# DEVAGENT_FETCH_TIMEOUT seconds (default 30), refuses BEHIND ORIGIN (naming both SHAs
+# and the branch; a diverged tree too). This applies in EVERY measured tree: the blessed WSL clone is
+# its own config's source_dir, so a source_dir exemption would exempt the #570 incident
+# this exists for. The comparison is recorded, never skipped: upstream: (no-origin)
+# for a tree with no origin (the single-tree case, not a degradation), (unreachable)
+# when origin did not answer (failed or timed out), (unpushed) when it has no such branch.
+# preship-evidence.sh checks branch: against the issue's recorded branch. Order:
+# ISSUE UNSTATED, TREE MISMATCH, the config and filesystem refusals (all local),
+# then this one, the step that talks to the network, so the issue, tree, config and
+# filesystem refusals never wait on a fetch. Every one fires before any suite runs or
+# any artifact is written. Origin is asked with one bounded ls-remote; only when HEAD
+# lacks its tip is the one branch fetched into refs/remotes/origin/<branch> (no prune,
+# no FETCH_HEAD; upstream_branch_tip's header), the one write run-suite makes outside
+# analysis/, and a fresh tree gets none at all. A diverged tree (each side has
+# commits the other lacks) refuses under the same tag, but its remedy INTEGRATES
+# origin's commits: a fast-forward cannot apply, a push is rejected, and dropping this
+# tree's commits is never the printed advice (whole-branch review, 2026-09-27).
+# DEVAGENT_TREE_GUARD_OVERRIDE answers a different question (which checkout a run may
+# act FROM) and does not silence it; there is no override.
 # Counts come from `grep -c '^ok '` + the `1..N` plan line — NEVER the tail (#85
 # shipped a tail-derived false count). preship-evidence.sh cross-checks mr.md
 # against this artifact (verification #4).
@@ -82,6 +108,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/secrets.sh"
 # shellcheck source=lib/python-interp.sh
 . "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
+# shellcheck source=lib/upstream.sh
+. "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -144,6 +172,17 @@ fi
 : "${suite_jobs:=1}"
 [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]] \
   || die "run-suite: suite_jobs must be a positive integer, got '$suite_jobs' from $suite_jobs_src — 1 runs bats serially, N>1 runs test files N at a time via bats --jobs (#593)"
+# #660: the bound on the FRESHNESS fetch (header). An env var with a constant default,
+# not a config key: how long an origin may take to answer is a fact about the session's
+# network, not the tree. Tests set it tiny. Validated here, before any network call or
+# suite, like suite_jobs above; scrubbed from both suite children below.
+fetch_timeout="${DEVAGENT_FETCH_TIMEOUT:-30}"
+[[ "$fetch_timeout" =~ ^[1-9][0-9]*$ ]] \
+  || die "run-suite: DEVAGENT_FETCH_TIMEOUT must be a positive integer (seconds), got '$fetch_timeout' — it bounds the fetch that decides whether the measured tree is behind origin (#660). Unset it for the default, 30."
+# The one-run control variables no suite child may inherit (#240 session pins, #593 jobs,
+# #660 fetch bound): ONE list for both children, so a new knob cannot be scrubbed from one
+# child and forgotten in the other (quality, 2026-09-27).
+_child_unset=(-u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS -u DEVAGENT_FETCH_TIMEOUT)
 
 cd "$work_dir"
 
@@ -196,6 +235,51 @@ fi
 
 head="$("$DEVAGENT_GIT" rev-parse HEAD 2>/dev/null || true)"
 [ -n "$head" ] || die "run-suite: could not resolve HEAD in $work_dir"
+# #660 FRESHNESS (header). After every local refusal above; before the dirty stamp, the
+# suites and the write; and against the SAME $head the artifact stamps, so the SHA it
+# compared is the SHA it vouches for. upstream_branch_tip is setter-global: never $( … ).
+head_detached="DETACHED HEAD"
+behind_origin="BEHIND ORIGIN"
+_ref_rc=0
+_head_ref="$("$DEVAGENT_GIT" symbolic-ref --quiet HEAD 2>/dev/null)" || _ref_rc=$?
+# The full ref, stripped by hand: `symbolic-ref --short` prints heads/<b> when a tag
+# shares the branch's name (measured, Issue-660 draft).
+case "$_ref_rc:$_head_ref" in
+  0:refs/heads/?*) head_branch="${_head_ref#refs/heads/}" ;;
+  1:*) die "run-suite: $head_detached — $work_dir is not on a branch (HEAD is detached at $head), so its artifact could not say which branch it measured, and a detached SHA is exactly what a stale clone presents (#660; the #570 incident). Nothing was run or written. Check out the branch being shipped and re-run: git -C '$work_dir' checkout <branch> — fetch origin first if the branch is new to this tree; run-suite then fetches origin itself and refuses again, naming both SHAs, if the branch is behind it." ;;
+  *)   die "run-suite: could not read which branch HEAD is on in $work_dir (git symbolic-ref exited $_ref_rc) — refusing rather than record a branch it cannot name (#660). Nothing was run or written." ;;
+esac
+upstream_branch_tip "$work_dir" "$head_branch" "$fetch_timeout" \
+  || die "run-suite: $work_dir has an origin, but timeout(1) is not on PATH, so the call that decides whether this tree is behind origin/$head_branch cannot be bounded, and an unbounded one can hang an unattended chain (#660). Nothing was run or written. Put coreutils' timeout on PATH (Linux, WSL and Git Bash ship it)."
+case "$UPSTREAM_TIP" in
+  "(no-origin)")
+    [ -z "$UPSTREAM_TIP_WHY" ] \
+      || warn "run-suite: recording upstream: (no-origin) for branch '$head_branch' — $UPSTREAM_TIP_WHY, so the freshness check did not run against them. To have it checked, rename the remote this tree fetches from to origin: git -C '$work_dir' remote rename <name> origin (#660)." ;;
+  "(unreachable)"|"(unpushed)")
+    warn "run-suite: recording upstream: $UPSTREAM_TIP for branch '$head_branch'${UPSTREAM_TIP_WHY:+ ($UPSTREAM_TIP_WHY)} — this tree could not be compared with origin, and preship-evidence will name that (#660)." ;;
+  *)
+    _anc_rc=0
+    "$DEVAGENT_GIT" merge-base --is-ancestor "$UPSTREAM_TIP" "$head" 2>/dev/null || _anc_rc=$?
+    case "$_anc_rc" in
+      0) : ;;
+      1)
+        # Behind only, or diverged? The remedies differ, and a wrong one either cannot
+        # apply (a fast-forward of a diverged tree) or discards work.
+        if is_fast_forward "$work_dir" "$head" "$UPSTREAM_TIP"; then
+          die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, but origin's '$head_branch' is at $UPSTREAM_TIP (asked just now), which that HEAD does not contain, so an artifact written here would vouch for an older tree than the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written. Bring the tree up to date and re-run: git -C '$work_dir' merge --ff-only origin/$head_branch${UPSTREAM_TIP_WHY:+ (fetch origin first: $UPSTREAM_TIP_WHY)}"
+        fi
+        die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, and origin's '$head_branch' is at $UPSTREAM_TIP (asked just now): the two have DIVERGED (each has commits the other lacks), so an artifact written here would not vouch for the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written. Integrate origin's commits, keeping this tree's own, and re-run: git -C '$work_dir' merge --no-edit origin/$head_branch (or rebase onto it), then push. If this tree's history was rewritten on purpose (a rebase of an already-pushed branch), push it with git -C '$work_dir' push --force-with-lease origin $head_branch instead. Never discard this tree's commits to make this check pass." ;;
+      *) die "run-suite: could not compare HEAD $head with origin/$head_branch at $UPSTREAM_TIP (git merge-base --is-ancestor exited $_anc_rc) — refusing rather than guess whether this tree is behind (#660)${UPSTREAM_TIP_WHY:+; $UPSTREAM_TIP_WHY}. No suite ran and no artifact was written." ;;
+    esac ;;
+esac
+# #660 LIMITATION (red-team): the check asks `origin`. A project whose issue branches ship
+# to a source_remote other than origin (fork-first: ship.sh pushes there) is compared with
+# a remote that never holds the branch, so say so; preship-evidence then withholds its
+# single-tree (unpushed) pass (B′), whose "only one copy" premise does not hold there.
+_push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || true)"
+if [ -n "$_push_remote" ] && [ "$_push_remote" != "origin" ]; then
+  warn "run-suite: this project ships to source_remote '$_push_remote', but the freshness check compares '$head_branch' with origin, which is not where ship pushes it — so the check says nothing about that copy, and preship-evidence will not pass a single-tree (unpushed) on its own (#660 limitation)."
+fi
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 bats_line="bats: (none)"
@@ -254,7 +338,7 @@ if $has_bats; then
   # Not absolute, for either set: SUITE_ENV_ASSIGNMENTS is spliced AFTER these flags,
   # and `env -u X X=8` still exports X=8 — so a project that declares one of these
   # names in its own [project.<name>.suite_env] (#603) re-injects it deliberately.
-  tap="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
+  tap="$(env "${_child_unset[@]}" \
            -u BATS_NUMBER_OF_PARALLEL_JOBS -u BATS_NO_PARALLELIZE_ACROSS_FILES \
            -u BATS_PARALLEL_BINARY_NAME \
            "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
@@ -320,7 +404,7 @@ if $has_pytest; then
   # Both faults are the same mistake: reading prose where an authoritative signal
   # exists. The exit code IS that signal (pytest documents 0/1/2/3/4/5).
   pout=""; prc=0
-  pout="$(env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE -u DEVAGENT_SUITE_JOBS \
+  pout="$(env "${_child_unset[@]}" \
             "${SUITE_ENV_ASSIGNMENTS[@]+"${SUITE_ENV_ASSIGNMENTS[@]}"}" \
             "$py" -m pytest tests/ -q 2>&1)" || prc=$?
   # `grep -oE '[0-9]+ passed'` matches the count wherever it sits — including at
@@ -405,5 +489,8 @@ fi
   echo "$bats_jobs_line"
   # #600: appended after bats_jobs:, under the same prefix-not-position rule.
   echo "$file_modes_line"
+  # #660: appended after file_modes:, under the same prefix-not-position rule.
+  echo "branch: $head_branch"
+  echo "upstream: $UPSTREAM_TIP"
 } > "$artifact"
-echo "run-suite: wrote $artifact (issue=$issue from $issue_src; $bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2
+echo "run-suite: wrote $artifact (issue=$issue from $issue_src; branch=$head_branch; upstream=$UPSTREAM_TIP; $bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

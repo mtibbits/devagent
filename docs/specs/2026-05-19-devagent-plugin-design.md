@@ -1071,7 +1071,7 @@ a test: either side lacking an `origin`, and origins differing beyond the
 cosmetic normalization (different transports, or a clone made from a local
 path). The suite-count artifact carries a canonical `tree:` stamp (after
 `head:`, which stays the first data line) that `preship-evidence.sh`
-cross-checks against its own resolved tree, and its PASS line ends with that
+cross-checks against its own resolved tree, and its PASS line carries that
 check's verdict (#655) — absent line ⇒ skip, `[tree=unstamped]` (pre-#571
 artifacts); the stamped tree IS the resolved tree (`-ef`) ⇒
 `[tree=checked]`; a stamped tree that does not exist in the checking
@@ -1098,6 +1098,64 @@ shared `issue_dir`/`active_issue` slots or the checklist scan, which another
 session moves. The one resolved id selects both the artifact's directory and the
 measured tree. `preship-evidence.sh` keeps argument → pin → the shared
 `issue_dir` slot.
+
+Since #660 `run-suite.sh` also refuses a measured tree that could be STALE. This applies
+in every measured tree: there is no exemption for a tree that is its own config's
+`source_dir`, because the blessed WSL clone is exactly that.
+- A HEAD that is not on a branch refuses with the literal `DETACHED HEAD` tag, naming
+  the SHA.
+- Otherwise run-suite asks `origin` with one bounded
+  `ls-remote --exit-code origin refs/heads/<branch>` (`DEVAGENT_FETCH_TIMEOUT` seconds per
+  network call, default 30, plus a 5 s kill grace). Exit 2 means origin has no such
+  branch; any other failure, or the bound
+  expiring, means origin is unreachable. Only when HEAD lacks origin's tip is that one
+  branch fetched (`+refs/heads/<branch>:refs/remotes/origin/<branch>`), so the printed
+  remedy's `origin/<branch>` is current even under a narrowed configured refspec. A HEAD
+  that does not contain origin's tip refuses with the literal
+  `BEHIND ORIGIN` tag, naming both SHAs and the branch. A tree that is only behind is
+  told to fast-forward. A DIVERGED tree is told to integrate origin's commits, and is
+  never told to discard its own.
+- Both fire after the local refusals (issue, tree, config, filesystem) and before any
+  suite runs or any artifact is written. The comparison uses the same HEAD the artifact
+  stamps. That fetch writes exactly one ref, the measured tree's
+  `refs/remotes/origin/<branch>`. It prunes nothing and writes no `FETCH_HEAD`, so
+  pull-request refs and a concurrent `git pull` in a shared tree are untouched. A tree
+  that already contains origin's tip gets no write at all.
+
+The artifact gains trailing `branch: <HEAD's branch>` and
+`upstream: <origin's tip> | (no-origin) | (unreachable) | (unpushed)` lines, appended
+after `file_modes:`. `(no-origin)` is the single-tree case and not a degradation. A
+failed or timed-out call to origin records `(unreachable)`, and a branch origin lacks records
+`(unpushed)`: recorded, never skipped.
+
+`preship-evidence.sh` fails when the artifact's `branch:` is missing, when the issue
+has no recorded `branch`, or when the two differ. It reads `upstream:` as its second
+provenance rung, in #655's vocabulary:
+- a recorded tip must be contained in the head being shipped (`[upstream=checked]`);
+- `(no-origin)` passes as `[upstream=no-origin]`;
+- `(unpushed)` from the very tree being shipped (the tree check reads `checked`)
+  passes as `[upstream=unpushed]`. `ship.sh` pushes the branch at the ship step, after
+  preship, so this is every forge-origin project's first-round state. The only copy
+  of an unpushed branch cannot be behind another copy;
+- `(unreachable)` in any tree, and `(unpushed)` from another environment, fail
+  `UPSTREAM UNATTESTED`, unless the caller passes a per-run
+  `--attest-upstream 'head=<sha> upstream=<sha>|(unpushed)'`. It reports what
+  `git -C <tree> rev-parse HEAD` and `git -C <tree> ls-remote origin refs/heads/<branch>`
+  printed in the producing environment. An attested SHA must still be contained in the
+  head being shipped, checked here, and the PASS line echoes `[upstream=attested: …]`.
+
+With origin persistently unreachable, preship cannot pass, and neither can ship, which
+pushes to that origin. Once origin answers, re-run run-suite, or attest from a
+successful `ls-remote`. There is no override: the remedy is a reachable origin.
+
+Limitation: the check asks `origin`. A project that ships its issue branches to a
+`source_remote` other than `origin` (fork-first) is warned by run-suite, and
+preship-evidence withholds the single-tree `(unpushed)` pass there, because the fork holds
+a copy this check never asks. Comparing against the push remote is a follow-up.
+
+An artifact with no `branch:` or `upstream:` line fails. There is no back-compat pass,
+because a missing branch is the #570 shape. The preship verifier runs the two commands
+and attests.
 
 Since #603 the optional `[project.<name>.suite_env]` table is exported into
 both suite child processes. It exists for a suite whose environment is not

@@ -79,7 +79,7 @@ verification passed; FAIL otherwise).
    (uncommitted tracked changes). Cross-check `mr.md`'s claims (commit count,
    test counts) against the preview.
 4. **Evidence cross-check.** Run the mechanized checker; a nonzero exit is a FAIL
-   recorded with its stderr (except `TREE UNATTESTED`, below):
+   recorded with its stderr (except the `UNATTESTED` tags below):
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-evidence.sh" <project> <Issue-N>
@@ -98,8 +98,9 @@ verification passed; FAIL otherwise).
    framework (#466); an artifact recording `pytest: (error)` fails outright because the
    suite was never measured —
    `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
-   block warns and passes (back-compat). The PASS line ends with the tree
-   verdict: `[tree=checked|attested: ...|unstamped]`.
+   block warns and passes (back-compat). The PASS line ends with the rung
+   verdicts: `[tree=checked|attested: ...|unstamped]` then
+   `[upstream=checked|no-origin|unpushed|attested: ...]`.
 
    **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
    clone seen from Windows). Check it where it was produced; for WSL, in the
@@ -107,10 +108,22 @@ verification passed; FAIL otherwise).
    `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> rev-parse HEAD < /dev/null`
    `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> status --porcelain < /dev/null`
    Record both outputs. Only if HEAD is the artifact's `head:` and porcelain
-   is empty, re-run the checker adding
-   `--attest-tree 'head=<SHA printed> dirty=no path=<tree>'`; that run is the
-   verdict. Never take the SHA from the artifact; never run `run-suite.sh`.
+   is empty, attest the tree with
+   `--attest-tree 'head=<SHA printed> dirty=no path=<tree>'` (re-run below).
+   Never take the SHA from the artifact; never run `run-suite.sh`.
    Cannot run commands there: do not attest; FAIL (#655).
+
+   **`UPSTREAM UNATTESTED`**: `upstream:` is `(unreachable)` or `(unpushed)`;
+   `<branch>` is the artifact's `branch:`. Where the artifact was produced
+   (WSL: `wsl.exe -e` as above) run `git -C <tree> rev-parse HEAD` (it must
+   print the artifact's `head:`) and
+   `timeout 30 git -C <tree> ls-remote origin refs/heads/<branch>`; record
+   both. If either fails or times out, do not attest; FAIL (#660). Else attest
+   with (tests/suite-freshness.bats runs this line):
+   `--attest-upstream 'head=<SHA printed> upstream=<SHA ls-remote printed, or (unpushed) if none>'`
+
+   **Re-run once** with every attestation gathered above: that run is the
+   verdict, and any failure in it is a FAIL.
 
 5. **Spec-touch.** Does the committed diff ADD, RENAME, or REMOVE a config key, a
    command, a hook, or a top-level directory that the spec must name? Renames and

@@ -12,13 +12,19 @@ setup() {
     echo two > f2.txt && git add -A && git commit -q -m two   # 1 file changed vs baseline
     HEAD_SHA="$(git rev-parse HEAD)"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$BASELINE"
+    # #660: preship-evidence checks the artifact's branch: against the issue's recorded
+    # branch; SOURCE_DIR (devagent_test_setup) is on main.
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch main
     mkdir -p "$DEVDOC_DIR/Issue-1/analysis"
 }
 teardown() { devagent_test_teardown; }
 
+# #660: every artifact carries branch:/upstream: (preship-evidence fails one without
+# them). These writers stay tree-less ON PURPOSE: the tree=unstamped back-compat
+# shape, whose verdict tests/suite-tree-guard.bats pins.
 # $1=head $2=dirty $3=bats-ok $4=plan $5=notok $6=passed $7=failed
 _artifact() {
-    printf 'head: %s  dirty: %s\nbats: %s/%s notok=%s\npytest: %s passed, %s failed\n' \
+    printf 'head: %s  dirty: %s\nbats: %s/%s notok=%s\npytest: %s passed, %s failed\nbranch: main\nupstream: (no-origin)\n' \
         "$1" "$2" "$3" "$4" "$5" "$6" "$7" \
         > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
 }
@@ -149,7 +155,7 @@ _artifact_none() { _artifact_raw "(none)" "(none)" "$1"; }
 # #466: write the two framework lines VERBATIM, so single-framework and error
 # artifacts are expressible. $1=bats-line-body $2=pytest-line-body $3=head (opt)
 _artifact_raw() {
-    printf 'head: %s  dirty: no\nbats: %s\npytest: %s\n' "${3:-$HEAD_SHA}" "$1" "$2" \
+    printf 'head: %s  dirty: no\nbats: %s\npytest: %s\nbranch: main\nupstream: (no-origin)\n' "${3:-$HEAD_SHA}" "$1" "$2" \
         > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
 }
 

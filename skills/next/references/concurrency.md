@@ -85,7 +85,10 @@ truth-valued semantics. Since #659 `run-suite.sh` also refuses (`ISSUE
 UNSTATED`) unless its issue is passed (`run-suite.sh <project> <Issue-N>`) or
 pinned via `DEVAGENT_ACTIVE_ISSUE` (the argument wins when both are set); it
 never takes its issue from the shared slot, reading it only to name it in the
-refusal.
+refusal. Since #660 `run-suite.sh` also refuses a measured tree that is detached
+(`DETACHED HEAD`) or behind origin's tip of `<branch>`, asked under a bound
+(`BEHIND ORIGIN`). `preship-evidence.sh` checks the artifact's `branch:` against
+the issue's.
 
 ## Confirming the active issue before a manual script invocation
 
