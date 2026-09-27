@@ -525,3 +525,24 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     [[ "$output" == *"has no '## Evidence' block"* ]]
     [ "$(grep -c WARN <<<"$output")" -eq 1 ]
 }
+
+@test "#660 B': a single-tree (unpushed) passes as [upstream=unpushed] with no attestation, and an --attest-upstream there is ignored" {
+    # Q1 = B' (intent.md ## Answers). The other half, a cross-environment (unpushed) that
+    # still needs the attestation, is the test "a cross-environment (unpushed) with only
+    # the tree attested fails UPSTREAM UNATTESTED".
+    _origin
+    git -C "$SOURCE_DIR" checkout -q -b fix/660-local
+    devagent_state_set "$ST" branch fix/660-local
+    _rs
+    [ "$status" -eq 0 ]
+    grep -q '^upstream: (unpushed)$' "$(_art)"
+    _mr660
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[tree=checked] [upstream=unpushed]"* ]]
+    [[ "$output" != *"UPSTREAM UNATTESTED"* ]]
+    _pe --attest-upstream "head=$(git -C "$SOURCE_DIR" rev-parse HEAD) upstream=(unpushed)"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--attest-upstream ignored"* ]]
+    [[ "$output" == *"[upstream=unpushed]"* ]]
+}

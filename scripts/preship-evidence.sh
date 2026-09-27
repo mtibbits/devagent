@@ -57,6 +57,8 @@
 #                             upstream rung has no such pass: #660 fails a missing line;
 #                 no-origin   upstream only: the producing tree has no origin, the
 #                             single-tree case (nothing to compare, not a degradation).
+#                 unpushed    upstream only, with tree=checked: origin has no copy of the
+#                             branch the shipped tree holds (B′; the first push is at ship).
 #   <RUNG> UNATTESTED   the failure tag (TREE UNATTESTED, UPSTREAM UNATTESTED) for a rung
 #               this environment cannot decide and no attestation covers. rc 1, like
 #               every fails+= entry.
@@ -307,9 +309,11 @@ fi
 #                     --is-ancestor, HERE); else FAIL, since that contradicts run-suite's
 #                     own BEHIND ORIGIN refusal.
 #   (no-origin)    -> no-origin: the single-tree case (nothing to compare, not a degradation).
-#   (unreachable)  -> the fetch failed or timed out. (unpushed) -> origin has no such
-#   (unpushed)        branch. Either is a DEGRADATION: FAIL UPSTREAM UNATTESTED unless a
-#                     matching --attest-upstream -> attested.
+#   (unpushed)     -> origin has no such branch. With tree=checked it is the single-tree
+#                     case (B′): unpushed. Otherwise a DEGRADATION, as below.
+#   (unreachable)  -> the fetch failed or timed out: a DEGRADATION in every tree. A
+#                     DEGRADATION FAILs UPSTREAM UNATTESTED unless a matching
+#                     --attest-upstream -> attested.
 #   no line/other  -> FAIL: no back-compat pass (a pre-#660 artifact), and one shape per state.
 # Containment has THREE answers, never two: is-ancestor 0 (contained), 1 (not contained:
 # behind), anything else (128: the tip is not an object in THIS checking tree, so it is
@@ -335,7 +339,14 @@ case "$a_upstream" in
   "(no-origin)")
     upstream_verdict="no-origin" ;;
   "(unreachable)"|"(unpushed)")
-    if [ -z "$attest_upstream" ]; then
+    if [ "$a_upstream" = "(unpushed)" ] && [ "$tree_verdict" = "checked" ]; then
+      # #660 B′ (Q1, intent.md ## Answers): the artifact came from the very tree being
+      # shipped (the tree rung decided that HERE), and origin holds no copy of its
+      # branch, so no other copy can be ahead of it. The single-tree case, like
+      # (no-origin): named on the PASS line, not failed. The first push is at the ship
+      # step, after preship, so this is every forge-origin project's first-round state.
+      upstream_verdict="unpushed"
+    elif [ -z "$attest_upstream" ]; then
       fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded fetch failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.")
     else
       _up_attest_used=true
