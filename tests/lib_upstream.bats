@@ -169,8 +169,12 @@ _hang660() {   # a git that hangs on fetch only; `exec` so timeout(1) kills the 
     _origin660
     git -C "$REPO" push -q origin main:gone
     git -C "$REPO" fetch -q origin
-    git -C "$REPO" rev-parse -q --verify refs/remotes/origin/gone      # the stale-ref fixture exists
-    git -C "$REPO" push -q origin --delete gone
+    # Deleted by ANOTHER clone: a `push --delete` from REPO itself would also drop REPO's
+    # own tracking ref, and the stale-ref shape this test exists for would never arise
+    # (mutation M2 caught exactly that: without --prune the test stayed green).
+    git clone -q "$DEVAGENT_TMP/o660.git" "$DEVAGENT_TMP/d660"
+    git -C "$DEVAGENT_TMP/d660" push -q origin --delete gone
+    git -C "$REPO" rev-parse -q --verify refs/remotes/origin/gone      # the stale-ref fixture really exists
     upstream_branch_tip "$REPO" gone 5
     [ "$UPSTREAM_TIP" = "(unpushed)" ]
 }
