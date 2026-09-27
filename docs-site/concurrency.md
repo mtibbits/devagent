@@ -60,7 +60,11 @@ also be told which ISSUE it measures: pass it
 (`run-suite.sh <project> <Issue-N>`) or pin `DEVAGENT_ACTIVE_ISSUE`; the
 argument wins when both are set. Unpinned
 and bare, it refuses with `ISSUE UNSTATED` instead of writing into whichever
-issue the shared state names.
+issue the shared state names. Since
+[#660](https://github.com/mtibbits/devagent/issues/660) it also refuses a measured
+checkout that is not on a branch (`DETACHED HEAD`) or is behind its origin's tip of
+its branch (`BEHIND ORIGIN`). `preship-evidence.sh` fails an artifact produced on a
+branch other than the issue's.
 
 ## Parking
 

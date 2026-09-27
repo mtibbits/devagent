@@ -16,6 +16,51 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed (breaking): run-suite refuses a stale or detached measured tree, and every
+  suite-count artifact says which branch it measured (#660).** A second clone that had
+  not been fetched could produce green evidence for an old commit. In #570 the WSL clone
+  was parked on another issue's branch, nine days behind, and nothing refused.
+  `scripts/run-suite.sh` now refuses before any suite runs, and writes nothing, in two
+  cases:
+  - the measured tree's HEAD is detached (`DETACHED HEAD`, naming the SHA);
+  - after a fetch of `origin` bounded by `DEVAGENT_FETCH_TIMEOUT` seconds (default 30),
+    the HEAD does not contain `origin/<branch>` (`BEHIND ORIGIN`, naming both SHAs and
+    the branch).
+
+  This applies in every tree, including one that is its own config's `source_dir`. The
+  artifact gains `branch:` and `upstream:` lines. `upstream:` is one of:
+  - origin's tip;
+  - `(no-origin)`, for a tree with no origin (not a degradation);
+  - `(unreachable)`, when the fetch failed or timed out;
+  - `(unpushed)`, when origin has no such branch.
+
+  `scripts/preship-evidence.sh` now fails when the artifact's `branch:` is not the
+  issue's recorded branch. It reads `upstream:` as a second provenance rung, and its PASS
+  line ends `[tree=…] [upstream=checked|no-origin|unpushed|attested: …]`.
+  - A `(unpushed)` artifact produced in the very tree being shipped passes as
+    `[upstream=unpushed]`. That is the normal first-round state, because the branch is
+    first pushed at the ship step, after preship.
+  - `(unreachable)`, and a `(unpushed)` artifact from another environment (the WSL
+    clone seen from Windows), fail `UPSTREAM UNATTESTED` unless the caller passes a
+    per-run `--attest-upstream 'head=<sha> upstream=<sha>|(unpushed)'`. The preship
+    verifier now does that, after running `git ls-remote` where the artifact was
+    produced. With origin persistently unreachable preship cannot pass, and neither
+    can ship.
+  - run-suite's bounded fetch refreshes the measured tree's `refs/remotes/origin/*`
+    (pruned) and `FETCH_HEAD` on every run that has an origin.
+
+  **Migration:**
+  - Run run-suite in the WSL clone with the issue's branch checked out:
+    `git fetch origin && git checkout <branch>`, then `git merge --ff-only origin/<branch>`
+    on later runs. A detached checkout now refuses.
+  - Every suite-count artifact written before this change fails preship-evidence (no
+    `branch:` line): re-run run-suite.
+  - `timeout(1)` must be on PATH wherever run-suite measures a tree that has an origin.
+  - Restart Claude Code sessions after updating: agent prompts load at session start.
+
+  Like #659, this changes a documented contract, and the next release is already a MAJOR
+  bump.
+
 - **Changed (breaking): run-suite must be told which issue it is measuring
   (#659).** `scripts/run-suite.sh` took no issue argument (a second one was
   silently ignored). Unless `DEVAGENT_ACTIVE_ISSUE` was pinned, it chose the issue

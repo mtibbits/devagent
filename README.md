@@ -321,7 +321,12 @@ the path to your clone. The runner needs `<project>` configured in devAgent and
 the issue whose directory receives the artifact: pass it as `<Issue-N>`, or pin
 `DEVAGENT_ACTIVE_ISSUE` for the session (the argument wins when both are set).
 With neither it refuses with `ISSUE UNSTATED` and writes nothing, rather than take
-the issue from shared state another session can move (#659). With only a
+the issue from shared state another session can move (#659). It also refuses,
+writing nothing, a checkout that is not on a branch (`DETACHED HEAD`). It refuses a
+checkout that does not contain its origin's tip of that branch after a fetch
+bounded by `DEVAGENT_FETCH_TIMEOUT` seconds (default 30) (`BEHIND ORIGIN`). The
+artifact records the `branch:` it measured and what `origin` said (`upstream:`)
+(#660). With only a
 clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
 — see `CONTRIBUTING.md`.
 
@@ -357,14 +362,24 @@ mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
 is fine for individual scripts (a preship check there attests the WSL tree,
 below) — it is not a supported environment for the suite, and that is a
-property of the mount, not a defect to repair.
+property of the mount, not a defect to repair. Run the suite in the WSL clone on the
+issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
+the first time, and `git merge --ff-only origin/<branch>` after that.
 
 A preship run from the Windows checkout cannot see the WSL tree that the
 suite-count artifact's `tree:` line names, so `preship-evidence.sh` fails
 `TREE UNATTESTED` until that tree is checked in WSL
 (`git -C <tree> rev-parse HEAD` and `git -C <tree> status --porcelain`) and
 the check re-runs with `--attest-tree 'head=<sha> dirty=no path=<tree>'`. The
-preship verifier does both itself (#655).
+preship verifier does both itself (#655). Likewise, such a cross-environment
+artifact whose `upstream:` is `(unreachable)` or `(unpushed)` fails
+`UPSTREAM UNATTESTED` until
+`git -C <tree> ls-remote origin refs/heads/<branch>` is run there. The check then
+re-runs with `--attest-upstream 'head=<sha> upstream=<sha>|(unpushed)'`, and the
+verifier does that too. In a single tree, `(unreachable)` needs the same step.
+`(unpushed)`, the normal state before ship pushes the branch, passes as
+`[upstream=unpushed]` (#660). With origin persistently unreachable, preship cannot
+pass, and neither can ship, which pushes to it.
 
 **A UTF-8 locale.** Many `@test` names in this repo carry non-ASCII characters
 (em dash, `§`, `⇒`). bats encodes each name into a shell function name in a

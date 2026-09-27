@@ -567,3 +567,41 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     [ "$status" -eq 0 ]
     [[ "$output" == *"[upstream=attested: head=$h upstream=(unpushed)"* ]]
 }
+
+@test "#660 sweep: every home naming the evidence pair's refusals names the #660 ones" {
+    # Homes DERIVED from the claim (register Issue-458/583). Each shipped doc that names
+    # run-suite's #659 refusal must name the two #660 refusals. Each doc that names
+    # TREE UNATTESTED must name UPSTREAM UNATTESTED and --attest-upstream. The text is
+    # whitespace-normalised because prose wraps mid-tag (register Issue-612/465).
+    local f t n_run=0 n_up=0 det beh up
+    det="$(_tag head_detached run-suite.sh)"
+    beh="$(_tag behind_origin run-suite.sh)"
+    up="$(_tag upstream_unattested preship-evidence.sh)"
+    [ "$det" = "DETACHED HEAD" ]
+    [ "$beh" = "BEHIND ORIGIN" ]
+    [ "$up" = "UPSTREAM UNATTESTED" ]
+    # planted control: the normaliser must join a wrapped tag
+    [ "$(printf 'x ISSUE\n   UNSTATED y\n' | tr -s '[:space:]' ' ' | grep -c 'ISSUE UNSTATED')" -eq 1 ]
+    for f in "$DEVAGENT_ROOT"/README.md "$DEVAGENT_ROOT"/docs/specs/*.md "$DEVAGENT_ROOT"/docs-site/*.md \
+             "$DEVAGENT_ROOT"/skills/*/SKILL.md "$DEVAGENT_ROOT"/skills/*/references/*.md \
+             "$DEVAGENT_ROOT"/agents/*.md; do
+        t="$(tr -s '[:space:]' ' ' < "$f")"
+        if [[ "$t" == *"ISSUE UNSTATED"* ]]; then
+            n_run=$((n_run + 1))
+            [[ "$t" == *"$det"* ]] || { echo "$f names ISSUE UNSTATED but not $det"; return 1; }
+            [[ "$t" == *"$beh"* ]] || { echo "$f names ISSUE UNSTATED but not $beh"; return 1; }
+        fi
+        if [[ "$t" == *"TREE UNATTESTED"* ]]; then
+            n_up=$((n_up + 1))
+            [[ "$t" == *"$up"* ]] || { echo "$f names TREE UNATTESTED but not $up"; return 1; }
+            [[ "$t" == *"--attest-upstream"* ]] || { echo "$f names TREE UNATTESTED but not --attest-upstream"; return 1; }
+        fi
+    done
+    # Census at 953ac78 (floors, so a new home joins without a re-pin): ISSUE UNSTATED in
+    # README, the spec, docs-site/concurrency.md, skills/next/references/concurrency.md;
+    # TREE UNATTESTED in README, the spec, agents/preship-verifier.md.
+    [ "$n_run" -ge 4 ]
+    [ "$n_up" -ge 3 ]
+    grep -qF -- '--attest-upstream' "$DEVAGENT_ROOT/CHANGELOG.md"
+    grep -qF -- "$det" "$DEVAGENT_ROOT/CHANGELOG.md"
+}
