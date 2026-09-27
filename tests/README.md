@@ -58,7 +58,7 @@ a new file inherits:
   fixed path such as `/tmp/<name>` (passing one as a config VALUE is fine).
 - Nothing writes into the plugin tree (`$PLUGIN_ROOT`, `$BATS_TEST_DIRNAME/..`).
 - Git identity is per-repo under tmp; `lib/hermetic-env.bash` nulls the global
-  config, TZ and locale, and unsets the session pins and `DEVAGENT_SUITE_JOBS`.
+  config, TZ and locale, and unsets the session pins, `DEVAGENT_SUITE_JOBS` and `DEVAGENT_FETCH_TIMEOUT`.
 - Network fixtures use `lib/fixture-server.sh`, which picks a free port from the
   OS. The probe→bind window between picking the port and the server process
   binding it is a known residual (unobserved so far); a `server did not come up`
