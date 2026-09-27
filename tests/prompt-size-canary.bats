@@ -19,7 +19,7 @@
 # file below (measured at baseline 090d1a5; tests-only, so identical at HEAD).
 #
 #   file                          body   floor  ceiling
-#   agents/preship-verifier.md    5342   2600   6800
+#   agents/preship-verifier.md    7345   3700   9200   (re-pinned by #660)
 #   agents/redteam-reviewer.md    5407   2600   6800
 #   agents/plan-improver.md       6130   3000   7700
 #   commands/preship.md           5989   2900   7600
@@ -37,7 +37,7 @@ REPO="${BATS_TEST_DIRNAME}/.."
 # skills/ entries are curated (only the heavy per-invocation files qualify — most
 # commands are thin, most skills are not per-invocation prompts).
 _ROWS=(
-  "agents/preship-verifier.md:2600:6800"
+  "agents/preship-verifier.md:3700:9200"
   "agents/redteam-reviewer.md:2600:6800"
   "agents/plan-improver.md:3000:7700"
   "commands/preship.md:2900:7600"

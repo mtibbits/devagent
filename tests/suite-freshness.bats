@@ -546,3 +546,24 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     [[ "$output" == *"--attest-upstream ignored"* ]]
     [[ "$output" == *"[upstream=unpushed]"* ]]
 }
+
+@test "#660: the verifier's --attest-upstream line, filled and run as printed, is the form preship-evidence accepts" {
+    # register Issue-461/583: a doc an agent EXECUTES is product behaviour. The verifier
+    # carries the matching editor note. One published form, on one line.
+    local f="$DEVAGENT_ROOT/agents/preship-verifier.md" line h tip att
+    [ "$(grep -c -- "--attest-upstream 'head=" "$f")" -eq 1 ]
+    line="$(grep -o -- "--attest-upstream 'head=<SHA printed> upstream=<[^>]*>'" "$f")"
+    [ -n "$line" ]
+    git -c init.defaultBranch=main init -q --bare "$DEVAGENT_TMP/origin.git"   # origin without the branch
+    git -C "$SOURCE_DIR" remote add origin "$DEVAGENT_TMP/origin.git"
+    _foreign660 "(unpushed)"
+    h="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    tip="$(_ls660 main)"                                                      # prints nothing: unpushed
+    line="${line/<SHA printed>/$h}"
+    line="${line/upstream=<*>/upstream=${tip:-(unpushed)}}"
+    att="${line#--attest-upstream \'}"
+    att="${att%\'}"
+    _pe --attest-tree "$(_att_tree)" --attest-upstream "$att"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[upstream=attested: head=$h upstream=(unpushed)"* ]]
+}
