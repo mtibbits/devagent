@@ -326,7 +326,7 @@ With neither it refuses with `ISSUE UNSTATED` and writes nothing, rather than ta
 the issue from shared state another session can move (#659). It also refuses,
 writing nothing, a checkout that is not on a branch (`DETACHED HEAD`). It refuses a
 checkout that does not contain its origin's tip of that branch, asked under a
-bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30) (`BEHIND ORIGIN`). The
+per-call bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30) (`BEHIND ORIGIN`). The
 artifact records the `branch:` it measured and what `origin` said (`upstream:`)
 (#660). With only a
 clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly

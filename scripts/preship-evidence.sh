@@ -318,6 +318,14 @@ fi
 # undecidable here; the remedy is a fetch HERE, never an accusation that the producing
 # tree was behind: register Issue-458/243, improve B1).
 upstream_unattested="UPSTREAM UNATTESTED"
+# #660 LIMITATION (red-team): B′ passes a single-tree (unpushed) because origin, the remote
+# ship pushes to, holds no copy. A project that ships to another source_remote breaks that
+# premise (the fork holds a copy this check never asks), so B′ is withheld there.
+_push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || true)"
+_push_note=""
+if [ -n "$_push_remote" ] && [ "$_push_remote" != "origin" ]; then
+  _push_note=" This project ships to source_remote '$_push_remote', which this check does not ask, so a single-tree (unpushed) is not passed on its own (#660 limitation)."
+fi
 a_upstream="$(_art_field upstream)"
 upstream_verdict=""; _up_attest_used=false
 # The branch as the messages quote it: quoted when the artifact names one, else a plain
@@ -343,7 +351,7 @@ case "$a_upstream" in
   "(no-origin)")
     upstream_verdict="no-origin" ;;
   "(unreachable)"|"(unpushed)")
-    if [ "$a_upstream" = "(unpushed)" ] && [ "$tree_verdict" = "checked" ]; then
+    if [ "$a_upstream" = "(unpushed)" ] && [ "$tree_verdict" = "checked" ] && [ -z "$_push_note" ]; then
       # #660 B′ (Q1, intent.md ## Answers): the artifact came from the very tree being
       # shipped (the tree rung decided that HERE), and origin holds no copy of its
       # branch, so no other copy can be ahead of it. The single-tree case, like
@@ -351,7 +359,7 @@ case "$a_upstream" in
       # step, after preship, so this is every forge-origin project's first-round state.
       upstream_verdict="unpushed"
     elif [ -z "$attest_upstream" ]; then
-      fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded call to origin failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.")
+      fails+=("$upstream_unattested — the artifact records upstream: $a_upstream, so run-suite could not compare the producing tree with origin's $_up_br ((unreachable): its bounded call to origin failed or timed out; (unpushed): origin has no such branch), and nothing shows that tree was not behind it (#660). Either make origin reachable, or push $_up_br, and re-run run-suite in the producing tree. Or check origin THERE (git -C '<tree>' rev-parse HEAD, and git -C '<tree>' ls-remote origin refs/heads/${a_branch:-<branch>}, which must exit 0) and re-run this check adding --attest-upstream 'head=<the sha rev-parse printed> upstream=<the sha ls-remote printed, or (unpushed) if it printed nothing>'. The rung is then attested by you, and an attestation binds to this artifact's head:, so every new artifact needs a new one.$_push_note")
     else
       _up_attest_used=true
       _up_re='^head=([[:xdigit:]]+) upstream=(\(unpushed\)|[[:xdigit:]]+)$'

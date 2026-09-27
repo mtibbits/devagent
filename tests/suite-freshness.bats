@@ -569,6 +569,30 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     [[ "$output" == *"[upstream=unpushed]"* ]]
 }
 
+@test "#660 limitation: a project shipping to a source_remote other than origin is warned, and gets no single-tree (unpushed) pass" {
+    # Red-team (MAJOR): the check asks origin, but a fork-first project pushes the branch to
+    # source_remote (ship.sh), so B''s "only one copy" premise is false there. run-suite
+    # warns, and preship-evidence asks for the attestation instead of passing.
+    _origin
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_remote" fork
+    git -C "$SOURCE_DIR" checkout -q -b fix/660-local
+    devagent_state_set "$ST" branch fix/660-local
+    _rs
+    [ "$status" -eq 0 ]
+    grep -q '^upstream: (unpushed)$' "$(_art)"
+    [[ "$output" == *"ships to source_remote 'fork'"* ]]
+    _mr660
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"UPSTREAM UNATTESTED"* ]]
+    [[ "$output" == *"source_remote 'fork'"* ]]
+    # source_remote = origin is the default shape again: B' applies.
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_remote" origin
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[upstream=unpushed]"* ]]
+}
+
 @test "#660 B': an (unpushed) artifact with no tree: line (tree rung unstamped) still needs the attestation" {
     # The B' pass keys on tree=checked. An unstamped artifact proves nothing about which
     # tree produced it, so (unpushed) stays a degradation (step-15 review, minor 6).

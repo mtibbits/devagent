@@ -23,7 +23,7 @@ the README's "Versioning & releases" section has the release procedure.
   `scripts/run-suite.sh` now refuses before any suite runs, and writes nothing, in two
   cases:
   - the measured tree's HEAD is detached (`DETACHED HEAD`, naming the SHA);
-  - after asking `origin` under a bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30),
+  - after asking `origin` under a per-call bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30),
     the HEAD does not contain `origin/<branch>` (`BEHIND ORIGIN`, naming both SHAs and
     the branch).
 
@@ -63,6 +63,9 @@ the README's "Versioning & releases" section has the release procedure.
     `branch:` line): re-run run-suite.
   - `timeout(1)` must be on PATH wherever run-suite measures a tree that has an origin.
   - Restart Claude Code sessions after updating: agent prompts load at session start.
+  - Limitation: the check asks `origin`. A project that ships to a `source_remote` other
+    than `origin` (fork-first) is warned by run-suite, and does not get the single-tree
+    `(unpushed)` pass without an attestation.
 
   Like #659, this changes a documented contract, and the next release is already a MAJOR
   bump.

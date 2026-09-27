@@ -1105,8 +1105,9 @@ in every measured tree: there is no exemption for a tree that is its own config'
 - A HEAD that is not on a branch refuses with the literal `DETACHED HEAD` tag, naming
   the SHA.
 - Otherwise run-suite asks `origin` with one bounded
-  `ls-remote --exit-code origin refs/heads/<branch>` (`DEVAGENT_FETCH_TIMEOUT` seconds,
-  default 30). Exit 2 means origin has no such branch; any other failure, or the bound
+  `ls-remote --exit-code origin refs/heads/<branch>` (`DEVAGENT_FETCH_TIMEOUT` seconds per
+  network call, default 30, plus a 5 s kill grace). Exit 2 means origin has no such
+  branch; any other failure, or the bound
   expiring, means origin is unreachable. Only when HEAD lacks origin's tip is that one
   branch fetched (`+refs/heads/<branch>:refs/remotes/origin/<branch>`), so the printed
   remedy's `origin/<branch>` is current even under a narrowed configured refspec. A HEAD
@@ -1146,6 +1147,11 @@ provenance rung, in #655's vocabulary:
 With origin persistently unreachable, preship cannot pass, and neither can ship, which
 pushes to that origin. Once origin answers, re-run run-suite, or attest from a
 successful `ls-remote`. There is no override: the remedy is a reachable origin.
+
+Limitation: the check asks `origin`. A project that ships its issue branches to a
+`source_remote` other than `origin` (fork-first) is warned by run-suite, and
+preship-evidence withholds the single-tree `(unpushed)` pass there, because the fork holds
+a copy this check never asks. Comparing against the push remote is a follow-up.
 
 An artifact with no `branch:` or `upstream:` line fails. There is no back-compat pass,
 because a missing branch is the #570 shape. The preship verifier runs the two commands

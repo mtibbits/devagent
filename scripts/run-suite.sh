@@ -66,7 +66,7 @@
 # names the tree the suites actually ran against.
 # FRESHNESS (#660). The measured tree must be ON a branch and must contain its origin's
 # tip of that branch. A detached HEAD refuses DETACHED HEAD (naming the SHA). A HEAD
-# that does not contain origin's tip of <branch>, asked under a bound of
+# that does not contain origin's tip of <branch>, asked under a per-call bound of
 # DEVAGENT_FETCH_TIMEOUT seconds (default 30), refuses BEHIND ORIGIN (naming both SHAs
 # and the branch; a diverged tree too). This applies in EVERY measured tree: the blessed WSL clone is
 # its own config's source_dir, so a source_dir exemption would exempt the #570 incident
@@ -272,6 +272,14 @@ case "$UPSTREAM_TIP" in
       *) die "run-suite: could not compare HEAD $head with origin/$head_branch at $UPSTREAM_TIP (git merge-base --is-ancestor exited $_anc_rc) — refusing rather than guess whether this tree is behind (#660)${UPSTREAM_TIP_WHY:+; $UPSTREAM_TIP_WHY}. No suite ran and no artifact was written." ;;
     esac ;;
 esac
+# #660 LIMITATION (red-team): the check asks `origin`. A project whose issue branches ship
+# to a source_remote other than origin (fork-first: ship.sh pushes there) is compared with
+# a remote that never holds the branch, so say so; preship-evidence then withholds its
+# single-tree (unpushed) pass (B′), whose "only one copy" premise does not hold there.
+_push_remote="$(config_get_project_field "$project" source_remote 2>/dev/null || true)"
+if [ -n "$_push_remote" ] && [ "$_push_remote" != "origin" ]; then
+  warn "run-suite: this project ships to source_remote '$_push_remote', but the freshness check compares '$head_branch' with origin, which is not where ship pushes it — so the check says nothing about that copy, and preship-evidence will not pass a single-tree (unpushed) on its own (#660 limitation)."
+fi
 if [ -n "$("$DEVAGENT_GIT" status --porcelain 2>/dev/null)" ]; then dirty=yes; else dirty=no; fi
 
 bats_line="bats: (none)"
