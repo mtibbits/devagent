@@ -108,18 +108,22 @@ verification passed; FAIL otherwise).
    `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> rev-parse HEAD < /dev/null`
    `MSYS_NO_PATHCONV=1 wsl.exe -e git -C <tree> status --porcelain < /dev/null`
    Record both outputs. Only if HEAD is the artifact's `head:` and porcelain
-   is empty, re-run the checker adding
-   `--attest-tree 'head=<SHA printed> dirty=no path=<tree>'`; that run is the
-   verdict. Never take the SHA from the artifact; never run `run-suite.sh`.
+   is empty, attest the tree with
+   `--attest-tree 'head=<SHA printed> dirty=no path=<tree>'` (re-run below).
+   Never take the SHA from the artifact; never run `run-suite.sh`.
    Cannot run commands there: do not attest; FAIL (#655).
 
-   **`UPSTREAM UNATTESTED`**: `upstream:` is `(unreachable)` or `(unpushed)`.
-   Where the artifact was produced (WSL: `wsl.exe` as above) run
-   `git -C <tree> rev-parse HEAD` and
-   `git -C <tree> ls-remote origin refs/heads/<branch>`; record both. If
-   ls-remote fails, do not attest; FAIL (#660). Else re-run, keeping any
-   `--attest-tree`, adding (tests/suite-freshness.bats runs this line):
+   **`UPSTREAM UNATTESTED`**: `upstream:` is `(unreachable)` or `(unpushed)`;
+   `<branch>` is the artifact's `branch:`. Where the artifact was produced
+   (WSL: `wsl.exe -e` as above) run `git -C <tree> rev-parse HEAD` (it must
+   print the artifact's `head:`) and
+   `timeout 30 git -C <tree> ls-remote origin refs/heads/<branch>`; record
+   both. If either fails or times out, do not attest; FAIL (#660). Else attest
+   with (tests/suite-freshness.bats runs this line):
    `--attest-upstream 'head=<SHA printed> upstream=<SHA ls-remote printed, or (unpushed) if none>'`
+
+   **Re-run once** with every attestation gathered above: that run is the
+   verdict, and any failure in it is a FAIL.
 
 5. **Spec-touch.** Does the committed diff ADD, RENAME, or REMOVE a config key, a
    command, a hook, or a top-level directory that the spec must name? Renames and

@@ -73,6 +73,8 @@ _advance() {
     [[ "$output" == *"$head"* ]]
     [[ "$output" == *"$tip"* ]]
     [[ "$output" == *"branch 'main'"* ]]
+    [[ "$output" == *"merge --ff-only origin/main"* ]]      # behind only: the fast-forward remedy
+    [[ "$output" != *"DIVERGED"* ]]
     [ ! -e "$DEVAGENT_TMP/bats-ran" ]
     [ "$(_arts)" -eq 0 ]
 }
@@ -135,10 +137,25 @@ _advance() {
     _origin
     local tip; tip="$(_advance)"
     git -C "$SOURCE_DIR" commit -q --allow-empty -m "local only"
+    local mine cmd; mine="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
     _rs
     [ "$status" -eq 1 ]
     [[ "$output" == *"$(_tag behind_origin run-suite.sh)"* ]]
     [[ "$output" == *"$tip"* ]]
+    # Whole-branch review (Important 1): a diverged tree is told so, and its remedy
+    # INTEGRATES origin's commits. The fast-forward cannot apply, and neither pushing
+    # (rejected) nor dropping this tree's commits is ever the printed advice.
+    [[ "$output" == *"DIVERGED"* ]]
+    [[ "$output" != *"merge --ff-only"* ]]
+    [[ "$output" != *"drop them"* ]]
+    cmd="$(printf '%s\n' "$output" | sed -n "s/.*re-run: \(git -C '[^']*' merge --no-edit origin\/[^ ]*\).*/\1/p")"
+    [ -n "$cmd" ]
+    run bash -c "$cmd"                                       # the remedy, as printed
+    [ "$status" -eq 0 ]
+    git -C "$SOURCE_DIR" merge-base --is-ancestor "$mine" HEAD   # this tree's commit was kept
+    _rs
+    [ "$status" -eq 0 ]
+    grep -q "^upstream: $tip$" "$(_art)"
 }
 
 @test "#660: a tree ahead of origin proceeds and records origin's tip, not its own HEAD" {
@@ -566,6 +583,19 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     _pe --attest-tree "$(_att_tree)" --attest-upstream "$att"
     [ "$status" -eq 0 ]
     [[ "$output" == *"[upstream=attested: head=$h upstream=(unpushed)"* ]]
+}
+
+@test "#660: the verifier's UPSTREAM UNATTESTED paragraph has a terminal verdict, a branch source, and a bounded ls-remote" {
+    # Whole-branch review (Important 3): step 4 exempts the UNATTESTED tags from FAIL, so a
+    # paragraph that ends at the command leaves a failed attested re-run exempt too (a
+    # false-green path). The paragraph runs to the next numbered step.
+    local f="$DEVAGENT_ROOT/agents/preship-verifier.md" p
+    p="$(awk '/[*][*]`UPSTREAM UNATTESTED`[*][*]/{f=1} f && /^[0-9]+[.] [*][*]/{exit} f' "$f" | tr -s '[:space:]' ' ')"
+    [ -n "$p" ]
+    [[ "$p" == *"that run is the verdict"* ]]
+    [[ "$p" == *"any failure in it is a FAIL"* ]]
+    [[ "$p" == *"is the artifact's \`branch:\`"* ]]
+    [[ "$p" == *"timeout 30"* ]]
 }
 
 @test "#660 sweep: every home naming the evidence pair's refusals names the #660 ones" {

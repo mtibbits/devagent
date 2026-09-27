@@ -75,11 +75,14 @@
 # for a fetch that failed or timed out, (unpushed) when origin has no such branch.
 # preship-evidence.sh checks branch: against the issue's recorded branch. Order:
 # ISSUE UNSTATED, TREE MISMATCH, the config and filesystem refusals (all local),
-# then this one, the only network call, so a local refusal never waits on a fetch.
-# Every one fires before any suite runs or any artifact is written. The fetch itself
-# writes: it refreshes this tree's refs/remotes/origin/* (pruned; on a narrowed clone it
-# also creates tracking refs the configured refspec would not) and FETCH_HEAD, the one
-# write run-suite makes outside analysis/ (#660 improve).
+# then this one, the step that talks to the network, so the issue, tree, config and
+# filesystem refusals never wait on a fetch. Every one fires before any suite runs or
+# any artifact is written. The fetch itself writes exactly ONE ref, this tree's
+# refs/remotes/origin/<branch>: no prune and no FETCH_HEAD (upstream_fetch's header),
+# the one write run-suite makes outside analysis/. A diverged tree (each side has
+# commits the other lacks) refuses under the same tag, but its remedy INTEGRATES
+# origin's commits: a fast-forward cannot apply, a push is rejected, and dropping this
+# tree's commits is never the printed advice (whole-branch review, 2026-09-27).
 # DEVAGENT_TREE_GUARD_OVERRIDE answers a different question (which checkout a run may
 # act FROM) and does not silence it; there is no override.
 # Counts come from `grep -c '^ok '` + the `1..N` plan line — NEVER the tail (#85
@@ -254,7 +257,15 @@ case "$UPSTREAM_TIP" in
     "$DEVAGENT_GIT" merge-base --is-ancestor "$UPSTREAM_TIP" "$head" 2>/dev/null || _anc_rc=$?
     case "$_anc_rc" in
       0) : ;;
-      1) die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, but origin's '$head_branch' is at $UPSTREAM_TIP, which that HEAD does not contain (fetched just now), so an artifact written here would vouch for an older tree than the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written (the fetch just refreshed this tree's origin/* refs). Bring the tree up to date and re-run: git -C '$work_dir' merge --ff-only origin/$head_branch — if git refuses (not a fast-forward), this tree has commits origin lacks: push them or drop them first." ;;
+      1)
+        # Behind only, or diverged? The remedies differ, and a wrong one either cannot
+        # apply (a fast-forward of a diverged tree) or discards work.
+        _div_rc=0
+        "$DEVAGENT_GIT" merge-base --is-ancestor "$head" "$UPSTREAM_TIP" 2>/dev/null || _div_rc=$?
+        if [ "$_div_rc" -eq 0 ]; then
+          die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, but origin's '$head_branch' is at $UPSTREAM_TIP, which that HEAD does not contain (fetched just now), so an artifact written here would vouch for an older tree than the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written (the fetch just refreshed this tree's origin/$head_branch). Bring the tree up to date and re-run: git -C '$work_dir' merge --ff-only origin/$head_branch"
+        fi
+        die "run-suite: $behind_origin — $work_dir is on branch '$head_branch' at $head, and origin's '$head_branch' is at $UPSTREAM_TIP: the two have DIVERGED (each has commits the other lacks; fetched just now), so an artifact written here would not vouch for the branch being shipped (#660; the #570 stale clone). No suite ran and no artifact was written (the fetch just refreshed this tree's origin/$head_branch). Integrate origin's commits, keeping this tree's own, and re-run: git -C '$work_dir' merge --no-edit origin/$head_branch (or rebase onto it), then push. If this tree's history was rewritten on purpose (a rebase of an already-pushed branch), push it with git -C '$work_dir' push --force-with-lease origin $head_branch instead. Never discard this tree's commits to make this check pass." ;;
       *) die "run-suite: could not compare HEAD $head with origin/$head_branch at $UPSTREAM_TIP (git merge-base --is-ancestor exited $_anc_rc) — refusing rather than guess whether this tree is behind (#660). No suite ran and no artifact was written." ;;
     esac ;;
 esac

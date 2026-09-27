@@ -46,8 +46,12 @@ the README's "Versioning & releases" section has the release procedure.
     verifier now does that, after running `git ls-remote` where the artifact was
     produced. With origin persistently unreachable preship cannot pass, and neither
     can ship.
-  - run-suite's bounded fetch refreshes the measured tree's `refs/remotes/origin/*`
-    (pruned) and `FETCH_HEAD` on every run that has an origin.
+  - run-suite's bounded fetch writes exactly one ref, the measured tree's
+    `refs/remotes/origin/<branch>`, on every run that has an origin. It prunes nothing
+    and writes no `FETCH_HEAD`. It needs git 2.29 or later (`--no-write-fetch-head`).
+  - A diverged measured tree refuses `BEHIND ORIGIN` too. Its printed remedy integrates
+    origin's commits (`git merge --no-edit origin/<branch>`) and never discards this
+    tree's own.
 
   **Migration:**
   - Run run-suite in the WSL clone with the issue's branch checked out:

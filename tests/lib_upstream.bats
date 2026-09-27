@@ -221,7 +221,7 @@ _hang660() {   # a git that hangs on fetch only; `exec` so timeout(1) kills the 
     [ -z "$UPSTREAM_TIP" ]
 }
 
-@test "#660 upstream_fetch: no bound keeps the pre-660 argv; a bound adds --prune and the all-heads refspec" {
+@test "#660 upstream_fetch: no bound keeps the pre-660 argv; a bound fetches ONE refspec, writes no FETCH_HEAD, prunes nothing" {
     # argv recorded ELEMENT-delimited (register Issue-593): a joined line could not tell
     # the refspec from its neighbours.
     printf '%s\n' '#!/usr/bin/env bash' 'printf "[%s]" "$@" >> "$DEVAGENT_STUB_LOG"; echo >> "$DEVAGENT_STUB_LOG"' 'exit 0' \
@@ -229,8 +229,28 @@ _hang660() {   # a git that hangs on fetch only; `exec` so timeout(1) kills the 
     chmod +x "$DEVAGENT_STUB_BIN/git-argv660"
     DEVAGENT_GIT="$DEVAGENT_STUB_BIN/git-argv660" upstream_fetch "$REPO" origin
     devagent_assert_logged "[-C][$REPO][fetch][--quiet][origin]"
-    devagent_refute_logged "[--prune]"
+    devagent_refute_logged "[--no-write-fetch-head]"
     : > "$DEVAGENT_STUB_LOG"
-    DEVAGENT_GIT="$DEVAGENT_STUB_BIN/git-argv660" upstream_fetch "$REPO" origin 7
-    devagent_assert_logged "[-C][$REPO][fetch][--quiet][--prune][origin][+refs/heads/*:refs/remotes/origin/*]"
+    DEVAGENT_GIT="$DEVAGENT_STUB_BIN/git-argv660" upstream_fetch "$REPO" origin 7 '+refs/heads/main:refs/remotes/origin/main'
+    devagent_assert_logged "[-C][$REPO][fetch][--quiet][--no-write-fetch-head][origin][+refs/heads/main:refs/remotes/origin/main]"
+    devagent_refute_logged "[--prune]"
+}
+
+@test "#660 upstream_branch_tip: the fetch touches only origin/<branch> - other origin refs survive, no FETCH_HEAD" {
+    # Whole-branch review (Important 2, measured): a pruned all-heads fetch deleted a
+    # refs/remotes/origin/pr/* ref another refspec wrote, dropped the user's own tracking
+    # ref for a branch deleted at origin, and rewrote FETCH_HEAD, which a concurrent
+    # `git pull` in a shared tree reads.
+    _origin660
+    git -C "$REPO" update-ref refs/remotes/origin/pr/7 "$(git -C "$REPO" rev-parse HEAD)"   # a pull-request ref
+    git -C "$REPO" push -q origin main:gone
+    git -C "$REPO" fetch -q origin
+    git clone -q "$DEVAGENT_TMP/o660.git" "$DEVAGENT_TMP/k660"
+    git -C "$DEVAGENT_TMP/k660" push -q origin --delete gone              # deleted at origin by someone else
+    rm -f "$REPO/.git/FETCH_HEAD"
+    upstream_branch_tip "$REPO" main 5
+    [ "$UPSTREAM_TIP" = "$(git -C "$REPO" rev-parse HEAD)" ]
+    git -C "$REPO" rev-parse -q --verify refs/remotes/origin/pr/7          # not pruned
+    git -C "$REPO" rev-parse -q --verify refs/remotes/origin/gone          # the user's prune policy decides, not run-suite
+    [ ! -e "$REPO/.git/FETCH_HEAD" ]
 }
