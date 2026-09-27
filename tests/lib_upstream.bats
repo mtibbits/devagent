@@ -158,6 +158,17 @@ _argv660() {   # a git that records its argv ELEMENT-delimited (register Issue-5
     devagent_assert_logged "[remote][get-url][origin]"     # the recording git WAS used (non-vacuous)
     devagent_refute_logged "[fetch]"
     devagent_refute_logged "[ls-remote]"
+    [ -z "$UPSTREAM_TIP_WHY" ]                               # no remotes at all: nothing to name
+}
+
+@test "#660 upstream_branch_tip: remotes present but none named origin give (no-origin) and name them" {
+    # Step-15 review (Important 1): `git clone -o upstream`, or a renamed remote, must not
+    # read as the silent single-tree case.
+    git -C "$REPO" remote add upstream "$DEVAGENT_TMP/elsewhere.git"
+    upstream_branch_tip "$REPO" main 5
+    [ "$UPSTREAM_TIP" = "(no-origin)" ]
+    [[ "$UPSTREAM_TIP_WHY" == *"no remote is named origin"* ]]
+    [[ "$UPSTREAM_TIP_WHY" == *"upstream"* ]]
 }
 
 @test "#660 upstream_branch_tip: up to date and ahead both give origin's tip, not HEAD" {

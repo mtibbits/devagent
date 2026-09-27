@@ -252,7 +252,9 @@ esac
 upstream_branch_tip "$work_dir" "$head_branch" "$fetch_timeout" \
   || die "run-suite: $work_dir has an origin, but timeout(1) is not on PATH, so the call that decides whether this tree is behind origin/$head_branch cannot be bounded, and an unbounded one can hang an unattended chain (#660). Nothing was run or written. Put coreutils' timeout on PATH (Linux, WSL and Git Bash ship it)."
 case "$UPSTREAM_TIP" in
-  "(no-origin)") : ;;
+  "(no-origin)")
+    [ -z "$UPSTREAM_TIP_WHY" ] \
+      || warn "run-suite: recording upstream: (no-origin) for branch '$head_branch' — $UPSTREAM_TIP_WHY, so the freshness check did not run against them. To have it checked, rename the remote this tree fetches from to origin: git -C '$work_dir' remote rename <name> origin (#660)." ;;
   "(unreachable)"|"(unpushed)")
     warn "run-suite: recording upstream: $UPSTREAM_TIP for branch '$head_branch'${UPSTREAM_TIP_WHY:+ ($UPSTREAM_TIP_WHY)} — this tree could not be compared with origin, and preship-evidence will name that (#660)." ;;
   *)

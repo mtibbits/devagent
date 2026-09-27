@@ -273,6 +273,18 @@ _advance() {
     grep -q '^branch: dup$' "$(_art)"
 }
 
+@test "#660: remotes present but none named origin record (no-origin) and warn naming them" {
+    # Step-15 review (Important 1): the artifact grammar is unchanged, but the operator is
+    # told the freshness check did not run against those remotes.
+    git -C "$SOURCE_DIR" remote add upstream "$DEVAGENT_TMP/elsewhere.git"
+    _rs
+    [ "$status" -eq 0 ]
+    grep -q '^upstream: (no-origin)$' "$(_art)"
+    [[ "$output" == *"no remote is named origin"* ]]
+    [[ "$output" == *"upstream"* ]]
+    [[ "$output" == *"the freshness check did not run"* ]]
+}
+
 # ---- preship-evidence: the branch check and the upstream rung ----------------------
 
 # The ONE artifact writer here. By default in SOURCE_DIR's canonical tree (so the tree rung
@@ -555,6 +567,18 @@ _ls660() { git -C "$SOURCE_DIR" ls-remote origin "refs/heads/$1" | cut -f1; }
     [ "$status" -eq 0 ]
     [[ "$output" == *"--attest-upstream ignored"* ]]
     [[ "$output" == *"[upstream=unpushed]"* ]]
+}
+
+@test "#660 B': an (unpushed) artifact with no tree: line (tree rung unstamped) still needs the attestation" {
+    # The B' pass keys on tree=checked. An unstamped artifact proves nothing about which
+    # tree produced it, so (unpushed) stays a degradation (step-15 review, minor 6).
+    printf 'head: %s  dirty: no\nbats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: (unpushed)\n' \
+        "$(git -C "$SOURCE_DIR" rev-parse HEAD)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+    _mr660
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"UPSTREAM UNATTESTED"* ]]
+    [[ "$output" == *"upstream: (unpushed)"* ]]
 }
 
 @test "#660: the verifier's --attest-upstream line, filled and run as printed, is the form preship-evidence accepts" {

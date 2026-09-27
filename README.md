@@ -56,7 +56,9 @@ releases do not reach an installed plugin; see
 [Versioning & releases](#versioning--releases).
 
 **Prerequisites.** The workflow scripts need `bash` ≥ 4.4 (the resolver libs use
-namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. The
+namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. Where
+`run-suite.sh` measures a tree that has an `origin`, it also needs coreutils `timeout`
+on PATH and `git` ≥ 2.29, for its bounded freshness check (#660). The
 backend and auth scripts additionally call `gh` (GitHub), `glab` or `curl`
 (GitLab), or `curl` (JIRA), as appropriate for your backend.
 

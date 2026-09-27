@@ -60,7 +60,10 @@ _upstream_bounded() {
 #                     (no-origin)    no `origin` remote: the single-tree case, nothing to ask
 #                     (unreachable)  origin did not answer within the bound, or failed
 #                     (unpushed)     origin answered that it has no <branch>
-#   UPSTREAM_TIP_WHY  "timed out after <secs>s" | "git ls-remote exited <rc>" for
+#   UPSTREAM_TIP_WHY  "no remote is named origin (remotes: …)" for a (no-origin) tree that
+#                     HAS remotes (a `clone -o upstream`, a renamed remote: not the silent
+#                     single-tree case, step-15 review); "timed out after <secs>s" |
+#                     "git ls-remote exited <rc>" for
 #                     (unreachable); "the refresh fetch exited <rc>" when a <sha> could not
 #                     be fetched (the caller then cannot compare, and refuses)
 # One question, by EXIT CODE: a bounded `ls-remote --exit-code origin refs/heads/<branch>`
@@ -86,7 +89,11 @@ upstream_branch_tip() {
     local work_dir="$1" branch="$2" secs="$3" out="" rc=0
     UPSTREAM_TIP=""; UPSTREAM_TIP_WHY=""
     if ! upstream_remote_configured "$work_dir" origin; then
-        UPSTREAM_TIP="(no-origin)"; return 0
+        UPSTREAM_TIP="(no-origin)"
+        out="$("$DEVAGENT_GIT" -C "$work_dir" remote 2>/dev/null | tr '\n' ' ')" || out=""
+        out="${out% }"
+        [ -z "$out" ] || UPSTREAM_TIP_WHY="no remote is named origin (remotes: $out)"
+        return 0
     fi
     command -v timeout >/dev/null 2>&1 || return 3
     out="$(_upstream_bounded "$work_dir" "$secs" ls-remote --exit-code origin "refs/heads/${branch}")" || rc=$?
