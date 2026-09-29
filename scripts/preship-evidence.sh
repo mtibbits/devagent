@@ -107,6 +107,13 @@
 # BOTH exits, the main path and the #149 no-Evidence exit, so deleting the Evidence block
 # cannot sidestep it (the #466 MAJOR-2 shape). Stated blind spot: the stamp is a claim the
 # artifact makes; a hand-written artifact can carry any well-formed platform: line.
+# #654 b' EVIDENCE LINE (intent.md ## Answers). mr.md's ## Evidence block carries the
+# artifact's platform: line (templates/mr_template.md; core-draft-mr copies it whole).
+# Present, it must equal the artifact's line byte for byte, and it fails when the artifact
+# has no line to back it; exactly one may stand, so two or more fail as duplicated. Absent,
+# it is unchecked while nothing is declared (AC3); under evidence_platforms it FAILS,
+# attested or not, and so does an mr.md with no Evidence block (the #149 exit). The two
+# exits never report the same case: see the arm, below.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -313,6 +320,16 @@ ev_suite="$(printf '%s\n' "$block" | sed -n 's/^suite:[[:space:]]*\(.*\)$/\1/p' 
 ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*changed.*/\1/p' | head -1)"
 [ -n "$ev_suite" ] || die "preship-evidence: Evidence block has no 'suite:' line"
 [ -n "$ev_files" ] || die "preship-evidence: Evidence block has no 'files: <n> changed' line"
+# #654 b': every platform: line of the Evidence block, WHOLE and verbatim, in order;
+# ev_platform is the first ("" when there is none). The arm after the suite: comparison
+# reconciles them with the artifact's. Column 0 only, so the template's indented comment
+# text never matches (imPlan U12). A read loop over a here-string: no pipe for pipefail
+# to break (register wf Issue-595), no subprocess, and it COUNTS, so a duplicate is seen.
+ev_platforms=()
+while IFS= read -r _ev_line; do
+  case "$_ev_line" in platform:*) ev_platforms+=("$_ev_line") ;; esac
+done <<<"$block"
+ev_platform="${ev_platforms[0]-}"
 
 # Newest suite-count artifact.
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
@@ -586,6 +603,28 @@ else
 fi
 [ "$ev_suite" = "$expected_suite" ] \
   || fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite'")
+# #654 b' EVIDENCE LINE (header). ev_platforms is compared with the artifact's raw line,
+# which _platform_rung read above (a_platform_line: one parse, register Issue-565). Every arm:
+#   two or more lines   -> FAIL, declared or not: exactly one may stand; names each, and the
+#                          line to keep
+#   both lines          -> byte-equal: nothing to report; else FAIL, naming the artifact's line
+#   Evidence line only  -> FAIL, declared or not: no artifact line backs the disclosure
+#   no Evidence line    -> unchecked while nothing is declared (AC3); FAIL under a
+#                          declaration, attested or not, naming the line to paste
+# An mr.md with NO Evidence block never gets here: the #149 exit above owns it (D10).
+if [ "${#ev_platforms[@]}" -gt 1 ]; then
+  _ev_list=""
+  for _ev_line in "${ev_platforms[@]}"; do _ev_list+="${_ev_list:+, }'$_ev_line'"; done
+  fails+=("Evidence platform line duplicated: mr.md's Evidence block has ${#ev_platforms[@]} platform: lines ($_ev_list), and exactly one may stand (#654). Keep only this line: ${a_platform_line:-the platform: line of an artifact re-run by run-suite}")
+elif [ -n "$ev_platform" ]; then
+  if [ -z "$a_platform_line" ]; then
+    fails+=("Evidence platform line without an artifact line: mr.md has '$ev_platform', but the artifact has no platform: line to back it (#654). Re-run run-suite with this plugin's scripts and copy the platform: line it writes; with no evidence_platforms declared, deleting the Evidence line also clears this")
+  elif [ "$ev_platform" != "$a_platform_line" ]; then
+    fails+=("Evidence platform line mismatch: mr.md='$ev_platform' vs artifact='$a_platform_line' — copy the artifact's line whole, byte for byte (#654)")
+  fi
+elif $PLATFORM_DECLARED_SET; then
+  fails+=("Evidence platform line missing: [project.$project] evidence_platforms in $(config_path) is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: ${a_platform_line:-the platform: line of an artifact re-run by run-suite}")
+fi
 
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"

@@ -653,3 +653,195 @@ _declare() {
     run grep -cF -- '--attest-platform' "$f"
     [ "$status" -eq 1 ]
 }
+
+# ---- the MR body: the Evidence platform: line (b', intent.md ## Answers) ----------
+
+@test "#654 b': an Evidence platform: line equal to the artifact's passes - undeclared, attested or checked" {
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 0 ]
+    [ "$output" = "preship-evidence: PASS $D mr.md Evidence matches $(_art) (1/1 bats @ $(_head); files=1) [tree=checked] [upstream=no-origin] [platform=undeclared: $GIT_BASH]" ]
+    _declare '["os=Linux fs=ext4"]'
+    _pe --attest-platform "head=$(_head) platform=$GIT_BASH"             # the attested case, disclosed
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=attested: head=$(_head) platform=$GIT_BASH $D acknowledged"* ]]
+    _art654 "$WSL_EXT4"
+    _mr654 "$WSL_EXT4"
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: $WSL_EXT4 $D matches evidence_platforms 'os=Linux fs=ext4']" ]]
+}
+
+@test "#654 b': an Evidence platform: line one byte off the artifact's fails, naming the exact line to write, and writing it passes" {
+    # The #466 suite: precedent: a mismatch names the exact correct line. The lines are
+    # compared whole and raw, so a blank that the rung's own read strips still differs.
+    _art654 "$WSL_EXT4"
+    local v n=0
+    local -a off=("platform: $WSL_EXT4 " "platform:  $WSL_EXT4" "platform: $WSL_MNTC" 'platform: os=Linux fs=ext4' 'platform:')
+    for v in "${off[@]}"; do
+        _mr654
+        printf '%s\n' "$v" >> "$DEVDOC_DIR/Issue-1/mr.md"
+        _pe
+        [ "$status" -eq 1 ] || { echo "passed: [$v]"; return 1; }
+        [[ "$output" == *"mr.md='$v' vs artifact='platform: $WSL_EXT4'"* ]] || { echo "unnamed: [$v]"; return 1; }
+        [[ "$output" != *"preship-evidence: PASS"* ]] || { echo "PASS printed: [$v]"; return 1; }
+        n=$((n + 1))
+    done
+    [ "$n" -eq 5 ]                                                   # subject COUNT (register Issue-151)
+    # The printed remedy, executed (register Fork-132): write the artifact's line, as named.
+    local line
+    line="$(sed -n "s/.* vs artifact='\(platform: [^']*\)'.*/\1/p" <<<"$output")"
+    [ "$line" = "platform: $WSL_EXT4" ]
+    _mr654
+    printf '%s\n' "$line" >> "$DEVDOC_DIR/Issue-1/mr.md"
+    _pe
+    [ "$status" -eq 0 ]
+}
+
+@test "#654 b' AC3: no declaration and no Evidence platform: line - unchecked, and the output is exactly the PASS line (pin)" {
+    # AC3 stays literal under b': without a declaration, an Evidence block that lacks the
+    # line (every mr.md drafted before #654) changes only the echo.
+    _art654 "$GIT_BASH"
+    _mr654
+    _pe
+    [ "$status" -eq 0 ]
+    [ "$output" = "preship-evidence: PASS $D mr.md Evidence matches $(_art) (1/1 bats @ $(_head); files=1) [tree=checked] [upstream=no-origin] [platform=undeclared: $GIT_BASH]" ]
+}
+
+@test "#654 b': with a declaration, an Evidence block without the platform: line fails, naming the line to paste, which then passes" {
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$WSL_EXT4"                                              # a declared platform: the rung itself passes
+    _mr654                                                           # suite: and files:, no platform:
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence platform line missing"* ]]
+    [[ "$output" != *"PLATFORM UNATTESTED"* ]]
+    [[ "$output" != *"no '## Evidence' block"* ]]                    # the arm reports it, never the #149 exit (D10)
+    [ "$(grep -c 'Evidence platform line' <<<"$output")" -eq 1 ]     # reported once
+    [[ "$output" != *"preship-evidence: PASS"* ]]
+    local line
+    line="$(sed -n 's/.*Add this line to the block: \(platform: .*\)$/\1/p' <<<"$output")"
+    [ "$line" = "platform: $WSL_EXT4" ]                              # the artifact's line, exactly
+    _mr654
+    printf '%s\n' "$line" >> "$DEVDOC_DIR/Issue-1/mr.md"              # the remedy, run as printed (register Fork-132)
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: $WSL_EXT4 "* ]]
+    _art654 ""                                                       # unstamped: the rung fails, and the arm has no line to name
+    _mr654
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no 'platform:' line"* ]]
+    [[ "$output" == *"Add this line to the block: the platform: line of an artifact re-run by run-suite"* ]]
+}
+
+@test "#654 b': with a declaration, an --attest-platform acknowledgment does not excuse a missing Evidence platform: line" {
+    # b' (intent.md ## Answers): the attested, undeclared case is the one a maintainer most
+    # needs to see, so it may not omit the disclosure.
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654
+    local ack="head=$(_head) platform=$GIT_BASH"
+    _pe --attest-platform "$ack"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence platform line missing"* ]]
+    [[ "$output" == *"Add this line to the block: platform: $GIT_BASH"* ]]
+    [[ "$output" != *"PLATFORM UNATTESTED"* ]]                       # the rung itself was acknowledged
+    [[ "$output" != *"--attest-platform ignored"* ]]
+    _mr654 "$GIT_BASH"                                               # disclosed
+    _pe --attest-platform "$ack"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=attested: $ack "* ]]
+}
+
+@test "#654 b': an Evidence platform: line with no artifact platform: line to back it fails, declared or not, and each printed remedy clears it" {
+    _art654 ""                                                       # nothing declared: the rung says unstamped
+    _mr654 "$WSL_EXT4"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence platform line without an artifact line: mr.md has 'platform: $WSL_EXT4'"* ]]
+    [[ "$output" != *"preship-evidence: PASS"* ]]
+    [[ "$output" == *"deleting the Evidence line also clears this"* ]]
+    _mr654                                                           # remedy: delete the line (nothing declared)
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=unstamped]"* ]]
+    _declare '["os=Linux fs=ext4"]'
+    _mr654 "$WSL_EXT4"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no 'platform:' line"* ]]                        # the rung's failure ...
+    [[ "$output" == *"Evidence platform line without an artifact line"* ]]   # ... and the arm's
+    # Remedy: re-run run-suite with this plugin's scripts (on a declared platform), then
+    # copy the platform: line it writes (register Fork-132: every printed remedy, executed).
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs
+    [ "$status" -eq 0 ]
+    _mr654 "$(_line platform)"
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
+}
+
+@test "#654 b' AC4: the core-draft-mr rule copies platform: into the Evidence block and points at preship-evidence, not at a prose quote" {
+    # AC4: the rule points at the mechanical check instead of prose. Whitespace-normalised,
+    # because prose wraps mid-phrase (register Issue-612/465).
+    local f="$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" t
+    local retired="quote the line under the body's testing notes"     # the #600 rule at 81bd632 :97-98
+    t="$(tr -s '[:space:]' ' ' < "$f")"
+    [[ "$t" == *"into the Evidence block whole and unchanged"* ]]
+    [[ "$t" == *"preship-evidence.sh"* ]]
+    [[ "$t" == *"compares it with the artifact byte for byte"* ]]
+    [[ "$t" == *"evidence_platforms"* ]]
+    [[ "$t" == *"modes=no-op"* ]]                                    # the #600 disclosure rides the checked line
+    [ "$(printf 'a %s b\n' "$retired" | grep -cF "$retired")" -eq 1 ]   # planted control (lawfirm Issue-6)
+    run grep -cF "$retired" <<<"$t"
+    [ "$status" -eq 1 ]
+}
+
+@test "#654 b': mr_template carries one live platform: line, which fails unfilled naming the artifact's, and the verifier is told the rule" {
+    local tpl="$DEVAGENT_ROOT/templates/mr_template.md" ev ph p
+    ev="$(awk '/^## Evidence/{f=1;next} /^## /{f=0} f' "$tpl")"            # the checker's own extraction
+    [ "$(grep -c '^platform:' <<<"$ev")" -eq 1 ]                          # one live line; no comment line starts platform: (U12)
+    [ "$(grep -n '^platform:' <<<"$ev" | cut -d: -f1)" -gt "$(grep -n '^files:' <<<"$ev" | cut -d: -f1)" ]
+    ph="$(grep '^platform:' <<<"$ev")"
+    _art654 "$WSL_EXT4"
+    _mr654
+    printf '%s\n' "$ph" >> "$DEVDOC_DIR/Issue-1/mr.md"                     # the placeholder, left unfilled
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"artifact='platform: $WSL_EXT4'"* ]]                 # the exact line to write
+    # Step 4 of the verifier, up to its first tag paragraph, names the line and its check.
+    p="$(awk '/[*][*]Evidence cross-check[.][*][*]/{f=1} f && /[*][*]`TREE UNATTESTED`[*][*]/{exit} f' "$DEVAGENT_ROOT/agents/preship-verifier.md" | tr -s '[:space:]' ' ')"
+    [ -n "$p" ]
+    [[ "$p" == *"platform:"* ]]
+    [[ "$p" == *"byte for byte"* ]]
+    [[ "$p" == *"evidence_platforms"* ]]
+}
+
+@test "#654 b': two Evidence platform: lines fail as duplicated, naming both and the one to keep, which then passes" {
+    # imPlan improve A2: exactly one Evidence platform: line may stand. A stale line left
+    # beside a pasted one (a remedy applied by appending) is a duplicate, never judged by
+    # whichever line comes first.
+    _art654 "$WSL_EXT4"
+    _mr654 "$WSL_MNTC"                                               # a stale line ...
+    printf '%s\n' "platform: $WSL_EXT4" >> "$DEVDOC_DIR/Issue-1/mr.md"   # ... and the right one appended
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence platform line duplicated"* ]]
+    [[ "$output" == *"'platform: $WSL_MNTC', 'platform: $WSL_EXT4'"* ]]
+    [[ "$output" != *"Evidence platform line mismatch"* ]]
+    local line
+    line="$(sed -n 's/.*Keep only this line: \(platform: .*\)$/\1/p' <<<"$output")"
+    [ "$line" = "platform: $WSL_EXT4" ]
+    _mr654
+    printf '%s\n' "$line" >> "$DEVDOC_DIR/Issue-1/mr.md"              # the remedy, run as printed (register Fork-132)
+    _pe
+    [ "$status" -eq 0 ]
+    _mr654 "$WSL_EXT4"                                               # two EQUAL lines are still two
+    printf '%s\n' "platform: $WSL_EXT4" >> "$DEVDOC_DIR/Issue-1/mr.md"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"has 2 platform: lines"* ]]
+}

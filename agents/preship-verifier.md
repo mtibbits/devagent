@@ -97,8 +97,11 @@ verification passed; FAIL otherwise).
    and a pytest-only project's is `<n> pytest @ <sha>`, never `, 0 pytest` for an absent
    framework (#466); an artifact recording `pytest: (error)` fails outright because the
    suite was never measured —
-   `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
-   block warns and passes (back-compat). The PASS line ends with the rung
+   `files:` == the baseline..HEAD diff count; a single `platform:` line, when present,
+   byte for byte equal to the artifact's (#654)). An `mr.md` with no Evidence
+   block warns and passes (back-compat), unless the checking config declares
+   `evidence_platforms`: then it fails, as does a block without the `platform:` line
+   (#654). The PASS line ends with the rung
    verdicts: `[tree=checked|attested: ...|unstamped]`,
    `[upstream=checked|no-origin|unpushed|attested: ...]`, then
    `[platform=undeclared: ...|checked: ...|attested: ...|unstamped]` (#654).
