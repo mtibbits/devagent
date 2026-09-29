@@ -451,7 +451,7 @@ _declare() {
     _declare '["os=Linux fs=ext4"]'
     _art654 "$GIT_BASH"
     _mr654 "$GIT_BASH"                                                 # the disclosure b' requires once declared
-    local ack="head=$(_head) platform=$GIT_BASH"
+    local ack; ack="head=$(_head) platform=$GIT_BASH"
     _pe --attest-platform "$ack"
     [ "$status" -eq 0 ]
     [[ "$output" == *"[platform=attested: $ack $D acknowledged by the caller for this run; not in this project's evidence_platforms]" ]]
@@ -500,7 +500,7 @@ _declare() {
 @test "#654: an --attest-platform the rung did not need is ignored with a warning" {
     _art654 "$WSL_EXT4"
     _mr654 "$WSL_EXT4"
-    local ack="head=$(_head) platform=$WSL_EXT4"
+    local ack; ack="head=$(_head) platform=$WSL_EXT4"
     _pe --attest-platform "$ack"                                       # nothing declared
     [ "$status" -eq 0 ]
     [[ "$output" == *"--attest-platform ignored"* ]]
@@ -757,7 +757,7 @@ _declare() {
     _declare '["os=Linux fs=ext4"]'
     _art654 "$GIT_BASH"
     _mr654
-    local ack="head=$(_head) platform=$GIT_BASH"
+    local ack; ack="head=$(_head) platform=$GIT_BASH"
     _pe --attest-platform "$ack"
     [ "$status" -eq 1 ]
     [[ "$output" == *"Evidence platform line missing"* ]]
