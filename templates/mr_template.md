@@ -33,7 +33,7 @@
      evidence_platforms, a block without the line fails too. -->
 suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
 files: <n> changed
-platform: <the rest of the artifact's platform: line, verbatim>
+platform: <replace this line with the artifact's platform: line, copied whole>
 
 
 ## Checklist

@@ -902,7 +902,7 @@ _declare() {
     local skel readme site d n=0 noop
     skel="$(sed -n 's/^# evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/templates/config.toml.skel")"
     readme="$(sed -n 's/^evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/README.md")"
-    site="$(sed -n 's/^evidence_platforms = \(\[[^]]*\]\).*$/\1/p' "$DEVAGENT_ROOT/docs-site/configuration.md")"
+    site="$(sed -n 's/^# evidence_platforms = \(\[[^]]*\]\).*$/\1/p' "$DEVAGENT_ROOT/docs-site/configuration.md")"
     _art654 "$WSL_EXT4"
     _mr654 "$WSL_EXT4"                                # b': declared, so the Evidence line is required
     for d in "$skel" "$readme" "$site"; do

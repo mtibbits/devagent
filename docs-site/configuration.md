@@ -24,7 +24,7 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # needs GNU parallel on PATH; raise only after
                                                # auditing the suite at file granularity
                                                # (README "Parallel bats")
-evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
+# evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
                                                # optional (#654): platforms whose suite evidence
                                                # THIS config's preship accepts; any other fails
                                                # PLATFORM UNATTESTED. Absent: the platform is only
