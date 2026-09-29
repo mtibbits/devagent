@@ -40,7 +40,8 @@ the README's "Versioning & releases" section has the release procedure.
   - Not breaking: without a declaration, an existing `mr.md` and artifact see only the
     new artifact line and the PASS-line suffix (`[platform=undeclared: …]`, or
     `[platform=unstamped]` for an older artifact). An Evidence `platform:` line is
-    checked only when one is present.
+    checked only when one is present, which includes a new `mr.md`'s template
+    placeholder (next bullet).
   - Migration, for every project whether it declares or not: an `mr.md` drafted from
     the new template must carry the artifact's `platform:` line, or drop the template's
     line. An unfilled placeholder fails preship, and so does a `platform:` line with no

@@ -28,10 +28,12 @@
 # any well-formed platform: line, and no checker can tell (the #655 tree: stamp's limit too).
 
 _PLATFORM_V='[A-Za-z0-9._+-]+'
+_PLATFORM_F="(${_PLATFORM_V}|\(unknown\))"
 # The ONE permitted body shape (register fleet Issue-20: assert the one shape, never bad ones).
-PLATFORM_BODY_RE="^os=(${_PLATFORM_V}|\(unknown\)) kernel=(${_PLATFORM_V}|\(unknown\)) fs=(${_PLATFORM_V}|\(unknown\)) modes=(posix|no-op)\$"
-# One declared pair: a stamp key and a CONCRETE value, so (unknown) is never declarable.
-PLATFORM_PAIR_RE="^(os|kernel|fs|modes)=${_PLATFORM_V}\$"
+PLATFORM_BODY_RE="^os=$_PLATFORM_F kernel=$_PLATFORM_F fs=$_PLATFORM_F modes=(posix|no-op)\$"
+# One declared pair: a stamp key and a CONCRETE value, so (unknown) is never declarable, and
+# modes only posix or no-op.
+PLATFORM_PAIR_RE="^((os|kernel|fs)=${_PLATFORM_V}|modes=(posix|no-op))\$"
 
 # _platform_token <raw> - stdout: <raw> trimmed, each byte outside the value class as `_`, or
 # `(unknown)` when nothing is left. Pure, so safe inside $( ... ).
@@ -70,9 +72,9 @@ platform_body_valid() {
 
 # platform_entry_valid <entry> - rc 0 iff <entry> is one or more PLATFORM_PAIR_RE pairs
 # joined by single spaces (no leading, trailing, doubled or tab separator), each key at most
-# once, and modes only posix or no-op.
+# once. IFS is pinned: the split and the re-join are on single spaces whatever the caller set.
 platform_entry_valid() {
-  local LC_ALL=C
+  local LC_ALL=C IFS=' '
   local e="$1" p k seen=" "
   local -a pairs=()
   read -r -a pairs <<<"$e"
@@ -83,7 +85,6 @@ platform_entry_valid() {
     k="${p%%=*}"
     case "$seen" in *" $k "*) return 1 ;; esac
     seen+="$k "
-    case "$p" in modes=posix|modes=no-op|os=*|kernel=*|fs=*) ;; *) return 1 ;; esac
   done
 }
 
@@ -91,7 +92,7 @@ platform_entry_valid() {
 # <body>: exact, so fs=ext does not match fs=ext4. An empty entry matches NOTHING, never
 # everything (a zero-pair loop would otherwise pass vacuously).
 platform_entry_matches() {
-  local p
+  local p IFS=' '
   local -a pairs=()
   read -r -a pairs <<<"$1"
   [ "${#pairs[@]}" -gt 0 ] || return 1

@@ -74,7 +74,7 @@ _art654() {
 }
 # _mr654 [<platform body>]: an mr.md whose Evidence block matches _art654's suite: and files:.
 # With a body, the block also carries `platform: <body>`, the line draftmr copies from the
-# artifact (b', Task 6). preship ignores that line before Task 6 and compares it from Task 6 on,
+# artifact (b'). preship compares it with the artifact's and requires it under a declaration,
 # so every test that expects a pass under a declaration passes the artifact's body here.
 _mr654() {
     { echo '## Summary'; echo x; echo '## Evidence'
@@ -205,6 +205,21 @@ _declare() {
         n=$((n + 1))
     done
     [ "$n" -eq 5 ]
+}
+
+@test "#654 lib: platform_entry_valid and platform_entry_matches do not depend on the caller's IFS" {
+    # The pairs are split and re-joined on single spaces; an ambient IFS (a caller that set
+    # IFS=: for its own parsing) must not turn every valid entry into an invalid one.
+    _lib
+    local IFS=:
+    platform_entry_valid 'os=Linux fs=ext4'
+    platform_entry_matches 'os=Linux fs=ext4' "$WSL_EXT4"
+    local rc=0
+    platform_entry_matches 'os=Linux fs=9p' "$WSL_EXT4" || rc=$?
+    [ "$rc" -eq 1 ]
+    rc=0
+    platform_entry_valid 'os=Linux  fs=ext4' || rc=$?
+    [ "$rc" -eq 1 ]
 }
 
 @test "#654 lib: platform_declaration_resolve - absent declares nothing, a list keeps its order, an empty last entry dies" {
@@ -347,7 +362,7 @@ _declare() {
     _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4             # the remedy, on a declared platform
     DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs
     [ "$status" -eq 0 ]
-    _mr654 "$(_line platform)"                                          # draftmr copies the new line (b', Task 6)
+    _mr654 "$(_line platform)"                                          # draftmr copies the new line (b')
     _pe
     [ "$status" -eq 0 ]
     [[ "$output" == *"[platform=checked: os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]

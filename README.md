@@ -328,7 +328,9 @@ writing nothing, a checkout that is not on a branch (`DETACHED HEAD`). It refuse
 checkout that does not contain its origin's tip of that branch, asked under a
 per-call bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30) (`BEHIND ORIGIN`). The
 artifact records the `branch:` it measured and what `origin` said (`upstream:`)
-(#660). It also records where it ran, in a `platform:` line: the OS (`uname -s`), the kernel release (`uname -r`), the measured tree's filesystem type, and whether `chmod` works there (#654). With only a
+(#660). It also records where it ran, in a `platform:` line: the OS (`uname -s`), the
+kernel release (`uname -r`), the measured tree's filesystem type, and whether the
+`chmod` probe found `chmod` to be a no-op there (#654). With only a
 clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
 — see `CONTRIBUTING.md`.
 
@@ -336,7 +338,10 @@ The suite has three environmental requirements. `run-suite.sh` enforces the firs
 by refusing to write an artifact at all, rather than producing one it cannot stand
 behind — the first only for a suite that references file modes, as this repo's does
 (#600, below). The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
-A minimal container running these tests must provide all three. A fourth fact is recorded but not required: the platform the suite ran on (`platform:`, #654), which `preship-evidence.sh` refuses on only when the checking config declares `evidence_platforms` (below).
+A minimal container running these tests must provide all three. A fourth fact is
+recorded but not required: the platform the suite ran on (`platform:`, #654), which
+`preship-evidence.sh` refuses on only when the checking config declares
+`evidence_platforms` (below).
 
 **A POSIX filesystem where `chmod` actually changes the mode.**
 `tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets

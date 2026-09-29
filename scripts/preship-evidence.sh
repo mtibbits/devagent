@@ -183,6 +183,7 @@ work_dir="$ACTIVE_TREE_DIR"
 # #654: the CHECKING operator's declaration, read ONCE (setter-globals; never $( … )).
 # A malformed one dies HERE, before anything is decided (the suite_env/suite_jobs shape).
 platform_declaration_resolve "$project"
+_ep_where="[project.$project] evidence_platforms in $(config_path)"
 
 # #654 PLATFORM RUNG (header "#654 PLATFORM"). Every arm; the verdict ends the PASS line
 # as [platform=<verdict>]:
@@ -194,28 +195,29 @@ platform_declaration_resolve "$project"
 #   an entry matches   -> checked: <line> — matches evidence_platforms '<entry>' (decided HERE)
 #   no entry matches   -> FAIL PLATFORM UNATTESTED; with a matching --attest-platform
 #                         -> attested: <acknowledgment> — …
-# Appends to fails[]; sets platform_verdict, _plat_attest_used and a_platform_line (the
-# artifact's raw platform: line, "" when absent). Task 6's Evidence arm and Task 4's #149
-# exit read that line, so the artifact line is parsed ONCE (register Issue-565). Called on
+# Appends to fails[]; sets platform_verdict, _plat_attest_used, a_platform_line (the
+# artifact's raw platform: line, "" when absent) and _plat_line_hint (that line, or what to
+# paste when there is none). The Evidence arm and the #149 exit below read them, so the
+# artifact line is parsed ONCE (register Issue-565). Called on
 # BOTH exits, so the #149 exit and the main path read the same arms. The #149 exit passes
 # a third argument, no-block: an acknowledgment cannot clear an mr.md with no Evidence
 # block, so there the UNATTESTED message offers remedies (1) and (2) only (imPlan D10).
 platform_unattested="PLATFORM UNATTESTED"
 _platform_rung() {   # <artifact file> <its head: sha> [no-block]
-  local art="$1" head="$2" no_block="${3:-}" line body e decl="" n ack_head ack_body ack_remedy
+  local art="$1" head="$2" no_block="${3:-}" body e decl n ack_head ack_body ack_remedy
   local ack_re='^head=([[:xdigit:]]+) platform=(.+)$'
   platform_verdict=""; _plat_attest_used=false
-  line="$(sed -n '/^platform:/{p;q;}' "$art")"
-  a_platform_line="$line"
-  if [ -z "$line" ]; then
+  a_platform_line="$(sed -n '/^platform:/{p;q;}' "$art")"
+  _plat_line_hint="${a_platform_line:-the platform: line of an artifact re-run by run-suite}"
+  if [ -z "$a_platform_line" ]; then
     if $PLATFORM_DECLARED_SET; then
-      fails+=("artifact has no 'platform:' line, and [project.$project] evidence_platforms in $(config_path) declares which platforms count, so an unstamped artifact is refused (#654). It predates #654, or came from a run-suite that does not stamp one (a clone running old plugin scripts). Re-run run-suite with this plugin's scripts, on a declared platform.")
+      fails+=("artifact has no 'platform:' line, and $_ep_where declares which platforms count, so an unstamped artifact is refused (#654). It predates #654, or came from a run-suite that does not stamp one (a clone running old plugin scripts). Re-run run-suite with this plugin's scripts, on a declared platform.")
     else
       platform_verdict="unstamped"
     fi
     return 0
   fi
-  body="${line#platform:}"
+  body="${a_platform_line#platform:}"
   body="${body#"${body%%[![:space:]]*}"}"
   if ! platform_body_valid "$body"; then
     fails+=("artifact 'platform:' line '$body' is not the one shape run-suite writes ('os=<v> kernel=<v> fs=<v> modes=posix|no-op') — re-run run-suite (#654)")
@@ -230,8 +232,8 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
       platform_verdict="checked: $body — matches evidence_platforms '$e'"
       return 0
     fi
-    decl+="${decl:+, }'$e'"
   done
+  decl="$(_qjoin "${PLATFORM_DECLARED[@]}")"
   if [ -z "$attest_platform" ]; then
     if [ -n "$no_block" ]; then
       ack_remedy=". No acknowledgment can clear this exit: mr.md has no Evidence block (reported first), so give it one, then re-run this check."
@@ -253,6 +255,18 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
   else
     fails+=("$platform_unattested — malformed --attest-platform '$attest_platform': the one accepted form is 'head=<full sha> platform=<the artifact's platform: line, after the colon>' (#654)")
   fi
+}
+# _qjoin <item...> - stdout: 'a', 'b', ... (the quoted list the failure messages name).
+_qjoin() { local o="" x; for x; do o+="${o:+, }'$x'"; done; printf '%s' "$o"; }
+# _art_head <artifact> - stdout: the head: sha (q-form: no pipe for pipefail, register wf
+# Issue-595). The ONE read of that field, for the #149 exit and the main path.
+_art_head() { sed -n '/^head:/{s/^head:[[:space:]]*\([^ ]*\).*/\1/p;q;}' "$1"; }
+# _fail_exit - report every fails[] entry and exit 1: the ONE FAIL report, for both exits.
+_fail_exit() {
+  local f
+  printf 'preship-evidence: FAIL\n' >&2
+  for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
+  exit 1
 }
 # The #655 rule: an acknowledgment the rung did not need is warned about and ignored.
 _platform_attest_warn() {
@@ -296,19 +310,15 @@ if ! grep -q '^## Evidence' "$mr"; then
   # deleting the block cannot be the bypass b' closes (the #466 MAJOR-2 shape). The rung's
   # own failures (PLATFORM UNATTESTED, a missing or malformed line) follow, and the rung is
   # told no-block, so it offers no acknowledgment: one cannot clear this exit. The main
-  # path's Evidence arm (Task 6) never runs on this exit, so the fact is reported once. No
+  # path's Evidence arm never runs on this exit, so the fact is reported once. No
   # declaration, or no artifact: byte-identical.
   if $PLATFORM_DECLARED_SET && [ -n "$_early_artifact" ]; then
     fails=()
-    # The a_head read below, in the q-form (register wf Issue-595); keep the two equivalent.
-    _early_head="$(sed -n '/^head:/{s/^head:[[:space:]]*\([^ ]*\).*/\1/p;q;}' "$_early_artifact")"
-    _platform_rung "$_early_artifact" "$_early_head" no-block
+    _platform_rung "$_early_artifact" "$(_art_head "$_early_artifact")" no-block
     _platform_attest_warn
     # Prepended, not appended: the rung ran first only because it records a_platform_line.
-    fails=("mr.md has no '## Evidence' block, and [project.$project] evidence_platforms in $(config_path) is declared, so the MR body must say where its evidence was produced (#654). Give mr.md its ## Evidence block (/devagent:draftmr writes it from templates/mr_template.md), carrying suite:, files: and ${a_platform_line:-the platform: line of an artifact re-run by run-suite}" ${fails[@]+"${fails[@]}"})
-    printf 'preship-evidence: FAIL\n' >&2
-    for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
-    exit 1
+    fails=("mr.md has no '## Evidence' block, and $_ep_where is declared, so the MR body must say where its evidence was produced (#654). Give mr.md its ## Evidence block (/devagent:draftmr writes it from templates/mr_template.md), carrying suite:, files: and $_plat_line_hint" ${fails[@]+"${fails[@]}"})
+    _fail_exit
   fi
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
   exit 0
@@ -335,7 +345,7 @@ ev_platform="${ev_platforms[0]-}"
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
 [ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project $(basename "$issue_dir")\` at HEAD (#572/#659: pass the project and the issue explicitly)"
 
-a_head="$(sed -n 's/^head:[[:space:]]*\([^ ]*\).*/\1/p' "$artifact" | head -1)"
+a_head="$(_art_head "$artifact")"
 a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
 a_ok="$(sed -n 's/^bats:[[:space:]]*\([0-9][0-9]*\)\/.*/\1/p' "$artifact" | head -1)"
 a_plan="$(sed -n 's/^bats:[[:space:]]*[0-9][0-9]*\/\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
@@ -613,9 +623,7 @@ fi
 #                          declaration, attested or not, naming the line to paste
 # An mr.md with NO Evidence block never gets here: the #149 exit above owns it (D10).
 if [ "${#ev_platforms[@]}" -gt 1 ]; then
-  _ev_list=""
-  for _ev_line in "${ev_platforms[@]}"; do _ev_list+="${_ev_list:+, }'$_ev_line'"; done
-  fails+=("Evidence platform line duplicated: mr.md's Evidence block has ${#ev_platforms[@]} platform: lines ($_ev_list), and exactly one may stand (#654). Keep only this line: ${a_platform_line:-the platform: line of an artifact re-run by run-suite}")
+  fails+=("Evidence platform line duplicated: mr.md's Evidence block has ${#ev_platforms[@]} platform: lines ($(_qjoin "${ev_platforms[@]}")), and exactly one may stand (#654). Keep only this line: $_plat_line_hint")
 elif [ -n "$ev_platform" ]; then
   if [ -z "$a_platform_line" ]; then
     fails+=("Evidence platform line without an artifact line: mr.md has '$ev_platform', but the artifact has no platform: line to back it (#654). Re-run run-suite with this plugin's scripts and copy the platform: line it writes; with no evidence_platforms declared, deleting the Evidence line also clears this")
@@ -623,7 +631,7 @@ elif [ -n "$ev_platform" ]; then
     fails+=("Evidence platform line mismatch: mr.md='$ev_platform' vs artifact='$a_platform_line' — copy the artifact's line whole, byte for byte (#654)")
   fi
 elif $PLATFORM_DECLARED_SET; then
-  fails+=("Evidence platform line missing: [project.$project] evidence_platforms in $(config_path) is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: ${a_platform_line:-the platform: line of an artifact re-run by run-suite}")
+  fails+=("Evidence platform line missing: $_ep_where is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: $_plat_line_hint")
 fi
 
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
@@ -633,9 +641,5 @@ actual_files="$("$DEVAGENT_GIT" -C "$work_dir" diff --name-only "$baseline..HEAD
 [ "$ev_files" = "$actual_files" ] \
   || fails+=("Evidence files mismatch: mr.md=$ev_files vs git diff $baseline..HEAD=$actual_files")
 
-if [ "${#fails[@]}" -gt 0 ]; then
-  printf 'preship-evidence: FAIL\n' >&2
-  for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
-  exit 1
-fi
+[ "${#fails[@]}" -eq 0 ] || _fail_exit
 echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files) [tree=$tree_verdict] [upstream=$upstream_verdict] [platform=$platform_verdict]" >&2
