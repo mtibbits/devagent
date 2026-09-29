@@ -328,7 +328,9 @@ writing nothing, a checkout that is not on a branch (`DETACHED HEAD`). It refuse
 checkout that does not contain its origin's tip of that branch, asked under a
 per-call bound of `DEVAGENT_FETCH_TIMEOUT` seconds (default 30) (`BEHIND ORIGIN`). The
 artifact records the `branch:` it measured and what `origin` said (`upstream:`)
-(#660). With only a
+(#660). It also records where it ran, in a `platform:` line: the OS (`uname -s`), the
+kernel release (`uname -r`), the measured tree's filesystem type, and whether the
+`chmod` probe found `chmod` to be a no-op there (#654). With only a
 clone, run `LC_ALL=C.UTF-8 bats tests/` and `python3 -m pytest tests/` directly
 — see `CONTRIBUTING.md`.
 
@@ -336,7 +338,10 @@ The suite has three environmental requirements. `run-suite.sh` enforces the firs
 by refusing to write an artifact at all, rather than producing one it cannot stand
 behind — the first only for a suite that references file modes, as this repo's does
 (#600, below). The third it RECORDS, and `preship-evidence.sh` refuses on the recorded value.
-A minimal container running these tests must provide all three.
+A minimal container running these tests must provide all three. A fourth fact is
+recorded but not required: the platform the suite ran on (`platform:`, #654), which
+`preship-evidence.sh` refuses on only when the checking config declares
+`evidence_platforms` (below).
 
 **A POSIX filesystem where `chmod` actually changes the mode.**
 `tests/auth_security.bats` and its siblings pin 0700/0600 modes on the secrets
@@ -382,6 +387,56 @@ verifier does that too. In a single tree, `(unreachable)` needs the same step.
 `(unpushed)`, the normal state before ship pushes the branch, passes as
 `[upstream=unpushed]` (#660). With origin persistently unreachable, preship cannot
 pass, and neither can ship, which pushes to it.
+
+**Declaring which platforms count (optional, #654).** `preship-evidence.sh` echoes
+the artifact's `platform:` line at the end of its PASS line as `[platform=…]`:
+`os=Linux … fs=ext4 modes=posix` from the WSL clone; `fs=9p` from a `/mnt/c`
+checkout; `fs=ntfs` under Git Bash. A kernel release cannot tell the WSL clone from
+a `/mnt/c` checkout, but the filesystem type can. To make evidence from anywhere
+else fail instead of passing, the operator who RUNS preship declares the accepted
+platforms in THEIR `config.toml`. In the sanctioned flow that is the Windows-side
+config, not the WSL clone's:
+
+<!-- tests/suite-platform.bats runs the evidence_platforms line below as written -->
+```toml
+[project.devagent]
+evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
+```
+
+An entry matches when each of its `key=value` pairs appears in the artifact's
+`platform:` line. The keys are `os`, `kernel`, `fs` and `modes`. The example pins
+`modes=posix` as well: an entry ignores the keys it does not name, so
+`os=Linux fs=ext4` alone would still accept an ext4 clone whose TMPDIR sits on a
+mount where `chmod` is a no-op (its artifact says `modes=no-op`). `modes=posix`
+means the chmod probe found no no-op. The probe fails open where `chmod` errors or
+it cannot write, so `posix` is not proof that modes work.
+
+The MR body carries the platform too. `/devagent:draftmr` copies the artifact's
+`platform:` line into `mr.md`'s `## Evidence` block, and preship compares the two
+byte for byte, declared or not. A mismatch fails and names the exact line, and so
+does an Evidence `platform:` line with no artifact line behind it, or a second
+`platform:` line. So the template's placeholder must be filled, or deleted when the
+artifact has no `platform:` line: left as it is, it fails preship even when nothing
+is declared.
+
+With a declaration, the check fails:
+- an artifact from an undeclared platform (`PLATFORM UNATTESTED`);
+- an artifact with no `platform:` line;
+- an `mr.md` whose Evidence block lacks the artifact's `platform:` line, even when
+  the platform was acknowledged, and an `mr.md` with no Evidence block at all once a
+  suite-count artifact exists (with no artifact, the #149 warning stands).
+
+A malformed declaration stops the check before anything is decided. The
+`PLATFORM UNATTESTED` failure prints three remedies:
+- re-run the suite on a declared platform;
+- add the platform to the declaration;
+- acknowledge this one artifact with the `--attest-platform '…'` it prints.
+
+The third is the operator's decision, never the preship verifier's, and the PASS
+line records it. Without a declaration no platform is refused: it is only echoed,
+and an Evidence block without a `platform:` line is not checked. The line is a
+claim the artifact makes: a hand-written artifact can carry any well-formed
+`platform:` line.
 
 **A UTF-8 locale.** Many `@test` names in this repo carry non-ASCII characters
 (em dash, `§`, `⇒`). bats encodes each name into a shell function name in a

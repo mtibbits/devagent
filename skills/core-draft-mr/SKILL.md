@@ -59,7 +59,7 @@ re-typed.
    from the template. Pre-check items that are verifiable from
    artifacts; leave others unchecked.
 6. **Fill the `## Evidence` block** (#359), if the resolved template has one.
-   Generate a fresh suite-count artifact and fill the two machine-checked
+   Generate a fresh suite-count artifact and fill the machine-checked
    lines from it — never by hand (hand-written counts shipped wrong 8×;
    #120/#85/#284):
 
@@ -92,17 +92,24 @@ re-typed.
    An artifact reading `pytest: (error)` means `tests/test_*.py` exist but produced no
    counts: the suite was NOT measured, preship fails on it, and no Evidence line is
    writable — fix the interpreter and re-run run-suite before continuing.
-   An artifact whose `file_modes:` line starts `file_modes: no-op;` is a mode-UNVERIFIED
-   run (#600): chmod was a no-op and no test file referenced a file mode. Write the
-   Evidence lines as usual, but disclose it OUTSIDE the Evidence block — quote the
-   line under the body's testing notes — so the maintainer reads what the artifact
-   admits.
+   Copy the artifact's `platform:` line (#654: where the suite ran) into the Evidence
+   block whole and unchanged, on its own line after `files:`; never retype it.
+   `preship-evidence.sh` compares it with the artifact byte for byte and fails a
+   mismatch, naming the line to write. When the checking operator's config declares
+   `evidence_platforms`, a block without the line fails too, acknowledged or not. An
+   artifact with no `platform:` line predates #654: delete the template's `platform:`
+   line. Never leave that placeholder, and never keep two `platform:` lines: either
+   fails preship, declared or not. This checked line is also the #600 disclosure: a
+   mode-UNVERIFIED run (a `file_modes:` line starting `file_modes: no-op;`, where
+   chmod was a no-op) records `modes=no-op` in it, from the same probe, so nothing
+   needs quoting in prose.
    Also write `files: <n> changed`
    (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`).
    If an `analysis/<date>-born-red.txt` exists, add
    `born-red: <its verdict>`. preship's verification #4 (#359) hard-checks
    these against the artifact + git, so they must be exact. (No Evidence block
-   in the template ⇒ skip — the checker warns and passes for back-compat.)
+   in the template ⇒ skip — the checker warns and passes for back-compat, unless the
+   checking config declares `evidence_platforms`, which requires the block: #654.)
 7. **Write `<issue-dir>/mr.md`.**
 
 ## Halt and ask if

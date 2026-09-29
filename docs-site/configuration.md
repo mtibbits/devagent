@@ -24,6 +24,18 @@ suite_jobs       = 1                           # bats test files run N at a time
                                                # needs GNU parallel on PATH; raise only after
                                                # auditing the suite at file granularity
                                                # (README "Parallel bats")
+# evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
+                                               # optional (#654): platforms whose suite evidence
+                                               # THIS config's preship accepts; any other fails
+                                               # PLATFORM UNATTESTED. Absent: the platform is only
+                                               # echoed on preship-evidence's PASS line.
+                                               # modes=posix: the chmod probe found no no-op (it
+                                               # fails open), not proof that modes work.
+                                               # Declared or not, mr.md's Evidence block must
+                                               # carry the artifact's platform: line, or drop it:
+                                               # an unfilled template line fails preship.
+                                               # (tests/suite-platform.bats runs the example
+                                               # line as written.)
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,

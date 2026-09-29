@@ -193,3 +193,15 @@ teardown() { teardown_tmp_devagent_home; }
   run config_get_global_path potholes_workflow
   [ "$status" -ne 0 ]
 }
+
+@test "_toml.py get-list refuses an element holding a line break (rc 3), and a plain list still reads [#654]" {
+  f="$BATS_TEST_TMPDIR/n.toml"
+  printf '[project.p]\nevidence_platforms = ["os=Linux\\nfs=ext4"]\nok = ["a", "b"]\n' > "$f"
+  grep -qF 'os=Linux\nfs=ext4' "$f"                  # the TOML carries the escape, not a newline
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.evidence_platforms
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"line break"* ]]
+  run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.ok
+  [ "$status" -eq 0 ]
+  [ "${lines[1]}" = "b" ]
+}

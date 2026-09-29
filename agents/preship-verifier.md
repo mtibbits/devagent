@@ -97,10 +97,14 @@ verification passed; FAIL otherwise).
    and a pytest-only project's is `<n> pytest @ <sha>`, never `, 0 pytest` for an absent
    framework (#466); an artifact recording `pytest: (error)` fails outright because the
    suite was never measured —
-   `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
-   block warns and passes (back-compat). The PASS line ends with the rung
-   verdicts: `[tree=checked|attested: ...|unstamped]` then
-   `[upstream=checked|no-origin|unpushed|attested: ...]`.
+   `files:` == the baseline..HEAD diff count; a single `platform:` line, when present,
+   byte for byte equal to the artifact's (#654)). An `mr.md` with no Evidence
+   block warns and passes (back-compat), unless the checking config declares
+   `evidence_platforms` and a suite-count artifact exists: then it fails, as does a
+   block without the `platform:` line (#654). The PASS line ends with the rung
+   verdicts: `[tree=checked|attested: ...|unstamped]`,
+   `[upstream=checked|no-origin|unpushed|attested: ...]`, then
+   `[platform=undeclared: ...|checked: ...|attested: ...|unstamped]` (#654).
 
    **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
    clone seen from Windows). Check it where it was produced; for WSL, in the
@@ -121,6 +125,11 @@ verification passed; FAIL otherwise).
    both. If either fails or times out, do not attest; FAIL (#660). Else attest
    with (tests/suite-freshness.bats runs this line):
    `--attest-upstream 'head=<SHA printed> upstream=<SHA ls-remote printed, or (unpushed) if none>'`
+
+   **`PLATFORM UNATTESTED`**: the artifact's `platform:` matches no entry of the checking
+   config's `evidence_platforms`. Accepting that platform is the operator's decision,
+   never yours: gather no acknowledgment for it, and do not run `run-suite.sh`. It stays
+   a FAIL; quote the message (#654).
 
    **Re-run once** with every attestation gathered above: that run is the
    verdict, and any failure in it is a FAIL.

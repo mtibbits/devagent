@@ -16,6 +16,43 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: every suite-count artifact records the platform it was produced on, and the
+  operator who runs preship can declare which platforms count (#654).** `scripts/run-suite.sh`
+  appends `platform: os=<uname -s> kernel=<uname -r> fs=<filesystem type of the measured
+  tree> modes=posix|no-op`. The filesystem type is what tells the WSL clone (`ext4`) from a
+  WSL `/mnt/c` checkout (`9p`); a kernel string cannot. `scripts/preship-evidence.sh` echoes
+  the line at the end of its PASS line as `[platform=…]`.
+  - The optional `[project.<name>] evidence_platforms = ["os=Linux fs=ext4 modes=posix"]`,
+    in the config of whoever RUNS preship, makes an artifact from any other platform fail
+    `PLATFORM UNATTESTED`, and one with no `platform:` line fail. The example pins
+    `modes=posix`, because an entry ignores the keys it does not name; `modes=posix`
+    means the chmod probe found no no-op, not proof that modes work. To accept one such
+    artifact, the operator re-runs the check with the
+    `--attest-platform 'head=<sha> platform=<line>'` the failure prints; the PASS line
+    records it, and the preship verifier never passes it. A malformed declaration stops
+    the check.
+  - The MR body carries the platform. The `## Evidence` block of
+    `templates/mr_template.md` gains a `platform:` line, which `/devagent:draftmr`
+    copies from the artifact, and preship-evidence compares the two byte for byte (a
+    mismatch names the exact line; exactly one such line may stand). With a
+    declaration, an Evidence block without the line fails, acknowledged or not, and so
+    does an `mr.md` with no Evidence block.
+  - Not breaking: without a declaration, an existing `mr.md` and artifact see only the
+    new artifact line and the PASS-line suffix (`[platform=undeclared: …]`, or
+    `[platform=unstamped]` for an older artifact). An Evidence `platform:` line is
+    checked only when one is present, which includes a new `mr.md`'s template
+    placeholder (next bullet).
+  - Migration, for every project whether it declares or not: an `mr.md` drafted from
+    the new template must carry the artifact's `platform:` line, or drop the template's
+    line. An unfilled placeholder fails preship, and so does a `platform:` line with no
+    artifact line to match (for example, an artifact from a WSL clone still running
+    pre-#654 scripts, which writes none). `/devagent:draftmr` from this release fills
+    it.
+  - The line is a claim the artifact makes: a hand-written artifact can carry any
+    well-formed `platform:` line.
+  - `scripts/lib/_toml.py get-list` refuses an array element holding a line break (rc 3);
+    it used to print it as two elements. `potholes_domain_nouns` is read the same way.
+
 - **Changed (breaking): run-suite refuses a stale or detached measured tree, and every
   suite-count artifact says which branch it measured (#660).** A second clone that had
   not been fetched could produce green evidence for an old commit. In #570 the WSL clone

@@ -420,6 +420,13 @@ def main(argv: list[str]) -> int:
         if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
             print(f"_toml: '{rest[0]}' is not an array of strings", file=sys.stderr)
             return 3
+        # #654: one element per output line IS this verb's contract, so an element holding
+        # a line break would read as two (measured: ["a\nb"] printed a and b, rc 0). A
+        # consumer cannot tell, and for evidence_platforms two shorter entries are two
+        # BROADER ones. Refused here, at the source, for every consumer (register Issue-82).
+        if any(("\n" in x) or ("\r" in x) for x in v):
+            print(f"_toml: '{rest[0]}' has an element containing a line break", file=sys.stderr)
+            return 3
         for x in v:
             print(x)
         return 0

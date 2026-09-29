@@ -32,6 +32,10 @@ default, so it can run the plugin and individual scripts but is not a
 supported environment for the suite. On Windows, develop in a WSL clone on a
 native Linux filesystem, not under `/mnt/c`. The README section named above
 explains the mechanism behind both requirements.
+Every suite-count artifact records the platform it was produced on
+(`platform:`). The maintainer who runs preship can set `evidence_platforms` in
+their `config.toml`, so that evidence from any other platform fails instead of
+passing (#654; the README section named above has the details).
 
 ## Running the suite
 

@@ -18,8 +18,9 @@
 # decision (out of #659's scope). The slot is state another session moves: pass the
 # issue (preship-evidence.sh <project> <Issue-N>) wherever another session is active.
 # Back-compat: mr.md WITHOUT an Evidence block → single
-# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; note
-# the tree resolution and guard above run first, so a dead recorded
+# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; #654:
+# not once evidence_platforms is declared and an artifact exists, see #654 PLATFORM;
+# note the tree resolution and guard above run first, so a dead recorded
 # worktree_path or a same-project-checkout invocation still refuses even for a
 # no-Evidence legacy issue — fail-closed by design, #571); an
 # artifact without a tree: line (pre-#571) skips the tree check. An artifact without a
@@ -46,22 +47,28 @@
 # these names instead of minting their own.
 #   Usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>']
 #                              [--attest-upstream '<attestation>']
-#   rung        one provenance check on the artifact. There are two: `tree` (the #571
-#               stamp) and `upstream` (#660: what the producing tree's origin said about
-#               its branch). Each rung's arms are listed where it runs, below.
-#   verdict     the PASS line ends with ` [tree=<verdict>] [upstream=<verdict>]`, from:
-#                 checked     decided HERE;
+#                              [--attest-platform '<attestation>']
+#   rung        one provenance check on the artifact. There are three: `tree` (the #571
+#               stamp), `upstream` (#660: what the producing tree's origin said about
+#               its branch), and `platform` (#654: where the artifact was produced,
+#               checked against the CHECKING operator's declaration). Each rung's arms
+#               are listed where it runs, below.
+#   verdict     the PASS line ends with ` [tree=<verdict>] [upstream=<verdict>] [platform=<verdict>]`, from:
+#                 checked     decided HERE (platform: a declared entry matched);
 #                 attested    decided by the CALLER, in the environment that produced
 #                             the artifact, for this run; the attestation is echoed;
-#                 unstamped   tree only: the artifact predates the rung (no line). The
-#                             upstream rung has no such pass: #660 fails a missing line;
+#                 unstamped   tree always; platform only while nothing is declared: the
+#                             artifact predates the rung (no line). The upstream rung has
+#                             no such pass: #660 fails a missing line;
 #                 no-origin   upstream only: the producing tree has no origin, the
 #                             single-tree case (nothing to compare, not a degradation).
 #                 unpushed    upstream only, with tree=checked: origin has no copy of the
 #                             branch the shipped tree holds (B′; the first push is at ship).
-#   <RUNG> UNATTESTED   the failure tag (TREE UNATTESTED, UPSTREAM UNATTESTED) for a rung
-#               this environment cannot decide and no attestation covers. rc 1, like
-#               every fails+= entry.
+#                 undeclared  platform only: nothing is declared (no evidence_platforms); the
+#                             stamp is echoed.
+#   <RUNG> UNATTESTED   the failure tag (TREE UNATTESTED, UPSTREAM UNATTESTED,
+#               PLATFORM UNATTESTED) for a rung this environment cannot decide and no
+#               attestation covers. rc 1, like every fails+= entry.
 #   --attest-<rung> '<attestation>'   the per-run input, also spelled
 #               --attest-<rung>=<attestation>.
 #               tree: exactly 'head=<full sha> dirty=no path=<the artifact's tree: path>'.
@@ -75,6 +82,11 @@
 #               ((unpushed) when ls-remote exited 0 and printed nothing). head= must match
 #               the artifact's head:. An upstream=<sha> must still be contained in the
 #               head being shipped, and that is decided HERE.
+#               platform: exactly 'head=<full sha> platform=<the artifact's platform: line,
+#               after the colon>'. NOT a fact checked in the producing environment: the
+#               operator's acknowledgment that this artifact's UNDECLARED platform is
+#               accepted for this run, so it is taken from the artifact by design and binds
+#               to its head: and platform:. The preship verifier never passes it.
 #               ARGUMENTS, never env vars, so there is no exported value to leave set (the
 #               standing shape #655 rejects). DEVAGENT_TREE_GUARD_OVERRIDE answers a
 #               different question (which checkout a run may act FROM) and silences no rung.
@@ -87,6 +99,21 @@
 # branch.sh writes, read with the ISSUE PRECEDENCE above). A missing line, an issue with
 # no recorded branch, and a mismatch each fail. A matching head: on the wrong branch is
 # the #570 shape: a clone parked on a sibling's branch.
+# #654 PLATFORM (the third rung). run-suite stamps `platform: os=… kernel=… fs=… modes=…`
+# (grammar: scripts/lib/platform.sh). The CHECKING operator may declare, in THEIR
+# config.toml, `[project.<name>] evidence_platforms = ["os=Linux fs=ext4 modes=posix", …]`; an entry
+# matches when each of its key=value pairs appears in the artifact's line. The declaration
+# is read once, below, and a malformed one dies before anything is decided. It governs
+# BOTH exits, the main path and the #149 no-Evidence exit, so deleting the Evidence block
+# cannot sidestep it (the #466 MAJOR-2 shape). Stated blind spot: the stamp is a claim the
+# artifact makes; a hand-written artifact can carry any well-formed platform: line.
+# #654 b' EVIDENCE LINE (intent.md ## Answers). mr.md's ## Evidence block carries the
+# artifact's platform: line (templates/mr_template.md; core-draft-mr copies it whole).
+# Present, it must equal the artifact's line byte for byte, and it fails when the artifact
+# has no line to back it; exactly one may stand, so two or more fail as duplicated. Absent,
+# it is unchecked while nothing is declared (AC3); under evidence_platforms it FAILS,
+# attested or not, and so does an mr.md with no Evidence block (the #149 exit). The two
+# exits never report the same case: see the arm, below.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -100,17 +127,20 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+# shellcheck source=lib/platform.sh
+. "$DEVAGENT_ROOT/scripts/lib/platform.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
 # #655/#660: take the per-run attestations out of the argument list, leaving the
 # positional [project] [issue] contract unchanged. ARGUMENTS, never env vars: no exported
 # value outlives the run it describes (vocabulary in the header).
-attest_tree=""; attest_upstream=""; _rep_flag=""; _rep_ref=""; _pos=()
+attest_tree=""; attest_upstream=""; attest_platform=""; _rep_flag=""; _rep_ref=""; _pos=()
 _attest_take() {   # <flag> <value>: the ONE table of per-rung attestation flags
   local var form ref
   case "$1" in
     --attest-tree)     var=attest_tree     form="'head=<full sha> dirty=no path=<tree>'"                  ref="#655" ;;
+    --attest-platform) var=attest_platform form="'head=<full sha> platform=<the artifact's platform: line, after the colon>'" ref="#654" ;;
     --attest-upstream) var=attest_upstream form="'head=<full sha> upstream=<full sha>|(unpushed)'" ref="#660" ;;
   esac
   [ -n "$2" ] || die "preship-evidence: $1 needs a value: $form ($ref)"
@@ -120,11 +150,11 @@ _attest_take() {   # <flag> <value>: the ONE table of per-rung attestation flags
 }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --attest-tree|--attest-upstream)
+    --attest-tree|--attest-upstream|--attest-platform)
       _attest_take "$1" "${2-}"; shift 2 ;;
-    --attest-tree=*|--attest-upstream=*)
+    --attest-tree=*|--attest-upstream=*|--attest-platform=*)
       _attest_take "${1%%=*}" "${1#*=}"; shift ;;
-    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] (#655/#660)" ;;
+    --*) die "preship-evidence: unknown option '$1' — usage: preship-evidence.sh [project] [issue] [--attest-tree '<attestation>'] [--attest-upstream '<attestation>'] [--attest-platform '<attestation>'] (#655/#660/#654)" ;;
     *) _pos+=("$1"); shift ;;
   esac
 done
@@ -149,6 +179,101 @@ mr="$issue_dir/mr.md"
 active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )
 active_guard_tree preship-evidence
 work_dir="$ACTIVE_TREE_DIR"
+
+# #654: the CHECKING operator's declaration, read ONCE (setter-globals; never $( … )).
+# A malformed one dies HERE, before anything is decided (the suite_env/suite_jobs shape).
+platform_declaration_resolve "$project"
+_ep_where="[project.$project] evidence_platforms in $(config_path)"
+
+# #654 PLATFORM RUNG (header "#654 PLATFORM"). Every arm; the verdict ends the PASS line
+# as [platform=<verdict>]:
+#   no platform: line  -> unstamped while nothing is declared (every pre-#654 artifact);
+#                         FAIL once evidence_platforms is declared: a missing stamp is
+#                         refused, never a bypass (the pytest: (error) precedent)
+#   not the one shape  -> FAIL, declared or not: only run-suite writes this line
+#   nothing declared   -> undeclared: <line>   (the facts, echoed)
+#   an entry matches   -> checked: <line> — matches evidence_platforms '<entry>' (decided HERE)
+#   no entry matches   -> FAIL PLATFORM UNATTESTED; with a matching --attest-platform
+#                         -> attested: <acknowledgment> — …
+# Appends to fails[]; sets platform_verdict, _plat_attest_used, a_platform_line (the
+# artifact's raw platform: line, "" when absent) and _plat_line_hint (that line, or what to
+# paste when there is none). The Evidence arm and the #149 exit below read them, so the
+# artifact line is parsed ONCE (register Issue-565). Called on
+# BOTH exits, so the #149 exit and the main path read the same arms. The #149 exit passes
+# a third argument, no-block: an acknowledgment cannot clear an mr.md with no Evidence
+# block, so there the UNATTESTED message offers remedies (1) and (2) only (imPlan D10).
+platform_unattested="PLATFORM UNATTESTED"
+_platform_rung() {   # <artifact file> <its head: sha> [no-block]
+  local art="$1" head="$2" no_block="${3:-}" body e decl n ack_head ack_body ack_remedy
+  local ack_re='^head=([[:xdigit:]]+) platform=(.+)$'
+  platform_verdict=""; _plat_attest_used=false
+  a_platform_line="$(sed -n '/^platform:/{p;q;}' "$art")"
+  _plat_line_hint="${a_platform_line:-the platform: line of an artifact re-run by run-suite}"
+  if [ -z "$a_platform_line" ]; then
+    if $PLATFORM_DECLARED_SET; then
+      fails+=("artifact has no 'platform:' line, and $_ep_where declares which platforms count, so an unstamped artifact is refused (#654). It predates #654, or came from a run-suite that does not stamp one (a clone running old plugin scripts). Re-run run-suite with this plugin's scripts, on a declared platform.")
+    else
+      platform_verdict="unstamped"
+    fi
+    return 0
+  fi
+  body="${a_platform_line#platform:}"
+  body="${body#"${body%%[![:space:]]*}"}"
+  if ! platform_body_valid "$body"; then
+    fails+=("artifact 'platform:' line '$body' is not the one shape run-suite writes ('os=<v> kernel=<v> fs=<v> modes=posix|no-op') — re-run run-suite (#654)")
+    return 0
+  fi
+  if ! $PLATFORM_DECLARED_SET; then
+    platform_verdict="undeclared: $body"
+    return 0
+  fi
+  for e in "${PLATFORM_DECLARED[@]}"; do
+    if platform_entry_matches "$e" "$body"; then
+      platform_verdict="checked: $body — matches evidence_platforms '$e'"
+      return 0
+    fi
+  done
+  decl="$(_qjoin "${PLATFORM_DECLARED[@]}")"
+  if [ -z "$attest_platform" ]; then
+    if [ -n "$no_block" ]; then
+      ack_remedy=". No acknowledgment can clear this exit: mr.md has no Evidence block (reported first), so give it one, then re-run this check."
+    else
+      ack_remedy="; (3) to accept THIS artifact anyway (an operator's decision, not a fix, and never one an agent makes on its own), re-run this check adding --attest-platform 'head=$head platform=$body'. The PASS line then records the acknowledgment, which binds to this artifact's head: and platform:, so every new artifact needs a new one."
+    fi
+    fails+=("$platform_unattested — the artifact was produced on '$body', which matches no entry of [project.$project] evidence_platforms ($decl) in $(config_path), so this check does not accept it as evidence (#654). (1) re-run run-suite on a declared platform, then re-run this check; (2) if this platform is in fact supported for $project, add an entry naming it to evidence_platforms in that file$ack_remedy")
+    return 0
+  fi
+  _plat_attest_used=true
+  if [[ "$attest_platform" =~ $ack_re ]]; then
+    ack_head="${BASH_REMATCH[1]}"; ack_body="${BASH_REMATCH[2]}"; n="${#fails[@]}"
+    [ "$ack_head" = "$head" ] \
+      || fails+=("$platform_unattested — --attest-platform names head $ack_head but the artifact records head $head; an acknowledgment binds to one artifact (#654)")
+    [ "$ack_body" = "$body" ] \
+      || fails+=("$platform_unattested — --attest-platform names platform '$ack_body' but the artifact records '$body'; acknowledge the platform this artifact names (#654)")
+    [ "${#fails[@]}" -gt "$n" ] \
+      || platform_verdict="attested: $attest_platform — acknowledged by the caller for this run; not in this project's evidence_platforms"
+  else
+    fails+=("$platform_unattested — malformed --attest-platform '$attest_platform': the one accepted form is 'head=<full sha> platform=<the artifact's platform: line, after the colon>' (#654)")
+  fi
+}
+# _qjoin <item...> - stdout: 'a', 'b', ... (the quoted list the failure messages name).
+_qjoin() { local o="" x; for x; do o+="${o:+, }'$x'"; done; printf '%s' "$o"; }
+# _art_head <artifact> - stdout: the head: sha (q-form: no pipe for pipefail, register wf
+# Issue-595). The ONE read of that field, for the #149 exit and the main path.
+_art_head() { sed -n '/^head:/{s/^head:[[:space:]]*\([^ ]*\).*/\1/p;q;}' "$1"; }
+# _fail_exit - report every fails[] entry and exit 1: the ONE FAIL report, for both exits.
+_fail_exit() {
+  local f
+  printf 'preship-evidence: FAIL\n' >&2
+  for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
+  exit 1
+}
+# The #655 rule: an acknowledgment the rung did not need is warned about and ignored.
+_platform_attest_warn() {
+  if [ -n "$attest_platform" ] && [ "$_plat_attest_used" = false ]; then
+    warn "preship-evidence: --attest-platform ignored — the platform rung did not need it (#654)"
+  fi
+}
 
 # Back-compat: no ## Evidence block ⇒ WARN + rc 0 (#149).
 if ! grep -q '^## Evidence' "$mr"; then
@@ -179,6 +304,22 @@ if ! grep -q '^## Evidence' "$mr"; then
   if [ "$_early_pytest_body" = "(error)" ]; then
     die "preship-evidence: artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest could not be RUN (missing interpreter, a venv without pytest, or an import/collection error). The suite was NOT measured, so nothing can honestly describe it, and removing the '## Evidence' block does not make it shippable (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite, then re-run run-suite."
   fi
+  # #654 (D5, D10): under a declaration this exit FAILS whenever an artifact exists. The
+  # missing disclosure is reported FIRST: b' (intent.md ## Answers) requires an Evidence
+  # platform: line once a project declares, and an mr.md with no Evidence block has none, so
+  # deleting the block cannot be the bypass b' closes (the #466 MAJOR-2 shape). The rung's
+  # own failures (PLATFORM UNATTESTED, a missing or malformed line) follow, and the rung is
+  # told no-block, so it offers no acknowledgment: one cannot clear this exit. The main
+  # path's Evidence arm never runs on this exit, so the fact is reported once. No
+  # declaration, or no artifact: byte-identical.
+  if $PLATFORM_DECLARED_SET && [ -n "$_early_artifact" ]; then
+    fails=()
+    _platform_rung "$_early_artifact" "$(_art_head "$_early_artifact")" no-block
+    _platform_attest_warn
+    # Prepended, not appended: the rung ran first only because it records a_platform_line.
+    fails=("mr.md has no '## Evidence' block, and $_ep_where is declared, so the MR body must say where its evidence was produced (#654). Give mr.md its ## Evidence block (/devagent:draftmr writes it from templates/mr_template.md), carrying suite:, files: and $_plat_line_hint" ${fails[@]+"${fails[@]}"})
+    _fail_exit
+  fi
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
   exit 0
 fi
@@ -189,12 +330,22 @@ ev_suite="$(printf '%s\n' "$block" | sed -n 's/^suite:[[:space:]]*\(.*\)$/\1/p' 
 ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*changed.*/\1/p' | head -1)"
 [ -n "$ev_suite" ] || die "preship-evidence: Evidence block has no 'suite:' line"
 [ -n "$ev_files" ] || die "preship-evidence: Evidence block has no 'files: <n> changed' line"
+# #654 b': every platform: line of the Evidence block, WHOLE and verbatim, in order;
+# ev_platform is the first ("" when there is none). The arm after the suite: comparison
+# reconciles them with the artifact's. Column 0 only, so the template's indented comment
+# text never matches (imPlan U12). A read loop over a here-string: no pipe for pipefail
+# to break (register wf Issue-595), no subprocess, and it COUNTS, so a duplicate is seen.
+ev_platforms=()
+while IFS= read -r _ev_line; do
+  case "$_ev_line" in platform:*) ev_platforms+=("$_ev_line") ;; esac
+done <<<"$block"
+ev_platform="${ev_platforms[0]-}"
 
 # Newest suite-count artifact.
 artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
 [ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project $(basename "$issue_dir")\` at HEAD (#572/#659: pass the project and the issue explicitly)"
 
-a_head="$(sed -n 's/^head:[[:space:]]*\([^ ]*\).*/\1/p' "$artifact" | head -1)"
+a_head="$(_art_head "$artifact")"
 a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
 a_ok="$(sed -n 's/^bats:[[:space:]]*\([0-9][0-9]*\)\/.*/\1/p' "$artifact" | head -1)"
 a_plan="$(sed -n 's/^bats:[[:space:]]*[0-9][0-9]*\/\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
@@ -394,6 +545,9 @@ esac
 if [ -n "$attest_upstream" ] && [ "$_up_attest_used" = false ]; then
   warn "preship-evidence: --attest-upstream ignored — the upstream rung did not need it (#660)"
 fi
+# #654 PLATFORM RUNG (defined above, beside the declaration it reads).
+_platform_rung "$artifact" "$a_head"
+_platform_attest_warn
 [ "$a_head" = "$cur_head" ] || fails+=("artifact head ($a_head) != current HEAD ($cur_head) — re-run run-suite at HEAD")
 [ "$a_dirty" = "no" ] || fails+=("artifact records a dirty tree (dirty=$a_dirty) — commit or clean, then re-run run-suite")
 [ "${a_notok:-0}" = "0" ] || fails+=("bats notok=$a_notok (suite not green)")
@@ -459,6 +613,26 @@ else
 fi
 [ "$ev_suite" = "$expected_suite" ] \
   || fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite'")
+# #654 b' EVIDENCE LINE (header). ev_platforms is compared with the artifact's raw line,
+# which _platform_rung read above (a_platform_line: one parse, register Issue-565). Every arm:
+#   two or more lines   -> FAIL, declared or not: exactly one may stand; names each, and the
+#                          line to keep
+#   both lines          -> byte-equal: nothing to report; else FAIL, naming the artifact's line
+#   Evidence line only  -> FAIL, declared or not: no artifact line backs the disclosure
+#   no Evidence line    -> unchecked while nothing is declared (AC3); FAIL under a
+#                          declaration, attested or not, naming the line to paste
+# An mr.md with NO Evidence block never gets here: the #149 exit above owns it (D10).
+if [ "${#ev_platforms[@]}" -gt 1 ]; then
+  fails+=("Evidence platform line duplicated: mr.md's Evidence block has ${#ev_platforms[@]} platform: lines ($(_qjoin "${ev_platforms[@]}")), and exactly one may stand (#654). Keep only this line: $_plat_line_hint")
+elif [ -n "$ev_platform" ]; then
+  if [ -z "$a_platform_line" ]; then
+    fails+=("Evidence platform line without an artifact line: mr.md has '$ev_platform', but the artifact has no platform: line to back it (#654). Re-run run-suite with this plugin's scripts and copy the platform: line it writes; with no evidence_platforms declared, deleting the Evidence line also clears this")
+  elif [ "$ev_platform" != "$a_platform_line" ]; then
+    fails+=("Evidence platform line mismatch: mr.md='$ev_platform' vs artifact='$a_platform_line' — copy the artifact's line whole, byte for byte (#654)")
+  fi
+elif $PLATFORM_DECLARED_SET; then
+  fails+=("Evidence platform line missing: $_ep_where is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: $_plat_line_hint")
+fi
 
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
@@ -467,9 +641,5 @@ actual_files="$("$DEVAGENT_GIT" -C "$work_dir" diff --name-only "$baseline..HEAD
 [ "$ev_files" = "$actual_files" ] \
   || fails+=("Evidence files mismatch: mr.md=$ev_files vs git diff $baseline..HEAD=$actual_files")
 
-if [ "${#fails[@]}" -gt 0 ]; then
-  printf 'preship-evidence: FAIL\n' >&2
-  for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
-  exit 1
-fi
-echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files) [tree=$tree_verdict] [upstream=$upstream_verdict]" >&2
+[ "${#fails[@]}" -eq 0 ] || _fail_exit
+echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files) [tree=$tree_verdict] [upstream=$upstream_verdict] [platform=$platform_verdict]" >&2
