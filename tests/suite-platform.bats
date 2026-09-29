@@ -314,3 +314,268 @@ _declare() {
     [ "$status" -eq 0 ]
     [[ "$(_line platform)" == "os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
 }
+
+# ---- preship-evidence: the platform rung --------------------------------------------
+
+@test "#654 AC3 back-compat: no declaration, no platform: line - the PASS line is the pre-654 line plus [platform=unstamped], exactly" {
+    # The whole output, not a substring: at 81bd632 it was exactly this line minus the
+    # suffix (imPlan U6, measured), so the suffix is the ONLY change.
+    _art654 ""
+    _mr654
+    _pe
+    [ "$status" -eq 0 ]
+    [ "$output" = "preship-evidence: PASS $D mr.md Evidence matches $(_art) (1/1 bats @ $(_head); files=1) [tree=checked] [upstream=no-origin] [platform=unstamped]" ]
+}
+
+@test "#654 AC1: no declaration - a stamped artifact passes and the PASS line echoes it as [platform=undeclared: ...]" {
+    _art654 "$GIT_BASH"                                            # nothing declared, so nothing refuses it
+    _mr654
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[upstream=no-origin] [platform=undeclared: $GIT_BASH]" ]]
+}
+
+@test "#654 AC3: with a declaration, an artifact with no platform: line fails, and re-running run-suite on a declared platform clears it" {
+    _declare '["os=Linux fs=ext4"]'
+    _art654 ""
+    _mr654
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no 'platform:' line"* ]]
+    [[ "$output" == *"evidence_platforms"* ]]
+    [[ "$output" != *"preship-evidence: PASS"* ]]
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4             # the remedy, on a declared platform
+    DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs
+    [ "$status" -eq 0 ]
+    _mr654 "$(_line platform)"                                          # draftmr copies the new line (b', Task 6)
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
+}
+
+@test "#654 AC2: with a declaration, an undeclared platform fails PLATFORM UNATTESTED with rc 1, naming it, the entries and the file" {
+    local tag; tag="$(_tag platform_unattested preship-evidence.sh)"
+    [ "$tag" = "PLATFORM UNATTESTED" ]
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"                                              # disclosed, so the rung is the only failure
+    _pe
+    [ "$status" -eq 1 ]                                             # rc 1: never "warn + exit 0" (AC2)
+    [[ "$output" == *"$tag"* ]]
+    [[ "$output" == *"'$GIT_BASH'"* ]]
+    [[ "$output" == *"'os=Linux fs=ext4'"* ]]
+    [[ "$output" == *"$CFG"* ]]
+    [[ "$output" != *"preship-evidence: PASS"* ]]
+    [ "$(grep -o '([1-3]) ' <<<"$output" | wc -l)" -eq 3 ]           # three remedies; X1-X3 run each
+}
+
+@test "#654 AC2: sanctioned flow on day one - a WSL ext4 artifact checked from another environment passes; its /mnt/c twin fails" {
+    _declare '["os=Linux fs=ext4 modes=posix"]'                     # the documented declaration (imPlan D12)
+    _art654 "$WSL_EXT4" "$FOREIGN_TREE"                             # produced in the WSL clone, checked from here
+    _mr654 "$WSL_EXT4"
+    _pe --attest-tree "$(_att_tree)"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[tree=attested: head=$(_head)"* ]]
+    [[ "$output" == *"[platform=checked: $WSL_EXT4 $D matches evidence_platforms 'os=Linux fs=ext4 modes=posix']" ]]
+    _art654 "$WSL_MNTC" "$FOREIGN_TREE"                             # the same kernel, a /mnt/c checkout
+    _mr654 "$WSL_MNTC"
+    _pe --attest-tree "$(_att_tree)"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PLATFORM UNATTESTED"* ]]
+    [[ "$output" != *"TREE UNATTESTED"* ]]                          # only the platform rung fails
+}
+
+@test "#654: a platform: line that is not the one shape fails, declared or not, an empty one is not an absent one, and re-running run-suite clears it" {
+    _mr654
+    local b n=0
+    for b in "$WSL_EXT4 " 'os=Linux fs=ext4' '(none)'; do
+        _art654 "$b"
+        _pe
+        [ "$status" -eq 1 ] || { echo "passed: [$b]"; return 1; }
+        [[ "$output" == *"'platform:' line"* ]] || { echo "unnamed: [$b]"; return 1; }
+        n=$((n + 1))
+    done
+    [ "$n" -eq 3 ]
+    _art654 ""
+    printf 'platform:\n' >> "$(_art)"                                # present but empty: NOT unstamped
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'platform:' line ''"* ]]
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$WSL_EXT4 host=h"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"'platform:' line"* ]]
+    [[ "$output" == *"re-run run-suite (#654)"* ]]
+    # The printed remedy, executed (register Fork-132): re-run run-suite, on a declared platform.
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs
+    [ "$status" -eq 0 ]
+    _mr654 "$(_line platform)"
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
+}
+
+@test "#654: any matching entry passes and the PASS line names it; an entry naming fewer keys matches more" {
+    _declare '["os=Darwin", "fs=ntfs modes=no-op"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: $GIT_BASH $D matches evidence_platforms 'fs=ntfs modes=no-op']" ]]
+    _declare '["os=Linux"]'
+    _art654 "$WSL_MNTC"
+    _mr654 "$WSL_MNTC"
+    _pe
+    [ "$status" -eq 0 ]                                              # os alone admits /mnt/c: the operator's choice
+    [[ "$output" == *"matches evidence_platforms 'os=Linux'"* ]]
+}
+
+@test "#654 AC2: an --attest-platform matching the artifact passes, in both spellings, and the PASS line records it" {
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"                                                 # the disclosure b' requires once declared
+    local ack="head=$(_head) platform=$GIT_BASH"
+    _pe --attest-platform "$ack"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=attested: $ack $D acknowledged by the caller for this run; not in this project's evidence_platforms]" ]]
+    _pe "--attest-platform=$ack"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=attested: $ack "* ]]
+}
+
+@test "#654: an --attest-platform naming another head or another platform, or malformed, is refused" {
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"
+    local other; other="$(git -C "$SOURCE_DIR" rev-parse HEAD~1)"
+    _pe --attest-platform "head=$other platform=$GIT_BASH"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"names head $other"* ]]
+    _pe --attest-platform "head=$(_head) platform=$WSL_MNTC"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"names platform '$WSL_MNTC'"* ]]
+    _pe --attest-platform "platform=$GIT_BASH head=$(_head)"           # right facts, wrong shape
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"malformed --attest-platform"* ]]
+}
+
+@test "#654: --attest-platform with no value, an empty value, or given twice is a usage error; unknown options name it" {
+    # register wf Issue-655: one leg per parser clause, both spellings.
+    _art654 "$GIT_BASH"
+    _mr654
+    _pe --attest-platform
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-platform needs a value"* ]]
+    _pe --attest-platform ""
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-platform needs a value"* ]]
+    _pe --attest-platform=
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-platform needs a value"* ]]
+    _pe --attest-platform "head=x platform=y" --attest-platform "head=x platform=y"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"--attest-platform given more than once"* ]]
+    _pe --attest_platform x
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"[--attest-platform '<attestation>']"* ]]
+}
+
+@test "#654: an --attest-platform the rung did not need is ignored with a warning" {
+    _art654 "$WSL_EXT4"
+    _mr654 "$WSL_EXT4"
+    local ack="head=$(_head) platform=$WSL_EXT4"
+    _pe --attest-platform "$ack"                                       # nothing declared
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--attest-platform ignored"* ]]
+    [[ "$output" == *"[platform=undeclared: $WSL_EXT4]"* ]]
+    _declare '["os=Linux fs=ext4"]'
+    _pe --attest-platform "$ack"                                       # declared and matched
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--attest-platform ignored"* ]]
+    [[ "$output" == *"[platform=checked: "* ]]
+}
+
+@test "#654: --attest-tree, --attest-upstream and DEVAGENT_TREE_GUARD_OVERRIDE do not acknowledge an undeclared platform" {
+    # register wf Issue-597: cross the new policy with every existing flag near it.
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$WSL_MNTC" "$FOREIGN_TREE"
+    _mr654 "$WSL_MNTC"
+    DEVAGENT_TREE_GUARD_OVERRIDE=1 _pe --attest-tree "$(_att_tree)" --attest-upstream "head=$(_head) upstream=(unpushed)"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PLATFORM UNATTESTED"* ]]
+}
+
+@test "#654: a malformed evidence_platforms dies before any check, naming the key and the file" {
+    _art654 "$WSL_EXT4"                                             # an artifact that would PASS
+    _mr654 "$WSL_EXT4"
+    local -a bad=('"os=Linux fs=ext4"' '[]' '[""]' '["host=nuc"]' '["os=Linux  fs=ext4"]'
+                  '["modes=maybe"]' '["os=Linux os=Darwin"]' '["fs=(unknown)"]' '["os=Linux\nfs=ext4"]' '[1, 2]')
+    # Each row's own reason, so no row passes on another class's die (M7, M8 depend on it).
+    local -a why=('must be an array' 'is empty' "entry ''" "entry 'host=nuc'" "entry 'os=Linux  fs=ext4'"
+                  "entry 'modes=maybe'" "entry 'os=Linux os=Darwin'" "entry 'fs=(unknown)'" 'single-line strings' 'must be an array')
+    [ "${#why[@]}" -eq "${#bad[@]}" ]
+    local i n=0
+    for i in "${!bad[@]}"; do
+        _declare "${bad[$i]}"
+        _pe
+        [ "$status" -eq 1 ] || { echo "accepted: ${bad[$i]}"; return 1; }
+        [[ "$output" == *"evidence_platforms"* ]] || { echo "unnamed: ${bad[$i]}"; return 1; }
+        [[ "$output" == *"$CFG"* ]] || { echo "no file: ${bad[$i]}"; return 1; }
+        [[ "$output" == *"${why[$i]}"* ]] || { echo "wrong reason for ${bad[$i]}: $output"; return 1; }
+        [[ "$output" != *"FAIL"* ]] || { echo "checks ran first: ${bad[$i]}"; return 1; }
+        n=$((n + 1))
+    done
+    [ "$n" -eq 10 ]
+}
+
+@test "#654 AC2: PLATFORM UNATTESTED remedy 1 - run-suite's real /mnt/c artifact fails, and re-running on a declared ext4 platform clears it" {
+    # register Issue-232: the producer's REAL artifact through the consumer, both outcomes.
+    _declare '["os=Linux fs=ext4"]'
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 9p
+    _rs
+    [ "$status" -eq 0 ]
+    _mr654 "$(_line platform)"                                          # draftmr copies the artifact's line (b')
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PLATFORM UNATTESTED"* ]]
+    [[ "$output" == *"fs=9p"* ]]
+    [[ "$output" == *"(1) re-run run-suite on a declared platform"* ]]
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs
+    [ "$status" -eq 0 ]
+    _mr654 "$(_line platform)"                                          # and re-copies it after the re-run
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
+}
+
+@test "#654: PLATFORM UNATTESTED remedy 2 (add the platform to evidence_platforms) clears it" {
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"(2) if this platform is in fact supported"* ]]
+    _declare '["os=Linux fs=ext4", "os=MINGW64_NT-10.0-26200 fs=ntfs"]'
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"matches evidence_platforms 'os=MINGW64_NT-10.0-26200 fs=ntfs'"* ]]
+}
+
+@test "#654: PLATFORM UNATTESTED remedy 3 - the printed --attest-platform, run as printed, passes and is recorded" {
+    # register Issue-594/Fork-132: execute the message's own remedy (every one of three).
+    _declare '["os=Linux fs=ext4"]'
+    _art654 "$GIT_BASH"
+    _mr654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 1 ]
+    local ack
+    ack="$(printf '%s\n' "$output" | sed -n "s/.*(3) .*--attest-platform '\([^']*\)'.*/\1/p")"
+    [ -n "$ack" ]
+    [ "$ack" = "head=$(_head) platform=$GIT_BASH" ]
+    _pe --attest-platform "$ack"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=attested: $ack "* ]]
+}
