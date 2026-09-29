@@ -423,7 +423,8 @@ With a declaration, the check fails:
 - an artifact from an undeclared platform (`PLATFORM UNATTESTED`);
 - an artifact with no `platform:` line;
 - an `mr.md` whose Evidence block lacks the artifact's `platform:` line, even when
-  the platform was acknowledged, and an `mr.md` with no Evidence block at all.
+  the platform was acknowledged, and an `mr.md` with no Evidence block at all once a
+  suite-count artifact exists (with no artifact, the #149 warning stands).
 
 A malformed declaration stops the check before anything is decided. The
 `PLATFORM UNATTESTED` failure prints three remedies:

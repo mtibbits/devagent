@@ -100,8 +100,8 @@ verification passed; FAIL otherwise).
    `files:` == the baseline..HEAD diff count; a single `platform:` line, when present,
    byte for byte equal to the artifact's (#654)). An `mr.md` with no Evidence
    block warns and passes (back-compat), unless the checking config declares
-   `evidence_platforms`: then it fails, as does a block without the `platform:` line
-   (#654). The PASS line ends with the rung
+   `evidence_platforms` and a suite-count artifact exists: then it fails, as does a
+   block without the `platform:` line (#654). The PASS line ends with the rung
    verdicts: `[tree=checked|attested: ...|unstamped]`,
    `[upstream=checked|no-origin|unpushed|attested: ...]`, then
    `[platform=undeclared: ...|checked: ...|attested: ...|unstamped]` (#654).
