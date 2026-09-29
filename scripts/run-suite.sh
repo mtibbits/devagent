@@ -17,6 +17,11 @@
 #     upstream: <origin's tip of that branch, full sha> | (no-origin) | (unreachable) | (unpushed)
 #               (#660: what origin answered in the FRESHNESS block below; (no-origin) is the
 #               single-tree case, the other two are degradations preship-evidence names)
+#     platform: os=<uname -s> kernel=<uname -r> fs=<filesystem type of the measured tree>
+#               modes=posix|no-op   (#654: where the artifact was produced. Grammar and probes
+#               in scripts/lib/platform.sh; modes= is the #565 chmod probe below, which runs
+#               for EVERY tree; a probe that fails records (unknown). Never a host name, and
+#               no override: nothing sets, suppresses or edits this line.)
 # On the framework lines, `(none)` means the framework is ABSENT from the measured tree
 # and `(error)` means its tests exist but could not be RUN (a suite that ran and had
 # nothing to count — all skipped, or nothing collected — records a truthful 0/0); preship-evidence.sh treats
@@ -110,6 +115,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/python-interp.sh"
 # shellcheck source=lib/upstream.sh
 . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"
+# shellcheck source=lib/platform.sh
+. "$DEVAGENT_ROOT/scripts/lib/platform.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -207,18 +214,26 @@ has_pytest=false; [ -n "$(find tests -name 'test_*.py' -print -quit 2>/dev/null)
 # suite_mode_reference: a reference refuses as before; none proceeds and SAYS so in
 # file_modes:, worded as what was NOT seen — never "modes verified" — because the
 # scan is a proxy (its LIMITS are in its own comment); a scan that cannot run refuses.
+# #654: the probe ITSELF runs for every tree, suite or not. Its answer is also the
+# platform: stamp's modes=, and AC1 wants the probe result in every artifact. One run,
+# two renderings (file_modes: below, modes= in the stamp), so they cannot disagree. Only
+# the gate stays conditional on a suite, so file_modes: (none) still means "no suite".
+# Residual, deliberate: posix_modes_representable is FAIL-OPEN on an
+# unprobeable dir (mktemp/chmod/stat failure) because its original caller is
+# an audit that must still run. For this gate that direction is inverted, so a
+# mount where chmod ERRORS (rather than no-ops) is not caught here, and records
+# `posix` — which therefore means "no no-op detected", not "modes proven". The
+# noacl case this exists for IS caught, because there chmod succeeds and lies.
+_noop_dir=""
+for _fs_dir in "$work_dir" "${TMPDIR:-/tmp}"; do
+  posix_modes_representable "$_fs_dir" || { _noop_dir="$_fs_dir"; break; }
+done
+if [ -z "$_noop_dir" ]; then platform_modes="posix"; else platform_modes="no-op"; fi
+# #654: the stamp, taken before any suite runs: it describes the environment, and a probe
+# that fails records (unknown) instead of refusing, so it can never stop the run.
+platform_stamp_resolve "$work_dir" "$platform_modes"   # setter-global PLATFORM_BODY; never $( … )
 file_modes_line="file_modes: (none)"
 if $has_bats || $has_pytest; then
-  # Residual, deliberate: posix_modes_representable is FAIL-OPEN on an
-  # unprobeable dir (mktemp/chmod/stat failure) because its original caller is
-  # an audit that must still run. For this gate that direction is inverted, so a
-  # mount where chmod ERRORS (rather than no-ops) is not caught here, and records
-  # `posix` — which therefore means "no no-op detected", not "modes proven". The
-  # noacl case this exists for IS caught, because there chmod succeeds and lies.
-  _noop_dir=""
-  for _fs_dir in "$work_dir" "${TMPDIR:-/tmp}"; do
-    posix_modes_representable "$_fs_dir" || { _noop_dir="$_fs_dir"; break; }
-  done
   if [ -z "$_noop_dir" ]; then
     file_modes_line="file_modes: posix"
   else
@@ -492,5 +507,7 @@ fi
   # #660: appended after file_modes:, under the same prefix-not-position rule.
   echo "branch: $head_branch"
   echo "upstream: $UPSTREAM_TIP"
+  # #654: appended after upstream:, under the same prefix-not-position rule.
+  echo "platform: $PLATFORM_BODY"
 } > "$artifact"
 echo "run-suite: wrote $artifact (issue=$issue from $issue_src; branch=$head_branch; upstream=$UPSTREAM_TIP; $bats_line; $pytest_line; dirty=$dirty; tree=$tree_canon)" >&2

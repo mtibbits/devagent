@@ -223,3 +223,94 @@ _declare() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"entry ''"* ]]
 }
+
+# ---- run-suite: the platform: stamp -------------------------------------------------
+
+@test "#654 AC1: every artifact ends with one platform: line after upstream:, in the one shape, from this host's uname, df and chmod probe" {
+    _rs
+    [ "$status" -eq 0 ]
+    local art body fs
+    art="$(_art)"
+    [ "$(grep -c '^platform:' "$art")" -eq 1 ]
+    [ "$(grep -n '^platform:' "$art" | cut -d: -f1)" -gt "$(grep -n '^upstream:' "$art" | cut -d: -f1)" ]
+    body="$(_line platform)"
+    _lib
+    platform_body_valid "$body"                              # the checker's own predicate (Issue-232/585)
+    fs="$(df --output=fstype -- "$SOURCE_DIR" | sed -n '2p')" # derived here, not by the lib's parse
+    [[ " $body " == *" os=$(uname -s) "* ]]
+    [[ " $body " == *" kernel=$(uname -r) "* ]]
+    [[ " $body " == *" fs=$fs "* ]]
+    # modes= is the SAME probe run file_modes: renders (D3), whichever way this host answers.
+    case "$(_line file_modes)" in
+        posix)     [[ " $body " == *" modes=posix "* ]] ;;
+        "no-op; "*) [[ " $body " == *" modes=no-op "* ]] ;;
+        *)         echo "unexpected file_modes: $(_line file_modes)"; return 1 ;;
+    esac
+}
+
+@test "#654 AC1: a simulated WSL ext4 clone and a simulated /mnt/c checkout differ only in fs=, under the same kernel" {
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    _rs
+    [ "$status" -eq 0 ]
+    local a b
+    a="$(_line platform)"
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 9p
+    DEVAGENT_DATE_OVERRIDE=2099-01-01 _rs                      # a second artifact, sorting after the first
+    [ "$status" -eq 0 ]
+    b="$(_line platform)"
+    [[ " $a " == *" fs=ext4 "* ]]
+    [[ " $b " == *" fs=9p "* ]]
+    [ "${a/ fs=ext4 / fs=9p }" = "$b" ]                        # the kernel string is identical; only fs= differs
+}
+
+@test "#654 AC1: a simulated Git Bash checkout records its os, kernel and fs, and modes=no-op beside file_modes: no-op" {
+    _platform MINGW64_NT-10.0-26200 3.6.9-b4195d69.x86_64 ntfs
+    _shim chmod 'exit 0'                                       # the #565 no-op pair (suite-fs-preflight.bats)
+    _shim stat 'echo 644; exit 0'
+    _rs
+    [ "$status" -eq 0 ]
+    [ "$(_line platform)" = "$GIT_BASH" ]
+    [[ "$(_line file_modes)" == "no-op; "* ]]
+}
+
+@test "#654: a tests-less tree still records modes= from the probe, while file_modes: stays (none)" {
+    _shim chmod 'exit 0'
+    _shim stat 'echo 644; exit 0'
+    git -C "$SOURCE_DIR" rm -q -r tests
+    git -C "$SOURCE_DIR" commit -q -m "no tests"
+    _rs
+    [ "$status" -eq 0 ]
+    [ "$(_line file_modes)" = "(none)" ]                         # no suite, so no gate ran (unchanged)
+    [[ " $(_line platform) " == *" modes=no-op "* ]]             # the probe itself did run (D3)
+}
+
+@test "#654: the stamp never records a host name (planted: uname -n and -a, hostname, HOSTNAME)" {
+    # register lawfirm Issue-6/18: an absence claim ships with a planted control. First
+    # prove the plants answer, so an implementation that asked WOULD see them.
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    _shim hostname 'echo PLANTED-HOSTNAME; exit 0'
+    run env PATH="$DEVAGENT_TMP/binstub:$PATH" uname -n
+    [ "$output" = "PLANTED-HOSTNAME" ]
+    run env PATH="$DEVAGENT_TMP/binstub:$PATH" hostname
+    [ "$output" = "PLANTED-HOSTNAME" ]
+    HOSTNAME=PLANTED-HOSTNAME _rs
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^platform:' "$(_art)")" -eq 1 ]               # non-vacuous: there IS a stamp to inspect
+    run grep -c 'PLANTED-HOSTNAME' "$(_art)"
+    [ "$status" -eq 1 ]
+}
+
+@test "#654: failed probes record (unknown) and the run still writes its artifact" {
+    _shim uname 'exit 1'
+    _shim df 'exit 1'
+    _rs
+    [ "$status" -eq 0 ]
+    [[ "$(_line platform)" == "os=(unknown) kernel=(unknown) fs=(unknown) modes="* ]]
+}
+
+@test "#654: DEVAGENT_TREE_GUARD_OVERRIDE neither removes nor changes the platform: line" {
+    _platform Linux 6.18.33.2-microsoft-standard-WSL2 ext4
+    DEVAGENT_TREE_GUARD_OVERRIDE=1 _rs
+    [ "$status" -eq 0 ]
+    [[ "$(_line platform)" == "os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes="* ]]
+}
