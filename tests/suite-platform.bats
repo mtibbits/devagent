@@ -845,3 +845,66 @@ _declare() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"has 2 platform: lines"* ]]
 }
+
+# ---- documentation ----------------------------------------------------------------
+
+@test "#654 sweep: every docs home names evidence_platforms, and every home naming TREE UNATTESTED names PLATFORM UNATTESTED" {
+    # Homes DERIVED from the claims (register Issue-458/583): the AC4 homes plus the spec,
+    # CHANGELOG and the script header name the key; every doc that names the tree rung's
+    # tag names the platform rung's. Whitespace-normalised: prose wraps mid-tag (Issue-612/465).
+    local f t n=0 tag
+    tag="$(_tag platform_unattested preship-evidence.sh)"
+    [ "$tag" = "PLATFORM UNATTESTED" ]
+    local homes=(README.md CONTRIBUTING.md docs-site/configuration.md templates/config.toml.skel
+                 docs/specs/2026-05-19-devagent-plugin-design.md CHANGELOG.md scripts/preship-evidence.sh)
+    [ "${#homes[@]}" -eq 7 ]
+    for f in "${homes[@]}"; do
+        grep -qF 'evidence_platforms' "$DEVAGENT_ROOT/$f" || { echo "no evidence_platforms in $f"; return 1; }
+    done
+    [ "$(printf 'x TREE\n   UNATTESTED y\n' | tr -s '[:space:]' ' ' | grep -c 'TREE UNATTESTED')" -eq 1 ]   # planted control
+    for f in "$DEVAGENT_ROOT"/README.md "$DEVAGENT_ROOT"/docs/specs/*.md "$DEVAGENT_ROOT"/docs-site/*.md \
+             "$DEVAGENT_ROOT"/skills/*/SKILL.md "$DEVAGENT_ROOT"/agents/*.md; do
+        t="$(tr -s '[:space:]' ' ' < "$f")"
+        if [[ "$t" == *"TREE UNATTESTED"* ]]; then
+            n=$((n + 1))
+            [[ "$t" == *"$tag"* ]] || { echo "$f names TREE UNATTESTED but not $tag"; return 1; }
+        fi
+    done
+    [ "$n" -ge 3 ]                                    # README, the spec, the verifier (census at 81bd632)
+    grep -qF -- "$tag" "$DEVAGENT_ROOT/CHANGELOG.md"
+    # improve SE4: the README's framing paragraph counts what the section covers, so it must
+    # name the fourth, recorded-only fact too (register lectio Issue-10).
+    local framing
+    framing="$(awk '/^The suite has three environmental requirements/{f=1} f && /^$/{exit} f' "$DEVAGENT_ROOT/README.md" | tr -s '[:space:]' ' ')"
+    [ -n "$framing" ]
+    [[ "$framing" == *"A fourth fact is recorded but not required"* ]]
+    [[ "$framing" == *"evidence_platforms"* ]]
+}
+
+@test "#654: the evidence_platforms example as written in config.toml.skel, README and docs-site pins modes=posix and is a declaration preship-evidence accepts" {
+    # register Issue-461/583: a doc an operator copies is product behaviour; each home
+    # carries an editor note naming this test. imPlan D12: the example pins modes=posix.
+    local skel readme site d n=0 noop
+    skel="$(sed -n 's/^# evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/templates/config.toml.skel")"
+    readme="$(sed -n 's/^evidence_platforms = \(.*\)$/\1/p' "$DEVAGENT_ROOT/README.md")"
+    site="$(sed -n 's/^evidence_platforms = \(\[[^]]*\]\).*$/\1/p' "$DEVAGENT_ROOT/docs-site/configuration.md")"
+    _art654 "$WSL_EXT4"
+    _mr654 "$WSL_EXT4"                                # b': declared, so the Evidence line is required
+    for d in "$skel" "$readme" "$site"; do
+        [ "$(printf '%s\n' "$d" | grep -c .)" -eq 1 ] || { echo "not one example: [$d]"; return 1; }
+        [[ "$d" == *"modes=posix"* ]] || { echo "modes not pinned: $d"; return 1; }
+        _declare "$d"
+        _pe
+        [ "$status" -eq 0 ] || { echo "refused: $d"; return 1; }
+        [[ "$output" == *"[platform=checked: $WSL_EXT4 "* ]] || { echo "not checked: $d"; return 1; }
+        n=$((n + 1))
+    done
+    [ "$n" -eq 3 ]
+    # What the pin buys: an ext4 clone whose chmod probe found a no-op is refused.
+    noop='os=Linux kernel=6.18.33.2-microsoft-standard-WSL2 fs=ext4 modes=no-op'
+    _art654 "$noop"
+    _mr654 "$noop"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PLATFORM UNATTESTED"* ]]
+}

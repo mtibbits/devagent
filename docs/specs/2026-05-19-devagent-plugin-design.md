@@ -1157,6 +1157,62 @@ An artifact with no `branch:` or `upstream:` line fails. There is no back-compat
 because a missing branch is the #570 shape. The preship verifier runs the two commands
 and attests.
 
+Since #654 every artifact also records WHERE it was produced, in a trailing
+`platform: os=<uname -s> kernel=<uname -r> fs=<filesystem type of the measured tree> modes=posix|no-op`
+line appended after `upstream:` (keys fixed and in that order, single spaces). `fs` is
+`df --output=fstype` of the measured tree, the discriminator a kernel string lacks: the WSL
+clone records `ext4`, a WSL `/mnt/c` checkout `9p`, native Git Bash `ntfs` (`stat -f`
+cannot serve: it names ext4 `ext2/ext3`). `modes` is the #565 chmod probe's answer over the
+measured tree and TMPDIR, from the same run that renders `file_modes:`; that probe now runs
+for every tree, and `file_modes:` itself is unchanged. `modes=posix` means the probe found
+no no-op: it fails open where chmod errors or it cannot write, so it is never proof that
+modes work. A byte outside `[A-Za-z0-9._+-]` is
+recorded as `_` (under the C locale, so one platform always records one line), and a probe
+that fails or prints nothing records `(unknown)`: the stamp never refuses. It never records
+a host name, and no variable or key sets, suppresses or edits it. The grammar has one home,
+`scripts/lib/platform.sh`, read by both the producer and the checker. The body shape is
+FROZEN: a line that is not it fails, declared or not, and mr.md copies it byte for byte,
+so adding a key or a `modes=` value is a coordinated producer + checker + template change
+in one release.
+
+`preship-evidence.sh` reads the line as its third provenance rung, in #655's vocabulary,
+and ends its PASS line with `[platform=<verdict>]`. The operator who RUNS the check
+declares which platforms count, in their own `config.toml`: the optional
+`[project.<name>] evidence_platforms` array (in the sanctioned flow, the Windows-side
+config, not the WSL clone's). An entry is one or more `key=value` pairs over the stamp's
+keys, each key at most once, `modes` only `posix` or `no-op`, never `(unknown)`; it matches
+an artifact when each pair appears in the artifact's `platform:` line. The key is read once,
+and a value that is not an array of single-line strings, an empty array, or an invalid
+entry dies before anything is decided.
+- No declaration: a stamped artifact passes as `[platform=undeclared: <line>]`, an
+  unstamped one (every pre-#654 artifact) as `[platform=unstamped]`. Nothing else changes.
+- A declaration: a matching artifact passes as `[platform=checked: <line> — matches
+  evidence_platforms '<entry>']`; an artifact with no `platform:` line fails; one matching
+  no entry fails `PLATFORM UNATTESTED` unless the caller passes a per-run
+  `--attest-platform 'head=<sha> platform=<line>'`, which the PASS line records as
+  `[platform=attested: …]`. Unlike the tree and upstream attestations it is not a fact
+  checked where the artifact was produced: it is the operator's acknowledgment, taken from
+  the artifact, bound to its `head:` and `platform:`, and the preship verifier never gives it.
+- A `platform:` line that is not the one shape fails, declared or not.
+- The MR body carries the line too (b′). The `## Evidence` block of
+  `templates/mr_template.md` has a `platform:` line, which `/devagent:draftmr` copies
+  whole from the artifact. preship-evidence compares it with the artifact's line byte
+  for byte, declared or not: a mismatch fails naming the exact line, an Evidence
+  line with no artifact line fails, and so do two or more Evidence `platform:` lines
+  (exactly one may stand). An Evidence block without the line is unchecked while
+  nothing is declared; under a declaration it fails, acknowledged or not, naming the
+  line to paste. The template's placeholder therefore fails preship until it is filled,
+  or deleted when the artifact has no line, declared or not.
+- The declaration governs the #149 no-Evidence exit too. With one, that exit fails
+  whenever an artifact exists, because an `mr.md` with no Evidence block carries no
+  `platform:` line either; it no longer warns and passes. It reports the missing block
+  first, then the rung's failures, and offers no `--attest-platform` there, because an
+  acknowledgment cannot clear a missing block. With no artifact at all it still warns.
+
+Stated blind spot: the line is a claim the artifact makes; a hand-written artifact can
+carry any well-formed `platform:` line. `scripts/lib/_toml.py get-list` now refuses (rc 3)
+an array element holding a line break, which it used to print as two elements.
+
 Since #603 the optional `[project.<name>.suite_env]` table is exported into
 both suite child processes. It exists for a suite whose environment is not
 derivable from the tree — lawFirm keeps its data layer outside git by design,

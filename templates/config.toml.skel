@@ -69,6 +69,24 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # Opt in only after auditing the suite at file granularity — README
 # "Parallel bats" has the rules (#593).
 # suite_jobs = 1
+#
+# evidence_platforms (#654): the platforms whose suite evidence THIS config's preship
+# accepts. Every run-suite artifact records a `platform:` line of key=value pairs: the
+# OS (os=), its release, the filesystem type of the measured tree (fs=), and whether
+# chmod works there (modes=posix|no-op). An entry matches when each of its key=value
+# pairs appears in that line; README "Running the test suite" lists every key. The
+# example pins modes=posix, because an entry ignores the keys it does not name;
+# modes=posix means the chmod probe found no no-op (it fails open), not proof that
+# modes work. Set it in the config of whoever RUNS preship (on Windows, the Git Bash
+# side, not the WSL clone's). With it, preship-evidence fails an artifact from any
+# other platform (PLATFORM UNATTESTED), one with no platform: line, and an mr.md whose
+# Evidence block lacks the artifact's platform: line. Without it, the platform is only
+# echoed. A malformed value or an empty list stops the check. Declared or not, an
+# mr.md drafted from the template must fill its platform: line, or delete it. (Editor
+# note: this comment does not spell the release key: tests/generic-templates.bats #136
+# refuses that token here.)
+# (tests/suite-platform.bats runs the next line as written.)
+# evidence_platforms = ["os=Linux fs=ext4 modes=posix"]
 
 # --- Fork workflow (optional; uncomment + set to enable; defaults shown). ---
 # fork_first above is the master switch; these tune the fork / all-prs plumbing.
