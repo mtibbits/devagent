@@ -639,3 +639,17 @@ _declare() {
     [ "$status" -eq 0 ]
     [ "$output" = "preship-evidence: WARN $D mr.md has no '## Evidence' block; skipping evidence checks (#149 absent"$'\xe2\x87\x92'"no-gate)" ]
 }
+
+@test "#654: the preship verifier names PLATFORM UNATTESTED, has no form to attest it, and knows the [platform=] suffix" {
+    # register Issue-286/598: a checker must be TOLD the gate's contract, the tag taken from
+    # the script. The acknowledgment is the operator's (imPlan D7), so the verifier carries no
+    # form to fill: an absence leg, with a positive control on the same grep (lawfirm Issue-6).
+    local f="$DEVAGENT_ROOT/agents/preship-verifier.md" tag
+    tag="$(_tag platform_unattested preship-evidence.sh)"
+    [ "$tag" = "PLATFORM UNATTESTED" ]
+    grep -qF -- "$tag" "$f"
+    grep -qF -- '[platform=' "$f"
+    grep -qF -- '--attest-platform' "$DEVAGENT_ROOT/scripts/preship-evidence.sh"   # control: the grep sees the flag
+    run grep -cF -- '--attest-platform' "$f"
+    [ "$status" -eq 1 ]
+}

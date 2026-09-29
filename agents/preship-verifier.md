@@ -99,8 +99,9 @@ verification passed; FAIL otherwise).
    suite was never measured —
    `files:` == the baseline..HEAD diff count). An `mr.md` with no Evidence
    block warns and passes (back-compat). The PASS line ends with the rung
-   verdicts: `[tree=checked|attested: ...|unstamped]` then
-   `[upstream=checked|no-origin|unpushed|attested: ...]`.
+   verdicts: `[tree=checked|attested: ...|unstamped]`,
+   `[upstream=checked|no-origin|unpushed|attested: ...]`, then
+   `[platform=undeclared: ...|checked: ...|attested: ...|unstamped]` (#654).
 
    **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
    clone seen from Windows). Check it where it was produced; for WSL, in the
@@ -121,6 +122,11 @@ verification passed; FAIL otherwise).
    both. If either fails or times out, do not attest; FAIL (#660). Else attest
    with (tests/suite-freshness.bats runs this line):
    `--attest-upstream 'head=<SHA printed> upstream=<SHA ls-remote printed, or (unpushed) if none>'`
+
+   **`PLATFORM UNATTESTED`**: the artifact's `platform:` matches no entry of the checking
+   config's `evidence_platforms`. Accepting that platform is the operator's decision,
+   never yours: gather no acknowledgment for it, and do not run `run-suite.sh`. It stays
+   a FAIL; quote the message (#654).
 
    **Re-run once** with every attestation gathered above: that run is the
    verdict, and any failure in it is a FAIL.
