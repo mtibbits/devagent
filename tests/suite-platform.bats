@@ -579,3 +579,63 @@ _declare() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"[platform=attested: $ack "* ]]
 }
+
+# ---- the #149 no-Evidence exit ----------------------------------------------------
+
+@test "#654 (D10): with a declaration and no Evidence block, an artifact always fails - the missing block first, then the rung's failures, with no acknowledgment offered" {
+    # register Issue-466 MAJOR-2 / lawfirm Issue-14: deleting the Evidence block must not
+    # sidestep the declaration (tests/preship-evidence.bats pins the same for pytest: (error)).
+    # b' (intent.md ## Answers): under a declaration the MR body must carry the platform:
+    # line, attested or not, and an mr.md with no Evidence block carries none.
+    _declare '["os=Linux fs=ext4"]'
+    { echo '## Summary'; echo 'no evidence block here'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _art654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PLATFORM UNATTESTED"* ]]
+    [[ "$output" == *"mr.md has no '## Evidence' block, and"* ]]
+    [[ "$output" != *"skipping evidence checks"* ]]                        # never the #149 WARN-and-pass
+    # imPlan D10 (improve A4): the missing block is reported FIRST, and remedy (3) is not
+    # offered here, because an acknowledgment cannot clear a missing block.
+    local out="$output" first
+    first="$(grep -m1 '^  - ' <<<"$out")"
+    [[ "$first" == *"mr.md has no '## Evidence' block, and"* ]]
+    [[ "$out" == *"(1) re-run run-suite on a declared platform"* ]]
+    [[ "$out" == *"(2) if this platform is in fact supported"* ]]
+    [[ "$out" == *"No acknowledgment can clear this exit"* ]]
+    [ "$(printf "x --attest-platform 'y'\n" | grep -cF -- "--attest-platform '")" -eq 1 ]   # planted control
+    run grep -cF -- "--attest-platform '" <<<"$out"
+    [ "$status" -eq 1 ]
+    _pe --attest-platform "head=$(_head) platform=$GIT_BASH"               # acknowledged: the disclosure is still missing
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"PLATFORM UNATTESTED"* ]]
+    [[ "$output" == *"mr.md has no '## Evidence' block, and"* ]]
+    [[ "$output" == *"platform: $GIT_BASH"* ]]                             # names the line the block must carry
+    _art654 ""
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no 'platform:' line"* ]]
+    _art654 "$WSL_EXT4"                                                    # a declared platform: still no disclosure
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"platform: $WSL_EXT4"* ]]
+    _mr654 "$WSL_EXT4"                                                     # the remedy: an Evidence block carrying the named line
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[platform=checked: $WSL_EXT4 "* ]]
+    { echo '## Summary'; echo 'no evidence block here'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    rm "$(_art)"                                                           # no artifact at all: the plain #149 path
+    _pe
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"skipping evidence checks"* ]]
+    [[ "$output" != *"[platform="* ]]
+}
+
+@test "#654 back-compat: no declaration and no Evidence block - the #149 WARN is byte-identical whatever the platform (pin)" {
+    # A pin, green before #654 too (allow-listed for born-red). Measured exact at 81bd632.
+    { echo '## Summary'; echo 'no evidence block here'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _art654 "$GIT_BASH"
+    _pe
+    [ "$status" -eq 0 ]
+    [ "$output" = "preship-evidence: WARN $D mr.md has no '## Evidence' block; skipping evidence checks (#149 absent"$'\xe2\x87\x92'"no-gate)" ]
+}

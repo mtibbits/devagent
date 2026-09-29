@@ -18,8 +18,9 @@
 # decision (out of #659's scope). The slot is state another session moves: pass the
 # issue (preship-evidence.sh <project> <Issue-N>) wherever another session is active.
 # Back-compat: mr.md WITHOUT an Evidence block → single
-# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; note
-# the tree resolution and guard above run first, so a dead recorded
+# WARN, rc 0 (the #149 absent⇒no-gate pattern — old issues stay shippable; #654:
+# not once evidence_platforms is declared and an artifact exists, see #654 PLATFORM;
+# note the tree resolution and guard above run first, so a dead recorded
 # worktree_path or a same-project-checkout invocation still refuses even for a
 # no-Evidence legacy issue — fail-closed by design, #571); an
 # artifact without a tree: line (pre-#571) skips the tree check. An artifact without a
@@ -281,6 +282,26 @@ if ! grep -q '^## Evidence' "$mr"; then
   fi
   if [ "$_early_pytest_body" = "(error)" ]; then
     die "preship-evidence: artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest could not be RUN (missing interpreter, a venv without pytest, or an import/collection error). The suite was NOT measured, so nothing can honestly describe it, and removing the '## Evidence' block does not make it shippable (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite, then re-run run-suite."
+  fi
+  # #654 (D5, D10): under a declaration this exit FAILS whenever an artifact exists. The
+  # missing disclosure is reported FIRST: b' (intent.md ## Answers) requires an Evidence
+  # platform: line once a project declares, and an mr.md with no Evidence block has none, so
+  # deleting the block cannot be the bypass b' closes (the #466 MAJOR-2 shape). The rung's
+  # own failures (PLATFORM UNATTESTED, a missing or malformed line) follow, and the rung is
+  # told no-block, so it offers no acknowledgment: one cannot clear this exit. The main
+  # path's Evidence arm (Task 6) never runs on this exit, so the fact is reported once. No
+  # declaration, or no artifact: byte-identical.
+  if $PLATFORM_DECLARED_SET && [ -n "$_early_artifact" ]; then
+    fails=()
+    # The a_head read below, in the q-form (register wf Issue-595); keep the two equivalent.
+    _early_head="$(sed -n '/^head:/{s/^head:[[:space:]]*\([^ ]*\).*/\1/p;q;}' "$_early_artifact")"
+    _platform_rung "$_early_artifact" "$_early_head" no-block
+    _platform_attest_warn
+    # Prepended, not appended: the rung ran first only because it records a_platform_line.
+    fails=("mr.md has no '## Evidence' block, and [project.$project] evidence_platforms in $(config_path) is declared, so the MR body must say where its evidence was produced (#654). Give mr.md its ## Evidence block (/devagent:draftmr writes it from templates/mr_template.md), carrying suite:, files: and ${a_platform_line:-the platform: line of an artifact re-run by run-suite}" ${fails[@]+"${fails[@]}"})
+    printf 'preship-evidence: FAIL\n' >&2
+    for f in "${fails[@]}"; do printf '  - %s\n' "$f" >&2; done
+    exit 1
   fi
   echo "preship-evidence: WARN — mr.md has no '## Evidence' block; skipping evidence checks (#149 absent⇒no-gate)" >&2
   exit 0
