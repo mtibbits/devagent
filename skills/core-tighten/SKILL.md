@@ -38,7 +38,11 @@ After prune, the plan is minimal. Tighten makes it executable:
    `(depends on task N)` notation. If a cycle appears, halt.
 3. **File paths.** Every task names the absolute file path(s) it
    modifies or creates. "Update the parser" → "Update
-   `/abs/path/to/foo_module.c:142-160`".
+   `/abs/path/to/foo_module.c:142-160`". Verify a cited path or range
+   with `grep -n` or `sed -n '<a>,<b>p'` on that range. Never read a whole
+   source file into the session: Issue-660's tighten read 55 KB of two
+   scripts to check a handful of anchors, and the session re-read them on
+   every call after.
 4. **Test plan.** Every task has a one-line test plan or an explicit
    "no test, because…" justification. Halt if any task lacks both.
 5. **Definition of done.** Append `## Definition of done` mapping

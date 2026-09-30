@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/next.sh — execute the next actionable step on the active issue.
 # Spec §6.5, §7 (chaining), §8 (gates).
-# Usage: next.sh [project] [--auto] [--through <step-name>] [-- <note...>]
+# Usage: next.sh [project] [--auto] [--through <step-name>] [--no-breaks] [-- <note...>]
+#   (--chained is appended by next.sh itself to every CHAIN: line; see phase breaks)
 #
 # Authority is the issue's own checklist.md, not a hardcoded step table.
 # Each issue's checklist may include or omit steps (e.g. a planning-only
@@ -14,6 +15,15 @@
 # so the calling model invokes the slash command (skill-backed steps), then
 # re-invokes "/devagent:next <project> ..." from the emitted CHAIN: line when
 # the skill is done. Both emissions carry the resolved project (#578).
+#
+# Phase breaks: a chain stops before each step named in `phase_breaks` (project
+# field, else [defaults], else "implement quality updatewbs"; "" disables) so the
+# next phase starts in a fresh session. One session per issue re-reads its whole
+# history on every call: Issue-660's main context grew 49K→845K tokens over 386
+# calls, and replaying it with fresh sessions at these three steps cut its cost
+# ~56%. A break fires only for a CONTINUED chain — a CHAIN: re-invocation
+# (--chained) or a script step already dispatched in this process — so the
+# operator's first command in the fresh session runs the boundary step.
 
 set -euo pipefail
 
@@ -33,14 +43,29 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
 
+# phase_breaks <project> — the step names a continued chain stops before, one
+# space-separated line. An empty value is a legal "no breaks".
+phase_breaks() {
+  local v
+  if v="$(config_get_project_field "$1" phase_breaks 2>/dev/null)"; then
+    printf '%s\n' "$v"
+  elif v="$(config_get_default phase_breaks 2>/dev/null)"; then
+    printf '%s\n' "$v"
+  else
+    printf '%s\n' "implement quality updatewbs"
+  fi
+}
+
 main() {
-  local project="" auto=0 through="" note=""
+  local project="" auto=0 through="" note="" chained=0 breaks_on=1
   local -a rest=()
   while (( $# > 0 )); do
     case "$1" in
-      --auto)     auto=1; shift ;;
-      --through)  through="${2:?--through requires a step name}"; shift 2 ;;
-      --)         shift; note="$*"; break ;;
+      --auto)      auto=1; shift ;;
+      --through)   through="${2:?--through requires a step name}"; shift 2 ;;
+      --chained)   chained=1; shift ;;
+      --no-breaks) breaks_on=0; shift ;;
+      --)          shift; note="$*"; break ;;
       *)          rest+=("$1"); shift ;;
     esac
   done
@@ -60,8 +85,22 @@ main() {
   # at active_resolve_project_src).
   case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac
 
+  # The operator's own chain flags, for a phase break's resume line. --auto's
+  # implied target (cleanup, which every CHAIN: line spells out) is left implied.
+  local resume_flags=""
+  (( auto == 1 )) && resume_flags+=" --auto"
+  if [[ -n "$through" ]] && { (( auto == 0 )) || [[ "$through" != cleanup ]]; }; then
+    resume_flags+=" --through $through"
+  fi
+  (( breaks_on == 0 )) && resume_flags+=" --no-breaks"
+
   if (( auto == 1 )) && [[ -z "$through" ]]; then
     through="cleanup"
+  fi
+  local chaining=0 breaks=""
+  if (( auto == 1 )) || [[ -n "$through" ]]; then
+    chaining=1
+    (( breaks_on == 1 )) && breaks=" $(phase_breaks "$project") "
   fi
 
   # Validate --through against the actual checklist (the authority).
@@ -133,6 +172,23 @@ main() {
       return 0
     fi
 
+    if (( chained == 1 )) && [[ "$breaks" == *" $name "* ]]; then
+      echo "PHASE BREAK before step $cur ($name): the chain stops so the next phase starts in a fresh session; state is on disk."
+      echo "  Resume: run /clear, then /devagent:next $project$resume_flags"
+      echo "  (or /devagent:next $project$resume_flags --no-breaks to keep going in this session)"
+      return 0
+    fi
+
+    # Plan budget (draft's item 4): scope is the first of the ~9 steps that
+    # re-read imPlan.md, so an oversized plan is flagged before it is paid for.
+    if [[ "$name" == scope && -f "$issue_dir/imPlan.md" ]]; then
+      local _plan_bytes
+      _plan_bytes="$(wc -c < "$issue_dir/imPlan.md")"
+      if (( _plan_bytes > 40960 )); then
+        warn "imPlan.md is $(( _plan_bytes / 1024 )) KB, over draft's 40 KB Plan budget; every later step re-reads it. Cut task code bodies and restated potholes first."
+      fi
+    fi
+
     # #150: advisory model-tier hint for the dispatched step. Prints only when the
     # optional [project.<name>.step_models] table resolves a tier; absent ⇒ silent.
     # #291: issue_dir passed so the hint agrees with the per-issue marker the
@@ -199,7 +255,8 @@ main() {
       if [[ "$after" == "$cur" ]]; then
         die "step $cur ($name) exited 0 but did not mark itself — refusing to re-dispatch (would loop). Its script may have marked a different row: on a checklist predating the #558 renumber, migrate with scripts/migrate-checklist-numbering.sh or start a fresh revision with /devagent:revise."
       fi
-      # Loop: re-read checklist and advance.
+      # Loop: re-read checklist and advance. The chain is now a continued one.
+      (( chaining == 1 )) && chained=1
       continue
     else
       # Skill-backed step: hand back to the model.
@@ -220,7 +277,8 @@ main() {
         local chain_cmd="/devagent:next $project"
         (( auto == 1 )) && chain_cmd+=" --auto"
         [[ -n "$through" ]] && chain_cmd+=" --through $through"
-        echo "CHAIN: $chain_cmd"
+        (( breaks_on == 0 )) && chain_cmd+=" --no-breaks"
+        echo "CHAIN: $chain_cmd --chained"
       fi
       return 0
     fi

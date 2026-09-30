@@ -47,7 +47,11 @@ Per `commands/draft.md`.
    ```
 
    Otherwise, continue to the simplify pass.
-4. Invoke the `simplify` skill on the changed diff.
+4. Invoke the `simplify` skill on the changed diff. Put this reporting
+   rule in its arguments, for every reviewer it dispatches: "Return at most
+   8 findings, one line each: file:line, the problem, the fix. Quote no
+   code." Each reviewer's reply lands in this session and is re-read on every
+   later call; Issue-660's four replies came to about 40K characters.
 5. Read the resolved `coding_standards.md` and check each rule
    against the changed files.
 6. Apply fixes (or surface them for operator decision per simplify's

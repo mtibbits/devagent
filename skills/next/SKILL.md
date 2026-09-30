@@ -2,7 +2,7 @@
 name: next
 description: Execute the next actionable step on the active issue
 when_to_use: To advance the active issue's 24-step checklist; --auto chains steps.
-argument-hint: "[project] [--auto] [--through <step>] [-- <note>]"
+argument-hint: "[project] [--auto] [--through <step>] [--no-breaks] [-- <note>]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
@@ -17,7 +17,7 @@ permission gates nor continues past `[!]` or a non-zero step exit (spec §7.2).
 Script-backed steps run in-process. Skill-backed steps hand back to the model:
 
     → Run /devagent:<name> <project>
-    CHAIN: /devagent:next <project> --auto
+    CHAIN: /devagent:next <project> --auto --chained
 
 The project token is load-bearing (#578): without it the command re-resolves
 global state at fire time.
@@ -29,23 +29,23 @@ next.sh advances and repeats. The chain breaks on: a step marked `[!]` or
 through-target completing. review→redmr: review `[x]` proceeds; `[!]` halts
 (/devagent:unstuck).
 
+A `PHASE BREAK` line also ends it: the next phase (at implement, quality,
+updatewbs; config `phase_breaks`) belongs in a fresh session. Relay the
+Resume line and stop. `--no-breaks` opts out.
+
 ## Zero-diff (artifact-only) issues
 
-When the issue branch has zero commits ahead of `baseline_sha`, steps 12
-(commit), 18 (ship), and 19 (mergetoall) self-detect and mark `[-]`, exit 0 —
-no flag exists (a clean tree WITH commits ahead is a `[x]` no-op; #116).
-Step 17 (preship) marks `[-]` skill-side on zero-diff (`indeterminate` never
-auto-skips). Step 10 (quality): the skill auto-marks step 10 `[-]` and advances
-without operator confirmation (#116).
+With zero commits ahead of `baseline_sha`, steps 12 (commit), 18 (ship) and
+19 (mergetoall) self-mark `[-]` and exit 0, no flag needed (a clean tree WITH
+commits ahead is a `[x]` no-op; #116). Step 17 (preship) marks `[-]`
+skill-side (`indeterminate` never auto-skips). Step 10 (quality): the skill
+auto-marks step 10 `[-]` and advances without operator confirmation (#116).
 
 ## Concurrent sessions
 
-Pin per-session in the project directory's settings.local.json:
-`"env": { "DEVAGENT_ACTIVE_PROJECT": "<project>", "DEVAGENT_ACTIVE_ISSUE":
-"Issue-N" }` — a pinned session never reads or writes the shared pointer or
-`active_issue`. Move the global pointer only via /devagent:use.
-
-Details + how to confirm the active issue: references/concurrency.md.
+Pin a session with `DEVAGENT_ACTIVE_PROJECT`/`DEVAGENT_ACTIVE_ISSUE` in the
+project's settings.local.json `env`; move the global pointer only via
+/devagent:use. Details: references/concurrency.md.
 
 ## Run the script
 
