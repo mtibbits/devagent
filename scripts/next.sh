@@ -66,7 +66,7 @@ main() {
       --chained)   chained=1; shift ;;
       --no-breaks) breaks_on=0; shift ;;
       --)          shift; note="$*"; break ;;
-      *)          rest+=("$1"); shift ;;
+      *)           rest+=("$1"); shift ;;
     esac
   done
   if (( ${#rest[@]} > 0 )); then
