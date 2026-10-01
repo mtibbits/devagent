@@ -12,6 +12,11 @@ init writes all five `false`:
 [defaults]
 checklist_template = "standard"
 ship_as_draft = false
+phase_breaks = "implement quality updatewbs"   # the default: an --auto chain stops
+                                               # before these steps so the next phase
+                                               # starts in a fresh session; "" disables
+# print the active issue and next step at session start (a bare line: no comment on it)
+session_rehydrate = true
 
 [project.myproj]
 source_dir       = "/home/you/src/myproj"      # the code checkout

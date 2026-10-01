@@ -330,3 +330,118 @@ EOC
   [ "$status" -eq 0 ]
   [[ "$output" != *"STUCK"* ]]
 }
+
+# --- Phase breaks: a continued chain stops before implement/quality/updatewbs ---
+
+# Mark every row before implement done, so implement (a default break) is current.
+_at_implement() {
+  sed -i -E 's/^- \[ \]  ([45678])\./- [x]  \1./' "$DEVDOC/Issue-676/checklist.md"
+}
+
+@test "phase breaks: every CHAIN: line marks the hop as a continued chain" {
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto --through cleanup --chained"* ]]
+}
+
+@test "phase breaks: a continued chain stops before implement with a fresh-session resume line" {
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --through cleanup --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 9 (implement)"* ]]
+  [[ "$output" == *"run /clear, then /devagent:next volk --auto"* ]]
+  [[ "$output" != *"/devagent:implement"* ]]    # not dispatched
+  [[ "$output" != *"CHAIN:"* ]]                 # the chain ends here
+  # The resume line is the operator's own command: no --chained, no defaulted target.
+  resume="$(printf '%s\n' "$output" | grep 'Resume:')"
+  [[ "$resume" != *"--chained"* ]]
+  [[ "$resume" != *"--through"* ]]
+}
+
+@test "phase breaks: the fresh session's first command runs the boundary step" {
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"PHASE BREAK"* ]]
+  [[ "$output" == *"/devagent:implement volk"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto"* ]]
+}
+
+@test "phase breaks: an explicit --through survives into the resume line" {
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --through cleanup --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"then /devagent:next volk --through cleanup"* ]]
+}
+
+@test "phase breaks: --no-breaks runs the boundary step and stays in the chain" {
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --no-breaks --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"PHASE BREAK"* ]]
+  [[ "$output" == *"/devagent:implement volk"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto --through cleanup --no-breaks --chained"* ]]
+}
+
+@test "phase breaks: phase_breaks = \"\" in the project disables them" {
+  _at_implement
+  printf 'phase_breaks = ""\n' >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"PHASE BREAK"* ]]
+  [[ "$output" == *"/devagent:implement volk"* ]]
+}
+
+@test "phase breaks: [defaults] phase_breaks applies when the project sets none" {
+  { printf '[defaults]\nphase_breaks = "scope"\n\n'; cat "$DA_HOME/config.toml"; } > "$DA_HOME/c.tmp"
+  mv "$DA_HOME/c.tmp" "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PHASE BREAK before step 4 (scope)"* ]]
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  [[ "$output" != *"PHASE BREAK"* ]]            # implement is no longer a break
+  [[ "$output" == *"/devagent:implement volk"* ]]
+}
+
+@test "phase breaks: a plain next (no chain flags) never breaks" {
+  _at_implement
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"PHASE BREAK"* ]]
+  [[ "$output" == *"/devagent:implement volk"* ]]
+}
+
+@test "phase breaks: a script step dispatched in-process makes the chain continued" {
+  # The real ship -> mergetoall -> updatewbs hop: mergetoall is a SCRIPT step
+  # (all_prs_branch unset => it marks itself [-]), then updatewbs is a break.
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 18. ship
+- [ ] 19. mergetoall
+- [ ] 20. updatewbs
+- [ ] 23. cleanup
+
+## Log
+EOC
+  printf 'branch = "fix/676-x"\n' >> "$DA_HOME/state/volk.toml"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[-\] 19\. mergetoall' "$DEVDOC/Issue-676/checklist.md"   # it ran
+  [[ "$output" == *"PHASE BREAK before step 20 (updatewbs)"* ]]
+  [[ "$output" != *"/devagent:updatewbs"* ]]
+}
+
+@test "plan budget: next warns at scope when imPlan.md is over 40 KB" {
+  head -c 50000 /dev/zero | tr '\0' 'x' > "$DEVDOC/Issue-676/imPlan.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"imPlan.md is 48 KB, over draft's 40 KB Plan budget"* ]]
+  [[ "$output" == *"/devagent:scope volk"* ]]      # advisory: scope still dispatches
+}
+
+@test "plan budget: no warning for a plan within budget" {
+  printf '# plan\n' > "$DEVDOC/Issue-676/imPlan.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Plan budget"* ]]
+}

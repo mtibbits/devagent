@@ -16,6 +16,38 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: an `--auto`/`--through` chain now stops at phase breaks, so each phase starts
+  in a fresh session.** Measured from this project's transcripts, one session per issue
+  re-reads its whole history on every call: Issue-660's main context grew from 49K to 845K
+  tokens over 386 calls, and waiting for the merge expired the cache, so the whole 749K was
+  written again. Replaying the same calls with fresh sessions at implement, quality and
+  updatewbs cuts that session's cost ~56%.
+  - `scripts/next.sh` marks every `CHAIN:` line `--chained`. A continued chain stops before
+    each step in `phase_breaks` and prints `PHASE BREAK` with a Resume command. The
+    operator runs `/clear`, then the Resume command, which runs the boundary step and
+    chains on. The default is `"implement quality updatewbs"`; set it per project or in
+    `[defaults]`, `""` disables it, and `--no-breaks` skips it for one chain. A plain
+    `/devagent:next` never breaks.
+  - Behavior change for unattended runs: an `--auto` chain now also stops before implement
+    and before quality. The stop before updatewbs falls at the merge wait, where the chain
+    already paused. Set `phase_breaks = ""` to keep the old behavior.
+  - `session_rehydrate` (#456, opt-in) pairs with this; `templates/config.toml.skel` now
+    documents both keys.
+- **Changed: the plan has a budget.** Every step from scope to preship re-reads
+  `imPlan.md`. Issue-660's ran 160 KB, 100 KB of it task code, for a 1,379-line diff, and
+  its `## Potholes considered` ran 22 KB. `/devagent:draft`'s Plan budget overrides
+  writing-plans' complete-code rule: tasks name files, interfaces, tests and invariants,
+  and carry code only where the exact text is the decision. Potholes considered lists
+  matching triggers one line each and N/A ones as a single line of ids. next.sh warns when
+  it reaches scope with a plan over 40 KB. core-scope reads the plan by its outline,
+  core-tighten checks cited ranges instead of reading whole files, and `/devagent:quality`
+  asks simplify's reviewers for one-line findings.
+- **Added: `scripts/cost-report.sh` reports token cost per issue and per step** from the
+  current directory's Claude Code transcripts, in input-token equivalents (cache read
+  0.1, cache write 1.25 for 5-minute and 2 for 1-hour, output 5). Each call is charged to
+  the step next.sh last dispatched, and each subagent to the step that launched it.
+  `--summary` gives one line per issue, and the impact step (21) records that line in
+  `impact.md`. Measured: #588 cost 6.9M; #660 cost 37.7M.
 - **Added: every suite-count artifact records the platform it was produced on, and the
   operator who runs preship can declare which platforms count (#654).** `scripts/run-suite.sh`
   appends `platform: os=<uname -s> kernel=<uname -r> fs=<filesystem type of the measured

@@ -106,8 +106,10 @@ that project.
    (`(Issue-N)`, or `(<project> Issue-N)` in the shared layer). Judge which triggers MATCH
    this issue's change, then emit a `## Potholes considered` section in the
    plan (the `imPlan_template` carries the skeleton) listing: (a) each MATCHING
-   trigger with the mitigation the plan adopts, and (b) triggers reviewed and
-   deemed N/A. ADVISORY to the plan — enforcement is the improve-step tripwire
+   trigger, one line: trigger → the mitigation the plan adopts → the task that
+   carries it, and (b) the triggers reviewed and deemed N/A as ONE line of
+   their source ids. The register is already on disk; do not restate its
+   entries (Issue-660's section ran 22 KB). ADVISORY to the plan — enforcement is the improve-step tripwire
    (core-improve): a trigger that matches but is absent from, or wrongly N/A in,
    `## Potholes considered` is a finding. Cost: one file read + a short section.
 3. **Check for pending review comments (Phase 6 revision flow).**
@@ -125,14 +127,27 @@ that project.
    the pending-comments block if any) as additional user-intent
    context describing what the operator wants emphasised in the plan.
 
+   **Plan budget — pass this to the planner, inline or dispatched.** It
+   overrides writing-plans' complete-code rule. Scope, improve, prune,
+   tighten, implement, document, the MR draft, redmr and preship each re-read the
+   plan, and Issue-660's ran 160 KB (100 KB of it task code) for a
+   1,379-line diff. A task names its exact files, the interfaces it adds or
+   changes, each test by name with the assertion it makes, its ordering and
+   its invariants. It carries code only where the exact text IS the decision:
+   a regex, a message string, an output format, a flag grammar. The
+   implementer writes the bodies once, at step 9. Target ≤ 40 KB; a plan
+   that needs more is usually two issues. next.sh warns at scope when the
+   plan is over.
+
    **Fallback (superpowers absent):** if that Skill invocation errors
    (`Unknown skill: superpowers:writing-plans` — the measured absence
    symptom, #541), draft the plan yourself directly against the resolved
    `imPlan_template.md`'s section contract (§12 registry: project paths →
    devdoc → plugin default — the same resolution every other consumer of
    that template uses): every template
-   section present, tasks bite-sized with exact files, code blocks, and
-   runnable test commands, tests-before-implementation ordering; write
+   section present, tasks bite-sized with exact files and runnable test
+   commands, code only per the Plan budget above,
+   tests-before-implementation ordering; write
    the plan to `<issue-dir>/imPlan.md` (item 5's save-path rule applies
    to this fallback too). Then print the nudge line verbatim and
    continue — never stall on the missing plugin:

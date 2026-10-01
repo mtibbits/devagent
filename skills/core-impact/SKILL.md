@@ -59,6 +59,19 @@ numbers are not available or honest).
    embed the reference.
 5. **Honesty check.** Re-read every quantifiable claim. If you cannot
    point to evidence, move it to Qualitative or strike it.
+6. **Workflow cost.** Record what the issue itself cost, so a change to
+   the workflow can be judged against the bill:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cost-report.sh" --issue <Issue-N> --summary
+   ```
+
+   Run it from the directory the issue's sessions ran in (it reads that
+   directory's Claude Code transcripts), and add its one line under
+   Quantifiable as `- Workflow cost: <line>`. It counts only sessions on
+   this machine; if the issue also ran elsewhere, say so. A nonzero exit
+   means nothing was measured: record `- Workflow cost: not measured
+   (<reason>)`.
 
 ## Output format
 
@@ -70,6 +83,8 @@ numbers are not available or honest).
   evidence: evidence-plot output at
   <issue-dir>/evidence/<date>-<host>.png
 - Build time: unchanged.
+- Workflow cost: Issue-NNNN: 12.4M input-token equivalents over 3 session(s),
+  214 calls, peak context 290K (main 8.1M, subagents 4.3M)
 
 ## Qualitative
 - Unblocks fusion of post-processing stages (separate issue).

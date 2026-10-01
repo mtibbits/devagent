@@ -80,7 +80,9 @@ conversation".
    `issue.md` and `intent.md`, the project source repo directory,
    `$NOTE` verbatim, the output path `<issue-dir>/imPlan.md`, the
    contract duties the planner must honor (provenance header grammar,
-   the question-return protocol, the house plan shape) — and, when
+   the question-return protocol, the house plan shape, and the draft
+   command's Plan budget, which overrides writing-plans' complete-code
+   rule) — and, when
    `pending_comments_file` is set in state, that file's path as a
    REQUIRED input (the Phase-6 revision flow; a re-draft that omits
    it silently drops reviewer feedback).

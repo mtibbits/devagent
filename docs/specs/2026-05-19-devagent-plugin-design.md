@@ -769,6 +769,17 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
 - Continue past a step whose script exits non-zero.
 - Override `$NOTE`. `$NOTE` is preserved across the chain and passed
   to each step verbatim.
+- Run past a **phase break**. A continued chain (a `CHAIN:` hop, which
+  next.sh marks `--chained`, or a script step already dispatched in the
+  same `next.sh` process) stops before each step named in
+  `phase_breaks` (default `implement quality updatewbs`; `""` disables;
+  `--no-breaks` opts one chain out) and prints `PHASE BREAK` with a Resume
+  command. The operator runs `/clear` and the Resume command, whose first
+  hop is not `--chained`, so the boundary step runs. Reason: a session
+  re-reads its whole history on every call. Issue-660's single session
+  grew 49K→845K tokens over 386 calls; replaying it with fresh sessions at
+  these steps cut its main-session cost ~56%. `session_rehydrate` (#456)
+  pairs with it.
 
 ### 7.3 External chaining
 

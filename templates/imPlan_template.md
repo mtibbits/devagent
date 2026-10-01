@@ -53,9 +53,11 @@ informational; a `? behind-count undetermined` line says why.
 ## Potholes considered
 
 Which register triggers (the resolved `potholes` template, #286) MATCH this
-issue, with the mitigation the plan adopts — and which were reviewed and marked
-N/A. `(none matched)` if the register has no relevant trigger. The improve step
-treats a matching-but-unlisted trigger as a finding, so keep this honest.
+issue: one line each, trigger → the mitigation the plan adopts → its task. The
+triggers reviewed and marked N/A go on ONE line of source ids; do not restate
+register entries. `(none matched)` if the register has no relevant trigger. The
+improve step treats a matching-but-unlisted trigger as a finding, so keep this
+honest.
 
 ## Open questions
 

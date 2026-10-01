@@ -26,6 +26,13 @@ part of the plan so reviewers see them too.
 - Reads: `<issue-dir>/issue.md`, `<issue-dir>/imPlan.md`.
 - Writes: appends `## Scope evaluation` to `<issue-dir>/imPlan.md`.
 
+Read the plan by its outline, not whole. Start with `grep -n '^#'
+imPlan.md`, then read Goal, Approach, the acceptance-criteria map,
+Preconditions, and each task's heading and opening lines. Task code
+blocks and `## Potholes considered` answer none of the seven questions.
+Whatever this session reads stays in context for every later step it runs,
+and Issue-660's scope read all 150 KB of its plan.
+
 ## Checklist
 
 Walk these seven questions, one section per question, answer in the

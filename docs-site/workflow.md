@@ -15,6 +15,11 @@ Run steps one at a time with `/devagent:next` (which advances to the next
 unmarked step), chain them with `/devagent:next --auto`, or invoke any step
 command directly.
 
+An `--auto` chain stops with a `PHASE BREAK` before `implement`, `quality` and
+`updatewbs`: run `/clear`, then the printed Resume command. Each phase then
+starts in a fresh session instead of re-reading the whole issue's history on
+every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
+
 ## Step table
 
 Rows in execution order.
