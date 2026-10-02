@@ -9,6 +9,12 @@
 # #655: preship-evidence's tree RUNG. A foreign tree: path (one that does not exist
 # in the checking environment) FAILS "TREE UNATTESTED" unless the caller attests
 # the tree for this run with --attest-tree; the PASS line ends [tree=<verdict>].
+# #656: the clone clause also refuses when EITHER side's origin, read as a local
+# path (plain, relative or POSIX file://), is the other side's toplevel. This holds
+# in both directions and is decided before the empty-URL fail-open. Some shapes
+# still fail open by decision: the active.sh contract comment above
+# ACTIVE_TREE_MISMATCH_TAG lists them and says how each is held. This file pins
+# three of them: no origin, distinct origins, and a clone of a clone.
 load 'helpers/common'
 
 setup() {
@@ -33,6 +39,37 @@ _mk_wt() {
     ( cd "$WT" && echo delta > delta.txt && git add -A && git commit -q -m "worktree-only" )
     WT_HEAD="$(git -C "$WT" rev-parse HEAD)"
     [ "$WT_HEAD" != "$SRC_HEAD" ]          # the fixture must actually diverge
+}
+
+# #656 helpers. _rs: run-suite on the fixture issue, from the current cwd.
+_rs()   { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1; }
+_arts() { find "$DEVDOC_DIR" -name '*-suite-count.txt' | wc -l; }
+# _clone <src-spec> <dest>: `git clone` from the current cwd, keeping the NATURAL
+# origin git stores. Sets CLONE (absolute) and CLONE_HEAD. Proves the fixture is the
+# clone shape (own common dir, so clause 1 cannot decide) and gives the clone its own
+# commit, so head: tells the two trees apart (register Issue-118).
+_clone() {
+    local a b
+    git clone -q "$1" "$2" || return 1
+    CLONE="$(cd "$2" && pwd)"
+    a="$(cd "$CLONE" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+    b="$(cd "$SOURCE_DIR" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+    [ ! "$a" -ef "$b" ] || return 1
+    git -C "$CLONE" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m clone-only || return 1
+    CLONE_HEAD="$(git -C "$CLONE" rev-parse HEAD)"
+    [ "$CLONE_HEAD" != "$SRC_HEAD" ]
+}
+# A depth-3 clone whose origin is then set to a LITERAL relative path. `git clone`
+# cannot produce one (it stores <abs cwd>/../P), so this is the one #656 fixture
+# that uses `remote set-url`, and the value it sets IS a path shape. Only the
+# clone's own toplevel resolves the string to SOURCE_DIR: the fixture tells the
+# candidate bases apart (register Issue-118).
+_lit_clone() {
+    _clone "$SOURCE_DIR" "$DEVAGENT_TMP/clones/x/lit" || return 1
+    git -C "$CLONE" remote set-url origin ../../../src/testproj || return 1
+    ( cd "$CLONE" && [ ../../../src/testproj -ef "$SOURCE_DIR" ] ) || return 1          # toplevel base resolves
+    ( cd "$CLONE/.git" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] ) || return 1   # GIT_DIR base does not
+    ( cd "$SOURCE_DIR" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] )               # nor the other side's
 }
 
 @test "#571 AC1: run-suite from an ad-hoc worktree REFUSES and writes no artifact" {
@@ -68,6 +105,8 @@ _mk_wt() {
 
 @test "#571 AC1: a separate CLONE of the same project REFUSES (widened clause)" {
     # The second-clone shape: not a linked worktree (own .git), same origin URL.
+    # The `remote set-url` below is deliberate: this test pins the URL leg. The
+    # natural local-path shape (the origin `git clone` stores) is #656's tests.
     git -C "$SOURCE_DIR" remote add origin https://example.invalid/acme/testproj.git
     CLONE="$DEVAGENT_TMP/clone"
     git clone -q "$SOURCE_DIR" "$CLONE"
@@ -83,6 +122,8 @@ _mk_wt() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"TREE MISMATCH"* ]]
     [[ "$output" == *"separate clone"* ]]
+    # only the URL leg prints "(origin <url>)": this proves WHICH leg refused (#656)
+    [[ "$output" == *"(origin https://example.invalid/acme/testproj)"* ]]
     run bash -c "ls '$DEVDOC_DIR/Issue-1/analysis/'*-suite-count.txt"
     [ "$status" -ne 0 ]
 }
@@ -95,6 +136,8 @@ _mk_wt() {
     # #660: LOCAL paths. run-suite now fetches the measured tree's origin, and a hostname
     # would be a DNS lookup inside the suite (register lectio Issue-10). The clause compares
     # the URL strings, which still differ; the fetch fails fast and records (unreachable).
+    # #656: neither origin path resolves (-ef) to the other side's toplevel, so the
+    # path legs do not fire. The pass is still decided by inequality.
     git -C "$SOURCE_DIR" remote add origin "$DEVAGENT_TMP/origins/testproj.git"
     git -C "$SRC_B"     remote add origin "$DEVAGENT_TMP/origins/projB.git"
     cd "$SRC_B"
@@ -111,6 +154,119 @@ _mk_wt() {
     cd "$SRC_B"
     PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
+}
+
+@test "#656 leg A: cwd in a clone whose natural origin is the measured tree REFUSES, though the measured tree has no origin" {
+    _clone "$SOURCE_DIR" "$DEVAGENT_TMP/clone"
+    [ "$(git -C "$CLONE" remote get-url origin)" = "$SOURCE_DIR" ]     # the natural origin
+    # the measured tree is remote-less, so the URL leg cannot decide: before #656
+    # this run proceeded on the empty-URL fail-open
+    run git -C "$SOURCE_DIR" remote get-url origin
+    [ "$status" -eq 2 ]
+    cd "$CLONE"
+    _rs
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"TREE MISMATCH"* ]]
+    [[ "$output" == *"separate clone"* ]]
+    [[ "$output" == *"its origin '$SOURCE_DIR' is the tree it would measure"* ]]
+    [ "$(_arts)" -eq 0 ]
+    # The refusal's override remedy, executed as printed (register Issue-594/597).
+    PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TREE_GUARD_OVERRIDE=1 \
+        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(_arts)" -eq 1 ]
+    grep -q "^head: $SRC_HEAD" "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt   # it measured SOURCE_DIR
+}
+
+@test "#656 leg B: cwd in the ORIGINAL while source_dir is its clone REFUSES (the WSL pair), at both evidence doors, and re-running from the clone proceeds" {
+    # The real pair: the checkout the session sits in has a forge URL, and the
+    # configured source_dir is a clone made FROM it by path.
+    git -C "$SOURCE_DIR" remote add origin https://example.invalid/acme/testproj.git
+    _clone "$SOURCE_DIR" "$DEVAGENT_TMP/clone"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" "$CLONE"
+    # natural, and the two origin strings differ (https vs a path): the URL leg cannot decide
+    [ "$(git -C "$CLONE" remote get-url origin)" = "$SOURCE_DIR" ]
+    _rs
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"TREE MISMATCH"* ]]
+    [[ "$output" == *"separate clone"* ]]
+    [[ "$output" == *"has origin '$SOURCE_DIR', which is this checkout"* ]]
+    [[ "$output" == *"$CLONE"* ]]
+    [ "$(_arts)" -eq 0 ]
+    # The second door: preship-evidence calls the same guard.
+    _mk_mr
+    _pe
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"TREE MISMATCH"* ]]
+    [[ "$output" == *"which is this checkout"* ]]
+    # The refusal's first remedy, executed as printed: re-run from the measured tree.
+    cd "$CLONE"
+    _rs
+    [ "$status" -eq 0 ]
+    art="$(ls "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt)"
+    grep -q "^head: $CLONE_HEAD" "$art"
+    grep -q "^tree: $(cd "$CLONE" && pwd -P)$" "$art"
+}
+
+@test "#656: a clone made by RELATIVE path (stored as <cwd>/../<P>) REFUSES" {
+    mkdir -p "$DEVAGENT_TMP/clones"
+    cd "$DEVAGENT_TMP/clones"
+    _clone ../src/testproj rel
+    o="$(git -C "$CLONE" remote get-url origin)"
+    [[ "$o" == *"/clones/../src/testproj" ]]     # what git stores for a relative clone
+    [ "$o" != "$SOURCE_DIR" ]                     # string equality could not decide
+    cd "$CLONE"
+    _rs
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"separate clone"* ]]
+    [[ "$output" == *"its origin '$o' is the tree it would measure"* ]]
+    [ "$(_arts)" -eq 0 ]
+}
+
+@test "#656: a file:// clone REFUSES once the scheme is stripped" {
+    _clone "file://$SOURCE_DIR" "$DEVAGENT_TMP/clone-file"
+    [ "$(git -C "$CLONE" remote get-url origin)" = "file://$SOURCE_DIR" ]
+    [ ! "file://$SOURCE_DIR" -ef "$SOURCE_DIR" ]  # the raw form never resolves: the strip decides
+    cd "$CLONE"
+    _rs
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"its origin 'file://$SOURCE_DIR' is the tree it would measure"* ]]
+    [ "$(_arts)" -eq 0 ]
+}
+
+@test "#656 leg B: a literal relative origin resolves against its own repo's toplevel and REFUSES" {
+    _lit_clone
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" "$CLONE"
+    _rs                                           # cwd is SOURCE_DIR (setup)
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"has origin '../../../src/testproj', which is this checkout"* ]]
+    [ "$(_arts)" -eq 0 ]
+}
+
+@test "#656 leg A: a literal relative origin read from a SUBDIRECTORY of the clone resolves against the clone's toplevel and REFUSES" {
+    _lit_clone
+    mkdir -p "$CLONE/sub"
+    ( cd "$CLONE/sub" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] )   # a process-cwd base would miss
+    cd "$CLONE/sub"
+    _rs
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"its origin '../../../src/testproj' is the tree it would measure"* ]]
+}
+
+@test "#656: a clone of a clone FAILS OPEN (a stated surviving shape)" {
+    # A pin, green before #656 as well. The origin is a RESOLVING local path that
+    # names a third tree, so the pass is decided by -ef inequality, not by a string
+    # that resolves nowhere (register Issue-558: pin the no-match branch too).
+    _clone "$SOURCE_DIR" "$DEVAGENT_TMP/c1"
+    C1="$CLONE"
+    _clone "$C1" "$DEVAGENT_TMP/c2"
+    [ "$(git -C "$CLONE" remote get-url origin)" -ef "$C1" ]
+    run git -C "$SOURCE_DIR" remote get-url origin
+    [ "$status" -eq 2 ]
+    cd "$CLONE"
+    _rs
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"TREE MISMATCH"* ]]
 }
 
 @test "#571: cwd outside any git checkout does NOT trip the guard" {
