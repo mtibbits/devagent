@@ -426,10 +426,11 @@ active_tree_resolve() {
 # surviving shapes, each by how it is held:
 #   * suite-pinned (tests/suite-tree-guard.bats): one side has no `origin`;
 #     distinct origins; a clone of a clone (its origin is a third tree).
-#   * verified once (Issue-656's analysis/ LIMITS transcript; not re-asserted by
-#     the suite): different transports (ssh vs https); sibling clones of one origin
+#   * verified once (run by hand for #656 on 2026-10-01; not re-asserted by the
+#     suite): different transports (ssh vs https); sibling clones of one origin
 #     spelled differently; a clone of <P>/.git; the Windows file:///C:/... form;
-#     file://<host>/...
+#     file://<host>/...; a LINKED WORKTREE of <P> against a path clone of <P>
+#     (the clone's origin names <P>'s main toplevel, not the worktree's).
 #   * not testable on one host: cross-environment spellings of one tree
 #     (/mnt/c/... vs C:/...) beyond what -ef decides on the host that runs it.
 # KNOWN FALSE-REFUSAL SHAPE (documented, not handled): a source_dir configured as a

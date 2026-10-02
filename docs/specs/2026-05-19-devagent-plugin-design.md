@@ -1085,8 +1085,8 @@ toplevel and either one side lacks an `origin` or the two origins differ
 beyond the cosmetic normalization. Some of those shapes are pinned by the
 suite and others were verified once; the contract comment above
 `ACTIVE_TREE_MISMATCH_TAG` in `scripts/lib/active.sh` is the one per-shape
-list and says how each is held. The suite-count artifact carries a canonical `tree:` stamp (after
-`head:`, which stays the first data line) that `preship-evidence.sh`
+list and says how each is held. The suite-count artifact carries a
+canonical `tree:` stamp (after `head:`, which stays the first data line) that `preship-evidence.sh`
 cross-checks against its own resolved tree, and its PASS line carries that
 check's verdict (#655) — absent line ⇒ skip, `[tree=unstamped]` (pre-#571
 artifacts); the stamped tree IS the resolved tree (`-ef`) ⇒

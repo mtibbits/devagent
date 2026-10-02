@@ -314,7 +314,8 @@ the README's "Versioning & releases" section has the release procedure.
   is recorded for the issue; a recorded worktree is used as-is. The remedies
   are the ones the message already prints: re-run from the measured tree,
   record `worktree_path`, or set `DEVAGENT_TREE_GUARD_OVERRIDE=1` for one
-  call. Other clone shapes (ssh vs https, a clone of a clone) still pass.
+  call. Other clone shapes still pass, among them ssh vs https, a clone of a
+  clone, and a linked worktree of the original against the original's clone.
 
 ## [1.0.0] — 2026-09-18
 
