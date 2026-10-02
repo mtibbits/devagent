@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the shellcheck analyzer's artifact names the shellcheck that produced it (#657).**
+  `scripts/analyze-shellcheck.sh` writes one header line, `analyzer: shellcheck <version>`,
+  between `baseline:` and `scope:`. The version is the token `shellcheck --version` prints
+  after `version:`, with a Windows build's carriage return dropped. When no version can be
+  read the line says `analyzer: shellcheck (version unknown)`; the run never stops over it.
+  - Why: two shellcheck versions that both clear the project's floor disagree on
+    pre-existing findings (#550), so a `NEW findings` count is now attributable to the
+    binary that counted it.
+  - Policy, recorded in the script header: the analyzer runs under the same floor as the
+    test suite and the CI lint gate (CONTRIBUTING.md "What you need"). It is a floor, not a
+    pin, and nothing enforces it at runtime: a mismatch is visible only in that line.
+
 - **Changed: an `--auto`/`--through` chain now stops at phase breaks, so each phase starts
   in a fresh session.** Measured from this project's transcripts, one session per issue
   re-reads its whole history on every call: Issue-660's main context grew from 49K to 845K
