@@ -65,10 +65,11 @@
 # [context.<issue>] table, or the top-level copy while that issue is the shared
 # active_issue: state_issue_get), else source_dir. That is the commit.sh/ship.sh
 # rule, via active_tree_resolve (#571). Invoking from another
-# checkout of the SAME project (a linked worktree, or a clone with the same
-# origin) REFUSES via active_guard_tree rather than silently measuring the
-# configured tree; a mid-run HEAD move also refuses, so the head: stamp always
-# names the tree the suites actually ran against.
+# checkout of the SAME project (a linked worktree, or a separate clone: an equal
+# origin, or one side's origin is the other side's path) REFUSES via
+# active_guard_tree rather than silently measuring the configured tree; a
+# mid-run HEAD move also refuses, so the head: stamp always names the tree the
+# suites actually ran against.
 # FRESHNESS (#660). The measured tree must be ON a branch and must contain its origin's
 # tip of that branch. A detached HEAD refuses DETACHED HEAD (naming the SHA). A HEAD
 # that does not contain origin's tip of <branch>, asked under a per-call bound of
