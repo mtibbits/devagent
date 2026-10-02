@@ -10,6 +10,16 @@
 # Report-not-fail: new findings are surfaced in the artifact; failure semantics
 # for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
 # known hazard and the origin of this issue's sibling CWD bug).
+#
+# Analyzer version (#657): the artifact header's `analyzer: shellcheck <version>`
+# line names the shellcheck that produced the findings — `(version unknown)` when
+# `shellcheck --version` names none. Policy: the analyzer runs under the SAME
+# floor as the test suite and the CI lint gate (CONTRIBUTING.md "What you need";
+# the SC2314 self-tests in .githooks/pre-push and .github/workflows/shellcheck.yml).
+# A floor, not a pin: versions above it can disagree on PRE-EXISTING findings
+# (#550). Enforced nowhere — no runtime version gate (#657 scope): a mismatch
+# surfaces only in that header line, and a below-floor or unknown stamp leaves
+# the artifact's NEW-findings count unattested.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -118,13 +128,15 @@ files+=("${untracked[@]}")
     echo "date: $(date_tag)"
     echo "baseline: $baseline"
     echo "analyzer: shellcheck $sc_version"
-    echo "scope:${#files[@]} file(s)"
+    echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
-    # #591: printed only when non-empty, so a tracked-only run's artifact is
-    # byte-identical to before. This line IS the shell family's artifact-visible
-    # notice (the twin of static_analysis_diff.py's `Untracked files (whole-file
-    # scope):` progress line) and tests/analyze-shellcheck.bats pins it exactly —
-    # one line, space-joined, no trailing space.
+    # #591: printed only when non-empty, so since #657 a tracked-only run's
+    # artifact differs from the pre-#591 shape only by the `analyzer:` line, whose
+    # value follows the shellcheck first on PATH (#550). This line IS the shell
+    # family's artifact-visible notice (the twin of static_analysis_diff.py's
+    # `Untracked files (whole-file scope):` progress line) and
+    # tests/analyze-shellcheck.bats pins it exactly — one line, space-joined, no
+    # trailing space.
     if [ "${#untracked[@]}" -gt 0 ]; then
         echo "untracked (whole-file scope): ${untracked[*]}"
     fi
