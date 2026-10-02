@@ -430,7 +430,9 @@ active_tree_resolve() {
 #     suite): different transports (ssh vs https); sibling clones of one origin
 #     spelled differently; a clone of <P>/.git; the Windows file:///C:/... form;
 #     file://<host>/...; a LINKED WORKTREE of <P> against a path clone of <P>
-#     (the clone's origin names <P>'s main toplevel, not the worktree's).
+#     (the clone's origin names <P>'s main toplevel, not the worktree's); a
+#     linked worktree of a clone whose origin is a literal RELATIVE path (it
+#     resolves from the worktree's toplevel, not the clone's).
 #   * not testable on one host: cross-environment spellings of one tree
 #     (/mnt/c/... vs C:/...) beyond what -ef decides on the host that runs it.
 # KNOWN FALSE-REFUSAL SHAPE (documented, not handled): a source_dir configured as a
@@ -438,6 +440,10 @@ active_tree_resolve() {
 # look like clause 1. All configured projects are repo toplevels today; the
 # active_guard_scope-style ancestor walk (active.sh fast path above) is the
 # recorded follow-up (Issue-571's imPlan-potentialFutureEnhancements.md).
+# A second one since #656: two separately configured projects, where one repo's
+# origin is the other's tree by path, read as clones of one project and refuse
+# each other, so "a DIFFERENT project's checkout -> allow" does not hold for that
+# pair. The override covers it.
 # In all fail-open shapes, the `tree:` line run-suite stamps is what makes the run
 # legible after the fact — the guard is not the only mechanism, and must not be
 # described as if it were.
@@ -521,7 +527,7 @@ active_guard_tree() {
     if _active_origin_is "$top" "$o_cwd" "$ACTIVE_TREE_DIR"; then
       why="a separate clone of the same project (its origin '$o_cwd' is the tree it would measure)"
     elif _active_origin_is "$ACTIVE_TREE_DIR" "$o_tree" "$top"; then
-      why="a separate clone of the same project (the tree it would measure has origin '$o_tree', which is this checkout)"
+      why="the origin of a separate clone of the same project (the tree it would measure has origin '$o_tree', which is this checkout)"
     else
       u_cwd="$(_active_norm_url "$o_cwd")"
       u_tree="$(_active_norm_url "$o_tree")"

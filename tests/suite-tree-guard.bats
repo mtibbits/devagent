@@ -45,11 +45,12 @@ _arts() { find "$DEVDOC_DIR" -name '*-suite-count.txt' | wc -l; }
 # _refused <fragment>: the last run was a clone-clause refusal whose reason
 # contains <fragment> (which names the leg that fired), and it wrote no artifact.
 _refused() {
-    [ "$status" -eq 1 ] || return 1
-    [[ "$output" == *"TREE MISMATCH"* ]] || return 1
-    [[ "$output" == *"separate clone"* ]] || return 1
-    [[ "$output" == *"$1"* ]] || return 1
-    [ "$(_arts)" -eq 0 ]
+    local f
+    [ "$status" -eq 1 ] || { echo "status $status, want 1: $output"; return 1; }
+    for f in "TREE MISMATCH" "separate clone" "$1"; do
+        [[ "$output" == *"$f"* ]] || { echo "no '$f' in: $output"; return 1; }
+    done
+    [ "$(_arts)" -eq 0 ] || { echo "an artifact was written"; return 1; }
 }
 # _clone <src-spec> <dest>: `git clone` from the current cwd, keeping the NATURAL
 # origin git stores. Sets CLONE (absolute) and CLONE_HEAD. Proves the fixture is the

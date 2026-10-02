@@ -301,7 +301,7 @@ the README's "Versioning & releases" section has the release procedure.
   collision signal and `--force`. The H1 extraction is now one
   shared helper (`scripts/capture/lib/draft.sh`) that `file.sh` also
   calls. `commands/crrf.md`'s promote loop is now a single invocation.
-- **Fixed: the evidence scripts now refuse when one checkout is a clone made
+- **Changed: the evidence scripts now refuse when one checkout is a clone made
   from the other by path (#656).** `run-suite.sh` and `preship-evidence.sh`
   die with `TREE MISMATCH` and write no artifact when the current directory
   is in one checkout and `source_dir` is a clone made from it, or the
@@ -316,6 +316,8 @@ the README's "Versioning & releases" section has the release procedure.
   record `worktree_path`, or set `DEVAGENT_TREE_GUARD_OVERRIDE=1` for one
   call. Other clone shapes still pass, among them ssh vs https, a clone of a
   clone, and a linked worktree of the original against the original's clone.
+  Two separately configured projects now refuse each other when one repo's
+  origin is the other's tree by path; the override covers that pair.
 
 ## [1.0.0] — 2026-09-18
 
