@@ -41,6 +41,15 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 command -v shellcheck >/dev/null 2>&1 \
     || die "shellcheck not found on PATH"
 
+# #657: name the shellcheck that produces the findings — stamped in the artifact
+# header below. The output is captured whole, then parsed from a here-string: no
+# producer pipe exists for the early-quitting sed to SIGPIPE under pipefail.
+# `|| true` plus the fallback because there is no runtime version gate: an
+# unreadable version is recorded as such, and the run goes on.
+sc_version_out="$(shellcheck --version 2>/dev/null || true)"
+sc_version="$(sed -n '/^version:/{s/^version:[[:space:]]*\([^[:space:]]*\).*/\1/p;q;}' <<< "$sc_version_out")"
+[ -n "$sc_version" ] || sc_version="(version unknown)"
+
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
 [ -n "$baseline" ] || die "no baseline_sha in state and no default_baseline in config"
@@ -108,7 +117,8 @@ files+=("${untracked[@]}")
     echo "=== shellcheck (diff-scoped + untracked) ==="
     echo "date: $(date_tag)"
     echo "baseline: $baseline"
-    echo "scope: ${#files[@]} file(s)"
+    echo "analyzer: shellcheck $sc_version"
+    echo "scope:${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
     # #591: printed only when non-empty, so a tracked-only run's artifact is
     # byte-identical to before. This line IS the shell family's artifact-visible
