@@ -1074,13 +1074,18 @@ on — `state.worktree_path` when recorded, else `source_dir`
 (`active_tree_resolve`, the commit/ship rule hoisted into `lib/active.sh`) —
 and call `active_guard_tree` strictly AFTER `active_guard_scope`
 (scope-before-tree). An invocation from another checkout of the SAME project —
-a linked git worktree, else a clone with an equal (trailing-`/`/`.git`
-normalized) `origin` URL — **dies** with the literal `TREE MISMATCH` tag and
-writes no artifact; this fires even when the project resolved correctly, the
-Issue-553 shape #572 cannot see. Stated fail-open blind spots, each pinned by
-a test: either side lacking an `origin`, and origins differing beyond the
-cosmetic normalization (different transports, or a clone made from a local
-path). The suite-count artifact carries a canonical `tree:` stamp (after
+a linked git worktree, else a separate clone, decided in two steps: either
+side's `origin`, read as a local path, is the other side's toplevel (`-ef`,
+both directions, before the empty-URL fail-open, #656), else an equal
+(trailing-`/`/`.git` normalized) `origin` URL — **dies** with the literal
+`TREE MISMATCH` tag and writes no artifact; this fires even when the project
+resolved correctly, the Issue-553 shape #572 cannot see. The clone clause
+still fails open, by decision, when neither origin names the other side's
+toplevel and either one side lacks an `origin` or the two origins differ
+beyond the cosmetic normalization. Some of those shapes are pinned by the
+suite and others were verified once; the contract comment above
+`ACTIVE_TREE_MISMATCH_TAG` in `scripts/lib/active.sh` is the one per-shape
+list and says how each is held. The suite-count artifact carries a canonical `tree:` stamp (after
 `head:`, which stays the first data line) that `preship-evidence.sh`
 cross-checks against its own resolved tree, and its PASS line carries that
 check's verdict (#655) — absent line ⇒ skip, `[tree=unstamped]` (pre-#571

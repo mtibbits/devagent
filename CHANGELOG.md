@@ -301,6 +301,20 @@ the README's "Versioning & releases" section has the release procedure.
   collision signal and `--force`. The H1 extraction is now one
   shared helper (`scripts/capture/lib/draft.sh`) that `file.sh` also
   calls. `commands/crrf.md`'s promote loop is now a single invocation.
+- **Fixed: the evidence scripts now refuse when one checkout is a clone made
+  from the other by path (#656).** `run-suite.sh` and `preship-evidence.sh`
+  die with `TREE MISMATCH` and write no artifact when the current directory
+  is in one checkout and `source_dir` is a clone made from it, or the
+  reverse: for example a WSL session whose cwd is `/mnt/c/…` while
+  `source_dir = ~/devagent-wsl`. Before, that pair passed silently, because
+  the clone's `origin` is a path and the original's is a forge URL (or
+  absent), so the URL comparison could not decide. The origin is now also
+  read as a local path (plain, relative, or POSIX `file://`) and compared to
+  the other checkout by identity. This applies only when no `worktree_path`
+  is recorded for the issue; a recorded worktree is used as-is. The remedies
+  are the ones the message already prints: re-run from the measured tree,
+  record `worktree_path`, or set `DEVAGENT_TREE_GUARD_OVERRIDE=1` for one
+  call. Other clone shapes (ssh vs https, a clone of a clone) still pass.
 
 ## [1.0.0] — 2026-09-18
 

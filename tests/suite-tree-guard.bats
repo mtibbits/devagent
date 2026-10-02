@@ -540,6 +540,28 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     [ "$tag" = "TREE UNATTESTED" ]
     grep -qF -- "$tag" "$DEVAGENT_ROOT/agents/preship-verifier.md" || { echo "verifier does not name $tag"; return 1; }
 }
+
+@test "#656 sweep: no contract home lists a local-path clone as a fail-open blind spot" {
+    # This bats file is not a home: its own regex would match itself.
+    local homes=(scripts/lib/active.sh docs/specs/2026-05-19-devagent-plugin-design.md)
+    [ "${#homes[@]}" -eq 2 ]
+    # Absence half: #656's removal check for the ONE phrasing both homes used, not
+    # a standing guard against restating the gap in other words (register Issue-541).
+    local old='clone made (FROM|from) a local path'
+    local f t n
+    # one line, comment leaders dropped: the phrase wrapped across `# ` lines
+    _flat() { sed 's/^[[:space:]]*#[[:space:]]*//' "$@" | tr -s '[:space:]' ' '; }
+    t="$(printf '%s\n' '#     different transports, or a clone made FROM a local' '#     path (measured' | _flat)"
+    [ "$(grep -cE "$old" <<<"$t")" -eq 1 ] || { echo "planted control not matched"; return 1; }
+    for f in "${homes[@]}"; do
+        t="$(_flat "$DEVAGENT_ROOT/$f")"
+        n="$(grep -cE "$old" <<<"$t" || true)"
+        [ "$n" -eq 0 ] || { echo "$f still lists a local-path clone as a blind spot"; return 1; }
+        # Positive half: each home states the path legs (register Issue-561).
+        grep -qF 'both directions' <<<"$t" || { echo "$f does not say both directions"; return 1; }
+        grep -qF '#656' <<<"$t" || { echo "$f does not cite #656"; return 1; }
+    done
+}
 # Back-compat pin for artifacts with NO tree: line (every pre-#571 artifact):
 # tests/preship-evidence.bats's _artifact helper writes exactly that shape (tree-less,
 # but since #660 carrying branch:/upstream:, which every artifact must). Keep it
