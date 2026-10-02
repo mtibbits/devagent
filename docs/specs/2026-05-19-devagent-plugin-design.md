@@ -1089,10 +1089,11 @@ list and says how each is held. The suite-count artifact carries a
 canonical `tree:` stamp (after `head:`, which stays the first data line)
 that `preship-evidence.sh` cross-checks against its own resolved tree, and
 its PASS line carries that check's verdict (#655) — absent line ⇒ skip,
-`[tree=unstamped]` (pre-#571 artifacts); the stamped tree IS the resolved tree (`-ef`) ⇒
-`[tree=checked]`; a stamped tree that does not exist in the checking
-environment (cross-environment evidence, e.g. a WSL-produced artifact checked
-from Windows) ⇒ FAIL `TREE UNATTESTED`, unless the caller passes a per-run
+`[tree=unstamped]` (pre-#571 artifacts); the stamped tree IS the resolved
+tree (`-ef`) ⇒ `[tree=checked]`; a stamped tree that does not exist in the
+checking environment (cross-environment evidence, e.g. a WSL-produced
+artifact checked from Windows) ⇒ FAIL `TREE UNATTESTED`, unless the caller
+passes a per-run
 `--attest-tree 'head=<sha> dirty=no path=<tree>'` reporting what
 `git -C <tree> rev-parse HEAD` and `git -C <tree> status --porcelain` printed
 in the producing environment. The attestation must match the artifact's
