@@ -410,18 +410,28 @@ active_tree_resolve() {
 #                             project is normal and is how the skill caller runs.
 #   cwd in another checkout
 #     of the SAME project  -> DIE, naming both trees. The Issue-553 shape. "Same
-#                             project" is two clauses in order: a shared
-#                             --git-common-dir (a linked git worktree), else an equal
-#                             `remote get-url origin` (a separate CLONE — the
-#                             second-clone shape, and the likeliest live divergence).
-# STATED BLIND SPOT — the clone clause FAILS OPEN, by decision, in two shapes:
-#   * either side has no `origin` remote (every bats fixture repo, any local-only
-#     checkout): the URLs read empty and the clause cannot decide, so the run
-#     PROCEEDS on ACTIVE_TREE_DIR;
-#   * the two clones' origins differ past the cosmetic normalization below —
-#     different transports (ssh vs https), or a clone made FROM a local path
-#     (measured 2026-08-07: a WSL clone whose origin is a /mnt/c/... local path,
-#     so THAT pair is not covered): the URLs read as different projects.
+#                             project" is two clauses in order. Clause 1: a shared
+#                             --git-common-dir (a linked git worktree). Clause 2: a
+#                             separate CLONE — the second-clone shape, and the
+#                             likeliest live divergence — decided in two steps:
+#                             (2a) either side's origin, read as a local path, IS
+#                             the other side's toplevel (-ef, both directions,
+#                             before the empty-URL fail-open, #656); else (2b) an
+#                             equal normalized `remote get-url origin`.
+# STATED BLIND SPOT — the clone clause FAILS OPEN, by decision, when neither side's
+# origin names the other side's toplevel AND either one side has no `origin` remote
+# (the URLs read empty and the clause cannot decide) or the two origins differ past
+# the cosmetic normalization below (they read as different projects). The run then
+# PROCEEDS on ACTIVE_TREE_DIR. This comment is the one place that lists the
+# surviving shapes, each by how it is held:
+#   * suite-pinned (tests/suite-tree-guard.bats): one side has no `origin`;
+#     distinct origins; a clone of a clone (its origin is a third tree).
+#   * verified once (Issue-656's analysis/ LIMITS transcript; not re-asserted by
+#     the suite): different transports (ssh vs https); sibling clones of one origin
+#     spelled differently; a clone of <P>/.git; the Windows file:///C:/... form;
+#     file://<host>/...
+#   * not testable on one host: cross-environment spellings of one tree
+#     (/mnt/c/... vs C:/...) beyond what -ef decides on the host that runs it.
 # KNOWN FALSE-REFUSAL SHAPE (documented, not handled): a source_dir configured as a
 # SUBDIRECTORY of a repo (monorepo subproject) makes cwd-inside-the-measured-tree
 # look like clause 1. All configured projects are repo toplevels today; the
@@ -437,6 +447,23 @@ ACTIVE_TREE_MISMATCH_TAG="TREE MISMATCH"
 # a transport difference is a real difference to this comparison (register
 # Issue-548: compare the strings that are actually emitted, do not invent equalities).
 _active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
+
+# _active_origin_is <repo-toplevel> <raw origin of that repo> <other-toplevel>:
+# rc 0 when the origin, read as a LOCAL PATH, is <other-toplevel> (#656). Identity
+# is -ef only, never a string comparison.
+#   * A relative origin resolves against the owning repo's toplevel, which is where
+#     git resolves it (not $GIT_DIR, not the process cwd): hence the cd.
+#   * An absolute origin (POSIX, or a Git Bash C:/...) ignores the cd.
+#   * file:// is stripped because git stores it verbatim. The Windows file:///C:/...
+#     form strips to /C:/..., which -ef cannot resolve: out of scope, fails open.
+#   * Empty, or any other scheme://, is not a path: rc 1 before any cd.
+# <other-toplevel> must be ABSOLUTE, since it is read after the cd; the callers
+# pass git's --show-toplevel and the configured source_dir.
+_active_origin_is() {   # <repo-toplevel> <raw origin of that repo> <other-toplevel>
+  local p="${2#file://}"
+  case "$p" in ''|*://*) return 1 ;; esac
+  ( cd "$1" 2>/dev/null && [ "$p" -ef "$3" ] )
+}
 
 # _active_common_root <dir>: canonical (pwd -P) path of <dir>'s repo COMMON dir.
 # --git-common-dir is RELATIVE (".git") from a main worktree and ABSOLUTE from a
@@ -469,7 +496,7 @@ active_guard_tree() {
     ''|0|false|no) : ;;
     *)             return 0 ;;
   esac
-  local top c_cwd c_tree u_cwd u_tree why
+  local top c_cwd c_tree o_cwd o_tree u_cwd u_tree why
   top="$("$git" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$top" ] || return 0
   # identity by device+inode, NEVER string equality: `pwd` yields /c/src/...
@@ -485,12 +512,21 @@ active_guard_tree() {
   if [ "$c_cwd" -ef "$c_tree" ]; then
     why="a linked git worktree of the tree it would measure"
   else
-    # Clause 2 — separate clone of the same project. Empty on either side means
-    # "cannot decide" and PROCEEDS: the documented fail-open above.
-    u_cwd="$(_active_norm_url "$("$git" -C "$top" remote get-url origin 2>/dev/null || true)")"
-    u_tree="$(_active_norm_url "$("$git" -C "$ACTIVE_TREE_DIR" remote get-url origin 2>/dev/null || true)")"
-    [ -n "$u_cwd" ] && [ -n "$u_tree" ] && [ "$u_cwd" = "$u_tree" ] || return 0
-    why="a separate clone of the same project (origin $u_cwd)"
+    # Clause 2 — separate clone of the same project. The path legs (#656) run
+    # first, in both directions; then the URL leg, where empty on either side
+    # means "cannot decide" and PROCEEDS: the documented fail-open above.
+    o_cwd="$("$git" -C "$top" remote get-url origin 2>/dev/null || true)"
+    o_tree="$("$git" -C "$ACTIVE_TREE_DIR" remote get-url origin 2>/dev/null || true)"
+    if _active_origin_is "$top" "$o_cwd" "$ACTIVE_TREE_DIR"; then
+      why="a separate clone of the same project (its origin '$o_cwd' is the tree it would measure)"
+    elif _active_origin_is "$ACTIVE_TREE_DIR" "$o_tree" "$top"; then
+      why="a separate clone of the same project (the tree it would measure has origin '$o_tree', which is this checkout)"
+    else
+      u_cwd="$(_active_norm_url "$o_cwd")"
+      u_tree="$(_active_norm_url "$o_tree")"
+      [ -n "$u_cwd" ] && [ -n "$u_tree" ] && [ "$u_cwd" = "$u_tree" ] || return 0
+      why="a separate clone of the same project (origin $u_cwd)"
+    fi
   fi
   die "$label: ${ACTIVE_TREE_MISMATCH_TAG} — \$PWD is inside the checkout '$top', but this would measure '$ACTIVE_TREE_DIR' (the configured source_dir; no worktree_path is recorded for this issue). '$top' is ${why}, so the evidence would be a true statement about a tree you are not working in (#571/#553). Re-run from '$ACTIVE_TREE_DIR', or record '$top' as this issue's tree (set worktree_path in ~/.claude/devagent/state/<project>.toml), or override this single call with DEVAGENT_TREE_GUARD_OVERRIDE=1."
 }
