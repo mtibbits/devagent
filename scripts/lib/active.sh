@@ -459,7 +459,7 @@ _active_norm_url() { local u="${1%/}"; printf '%s' "${u%.git}"; }
 #   * Empty, or any other scheme://, is not a path: rc 1 before any cd.
 # <other-toplevel> must be ABSOLUTE, since it is read after the cd; the callers
 # pass git's --show-toplevel and the configured source_dir.
-_active_origin_is() {   # <repo-toplevel> <raw origin of that repo> <other-toplevel>
+_active_origin_is() {
   local p="${2#file://}"
   case "$p" in ''|*://*) return 1 ;; esac
   ( cd "$1" 2>/dev/null && [ "$p" -ef "$3" ] )
@@ -512,9 +512,9 @@ active_guard_tree() {
   if [ "$c_cwd" -ef "$c_tree" ]; then
     why="a linked git worktree of the tree it would measure"
   else
-    # Clause 2 — separate clone of the same project. The path legs (#656) run
-    # first, in both directions; then the URL leg, where empty on either side
-    # means "cannot decide" and PROCEEDS: the documented fail-open above.
+    # Clause 2 — separate clone of the same project (2a then 2b, per the contract
+    # above). In the URL leg, empty on either side means "cannot decide" and
+    # PROCEEDS: the documented fail-open.
     o_cwd="$("$git" -C "$top" remote get-url origin 2>/dev/null || true)"
     o_tree="$("$git" -C "$ACTIVE_TREE_DIR" remote get-url origin 2>/dev/null || true)"
     if _active_origin_is "$top" "$o_cwd" "$ACTIVE_TREE_DIR"; then

@@ -10,11 +10,9 @@
 # in the checking environment) FAILS "TREE UNATTESTED" unless the caller attests
 # the tree for this run with --attest-tree; the PASS line ends [tree=<verdict>].
 # #656: the clone clause also refuses when EITHER side's origin, read as a local
-# path (plain, relative or POSIX file://), is the other side's toplevel. This holds
-# in both directions and is decided before the empty-URL fail-open. Some shapes
-# still fail open by decision: the active.sh contract comment above
-# ACTIVE_TREE_MISMATCH_TAG lists them and says how each is held. This file pins
-# three of them: no origin, distinct origins, and a clone of a clone.
+# path, is the other side's toplevel. The active.sh contract comment above
+# ACTIVE_TREE_MISMATCH_TAG is the one list of the shapes that still fail open and
+# of which ones this file pins.
 load 'helpers/common'
 
 setup() {
@@ -44,6 +42,15 @@ _mk_wt() {
 # #656 helpers. _rs: run-suite on the fixture issue, from the current cwd.
 _rs()   { PATH="$DEVAGENT_TMP/binstub:$PATH" run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1; }
 _arts() { find "$DEVDOC_DIR" -name '*-suite-count.txt' | wc -l; }
+# _refused <fragment>: the last run was a clone-clause refusal whose reason
+# contains <fragment> (which names the leg that fired), and it wrote no artifact.
+_refused() {
+    [ "$status" -eq 1 ] || return 1
+    [[ "$output" == *"TREE MISMATCH"* ]] || return 1
+    [[ "$output" == *"separate clone"* ]] || return 1
+    [[ "$output" == *"$1"* ]] || return 1
+    [ "$(_arts)" -eq 0 ]
+}
 # _clone <src-spec> <dest>: `git clone` from the current cwd, keeping the NATURAL
 # origin git stores. Sets CLONE (absolute) and CLONE_HEAD. Proves the fixture is the
 # clone shape (own common dir, so clause 1 cannot decide) and gives the clone its own
@@ -66,10 +73,11 @@ _clone() {
 # candidate bases apart (register Issue-118).
 _lit_clone() {
     _clone "$SOURCE_DIR" "$DEVAGENT_TMP/clones/x/lit" || return 1
-    git -C "$CLONE" remote set-url origin ../../../src/testproj || return 1
-    ( cd "$CLONE" && [ ../../../src/testproj -ef "$SOURCE_DIR" ] ) || return 1          # toplevel base resolves
-    ( cd "$CLONE/.git" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] ) || return 1   # GIT_DIR base does not
-    ( cd "$SOURCE_DIR" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] )               # nor the other side's
+    LIT_ORIGIN=../../../src/testproj
+    git -C "$CLONE" remote set-url origin "$LIT_ORIGIN" || return 1
+    ( cd "$CLONE" && [ "$LIT_ORIGIN" -ef "$SOURCE_DIR" ] ) || return 1          # toplevel base resolves
+    ( cd "$CLONE/.git" && [ ! "$LIT_ORIGIN" -ef "$SOURCE_DIR" ] ) || return 1   # GIT_DIR base does not
+    ( cd "$SOURCE_DIR" && [ ! "$LIT_ORIGIN" -ef "$SOURCE_DIR" ] )               # nor the other side's
 }
 
 @test "#571 AC1: run-suite from an ad-hoc worktree REFUSES and writes no artifact" {
@@ -165,14 +173,9 @@ _lit_clone() {
     [ "$status" -eq 2 ]
     cd "$CLONE"
     _rs
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"TREE MISMATCH"* ]]
-    [[ "$output" == *"separate clone"* ]]
-    [[ "$output" == *"its origin '$SOURCE_DIR' is the tree it would measure"* ]]
-    [ "$(_arts)" -eq 0 ]
+    _refused "its origin '$SOURCE_DIR' is the tree it would measure"
     # The refusal's override remedy, executed as printed (register Issue-594/597).
-    PATH="$DEVAGENT_TMP/binstub:$PATH" DEVAGENT_TREE_GUARD_OVERRIDE=1 \
-        run "$DEVAGENT_ROOT/scripts/run-suite.sh" "$TEST_PROJECT" Issue-1
+    DEVAGENT_TREE_GUARD_OVERRIDE=1 _rs
     [ "$status" -eq 0 ]
     [ "$(_arts)" -eq 1 ]
     grep -q "^head: $SRC_HEAD" "$DEVDOC_DIR/Issue-1/analysis/"*-suite-count.txt   # it measured SOURCE_DIR
@@ -187,12 +190,8 @@ _lit_clone() {
     # natural, and the two origin strings differ (https vs a path): the URL leg cannot decide
     [ "$(git -C "$CLONE" remote get-url origin)" = "$SOURCE_DIR" ]
     _rs
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"TREE MISMATCH"* ]]
-    [[ "$output" == *"separate clone"* ]]
-    [[ "$output" == *"has origin '$SOURCE_DIR', which is this checkout"* ]]
+    _refused "has origin '$SOURCE_DIR', which is this checkout"
     [[ "$output" == *"$CLONE"* ]]
-    [ "$(_arts)" -eq 0 ]
     # The second door: preship-evidence calls the same guard.
     _mk_mr
     _pe
@@ -217,10 +216,7 @@ _lit_clone() {
     [ "$o" != "$SOURCE_DIR" ]                     # string equality could not decide
     cd "$CLONE"
     _rs
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"separate clone"* ]]
-    [[ "$output" == *"its origin '$o' is the tree it would measure"* ]]
-    [ "$(_arts)" -eq 0 ]
+    _refused "its origin '$o' is the tree it would measure"
 }
 
 @test "#656: a file:// clone REFUSES once the scheme is stripped" {
@@ -229,28 +225,23 @@ _lit_clone() {
     [ ! "file://$SOURCE_DIR" -ef "$SOURCE_DIR" ]  # the raw form never resolves: the strip decides
     cd "$CLONE"
     _rs
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"its origin 'file://$SOURCE_DIR' is the tree it would measure"* ]]
-    [ "$(_arts)" -eq 0 ]
+    _refused "its origin 'file://$SOURCE_DIR' is the tree it would measure"
 }
 
 @test "#656 leg B: a literal relative origin resolves against its own repo's toplevel and REFUSES" {
     _lit_clone
     devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.source_dir" "$CLONE"
     _rs                                           # cwd is SOURCE_DIR (setup)
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"has origin '../../../src/testproj', which is this checkout"* ]]
-    [ "$(_arts)" -eq 0 ]
+    _refused "has origin '$LIT_ORIGIN', which is this checkout"
 }
 
 @test "#656 leg A: a literal relative origin read from a SUBDIRECTORY of the clone resolves against the clone's toplevel and REFUSES" {
     _lit_clone
     mkdir -p "$CLONE/sub"
-    ( cd "$CLONE/sub" && [ ! ../../../src/testproj -ef "$SOURCE_DIR" ] )   # a process-cwd base would miss
+    ( cd "$CLONE/sub" && [ ! "$LIT_ORIGIN" -ef "$SOURCE_DIR" ] )   # a process-cwd base would miss
     cd "$CLONE/sub"
     _rs
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"its origin '../../../src/testproj' is the tree it would measure"* ]]
+    _refused "its origin '$LIT_ORIGIN' is the tree it would measure"
 }
 
 @test "#656: a clone of a clone FAILS OPEN (a stated surviving shape)" {
