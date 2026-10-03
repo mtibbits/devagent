@@ -10,6 +10,16 @@
 # Report-not-fail: new findings are surfaced in the artifact; failure semantics
 # for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
 # known hazard and the origin of this issue's sibling CWD bug).
+#
+# Analyzer version (#657): the artifact header's `analyzer: shellcheck <version>`
+# line names the shellcheck that produced the findings — `(version unknown)` when
+# `shellcheck --version` names none. Policy: the analyzer runs under the SAME
+# floor as the test suite and the CI lint gate (CONTRIBUTING.md "What you need";
+# the SC2314 self-tests in .githooks/pre-push and .github/workflows/shellcheck.yml).
+# A floor, not a pin: versions above it can disagree on PRE-EXISTING findings
+# (#550). Enforced nowhere — no runtime version gate (#657 scope): a mismatch
+# surfaces only in that header line, and a below-floor or unknown stamp leaves
+# the artifact's NEW-findings count unattested.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -38,8 +48,23 @@ fi
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
-command -v shellcheck >/dev/null 2>&1 \
+# Resolved once (#657): the binary whose version is stamped below IS the one
+# that produces the findings, by construction rather than by a matching lookup.
+sc_bin="$(command -v shellcheck 2>/dev/null)" \
     || die "shellcheck not found on PATH"
+# A relative PATH entry answers with a relative path, which the findings run
+# would re-resolve from source_dir after its cd: no binary there, and `|| true`
+# would turn the failed exec into a stamped, vacuous NEW findings: 0. Anchor it.
+case "$sc_bin" in /*) ;; */*) sc_bin="$PWD/$sc_bin" ;; esac
+
+# #657: name the shellcheck that produces the findings — stamped in the artifact
+# header below. The output is captured whole, then parsed from a here-string: no
+# producer pipe exists for the early-quitting sed to SIGPIPE under pipefail.
+# `|| true` plus the fallback because there is no runtime version gate: an
+# unreadable version is recorded as such, and the run goes on.
+sc_version_out="$("$sc_bin" --version 2>/dev/null || true)"
+sc_version="$(sed -n '/^version:/{s/^version:[[:space:]]*\([^[:space:]]*\).*/\1/p;q;}' <<< "$sc_version_out")"
+[ -n "$sc_version" ] || sc_version="(version unknown)"
 
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || baseline="$(config_get_project_field "$project" default_baseline 2>/dev/null || true)"
@@ -108,13 +133,16 @@ files+=("${untracked[@]}")
     echo "=== shellcheck (diff-scoped + untracked) ==="
     echo "date: $(date_tag)"
     echo "baseline: $baseline"
+    echo "analyzer: shellcheck $sc_version"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
-    # #591: printed only when non-empty, so a tracked-only run's artifact is
-    # byte-identical to before. This line IS the shell family's artifact-visible
-    # notice (the twin of static_analysis_diff.py's `Untracked files (whole-file
-    # scope):` progress line) and tests/analyze-shellcheck.bats pins it exactly —
-    # one line, space-joined, no trailing space.
+    # #591: printed only when non-empty, so since #657 a tracked-only run's
+    # artifact differs from the pre-#591 shape only by the `analyzer:` line, whose
+    # value follows the shellcheck first on PATH (#550). This line IS the shell
+    # family's artifact-visible notice (the twin of static_analysis_diff.py's
+    # `Untracked files (whole-file scope):` progress line) and
+    # tests/analyze-shellcheck.bats pins it exactly — one line, space-joined, no
+    # trailing space.
     if [ "${#untracked[@]}" -gt 0 ]; then
         echo "untracked (whole-file scope): ${untracked[*]}"
     fi
@@ -128,7 +156,7 @@ fi
 
 # All findings at severity=warning, gcc format: file:line:col: level: msg [SCnnnn]
 # (shellcheck exiting 1 just means it has findings — data here, not failure.)
-findings="$(cd "$source_dir" && shellcheck --severity=warning -f gcc "${files[@]}" || true)"
+findings="$(cd "$source_dir" && "$sc_bin" --severity=warning -f gcc "${files[@]}" || true)"
 
 # New-side hunk ranges per file ("start end" pairs) from a -U0 diff; a finding
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).

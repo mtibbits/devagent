@@ -33,6 +33,29 @@ run_shellcheck_analyzer() {
 
 _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt"; }
 
+# #657: _shadow_shellcheck_version <rc> <text> — PATH-shadow `shellcheck` so
+# `--version` prints <text> (printf %b escapes, so a CR stays an escape in this
+# source) with exit <rc>, while every other call execs the REAL binary — the
+# findings stay real. Unquoted heredoc (the devagent_stub idiom): $real, the
+# fixture path and <rc> are baked in at write time; the runtime references are
+# escaped.
+_shadow_shellcheck_version() {
+    local rc="$1"
+    printf '%b' "$2" > "$DEVAGENT_TMP/sc-version.txt"
+    local real
+    real="$(command -v shellcheck)"
+    [ "$real" != "$DEVAGENT_STUB_BIN/shellcheck" ] || return 1
+    cat > "$DEVAGENT_STUB_BIN/shellcheck" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--version" ]; then
+    cat "$DEVAGENT_TMP/sc-version.txt"
+    exit $rc
+fi
+exec "$real" "\$@"
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/shellcheck"
+}
+
 @test "new warning on a changed line is reported as NEW (#55)" {
     # Append a new bare cd — a changed (added) line with warning-level SC2164.
     printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
@@ -211,4 +234,85 @@ _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shell
     run_shellcheck_analyzer
     [ "$status" -eq 0 ]
     grep -q '^untracked (whole-file scope): fresh.sh$' "$(_artifact)"
+}
+
+@test "the artifact header stamps the analyzer version on one exact line (#657)" {
+    _shadow_shellcheck_version 0 \
+        'ShellCheck - shell script analysis tool\nversion: 9.9.9-stub\nlicense: GNU General Public License, version 3\n'
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^analyzer:' "$(_artifact)")" -eq 1 ]
+    grep -qx 'analyzer: shellcheck 9.9.9-stub' "$(_artifact)"
+    # Placement is RELATIVE (never an absolute line number): a header data line,
+    # ahead of the variable-length scope list.
+    local analyzer_ln scope_ln
+    analyzer_ln="$(grep -n '^analyzer:' "$(_artifact)" | cut -d: -f1)"
+    scope_ln="$(grep -n '^scope:' "$(_artifact)" | cut -d: -f1)"
+    [ "$analyzer_ln" -lt "$scope_ln" ]
+    # DELEGATION CONTROL: the shadow handed the findings run to the real binary —
+    # one that answered every call with the canned text finds nothing.
+    grep -q 'SC2164' "$(_artifact)"
+    grep -qE 'NEW findings: [1-9]' "$(_artifact)"
+}
+
+@test "a CRLF --version stamps the version without a carriage return (#657)" {
+    # A Windows shellcheck build prints CRLF; the stamp must not carry the CR.
+    _shadow_shellcheck_version 0 \
+        'ShellCheck - shell script analysis tool\r\nversion: 9.9.9-stub\r\nlicense: x\r\n'
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -qx 'analyzer: shellcheck 9.9.9-stub' "$(_artifact)"
+    # Precise no-match (rc 1), never `-ne 0` (register: Issue-337).
+    run grep -c $'\r' "$(_artifact)"
+    [ "$status" -eq 1 ]
+}
+
+@test "an unreadable --version stamps (version unknown) and analysis still runs (#657)" {
+    # No `version:` line AND a failing exit: neither may stop step 13 (no runtime
+    # version gate), and the degraded reading is spelled out, never left empty.
+    _shadow_shellcheck_version 2 'garbage\n'
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -qx 'analyzer: shellcheck (version unknown)' "$(_artifact)"
+    grep -qE 'NEW findings: [1-9]' "$(_artifact)"   # analysis ran to the end
+}
+
+@test "the real shellcheck --version stamps a dotted version (#657)" {
+    # No shadow: the ONE permitted shape, against whatever shellcheck is installed —
+    # an upstream `--version` format change reddens here, never at runtime.
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'scope: 0 file' "$(_artifact)"   # path control: the empty-scope exit carries it too
+    grep -qE '^analyzer: shellcheck [0-9]+\.[0-9]+\.[0-9]+$' "$(_artifact)"
+}
+
+@test "the analyzer header records its version policy (#657 AC2)" {
+    # The header region only — a mention elsewhere in the file cannot satisfy it.
+    local hdr
+    hdr="$(sed -n '1,/^set -euo pipefail$/p' "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh")"
+    grep -q '^# Analyzer version (#657):' <<<"$hdr"
+    grep -q 'no runtime version gate' <<<"$hdr"
+    grep -q 'CONTRIBUTING.md' <<<"$hdr"
+}
+
+@test "a relative PATH entry still scans with the stamped binary after the cd (#657)" {
+    # `command -v` answers a relative PATH entry with a relative path, and the
+    # findings run cds into source_dir before it execs: unanchored, nothing runs
+    # there and `|| true` stamps a vacuous NEW findings: 0 (redmr, 2026-10-02).
+    local rel="$DEVAGENT_TMP/relpath"
+    mkdir -p "$rel/bin"
+    ln -s "$(command -v shellcheck)" "$rel/bin/shellcheck"
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    # shellcheck disable=SC2016  # $1 is bash -c's own positional, expanded there
+    run bash -c 'cd "$1" && shift && exec env "$@"' _ "$rel" \
+        PATH="bin:$PATH" \
+        HOME="$HOME" \
+        DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+        bash "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE '^analyzer: shellcheck [^(]' "$(_artifact)"   # a version was stamped
+    grep -q 'SC2164' "$(_artifact)"
+    grep -qE 'NEW findings: [1-9]' "$(_artifact)"
 }
