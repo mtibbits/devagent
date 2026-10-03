@@ -33,16 +33,17 @@ run_shellcheck_analyzer() {
 
 _artifact() { echo "$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt"; }
 
-# #657: PATH-shadow `shellcheck` so `--version` is answered from the fixture
-# $DEVAGENT_TMP/sc-version.txt (written by the test first) with exit <rc>, while
-# every other call execs the REAL binary — the findings stay real. Unquoted
-# heredoc (the devagent_stub idiom): $real, the fixture path and <rc> are baked in
-# at write time; the runtime references are escaped.
+# #657: _shadow_shellcheck_version <rc> <text> — PATH-shadow `shellcheck` so
+# `--version` prints <text> (printf %b escapes, so a CR stays an escape in this
+# source) with exit <rc>, while every other call execs the REAL binary — the
+# findings stay real. Unquoted heredoc (the devagent_stub idiom): $real, the
+# fixture path and <rc> are baked in at write time; the runtime references are
+# escaped.
 _shadow_shellcheck_version() {
     local rc="$1"
+    printf '%b' "$2" > "$DEVAGENT_TMP/sc-version.txt"
     local real
     real="$(command -v shellcheck)"
-    [ -n "$real" ] || return 1
     [ "$real" != "$DEVAGENT_STUB_BIN/shellcheck" ] || return 1
     cat > "$DEVAGENT_STUB_BIN/shellcheck" <<STUB
 #!/usr/bin/env bash
@@ -236,9 +237,8 @@ STUB
 }
 
 @test "the artifact header stamps the analyzer version on one exact line (#657)" {
-    printf 'ShellCheck - shell script analysis tool\nversion: 9.9.9-stub\nlicense: GNU General Public License, version 3\n' \
-        > "$DEVAGENT_TMP/sc-version.txt"
-    _shadow_shellcheck_version 0
+    _shadow_shellcheck_version 0 \
+        'ShellCheck - shell script analysis tool\nversion: 9.9.9-stub\nlicense: GNU General Public License, version 3\n'
     printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
     run_shellcheck_analyzer
     [ "$status" -eq 0 ]
@@ -258,9 +258,8 @@ STUB
 
 @test "a CRLF --version stamps the version without a carriage return (#657)" {
     # A Windows shellcheck build prints CRLF; the stamp must not carry the CR.
-    printf 'ShellCheck - shell script analysis tool\r\nversion: 9.9.9-stub\r\nlicense: x\r\n' \
-        > "$DEVAGENT_TMP/sc-version.txt"
-    _shadow_shellcheck_version 0
+    _shadow_shellcheck_version 0 \
+        'ShellCheck - shell script analysis tool\r\nversion: 9.9.9-stub\r\nlicense: x\r\n'
     run_shellcheck_analyzer
     [ "$status" -eq 0 ]
     grep -qx 'analyzer: shellcheck 9.9.9-stub' "$(_artifact)"
@@ -272,8 +271,7 @@ STUB
 @test "an unreadable --version stamps (version unknown) and analysis still runs (#657)" {
     # No `version:` line AND a failing exit: neither may stop step 13 (no runtime
     # version gate), and the degraded reading is spelled out, never left empty.
-    printf 'garbage\n' > "$DEVAGENT_TMP/sc-version.txt"
-    _shadow_shellcheck_version 2
+    _shadow_shellcheck_version 2 'garbage\n'
     printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
     run_shellcheck_analyzer
     [ "$status" -eq 0 ]

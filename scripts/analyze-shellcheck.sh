@@ -48,7 +48,9 @@ fi
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
 
-command -v shellcheck >/dev/null 2>&1 \
+# Resolved once (#657): the binary whose version is stamped below IS the one
+# that produces the findings, by construction rather than by a matching lookup.
+sc_bin="$(command -v shellcheck 2>/dev/null)" \
     || die "shellcheck not found on PATH"
 
 # #657: name the shellcheck that produces the findings — stamped in the artifact
@@ -56,7 +58,7 @@ command -v shellcheck >/dev/null 2>&1 \
 # producer pipe exists for the early-quitting sed to SIGPIPE under pipefail.
 # `|| true` plus the fallback because there is no runtime version gate: an
 # unreadable version is recorded as such, and the run goes on.
-sc_version_out="$(shellcheck --version 2>/dev/null || true)"
+sc_version_out="$("$sc_bin" --version 2>/dev/null || true)"
 sc_version="$(sed -n '/^version:/{s/^version:[[:space:]]*\([^[:space:]]*\).*/\1/p;q;}' <<< "$sc_version_out")"
 [ -n "$sc_version" ] || sc_version="(version unknown)"
 
@@ -150,7 +152,7 @@ fi
 
 # All findings at severity=warning, gcc format: file:line:col: level: msg [SCnnnn]
 # (shellcheck exiting 1 just means it has findings — data here, not failure.)
-findings="$(cd "$source_dir" && shellcheck --severity=warning -f gcc "${files[@]}" || true)"
+findings="$(cd "$source_dir" && "$sc_bin" --severity=warning -f gcc "${files[@]}" || true)"
 
 # New-side hunk ranges per file ("start end" pairs) from a -U0 diff; a finding
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).
