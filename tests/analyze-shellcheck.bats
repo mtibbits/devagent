@@ -300,7 +300,8 @@ STUB
 @test "a relative PATH entry still scans with the stamped binary after the cd (#657)" {
     # `command -v` answers a relative PATH entry with a relative path, and the
     # findings run cds into source_dir before it execs: unanchored, nothing runs
-    # there and `|| true` stamps a vacuous NEW findings: 0 (redmr, 2026-10-02).
+    # there and, since #675, the scan fails loud with exit=127 (pre-#675 it
+    # stamped a vacuous NEW findings: 0; redmr, 2026-10-02).
     local rel="$DEVAGENT_TMP/relpath"
     mkdir -p "$rel/bin"
     ln -s "$(command -v shellcheck)" "$rel/bin/shellcheck"
