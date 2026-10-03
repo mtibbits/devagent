@@ -316,3 +316,165 @@ STUB
     grep -q 'SC2164' "$(_artifact)"
     grep -qE 'NEW findings: [1-9]' "$(_artifact)"
 }
+
+# ---- #675: the scan's exit status is classified, never swallowed ----
+
+# A failed scan writes NO count line. It uses `run`, so it clobbers
+# $status/$output: call it LAST, after every analyzer assertion.
+_no_count_lines() {
+    run grep -cE '^(total findings in scoped files|NEW findings):' "$(_artifact)"
+    [ "$status" -eq 1 ]
+}
+
+@test "a scoped file vanishing before the scan fails loud: exit=2, no count lines (#675)" {
+    # The shadow deletes the scoped untracked new.sh on the findings call, then
+    # execs the REAL binary: shellcheck reports tool.sh's finding and exits 2 on
+    # the missing file. Pass-through shadow, inline until #681's helper lands.
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    printf '#!/usr/bin/env bash\ncd /gone\n' > "$SOURCE_DIR/new.sh"
+    local real
+    real="$(command -v shellcheck)"
+    [ "$real" != "$DEVAGENT_STUB_BIN/shellcheck" ]
+    cat > "$DEVAGENT_STUB_BIN/shellcheck" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" != "--version" ]; then
+    rm -f "$SOURCE_DIR/new.sh"
+fi
+exec "$real" "\$@"
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/shellcheck"
+    run_shellcheck_analyzer
+    [ "$status" -eq 1 ]
+    # Die-only fragment: the echoed artifact alone carries a bare `exit=2`.
+    [[ "$output" == *"scan FAILED (exit=2)"* ]]
+    [[ "$output" == *"$(_artifact)"* ]]
+    grep -qx 'shellcheck: exit=2' "$(_artifact)"
+    grep -qE '^tool\.sh:4:.*SC2164' "$(_artifact)"   # stdout kept verbatim
+    grep -q 'openBinaryFile' "$(_artifact)"          # stderr kept verbatim
+    _no_count_lines
+}
+
+@test "an exec failure after a good --version fails loud: exit=127, real version stamped (#675)" {
+    # The shadow answers --version through the real binary, deleting itself
+    # first: the findings call then finds no binary at the stamped path.
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    local real
+    real="$(command -v shellcheck)"
+    [ "$real" != "$DEVAGENT_STUB_BIN/shellcheck" ]
+    cat > "$DEVAGENT_STUB_BIN/shellcheck" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--version" ]; then
+    rm -f "\$0"
+    exec "$real" --version
+fi
+exec "$real" "\$@"
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/shellcheck"
+    run_shellcheck_analyzer
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"scan FAILED (exit=127)"* ]]
+    grep -qx 'shellcheck: exit=127' "$(_artifact)"
+    grep -qE '^analyzer: shellcheck [0-9]+\.[0-9]+\.[0-9]+$' "$(_artifact)"
+    _no_count_lines
+}
+
+@test "an option-shaped untracked name (-x.sh) is scanned after -- (#675)" {
+    # Counts first: without `--` the name is parsed as options, so the red
+    # comes from the missing `--`, not only from the missing exit line.
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    printf '#!/usr/bin/env bash\ncd /x\n' > "$SOURCE_DIR/-x.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -qx 'total findings in scoped files: 3' "$(_artifact)"
+    grep -q '^NEW findings: 2 ' "$(_artifact)"
+    grep -qx 'shellcheck: exit=1' "$(_artifact)"
+}
+
+@test "a clean scope records shellcheck: exit=0 between the header and the counts (#675)" {
+    printf '#!/usr/bin/env bash\necho ok\n' > "$SOURCE_DIR/fresh.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^shellcheck: ' "$(_artifact)")" -eq 1 ]
+    grep -qx 'shellcheck: exit=0' "$(_artifact)"
+    grep -q '^NEW findings: 0 ' "$(_artifact)"
+    # Placement is RELATIVE (never an absolute line number).
+    local untracked_ln exit_ln total_ln
+    untracked_ln="$(grep -n '^untracked (whole-file scope):' "$(_artifact)" | cut -d: -f1)"
+    exit_ln="$(grep -n '^shellcheck: ' "$(_artifact)" | cut -d: -f1)"
+    total_ln="$(grep -n '^total findings in scoped files:' "$(_artifact)" | cut -d: -f1)"
+    [ "$untracked_ln" -lt "$exit_ln" ]
+    [ "$exit_ln" -lt "$total_ln" ]
+}
+
+@test "an -o-shaped name (-ofoo.sh) is scanned, not consumed as -o's argument (#675)" {
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    printf '#!/usr/bin/env bash\ncd /o\n' > "$SOURCE_DIR/-ofoo.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q '^NEW findings: 2 ' "$(_artifact)"
+    grep -qx 'shellcheck: exit=1' "$(_artifact)"
+}
+
+@test "a --rcfile=-shaped name cannot turn a scoped file into the rcfile (#675)" {
+    # Unprotected, `--rcfile=rc.sh` loads rc.sh's `disable=all` and hides
+    # tool.sh's new finding.
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    printf '#!/usr/bin/env bash\ncd /hidden\n' > "$SOURCE_DIR/--rcfile=rc.sh"
+    printf 'disable=all\n' > "$SOURCE_DIR/rc.sh"
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q '^tool\.sh:4:.*SC2164' "$(_artifact)"
+    grep -qx 'shellcheck: exit=1' "$(_artifact)"
+}
+
+@test "a cd into source_dir that fails after scoping writes not run and dies (#675)" {
+    # `git -C` dies first on an unreachable source_dir (:97/:120), so the scan's
+    # own cd is reached only by moving source_dir away after the last git call
+    # before the scan (ls-files). The shim keeps the real git's rc.
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    local real_git
+    real_git="$(command -v git)"
+    [ "$real_git" != "$DEVAGENT_STUB_BIN/git" ]
+    cat > "$DEVAGENT_STUB_BIN/git" <<STUB
+#!/usr/bin/env bash
+"$real_git" "\$@"
+rc=\$?
+case " \$* " in
+    *" ls-files "*)
+        if [ -d "$SOURCE_DIR" ]; then mv "$SOURCE_DIR" "$SOURCE_DIR.gone"; fi ;;
+esac
+exit \$rc
+STUB
+    chmod +x "$DEVAGENT_STUB_BIN/git"
+    run_shellcheck_analyzer
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"scan not run: cd into source_dir"* ]]
+    grep -qx 'shellcheck: not run (cd into source_dir failed)' "$(_artifact)"
+    run grep -c '^shellcheck: exit=' "$(_artifact)"
+    [ "$status" -eq 1 ]
+    _no_count_lines
+}
+
+@test "the empty-scope path runs no scan and writes no shellcheck: line (#675)" {
+    # Green before #675 by design: pins that the exit line stays below the
+    # empty-scope exit.
+    run_shellcheck_analyzer
+    [ "$status" -eq 0 ]
+    grep -q 'NEW findings: 0 (empty scope)' "$(_artifact)"
+    run grep -c '^shellcheck: ' "$(_artifact)"
+    [ "$status" -eq 1 ]
+}
+
+@test "the analyzer header states the failure split and gives #117 no ownership (#675)" {
+    local script="$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh"
+    local hdr
+    hdr="$(sed -n '1,/^set -euo pipefail$/p' "$script")"
+    grep -q 'fails step 13 loud' <<<"$hdr"
+    grep -qi 'report-not-fail' <<<"$hdr"
+    run grep -c "#117's remit" "$script"
+    [ "$status" -eq 1 ]
+    run grep -c '#117 owns' "$script"
+    [ "$status" -eq 1 ]
+    grep -q 'the #117 class' "$script"   # positive control: the scan saw the file
+    grep -qF 'shellcheck: exit=<rc>' "$DEVAGENT_ROOT/commands/analyze.md"
+}
