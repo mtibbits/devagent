@@ -156,7 +156,39 @@ fi
 
 # All findings at severity=warning, gcc format: file:line:col: level: msg [SCnnnn]
 # (shellcheck exiting 1 just means it has findings — data here, not failure.)
-findings="$(cd "$source_dir" && "$sc_bin" --severity=warning -f gcc "${files[@]}" || true)"
+sc_err="$(mktemp)" || die "mktemp failed (no scan performed; step 13 left unmarked)"
+trap 'rm -f "$sc_err"' EXIT
+sc_cd_failed=125   # free: ShellCheck exits 0-4; bash's exec failures 126/127; signals 128+n
+sc_rc=0
+findings="$(cd "$source_dir" 2>"$sc_err" || exit "$sc_cd_failed"
+            "$sc_bin" --severity=warning -f gcc -- "${files[@]}" 2>"$sc_err")" || sc_rc=$?
+case "$sc_rc" in
+    0|1)
+        echo "shellcheck: exit=$sc_rc" >> "$out"
+        if [ -s "$sc_err" ]; then
+            cat "$sc_err" >&2
+        fi
+        ;;
+    "$sc_cd_failed")
+        {
+            echo "shellcheck: not run (cd into source_dir failed)"
+            cat "$sc_err"
+        } >> "$out"
+        cat "$out"
+        die "shellcheck scan not run: cd into source_dir '$source_dir' failed → $out (no findings counted; step 13 left unmarked — fix the source_dir and re-run /devagent:analyze)"
+        ;;
+    *)
+        {
+            echo "shellcheck: exit=$sc_rc"
+            if [ -n "$findings" ]; then
+                printf '%s\n' "$findings"
+            fi
+            cat "$sc_err"
+        } >> "$out"
+        cat "$out"
+        die "shellcheck scan FAILED (exit=$sc_rc) → $out (no findings counted; step 13 left unmarked — fix what shellcheck's stderr in the artifact names, e.g. a bad SHELLCHECK_OPTS, an unreadable or vanished file (on a shared checkout, often another session's uncommitted script: re-run once it settles), a missing binary, and re-run /devagent:analyze; to skip the analyzer for a project, set analyze = \"none\")"
+        ;;
+esac
 
 # New-side hunk ranges per file ("start end" pairs) from a -U0 diff; a finding
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).
