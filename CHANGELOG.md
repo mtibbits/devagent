@@ -28,6 +28,13 @@ the README's "Versioning & releases" section has the release procedure.
     test suite and the CI lint gate (CONTRIBUTING.md "What you need"). It is a floor, not a
     pin, and nothing enforces it at runtime: a mismatch is visible only in that line.
 
+## [2.0.0] — 2026-10-02
+
+A major release because two changes make an evidence run that passed on 1.0.0
+refuse: `run-suite.sh` must now be told which issue it measures (#659), and it
+refuses a measured tree that is detached or behind its origin (#660). Both are
+marked `Changed (breaking)` below, with the remedy each refusal prints.
+
 - **Changed: an `--auto`/`--through` chain now stops at phase breaks, so each phase starts
   in a fresh session.** Measured from this project's transcripts, one session per issue
   re-reads its whole history on every call: Issue-660's main context grew from 49K to 845K
