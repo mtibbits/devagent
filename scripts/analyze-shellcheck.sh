@@ -140,12 +140,8 @@ files+=("${untracked[@]}")
     echo "analyzer: shellcheck $sc_version"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
-    # #591: printed only when non-empty, so a tracked-only run's artifact differs
-    # from the pre-#591 shape only by the `analyzer:` line (#657), whose value
-    # follows the shellcheck first on PATH (#550), and by the one
-    # `shellcheck: exit=<rc>` line (#675) that every run reaching the scan carries
-    # below (the empty-scope path does not). This line IS the shell
-    # family's artifact-visible notice (the twin of static_analysis_diff.py's
+    # #591: printed only when non-empty. This line IS the shell family's
+    # artifact-visible notice (the twin of static_analysis_diff.py's
     # `Untracked files (whole-file scope):` progress line) and
     # tests/analyze-shellcheck.bats pins it exactly — one line, space-joined, no
     # trailing space.
@@ -172,14 +168,13 @@ sc_err="$(mktemp)" || die "mktemp failed (no scan performed; step 13 left unmark
 trap 'rm -f "$sc_err"' EXIT
 sc_cd_failed=125   # free: ShellCheck exits 0-4; bash's exec failures 126/127; signals 128+n
 sc_rc=0
-findings="$(cd "$source_dir" 2>"$sc_err" || exit "$sc_cd_failed"
-            "$sc_bin" --severity=warning -f gcc -- "${files[@]}" 2>"$sc_err")" || sc_rc=$?
+findings="$(exec 2>"$sc_err"
+            cd "$source_dir" || exit "$sc_cd_failed"
+            "$sc_bin" --severity=warning -f gcc -- "${files[@]}")" || sc_rc=$?
 case "$sc_rc" in
     0|1)
         echo "shellcheck: exit=$sc_rc" >> "$out"
-        if [ -s "$sc_err" ]; then
-            cat "$sc_err" >&2
-        fi
+        cat "$sc_err" >&2
         ;;
     "$sc_cd_failed")
         {
