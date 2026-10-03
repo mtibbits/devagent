@@ -140,7 +140,9 @@ files+=("${untracked[@]}")
     echo "analyzer: shellcheck $sc_version"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
-    # #591: printed only when non-empty. This line IS the shell family's
+    # #591: printed only when non-empty, so a tracked-only run's artifact differs
+    # from the pre-#591 shape only by the `analyzer:` line (#657) and the
+    # `shellcheck: exit=<rc>` line (#675) below. This line IS the shell family's
     # artifact-visible notice (the twin of static_analysis_diff.py's
     # `Untracked files (whole-file scope):` progress line) and
     # tests/analyze-shellcheck.bats pins it exactly — one line, space-joined, no
