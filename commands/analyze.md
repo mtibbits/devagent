@@ -41,4 +41,15 @@ its failing phase, and its artifact file. A source tree with no `CMakeLists.txt`
 loud-skips the sanitizer legs (warns and exits clean; set `analyze = "none"`
 or `"shellcheck"` for a non-CMake project).
 
+Under the `shellcheck` family the step **fails loud** (#675) when shellcheck itself
+fails. Every scan records its status in the artifact as
+`shellcheck: exit=<rc>`. Any status other than 0 (clean) or 1 (findings), or a
+failed `cd` into `source_dir` (recorded as
+`shellcheck: not run (cd into source_dir failed)`), writes shellcheck's output and
+stderr verbatim with no finding counts; step 13 then exits nonzero, naming the
+status and the artifact, and stays unmarked. New findings never fail the step
+(report-not-fail). On a shared checkout a vanished or unreadable file is routinely
+another session's uncommitted script: re-run once it settles. `analyze = "none"`
+skips the analyzer for a project.
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/analyze.sh" $ARGUMENTS`
