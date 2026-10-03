@@ -296,3 +296,23 @@ STUB
     grep -q 'no runtime version gate' <<<"$hdr"
     grep -q 'CONTRIBUTING.md' <<<"$hdr"
 }
+
+@test "a relative PATH entry still scans with the stamped binary after the cd (#657)" {
+    # `command -v` answers a relative PATH entry with a relative path, and the
+    # findings run cds into source_dir before it execs: unanchored, nothing runs
+    # there and `|| true` stamps a vacuous NEW findings: 0 (redmr, 2026-10-02).
+    local rel="$DEVAGENT_TMP/relpath"
+    mkdir -p "$rel/bin"
+    ln -s "$(command -v shellcheck)" "$rel/bin/shellcheck"
+    printf 'cd /brand-new\n' >> "$SOURCE_DIR/tool.sh"
+    # shellcheck disable=SC2016  # $1 is bash -c's own positional, expanded there
+    run bash -c 'cd "$1" && shift && exec env "$@"' _ "$rel" \
+        PATH="bin:$PATH" \
+        HOME="$HOME" \
+        DEVAGENT_ROOT="$DEVAGENT_ROOT" \
+        bash "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -qE '^analyzer: shellcheck [^(]' "$(_artifact)"   # a version was stamped
+    grep -q 'SC2164' "$(_artifact)"
+    grep -qE 'NEW findings: [1-9]' "$(_artifact)"
+}

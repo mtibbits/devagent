@@ -52,6 +52,10 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 # that produces the findings, by construction rather than by a matching lookup.
 sc_bin="$(command -v shellcheck 2>/dev/null)" \
     || die "shellcheck not found on PATH"
+# A relative PATH entry answers with a relative path, which the findings run
+# would re-resolve from source_dir after its cd: no binary there, and `|| true`
+# would turn the failed exec into a stamped, vacuous NEW findings: 0. Anchor it.
+case "$sc_bin" in /*) ;; */*) sc_bin="$PWD/$sc_bin" ;; esac
 
 # #657: name the shellcheck that produces the findings — stamped in the artifact
 # header below. The output is captured whole, then parsed from a here-string: no
