@@ -138,3 +138,32 @@ _stub_shellcheck_analyzer() {
     [ "$status" -ne 0 ]
     grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "a failed shellcheck scan leaves step 13 UNMARKED through analyze.sh (#675 e2e)" {
+    # A bogus SHELLCHECK_OPTS makes shellcheck itself fail with exit 3 — outside
+    # 2 and 126+, so a classifier catching only those fails here. Pre-#675 the
+    # `|| true` read it as 0 findings and step 13 was marked [x].
+    command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+    _set_analyze shellcheck
+    export DEVAGENT_ANALYZE_SHELLCHECK="$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh"
+    printf '#!/usr/bin/env bash\ncd /x\n' > "$SOURCE_DIR/tool.sh"   # untracked: in scope
+    local artifact="$DEVDOC_DIR/Issue-1/analysis/${DEVAGENT_DATE_OVERRIDE}-shellcheck.txt"
+    run env SHELLCHECK_OPTS=--bogus "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"scan FAILED (exit=3)"* ]]   # die-only fragment
+    grep -qx 'shellcheck: exit=3' "$artifact"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 ' ' analyze
+    grep -qE '^last_step[[:space:]]*=[[:space:]]*5$' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run grep -cE '^(total findings in scoped files|NEW findings):' "$artifact"
+    [ "$status" -eq 1 ]
+    run grep -c 'shellcheck (diff-scoped) complete' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
+    # Recovery: the die message's own remedy (fix the setting, re-run) marks it.
+    run env -u SHELLCHECK_OPTS "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 x analyze
+    grep -q 'shellcheck (diff-scoped) complete' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qx 'shellcheck: exit=1' "$artifact"
+    run grep -c 'exit=3' "$artifact"
+    [ "$status" -eq 1 ]
+}

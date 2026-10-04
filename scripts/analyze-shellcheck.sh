@@ -7,9 +7,12 @@
 # file's untracked scope), and a finding is NEW iff its line falls inside a changed
 # hunk's new-side range — or anywhere in an untracked file — the same novelty gate
 # as the C path's filter_novel(). No baseline run, no worktree.
-# Report-not-fail: new findings are surfaced in the artifact; failure semantics
-# for step 13 are #117's remit. Every git call is -C anchored (cwd resets are a
-# known hazard and the origin of this issue's sibling CWD bug).
+# Report-not-fail: new findings are surfaced in the artifact, never a failure.
+# A failed scan is different (#675): a ShellCheck status other than 0/1, or a
+# failed cd into source_dir, fails step 13 loud — write-then-die, with the
+# status and stderr in the artifact and no count lines.
+# Every git call is -C anchored (cwd resets are a known hazard and the origin of
+# this issue's sibling CWD bug).
 #
 # Analyzer version (#657): the artifact header's `analyzer: shellcheck <version>`
 # line names the shellcheck that produced the findings — `(version unknown)` when
@@ -53,8 +56,9 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 sc_bin="$(command -v shellcheck 2>/dev/null)" \
     || die "shellcheck not found on PATH"
 # A relative PATH entry answers with a relative path, which the findings run
-# would re-resolve from source_dir after its cd: no binary there, and `|| true`
-# would turn the failed exec into a stamped, vacuous NEW findings: 0. Anchor it.
+# would re-resolve from source_dir after its cd: no binary there, so every
+# relative-PATH run would fail loud with exit=127 (#675) — and the stamped binary
+# would not be the one that scans (#657). Anchor it.
 case "$sc_bin" in /*) ;; */*) sc_bin="$PWD/$sc_bin" ;; esac
 
 # #657: name the shellcheck that produces the findings — stamped in the artifact
@@ -136,10 +140,10 @@ files+=("${untracked[@]}")
     echo "analyzer: shellcheck $sc_version"
     echo "scope: ${#files[@]} file(s)"
     for f in "${files[@]}"; do echo "  $f"; done
-    # #591: printed only when non-empty, so since #657 a tracked-only run's
-    # artifact differs from the pre-#591 shape only by the `analyzer:` line, whose
-    # value follows the shellcheck first on PATH (#550). This line IS the shell
-    # family's artifact-visible notice (the twin of static_analysis_diff.py's
+    # #591: printed only when non-empty, so a tracked-only run's artifact differs
+    # from the pre-#591 shape only by the `analyzer:` line (#657) and the
+    # `shellcheck: exit=<rc>` line (#675) below. This line IS the shell family's
+    # artifact-visible notice (the twin of static_analysis_diff.py's
     # `Untracked files (whole-file scope):` progress line) and
     # tests/analyze-shellcheck.bats pins it exactly — one line, space-joined, no
     # trailing space.
@@ -155,8 +159,45 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 # All findings at severity=warning, gcc format: file:line:col: level: msg [SCnnnn]
-# (shellcheck exiting 1 just means it has findings — data here, not failure.)
-findings="$(cd "$source_dir" && "$sc_bin" --severity=warning -f gcc "${files[@]}" || true)"
+# #675: the scan's status is classified, never swallowed. 0/1 mean the scan
+# completed (1 means findings — data here, not failure); anything else, or the
+# reserved 125 for a failed cd, is a failed scan: write-then-die, no counts.
+# stderr is kept apart from $findings because a `:` in it would inflate the
+# `grep -c ':'` count below. `--` keeps option-shaped names (`-x.sh`,
+# `--rcfile=rc.sh`) from being parsed as options; `./`-prefixing was rejected
+# because the fixed-string prefix match below would miss `./-x.sh`.
+sc_err="$(mktemp)" || die "mktemp failed (no scan performed; step 13 left unmarked)"
+trap 'rm -f "$sc_err"' EXIT
+sc_cd_failed=125   # free: ShellCheck exits 0-4; bash's exec failures 126/127; signals 128+n
+sc_rc=0
+findings="$(exec 2>"$sc_err"
+            cd "$source_dir" || exit "$sc_cd_failed"
+            "$sc_bin" --severity=warning -f gcc -- "${files[@]}")" || sc_rc=$?
+case "$sc_rc" in
+    0|1)
+        echo "shellcheck: exit=$sc_rc" >> "$out"
+        cat "$sc_err" >&2
+        ;;
+    "$sc_cd_failed")
+        {
+            echo "shellcheck: not run (cd into source_dir failed)"
+            cat "$sc_err"
+        } >> "$out"
+        cat "$out"
+        die "shellcheck scan not run: cd into source_dir '$source_dir' failed → $out (no findings counted; step 13 left unmarked — fix the source_dir and re-run /devagent:analyze)"
+        ;;
+    *)
+        {
+            echo "shellcheck: exit=$sc_rc"
+            if [ -n "$findings" ]; then
+                printf '%s\n' "$findings"
+            fi
+            cat "$sc_err"
+        } >> "$out"
+        cat "$out"
+        die "shellcheck scan FAILED (exit=$sc_rc) → $out (no findings counted; step 13 left unmarked — fix what shellcheck's stderr in the artifact names, e.g. a bad SHELLCHECK_OPTS, an unreadable or vanished file (on a shared checkout, often another session's uncommitted script: re-run once it settles), a missing binary, and re-run /devagent:analyze; to skip the analyzer for a project, set analyze = \"none\")"
+        ;;
+esac
 
 # New-side hunk ranges per file ("start end" pairs) from a -U0 diff; a finding
 # is NEW iff its line falls in one of its file's ranges (filter_novel semantics).
@@ -208,7 +249,7 @@ new_count="$(printf '%s' "$new_findings" | grep -c ':' || true)"
     echo "NEW findings: $new_count (on changed lines vs baseline, or anywhere in an untracked file)"
     if [ "$new_count" -gt 0 ]; then
         printf '%s' "$new_findings"
-        echo "-- review before the commit gate (#117 owns hard-fail semantics)"
+        echo "-- review before the commit gate"
     fi
 } >> "$out"
 cat "$out"

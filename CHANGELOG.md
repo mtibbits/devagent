@@ -16,6 +16,20 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: step 13 stops when shellcheck itself fails, and option-shaped file names are scanned (#675).**
+  `scripts/analyze-shellcheck.sh` used to discard the scan's exit status, so a scan that
+  never ran read as 0 findings and step 13 was marked done.
+  - The new failure: a scan whose shellcheck exits anything but 0 (clean) or 1 (findings),
+    or whose `cd` into `source_dir` fails, now stops step 13. The artifact carries
+    `shellcheck: exit=<rc>` (or `shellcheck: not run (cd into source_dir failed)`),
+    shellcheck's output and its stderr, and no finding counts; the step stays unmarked and
+    an `--auto` chain halts. Every completed scan records `shellcheck: exit=0` or
+    `shellcheck: exit=1` under the header.
+  - The remedy: fix what that stderr names (a bad `SHELLCHECK_OPTS`, an unreadable or
+    vanished file, a missing binary) and re-run `/devagent:analyze`.
+  - File names are passed after `--`, so a name like `-x.sh` or `--rcfile=rc.sh` is now
+    scanned instead of being read as an option.
+
 - **Added: the shellcheck analyzer's artifact names the shellcheck that produced it (#657).**
   `scripts/analyze-shellcheck.sh` writes one header line, `analyzer: shellcheck <version>`,
   between `baseline:` and `scope:`. The version is the token `shellcheck --version` prints
