@@ -198,10 +198,7 @@ def compiler_identity(build_dir: str) -> str:
 
 def _which_version(name: str) -> str:
     """Version of the `name` that PATH resolves, or unknown when none does."""
-    path = shutil.which(name)
-    if path is None:
-        return _VERSION_UNKNOWN
-    return probe_version([path, "--version"])
+    return _probe_path(shutil.which(name))
 
 
 # The wrapper lookups below mirror how each wrapper picks the binary it runs, so
@@ -775,7 +772,7 @@ def run_cmake_lint(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "cmake-lint not found at ~/venv/volk-dev/bin/cmake-lint"
         result.skipped = True
         return result
-    _record_stamp("cmake-lint", lambda: probe_version([cmake_lint, "--version"]))
+    _record_stamp("cmake-lint", lambda: _probe_path(cmake_lint))
 
     cmd = [cmake_lint] + cmake_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -809,7 +806,7 @@ def run_ruff(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "ruff not found at ~/venv/volk-dev/bin/ruff"
         result.skipped = True
         return result
-    _record_stamp("ruff", lambda: probe_version([ruff, "--version"]))
+    _record_stamp("ruff", lambda: _probe_path(ruff))
 
     cmd = [ruff, "check", "--output-format=concise"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -842,7 +839,7 @@ def run_flake8(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "flake8 not found at ~/venv/volk-dev/bin/flake8"
         result.skipped = True
         return result
-    _record_stamp("flake8", lambda: probe_version([flake8, "--version"]))
+    _record_stamp("flake8", lambda: _probe_path(flake8))
 
     # Use 90-char limit to match project style; suppress E501 if line under 90
     cmd = [flake8, "--max-line-length=90"] + py_files
@@ -876,7 +873,7 @@ def run_bandit(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "bandit not found at ~/venv/volk-dev/bin/bandit"
         result.skipped = True
         return result
-    _record_stamp("bandit", lambda: probe_version([bandit, "--version"]))
+    _record_stamp("bandit", lambda: _probe_path(bandit))
 
     cmd = [bandit, "-q", "-f", "custom",
            "--msg-template", "{abspath}:{line}: [{test_id}/{severity}] {msg}"] + py_files
@@ -910,7 +907,7 @@ def run_mypy(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "mypy not found at ~/venv/volk-dev/bin/mypy"
         result.skipped = True
         return result
-    _record_stamp("mypy", lambda: probe_version([mypy, "--version"]))
+    _record_stamp("mypy", lambda: _probe_path(mypy))
 
     cmd = [mypy, "--ignore-missing-imports", "--no-error-summary"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)

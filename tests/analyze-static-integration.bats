@@ -166,7 +166,7 @@ run_static_analyzer() {
 
 # #676: the version block. cppcheck is the one row left running: it has no suffix
 # filter, so README.md reaches it, and a PATH stub stands in for the real tool.
-SKIP_BUT_CPPCHECK="cpplint clang-tidy iwyu clang-format codespell cmake-lint ruff flake8 bandit mypy scan-build compiler asan tsan"
+SKIP_BUT_CPPCHECK="${SKIP_TOOLS#cppcheck }"
 
 # Stub scripts are exec'able by subprocess only under a POSIX python (U6).
 require_posix_python_676() {
