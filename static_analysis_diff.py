@@ -134,10 +134,17 @@ def probe_version(argv: list[str]) -> str:
     return extract_version(proc.stdout or "", proc.stderr or "")
 
 
+def _probe_path(path: Optional[str]) -> str:
+    """Version of the binary at `path`, or unknown when the lookup found none."""
+    return probe_version([path, "--version"]) if path else _VERSION_UNKNOWN
+
+
 def _record_stamp(row: str, compute: Callable[[], str]) -> None:
-    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown."""
+    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown.
+    The value keeps printable ASCII only, whatever its source (a corrupt CMake
+    compiler ID included), so printing it cannot raise on a cp1252 stream."""
     try:
-        value = compute()
+        value = "".join(ch for ch in compute() if " " <= ch <= "~") or _VERSION_UNKNOWN
     except Exception:  # noqa: BLE001 — stamping must never alter a runner's result
         value = _VERSION_UNKNOWN
     with _stamps_lock:
@@ -263,10 +270,6 @@ def _scan_build_analyzer() -> Optional[str]:
             return os.path.realpath(cand)
     return None
 
-
-def _probe_path(path: Optional[str]) -> str:
-    """Version of the binary at `path`, or unknown when the lookup found none."""
-    return probe_version([path, "--version"]) if path else _VERSION_UNKNOWN
 
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
@@ -613,7 +616,7 @@ def run_scan_build(build_dir: str) -> ToolResult:
     """Run scan-build-18. Returns pass/fail (not line-filterable)."""
     result = ToolResult(tool="scan-build-18")
     cmd = [
-        "scan-build-18",
+        _SCAN_BUILD,
         "--use-cc=clang-18", "--use-c++=clang++-18",
         "-o", "/tmp/scan-build-out",
         "cmake", "--build", build_dir, "--clean-first", "-j" + str(os.cpu_count() or 4),
@@ -1223,7 +1226,8 @@ TOOL_ORDER = ["cppcheck", "cpplint", "clang-tidy", "scan-build-18", "iwyu",
 
 def version_block_lines(results: list[ToolResult]) -> list[str]:
     """One `analyzer: <row> <version>` line per row whose analysis started: it
-    recorded a stamp and was not skipped. `results` is already in TOOL_ORDER."""
+    recorded a stamp and was not skipped. `results` is already in TOOL_ORDER.
+    Reads `_stamps` without the lock: every runner has finished by now."""
     return [f"analyzer: {r.tool} {_stamps[r.tool]}"
             for r in results if r.tool in _stamps and not r.skipped]
 

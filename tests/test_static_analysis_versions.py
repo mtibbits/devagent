@@ -668,3 +668,21 @@ def test_extract_version_token_is_ascii(text, expect):
     got = sad.extract_version(text, "")
     assert got == expect
     got.encode("cp1252")   # the Windows markdown progress stream must not raise
+
+
+def test_record_stamp_value_is_ascii_for_a_corrupt_compiler_id(tmp_path):
+    # Review minor 1: the ID comes from the CMake file, not the version token, so
+    # the whole stamp must be printable ASCII or the cp1252 progress print raises.
+    (tmp_path / "CMakeCache.txt").write_text(
+        "CMAKE_CACHE_MAJOR_VERSION:INTERNAL=3\n"
+        "CMAKE_CACHE_MINOR_VERSION:INTERNAL=22\n"
+        "CMAKE_CACHE_PATCH_VERSION:INTERNAL=1\n")
+    vdir = tmp_path / "CMakeFiles" / "3.22.1"
+    vdir.mkdir(parents=True)
+    (vdir / "CMakeCCompiler.cmake").write_bytes(
+        b'set(CMAKE_C_COMPILER "/nonexistent/cc")\n'
+        b'set(CMAKE_C_COMPILER_ID "GN\xffU")\n')
+    sad._record_stamp("compiler", lambda: sad.compiler_identity(str(tmp_path)))
+    got = sad._stamps["compiler"]
+    assert got == "GNU (version unknown) (C)"
+    got.encode("cp1252")
