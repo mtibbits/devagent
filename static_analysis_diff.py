@@ -20,6 +20,22 @@ clang-tidy, iwyu, compiler warnings) see an untracked file only once CMake does,
 and `git clang-format` diffs the INDEX against `base_ref`, so none of them reaches
 a file git does not track — they report it clean, and that is a known limit, not
 a pass.
+
+Tool versions (#676): just above `## Static Analysis Summary` (on stderr under
+--json) the run prints one `analyzer: <row> <version>` line per table row whose
+tool ran; a skipped or absent tool gets no line. The policy is stamp, do not
+change what runs: no analysis command line changes, no floor exists for any
+cmake-family tool, and there is no runtime gate. A version is the first
+version-shaped token of the tool's `--version` output; an unreadable one is
+`(version unknown)` and the run goes on. Every probe is time-bounded. The
+`compiler`, `asan+ubsan` and `tsan` stamps probe the compiler path and ARG1 that
+the build dir's CMake recorded, never CMake's cached compiler version. The
+clang-format, iwyu and scan-build-18 stamps mirror how each wrapper picks its
+binary (git config clangFormat.binary; $IWYU_BINARY, then beside iwyu_tool, then
+PATH; scan-build's own dir, then /usr/lib/llvm-18/bin/clang, with no PATH
+fallback), and PATH-tool stamps on Windows follow Python's lookup, so those
+stamps are inferred, not exact by construction. A version mismatch is visible
+only in the line.
 """
 
 import argparse
@@ -27,12 +43,14 @@ import concurrent.futures
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Callable, Optional, TextIO
 
 
 @dataclass
@@ -80,6 +98,183 @@ _SKIP_MARK = " -- skipped"
 # "build failed: <stderr>" whose tail happened to end in _SKIP_MARK can never be
 # misclassified as a skip.
 _BUILD_ABSENT = "cmake not found" + _SKIP_MARK
+
+# #676: per-row tool versions. A runner records its stamp in this registry, not
+# on its ToolResult, because the pool's exception path builds a fresh ToolResult
+# and would drop it. main() clears the registry once per run.
+_PROBE_TIMEOUT = 10                       # seconds per --version probe
+_VERSION_UNKNOWN = "(version unknown)"
+_VERSION_RE = re.compile(r"[0-9]+(?:\.[0-9]+)+[^\s,;()]*")
+_stamps: dict[str, str] = {}              # row -> value for this run
+_stamps_lock = threading.Lock()
+
+
+def extract_version(stdout: str, stderr: str) -> str:
+    """First version-shaped token of stdout then stderr, else (version unknown).
+    The exit status is ignored: cl.exe prints its banner and exits nonzero."""
+    m = _VERSION_RE.search((stdout + "\n" + stderr).replace("\r", ""))
+    if not m:
+        return _VERSION_UNKNOWN
+    # Cut the token at its first non-ASCII character: a decode-replaced byte or a
+    # localized suffix would otherwise make printing the stamp raise on a cp1252
+    # progress stream and end the run. The token starts with a digit, so it stays
+    # non-empty.
+    return re.match(r"[!-~]*", m.group(0)).group(0)
+
+
+def probe_version(argv: list[str]) -> str:
+    """Run `argv` (a `--version` probe) bounded and detached from stdin. Any
+    failure (absent, not executable, hung, undecodable) stamps unknown."""
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", stdin=subprocess.DEVNULL,
+                              timeout=_PROBE_TIMEOUT)
+    except Exception:  # noqa: BLE001 — a probe must never raise into a runner
+        return _VERSION_UNKNOWN
+    return extract_version(proc.stdout or "", proc.stderr or "")
+
+
+def _probe_path(path: Optional[str]) -> str:
+    """Version of the binary at `path`, or unknown when the lookup found none."""
+    return probe_version([path, "--version"]) if path else _VERSION_UNKNOWN
+
+
+def stamp_text(value: str) -> str:
+    """`value` cut to printable ASCII, whatever its source (a corrupt CMake
+    compiler ID included), so writing it cannot raise on a cp1252 stream; an
+    empty result is unknown. Both families' stamps pass through here."""
+    return "".join(ch for ch in value if " " <= ch <= "~") or _VERSION_UNKNOWN
+
+
+def _record_stamp(row: str, compute: Callable[[], str]) -> None:
+    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown."""
+    try:
+        value = stamp_text(compute())
+    except Exception:  # noqa: BLE001 — stamping must never alter a runner's result
+        value = _VERSION_UNKNOWN
+    with _stamps_lock:
+        _stamps[row] = value
+
+
+_CACHE_VERSION_RE = re.compile(r"^CMAKE_CACHE_(MAJOR|MINOR|PATCH)_VERSION:[A-Za-z]+=([0-9]+)\s*$")
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read().replace("\r", "")
+
+
+def _first_set(text: str, var: str) -> Optional[str]:
+    """Value of the first `set(<var> "<value>")` line, keyed on the exact name."""
+    m = re.search(r'^set\(' + re.escape(var) + r' "(.*)"\)\s*$', text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def compiler_identity(build_dir: str) -> str:
+    """`<ID> <version> (<LANG>)` for each of C and CXX that the build dir's CMake
+    recorded, joined by ", ". The version comes from probing the RECORDED compiler
+    path plus its ARG1 (so a launcher like ccache stamps the real compiler), never
+    from CMake's cached _VERSION line, which goes stale on an in-place upgrade.
+    The version dir is the one CMakeCache.txt names. Never raises."""
+    try:
+        parts: dict[str, str] = {}
+        for line in _read_text(os.path.join(build_dir, "CMakeCache.txt")).splitlines():
+            m = _CACHE_VERSION_RE.match(line)
+            if m and m.group(1) not in parts:
+                parts[m.group(1)] = m.group(2)
+        if len(parts) != 3:
+            return _VERSION_UNKNOWN
+        vdir = os.path.join(build_dir, "CMakeFiles",
+                            f"{parts['MAJOR']}.{parts['MINOR']}.{parts['PATCH']}")
+        if not os.path.isdir(vdir):
+            return _VERSION_UNKNOWN
+        entries = []
+        for lang in ("C", "CXX"):
+            f = os.path.join(vdir, f"CMake{lang}Compiler.cmake")
+            if not os.path.isfile(f):
+                continue
+            text = _read_text(f)
+            path = _first_set(text, f"CMAKE_{lang}_COMPILER") or ""
+            arg1 = _first_set(text, f"CMAKE_{lang}_COMPILER_ARG1") or ""
+            cid = _first_set(text, f"CMAKE_{lang}_COMPILER_ID") or ""
+            if path and os.path.isfile(path):
+                extra = shlex.split(arg1, posix=(os.name != "nt")) if arg1 else []
+                ver = probe_version([path] + extra + ["--version"])
+            else:
+                ver = _VERSION_UNKNOWN
+            entries.append(f"{cid} {ver} ({lang})" if cid else f"{ver} ({lang})")
+        return ", ".join(entries) if entries else _VERSION_UNKNOWN
+    except Exception:  # noqa: BLE001 — the reader feeds a stamp, never a failure
+        return _VERSION_UNKNOWN
+
+
+def _which_version(name: str) -> str:
+    """Version of the `name` that PATH resolves, or unknown when none does."""
+    return _probe_path(shutil.which(name))
+
+
+# The wrapper lookups below mirror how each wrapper picks the binary it runs, so
+# the stamp names that binary without changing what runs (#676). They are
+# inferred, not exact: a wrapper version that looks elsewhere stamps the wrong
+# binary or (version unknown).
+
+def _clang_format_binary() -> Optional[str]:
+    """git-clang-format's binary: `git config clangFormat.binary`, else
+    `clang-format`. A value with a directory part is a path (git-clang-format
+    resolves it at the repo toplevel, which is the cwd here); a bare name is
+    looked up on PATH."""
+    value = ""
+    try:
+        proc = subprocess.run(["git", "config", "--get", "clangFormat.binary"],
+                              capture_output=True, text=True, timeout=_PROBE_TIMEOUT)
+        if proc.returncode == 0:
+            value = proc.stdout.strip()
+    except Exception:  # noqa: BLE001 — fall back to the wrapper's default
+        value = ""
+    name = value or "clang-format"
+    if os.path.dirname(name):
+        return os.path.abspath(name)
+    return shutil.which(name)
+
+
+def _iwyu_binary() -> Optional[str]:
+    """iwyu_tool's binary: $IWYU_BINARY, else include-what-you-use beside the
+    iwyu_tool PATH resolves (the unresolved path, as iwyu_tool keys on its own
+    invoked __file__), else include-what-you-use on PATH. Realpath'd."""
+    env = os.environ.get("IWYU_BINARY")
+    if env:
+        return os.path.realpath(env)
+    tool = shutil.which("iwyu_tool")
+    if tool is not None:
+        beside = shutil.which("include-what-you-use", path=os.path.dirname(tool))
+        if beside is not None:
+            return os.path.realpath(beside)
+    on_path = shutil.which("include-what-you-use")
+    return os.path.realpath(on_path) if on_path is not None else None
+
+
+# Debian/Ubuntu patch scan-build's FindClang: its second branch is this fixed
+# path (measured on clang-tools-15, 2026-10-04), where upstream has $RealBin/clang.
+_SCAN_BUILD_DISTRO_CLANG = "/usr/lib/llvm-{nn}/bin/clang"
+_SCAN_BUILD = "scan-build-18"
+
+
+def _scan_build_analyzer() -> Optional[str]:
+    """The clang scan-build-18 analyzes with when no --use-analyzer is given:
+    $RealBin/bin/clang, $RealBin/clang (upstream), then the distro default.
+    $RealBin is the wrapper's own dir with links resolved. No PATH fallback."""
+    wrapper = shutil.which(_SCAN_BUILD)
+    if wrapper is None:
+        return None
+    real_bin = os.path.dirname(os.path.realpath(wrapper))
+    nn = _SCAN_BUILD.rsplit("-", 1)[1]
+    for cand in (os.path.join(real_bin, "bin", "clang"),
+                 os.path.join(real_bin, "clang"),
+                 _SCAN_BUILD_DISTRO_CLANG.format(nn=nn)):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return os.path.realpath(cand)
+    return None
+
 
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
@@ -316,6 +511,7 @@ def run_cppcheck(build_dir: str, changed_files: list[str], repo_root: str) -> To
         result.error = "no compilable files in diff"
         return result
 
+    _record_stamp("cppcheck", lambda: _which_version("cppcheck"))
     cmd = [
         "cppcheck",
         "--enable=all",
@@ -358,6 +554,7 @@ def run_cpplint(changed_files: list[str], repo_root: str) -> ToolResult:
     if not src_files:
         return result
 
+    _record_stamp("cpplint", lambda: _which_version("cpplint"))
     cmd = [
         "cpplint",
         "--filter=-legal/copyright,-build/include_order,-build/include_subdir,-readability/casting,-runtime/int",
@@ -395,6 +592,7 @@ def run_clang_tidy(build_dir: str, changed_files: list[str], repo_root: str) -> 
     if not src_files:
         return result
 
+    _record_stamp("clang-tidy", lambda: _which_version("clang-tidy"))
     cmd = ["clang-tidy", "-p", build_dir] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     output = proc.stdout + proc.stderr
@@ -423,11 +621,12 @@ def run_scan_build(build_dir: str) -> ToolResult:
     """Run scan-build-18. Returns pass/fail (not line-filterable)."""
     result = ToolResult(tool="scan-build-18")
     cmd = [
-        "scan-build-18",
+        _SCAN_BUILD,
         "--use-cc=clang-18", "--use-c++=clang++-18",
         "-o", "/tmp/scan-build-out",
         "cmake", "--build", build_dir, "--clean-first", "-j" + str(os.cpu_count() or 4),
     ]
+    _record_stamp("scan-build-18", lambda: _probe_path(_scan_build_analyzer()))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = proc.stderr + proc.stdout
@@ -461,6 +660,7 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     if not src_files:
         return result
 
+    _record_stamp("iwyu", lambda: _probe_path(_iwyu_binary()))
     cmd = ["iwyu_tool", "-p", build_dir] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     output = proc.stdout + proc.stderr
@@ -509,9 +709,14 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
     # git clang-format shows what would change between base_ref and the working
     # tree (no HEAD endpoint) — so uncommitted edits are checked pre-commit; on a
     # clean committed tree this matches the prior `base_ref HEAD` two-commit form.
+    _record_stamp("clang-format", lambda: _probe_path(_clang_format_binary()))
     cmd = ["git", "clang-format", "--diff", base_ref, "--"] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout.strip()
+    if proc.returncode != 0 and not output:
+        # git-clang-format itself did not run (absent wrapper, bad ref): the
+        # formatter's version says nothing about this row, so stamp unknown.
+        _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
 
     if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
         return result
@@ -543,6 +748,7 @@ def run_codespell(changed_files: list[str], repo_root: str) -> ToolResult:
     if not changed_files:
         return result
 
+    _record_stamp("codespell", lambda: _which_version("codespell"))
     cmd = ["codespell", "--quiet-level=2"] + changed_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout + proc.stderr
@@ -574,6 +780,7 @@ def run_cmake_lint(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "cmake-lint not found at ~/venv/volk-dev/bin/cmake-lint"
         result.skipped = True
         return result
+    _record_stamp("cmake-lint", lambda: _probe_path(cmake_lint))
 
     cmd = [cmake_lint] + cmake_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -607,6 +814,7 @@ def run_ruff(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "ruff not found at ~/venv/volk-dev/bin/ruff"
         result.skipped = True
         return result
+    _record_stamp("ruff", lambda: _probe_path(ruff))
 
     cmd = [ruff, "check", "--output-format=concise"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -639,6 +847,7 @@ def run_flake8(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "flake8 not found at ~/venv/volk-dev/bin/flake8"
         result.skipped = True
         return result
+    _record_stamp("flake8", lambda: _probe_path(flake8))
 
     # Use 90-char limit to match project style; suppress E501 if line under 90
     cmd = [flake8, "--max-line-length=90"] + py_files
@@ -672,6 +881,7 @@ def run_bandit(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "bandit not found at ~/venv/volk-dev/bin/bandit"
         result.skipped = True
         return result
+    _record_stamp("bandit", lambda: _probe_path(bandit))
 
     cmd = [bandit, "-q", "-f", "custom",
            "--msg-template", "{abspath}:{line}: [{test_id}/{severity}] {msg}"] + py_files
@@ -705,6 +915,7 @@ def run_mypy(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "mypy not found at ~/venv/volk-dev/bin/mypy"
         result.skipped = True
         return result
+    _record_stamp("mypy", lambda: _probe_path(mypy))
 
     cmd = [mypy, "--ignore-missing-imports", "--no-error-summary"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -747,6 +958,7 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
+        _record_stamp("compiler", lambda: compiler_identity(build_dir))
         result.error = "timed out after 300s"
         result.passed = False
         return result
@@ -755,6 +967,7 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
         result.error = "cmake not found"
         result.skipped = True
         return result
+    _record_stamp("compiler", lambda: compiler_identity(build_dir))
     output = proc.stderr + proc.stdout
 
     for line in output.splitlines():
@@ -895,6 +1108,8 @@ def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     flags = "-fsanitize=address,undefined -fno-omit-frame-pointer"
 
     err = _build_sanitizer(repo_root, build_dir, flags)
+    if err != _BUILD_ABSENT:
+        _record_stamp("asan+ubsan", lambda: compiler_identity(build_dir))
     if err:
         if not _build_skipped(result, err):
             result.error = err
@@ -952,6 +1167,8 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     # fallback is retained as defense-in-depth.
     build_launcher = _setarch_prefix()
     err = _build_sanitizer(repo_root, build_dir, flags, launcher=build_launcher)
+    if err != _BUILD_ABSENT:
+        _record_stamp("tsan", lambda: compiler_identity(build_dir))
     volk_profile = os.path.join(build_dir, "apps", "volk_profile")
     if _build_skipped(result, err):
         return result
@@ -1003,6 +1220,21 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
         result.passed = True
 
     return result
+
+
+# Display order of the summary table's rows; the version block follows it too.
+TOOL_ORDER = ["cppcheck", "cpplint", "clang-tidy", "scan-build-18", "iwyu",
+              "clang-format", "cmake-lint", "codespell",
+              "ruff", "flake8", "bandit", "mypy",
+              "compiler", "asan+ubsan", "tsan"]
+
+
+def version_block_lines(results: list[ToolResult]) -> list[str]:
+    """One `analyzer: <row> <version>` line per row whose analysis started: it
+    recorded a stamp and was not skipped. `results` is already in TOOL_ORDER.
+    Reads `_stamps` without the lock: every runner has finished by now."""
+    return [f"analyzer: {r.tool} {_stamps[r.tool]}"
+            for r in results if r.tool in _stamps and not r.skipped]
 
 
 def filter_novel(findings: list[Finding], ranges: dict[str, list[LineRange]]) -> list[Finding]:
@@ -1127,6 +1359,7 @@ def main():
         sys.exit(1)
 
     os.chdir(repo_root)
+    _stamps.clear()
 
     # #119: under --json, stdout must carry only the JSON document, so all human
     # progress goes to stderr. In markdown mode progress stays on stdout.
@@ -1257,11 +1490,13 @@ def main():
         results.append(r)
 
     # Sort results into a consistent display order
-    tool_order = ["cppcheck", "cpplint", "clang-tidy", "scan-build-18", "iwyu",
-                  "clang-format", "cmake-lint", "codespell",
-                  "ruff", "flake8", "bandit", "mypy",
-                  "compiler", "asan+ubsan", "tsan"]
-    results.sort(key=lambda r: tool_order.index(r.tool) if r.tool in tool_order else 99)
+    results.sort(key=lambda r: TOOL_ORDER.index(r.tool) if r.tool in TOOL_ORDER else 99)
+
+    # #676: name the tools that produced this run, one line per row that ran, just
+    # above the summary heading (print_summary opens with a blank line). Under
+    # --json this lands on stderr with the other progress lines.
+    for line in version_block_lines(results):
+        print(line, file=progress)
 
     # Output
     if args.json:

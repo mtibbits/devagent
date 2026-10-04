@@ -2,6 +2,14 @@
 # scripts/analyze-sanitizers.sh — run ASan, UBSan, TSan in separate build dirs.
 # Per spec §18: no sub-step tracking. analyze.sh (Task 10) sequences this and
 # writes the step-13 checklist mark.
+#
+# Tool versions (#676): line 2 of each <date>-<tag>.txt is
+# `analyzer: <tag> <compiler identity>`, read after the leg from the compiler the
+# leg's build dir recorded (static_analysis_diff.compiler_identity probes the
+# recorded compiler path and ARG1, never CMake's cached compiler version). The
+# policy is stamp, do not change what runs: no floor exists for any cmake-family
+# tool and there is no runtime gate. An unreadable version is (version unknown)
+# and the leg goes on; a mismatch is visible only in the line.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -13,6 +21,17 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 : "${DEVAGENT_CMAKE:=cmake}"
 : "${DEVAGENT_CTEST:=ctest}"
+# #676: python3 is a prerequisite for the analyzer: line only. Its absence (or any
+# failure of the reader) stamps (version unknown) with a warning; it never fails a
+# leg.
+: "${DEVAGENT_PYTHON:=python3}"
+
+# #676: the line-2 rewrite goes through a dot-named temp file beside the artifact
+# (no analysis/*.txt consumer glob matches it); the EXIT trap removes one left by
+# an interrupted run, since cleanup commits the devdoc tree with `git add -A`.
+# It is the only EXIT trap here and in the sourced libs: a later one would replace it.
+_san_stamp_tmp=""
+trap '[ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp"; true' EXIT
 
 project="${1:-}"
 [ -n "$project" ] || die "project required"
@@ -75,6 +94,21 @@ _phase_desc() {
     if [ "$1" -eq 124 ]; then echo "timed out >${timeout_budget}s"; else echo "exit=$1"; fi
 }
 
+# #676: the compiler identity a build dir recorded, from the one python reader
+# (static_analysis_diff.compiler_identity). A reader that ran and found nothing
+# prints (version unknown) silently; one that did not run warns.
+_compiler_stamp() {
+    local v rc=0
+    v="$(timeout -k 5 30 "$DEVAGENT_PYTHON" -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import static_analysis_diff as s; sys.stdout.write(s.stamp_text(s.compiler_identity(sys.argv[2])))' "$DEVAGENT_ROOT" "$1" 2>/dev/null)" || rc=$?
+    v="${v//$'\r'/}"
+    if [ "$rc" -ne 0 ] || [ -z "$v" ]; then
+        warn "analyze-sanitizers: compiler-identity reader failed (rc=$rc) for $1; stamping (version unknown)"
+        v="(version unknown)"
+    fi
+    case "$v" in *$'\n'*) v="(version unknown)" ;; esac
+    printf '%s' "$v"
+}
+
 run_one() {
     local tag="$1" flag="$2"
     local out="$issue_dir/analysis/$date_tag-$tag.txt"
@@ -131,6 +165,18 @@ run_one() {
             fi
         fi
     } > "$out"
+    # #676: line 2 names the compiler the build dir recorded. Read AFTER the leg,
+    # so a configure that ran records the compiler it found even when it failed.
+    local stamp; stamp="$(_compiler_stamp "$build")"
+    _san_stamp_tmp="$(mktemp "$issue_dir/analysis/.stamp-$tag.XXXXXX" 2>/dev/null)" || _san_stamp_tmp=""
+    if ! { [ -n "$_san_stamp_tmp" ] \
+        && { head -n 1 "$out" && printf 'analyzer: %s %s\n' "$tag" "$stamp" && tail -n +2 "$out"; } > "$_san_stamp_tmp" \
+        && { chmod --reference="$out" "$_san_stamp_tmp" 2>/dev/null || chmod 644 "$_san_stamp_tmp"; } \
+        && mv -f "$_san_stamp_tmp" "$out"; }; then
+        if [ -n "$_san_stamp_tmp" ]; then rm -f "$_san_stamp_tmp" || true; fi
+        warn "analyze-sanitizers: could not write the analyzer line into $out (artifact kept as written; leg result unchanged)"
+    fi
+    _san_stamp_tmp=""
     # Aggregate the leg's failure (first failing phase wins the summary).
     # #351: timeout(1) exits 124 when it kills a phase — label that distinctly so a
     # reader sees the leg hit the budget rather than failed on its own merits.

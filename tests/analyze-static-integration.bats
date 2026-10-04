@@ -163,3 +163,104 @@ run_static_analyzer() {
     [[ "$output" == *"Changed files: README.md"* ]]   # the run produced scope
     [[ "$output" != *"Untracked"* ]]
 }
+
+# #676: the version block. cppcheck is the one row left running: it has no suffix
+# filter, so README.md reaches it, and a PATH stub stands in for the real tool.
+SKIP_BUT_CPPCHECK="${SKIP_TOOLS#cppcheck }"
+
+# Stub scripts are exec'able by subprocess only under a POSIX python (U6).
+require_posix_python_676() {
+    python3 -c 'import os,sys; sys.exit(os.name != "posix")' \
+        || skip "stub tools are POSIX scripts; runs in CI/WSL"
+}
+
+# $bd with an empty compile database, so cppcheck passes its early return.
+make_build_dir_676() {
+    bd="$DEVAGENT_TMP/bd"
+    mkdir -p "$bd"
+    printf '[]' > "$bd/compile_commands.json"
+}
+
+@test "static: a PATH-shadowed cppcheck is stamped once between the last Running line and the summary (#676)" {
+    require_posix_python_676
+    commit_readme_change
+    make_build_dir_676
+    devagent_stub cppcheck "Cppcheck 9.9.9-stub"
+    cd "$DEVAGENT_TMP"
+    run bash -c "python3 '$DEVAGENT_ROOT/static_analysis_diff.py' --repo '$SOURCE_DIR' '$base' '$bd' --skip $SKIP_BUT_CPPCHECK 2>/dev/null"
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    local n; n="$(grep -cx 'analyzer: cppcheck 9.9.9-stub' "$DEVAGENT_TMP/out.txt")"
+    [ "$n" -eq 1 ]
+    local run_ln stamp_ln sum_ln
+    run_ln="$(grep -n '^Running ' "$DEVAGENT_TMP/out.txt" | tail -n 1 | cut -d: -f1)"
+    stamp_ln="$(grep -nx 'analyzer: cppcheck 9.9.9-stub' "$DEVAGENT_TMP/out.txt" | cut -d: -f1)"
+    sum_ln="$(grep -n '^## Static Analysis Summary' "$DEVAGENT_TMP/out.txt" | cut -d: -f1)"
+    [ -n "$run_ln" ] && [ -n "$stamp_ln" ] && [ -n "$sum_ln" ]
+    [ "$run_ln" -lt "$stamp_ln" ]
+    [ "$stamp_ln" -lt "$sum_ln" ]
+    [[ "$output" == *"| cppcheck | 0 | 0 | clean |"* ]]
+    local ver_ln ana_ln
+    ver_ln="$(grep -n '^cppcheck --version$' "$DEVAGENT_STUB_LOG" | head -n 1 | cut -d: -f1)"
+    ana_ln="$(grep -n '^cppcheck --enable=all' "$DEVAGENT_STUB_LOG" | head -n 1 | cut -d: -f1)"
+    [ -n "$ver_ln" ] && [ -n "$ana_ln" ]
+    [ "$ver_ln" -lt "$ana_ln" ]
+}
+
+@test "static: a cppcheck whose --version is garbage stamps (version unknown) and the row still renders (#676)" {
+    require_posix_python_676
+    commit_readme_change
+    make_build_dir_676
+    devagent_stub cppcheck "garbage" 2
+    cd "$DEVAGENT_TMP"
+    run bash -c "python3 '$DEVAGENT_ROOT/static_analysis_diff.py' --repo '$SOURCE_DIR' '$base' '$bd' --skip $SKIP_BUT_CPPCHECK 2>/dev/null"
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    local n; n="$(grep -cx 'analyzer: cppcheck (version unknown)' "$DEVAGENT_TMP/out.txt")"
+    [ "$n" -eq 1 ]
+    [[ "$output" == *"| cppcheck | 0 | 0 | clean |"* ]]
+}
+
+@test "static: --json with an executing cppcheck keeps stdout pure and the stamp on stderr (#676)" {
+    require_posix_python_676
+    commit_readme_change
+    make_build_dir_676
+    devagent_stub cppcheck "Cppcheck 9.9.9-stub"
+    cd "$DEVAGENT_TMP"
+    python3 "$DEVAGENT_ROOT/static_analysis_diff.py" --json --repo "$SOURCE_DIR" "$base" "$bd" \
+        --skip $SKIP_BUT_CPPCHECK > "$DEVAGENT_TMP/json.out" 2> "$DEVAGENT_TMP/json.err"
+    python3 -c 'import sys, json; json.load(open(sys.argv[1]))' "$DEVAGENT_TMP/json.out"
+    run grep -c 'analyzer:' "$DEVAGENT_TMP/json.out"
+    [ "$status" -eq 1 ]
+    local n; n="$(grep -cx 'analyzer: cppcheck 9.9.9-stub' "$DEVAGENT_TMP/json.err")"
+    [ "$n" -eq 1 ]
+    python3 -c '
+import sys, json
+rows = [r for r in json.load(open(sys.argv[1])) if r["tool"] == "cppcheck"]
+sys.exit(0 if len(rows) == 1 and rows[0]["skipped"] is False else 1)
+' "$DEVAGENT_TMP/json.out"
+}
+
+@test "static: a run where no row executes prints no analyzer: line (#676)" {
+    require_posix_python_676
+    commit_readme_change
+    make_build_dir_676
+    run_static_analyzer "$bd"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Changed files: README.md"* ]]   # control: the run had scope
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    run grep -c '^analyzer:' "$DEVAGENT_TMP/out.txt"
+    [ "$status" -eq 1 ]
+}
+
+@test "static: an empty-scope run is byte-identical (#676)" {
+    require_posix_python_676
+    base="$(cd "$SOURCE_DIR" && git rev-parse HEAD)"
+    make_build_dir_676
+    cd "$DEVAGENT_TMP"
+    python3 "$DEVAGENT_ROOT/static_analysis_diff.py" --repo "$SOURCE_DIR" "$base" "$bd" \
+        --files README.md > "$DEVAGENT_TMP/empty.out"
+    printf 'Base ref: %s\nBuild dir: %s\nNo changed files found in diff.\n' "$base" "$bd" \
+        > "$DEVAGENT_TMP/empty.expect"
+    cmp "$DEVAGENT_TMP/empty.out" "$DEVAGENT_TMP/empty.expect"
+}

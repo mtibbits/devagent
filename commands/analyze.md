@@ -28,10 +28,17 @@ command as the analyzer so the artifact says whose files it saw. Only the per-fi
 tools act on the whole-file range; the compile-database tools and
 `git clang-format` see an untracked file once the build / index knows it.
 
-The `shellcheck` artifact's header names the shellcheck that produced it
-(`analyzer: shellcheck <version>`, or `(version unknown)`), because versions can
-disagree on the same file (#657). No version is enforced; the policy is in the
-header of `scripts/analyze-shellcheck.sh`.
+Each family's artifacts name the tools that produced them, because versions can
+disagree on the same file (#657). The `shellcheck` artifact's header carries
+`analyzer: shellcheck <version>`. Under the `cmake` family (#676),
+`<date>-static.txt` carries one `analyzer: <row> <version>` line per table row
+whose tool ran, in a block just above `## Static Analysis Summary`, and line 2 of
+each sanitizer artifact is `analyzer: <tag> <compiler identity>`, probed from the
+compiler the build dir recorded. An unreadable version is `(version unknown)`. No
+version is enforced by either family; the policy is in the headers of
+`scripts/analyze-shellcheck.sh`, `static_analysis_diff.py` and
+`scripts/analyze-sanitizers.sh`. An artifact written before these stamps has no
+`analyzer:` line.
 
 Under the `cmake` family the step **fails loud** (#117): if any sanitizer leg
 (ASan/UBSan/TSan) fails at configure, build, or ctest, all three legs still run
