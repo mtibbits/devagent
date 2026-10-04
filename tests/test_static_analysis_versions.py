@@ -431,3 +431,228 @@ def test_scan_build_analyzer_lookup(tmp_path, monkeypatch):
 def test_scan_build_analyzer_absent_wrapper(monkeypatch):
     monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: None)
     assert sad._scan_build_analyzer() is None
+
+
+# -- Task 4: a stamp in each of the 15 runners ----------------------------------
+
+def _harness(monkeypatch, tmp_path):
+    """Recorders for every version source plus a fake subprocess.run, all logging
+    into one ordered event list, so a test can assert where each stamp is taken."""
+    import os
+    events = []
+
+    def fake_probe(argv):
+        events.append(("probe", list(argv)))
+        return "7.7.7"
+
+    def fake_identity(build_dir):
+        events.append(("identity", build_dir))
+        return "GNU 7.7.7 (C)"
+
+    def fake_run(argv, **kw):
+        events.append(("run", list(argv)))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def fake_build_sanitizer(repo_root, build_dir, flags, launcher=None):
+        events.append(("run", ["cmake", "-S", repo_root, "-B", build_dir]))
+        return None
+
+    monkeypatch.setattr(sad, "probe_version", fake_probe)
+    monkeypatch.setattr(sad, "compiler_identity", fake_identity)
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: f"/stub/{name}")
+    monkeypatch.setattr(sad, "_iwyu_binary", lambda: "/stub/include-what-you-use")
+    monkeypatch.setattr(sad, "_clang_format_binary", lambda: "/stub/clang-format")
+    monkeypatch.setattr(sad, "_scan_build_analyzer", lambda: "/stub/clang")
+    monkeypatch.setattr(sad, "_build_sanitizer", fake_build_sanitizer)
+    monkeypatch.setattr(sad, "_run_test_kernel", lambda *a, **k: (0, "", ""))
+    monkeypatch.setattr(sad, "_setarch_prefix", lambda: [])
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    real_expand = os.path.expanduser
+
+    def fake_expand(p):
+        if "venv/volk-dev/bin/" in p:
+            f = venv / os.path.basename(p)
+            f.write_text("")
+            return str(f)
+        return real_expand(p)
+
+    monkeypatch.setattr(sad.os.path, "expanduser", fake_expand)
+    bd = tmp_path / "bd"
+    bd.mkdir()
+    (bd / "compile_commands.json").write_text("[]")
+    return events, str(bd), str(tmp_path / "repo")
+
+
+# row -> (call(bd, repo), expected stamp, kind); kind "pre" = the probe precedes
+# the analysis run, "post" = the identity follows the first cmake run.
+RECIPES = {
+    "cppcheck": (lambda bd, repo: sad.run_cppcheck(bd, ["a.cc"], repo), "7.7.7", "pre"),
+    "cpplint": (lambda bd, repo: sad.run_cpplint(["a.cc"], repo), "7.7.7", "pre"),
+    "clang-tidy": (lambda bd, repo: sad.run_clang_tidy(bd, ["a.cc"], repo), "7.7.7", "pre"),
+    "scan-build-18": (lambda bd, repo: sad.run_scan_build(bd), "7.7.7", "pre"),
+    "iwyu": (lambda bd, repo: sad.run_iwyu(bd, ["a.cc"], repo), "7.7.7", "pre"),
+    "clang-format": (lambda bd, repo: sad.run_clang_format("origin/x", ["a.cc"], repo),
+                     "7.7.7", "pre"),
+    "cmake-lint": (lambda bd, repo: sad.run_cmake_lint(["CMakeLists.txt"], repo), "7.7.7", "pre"),
+    "codespell": (lambda bd, repo: sad.run_codespell(["a.cc"], repo), "7.7.7", "pre"),
+    "ruff": (lambda bd, repo: sad.run_ruff(["a.py"], repo), "7.7.7", "pre"),
+    "flake8": (lambda bd, repo: sad.run_flake8(["a.py"], repo), "7.7.7", "pre"),
+    "bandit": (lambda bd, repo: sad.run_bandit(["a.py"], repo), "7.7.7", "pre"),
+    "mypy": (lambda bd, repo: sad.run_mypy(["a.py"], repo), "7.7.7", "pre"),
+    "compiler": (lambda bd, repo: sad.run_compiler_warnings(bd, ["a.cc"], repo),
+                 "GNU 7.7.7 (C)", "post"),
+    "asan+ubsan": (lambda bd, repo: sad.run_asan_ubsan(repo, bd, "k"), "GNU 7.7.7 (C)", "post"),
+    "tsan": (lambda bd, repo: sad.run_tsan(repo, bd, "k"), "GNU 7.7.7 (C)", "post"),
+}
+
+
+def test_row_recipes_cover_tool_order():
+    assert set(RECIPES) == set(sad.TOOL_ORDER)
+    assert len(sad.TOOL_ORDER) == 15
+
+
+@pytest.mark.parametrize("row", list(RECIPES))
+def test_every_row_records_a_stamp(row, tmp_path, monkeypatch):
+    events, bd, repo = _harness(monkeypatch, tmp_path)
+    call, expect, kind = RECIPES[row]
+    r = call(bd, repo)
+    assert r.tool == row
+    assert sad._stamps.get(row) == expect
+    kinds = [e[0] for e in events]
+    assert "run" in kinds
+    first_run = kinds.index("run")
+    if kind == "pre":
+        assert "probe" in kinds and kinds.index("probe") < first_run
+    else:
+        assert "identity" in kinds and kinds.index("identity") > first_run
+
+
+def _pool_fake_run(monkeypatch, analysis_exc):
+    def fake_run(argv, **kw):
+        if list(argv[1:]) == ["--version"]:
+            return types.SimpleNamespace(returncode=0, stdout="Cppcheck 9.9.9-stub\n", stderr="")
+        raise analysis_exc
+
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: f"/stub/{name}")
+
+
+def test_pool_timeout_keeps_stamp(tmp_path, monkeypatch, capsys):
+    import io
+    bd = tmp_path / "bd"
+    bd.mkdir()
+    (bd / "compile_commands.json").write_text("[]")
+    _pool_fake_run(monkeypatch, subprocess.TimeoutExpired(cmd="cppcheck", timeout=300))
+    r = sad._finalize_pool_result(
+        "cppcheck", lambda: sad.run_cppcheck(str(bd), ["a.cc"], str(tmp_path)), {}, io.StringIO())
+    assert "timed out" in r.error
+    sad.print_summary([r], {})
+    out = capsys.readouterr().out
+    assert any(ln.startswith("| cppcheck | - | - | error: ") for ln in out.splitlines())
+    assert sad.version_block_lines([r]) == ["analyzer: cppcheck 9.9.9-stub"]
+
+
+def test_pool_absent_analysis_emits_no_line(tmp_path, monkeypatch):
+    import io
+    bd = tmp_path / "bd"
+    bd.mkdir()
+    (bd / "compile_commands.json").write_text("[]")
+    _pool_fake_run(monkeypatch, FileNotFoundError("cppcheck"))
+    r = sad._finalize_pool_result(
+        "cppcheck", lambda: sad.run_cppcheck(str(bd), ["a.cc"], str(tmp_path)), {}, io.StringIO())
+    assert r.skipped
+    assert sad.version_block_lines([r]) == []
+
+
+def _clang_format_run(monkeypatch, rc, stdout, stderr=""):
+    probes = []
+
+    def fake_run(argv, **kw):
+        argv = list(argv)
+        if argv[:2] == ["git", "config"]:
+            return types.SimpleNamespace(returncode=1, stdout="", stderr="")
+        if argv == ["/stub/clang-format", "--version"]:
+            probes.append(argv)
+            return types.SimpleNamespace(returncode=0, stdout="clang-format version 18.1.3\n",
+                                         stderr="")
+        assert argv[:2] == ["git", "clang-format"]
+        return types.SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: f"/stub/{name}")
+    return probes
+
+
+def test_clang_format_failed_wrapper_stamps_unknown(monkeypatch, tmp_path):
+    probes = _clang_format_run(monkeypatch, 1, "",
+                               "git: 'clang-format' is not a git command. See 'git --help'.")
+    sad.run_clang_format("origin/x", ["a.cc"], str(tmp_path))
+    assert probes == [["/stub/clang-format", "--version"]]
+    assert sad._stamps["clang-format"] == UNKNOWN
+
+
+@pytest.mark.parametrize("rc,stdout", [
+    (0, ""),
+    (1, "diff --git a/x.cc b/x.cc\n--- a/x.cc\n+++ b/x.cc\n@@ -1 +1 @@\n-a\n+b\n"),
+], ids=["rc0-empty", "rc1-diff"])
+def test_clang_format_keeps_version(monkeypatch, tmp_path, rc, stdout):
+    _clang_format_run(monkeypatch, rc, stdout)
+    sad.run_clang_format("origin/x", ["a.cc"], str(tmp_path))
+    assert sad._stamps["clang-format"] == "18.1.3"
+
+
+def test_sanitizer_row_reads_dir_after_configure(tmp_path, monkeypatch, capsys):
+    bd = tmp_path / "bd-asan"
+    bd.mkdir()
+    assert not (bd / "CMakeFiles").exists()
+
+    def fake_build(repo_root, build_dir, flags, launcher=None):
+        _cmake_tree(build_dir, langs={"C": (str(tmp_path / "gone" / "cc"), "", "GNU")})
+        return "cmake configure failed: x"
+
+    monkeypatch.setattr(sad, "_build_sanitizer", fake_build)
+    r = sad.run_asan_ubsan(str(tmp_path), str(bd), "k")
+    assert sad._stamps["asan+ubsan"] == "GNU (version unknown) (C)"
+    sad.print_summary([r], {})
+    # unchanged rendering: an error with no findings prints `error:` (print_summary)
+    assert "| asan+ubsan | - | - | error: cmake configure failed: x |" in capsys.readouterr().out
+
+
+def _raise_fnfe(*a, **k):
+    raise FileNotFoundError("cmake")
+
+
+@pytest.mark.parametrize("row", ["compiler", "asan+ubsan", "tsan"])
+def test_compile_backed_absent_cmake_records_nothing(row, tmp_path, monkeypatch):
+    monkeypatch.setattr(sad.subprocess, "run", _raise_fnfe)
+    monkeypatch.setattr(sad, "_build_sanitizer", lambda *a, **k: sad._BUILD_ABSENT)
+    monkeypatch.setattr(sad, "_setarch_prefix", lambda: [])
+    bd = str(tmp_path / "bd")
+    if row == "compiler":
+        r = sad.run_compiler_warnings(bd, ["a.cc"], str(tmp_path))
+    elif row == "asan+ubsan":
+        r = sad.run_asan_ubsan(str(tmp_path), bd, "k")
+    else:
+        r = sad.run_tsan(str(tmp_path), bd, "k")
+    assert r.skipped
+    assert row not in sad._stamps
+
+
+def test_version_block_lines_order_and_filter():
+    sad._stamps.update({"cppcheck": "2.7", "iwyu": "0.17", "ruff": "0.15.21",
+                        "compiler": "GNU 11.4.0 (C)"})
+    results = [
+        sad.ToolResult(tool="cppcheck"),
+        sad.ToolResult(tool="cpplint"),                      # no stamp
+        sad.ToolResult(tool="iwyu", skipped=True),           # stamped but skipped
+        sad.ToolResult(tool="ruff"),
+        sad.ToolResult(tool="compiler", error="build failed", passed=False),
+    ]
+    results.sort(key=lambda r: sad.TOOL_ORDER.index(r.tool))
+    assert sad.version_block_lines(results) == [
+        "analyzer: cppcheck 2.7",
+        "analyzer: ruff 0.15.21",
+        "analyzer: compiler GNU 11.4.0 (C)",
+    ]

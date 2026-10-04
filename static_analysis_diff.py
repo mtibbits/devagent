@@ -245,6 +245,11 @@ def _scan_build_analyzer() -> Optional[str]:
     return None
 
 
+def _probe_path(path: Optional[str]) -> str:
+    """Version of the binary at `path`, or unknown when the lookup found none."""
+    return probe_version([path, "--version"]) if path else _VERSION_UNKNOWN
+
+
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
     """Get changed line ranges from git diff. Returns {filepath: [LineRange, ...]}.
 
@@ -479,6 +484,7 @@ def run_cppcheck(build_dir: str, changed_files: list[str], repo_root: str) -> To
         result.error = "no compilable files in diff"
         return result
 
+    _record_stamp("cppcheck", lambda: _which_version("cppcheck"))
     cmd = [
         "cppcheck",
         "--enable=all",
@@ -521,6 +527,7 @@ def run_cpplint(changed_files: list[str], repo_root: str) -> ToolResult:
     if not src_files:
         return result
 
+    _record_stamp("cpplint", lambda: _which_version("cpplint"))
     cmd = [
         "cpplint",
         "--filter=-legal/copyright,-build/include_order,-build/include_subdir,-readability/casting,-runtime/int",
@@ -558,6 +565,7 @@ def run_clang_tidy(build_dir: str, changed_files: list[str], repo_root: str) -> 
     if not src_files:
         return result
 
+    _record_stamp("clang-tidy", lambda: _which_version("clang-tidy"))
     cmd = ["clang-tidy", "-p", build_dir] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     output = proc.stdout + proc.stderr
@@ -591,6 +599,7 @@ def run_scan_build(build_dir: str) -> ToolResult:
         "-o", "/tmp/scan-build-out",
         "cmake", "--build", build_dir, "--clean-first", "-j" + str(os.cpu_count() or 4),
     ]
+    _record_stamp("scan-build-18", lambda: _probe_path(_scan_build_analyzer()))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = proc.stderr + proc.stdout
@@ -624,6 +633,7 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     if not src_files:
         return result
 
+    _record_stamp("iwyu", lambda: _probe_path(_iwyu_binary()))
     cmd = ["iwyu_tool", "-p", build_dir] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     output = proc.stdout + proc.stderr
@@ -672,9 +682,14 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
     # git clang-format shows what would change between base_ref and the working
     # tree (no HEAD endpoint) — so uncommitted edits are checked pre-commit; on a
     # clean committed tree this matches the prior `base_ref HEAD` two-commit form.
+    _record_stamp("clang-format", lambda: _probe_path(_clang_format_binary()))
     cmd = ["git", "clang-format", "--diff", base_ref, "--"] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout.strip()
+    if proc.returncode != 0 and not output:
+        # git-clang-format itself did not run (absent wrapper, bad ref): the
+        # formatter's version says nothing about this row, so stamp unknown.
+        _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
 
     if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
         return result
@@ -706,6 +721,7 @@ def run_codespell(changed_files: list[str], repo_root: str) -> ToolResult:
     if not changed_files:
         return result
 
+    _record_stamp("codespell", lambda: _which_version("codespell"))
     cmd = ["codespell", "--quiet-level=2"] + changed_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout + proc.stderr
@@ -737,6 +753,7 @@ def run_cmake_lint(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "cmake-lint not found at ~/venv/volk-dev/bin/cmake-lint"
         result.skipped = True
         return result
+    _record_stamp("cmake-lint", lambda: probe_version([cmake_lint, "--version"]))
 
     cmd = [cmake_lint] + cmake_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -770,6 +787,7 @@ def run_ruff(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "ruff not found at ~/venv/volk-dev/bin/ruff"
         result.skipped = True
         return result
+    _record_stamp("ruff", lambda: probe_version([ruff, "--version"]))
 
     cmd = [ruff, "check", "--output-format=concise"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -802,6 +820,7 @@ def run_flake8(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "flake8 not found at ~/venv/volk-dev/bin/flake8"
         result.skipped = True
         return result
+    _record_stamp("flake8", lambda: probe_version([flake8, "--version"]))
 
     # Use 90-char limit to match project style; suppress E501 if line under 90
     cmd = [flake8, "--max-line-length=90"] + py_files
@@ -835,6 +854,7 @@ def run_bandit(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "bandit not found at ~/venv/volk-dev/bin/bandit"
         result.skipped = True
         return result
+    _record_stamp("bandit", lambda: probe_version([bandit, "--version"]))
 
     cmd = [bandit, "-q", "-f", "custom",
            "--msg-template", "{abspath}:{line}: [{test_id}/{severity}] {msg}"] + py_files
@@ -868,6 +888,7 @@ def run_mypy(changed_files: list[str], repo_root: str) -> ToolResult:
         result.error = "mypy not found at ~/venv/volk-dev/bin/mypy"
         result.skipped = True
         return result
+    _record_stamp("mypy", lambda: probe_version([mypy, "--version"]))
 
     cmd = [mypy, "--ignore-missing-imports", "--no-error-summary"] + py_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -910,6 +931,7 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
+        _record_stamp("compiler", lambda: compiler_identity(build_dir))
         result.error = "timed out after 300s"
         result.passed = False
         return result
@@ -918,6 +940,7 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
         result.error = "cmake not found"
         result.skipped = True
         return result
+    _record_stamp("compiler", lambda: compiler_identity(build_dir))
     output = proc.stderr + proc.stdout
 
     for line in output.splitlines():
@@ -1058,6 +1081,8 @@ def run_asan_ubsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     flags = "-fsanitize=address,undefined -fno-omit-frame-pointer"
 
     err = _build_sanitizer(repo_root, build_dir, flags)
+    if err != _BUILD_ABSENT:
+        _record_stamp("asan+ubsan", lambda: compiler_identity(build_dir))
     if err:
         if not _build_skipped(result, err):
             result.error = err
@@ -1115,6 +1140,8 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
     # fallback is retained as defense-in-depth.
     build_launcher = _setarch_prefix()
     err = _build_sanitizer(repo_root, build_dir, flags, launcher=build_launcher)
+    if err != _BUILD_ABSENT:
+        _record_stamp("tsan", lambda: compiler_identity(build_dir))
     volk_profile = os.path.join(build_dir, "apps", "volk_profile")
     if _build_skipped(result, err):
         return result
@@ -1166,6 +1193,20 @@ def run_tsan(repo_root: str, build_dir: str, kernel: str) -> ToolResult:
         result.passed = True
 
     return result
+
+
+# Display order of the summary table's rows; the version block follows it too.
+TOOL_ORDER = ["cppcheck", "cpplint", "clang-tidy", "scan-build-18", "iwyu",
+              "clang-format", "cmake-lint", "codespell",
+              "ruff", "flake8", "bandit", "mypy",
+              "compiler", "asan+ubsan", "tsan"]
+
+
+def version_block_lines(results: list[ToolResult]) -> list[str]:
+    """One `analyzer: <row> <version>` line per row whose analysis started: it
+    recorded a stamp and was not skipped. `results` is already in TOOL_ORDER."""
+    return [f"analyzer: {r.tool} {_stamps[r.tool]}"
+            for r in results if r.tool in _stamps and not r.skipped]
 
 
 def filter_novel(findings: list[Finding], ranges: dict[str, list[LineRange]]) -> list[Finding]:
@@ -1420,11 +1461,7 @@ def main():
         results.append(r)
 
     # Sort results into a consistent display order
-    tool_order = ["cppcheck", "cpplint", "clang-tidy", "scan-build-18", "iwyu",
-                  "clang-format", "cmake-lint", "codespell",
-                  "ruff", "flake8", "bandit", "mypy",
-                  "compiler", "asan+ubsan", "tsan"]
-    results.sort(key=lambda r: tool_order.index(r.tool) if r.tool in tool_order else 99)
+    results.sort(key=lambda r: TOOL_ORDER.index(r.tool) if r.tool in TOOL_ORDER else 99)
 
     # Output
     if args.json:
