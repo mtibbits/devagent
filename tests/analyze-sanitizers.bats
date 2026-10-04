@@ -300,3 +300,39 @@ _doc_has() { tr -s '[:space:]' ' ' < "$1" | grep -qF -- "$2"; }
     _doc_has "$DEVAGENT_ROOT/static_analysis_diff.py" 'stamp, do not change what runs'
     _doc_has "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" 'stamp, do not change what runs'
 }
+
+# A bin dir of commands that fail, put on PATH for one run only (teardown keeps
+# the real rm). Each named command exits 1 with no output.
+_failing_bin() {
+    local d="$DEVAGENT_TMP/failbin" c
+    mkdir -p "$d"
+    for c in "$@"; do printf '#!/bin/sh\nexit 1\n' > "$d/$c"; chmod +x "$d/$c"; done
+    printf '%s' "$d"
+}
+
+@test "sanitizers: a failed head in the line-2 rewrite keeps the artifact as written (#676)" {
+    local fb; fb="$(_failing_bin head)"
+    PATH="$fb:$PATH" run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    [ "$(grep -c 'could not write the analyzer line' "$DEVAGENT_TMP/out.txt")" -eq 3 ]
+    local tag f
+    for tag in asan ubsan tsan; do
+        f="$(_san_artifact "$tag")"
+        [ "$(sed -n 1p "$f")" = "=== $tag ===" ]
+        run grep -c '^analyzer:' "$f"
+        [ "$status" -eq 1 ]
+    done
+}
+
+@test "sanitizers: a failing rm in the rewrite's failure arm never aborts the legs (#676)" {
+    local fb; fb="$(_failing_bin mv rm)"
+    PATH="$fb:$PATH" run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" > "$DEVAGENT_TMP/out.txt"
+    [ "$(grep -c 'could not write the analyzer line' "$DEVAGENT_TMP/out.txt")" -eq 3 ]
+    local tag
+    for tag in asan ubsan tsan; do
+        grep -q 'exit=0' "$(_san_artifact "$tag")"
+    done
+}

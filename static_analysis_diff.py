@@ -113,7 +113,13 @@ def extract_version(stdout: str, stderr: str) -> str:
     """First version-shaped token of stdout then stderr, else (version unknown).
     The exit status is ignored: cl.exe prints its banner and exits nonzero."""
     m = _VERSION_RE.search((stdout + "\n" + stderr).replace("\r", ""))
-    return m.group(0) if m else _VERSION_UNKNOWN
+    if not m:
+        return _VERSION_UNKNOWN
+    # Cut the token at its first non-ASCII character: a decode-replaced byte or a
+    # localized suffix would otherwise make printing the stamp raise on a cp1252
+    # progress stream and end the run. The token starts with a digit, so it stays
+    # non-empty.
+    return re.match(r"[!-~]*", m.group(0)).group(0)
 
 
 def probe_version(argv: list[str]) -> str:

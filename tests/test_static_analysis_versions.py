@@ -656,3 +656,15 @@ def test_version_block_lines_order_and_filter():
         "analyzer: ruff 0.15.21",
         "analyzer: compiler GNU 11.4.0 (C)",
     ]
+
+
+# -- Final review fix: a stamp must survive a cp1252 progress stream -----------
+
+@pytest.mark.parametrize("text,expect", [
+    ("Version 19.44.35222� x64", "19.44.35222"),      # errors="replace" byte
+    ("tool 1.2.3é-beta", "1.2.3"),                     # non-ASCII suffix
+], ids=["replacement-char", "accented-suffix"])
+def test_extract_version_token_is_ascii(text, expect):
+    got = sad.extract_version(text, "")
+    assert got == expect
+    got.encode("cp1252")   # the Windows markdown progress stream must not raise

@@ -169,12 +169,12 @@ run_one() {
     local stamp; stamp="$(_compiler_stamp "$build")"
     _san_stamp_tmp="$(mktemp "$issue_dir/analysis/.stamp-$tag.XXXXXX" 2>/dev/null)" || _san_stamp_tmp=""
     if [ -n "$_san_stamp_tmp" ] \
-        && { head -n 1 "$out"; printf 'analyzer: %s %s\n' "$tag" "$stamp"; tail -n +2 "$out"; } > "$_san_stamp_tmp" \
+        && { head -n 1 "$out" && printf 'analyzer: %s %s\n' "$tag" "$stamp" && tail -n +2 "$out"; } > "$_san_stamp_tmp" \
         && { chmod --reference="$out" "$_san_stamp_tmp" 2>/dev/null || chmod 644 "$_san_stamp_tmp"; } \
         && mv -f "$_san_stamp_tmp" "$out"; then
         :
     else
-        [ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp"
+        [ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp" || true
         warn "analyze-sanitizers: could not write the analyzer line into $out (artifact kept as written; leg result unchanged)"
     fi
     _san_stamp_tmp=""
