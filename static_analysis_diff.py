@@ -139,12 +139,17 @@ def _probe_path(path: Optional[str]) -> str:
     return probe_version([path, "--version"]) if path else _VERSION_UNKNOWN
 
 
+def stamp_text(value: str) -> str:
+    """`value` cut to printable ASCII, whatever its source (a corrupt CMake
+    compiler ID included), so writing it cannot raise on a cp1252 stream; an
+    empty result is unknown. Both families' stamps pass through here."""
+    return "".join(ch for ch in value if " " <= ch <= "~") or _VERSION_UNKNOWN
+
+
 def _record_stamp(row: str, compute: Callable[[], str]) -> None:
-    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown.
-    The value keeps printable ASCII only, whatever its source (a corrupt CMake
-    compiler ID included), so printing it cannot raise on a cp1252 stream."""
+    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown."""
     try:
-        value = "".join(ch for ch in compute() if " " <= ch <= "~") or _VERSION_UNKNOWN
+        value = stamp_text(compute())
     except Exception:  # noqa: BLE001 — stamping must never alter a runner's result
         value = _VERSION_UNKNOWN
     with _stamps_lock:

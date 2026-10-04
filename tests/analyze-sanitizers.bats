@@ -199,6 +199,16 @@ _require_posix_python() {
     [ "$(ls -A "$DEVDOC_DIR/Issue-1/analysis" | wc -l)" -eq 3 ]
 }
 
+@test "sanitizers: a corrupt compiler ID still stamps printable ASCII at line 2 (#676)" {
+    _require_posix_python
+    _asan_fixture
+    sed -i 's/"GNU"/"GN\xffU"/' "$fixture_compiler_file"
+    [ "$(tr -cd '\377' < "$fixture_compiler_file" | wc -c)" -eq 1 ]   # control: the byte is planted
+    run "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(sed -n 2p "$(_san_artifact asan)")" = "analyzer: asan GNU 99.1.0 (C)" ]
+}
+
 @test "sanitizers: a configure-failed leg still carries an analyzer line at line 2 (#676)" {
     _require_posix_python
     devagent_stub cmake "" 1

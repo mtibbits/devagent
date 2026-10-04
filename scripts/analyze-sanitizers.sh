@@ -29,6 +29,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # #676: the line-2 rewrite goes through a dot-named temp file beside the artifact
 # (no analysis/*.txt consumer glob matches it); the EXIT trap removes one left by
 # an interrupted run, since cleanup commits the devdoc tree with `git add -A`.
+# It is the only EXIT trap here and in the sourced libs: a later one would replace it.
 _san_stamp_tmp=""
 trap '[ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp"; true' EXIT
 
@@ -98,7 +99,7 @@ _phase_desc() {
 # prints (version unknown) silently; one that did not run warns.
 _compiler_stamp() {
     local v rc=0
-    v="$(timeout -k 5 30 "$DEVAGENT_PYTHON" -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import static_analysis_diff as s; sys.stdout.write(s.compiler_identity(sys.argv[2]))' "$DEVAGENT_ROOT" "$1" 2>/dev/null)" || rc=$?
+    v="$(timeout -k 5 30 "$DEVAGENT_PYTHON" -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import static_analysis_diff as s; sys.stdout.write(s.stamp_text(s.compiler_identity(sys.argv[2])))' "$DEVAGENT_ROOT" "$1" 2>/dev/null)" || rc=$?
     v="${v//$'\r'/}"
     if [ "$rc" -ne 0 ] || [ -z "$v" ]; then
         warn "analyze-sanitizers: compiler-identity reader failed (rc=$rc) for $1; stamping (version unknown)"
