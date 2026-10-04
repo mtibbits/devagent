@@ -129,3 +129,140 @@ def test_record_stamp_swallows_compute_errors():
 
     sad._record_stamp("cppcheck", boom)
     assert sad._stamps["cppcheck"] == UNKNOWN
+
+
+# -- Task 2: compiler identity reader ------------------------------------------
+
+posix_exec = pytest.mark.skipif(
+    __import__("os").name == "nt",
+    reason="stub compilers are POSIX scripts; runs in CI/WSL")
+
+
+def _stub(path, text, rc=0):
+    """A #!/bin/sh stub printing `text` (if any) and exiting `rc`."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "#!/bin/sh\n"
+    if text:
+        body += f"echo '{text}'\n"
+    body += f"exit {rc}\n"
+    path.write_bytes(body.encode())
+    path.chmod(0o755)
+    return str(path)
+
+
+def _cmake_tree(root, *, version="4.2.3", cache_version=None, langs=None,
+                eol="\r\n", planted="1.2.3-planted"):
+    """Write CMakeCache.txt and CMakeFiles/<version>/CMake<LANG>Compiler.cmake in
+    CMake 4.2.3's line order: path, ARG1, ID, then the cached _VERSION line."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    cv = cache_version or version
+    if cv:
+        maj, mnr, pat = cv.split(".")
+        cache = (f"# This is the CMakeCache file.{eol}"
+                 f"CMAKE_CACHE_MAJOR_VERSION:INTERNAL={maj}{eol}"
+                 f"CMAKE_CACHE_MINOR_VERSION:INTERNAL={mnr}{eol}"
+                 f"CMAKE_CACHE_PATCH_VERSION:INTERNAL={pat}{eol}")
+        (root / "CMakeCache.txt").write_bytes(cache.encode())
+    vdir = root / "CMakeFiles" / version
+    vdir.mkdir(parents=True, exist_ok=True)
+    for lang, (path, arg1, cid) in (langs or {}).items():
+        text = (f'set(CMAKE_{lang}_COMPILER "{path}"){eol}'
+                f'set(CMAKE_{lang}_COMPILER_ARG1 "{arg1}"){eol}'
+                f'set(CMAKE_{lang}_COMPILER_ID "{cid}"){eol}'
+                f'set(CMAKE_{lang}_COMPILER_VERSION "{planted}"){eol}')
+        (vdir / f"CMake{lang}Compiler.cmake").write_bytes(text.encode())
+    return root
+
+
+@posix_exec
+def test_compiler_identity_crlf_ignores_planted_cached_version(tmp_path):
+    cc = _stub(tmp_path / "cc" / "stubcc", "stubcc 99.1.0")
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": (cc, "", "GNU"), "CXX": (cc, "", "GNU")})
+    for lang in ("C", "CXX"):
+        f = bd / "CMakeFiles" / "4.2.3" / f"CMake{lang}Compiler.cmake"
+        assert f.read_bytes().count(b"\r") == 4   # control: the fixture really is CRLF
+    got = sad.compiler_identity(str(bd))
+    assert got == "GNU 99.1.0 (C), GNU 99.1.0 (CXX)"
+    assert "1.2.3-planted" not in got
+
+
+@posix_exec
+def test_compiler_identity_lf(tmp_path):
+    cc = _stub(tmp_path / "cc" / "stubcc", "stubcc 99.1.0")
+    bd = _cmake_tree(tmp_path / "bd", eol="\n",
+                     langs={"C": (cc, "", "GNU"), "CXX": (cc, "", "GNU")})
+    assert sad.compiler_identity(str(bd)) == "GNU 99.1.0 (C), GNU 99.1.0 (CXX)"
+
+
+@posix_exec
+def test_compiler_identity_c_only(tmp_path):
+    cc = _stub(tmp_path / "cc" / "stubcc", "stubcc 99.1.0")
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": (cc, "", "GNU")})
+    assert sad.compiler_identity(str(bd)) == "GNU 99.1.0 (C)"
+
+
+def test_compiler_identity_missing_cache(tmp_path):
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": ("/nonexistent/cc", "", "GNU")})
+    (bd / "CMakeCache.txt").unlink()
+    assert sad.compiler_identity(str(bd)) == UNKNOWN
+
+
+def test_compiler_identity_cache_missing_entries(tmp_path):
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": ("/nonexistent/cc", "", "GNU")})
+    cache = bd / "CMakeCache.txt"
+    kept = [ln for ln in cache.read_bytes().split(b"\r\n") if b"PATCH" not in ln]
+    cache.write_bytes(b"\r\n".join(kept))
+    assert sad.compiler_identity(str(bd)) == UNKNOWN
+
+
+def test_compiler_identity_cache_names_absent_dir(tmp_path):
+    bd = _cmake_tree(tmp_path / "bd", cache_version="4.2.4",
+                     langs={"C": ("/nonexistent/cc", "", "GNU")})
+    assert sad.compiler_identity(str(bd)) == UNKNOWN
+
+
+@posix_exec
+def test_compiler_identity_two_version_dirs_resolved_by_cache(tmp_path):
+    old = _stub(tmp_path / "cc" / "old", "old 1.0.0")
+    cc = _stub(tmp_path / "cc" / "stubcc", "stubcc 99.1.0")
+    bd = tmp_path / "bd"
+    _cmake_tree(bd, version="3.99.0", cache_version="4.2.3", langs={"C": (old, "", "Clang")})
+    _cmake_tree(bd, version="4.2.3", langs={"C": (cc, "", "GNU")})
+    got = sad.compiler_identity(str(bd))
+    assert got == "GNU 99.1.0 (C)"
+    assert "Clang" not in got and "1.0.0" not in got
+
+
+def test_compiler_identity_recorded_path_gone(tmp_path):
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": (str(tmp_path / "gone" / "cc"), "", "GNU")})
+    assert sad.compiler_identity(str(bd)) == "GNU (version unknown) (C)"
+
+
+@posix_exec
+def test_compiler_identity_arg1_probes_real_compiler(tmp_path, monkeypatch):
+    wrapper = tmp_path / "cc" / "ccache"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_bytes(b'#!/bin/sh\nif [ "$1" = "--version" ]; then echo "wrapper version 4.9.1"; '
+                        b'exit 0; fi\nexec "$@"\n')
+    wrapper.chmod(0o755)
+    _stub(tmp_path / "pathbin" / "realcc", "realcc 99.1.0")
+    monkeypatch.setenv("PATH", f"{tmp_path / 'pathbin'}:/usr/bin:/bin")
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": (str(wrapper), "realcc", "GNU")})
+    got = sad.compiler_identity(str(bd))
+    assert "99.1.0" in got
+    assert "4.9.1" not in got
+
+
+@posix_exec
+def test_compiler_identity_failing_probe(tmp_path):
+    cc = _stub(tmp_path / "cc" / "stubcc", "", rc=1)
+    bd = _cmake_tree(tmp_path / "bd", langs={"C": (cc, "", "GNU")})
+    assert sad.compiler_identity(str(bd)) == "GNU (version unknown) (C)"
+
+
+def test_compiler_identity_no_language_file(tmp_path):
+    bd = _cmake_tree(tmp_path / "bd", langs={})
+    assert (bd / "CMakeFiles" / "4.2.3").is_dir()   # control: the version dir exists
+    assert sad.compiler_identity(str(bd)) == UNKNOWN

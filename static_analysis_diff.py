@@ -27,6 +27,7 @@ import concurrent.futures
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -119,6 +120,58 @@ def _record_stamp(row: str, compute: Callable[[], str]) -> None:
         value = _VERSION_UNKNOWN
     with _stamps_lock:
         _stamps[row] = value
+
+
+_CACHE_VERSION_RE = re.compile(r"^CMAKE_CACHE_(MAJOR|MINOR|PATCH)_VERSION:[A-Za-z]+=([0-9]+)\s*$")
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read().replace("\r", "")
+
+
+def _first_set(text: str, var: str) -> Optional[str]:
+    """Value of the first `set(<var> "<value>")` line, keyed on the exact name."""
+    m = re.search(r'^set\(' + re.escape(var) + r' "(.*)"\)\s*$', text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def compiler_identity(build_dir: str) -> str:
+    """`<ID> <version> (<LANG>)` for each of C and CXX that the build dir's CMake
+    recorded, joined by ", ". The version comes from probing the RECORDED compiler
+    path plus its ARG1 (so a launcher like ccache stamps the real compiler), never
+    from CMake's cached _VERSION line, which goes stale on an in-place upgrade.
+    The version dir is the one CMakeCache.txt names. Never raises."""
+    try:
+        parts: dict[str, str] = {}
+        for line in _read_text(os.path.join(build_dir, "CMakeCache.txt")).splitlines():
+            m = _CACHE_VERSION_RE.match(line)
+            if m and m.group(1) not in parts:
+                parts[m.group(1)] = m.group(2)
+        if len(parts) != 3:
+            return _VERSION_UNKNOWN
+        vdir = os.path.join(build_dir, "CMakeFiles",
+                            f"{parts['MAJOR']}.{parts['MINOR']}.{parts['PATCH']}")
+        if not os.path.isdir(vdir):
+            return _VERSION_UNKNOWN
+        entries = []
+        for lang in ("C", "CXX"):
+            f = os.path.join(vdir, f"CMake{lang}Compiler.cmake")
+            if not os.path.isfile(f):
+                continue
+            text = _read_text(f)
+            path = _first_set(text, f"CMAKE_{lang}_COMPILER") or ""
+            arg1 = _first_set(text, f"CMAKE_{lang}_COMPILER_ARG1") or ""
+            cid = _first_set(text, f"CMAKE_{lang}_COMPILER_ID") or ""
+            if path and os.path.isfile(path):
+                extra = shlex.split(arg1, posix=(os.name != "nt")) if arg1 else []
+                ver = probe_version([path] + extra + ["--version"])
+            else:
+                ver = _VERSION_UNKNOWN
+            entries.append(f"{cid} {ver} ({lang})" if cid else f"{ver} ({lang})")
+        return ", ".join(entries) if entries else _VERSION_UNKNOWN
+    except Exception:  # noqa: BLE001 — the reader feeds a stamp, never a failure
+        return _VERSION_UNKNOWN
 
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
