@@ -174,6 +174,77 @@ def compiler_identity(build_dir: str) -> str:
         return _VERSION_UNKNOWN
 
 
+def _which_version(name: str) -> str:
+    """Version of the `name` that PATH resolves, or unknown when none does."""
+    path = shutil.which(name)
+    if path is None:
+        return _VERSION_UNKNOWN
+    return probe_version([path, "--version"])
+
+
+# The wrapper lookups below mirror how each wrapper picks the binary it runs, so
+# the stamp names that binary without changing what runs (#676). They are
+# inferred, not exact: a wrapper version that looks elsewhere stamps the wrong
+# binary or (version unknown).
+
+def _clang_format_binary() -> Optional[str]:
+    """git-clang-format's binary: `git config clangFormat.binary`, else
+    `clang-format`. A value with a directory part is a path (git-clang-format
+    resolves it at the repo toplevel, which is the cwd here); a bare name is
+    looked up on PATH."""
+    value = ""
+    try:
+        proc = subprocess.run(["git", "config", "--get", "clangFormat.binary"],
+                              capture_output=True, text=True, timeout=_PROBE_TIMEOUT)
+        if proc.returncode == 0:
+            value = proc.stdout.strip()
+    except Exception:  # noqa: BLE001 — fall back to the wrapper's default
+        value = ""
+    name = value or "clang-format"
+    if os.path.dirname(name):
+        return os.path.abspath(name)
+    return shutil.which(name)
+
+
+def _iwyu_binary() -> Optional[str]:
+    """iwyu_tool's binary: $IWYU_BINARY, else include-what-you-use beside the
+    iwyu_tool PATH resolves (the unresolved path, as iwyu_tool keys on its own
+    invoked __file__), else include-what-you-use on PATH. Realpath'd."""
+    env = os.environ.get("IWYU_BINARY")
+    if env:
+        return os.path.realpath(env)
+    tool = shutil.which("iwyu_tool")
+    if tool is not None:
+        beside = shutil.which("include-what-you-use", path=os.path.dirname(tool))
+        if beside is not None:
+            return os.path.realpath(beside)
+    on_path = shutil.which("include-what-you-use")
+    return os.path.realpath(on_path) if on_path is not None else None
+
+
+# Debian/Ubuntu patch scan-build's FindClang: its second branch is this fixed
+# path (measured on clang-tools-15, 2026-10-04), where upstream has $RealBin/clang.
+_SCAN_BUILD_DISTRO_CLANG = "/usr/lib/llvm-{nn}/bin/clang"
+_SCAN_BUILD = "scan-build-18"
+
+
+def _scan_build_analyzer() -> Optional[str]:
+    """The clang scan-build-18 analyzes with when no --use-analyzer is given:
+    $RealBin/bin/clang, $RealBin/clang (upstream), then the distro default.
+    $RealBin is the wrapper's own dir with links resolved. No PATH fallback."""
+    wrapper = shutil.which(_SCAN_BUILD)
+    if wrapper is None:
+        return None
+    real_bin = os.path.dirname(os.path.realpath(wrapper))
+    nn = _SCAN_BUILD.rsplit("-", 1)[1]
+    for cand in (os.path.join(real_bin, "bin", "clang"),
+                 os.path.join(real_bin, "clang"),
+                 _SCAN_BUILD_DISTRO_CLANG.format(nn=nn)):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return os.path.realpath(cand)
+    return None
+
+
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
     """Get changed line ranges from git diff. Returns {filepath: [LineRange, ...]}.
 

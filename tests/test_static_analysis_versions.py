@@ -67,26 +67,48 @@ def test_extract_version_reads_stdout_before_stderr():
     assert sad.extract_version("ruff 0.15.21", "warning: /opt/py3.12.1/x.py") == "0.15.21"
 
 
-# UNVERIFIED (U5): transcribed from upstream/distro knowledge, not measured on
-# either host — no real cppcheck/cpplint/clang-tidy/iwyu/clang-format/clang exists.
+# Measured 2026-10-04 (Task 3.0): real --version output of the Ubuntu 22.04 packages
+# and the cpplint wheel, run from a dpkg -x / pip download extract in WSL
+# (Issue-676 analysis/2026-10-04-wrapper-measurement.md). The bare-LLVM row is the
+# one text still UNVERIFIED on either host.
 _UPSTREAM_TEXTS = [
-    ("cppcheck", "Cppcheck 2.13.0\n", "2.13.0"),
-    ("cpplint", "\ncpplint fork (https://github.com/cpplint/cpplint)\ncpplint 1.6.1\n"
-                "Python 3.10.12 (main, Nov 20 2023, 15:14:05) [GCC 11.4.0]\n", "1.6.1"),
-    ("clang-tidy-ubuntu", "Ubuntu LLVM version 18.1.3\n  Optimized build.\n", "18.1.3"),
-    ("clang-tidy-llvm", "LLVM (http://llvm.org/):\n  LLVM version 14.0.0\n", "14.0.0"),
-    ("iwyu", "include-what-you-use 0.21 based on Ubuntu clang version 17.0.6 "
-             "(9ubuntu1)\n", "0.21"),
-    ("clang-format", "Ubuntu clang-format version 18.1.3 (1ubuntu1)\n", "18.1.3"),
-    ("clang", "Ubuntu clang version 18.1.3 (1ubuntu1)\nTarget: x86_64-pc-linux-gnu\n"
-              "Thread model: posix\nInstalledDir: /usr/lib/llvm-18/bin\n", "18.1.3"),
+    ("cppcheck",
+     "Cppcheck 2.7\n",
+     "2.7"),
+    ("cpplint",
+     "Cpplint fork (https://github.com/cpplint/cpplint)\n"
+     "cpplint 2.0.2\n"
+     "Python 3.10.12 (main, Jul 15 2026, 23:40:17) [GCC 11.4.0]\n",
+     "2.0.2"),
+    ("clang-tidy-ubuntu",
+     "Ubuntu LLVM version 15.0.7\n"
+     "  Optimized build.\n"
+     "  Default target: x86_64-pc-linux-gnu\n"
+     "  Host CPU: icelake-client\n",
+     "15.0.7"),
+    ("clang-tidy-llvm-unverified",
+     "LLVM (http://llvm.org/):\n"
+     "  LLVM version 14.0.0\n",
+     "14.0.0"),
+    ("iwyu",
+     "include-what-you-use 0.17 based on Ubuntu clang version 13.0.1-2ubuntu2.2\n",
+     "0.17"),
+    ("clang-format",
+     "Ubuntu clang-format version 15.0.7\n",
+     "15.0.7"),
+    ("clang",
+     "Ubuntu clang version 15.0.7\n"
+     "Target: x86_64-pc-linux-gnu\n"
+     "Thread model: posix\n"
+     "InstalledDir: /usr/lib/llvm-15/bin\n",
+     "15.0.7"),
 ]
 
 
 @pytest.mark.parametrize("text,expect", [r[1:] for r in _UPSTREAM_TEXTS],
                          ids=[r[0] for r in _UPSTREAM_TEXTS])
 def test_extract_version_upstream_texts(text, expect):
-    """UNVERIFIED upstream texts (U5): the regex yields each tool's own version."""
+    """The regex yields each tool's own version (not its clang/python base)."""
     assert sad.extract_version(text, "") == expect
 
 
@@ -266,3 +288,146 @@ def test_compiler_identity_no_language_file(tmp_path):
     bd = _cmake_tree(tmp_path / "bd", langs={})
     assert (bd / "CMakeFiles" / "4.2.3").is_dir()   # control: the version dir exists
     assert sad.compiler_identity(str(bd)) == UNKNOWN
+
+
+# -- Task 3: PATH, wrapper and venv lookups -------------------------------------
+
+def _probe_recorder(monkeypatch, value="7.7.7"):
+    calls = []
+
+    def fake_probe(argv):
+        calls.append(list(argv))
+        return value
+
+    monkeypatch.setattr(sad, "probe_version", fake_probe)
+    return calls
+
+
+def test_which_version_probes_resolved_path(monkeypatch):
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: "/x/cpplint")
+    calls = _probe_recorder(monkeypatch)
+    assert sad._which_version("cpplint") == "7.7.7"
+    assert calls == [["/x/cpplint", "--version"]]
+
+
+def test_which_version_unresolved_is_unknown_without_probe(monkeypatch):
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: None)
+    calls = _probe_recorder(monkeypatch)
+    assert sad._which_version("cpplint") == UNKNOWN
+    assert calls == []
+
+
+def _git_config(monkeypatch, rc, stdout):
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append((list(argv), kw))
+        return types.SimpleNamespace(returncode=rc, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(sad.subprocess, "run", fake_run)
+    return calls
+
+
+def _which_recorder(monkeypatch, answer):
+    asked = []
+
+    def fake_which(name, *a, **k):
+        asked.append(name)
+        return answer
+
+    monkeypatch.setattr(sad.shutil, "which", fake_which)
+    return asked
+
+
+def test_clang_format_binary_from_git_config_bare(monkeypatch):
+    calls = _git_config(monkeypatch, 0, "clang-format-18\n")
+    asked = _which_recorder(monkeypatch, "/usr/bin/clang-format-18")
+    assert sad._clang_format_binary() == "/usr/bin/clang-format-18"
+    assert asked == ["clang-format-18"]
+    argv, kw = calls[0]
+    assert argv == ["git", "config", "--get", "clangFormat.binary"]
+    assert kw["timeout"] == sad._PROBE_TIMEOUT
+
+
+def test_clang_format_binary_from_git_config_with_dir(monkeypatch):
+    _git_config(monkeypatch, 0, "tools/cf\n")
+    asked = _which_recorder(monkeypatch, "/never")
+    assert sad._clang_format_binary() == __import__("os").path.abspath("tools/cf")
+    assert asked == []
+
+
+def test_clang_format_binary_default(monkeypatch):
+    _git_config(monkeypatch, 1, "")
+    asked = _which_recorder(monkeypatch, "/usr/bin/clang-format")
+    assert sad._clang_format_binary() == "/usr/bin/clang-format"
+    assert asked == ["clang-format"]
+
+
+def _exe(path):
+    return _stub(path, "x 1.0")
+
+
+@posix_exec
+def test_iwyu_binary_lookup_order(tmp_path, monkeypatch):
+    import os
+    env_bin = _exe(tmp_path / "env" / "iwyu-env")
+    earlier = _exe(tmp_path / "earlier" / "include-what-you-use")
+    _exe(tmp_path / "bin1" / "iwyu_tool")
+    beside = _exe(tmp_path / "bin1" / "include-what-you-use")
+
+    # IWYU_BINARY wins
+    monkeypatch.setenv("IWYU_BINARY", env_bin)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'earlier'}:{tmp_path / 'bin1'}")
+    assert sad._iwyu_binary() == os.path.realpath(env_bin)
+
+    # unset: the binary beside iwyu_tool beats an earlier one on PATH
+    monkeypatch.delenv("IWYU_BINARY")
+    assert sad._iwyu_binary() == os.path.realpath(beside)
+
+    # neither IWYU_BINARY nor iwyu_tool: the PATH one, no exception swallowed
+    monkeypatch.setenv("PATH", str(tmp_path / "earlier"))
+    assert sad._iwyu_binary() == os.path.realpath(earlier)
+
+    # symlinked iwyu_tool: the dirname of the UNRESOLVED hit is searched
+    llvm = tmp_path / "llvm" / "bin"
+    _exe(llvm / "iwyu_tool")
+    _exe(llvm / "include-what-you-use")
+    link_dir = tmp_path / "bin2"
+    link_dir.mkdir()
+    (link_dir / "iwyu_tool").symlink_to(llvm / "iwyu_tool")
+    link_beside = _exe(link_dir / "include-what-you-use")
+    monkeypatch.setenv("PATH", str(link_dir))
+    assert sad._iwyu_binary() == os.path.realpath(link_beside)
+
+
+@posix_exec
+def test_scan_build_analyzer_lookup(tmp_path, monkeypatch):
+    import os
+    llvm = tmp_path / "llvm" / "bin"
+    _exe(llvm / "scan-build")
+    bin1 = tmp_path / "bin1"
+    bin1.mkdir()
+    (bin1 / "scan-build-18").symlink_to(llvm / "scan-build")
+    _exe(tmp_path / "pathbin" / "clang")
+    monkeypatch.setenv("PATH", f"{bin1}:{tmp_path / 'pathbin'}")
+    distro = tmp_path / "usr-lib-llvm-18" / "bin" / "clang"
+    monkeypatch.setattr(sad, "_SCAN_BUILD_DISTRO_CLANG", str(tmp_path / "usr-lib-llvm-{nn}" / "bin" / "clang"))
+
+    nested = _exe(llvm / "bin" / "clang")
+    flat = _exe(llvm / "clang")
+    _exe(distro)
+    assert sad._scan_build_analyzer() == os.path.realpath(nested)   # $RealBin/bin/clang first
+
+    os.unlink(nested)
+    assert sad._scan_build_analyzer() == os.path.realpath(flat)     # then $RealBin/clang
+
+    os.unlink(flat)
+    assert sad._scan_build_analyzer() == os.path.realpath(distro)   # then the distro default
+
+    os.unlink(distro)
+    assert sad._scan_build_analyzer() is None                       # never a PATH clang
+
+
+def test_scan_build_analyzer_absent_wrapper(monkeypatch):
+    monkeypatch.setattr(sad.shutil, "which", lambda name, *a, **k: None)
+    assert sad._scan_build_analyzer() is None
