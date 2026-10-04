@@ -30,9 +30,10 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Callable, Optional, TextIO
 
 
 @dataclass
@@ -80,6 +81,44 @@ _SKIP_MARK = " -- skipped"
 # "build failed: <stderr>" whose tail happened to end in _SKIP_MARK can never be
 # misclassified as a skip.
 _BUILD_ABSENT = "cmake not found" + _SKIP_MARK
+
+# #676: per-row tool versions. A runner records its stamp in this registry, not
+# on its ToolResult, because the pool's exception path builds a fresh ToolResult
+# and would drop it. main() clears the registry once per run.
+_PROBE_TIMEOUT = 10                       # seconds per --version probe
+_VERSION_UNKNOWN = "(version unknown)"
+_VERSION_RE = re.compile(r"[0-9]+(?:\.[0-9]+)+[^\s,;()]*")
+_stamps: dict[str, str] = {}              # row -> value for this run
+_stamps_lock = threading.Lock()
+
+
+def extract_version(stdout: str, stderr: str) -> str:
+    """First version-shaped token of stdout then stderr, else (version unknown).
+    The exit status is ignored: cl.exe prints its banner and exits nonzero."""
+    m = _VERSION_RE.search((stdout + "\n" + stderr).replace("\r", ""))
+    return m.group(0) if m else _VERSION_UNKNOWN
+
+
+def probe_version(argv: list[str]) -> str:
+    """Run `argv` (a `--version` probe) bounded and detached from stdin. Any
+    failure (absent, not executable, hung, undecodable) stamps unknown."""
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", stdin=subprocess.DEVNULL,
+                              timeout=_PROBE_TIMEOUT)
+    except Exception:  # noqa: BLE001 — a probe must never raise into a runner
+        return _VERSION_UNKNOWN
+    return extract_version(proc.stdout or "", proc.stderr or "")
+
+
+def _record_stamp(row: str, compute: Callable[[], str]) -> None:
+    """Store `compute()` as `row`'s stamp; an error in compute stamps unknown."""
+    try:
+        value = compute()
+    except Exception:  # noqa: BLE001 — stamping must never alter a runner's result
+        value = _VERSION_UNKNOWN
+    with _stamps_lock:
+        _stamps[row] = value
 
 
 def get_changed_ranges(base_ref: str, files: Optional[list[str]] = None) -> dict[str, list[LineRange]]:
