@@ -1331,6 +1331,7 @@ def main():
         sys.exit(1)
 
     os.chdir(repo_root)
+    _stamps.clear()
 
     # #119: under --json, stdout must carry only the JSON document, so all human
     # progress goes to stderr. In markdown mode progress stays on stdout.
@@ -1462,6 +1463,12 @@ def main():
 
     # Sort results into a consistent display order
     results.sort(key=lambda r: TOOL_ORDER.index(r.tool) if r.tool in TOOL_ORDER else 99)
+
+    # #676: name the tools that produced this run, one line per row that ran, just
+    # above the summary heading (print_summary opens with a blank line). Under
+    # --json this lands on stderr with the other progress lines.
+    for line in version_block_lines(results):
+        print(line, file=progress)
 
     # Output
     if args.json:
