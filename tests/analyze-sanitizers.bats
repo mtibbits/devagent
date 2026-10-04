@@ -282,7 +282,7 @@ _require_posix_python() {
     chmod u+w "$dir"
     [ "$status" -eq 0 ]
     [[ "$output" == *"could not write the analyzer line"* ]]
-    [ "$(ls -A "$dir" | grep -c '^[.]stamp-' || true)" -eq 0 ]   # no temp left behind
+    [ -z "$(compgen -G "$dir/.stamp-*" || true)" ]   # no temp left behind
     local asan; asan="$(_san_artifact asan)"
     grep -q 'exit=0' "$asan"
     run grep -c '^analyzer:' "$asan"
