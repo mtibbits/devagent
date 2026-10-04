@@ -31,7 +31,8 @@ re-typed.
   - `<issue-dir>/imPlan.md` (for what was promised).
   - `<issue-dir>/actualWork.md` (for what was delivered + deviations).
   - `<issue-dir>/analysis/*.txt` (for static-analyzer / sanitizer
-    summary).
+    summary). Its `analyzer: <tool> <version>` lines (#657, #676) are tool
+    attributions, not findings.
   - Resolved `mr_template.md` (per spec §12 registry: project paths →
     `<devdoc>/templates/` → plugin default).
 - Writes: `<issue-dir>/mr.md`.

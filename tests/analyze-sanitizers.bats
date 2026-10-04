@@ -288,3 +288,15 @@ _require_posix_python() {
     run grep -c '^analyzer:' "$asan"
     [ "$status" -eq 1 ]
 }
+
+# Whitespace-normalised fixed-string match, so a reflow cannot split a token.
+_doc_has() { tr -s '[:space:]' ' ' < "$1" | grep -qF -- "$2"; }
+
+@test "docs: analyze.md and both cmake-family headers record the stamp policy (#676)" {
+    local md="$DEVAGENT_ROOT/commands/analyze.md"
+    _doc_has "$md" '`analyzer: <row> <version>`'
+    _doc_has "$md" '`analyzer: <tag> <compiler identity>`'
+    _doc_has "$md" '`analyzer: shellcheck <version>`'
+    _doc_has "$DEVAGENT_ROOT/static_analysis_diff.py" 'stamp, do not change what runs'
+    _doc_has "$DEVAGENT_ROOT/scripts/analyze-sanitizers.sh" 'stamp, do not change what runs'
+}

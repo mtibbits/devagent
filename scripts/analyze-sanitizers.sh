@@ -2,6 +2,14 @@
 # scripts/analyze-sanitizers.sh — run ASan, UBSan, TSan in separate build dirs.
 # Per spec §18: no sub-step tracking. analyze.sh (Task 10) sequences this and
 # writes the step-13 checklist mark.
+#
+# Tool versions (#676): line 2 of each <date>-<tag>.txt is
+# `analyzer: <tag> <compiler identity>`, read after the leg from the compiler the
+# leg's build dir recorded (static_analysis_diff.compiler_identity probes the
+# recorded compiler path and ARG1, never CMake's cached compiler version). The
+# policy is stamp, do not change what runs: no floor exists for any cmake-family
+# tool and there is no runtime gate. An unreadable version is (version unknown)
+# and the leg goes on; a mismatch is visible only in the line.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"

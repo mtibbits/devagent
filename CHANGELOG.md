@@ -16,6 +16,27 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: cmake-family artifacts name the tools that produced them (#676).**
+  Versions can disagree on the same file, so a finding count is now attributable to a
+  toolchain, as #657 did for shellcheck.
+  - `<date>-static.txt` carries one `analyzer: <row> <version>` line per table row whose
+    tool ran, in a block just above `## Static Analysis Summary` (on stderr under `--json`,
+    so stdout stays pure JSON). A skipped or absent tool gets no line; a row that timed out
+    or errored keeps its line.
+  - Line 2 of each `<date>-{asan,ubsan,tsan}.txt` is `analyzer: <tag> <compiler identity>`.
+  - Compiler stamps (`compiler`, `asan+ubsan`, `tsan`, and the sanitizer line 2) probe the
+    compiler path plus `CMAKE_<LANG>_COMPILER_ARG1` that the build dir's CMake recorded, so a
+    launcher like ccache stamps the real compiler; CMake's cached compiler version is never
+    read.
+  - An unreadable version is `(version unknown)`; every probe is time-bounded and never fails
+    a row or a leg. A sanitizer artifact whose line 2 cannot be written is kept as written,
+    with a warning.
+  - The clang-format, iwyu and scan-build-18 stamps mirror how each wrapper picks its binary,
+    and PATH-tool stamps on Windows follow Python's lookup, so those are inferred.
+  - Policy: stamp, do not change what runs. No floor, no gate, no analysis command line,
+    exit status, table status or existing message changes. Not breaking.
+  - Artifacts written before this release carry no `analyzer:` line.
+
 - **Fixed: step 13 stops when shellcheck itself fails, and option-shaped file names are scanned (#675).**
   `scripts/analyze-shellcheck.sh` used to discard the scan's exit status, so a scan that
   never ran read as 0 findings and step 13 was marked done.

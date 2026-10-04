@@ -20,6 +20,22 @@ clang-tidy, iwyu, compiler warnings) see an untracked file only once CMake does,
 and `git clang-format` diffs the INDEX against `base_ref`, so none of them reaches
 a file git does not track — they report it clean, and that is a known limit, not
 a pass.
+
+Tool versions (#676): just above `## Static Analysis Summary` (on stderr under
+--json) the run prints one `analyzer: <row> <version>` line per table row whose
+tool ran; a skipped or absent tool gets no line. The policy is stamp, do not
+change what runs: no analysis command line changes, no floor exists for any
+cmake-family tool, and there is no runtime gate. A version is the first
+version-shaped token of the tool's `--version` output; an unreadable one is
+`(version unknown)` and the run goes on. Every probe is time-bounded. The
+`compiler`, `asan+ubsan` and `tsan` stamps probe the compiler path and ARG1 that
+the build dir's CMake recorded, never CMake's cached compiler version. The
+clang-format, iwyu and scan-build-18 stamps mirror how each wrapper picks its
+binary (git config clangFormat.binary; $IWYU_BINARY, then beside iwyu_tool, then
+PATH; scan-build's own dir, then /usr/lib/llvm-18/bin/clang, with no PATH
+fallback), and PATH-tool stamps on Windows follow Python's lookup, so those
+stamps are inferred, not exact by construction. A version mismatch is visible
+only in the line.
 """
 
 import argparse
