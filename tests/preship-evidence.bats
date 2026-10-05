@@ -692,6 +692,7 @@ _artifact_raw() {
     _base677
     _ev 'analyzer: shellcheck 0.11.0'
     _run
+    [ "$status" -eq 1 ]
     _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
     _run
     [ "$status" -eq 0 ]
@@ -703,6 +704,7 @@ _artifact_raw() {
     _ev 'analyzer: cppcheck 9.9.9-stub'
     _ev 'analyzer: cppcheck 9.9.9-stub'
     _run
+    [ "$status" -eq 1 ]
     _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
     _ev 'analyzer: cppcheck 9.9.9-stub'
     _run

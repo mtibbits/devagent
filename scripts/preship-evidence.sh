@@ -120,14 +120,14 @@
 # whose basename matches _s13_re exactly (no suffix glob, so a <date>-t598-shellcheck.txt
 # probe is never one), and the newest per name is that name's greatest date. Counted: each
 # column-0 analyzer: line of the shellcheck-family and static artifacts, and only line 2
-# of an asan/ubsan/tsan one, if it starts analyzer:. One trailing CR is stripped on both sides, and an exact
-# repeat counts once. An Evidence analyzer: line (column 0) that no counted line backs
-# FAILS, and so does one standing twice. Each counted line the block omits is a WARNING
-# (the exit status is unchanged), printed before the PASS line: so a whole-$output PASS
-# pin stays green only while no shared fixture stages a stamped step-13 artifact. An
-# unreadable newest artifact dies, because a gate input that cannot be read is not an
-# empty set. The Evidence platform: line describes the suite run, not the analyzer's.
-# Stated blind spots: the stamp is a claim the artifact makes; and in a
+# of an asan/ubsan/tsan one, if it starts analyzer:. One trailing CR is stripped on both
+# sides, and an exact repeat counts once. An Evidence analyzer: line (column 0) that no
+# counted line backs FAILS, and so does one standing twice. Each counted line the block
+# omits is a WARNING (the exit status is unchanged), printed before the PASS line: so a
+# whole-$output PASS pin stays green only while no shared fixture stages a stamped
+# step-13 artifact. An unreadable newest artifact dies, because a gate input that cannot
+# be read is not an empty set. The Evidence platform: line describes the suite run, not
+# the analyzer's. Stated blind spots: the stamp is a claim the artifact makes; and in a
 # ShellCheck-family artifact, a findings line whose file path starts analyzer: would
 # count. This arm runs on the main path only: the #149 no-Evidence exit never reaches it.
 set -euo pipefail
@@ -651,18 +651,14 @@ elif $PLATFORM_DECLARED_SET; then
   fails+=("Evidence platform line missing: $_ep_where is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: $_plat_line_hint")
 fi
 
-# #677 ANALYZER LINES (header). The newest step-13 artifact per name, by an exact
-# basename (never a suffix glob), its counted lines, then three arms over the Evidence
-# lines: repeated and not backed (fails+=), and omitted (a warning; rc unchanged). No
-# pipe anywhere (register wf Issue-595), and no mr.md text ever reaches an arithmetic
-# context: every comparison below is a string test.
+# #677 ANALYZER LINES (header above): the newest step-13 artifacts' counted lines, then
+# the repeated / not-backed / omitted arms. Membership and counts live in associative
+# arrays keyed by the line itself; a count is a run of x's read with ${#…}, so no mr.md
+# text ever reaches an arithmetic context.
 _s13_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$'
-# _in <needle> <item...> - 0 when <needle> equals one of the items.
-_in() { local n="$1" x; shift; for x; do [ "$x" != "$n" ] || return 0; done; return 1; }
 # _s13_counted <file> <name> - append the file's counted analyzer: lines to s13_counted
 # (a setter-global, never $( … )): every column-0 one, or for a sanitizer only line 2.
-# One trailing CR is stripped before any test, and an exact repeat is kept once.
-s13_counted=()
+s13_counted=(); declare -A _s13_has=()
 _s13_counted() {
   local f="$1" name="$2" l i=0
   [ -r "$f" ] || die "preship-evidence: cannot read step-13 artifact $f (#677)"
@@ -671,7 +667,7 @@ _s13_counted() {
     l="${l%$'\r'}"
     case "$name" in asan|ubsan|tsan) [ "$i" -le 2 ] || break; [ "$i" -eq 2 ] || continue ;; esac
     case "$l" in analyzer:*) ;; *) continue ;; esac
-    _in "$l" ${s13_counted[@]+"${s13_counted[@]}"} || s13_counted+=("$l")
+    [ -n "${_s13_has[$l]-}" ] || { _s13_has[$l]=1; s13_counted+=("$l"); }
   done < "$f"
   return 0
 }
@@ -692,29 +688,26 @@ for _s13_n in shellcheck static asan ubsan tsan; do
   if [ -n "${_s13_file[$_s13_n]-}" ]; then _s13_counted "${_s13_file[$_s13_n]}" "$_s13_n"; fi
 done
 # Each distinct Evidence line is reported once per arm, in Evidence order.
-_ev_distinct=()
+_ev_distinct=(); declare -A _ev_n=()
 for _ev_a in ${ev_analyzers[@]+"${ev_analyzers[@]}"}; do
-  _in "$_ev_a" ${_ev_distinct[@]+"${_ev_distinct[@]}"} || _ev_distinct+=("$_ev_a")
+  [ -n "${_ev_n[$_ev_a]-}" ] || _ev_distinct+=("$_ev_a")
+  _ev_n[$_ev_a]+=x
 done
 for _ev_a in ${_ev_distinct[@]+"${_ev_distinct[@]}"}; do
-  _ev_k=0
-  for _ev_x in "${ev_analyzers[@]}"; do
-    if [ "$_ev_x" = "$_ev_a" ]; then _ev_k=$((_ev_k + 1)); fi
-  done
-  if [ "$_ev_k" -ge 2 ]; then
-    fails+=("Evidence analyzer line repeated: mr.md's Evidence block has '$_ev_a' $_ev_k times, and an exact repeat is copied once (#677). Keep one")
+  if [ "${#_ev_n[$_ev_a]}" -ge 2 ]; then
+    fails+=("Evidence analyzer line repeated: mr.md's Evidence block has '$_ev_a' ${#_ev_n[$_ev_a]} times, and an exact repeat is copied once (#677). Keep one")
   fi
 done
+if [ "${#s13_counted[@]}" -gt 0 ]; then
+  _ev_unbacked="which is no counted line of a newest step-13 artifact (#677). The counted lines are: $(_qjoin "${s13_counted[@]}"). Copy them whole; never retype a version"
+else
+  _ev_unbacked="but no newest step-13 artifact (analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt) carries a counted analyzer: line, so there are none to copy (#677). Delete the line"
+fi
 for _ev_a in ${_ev_distinct[@]+"${_ev_distinct[@]}"}; do
-  _in "$_ev_a" ${s13_counted[@]+"${s13_counted[@]}"} && continue
-  if [ "${#s13_counted[@]}" -gt 0 ]; then
-    fails+=("Evidence analyzer line not backed: mr.md has '$_ev_a', which is no counted line of a newest step-13 artifact (#677). The counted lines are: $(_qjoin "${s13_counted[@]}"). Copy them whole; never retype a version")
-  else
-    fails+=("Evidence analyzer line not backed: mr.md has '$_ev_a', but no newest step-13 artifact (analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt) carries a counted analyzer: line, so there are none to copy (#677). Delete the line")
-  fi
+  [ -n "${_s13_has[$_ev_a]-}" ] || fails+=("Evidence analyzer line not backed: mr.md has '$_ev_a', $_ev_unbacked")
 done
 for _ev_a in ${s13_counted[@]+"${s13_counted[@]}"}; do
-  _in "$_ev_a" ${ev_analyzers[@]+"${ev_analyzers[@]}"} && continue
+  [ -z "${_ev_n[$_ev_a]-}" ] || continue
   warn "preship-evidence: Evidence analyzer line omitted (#677; a warning, the exit status is unchanged) — a newest step-13 artifact carries it and mr.md's Evidence block does not. Paste it whole after platform: (or files:): $_ev_a"
 done
 
