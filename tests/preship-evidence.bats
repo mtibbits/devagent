@@ -732,6 +732,7 @@ _artifact_raw() {
     skill="$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md")"
     [[ "$skill" == *"$re"* ]]
     [[ "$skill" == *"line 2"* ]]
+    # shellcheck disable=SC2016  # literal markdown backticks in the pinned phrase
     [[ "$skill" == *'line 2 of an `asan`, `ubsan` or `tsan` one, if it starts `analyzer:`'* ]]
     [[ "$skill" == *"(version unknown)"* ]]
     [[ "$skill" == *"the suite run"* ]]

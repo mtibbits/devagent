@@ -1231,11 +1231,12 @@ entry dies before anything is decided.
   one standing twice; it warns, with the exit status unchanged, about each counted line
   the block omits. `platform:` describes the suite run, not the analyzer's. The #149
   no-Evidence exit never runs this check.
-- The declaration governs the #149 no-Evidence exit too. With one, that exit fails
-  whenever an artifact exists, because an `mr.md` with no Evidence block carries no
-  `platform:` line either; it no longer warns and passes. It reports the missing block
-  first, then the rung's failures, and offers no `--attest-platform` there, because an
-  acknowledgment cannot clear a missing block. With no artifact at all it still warns.
+- The `evidence_platforms` declaration governs the #149 no-Evidence exit too. With one,
+  that exit fails whenever an artifact exists, because an `mr.md` with no Evidence block
+  carries no `platform:` line either; it no longer warns and passes. It reports the
+  missing block first, then the rung's failures, and offers no `--attest-platform`
+  there, because an acknowledgment cannot clear a missing block. With no artifact at all
+  it still warns.
 
 Stated blind spot: the line is a claim the artifact makes; a hand-written artifact can
 carry any well-formed `platform:` line. `scripts/lib/_toml.py get-list` now refuses (rc 3)

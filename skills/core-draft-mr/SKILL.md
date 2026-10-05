@@ -127,7 +127,8 @@ re-typed.
    artifact has a counted line there is no `analyzer:` line. `platform:` describes the
    suite run; the analyzer's environment is not recorded. preship-evidence fails an
    Evidence `analyzer:` line that no counted line backs, or one standing twice, and
-   warns, naming the line, about a counted line the block omits.
+   warns, naming the line, about a counted line the block omits. It checks membership
+   only: the position after `platform:` is a copy convention, not checked.
 7. **Write `<issue-dir>/mr.md`.**
 
 ## Halt and ask if
