@@ -35,6 +35,40 @@ _mr() {
 }
 _run() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1; }
 
+# #677: step-13 analyzer lines in the Evidence block. _D is the newest date, _D1 the day
+# before it. Fixture shapes mirror the real writers (analyze-shellcheck.sh,
+# static_analysis_diff.py via analyze-static.sh, analyze-sanitizers.sh).
+_D=2026-10-04
+_D1=2026-10-03
+_base677() {
+    _artifact "$HEAD_SHA" no 100 100 0 20 0
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+}
+# _s13 <basename> <line>... - write a step-13 artifact, one argument per line.
+_s13() { local b="$1"; shift; printf '%s\n' "$@" > "$DEVDOC_DIR/Issue-1/analysis/$b"; }
+# _ev <line> - append a line to mr.md; _mr ends inside ## Evidence, so it lands there.
+_ev() { printf '%s\n' "$1" >> "$DEVDOC_DIR/Issue-1/mr.md"; }
+# _s13_sc <basename> <analyzer line> - a shellcheck-family artifact header.
+_s13_sc() {
+    _s13 "$1" '=== shellcheck (diff-scoped + untracked) ===' "date: $_D" 'baseline: 0000000' \
+        "$2" 'scope: 0 file(s)' 'NEW findings: 0 (empty scope)'
+}
+# _s13_static <basename> <analyzer line> - the progress stream above the summary.
+_s13_static() { _s13 "$1" 'Running cppcheck...' "$2" '' '## Static Analysis Summary'; }
+# _s13_san <basename> <tag> [<extra line>...] - line 1 the tag, line 2 the stamp.
+_s13_san() {
+    local b="$1" t="$2"; shift 2
+    _s13 "$b" "=== $t ===" "analyzer: $t GNU 99.1.0 (C)" \
+        '-- The C compiler identification is GNU 99.1.0' '-- Configuring done' "$@"
+}
+# _cr_count <file> - how many CR bytes it holds, counted from od's text, never by a
+# grep or sed over the CR-bearing file itself (Git Bash hides the CR from those).
+_cr_count() {
+    od -An -c "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "\\r") n++ } END { print n + 0 }'
+}
+# _fails - how many '  - ' failure entries the run reported.
+_fails() { grep -c '^  - ' <<<"$output" || true; }
+
 @test "preship-evidence: matching Evidence → rc 0 (#359)" {
     _artifact "$HEAD_SHA" no 100 100 0 20 0
     _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
@@ -368,4 +402,345 @@ _artifact_raw() {
     [[ "$output" != *"skipping evidence checks"* ]]
     [ "$status" -eq 1 ]
     [[ "$output" == *"(error)"* ]]
+}
+
+# #677: step 14 copies every counted analyzer: line of the newest step-13 artifacts into
+# the Evidence block, whole; preship FAILS an unbacked or repeated one and WARNS (rc
+# unchanged) about each one the block omits. One @test per leg, so each can redden alone.
+
+@test "preship-evidence #677 (i): a copied shellcheck stamp passes with no omission warning" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.8.0'
+    _ev 'analyzer: shellcheck 0.8.0'
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"analyzer line omitted"* ]]
+}
+
+@test "preship-evidence #677 (ii): a retyped version fails as not backed, naming the counted line" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    _ev 'analyzer: shellcheck 0.11'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line not backed"* ]]
+    [[ "$output" == *"'analyzer: shellcheck 0.11.0'"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (iii): a copied (version unknown) stamp passes" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck (version unknown)'
+    _ev 'analyzer: shellcheck (version unknown)'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (iv): a pre-#657 shellcheck artifact (no stamp) changes nothing" {
+    _base677
+    _run
+    [ "$status" -eq 0 ]
+    local before="$output"
+    _s13 "$_D-shellcheck.txt" '=== shellcheck (diff-scoped + untracked) ===' "date: $_D" \
+        'baseline: 0000000' 'scope: 0 file(s)' 'NEW findings: 0 (empty scope)'
+    _run
+    [ "$status" -eq 0 ]
+    [ "$output" = "$before" ]
+}
+
+@test "preship-evidence #677 (v): an Evidence stamp with no step-13 artifact fails, none to copy" {
+    _base677
+    _ev 'analyzer: shellcheck 0.11.0'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"there are none to copy"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (vi-a): a probe file sorting after the real artifact is never selected" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    _s13 "$_D-t1-shellcheck.txt" 'analyzer: shellcheck 9.9.9-stub'
+    _ev 'analyzer: shellcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line not backed"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (vi-b): beside a probe file, the real artifact's stamp passes" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    _s13 "$_D-t1-shellcheck.txt" 'analyzer: shellcheck 9.9.9-stub'
+    _ev 'analyzer: shellcheck 0.11.0'
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"analyzer line omitted"* ]]
+}
+
+@test "preship-evidence #677 (vii): a copied static stamp passes" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (viii-a): a CRLF artifact stamp matches an LF Evidence line" {
+    _base677
+    printf 'Running cppcheck...\nanalyzer: cppcheck 9.9.9-stub\r\n\n## Static Analysis Summary\n' \
+        > "$DEVDOC_DIR/Issue-1/analysis/$_D-static.txt"
+    [ "$(_cr_count "$DEVDOC_DIR/Issue-1/analysis/$_D-static.txt")" -eq 1 ]
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (viii-b): a CRLF Evidence line matches an LF artifact stamp" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    printf '%s\r\n' 'analyzer: cppcheck 9.9.9-stub' >> "$DEVDOC_DIR/Issue-1/mr.md"
+    [ "$(_cr_count "$DEVDOC_DIR/Issue-1/mr.md")" -eq 1 ]
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (ix): an omitted stamp warns before an unchanged PASS line, rc 0" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 0 ]
+    local pass="${lines[-1]}" last i w=-1
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Evidence analyzer line omitted"* ]]
+    [[ "$output" == *"analyzer: cppcheck 9.9.9-stub"* ]]
+    last=$(( ${#lines[@]} - 1 ))
+    [ "${lines[$last]}" = "$pass" ]
+    for i in "${!lines[@]}"; do
+        if [[ "${lines[$i]}" == *"Evidence analyzer line omitted"* ]]; then w="$i"; fi
+    done
+    [ "$w" -ge 0 ]
+    [ "$w" -lt "$last" ]
+}
+
+@test "preship-evidence #677 (x): an exact repeat fails as repeated" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line repeated"* ]]
+    [[ "$output" == *"2 times"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (xi-a): static and sanitizer stamps both copied pass" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _s13_san "$_D-asan.txt" asan 'analyzer: stray'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: asan GNU 99.1.0 (C)'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (xi-b): a sanitizer column-0 line past line 2 is not counted" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _s13_san "$_D-asan.txt" asan 'analyzer: stray'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: asan GNU 99.1.0 (C)'
+    _ev 'analyzer: stray'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line not backed"* ]]
+    [[ "$output" == *"'analyzer: cppcheck 9.9.9-stub', 'analyzer: asan GNU 99.1.0 (C)'"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (xi-c): the omitted static stamp is warned about beside a copied asan one" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _s13_san "$_D-asan.txt" asan 'analyzer: stray'
+    _ev 'analyzer: asan GNU 99.1.0 (C)'
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Evidence analyzer line omitted"*"analyzer: cppcheck 9.9.9-stub"* ]]
+}
+
+@test "preship-evidence #677 (xii-a): the newest is chosen per name, not across names" {
+    _base677
+    _s13_san "$_D1-asan.txt" asan
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: asan GNU 99.1.0 (C)'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (xii-b): an older artifact's stamp is not backed" {
+    _base677
+    _s13_san "$_D1-asan.txt" asan
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _s13_static "$_D1-static.txt" 'analyzer: cppcheck 1.0.0-old'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: asan GNU 99.1.0 (C)'
+    _ev 'analyzer: cppcheck 1.0.0-old'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line not backed: mr.md has 'analyzer: cppcheck 1.0.0-old'"* ]]
+    [ "$(_fails)" -eq 1 ]
+}
+
+@test "preship-evidence #677 (xiii-a): the real analyze-shellcheck.sh stamp, copied, passes" {
+    command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not on PATH: no real producer"
+    _base677
+    DEVAGENT_DATE_OVERRIDE=2026-07-10 run "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    local line
+    line="$(grep -x 'analyzer: shellcheck .*' "$DEVDOC_DIR/Issue-1/analysis/2026-07-10-shellcheck.txt")"
+    [ -n "$line" ]
+    _ev "$line"
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"analyzer line omitted"* ]]
+}
+
+@test "preship-evidence #677 (xiii-b): the real analyze-shellcheck.sh stamp, omitted, is warned about" {
+    command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not on PATH: no real producer"
+    _base677
+    DEVAGENT_DATE_OVERRIDE=2026-07-10 run "$DEVAGENT_ROOT/scripts/analyze-shellcheck.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    local line
+    line="$(grep -x 'analyzer: shellcheck .*' "$DEVDOC_DIR/Issue-1/analysis/2026-07-10-shellcheck.txt")"
+    [ -n "$line" ]
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Evidence analyzer line omitted"*"(or files:): $line"* ]]
+}
+
+@test "preship-evidence #677 (xiv): one stamp counted in two artifacts is warned about once" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: tsan GNU 99.1.0 (C)'
+    _s13_san "$_D-tsan.txt" tsan
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'Evidence analyzer line omitted' <<<"$output")" -eq 1 ]
+}
+
+@test "preship-evidence #677 (xv): the template's indented comment text is never counted" {
+    _artifact "$HEAD_SHA" no 100 100 0 20 0
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    { echo '## Summary'; echo 'x'; echo '## Evidence'
+      awk '/^## Evidence/{f=1;next} /^## /{f=0} f' "$DEVAGENT_ROOT/templates/mr_template.md" \
+          | grep -v -e '^suite:' -e '^files:' -e '^platform:'
+      echo "suite: 100/100 bats, 20 pytest @ $HEAD_SHA"; echo 'files: 1 changed'
+      echo 'analyzer: shellcheck 0.11.0'; echo '## Checklist'; } > "$DEVDOC_DIR/Issue-1/mr.md"
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"not backed"* ]]
+}
+
+@test "preship-evidence #677 (xvi): a line both repeated and unbacked yields two entries" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    _ev 'analyzer: shellcheck 0.11'
+    _ev 'analyzer: shellcheck 0.11'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence analyzer line repeated"* ]]
+    [[ "$output" == *"Evidence analyzer line not backed"* ]]
+    [ "$(_fails)" -eq 2 ]
+}
+
+@test "preship-evidence #677 (R1): pasting the line the omission warning names clears it" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Paste it whole after platform: (or files:): "* ]]
+    local line="${output#*Paste it whole after platform: (or files:): }"
+    line="${line%%$'\n'*}"
+    [ -n "$line" ]
+    _ev "$line"
+    _run
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"analyzer line omitted"* ]]
+}
+
+@test "preship-evidence #677 (R2): replacing the unbacked line with the named counted line clears it" {
+    _base677
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    _ev 'analyzer: shellcheck 0.11'
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"The counted lines are: '"* ]]
+    local line="${output#*The counted lines are: \'}"
+    line="${line%%\'*}"
+    [ -n "$line" ]
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    _ev "$line"
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (R3): deleting a stamp with none to copy clears it" {
+    _base677
+    _ev 'analyzer: shellcheck 0.11.0'
+    _run
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "preship-evidence #677 (R4): keeping one of a repeated stamp clears it" {
+    _base677
+    _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    _ev 'analyzer: cppcheck 9.9.9-stub'
+    _run
+    [ "$status" -eq 0 ]
+}
+
+@test "#677 pin (P1): the skill and the template carry the checker's step-13 regex and copy rule" {
+    local re skill step4 tmpl block
+    re="$(sed -n "s/^_s13_re='\(.*\)'\$/\1/p" "$DEVAGENT_ROOT/scripts/preship-evidence.sh")"
+    [ -n "$re" ]
+    skill="$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md")"
+    [[ "$skill" == *"$re"* ]]
+    [[ "$skill" == *"line 2"* ]]
+    [[ "$skill" == *"(version unknown)"* ]]
+    [[ "$skill" == *"the suite run"* ]]
+    step4="$(awk '/4[.] [*][*]Fill Testing section[.][*][*]/{f=1} /5[.] [*][*]Fill Checklist/{f=0} f' \
+        "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" | tr -s '[:space:]' ' ')"
+    [ -n "$step4" ]
+    [[ "$step4" == *"counts only"* ]]
+    [[ "$step4" == *"Evidence block"* ]]
+    [[ "$step4" != *"<version>"* ]]
+    tmpl="$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/templates/mr_template.md")"
+    [[ "$tmpl" == *"$re"* ]]
+    block="$(awk '/^## Evidence/{f=1;next} /^## /{f=0} f' "$DEVAGENT_ROOT/templates/mr_template.md")"
+    run grep -c '^analyzer:' <<<"$block"
+    [ "$status" -eq 1 ]
+    [ "$output" = 0 ]
+    # Planted control: the same grep does count a column-0 line.
+    run grep -c '^analyzer:' <<<'analyzer: x'
+    [ "$output" = 1 ]
+}
+
+@test "#677 pin (P2): the verifier's step 4 and the checker header name the analyzer lines" {
+    local p
+    p="$(awk '/[*][*]Evidence cross-check[.][*][*]/{f=1} f && /[*][*]`TREE UNATTESTED`[*][*]/{exit} f' "$DEVAGENT_ROOT/agents/preship-verifier.md" | tr -s '[:space:]' ' ')"
+    [ -n "$p" ]
+    [[ "$p" == *"analyzer:"* ]]
+    [[ "$p" == *"omitted"* ]]
+    [[ "$p" == *"quote"* ]]
+    grep -qF '#677 ANALYZER LINES (not a rung' "$DEVAGENT_ROOT/scripts/preship-evidence.sh"
 }
