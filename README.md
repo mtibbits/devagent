@@ -419,6 +419,16 @@ does an Evidence `platform:` line with no artifact line behind it, or a second
 artifact has no `platform:` line: left as it is, it fails preship even when nothing
 is declared.
 
+The Evidence block also carries the analyzer stamps (#677). `/devagent:draftmr` copies
+every counted `analyzer:` line of the newest step-13 artifacts (the newest
+`analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt` per name) into the block
+whole, after `platform:`. Preship fails an Evidence `analyzer:` line that no counted
+line backs, and one that stands twice. It warns, naming the line, about a counted line
+the block leaves out, and that warning never changes the exit status. The `platform:`
+line describes the suite run only; the analyzer's environment is not recorded. The
+warning reaches only the operator (preship.md is private), so an MR reader cannot tell
+an omitted stamp from no stamped artifact.
+
 With a declaration, the check fails:
 - an artifact from an undeclared platform (`PLATFORM UNATTESTED`);
 - an artifact with no `platform:` line;
