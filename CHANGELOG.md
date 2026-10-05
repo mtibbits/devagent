@@ -22,7 +22,8 @@ the README's "Versioning & releases" section has the release procedure.
     (`analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt`, matched by exact basename,
     the newest per name) into the `## Evidence` block whole, after `platform:`. Counted:
     each column-0 `analyzer:` line of the shellcheck and static artifacts, and line 2 of a
-    sanitizer artifact. The Testing section keeps finding counts only.
+    sanitizer artifact if it starts `analyzer:`. The Testing section keeps finding counts
+    only.
   - `scripts/preship-evidence.sh` FAILS an Evidence `analyzer:` line that no counted line
     backs, and one that stands twice. It WARNS, naming the line, about each counted line
     the block omits; the exit status and the PASS line are unchanged.

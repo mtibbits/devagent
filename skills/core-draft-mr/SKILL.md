@@ -119,7 +119,7 @@ re-typed.
    probe such as `<date>-t598-shellcheck.txt` is not one). Use the newest per name:
    that name's greatest date. Its counted lines are every column-0 `analyzer:` line of
    a `shellcheck` or `static` artifact, and only line 2 of an `asan`, `ubsan` or `tsan`
-   one. Copy each counted line into the Evidence block whole, without its trailing CR,
+   one, if it starts `analyzer:` (an unstamped sanitizer artifact has none). Copy each counted line into the Evidence block whole, without its trailing CR,
    after `platform:` (after `files:` when the platform line was deleted), in name order
    (shellcheck, static, asan, ubsan, tsan) and then artifact order; an exact repeat
    goes in once. A `(version unknown)` stamp is copied as it stands, and when no

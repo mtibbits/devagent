@@ -1225,7 +1225,7 @@ entry dies before anything is decided.
   `^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$` exactly, and
   the newest per name is that name's greatest date. Its counted lines are each column-0
   `analyzer:` line of a shellcheck or static artifact and only line 2 of a sanitizer one,
-  with one trailing CR stripped and an exact repeat counted once. `/devagent:draftmr`
+  if it starts `analyzer:`, with one trailing CR stripped and an exact repeat counted once. `/devagent:draftmr`
   copies them whole after `platform:`. preship-evidence fails an Evidence `analyzer:`
   line that no counted line backs, and one standing twice; it warns, with the exit
   status unchanged, about each counted line the block omits. `platform:` describes the

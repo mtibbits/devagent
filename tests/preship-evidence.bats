@@ -716,6 +716,7 @@ _artifact_raw() {
     skill="$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md")"
     [[ "$skill" == *"$re"* ]]
     [[ "$skill" == *"line 2"* ]]
+    [[ "$skill" == *'line 2 of an `asan`, `ubsan` or `tsan` one, if it starts `analyzer:`'* ]]
     [[ "$skill" == *"(version unknown)"* ]]
     [[ "$skill" == *"the suite run"* ]]
     step4="$(awk '/4[.] [*][*]Fill Testing section[.][*][*]/{f=1} /5[.] [*][*]Fill Checklist/{f=0} f' \
@@ -726,6 +727,7 @@ _artifact_raw() {
     [[ "$step4" != *"<version>"* ]]
     tmpl="$(tr -s '[:space:]' ' ' < "$DEVAGENT_ROOT/templates/mr_template.md")"
     [[ "$tmpl" == *"$re"* ]]
+    [[ "$tmpl" == *"line 2 of asan/ubsan/tsan if it starts analyzer:"* ]]
     block="$(awk '/^## Evidence/{f=1;next} /^## /{f=0} f' "$DEVAGENT_ROOT/templates/mr_template.md")"
     run grep -c '^analyzer:' <<<"$block"
     [ "$status" -eq 1 ]

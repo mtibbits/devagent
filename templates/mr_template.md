@@ -35,7 +35,7 @@
      analysis/*.txt per name whose basename matches
      ^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$
      take every column-0 analyzer: line of shellcheck/static and line 2 of
-     asan/ubsan/tsan, copied whole after platform:, one line each:
+     asan/ubsan/tsan if it starts analyzer:, copied whole after platform:, one each:
        analyzer: <tool> <version>   (or: analyzer: <tool> (version unknown))
      platform: is the suite run, not the analyzer's. An omitted line warns, an
      unbacked or repeated one fails. -->

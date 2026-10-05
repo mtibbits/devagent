@@ -120,7 +120,7 @@
 # whose basename matches _s13_re exactly (no suffix glob, so a <date>-t598-shellcheck.txt
 # probe is never one), and the newest per name is that name's greatest date. Counted: each
 # column-0 analyzer: line of the shellcheck-family and static artifacts, and only line 2
-# of an asan/ubsan/tsan one. One trailing CR is stripped on both sides, and an exact
+# of an asan/ubsan/tsan one, if it starts analyzer:. One trailing CR is stripped on both sides, and an exact
 # repeat counts once. An Evidence analyzer: line (column 0) that no counted line backs
 # FAILS, and so does one standing twice. Each counted line the block omits is a WARNING
 # (the exit status is unchanged), printed before the PASS line: so a whole-$output PASS
