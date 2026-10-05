@@ -657,6 +657,20 @@ _artifact_raw() {
     [ "$(_fails)" -eq 2 ]
 }
 
+@test "preship-evidence #677 (xvii): an unreadable newest step-13 artifact dies, never an empty set" {
+    if [ "$(id -u)" -eq 0 ]; then skip "root reads anything"; fi
+    _base677
+    local f="$DEVDOC_DIR/Issue-1/analysis/$_D-shellcheck.txt"
+    _s13_sc "$_D-shellcheck.txt" 'analyzer: shellcheck 0.11.0'
+    chmod 000 "$f"
+    if [ -r "$f" ]; then chmod 644 "$f"; skip "chmod is a no-op on this filesystem"; fi
+    _run
+    chmod 644 "$f"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot read step-13 artifact $f (#677)"* ]]
+    [[ "$output" != *"PASS"* ]]
+}
+
 @test "preship-evidence #677 (R1): pasting the line the omission warning names clears it" {
     _base677
     _s13_static "$_D-static.txt" 'analyzer: cppcheck 9.9.9-stub'

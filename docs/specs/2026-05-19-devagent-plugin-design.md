@@ -1224,12 +1224,13 @@ entry dies before anything is decided.
   verdict). A step-13 artifact is an `analysis/*.txt` whose basename matches
   `^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$` exactly, and
   the newest per name is that name's greatest date. Its counted lines are each column-0
-  `analyzer:` line of a shellcheck or static artifact and only line 2 of a sanitizer one,
-  if it starts `analyzer:`, with one trailing CR stripped and an exact repeat counted once. `/devagent:draftmr`
-  copies them whole after `platform:`. preship-evidence fails an Evidence `analyzer:`
-  line that no counted line backs, and one standing twice; it warns, with the exit
-  status unchanged, about each counted line the block omits. `platform:` describes the
-  suite run, not the analyzer's. The #149 no-Evidence exit never runs this check.
+  `analyzer:` line of a shellcheck or static artifact and only line 2 of a sanitizer
+  one, if it starts `analyzer:`, with one trailing CR stripped and an exact repeat
+  counted once. `/devagent:draftmr` copies them whole after `platform:`.
+  preship-evidence fails an Evidence `analyzer:` line that no counted line backs, and
+  one standing twice; it warns, with the exit status unchanged, about each counted line
+  the block omits. `platform:` describes the suite run, not the analyzer's. The #149
+  no-Evidence exit never runs this check.
 - The declaration governs the #149 no-Evidence exit too. With one, that exit fails
   whenever an artifact exists, because an `mr.md` with no Evidence block carries no
   `platform:` line either; it no longer warns and passes. It reports the missing block
@@ -1864,7 +1865,8 @@ ordering. A per-phase analyzer failure fails the step loudly rather than
 being swallowed (#117); output is written under
 `<issue-dir>/analysis/YYYY-MM-DD-<tool>.txt`. The artifacts' `analyzer:` version
 stamps travel whole into the MR body's `## Evidence` block, and preship checks them
-there (#677; the rule sits beside the #654 platform bullets in §7.5).
+there (#677; the rule sits beside the #654 platform bullets in §7.5 Wrong-scope
+refusal, not §7.5 Dispatch contract).
 
 Untracked, non-ignored source files are the one addition to that scope (#591):
 `git diff` cannot see a file that was never `git add`-ed, so each is enumerated
