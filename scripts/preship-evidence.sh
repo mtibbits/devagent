@@ -114,6 +114,22 @@
 # it is unchecked while nothing is declared (AC3); under evidence_platforms it FAILS,
 # attested or not, and so does an mr.md with no Evidence block (the #149 exit). The two
 # exits never report the same case: see the arm, below.
+# #677 ANALYZER LINES (not a rung: no PASS-line verdict, and it never judges a version).
+# core-draft-mr (step 14) copies every COUNTED analyzer: line of the newest step-13
+# artifacts into mr.md's ## Evidence block, whole. A step-13 artifact is an analysis/*.txt
+# whose basename matches _s13_re exactly (no suffix glob, so a <date>-t598-shellcheck.txt
+# probe is never one), and the newest per name is that name's greatest date. Counted: each
+# column-0 analyzer: line of the shellcheck-family and static artifacts, and only line 2
+# of an asan/ubsan/tsan one, if it starts analyzer:. One trailing CR is stripped on both
+# sides, and an exact repeat counts once. An Evidence analyzer: line (column 0) that no
+# counted line backs FAILS, and so does one standing twice. Each counted line the block
+# omits is a WARNING (the exit status is unchanged), printed before the PASS line: so a
+# whole-$output PASS pin stays green only while no shared fixture stages a stamped
+# step-13 artifact. An unreadable newest artifact dies, because a gate input that cannot
+# be read is not an empty set. The Evidence platform: line describes the suite run, not
+# the analyzer's. Stated blind spots: the stamp is a claim the artifact makes; and in a
+# ShellCheck-family artifact, a findings line whose file path starts analyzer: would
+# count. This arm runs on the main path only: the #149 no-Evidence exit never reaches it.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -335,9 +351,10 @@ ev_files="$(printf '%s\n' "$block" | sed -n 's/^files:[[:space:]]*\([0-9][0-9]*\
 # reconciles them with the artifact's. Column 0 only, so the template's indented comment
 # text never matches (imPlan U12). A read loop over a here-string: no pipe for pipefail
 # to break (register wf Issue-595), no subprocess, and it COUNTS, so a duplicate is seen.
-ev_platforms=()
+# #677: the same loop collects every column-0 analyzer: line, one trailing CR stripped.
+ev_platforms=(); ev_analyzers=()
 while IFS= read -r _ev_line; do
-  case "$_ev_line" in platform:*) ev_platforms+=("$_ev_line") ;; esac
+  case "$_ev_line" in platform:*) ev_platforms+=("$_ev_line") ;; analyzer:*) ev_analyzers+=("${_ev_line%$'\r'}") ;; esac
 done <<<"$block"
 ev_platform="${ev_platforms[0]-}"
 
@@ -633,6 +650,66 @@ elif [ -n "$ev_platform" ]; then
 elif $PLATFORM_DECLARED_SET; then
   fails+=("Evidence platform line missing: $_ep_where is declared, so mr.md's Evidence block must say where its evidence was produced, acknowledged or not (#654). Add this line to the block: $_plat_line_hint")
 fi
+
+# #677 ANALYZER LINES (header above): the newest step-13 artifacts' counted lines, then
+# the repeated / not-backed / omitted arms. Membership and counts live in associative
+# arrays keyed by the line itself; a count is a run of x's read with ${#…}, so no mr.md
+# text ever reaches an arithmetic context.
+_s13_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$'
+# _s13_counted <file> <name> - append the file's counted analyzer: lines to s13_counted
+# (a setter-global, never $( … )): every column-0 one, or for a sanitizer only line 2.
+s13_counted=(); declare -A _s13_has=()
+_s13_counted() {
+  local f="$1" name="$2" l i=0
+  [ -r "$f" ] || die "preship-evidence: cannot read step-13 artifact $f (#677)"
+  while IFS= read -r l || [ -n "$l" ]; do
+    i=$((i + 1))
+    l="${l%$'\r'}"
+    case "$name" in asan|ubsan|tsan) [ "$i" -le 2 ] || break; [ "$i" -eq 2 ] || continue ;; esac
+    case "$l" in analyzer:*) ;; *) continue ;; esac
+    [ -n "${_s13_has[$l]-}" ] || { _s13_has[$l]=1; s13_counted+=("$l"); }
+  done < "$f"
+  return 0
+}
+# The newest per name: the greatest 8-digit date, compared as base-10 integers (locale-free;
+# the shape is fixed by _s13_re, so one basename per name and date).
+declare -A _s13_best=() _s13_file=()
+for _s13_f in "$issue_dir"/analysis/*.txt; do
+  [ -f "$_s13_f" ] || continue
+  _s13_b="${_s13_f##*/}"
+  [[ $_s13_b =~ $_s13_re ]] || continue
+  _s13_n="${BASH_REMATCH[1]}"
+  _s13_d="${_s13_b:0:4}${_s13_b:5:2}${_s13_b:8:2}"
+  if [ -z "${_s13_best[$_s13_n]-}" ] || (( 10#$_s13_d > 10#${_s13_best[$_s13_n]} )); then
+    _s13_best[$_s13_n]="$_s13_d"; _s13_file[$_s13_n]="$_s13_f"
+  fi
+done
+for _s13_n in shellcheck static asan ubsan tsan; do
+  if [ -n "${_s13_file[$_s13_n]-}" ]; then _s13_counted "${_s13_file[$_s13_n]}" "$_s13_n"; fi
+done
+# Each distinct Evidence line is reported once per arm, in Evidence order.
+_ev_distinct=(); declare -A _ev_n=()
+for _ev_a in ${ev_analyzers[@]+"${ev_analyzers[@]}"}; do
+  [ -n "${_ev_n[$_ev_a]-}" ] || _ev_distinct+=("$_ev_a")
+  _ev_n[$_ev_a]+=x
+done
+for _ev_a in ${_ev_distinct[@]+"${_ev_distinct[@]}"}; do
+  if [ "${#_ev_n[$_ev_a]}" -ge 2 ]; then
+    fails+=("Evidence analyzer line repeated: mr.md's Evidence block has '$_ev_a' ${#_ev_n[$_ev_a]} times, and an exact repeat is copied once (#677). Keep one")
+  fi
+done
+if [ "${#s13_counted[@]}" -gt 0 ]; then
+  _ev_unbacked="which is no counted line of a newest step-13 artifact (#677). The counted lines are: $(_qjoin "${s13_counted[@]}"). Copy them whole; never retype a version"
+else
+  _ev_unbacked="but no newest step-13 artifact (analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt) carries a counted analyzer: line, so there are none to copy (#677). Delete the line"
+fi
+for _ev_a in ${_ev_distinct[@]+"${_ev_distinct[@]}"}; do
+  [ -n "${_s13_has[$_ev_a]-}" ] || fails+=("Evidence analyzer line not backed: mr.md has '$_ev_a', $_ev_unbacked")
+done
+for _ev_a in ${s13_counted[@]+"${s13_counted[@]}"}; do
+  [ -z "${_ev_n[$_ev_a]-}" ] || continue
+  warn "preship-evidence: Evidence analyzer line omitted (#677; a warning, the exit status is unchanged) — a newest step-13 artifact carries it and mr.md's Evidence block does not. Paste it whole after platform: (or files:): $_ev_a"
+done
 
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"

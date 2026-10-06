@@ -30,7 +30,15 @@
      unchanged: preship compares the two byte for byte. Replace the placeholder below,
      or delete it when the artifact has no platform: line: left as it is, it fails
      preship even when nothing is declared. Once the checking config declares
-     evidence_platforms, a block without the line fails too. -->
+     evidence_platforms, a block without the line fails too.
+     The analyzer: lines (#677) are the step-13 analyzer stamps. From the newest
+     analysis/*.txt per name whose basename matches
+     ^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$
+     take every column-0 analyzer: line of shellcheck/static and line 2 of
+     asan/ubsan/tsan if it starts analyzer:, copied whole after platform:, one each:
+       analyzer: <tool> <version>   (or: analyzer: <tool> (version unknown))
+     platform: is the suite run, not the analyzer's. An omitted line warns, an
+     unbacked or repeated one fails. -->
 suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
 files: <n> changed
 platform: <replace this line with the artifact's platform: line, copied whole>

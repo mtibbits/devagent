@@ -53,7 +53,8 @@ re-typed.
 4. **Fill Testing section.** How the change was verified — bullet list:
    - Tests added (from actualWork).
    - Analyzer results (one line per tool with finding counts from
-     `analysis/*.txt`).
+     `analysis/*.txt`; counts only: the `analyzer:` version stamp goes in
+     the Evidence block, step 6).
    - Benchmarks if performance issue (path to the project's
      evidence-plot output if it has one).
 5. **Fill Checklist section** (DCO, surgical-diff confirmation, etc.)
@@ -111,6 +112,23 @@ re-typed.
    these against the artifact + git, so they must be exact. (No Evidence block
    in the template ⇒ skip — the checker warns and passes for back-compat, unless the
    checking config declares `evidence_platforms`, which requires the block: #654.)
+
+   Then copy the step-13 analyzer stamps (#677). A step-13 artifact is an
+   `analysis/*.txt` whose basename matches
+   `^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$` exactly (a
+   probe such as `<date>-t598-shellcheck.txt` is not one). Use the newest per name:
+   that name's greatest date. Its counted lines are every column-0 `analyzer:` line of
+   a `shellcheck` or `static` artifact, and only line 2 of an `asan`, `ubsan` or `tsan`
+   one, if it starts `analyzer:` (an unstamped sanitizer artifact has none). Copy each
+   counted line into the Evidence block whole, without its trailing CR, after
+   `platform:` (after `files:` when the platform line was deleted), in name order
+   (shellcheck, static, asan, ubsan, tsan) and then artifact order; an exact repeat
+   goes in once. A `(version unknown)` stamp is copied as it stands, and when no
+   artifact has a counted line there is no `analyzer:` line. `platform:` describes the
+   suite run; the analyzer's environment is not recorded. preship-evidence fails an
+   Evidence `analyzer:` line that no counted line backs, or one standing twice, and
+   warns, naming the line, about a counted line the block omits. It checks membership
+   only: the position after `platform:` is a copy convention, not checked.
 7. **Write `<issue-dir>/mr.md`.**
 
 ## Halt and ask if

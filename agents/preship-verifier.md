@@ -105,6 +105,9 @@ verification passed; FAIL otherwise).
    verdicts: `[tree=checked|attested: ...|unstamped]`,
    `[upstream=checked|no-origin|unpushed|attested: ...]`, then
    `[platform=undeclared: ...|checked: ...|attested: ...|unstamped]` (#654).
+   Each Evidence `analyzer:` line must equal a counted line of a newest step-13
+   artifact, once (#677). A counted line the block leaves out prints
+   `Evidence analyzer line omitted`: not a failure, but quote it in preship.md.
 
    **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
    clone seen from Windows). Check it where it was produced; for WSL, in the

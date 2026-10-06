@@ -16,6 +16,22 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the MR body's Evidence block carries the analyzer stamps (#677).** A finding
+  count in the MR can now be attributed to the toolchain that produced it.
+  - Step 14 copies every counted `analyzer:` line of the newest step-13 artifacts
+    (`analysis/<date>-<shellcheck|static|asan|ubsan|tsan>.txt`, matched by exact basename,
+    the newest per name) into the `## Evidence` block whole, after `platform:`. Counted:
+    each column-0 `analyzer:` line of the shellcheck and static artifacts, and line 2 of a
+    sanitizer artifact if it starts `analyzer:`. The Testing section keeps finding counts
+    only.
+  - `scripts/preship-evidence.sh` FAILS an Evidence `analyzer:` line that no counted line
+    backs, and one that stands twice. It WARNS, naming the line, about each counted line
+    the block omits; the exit status and the PASS line are unchanged.
+  - The warning reaches only the operator (preship.md is private), so an MR reader cannot
+    tell an omitted stamp from no stamped artifact.
+  - Not breaking: the fail arms fire only on a body carrying an `analyzer:` line; omission
+    only warns.
+
 - **Added: cmake-family artifacts name the tools that produced them (#676).**
   Versions can disagree on the same file, so a finding count is now attributable to a
   toolchain, as #657 did for shellcheck.

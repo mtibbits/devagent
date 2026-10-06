@@ -38,7 +38,8 @@ compiler the build dir recorded. An unreadable version is `(version unknown)`. N
 version is enforced by either family; the policy is in the headers of
 `scripts/analyze-shellcheck.sh`, `static_analysis_diff.py` and
 `scripts/analyze-sanitizers.sh`. An artifact written before these stamps has no
-`analyzer:` line.
+`analyzer:` line. Step 14 copies the stamps whole into the MR body's `## Evidence`
+block, and preship checks them there (#677).
 
 Under the `cmake` family the step **fails loud** (#117): if any sanitizer leg
 (ASan/UBSan/TSan) fails at configure, build, or ctest, all three legs still run
