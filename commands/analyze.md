@@ -37,9 +37,11 @@ each sanitizer artifact is `analyzer: <tag> <compiler identity>`, probed from th
 compiler the build dir recorded. An unreadable version is `(version unknown)`. No
 version is enforced by either family; the policy is in the headers of
 `scripts/analyze-shellcheck.sh`, `static_analysis_diff.py` and
-`scripts/analyze-sanitizers.sh`. An artifact written before these stamps has no
-`analyzer:` line. Step 14 copies the stamps whole into the MR body's `## Evidence`
-block, and preship checks them there (#677).
+`scripts/analyze-sanitizers.sh`. devAgent is tested against `shellcheck` 0.9.0 or
+newer, and the `analyzer:` line is where an older version, or `(version unknown)`,
+shows; such a run's `NEW findings` count is unattested. An artifact written before
+these stamps has no `analyzer:` line. Step 14 copies the stamps whole into the MR
+body's `## Evidence` block, and preship checks them there (#677).
 
 Under the `cmake` family the step **fails loud** (#117): if any sanitizer leg
 (ASan/UBSan/TSan) fails at configure, build, or ctest, all three legs still run
@@ -49,6 +51,8 @@ its failing phase, and its artifact file. A source tree with no `CMakeLists.txt`
 loud-skips the sanitizer legs (warns and exits clean; set `analyze = "none"`
 or `"shellcheck"` for a non-CMake project).
 
+The `shellcheck` family needs `shellcheck` on PATH: without it the step stops
+(`shellcheck not found on PATH`) before writing an artifact and stays unmarked.
 Under the `shellcheck` family the step **fails loud** (#675) when shellcheck itself
 fails. Every scan records its status in the artifact as
 `shellcheck: exit=<rc>`. Any status other than 0 (clean) or 1 (findings), or a
