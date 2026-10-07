@@ -47,8 +47,8 @@ predicate. An absent clang-format (the git-clang-format wrapper or its formatter
 binary) is `skipped`; it is recognized by git's and git-clang-format's English
 stderr, so a localized git message falls to `error:`, the fail-closed side
 (test_683_clang_format_rc1_unrecognized_stderr_is_error). The other nine static
-rows (cppcheck through mypy) do not read their exit status (epic #580). Step 13's outcome and this script's exit
-status do not change.
+rows (cppcheck through mypy) do not read their exit status (epic #580). Step
+13's outcome and this script's exit status do not change.
 """
 
 import argparse
@@ -134,6 +134,13 @@ def _exit_failure(result: ToolResult, rc: int, reason: str, tail: str = "") -> N
     result.error = f"{result.tool} exit={rc}: {_cell_reason(reason)}{tail}"
     result.exit_status = rc
     result.passed = False
+
+
+def _first_line(text: str, match: Callable[[str], bool],
+                default: Optional[str] = None) -> Optional[str]:
+    """The first stripped line of `text` that `match` accepts, else `default`."""
+    return next((ln.strip() for ln in text.splitlines() if match(ln)), default)
+
 
 # #676: per-row tool versions. A runner records its stamp in this registry, not
 # on its ToolResult, because the pool's exception path builds a fresh ToolResult
@@ -667,15 +674,13 @@ def run_scan_build(build_dir: str) -> ToolResult:
     _record_stamp("scan-build-18", lambda: _probe_path(_scan_build_analyzer()))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        output = proc.stderr + proc.stdout
+        output = proc.stderr + "\n" + proc.stdout
         count = re.search(r"(\d+) bugs? found", output)
         if proc.returncode != 0:
             # #683: without --status-bugs scan-build exits with the build's status,
             # so nonzero means the build (or scan-build) failed, bugs or not.
             reason = "build failed"
-            line = next((ln.strip() for ln in
-                         (proc.stderr + "\n" + proc.stdout).splitlines()
-                         if "error" in ln), None)
+            line = _first_line(output, lambda ln: "error" in ln)
             if line:
                 reason += ": " + line
             _exit_failure(result, proc.returncode, reason,
@@ -758,7 +763,7 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     missing = [f for f in src_files if _repo_key(f, repo_root) not in verdicted] \
         if proc.returncode != 0 else []
     if missing:
-        diag = next((ln.strip() for ln in output.splitlines() if "error:" in ln), None)
+        diag = _first_line(output, lambda ln: "error:" in ln)
         _exit_failure(result, proc.returncode, _iwyu_reason(missing, diag))
 
     return result
@@ -768,24 +773,29 @@ def _iwyu_reason(missing: list[str], diag: Optional[str]) -> str:
     """`not analyzed: <names>[ and N more][; <diag>]` within _REASON_MAX. The
     names yield to the tool's own diagnostic, never the reverse (#683)."""
     tail = f"; {diag[:_REASON_MAX - 40]}" if diag else ""
+
+    def fmt(shown: list[str]) -> str:
+        rest = len(missing) - len(shown)
+        if not shown:
+            return f"not analyzed: {rest} file(s){tail}"
+        more = f" and {rest} more" if rest else ""
+        return "not analyzed: " + ", ".join(shown) + more + tail
+
     shown: list[str] = []
     for f in missing[:3]:
-        rest = len(missing) - len(shown) - 1
-        more = f" and {rest} more" if rest else ""
-        if len("not analyzed: " + ", ".join(shown + [f]) + more + tail) > _REASON_MAX:
+        if len(fmt(shown + [f])) > _REASON_MAX:
             break
         shown.append(f)
-    rest = len(missing) - len(shown)
-    if not shown:
-        return f"not analyzed: {rest} file(s){tail}"
-    return "not analyzed: " + ", ".join(shown) + (f" and {rest} more" if rest else "") + tail
+    return fmt(shown)
 
 
 # Measured stderr of an absent clang-format (#683): git's, when the
 # git-clang-format wrapper is not on PATH, and the wrapper's, when its formatter
 # binary is missing. Both exit like any other failure (rc 1 / rc 2).
-_CF_NO_WRAPPER = "'clang-format' is not a git command"
-_CF_NO_BINARY = "cannot find executable"
+_CF_ABSENT = (
+    ("'clang-format' is not a git command", "git-clang-format not found"),
+    ("cannot find executable", "clang-format binary not found"),
+)
 
 
 def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) -> ToolResult:
@@ -802,25 +812,22 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
     cmd = ["git", "clang-format", "--diff", base_ref, "--"] + src_files
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = proc.stdout.strip()
-    if proc.returncode != 0 and not output:
-        # git-clang-format itself did not run (absent wrapper, bad ref): the
-        # formatter's version says nothing about this row, so stamp unknown.
-        _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
-
-    # #683: classify the exit first. git (absent wrapper) and git-clang-format
-    # (missing formatter) say "absent" only in English stderr; any other nonzero
-    # run with no diff, or any rc >= 2, failed (a localized message fails closed).
     rc = proc.returncode
-    if rc != 0 and _CF_NO_WRAPPER in proc.stderr:
-        result.error, result.skipped = "git-clang-format not found", True
-        return result
-    if rc != 0 and _CF_NO_BINARY in proc.stderr:
-        result.error, result.skipped = "clang-format binary not found", True
-        return result
-    if (rc != 0 and not output) or rc >= 2:
-        reason = next((ln.strip() for ln in proc.stderr.splitlines() if ln.strip()),
-                      "(no stderr)")
-        _exit_failure(result, rc, reason)
+    if rc != 0:
+        if not output:
+            # git-clang-format itself did not run (absent wrapper, bad ref): the
+            # formatter's version says nothing about this row, so stamp unknown.
+            _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
+        # #683: classify the exit first. git (absent wrapper) and git-clang-format
+        # (missing formatter) say "absent" only in English stderr; any other
+        # nonzero run with no diff, or any rc >= 2, failed (a localized message
+        # fails closed).
+        for marker, skip_reason in _CF_ABSENT:
+            if marker in proc.stderr:
+                result.error, result.skipped = skip_reason, True
+                return result
+        if not output or rc >= 2:
+            _exit_failure(result, rc, _first_line(proc.stderr, str.strip, "(no stderr)"))
 
     if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
         return result
@@ -1458,8 +1465,7 @@ def _finalize_pool_result(name, produce, ranges, progress) -> ToolResult:
         print(f"  {name}: FAILED ({e})", flush=True, file=progress)
         return ToolResult(tool=name, error=str(e), passed=False)
     if r.skipped:
-        reason = f" ({r.error})" if r.error else ""
-        print(f"  {name}: skipped{reason}", flush=True, file=progress)
+        print(f"  {name}: {row_cells(r)[2]}", flush=True, file=progress)
         return r
     # IWYU findings are pre-marked novel=False (not diff-gatable)
     if r.tool != "iwyu":

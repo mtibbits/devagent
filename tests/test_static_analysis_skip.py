@@ -241,7 +241,7 @@ def _tool_run(rc, stdout="", stderr=""):
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
         if argv[:2] == ["git", "config"]:
             return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
-        return subprocess.CompletedProcess(argv, rc, stdout=stdout, stderr=stderr)
+        return _completed(stdout, stderr, rc)(argv)
     return fake_run
 
 
