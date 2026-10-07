@@ -10,7 +10,8 @@
 # insertion or rename reddens the page; the 24 pin keeps the derived count
 # honest), configuration.md names every backend verb backtick-anchored
 # (substring-proof; `state` must not ride on `mr-state`), every shellcheck
-# version home names the CONTRIBUTING.md version (#678), and the audit §E step-count typo ("21-step") never appears in a content page (one
+# version home names the CONTRIBUTING.md version (#678), and the audit §E
+# step-count typo ("21-step") never appears in a content page (one
 # multi-file grep; precise no-match, status -eq 1; Issue-337).
 
 load 'lib/bats-helpers'
@@ -224,6 +225,7 @@ _mz_live() {
   # RECORDED EXEMPTION: a token in the stamp form `analyzer: shellcheck <version>`
   # is an example of a measured value, not a claim, and is not counted.
   local floor vals v h live=0 stale="" region text msg
+  local -a homes
   local -A count
   floor="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$PLUGIN_ROOT/CONTRIBUTING.md" \
             | tr -s '[:space:]' ' ' \
@@ -233,7 +235,8 @@ _mz_live() {
   [ -n "$floor" ]
   [[ "$floor" != *$'\n'* ]]
   [[ "$floor" =~ ^0\. ]] || {
-    echo "CONTRIBUTING.md names shellcheck $floor: a 1.x version needs a new token shape here, because the sweep isolates shellcheck by major zero" >&2
+    echo "CONTRIBUTING.md names shellcheck $floor: a 1.x version needs a new token" >&2
+    echo "shape here, because the sweep isolates shellcheck by major zero" >&2
     return 1
   }
 
