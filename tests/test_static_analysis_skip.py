@@ -478,6 +478,17 @@ def test_683_iwyu_many_files_keeps_diagnostic():
     assert "failed to parse compilation database" in status
 
 
+def test_683_iwyu_long_names_never_cut_the_diagnostic():
+    # Three 70-char names would fill the 200-char cap before the diagnostic: the
+    # names yield, the tool's own diagnostic survives whole.
+    files = [f"src/{c * 62}.c" for c in "abc"]
+    diag = "error: failed to parse compilation database: [Errno 2] No such file or directory"
+    r = _iw(1, "", files, stderr=diag + "\n")
+    assert r.error.endswith("; " + diag)
+    assert len(r.error) - len("iwyu exit=1: ") <= sad._REASON_MAX
+    assert "more" in r.error            # the dropped names are still counted
+
+
 def _sb(rc, stdout="", stderr=""):
     with _patch(sad.subprocess, "run", _tool_run(rc, stdout, stderr)):
         return sad.run_scan_build("/build")
@@ -556,6 +567,13 @@ def test_683_docs_name_the_marker():
     assert "Failure semantics (#683)" in doc and "`failed`" in doc
     analyze_md = " ".join((REPO / "commands" / "analyze.md").read_text(encoding="utf-8").split())
     assert "#683" in analyze_md
+
+
+def test_683_docs_scope_the_unread_rows_to_nine():
+    # The sanitizer rows do read the test kernel's rc: the "do not read" claim
+    # is written to the width of the diff (the nine static rows), not "other rows".
+    doc = " ".join(sad.__doc__.split())
+    assert "The other nine static rows" in doc
 
 
 # --------------------------------------------------------------------------

@@ -46,8 +46,8 @@ compilable files reads `skipped`. Each `--json` row carries `failed`, the same
 predicate. An absent clang-format (the git-clang-format wrapper or its formatter
 binary) is `skipped`; it is recognized by git's and git-clang-format's English
 stderr, so a localized git message falls to `error:`, the fail-closed side
-(test_683_clang_format_rc1_unrecognized_stderr_is_error). The other rows do not
-read their exit status (epic #580). Step 13's outcome and this script's exit
+(test_683_clang_format_rc1_unrecognized_stderr_is_error). The other nine static
+rows (cppcheck through mypy) do not read their exit status (epic #580). Step 13's outcome and this script's exit
 status do not change.
 """
 
@@ -758,15 +758,27 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     missing = [f for f in src_files if _repo_key(f, repo_root) not in verdicted] \
         if proc.returncode != 0 else []
     if missing:
-        reason = "not analyzed: " + ", ".join(missing[:3])
-        if len(missing) > 3:
-            reason += f" and {len(missing) - 3} more"
         diag = next((ln.strip() for ln in output.splitlines() if "error:" in ln), None)
-        if diag:
-            reason += "; " + diag
-        _exit_failure(result, proc.returncode, reason)
+        _exit_failure(result, proc.returncode, _iwyu_reason(missing, diag))
 
     return result
+
+
+def _iwyu_reason(missing: list[str], diag: Optional[str]) -> str:
+    """`not analyzed: <names>[ and N more][; <diag>]` within _REASON_MAX. The
+    names yield to the tool's own diagnostic, never the reverse (#683)."""
+    tail = f"; {diag[:_REASON_MAX - 40]}" if diag else ""
+    shown: list[str] = []
+    for f in missing[:3]:
+        rest = len(missing) - len(shown) - 1
+        more = f" and {rest} more" if rest else ""
+        if len("not analyzed: " + ", ".join(shown + [f]) + more + tail) > _REASON_MAX:
+            break
+        shown.append(f)
+    rest = len(missing) - len(shown)
+    if not shown:
+        return f"not analyzed: {rest} file(s){tail}"
+    return "not analyzed: " + ", ".join(shown) + (f" and {rest} more" if rest else "") + tail
 
 
 # Measured stderr of an absent clang-format (#683): git's, when the
