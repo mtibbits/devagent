@@ -25,6 +25,9 @@ default_baseline = "origin/main"               # branch step's base
 fork_first       = false                       # branch/push via a fork
 ship_as_draft    = false                       # open MRs as drafts
 analyze          = "none"                      # step-13 analyzer family; default when absent: cmake
+                                               # legal: cmake | shellcheck | none; shellcheck needs
+                                               # shellcheck on PATH, tested against
+                                               # shellcheck 0.9.0 or newer (commands/analyze.md)
 suite_jobs       = 1                           # bats test files run N at a time (#593)
                                                # needs GNU parallel on PATH; raise only after
                                                # auditing the suite at file granularity
