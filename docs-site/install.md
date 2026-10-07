@@ -16,6 +16,10 @@ the workflow scripts assume GNU coreutils (`stat -c`, GNU `sed -i`,
   scripts' toolchain.
 - A forge CLI for your backend: **`gh`** (GitHub), **`glab`** or `curl`
   (GitLab), `curl` (JIRA).
+- For a project with `analyze = "shellcheck"`: **`shellcheck`** on PATH — step 13
+  stops without it. devAgent is tested against `shellcheck` 0.9.0 or newer; nothing
+  checks the version at run time ([`/devagent:analyze`](../commands/analyze.md) says
+  where it is recorded).
 - Contributors additionally need **`bats`** and **`shellcheck >= 0.9.0`**
   (the test suite and the CI lint gate).
 

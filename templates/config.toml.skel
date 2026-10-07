@@ -63,6 +63,9 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # pre-existing repo noise never blocks; sanitizers are skipped (bats is the
 # dynamic coverage). "none" = step 13 self-marks [-] with a logged reason (no
 # manual skip needed). Any other value fails loud at analyze time.
+# "shellcheck" needs shellcheck on PATH (step 13 stops without it); tested
+# against shellcheck 0.9.0 or newer, not checked at run time — commands/analyze.md
+# says where the version is recorded.
 # analyze = "cmake"                      # cmake | shellcheck | none
 #
 # analyze_timeout: per-phase budget in SECONDS for the cmake analyze legs

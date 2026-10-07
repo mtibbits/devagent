@@ -9,7 +9,8 @@
 # templates/checklist-standard.md (one row per template step, so a step
 # insertion or rename reddens the page; the 24 pin keeps the derived count
 # honest), configuration.md names every backend verb backtick-anchored
-# (substring-proof; `state` must not ride on `mr-state`), and the audit §E
+# (substring-proof; `state` must not ride on `mr-state`), every shellcheck
+# version home names the CONTRIBUTING.md version (#678), and the audit §E
 # step-count typo ("21-step") never appears in a content page (one
 # multi-file grep; precise no-match, status -eq 1; Issue-337).
 
@@ -123,7 +124,7 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   # install.md declares README as a derive source. Every toolchain binary the
   # page names must be named by README too, and the platform posture tokens
   # are shared, so neither side can drift alone.
-  for tool in bash python3 jq git gh glab curl tomli; do
+  for tool in bash python3 jq git gh glab curl tomli bats shellcheck; do
     grep -qF "\`$tool\`" "$SITE/install.md"
     grep -qF "\`$tool\`" "$PLUGIN_ROOT/README.md"
   done
@@ -193,4 +194,121 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   # Floor: README x2, install.md x2, the bug-report placeholder. An emptied
   # sweep must not pass vacuously.
   [ "$live" -ge 5 ]
+}
+
+# The live major-zero x.y.z tokens of stdin, one per line, on whitespace-normalised
+# text. A token directly preceded by the stamp form is an exempt example and is
+# dropped. An unreadable input (a directory) fails rather than reading as "no tokens".
+_mz_live() {
+  local text toks m rc=0
+  text="$(tr -s '[:space:]' ' ')" || return 2
+  toks="$(grep -oE '(analyzer: shellcheck |^|[^0-9.])0\.[0-9]+\.[0-9]+' <<<"$text")" || rc=$?
+  [ "$rc" -le 1 ] || return 2   # 1 = no token (legal per home); 2 = grep error
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    [[ "$m" == "analyzer: shellcheck "* ]] && continue
+    printf '%s\n' "${m##*[!0-9.]}"
+  done <<<"$toks"
+}
+
+@test "docs-site: every shellcheck version home names the CONTRIBUTING.md version (#678)" {
+  # Audit of the shellcheck version's homes AS A SET: the user homes (README
+  # Prerequisites, the install page's "You need:" list, config.toml.skel,
+  # configuration.md), commands/analyze.md (the one home of the detail) and the
+  # contributor homes. Every major-zero x.y.z token in a home must equal the version
+  # CONTRIBUTING.md "What you need" names; major zero is what isolates
+  # the shellcheck version from the Claude Code and bash versions in the same files.
+  #
+  # The user floor equals the contributor floor by the policy in the
+  # scripts/analyze-shellcheck.sh header; a split of the two belongs there first.
+  #
+  # RECORDED EXEMPTION: a token in the stamp form `analyzer: shellcheck <version>`
+  # is an example of a measured value, not a claim, and is not counted.
+  local floor vals v h live=0 stale="" region text msg
+  local -a homes
+  local -A count
+  floor="$(awk '/^## What you need$/{f=1; next} f && /^## /{exit} f' "$PLUGIN_ROOT/CONTRIBUTING.md" \
+            | tr -s '[:space:]' ' ' \
+            | grep -oE '`shellcheck` [0-9]+\.[0-9]+\.[0-9]+ or newer' \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')" || true
+  # One assertion per line: a failing non-final member of an && list never trips errexit.
+  [ -n "$floor" ] || {
+    echo "CONTRIBUTING.md 'What you need' no longer says \`shellcheck\` X.Y.Z or newer:" >&2
+    echo "re-point the floor extraction above" >&2
+    return 1
+  }
+  [[ "$floor" != *$'\n'* ]]
+  [[ "$floor" =~ ^0\. ]] || {
+    echo "CONTRIBUTING.md names shellcheck $floor: a 1.x version needs a new token" >&2
+    echo "shape here, because the sweep isolates shellcheck by major zero" >&2
+    return 1
+  }
+
+  # Planted controls, through the sweep's own predicate. Each stamp control carries a
+  # live sibling, so a dropped stamp token proves exemption, not a blind scan.
+  [ "$(printf 'a analyzer: shellcheck 0.11.0 b 0.8.0' | _mz_live)" = 0.8.0 ]
+  [ "$(printf 'analyzer:\n  shellcheck\n0.11.0 0.8.0\n' | _mz_live)" = 0.8.0 ]
+  [ "$(printf 'x 0.8.0 10.9.0 1.0.0 2.1.223 pre-0.9.0' | _mz_live)" = $'0.8.0\n0.9.0' ]
+  run _mz_live <"$SITE"
+  [ "$status" -eq 2 ]
+
+  homes=(README.md CONTRIBUTING.md docs-site/install.md docs-site/configuration.md
+         templates/config.toml.skel commands/analyze.md .githooks/pre-push
+         .github/workflows/shellcheck.yml)
+  [ "${#homes[@]}" -eq 8 ]
+  for h in "${homes[@]}"; do
+    [ -f "$PLUGIN_ROOT/$h" ] || { echo "missing version home: $h" >&2; return 1; }
+    vals="$(_mz_live <"$PLUGIN_ROOT/$h")"
+    while IFS= read -r v; do
+      [ -z "$v" ] || [ "$v" = "$floor" ] || stale+="$h: $v"$'\n'
+    done <<<"$vals"
+    count[$h]="$(grep -c . <<<"$vals" || true)"
+    [ -n "${count[$h]}" ]
+    live=$((live + count[$h]))
+  done
+  if [ -n "$stale" ]; then
+    echo "shellcheck version home disagrees with CONTRIBUTING.md ($floor):" >&2
+    printf '%s' "$stale" >&2
+    echo "A token that is not a shellcheck version is a new exemption for this" >&2
+    echo "test (see RECORDED EXEMPTION above); do not edit CONTRIBUTING.md for it" >&2
+    return 1
+  fi
+
+  # Once per prescribed text in the homes that carry one statement each.
+  for h in docs-site/configuration.md templates/config.toml.skel commands/analyze.md; do
+    [ "${count[$h]}" -eq 1 ] || { echo "$h: ${count[$h]} live version tokens, want 1" >&2; return 1; }
+  done
+
+  # The user statements, scoped to their regions: a deleted user statement reddens
+  # even with the contributor statements in the same file intact.
+  [ "$(grep -c '^- Contributors additionally' "$SITE/install.md")" -eq 1 ]
+  for region in \
+      "$(awk '/^\*\*Prerequisites\.\*\*/{f=1} f && /^$/{exit} f' "$PLUGIN_ROOT/README.md")" \
+      "$(awk '/You need:$/{f=1; next} /^- Contributors additionally/{exit} f' "$SITE/install.md")"; do
+    [ -n "$region" ]
+    vals="$(_mz_live <<<"$region")"
+    [ "$(grep -c . <<<"$vals" || true)" -eq 1 ] || {
+      echo "user statement region lacks exactly one shellcheck version: ${region:0:60}..." >&2
+      return 1
+    }
+    [[ "$(tr -s '[:space:]' ' ' <<<"$region")" == *'analyze = "shellcheck"'* ]]
+  done
+
+  # commands/analyze.md carries the missing-binary message its producer dies with,
+  # and the unattested consequence of an older version.
+  msg="shellcheck not found on PATH"
+  grep -qF "die \"$msg\"" "$PLUGIN_ROOT/scripts/analyze-shellcheck.sh" || {
+    echo "the missing-binary die string moved in scripts/analyze-shellcheck.sh: re-point commands/analyze.md and this test" >&2
+    return 1
+  }
+  text="$(tr -s '[:space:]' ' ' <"$PLUGIN_ROOT/commands/analyze.md")"
+  [[ "$text" == *"$msg"* ]]
+  [[ "$text" == *unattested* ]]
+
+  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1,
+  # pre-push 3, shellcheck.yml 3) plus one per user statement (README, install.md,
+  # config.toml.skel, configuration.md, commands/analyze.md). The pins above already
+  # catch a deleted user statement; this bound is the only guard on the contributor
+  # tokens (README, install.md, pre-push, shellcheck.yml).
+  [ "$live" -ge 14 ]
 }

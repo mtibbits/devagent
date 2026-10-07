@@ -58,9 +58,12 @@ releases do not reach an installed plugin; see
 **Prerequisites.** The workflow scripts need `bash` ≥ 4.4 (the resolver libs use
 namerefs), `python3` ≥ 3.11 (or 3.8–3.10 plus `tomli`), `jq`, and `git`. Where
 `run-suite.sh` measures a tree that has an `origin`, it also needs coreutils `timeout`
-on PATH and `git` ≥ 2.29, for its bounded freshness check (#660). The
-backend and auth scripts additionally call `gh` (GitHub), `glab` or `curl`
-(GitLab), or `curl` (JIRA), as appropriate for your backend.
+on PATH and `git` ≥ 2.29, for its bounded freshness check (#660). A project with
+`analyze = "shellcheck"` also needs `shellcheck` on PATH (step 13 stops without it);
+devAgent is tested against `shellcheck` 0.9.0 or newer, and nothing checks the version
+at run time — `commands/analyze.md` says where it is recorded. The backend and auth
+scripts additionally call `gh` (GitHub), `glab` or `curl` (GitLab), or `curl` (JIRA),
+as appropriate for your backend.
 
 **Supported platforms.** devAgent is developed and tested on **Linux**, including
 WSL on Windows; CI runs Linux only. macOS is currently untested: the scripts
