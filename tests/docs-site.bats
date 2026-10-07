@@ -245,7 +245,9 @@ _mz_count() {
             | tr -s '[:space:]' ' ' \
             | grep -oE '`shellcheck` [0-9]+\.[0-9]+\.[0-9]+ or newer' \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')" || true
-  [ -n "$floor" ] && [ "$(printf '%s\n' "$floor" | wc -l)" -eq 1 ]
+  # One assertion per line: a failing non-final member of an && list never trips errexit.
+  [ -n "$floor" ]
+  [ "$(printf '%s\n' "$floor" | wc -l)" -eq 1 ]
   [[ "$floor" =~ ^0\. ]] || {
     echo "CONTRIBUTING.md names shellcheck $floor: a 1.x version needs a new token shape here, because the sweep isolates shellcheck by major zero" >&2
     return 1
@@ -253,9 +255,11 @@ _mz_count() {
 
   # Planted controls, through the sweep's own predicate.
   toks="$(printf 'a analyzer: shellcheck 0.11.0 b' | _mz_tokens)"
-  [ "$(_mz_count "$toks")" -eq 1 ] && [[ "$toks" == "analyzer: shellcheck "* ]]
+  [ "$(_mz_count "$toks")" -eq 1 ]
+  [[ "$toks" == "analyzer: shellcheck "* ]]
   toks="$(printf 'analyzer:\n  shellcheck\n0.11.0\n' | _mz_tokens)"
-  [ "$(_mz_count "$toks")" -eq 1 ] && [[ "$toks" == "analyzer: shellcheck "* ]]
+  [ "$(_mz_count "$toks")" -eq 1 ]
+  [[ "$toks" == "analyzer: shellcheck "* ]]
   toks="$(printf 'x 0.8.0 10.9.0 1.0.0 2.1.223 pre-0.9.0' | _mz_tokens)"
   [ "$(_mz_count "$toks")" -eq 2 ]
   [ "$(_mz_live "$toks")" = $'0.8.0\n0.9.0' ]
