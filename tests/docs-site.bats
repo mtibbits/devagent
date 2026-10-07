@@ -317,8 +317,8 @@ _mz_count() {
   [[ "$text" == *"$msg"* ]]
   [[ "$text" == *unattested* ]]
 
-  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1, pre-push 3,
-  # shellcheck.yml 3) plus one per user statement (README, install.md,
+  # Floor: 9 tokens at 4e3ca74 (README 1, CONTRIBUTING 1, install.md 1,
+  # pre-push 3, shellcheck.yml 3) plus one per user statement (README, install.md,
   # config.toml.skel, configuration.md, commands/analyze.md). Deleting any one
   # statement reddens this; the per-home and region pins above catch the same
   # deletions first (belt and braces).
