@@ -514,6 +514,36 @@ def test_683_scan_build_clean_passes():
     assert _row([r], "scan-build-18") == "| scan-build-18 | - | - | pass |"
 
 
+_CC_STUB = ("lib/old.c:10:5: error: 'y' undeclared (first use in this function)\n"
+            "lib/new.c:3:9: warning: unused variable 'x' [-Wunused-variable]\n")
+_CC_RANGES = {"lib/new.c": [sad.LineRange(1, 1)]}
+
+
+def _cc(rc, stdout):
+    with _patch(sad.subprocess, "run", _tool_run(rc, stdout)):
+        r = sad.run_compiler_warnings("/build", [], "/repo")
+    r.findings = sad.filter_novel(r.findings, _CC_RANGES)
+    return r
+
+
+def test_683_compiler_failed_build_with_findings_is_error():
+    r = _cc(1, _CC_STUB)
+    assert _row([r], "compiler", _CC_RANGES) == \
+        "| compiler | 2 | 0 | error: compiler exit=1: build failed; 2 finding(s) |"
+    assert r.passed is False
+
+
+def test_683_compiler_rc0_same_stub_renders_as_today():
+    r = _cc(0, _CC_STUB)
+    assert _row([r], "compiler", _CC_RANGES) == "| compiler | 2 | 0 | clean |"
+
+
+def test_683_compiler_failed_build_no_findings():
+    r = _cc(2, "")
+    assert _row([r], "compiler", _CC_RANGES) == \
+        "| compiler | 0 | 0 | error: compiler exit=2: build failed |"
+
+
 # --------------------------------------------------------------------------
 # Bare-python3 runner (Windows, where pytest isn't installed)
 # --------------------------------------------------------------------------

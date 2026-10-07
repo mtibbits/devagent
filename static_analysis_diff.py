@@ -1064,9 +1064,9 @@ def run_compiler_warnings(build_dir: str, changed_files: list[str], repo_root: s
                     message=f"{message} [{flag}]" if flag else message,
                 ))
 
-    if proc.returncode != 0 and not result.findings:
-        result.error = "build failed"
-        result.passed = False
+    if proc.returncode != 0:
+        # #683: a failed build fails the row even when it printed diagnostics.
+        _exit_failure(result, proc.returncode, "build failed")
 
     return result
 
