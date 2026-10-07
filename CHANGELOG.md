@@ -32,6 +32,8 @@ the README's "Versioning & releases" section has the release procedure.
   - An absent git-clang-format wrapper or formatter binary now reads `skipped`, instead of
     `clean`.
   - cppcheck with nothing to analyze now reads `skipped (no compilable files in diff)`.
+  - A skipped pool row's progress line now prints `<tool>: skipped (<reason>)`, not
+    `done (0 total, 0 novel)`.
   - The new reasons are table-safe: control characters become spaces, the text is capped
     at 200 characters, and `|` is escaped.
   - Not breaking: step 13's outcome and the python's exit status do not change.

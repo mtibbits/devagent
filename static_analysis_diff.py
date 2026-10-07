@@ -680,7 +680,8 @@ def run_scan_build(build_dir: str) -> ToolResult:
             # #683: without --status-bugs scan-build exits with the build's status,
             # so nonzero means the build (or scan-build) failed, bugs or not.
             reason = "build failed"
-            line = _first_line(output, lambda ln: "error" in ln)
+            line = (_first_line(output, lambda ln: "error:" in ln)
+                    or _first_line(output, lambda ln: "error" in ln))
             if line:
                 reason += ": " + line
             _exit_failure(result, proc.returncode, reason,
@@ -772,7 +773,9 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
 def _iwyu_reason(missing: list[str], diag: Optional[str]) -> str:
     """`not analyzed: <names>[ and N more][; <diag>]` within _REASON_MAX. The
     names yield to the tool's own diagnostic, never the reverse (#683)."""
-    tail = f"; {diag[:_REASON_MAX - 40]}" if diag else ""
+    # The diagnostic gets what the shortest form (`N file(s)`) leaves of the cap.
+    floor = len(f"not analyzed: {len(missing)} file(s); ")
+    tail = f"; {diag[:_REASON_MAX - floor]}" if diag else ""
 
     def fmt(shown: list[str]) -> str:
         rest = len(missing) - len(shown)
@@ -827,7 +830,8 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
                 result.error, result.skipped = skip_reason, True
                 return result
         if not output or rc >= 2:
-            _exit_failure(result, rc, _first_line(proc.stderr, str.strip, "(no stderr)"))
+            _exit_failure(result, rc, _first_line(proc.stderr, lambda ln: ln.strip() != "",
+                                                 "(no stderr)"))
 
     if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
         return result

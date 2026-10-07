@@ -489,6 +489,17 @@ def test_683_iwyu_long_names_never_cut_the_diagnostic():
     assert "more" in r.error            # the dropped names are still counted
 
 
+def test_683_iwyu_long_diagnostic_fills_the_cap():
+    # The diagnostic's budget is what the shortest prefix leaves, not a fixed
+    # margin: a long database path keeps its tail up to the cap.
+    diag = "error: failed to parse compilation database: '/" + "p" * 200 + "/cc.json'"
+    r = _iw(1, "", ["a.c"], stderr=diag + "\n")
+    reason = r.error[len("iwyu exit=1: "):]
+    assert reason.startswith("not analyzed: a.c; error: failed to parse")
+    assert len(reason) == len("not analyzed: a.c; ") + sad._REASON_MAX - len(
+        "not analyzed: 1 file(s); ")
+
+
 def _sb(rc, stdout="", stderr=""):
     with _patch(sad.subprocess, "run", _tool_run(rc, stdout, stderr)):
         return sad.run_scan_build("/build")
@@ -501,6 +512,14 @@ def test_683_scan_build_failed_build_is_error():
     assert _row([r], "scan-build-18") == (
         "| scan-build-18 | - | - | error: scan-build-18 exit=2: build failed: "
         "a.c:1:31: error: use of undeclared identifier 'syntax' |")
+
+
+def test_683_scan_build_reason_prefers_the_error_colon_line():
+    r = _sb(2, stderr="cc1: warnings being treated as errors with -Werror\n"
+                      "a.c:1:31: error: use of undeclared identifier 'syntax'\n")
+    assert sad.row_cells(r)[2] == (
+        "error: scan-build-18 exit=2: build failed: "
+        "a.c:1:31: error: use of undeclared identifier 'syntax'")
 
 
 def test_683_scan_build_failed_build_keeps_bug_count():
