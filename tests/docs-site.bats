@@ -232,7 +232,11 @@ _mz_live() {
             | grep -oE '`shellcheck` [0-9]+\.[0-9]+\.[0-9]+ or newer' \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')" || true
   # One assertion per line: a failing non-final member of an && list never trips errexit.
-  [ -n "$floor" ]
+  [ -n "$floor" ] || {
+    echo "CONTRIBUTING.md 'What you need' no longer says \`shellcheck\` X.Y.Z or newer:" >&2
+    echo "re-point the floor extraction above" >&2
+    return 1
+  }
   [[ "$floor" != *$'\n'* ]]
   [[ "$floor" =~ ^0\. ]] || {
     echo "CONTRIBUTING.md names shellcheck $floor: a 1.x version needs a new token" >&2
@@ -259,11 +263,14 @@ _mz_live() {
       [ -z "$v" ] || [ "$v" = "$floor" ] || stale+="$h: $v"$'\n'
     done <<<"$vals"
     count[$h]="$(grep -c . <<<"$vals" || true)"
+    [ -n "${count[$h]}" ]
     live=$((live + count[$h]))
   done
   if [ -n "$stale" ]; then
     echo "shellcheck version home disagrees with CONTRIBUTING.md ($floor):" >&2
     printf '%s' "$stale" >&2
+    echo "A token that is not a shellcheck version is a new exemption for this" >&2
+    echo "test (see RECORDED EXEMPTION above); do not edit CONTRIBUTING.md for it" >&2
     return 1
   fi
 
