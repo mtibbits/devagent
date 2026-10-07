@@ -234,8 +234,8 @@ _mz_count() {
   # Prerequisites, the install page's "You need:" list, config.toml.skel,
   # configuration.md), commands/analyze.md (the one home of the detail) and the
   # contributor homes. Every major-zero x.y.z token in a home must equal the version
-  # CONTRIBUTING.md "What you need" names; major zero is what isolates the
-  # shellcheck version from the Claude Code and bash versions in the same files.
+  # CONTRIBUTING.md "What you need" names; major zero is what isolates
+  # the shellcheck version from the Claude Code and bash versions in the same files.
   #
   # RECORDED EXEMPTION: a token in the stamp form `analyzer: shellcheck <version>`
   # is an example of a measured value, not a claim, and is not counted.
