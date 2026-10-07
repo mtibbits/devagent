@@ -822,19 +822,19 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
             # formatter's version says nothing about this row, so stamp unknown.
             _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
         # #683: classify the exit first. git (absent wrapper) and git-clang-format
-        # (missing formatter) say "absent" only in English stderr; any other
-        # nonzero run with no diff, or any rc >= 2, failed (a localized message
-        # fails closed).
+        # (missing formatter) say "absent" only in English stderr; any rc >= 2,
+        # or any other nonzero run that printed no diff hunk, failed (a localized
+        # message fails closed).
         for marker, skip_reason in _CF_ABSENT:
             if marker in proc.stderr:
                 result.error, result.skipped = skip_reason, True
                 return result
-        if not output or rc >= 2:
-            _exit_failure(result, rc, _first_line(proc.stderr, lambda ln: ln.strip() != "",
-                                                 "(no stderr)"))
+    reason = _first_line(proc.stderr, lambda ln: ln.strip() != "", "(no stderr)")
+    if rc >= 2:
+        _exit_failure(result, rc, reason)
 
-    if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
-        return result
+    if output == "no modified files to format" or output.startswith("clang-format did not modify"):
+        output = ""   # a clean message carries no hunk
 
     # Parse unified diff output for changed files/lines
     current_file = None
@@ -854,6 +854,8 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
                 message="formatting differs from .clang-format style",
             ))
 
+    if rc != 0 and not result.findings and not result.error:
+        _exit_failure(result, rc, reason)   # rc 1 promises a diff hunk (#683)
     return result
 
 

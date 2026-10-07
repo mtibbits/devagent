@@ -386,6 +386,14 @@ def test_683_clang_format_diff_is_findings():
     assert sad.json_rows([r])[0]["failed"] is False
 
 
+def test_683_clang_format_rc1_without_hunks_is_error():
+    # rc 1 means "a diff was printed"; stdout with no hunk is unexplained.
+    for out in ("some unexpected text on stdout\n", "clang-format did not modify any files\n"):
+        r = _cf(1, stdout=out, stderr="error: something went wrong\n")
+        assert _cf_row(r) == \
+            "| clang-format | 0 | 0 | error: clang-format exit=1: error: something went wrong |", out
+
+
 def test_683_clang_format_clean():
     r = _cf(0, stdout="no modified files to format\n")
     assert _cf_row(r) == "| clang-format | 0 | 0 | clean |"
