@@ -162,7 +162,7 @@ def test_present_scan_build_with_bug_fails_not_skips():
         r = sad.run_scan_build("/build")
     assert r.passed is False             # a real finding still fails
     assert r.skipped is False            # and is NOT mistaken for absence
-    assert "1 bug" in r.error
+    assert "1 bug" in r.verdict and r.error is None   # #683: a completed analysis's FAIL
 
 
 def test_present_compiler_warning_still_reported():
@@ -476,6 +476,42 @@ def test_683_iwyu_many_files_keeps_diagnostic():
     status = sad.row_cells(r)[2]
     assert "and 12 more" in status
     assert "failed to parse compilation database" in status
+
+
+def _sb(rc, stdout="", stderr=""):
+    with _patch(sad.subprocess, "run", _tool_run(rc, stdout, stderr)):
+        return sad.run_scan_build("/build")
+
+
+def test_683_scan_build_failed_build_is_error():
+    r = _sb(2, stdout="scan-build: No bugs found.\n",
+            stderr="a.c:1:31: error: use of undeclared identifier 'syntax'\n"
+                   "gmake[2]: *** [CMakeFiles/a.dir/build.make:76: a.o] Error 1")
+    assert _row([r], "scan-build-18") == (
+        "| scan-build-18 | - | - | error: scan-build-18 exit=2: build failed: "
+        "a.c:1:31: error: use of undeclared identifier 'syntax' |")
+
+
+def test_683_scan_build_failed_build_keeps_bug_count():
+    r = _sb(2, stdout="scan-build: 1 bug found.\n",
+            stderr="b.c:1:31: error: use of undeclared identifier 'syntax'\n")
+    status = sad.row_cells(r)[2]
+    assert status.startswith("error: scan-build-18 exit=2: build failed: b.c:")
+    assert status.endswith("; 1 bug(s) found")
+    assert r.passed is False
+
+
+def test_683_scan_build_bug_count_is_FAIL():
+    r = _sb(0, stdout="scan-build: 1 bug found.\n")
+    assert _row([r], "scan-build-18") == \
+        "| scan-build-18 | - | - | FAIL: 1 bug(s) found (see /tmp/scan-build-out/) |"
+    row = sad.json_rows([r])[0]
+    assert row["failed"] is False and row["passed"] is False
+
+
+def test_683_scan_build_clean_passes():
+    r = _sb(0, stdout="scan-build: No bugs found.\n")
+    assert _row([r], "scan-build-18") == "| scan-build-18 | - | - | pass |"
 
 
 # --------------------------------------------------------------------------

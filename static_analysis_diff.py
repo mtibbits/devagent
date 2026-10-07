@@ -653,16 +653,27 @@ def run_scan_build(build_dir: str) -> ToolResult:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = proc.stderr + proc.stdout
-        if "No bugs found" in output:
+        count = re.search(r"(\d+) bugs? found", output)
+        if proc.returncode != 0:
+            # #683: without --status-bugs scan-build exits with the build's status,
+            # so nonzero means the build (or scan-build) failed, bugs or not.
+            reason = "build failed"
+            line = next((ln.strip() for ln in
+                         (proc.stderr + "\n" + proc.stdout).splitlines()
+                         if "error" in ln), None)
+            if line:
+                reason += ": " + line
+            _exit_failure(result, proc.returncode, reason,
+                          tail=f"; {count.group(1)} bug(s) found" if count else "")
+        elif "No bugs found" in output:
             result.passed = True
-        else:
+        elif count:
             result.passed = False
-            # Try to extract bug count
-            m = re.search(r"(\d+) bugs? found", output)
-            if m:
-                result.error = f"{m.group(1)} bug(s) found (see /tmp/scan-build-out/)"
-            else:
-                result.error = "scan-build reported issues (see /tmp/scan-build-out/)"
+            result.verdict = f"{count.group(1)} bug(s) found (see /tmp/scan-build-out/)"
+        else:
+            # Completion cannot be confirmed: fail closed (Issue-243).
+            result.passed = False
+            result.error = "scan-build reported issues (see /tmp/scan-build-out/)"
     except subprocess.TimeoutExpired:
         result.error = "timed out after 600s"
         result.passed = False
