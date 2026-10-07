@@ -676,6 +676,11 @@ def run_scan_build(build_dir: str) -> ToolResult:
     return result
 
 
+def _repo_key(p: str, repo_root: str) -> str:
+    """One comparable key for a requested path and an iwyu verdict path (#683)."""
+    return normalize_path(os.path.join(repo_root, p), repo_root)
+
+
 def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolResult:
     """Run include-what-you-use via iwyu_tool."""
     result = ToolResult(tool="iwyu")
@@ -694,11 +699,13 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     # issues are the norm) and report them separately for awareness.
     current_file = None
     seen = set()  # deduplicate
+    verdicted: set[str] = set()  # repo keys of the files iwyu gave a verdict on
     for line in output.splitlines():
         # File header: /path/to/file.cc should add these lines:
         m = re.match(r"^(.+?)\s+should (add|remove) these lines:", line)
         if m:
             current_file = normalize_path(m.group(1), repo_root)
+            verdicted.add(_repo_key(m.group(1), repo_root))
             continue
         # Specific include suggestion: - #include <foo>  // for bar
         if current_file and re.match(r"^[+-]\s+#include", line):
@@ -717,7 +724,21 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
         # "(file has correct #includes)" means clean
         m = re.match(r"^\((.+?) has correct #includes", line)
         if m:
+            verdicted.add(_repo_key(m.group(1), repo_root))
             current_file = None
+
+    # #683: a nonzero exit fails the row when a requested file got no verdict
+    # (iwyu_tool exits nonzero on a TU that does not compile, or on no database).
+    missing = [f for f in src_files if _repo_key(f, repo_root) not in verdicted] \
+        if proc.returncode != 0 else []
+    if missing:
+        reason = "not analyzed: " + ", ".join(missing[:3])
+        if len(missing) > 3:
+            reason += f" and {len(missing) - 3} more"
+        diag = next((ln.strip() for ln in output.splitlines() if "error:" in ln), None)
+        if diag:
+            reason += "; " + diag
+        _exit_failure(result, proc.returncode, reason)
 
     return result
 

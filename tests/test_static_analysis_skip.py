@@ -422,6 +422,62 @@ def test_683_marker_success_clean():
     assert _marker(_cf(0, stdout="no modified files to format\n")) == ("clean", False, True)
 
 
+_IW_REPO = os.path.abspath("/r683")
+_IW_DB_ERR = ("error: failed to parse compilation database: [Errno 2] "
+              "No such file or directory: '/x/compile_commands.json'")
+
+
+def _iw_a_block():
+    a = os.path.join(_IW_REPO, "a.c")   # absolute, as CMake writes it
+    return (f"{a} should add these lines:\n\n"
+            f"{a} should remove these lines:\n"
+            "- #include <stdio.h>  // lines 1-1\n"
+            "- #include <string.h>  // lines 2-2\n\n"
+            f"The full include-list for {a}:\n---\n\n")
+
+
+def _iw(rc, stdout, files, stderr=""):
+    with _patch(sad.subprocess, "run", _tool_run(rc, stdout, stderr)):
+        return sad.run_iwyu("/build", files, _IW_REPO)
+
+
+def test_683_iwyu_unreadable_database_is_error():
+    r = _iw(1, "", ["a.c"], stderr=_IW_DB_ERR + "\n")
+    assert _row([r], "iwyu") == \
+        f"| iwyu | 0 | 0 | error: iwyu exit=1: not analyzed: a.c; {_IW_DB_ERR} |"
+
+
+def test_683_iwyu_one_tu_fails_names_it_and_keeps_counts():
+    out = _iw_a_block() + "b.c:1:25: error: use of undeclared identifier 'undeclared_x'\n"
+    r = _iw(1, out, ["a.c", "b.c"])
+    assert _row([r], "iwyu") == (
+        "| iwyu | 2 | 0 | error: iwyu exit=1: not analyzed: b.c; "
+        "b.c:1:25: error: use of undeclared identifier 'undeclared_x'; 2 finding(s) |")
+
+
+def _iw_all_verdicted():
+    b = os.path.join(_IW_REPO, "b.c")
+    return _iw_a_block() + f"({b} has correct #includes/fwd-decls)\n"
+
+
+def test_683_iwyu_rc0_with_verdicts_parses_as_today():
+    r = _iw(0, _iw_all_verdicted(), ["a.c", "b.c"])
+    assert _row([r], "iwyu") == "| iwyu | 2 | 0 | clean |"
+
+
+def test_683_iwyu_nonzero_all_verdicted_parses_as_today():
+    r = _iw(1, _iw_all_verdicted(), ["a.c", "b.c"])
+    assert _row([r], "iwyu") == "| iwyu | 2 | 0 | clean |"
+
+
+def test_683_iwyu_many_files_keeps_diagnostic():
+    files = [f"src/file_number_{i:02d}.c" for i in range(15)]
+    r = _iw(1, "", files, stderr=_IW_DB_ERR + "\n")
+    status = sad.row_cells(r)[2]
+    assert "and 12 more" in status
+    assert "failed to parse compilation database" in status
+
+
 # --------------------------------------------------------------------------
 # Bare-python3 runner (Windows, where pytest isn't installed)
 # --------------------------------------------------------------------------
