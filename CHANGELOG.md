@@ -18,10 +18,11 @@ the README's "Versioning & releases" section has the release procedure.
 
 - **Docs: the user homes name the shellcheck prerequisite (#678).** A project that sets
   `analyze = "shellcheck"` now learns before step 13 what that family needs.
-  - README's Prerequisites, the install page's "You need:" list, the `analyze` comment in
-    `templates/config.toml.skel` and the `analyze` line of the configuration page say that
-    step 13 stops without `shellcheck` on PATH, and that devAgent is tested against
-    `shellcheck` 0.9.0 or newer with nothing checking the version at run time.
+  - README's Prerequisites, the install page's "You need:" list and the `analyze` comment
+    in `templates/config.toml.skel` say that step 13 stops without `shellcheck` on PATH,
+    and that devAgent is tested against `shellcheck` 0.9.0 or newer with nothing checking
+    the version at run time. The `analyze` line of the configuration page names the
+    PATH need and the tested version, and points to `commands/analyze.md`.
   - `commands/analyze.md` is the home of the detail: the missing-binary message, and
     the `analyzer:` line as the place an older or unknown version shows.
   - A new `tests/docs-site.bats` sweep pins every shellcheck version token in those homes
