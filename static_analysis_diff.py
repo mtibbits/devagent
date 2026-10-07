@@ -36,6 +36,19 @@ PATH; scan-build's own dir, then /usr/lib/llvm-18/bin/clang, with no PATH
 fallback), and PATH-tool stamps on Windows follow Python's lookup, so those
 stamps are inferred, not exact by construction. A version mismatch is visible
 only in the line.
+
+Failure semantics (#683): the clang-format, iwyu, scan-build-18 and compiler
+rows read their tool's exit status, and a row whose tool failed reads
+`error: <tool> exit=<rc>: <reason>`, never `clean` or `pass`. A Status cell
+starts with `error:` exactly when the row's tool or leg did not complete, so a
+completed scan-build run's bug count reads `FAIL:`, and a cppcheck run with no
+compilable files reads `skipped`. Each `--json` row carries `failed`, the same
+predicate. An absent clang-format (the git-clang-format wrapper or its formatter
+binary) is `skipped`; it is recognized by git's and git-clang-format's English
+stderr, so a localized git message falls to `error:`, the fail-closed side
+(test_683_clang_format_rc1_unrecognized_stderr_is_error). The other rows do not
+read their exit status (epic #580). Step 13's outcome and this script's exit
+status do not change.
 """
 
 import argparse

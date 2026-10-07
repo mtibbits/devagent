@@ -16,6 +16,26 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: clang-format, iwyu, scan-build-18 and compiler rows no longer read clean or pass when the tool fails (#683).**
+  - Each of the four rows now reads its tool's exit status. clang-format fails on any
+    nonzero exit with no diff, or on exit 2 or higher. iwyu fails on a nonzero exit that
+    left a requested file without a verdict, and names the files (`not analyzed: ...`).
+    scan-build-18 fails on any nonzero exit, which without `--status-bugs` is the build's.
+    compiler fails on any nonzero build exit, even when the build printed diagnostics.
+  - A failed row reads `error: <tool> exit=<rc>: <reason>`. A Status cell starts with
+    `error:` exactly when the row's tool or leg did not complete, and each `--json` row
+    gains `failed`, computed from that same cell.
+  - A completed scan-build run's bug count now reads `FAIL: <n> bug(s) found ...`, not
+    `error:`.
+  - A failed compiler build without findings changes from `| - | - | error: build failed`
+    to `| 0 | 0 | error: compiler exit=<rc>: build failed`.
+  - An absent git-clang-format wrapper or formatter binary now reads `skipped`, instead of
+    `clean`.
+  - cppcheck with nothing to analyze now reads `skipped (no compilable files in diff)`.
+  - The new reasons are table-safe: control characters become spaces, the text is capped
+    at 200 characters, and `|` is escaped.
+  - Not breaking: step 13's outcome and the python's exit status do not change.
+
 - **Docs: the user homes name the shellcheck prerequisite (#678).** A project that sets
   `analyze = "shellcheck"` now learns before step 13 what that family needs.
   - README's Prerequisites, the install page's "You need:" list and the `analyze` comment

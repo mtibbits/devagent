@@ -551,6 +551,13 @@ def test_683_cppcheck_no_compilable_files_is_skipped():
     assert sad.json_rows([r])[0]["failed"] is False
 
 
+def test_683_docs_name_the_marker():
+    doc = " ".join(sad.__doc__.split())
+    assert "Failure semantics (#683)" in doc and "`failed`" in doc
+    analyze_md = " ".join((REPO / "commands" / "analyze.md").read_text(encoding="utf-8").split())
+    assert "#683" in analyze_md
+
+
 # --------------------------------------------------------------------------
 # Bare-python3 runner (Windows, where pytest isn't installed)
 # --------------------------------------------------------------------------
