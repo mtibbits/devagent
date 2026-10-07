@@ -531,7 +531,9 @@ def run_cppcheck(build_dir: str, changed_files: list[str], repo_root: str) -> To
                 file_filters.append(f"--file-filter={generated}")
 
     if not file_filters:
+        # Nothing to analyze is a skip, not an error (#683: `error:` means failed).
         result.error = "no compilable files in diff"
+        result.skipped = True
         return result
 
     _record_stamp("cppcheck", lambda: _which_version("cppcheck"))

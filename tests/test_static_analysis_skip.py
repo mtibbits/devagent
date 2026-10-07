@@ -544,6 +544,13 @@ def test_683_compiler_failed_build_no_findings():
         "| compiler | 0 | 0 | error: compiler exit=2: build failed |"
 
 
+def test_683_cppcheck_no_compilable_files_is_skipped():
+    with _patch(sad.os.path, "isfile", lambda p: True):
+        r = sad.run_cppcheck("/b", [], "/r")
+    assert _row([r], "cppcheck") == "| cppcheck | - | - | skipped (no compilable files in diff) |"
+    assert sad.json_rows([r])[0]["failed"] is False
+
+
 # --------------------------------------------------------------------------
 # Bare-python3 runner (Windows, where pytest isn't installed)
 # --------------------------------------------------------------------------
