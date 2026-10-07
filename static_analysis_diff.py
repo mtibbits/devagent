@@ -722,6 +722,13 @@ def run_iwyu(build_dir: str, changed_files: list[str], repo_root: str) -> ToolRe
     return result
 
 
+# Measured stderr of an absent clang-format (#683): git's, when the
+# git-clang-format wrapper is not on PATH, and the wrapper's, when its formatter
+# binary is missing. Both exit like any other failure (rc 1 / rc 2).
+_CF_NO_WRAPPER = "'clang-format' is not a git command"
+_CF_NO_BINARY = "cannot find executable"
+
+
 def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) -> ToolResult:
     """Run git clang-format to check formatting of changed lines only."""
     result = ToolResult(tool="clang-format")
@@ -740,6 +747,21 @@ def run_clang_format(base_ref: str, changed_files: list[str], repo_root: str) ->
         # git-clang-format itself did not run (absent wrapper, bad ref): the
         # formatter's version says nothing about this row, so stamp unknown.
         _record_stamp("clang-format", lambda: _VERSION_UNKNOWN)
+
+    # #683: classify the exit first. git (absent wrapper) and git-clang-format
+    # (missing formatter) say "absent" only in English stderr; any other nonzero
+    # run with no diff, or any rc >= 2, failed (a localized message fails closed).
+    rc = proc.returncode
+    if rc != 0 and _CF_NO_WRAPPER in proc.stderr:
+        result.error, result.skipped = "git-clang-format not found", True
+        return result
+    if rc != 0 and _CF_NO_BINARY in proc.stderr:
+        result.error, result.skipped = "clang-format binary not found", True
+        return result
+    if (rc != 0 and not output) or rc >= 2:
+        reason = next((ln.strip() for ln in proc.stderr.splitlines() if ln.strip()),
+                      "(no stderr)")
+        _exit_failure(result, rc, reason)
 
     if not output or output == "no modified files to format" or output.startswith("clang-format did not modify"):
         return result

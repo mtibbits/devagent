@@ -19,6 +19,7 @@ context manager — no real tools, build, or disk writes.
 import importlib.util
 import io
 import os
+import re
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -337,6 +338,88 @@ def test_683_pool_progress_line_names_skip():
     progress = io.StringIO()
     sad._finalize_pool_result("cppcheck", produce, {}, progress)
     assert progress.getvalue() == "  cppcheck: skipped (no compilable files in diff)\n"
+
+
+_CF_RANGES = {"a.c": [sad.LineRange(1, 5)]}
+
+
+def _cf(rc, stdout="", stderr=""):
+    """run_clang_format against a faked git-clang-format, findings diff-filtered."""
+    with _patch(sad.subprocess, "run", _tool_run(rc, stdout, stderr)):
+        r = sad.run_clang_format("HEAD", ["a.c"], "/repo")
+    r.findings = sad.filter_novel(r.findings, _CF_RANGES)
+    return r
+
+
+def _cf_row(r):
+    return _row([r], "clang-format", _CF_RANGES)
+
+
+def test_683_clang_format_absent_wrapper_skips():
+    r = _cf(1, stderr="git: 'clang-format' is not a git command. See 'git --help'.\n")
+    assert _cf_row(r) == "| clang-format | - | - | skipped (git-clang-format not found) |"
+
+
+def test_683_clang_format_missing_binary_skips():
+    r = _cf(2, stderr='error: cannot find executable "/nonexistent/clang-format"\n')
+    assert _cf_row(r) == "| clang-format | - | - | skipped (clang-format binary not found) |"
+
+
+def test_683_clang_format_bad_ref_is_error():
+    r = _cf(2, stderr="error: 'nosuchref' is not a commit\n")
+    assert _cf_row(r) == \
+        "| clang-format | 0 | 0 | error: clang-format exit=2: error: 'nosuchref' is not a commit |"
+
+
+def test_683_clang_format_rc1_unrecognized_stderr_is_error():
+    # A localized git message is not the measured English one: it fails closed.
+    r = _cf(1, stderr="git: 'clang-format' ist kein Git-Befehl.\n")
+    assert _cf_row(r) == \
+        "| clang-format | 0 | 0 | error: clang-format exit=1: git: 'clang-format' ist kein Git-Befehl. |"
+
+
+def test_683_clang_format_diff_is_findings():
+    diff = ("diff --git a/a.c b/a.c\n--- a/a.c\n+++ b/a.c\n"
+            "@@ -2 +2 @@\n-int   f( void ){return 1;}\n+int f(void) { return 1; }\n")
+    r = _cf(1, stdout=diff)
+    assert _cf_row(r) == "| clang-format | 1 | 1 | **1 novel** |"
+    assert sad.json_rows([r])[0]["failed"] is False
+
+
+def test_683_clang_format_clean():
+    r = _cf(0, stdout="no modified files to format\n")
+    assert _cf_row(r) == "| clang-format | 0 | 0 | clean |"
+
+
+def test_683_reason_pipe_escaped():
+    row = _cf_row(_cf(2, stderr="error: 'a|b' is not a commit\n"))
+    assert "'a\\|b'" in row
+    assert len(re.split(r"(?<!\\)\|", row)) == 6
+
+
+def test_683_reason_truncated_to_200():
+    row = _cf_row(_cf(2, stderr="x" * 300 + "\n"))
+    head = "| clang-format | 0 | 0 | error: clang-format exit=2: "
+    assert row.startswith(head) and row.endswith(" |")
+    assert row[len(head):-2] == "x" * 200
+
+
+def _marker(r):
+    row = sad.json_rows([r])[0]
+    return sad.row_cells(r)[2].split(":")[0].split(" ")[0], row["failed"], row["passed"]
+
+
+def test_683_marker_new_route_bad_ref():
+    assert _marker(_cf(2, stderr="error: 'nosuchref' is not a commit\n")) == \
+        ("error", True, False)
+
+
+def test_683_marker_existing_route_timeout():
+    assert _marker(_compiler_timeout()) == ("error", True, False)
+
+
+def test_683_marker_success_clean():
+    assert _marker(_cf(0, stdout="no modified files to format\n")) == ("clean", False, True)
 
 
 # --------------------------------------------------------------------------
