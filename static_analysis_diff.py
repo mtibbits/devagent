@@ -77,6 +77,7 @@ class Finding:
 class ToolResult:
     tool: str
     findings: list[Finding] = field(default_factory=list)
+    # The row's tool or leg did not complete (or the skip reason when skipped).
     error: Optional[str] = None
     passed: bool = True
     # True when the tool/executable was absent (Windows, a lean CI image) and
@@ -84,6 +85,10 @@ class ToolResult:
     # static analysis is a Linux gate, so an absent tool is skipped, not failed,
     # and never crashes the run (issue #295).
     skipped: bool = False
+    # #683: the nonzero exit that classified the row as failed (set only by
+    # _exit_failure), and a completed analysis's FAIL text (scan-build's count).
+    exit_status: Optional[int] = None
+    verdict: Optional[str] = None
 
 
 # Suffix on error strings returned by _build_sanitizer() to mark "build tool
@@ -98,6 +103,24 @@ _SKIP_MARK = " -- skipped"
 # "build failed: <stderr>" whose tail happened to end in _SKIP_MARK can never be
 # misclassified as a skip.
 _BUILD_ABSENT = "cmake not found" + _SKIP_MARK
+
+# #683: a tool-failure reason lands in a Markdown table cell, so it is capped and
+# made cell-safe. Non-ASCII is kept: the reason was decoded with the locale codec
+# stdout writes, so it cannot raise on print (unlike #676's utf-8-decoded stamps).
+_REASON_MAX = 200
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _cell_reason(text: str) -> str:
+    """Control characters to spaces, cap at _REASON_MAX, then escape `|`."""
+    return _CONTROL_RE.sub(" ", text)[:_REASON_MAX].replace("|", "\\|")
+
+
+def _exit_failure(result: ToolResult, rc: int, reason: str, tail: str = "") -> None:
+    """Classify `result` as failed by its tool's nonzero exit `rc`."""
+    result.error = f"{result.tool} exit={rc}: {_cell_reason(reason)}{tail}"
+    result.exit_status = rc
+    result.passed = False
 
 # #676: per-row tool versions. A runner records its stamp in this registry, not
 # on its ToolResult, because the pool's exception path builds a fresh ToolResult
@@ -1253,6 +1276,62 @@ def filter_novel(findings: list[Finding], ranges: dict[str, list[LineRange]]) ->
     return findings
 
 
+# Rows whose tool reports pass/fail, not line-filterable counts.
+_COUNTLESS = ("scan-build-18", "asan+ubsan", "tsan")
+
+
+def row_cells(r: ToolResult) -> tuple[str, str, str]:
+    """(Total, Novel, Status) of one summary row — the one renderer behind both
+    the Markdown table and --json `failed` (#683). Status starts with `error:`
+    exactly when the row's tool or leg did not complete."""
+    total, novel = str(len(r.findings)), str(sum(1 for f in r.findings if f.novel))
+    if r.skipped:
+        # Tool/executable absent — rendered distinctly from a real error so
+        # the tee'd table the agent/MR reads isn't a wall of false "error:".
+        reason = f" ({r.error})" if r.error else ""
+        return "-", "-", f"skipped{reason}"
+    if r.error:
+        status = f"error: {r.error}"
+        if r.findings:
+            status += f"; {len(r.findings)} finding(s)"
+        # `or r.findings`: no current writer; defensive.
+        if r.tool not in _COUNTLESS and (r.exit_status is not None or r.findings):
+            return total, novel, status
+        return "-", "-", status
+    if r.tool in _COUNTLESS:
+        if r.verdict:
+            status = f"FAIL: {r.verdict}"
+        elif r.findings:
+            status = f"**FAIL: {len(r.findings)} issue(s)**"
+        elif r.passed:
+            status = "pass"
+        else:
+            status = "FAIL"   # no current writer; defensive
+        return "-", "-", status
+    return total, novel, "clean" if novel == "0" else f"**{novel} novel**"
+
+
+def row_failed(r: ToolResult) -> bool:
+    """The row's tool or leg did not complete — the rendered Status's prefix."""
+    return row_cells(r)[2].startswith("error:")
+
+
+def json_rows(results: list[ToolResult]) -> list[dict]:
+    """The --json document: one object per row."""
+    return [{
+        "tool": r.tool,
+        "passed": r.passed,
+        "skipped": r.skipped,
+        "failed": row_failed(r),
+        "error": r.error if r.error is not None else r.verdict,
+        "findings": [
+            {"severity": f.severity, "file": f.file, "line": f.line,
+             "message": f.message, "novel": f.novel}
+            for f in r.findings
+        ],
+    } for r in results]
+
+
 def print_summary(results: list[ToolResult], ranges: dict[str, list[LineRange]]):
     """Print a markdown summary table."""
     print("\n## Static Analysis Summary\n")
@@ -1262,35 +1341,14 @@ def print_summary(results: list[ToolResult], ranges: dict[str, list[LineRange]])
     all_novel: list[Finding] = []
 
     for r in results:
+        total, novel, status = row_cells(r)
+        print(f"| {r.tool} | {total} | {novel} | {status} |")
         if r.skipped:
-            # Tool/executable absent — rendered distinctly from a real error so
-            # the tee'd table the agent/MR reads isn't a wall of false "error:".
-            reason = f" ({r.error})" if r.error else ""
-            print(f"| {r.tool} | - | - | skipped{reason} |")
             continue
-        if r.error and not r.findings:
-            status = f"error: {r.error}"
-            print(f"| {r.tool} | - | - | {status} |")
-            continue
-
-        novel_count = sum(1 for f in r.findings if f.novel)
-        total = len(r.findings)
-
-        if r.tool in ("scan-build-18", "asan+ubsan", "tsan"):
-            if r.error:
-                status = f"FAIL: {r.error}"
-            elif r.findings:
-                status = f"**FAIL: {len(r.findings)} issue(s)**"
-            else:
-                status = "pass" if r.passed else "FAIL"
-            print(f"| {r.tool} | - | - | {status} |")
-            if r.findings:
-                all_novel.extend(r.findings)
-            continue
-
-        status = "clean" if novel_count == 0 else f"**{novel_count} novel**"
-        print(f"| {r.tool} | {total} | {novel_count} | {status} |")
-        all_novel.extend(f for f in r.findings if f.novel)
+        if r.tool in _COUNTLESS:
+            all_novel.extend(r.findings)
+        else:
+            all_novel.extend(f for f in r.findings if f.novel)
 
     if all_novel:
         print("\n## Novel Findings (in changed lines or untracked files)\n")
@@ -1318,6 +1376,10 @@ def _finalize_pool_result(name, produce, ranges, progress) -> ToolResult:
     except Exception as e:  # noqa: BLE001 — a tool failing must not abort the run
         print(f"  {name}: FAILED ({e})", flush=True, file=progress)
         return ToolResult(tool=name, error=str(e), passed=False)
+    if r.skipped:
+        reason = f" ({r.error})" if r.error else ""
+        print(f"  {name}: skipped{reason}", flush=True, file=progress)
+        return r
     # IWYU findings are pre-marked novel=False (not diff-gatable)
     if r.tool != "iwyu":
         r.findings = filter_novel(r.findings, ranges)
@@ -1500,20 +1562,7 @@ def main():
 
     # Output
     if args.json:
-        output = []
-        for r in results:
-            output.append({
-                "tool": r.tool,
-                "passed": r.passed,
-                "skipped": r.skipped,
-                "error": r.error,
-                "findings": [
-                    {"severity": f.severity, "file": f.file, "line": f.line,
-                     "message": f.message, "novel": f.novel}
-                    for f in r.findings
-                ],
-            })
-        print(json.dumps(output, indent=2))
+        print(json.dumps(json_rows(results), indent=2))
     else:
         print_summary(results, ranges)
 

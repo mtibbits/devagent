@@ -1,5 +1,5 @@
-"""#295 — absent tools are *skipped*, never crash the run and never spuriously
-fail it.
+"""#295/#683 — absent tools are *skipped*, never crash the run and never spuriously
+fail it; a tool that ran and failed reads `error:`, never clean/pass (#683).
 
 `static_analysis_diff.py` is a Linux gate. On a box missing a tool (Windows, a
 lean CI image) an absent executable used to raise an uncaught FileNotFoundError
@@ -225,6 +225,118 @@ def test_print_summary_renders_skipped_distinctly():
     cpp = next(ln for ln in lines if ln.startswith("| cppcheck "))
     assert "skipped" in scan and "error:" not in scan    # skipped, not error
     assert "error:" in cpp                                # a real error stays error
+
+
+# --------------------------------------------------------------------------
+# #683 — a failed tool reads error:, never clean/pass
+# --------------------------------------------------------------------------
+
+def _tool_run(rc, stdout="", stderr=""):
+    """A fake subprocess.run that dispatches on argv, so a `--version` probe or a
+    `git config` lookup never receives the case's output."""
+    def fake_run(cmd, *_a, **_k):
+        argv = list(cmd)
+        if argv[-1:] == ["--version"]:
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        if argv[:2] == ["git", "config"]:
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(argv, rc, stdout=stdout, stderr=stderr)
+    return fake_run
+
+
+def _row(results, tool, ranges=None):
+    """The rendered `| <tool> |` summary line, whole."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        sad.print_summary(results, ranges or {})
+    return next(ln for ln in buf.getvalue().splitlines() if ln.startswith(f"| {tool} |"))
+
+
+def _finding(tool, file="a.c", line=1, novel=False):
+    return sad.Finding(tool=tool, severity="style", file=file, line=line,
+                       message="m", novel=novel)
+
+
+def test_683_sanitizer_rows_render_as_today():
+    def kernel(rc, err):
+        return lambda *_a, **_k: (rc, "", err)
+    with _patch(sad, "_build_sanitizer", lambda *_a, **_k: None), \
+         _patch(sad, "_setarch_prefix", lambda: []):
+        with _patch(sad, "_run_test_kernel",
+                    kernel(1, "==1==ERROR: AddressSanitizer: heap-use-after-free")):
+            asan = sad.run_asan_ubsan("/repo", "/b-asan", "k")
+        with _patch(sad, "_run_test_kernel", kernel(1, "")):
+            tsan_fail = sad.run_tsan("/repo", "/b-tsan", "k")
+        with _patch(sad, "_run_test_kernel", kernel(0, "")):
+            tsan_ok = sad.run_tsan("/repo", "/b-tsan", "k")
+    assert _row([asan], "asan+ubsan") == "| asan+ubsan | - | - | **FAIL: 1 issue(s)** |"
+    assert _row([tsan_fail], "tsan") == \
+        "| tsan | - | - | error: exited with code 1 (no sanitizer output captured) |"
+    assert _row([tsan_ok], "tsan") == "| tsan | - | - | pass |"
+
+
+def _compiler_timeout():
+    def raise_timeout(cmd, *_a, **_k):
+        if list(cmd)[-1:] == ["--version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
+    with _patch(sad.subprocess, "run", raise_timeout):
+        return sad.run_compiler_warnings("/build", [], "/repo")
+
+
+def test_683_timeout_row_prefix():
+    r = _compiler_timeout()
+    assert _row([r], "compiler") == "| compiler | - | - | error: timed out after 300s |"
+
+
+def test_683_timeout_row_json_failed():
+    row = sad.json_rows([_compiler_timeout()])[0]
+    assert row["failed"] is True and row["passed"] is False
+
+
+def test_683_json_failed_matches_markdown_prefix():
+    T = sad.ToolResult
+    cases = [   # (row, expected failed, expected passed)
+        (T(tool="scan-build-18", error="scan-build-18 not found", skipped=True), False, True),
+        (T(tool="cppcheck", error="compile_commands.json not found", passed=False), True, False),
+        (T(tool="scan-build-18", verdict="1 bug(s) found (see /tmp/scan-build-out/)",
+           passed=False), False, False),
+        (T(tool="asan+ubsan", findings=[_finding("asan+ubsan")], passed=False), False, False),
+        (T(tool="cpplint"), False, True),
+        (T(tool="ruff", findings=[_finding("ruff", novel=True)]), False, True),
+        (T(tool="compiler", findings=[_finding("compiler"), _finding("compiler")],
+           error="compiler exit=1: build failed", exit_status=1, passed=False), True, False),
+    ]
+    for r, failed, passed in cases:
+        row = sad.json_rows([r])[0]
+        assert row["failed"] is failed, (r.tool, row)
+        assert row["passed"] is passed, (r.tool, row)
+        assert row["failed"] == sad.row_cells(r)[2].startswith("error:"), r.tool
+    assert sum(1 for r, _, _ in cases if sad.json_rows([r])[0]["failed"]) == 2
+
+
+def test_683_json_row_key_set():
+    r = sad.ToolResult(tool="compiler", findings=[_finding("compiler")])
+    sad._exit_failure(r, 1, "build failed")
+    row = sad.json_rows([r])[0]
+    assert list(row) == ["tool", "passed", "skipped", "failed", "error", "findings"]
+    assert row["error"] == "compiler exit=1: build failed"   # no `; N finding(s)` tail
+
+
+def test_683_cell_reason_controls_become_spaces():
+    assert sad._cell_reason("a\rb\tc\x7fd\ne") == "a b c d e"
+    assert sad._cell_reason("x|y") == "x\\|y"
+    assert len("\\|") == 2                     # one backslash + one pipe at runtime
+    assert sad._cell_reason("é" * 300) == "é" * 200   # non-ASCII kept, raw length capped
+
+
+def test_683_pool_progress_line_names_skip():
+    def produce():
+        return sad.ToolResult(tool="cppcheck", error="no compilable files in diff",
+                              skipped=True)
+    progress = io.StringIO()
+    sad._finalize_pool_result("cppcheck", produce, {}, progress)
+    assert progress.getvalue() == "  cppcheck: skipped (no compilable files in diff)\n"
 
 
 # --------------------------------------------------------------------------
