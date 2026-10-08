@@ -51,6 +51,12 @@ its failing phase, and its artifact file. A source tree with no `CMakeLists.txt`
 loud-skips the sanitizer legs (warns and exits clean; set `analyze = "none"`
 or `"shellcheck"` for a non-CMake project).
 
+The static rows stay report-only: none of them fails the step. The clang-format,
+iwyu, scan-build-18 and compiler rows read their tool's exit status, so a row whose
+tool failed reads `error: <tool> exit=<rc>: <reason>` (JSON `failed: true`), never
+`clean` or `pass` (#683).
+<!-- Pinned by test_683_docs_name_the_marker (tests/test_static_analysis_skip.py). -->
+
 The `shellcheck` family needs `shellcheck` on PATH: without it the step stops
 (`shellcheck not found on PATH`) before writing an artifact and stays unmarked.
 Under the `shellcheck` family the step **fails loud** (#675) when shellcheck itself
