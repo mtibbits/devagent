@@ -301,3 +301,103 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing"* ]]
 }
+
+# #702 — no local checklist is no signal
+#
+# A leaf whose Issue-N/checklist.md is missing, or has no step rows, keeps
+# its glyph. Fixtures are in canonical rendered form, so an unchanged file
+# round-trips byte-identical and one whole-file diff checks every leg. The
+# Issue-9 control leaf proves reconcile still runs in the same invocation.
+# No test sets active_issue except D: the scan fallback may select only a
+# checklist that is already a WBS leaf (C's Issue-33), so nothing is auto-added.
+
+_reconciled_control_issue() {
+  mkdir -p "$TMPDEV/Issue-9"
+  cat > "$TMPDEV/Issue-9/checklist.md" <<'EOF'
+- [x]  0. pull
+- [x] 23. cleanup
+EOF
+}
+
+@test "wbs update keeps every non-pending glyph on a leaf with no Issue-N directory (#702)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] Closed on tracker {issue: Issue-25, est: 1w}
+  - [~] Mid-flight elsewhere {issue: Issue-26, est: 1w}
+  - [-] Skipped leaf {issue: Issue-27, est: 1w}
+  - [P] Parked leaf {issue: Issue-28, est: 1w}
+  - [!] Stuck leaf {issue: Issue-29, est: 1w}
+  - [?] Blocked leaf {issue: Issue-30, est: 1w}
+  - [ ] Reconciled control {issue: Issue-9, est: 1w}
+EOF
+  _reconciled_control_issue
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  sed -i 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /' "$TMPDEV/WBS.expected"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+}
+
+@test "wbs update keeps the glyph on a leaf whose checklist has no step rows (#702)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] Header-only checklist {issue: Issue-31, est: 1w}
+  - [P] Empty checklist {issue: Issue-32, est: 1w}
+  - [ ] Reconciled control {issue: Issue-9, est: 1w}
+EOF
+  mkdir -p "$TMPDEV/Issue-31" "$TMPDEV/Issue-32"
+  cat > "$TMPDEV/Issue-31/checklist.md" <<'EOF'
+# Issue-31 — Workflow checklist
+Template: standard
+
+## Revision 1
+
+## Log
+- 2026-10-07 10:00  pull: fetched
+EOF
+  : > "$TMPDEV/Issue-32/checklist.md"
+  _reconciled_control_issue
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  sed -i 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /' "$TMPDEV/WBS.expected"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+}
+
+@test "wbs update still sets [ ] from a checklist whose step rows show no progress (#702 control)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] Stale local checklist {issue: Issue-33, est: 1w}
+EOF
+  mkdir -p "$TMPDEV/Issue-33"
+  cat > "$TMPDEV/Issue-33/checklist.md" <<'EOF'
+- [ ]  0. pull
+- [ ]  2. draft
+EOF
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  sed -i 's/^  - \[x\] Stale local checklist /  - [ ] Stale local checklist /' "$TMPDEV/WBS.expected"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+}
+
+@test "wbs update auto-adds an active issue with no checklist as [ ] (#702)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [ ] Existing milestone {est: 2w, milestone: M1}
+  - [x] Old leaf {issue: Issue-1, est: 1w}
+EOF
+  _init_state
+  _state_set active_issue "Issue-7"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  grep -qxF -- '- [ ] Unassigned' "$TMPDEV/WBS.md"
+  grep -qxF -- '  - [ ] Issue-7 {issue: Issue-7, est: ?w}' "$TMPDEV/WBS.md"
+}
