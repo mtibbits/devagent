@@ -308,8 +308,8 @@ EOF
 # its glyph. Fixtures are in canonical rendered form, so an unchanged file
 # round-trips byte-identical and one whole-file diff checks every leg. The
 # Issue-9 control leaf proves reconcile still runs in the same invocation.
-# No test sets active_issue except D: the scan fallback may select only a
-# checklist that is already a WBS leaf (C's Issue-33), so nothing is auto-added.
+# Only the auto-add test sets active_issue. Elsewhere the scan fallback can
+# select only a checklist that is already a WBS leaf, so nothing is auto-added.
 
 _reconciled_control_issue() {
   mkdir -p "$TMPDEV/Issue-9"
@@ -317,6 +317,15 @@ _reconciled_control_issue() {
 - [x]  0. pull
 - [x] 23. cleanup
 EOF
+}
+
+# Run update and diff WBS.md against its pre-run copy edited by sed expr $1.
+_update_expecting() {
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  sed -i "$1" "$TMPDEV/WBS.expected"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
 }
 
 @test "wbs update keeps every non-pending glyph on a leaf with no Issue-N directory (#702)" {
@@ -333,11 +342,7 @@ EOF
   - [ ] Reconciled control {issue: Issue-9, est: 1w}
 EOF
   _reconciled_control_issue
-  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
-  sed -i 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /' "$TMPDEV/WBS.expected"
-  run bash "$REPO/scripts/wbs.sh" update testproj
-  [ "$status" -eq 0 ]
-  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  _update_expecting 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
 }
 
 @test "wbs update keeps the glyph on a leaf whose checklist has no step rows (#702)" {
@@ -361,11 +366,7 @@ Template: standard
 EOF
   : > "$TMPDEV/Issue-32/checklist.md"
   _reconciled_control_issue
-  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
-  sed -i 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /' "$TMPDEV/WBS.expected"
-  run bash "$REPO/scripts/wbs.sh" update testproj
-  [ "$status" -eq 0 ]
-  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  _update_expecting 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
 }
 
 @test "wbs update still sets [ ] from a checklist whose step rows show no progress (#702 control)" {
@@ -380,11 +381,7 @@ EOF
 - [ ]  0. pull
 - [ ]  2. draft
 EOF
-  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
-  sed -i 's/^  - \[x\] Stale local checklist /  - [ ] Stale local checklist /' "$TMPDEV/WBS.expected"
-  run bash "$REPO/scripts/wbs.sh" update testproj
-  [ "$status" -eq 0 ]
-  diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  _update_expecting 's/^  - \[x\] Stale local checklist /  - [ ] Stale local checklist /'
 }
 
 @test "wbs update auto-adds an active issue with no checklist as [ ] (#702)" {
