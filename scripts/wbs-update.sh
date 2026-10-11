@@ -6,7 +6,14 @@
 # checklist's actual completion state:
 #   - all step lines `[x]` or `[-]`        -> `[x]` (done)
 #   - some progress (any `[x]` or `[~]`)   -> `[~]` (in progress)
-#   - otherwise                            -> `[ ]` (pending)
+#   - step lines, none of the above        -> `[ ]` (pending)
+#   - no checklist, or no step lines       -> unchanged (no signal)
+#
+# No signal leaves the leaf's glyph as it is, including a hand-set one,
+# because a devbox usually lacks most issues' checklists (#702). An
+# auto-added active issue (below) with no checklist is written as `[ ]`.
+# A present but stale checklist still overrides the leaf (#703), and a
+# leaf with no checklist keeps its last-set glyph until #703.
 #
 # Plus: if the project's active_issue is set and is not yet present in
 # the WBS, append it under a synthetic "Unassigned" top-level node so
