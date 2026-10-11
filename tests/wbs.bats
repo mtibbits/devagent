@@ -324,7 +324,7 @@ _update_expecting() {
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
   sed -i "$1" "$TMPDEV/WBS.expected"
   run bash "$REPO/scripts/wbs.sh" update testproj
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
 }
 
@@ -393,8 +393,5 @@ EOF
 EOF
   _init_state
   _state_set active_issue "Issue-7"
-  run bash "$REPO/scripts/wbs.sh" update testproj
-  [ "$status" -eq 0 ]
-  grep -qxF -- '- [ ] Unassigned' "$TMPDEV/WBS.md"
-  grep -qxF -- '  - [ ] Issue-7 {issue: Issue-7, est: ?w}' "$TMPDEV/WBS.md"
+  _update_expecting '$a- [ ] Unassigned\n  - [ ] Issue-7 {issue: Issue-7, est: ?w}'
 }
