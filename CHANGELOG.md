@@ -16,6 +16,17 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `wbs update` no longer resets a leaf with no local checklist to `[ ]` (#702).**
+  - A missing `Issue-N/checklist.md`, or one with no step rows, is now "no signal": the
+    leaf keeps its glyph, hand-set glyphs included. Leaves with a checklist reconcile as
+    before, and an auto-added active issue with no checklist is still written as `[ ]`.
+  - Glyphs that earlier runs already reset are not restored; fix them by hand.
+  - A present but stale local checklist still overrides the leaf (#703).
+  - Staleness moves rather than closes: a leaf with no local checklist keeps its last-set
+    glyph, so status report roll-ups and remaining-leaf counts shift (fewer false `[ ]`,
+    but a frozen `[~]` still counts as remaining) until #703.
+  - Not breaking.
+
 - **Fixed: clang-format, iwyu, scan-build-18 and compiler rows no longer read clean or pass when the tool fails (#683).**
   - Each of the four rows now reads its tool's exit status. clang-format fails on exit 2
     or higher, or on any other nonzero exit that printed no diff hunk. iwyu fails on a
