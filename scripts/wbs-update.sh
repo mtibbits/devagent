@@ -99,21 +99,23 @@ DONE_GLYPHS = {"x", "-"}
 PROGRESS_GLYPHS = {"x", "~"}
 
 
-def checklist_state(issue_id: str) -> str:
-    """Return new glyph for an issue based on its checklist's step lines.
+def checklist_state(issue_id: str) -> "str | None":
+    """Return the glyph an issue's checklist step lines imply.
 
-    Returns ' ' if checklist missing or has no step lines (no signal).
+    Returns None when the checklist is missing or has no step lines (no
+    signal). Callers never write None: reconcile leaves the leaf's glyph
+    unchanged, and auto-add uses ' '.
     """
     cl = devdoc_dir / issue_id / "checklist.md"
     if not cl.exists():
-        return " "
+        return None
     glyphs = []
     for line in cl.read_text(encoding="utf-8").splitlines():
         m = STEP_RE.match(line)
         if m:
             glyphs.append(m.group(1))
     if not glyphs:
-        return " "
+        return None
     if all(g in DONE_GLYPHS for g in glyphs):
         return "x"
     if any(g in PROGRESS_GLYPHS for g in glyphs):
@@ -138,6 +140,8 @@ def reconcile(node):
     if not iid:
         return
     new_glyph = checklist_state(iid)
+    if new_glyph is None:
+        return  # no signal: leave the glyph as set (#702)
     if node["glyph"] != new_glyph:
         node["glyph"] = new_glyph
         node["state"] = mod.STATE_GLYPHS.get(new_glyph, "pending")
@@ -183,6 +187,10 @@ if active_issue:
             }
             tree["children"].append(unassigned)
         new_glyph = checklist_state(active_issue)
+        if new_glyph is None:
+            # Defensive: a new leaf has no prior glyph to keep, so no signal
+            # means pending (render would also fall back to `[ ]`).
+            new_glyph = " "
         unassigned["children"].append({
             "text": active_issue,
             "state": mod.STATE_GLYPHS.get(new_glyph, "pending"),
