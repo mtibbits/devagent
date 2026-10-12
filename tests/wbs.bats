@@ -395,3 +395,359 @@ EOF
   _state_set active_issue "Issue-7"
   _update_expecting '$a- [ ] Unassigned\n  - [ ] Issue-7 {issue: Issue-7, est: ?w}'
 }
+
+# #700 — active revision block decides [x]
+#
+# A leaf is [x] when checklist_current_step reports done (the differences
+# are in the scripts/wbs-update.sh header): only the step rows after the last
+# `## Revision` heading count, matched the way _checklist_line_re matches
+# them. Progress ([~]) and no signal (#702) still
+# read every row in the file. Each fixture helper writes one checklist and
+# nothing else, so the agreement test runs the real reader on the same bytes.
+
+# Run a function from the real libs (revision.sh sources paths, io, config,
+# artifact, state and checklist).
+_lib700() {
+  bash -c 'source "$1/scripts/lib/revision.sh"; shift; "$@"' _ "$REPO" "$@"
+}
+
+# Write stdin to $TMPDEV/<id>/checklist.md.
+_cl700() {
+  mkdir -p "$TMPDEV/$1"
+  cat > "$TMPDEV/$1/checklist.md"
+}
+
+# F1: the issue's minimal repro. Revision 1 abandoned, Revision 2 done.
+_f700_repro() {
+  _cl700 "$1" <<'EOF'
+## Revision 1
+- [x]  0. pull
+- [x]  2. draft
+- [ ]  7. tighten
+- [ ] 23. cleanup
+
+## Log
+- 2026-10-07 10:00  pull: fetched
+
+## Revision 2
+- [x]  2. draft
+- [x]  7. tighten
+- [x] 23. cleanup
+EOF
+}
+
+# F2: factor-ai Issue-85 shape. Pre-#558 numbering, Revision 1 stopped at
+# tighten, Revision 2 ran to cleanup; `Active revision:` still reads 1.
+_f700_issue85() {
+  _cl700 "$1" <<'EOF'
+# Issue-85 — Workflow checklist
+
+State key: [ ] pending  [x] done  [-] skipped  [!] stuck  [~] in-progress  [?] blocked-external  [P] parked
+
+Template: standard
+Created: 2026-07-27T00:57:14-04:00
+Active revision: 1
+
+## Revision 1
+
+- [x]  0. pull
+- [-] 22. research
+- [x]  1. draft
+- [x] 23. spike
+- [x]  2. scope
+- [x]  3. improve
+- [x]  4. prune
+- [ ]  5. tighten
+- [ ]  6. branch
+- [ ]  7. implement
+- [ ]  8. quality
+- [ ]  9. document
+- [ ] 10. commit
+- [ ] 11. analyze
+- [ ] 12. draftmr
+- [ ] 13. review
+- [ ] 14. redmr
+- [ ] 21. preship
+- [ ] 15. ship
+- [ ] 16. mergetoall
+- [ ] 17. updatewbs
+- [ ] 18. impact
+- [ ] 19. lessonslearned
+- [ ] 20. cleanup
+
+## Log
+- 2026-07-27 00:57  pull: fetched mtibbits/factorAI#85, scaffold created
+- 2026-07-27 14:25  revise: revision 2 started, 0 comments to address
+
+## Revision 2
+
+- [x]  1. draft
+- [x]  2. scope
+- [x]  3. improve
+- [x]  4. prune
+- [x]  5. tighten
+- [x]  6. branch
+- [x]  7. implement
+- [x]  8. quality
+- [x]  9. document
+- [-] 10. commit
+- [-] 11. analyze
+- [x] 12. draftmr
+- [x] 13. review
+- [x] 14. redmr
+- [-] 21. preship
+- [-] 15. ship
+- [-] 16. mergetoall
+- [x] 17. updatewbs
+- [x] 18. impact
+- [x] 19. lessonslearned
+- [x] 20. cleanup
+EOF
+}
+
+# F3: real producers. Revision 1 all [x] except spike [ ] (a row only
+# Revision 1 carries) and mergetoall [-]; Revision 2 all [x], mergetoall [-].
+# Glyphs are set while the file has one block, then the new block is set in
+# the append pipe; checklist_mark is never used (it re-scopes to the last
+# block once a second heading exists).
+_f700_spike_only_rev1() {
+  local cl="$TMPDEV/$1/checklist.md"
+  _lib700 checklist_init "$TMPDEV/$1"
+  sed -i -e 's/^- \[.\]/- [x]/' \
+         -e 's/^- \[x\]  3\. spike$/- [ ]  3. spike/' \
+         -e 's/^- \[x\] 19\. mergetoall$/- [-] 19. mergetoall/' "$cl"
+  _lib700 revision_block_text 2 \
+    | sed -e 's/^- \[.\]/- [x]/' \
+          -e 's/^- \[x\] 19\. mergetoall$/- [-] 19. mergetoall/' >> "$cl"
+}
+
+# F4: real producers. Revision 1 done from pull through prune, the rest as
+# scaffolded; Revision 2 freshly appended, all pending.
+_f700_fresh_rev2() {
+  local cl="$TMPDEV/$1/checklist.md"
+  _lib700 checklist_init "$TMPDEV/$1"
+  sed -i 's/^- \[.\]\(  [0-6]\. \)/- [x]\1/' "$cl"
+  _lib700 revision_block_text 2 >> "$cl"
+}
+
+# F5: a bare `## Revision 2` heading with no rows after a finished Revision 1.
+_f700_empty_rev2() {
+  _cl700 "$1" <<'EOF'
+## Revision 1
+
+- [x]  0. pull
+- [-]  1. research
+- [x] 23. cleanup
+
+## Log
+- 2026-10-11 10:00  revise: revision 2 started
+
+## Revision 2
+EOF
+}
+
+# F6: Revision 2 done except one stuck, one blocked and one parked row.
+_f700_stuck_rev2() {
+  _cl700 "$1" <<'EOF'
+## Revision 1
+
+- [x]  0. pull
+- [x]  2. draft
+
+## Log
+
+## Revision 2
+
+- [x]  2. draft
+- [!]  4. scope
+- [?]  5. improve
+- [P]  6. prune
+- [x] 23. cleanup
+EOF
+}
+
+# F7: one heading (standard checklist_init), with an optional sed edit:
+# fresh, partly done, all done.
+_f700_one_heading() {
+  _lib700 checklist_init "$TMPDEV/$1"
+  [ -z "${2:-}" ] || sed -i "$2" "$TMPDEV/$1/checklist.md"
+}
+_F700_PARTIAL='s/^- \[ \]  0\. pull$/- [x]  0. pull/'
+_F700_DONE='s/^- \[ \]/- [x]/'
+
+# F8a: Revision 2 rows tab-separated, all done; Revision 1 partly done.
+_f700_tab_rev2() {
+  {
+    printf '%s\n' '## Revision 1' '' '- [x]  0. pull' '- [ ]  2. draft' '' \
+      '## Revision 2' ''
+    printf -- '- [x]\t%s.\t%s\n' 2 draft 23 cleanup
+  } | _cl700 "$1"
+}
+
+# F8b: one heading, every row done except an unknown `[X]` glyph.
+_f700_unknown_glyph() {
+  _cl700 "$1" <<'EOF'
+## Revision 1
+
+- [x]  0. pull
+- [x]  2. draft
+- [X] 23. cleanup
+EOF
+}
+
+# F9: F1 with CRLF line endings.
+_f700_repro_crlf() {
+  _f700_repro "$1"
+  sed -i 's/$/\r/' "$TMPDEV/$1/checklist.md"
+}
+
+@test "wbs update marks a revisioned checklist done from its active block (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [ ] Minimal repro {issue: Issue-40, est: 1w}
+EOF
+  _f700_repro Issue-40
+  _update_expecting 's/^  - \[ \] Minimal repro /  - [x] Minimal repro /'
+}
+
+@test "wbs update marks a factor-ai Issue-85 shaped checklist done (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [~] Issue-85 shape {issue: Issue-41, est: 1w}
+EOF
+  _f700_issue85 Issue-41
+  _update_expecting 's/^  - \[~\] Issue-85 shape /  - [x] Issue-85 shape /'
+}
+
+@test "wbs update ignores a pending row only revision 1 carries (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [ ] Spike only in revision 1 {issue: Issue-42, est: 1w}
+EOF
+  _f700_spike_only_rev1 Issue-42
+  local cl="$TMPDEV/Issue-42/checklist.md" active
+  active="$(tail -n +"$(_lib700 _checklist_active_start "$cl")" "$cl")"
+  [[ "$active" == "## Revision 2"$'\n'* ]]
+  [[ "$active" == *$'\n- [x]  2. draft\n'* ]]
+  [[ "$active" != *". spike"* ]]
+  grep -qxF -- '- [ ]  3. spike' "$cl"
+  _update_expecting 's/^  - \[ \] Spike only in revision 1 /  - [x] Spike only in revision 1 /'
+}
+
+@test "wbs update keeps a just-started revision in progress (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] Fresh revision 2 {issue: Issue-43, est: 1w}
+EOF
+  _f700_fresh_rev2 Issue-43
+  _update_expecting 's/^  - \[x\] Fresh revision 2 /  - [~] Fresh revision 2 /'
+}
+
+@test "wbs update reads an empty active revision block as not done (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] Empty revision 2 {issue: Issue-44, est: 1w}
+EOF
+  _f700_empty_rev2 Issue-44
+  _update_expecting 's/^  - \[x\] Empty revision 2 /  - [~] Empty revision 2 /'
+}
+
+@test "wbs update treats stuck, blocked and parked active rows as not done (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [ ] Stuck in revision 2 {issue: Issue-45, est: 1w}
+EOF
+  _f700_stuck_rev2 Issue-45
+  _update_expecting 's/^  - \[ \] Stuck in revision 2 /  - [~] Stuck in revision 2 /'
+}
+
+@test "wbs update reconciles zero- and one-heading checklists as before (#700)" {
+  # Zero headings: the Issue-9 control here, plus the earlier no-heading tests.
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [x] One heading fresh {issue: Issue-46, est: 1w}
+  - [ ] One heading partial {issue: Issue-47, est: 1w}
+  - [ ] One heading done {issue: Issue-48, est: 1w}
+  - [ ] Reconciled control {issue: Issue-9, est: 1w}
+EOF
+  _f700_one_heading Issue-46
+  _f700_one_heading Issue-47 "$_F700_PARTIAL"
+  _f700_one_heading Issue-48 "$_F700_DONE"
+  _reconciled_control_issue
+  _update_expecting 's/^  - \[x\] One heading fresh /  - [ ] One heading fresh /; s/^  - \[ \] One heading partial /  - [~] One heading partial /; s/^  - \[ \] One heading done /  - [x] One heading done /; s/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
+}
+
+@test "wbs update matches step rows the way checklist_current_step does (#700)" {
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [~] Epic {est: 4w}
+  - [ ] Tab-separated rows {issue: Issue-49, est: 1w}
+  - [x] Unknown glyph {issue: Issue-50, est: 1w}
+EOF
+  _f700_tab_rev2 Issue-49
+  _f700_unknown_glyph Issue-50
+  _update_expecting 's/^  - \[ \] Tab-separated rows /  - [x] Tab-separated rows /; s/^  - \[x\] Unknown glyph /  - [~] Unknown glyph /'
+}
+
+@test "wbs update [x] agrees with checklist_current_step done on every #700 fixture" {
+  _f700_repro Issue-40
+  _f700_issue85 Issue-41
+  _f700_spike_only_rev1 Issue-42
+  _f700_fresh_rev2 Issue-43
+  _f700_empty_rev2 Issue-44
+  _f700_stuck_rev2 Issue-45
+  _f700_one_heading Issue-46
+  _f700_one_heading Issue-47 "$_F700_PARTIAL"
+  _f700_one_heading Issue-48 "$_F700_DONE"
+  _f700_tab_rev2 Issue-49
+  _f700_unknown_glyph Issue-50
+  _f700_repro_crlf Issue-51
+  local id glyph bash_done wbs_done done_count=0
+  {
+    printf '# testproj WBS\n\n- [P] Fixtures {est: 4w}\n'
+    for id in Issue-{40..51}; do
+      printf '  - [P] %s {issue: %s, est: 1w}\n' "$id" "$id"
+    done
+  } > "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  for id in Issue-{40..51}; do
+    [ -f "$TMPDEV/$id/checklist.md" ]
+    glyph="$(sed -n "s/^  - \[\(.\)\] $id {issue: .*/\1/p" "$TMPDEV/WBS.md")"
+    [ -n "$glyph" ] || { echo "$id: leaf missing from WBS.md"; false; }
+    [ "$glyph" != P ] || { echo "$id: leaf not reconciled"; false; }
+    run _lib700 checklist_current_step "$TMPDEV/$id/checklist.md"
+    bash_done=0 wbs_done=0
+    [ "$status" -ne 0 ] || [ "$output" != "done" ] || bash_done=1
+    [ "$glyph" != x ] || wbs_done=1
+    [ "$bash_done" -eq "$wbs_done" ] || {
+      echo "$id: checklist_current_step done=$bash_done (status $status, output: $output); wbs [x]=$wbs_done (glyph '$glyph')"
+      false
+    }
+    done_count=$((done_count + bash_done))
+  done
+  # The bash reader ran: some fixtures are done.
+  [ "$done_count" -ge 1 ]
+}
+
+@test "wbs-update header states the active-block status rule (#700)" {
+  local header
+  header="$(sed -n '1,/^set -euo/p' "$REPO/scripts/wbs-update.sh")"
+  [[ "$header" == *checklist_current_step* ]]
+  [[ "$header" == *"## Revision"* ]]
+}

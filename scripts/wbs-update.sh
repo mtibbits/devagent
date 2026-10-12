@@ -2,12 +2,24 @@
 # wbs-update: reconcile WBS leaf glyphs against issue checklist truth.
 #
 # For every leaf in <devdoc>/WBS.md that carries `{issue: Issue-N}` meta,
-# read <devdoc>/Issue-N/checklist.md and set the leaf's glyph from the
-# checklist's actual completion state:
-#   - all step lines `[x]` or `[-]`        -> `[x]` (done)
-#   - some progress (any `[x]` or `[~]`)   -> `[~]` (in progress)
-#   - step lines, none of the above        -> `[ ]` (pending)
-#   - no checklist, or no step lines       -> unchanged (no signal)
+# read <devdoc>/Issue-N/checklist.md and set the leaf's glyph from it:
+#   - the ACTIVE revision has step rows, all `[x]` or `[-]` -> `[x]` (done)
+#   - else any step row anywhere `[x]` or `[~]`             -> `[~]` (in progress)
+#   - else (step rows, no progress)                         -> `[ ]` (pending)
+#   - no checklist, or no step rows                         -> unchanged (no signal)
+#
+# `[x]` is checklist_current_step's `done` (scripts/lib/checklist.sh, the #74
+# rule): the active revision is the rows after the LAST `## Revision` heading,
+# or the whole file when there is none, and rows are matched as
+# `_checklist_line_re` matches them. A row that only an earlier revision
+# carries never blocks `[x]` (#700). The `Active revision:` header line is
+# not read; revise.sh never updates it.
+#
+# One deliberate difference (#700): a final row with no trailing newline is
+# counted here, while checklist_current_step's `read` loop drops it. Python's
+# line split also breaks on a few control characters bash does not, and the
+# whitespace between glyph, number and name is ASCII-only here where bash's
+# [[:space:]] also takes Unicode spaces; no checklist carries either.
 #
 # No signal leaves the leaf's glyph as it is, including a hand-set one,
 # because a devbox usually lacks most issues' checklists (#702). An
@@ -100,16 +112,20 @@ spec.loader.exec_module(mod)
 
 tree = mod.parse_file(wbs_path)
 
-# Checklist step-line pattern: `- [<glyph>] <num>. <name>`
-STEP_RE = re.compile(r"^- \[([ x\-!~?P])\][ \t]+\d+\. ")
+# Step row `- [<glyph>] <num>. <name>`: _checklist_line_re (see header).
+ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
 DONE_GLYPHS = {"x", "-"}
 PROGRESS_GLYPHS = {"x", "~"}
 
 
 def checklist_state(issue_id: str) -> "str | None":
-    """Return the glyph an issue's checklist step lines imply.
+    """Return the glyph an issue's checklist step rows imply.
 
-    Returns None when the checklist is missing or has no step lines (no
+    `[x]` reads the active revision block only, and an empty one is not
+    done (#700). Progress deliberately reads every row in the file: the
+    leaf rolls up the whole issue, so a just-started revision stays `[~]`.
+
+    Returns None when the checklist is missing or has no step rows (no
     signal). Callers never write None: reconcile leaves the leaf's glyph
     unchanged, and auto-add uses ' '.
     """
@@ -117,13 +133,17 @@ def checklist_state(issue_id: str) -> "str | None":
     if not cl.exists():
         return None
     glyphs = []
+    active = []  # rows after the last `## Revision ` heading
     for line in cl.read_text(encoding="utf-8").splitlines():
-        m = STEP_RE.match(line)
+        if line.startswith("## Revision "):
+            active = []
+        m = ROW_RE.match(line)
         if m:
             glyphs.append(m.group(1))
+            active.append(m.group(1))
     if not glyphs:
         return None
-    if all(g in DONE_GLYPHS for g in glyphs):
+    if active and all(g in DONE_GLYPHS for g in active):
         return "x"
     if any(g in PROGRESS_GLYPHS for g in glyphs):
         return "~"
