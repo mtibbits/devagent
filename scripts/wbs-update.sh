@@ -17,8 +17,9 @@
 #
 # One deliberate difference (#700): a final row with no trailing newline is
 # counted here, while checklist_current_step's `read` loop drops it. Python's
-# line split also breaks on a few control characters bash does not; no
-# checklist carries them.
+# line split also breaks on a few control characters bash does not, and the
+# whitespace between glyph, number and name is ASCII-only here where bash's
+# [[:space:]] also takes Unicode spaces; no checklist carries either.
 #
 # No signal leaves the leaf's glyph as it is, including a hand-set one,
 # because a devbox usually lacks most issues' checklists (#702). An

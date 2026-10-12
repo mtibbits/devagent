@@ -673,6 +673,7 @@ EOF
 }
 
 @test "wbs update reconciles zero- and one-heading checklists as before (#700)" {
+  # Zero headings: the Issue-9 control here, plus the earlier no-heading tests.
   cat > "$TMPDEV/WBS.md" <<'EOF'
 # testproj WBS
 
@@ -715,7 +716,7 @@ EOF
   _f700_tab_rev2 Issue-49
   _f700_unknown_glyph Issue-50
   _f700_repro_crlf Issue-51
-  local id glyph bash_done wbs_done
+  local id glyph bash_done wbs_done done_count=0
   {
     printf '# testproj WBS\n\n- [P] Fixtures {est: 4w}\n'
     for id in Issue-{40..51}; do
@@ -737,7 +738,10 @@ EOF
       echo "$id: checklist_current_step done=$bash_done (status $status, output: $output); wbs [x]=$wbs_done (glyph '$glyph')"
       false
     }
+    done_count=$((done_count + bash_done))
   done
+  # The bash reader ran: some fixtures are done.
+  [ "$done_count" -ge 1 ]
 }
 
 @test "wbs-update header states the active-block status rule (#700)" {

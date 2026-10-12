@@ -22,7 +22,8 @@ the README's "Versioning & releases" section has the release procedure.
     abandoned revision carries no longer hold a leaf at `[~]`. Checklists with zero or one
     `## Revision` heading reconcile as before, except that step rows are now matched as
     `checklist_current_step` matches them: a tab-separated row or an unknown glyph such as
-    `[X]` now counts (no real checklist has either).
+    `[X]` now counts, and a row with no name after the number, or a name not starting with
+    a letter, no longer does (no real checklist has any of these).
   - Committed `WBS.md` files are not rewritten. Affected leaves flip at the next
     `wbs update`, including the automatic run in cleanup, so status report remaining-leaf
     counts and ETA drop for them.
