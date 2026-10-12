@@ -398,9 +398,10 @@ EOF
 
 # #700 — active revision block decides [x]
 #
-# A leaf is [x] exactly when checklist_current_step reports done: only the
-# step rows after the last `## Revision` heading count, matched the way
-# _checklist_line_re matches them. Progress ([~]) and no signal (#702) still
+# A leaf is [x] when checklist_current_step reports done (the differences
+# are in the scripts/wbs-update.sh header): only the step rows after the last
+# `## Revision` heading count, matched the way _checklist_line_re matches
+# them. Progress ([~]) and no signal (#702) still
 # read every row in the file. Each fixture helper writes one checklist and
 # nothing else, so the agreement test runs the real reader on the same bytes.
 
