@@ -1714,7 +1714,9 @@ Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`. Unrecognized keys are preserved
 verbatim for forward compatibility.
 
-A node is a `- [g] …` line outside a fenced code block. Every other
+A node is a `- [g] …` line outside a fenced code block. A fence may
+open at any indentation, so a fence in a leaf's indented note hides the
+node-shaped lines up to its closer. Every other
 line (the preamble `wbs init` writes, prose, headings, HTML comments,
 blank lines, fenced blocks and the node-shaped lines inside them) and
 each node line's own formatting (meta quoting and spacing, indentation,

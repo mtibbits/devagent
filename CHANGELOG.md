@@ -22,7 +22,7 @@ the README's "Versioning & releases" section has the release procedure.
     rewrites only the leaf's glyph character, and an auto-added issue is inserted as whole
     lines in the file's line-ending style.
   - Node-shaped lines inside fenced code are no longer leaves, so status report counts can
-    drop for a file that has them (none of the author's 10 project WBS files do).
+    drop for a file that has them.
   - `wbs show` without a filter prints the file as written.
   - `wbs-parser.py parse` JSON gains a root `source_text` field, and `render` of it
     reproduces the file.
