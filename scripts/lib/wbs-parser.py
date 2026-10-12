@@ -354,8 +354,10 @@ def _render_document(tree: dict) -> str:
     line no earlier node claimed; a node that owns none is new. Owned lines
     are kept verbatim, glyph-patched, or regenerated (text/meta change).
     Unowned node lines (removed nodes) are dropped. Every other line is
-    kept verbatim. New nodes go after their preceding sibling's block, or
-    after their parent's head; their own children follow them.
+    kept verbatim. A new node goes after its preceding sibling's owned
+    subtree; with no preceding sibling, just before the parent's first
+    existing child, or after the block of a parent that has none. Its own
+    children follow it.
     """
     src = tree["source_text"]
     lines = src.splitlines(keepends=True)

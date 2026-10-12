@@ -317,6 +317,41 @@ def test_insertion_never_reparents_existing_nodes(text):
     assert _shape(wbs_parser.parse_text(out)) == want
 
 
+def test_new_child_of_an_existing_parent_is_placed_by_its_siblings():
+    text = (
+        "# t\n- [ ] Unassigned\n  - [x] Issue-5 {issue: Issue-5}\n"
+        "    note\n- [ ] Other\n"
+    )
+    new = "  - [ ] Issue-7 {issue: Issue-7}\n"
+
+    tree = wbs_parser.parse_text(text)
+    tree["children"][0]["children"].append(_new_node("Issue-7", 2, {"issue": "Issue-7"}))
+    assert wbs_parser.render_markdown(tree) == text.replace("    note\n", "    note\n" + new)
+
+    tree = wbs_parser.parse_text(text)
+    tree["children"][0]["children"].insert(0, _new_node("Issue-7", 2, {"issue": "Issue-7"}))
+    assert wbs_parser.render_markdown(tree) == text.replace(
+        "- [ ] Unassigned\n", "- [ ] Unassigned\n" + new
+    )
+
+    childless = "# t\n- [ ] Unassigned\n  note\n- [ ] Other\n"
+    tree = wbs_parser.parse_text(childless)
+    tree["children"][0]["children"].append(_new_node("Issue-7", 2, {"issue": "Issue-7"}))
+    assert wbs_parser.render_markdown(tree) == childless.replace("  note\n", "  note\n" + new)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["# t\r\n- [ ] a\n  note\r\n- [ ] b\r", "# t\r- [ ] a\r  note\r- [ ] b\r"],
+    ids=["mixed", "cr-only"],
+)
+def test_each_line_keeps_its_own_terminator(text):
+    assert wbs_parser.render_markdown(wbs_parser.parse_text(text)) == text
+    tree = wbs_parser.parse_text(text)
+    _find(tree, "b")["glyph"] = "x"
+    assert wbs_parser.render_markdown(tree) == text.replace("- [ ] b", "- [x] b")
+
+
 def test_document_render_reflects_title_text_meta_and_removal():
     src = (FIX / "preserve.md").read_bytes().decode("utf-8")
 
