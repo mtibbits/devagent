@@ -375,6 +375,73 @@ def test_document_render_reflects_title_text_meta_and_removal():
     assert out == src.replace("#  preserve  WBS\n", "# t2\n")
 
 
+# #703 — status_src is spliced into the owned line, never regenerated
+
+META_NODES = ["Epic one", "Leaf A", "Leaf B", "Leaf C", "Epic two", "Leaf D"]
+
+
+def test_status_src_is_known_key():
+    tree = wbs_parser.parse_text("# t\n\n- [ ] A {issue: Issue-1, status_src: tracker}\n")
+    assert tree["children"][0]["meta_unknown_keys"] == []
+
+
+def test_status_src_splice_keeps_bytes(variants, tmp_path):
+    for kind, p in variants.items():
+        for text in META_NODES:
+            tree = wbs_parser.parse_file(p)
+            node = _find(tree, text)
+            node["meta"]["status_src"] = "checklist"
+            exp = tmp_path / "expected.md"
+            assert wbs_bytes.patch_leaf(str(p), str(exp), text, node["glyph"], "checklist") == 0
+            out = wbs_parser.render_markdown(tree).encode("utf-8")
+            assert out == exp.read_bytes(), (kind, text)
+
+
+def test_status_src_splice_with_glyph_change(variants, tmp_path):
+    for kind, p in variants.items():
+        tree = wbs_parser.parse_file(p)
+        node = _find(tree, "Leaf A")
+        node["glyph"] = "x"
+        node["state"] = "done"
+        node["meta"]["status_src"] = "tracker"
+        exp = tmp_path / "expected.md"
+        assert wbs_bytes.patch_leaf(str(p), str(exp), "Leaf A", "x", "tracker") == 0
+        assert wbs_parser.render_markdown(tree).encode("utf-8") == exp.read_bytes(), kind
+
+
+def test_status_src_splice_reparses_to_the_new_meta(variants):
+    for kind, p in variants.items():
+        for text in META_NODES:
+            tree = wbs_parser.parse_file(p)
+            node = _find(tree, text)
+            want = dict(node["meta"], status_src="tracker")
+            node["meta"]["status_src"] = "tracker"
+            again = wbs_parser.parse_text(wbs_parser.render_markdown(tree))
+            assert _find(again, text)["meta"] == want, (kind, text)
+
+
+def test_status_src_replace_value(tmp_path):
+    src = "# t\n\n- [ ] A {issue: Issue-1,est:1w ,status_src:  checklist , owner: @me}\n"
+    p = tmp_path / "w.md"
+    p.write_bytes(src.encode("utf-8"))
+    tree = wbs_parser.parse_file(p)
+    tree["children"][0]["meta"]["status_src"] = "tracker"
+    out = wbs_parser.render_markdown(tree)
+    assert out == src.replace("checklist", "tracker")
+    exp = tmp_path / "e.md"
+    assert wbs_bytes.patch_leaf(str(p), str(exp), "A {", " ", "tracker") == 0
+    assert out.encode("utf-8") == exp.read_bytes()
+
+
+def test_other_meta_change_still_regenerates():
+    src = "# t\n\n- [ ] A {issue: Issue-1,est:1w}\n"
+    tree = wbs_parser.parse_text(src)
+    tree["children"][0]["meta"]["est"] = "2w"
+    tree["children"][0]["meta"]["status_src"] = "tracker"
+    out = wbs_parser.render_markdown(tree)
+    assert out == "# t\n\n- [ ] A {issue: Issue-1, est: 2w, status_src: tracker}\n"
+
+
 def test_tree_without_source_text_renders_v1():
     tree = wbs_parser.parse_file(FIX / "simple.md")
     tree.pop("source_text", None)

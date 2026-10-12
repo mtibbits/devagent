@@ -11,7 +11,9 @@ JSON serialization and consumption by:
 - v2/v3 renderers (Gantt, MS Project XML, OpenProject API)
 
 The metadata schema is fixed in v1 (spec §13.3) so deferred renderers do
-not require migration. Unknown metadata keys are preserved verbatim under
+not require migration; additive keys such as `status_src` (#703) may be
+added, and renderers ignore keys they do not use. Unknown metadata keys
+are preserved verbatim under
 `meta` and additionally listed in `meta_unknown_keys` so a future
 renderer can decide whether to pass them through or warn.
 
@@ -25,8 +27,9 @@ the lines after it parse as usual (#701).
 The root also carries `source_text`, the file's exact text (an additive
 field; the metadata schema is unaffected). `render_markdown` of a tree
 that has it reproduces the document line by line: an unchanged line is
-written back byte for byte, a glyph change rewrites one character, and
-new nodes (no `source_line`) are inserted as whole lines in the file's
+written back byte for byte, a glyph change rewrites one character, a
+`status_src` change splices only that value into the meta block (#703),
+and new nodes (no `source_line`) are inserted as whole lines in the file's
 line-ending style. A tree without `source_text` renders as v1 does
 (`render_nodes`: title plus nodes only).
 
@@ -60,7 +63,10 @@ STATE_GLYPHS: dict[str, str] = {
 }
 
 KNOWN_META_KEYS: frozenset[str] = frozenset(
-    {"issue", "est", "cost", "owner", "milestone", "start", "due", "depends_on"}
+    {
+        "issue", "est", "cost", "owner", "milestone", "start", "due",
+        "depends_on", "status_src",
+    }
 )
 
 _BULLET_RE = re.compile(
@@ -481,16 +487,63 @@ def _render_document(tree: dict) -> str:
     return "".join(body + term for body, term in out)
 
 
+_STATUS_SRC_RE = re.compile(r"(?:^|,)\s*status_src\s*:\s*([^,}]*?)\s*(?=,|$)")
+
+
 def _node_body(node: dict, m: re.Match, body: str) -> str:
-    """An owned node line: verbatim, glyph-patched, or regenerated."""
+    """An owned node line: verbatim, glyph-patched, spliced, or regenerated."""
     text, meta = _split_text_and_meta(m.group("rest").rstrip())
     glyph = _glyph(node)
-    if node["text"] != text or node.get("meta", {}) != meta:
-        return m.group("indent") + _node_tail(node, glyph)
+    new_meta = node.get("meta", {})
+    if node["text"] != text or new_meta != meta:
+        spliced = _splice_status_src(node, m, body, text, meta)
+        if spliced is None:
+            return m.group("indent") + _node_tail(node, glyph)
+        body = spliced
     if glyph == m.group("glyph"):
         return body
     g = m.start("glyph")
     return body[:g] + glyph + body[g + 1 :]
+
+
+def _splice_status_src(
+    node: dict, m: re.Match, body: str, text: str, meta: dict
+) -> str | None:
+    """`body` with only the `status_src` value changed, or None (#703).
+
+    Applies when the text is unchanged and the metas differ in a new
+    `status_src` value alone. An existing value is replaced in place;
+    otherwise `, status_src: <v>` goes just before the block's `}` (no
+    comma in an empty block). The result is re-parsed and must give the
+    node's meta, else None and the caller regenerates the line.
+    """
+    new_meta = node.get("meta", {})
+    value = new_meta.get("status_src")
+    if node["text"] != text or not isinstance(value, str) or not value:
+        return None
+    rest_meta = {k: v for k, v in meta.items() if k != "status_src"}
+    if {k: v for k, v in new_meta.items() if k != "status_src"} != rest_meta:
+        return None
+    rest = m.group("rest").rstrip()
+    block = _META_BLOCK_RE.search(rest)
+    if block is None:
+        return None
+    off = m.start("rest") + block.start("body")
+    inner = block.group("body")
+    old = _STATUS_SRC_RE.search(inner)
+    if old is not None:
+        a, b = off + old.start(1), off + old.end(1)
+        out = body[:a] + value + body[b:]
+    else:
+        close = off + len(inner)
+        sep = ", " if inner.strip() else ""
+        out = body[:close] + f"{sep}status_src: {value}" + body[close:]
+    check = _BULLET_RE.match(out)
+    if check is None:
+        return None
+    if _split_text_and_meta(check.group("rest").rstrip()) != (text, new_meta):
+        return None
+    return out
 
 
 def _render_meta(meta: dict) -> str:

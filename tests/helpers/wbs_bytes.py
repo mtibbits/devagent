@@ -7,6 +7,7 @@ derived independently of the code under test.
     wbs_bytes.py variant <src> <lf|crlf|lf-nofinal|crlf-nofinal> <dst>
     wbs_bytes.py glyph-offset <file> <needle>
     wbs_bytes.py insert-after <src> <dst> <anchor> <lf|crlf> <line>...
+    wbs_bytes.py patch-leaf <src> <dst> <needle> <glyph> <status_src>
 """
 
 from __future__ import annotations
@@ -88,6 +89,49 @@ def insert_after(src: str, dst: str, anchor: str, eol: str, lines: list[str]) ->
     return 0
 
 
+def patch_leaf(src: str, dst: str, needle: str, glyph: str, status_src: str) -> int:
+    """Expected bytes for a #703 reconcile of the `- [g] <needle>` line.
+
+    The glyph byte becomes <glyph>; an existing `status_src:` value becomes
+    <status_src>; otherwise `, status_src: <v>` goes just before the line's
+    last `}` (no comma when the block holds only whitespace). Every other
+    byte is kept.
+    """
+    data = Path(src).read_bytes()
+    want = needle.encode("utf-8")
+    out: list[bytes] = []
+    done = False
+    for line in data.splitlines(keepends=True):
+        i = line.find(b"- [")
+        if not done and i >= 0 and line[i + 4 : i + 6] == b"] " and want in line[i + 6 :]:
+            line = line[: i + 3] + glyph.encode("utf-8") + line[i + 4 :]
+            tok = status_src.encode("utf-8")
+            key = line.find(b"status_src:")
+            if key >= 0:
+                v = key + len(b"status_src:")
+                while line[v : v + 1] == b" ":
+                    v += 1
+                e = v
+                while line[e : e + 1] not in (b",", b"}", b" ", b""):
+                    e += 1
+                line = line[:v] + tok + line[e:]
+            else:
+                close = line.rfind(b"}")
+                open_ = line.rfind(b"{", 0, close)
+                if close < 0 or open_ < 0:
+                    print(f"wbs_bytes: no meta block on the '{needle}' line", file=sys.stderr)
+                    return 1
+                sep = b", " if line[open_ + 1 : close].strip() else b""
+                line = line[:close] + sep + b"status_src: " + tok + line[close:]
+            done = True
+        out.append(line)
+    if not done:
+        print(f"wbs_bytes: no '- [g] {needle}' line in {src}", file=sys.stderr)
+        return 1
+    Path(dst).write_bytes(b"".join(out))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) >= 5 and argv[1] == "variant":
         return variant(argv[2], argv[3], argv[4])
@@ -95,6 +139,8 @@ def main(argv: list[str]) -> int:
         return glyph_offset(argv[2], argv[3])
     if len(argv) >= 7 and argv[1] == "insert-after":
         return insert_after(argv[2], argv[3], argv[4], argv[5], argv[6:])
+    if len(argv) == 7 and argv[1] == "patch-leaf":
+        return patch_leaf(argv[2], argv[3], argv[4], argv[5], argv[6])
     print(__doc__, file=sys.stderr)
     return 2
 
