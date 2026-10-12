@@ -3,17 +3,22 @@
 #
 # For every leaf in <devdoc>/WBS.md that carries `{issue: Issue-N}` meta,
 # read <devdoc>/Issue-N/checklist.md and set the leaf's glyph from it:
-#   - every step row of the ACTIVE revision `[x]` or `[-]` -> `[x]` (done)
-#   - else any step row anywhere `[x]` or `[~]`            -> `[~]` (in progress)
-#   - else (step rows, no progress)                        -> `[ ]` (pending)
-#   - no checklist, or no step rows                        -> unchanged (no signal)
+#   - the ACTIVE revision has step rows, all `[x]` or `[-]` -> `[x]` (done)
+#   - else any step row anywhere `[x]` or `[~]`             -> `[~]` (in progress)
+#   - else (step rows, no progress)                         -> `[ ]` (pending)
+#   - no checklist, or no step rows                         -> unchanged (no signal)
 #
-# `[x]` is exactly checklist_current_step's `done` (scripts/lib/checklist.sh,
-# the #74 rule): the active revision is the rows after the LAST `## Revision`
-# heading, or the whole file when there is none, and rows are matched as
+# `[x]` is checklist_current_step's `done` (scripts/lib/checklist.sh, the #74
+# rule): the active revision is the rows after the LAST `## Revision` heading,
+# or the whole file when there is none, and rows are matched as
 # `_checklist_line_re` matches them. A row that only an earlier revision
 # carries never blocks `[x]` (#700). The `Active revision:` header line is
 # not read; revise.sh never updates it.
+#
+# One deliberate difference (#700): a final row with no trailing newline is
+# counted here, while checklist_current_step's `read` loop drops it. Python's
+# line split also breaks on a few control characters bash does not; no
+# checklist carries them.
 #
 # No signal leaves the leaf's glyph as it is, including a hand-set one,
 # because a devbox usually lacks most issues' checklists (#702). An
@@ -109,8 +114,8 @@ tree = mod.parse_file(wbs_path)
 # Checklist step-row pattern: `- [<glyph>] <num>. <name>`. Mirrors
 # _checklist_line_re in scripts/lib/checklist.sh (any glyph, ASCII digits,
 # [[:space:]] separators), and the active-block start below mirrors
-# _checklist_active_start (the #74 rule), so `[x]` here is exactly
-# checklist_current_step's `done`.
+# _checklist_active_start (the #74 rule), so `[x]` here is
+# checklist_current_step's `done`, except as the header notes.
 ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
 DONE_GLYPHS = {"x", "-"}
 PROGRESS_GLYPHS = {"x", "~"}
