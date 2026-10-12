@@ -3,6 +3,8 @@
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 # #322: hermetic env (pins / git config / TZ / locale)
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
+# #703: stub issue backends + network shims (no real tracker call)
+. "$(dirname "$BATS_TEST_FILENAME")/helpers/wbs-tracker.bash"
 
 setup() {
   TMPROOT="$(mktemp -d)"
@@ -36,10 +38,29 @@ transition_issue   = true
 cleanup_on_merge   = false
 EOF
   mkdir -p "$TMPROOT/src"
+
+  # #703: wbs update asks the tracker for leaf state. Every backend here is a
+  # stub, and gh/glab/curl are shims that log to network.log, which teardown
+  # asserts absent. The config above sets no dir_prefix, so the tracker
+  # sources stay unconfigured unless a test calls _with_dir_prefix.
+  export TMPROOT
+  export DEVAGENT_ISSUE_BACKEND_DIR="$TMPROOT/backends"
+  wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+  wbs_tracker_install_shims "$TMPROOT/shims" "$TMPROOT/network.log"
+  export PATH="$TMPROOT/shims:$PATH"
 }
 
 teardown() {
+  # #703: no test may reach a real tracker CLI (U6: a failing teardown fails)
+  [ ! -e "$TMPROOT/network.log" ]
   rm -rf "$TMPROOT"
+}
+
+# #703: configure the origin tracker source (issue_source gains dir_prefix).
+_with_dir_prefix() {
+  sed -i 's|^repo    = "acme/testproj"$|&\ndir_prefix = "Issue-"|' \
+    "$HOME/.claude/devagent/config.toml"
+  grep -q '^dir_prefix = "Issue-"$' "$HOME/.claude/devagent/config.toml"
 }
 
 # Helper: write an arbitrary scalar to the project state via the
@@ -882,4 +903,21 @@ _wbs701_progress() {
   grep -qF 'byte-for-byte' "$REPO/commands/wbs.md"
   spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
   [[ "$spec131" == *byte-for-byte* ]]
+}
+
+@test "wbs.bats network shim catches a real backend call (#703 control)" {
+  skip "wbs update has no tracker phase yet"
+  _with_dir_prefix
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [ ] Leaf {issue: Issue-9, est: 1w}
+EOF
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  # the real github.sh reached the gh shim: the guard would have caught it
+  [ -e "$TMPROOT/network.log" ]
+  grep -q '^gh issue list' "$TMPROOT/network.log"
+  rm -f "$TMPROOT/network.log"
 }
