@@ -111,11 +111,7 @@ spec.loader.exec_module(mod)
 
 tree = mod.parse_file(wbs_path)
 
-# Checklist step-row pattern: `- [<glyph>] <num>. <name>`. Mirrors
-# _checklist_line_re in scripts/lib/checklist.sh (any glyph, ASCII digits,
-# [[:space:]] separators), and the active-block start below mirrors
-# _checklist_active_start (the #74 rule), so `[x]` here is
-# checklist_current_step's `done`, except as the header notes.
+# Step row `- [<glyph>] <num>. <name>`: _checklist_line_re (see header).
 ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
 DONE_GLYPHS = {"x", "-"}
 PROGRESS_GLYPHS = {"x", "~"}
@@ -124,10 +120,9 @@ PROGRESS_GLYPHS = {"x", "~"}
 def checklist_state(issue_id: str) -> "str | None":
     """Return the glyph an issue's checklist step rows imply.
 
-    `[x]` follows the active revision block (the rows after the last
-    `## Revision ` heading, or the whole file without one), and an empty
-    active block is not done; rows only an earlier revision carries never
-    block `[x]` (#700). Progress reads every row in the file.
+    `[x]` reads the active revision block only, and an empty one is not
+    done (#700). Progress deliberately reads every row in the file: the
+    leaf rolls up the whole issue, so a just-started revision stays `[~]`.
 
     Returns None when the checklist is missing or has no step rows (no
     signal). Callers never write None: reconcile leaves the leaf's glyph
@@ -136,20 +131,20 @@ def checklist_state(issue_id: str) -> "str | None":
     cl = devdoc_dir / issue_id / "checklist.md"
     if not cl.exists():
         return None
-    rows = []  # (line index, glyph)
-    start = 0
-    for i, line in enumerate(cl.read_text(encoding="utf-8").splitlines()):
+    glyphs = []
+    active = []  # rows after the last `## Revision ` heading
+    for line in cl.read_text(encoding="utf-8").splitlines():
         if line.startswith("## Revision "):
-            start = i + 1
+            active = []
         m = ROW_RE.match(line)
         if m:
-            rows.append((i, m.group(1)))
-    if not rows:
+            glyphs.append(m.group(1))
+            active.append(m.group(1))
+    if not glyphs:
         return None
-    active = [g for i, g in rows if i >= start]
     if active and all(g in DONE_GLYPHS for g in active):
         return "x"
-    if any(g in PROGRESS_GLYPHS for _, g in rows):
+    if any(g in PROGRESS_GLYPHS for g in glyphs):
         return "~"
     return " "
 

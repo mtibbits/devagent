@@ -565,25 +565,22 @@ _f700_stuck_rev2() {
 EOF
 }
 
-# F7: one heading (standard checklist_init): fresh, partly done, all done.
-_f700_one_heading_fresh() {
+# F7: one heading (standard checklist_init), with an optional sed edit:
+# fresh, partly done, all done.
+_f700_one_heading() {
   _lib700 checklist_init "$TMPDEV/$1"
+  [ -z "${2:-}" ] || sed -i "$2" "$TMPDEV/$1/checklist.md"
 }
-_f700_one_heading_partial() {
-  _lib700 checklist_init "$TMPDEV/$1"
-  sed -i 's/^- \[ \]  0\. pull$/- [x]  0. pull/' "$TMPDEV/$1/checklist.md"
-}
-_f700_one_heading_done() {
-  _lib700 checklist_init "$TMPDEV/$1"
-  sed -i 's/^- \[ \]/- [x]/' "$TMPDEV/$1/checklist.md"
-}
+_F700_PARTIAL='s/^- \[ \]  0\. pull$/- [x]  0. pull/'
+_F700_DONE='s/^- \[ \]/- [x]/'
 
 # F8a: Revision 2 rows tab-separated, all done; Revision 1 partly done.
 _f700_tab_rev2() {
-  mkdir -p "$TMPDEV/$1"
-  printf '%s\n' '## Revision 1' '' '- [x]  0. pull' '- [ ]  2. draft' '' \
-    '## Revision 2' '' > "$TMPDEV/$1/checklist.md"
-  printf -- '- [x]\t%s.\t%s\n' 2 draft 23 cleanup >> "$TMPDEV/$1/checklist.md"
+  {
+    printf '%s\n' '## Revision 1' '' '- [x]  0. pull' '- [ ]  2. draft' '' \
+      '## Revision 2' ''
+    printf -- '- [x]\t%s.\t%s\n' 2 draft 23 cleanup
+  } | _cl700 "$1"
 }
 
 # F8b: one heading, every row done except an unknown `[X]` glyph.
@@ -634,10 +631,10 @@ EOF
 EOF
   _f700_spike_only_rev1 Issue-42
   local cl="$TMPDEV/Issue-42/checklist.md" active
-  active="$(awk '/^## Revision /{n=NR} {l[NR]=$0} END{for(i=n;i<=NR;i++) print l[i]}' "$cl")"
-  [ "$(printf '%s\n' "$active" | head -n 1)" = "## Revision 2" ]
-  [ "$(printf '%s\n' "$active" | grep -c '^- \[x\]  2\. draft$')" -eq 1 ]
-  [ "$(printf '%s\n' "$active" | grep -c '\. spike$')" -eq 0 ]
+  active="$(tail -n +"$(_lib700 _checklist_active_start "$cl")" "$cl")"
+  [[ "$active" == "## Revision 2"$'\n'* ]]
+  [[ "$active" == *$'\n- [x]  2. draft\n'* ]]
+  [[ "$active" != *". spike"* ]]
   grep -qxF -- '- [ ]  3. spike' "$cl"
   _update_expecting 's/^  - \[ \] Spike only in revision 1 /  - [x] Spike only in revision 1 /'
 }
@@ -685,9 +682,9 @@ EOF
   - [ ] One heading done {issue: Issue-48, est: 1w}
   - [ ] Reconciled control {issue: Issue-9, est: 1w}
 EOF
-  _f700_one_heading_fresh Issue-46
-  _f700_one_heading_partial Issue-47
-  _f700_one_heading_done Issue-48
+  _f700_one_heading Issue-46
+  _f700_one_heading Issue-47 "$_F700_PARTIAL"
+  _f700_one_heading Issue-48 "$_F700_DONE"
   _reconciled_control_issue
   _update_expecting 's/^  - \[x\] One heading fresh /  - [ ] One heading fresh /; s/^  - \[ \] One heading partial /  - [~] One heading partial /; s/^  - \[ \] One heading done /  - [x] One heading done /; s/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
 }
@@ -712,49 +709,40 @@ EOF
   _f700_fresh_rev2 Issue-43
   _f700_empty_rev2 Issue-44
   _f700_stuck_rev2 Issue-45
-  _f700_one_heading_fresh Issue-46
-  _f700_one_heading_partial Issue-47
-  _f700_one_heading_done Issue-48
+  _f700_one_heading Issue-46
+  _f700_one_heading Issue-47 "$_F700_PARTIAL"
+  _f700_one_heading Issue-48 "$_F700_DONE"
   _f700_tab_rev2 Issue-49
   _f700_unknown_glyph Issue-50
   _f700_repro_crlf Issue-51
-  local ids id n=0 glyph bash_done wbs_done
-  ids="Issue-40 Issue-41 Issue-42 Issue-43 Issue-44 Issue-45 Issue-46 Issue-47 Issue-48 Issue-49 Issue-50 Issue-51"
+  local id glyph bash_done wbs_done
   {
     printf '# testproj WBS\n\n- [P] Fixtures {est: 4w}\n'
-    for id in $ids; do
+    for id in Issue-{40..51}; do
       printf '  - [P] %s {issue: %s, est: 1w}\n' "$id" "$id"
     done
   } > "$TMPDEV/WBS.md"
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  for id in $ids; do
+  for id in Issue-{40..51}; do
     [ -f "$TMPDEV/$id/checklist.md" ]
     glyph="$(sed -n "s/^  - \[\(.\)\] $id {issue: .*/\1/p" "$TMPDEV/WBS.md")"
     [ -n "$glyph" ] || { echo "$id: leaf missing from WBS.md"; false; }
     [ "$glyph" != P ] || { echo "$id: leaf not reconciled"; false; }
-    run bash -c 'source "$2/paths.sh"; source "$2/io.sh"; source "$2/checklist.sh"; checklist_current_step "$1"' \
-      _ "$TMPDEV/$id/checklist.md" "$REPO/scripts/lib"
-    bash_done=0
-    if [ "$status" -eq 0 ] && [ "$output" = done ]; then
-      bash_done=1
-    fi
-    wbs_done=0
-    if [ "$glyph" = x ]; then
-      wbs_done=1
-    fi
+    run _lib700 checklist_current_step "$TMPDEV/$id/checklist.md"
+    bash_done=0 wbs_done=0
+    [ "$status" -ne 0 ] || [ "$output" != done ] || bash_done=1
+    [ "$glyph" != x ] || wbs_done=1
     [ "$bash_done" -eq "$wbs_done" ] || {
       echo "$id: checklist_current_step done=$bash_done (status $status, output: $output); wbs [x]=$wbs_done (glyph '$glyph')"
       false
     }
-    n=$((n + 1))
   done
-  [ "$n" -eq 12 ]
 }
 
 @test "wbs-update header states the active-block status rule (#700)" {
   local header
   header="$(sed -n '1,/^set -euo/p' "$REPO/scripts/wbs-update.sh")"
-  printf '%s\n' "$header" | grep -qF 'checklist_current_step'
-  printf '%s\n' "$header" | grep -qF '## Revision'
+  [[ "$header" == *checklist_current_step* ]]
+  [[ "$header" == *"## Revision"* ]]
 }
