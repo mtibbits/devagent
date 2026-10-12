@@ -34,6 +34,12 @@
 # Reconciliation derives from the checklist (the authoritative source),
 # not from state.last_step. Safe to run any time, idempotent.
 #
+# The write is line-local (#701). Unchanged lines (prose, headings,
+# comments, fenced blocks), meta formatting, line endings and the
+# final-newline state are kept byte for byte. Only a changed glyph
+# character is rewritten, new nodes are inserted as whole lines, and the
+# file is not rewritten when nothing changed.
+#
 # Flags:
 #   --if-exists   exit 0 silently when <devdoc>/WBS.md does not exist
 #                 (used by cleanup.sh and other auto-call sites)
@@ -230,7 +236,7 @@ if active_issue:
         })
         updates += 1
 
-Path(wbs_path).write_text(mod.render_markdown(tree), encoding="utf-8")
+mod.write_markdown(wbs_path, tree)
 PY
 
 info "wbs update: reconciled $wbs against issue checklists"

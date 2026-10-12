@@ -16,6 +16,17 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `wbs update` keeps hand-written `WBS.md` content (#701).**
+  - Edits are line-local. Prose, headings, comments, fenced blocks, meta formatting, line
+    endings and a missing final newline are written back byte-for-byte; a state change
+    rewrites only the leaf's glyph character, and an auto-added issue is inserted as whole
+    lines in the file's line-ending style.
+  - Node-shaped lines inside fenced code are no longer leaves, so status report counts can
+    drop for a file that has them.
+  - `wbs show` without a filter prints the file as written.
+  - `wbs-parser.py parse` JSON gains a root `source_text` field, and `render` of it
+    reproduces the file.
+  - `WBS.md` is rewritten only when `wbs update` changes a glyph or auto-adds an issue.
 - **Fixed: `wbs update` marks a finished revisioned issue `[x]` (#700).**
   - `[x]` is now decided by the active revision block only (the step rows after the last
     `## Revision` heading), matching `checklist_current_step`. Rows that only an earlier,

@@ -320,9 +320,15 @@ _from_a() {
   [[ "$output" != *"SCOPE MISMATCH"* ]]
   run grep -c 'Issue-9' "$DOC_B/WBS.md"; [ "$output" -ge 1 ]
 
+  # #701: the template preamble survives the write (the pre-#701 renderer
+  # dropped it), so the baseline equivalence below compares node lines only.
+  grep -q 'Recognized keys' "$DOC_B/WBS.md"
+
   # equivalence: the override run's EFFECT matches the baseline tree's run
   if [ "$have_baseline" -eq 1 ]; then
-    run diff "$DOC_B/WBS.md" "$DEVAGENT_TMP/wbs.baseline-result"
+    grep -E '^[[:space:]]*- \[.\] ' "$DOC_B/WBS.md" > "$DEVAGENT_TMP/wbs.nodes"
+    grep -E '^[[:space:]]*- \[.\] ' "$DEVAGENT_TMP/wbs.baseline-result" > "$DEVAGENT_TMP/wbs.baseline-nodes"
+    run diff "$DEVAGENT_TMP/wbs.nodes" "$DEVAGENT_TMP/wbs.baseline-nodes"
     [ "$status" -eq 0 ]
   fi
 

@@ -1714,12 +1714,26 @@ Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`. Unrecognized keys are preserved
 verbatim for forward compatibility.
 
+A node is a `- [g] …` line outside a fenced code block. A fence may
+open at any indentation, so a fence in a leaf's indented note hides the
+node-shaped lines up to its closer. Every other
+line (the preamble `wbs init` writes, prose, headings, HTML comments,
+blank lines, fenced blocks and the node-shaped lines inside them) and
+each node line's own formatting (meta quoting and spacing, indentation,
+LF or CRLF line endings, the presence or absence of a final newline) is
+written back byte-for-byte by `wbs update` and by `wbs-parser.py render`
+of a `parse` tree. `wbs update` changes only the glyph character of a
+leaf whose state changed and adds new nodes as whole lines in the file's
+line-ending style (#701).
+
 ### 13.2 Commands
 
 - `/devagent:wbs init` — scaffold from `wbs_template.md`
 - `/devagent:wbs update` — invoked by step 20 and by `planwbs` from
-  capture family; appends/updates entries based on active issues
-- `/devagent:wbs show [--depth N] [--milestone X]` — markdown render
+  capture family; sets each issue leaf's glyph from its checklist and
+  adds the active issue; every other line is kept byte-for-byte
+- `/devagent:wbs show [--depth N] [--milestone X]` — the file as
+  written; `--depth`/`--milestone` print the title and matching nodes only
 
 ### 13.3 Future renderers (out of scope for v1)
 
