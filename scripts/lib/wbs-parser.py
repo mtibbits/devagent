@@ -10,20 +10,36 @@ JSON serialization and consumption by:
 - `scripts/statusreport.sh` (roll-up + remaining-leaves count)
 - v2/v3 renderers (Gantt, MS Project XML, OpenProject API)
 
-The schema is fixed in v1 (spec §13.3) so deferred renderers do not
-require migration. Unknown metadata keys are preserved verbatim under
+The metadata schema is fixed in v1 (spec §13.3) so deferred renderers do
+not require migration. Unknown metadata keys are preserved verbatim under
 `meta` and additionally listed in `meta_unknown_keys` so a future
 renderer can decide whether to pass them through or warn.
+
+A node is a `- [g] ...` line outside a fenced code block. A fence opens
+on a line of 3+ backticks or tildes (any indent; a backtick run whose
+info string holds a backtick is an inline span, not a fence) and closes
+on a run of the same character, at least as long, with no info string.
+An opener with no closer is not a fence: it is reported on stderr and
+the lines after it parse as usual (#701).
+
+The root also carries `source_text`, the file's exact text (an additive
+field; the metadata schema is unaffected). `render_markdown` of a tree
+that has it reproduces the document line by line: an unchanged line is
+written back byte for byte, a glyph change rewrites one character, and
+new nodes (no `source_line`) are inserted as whole lines in the file's
+line-ending style. A tree without `source_text` renders as v1 does
+(`render_nodes`: title plus nodes only).
 
 CLI:
     wbs-parser.py parse <path>          # emits JSON tree to stdout
     wbs-parser.py edges <path>          # emits dependency edges, one per line
     wbs-parser.py leaves <path>         # emits one leaf per line (issue or text)
     wbs-parser.py render <json-path>    # JSON tree → markdown to stdout
+                                        # (a `parse` tree reproduces the file)
 
 The Python API (used by tests and by sibling scripts via importlib) is
-`parse_file`, `parse_text`, `render_markdown`, `leaves`,
-`dependency_edges`.
+`parse_file`, `parse_text`, `render_markdown`, `render_nodes`,
+`write_markdown`, `leaves`, `dependency_edges`.
 """
 
 from __future__ import annotations
@@ -54,34 +70,112 @@ _BULLET_RE = re.compile(
 # item text from swallowing the real meta block, which corrupted issue linkage.
 _META_BLOCK_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
 _TITLE_RE = re.compile(r"^#\s+(?P<title>.+)$")
+_FENCE_RE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)$")
+
+
+def _body(line: str) -> str:
+    """A line without its terminator (`splitlines` decides what ends a line)."""
+    parts = line.splitlines()
+    return parts[0] if parts else ""
+
+
+def _indent_width(body: str) -> int:
+    # Expand tabs before measuring: the format is 2-space indents, so a
+    # leading tab is one level (tabsize 2). Counting a raw tab as one char
+    # flattened tab-indented children into siblings.
+    b = body.expandtabs(2)
+    return len(b) - len(b.lstrip())
+
+
+def _depth(m: re.Match) -> int:
+    return len(m.group("indent").expandtabs(2)) // 2 + 1
+
+
+def _classify_lines(lines: list[str]) -> tuple[list[tuple[str, re.Match | None]], int | None]:
+    """Classify each line as title, node, fence, code or other.
+
+    The one home of the title / node / fence predicate: parse and render
+    both call it. Returns `(kinds, unclosed_at)`, where `unclosed_at` is the
+    1-based line of the first fence opener that has no closer (and so is
+    not a fence), or None.
+    """
+    bodies = [_body(line) for line in lines]
+    n = len(lines)
+    kinds: list[tuple[str, re.Match | None]] = [("other", None)] * n
+    unclosed_at: int | None = None
+    # Pass 1: pair fence openers with closers. An unpaired opener is `other`.
+    i = 0
+    while i < n:
+        m = _FENCE_RE.match(bodies[i])
+        if not m or (m.group("run")[0] == "`" and "`" in m.group("info")):
+            i += 1
+            continue
+        run = m.group("run")
+        close = None
+        for j in range(i + 1, n):
+            c = _FENCE_RE.match(bodies[j])
+            if (
+                c
+                and c.group("run")[0] == run[0]
+                and len(c.group("run")) >= len(run)
+                and not c.group("info").strip()
+            ):
+                close = j
+                break
+        if close is None:
+            if unclosed_at is None:
+                unclosed_at = i + 1
+            i += 1
+            continue
+        kinds[i] = ("fence", m)
+        for j in range(i + 1, close):
+            kinds[j] = ("code", None)
+        kinds[close] = ("fence", _FENCE_RE.match(bodies[close]))
+        i = close + 1
+    # Pass 2: title and nodes, outside fences only.
+    have_title = False
+    for i, body in enumerate(bodies):
+        if kinds[i][0] != "other":
+            continue
+        if not have_title:
+            m = _TITLE_RE.match(body)
+            if m and m.group("title").strip():
+                kinds[i] = ("title", m)
+                have_title = True
+                continue
+        m = _BULLET_RE.match(body)
+        if m:
+            kinds[i] = ("node", m)
+    return kinds, unclosed_at
 
 
 def parse_file(path: Path | str) -> dict:
-    return parse_text(Path(path).read_text(encoding="utf-8"))
+    # newline="" keeps CR bytes: Path.read_text translates line endings,
+    # and its newline= parameter needs Python 3.13.
+    with open(path, encoding="utf-8", newline="") as f:
+        return parse_text(f.read())
 
 
 def parse_text(text: str) -> dict:
-    title = ""
-    root: dict = {"title": "", "children": []}
+    root: dict = {"title": "", "children": [], "source_text": text}
     stack: list[tuple[int, dict]] = [(-1, root)]
+    kinds, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    if unclosed_at is not None:
+        print(
+            f"wbs-parser: unclosed code fence at line {unclosed_at} ignored; "
+            "lines after it are parsed as WBS nodes",
+            file=sys.stderr,
+        )
 
-    for lineno, raw in enumerate(text.splitlines(), start=1):
-        if not title:
-            m = _TITLE_RE.match(raw)
-            if m:
-                title = m.group("title").strip()
-                root["title"] = title
-                continue
-        m = _BULLET_RE.match(raw)
-        if not m:
+    for lineno, (kind, m) in enumerate(kinds, start=1):
+        if kind == "title":
+            root["title"] = m.group("title").strip()
             continue
-        # Expand tabs before measuring: the format is 2-space indents, so a
-        # leading tab is one level (tabsize 2). Counting a raw tab as one char
-        # flattened tab-indented children into siblings.
-        indent = m.group("indent").expandtabs(2)
+        if kind != "node":
+            continue
         glyph = m.group("glyph")
         rest = m.group("rest").rstrip()
-        depth = len(indent) // 2 + 1
+        depth = _depth(m)
         text_part, meta = _split_text_and_meta(rest)
         unknown = [k for k in meta if k not in KNOWN_META_KEYS]
         node = {
@@ -199,26 +293,194 @@ def dependency_edges(tree: dict) -> list[tuple[str, str]]:
 
 
 def render_markdown(tree: dict) -> str:
+    """Render a tree: the document when it carries `source_text`, else v1."""
+    if tree.get("source_text") is not None:
+        return _render_document(tree)
+    return render_nodes(tree)
+
+
+def write_markdown(path: Path | str, tree: dict) -> bool:
+    """Write the rendered tree to `path` as UTF-8 bytes, only if it changed.
+
+    Returns whether it wrote. Bytes, not text mode: text mode would turn
+    `\\n` into `\\r\\n` on Windows.
+    """
+    rendered = render_markdown(tree)
+    if rendered == tree.get("source_text"):
+        return False
+    Path(path).write_bytes(rendered.encode("utf-8"))
+    return True
+
+
+_GLYPH_FOR_STATE = {v: k for k, v in STATE_GLYPHS.items()}
+
+
+def _glyph(node: dict) -> str:
+    return node.get("glyph") or _GLYPH_FOR_STATE.get(node["state"], " ")
+
+
+def _node_tail(node: dict, glyph: str) -> str:
+    """`- [g] text{ meta}`: a node line after its indent."""
+    meta_str = _render_meta(node.get("meta", {}))
+    suffix = f" {meta_str}" if meta_str else ""
+    return f"- [{glyph}] {node['text']}{suffix}"
+
+
+def render_nodes(tree: dict) -> str:
+    """v1 renderer: the title and the node lines, canonical, nothing else."""
     lines: list[str] = []
     title = tree.get("title", "")
     if title:
         lines.append(f"# {title}")
         lines.append("")
 
-    glyph_for_state = {v: k for k, v in STATE_GLYPHS.items()}
-
     def write(node: dict) -> None:
         indent = "  " * (node["depth"] - 1)
-        glyph = node.get("glyph") or glyph_for_state.get(node["state"], " ")
-        meta_str = _render_meta(node.get("meta", {}))
-        suffix = f" {meta_str}" if meta_str else ""
-        lines.append(f"{indent}- [{glyph}] {node['text']}{suffix}")
+        lines.append(f"{indent}{_node_tail(node, _glyph(node))}")
         for k in node.get("children", []):
             write(k)
 
     for top in tree.get("children", []):
         write(top)
     return "\n".join(lines) + "\n"
+
+
+def _render_document(tree: dict) -> str:
+    """Re-emit `source_text` line by line, changing only what the tree changed.
+
+    A node owns the line its `source_line` names when that line is a node
+    line no earlier node claimed; a node that owns none is new. Owned lines
+    are kept verbatim, glyph-patched, or regenerated (text/meta change).
+    Unowned node lines (removed nodes) are dropped. Every other line is
+    kept verbatim. New nodes go after their preceding sibling's block, or
+    after their parent's head; their own children follow them.
+    """
+    src = tree["source_text"]
+    lines = src.splitlines(keepends=True)
+    n = len(lines)
+    kinds, _ = _classify_lines(lines)
+    bodies = [_body(line) for line in lines]
+    terms = [line[len(b):] for line, b in zip(lines, bodies)]
+    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+
+    owner: dict[int, int] = {}  # id(node) -> line index
+    claimed: set[int] = set()
+
+    def claim(node: dict) -> None:
+        i = node.get("source_line", 0) - 1
+        if 0 <= i < n and kinds[i][0] == "node" and i not in claimed:
+            claimed.add(i)
+            owner[id(node)] = i
+            for k in node.get("children", []):
+                claim(k)
+        # A new node's whole subtree is new: its children claim nothing.
+
+    for top in tree.get("children", []):
+        claim(top)
+
+    def block_end(i: int) -> int:
+        """Last line of node line i's block (see spec §13.1 / #701)."""
+        m = kinds[i][1]
+        depth, indent = _depth(m), _indent_width(bodies[i])
+        last, in_fence = i, False
+        for j in range(i + 1, n):
+            kind = kinds[j][0]
+            if kind == "code":
+                last = j
+            elif kind == "fence":
+                if not in_fence and _indent_width(bodies[j]) <= indent:
+                    break
+                in_fence = not in_fence
+                last = j
+            elif kind == "node":
+                if _depth(kinds[j][1]) <= depth:
+                    break
+                last = j
+            elif bodies[j].strip():
+                if _indent_width(bodies[j]) <= indent:
+                    break
+                last = j
+        return last
+
+    first_node = next((i for i, (k, _m) in enumerate(kinds) if k == "node"), None)
+    inserts: dict[int, list[dict]] = {}  # insert after line index (-1: top)
+
+    def place(parent: dict, parent_line: int | None) -> None:
+        anchor: int | None = None
+        for child in parent.get("children", []):
+            i = owner.get(id(child))
+            if i is not None:
+                anchor = block_end(i)
+                place(child, i)
+                continue
+            if anchor is None:
+                if parent_line is None:
+                    anchor = first_node - 1 if first_node is not None else n - 1
+                else:
+                    kids = [owner[id(k)] for k in parent["children"] if id(k) in owner]
+                    anchor = min(kids) - 1 if kids else block_end(parent_line)
+            inserts.setdefault(anchor, []).append(child)
+
+    place(tree, None)
+
+    out: list[list[str]] = []  # [body, terminator] per emitted line
+
+    def emit_new(node: dict) -> None:
+        indent = "  " * (node["depth"] - 1)
+        out.append([indent + _node_tail(node, _glyph(node)), eol])
+        for k in node.get("children", []):
+            emit_new(k)
+
+    by_line = {owner[id(nd)]: nd for nd in _iter_nodes(tree) if id(nd) in owner}
+    title_line = next((i for i, (k, _m) in enumerate(kinds) if k == "title"), None)
+    title = tree.get("title", "")
+    if title_line is None and title:
+        out.append([f"# {title}", eol])
+    for node in inserts.get(-1, []):
+        emit_new(node)
+    for i in range(n):
+        kind, m = kinds[i]
+        if kind == "title":
+            if title == m.group("title").strip():
+                out.append([bodies[i], terms[i]])
+            elif title:
+                out.append([f"# {title}", terms[i]])
+        elif kind == "node":
+            node = by_line.get(i)
+            if node is not None:
+                out.append([_node_body(node, m, bodies[i]), terms[i]])
+        else:
+            out.append([bodies[i], terms[i]])
+        for node in inserts.get(i, []):
+            emit_new(node)
+
+    # Only the source's last line can lack a terminator. Anything emitted
+    # after it needs one; the output's last line keeps the source's
+    # final-newline state.
+    for pair in out[:-1]:
+        if not pair[1]:
+            pair[1] = eol
+    if out and n and not terms[-1]:
+        out[-1][1] = ""
+    return "".join(body + term for body, term in out)
+
+
+def _node_body(node: dict, m: re.Match, body: str) -> str:
+    """An owned node line: verbatim, glyph-patched, or regenerated."""
+    text, meta = _split_text_and_meta(m.group("rest").rstrip())
+    glyph = _glyph(node)
+    if node["text"] != text or node.get("meta", {}) != meta:
+        return m.group("indent") + _node_tail(node, glyph)
+    if glyph == m.group("glyph"):
+        return body
+    g = m.start("glyph")
+    return body[:g] + glyph + body[g + 1 :]
+
+
+def _iter_nodes(tree: dict):
+    for k in tree.get("children", []):
+        yield k
+        yield from _iter_nodes(k)
 
 
 def _render_meta(meta: dict) -> str:
@@ -257,7 +519,8 @@ def _cli(argv: list[str]) -> int:
             print(f"{issue}\t{leaf['text']}")
     elif cmd == "render":
         tree = json.loads(path.read_text(encoding="utf-8"))
-        sys.stdout.write(render_markdown(tree))
+        # Bytes: text-mode stdout turns `\n` into `\r\n` on Windows.
+        sys.stdout.buffer.write(render_markdown(tree).encode("utf-8"))
     else:
         print(f"unknown subcommand: {cmd}", file=sys.stderr)
         return 2
