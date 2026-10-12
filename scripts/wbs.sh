@@ -13,8 +13,8 @@ usage() {
 usage: /devagent:wbs <init|update|show> [project] [args]
 
   init [--force]                        scaffold <devdoc>/WBS.md
-  update                                append/update entries from active issues
-  show [--depth N] [--milestone X]      render WBS markdown (filtered)
+  update                                set issue-leaf glyphs; add the active issue
+  show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
 EOF
   exit 2
 }
