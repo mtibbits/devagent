@@ -731,7 +731,7 @@ EOF
     [ "$glyph" != P ] || { echo "$id: leaf not reconciled"; false; }
     run _lib700 checklist_current_step "$TMPDEV/$id/checklist.md"
     bash_done=0 wbs_done=0
-    [ "$status" -ne 0 ] || [ "$output" != done ] || bash_done=1
+    [ "$status" -ne 0 ] || [ "$output" != "done" ] || bash_done=1
     [ "$glyph" != x ] || wbs_done=1
     [ "$bash_done" -eq "$wbs_done" ] || {
       echo "$id: checklist_current_step done=$bash_done (status $status, output: $output); wbs [x]=$wbs_done (glyph '$glyph')"
