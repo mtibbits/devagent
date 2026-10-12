@@ -217,8 +217,10 @@ EOF
   _state_set last_step_name "pull"
   mkdir -p "$TMPDEV/Issue-1"
   echo "# Issue-1 — Workflow checklist" > "$TMPDEV/Issue-1/checklist.md"
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.input"
   bash "$REPO/scripts/wbs.sh" update testproj
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+  cmp "$TMPDEV/WBS.md.input" "$TMPDEV/WBS.md.first"
   bash "$REPO/scripts/wbs.sh" update testproj
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
@@ -283,8 +285,10 @@ EOF
 - [x]  0. pull
 - [x] 23. cleanup
 EOF
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.input"
   bash "$REPO/scripts/wbs.sh" update testproj
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
+  cmp "$TMPDEV/WBS.md.input" "$TMPDEV/WBS.md.first"
   bash "$REPO/scripts/wbs.sh" update testproj
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
@@ -750,4 +754,129 @@ EOF
   header="$(sed -n '1,/^set -euo/p' "$REPO/scripts/wbs-update.sh")"
   [[ "$header" == *checklist_current_step* ]]
   [[ "$header" == *"## Revision"* ]]
+}
+
+# #701 — line-local WBS writes
+#
+# Every leg derives from tests/fixtures/wbs/preserve.md (prose, comments, a
+# fenced block, odd meta formatting). Byte facts are checked only with cmp /
+# cmp -l: Git Bash grep and sed hide CR.
+
+# Write the <kind> variant of preserve.md to WBS.md, and a copy to WBS.input.
+_wbs701() {
+  python3 "$REPO/tests/helpers/wbs_bytes.py" variant \
+    "$REPO/tests/fixtures/wbs/preserve.md" "$1" "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+# Issue-1 checklist showing progress: Leaf A reconciles [ ] -> [~].
+_wbs701_progress() {
+  mkdir -p "$TMPDEV/Issue-1"
+  printf '%s\n' '- [x]  0. pull' '- [~]  9. implement' > "$TMPDEV/Issue-1/checklist.md"
+}
+
+@test "wbs update leaves an unchanged WBS.md byte-identical in every variant (#701)" {
+  local kind
+  for kind in lf crlf lf-nofinal crlf-nofinal; do
+    _wbs701 "$kind"
+    run bash "$REPO/scripts/wbs.sh" update testproj
+    [ "$status" -eq 0 ]
+    cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  done
+}
+
+@test "wbs update changes only the glyph byte of a reconciled leaf (#701)" {
+  local kind off cmpout
+  _wbs701_progress
+  for kind in lf crlf lf-nofinal crlf-nofinal; do
+    _wbs701 "$kind"
+    run bash "$REPO/scripts/wbs.sh" update testproj
+    [ "$status" -eq 0 ]
+    off="$(python3 "$REPO/tests/helpers/wbs_bytes.py" glyph-offset "$TMPDEV/WBS.input" "Leaf A")"
+    run cmp -l "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+    cmpout="$(printf '%s\n' "$output" | awk '{print $1, $2, $3}')"
+    [ "$cmpout" = "$off 40 176" ]
+  done
+}
+
+@test "wbs update ignores node-shaped lines inside a fenced block (#701)" {
+  _wbs701 lf
+  mkdir -p "$TMPDEV/Issue-9"
+  printf '%s\n' '- [x]  0. pull' '- [x] 23. cleanup' > "$TMPDEV/Issue-9/checklist.md"
+  _init_state
+  _state_set active_issue "Issue-9"
+  python3 "$REPO/tests/helpers/wbs_bytes.py" insert-after \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "    Note under the last leaf." lf \
+    "- [ ] Unassigned" "  - [x] Issue-9 {issue: Issue-9, est: ?w}"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs update auto-add keeps notes with their leaf and the file's line endings (#701)" {
+  _wbs701 crlf-nofinal
+  _init_state
+  _state_set active_issue "Issue-7"
+  python3 "$REPO/tests/helpers/wbs_bytes.py" insert-after \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "    Note under the last leaf." crlf \
+    "- [ ] Unassigned" "  - [ ] Issue-7 {issue: Issue-7, est: ?w}"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs update does not rewrite a file it did not change (#701)" {
+  _wbs701 lf
+  chmod a-w "$TMPDEV/WBS.md"
+  if [ -w "$TMPDEV/WBS.md" ]; then
+    skip "cannot make WBS.md read-only here"
+  fi
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+}
+
+@test "wbs show with no filter prints WBS.md byte-for-byte (#701)" {
+  local kind
+  for kind in lf crlf lf-nofinal crlf-nofinal; do
+    _wbs701 "$kind"
+    bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out"
+    cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  done
+}
+
+@test "wbs show --milestone prints the matching nodes only, as before (#701)" {
+  _wbs701 lf
+  bash "$REPO/scripts/wbs.sh" show testproj --milestone M1 > "$TMPROOT/m1.out"
+  cmp "$TMPROOT/m1.out" "$REPO/tests/fixtures/wbs/preserve-m1.expected"
+}
+
+@test "wbs show --depth leaves fenced and prose lines out (#701)" {
+  _wbs701 lf
+  run bash "$REPO/scripts/wbs.sh" show testproj --depth 9
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Leaf D"* ]]
+  [[ "$output" != *"Fenced example"* ]]
+  [[ "$output" != *"Note under"* ]]
+  [[ "$output" != *"Prose paragraph"* ]]
+  [[ "$output" != *"## Notes"* ]]
+}
+
+@test "wbs update is idempotent on a WBS with prose (#701)" {
+  _wbs701 crlf
+  _wbs701_progress
+  bash "$REPO/scripts/wbs.sh" update testproj
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.run1"
+  bash "$REPO/scripts/wbs.sh" update testproj
+  cmp "$TMPDEV/WBS.run1" "$TMPDEV/WBS.md"
+  run cmp -l "$TMPDEV/WBS.input" "$TMPDEV/WBS.run1"
+  [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "WBS docs state that non-node lines are kept byte-for-byte (#701)" {
+  local spec131
+  grep -qF 'byte-for-byte' "$REPO/templates/wbs_template.md"
+  grep -qF 'byte-for-byte' "$REPO/commands/wbs.md"
+  spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
+  [[ "$spec131" == *byte-for-byte* ]]
 }

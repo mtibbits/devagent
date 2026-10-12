@@ -208,3 +208,22 @@ EOF
   # the section body renders the shared empty marker, not per-issue noise
   grep -qA1 "Dispatch-lint rejects (0)" "$report"
 }
+
+# Run statusreport over WBS fixture $1 and save its roll-up and remaining
+# count to $2 (#701).
+_rollup_of() {
+  local report
+  cp "$REPO/tests/fixtures/wbs/$1" "$TMPDEV/WBS.md"
+  rm -rf "$TMPDEV/StatusReports"
+  bash "$REPO/scripts/statusreport.sh" testproj --no-pin > /dev/null
+  report="$(find "$TMPDEV/StatusReports" -name '*.md' | head -n1)"
+  sed -n '/^## WBS roll-up$/,/^## Velocity/p' "$report" > "$2"
+  grep '^- Remaining WBS leaves:' "$report" >> "$2"
+}
+
+@test "statusreport roll-up and remaining leaves ignore prose and fenced lines (#701)" {
+  _rollup_of preserve.md "$TMPROOT/a.txt"
+  _rollup_of preserve-stripped.md "$TMPROOT/b.txt"
+  cmp "$TMPROOT/a.txt" "$TMPROOT/b.txt"
+  grep -qxF -- '- Remaining WBS leaves: 3' "$TMPROOT/a.txt"
+}
