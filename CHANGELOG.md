@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `wbs update` marks a finished revisioned issue `[x]` (#700).**
+  - `[x]` is now decided by the active revision block only (the step rows after the last
+    `## Revision` heading), matching `checklist_current_step`. Rows that only an earlier,
+    abandoned revision carries no longer hold a leaf at `[~]`. Checklists with zero or one
+    `## Revision` heading reconcile as before, except that step rows are now matched as
+    `checklist_current_step` matches them: a tab-separated row or an unknown glyph such as
+    `[X]` now counts (no real checklist has either).
+  - Committed `WBS.md` files are not rewritten. Affected leaves flip at the next
+    `wbs update`, including the automatic run in cleanup, so status report remaining-leaf
+    counts and ETA drop for them.
+  - `active_scan_recent_incomplete` is unchanged (separate follow-up).
+  - Not breaking.
+
 - **Fixed: `wbs update` no longer resets a leaf with no local checklist to `[ ]` (#702).**
   - A missing `Issue-N/checklist.md`, or one with no step rows, is now "no signal": the
     leaf keeps its glyph, hand-set glyphs included. Leaves with a checklist reconcile as
