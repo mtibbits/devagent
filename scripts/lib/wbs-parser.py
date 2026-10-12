@@ -402,7 +402,21 @@ def _render_document(tree: dict) -> str:
                 last = j
         return last
 
-    first_node = next((i for i, (k, _m) in enumerate(kinds) if k == "node"), None)
+    def subtree_end(node: dict, i: int) -> int:
+        """Last line of node line i's block or of any owned descendant's.
+
+        The parser nests by depth alone, so a column-0 line can split a
+        node's source block from its later children; anchoring at the block
+        end alone would re-parent those children under an inserted node.
+        """
+        end = block_end(i)
+        for k in node.get("children", []):
+            j = owner.get(id(k))
+            if j is not None:
+                end = max(end, subtree_end(k, j))
+        return end
+
+    first_node =next((i for i, (k, _m) in enumerate(kinds) if k == "node"), None)
     inserts: dict[int, list[dict]] = {}  # insert after line index (-1: top)
 
     def place(parent: dict, parent_line: int | None) -> None:
@@ -410,7 +424,7 @@ def _render_document(tree: dict) -> str:
         for child in parent.get("children", []):
             i = owner.get(id(child))
             if i is not None:
-                anchor = block_end(i)
+                anchor = subtree_end(child, i)
                 place(child, i)
                 continue
             if anchor is None:

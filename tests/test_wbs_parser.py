@@ -297,6 +297,30 @@ def test_inserted_nodes_follow_block_and_eol_rules(variants):
     assert wbs_parser.render_markdown(tree2) == "# t\n- [ ] a\n- [ ] b"
 
 
+def _shape(tree):
+    return [(n["text"], _shape(n)) for n in tree["children"]]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "# t\n- [ ] Epic two\n  - [ ] Leaf D {issue: Issue-3}\n"
+        "Note not indented\n  - [ ] Leaf E {issue: Issue-4}\n",
+        "# t\n- [ ] Epic two\n\n## Sub\n\n  - [ ] Leaf D {issue: Issue-3}\n",
+    ],
+    ids=["col0-note-between-children", "heading-between-parent-and-child"],
+)
+def test_insertion_never_reparents_existing_nodes(text):
+    """A new node lands after its preceding sibling's whole parsed subtree,
+    even when a column-0 line splits that subtree in the source."""
+    tree = wbs_parser.parse_text(text)
+    child = _new_node("Issue-7", 2, {"issue": "Issue-7", "est": "?w"})
+    tree["children"].append(_new_node("Unassigned", 1, children=[child]))
+    want = _shape(tree)
+    out = wbs_parser.render_markdown(tree)
+    assert _shape(wbs_parser.parse_text(out)) == want
+
+
 def test_document_render_reflects_title_text_meta_and_removal():
     src = (FIX / "preserve.md").read_bytes().decode("utf-8")
 
