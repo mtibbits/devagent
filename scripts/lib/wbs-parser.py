@@ -88,16 +88,18 @@ def _indent_width(body: str) -> int:
 
 
 def _depth(m: re.Match) -> int:
-    return len(m.group("indent").expandtabs(2)) // 2 + 1
+    return _indent_width(m.group("indent")) // 2 + 1
 
 
-def _classify_lines(lines: list[str]) -> tuple[list[tuple[str, re.Match | None]], int | None]:
+def _classify_lines(
+    lines: list[str],
+) -> tuple[list[tuple[str, re.Match | None]], list[str], int | None]:
     """Classify each line as title, node, fence, code or other.
 
     The one home of the title / node / fence predicate: parse and render
-    both call it. Returns `(kinds, unclosed_at)`, where `unclosed_at` is the
-    1-based line of the first fence opener that has no closer (and so is
-    not a fence), or None.
+    both call it. Returns `(kinds, bodies, unclosed_at)`: `bodies` are the
+    lines without terminators, and `unclosed_at` is the 1-based line of the
+    first fence opener that has no closer (and so is not a fence), or None.
     """
     bodies = [_body(line) for line in lines]
     n = len(lines)
@@ -127,10 +129,10 @@ def _classify_lines(lines: list[str]) -> tuple[list[tuple[str, re.Match | None]]
                 unclosed_at = i + 1
             i += 1
             continue
-        kinds[i] = ("fence", m)
+        kinds[i] = ("fence", None)
         for j in range(i + 1, close):
             kinds[j] = ("code", None)
-        kinds[close] = ("fence", _FENCE_RE.match(bodies[close]))
+        kinds[close] = ("fence", None)
         i = close + 1
     # Pass 2: title and nodes, outside fences only.
     have_title = False
@@ -146,7 +148,7 @@ def _classify_lines(lines: list[str]) -> tuple[list[tuple[str, re.Match | None]]
         m = _BULLET_RE.match(body)
         if m:
             kinds[i] = ("node", m)
-    return kinds, unclosed_at
+    return kinds, bodies, unclosed_at
 
 
 def parse_file(path: Path | str) -> dict:
@@ -159,7 +161,7 @@ def parse_file(path: Path | str) -> dict:
 def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
     stack: list[tuple[int, dict]] = [(-1, root)]
-    kinds, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    kinds, _bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
     if unclosed_at is not None:
         print(
             f"wbs-parser: unclosed code fence at line {unclosed_at} ignored; "
@@ -358,18 +360,17 @@ def _render_document(tree: dict) -> str:
     src = tree["source_text"]
     lines = src.splitlines(keepends=True)
     n = len(lines)
-    kinds, _ = _classify_lines(lines)
-    bodies = [_body(line) for line in lines]
+    kinds, bodies, _ = _classify_lines(lines)
     terms = [line[len(b):] for line, b in zip(lines, bodies)]
     eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
 
     owner: dict[int, int] = {}  # id(node) -> line index
-    claimed: set[int] = set()
+    by_line: dict[int, dict] = {}  # line index -> node
 
     def claim(node: dict) -> None:
         i = node.get("source_line", 0) - 1
-        if 0 <= i < n and kinds[i][0] == "node" and i not in claimed:
-            claimed.add(i)
+        if 0 <= i < n and kinds[i][0] == "node" and i not in by_line:
+            by_line[i] = node
             owner[id(node)] = i
             for k in node.get("children", []):
                 claim(k)
@@ -416,7 +417,7 @@ def _render_document(tree: dict) -> str:
                 end = max(end, subtree_end(k, j))
         return end
 
-    first_node =next((i for i, (k, _m) in enumerate(kinds) if k == "node"), None)
+    first_node = next((i for i, (k, _m) in enumerate(kinds) if k == "node"), None)
     inserts: dict[int, list[dict]] = {}  # insert after line index (-1: top)
 
     def place(parent: dict, parent_line: int | None) -> None:
@@ -445,7 +446,6 @@ def _render_document(tree: dict) -> str:
         for k in node.get("children", []):
             emit_new(k)
 
-    by_line = {owner[id(nd)]: nd for nd in _iter_nodes(tree) if id(nd) in owner}
     title_line = next((i for i, (k, _m) in enumerate(kinds) if k == "title"), None)
     title = tree.get("title", "")
     if title_line is None and title:
@@ -489,12 +489,6 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
         return body
     g = m.start("glyph")
     return body[:g] + glyph + body[g + 1 :]
-
-
-def _iter_nodes(tree: dict):
-    for k in tree.get("children", []):
-        yield k
-        yield from _iter_nodes(k)
 
 
 def _render_meta(meta: dict) -> str:

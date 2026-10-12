@@ -9,14 +9,17 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 FIX = REPO / "tests" / "fixtures" / "wbs"
-BYTES_HELPER = REPO / "tests" / "helpers" / "wbs_bytes.py"
-VARIANTS = ("lf", "crlf", "lf-nofinal", "crlf-nofinal")
 
-spec = importlib.util.spec_from_file_location(
-    "wbs_parser", REPO / "scripts" / "lib" / "wbs-parser.py"
-)
-wbs_parser = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(wbs_parser)
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+wbs_parser = _load("wbs_parser", REPO / "scripts" / "lib" / "wbs-parser.py")
+wbs_bytes = _load("wbs_bytes", REPO / "tests" / "helpers" / "wbs_bytes.py")
 
 
 def test_parse_simple():
@@ -144,25 +147,11 @@ CRLF = bytes([13, 10]).decode("ascii")
 @pytest.fixture
 def variants(tmp_path):
     out = {}
-    for kind in VARIANTS:
+    for kind in wbs_bytes.KINDS:
         dst = tmp_path / f"{kind}.md"
-        subprocess.run(
-            [sys.executable, str(BYTES_HELPER), "variant",
-             str(FIX / "preserve.md"), kind, str(dst)],
-            check=True,
-        )
+        assert wbs_bytes.variant(str(FIX / "preserve.md"), kind, str(dst)) == 0
         out[kind] = dst
     return out
-
-
-def _find(tree, text):
-    stack = list(tree["children"])
-    while stack:
-        node = stack.pop(0)
-        if node["text"] == text:
-            return node
-        stack.extend(node["children"])
-    raise AssertionError(f"no node {text!r}")
 
 
 def _walk(tree):
@@ -171,6 +160,13 @@ def _walk(tree):
         node = stack.pop(0)
         yield node
         stack.extend(node["children"])
+
+
+def _find(tree, text):
+    for node in _walk(tree):
+        if node["text"] == text:
+            return node
+    raise AssertionError(f"no node {text!r}")
 
 
 def _tuples(nodes):

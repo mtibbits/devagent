@@ -762,6 +762,9 @@ EOF
 # fenced block, odd meta formatting). Byte facts are checked only with cmp /
 # cmp -l: Git Bash grep and sed hide CR.
 
+# The variants tests/helpers/wbs_bytes.py builds (its KINDS).
+WBS701_KINDS="lf crlf lf-nofinal crlf-nofinal"
+
 # Write the <kind> variant of preserve.md to WBS.md, and a copy to WBS.input.
 _wbs701() {
   python3 "$REPO/tests/helpers/wbs_bytes.py" variant \
@@ -777,7 +780,7 @@ _wbs701_progress() {
 
 @test "wbs update leaves an unchanged WBS.md byte-identical in every variant (#701)" {
   local kind
-  for kind in lf crlf lf-nofinal crlf-nofinal; do
+  for kind in $WBS701_KINDS; do
     _wbs701 "$kind"
     run bash "$REPO/scripts/wbs.sh" update testproj
     [ "$status" -eq 0 ]
@@ -788,7 +791,7 @@ _wbs701_progress() {
 @test "wbs update changes only the glyph byte of a reconciled leaf (#701)" {
   local kind off cmpout
   _wbs701_progress
-  for kind in lf crlf lf-nofinal crlf-nofinal; do
+  for kind in $WBS701_KINDS; do
     _wbs701 "$kind"
     run bash "$REPO/scripts/wbs.sh" update testproj
     [ "$status" -eq 0 ]
@@ -838,7 +841,7 @@ _wbs701_progress() {
 
 @test "wbs show with no filter prints WBS.md byte-for-byte (#701)" {
   local kind
-  for kind in lf crlf lf-nofinal crlf-nofinal; do
+  for kind in $WBS701_KINDS; do
     _wbs701 "$kind"
     bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out"
     cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
