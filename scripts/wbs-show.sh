@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Render <devdoc>/WBS.md. Optional --depth N keeps nodes through N
+# Print <devdoc>/WBS.md as written; --depth/--milestone print the title
+# and matching nodes only (#701). Optional --depth N keeps nodes through N
 # levels below root (depth 1-based in parser, so --depth 1 means
 # "root + first level"). Optional --milestone X filters to subtrees
 # containing a node with meta.milestone == X.
@@ -66,6 +67,11 @@ spec.loader.exec_module(mod)
 
 tree = mod.parse_file(src)
 
+# Bytes: text-mode stdout turns `\n` into `\r\n` on Windows.
+if depth is None and not milestone:
+    sys.stdout.buffer.write(mod.render_markdown(tree).encode("utf-8"))
+    sys.exit(0)
+
 
 def has_milestone(node, ms):
     if node.get("meta", {}).get("milestone") == ms:
@@ -91,5 +97,5 @@ if depth is not None:
     for k in tree["children"]:
         prune_depth(k, depth)
 
-sys.stdout.write(mod.render_markdown(tree))
+sys.stdout.buffer.write(mod.render_nodes(tree).encode("utf-8"))
 PY
