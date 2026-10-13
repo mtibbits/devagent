@@ -158,7 +158,7 @@ main() {
     # SOURCE (operator answer A1): the backend-rendered `- Labels:` HEADER line of
     # the issue.md this run just wrote from the backend's stdout — read once,
     # header segment only, never the body and never a comment. There is no JSON
-    # payload to parse here: the five-verb backend contract defines `fetch` as
+    # payload to parse here: the §9.1 backend contract defines `fetch` as
     # markdown-to-stdout (spec §9.1) and pull.sh writes it verbatim (§9.3), so the
     # markdown IS the payload at this point.
     #

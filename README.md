@@ -274,7 +274,8 @@ To add a new backend:
 
 ### Contract summary
 
-Every issue backend MUST implement five verbs (spec §9.1):
+Every issue backend MUST implement five verbs and MAY implement `state-list`
+(spec §9.1):
 
 | Verb           | Args                                            | Output / exit       |
 |----------------|-------------------------------------------------|---------------------|
@@ -283,6 +284,7 @@ Every issue backend MUST implement five verbs (spec §9.1):
 | `transition`   | `<repo> <num> <semantic-stage>`                 | exit 0              |
 | `state`        | `<repo> <num>`                                  | backend state       |
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
+| `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78) |
 
 Every code backend MUST implement five verbs (spec §9.2):
 

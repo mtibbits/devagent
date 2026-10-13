@@ -39,7 +39,7 @@ The [workflow reference](./workflow.md) tables every numbered step.
 - [Quickstart](./quickstart.md) — from empty config to a merge-ready MR.
 - [Workflow reference](./workflow.md) — the full step table, checklist
   glyphs, and the revision loop.
-- [Configuration](./configuration.md) — `config.toml`, the five-verb backend
+- [Configuration](./configuration.md) — `config.toml`, the backend verb
   contract, and the template registry.
 - [Multi-project & concurrency](./concurrency.md) — session pins, the shared
   pointer, and parking.

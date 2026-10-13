@@ -1495,6 +1495,7 @@ create       <repo> <title> <body-file> [--label X]…       → new <num> to st
 transition   <repo> <num> <semantic-stage>                 → exit 0 on success
 state        <repo> <num>                                  → backend state to stdout
 comment-list <repo> <num>                                  → markdown to stdout
+state-list   <repo>                                        → "<id>\t<class>" lines (MAY)
 ```
 
 `<semantic-stage>` is a key from `[project.<name>.issue_workflow]`
@@ -1504,6 +1505,27 @@ representation:
 - GitHub: add/remove labels per `github_labels` config sub-block
 - GitLab: same label model
 - JIRA: native state transitions via REST API
+
+The first five verbs MUST be implemented; `state-list` MAY be (#703). It
+prints one line per issue of `<repo>`: the issue id (the GitHub or GitLab
+issue number; the JIRA issue key, such as `PROJ-12`), a TAB, and a class.
+The backend classifies, with the label and resolution config it already
+owns:
+
+- `done`: closed as completed (JIRA: `done` status category)
+- `not_planned`: closed as not planned or duplicate (JIRA: `done` category
+  with a resolution listed in `issue_workflow.not_planned_resolutions`)
+- `in_progress`: open with the `in_progress` stage label (JIRA:
+  `indeterminate` category)
+- `open`: open otherwise (JIRA: `new` category)
+- `other`: closed with a reason the backend does not recognise
+
+A record whose state the backend does not recognise fails the call, so a
+renamed field never reads as a class. Exit `0` is success (empty output is a
+repo with no issues). `78` (not implemented) and `2` (unknown verb, as in a
+backend older than the verb) mean "no state lookup". Any other exit is a
+lookup failure, which aborts the `wbs update` tracker phase (§13.2).
+`wbs update` is the verb's only caller.
 
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 
@@ -1711,8 +1733,10 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`. Unrecognized keys are preserved
-verbatim for forward compatibility.
+`start`, `due`, `depends_on`, `status_src`. Unrecognized keys are
+preserved verbatim for forward compatibility. `wbs update` writes
+`status_src` (`tracker` or `checklist`): where a leaf's glyph came from
+(#703).
 
 A node is a `- [g] …` line outside a fenced code block. A fence may
 open at any indentation, so a fence in a leaf's indented note hides the
@@ -1722,16 +1746,25 @@ blank lines, fenced blocks and the node-shaped lines inside them) and
 each node line's own formatting (meta quoting and spacing, indentation,
 LF or CRLF line endings, the presence or absence of a final newline) is
 written back byte-for-byte by `wbs update` and by `wbs-parser.py render`
-of a `parse` tree. `wbs update` changes only the glyph character of a
-leaf whose state changed and adds new nodes as whole lines in the file's
-line-ending style (#701).
+of a `parse` tree. `wbs update` changes only the glyph character and
+the `status_src` value of a leaf whose state it resolved (#703) and adds
+new nodes as whole lines in the file's line-ending style (#701).
 
 ### 13.2 Commands
 
 - `/devagent:wbs init` — scaffold from `wbs_template.md`
-- `/devagent:wbs update` — invoked by step 20 and by `planwbs` from
-  capture family; sets each issue leaf's glyph from its checklist and
-  adds the active issue; every other line is kept byte-for-byte
+- `/devagent:wbs update [--offline]` — invoked by step 20 and by
+  `planwbs` from capture family; sets each issue leaf's glyph from the
+  tracker's issue state, else from its checklist, and adds the active
+  issue; every other line is kept byte-for-byte. The tracker state comes
+  from one `state-list` call (§9.1) per configured issue source; a leaf
+  maps to the source whose `dir_prefix` it carries (fork first). Closed as
+  completed gives `[x]`, closed as not planned `[-]`, in progress `[~]`
+  (a hand-set `[P]`, `[!]` or `[?]` is kept), and open falls through to
+  the checklist, except that an all-done checklist gives `[~]` until the
+  issue closes. An id the tracker does not list keeps its glyph. A failed
+  lookup changes no glyph, prints one warning and exits 0. `--offline`
+  (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703).
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only
 
@@ -1742,7 +1775,8 @@ line-ending style (#701).
 - `/devagent:wbs export --format openproject` — POST to OpenProject API
 
 These are deliberately deferred. The metadata schema is fixed in v1
-so deferred renderers do not require schema migration.
+so deferred renderers do not require schema migration; additive keys
+such as `status_src` may be added, and renderers ignore unknown keys.
 
 ## 14. Status reports
 

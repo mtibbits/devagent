@@ -58,7 +58,8 @@ transition_issue = true        # tracker state transitions fire unprompted
 [project.myproj.issue_source]  # where tickets live
 backend = "github"             # github | gitlab | jira | custom
 repo    = "you/myproj"
-dir_prefix = "Issue-"          # issue-directory prefix; pull dies without it
+dir_prefix = "Issue-"          # issue-directory prefix; pull dies without it.
+                               # wbs update also maps leaves to this tracker by it
 
 [project.myproj.code_source]   # where branches push and MRs file
 backend  = "github"
@@ -69,6 +70,8 @@ fork     = "you/myproj"
 on_draft_start = "In Progress"
 on_ship        = "In Review"
 on_merge       = "Done"
+# not_planned_resolutions = ["Won't Do"]  # jira: wbs update reads these done
+                                          # resolutions as [-] (#703)
 
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"
@@ -88,12 +91,13 @@ checking = "opus"
 MYPROJ_DATA_ROOT = "~/src/myprojData"
 ```
 
-## The five-verb backend contract
+## The backend verb contract
 
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
-**issue backend** implements five verbs:
+**issue backend** implements five verbs and may implement a sixth,
+`state-list`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -102,6 +106,14 @@ GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 | `transition` | `<repo> <num> <semantic-stage>` | exit 0 |
 | `state` | `<repo> <num>` | backend state |
 | `comment-list` | `<repo> <num>` | markdown to stdout |
+| `state-list` | `<repo>` | one `<id>` TAB `<class>` line per issue (optional) |
+
+`state-list` is what `wbs update` reads to set leaf glyphs from the
+tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
+`other`; the in-progress signal is the `github_labels.in_progress` /
+`gitlab_labels.in_progress` label (GitHub defaults to `in progress`). A
+backend without it exits 78 (or 2, unknown verb), and `wbs update` then
+uses local checklists. See spec §9.1.
 
 Every **code backend** implements five verbs:
 
