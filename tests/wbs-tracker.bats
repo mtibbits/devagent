@@ -544,9 +544,13 @@ EOF
 @test "a missing backend CLI is no-lookup, not failure (#703)" {
   _config github acme/testproj no
   unset DEVAGENT_ISSUE_BACKEND_DIR
-  PATH="$(_path_without gh)"
+  local stripped
+  stripped="$(_path_without gh)"
+  # Probe before applying: where gh shares /usr/bin (GitHub runners), the
+  # stripped PATH also loses rm, and teardown runs under the test's PATH.
+  (PATH="$stripped"; command -v python3 >/dev/null) || skip "gh shares a PATH dir with python3 here"
+  PATH="$stripped"
   export PATH
-  command -v python3 >/dev/null || skip "gh shares a PATH dir with python3 here"
   run command -v gh
   [ "$status" -ne 0 ]
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
