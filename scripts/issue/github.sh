@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/issue/github.sh — GitHub issue backend.
 # Backend contract: implements all five issue verbs per spec §9.1
-# (fetch, create, transition, state, comment-list).
+# (fetch, create, transition, state, comment-list), plus the optional
+# state-list that `wbs update` reads (#703).
 # Output shape conforms to spec §9.3.
 
 set -euo pipefail
@@ -190,6 +191,50 @@ cmd_transition() {
   gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null 2>&1 || return 0
 }
 
+# state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
+# `<number>` TAB `<class>` line each, for `wbs update`. One `gh issue list`
+# call (gh pages internally). Classes:
+#   CLOSED + COMPLETED                 -> done
+#   CLOSED + NOT_PLANNED / DUPLICATE   -> not_planned
+#   CLOSED + any other reason          -> other
+#   OPEN + the in_progress label       -> in_progress (_stage_label above)
+#   OPEN                               -> open
+# Exit: 0 ok; 1 gh failure or no repo arg; 5 a record with an unrecognised
+# state or unreadable JSON (fail closed: a renamed field must not read as a
+# class). Never 2, which means "unknown verb" to `wbs update`.
+cmd_state_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || _die "issue/github.sh state-list: repo required"
+  _need gh
+  _need jq
+  local ip json err n
+  ip="$(_stage_label in_progress)"
+  err="$(mktemp)"
+  if ! json="$(gh issue list --repo "$repo" --state all --limit 5000 \
+      --json number,state,stateReason,labels 2>"$err")"; then
+    echo "gh issue list failed: $(cat "$err")" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+  n="$(printf '%s' "$json" | jq length | tr -d '\r')" || {
+    echo "issue/github.sh state-list: gh issue list returned unreadable JSON" >&2
+    return 5
+  }
+  if [ "$n" = 5000 ]; then
+    echo "github.sh: state-list returned the --limit of 5000 issues; older issues are missing" >&2
+  fi
+  printf '%s' "$json" | jq -r --arg ip "$ip" '
+    .[] | "\(.number)\t\(
+      if .state == "CLOSED" then
+        (if .stateReason == "COMPLETED" then "done"
+         elif .stateReason == "NOT_PLANNED" or .stateReason == "DUPLICATE" then "not_planned"
+         else "other" end)
+      elif .state == "OPEN" then
+        (if $ip != "" and any(.labels[]?; .name == $ip) then "in_progress" else "open" end)
+      else error("unrecognised state \(.state) on #\(.number)") end)"' || return 5
+}
+
 main() {
   local verb="${1:-}"
   if [ -z "$verb" ]; then
@@ -203,6 +248,7 @@ main() {
     comment-list)  cmd_comment_list "$@" ;;
     create)        cmd_create       "$@" ;;
     transition)    cmd_transition   "$@" ;;
+    state-list)    cmd_state_list   "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2

@@ -11,6 +11,8 @@
 #   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
 #   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
 #   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
+#   GH_STUB_ISSUE_LIST_FILE  `gh issue list` payload file (#703; required —
+#                            this stub is copied out of the fixtures dir)
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -99,6 +101,26 @@ case "$sub $sub2" in
       noisy) echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2 ;;
     esac
     _issue_json
+    ;;
+
+  "issue list")
+    # issue/github.sh state-list (#703): every issue, the fields it classifies.
+    [ -n "${GH_STUB_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_ARGS_LOG"
+    _pair() {  # _pair <flag> <value> -- "$@": <flag> is followed by <value>
+      local f="$1" v="$2" prev="" a; shift 3
+      for a in "$@"; do [ "$prev" = "$f" ] && [ "$a" = "$v" ] && return 0; prev="$a"; done
+      return 1
+    }
+    _has_flag --repo -- "$@" || _assert_fail "issue list: missing --repo"
+    _pair --state all -- "$@" || _assert_fail "issue list: want --state all: $*"
+    _pair --limit 5000 -- "$@" || _assert_fail "issue list: want --limit 5000: $*"
+    _pair --json number,state,stateReason,labels -- "$@" \
+      || _assert_fail "issue list: want --json number,state,stateReason,labels: $*"
+    case "${GH_STUB_CASE:-standard}" in
+      fail) echo "gh: HTTP 401: Bad credentials" >&2; exit 1 ;;
+    esac
+    [ -n "${GH_STUB_ISSUE_LIST_FILE:-}" ] || _assert_fail "issue list: GH_STUB_ISSUE_LIST_FILE unset"
+    cat "$GH_STUB_ISSUE_LIST_FILE"
     ;;
 
   "issue edit")
