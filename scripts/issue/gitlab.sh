@@ -138,7 +138,8 @@ cmd_transition() {
   { [ -z "$repo" ] || [ -z "$num" ] || [ -z "$stage" ]; } && usage
 
   local add_label remove_prefix
-  local var_add="DEVAGENT_GITLAB_LABELS_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
+  local var_add
+  var_add="DEVAGENT_GITLAB_LABELS_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
   add_label="$(_gl_stage_label "$stage")"
   remove_prefix="${DEVAGENT_GITLAB_LABEL_NAMESPACE:-}"
 
