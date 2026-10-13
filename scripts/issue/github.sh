@@ -12,24 +12,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _die() { echo "$*" >&2; exit 1; }
 _need() { command -v "$1" >/dev/null 2>&1 || _die "$1 not found on PATH"; }
 
-# _gh_view <repo> <num> <json-fields>
-# Runs `gh issue view` and prints ONLY its stdout (the JSON). gh writes notices
+# _gh_json <gh-args…>
+# Runs `gh <gh-args…>` and prints ONLY its stdout (the JSON). gh writes notices
 # (update nags, deprecation warnings) to stderr even on success; capturing them
 # with 2>&1 would prefix the JSON and break the downstream jq (#86, same class as
 # the #27 fix in cmd_create). Stderr is kept separate and surfaced only when gh
-# exits non-zero.
-_gh_view() {
-  local repo="$1" num="$2" fields="$3"
+# exits non-zero, as `gh <cmd> <subcmd> failed: <stderr>`.
+_gh_json() {
   local out err
   err="$(mktemp)"
-  if ! out="$(gh issue view "$num" --repo "$repo" --json "$fields" 2>"$err")"; then
-    echo "gh issue view failed: $(cat "$err")" >&2
+  if ! out="$(gh "$@" 2>"$err")"; then
+    echo "gh $1 $2 failed: $(cat "$err")" >&2
     rm -f "$err"
     return 1
   fi
   rm -f "$err"
   printf '%s' "$out"
 }
+
+# _gh_view <repo> <num> <json-fields>
+_gh_view() { _gh_json issue view "$2" --repo "$1" --json "$3"; }
 
 cmd_fetch() {
   local repo="${1:?repo required}"
@@ -209,24 +211,11 @@ cmd_state_list() {
   [ -n "$repo" ] || _die "issue/github.sh state-list: repo required"
   _need gh
   _need jq
-  local ip json err n
+  local ip json out
   ip="$(_stage_label in_progress)"
-  err="$(mktemp)"
-  if ! json="$(gh issue list --repo "$repo" --state all --limit 5000 \
-      --json number,state,stateReason,labels 2>"$err")"; then
-    echo "gh issue list failed: $(cat "$err")" >&2
-    rm -f "$err"
-    return 1
-  fi
-  rm -f "$err"
-  n="$(printf '%s' "$json" | jq length | tr -d '\r')" || {
-    echo "issue/github.sh state-list: gh issue list returned unreadable JSON" >&2
-    return 5
-  }
-  if [ "$n" = 5000 ]; then
-    echo "github.sh: state-list returned the --limit of 5000 issues; older issues are missing" >&2
-  fi
-  printf '%s' "$json" | jq -r --arg ip "$ip" '
+  json="$(_gh_json issue list --repo "$repo" --state all --limit 5000 \
+    --json number,state,stateReason,labels)" || return 1
+  out="$(printf '%s' "$json" | jq -r --arg ip "$ip" '
     .[] | "\(.number)\t\(
       if .state == "CLOSED" then
         (if .stateReason == "COMPLETED" then "done"
@@ -235,7 +224,11 @@ cmd_state_list() {
       elif .state == "OPEN" then
         (if $ip != "" and any(.labels[]?; (.name | ascii_downcase) == ($ip | ascii_downcase))
          then "in_progress" else "open" end)
-      else error("unrecognised state \(.state) on #\(.number)") end)"' || return 5
+      else error("unrecognised state \(.state) on #\(.number)") end)"')" || return 5
+  if [ "$(printf '%s\n' "$out" | grep -c .)" = 5000 ]; then
+    echo "github.sh: state-list returned the --limit of 5000 issues; older issues are missing" >&2
+  fi
+  [ -z "$out" ] || printf '%s\n' "$out"
 }
 
 main() {

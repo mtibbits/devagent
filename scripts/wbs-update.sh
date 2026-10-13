@@ -161,10 +161,11 @@ trk_env=()
 _trk_fetch() {
   local S="$1" table="$2"
   local backend repo prefix status=off file="" detail="" keyprefix="" sh cli rc err
+  (( offline == 0 )) || return 0  # no WBS_TRK_<S>_* vars: the source is off
   backend="$(config_get_project_field "$project" "$table.backend" 2>/dev/null || true)"
   repo="$(config_get_project_field "$project" "$table.repo" 2>/dev/null || true)"
   prefix="$(config_get_project_field "$project" "$table.dir_prefix" 2>/dev/null || true)"
-  if (( offline == 0 )) && [[ -n "$backend" && -n "$repo" && -n "$prefix" ]]; then
+  if [[ -n "$backend" && -n "$repo" && -n "$prefix" ]]; then
     [[ "$backend" == jira ]] && keyprefix="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
     sh="$backend_dir/$backend.sh"
     case "$backend" in
@@ -202,7 +203,7 @@ _trk_fetch() {
 _trk_fetch ORIGIN issue_source
 _trk_fetch FORK issue_source_fork
 
-env "${trk_env[@]}" \
+env ${trk_env[@]+"${trk_env[@]}"} \
 WBS_PATH="$wbs" \
 PARSER_PATH="$parser" \
 WBS_TRACKER_LIB="$tracker_lib" \
@@ -276,7 +277,7 @@ def checklist_state(issue_id: str) -> "str | None":
     return " "
 
 
-# --- tracker sources (fork first: "Issue-" is a prefix of "Issue-Fork-") ---
+# --- tracker sources ---------------------------------------------------------
 sources = []
 for S in ("FORK", "ORIGIN"):
     env = {k: os.environ.get(f"WBS_TRK_{S}_{k}", "") for k in
@@ -284,6 +285,8 @@ for S in ("FORK", "ORIGIN"):
     if env["STATUS"] in ("", "off"):
         continue
     sources.append(env)
+# Longest dir_prefix first: "Issue-" is a prefix of "Issue-Fork-".
+sources.sort(key=lambda src: len(src["PREFIX"]), reverse=True)
 
 aborted = None  # (source, detail) of the first failed source
 for src in sources:
@@ -342,40 +345,30 @@ def leaf_class(iid: str) -> str:
     return "unmatched"
 
 
+def resolve_leaf(iid: str, cls: str, glyph: str, cur_src):
+    """trk.resolve for a leaf; the checklist is read only where it counts."""
+    local = checklist_state(iid) if cls in ("open", "other", "none") else None
+    return trk.resolve(glyph, cls, local, cur_src)
+
+
 def visit(node, fn):
     fn(node)
     for child in node.get("children", []):
         visit(child, fn)
 
 
-updates = 0
-
-
 def reconcile(node):
-    global updates
     if node.get("children"):
         return  # not a leaf; parent glyphs aren't tracker/checklist-derived
     meta = node.get("meta", {})
     iid = meta.get("issue")
     if not iid:
         return
-    cls = leaf_class(iid)
-    local = None if cls in ("missing", "unmatched") else checklist_state(iid)
-    got = trk.resolve(node["glyph"], cls, local, meta.get("status_src"))
+    got = resolve_leaf(iid, leaf_class(iid), node["glyph"], meta.get("status_src"))
     if got is None:
         return  # no signal: leave glyph and meta as set (#702)
-    glyph, status_src = got
-    changed = False
-    if node["glyph"] != glyph:
-        node["glyph"] = glyph
-        node["state"] = mod.STATE_GLYPHS.get(glyph, "pending")
-        changed = True
-    if meta.get("status_src") != status_src:
-        meta["status_src"] = status_src
-        node["meta"] = meta
-        changed = True
-    if changed:
-        updates += 1
+    node["glyph"], meta["status_src"] = got
+    node["state"] = mod.STATE_GLYPHS.get(node["glyph"], "pending")
 
 
 if not aborted:
@@ -418,8 +411,7 @@ if active_issue:
             }
             tree["children"].append(unassigned)
         cls = "none" if aborted else leaf_class(active_issue)
-        local = None if cls in ("missing", "unmatched") else checklist_state(active_issue)
-        got = trk.resolve(" ", cls, local, None)
+        got = resolve_leaf(active_issue, cls, " ", None)
         meta = {"issue": active_issue, "est": "?w"}
         if got is None:
             # A new leaf has no prior glyph to keep, so no signal means
@@ -437,7 +429,6 @@ if active_issue:
             "children": [],
             "source_line": 0,
         })
-        updates += 1
 
 mod.write_markdown(wbs_path, tree)
 PY

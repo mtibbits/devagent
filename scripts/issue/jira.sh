@@ -41,6 +41,15 @@ trim_date() { echo "${1%%T*}"; }
 # %20, never +). Same encoding gitlab.sh's urlenc produces.
 _urlenc() { jq -rn --arg s "$1" '$s | @uri' | tr -d '\r'; }
 
+_jira_load_config() {
+  # shellcheck source=../lib/paths.sh
+  source "${SCRIPT_DIR}/../lib/paths.sh"
+  # shellcheck source=../lib/io.sh
+  source "${SCRIPT_DIR}/../lib/io.sh"
+  # shellcheck source=../lib/config.sh
+  source "${SCRIPT_DIR}/../lib/config.sh"
+}
+
 cmd_fetch() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
@@ -113,12 +122,7 @@ cmd_transition() {
   local var="DEVAGENT_JIRA_STAGE_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
   local target_name="${!var:-}"
   if [ -z "$target_name" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    # shellcheck source=../lib/paths.sh
-    source "${SCRIPT_DIR}/../lib/paths.sh"
-    # shellcheck source=../lib/io.sh
-    source "${SCRIPT_DIR}/../lib/io.sh"
-    # shellcheck source=../lib/config.sh
-    source "${SCRIPT_DIR}/../lib/config.sh"
+    _jira_load_config
     target_name="$(config_get_project_field "$DEVAGENT_PROJECT" "issue_workflow.${stage}" 2>/dev/null || true)"
   fi
   if [ -z "$target_name" ]; then
@@ -177,31 +181,29 @@ cmd_comment_list() {
 _jira_not_planned() {
   local list="${DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS:-}"
   if [ -z "$list" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    # shellcheck source=../lib/paths.sh
-    source "${SCRIPT_DIR}/../lib/paths.sh"
-    # shellcheck source=../lib/io.sh
-    source "${SCRIPT_DIR}/../lib/io.sh"
-    # shellcheck source=../lib/config.sh
-    source "${SCRIPT_DIR}/../lib/config.sh"
+    _jira_load_config
     list="$(config_get_project_list "$DEVAGENT_PROJECT" issue_workflow.not_planned_resolutions 2>/dev/null || true)"
   fi
-  printf '%s\n' "$list" | tr -d '\r' | jq -R . | jq -sc 'map(select(length > 0))'
+  printf '%s\n' "$list" | tr -d '\r' | jq -Rsc 'split("\n") | map(select(length > 0))'
 }
 
 # Every issue of the project, as one JSON array: the enhanced JQL search,
 # paged on nextPageToken until isLast (or no token).
 _jira_search_all() {
-  local key="$1" url tok="" prev="" acc="[]" resp page last u
+  local key="$1" url tok="" prev="" pages="" resp out page last u auth
   url="$(base)/rest/api/2/search/jql?jql=$(_urlenc "project = \"${key}\" ORDER BY key")&fields=status,resolution&maxResults=100"
+  auth="$(auth_header)"
   while :; do
     u="$url"
     [ -z "$tok" ] || u="${url}&nextPageToken=$(_urlenc "$tok")"
-    resp="$(bc_curl_auth "$(auth_header)" GET "$u" -H 'Accept: application/json')" || return
+    resp="$(bc_curl_auth "$auth" GET "$u" -H 'Accept: application/json')" || return
+    # One jq per page: `<isLast> TAB <nextPageToken>`, then the issues array.
     # (an `||` caller disables set -e here, so each jq checks its own rc)
-    page="$(printf '%s' "$resp" | jq '.issues // []')" || return 5
-    acc="$(printf '%s\n%s\n' "$acc" "$page" | jq -s 'add')" || return 5
-    last="$(printf '%s' "$resp" | jq -r '.isLast // false' | tr -d '\r')" || return 5
-    tok="$(printf '%s' "$resp" | jq -r '.nextPageToken // ""' | tr -d '\r')" || return 5
+    out="$(printf '%s' "$resp" \
+      | jq -r '"\(.isLast // false)\t\(.nextPageToken // "")", (.issues // [] | tojson)' \
+      | tr -d '\r')" || return 5
+    { IFS=$'\t' read -r last tok; IFS= read -r page; } <<<"$out"
+    pages+="$page"$'\n'
     { [ "$last" = true ] || [ -z "$tok" ]; } && break
     if [ "$tok" = "$prev" ]; then
       echo "jira.sh state-list: nextPageToken repeated ($tok); stopping" >&2
@@ -209,7 +211,7 @@ _jira_search_all() {
     fi
     prev="$tok"
   done
-  printf '%s' "$acc"
+  printf '%s' "$pages" | jq -s 'add // []' || return 5
 }
 
 # state-list <repo> (#703, spec §9.1 MAY): every issue of the project, one

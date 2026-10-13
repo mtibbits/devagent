@@ -118,13 +118,18 @@ _gl_load_config() {
   source "${SCRIPT_DIR}/../lib/config.sh"
 }
 
+# _gl_stage_var <stage>: the env override's name, DEVAGENT_GITLAB_LABELS_<STAGE>.
+_gl_stage_var() {
+  printf 'DEVAGENT_GITLAB_LABELS_%s' "$(echo "$1" | tr '[:lower:]' '[:upper:]' | tr - _)"
+}
+
 # _gl_stage_label <stage>: the label for a semantic stage —
-# DEVAGENT_GITLAB_LABELS_<STAGE> env, else the project's
+# the _gl_stage_var env, else the project's
 # `gitlab_labels.<stage>` config, else empty (no built-in default).
 # transition adds it; state-list reads in_progress from it (#703).
 _gl_stage_label() {
   local stage="$1" var label
-  var="DEVAGENT_GITLAB_LABELS_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
+  var="$(_gl_stage_var "$stage")"
   label="${!var:-}"
   if [ -z "$label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
     _gl_load_config
@@ -139,7 +144,7 @@ cmd_transition() {
 
   local add_label remove_prefix
   local var_add
-  var_add="DEVAGENT_GITLAB_LABELS_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
+  var_add="$(_gl_stage_var "$stage")"
   add_label="$(_gl_stage_label "$stage")"
   remove_prefix="${DEVAGENT_GITLAB_LABEL_NAMESPACE:-}"
 

@@ -124,7 +124,7 @@ bc_gitlab_paginate() {
   while :; do
     pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
     n="$(printf '%s' "$pg" | jq 'if type == "array" then length else error("not a JSON array") end' \
-      | tr -d '\r')" || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
+      | tr -d '\r')" || n=""
     [[ "$n" =~ ^[0-9]+$ ]] || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
     acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')" || return 5
     [ "$n" -lt 100 ] && break

@@ -496,7 +496,7 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
     glyph = _glyph(node)
     new_meta = node.get("meta", {})
     if node["text"] != text or new_meta != meta:
-        spliced = _splice_status_src(node, m, body, text, meta)
+        spliced = _splice_status_src(new_meta, m, body, text)
         if spliced is None:
             return m.group("indent") + _node_tail(node, glyph)
         body = spliced
@@ -507,22 +507,18 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
 
 
 def _splice_status_src(
-    node: dict, m: re.Match, body: str, text: str, meta: dict
+    new_meta: dict, m: re.Match, body: str, text: str
 ) -> str | None:
     """`body` with only the `status_src` value changed, or None (#703).
 
-    Applies when the text is unchanged and the metas differ in a new
-    `status_src` value alone. An existing value is replaced in place;
-    otherwise `, status_src: <v>` goes just before the block's `}` (no
-    comma in an empty block). The result is re-parsed and must give the
-    node's meta, else None and the caller regenerates the line.
+    An existing value is replaced in place; otherwise `, status_src: <v>`
+    goes just before the block's `}` (no comma in an empty block). The
+    result is re-parsed and must give the line's `text` and `new_meta` —
+    so it applies only when the text is unchanged and the metas differ in
+    `status_src` alone — else None and the caller regenerates the line.
     """
-    new_meta = node.get("meta", {})
     value = new_meta.get("status_src")
-    if node["text"] != text or not isinstance(value, str) or not value:
-        return None
-    rest_meta = {k: v for k, v in meta.items() if k != "status_src"}
-    if {k: v for k, v in new_meta.items() if k != "status_src"} != rest_meta:
+    if not isinstance(value, str) or not value:
         return None
     rest = m.group("rest").rstrip()
     block = _META_BLOCK_RE.search(rest)

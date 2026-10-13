@@ -20,7 +20,7 @@ import re
 import sys
 
 CLASSES = ("done", "not_planned", "in_progress", "open", "other")
-LINE_RE = re.compile(r"^([^\t]+)\t(done|not_planned|in_progress|open|other)$")
+LINE_RE = re.compile(rf"^([^\t]+)\t({'|'.join(CLASSES)})$")
 
 # Hand-set glyphs an in-progress tracker claim does not override.
 HAND_SET = {"P", "!", "?"}
