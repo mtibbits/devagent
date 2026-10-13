@@ -58,9 +58,11 @@ teardown() {
 
 # #703: configure the origin tracker source (issue_source gains dir_prefix).
 _with_dir_prefix() {
-  sed -i 's|^repo    = "acme/testproj"$|&\ndir_prefix = "Issue-"|' \
-    "$HOME/.claude/devagent/config.toml"
-  grep -q '^dir_prefix = "Issue-"$' "$HOME/.claude/devagent/config.toml"
+  python3 "$REPO/scripts/lib/_toml.py" set "$HOME/.claude/devagent/config.toml" \
+    project.testproj.issue_source.dir_prefix '"Issue-"'
+  run python3 "$REPO/scripts/lib/_toml.py" get "$HOME/.claude/devagent/config.toml" \
+    project.testproj.issue_source.dir_prefix
+  [ "$output" = "Issue-" ]
 }
 
 # Helper: write an arbitrary scalar to the project state via the

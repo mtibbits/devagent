@@ -122,8 +122,12 @@ EOF
     export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
     wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
     printf '1\tdone\n' > "$DEVAGENT_TMP/state-list.github"
-    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    # a github source needs `gh` on PATH to be looked up (no gh means "no
+    # lookup", as on a gh-less box); the shim proves the stub made no call
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    PATH="$DEVAGENT_TMP/shims:$PATH" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
+    [ ! -e "$DEVAGENT_TMP/network.log" ]
     # cleanup marks its own step 23, then calls wbs update, which takes
     # the tracker's closed state and flips the leaf to [x].
     grep -qxF -- '  - [x] Working leaf {issue: Issue-1, est: 1w, status_src: tracker}' "$DEVDOC_DIR/WBS.md"
