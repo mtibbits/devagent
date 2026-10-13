@@ -68,8 +68,11 @@ def resolve(
         return ("~", "tracker")
     if cls == "open":
         if local is None:
-            # closed-then-reopened: a tracker-set glyph is stale
-            return ("~", "tracker") if cur_src == "tracker" else None
+            # closed-then-reopened: a tracker-set glyph is stale, but a
+            # hand-set one is the operator's (#702)
+            if cur_src == "tracker" and current not in HAND_SET:
+                return ("~", "tracker")
+            return None
         if local == "x":
             # the tracker says open, so an all-done checklist is not done
             return ("~", "tracker")

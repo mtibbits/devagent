@@ -204,11 +204,7 @@ cmd_state_list() {
   local ip; ip="$(_gl_stage_label in_progress)"
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || {
-    local rc=$?
-    [ "$rc" -ne 2 ] || rc=5  # a jq parse failure must not read as "unknown verb"
-    return "$rc"
-  }
+    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
   printf '%s' "$resp" | jq -r --arg ip "$ip" '
     .[] | "\(.iid)\t\(
       if .state == "closed" then "done"

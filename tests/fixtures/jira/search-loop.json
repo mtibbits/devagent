@@ -1,0 +1,31 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10001",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10001",
+      "key": "LOOP-1",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/resolution/1",
+          "id": "1",
+          "name": "Done",
+          "description": "Done"
+        }
+      }
+    }
+  ],
+  "nextPageToken": "SAME",
+  "isLast": false
+}

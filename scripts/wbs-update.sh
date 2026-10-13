@@ -27,6 +27,7 @@
 #                            all-done checklist gives `[~]`; with no
 #                            checklist signal, a leaf whose status_src is
 #                            `tracker` (closed, then reopened) gives `[~]`
+#                            unless its glyph is a hand-set `[P]` `[!]` `[?]`
 #   tracker other, or no lookup for the source, or no source configured
 #                         -> the checklist rule below
 #   id not in the list    -> unchanged, reported once

@@ -133,3 +133,16 @@ teardown() {
   run "$ISSUE_SCRIPT" state-list
   [ "$status" -eq 1 ]
 }
+
+@test "[gitlab] state-list fails closed on a 2xx page that is not JSON (#703 review)" {
+  # a login page or proxy answer must not loop forever or read as no issues
+  run timeout 60 "$ISSUE_SCRIPT" state-list foo/html
+  [ "$status" -ne 124 ]
+  [ "$status" -eq 5 ]
+}
+
+@test "[gitlab] state-list fails closed on a 2xx JSON object (#703 review)" {
+  run timeout 60 "$ISSUE_SCRIPT" state-list foo/object
+  [ "$status" -ne 124 ]
+  [ "$status" -eq 5 ]
+}

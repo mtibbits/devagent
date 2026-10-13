@@ -191,7 +191,7 @@ _jira_not_planned() {
 # Every issue of the project, as one JSON array: the enhanced JQL search,
 # paged on nextPageToken until isLast (or no token).
 _jira_search_all() {
-  local key="$1" url tok="" acc="[]" resp page last u
+  local key="$1" url tok="" prev="" acc="[]" resp page last u
   url="$(base)/rest/api/2/search/jql?jql=$(_urlenc "project = \"${key}\" ORDER BY key")&fields=status,resolution&maxResults=100"
   while :; do
     u="$url"
@@ -203,6 +203,11 @@ _jira_search_all() {
     last="$(printf '%s' "$resp" | jq -r '.isLast // false' | tr -d '\r')" || return 5
     tok="$(printf '%s' "$resp" | jq -r '.nextPageToken // ""' | tr -d '\r')" || return 5
     { [ "$last" = true ] || [ -z "$tok" ]; } && break
+    if [ "$tok" = "$prev" ]; then
+      echo "jira.sh state-list: nextPageToken repeated ($tok); stopping" >&2
+      return 5
+    fi
+    prev="$tok"
   done
   printf '%s' "$acc"
 }
@@ -219,13 +224,9 @@ cmd_state_list() {
   local repo="${1:-}"
   [ -n "$repo" ] || { echo "jira.sh state-list: repo required" >&2; exit 1; }
   local key="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
-  local np all rc
+  local np all
   np="$(_jira_not_planned)" || return 5
-  all="$(_jira_search_all "$key")" || {
-    rc=$?
-    [ "$rc" -ne 2 ] || rc=5  # a jq parse failure must not read as "unknown verb"
-    return "$rc"
-  }
+  all="$(_jira_search_all "$key")" || return
   printf '%s' "$all" | jq -r --argjson np "$np" '
     .[] | "\(.key)\t\(
       (.fields.status.statusCategory.key // "") as $c

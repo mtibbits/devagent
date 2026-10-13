@@ -13,6 +13,7 @@
 #   #692 OPEN -> CLOSED with stateReason ""    (closed, no known reason)
 # Added labels carry a placeholder id/color. Nothing else was changed.
 # state-list-badstate.json is hand-written: one record with state "MERGED".
+# state-list-case.json is hand-written: one OPEN record labelled "In Progress".
 
 load lib/contract-helpers.bash
 
@@ -186,4 +187,13 @@ teardown() { :; }
 @test "[github] state-list without a repo exits 1, not 2" {
   run "$ISSUE_SCRIPT" state-list
   [ "$status" -eq 1 ]
+}
+
+@test "[github] state-list matches the in-progress label case-insensitively (#703 review)" {
+  # GitHub label names are case-insensitive: "In Progress" is the default label
+  export GH_STUB_ISSUE_LIST_FILE="${BATS_TEST_DIRNAME}/fixtures/issue-github/state-list-case.json"
+  run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'11\tin_progress' "$BATS_TEST_TMPDIR/list"
 }

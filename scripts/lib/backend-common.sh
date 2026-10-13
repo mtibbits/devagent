@@ -114,13 +114,19 @@ bc_curl_auth() {
 # X-Next-Page header), so we page-loop with per_page=100 and stop at the first
 # short page (a page with < 100 items is the last).
 #   Usage: bc_gitlab_paginate <url-without-query> [extra curl args…]
+# A 2xx page that is not a JSON array (a login page, a proxy answer, an error
+# object) returns 5: callers run this inside `$(...)`, where set -e is off, so
+# each jq checks its own status (#703 review — it used to loop forever, or
+# return an empty list).
 bc_gitlab_paginate() {
   local url="$1"; shift
   local page=1 acc="[]" pg n
   while :; do
     pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
-    n="$(printf '%s' "$pg" | jq 'length')"
-    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')"
+    n="$(printf '%s' "$pg" | jq 'if type == "array" then length else error("not a JSON array") end' \
+      | tr -d '\r')" || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
+    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')" || return 5
     [ "$n" -lt 100 ] && break
     page=$((page + 1))
   done

@@ -197,7 +197,9 @@ cmd_transition() {
 #   CLOSED + COMPLETED                 -> done
 #   CLOSED + NOT_PLANNED / DUPLICATE   -> not_planned
 #   CLOSED + any other reason          -> other
-#   OPEN + the in_progress label       -> in_progress (_stage_label above)
+#   OPEN + the in_progress label       -> in_progress (_stage_label above;
+#                                         matched case-insensitively, as GitHub
+#                                         names labels)
 #   OPEN                               -> open
 # Exit: 0 ok; 1 gh failure or no repo arg; 5 a record with an unrecognised
 # state or unreadable JSON (fail closed: a renamed field must not read as a
@@ -231,7 +233,8 @@ cmd_state_list() {
          elif .stateReason == "NOT_PLANNED" or .stateReason == "DUPLICATE" then "not_planned"
          else "other" end)
       elif .state == "OPEN" then
-        (if $ip != "" and any(.labels[]?; .name == $ip) then "in_progress" else "open" end)
+        (if $ip != "" and any(.labels[]?; (.name | ascii_downcase) == ($ip | ascii_downcase))
+         then "in_progress" else "open" end)
       else error("unrecognised state \(.state) on #\(.number)") end)"' || return 5
 }
 
