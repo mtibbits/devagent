@@ -9,6 +9,8 @@
 # PROJ-3 done/Duplicate, PROJ-4 indeterminate, PROJ-5 new, PROJ-6 done/no
 # resolution; page 1 links to page 2 by nextPageToken "CAEaAggD=".
 # search-badcategory.json lacks statusCategory.key (the fail-closed control).
+# search-alt.json (one record, ALT-1 done/Done) serves tests/wbs-tracker.bats's
+# DEVAGENT_JIRA_PROJECT_KEY leg.
 # Route keys were copied from the fixture server's request log of a real run.
 
 load lib/contract-helpers.bash

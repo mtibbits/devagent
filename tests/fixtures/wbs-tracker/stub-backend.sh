@@ -7,10 +7,13 @@
 # bracketed, then [DEVAGENT_PROJECT=<v>] (register Issue-593: element-
 # delimited argv).
 #
-#   state-list  cat $WBS_STUB_ROOT/state-list.<backend> when it exists, write
-#               $STUB_STATE_LIST_ERR to stderr, exit ${STUB_STATE_LIST_RC:-0};
-#               with no list file, exit 78 (not implemented)
-#   any other   exit 2 (unknown verb)
+#   state-list <repo>
+#       list file: $WBS_STUB_ROOT/state-list.<backend>.<repo, / -> _> when it
+#       exists, else $WBS_STUB_ROOT/state-list.<backend>; with neither, exit
+#       78 (not implemented). Cat the list file, write <list>.err (else
+#       $STUB_STATE_LIST_ERR) to stderr, exit with <list>.rc (else
+#       ${STUB_STATE_LIST_RC:-0}).
+#   any other verb  exit 2 (unknown verb)
 root="${WBS_STUB_ROOT:-${TMPROOT:?stub-backend: TMPROOT unset}}"
 backend="$(basename "$0" .sh)"
 
@@ -22,11 +25,17 @@ printf '%s[DEVAGENT_PROJECT=%s]\n' "$line" "${DEVAGENT_PROJECT:-}" >> "$root/bac
 
 case "${1:-}" in
   state-list)
+    repo="${2:-}"
     list="$root/state-list.$backend"
+    [[ -f "$list.${repo//\//_}" ]] && list="$list.${repo//\//_}"
     [[ -f "$list" ]] || exit 78
     cat "$list"
-    [[ -n "${STUB_STATE_LIST_ERR:-}" ]] && printf '%s\n' "$STUB_STATE_LIST_ERR" >&2
-    exit "${STUB_STATE_LIST_RC:-0}"
+    err="${STUB_STATE_LIST_ERR:-}"
+    [[ -f "$list.err" ]] && err="$(cat "$list.err")"
+    [[ -n "$err" ]] && printf '%s\n' "$err" >&2
+    rc="${STUB_STATE_LIST_RC:-0}"
+    [[ -f "$list.rc" ]] && rc="$(cat "$list.rc")"
+    exit "$rc"
     ;;
   *) exit 2 ;;
 esac
