@@ -144,7 +144,7 @@ EOF
 - [?] Five {issue: Issue-5, est: 1w}
 EOF
   local i
-  for i in 1 2 3 4 5; do _cl "Issue-$i" done; done
+  for i in 1 2 3 4 5; do _cl "Issue-$i" "done"; done
   _list acme/testproj $'1\tin_progress' $'2\tin_progress' $'3\tin_progress' \
     $'4\tin_progress' $'5\tin_progress'
   cat > "$TMPDEV/expected" <<'EOF'
@@ -171,7 +171,7 @@ EOF
 EOF
   _cl Issue-1 progress
   _cl Issue-2 pending
-  _cl Issue-3 done
+  _cl Issue-3 "done"
   _list acme/testproj $'1\topen' $'2\topen' $'3\topen' $'4\topen' $'5\topen'
   cat > "$TMPDEV/expected" <<'EOF'
 # testproj WBS
@@ -193,7 +193,7 @@ EOF
 - [~] Missing one {issue: Issue-8, est: 1w}
 - [P] Missing two {issue: Issue-9, est: 1w}
 EOF
-  _cl Issue-8 done
+  _cl Issue-8 "done"
   _list acme/testproj $'1\tdone'
   cat > "$TMPDEV/expected" <<'EOF'
 # testproj WBS
@@ -223,7 +223,7 @@ EOF
 - [ ] One {issue: Issue-1, est: 1w}
 - [ ] Two {issue: Issue-2, est: 1w}
 EOF
-  _cl Issue-2 done
+  _cl Issue-2 "done"
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
   _list acme/testproj $'1\tdone'
   _list_fail acme/testproj 1 'HTTP 401'
@@ -245,7 +245,7 @@ EOF
 
 @test "malformed state-list output aborts the tracker phase (#703)" {
   printf '%s\n' '# testproj WBS' '' '- [ ] Five {issue: Issue-5, est: 1w}' > "$TMPDEV/WBS.md"
-  _cl Issue-5 done
+  _cl Issue-5 "done"
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
   _list acme/testproj $'5\tclosed'
   _update
@@ -279,7 +279,7 @@ EOF
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
   _active Issue-7
-  _cl Issue-7 done
+  _cl Issue-7 "done"
   _list acme/testproj $'7\tin_progress'
   _list_fail acme/testproj 1 'HTTP 401'
   { cat "$TMPDEV/WBS.input"
@@ -298,7 +298,7 @@ EOF
 @test "no tracker configured keeps the pre-#703 checklist rule (#703)" {
   _config none "" no
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
-  _cl Issue-1 done
+  _cl Issue-1 "done"
   printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   _update_diff
   [ ! -e "$TMPROOT/backend.log" ]
@@ -309,7 +309,7 @@ EOF
   local leg
   for leg in 78 2 noscript; do
     printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
-    _cl Issue-1 done
+    _cl Issue-1 "done"
     case "$leg" in
       78) : ;;  # no list file: the stub exits 78
       2) printf '#!/usr/bin/env bash\nexit 2\n' > "$DEVAGENT_ISSUE_BACKEND_DIR/github.sh" ;;
@@ -335,7 +335,7 @@ EOF
 
 @test "--offline makes no backend call (#703)" {
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
-  _cl Issue-1 done
+  _cl Issue-1 "done"
   _list acme/testproj $'1\topen'
   printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   _update_diff --offline
@@ -454,8 +454,8 @@ EOF
 - [ ] Open all done {issue: Issue-753, est: 1w}
 - [ ] Closed no reason {issue: Issue-692, est: 1w}
 EOF
-  _cl Issue-753 done
-  _cl Issue-692 done
+  _cl Issue-753 "done"
+  _cl Issue-692 "done"
   cat > "$TMPDEV/expected" <<'EOF'
 # testproj WBS
 
@@ -533,7 +533,7 @@ EOF
 
 @test "DEVAGENT_WBS_OFFLINE=1 behaves as --offline (#703)" {
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
-  _cl Issue-1 done
+  _cl Issue-1 "done"
   _list acme/testproj $'1\topen'
   printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   export DEVAGENT_WBS_OFFLINE=1
@@ -550,7 +550,7 @@ EOF
   run command -v gh
   [ "$status" -ne 0 ]
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
-  _cl Issue-1 done
+  _cl Issue-1 "done"
   printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   _update_diff
   run grep -c 'wbs update: github has no state-list (gh not on PATH)' <<< "$output"
