@@ -1,0 +1,24 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10007",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10007",
+      "key": "BAD-7",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "name": "Done"
+          }
+        },
+        "resolution": null
+      }
+    }
+  ],
+  "isLast": true
+}

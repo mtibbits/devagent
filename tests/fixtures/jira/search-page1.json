@@ -1,0 +1,81 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10001",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10001",
+      "key": "PROJ-1",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/resolution/1",
+          "id": "1",
+          "name": "Done",
+          "description": "Done"
+        }
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10002",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10002",
+      "key": "PROJ-2",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/resolution/1",
+          "id": "1",
+          "name": "Won't Do",
+          "description": "Won't Do"
+        }
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10003",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10003",
+      "key": "PROJ-3",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/resolution/1",
+          "id": "1",
+          "name": "Duplicate",
+          "description": "Duplicate"
+        }
+      }
+    }
+  ],
+  "nextPageToken": "CAEaAggD=",
+  "isLast": false
+}
