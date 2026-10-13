@@ -10,6 +10,8 @@
 # resolution; page 1 links to page 2 by nextPageToken "CAEaAggD=".
 # search-badcategory.json lacks statusCategory.key (the fail-closed control).
 # search-loop.json repeats its nextPageToken (the paging-loop control).
+# search-undefined.json (one record, NOCAT-8 in Jira's fourth status category
+# `undefined`, "No Category") pins that category to `other`.
 # search-alt.json (one record, ALT-1 done/Done) serves tests/wbs-tracker.bats's
 # DEVAGENT_JIRA_PROJECT_KEY leg.
 # Route keys were copied from the fixture server's request log of a real run.
@@ -139,6 +141,12 @@ teardown() {
   run "$ISSUE_SCRIPT" state-list BAD
   [ "$status" -ne 0 ]
   [[ "$output" == *"unrecognised statusCategory  on BAD-7"* ]]
+}
+
+@test "[jira] state-list reads the undefined (No Category) status category as other (#703 review)" {
+  run "$ISSUE_SCRIPT" state-list NOCAT
+  [ "$status" -eq 0 ]
+  [ "$output" = $'NOCAT-8\tother' ]
 }
 
 @test "[jira] state-list without a repo exits 1, not 2" {

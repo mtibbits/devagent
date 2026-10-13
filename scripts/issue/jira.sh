@@ -219,7 +219,8 @@ _jira_search_all() {
 # ${DEVAGENT_JIRA_PROJECT_KEY:-<repo>}, as cmd_create uses. Classes by
 # statusCategory.key: done -> done (not_planned when the resolution is a
 # listed not-planned one, _jira_not_planned); indeterminate -> in_progress;
-# new -> open. Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other
+# new -> open; undefined ("No Category", a legitimate fourth value) -> other.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other
 # bc_curl codes for other HTTP failures; 5 a record with an unrecognised
 # status category or unreadable JSON (fail closed). Never 2 ("unknown verb").
 cmd_state_list() {
@@ -236,6 +237,7 @@ cmd_state_list() {
       | if $c == "done" then (if any($np[]; . == $r) then "not_planned" else "done" end)
         elif $c == "indeterminate" then "in_progress"
         elif $c == "new" then "open"
+        elif $c == "undefined" then "other"
         else error("unrecognised statusCategory \($c) on \(.key)") end)"' || return 5
 }
 

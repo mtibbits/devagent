@@ -1518,7 +1518,8 @@ owns:
 - `in_progress`: open with the `in_progress` stage label (JIRA:
   `indeterminate` category)
 - `open`: open otherwise (JIRA: `new` category)
-- `other`: closed with a reason the backend does not recognise
+- `other`: closed with a reason the backend does not recognise (JIRA: the
+  `undefined` "No Category" status category)
 
 A record whose state the backend does not recognise fails the call, so a
 renamed field never reads as a class. Exit `0` is success (empty output is a
@@ -1758,7 +1759,8 @@ new nodes as whole lines in the file's line-ending style (#701).
   tracker's issue state, else from its checklist, and adds the active
   issue; every other line is kept byte-for-byte. The tracker state comes
   from one `state-list` call (§9.1) per configured issue source; a leaf
-  maps to the source whose `dir_prefix` it carries (fork first). Closed as
+  maps to the source whose `dir_prefix` it carries (the longest matching
+  `dir_prefix` wins, so `Issue-Fork-` before `Issue-`). Closed as
   completed gives `[x]`, closed as not planned `[-]`, in progress `[~]`
   (a hand-set `[P]`, `[!]` or `[?]` is kept), and open falls through to
   the checklist, except that an all-done checklist gives `[~]` until the

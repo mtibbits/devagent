@@ -1,0 +1,25 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10008",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10008",
+      "key": "NOCAT-8",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10009",
+          "name": "Legacy",
+          "id": "10009",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/1",
+            "id": 1,
+            "key": "undefined",
+            "name": "No Category"
+          }
+        },
+        "resolution": null
+      }
+    }
+  ],
+  "isLast": true
+}

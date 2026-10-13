@@ -7,9 +7,9 @@
 # <devdoc>/<id>/checklist.md only where the tracker gives no signal.
 #
 # Tracker sources. A source is configured when its `backend`, `repo` and
-# `dir_prefix` are all set: `issue_source_fork` (checked first) and
-# `issue_source`. A leaf belongs to the source whose dir_prefix its id
-# carries; the rest of the id is looked up (GitHub/GitLab: digits; JIRA:
+# `dir_prefix` are all set: `issue_source_fork` and `issue_source`. A leaf
+# belongs to the source whose dir_prefix its id carries (the longest match
+# wins: `Issue-Fork-` before `Issue-`); the rest of the id is looked up (GitHub/GitLab: digits; JIRA:
 # digits N read as key `<pk>-N`, pk = DEVAGENT_JIRA_PROJECT_KEY else the
 # repo, or a key verbatim). An id that fits no configured source is no
 # signal. Each source's backend
