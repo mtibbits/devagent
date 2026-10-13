@@ -1,4 +1,13 @@
 #!/usr/bin/env bats
+#
+# #703 state-list fixture provenance: fixtures/gitlab/issues-page{1,2}.json are
+# generated (103 records, iid 1-103: iid%3==1 closed, iid%3==2 opened +
+# status::in-progress, else opened). Each record is a subset of the fields of
+# one item recorded 2026-10-12 from the public gitlab.com project 250833:
+#   curl 'https://gitlab.com/api/v4/projects/250833/issues?per_page=1'
+# (keys kept: id, iid, project_id, title, state, labels [string array],
+# closed_at, web_url). issues-locked.json holds one record whose state is
+# "locked" (the fail-closed control).
 
 load lib/contract-helpers.bash
 
@@ -86,4 +95,41 @@ teardown() {
   run "$CODE_SCRIPT" mr-comments "$MR_URL_OK"
   [ "$status" -eq 0 ]
   assert_comment_list_shape "$output"
+}
+
+# --- #703 state-list -------------------------------------------------------
+
+@test "[gitlab] state-list pages past 100 and classifies" {
+  "$ISSUE_SCRIPT" state-list "$REPO_ARG" > "$BATS_TEST_TMPDIR/list"
+  run python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-tracker.py" check < "$BATS_TEST_TMPDIR/list"
+  [ "$status" -eq 0 ]
+  [ "$output" = "103" ]
+  grep -q 'issues?per_page=100&page=2' "$FIXTURE_REQUEST_LOG"
+  grep -qFx $'1\tdone' "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'101\tin_progress' "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'102\topen' "$BATS_TEST_TMPDIR/list"
+}
+
+@test "[gitlab] state-list without an in-progress label never says in_progress" {
+  unset DEVAGENT_GITLAB_LABELS_IN_PROGRESS DEVAGENT_PROJECT
+  "$ISSUE_SCRIPT" state-list "$REPO_ARG" > "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'2\topen' "$BATS_TEST_TMPDIR/list"
+  run grep -c in_progress "$BATS_TEST_TMPDIR/list"
+  [ "$status" -eq 1 ]
+}
+
+@test "[gitlab] state-list on 401 exits 3" {
+  run "$ISSUE_SCRIPT" state-list foo/denied
+  [ "$status" -eq 3 ]
+}
+
+@test "[gitlab] state-list fails closed on an unrecognised state" {
+  run "$ISSUE_SCRIPT" state-list foo/locked
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unrecognised state locked on #7"* ]]
+}
+
+@test "[gitlab] state-list without a repo exits 1, not 2" {
+  run "$ISSUE_SCRIPT" state-list
+  [ "$status" -eq 1 ]
 }
