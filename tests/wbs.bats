@@ -246,6 +246,12 @@ EOF
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
+@test "wbs usage names update --offline and the tracker (#703)" {
+  run bash "$REPO/scripts/wbs.sh"
+  [ "$status" -eq 2 ]
+  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ else\ checklists\;\ add\ the\ active\ issue ]]
+}
+
 @test "updatewbs.md command file exists and references wbs.sh update" {
   [ -f "$REPO/commands/updatewbs.md" ]
   # #446: the invocation now goes through ${CLAUDE_PLUGIN_ROOT}, so the path is
