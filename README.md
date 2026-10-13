@@ -284,7 +284,7 @@ Every issue backend MUST implement five verbs and MAY implement `state-list`
 | `transition`   | `<repo> <num> <semantic-stage>`                 | exit 0              |
 | `state`        | `<repo> <num>`                                  | backend state       |
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
-| `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78) |
+| `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
 
 Every code backend MUST implement five verbs (spec §9.2):
 

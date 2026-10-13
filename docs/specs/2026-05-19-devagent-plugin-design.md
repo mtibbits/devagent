@@ -167,6 +167,7 @@ fork        = "mtibbits/volk"
 on_draft_start = "In Progress"
 on_ship        = "In Review"
 on_merge       = "Done"
+# not_planned_resolutions = ["Won't Do"]   # jira: wbs update reads these done resolutions as [-] (§9.1)
 
 [project.volk.issue_workflow.github_labels]      # only used when issue backend = "github"
 in_progress = "status: in-progress"
@@ -1518,8 +1519,9 @@ owns:
 - `in_progress`: open with the `in_progress` stage label (JIRA:
   `indeterminate` category)
 - `open`: open otherwise (JIRA: `new` category)
-- `other`: closed with a reason the backend does not recognise (JIRA: the
-  `undefined` "No Category" status category)
+- `other`: closed with a reason the backend does not recognise, or a state
+  the tracker leaves uncategorised (JIRA: the `undefined` "No Category"
+  status category)
 
 A record whose state the backend does not recognise fails the call, so a
 renamed field never reads as a class. Exit `0` is success (empty output is a

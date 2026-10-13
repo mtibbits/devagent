@@ -41,6 +41,10 @@ the README's "Versioning & releases" section has the release procedure.
   - New JIRA key `[project.<p>.issue_workflow] not_planned_resolutions` (env
     `DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS`, newline-separated). A JIRA leaf `Issue-N` is
     looked up as key `<project key>-N`.
+  - Behaviour changes once a tracker source is configured: an all-done checklist gives
+    `[~]` until the issue is closed; a leaf id that matches no `dir_prefix`, or fails the
+    source's id grammar (such as `Task-5`), is no longer reconciled from its checklist; and
+    a failed lookup skips the whole run's reconcile, checklists included.
   - Not breaking: no command, flag or file format is removed.
 
 - **Fixed: `wbs update` keeps hand-written `WBS.md` content (#701).**
