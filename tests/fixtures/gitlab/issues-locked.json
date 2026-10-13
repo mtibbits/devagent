@@ -1,0 +1,14 @@
+[
+  {
+    "id": 900007,
+    "iid": 7,
+    "project_id": 4242,
+    "title": "Issue 7",
+    "state": "locked",
+    "labels": [
+      "bug"
+    ],
+    "closed_at": "2026-10-01T12:00:00.000Z",
+    "web_url": "https://gitlab.example/foo/bar/-/issues/7"
+  }
+]

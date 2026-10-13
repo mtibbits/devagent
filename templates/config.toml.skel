@@ -216,3 +216,7 @@ fork = "{{CODE_FORK}}"
 on_draft_start = "In Progress"
 on_ship        = "In Review"
 on_merge       = "Done"
+# not_planned_resolutions = ["Won't Do"]   # jira: wbs update reads these done resolutions as [-] (#703)
+# wbs update reads an open issue carrying the in-progress label as [~]: set it with
+# [project.{{PROJECT}}.github_labels] in_progress = "..." (default "in progress") or
+# [project.{{PROJECT}}.gitlab_labels] in_progress = "..." (no default) (#703)

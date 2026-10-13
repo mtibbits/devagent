@@ -9,6 +9,8 @@
 #   transition   <repo> <num> <semantic-stage>      → exit 0
 #   state        <repo> <num>                       → backend state
 #   comment-list <repo> <num>                       → markdown
+#   state-list   <repo>                             → `<iid>\t<class>` lines
+#                (optional verb, read by `wbs update`; #703)
 
 set -euo pipefail
 
@@ -24,6 +26,7 @@ Usage: gitlab.sh <verb> [args…]
   transition <repo> <num> <semantic-stage>
   state <repo> <num>
   comment-list <repo> <num>
+  state-list <repo>
 EOF
   exit 2
 }
@@ -106,23 +109,47 @@ cmd_create() {
   echo "$resp" | jq -r '.iid'
 }
 
+_gl_load_config() {
+  # shellcheck source=../lib/paths.sh
+  source "${SCRIPT_DIR}/../lib/paths.sh"
+  # shellcheck source=../lib/io.sh
+  source "${SCRIPT_DIR}/../lib/io.sh"
+  # shellcheck source=../lib/config.sh
+  source "${SCRIPT_DIR}/../lib/config.sh"
+}
+
+# _gl_stage_var <stage>: the env override's name, DEVAGENT_GITLAB_LABELS_<STAGE>.
+_gl_stage_var() {
+  printf 'DEVAGENT_GITLAB_LABELS_%s' "$(echo "$1" | tr '[:lower:]' '[:upper:]' | tr - _)"
+}
+
+# _gl_stage_label <stage>: the label for a semantic stage —
+# the _gl_stage_var env, else the project's
+# `gitlab_labels.<stage>` config, else empty (no built-in default).
+# transition adds it; state-list reads in_progress from it (#703).
+_gl_stage_label() {
+  local stage="$1" var label
+  var="$(_gl_stage_var "$stage")"
+  label="${!var:-}"
+  if [ -z "$label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    _gl_load_config
+    label="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.${stage}" 2>/dev/null || true)"
+  fi
+  printf '%s' "$label"
+}
+
 cmd_transition() {
   local repo="${1:-}" num="${2:-}" stage="${3:-}"
   { [ -z "$repo" ] || [ -z "$num" ] || [ -z "$stage" ]; } && usage
 
   local add_label remove_prefix
-  local var_add="DEVAGENT_GITLAB_LABELS_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
-  add_label="${!var_add:-}"
+  local var_add
+  var_add="$(_gl_stage_var "$stage")"
+  add_label="$(_gl_stage_label "$stage")"
   remove_prefix="${DEVAGENT_GITLAB_LABEL_NAMESPACE:-}"
 
-  if [ -z "$add_label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    # shellcheck source=../lib/paths.sh
-    source "${SCRIPT_DIR}/../lib/paths.sh"
-    # shellcheck source=../lib/io.sh
-    source "${SCRIPT_DIR}/../lib/io.sh"
-    # shellcheck source=../lib/config.sh
-    source "${SCRIPT_DIR}/../lib/config.sh"
-    add_label="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.${stage}" 2>/dev/null || true)"
+  if [ -z "${!var_add:-}" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    _gl_load_config
     remove_prefix="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.remove_others_in_namespace" 2>/dev/null || true)"
   fi
 
@@ -166,6 +193,31 @@ cmd_comment_list() {
   done
 }
 
+# state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
+# `<iid>` TAB `<class>` line each, for `wbs update`. Pages the issues list
+# (no `state` filter returns opened and closed). Classes: closed -> done;
+# opened + the in_progress label (_gl_stage_label) -> in_progress; opened ->
+# open. GitLab has no close reason, so never not_planned or other.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
+# for other HTTP failures; 5 a record with an unrecognised state or
+# unreadable JSON (fail closed). Never 2, which means "unknown verb".
+cmd_state_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || { echo "gitlab.sh state-list: repo required" >&2; exit 1; }
+  local enc; enc="$(urlenc "$repo")"
+  local base; base="$(api_base)"
+  local ip; ip="$(_gl_stage_label in_progress)"
+  local resp
+  resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
+  printf '%s' "$resp" | jq -r --arg ip "$ip" '
+    .[] | "\(.iid)\t\(
+      if .state == "closed" then "done"
+      elif .state == "opened" then
+        (if $ip != "" and any(.labels[]?; . == $ip) then "in_progress" else "open" end)
+      else error("unrecognised state \(.state) on #\(.iid)") end)"' || return 5
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 verb="${1:-}"; shift || true
@@ -175,6 +227,7 @@ case "$verb" in
   transition)   cmd_transition "$@" ;;
   state)        cmd_state "$@" ;;
   comment-list) cmd_comment_list "$@" ;;
+  state-list)   cmd_state_list "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac

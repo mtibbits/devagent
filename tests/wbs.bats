@@ -3,6 +3,8 @@
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 # #322: hermetic env (pins / git config / TZ / locale)
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
+# #703: stub issue backends + network shims (no real tracker call)
+. "$(dirname "$BATS_TEST_FILENAME")/helpers/wbs-tracker.bash"
 
 setup() {
   TMPROOT="$(mktemp -d)"
@@ -36,10 +38,31 @@ transition_issue   = true
 cleanup_on_merge   = false
 EOF
   mkdir -p "$TMPROOT/src"
+
+  # #703: wbs update asks the tracker for leaf state. Every backend here is a
+  # stub, and gh/glab/curl are shims that log to network.log, which teardown
+  # asserts absent. The config above sets no dir_prefix, so the tracker
+  # sources stay unconfigured unless a test calls _with_dir_prefix.
+  export TMPROOT
+  export DEVAGENT_ISSUE_BACKEND_DIR="$TMPROOT/backends"
+  wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+  wbs_tracker_install_shims "$TMPROOT/shims" "$TMPROOT/network.log"
+  export PATH="$TMPROOT/shims:$PATH"
 }
 
 teardown() {
+  # #703: no test may reach a real tracker CLI (U6: a failing teardown fails)
+  [ ! -e "$TMPROOT/network.log" ]
   rm -rf "$TMPROOT"
+}
+
+# #703: configure the origin tracker source (issue_source gains dir_prefix).
+_with_dir_prefix() {
+  python3 "$REPO/scripts/lib/_toml.py" set "$HOME/.claude/devagent/config.toml" \
+    project.testproj.issue_source.dir_prefix '"Issue-"'
+  run python3 "$REPO/scripts/lib/_toml.py" get "$HOME/.claude/devagent/config.toml" \
+    project.testproj.issue_source.dir_prefix
+  [ "$output" = "Issue-" ]
 }
 
 # Helper: write an arbitrary scalar to the project state via the
@@ -225,6 +248,12 @@ EOF
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
+@test "wbs usage names update --offline and the tracker (#703)" {
+  run bash "$REPO/scripts/wbs.sh"
+  [ "$status" -eq 2 ]
+  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ else\ checklists\;\ add\ the\ active\ issue ]]
+}
+
 @test "updatewbs.md command file exists and references wbs.sh update" {
   [ -f "$REPO/commands/updatewbs.md" ]
   # #446: the invocation now goes through ${CLAUDE_PLUGIN_ROOT}, so the path is
@@ -268,9 +297,29 @@ EOF
 EOF
   # Note: NO active_issue set. Mimics the post-cleanup state where the
   # operator runs wbs update and the issue's leaf must still flip to [x].
+  # #703: with a tracker configured, an all-done checklist on an issue the
+  # tracker still lists open is [~]; the sibling test below closes it.
+  _with_dir_prefix
+  printf '9\topen\n' > "$TMPROOT/state-list.github"
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
-  grep -q "\[x\] Working leaf" "$TMPDEV/WBS.md"
+  grep -qxF -- '  - [~] Working leaf {issue: Issue-9, est: 1w, status_src: tracker}' "$TMPDEV/WBS.md"
+}
+
+@test "wbs update reconciles done leaf once the tracker closes the issue (#703)" {
+  cat > "$TMPDEV/WBS.md" <<EOF
+# testproj WBS
+
+- [ ] Plan {est: 1w}
+  - [~] Working leaf {issue: Issue-9, est: 1w}
+EOF
+  mkdir -p "$TMPDEV/Issue-9"
+  printf '%s\n' '- [x]  0. pull' '- [x] 23. cleanup' > "$TMPDEV/Issue-9/checklist.md"
+  _with_dir_prefix
+  printf '9\tdone\n' > "$TMPROOT/state-list.github"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  grep -qxF -- '  - [x] Working leaf {issue: Issue-9, est: 1w, status_src: tracker}' "$TMPDEV/WBS.md"
 }
 
 @test "wbs update is idempotent (no spurious diff on a fully-reconciled WBS)" {
@@ -278,7 +327,7 @@ EOF
 # testproj WBS
 
 - [ ] Plan {est: 1w}
-  - [x] Done leaf {issue: Issue-3, est: 1w}
+  - [x] Done leaf {issue: Issue-3, est: 1w, status_src: checklist}
 EOF
   mkdir -p "$TMPDEV/Issue-3"
   cat > "$TMPDEV/Issue-3/checklist.md" <<'EOF'
@@ -346,7 +395,7 @@ _update_expecting() {
   - [ ] Reconciled control {issue: Issue-9, est: 1w}
 EOF
   _reconciled_control_issue
-  _update_expecting 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
+  _update_expecting 's/^  - \[ \] Reconciled control \(.*\)}$/  - [x] Reconciled control \1, status_src: checklist}/'
 }
 
 @test "wbs update keeps the glyph on a leaf whose checklist has no step rows (#702)" {
@@ -370,7 +419,7 @@ Template: standard
 EOF
   : > "$TMPDEV/Issue-32/checklist.md"
   _reconciled_control_issue
-  _update_expecting 's/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
+  _update_expecting 's/^  - \[ \] Reconciled control \(.*\)}$/  - [x] Reconciled control \1, status_src: checklist}/'
 }
 
 @test "wbs update still sets [ ] from a checklist whose step rows show no progress (#702 control)" {
@@ -385,7 +434,7 @@ EOF
 - [ ]  0. pull
 - [ ]  2. draft
 EOF
-  _update_expecting 's/^  - \[x\] Stale local checklist /  - [ ] Stale local checklist /'
+  _update_expecting 's/^  - \[x\] Stale local checklist \(.*\)}$/  - [ ] Stale local checklist \1, status_src: checklist}/'
 }
 
 @test "wbs update auto-adds an active issue with no checklist as [ ] (#702)" {
@@ -613,7 +662,7 @@ _f700_repro_crlf() {
   - [ ] Minimal repro {issue: Issue-40, est: 1w}
 EOF
   _f700_repro Issue-40
-  _update_expecting 's/^  - \[ \] Minimal repro /  - [x] Minimal repro /'
+  _update_expecting 's/^  - \[ \] Minimal repro \(.*\)}$/  - [x] Minimal repro \1, status_src: checklist}/'
 }
 
 @test "wbs update marks a factor-ai Issue-85 shaped checklist done (#700)" {
@@ -624,7 +673,7 @@ EOF
   - [~] Issue-85 shape {issue: Issue-41, est: 1w}
 EOF
   _f700_issue85 Issue-41
-  _update_expecting 's/^  - \[~\] Issue-85 shape /  - [x] Issue-85 shape /'
+  _update_expecting 's/^  - \[~\] Issue-85 shape \(.*\)}$/  - [x] Issue-85 shape \1, status_src: checklist}/'
 }
 
 @test "wbs update ignores a pending row only revision 1 carries (#700)" {
@@ -641,7 +690,7 @@ EOF
   [[ "$active" == *$'\n- [x]  2. draft\n'* ]]
   [[ "$active" != *". spike"* ]]
   grep -qxF -- '- [ ]  3. spike' "$cl"
-  _update_expecting 's/^  - \[ \] Spike only in revision 1 /  - [x] Spike only in revision 1 /'
+  _update_expecting 's/^  - \[ \] Spike only in revision 1 \(.*\)}$/  - [x] Spike only in revision 1 \1, status_src: checklist}/'
 }
 
 @test "wbs update keeps a just-started revision in progress (#700)" {
@@ -652,7 +701,7 @@ EOF
   - [x] Fresh revision 2 {issue: Issue-43, est: 1w}
 EOF
   _f700_fresh_rev2 Issue-43
-  _update_expecting 's/^  - \[x\] Fresh revision 2 /  - [~] Fresh revision 2 /'
+  _update_expecting 's/^  - \[x\] Fresh revision 2 \(.*\)}$/  - [~] Fresh revision 2 \1, status_src: checklist}/'
 }
 
 @test "wbs update reads an empty active revision block as not done (#700)" {
@@ -663,7 +712,7 @@ EOF
   - [x] Empty revision 2 {issue: Issue-44, est: 1w}
 EOF
   _f700_empty_rev2 Issue-44
-  _update_expecting 's/^  - \[x\] Empty revision 2 /  - [~] Empty revision 2 /'
+  _update_expecting 's/^  - \[x\] Empty revision 2 \(.*\)}$/  - [~] Empty revision 2 \1, status_src: checklist}/'
 }
 
 @test "wbs update treats stuck, blocked and parked active rows as not done (#700)" {
@@ -674,7 +723,7 @@ EOF
   - [ ] Stuck in revision 2 {issue: Issue-45, est: 1w}
 EOF
   _f700_stuck_rev2 Issue-45
-  _update_expecting 's/^  - \[ \] Stuck in revision 2 /  - [~] Stuck in revision 2 /'
+  _update_expecting 's/^  - \[ \] Stuck in revision 2 \(.*\)}$/  - [~] Stuck in revision 2 \1, status_src: checklist}/'
 }
 
 @test "wbs update reconciles zero- and one-heading checklists as before (#700)" {
@@ -692,7 +741,7 @@ EOF
   _f700_one_heading Issue-47 "$_F700_PARTIAL"
   _f700_one_heading Issue-48 "$_F700_DONE"
   _reconciled_control_issue
-  _update_expecting 's/^  - \[x\] One heading fresh /  - [ ] One heading fresh /; s/^  - \[ \] One heading partial /  - [~] One heading partial /; s/^  - \[ \] One heading done /  - [x] One heading done /; s/^  - \[ \] Reconciled control /  - [x] Reconciled control /'
+  _update_expecting 's/^  - \[x\] One heading fresh \(.*\)}$/  - [ ] One heading fresh \1, status_src: checklist}/; s/^  - \[ \] One heading partial \(.*\)}$/  - [~] One heading partial \1, status_src: checklist}/; s/^  - \[ \] One heading done \(.*\)}$/  - [x] One heading done \1, status_src: checklist}/; s/^  - \[ \] Reconciled control \(.*\)}$/  - [x] Reconciled control \1, status_src: checklist}/'
 }
 
 @test "wbs update matches step rows the way checklist_current_step does (#700)" {
@@ -705,7 +754,7 @@ EOF
 EOF
   _f700_tab_rev2 Issue-49
   _f700_unknown_glyph Issue-50
-  _update_expecting 's/^  - \[ \] Tab-separated rows /  - [x] Tab-separated rows /; s/^  - \[x\] Unknown glyph /  - [~] Unknown glyph /'
+  _update_expecting 's/^  - \[ \] Tab-separated rows \(.*\)}$/  - [x] Tab-separated rows \1, status_src: checklist}/; s/^  - \[x\] Unknown glyph \(.*\)}$/  - [~] Unknown glyph \1, status_src: checklist}/'
 }
 
 @test "wbs update [x] agrees with checklist_current_step done on every #700 fixture" {
@@ -789,16 +838,17 @@ _wbs701_progress() {
 }
 
 @test "wbs update changes only the glyph byte of a reconciled leaf (#701)" {
-  local kind off cmpout
+  # #703: and the status_src value it records (expected bytes built by
+  # wbs_bytes.py patch-leaf, independently of the parser)
+  local kind
   _wbs701_progress
   for kind in $WBS701_KINDS; do
     _wbs701 "$kind"
     run bash "$REPO/scripts/wbs.sh" update testproj
     [ "$status" -eq 0 ]
-    off="$(python3 "$REPO/tests/helpers/wbs_bytes.py" glyph-offset "$TMPDEV/WBS.input" "Leaf A")"
-    run cmp -l "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
-    cmpout="$(printf '%s\n' "$output" | awk '{print $1, $2, $3}')"
-    [ "$cmpout" = "$off 40 176" ]
+    python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+      "$TMPDEV/WBS.input" "$TMPDEV/expected" "Leaf A" "~" checklist
+    cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
   done
 }
 
@@ -810,7 +860,7 @@ _wbs701_progress() {
   _state_set active_issue "Issue-9"
   python3 "$REPO/tests/helpers/wbs_bytes.py" insert-after \
     "$TMPDEV/WBS.input" "$TMPDEV/expected" "    Note under the last leaf." lf \
-    "- [ ] Unassigned" "  - [x] Issue-9 {issue: Issue-9, est: ?w}"
+    "- [ ] Unassigned" "  - [x] Issue-9 {issue: Issue-9, est: ?w, status_src: checklist}"
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ]
   cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
@@ -872,8 +922,9 @@ _wbs701_progress() {
   cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.run1"
   bash "$REPO/scripts/wbs.sh" update testproj
   cmp "$TMPDEV/WBS.run1" "$TMPDEV/WBS.md"
-  run cmp -l "$TMPDEV/WBS.input" "$TMPDEV/WBS.run1"
-  [ "${#lines[@]}" -eq 1 ]
+  python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "Leaf A" "~" checklist
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.run1"
 }
 
 @test "WBS docs state that non-node lines are kept byte-for-byte (#701)" {
@@ -882,4 +933,20 @@ _wbs701_progress() {
   grep -qF 'byte-for-byte' "$REPO/commands/wbs.md"
   spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
   [[ "$spec131" == *byte-for-byte* ]]
+}
+
+@test "wbs.bats network shim catches a real backend call (#703 control)" {
+  _with_dir_prefix
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [ ] Leaf {issue: Issue-9, est: 1w}
+EOF
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  # the real github.sh reached the gh shim: the guard would have caught it
+  [ -e "$TMPROOT/network.log" ]
+  grep -q '^gh issue list' "$TMPROOT/network.log"
+  rm -f "$TMPROOT/network.log"
 }

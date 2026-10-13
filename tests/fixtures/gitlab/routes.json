@@ -5,6 +5,13 @@
   "PUT /api/v4/projects/foo%2Fbar/issues/42": {"status": 200, "body_file": "issue.json"},
   "GET /api/v4/projects/foo%2Fbar/issues/404": {"status": 404, "body": "{\"message\":\"404 Not Found\"}"},
   "GET /api/v4/projects/foo%2Fbar/issues/401": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"},
+  "GET /api/v4/projects/foo%2Fbar/issues?per_page=100&page=1": {"status": 200, "body_file": "issues-page1.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues?per_page=100&page=2": {"status": 200, "body_file": "issues-page2.json"},
+  "GET /api/v4/projects/foo%2Fdenied/issues?per_page=100&page=1": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"},
+  "GET /api/v4/projects/foo%2Flocked/issues?per_page=100&page=1": {"status": 200, "body_file": "issues-locked.json"},
+  "GET /api/v4/projects/foo%2Fhtml/issues?per_page=100&page=1": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
+  "GET /api/v4/projects/foo%2Fhtml/issues?per_page=100&page=2": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
+  "GET /api/v4/projects/foo%2Fobject/issues?per_page=100&page=1": {"status": 200, "body": "{\"message\":\"not a list\"}"},
 
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7": {"status": 200, "body_file": "mr.json"},
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7/notes?per_page=100&page=1": {"status": 200, "body_file": "mr-notes.json"},

@@ -1,0 +1,65 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10004",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10004",
+      "key": "PROJ-4",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "In Progress",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "indeterminate",
+            "name": "Indeterminate"
+          }
+        },
+        "resolution": null
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10005",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10005",
+      "key": "PROJ-5",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "To Do",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "new",
+            "name": "New"
+          }
+        },
+        "resolution": null
+      }
+    },
+    {
+      "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+      "id": "10006",
+      "self": "https://your-domain.atlassian.net/rest/api/2/issue/10006",
+      "key": "PROJ-6",
+      "fields": {
+        "status": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+          "name": "Done",
+          "id": "10000",
+          "statusCategory": {
+            "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+            "id": 2,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": null
+      }
+    }
+  ],
+  "isLast": true
+}

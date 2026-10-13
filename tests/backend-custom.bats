@@ -39,6 +39,11 @@ assert_not_implemented() {
   assert_not_implemented "$status" "$output"
 }
 
+@test "issue/custom.sh state-list exits 78" {
+  run "$ISSUE" state-list foo/bar
+  assert_not_implemented "$status" "$output"
+}
+
 @test "code/custom.sh push-branch exits 78" {
   run "$CODE" push-branch origin feat/x
   assert_not_implemented "$status" "$output"

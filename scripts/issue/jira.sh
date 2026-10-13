@@ -4,6 +4,9 @@
 #
 # Auth: HTTP Basic with JIRA_USER:JIRA_TOKEN (Atlassian Cloud convention).
 # Base URL via DEVAGENT_JIRA_BASE (e.g. https://acme.atlassian.net).
+#
+# state-list <repo> (#703) is the optional verb `wbs update` reads; it emits
+# issue KEYS (`PROJ-12`), not the internal ids the per-issue verbs take.
 
 set -euo pipefail
 
@@ -19,6 +22,7 @@ Usage: jira.sh <verb> [args…]
   transition <repo> <num> <semantic-stage>
   state <repo> <num>
   comment-list <repo> <num>
+  state-list <repo>
 EOF
   exit 2
 }
@@ -32,6 +36,19 @@ auth_header() {
 }
 
 trim_date() { echo "${1%%T*}"; }
+
+# Percent-encode one query value (jq @uri: unreserved chars kept, space ->
+# %20, never +). Same encoding gitlab.sh's urlenc produces.
+_urlenc() { jq -rn --arg s "$1" '$s | @uri' | tr -d '\r'; }
+
+_jira_load_config() {
+  # shellcheck source=../lib/paths.sh
+  source "${SCRIPT_DIR}/../lib/paths.sh"
+  # shellcheck source=../lib/io.sh
+  source "${SCRIPT_DIR}/../lib/io.sh"
+  # shellcheck source=../lib/config.sh
+  source "${SCRIPT_DIR}/../lib/config.sh"
+}
 
 cmd_fetch() {
   local repo="${1:-}" num="${2:-}"
@@ -105,12 +122,7 @@ cmd_transition() {
   local var="DEVAGENT_JIRA_STAGE_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
   local target_name="${!var:-}"
   if [ -z "$target_name" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    # shellcheck source=../lib/paths.sh
-    source "${SCRIPT_DIR}/../lib/paths.sh"
-    # shellcheck source=../lib/io.sh
-    source "${SCRIPT_DIR}/../lib/io.sh"
-    # shellcheck source=../lib/config.sh
-    source "${SCRIPT_DIR}/../lib/config.sh"
+    _jira_load_config
     target_name="$(config_get_project_field "$DEVAGENT_PROJECT" "issue_workflow.${stage}" 2>/dev/null || true)"
   fi
   if [ -z "$target_name" ]; then
@@ -162,6 +174,73 @@ cmd_comment_list() {
   done
 }
 
+# The resolution names state-list reads as not_planned: env
+# DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS (newline-separated), else the
+# project's `issue_workflow.not_planned_resolutions` string array, else none.
+# Printed as a JSON array.
+_jira_not_planned() {
+  local list="${DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS:-}"
+  if [ -z "$list" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
+    _jira_load_config
+    list="$(config_get_project_list "$DEVAGENT_PROJECT" issue_workflow.not_planned_resolutions 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$list" | tr -d '\r' | jq -Rsc 'split("\n") | map(select(length > 0))'
+}
+
+# Every issue of the project, as one JSON array: the enhanced JQL search,
+# paged on nextPageToken until isLast (or no token).
+_jira_search_all() {
+  local key="$1" url tok="" prev="" pages="" resp out page last u auth
+  url="$(base)/rest/api/2/search/jql?jql=$(_urlenc "project = \"${key}\" ORDER BY key")&fields=status,resolution&maxResults=100"
+  auth="$(auth_header)"
+  while :; do
+    u="$url"
+    [ -z "$tok" ] || u="${url}&nextPageToken=$(_urlenc "$tok")"
+    resp="$(bc_curl_auth "$auth" GET "$u" -H 'Accept: application/json')" || return
+    # One jq per page: `<isLast> TAB <nextPageToken>`, then the issues array.
+    # (an `||` caller disables set -e here, so each jq checks its own rc)
+    out="$(printf '%s' "$resp" \
+      | jq -r '"\(.isLast // false)\t\(.nextPageToken // "")", (.issues // [] | tojson)' \
+      | tr -d '\r')" || return 5
+    { IFS=$'\t' read -r last tok; IFS= read -r page; } <<<"$out"
+    pages+="$page"$'\n'
+    { [ "$last" = true ] || [ -z "$tok" ]; } && break
+    if [ "$tok" = "$prev" ]; then
+      echo "jira.sh state-list: nextPageToken repeated ($tok); stopping" >&2
+      return 5
+    fi
+    prev="$tok"
+  done
+  printf '%s' "$pages" | jq -s 'add // []' || return 5
+}
+
+# state-list <repo> (#703, spec §9.1 MAY): every issue of the project, one
+# `<key>` TAB `<class>` line each, for `wbs update`. The project key is
+# ${DEVAGENT_JIRA_PROJECT_KEY:-<repo>}, as cmd_create uses. Classes by
+# statusCategory.key: done -> done (not_planned when the resolution is a
+# listed not-planned one, _jira_not_planned); indeterminate -> in_progress;
+# new -> open; undefined ("No Category", a legitimate fourth value) -> other.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other
+# bc_curl codes for other HTTP failures; 5 a record with an unrecognised
+# status category or unreadable JSON (fail closed). Never 2 ("unknown verb").
+cmd_state_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || { echo "jira.sh state-list: repo required" >&2; exit 1; }
+  local key="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
+  local np all
+  np="$(_jira_not_planned)" || return 5
+  all="$(_jira_search_all "$key")" || return
+  printf '%s' "$all" | jq -r --argjson np "$np" '
+    .[] | "\(.key)\t\(
+      (.fields.status.statusCategory.key // "") as $c
+      | (.fields.resolution.name // "") as $r
+      | if $c == "done" then (if any($np[]; . == $r) then "not_planned" else "done" end)
+        elif $c == "indeterminate" then "in_progress"
+        elif $c == "new" then "open"
+        elif $c == "undefined" then "other"
+        else error("unrecognised statusCategory \($c) on \(.key)") end)"' || return 5
+}
+
 verb="${1:-}"; shift || true
 case "$verb" in
   fetch)        cmd_fetch "$@" ;;
@@ -169,6 +248,7 @@ case "$verb" in
   transition)   cmd_transition "$@" ;;
   state)        cmd_state "$@" ;;
   comment-list) cmd_comment_list "$@" ;;
+  state-list)   cmd_state_list "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac

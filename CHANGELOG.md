@@ -16,10 +16,42 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `wbs update` takes leaf status from the issue tracker (#703).**
+  - An issue leaf's glyph now comes from the shared tracker's issue state first, and from
+    the local `Issue-N/checklist.md` only where the tracker gives no signal. Closed as
+    completed gives `[x]`; closed as not planned or duplicate gives `[-]`; in progress (the
+    configured in-progress label, or JIRA's `In Progress` category) gives `[~]` but keeps
+    a hand-set `[P]`, `[!]` or `[?]`; open falls through to the checklist rule. A leaf the
+    tracker does not list keeps its glyph and is reported once.
+  - Behavior change: with a tracker configured, an open issue whose checklist is all done
+    now stays `[~]` until the issue is closed, so status report remaining-leaf counts and
+    ETA rise for such issues.
+  - Leaves gain a `status_src: tracker|checklist` meta key naming where the glyph came
+    from. It is spliced into the line, so a reconciled line differs only in its glyph and
+    that value. A `WBS.md` with issue leaves changes once on its first run, even with no
+    tracker configured.
+  - New optional backend verb `state-list <repo>` (github, gitlab, jira; the `custom`
+    stub exits 78). A backend without it (exit 78 or 2), or whose CLI is not on PATH, falls
+    back to local checklists.
+  - Cost: one `state-list` per configured issue source per run, ceil(N/100) list pages
+    (GitHub: one `gh issue list`). A failed lookup (rate limit, auth, network) or malformed
+    output changes no glyph, prints one WARNING and exits 0.
+  - `wbs update --offline`, or `DEVAGENT_WBS_OFFLINE=1` (cleanup's automatic run cannot
+    take a flag), skips the tracker.
+  - New JIRA key `[project.<p>.issue_workflow] not_planned_resolutions` (env
+    `DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS`, newline-separated). A JIRA leaf `Issue-N` is
+    looked up as key `<project key>-N`.
+  - Behaviour changes once a tracker source is configured: an all-done checklist gives
+    `[~]` until the issue is closed; a leaf id that matches no `dir_prefix`, or fails the
+    source's id grammar (such as `Task-5`), is no longer reconciled from its checklist; and
+    a failed lookup skips the whole run's reconcile, checklists included.
+  - Not breaking: no command, flag or file format is removed.
+
 - **Fixed: `wbs update` keeps hand-written `WBS.md` content (#701).**
   - Edits are line-local. Prose, headings, comments, fenced blocks, meta formatting, line
     endings and a missing final newline are written back byte-for-byte; a state change
-    rewrites only the leaf's glyph character, and an auto-added issue is inserted as whole
+    rewrites only the leaf's glyph character (and, since #703, its `status_src` value), and
+    an auto-added issue is inserted as whole
     lines in the file's line-ending style.
   - Node-shaped lines inside fenced code are no longer leaves, so status report counts can
     drop for a file that has them.

@@ -1,0 +1,39 @@
+[
+  {
+    "id": 900101,
+    "iid": 101,
+    "project_id": 4242,
+    "title": "Issue 101",
+    "state": "opened",
+    "labels": [
+      "bug",
+      "status::in-progress"
+    ],
+    "closed_at": null,
+    "web_url": "https://gitlab.example/foo/bar/-/issues/101"
+  },
+  {
+    "id": 900102,
+    "iid": 102,
+    "project_id": 4242,
+    "title": "Issue 102",
+    "state": "opened",
+    "labels": [
+      "bug"
+    ],
+    "closed_at": null,
+    "web_url": "https://gitlab.example/foo/bar/-/issues/102"
+  },
+  {
+    "id": 900103,
+    "iid": 103,
+    "project_id": 4242,
+    "title": "Issue 103",
+    "state": "closed",
+    "labels": [
+      "bug"
+    ],
+    "closed_at": "2026-10-01T12:00:00.000Z",
+    "web_url": "https://gitlab.example/foo/bar/-/issues/103"
+  }
+]

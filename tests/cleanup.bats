@@ -115,11 +115,22 @@ stage_in_project_layer() {
 EOF
     ( cd "$DEVDOC_DIR" && git add -A && \
         git -c user.email=t@x -c user.name=t commit -q -m "seed wbs" )
-    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    # #703: the config's issue_source is a tracker source; a stub backend
+    # reports Issue-1 closed (no real gh call).
+    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    printf '1\tdone\n' > "$DEVAGENT_TMP/state-list.github"
+    # a github source needs `gh` on PATH to be looked up (no gh means "no
+    # lookup", as on a gh-less box); the shim proves the stub made no call
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    PATH="$DEVAGENT_TMP/shims:$PATH" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    # cleanup marks its own step 23, then calls wbs update, which sees
-    # all checklist lines [x] and flips the leaf to [x].
-    grep -q "\[x\] Working leaf" "$DEVDOC_DIR/WBS.md"
+    [ ! -e "$DEVAGENT_TMP/network.log" ]
+    # cleanup marks its own step 23, then calls wbs update, which takes
+    # the tracker's closed state and flips the leaf to [x].
+    grep -qxF -- '  - [x] Working leaf {issue: Issue-1, est: 1w, status_src: tracker}' "$DEVDOC_DIR/WBS.md"
 }
 
 @test "cleanup.sh soft-passes when no WBS.md exists (--if-exists)" {

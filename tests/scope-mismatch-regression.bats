@@ -102,6 +102,9 @@ EOF
   cat > "$STUB_BACKENDS/github.sh" <<EOF
 #!/usr/bin/env bash
 printf 'issue/github %s\n' "\$*" >> "$DEVAGENT_STUB_LOG"
+# #703: no state-list, so wbs update falls back to local checklists
+[ "\$1" = state-list ] && exit 78
+exit 0
 EOF
   chmod +x "$STUB_BACKENDS/github.sh"
   CODE_STUB="$DEVAGENT_TMP/code-stub.sh"
@@ -326,7 +329,11 @@ _from_a() {
 
   # equivalence: the override run's EFFECT matches the baseline tree's run
   if [ "$have_baseline" -eq 1 ]; then
-    grep -E '^[[:space:]]*- \[.\] ' "$DOC_B/WBS.md" > "$DEVAGENT_TMP/wbs.nodes"
+    # #703: the one deliberate delta is the status_src provenance key
+    run grep -c ', status_src: [a-z]*' "$DOC_B/WBS.md"
+    [ "$output" = "1" ]
+    grep -E '^[[:space:]]*- \[.\] ' "$DOC_B/WBS.md" \
+      | sed 's/, status_src: [a-z]*//' > "$DEVAGENT_TMP/wbs.nodes"
     grep -E '^[[:space:]]*- \[.\] ' "$DEVAGENT_TMP/wbs.baseline-result" > "$DEVAGENT_TMP/wbs.baseline-nodes"
     run diff "$DEVAGENT_TMP/wbs.nodes" "$DEVAGENT_TMP/wbs.baseline-nodes"
     [ "$status" -eq 0 ]
