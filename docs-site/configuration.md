@@ -115,7 +115,8 @@ tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
 backend without it exits 78 (or 2, unknown verb), and `wbs update` then
 uses local checklists. See spec §9.1.
 
-Every **code backend** implements five verbs:
+Every **code backend** implements five verbs and may implement a sixth,
+`issue-mrs`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -124,6 +125,15 @@ Every **code backend** implements five verbs:
 | `mr-state` | `<mr-url>` | `open\|merged\|closed\|draft` |
 | `mr-comments` | `<mr-url>` | markdown to stdout |
 | `merge-mr` | `<mr-url> [--method squash\|merge\|rebase]` | exit 0 |
+| `issue-mrs` | `<repo> <id>...` | `issue` and `mr` lines per issue (optional) |
+
+`issue-mrs` is what `wbs update` reads to show linked-MR state on open
+issue leaves (`[~]` with `mr: open`, `draft` or `merged`). An MR links an
+issue when its title or description carries a closing-keyword reference
+(`Closes #N`, `Fixes owner/repo#N`), whatever its target branch; a
+`Related: #N` mention does not. GitHub costs one GraphQL call per 50 open
+leaves, GitLab one call per open leaf. A backend without it exits 78 (or
+2, unknown verb), and `wbs update` then shows no MR state. See spec §9.2.
 
 Exit-code conventions across all backends:
 

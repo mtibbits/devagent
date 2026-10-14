@@ -286,7 +286,8 @@ Every issue backend MUST implement five verbs and MAY implement `state-list`
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
 | `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
 
-Every code backend MUST implement five verbs (spec §9.2):
+Every code backend MUST implement five verbs and MAY implement `issue-mrs`
+(spec §9.2):
 
 | Verb          | Args                                                          | Output / exit          |
 |---------------|---------------------------------------------------------------|------------------------|
@@ -295,6 +296,7 @@ Every code backend MUST implement five verbs (spec §9.2):
 | `mr-state`    | `<mr-url>`                                                    | `open|merged|closed|draft` |
 | `mr-comments` | `<mr-url>`                                                    | markdown to stdout     |
 | `merge-mr`    | `<mr-url> [--method squash|merge|rebase]`                     | exit 0                 |
+| `issue-mrs`   | `<repo> <id>...`                                              | `issue`/`mr` lines per id (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
 
 Exit-code conventions across all backends:
 

@@ -5,6 +5,7 @@
 # pre-validation — branch-exists (#41) and merged-pr-head (#154). Backends may omit
 # either; ship.sh treats a non-1 exit as "can't determine" and leaves the parent
 # base unchanged. These two verbs are header-comment-only (not in spec §9.2).
+# Plus the optional §9.2 verb issue-mrs (#704), read by `wbs update`.
 # All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT so tests can stub.
 set -euo pipefail
 

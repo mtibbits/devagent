@@ -16,6 +16,32 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `wbs update` shows linked MR state on open issue leaves (#704).**
+  - After the tracker phase, a leaf whose issue the tracker reports open takes `[~]`,
+    `status_src: mr` and `mr: open`, `mr: draft` or `mr: merged` when an MR links the
+    issue. `mr: merged` with the issue still open means merged, awaiting acceptance (an MR
+    into a non-default base such as a stacked parent or `dev/all-prs`, auto-close off, or a
+    reopened issue). A hand-set `[P]`, `[!]` or `[?]` keeps its glyph; only `mr` is
+    written. `mr` is removed when no MR links the issue (or only closed-unmerged ones do)
+    and when the issue closes; a leaf the MR phase set then takes the tracker or checklist
+    result, or `[ ]` with `status_src` removed.
+  - An MR links an issue when its title or description carries a closing-keyword
+    reference (`Closes #N`, `Fixes owner/repo#N`), whatever its target branch; `Related:
+    #N` and bare mentions do not. `#N` resolves against the MR's own repo, so a fork PR
+    links the fork's `Issue-Fork-N` leaf.
+  - New optional code-backend verb `issue-mrs <repo> <id>...` (github, gitlab; the
+    `custom` stub exits 78). Each `mr` line also carries the MR's created and merged
+    timestamps (#734 reads them).
+  - Cost: GitHub ceil(N/50) GraphQL calls over the N open leaves, plus one per further page
+    of a truncated timeline (50, not 100: a 100-issue batch measured 6.7-9.6 s against
+    GitHub's ~10 s timeout); GitLab one call per open leaf. Cleanup's automatic run (step
+    23) makes these calls too. Only a project with `code_source.backend` set runs the phase.
+  - A failed MR lookup (rate limit, auth, network, malformed output) writes none of the MR
+    phase's changes, prints one WARNING and exits 0; `--offline` skips it too.
+  - The `mr` meta key is now owned by `wbs update`: a hand-written `mr:` value is rewritten
+    or removed.
+  - Not breaking: no command, flag or file format is removed.
+
 - **Changed: `wbs update` takes leaf status from the issue tracker (#703).**
   - An issue leaf's glyph now comes from the shared tracker's issue state first, and from
     the local `Issue-N/checklist.md` only where the tracker gives no signal. Closed as
