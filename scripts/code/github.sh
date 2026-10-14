@@ -28,8 +28,167 @@ verbs:
   merge-mr     <mr-url> [--method squash|merge|rebase]
   branch-exists <repo> <branch>
   merged-pr-head <repo> <branch>
+  issue-mrs    <owner/name> <num>...
 EOF
     exit 2
+}
+
+# --- issue-mrs (#704) --------------------------------------------------------
+# Optional §9.2 verb: per issue number, the PRs whose title or body closes it
+# (scripts/lib/mr-link.py applies the rule and prints the grammar). Candidates
+# come from the issue side, its timeline's CrossReferencedEvents, so fork and
+# cross-repo PRs are seen whatever their base. One GraphQL call per batch of
+# GH_ISSUE_MRS_BATCH issues (a 100-issue batch measured 6.7-9.6 s against
+# GitHub's ~10 s GraphQL timeout), plus one call per further page of a
+# truncated timeline. Repo and numbers travel as query variables; the query
+# text depends only on the batch length.
+# Exit: 0 ok (a per-issue NOT_FOUND is `missing` in-band); 1 bad args, gh or
+# transport failure, a GraphQL error; 3 auth (HTTP 401/403); 5 an
+# unrecognised record, non-JSON, a repeated cursor or > 50 pages.
+GH_ISSUE_MRS_BATCH=50
+GH_ISSUE_MRS_MAX_PAGES=50
+# shellcheck disable=SC2016  # GraphQL, not shell
+GH_TL_FRAGMENT='fragment P on IssueTimelineItemsConnection { totalCount pageInfo{hasNextPage endCursor} nodes{ ... on CrossReferencedEvent { source { __typename ... on PullRequest { number title body state isDraft createdAt mergedAt repository{nameWithOwner} } } } } }'
+
+# _im_fail <errfile> <what>: report gh's last stderr line; exit 3 for auth, else 1.
+_im_fail() {
+    local last msg
+    last="$(grep -v '^[[:space:]]*$' "$1" 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
+    echo "code/github.sh: issue-mrs: $2 failed${last:+: $last}" >&2
+    if msg="$(conn_diag_message "$(cat "$1" 2>/dev/null)")" && [[ "$msg" == authentication* ]]; then
+        exit 3
+    fi
+    exit 1
+}
+
+# _im_call <out> <err> <gh args...>: run gh; set IM_RC (never trips set -e).
+_im_call() {
+    local out="$1" err="$2"; shift 2
+    if "$DEVAGENT_GH" api graphql "$@" >"$out" 2>"$err"; then IM_RC=0; else IM_RC=$?; fi
+}
+
+issue_mrs() {
+    local repo="$1"; shift
+    local owner="${repo%%/*}" name="${repo#*/}" id
+    if [[ ! "$repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+        echo "code/github.sh: issue-mrs: repo must be <owner/name>: '$repo'" >&2
+        exit 1
+    fi
+    for id in "$@"; do
+        [[ "$id" =~ ^[0-9]+$ ]] || { echo "code/github.sh: issue-mrs: not an issue number: '$id'" >&2; exit 1; }
+    done
+    [ $# -gt 0 ] || exit 0
+    command -v jq >/dev/null 2>&1 || { echo "code/github.sh: issue-mrs: jq not on PATH" >&2; exit 1; }
+    local tmp; tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064  # expand $tmp now
+    trap "rm -rf '$tmp'" EXIT
+    local ids=("$@") recs="$tmp/records" start=0
+    : > "$recs"
+    while [ "$start" -lt "${#ids[@]}" ]; do
+        local batch=("${ids[@]:start:GH_ISSUE_MRS_BATCH}") k decl="" aliases="" args=()
+        for k in "${!batch[@]}"; do
+            decl+=",\$n$k:Int!"
+            aliases+=" i$k: issue(number:\$n$k){ timelineItems(itemTypes:[CROSS_REFERENCED_EVENT], first:100){...P} }"
+            args+=(-F "n$k=${batch[$k]}")
+        done
+        local q="query(\$owner:String!,\$name:String!$decl){repository(owner:\$owner,name:\$name){$aliases }} $GH_TL_FRAGMENT"
+        _im_call "$tmp/out" "$tmp/err" -f "query=$q" -f "owner=$owner" -f "name=$name" "${args[@]}"
+        # Valid: JSON with .data.repository; every error a per-alias NOT_FOUND.
+        if ! jq -e '.data.repository | type == "object"' "$tmp/out" >/dev/null 2>&1; then
+            if [ "$IM_RC" -ne 0 ]; then _im_fail "$tmp/err" "gh api graphql (exit $IM_RC)"; fi
+            if ! jq -e . "$tmp/out" >/dev/null 2>&1; then
+                echo "code/github.sh: issue-mrs: gh returned non-JSON" >&2; exit 5
+            fi
+            _im_fail "$tmp/err" "gh api graphql (no data)"
+        fi
+        if ! jq -e '[.errors[]? | select(.type != "NOT_FOUND" or (.path | length) != 2
+                     or .path[0] != "repository" or ((.path[1] | tostring) | test("^i[0-9]+$") | not))]
+                    | length == 0' "$tmp/out" >/dev/null; then
+            echo "code/github.sh: issue-mrs: GraphQL error: $(jq -r '[.errors[]? | (.type // "") + " " + (.message // "")] | first' "$tmp/out" | tr -d '\r')" >&2
+            exit 1
+        fi
+        if [ "$IM_RC" -ne 0 ] && ! jq -e '(.errors // []) | length > 0' "$tmp/out" >/dev/null; then
+            _im_fail "$tmp/err" "gh api graphql (exit $IM_RC)"
+        fi
+        # One line per alias: `M` (more pages) or `-`, TAB, {id, status, nodes,
+        # more, cursor}. The flag spares a jq spawn per issue (slow on Windows).
+        local ids_json
+        ids_json="$(printf '"%s",' "${batch[@]}")"; ids_json="[${ids_json%,}]"
+        # shellcheck disable=SC2016  # jq program
+        if ! jq -r --argjson ids "$ids_json" '
+              .data.repository as $r
+              | ([.errors[]? | .path[1] | ltrimstr("i") | tonumber]) as $missing
+              | range(0; $ids | length) as $k
+              | if ($missing | any(. == $k)) then {id: $ids[$k], status: "missing", nodes: []}
+                else ($r["i\($k)"].timelineItems // error("alias i\($k) has no timeline")) as $t
+                | {id: $ids[$k], status: "ok", nodes: $t.nodes,
+                   more: ($t.totalCount > ($t.nodes | length) and $t.pageInfo.hasNextPage),
+                   cursor: $t.pageInfo.endCursor}
+                end
+              | (if .more then "M" else "-" end) + "\t" + tojson' "$tmp/out" > "$tmp/lines"; then
+            echo "code/github.sh: issue-mrs: unrecognised GraphQL response" >&2
+            exit 5
+        fi
+        local line n=0
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            [ -n "$line" ] || continue
+            n=$((n + 1))
+            if [ "${line%%$'\t'*}" != M ]; then
+                printf '%s\n' "${line#*$'\t'}" >> "$recs"
+                continue
+            fi
+            printf '%s\n' "${line#*$'\t'}" > "$tmp/rec"
+            local pages=0 seen=" " more cursor iid
+            while :; do
+                more="$(jq -r '.more == true' "$tmp/rec" | tr -d '\r')"
+                [ "$more" = true ] || break
+                cursor="$(jq -r '.cursor // ""' "$tmp/rec" | tr -d '\r')"
+                iid="$(jq -r '.id' "$tmp/rec" | tr -d '\r')"
+                if [ -z "$cursor" ] || [[ "$seen" == *" $cursor "* ]]; then
+                    echo "code/github.sh: issue-mrs: issue $iid: repeated or empty page cursor" >&2; exit 5
+                fi
+                pages=$((pages + 1))
+                if [ "$pages" -gt "$GH_ISSUE_MRS_MAX_PAGES" ]; then
+                    echo "code/github.sh: issue-mrs: issue $iid: more than $GH_ISSUE_MRS_MAX_PAGES pages" >&2; exit 5
+                fi
+                seen+="$cursor "
+                _im_call "$tmp/page" "$tmp/err" \
+                    -f "query=query(\$owner:String!,\$name:String!,\$n:Int!,\$after:String!){repository(owner:\$owner,name:\$name){issue(number:\$n){timelineItems(itemTypes:[CROSS_REFERENCED_EVENT],first:100,after:\$after){...P}}}} $GH_TL_FRAGMENT" \
+                    -f "owner=$owner" -f "name=$name" -F "n=$iid" -f "after=$cursor"
+                if [ "$IM_RC" -ne 0 ] || ! jq -e '(.errors // []) | length == 0' "$tmp/page" >/dev/null 2>&1; then
+                    _im_fail "$tmp/err" "gh api graphql page (exit $IM_RC)"
+                fi
+                # shellcheck disable=SC2016  # jq program
+                if ! jq -c --slurpfile p "$tmp/page" '
+                      ($p[0].data.repository.issue.timelineItems // error("no timeline")) as $t
+                      | .nodes += $t.nodes
+                      | .more = ($t.totalCount > (.nodes | length) and $t.pageInfo.hasNextPage)
+                      | .cursor = $t.pageInfo.endCursor' "$tmp/rec" > "$tmp/rec2"; then
+                    echo "code/github.sh: issue-mrs: unrecognised page response" >&2; exit 5
+                fi
+                mv "$tmp/rec2" "$tmp/rec"
+            done
+            cat "$tmp/rec" >> "$recs"
+        done < "$tmp/lines"
+        [ "$n" -eq "${#batch[@]}" ] || { echo "code/github.sh: issue-mrs: batch answered $n of ${#batch[@]} issues" >&2; exit 5; }
+        start=$((start + GH_ISSUE_MRS_BATCH))
+    done
+    # Normalise for mr-link.py: PR sources only, states mapped, bodies kept.
+    # shellcheck disable=SC2016  # jq program
+    if ! jq -c '{id, status, mrs: [.nodes[] | .source? // empty
+            | select(.__typename == "PullRequest")
+            | {repo: .repository.nameWithOwner,
+               ref: "\(.repository.nameWithOwner)#\(.number)",
+               state: (if .state == "OPEN" then "open" elif .state == "CLOSED" then "closed"
+                       elif .state == "MERGED" then "merged"
+                       else error("unrecognised PR state \(.state)") end),
+               draft: (.isDraft == true), created: .createdAt, merged: .mergedAt,
+               title: (.title // ""), body: (.body // "")}]}' "$recs" > "$tmp/norm"; then
+        echo "code/github.sh: issue-mrs: unrecognised PR record" >&2
+        exit 5
+    fi
+    python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$repo" < "$tmp/norm"
 }
 
 verb="${1:-}"; shift || usage
@@ -212,6 +371,11 @@ case "$verb" in
         # than trusting an unprovable parent as live (#154: rc 1 = none, rc >= 2 = unknown).
         [[ "$count" =~ ^[0-9]+$ ]] || exit 2
         [ "$count" -gt 0 ]
+        ;;
+    issue-mrs)
+        # bad args exit 1, never 2: 2 means "no such verb" to wbs update (#704)
+        [ $# -ge 1 ] || { echo "usage: code/github.sh issue-mrs <owner/name> <num>..." >&2; exit 1; }
+        issue_mrs "$@"
         ;;
     *) usage ;;
 esac

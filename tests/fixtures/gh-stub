@@ -13,6 +13,16 @@
 #   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
 #   GH_STUB_ISSUE_LIST_FILE  `gh issue list` payload file (#703; required —
 #                            this stub is copied out of the fixtures dir)
+#   GH_STUB_GRAPHQL_DIR   `gh api graphql` responses (#704): the k-th call
+#                         serves <dir>/<k>.json, writes <dir>/<k>.err to
+#                         stderr and exits with <dir>/<k>.rc (else 0). A
+#                         missing <k>.json is a stub assertion failure (exit
+#                         3), so an extra call fails its test; a suite that
+#                         reaches the #704 MR phase with a github code
+#                         backend and no responses gets one MR WARNING.
+#   GH_STUB_GRAPHQL_COUNT the call counter file (default <dir>/count). Each
+#                         call also appends its bracketed argv to
+#                         $GH_STUB_ARGS_LOG when that is set.
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -170,6 +180,26 @@ case "$sub $sub2" in
   "pr list")
     # code/github.sh merged-pr-head: --json number --jq length
     echo "0"
+    ;;
+
+  "api graphql")
+    # code/github.sh issue-mrs (#704): one recorded response per call.
+    _q=0
+    for _a in "$@"; do case "$_a" in query=?*) _q=1 ;; esac; done
+    [ "$_q" = 1 ] || _assert_fail "api graphql: missing -f query=...: $*"
+    [ -n "${GH_STUB_GRAPHQL_DIR:-}" ] || _assert_fail "api graphql: GH_STUB_GRAPHQL_DIR unset"
+    _cnt="${GH_STUB_GRAPHQL_COUNT:-$GH_STUB_GRAPHQL_DIR/count}"
+    _k=$(( $(cat "$_cnt" 2>/dev/null || echo 0) + 1 ))
+    printf '%s\n' "$_k" > "$_cnt"
+    if [ -n "${GH_STUB_ARGS_LOG:-}" ]; then
+      _line=""
+      for _a in "$@"; do _line+="[$_a] "; done
+      printf '%s\n' "${_line% }" >> "$GH_STUB_ARGS_LOG"
+    fi
+    [ -f "$GH_STUB_GRAPHQL_DIR/$_k.json" ] || _assert_fail "api graphql: unexpected call $_k (no $_k.json)"
+    cat "$GH_STUB_GRAPHQL_DIR/$_k.json"
+    [ -f "$GH_STUB_GRAPHQL_DIR/$_k.err" ] && cat "$GH_STUB_GRAPHQL_DIR/$_k.err" >&2
+    exit "$(cat "$GH_STUB_GRAPHQL_DIR/$_k.rc" 2>/dev/null || echo 0)"
     ;;
 
   "api "*)

@@ -1,0 +1,49 @@
+{
+ "data": {
+  "repository": {
+   "i0": {
+    "timelineItems": {
+     "totalCount": 1,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 21,
+        "title": "change 21",
+        "body": "Closes #6",
+        "state": "OPEN",
+        "isDraft": false,
+        "createdAt": "2026-06-10T04:11:31Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "i1": null
+  }
+ },
+ "errors": [
+  {
+   "type": "NOT_FOUND",
+   "path": [
+    "repository",
+    "i1"
+   ],
+   "locations": [
+    {
+     "line": 1,
+     "column": 200
+    }
+   ],
+   "message": "Could not resolve to an Issue with the number of 9."
+  }
+ ]
+}

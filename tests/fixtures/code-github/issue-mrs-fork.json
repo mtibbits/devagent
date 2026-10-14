@@ -1,0 +1,32 @@
+{
+ "data": {
+  "repository": {
+   "i0": {
+    "timelineItems": {
+     "totalCount": 1,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 3,
+        "title": "fix the fork's issue 5",
+        "body": "Closes #5",
+        "state": "OPEN",
+        "isDraft": false,
+        "createdAt": "2026-08-01T12:00:00Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "me/testproj-fork"
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

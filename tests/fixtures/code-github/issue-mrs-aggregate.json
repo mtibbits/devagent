@@ -1,0 +1,201 @@
+{
+ "data": {
+  "repository": {
+   "i0": {
+    "timelineItems": {
+     "totalCount": 4,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 31,
+        "title": "change 31",
+        "body": "Closes #1",
+        "state": "OPEN",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:01Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 32,
+        "title": "change 32",
+        "body": "Closes #1",
+        "state": "OPEN",
+        "isDraft": true,
+        "createdAt": "2026-07-01T00:00:02Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 33,
+        "title": "change 33",
+        "body": "Closes #1",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:03Z",
+        "mergedAt": "2026-07-02T00:00:00Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 34,
+        "title": "change 34",
+        "body": "Closes #1",
+        "state": "CLOSED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:04Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "i1": {
+    "timelineItems": {
+     "totalCount": 2,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 41,
+        "title": "change 41",
+        "body": "Fixes #2",
+        "state": "OPEN",
+        "isDraft": true,
+        "createdAt": "2026-07-01T00:00:01Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 42,
+        "title": "change 42",
+        "body": "fixes #2",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:02Z",
+        "mergedAt": "2026-07-03T00:00:00Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "i2": {
+    "timelineItems": {
+     "totalCount": 2,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 51,
+        "title": "change 51",
+        "body": "Resolves #3",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:01Z",
+        "mergedAt": "2026-07-04T00:00:00Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 52,
+        "title": "change 52",
+        "body": "resolved #3",
+        "state": "CLOSED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:02Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "i3": {
+    "timelineItems": {
+     "totalCount": 1,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": null
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "Issue"
+       }
+      }
+     ]
+    }
+   },
+   "i4": {
+    "timelineItems": {
+     "totalCount": 1,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 61,
+        "title": "change 61",
+        "body": "Closes #5",
+        "state": "CLOSED",
+        "isDraft": false,
+        "createdAt": "2026-07-01T00:00:01Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}
