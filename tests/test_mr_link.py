@@ -32,8 +32,6 @@ KEYWORDS = ["close", "closes", "closed", "fix", "fixes", "fixed",
 def test_github_keywords_link(host, kw):
     if host == "gitlab" and kw.isupper():
         pytest.skip("GitLab's default pattern is case-sensitive past the first letter")
-    if host == "gitlab" and kw.lower() == "fix":
-        pass  # `fix` is in both sets
     assert mr_link.linked(host, f"{kw} #5", R) == {(R, 5)}
     assert mr_link.linked(host, f"{kw}: #5", R) == {(R, 5)}
 
@@ -195,6 +193,16 @@ def test_emit_then_check_roundtrip():
                        input=p.stdout, capture_output=True, text=True)
     assert c.returncode == 0, c.stderr
     assert c.stdout.strip() == "3"
+
+
+def test_emit_writes_lf_only():
+    # §9.2's lines end LF on every platform: Windows text-mode stdout would add CR.
+    stdin = json.dumps({"id": "6", "status": "ok", "mrs": [_pr(f"{R}#21", "open", "Closes #6")]})
+    p = subprocess.run([sys.executable, str(LIB), "emit", "github", R],
+                       input=(stdin + "\n").encode(), capture_output=True)
+    assert p.returncode == 0, p.stderr
+    assert b"\r" not in p.stdout
+    assert p.stdout == f"issue\t6\topen\nmr\t6\t{R}#21\topen\t2026-10-01T00:00:00Z\t-\n".encode()
 
 
 def test_emit_fork_pr_links_fork_only():

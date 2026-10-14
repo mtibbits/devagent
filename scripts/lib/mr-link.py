@@ -196,7 +196,8 @@ def main(argv: list[str]) -> int:
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             print(f"mr-link: bad issue-mrs input: {e}", file=sys.stderr)
             return 5
-        sys.stdout.write("".join(l + "\n" for l in lines))
+        # bytes, as _stdin reads: Windows text-mode stdout would end lines CRLF
+        sys.stdout.buffer.write("".join(l + "\n" for l in lines).encode("utf-8"))
         return 0
     if len(argv) >= 2 and argv[1] == "check":
         try:

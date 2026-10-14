@@ -37,7 +37,10 @@ the README's "Versioning & releases" section has the release procedure.
     GitHub's ~10 s timeout); GitLab one call per open leaf. Cleanup's automatic run (step
     23) makes these calls too. Only a project with `code_source.backend` set runs the phase.
   - A failed MR lookup (rate limit, auth, network, malformed output) writes none of the MR
-    phase's changes, prints one WARNING and exits 0; `--offline` skips it too.
+    phase's changes, prints one WARNING and exits 0; `--offline` skips it too. On GitLab,
+    one issue with 100 or more related MRs (mentions count) fails the lookup this way for
+    the whole project on every run, and MR-set leaves stay as they were, until paging past
+    100 lands.
   - The `mr` meta key is now owned by `wbs update`: a hand-written `mr:` value is rewritten
     or removed.
   - Not breaking: no command, flag or file format is removed.
