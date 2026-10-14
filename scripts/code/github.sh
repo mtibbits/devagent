@@ -79,7 +79,7 @@ issue_mrs() {
         [[ "$id" =~ ^[0-9]+$ ]] || { echo "code/github.sh: issue-mrs: not an issue number: '$id'" >&2; exit 1; }
     done
     [ $# -gt 0 ] || exit 0
-    command -v jq >/dev/null 2>&1 || { echo "code/github.sh: issue-mrs: jq not on PATH" >&2; exit 1; }
+    bc_have_cli jq || { echo "code/github.sh: issue-mrs: jq not on PATH" >&2; exit 1; }
     local tmp; tmp="$(mktemp -d)"
     # shellcheck disable=SC2064  # expand $tmp now
     trap "rm -rf '$tmp'" EXIT
@@ -147,10 +147,11 @@ issue_mrs() {
             printf '%s\n' "${line#*$'\t'}" > "$tmp/rec"
             local pages=0 seen=" " more cursor iid
             while :; do
-                more="$(jq -r '.more == true' "$tmp/rec" | tr -d '\r')"
+                # `|`, not TAB: whitespace IFS would collapse an empty cursor
+                IFS='|' read -r more cursor iid < <(jq -r \
+                    '[(.more == true | tostring), (.cursor // ""), (.id | tostring)] | join("|")' \
+                    "$tmp/rec" | tr -d '\r')
                 [ "$more" = true ] || break
-                cursor="$(jq -r '.cursor // ""' "$tmp/rec" | tr -d '\r')"
-                iid="$(jq -r '.id' "$tmp/rec" | tr -d '\r')"
                 if [ -z "$cursor" ] || [[ "$seen" == *" $cursor "* ]]; then
                     echo "code/github.sh: issue-mrs: issue $iid: repeated or empty page cursor" >&2; exit 5
                 fi

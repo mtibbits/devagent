@@ -72,20 +72,11 @@ def link_text(title: str, body: str) -> str:
 def linked(host: str, text: str, mr_repo: str) -> set[tuple[str, int]]:
     """The casefolded (repo, N) pairs that `text` closes."""
     out: set[tuple[str, int]] = set()
-
-    def add(m):
-        out.add(((m.group("repo") or mr_repo).casefold(), int(m.group("num"))))
-
     for m in _HEAD[host].finditer(text):
-        add(m)
-        if host == "gitlab":
-            pos = m.end()
-            while True:
-                c = _GITLAB_CONT.match(text, pos)
-                if not c:
-                    break
-                add(c)
-                pos = c.end()
+        c = m
+        while c:
+            out.add(((c.group("repo") or mr_repo).casefold(), int(c.group("num"))))
+            c = _GITLAB_CONT.match(text, c.end()) if host == "gitlab" else None
     return out
 
 

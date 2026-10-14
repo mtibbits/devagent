@@ -492,13 +492,10 @@ def _render_document(tree: dict) -> str:
 OWNED_META_KEYS = ("status_src", "mr")
 
 
-def _owned_re(key: str) -> re.Pattern:
-    return re.compile(
-        rf"(?P<lead>^|,)(?P<pad>\s*){key}\s*:\s*(?P<val>[^,}}]*?)\s*(?=,|$)"
-    )
-
-
-_OWNED_RES = {k: _owned_re(k) for k in OWNED_META_KEYS}
+_OWNED_RES = {
+    k: re.compile(rf"(?P<lead>^|,)(?P<pad>\s*){k}\s*:\s*(?P<val>[^,}}]*?)\s*(?=,|$)")
+    for k in OWNED_META_KEYS
+}
 
 
 def _node_body(node: dict, m: re.Match, body: str) -> str:
@@ -507,9 +504,7 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
     glyph = _glyph(node)
     new_meta = node.get("meta", {})
     if node["text"] != text or new_meta != meta:
-        spliced = None
-        if node["text"] == text:
-            spliced = _splice_owned(new_meta, meta, m, body, text)
+        spliced = _splice_owned(new_meta, m, body, node["text"])
         if spliced is None:
             return m.group("indent") + _node_tail(node, glyph)
         body = spliced
@@ -520,7 +515,7 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
 
 
 def _splice_owned(
-    new_meta: dict, old_meta: dict, m: re.Match, body: str, text: str
+    new_meta: dict, m: re.Match, body: str, text: str
 ) -> str | None:
     """`body` with only the owned meta keys changed, or None (#703, #704).
 
@@ -533,9 +528,6 @@ def _splice_owned(
     and the metas differ in owned keys alone; else None and the caller
     regenerates the line.
     """
-    if any(old_meta.get(k) != new_meta.get(k)
-           for k in set(old_meta) | set(new_meta) if k not in OWNED_META_KEYS):
-        return None
     if any(not isinstance(new_meta[k], str) or not new_meta[k]
            for k in OWNED_META_KEYS if k in new_meta):
         return None

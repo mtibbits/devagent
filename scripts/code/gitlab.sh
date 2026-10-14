@@ -202,7 +202,7 @@ cmd_issue_mrs() {
           exit 1
         fi
       fi
-      jq -nc --arg id "$iid" '{id: $id, status: "missing", mrs: []}' >> "$recs"
+      printf '{"id":"%s","status":"missing","mrs":[]}\n' "$iid" >> "$recs"
       continue
     fi
     [ "$rc" -eq 0 ] || exit "$rc"

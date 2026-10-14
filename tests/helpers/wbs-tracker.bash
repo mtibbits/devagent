@@ -1,8 +1,9 @@
 # Shared fixtures for the `wbs update` tracker phase (#703).
 #
-# wbs_tracker_install_stub <dir>
-#   copies tests/fixtures/wbs-tracker/stub-backend.sh into <dir> as github.sh,
-#   gitlab.sh and jira.sh (point DEVAGENT_ISSUE_BACKEND_DIR at <dir>).
+# wbs_tracker_install_stub <dir> [<backend>...]
+#   copies tests/fixtures/wbs-tracker/stub-backend.sh into <dir> as
+#   <backend>.sh, by default github, gitlab and jira (point
+#   DEVAGENT_ISSUE_BACKEND_DIR at <dir>).
 # wbs_mr_install_stub <dir>
 #   copies the same stub into <dir> as github.sh and gitlab.sh, the code
 #   backends of the #704 MR phase (point DEVAGENT_CODE_BACKEND_DIR at <dir>).
@@ -13,24 +14,19 @@
 
 wbs_tracker_install_stub() {
   local dir="$1" b
+  shift
+  (( $# > 0 )) || set -- github gitlab jira
   local src
   src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fixtures/wbs-tracker/stub-backend.sh"
   mkdir -p "$dir"
-  for b in github gitlab jira; do
+  for b in "$@"; do
     cp "$src" "$dir/$b.sh"
     chmod +x "$dir/$b.sh"
   done
 }
 
 wbs_mr_install_stub() {
-  local dir="$1" b
-  local src
-  src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fixtures/wbs-tracker/stub-backend.sh"
-  mkdir -p "$dir"
-  for b in github gitlab; do
-    cp "$src" "$dir/$b.sh"
-    chmod +x "$dir/$b.sh"
-  done
+  wbs_tracker_install_stub "$1" github gitlab
 }
 
 wbs_tracker_install_shims() {
