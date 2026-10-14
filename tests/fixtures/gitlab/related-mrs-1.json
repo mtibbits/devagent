@@ -1,0 +1,68 @@
+[
+ {
+  "id": 9031,
+  "iid": 31,
+  "project_id": 1,
+  "title": "change 31",
+  "description": "Closes #1",
+  "state": "opened",
+  "created_at": "2026-07-01T00:00:01.000Z",
+  "updated_at": "2026-07-01T00:00:01.000Z",
+  "merged_at": null,
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/31",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!31",
+   "relative": "!31",
+   "full": "foo/bar!31"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/31"
+ },
+ {
+  "id": 9032,
+  "iid": 32,
+  "project_id": 1,
+  "title": "change 32",
+  "description": "Closes #1",
+  "state": "opened",
+  "created_at": "2026-07-01T00:00:02.000Z",
+  "updated_at": "2026-07-01T00:00:02.000Z",
+  "merged_at": null,
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/32",
+  "draft": true,
+  "work_in_progress": true,
+  "references": {
+   "short": "!32",
+   "relative": "!32",
+   "full": "foo/bar!32"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/32"
+ },
+ {
+  "id": 9033,
+  "iid": 33,
+  "project_id": 1,
+  "title": "change 33",
+  "description": "Closes #1",
+  "state": "merged",
+  "created_at": "2026-07-01T00:00:03.000Z",
+  "updated_at": "2026-07-02T00:00:00.000Z",
+  "merged_at": "2026-07-02T00:00:00.000Z",
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/33",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!33",
+   "relative": "!33",
+   "full": "foo/bar!33"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/33"
+ }
+]

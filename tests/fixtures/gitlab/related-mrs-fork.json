@@ -1,0 +1,24 @@
+[
+ {
+  "id": 9003,
+  "iid": 3,
+  "project_id": 2,
+  "title": "change 3",
+  "description": "Closes #5",
+  "state": "opened",
+  "created_at": "2026-08-01T12:00:00.000Z",
+  "updated_at": "2026-08-01T12:00:00.000Z",
+  "merged_at": null,
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/3",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!3",
+   "relative": "!3",
+   "full": "me/bar!3"
+  },
+  "web_url": "https://gitlab.example/me/bar/-/merge_requests/3"
+ }
+]

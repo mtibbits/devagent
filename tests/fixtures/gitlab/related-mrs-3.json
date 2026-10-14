@@ -1,0 +1,46 @@
+[
+ {
+  "id": 9051,
+  "iid": 51,
+  "project_id": 1,
+  "title": "change 51",
+  "description": "Implements #3",
+  "state": "merged",
+  "created_at": "2026-07-01T00:00:01.000Z",
+  "updated_at": "2026-07-04T00:00:00.000Z",
+  "merged_at": "2026-07-04T00:00:00.000Z",
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/51",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!51",
+   "relative": "!51",
+   "full": "foo/bar!51"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/51"
+ },
+ {
+  "id": 9052,
+  "iid": 52,
+  "project_id": 1,
+  "title": "change 52",
+  "description": "Closing #3",
+  "state": "closed",
+  "created_at": "2026-07-01T00:00:02.000Z",
+  "updated_at": "2026-07-01T00:00:02.000Z",
+  "merged_at": null,
+  "closed_at": "2026-07-01T00:00:02.000Z",
+  "target_branch": "main",
+  "source_branch": "feat/52",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!52",
+   "relative": "!52",
+   "full": "foo/bar!52"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/52"
+ }
+]

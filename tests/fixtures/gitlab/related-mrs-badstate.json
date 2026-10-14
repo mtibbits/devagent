@@ -1,0 +1,24 @@
+[
+ {
+  "id": 9072,
+  "iid": 72,
+  "project_id": 1,
+  "title": "change 72",
+  "description": "Closes #11",
+  "state": "reopened",
+  "created_at": "2026-07-01T00:00:01.000Z",
+  "updated_at": "2026-07-01T00:00:01.000Z",
+  "merged_at": null,
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/72",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!72",
+   "relative": "!72",
+   "full": "foo/bar!72"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/72"
+ }
+]

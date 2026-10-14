@@ -6,6 +6,7 @@
 #   mr-state     <mr-url>
 #   mr-comments  <mr-url>
 #   merge-mr     <mr-url> [--method squash|merge|rebase]
+#   issue-mrs    <repo> <iid>...   (optional; #704)
 
 set -euo pipefail
 
@@ -21,6 +22,7 @@ Usage: gitlab.sh <verb> [args…]
   mr-state <mr-url>
   mr-comments <mr-url>
   merge-mr <mr-url> [--method squash|merge|rebase]
+  issue-mrs <repo> <iid>...
 EOF
   exit 2
 }
@@ -157,6 +159,77 @@ cmd_merge_mr() {
     --data "$payload" >/dev/null
 }
 
+# issue-mrs <repo> <iid>... (#704, optional §9.2 verb): per issue, the MRs whose
+# title or description closes it (scripts/lib/mr-link.py applies the rule and
+# prints the grammar). Candidates are the issue's related_merge_requests, so
+# fork MRs are seen whatever their target. One GET per issue; a page of 100
+# or more exits 5 (fail-closed truncation, keeping the call bound at N).
+# Exit: 0 ok (a 404 on a readable project is `missing` in-band); 1 bad args
+# or a transport failure, or a 404 whose project probe also fails; 3 auth;
+# 5 a body that is not a JSON array, a full page, or an unrecognised record.
+cmd_issue_mrs() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || { echo "usage: gitlab.sh issue-mrs <repo> <iid>..." >&2; exit 1; }
+  shift
+  local iid
+  for iid in "$@"; do
+    [[ "$iid" =~ ^[0-9]+$ ]] || { echo "gitlab.sh: issue-mrs: not an issue iid: '$iid'" >&2; exit 1; }
+  done
+  [ $# -gt 0 ] || exit 0
+  local enc base body n rc readable=0 recs
+  enc="$(urlenc "$repo")"
+  base="$(api_base)"
+  recs="$(mktemp)"
+  # shellcheck disable=SC2064  # expand $recs now
+  trap "rm -f '$recs'" EXIT
+  for iid in "$@"; do
+    if body="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET \
+        "${base}/projects/${enc}/issues/${iid}/related_merge_requests?per_page=100")"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    if [ "$rc" -eq 4 ]; then
+      # A 404 is "no such issue" only on a project we can read; a hidden or
+      # unauthorised project also answers 404.
+      if [ "$readable" -eq 0 ]; then
+        if bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}" >/dev/null; then
+          readable=1
+        else
+          rc=$?
+          echo "gitlab.sh: issue-mrs: project $repo is not readable" >&2
+          [ "$rc" -eq 3 ] && exit 3
+          exit 1
+        fi
+      fi
+      jq -nc --arg id "$iid" '{id: $id, status: "missing", mrs: []}' >> "$recs"
+      continue
+    fi
+    [ "$rc" -eq 0 ] || exit "$rc"
+    n="$(printf '%s' "$body" | jq 'if type == "array" then length else error("not a JSON array") end' 2>/dev/null \
+      | tr -d '\r')" || n=""
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "gitlab.sh: issue-mrs: issue $iid: response is not a JSON array" >&2; exit 5; }
+    if [ "$n" -ge 100 ]; then
+      echo "gitlab.sh: issue-mrs: issue $iid has 100+ related MRs (cap)" >&2
+      exit 5
+    fi
+    # shellcheck disable=SC2016  # jq program
+    if ! printf '%s' "$body" | jq -c --arg id "$iid" '{id: $id, status: "ok", mrs: [.[] | {
+          repo: (.references.full | split("!")[0]),
+          ref: .references.full,
+          state: (if .state == "opened" or .state == "locked" then "open"
+                  elif .state == "closed" then "closed" elif .state == "merged" then "merged"
+                  else error("unrecognised MR state \(.state)") end),
+          draft: (.draft // .work_in_progress // false),
+          created: .created_at, merged: .merged_at,
+          title: (.title // ""), body: (.description // "")}]}' >> "$recs"; then
+      echo "gitlab.sh: issue-mrs: issue $iid: unrecognised MR record" >&2
+      exit 5
+    fi
+  done
+  python3 "${SCRIPT_DIR}/../lib/mr-link.py" emit gitlab "$repo" < "$recs"
+}
+
 verb="${1:-}"; shift || true
 case "$verb" in
   push-branch) cmd_push_branch "$@" ;;
@@ -164,6 +237,7 @@ case "$verb" in
   mr-state)    cmd_mr_state "$@" ;;
   mr-comments) cmd_mr_comments "$@" ;;
   merge-mr)    cmd_merge_mr "$@" ;;
+  issue-mrs)   cmd_issue_mrs "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac
