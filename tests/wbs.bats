@@ -252,10 +252,10 @@ EOF
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
-@test "wbs usage names update --offline and the tracker (#703)" {
+@test "wbs usage names update --offline, the tracker and linked MRs (#703, #704)" {
   run bash "$REPO/scripts/wbs.sh"
   [ "$status" -eq 2 ]
-  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ else\ checklists\;\ add\ the\ active\ issue ]]
+  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ linked\ MRs,\ else\ checklists\;\ add\ the\ active\ issue ]]
 }
 
 @test "updatewbs.md command file exists and references wbs.sh update" {

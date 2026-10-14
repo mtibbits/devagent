@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # wbs-update: reconcile WBS leaf glyphs against the issue tracker, then
-# against issue checklist truth (#703).
+# against issue checklist truth (#703), then against linked MRs (#704).
 #
 # For every leaf in <devdoc>/WBS.md that carries `{issue: <id>}` meta, the
 # glyph comes from the shared tracker's issue state first and from
@@ -66,6 +66,47 @@
 # tracker phase for the whole run: no leaf is reconciled, one WARNING names
 # `--offline`, and the exit status is 0.
 #
+# MR phase (#704). After the tracker phase and auto-add, issue leaves the
+# tracker reports open (open or in_progress) take their linked-MR state.
+# An MR links an issue when its title or description carries a closing-
+# keyword reference to it, whatever its target branch (scripts/lib/
+# mr-link.py). The code backend
+# (${DEVAGENT_CODE_BACKEND_DIR:-scripts/code}/<code_source.backend>.sh) is
+# asked once per tracker source with open leaves, `issue-mrs <repo>
+# <id>...` (spec §9.2, optional), FORK before ORIGIN. A source joins only
+# when its tracker lookup succeeded and its backend (github or gitlab) is
+# the code backend: discovery is from the issue side, so only MRs on the
+# issue's own host are seen, fork and cross-repo MRs included. Cost: GitHub
+# ceil(N/50) GraphQL calls plus one per further page of a truncated
+# timeline; GitLab one call per open leaf. cleanup.sh (step 23) runs this
+# too, so it makes these calls.
+#
+# Precedence on top of the tracker phase (wbs-tracker.py `mr_effect`):
+#   any open MR, else draft, else merged -> `[~]`, `status_src: mr`,
+#                                           `mr: open|draft|merged`; a
+#                                           hand-set `[P]` `[!]` `[?]`
+#                                           keeps its glyph, only `mr:`
+#                                           is written
+#   none (no MR, or closed unmerged)     -> `mr:` removed; a leaf whose
+#                                           status_src is `mr` takes the
+#                                           tracker/checklist result, or
+#                                           `[ ]` with status_src removed
+#                                           when there is none
+#   issue done / not_planned / other     -> `mr:` removed
+#   a tracker-missing id, or no lookup   -> untouched
+# While the tracker only says open, a `status_src: mr` glyph is held: only
+# the MR phase moves it (resolve's hold rule), unless the project has no
+# code_source.backend.
+#
+# MR-phase failure never fails the run. No code_source.backend, a backend
+# with no script, no CLI on PATH, or `issue-mrs` exiting 78 or 2 is "no
+# lookup" (one note). Any other exit, or output outside the grammar, aborts
+# the MR phase for the whole run: no glyph, status_src or mr: value it
+# would set is written (the tracker phase's result stands), one WARNING,
+# exit 0. A per-issue 404 changes only that leaf's report line
+# (`<id> not found on <backend> <repo> (MR lookup)`). The tracker phase's
+# abort skips the MR phase.
+#
 # Plus: if the project's active_issue is set and is not yet present in
 # the WBS, append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
@@ -79,16 +120,16 @@
 # The write is line-local (#701). Unchanged lines (prose, headings,
 # comments, fenced blocks), meta formatting, line endings and the
 # final-newline state are kept byte for byte. Only a changed glyph
-# character and the `status_src` value are rewritten, new nodes are
-# inserted as whole lines, and the file is not rewritten when nothing
-# changed.
+# character and the `status_src` and `mr` meta are rewritten (set,
+# replaced or removed in place), new nodes are inserted as whole lines,
+# and the file is not rewritten when nothing changed.
 #
 # Flags:
 #   --if-exists   exit 0 silently when <devdoc>/WBS.md does not exist
 #                 (used by cleanup.sh and other auto-call sites)
-#   --offline     no tracker lookup; reconcile from local checklists only.
-#                 DEVAGENT_WBS_OFFLINE=1 does the same (cleanup.sh's call
-#                 cannot take a flag).
+#   --offline     no tracker or MR lookup; reconcile from local checklists
+#                 only, holding MR-set glyphs. DEVAGENT_WBS_OFFLINE=1 does
+#                 the same (cleanup.sh's call cannot take a flag).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
