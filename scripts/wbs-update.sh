@@ -203,7 +203,43 @@ _trk_fetch() {
 _trk_fetch ORIGIN issue_source
 _trk_fetch FORK issue_source_fork
 
-env ${trk_env[@]+"${trk_env[@]}"} \
+# --- MR phase setup (#704) ---------------------------------------------------
+# WBS_MR_STATUS: off (no code_source.backend), offline (--offline: no call,
+# MR-set glyphs held), nolookup (no script, or its CLI is not on PATH; one
+# note) or ready. Python never spawns the backend (a Windows python cannot
+# run a .sh): a keys pass prints the open keys, bash calls the verb once per
+# source, and the apply pass reads WBS_MR_<S>_FILE / _RC / _REPO / _DETAIL.
+code_backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
+mr_status=off mr_detail="" mr_script=""
+if [[ -n "$code_backend" ]]; then
+  if (( offline == 1 )); then
+    mr_status=offline
+  else
+    mr_script="${DEVAGENT_CODE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/code}/$code_backend.sh"
+    case "$code_backend" in
+      github) mr_cli=gh ;;
+      gitlab) mr_cli=curl ;;
+      *) mr_cli="" ;;
+    esac
+    if [[ ! -f "$mr_script" || ! -x "$mr_script" ]]; then
+      mr_status=nolookup mr_detail="no script"
+    elif [[ -n "$mr_cli" ]] && ! command -v "$mr_cli" >/dev/null 2>&1; then
+      mr_status=nolookup mr_detail="$mr_cli not on PATH"
+    else
+      mr_status=ready
+    fi
+  fi
+fi
+mr_env=("WBS_MR_STATUS=$mr_status" "WBS_MR_BACKEND=$code_backend" "WBS_MR_SCRIPT=$mr_script"
+        "WBS_MR_DETAIL=$mr_detail" "WBS_MR_LIB=$PLUGIN_ROOT/scripts/lib/mr-link.py"
+        "WBS_PROJECT=$project")
+
+# _reconcile <keys|apply>: the reconcile run. `keys` writes nothing and prints
+# only `<S> TAB <repo> TAB <key>` per open key an MR lookup needs; `apply` is
+# the run that reports and writes.
+_reconcile() {
+env ${trk_env[@]+"${trk_env[@]}"} ${mr_env[@]+"${mr_env[@]}"} \
+WBS_MODE="$1" \
 WBS_PATH="$wbs" \
 PARSER_PATH="$parser" \
 WBS_TRACKER_LIB="$tracker_lib" \
@@ -220,6 +256,9 @@ wbs_path     = os.environ["WBS_PATH"]
 parser_path  = os.environ["PARSER_PATH"]
 devdoc_dir   = Path(os.environ["DEVDOC_DIR"])
 active_issue = os.environ.get("ACTIVE_ISSUE", "") or ""
+mode         = os.environ.get("WBS_MODE", "apply")
+mr_status    = os.environ.get("WBS_MR_STATUS", "off")
+mr_backend   = os.environ.get("WBS_MR_BACKEND", "")
 
 
 def _load(name, path):
@@ -236,7 +275,10 @@ tree = mod.parse_file(wbs_path)
 
 
 def say(msg: str) -> None:
-    # ASCII only: a cp1252 stderr must not crash the write.
+    # ASCII only: a cp1252 stderr must not crash the write. The keys pass
+    # is silent, so every report line prints once, in the apply pass.
+    if mode == "keys":
+        return
     print(msg.encode("ascii", "replace").decode("ascii"), file=sys.stderr)
 
 
@@ -284,6 +326,7 @@ for S in ("FORK", "ORIGIN"):
            ("STATUS", "PREFIX", "BACKEND", "REPO", "KEYPREFIX", "FILE", "DETAIL")}
     if env["STATUS"] in ("", "off"):
         continue
+    env["S"] = S
     sources.append(env)
 # Longest dir_prefix first: "Issue-" is a prefix of "Issue-Fork-".
 sources.sort(key=lambda src: len(src["PREFIX"]), reverse=True)
@@ -312,10 +355,21 @@ DIGITS = re.compile(r"^[0-9]+$")
 JIRA_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[0-9]+$")
 
 
-def leaf_class(iid: str) -> str:
-    """The tracker class for a leaf id, or none / missing / unmatched."""
+_lookups: dict = {}
+
+
+def leaf_lookup(iid: str):
+    """(class, source, key) for a leaf id; class is a state-list class or
+    none / missing / unmatched, source the matching tracker source (None
+    when none matches). Memoised, so `not found` prints once per id."""
+    if iid not in _lookups:
+        _lookups[iid] = _leaf_lookup(iid)
+    return _lookups[iid]
+
+
+def _leaf_lookup(iid: str):
     if not sources:
-        return "none"  # no tracker configured: the checklist rule
+        return ("none", None, None)  # no tracker configured: the checklist rule
     for src in sources:
         prefix = src["PREFIX"]
         if not iid.startswith(prefix) or len(iid) == len(prefix):
@@ -328,27 +382,33 @@ def leaf_class(iid: str) -> str:
             elif JIRA_KEY.match(rest):
                 key = rest
             else:
-                return "unmatched"
+                return ("unmatched", None, None)
         elif backend in ("github", "gitlab"):
             if not DIGITS.match(rest):
-                return "unmatched"
+                return ("unmatched", None, None)
             key = rest
         else:
             key = rest
         if src["STATUS"] != "ok":
-            return "none"  # no lookup for this source
+            return ("none", src, key)  # no lookup for this source
         cls = src["classes"].get(key)
         if cls is None:
             say(f"wbs update: {iid} not found on {backend} {src['REPO']}; glyph unchanged")
-            return "missing"
-        return cls
-    return "unmatched"
+            return ("missing", src, key)
+        return (cls, src, key)
+    return ("unmatched", None, None)
+
+
+def leaf_class(iid: str) -> str:
+    """The tracker class for a leaf id, or none / missing / unmatched."""
+    return leaf_lookup(iid)[0]
 
 
 def resolve_leaf(iid: str, cls: str, glyph: str, cur_src):
-    """trk.resolve for a leaf; the checklist is read only where it counts."""
+    """trk.resolve for a leaf; the checklist is read only where it counts.
+    An MR-set glyph is held unless the project has no code backend (#704)."""
     local = checklist_state(iid) if cls in ("open", "other", "none") else None
-    return trk.resolve(glyph, cls, local, cur_src)
+    return trk.resolve(glyph, cls, local, cur_src, mr_hold=(mr_status != "off"))
 
 
 def visit(node, fn):
@@ -430,7 +490,149 @@ if active_issue:
             "source_line": 0,
         })
 
+# --- MR phase (#704) ---------------------------------------------------------
+# Over every issue leaf of the final tree, only when the tracker phase did
+# not abort. Effects are collected first and applied only when every lookup
+# succeeded and parsed; otherwise none is (one WARNING, exit 0).
+mr_leaves = []
+
+
+def collect(node):
+    if not node.get("children") and node.get("meta", {}).get("issue"):
+        mr_leaves.append(node)
+
+
+for top in tree["children"]:
+    visit(top, collect)
+
+
+def mr_eligible(src) -> bool:
+    """Issue-side discovery only sees MRs on the issue's own host."""
+    return (src is not None and src["STATUS"] == "ok"
+            and src["BACKEND"] in ("github", "gitlab") and src["BACKEND"] == mr_backend)
+
+
+def open_keys() -> dict:
+    """Source letter -> (source, sorted unique open keys) for an MR lookup."""
+    out: dict = {}
+    for node in mr_leaves:
+        cls, src, key = leaf_lookup(node["meta"]["issue"])
+        if cls in ("open", "in_progress") and mr_eligible(src):
+            out.setdefault(src["S"], (src, set()))[1].add(key)
+    return {S: (src, sorted(keys, key=int)) for S, (src, keys) in out.items()}
+
+
+if mode == "keys":
+    if not aborted and mr_status == "ready":
+        for S in ("FORK", "ORIGIN"):
+            src, keys = open_keys().get(S, (None, []))
+            for key in keys:
+                print(f"{S}\t{src['REPO']}\t{key}")
+    sys.exit(0)
+
+if not aborted and mr_status != "offline":
+    mr_lib = _load("mr_link", os.environ["WBS_MR_LIB"])
+    results: dict = {}       # source letter -> {key: state}
+    mr_abort = None          # (backend repo, detail)
+    noted = False
+
+    def no_lookup_note(detail):
+        global noted
+        if not noted:
+            say(f"wbs update: {mr_backend} has no issue-mrs ({detail}); MR state not read")
+            noted = True
+
+    if mr_status == "off":
+        if any("mr" in n["meta"] or n["meta"].get("status_src") == "mr" for n in mr_leaves):
+            say("wbs update: no code_source.backend; MR state not read")
+    elif mr_status == "nolookup":
+        no_lookup_note(os.environ.get("WBS_MR_DETAIL", ""))
+    else:
+        failed_at = os.environ.get("WBS_MR_ABORT", "")
+        if failed_at == "keys":
+            mr_abort = (mr_backend, "the key pass failed")
+        for S, (src, keys) in open_keys().items() if not mr_abort else ():
+            if not keys:
+                continue
+            where = f"{mr_backend} {src['REPO']}"
+            rc = os.environ.get(f"WBS_MR_{S}_RC", "")
+            detail = os.environ.get(f"WBS_MR_{S}_DETAIL", "")
+            if rc in ("2", "78"):
+                no_lookup_note(f"exit {rc}")
+                continue
+            if rc != "0":
+                if rc:  # a source after the first failing one is not called
+                    mr_abort = mr_abort or (where, f"exit {rc}: {detail}" if detail else f"exit {rc}")
+                continue
+            try:
+                text = Path(os.environ[f"WBS_MR_{S}_FILE"]).read_bytes().decode("utf-8", "replace")
+                results[S] = mr_lib.parse_issue_mrs(text, keys)
+            except (KeyError, OSError, ValueError) as e:
+                mr_abort = mr_abort or (where, str(e))
+        if failed_at and not mr_abort:
+            mr_abort = (mr_backend, f"lookup failed at {failed_at}")
+
+    if mr_abort:
+        say(f"wbs update: WARNING: MR lookup failed for {mr_abort[0]} ({mr_abort[1]}); "
+            "no mr: value or MR glyph changed (they may be stale).")
+    else:
+        pending = []
+        for node in mr_leaves:
+            meta = node["meta"]
+            iid = meta["issue"]
+            cls, src, key = leaf_lookup(iid)
+            mr = results.get(src["S"], {}).get(key) if src is not None else None
+            if mr == "missing":
+                say(f"wbs update: {iid} not found on {mr_backend} {src['REPO']} (MR lookup); "
+                    "leaf unchanged")
+            cur_src = meta.get("status_src")
+            local = (checklist_state(iid)
+                     if cls == "open" and cur_src == "mr" and mr == "none" else None)
+            eff = trk.mr_effect(node["glyph"], cur_src, cls, local, mr)
+            if eff is not None and eff != (node["glyph"], cur_src, meta.get("mr")):
+                pending.append((node, eff))
+        for node, (glyph, src_val, mr_val) in pending:
+            node["glyph"] = glyph
+            node["state"] = mod.STATE_GLYPHS.get(glyph, "pending")
+            for k, v in (("status_src", src_val), ("mr", mr_val)):
+                if v is None:
+                    node["meta"].pop(k, None)
+                else:
+                    node["meta"][k] = v
+
 mod.write_markdown(wbs_path, tree)
 PY
+}
 
-info "wbs update: reconciled $wbs against the tracker and issue checklists"
+if [[ "$mr_status" == ready ]]; then
+  if mr_keys="$(_reconcile keys)"; then
+    for S in FORK ORIGIN; do
+      mr_repo="" mr_ids=()
+      while IFS=$'\t' read -r s r k; do
+        k="${k%$'\r'}"
+        [[ "$s" == "$S" && -n "$k" ]] || continue
+        mr_repo="$r" mr_ids+=("$k")
+      done <<<"$mr_keys"
+      (( ${#mr_ids[@]} > 0 )) || continue
+      mr_out="$trk_tmp/mr-$S.out" mr_err="$trk_tmp/mr-$S.err"
+      if DEVAGENT_PROJECT="$project" "$mr_script" issue-mrs "$mr_repo" "${mr_ids[@]}" \
+           >"$mr_out" 2>"$mr_err"; then
+        mr_rc=0
+      else
+        mr_rc=$?
+      fi
+      mr_env+=("WBS_MR_${S}_FILE=$mr_out" "WBS_MR_${S}_RC=$mr_rc" "WBS_MR_${S}_REPO=$mr_repo"
+               "WBS_MR_${S}_DETAIL=$(grep -v '^[[:space:]]*$' "$mr_err" | tail -n 1 | tr -d '\r' || true)")
+      case "$mr_rc" in
+        0|2|78) ;;
+        *) mr_env+=("WBS_MR_ABORT=$S"); break ;;
+      esac
+    done
+  else
+    mr_env+=("WBS_MR_ABORT=keys")
+  fi
+fi
+
+_reconcile apply
+
+info "wbs update: reconciled $wbs against the tracker, linked MRs and issue checklists"
