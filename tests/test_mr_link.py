@@ -88,6 +88,15 @@ def test_gitlab_lists():
     assert mr_link.linked("gitlab", "Fixes issue #5 and grp/sub/bar#8", R) == {(R, 5), ("grp/sub/bar", 8)}
 
 
+def test_gitlab_lists_follow_the_default_pattern():
+    # GitLab's continuation `(?: *,? +and +| *,? *)` with `issues? +` per reference
+    assert mr_link.linked("gitlab", "Closes #5 #6", R) == {(R, 5), (R, 6)}
+    assert mr_link.linked("gitlab", "Closes issue #5 and issue #6", R) == {(R, 5), (R, 6)}
+    assert mr_link.linked("gitlab", "Fixes #5,#6, issues #7", R) == {(R, 5), (R, 6), (R, 7)}
+    assert mr_link.linked("gitlab", "Closes #5 then see #6", R) == {(R, 5)}
+    assert mr_link.linked("github", "Closes #5 #6", R) == {(R, 5)}
+
+
 def test_title_and_body_do_not_join():
     assert mr_link.link_text("Fix the parser", "#5 was the report") == "Fix the parser\n#5 was the report"
     assert mr_link.linked("github", mr_link.link_text("Fix the parser", "#5"), R) == set()

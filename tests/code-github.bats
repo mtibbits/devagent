@@ -428,6 +428,16 @@ _query_shape_ok() {
     [ "$(_gql_calls)" -eq 1 ]
 }
 
+@test "issue-mrs resolves #N against the repository's canonical name, so a renamed repo still links (#704)" {
+    _gql_stub
+    jq '.data.repository.nameWithOwner = "acme/testproj"' "$GQL_FIX/issue-mrs-links.json" > "$DEVAGENT_TMP/renamed.json"
+    _gql_serve 1 "$DEVAGENT_TMP/renamed.json"
+    _issue_mrs acme/oldname 6
+    [ "$status" -eq 0 ]
+    [ "$(head -n 1 <<<"$output")" = $'issue\t6\tmerged' ]
+    grep -qF 'nameWithOwner i0:' "$GH_STUB_ARGS_LOG"
+}
+
 @test "issue-mrs aggregation rows on recorded shapes (#704)" {
     local issues
     _gql_stub

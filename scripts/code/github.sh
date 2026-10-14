@@ -83,7 +83,7 @@ issue_mrs() {
     local tmp; tmp="$(mktemp -d)"
     # shellcheck disable=SC2064  # expand $tmp now
     trap "rm -rf '$tmp'" EXIT
-    local ids=("$@") recs="$tmp/records" start=0
+    local ids=("$@") recs="$tmp/records" start=0 canon="$repo"
     : > "$recs"
     while [ "$start" -lt "${#ids[@]}" ]; do
         local batch=("${ids[@]:start:GH_ISSUE_MRS_BATCH}") k decl="" aliases="" args=()
@@ -92,7 +92,7 @@ issue_mrs() {
             aliases+=" i$k: issue(number:\$n$k){ timelineItems(itemTypes:[CROSS_REFERENCED_EVENT], first:100){...P} }"
             args+=(-F "n$k=${batch[$k]}")
         done
-        local q="query(\$owner:String!,\$name:String!$decl){repository(owner:\$owner,name:\$name){$aliases }} $GH_TL_FRAGMENT"
+        local q="query(\$owner:String!,\$name:String!$decl){repository(owner:\$owner,name:\$name){ nameWithOwner$aliases }} $GH_TL_FRAGMENT"
         _im_call "$tmp/out" "$tmp/err" -f "query=$q" -f "owner=$owner" -f "name=$name" "${args[@]}"
         # Valid: JSON with .data.repository; every error a per-alias NOT_FOUND.
         if ! jq -e '.data.repository | type == "object"' "$tmp/out" >/dev/null 2>&1; then
@@ -115,6 +115,11 @@ issue_mrs() {
         # more, cursor}. The flag spares a jq spawn per issue (slow on Windows).
         local ids_json
         ids_json="$(printf '"%s",' "${batch[@]}")"; ids_json="[${ids_json%,}]"
+        # `#N` resolves against a PR's own repo, which GitHub names
+        # canonically; a renamed or transferred repo still configured under
+        # its old name must not read as "no MR" everywhere.
+        canon="$(jq -r '.data.repository.nameWithOwner // empty' "$tmp/out" | tr -d '\r')"
+        [ -n "$canon" ] || canon="$repo"
         # shellcheck disable=SC2016  # jq program
         if ! jq -r --argjson ids "$ids_json" '
               .data.repository as $r
@@ -189,7 +194,7 @@ issue_mrs() {
         echo "code/github.sh: issue-mrs: unrecognised PR record" >&2
         exit 5
     fi
-    python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$repo" < "$tmp/norm"
+    python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$canon" < "$tmp/norm"
 }
 
 verb="${1:-}"; shift || usage

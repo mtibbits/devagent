@@ -50,7 +50,10 @@ _HEAD = {
     "github": re.compile(GITHUB_KW + r":?[ \t]+" + GITHUB_REF),
     "gitlab": re.compile(GITLAB_KW + r":?[ \t]+(?:issues?[ \t]+)?" + GITLAB_REF),
 }
-_GITLAB_CONT = re.compile(r"(?:[ \t]*,[ \t]*(?:and[ \t]+)?|[ \t]+and[ \t]+)" + GITLAB_REF)
+# GitLab's continuation `(?: *,? +and +| *,? *)`, each reference optionally
+# preceded by `issue `/`issues `.
+_GITLAB_CONT = re.compile(r"(?:[ \t]*,?[ \t]+and[ \t]+|[ \t]*,?[ \t]*)(?:issues?[ \t]+)?"
+                          + GITLAB_REF)
 
 ISSUE_STATES = ("open", "draft", "merged", "none", "missing")
 MR_STATES = ("open", "draft", "merged", "closed")
