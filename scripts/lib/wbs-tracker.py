@@ -6,7 +6,9 @@ An issue backend's `state-list <repo>` verb prints one line per issue:
 in_progress, open or other (spec section 9.1). `parse_state_list` reads
 that output; `resolve` decides a leaf's glyph from the tracker class and
 the local checklist. Reconcile and auto-add both call `resolve`, so the
-two entry points cannot drift.
+two entry points cannot drift. `mr_effect` is the MR phase's rule (#704):
+it applies a leaf's linked-MR state (scripts/lib/mr-link.py) on top of
+the tracker phase's result.
 
 CLI:
   wbs-tracker.py check   read state-list output on stdin; print the issue
@@ -47,7 +49,8 @@ def parse_state_list(text: str) -> dict[str, str]:
 
 
 def resolve(
-    current: str, cls: str, local: str | None, cur_src: str | None = None
+    current: str, cls: str, local: str | None, cur_src: str | None = None,
+    *, mr_hold: bool = True,
 ) -> tuple[str, str] | None:
     """Return (glyph, status_src) for a leaf, or None to leave it untouched.
 
@@ -57,7 +60,12 @@ def resolve(
              (the id fits no configured source)
     local    the glyph the issue's checklist implies, None for no signal
     cur_src  the leaf's current `status_src` meta value, if any
+    mr_hold  hold a `status_src: mr` glyph unless the tracker closed the
+             issue (#704): only the MR phase moves it. False when the
+             project has no code backend, so such a leaf falls through.
     """
+    if mr_hold and cur_src == "mr" and cls in ("open", "in_progress", "none"):
+        return None
     if cls == "done":
         return ("x", "tracker")
     if cls == "not_planned":
@@ -80,6 +88,40 @@ def resolve(
     if cls in ("other", "none"):
         return None if local is None else (local, "checklist")
     return None  # missing, unmatched
+
+
+def mr_effect(
+    glyph: str, src: str | None, cls: str, local: str | None, mr: str | None
+) -> tuple[str, str | None, str | None] | None:
+    """The MR phase's effect on a leaf (#704), or None to leave it untouched.
+
+    glyph, src  the leaf's glyph and `status_src` after the tracker phase
+    cls, local  as for `resolve`
+    mr          the issue's aggregated MR state (open, draft, merged, none,
+                missing), None when it was not looked up
+
+    Returns (glyph, status_src, mr), where a None status_src or mr means
+    remove that meta key.
+    """
+    if cls in ("done", "not_planned", "other"):
+        return (glyph, src, None)  # the issue is not open: only mr: goes
+    if cls not in ("open", "in_progress") or mr in (None, "missing"):
+        return None
+    if mr in ("open", "draft", "merged"):
+        if glyph in HAND_SET:
+            return (glyph, src, mr)
+        return ("~", "mr", mr)
+    # mr == "none": no MR links the issue (any more)
+    if src != "mr":
+        return (glyph, src, None)
+    got = resolve(glyph, cls, local, None)
+    if got is not None:
+        return (*got, None)
+    if glyph in HAND_SET:
+        return (glyph, src, None)
+    # No #703 signal: an abandoned MR is not work in progress. Removing
+    # status_src (not `tracker`) is the fixed point: resolve() gives None.
+    return (" ", None, None)
 
 
 def main(argv: list[str]) -> int:

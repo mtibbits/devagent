@@ -44,12 +44,78 @@ PRECEDENCE = [
     (" ", "none", None, None, None),
     (" ", "missing", "x", None, None),
     (" ", "unmatched", "x", "tracker", None),
+    # #704 hold rule: an MR-set glyph survives a tracker that only says open
+    ("~", "open", None, "mr", None),
+    ("~", "open", " ", "mr", None),
+    ("~", "open", "x", "mr", None),
+    ("~", "in_progress", None, "mr", None),
+    ("~", "none", "x", "mr", None),
+    ("~", "done", "~", "mr", ("x", "tracker")),
+    ("~", "not_planned", None, "mr", ("-", "tracker")),
+    ("~", "other", "x", "mr", ("x", "checklist")),
 ]
 
 
 @pytest.mark.parametrize("current,cls,local,cur_src,expected", PRECEDENCE)
 def test_resolve_precedence_table(current, cls, local, cur_src, expected):
     assert wbs_tracker.resolve(current, cls, local, cur_src) == expected
+
+
+# mr_hold=False (no code backend): MR leaves fall through to #703's rules.
+@pytest.mark.parametrize("current,cls,local,cur_src,expected", [
+    ("~", "open", None, "mr", None),
+    ("~", "open", " ", "mr", (" ", "checklist")),
+    ("~", "in_progress", None, "mr", ("~", "tracker")),
+    ("~", "none", "x", "mr", ("x", "checklist")),
+])
+def test_resolve_without_mr_hold(current, cls, local, cur_src, expected):
+    assert wbs_tracker.resolve(current, cls, local, cur_src, mr_hold=False) == expected
+
+
+# #704 mr_effect: (glyph, status_src, cls, local, mr) -> (glyph, status_src
+# or None = remove, mr or None = remove), or None = untouched.
+MR_EFFECT = [
+    # closing classes drop mr: only
+    ("x", "tracker", "done", None, None, ("x", "tracker", None)),
+    ("-", "tracker", "not_planned", None, "open", ("-", "tracker", None)),
+    ("~", "checklist", "other", "~", None, ("~", "checklist", None)),
+    # no MR lookup for the leaf
+    ("~", "mr", "missing", None, "open", None),
+    ("~", "mr", "none", None, "open", None),
+    ("~", "mr", "unmatched", None, "open", None),
+    ("~", "mr", "open", None, None, None),
+    ("~", "mr", "open", None, "missing", None),
+    # linked MR state
+    (" ", None, "open", None, "open", ("~", "mr", "open")),
+    ("x", "checklist", "open", "x", "draft", ("~", "mr", "draft")),
+    (" ", "tracker", "in_progress", None, "merged", ("~", "mr", "merged")),
+    ("P", None, "open", None, "open", ("P", None, "open")),
+    ("!", "checklist", "open", None, "draft", ("!", "checklist", "draft")),
+    ("?", "mr", "in_progress", None, "merged", ("?", "mr", "merged")),
+    # none: a leaf the MR did not set only loses mr:
+    ("~", "checklist", "open", "~", "none", ("~", "checklist", None)),
+    (" ", None, "open", None, "none", (" ", None, None)),
+    # none: an MR-set leaf takes #703's result
+    ("~", "mr", "open", " ", "none", (" ", "checklist", None)),
+    ("~", "mr", "open", "x", "none", ("~", "tracker", None)),
+    ("~", "mr", "in_progress", None, "none", ("~", "tracker", None)),
+    # none, no #703 signal (OQ2 as revised): [ ] and status_src removed
+    ("~", "mr", "open", None, "none", (" ", None, None)),
+    ("P", "mr", "open", None, "none", ("P", "mr", None)),
+    ("!", "mr", "open", None, "none", ("!", "mr", None)),
+    ("?", "mr", "open", None, "none", ("?", "mr", None)),
+]
+
+
+@pytest.mark.parametrize("glyph,src,cls,local,mr,expected", MR_EFFECT)
+def test_mr_effect_table(glyph, src, cls, local, mr, expected):
+    assert wbs_tracker.mr_effect(glyph, src, cls, local, mr) == expected
+
+
+def test_oq2_fixed_point():
+    # the abandoned-MR leaf, run again: neither phase touches it
+    assert wbs_tracker.resolve(" ", "open", None, None) is None
+    assert wbs_tracker.mr_effect(" ", None, "open", None, "none") == (" ", None, None)
 
 
 def test_parse_state_list_ok():

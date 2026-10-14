@@ -1539,7 +1539,57 @@ create-mr    <repo> <title> <body-file> <head> <base>       → MR URL to stdout
 mr-state     <mr-url>                                       → open|merged|closed|draft
 mr-comments  <mr-url>                                       → markdown to stdout (§9.3)
 merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
+issue-mrs    <repo> <id>...                                 → issue/mr lines (MAY)
 ```
+
+The first five verbs MUST be implemented; `issue-mrs` MAY be (#704). For
+each issue number `<id>` of `<repo>` it reports the MRs linked to the
+issue. An MR links an issue when its title or description carries a
+closing-keyword reference that resolves to it, whatever the MR's target
+branch: GitHub's keyword set (`close`, `closes`, `closed`, `fix`, `fixes`,
+`fixed`, `resolve`, `resolves`, `resolved`, any case, one reference each)
+or GitLab's default closing pattern (which also takes `Implements` and a
+`#5, #6 and #7` list). `#N` resolves against the MR's own repo and
+`owner/repo#N` is explicit, so a fork MR saying `Closes #5` links the
+fork's issue 5, not upstream's. A reference without a closing keyword
+(`Related: #N`, a bare mention) does not link, nor do the URL form
+(`Closes https://…/issues/N`), GitLab's bare `project#N`, a GitLab
+project's customised closing pattern, or GitHub's "Development" sidebar
+links; these are possible later options. Because `#N` resolves against
+the MR's repo, an MR in a code repo that differs from the tracker repo
+does not link the tracker's issue with a bare `#N`. Candidates are found
+from the issue side (GitHub: the issue timeline's cross-references, one
+GraphQL call per batch of 50 issues plus one per further page of a
+truncated timeline; GitLab: `related_merge_requests`, one call per
+issue), so fork MRs, and on GitHub cross-repo MRs, are seen (whether
+GitLab lists an MR from an unrelated project is unmeasured). The GitHub batch is 50, not
+100: a 100-issue batch was measured at 6.7-9.6 s against GitHub's ~10 s
+GraphQL timeout. GitLab fails closed on a page of 100 related MRs. Repo
+and ids travel as request variables, never in the query text.
+
+Output, per requested id in request order (TAB-separated):
+
+```
+issue  <id>  open|draft|merged|none|missing
+mr     <id>  <ref>  open|draft|merged|closed  <created>  <merged>|-
+```
+
+The `issue` line carries the aggregate of its `mr` lines: any open
+non-draft MR gives `open`, else any draft `draft`, else any merged
+`merged`, else (none, or only closed-unmerged) `none`. `missing` is a
+per-issue 404 and has no `mr` lines. One `mr` line follows per linked MR
+(`<ref>` is `owner/repo#N` or `group/project!N`), sorted by creation
+time, with UTC second-precision `YYYY-MM-DDTHH:MM:SSZ` created and merged
+timestamps (#734 reads them; `wbs update` does not).
+`scripts/lib/mr-link.py` applies the link rule, prints this grammar and
+checks it, so the backends and `wbs update` share one predicate. Exit `0`
+is success; `78` (not implemented) and `2` (unknown verb) mean "no MR
+lookup"; `1` is a transport or CLI failure or bad arguments (never `2`),
+`3` an authentication failure (HTTP 401/403) and `5` an unrecognised
+record, non-JSON, a repeated page cursor or a full GitLab page. Any exit
+but `0`, `2` and `78` aborts the `wbs update` MR phase (§13.2).
+`wbs update` is the verb's only caller today; #734 is expected to read the
+`mr` lines' timestamps.
 
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 
@@ -1736,10 +1786,12 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`, `status_src`. Unrecognized keys are
+`start`, `due`, `depends_on`, `status_src`, `mr`. Unrecognized keys are
 preserved verbatim for forward compatibility. `wbs update` writes
-`status_src` (`tracker` or `checklist`): where a leaf's glyph came from
-(#703).
+`status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
+from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
+MRs linked to the leaf's open issue (#704). `wbs update` owns both keys: a
+hand-written `mr` value is rewritten or removed.
 
 A node is a `- [g] …` line outside a fenced code block. A fence may
 open at any indentation, so a fence in a leaf's indented note hides the
@@ -1750,8 +1802,9 @@ each node line's own formatting (meta quoting and spacing, indentation,
 LF or CRLF line endings, the presence or absence of a final newline) is
 written back byte-for-byte by `wbs update` and by `wbs-parser.py render`
 of a `parse` tree. `wbs update` changes only the glyph character and
-the `status_src` value of a leaf whose state it resolved (#703) and adds
-new nodes as whole lines in the file's line-ending style (#701).
+the `status_src` and `mr` meta of a leaf whose state it resolved (#703,
+#704; set, replaced or removed in place) and adds new nodes as whole
+lines in the file's line-ending style (#701).
 
 ### 13.2 Commands
 
@@ -1769,6 +1822,20 @@ new nodes as whole lines in the file's line-ending style (#701).
   issue closes. An id the tracker does not list keeps its glyph. A failed
   lookup changes no glyph, prints one warning and exits 0. `--offline`
   (or `DEVAGENT_WBS_OFFLINE=1`) skips the tracker (#703).
+  Then an MR phase (#704) reads linked-MR state through the code backend's
+  `issue-mrs` (§9.2), once per issue source with open leaves whose backend
+  is the project's `code_source.backend`. A leaf whose issue is open takes
+  `[~]`, `status_src: mr` and `mr: open|draft|merged` when an MR links it
+  (a hand-set `[P]`, `[!]` or `[?]` is kept, and only `mr` is written).
+  `mr: merged` with the issue still open means merged, awaiting
+  acceptance: an MR merged into a non-default branch, a project with
+  auto-close off, or a reopened issue. With no linked MR, `mr` is removed
+  and a leaf the MR phase had set takes the tracker or checklist result,
+  or `[ ]` with `status_src` removed when there is none. When the issue
+  closes, `mr` is removed. While the tracker only says open, an MR-set
+  glyph is held between runs. A failed MR lookup writes none of the MR
+  phase's changes (glyphs and `mr` values may be stale), prints one
+  warning and exits 0; `--offline` skips it too.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only
 
@@ -1780,7 +1847,8 @@ new nodes as whole lines in the file's line-ending style (#701).
 
 These are deliberately deferred. The metadata schema is fixed in v1
 so deferred renderers do not require schema migration; additive keys
-such as `status_src` may be added, and renderers ignore unknown keys.
+such as `status_src` and `mr` may be added, and renderers ignore unknown
+keys.
 
 ## 14. Status reports
 

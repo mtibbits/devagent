@@ -71,6 +71,11 @@ assert_not_implemented() {
   assert_not_implemented "$status" "$output"
 }
 
+@test "code/custom.sh issue-mrs exits 78 (#704)" {
+  run "$CODE" issue-mrs acme/testproj 5 6
+  assert_not_implemented "$status" "$output"
+}
+
 @test "issue/custom.sh unknown verb exits 2" {
   run "$ISSUE" wat
   [ "$status" -eq 2 ]

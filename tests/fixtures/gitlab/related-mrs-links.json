@@ -1,0 +1,46 @@
+[
+ {
+  "id": 9021,
+  "iid": 21,
+  "project_id": 1,
+  "title": "change 21",
+  "description": "Stacked on dev/all-prs.\n\nCloses #6, #7 and grp/sub/bar#8",
+  "state": "merged",
+  "created_at": "2026-10-07T03:24:16.575Z",
+  "updated_at": "2026-10-09T00:44:35.860Z",
+  "merged_at": "2026-10-09T00:44:35.860Z",
+  "closed_at": null,
+  "target_branch": "dev/all-prs",
+  "source_branch": "feat/21",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!21",
+   "relative": "!21",
+   "full": "foo/bar!21"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/21"
+ },
+ {
+  "id": 9099,
+  "iid": 99,
+  "project_id": 1,
+  "title": "change 99",
+  "description": "Related to #6 and #7; no closing keyword here.",
+  "state": "merged",
+  "created_at": "2026-10-08T00:00:00.000Z",
+  "updated_at": "2026-10-08T01:00:00.000Z",
+  "merged_at": "2026-10-08T01:00:00.000Z",
+  "closed_at": null,
+  "target_branch": "main",
+  "source_branch": "feat/99",
+  "draft": false,
+  "work_in_progress": false,
+  "references": {
+   "short": "!99",
+   "relative": "!99",
+   "full": "foo/bar!99"
+  },
+  "web_url": "https://gitlab.example/foo/bar/-/merge_requests/99"
+ }
+]

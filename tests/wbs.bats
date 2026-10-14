@@ -46,6 +46,10 @@ EOF
   export TMPROOT
   export DEVAGENT_ISSUE_BACKEND_DIR="$TMPROOT/backends"
   wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+  # #704: the MR phase's code backend is the same stub; with no issue-mrs
+  # file it exits 78 (no lookup), so no expectation here changes.
+  export DEVAGENT_CODE_BACKEND_DIR="$TMPROOT/code-backends"
+  wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
   wbs_tracker_install_shims "$TMPROOT/shims" "$TMPROOT/network.log"
   export PATH="$TMPROOT/shims:$PATH"
 }
@@ -248,10 +252,10 @@ EOF
   diff "$TMPDEV/WBS.md" "$TMPDEV/WBS.md.first"
 }
 
-@test "wbs usage names update --offline and the tracker (#703)" {
+@test "wbs usage names update --offline, the tracker and linked MRs (#703, #704)" {
   run bash "$REPO/scripts/wbs.sh"
   [ "$status" -eq 2 ]
-  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ else\ checklists\;\ add\ the\ active\ issue ]]
+  [[ "$output" =~ update\ \[--offline\]\ +set\ issue-leaf\ glyphs\ from\ the\ tracker,\ linked\ MRs,\ else\ checklists\;\ add\ the\ active\ issue ]]
 }
 
 @test "updatewbs.md command file exists and references wbs.sh update" {

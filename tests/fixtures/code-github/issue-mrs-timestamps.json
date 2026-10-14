@@ -1,0 +1,32 @@
+{
+ "data": {
+  "repository": {
+   "i0": {
+    "timelineItems": {
+     "totalCount": 1,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 80,
+        "title": "change 80",
+        "body": "Closes #8",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-10-07T03:24:16Z",
+        "mergedAt": "2026-10-07T05:00:59Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

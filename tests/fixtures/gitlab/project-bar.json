@@ -1,0 +1,5 @@
+{
+ "id": 1,
+ "path_with_namespace": "foo/bar",
+ "default_branch": "main"
+}

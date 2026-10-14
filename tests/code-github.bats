@@ -354,3 +354,222 @@ EOF
     devagent_assert_logged "gh api --hostname github.com --paginate repos/acme/testproj/pulls/42/comments?per_page=100 --jq"
 }
 
+# --- issue-mrs (#704) --------------------------------------------------------
+# The gh-stub's `api graphql` arm replays tests/fixtures/code-github/
+# issue-mrs-*.json (provenance: issue-mrs-README.md), one file per call.
+GQL_FIX="$BATS_TEST_DIRNAME/fixtures/code-github"
+
+_gql_stub() {
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    export GH_STUB_GRAPHQL_DIR="$DEVAGENT_TMP/gql"
+    export GH_STUB_ARGS_LOG="$DEVAGENT_TMP/gh-args.log"
+    mkdir -p "$GH_STUB_GRAPHQL_DIR"
+}
+
+# _gql_serve <k> <response-file> [rc] [stderr]: the k-th graphql call's reply.
+_gql_serve() {
+    cp "$2" "$GH_STUB_GRAPHQL_DIR/$1.json"
+    [ -z "${3:-}" ] || printf '%s\n' "$3" > "$GH_STUB_GRAPHQL_DIR/$1.rc"
+    [ -z "${4:-}" ] || printf '%s\n' "$4" > "$GH_STUB_GRAPHQL_DIR/$1.err"
+}
+
+_gql_calls() {
+    cat "$GH_STUB_GRAPHQL_DIR/count" 2>/dev/null || echo 0
+}
+
+_issue_mrs() {
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" issue-mrs "$@"
+}
+
+# _gql_batch <n>: a batch reply whose n aliases have empty timelines.
+_gql_batch() {
+    jq -n --argjson n "$1" '{data: {repository: (reduce range(0; $n) as $k ({};
+        .["i\($k)"] = {timelineItems: {totalCount: 0,
+          pageInfo: {hasNextPage: false, endCursor: null}, nodes: []}}))}}'
+}
+
+# _gql_page <cursor> <hasNextPage> [totalCount]: a page reply holding one PR
+# that closes #1.
+_gql_page() {
+    jq -n --arg c "$1" --argjson more "$2" --argjson total "${3:-2}" '{data: {repository: {issue: {timelineItems: {
+        totalCount: $total, pageInfo: {hasNextPage: $more, endCursor: $c},
+        nodes: [{source: {__typename: "PullRequest", number: 7, title: "t",
+          body: "Closes #1", state: "OPEN", isDraft: false,
+          createdAt: "2026-07-01T00:00:00Z", mergedAt: null,
+          repository: {nameWithOwner: "acme/testproj"}}}]}}}}}'
+}
+
+# _gql_truncate <file>: alias i0 reports 2 cross-references, holds 1, has more.
+_gql_truncate() {
+    jq '.data.repository.i0.timelineItems = {totalCount: 2,
+        pageInfo: {hasNextPage: true, endCursor: "C1"},
+        nodes: [{source: {__typename: "Issue"}}]}' "$1" > "$1.t"
+    mv "$1.t" "$1"
+}
+
+# Every issue(number: takes a $variable; no literal number, owner or name.
+_query_shape_ok() {
+    local q="$1" calls
+    [[ "$q" == *'issue(number:'* ]] || return 1
+    if grep -qE 'number:[0-9]|owner:"|name:"' <<<"$q"; then return 1; fi
+    calls="$(grep -oE 'issue\(number:[^)]*\)' <<<"$q")"
+    if grep -vqE '^issue\(number:\$n[0-9]*\)$' <<<"$calls"; then return 1; fi
+    return 0
+}
+
+@test "issue-mrs links closing-keyword PRs whatever their base; mention-only PRs do not link (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-links.json"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 0 ]
+    [ "$output" = $'issue\t6\tmerged\nmr\t6\tacme/testproj#21\tmerged\t2026-06-10T04:11:31Z\t2026-06-10T04:27:27Z\nmr\t6\tacme/testproj#22\tclosed\t2026-06-11T09:00:00Z\t-' ]
+    [[ "$output" != *"#99"* ]]
+    [ "$(_gql_calls)" -eq 1 ]
+}
+
+@test "issue-mrs resolves #N against the repository's canonical name, so a renamed repo still links (#704)" {
+    _gql_stub
+    jq '.data.repository.nameWithOwner = "acme/testproj"' "$GQL_FIX/issue-mrs-links.json" > "$DEVAGENT_TMP/renamed.json"
+    _gql_serve 1 "$DEVAGENT_TMP/renamed.json"
+    _issue_mrs acme/oldname 6
+    [ "$status" -eq 0 ]
+    [ "$(head -n 1 <<<"$output")" = $'issue\t6\tmerged' ]
+    grep -qF 'nameWithOwner i0:' "$GH_STUB_ARGS_LOG"
+}
+
+@test "issue-mrs aggregation rows on recorded shapes (#704)" {
+    local issues
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-aggregate.json"
+    _issue_mrs acme/testproj 1 2 3 4 5
+    [ "$status" -eq 0 ]
+    issues="$(grep '^issue' <<<"$output")"
+    [ "$issues" = $'issue\t1\topen\nissue\t2\tdraft\nissue\t3\tmerged\nissue\t4\tnone\nissue\t5\tnone' ]
+    grep -qxF $'mr\t1\tacme/testproj#32\tdraft\t2026-07-01T00:00:02Z\t-' <<<"$output"
+    grep -qxF $'mr\t5\tacme/testproj#61\tclosed\t2026-07-01T00:00:01Z\t-' <<<"$output"
+}
+
+@test "a fork-repo PR \"Closes #5\" links the fork's 5, not upstream 5 (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-fork.json"
+    _gql_serve 2 "$GQL_FIX/issue-mrs-fork.json"
+    _issue_mrs me/testproj-fork 5
+    [ "$status" -eq 0 ]
+    [ "$output" = $'issue\t5\topen\nmr\t5\tme/testproj-fork#3\topen\t2026-08-01T12:00:00Z\t-' ]
+    _issue_mrs acme/testproj 5
+    [ "$status" -eq 0 ]
+    [ "$output" = $'issue\t5\tnone' ]
+}
+
+@test "issue-mrs passes repo and ids as variables, never in the query text (#704)" {
+    local q
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-fork.json"
+    _issue_mrs acme/testproj 12
+    [ "$status" -eq 0 ]
+    grep -qF '[-F] [n0=12]' "$GH_STUB_ARGS_LOG"
+    grep -qF '[-f] [owner=acme]' "$GH_STUB_ARGS_LOG"
+    grep -qF '[-f] [name=testproj]' "$GH_STUB_ARGS_LOG"
+    q="$(sed -n 's/.*\[query=\(.*\)\] \[-f\] \[owner=.*/\1/p' "$GH_STUB_ARGS_LOG")"
+    [ -n "$q" ]
+    _query_shape_ok "$q"
+    # planted controls: a literal id or owner reddens the shape check
+    run _query_shape_ok 'query{repository(owner:$owner,name:$name){i0: issue(number:12){id}}}'
+    [ "$status" -ne 0 ]
+    run _query_shape_ok 'query{repository(owner:"acme",name:$name){i0: issue(number:$n0){id}}}'
+    [ "$status" -ne 0 ]
+}
+
+@test "issue-mrs: HTTP 401 from gh exits 3 (auth) (#704)" {
+    _gql_stub
+    printf '{"message":"Bad credentials","documentation_url":"https://docs.github.com/graphql"}\n' > "$DEVAGENT_TMP/401.json"
+    _gql_serve 1 "$DEVAGENT_TMP/401.json" 1 "gh: Bad credentials (HTTP 401)"
+    _issue_mrs acme/testproj 6
+    [ "$status" -eq 3 ]
+}
+
+@test "2B+1 ids take 3 calls; a truncated timeline adds 1 page call (#704)" {
+    local B i ids=() line2 n
+    B="$(sed -n 's/^GH_ISSUE_MRS_BATCH=\([0-9][0-9]*\)$/\1/p' "$DEVAGENT_ROOT/scripts/code/github.sh")"
+    [ "$B" -eq 50 ]   # guard: a silent change to the constant reddens
+    for ((i = 1; i <= 2 * B + 1; i++)); do ids+=("$i"); done
+    _gql_stub
+    _gql_batch "$B" > "$GH_STUB_GRAPHQL_DIR/1.json"
+    _gql_truncate "$GH_STUB_GRAPHQL_DIR/1.json"
+    _gql_page C2 false > "$GH_STUB_GRAPHQL_DIR/2.json"
+    _gql_batch "$B" > "$GH_STUB_GRAPHQL_DIR/3.json"
+    _gql_batch 1 > "$GH_STUB_GRAPHQL_DIR/4.json"
+    _issue_mrs acme/testproj "${ids[@]}"
+    [ "$status" -eq 0 ]
+    [ "$(_gql_calls)" -eq 4 ]
+    [ "$(wc -l < "$GH_STUB_ARGS_LOG")" -eq 4 ]
+    line2="$(sed -n 2p "$GH_STUB_ARGS_LOG")"
+    [[ "$line2" == *'[-f] [after=C1]'* ]]
+    [[ "$line2" == *'[-F] [n=1]'* ]]
+    sed -n 3p "$GH_STUB_ARGS_LOG" | grep -qF '[-F] [n0=51]'
+    sed -n 4p "$GH_STUB_ARGS_LOG" | grep -qF '[-F] [n0=101]'
+    n="$(grep -c '^issue' <<<"$output")"
+    [ "$n" -eq $((2 * B + 1)) ]
+    [ "$(head -n 1 <<<"$output")" = $'issue\t1\topen' ]
+}
+
+@test "a repeated cursor exits 5 (#704)" {
+    _gql_stub
+    _gql_batch 1 > "$GH_STUB_GRAPHQL_DIR/1.json"
+    _gql_truncate "$GH_STUB_GRAPHQL_DIR/1.json"
+    _gql_page C1 true 3 > "$GH_STUB_GRAPHQL_DIR/2.json"
+    _issue_mrs acme/testproj 1
+    [ "$status" -eq 5 ]
+    [ "$(_gql_calls)" -eq 2 ]
+}
+
+@test "per-issue NOT_FOUND is missing; other GraphQL errors exit 1 (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-notfound.json" 1 "gh: Could not resolve to an Issue with the number of 9."
+    _issue_mrs acme/testproj 6 9
+    [ "$status" -eq 0 ]
+    [ "$output" = $'issue\t6\topen\nmr\t6\tacme/testproj#21\topen\t2026-06-10T04:11:31Z\t-\nissue\t9\tmissing' ]
+    rm -f "$GH_STUB_GRAPHQL_DIR"/*
+    _gql_serve 1 "$GQL_FIX/issue-mrs-ratelimited.json" 1 "gh: API rate limit exceeded for user ID 1."
+    _issue_mrs acme/testproj 6 9
+    [ "$status" -eq 1 ]
+}
+
+@test "an unrecognised PR state exits 5 (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-badstate.json"
+    _issue_mrs acme/testproj 7
+    [ "$status" -eq 5 ]
+    [[ "$output" != *$'issue\t'* ]]
+}
+
+@test "issue-mrs emits created/merged per MR in UTC seconds (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-timestamps.json"
+    _issue_mrs acme/testproj 8
+    [ "$status" -eq 0 ]
+    grep -qxF $'mr\t8\tacme/testproj#80\tmerged\t2026-10-07T03:24:16Z\t2026-10-07T05:00:59Z' <<<"$output"
+}
+
+@test "issue-mrs output passes mr-link.py check (#704)" {
+    _gql_stub
+    _gql_serve 1 "$GQL_FIX/issue-mrs-aggregate.json"
+    _issue_mrs acme/testproj 1 2 3 4 5
+    [ "$status" -eq 0 ]
+    run python3 "$DEVAGENT_ROOT/scripts/lib/mr-link.py" check 1 2 3 4 5 <<<"$output"
+    [ "$status" -eq 0 ]
+    [ "$output" = 5 ]
+}
+
+@test "issue-mrs rejects a non-numeric id with exit 1 and no call; no ids make no call (#704)" {
+    _gql_stub
+    _issue_mrs acme/testproj 6 x7
+    [ "$status" -eq 1 ]
+    _issue_mrs acme/testproj
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    _issue_mrs
+    [ "$status" -eq 1 ]
+    [ "$(_gql_calls)" -eq 0 ]
+}

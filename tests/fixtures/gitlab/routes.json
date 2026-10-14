@@ -16,5 +16,22 @@
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7": {"status": 200, "body_file": "mr.json"},
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7/notes?per_page=100&page=1": {"status": 200, "body_file": "mr-notes.json"},
   "POST /api/v4/projects/foo%2Fbar/merge_requests": {"status": 201, "body_file": "mr-created.json"},
-  "PUT /api/v4/projects/foo%2Fbar/merge_requests/7/merge": {"status": 200, "body": "{\"state\":\"merged\"}"}
+  "PUT /api/v4/projects/foo%2Fbar/merge_requests/7/merge": {"status": 200, "body": "{\"state\":\"merged\"}"},
+
+  "GET /api/v4/projects/foo%2Fbar/issues/6/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-links.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/7/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-links.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/1/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-1.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/2/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-2.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/3/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-3.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/4/related_merge_requests?per_page=100": {"status": 200, "body": "[]"},
+  "GET /api/v4/projects/foo%2Fbar/issues/5/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-fork.json"},
+  "GET /api/v4/projects/me%2Fbar/issues/5/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-fork.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/13/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-13.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/10/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-10.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/11/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-badstate.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/12/related_merge_requests?per_page=100": {"status": 200, "body_file": "related-mrs-full.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/404/related_merge_requests?per_page=100": {"status": 404, "body": "{\"message\":\"404 Not found\"}"},
+  "GET /api/v4/projects/foo%2Fbar/issues/401/related_merge_requests?per_page=100": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"},
+  "GET /api/v4/projects/foo%2Fbar/issues/501/related_merge_requests?per_page=100": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
+  "GET /api/v4/projects/foo%2Fbar": {"status": 200, "body_file": "project-bar.json"}
 }

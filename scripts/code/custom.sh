@@ -16,13 +16,14 @@ Usage: custom.sh <verb> [args…]
   mr-state <mr-url>
   mr-comments <mr-url>
   merge-mr <mr-url> [--method squash|merge|rebase]
+  issue-mrs <repo> <id>...   (optional, spec §9.2; #704)
 EOF
   exit 2
 }
 
 verb="${1:-}"; shift || true
 case "$verb" in
-  push-branch|create-mr|mr-state|mr-comments|merge-mr)
+  push-branch|create-mr|mr-state|mr-comments|merge-mr|issue-mrs)
     bc_die_not_implemented custom "$verb" ;;
   ""|-h|--help) usage ;;
   *) usage ;;

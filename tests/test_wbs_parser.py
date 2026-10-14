@@ -442,6 +442,58 @@ def test_other_meta_change_still_regenerates():
     assert out == "# t\n\n- [ ] A {issue: Issue-1, est: 2w, status_src: tracker}\n"
 
 
+# #704 — `mr` is a second owned key: set, replaced or removed in place
+
+
+def test_mr_is_known_key():
+    tree = wbs_parser.parse_text("# t\n\n- [~] A {issue: Issue-1, status_src: mr, mr: open}\n")
+    assert tree["children"][0]["meta_unknown_keys"] == []
+
+
+def test_mr_splice_add_with_status_src(variants):
+    for kind, p in variants.items():
+        src = p.read_bytes()
+        tree = wbs_parser.parse_file(p)
+        node = _find(tree, "Leaf A")
+        node["glyph"], node["state"] = "~", "in_progress"
+        node["meta"]["status_src"] = "mr"
+        node["meta"]["mr"] = "open"
+        want = src.replace(b"- [ ] Leaf A {issue: Issue-1,est:1w}",
+                           b"- [~] Leaf A {issue: Issue-1,est:1w, status_src: mr, mr: open}")
+        assert want != src, kind
+        assert wbs_parser.render_markdown(tree).encode("utf-8") == want, kind
+
+
+def _one(src, edit):
+    tree = wbs_parser.parse_text(src)
+    edit(tree["children"][0]["meta"])
+    return wbs_parser.render_markdown(tree)
+
+
+def test_mr_splice_replace_and_remove_compact():
+    src = "# t\n\n- [~] A {issue: Issue-1,est:1w,mr:open}\n"
+    assert _one(src, lambda m: m.update(mr="merged")) == src.replace("mr:open", "mr:merged")
+    assert _one(src, lambda m: m.pop("mr")) == "# t\n\n- [~] A {issue: Issue-1,est:1w}\n"
+
+
+def test_mr_remove_first_and_only_key():
+    assert _one("# t\n\n- [ ] A {mr: open, issue: Issue-1}\n", lambda m: m.pop("mr")) == \
+        "# t\n\n- [ ] A {issue: Issue-1}\n"
+    assert _one("# t\n\n- [ ] A {mr: open}\n", lambda m: m.pop("mr")) == "# t\n\n- [ ] A {}\n"
+
+
+def test_mr_and_status_src_removed_together():
+    src = "# t\n\n- [~] A {issue: Issue-1, est: 1w, status_src: mr, mr: open}  " + CRLF
+    out = _one(src, lambda m: (m.pop("mr"), m.pop("status_src")))
+    assert out == "# t\n\n- [~] A {issue: Issue-1, est: 1w}  " + CRLF
+
+
+def test_owned_change_with_other_meta_change_regenerates():
+    src = "# t\n\n- [ ] A {issue: Issue-1,est:1w,mr:open}\n"
+    out = _one(src, lambda m: (m.pop("mr"), m.update(est="2w")))
+    assert out == "# t\n\n- [ ] A {issue: Issue-1, est: 2w}\n"
+
+
 def test_tree_without_source_text_renders_v1():
     tree = wbs_parser.parse_file(FIX / "simple.md")
     tree.pop("source_text", None)

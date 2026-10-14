@@ -1,0 +1,67 @@
+{
+ "data": {
+  "repository": {
+   "i0": {
+    "timelineItems": {
+     "totalCount": 4,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": "Y3Vyc29yOnYyOpPPAAABoRaRYggCqzE0NTk0MjU2MTQ5"
+     },
+     "nodes": [
+      {
+       "source": {
+        "__typename": "Issue"
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 21,
+        "title": "parser: accept CRLF input",
+        "body": "## Summary\n\nStacked on dev/all-prs.\n\nCloses #6",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-06-10T04:11:31Z",
+        "mergedAt": "2026-06-10T04:27:27Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 22,
+        "title": "parser: CRLF (abandoned)",
+        "body": "Fixes #6\n\nSuperseded.",
+        "state": "CLOSED",
+        "isDraft": false,
+        "createdAt": "2026-06-11T09:00:00Z",
+        "mergedAt": null,
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      },
+      {
+       "source": {
+        "__typename": "PullRequest",
+        "number": 99,
+        "title": "lexer cleanup",
+        "body": "Follow-up to #6; the same parser also feeds #100.\n\nRelated: #6",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-06-12T09:00:00Z",
+        "mergedAt": "2026-06-12T10:00:00Z",
+        "repository": {
+         "nameWithOwner": "acme/testproj"
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}
