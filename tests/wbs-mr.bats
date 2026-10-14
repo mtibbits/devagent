@@ -441,6 +441,14 @@ EOF
   [ "$(_calls)" -eq 1 ]
   _update
   [[ "$output" != *WARNING* ]]
+  # a backend older than the verb exits 2 (unknown verb): the same note
+  _mr_fail acme/testproj 2 ''
+  _update
+  [ "$status" -eq 0 ]
+  [[ "$output" != *WARNING* ]]
+  run grep -c 'wbs update: github has no issue-mrs (exit 2); MR state not read' <<< "$output"
+  [ "$output" = 1 ]
+  rm -f "$TMPROOT"/issue-mrs.github.acme_testproj*
   # no code backend script at all
   rm -f "$DEVAGENT_CODE_BACKEND_DIR/github.sh"
   _update

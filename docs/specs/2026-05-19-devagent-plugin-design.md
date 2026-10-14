@@ -1588,7 +1588,8 @@ lookup"; `1` is a transport or CLI failure or bad arguments (never `2`),
 `3` an authentication failure (HTTP 401/403) and `5` an unrecognised
 record, non-JSON, a repeated page cursor or a full GitLab page. Any exit
 but `0`, `2` and `78` aborts the `wbs update` MR phase (§13.2).
-`wbs update` is the verb's only caller.
+`wbs update` is the verb's only caller today; #734 is expected to read the
+`mr` lines' timestamps.
 
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 

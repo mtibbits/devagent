@@ -195,7 +195,8 @@ issue_mrs() {
         echo "code/github.sh: issue-mrs: unrecognised PR record" >&2
         exit 5
     fi
-    python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$canon" < "$tmp/norm"
+    # Never exit 2 (python's own code for an unopenable script): 2 means "no verb".
+    python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$canon" < "$tmp/norm" || exit 5
 }
 
 verb="${1:-}"; shift || usage

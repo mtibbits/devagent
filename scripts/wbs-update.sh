@@ -609,12 +609,14 @@ if not aborted and mr_status != "offline":
             "no mr: value or MR glyph changed (they may be stale).")
     else:
         pending = []
+        reported = set()
         for node in mr_leaves:
             meta = node["meta"]
             iid = meta["issue"]
             cls, src, key = leaf_lookup(iid)
             mr = results.get(src["S"], {}).get(key) if src is not None else None
-            if mr == "missing":
+            if mr == "missing" and iid not in reported:
+                reported.add(iid)
                 say(f"wbs update: {iid} not found on {mr_backend} {src['REPO']} (MR lookup); "
                     "leaf unchanged")
             cur_src = meta.get("status_src")

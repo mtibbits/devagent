@@ -227,7 +227,8 @@ cmd_issue_mrs() {
       exit 5
     fi
   done
-  python3 "${SCRIPT_DIR}/../lib/mr-link.py" emit gitlab "$repo" < "$recs"
+  # Never exit 2 (python's own code for an unopenable script): 2 means "no verb".
+  python3 "${SCRIPT_DIR}/../lib/mr-link.py" emit gitlab "$repo" < "$recs" || exit 5
 }
 
 verb="${1:-}"; shift || true
