@@ -11,8 +11,8 @@ JSON serialization and consumption by:
 - v2/v3 renderers (Gantt, MS Project XML, OpenProject API)
 
 The metadata schema is fixed in v1 (spec §13.3) so deferred renderers do
-not require migration; additive keys such as `status_src` (#703) may be
-added, and renderers ignore keys they do not use. Unknown metadata keys
+not require migration; additive keys such as `status_src` (#703) and
+`mr` (#704) may be added, and renderers ignore keys they do not use. Unknown metadata keys
 are preserved verbatim under
 `meta` and additionally listed in `meta_unknown_keys` so a future
 renderer can decide whether to pass them through or warn.
@@ -28,8 +28,9 @@ The root also carries `source_text`, the file's exact text (an additive
 field; the metadata schema is unaffected). `render_markdown` of a tree
 that has it reproduces the document line by line: an unchanged line is
 written back byte for byte, a glyph change rewrites one character, a
-`status_src` change splices only that value into the meta block (#703),
-and new nodes (no `source_line`) are inserted as whole lines in the file's
+change to the owned keys `status_src` (#703) and `mr` (#704) splices only
+those keys into the meta block (set, replaced or removed in place), and
+new nodes (no `source_line`) are inserted as whole lines in the file's
 line-ending style. A tree without `source_text` renders as v1 does
 (`render_nodes`: title plus nodes only).
 
@@ -65,7 +66,7 @@ STATE_GLYPHS: dict[str, str] = {
 KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
         "issue", "est", "cost", "owner", "milestone", "start", "due",
-        "depends_on", "status_src",
+        "depends_on", "status_src", "mr",
     }
 )
 
@@ -487,7 +488,17 @@ def _render_document(tree: dict) -> str:
     return "".join(body + term for body, term in out)
 
 
-_STATUS_SRC_RE = re.compile(r"(?:^|,)\s*status_src\s*:\s*([^,}]*?)\s*(?=,|$)")
+# Meta keys `wbs update` writes; a change to them alone is spliced in place.
+OWNED_META_KEYS = ("status_src", "mr")
+
+
+def _owned_re(key: str) -> re.Pattern:
+    return re.compile(
+        rf"(?P<lead>^|,)(?P<pad>\s*){key}\s*:\s*(?P<val>[^,}}]*?)\s*(?=,|$)"
+    )
+
+
+_OWNED_RES = {k: _owned_re(k) for k in OWNED_META_KEYS}
 
 
 def _node_body(node: dict, m: re.Match, body: str) -> str:
@@ -496,7 +507,9 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
     glyph = _glyph(node)
     new_meta = node.get("meta", {})
     if node["text"] != text or new_meta != meta:
-        spliced = _splice_status_src(new_meta, m, body, text)
+        spliced = None
+        if node["text"] == text:
+            spliced = _splice_owned(new_meta, meta, m, body, text)
         if spliced is None:
             return m.group("indent") + _node_tail(node, glyph)
         body = spliced
@@ -506,19 +519,25 @@ def _node_body(node: dict, m: re.Match, body: str) -> str:
     return body[:g] + glyph + body[g + 1 :]
 
 
-def _splice_status_src(
-    new_meta: dict, m: re.Match, body: str, text: str
+def _splice_owned(
+    new_meta: dict, old_meta: dict, m: re.Match, body: str, text: str
 ) -> str | None:
-    """`body` with only the `status_src` value changed, or None (#703).
+    """`body` with only the owned meta keys changed, or None (#703, #704).
 
-    An existing value is replaced in place; otherwise `, status_src: <v>`
-    goes just before the block's `}` (no comma in an empty block). The
-    result is re-parsed and must give the line's `text` and `new_meta` —
-    so it applies only when the text is unchanged and the metas differ in
-    `status_src` alone — else None and the caller regenerates the line.
+    An existing value is replaced in place. A removed key goes from its
+    preceding comma through the end of its value; a first key goes through
+    the comma and spaces after it. A missing key is appended just before
+    the block's `}` as `, key: value` (no comma in an empty block), in
+    `new_meta` order. The result is re-parsed and must give the line's
+    `text` and `new_meta`, so it applies only when the text is unchanged
+    and the metas differ in owned keys alone; else None and the caller
+    regenerates the line.
     """
-    value = new_meta.get("status_src")
-    if not isinstance(value, str) or not value:
+    if any(old_meta.get(k) != new_meta.get(k)
+           for k in set(old_meta) | set(new_meta) if k not in OWNED_META_KEYS):
+        return None
+    if any(not isinstance(new_meta[k], str) or not new_meta[k]
+           for k in OWNED_META_KEYS if k in new_meta):
         return None
     rest = m.group("rest").rstrip()
     block = _META_BLOCK_RE.search(rest)
@@ -526,14 +545,23 @@ def _splice_status_src(
         return None
     off = m.start("rest") + block.start("body")
     inner = block.group("body")
-    old = _STATUS_SRC_RE.search(inner)
-    if old is not None:
-        a, b = off + old.start(1), off + old.end(1)
-        out = body[:a] + value + body[b:]
-    else:
-        close = off + len(inner)
-        sep = ", " if inner.strip() else ""
-        out = body[:close] + f"{sep}status_src: {value}" + body[close:]
+    for key in OWNED_META_KEYS:
+        old = _OWNED_RES[key].search(inner)
+        if old is None:
+            continue
+        if key in new_meta:
+            inner = inner[: old.start("val")] + new_meta[key] + inner[old.end("val") :]
+        elif old.group("lead"):
+            inner = inner[: old.start()] + inner[old.end("val") :]
+        else:
+            tail = re.match(r"\s*,\s*", inner[old.end("val") :])
+            end = old.end("val") + (tail.end() if tail else 0)
+            inner = inner[: old.start() + len(old.group("pad"))] + inner[end:]
+    for key in new_meta:
+        if key in OWNED_META_KEYS and _OWNED_RES[key].search(inner) is None:
+            sep = ", " if inner.strip() else ""
+            inner = inner + f"{sep}{key}: {new_meta[key]}"
+    out = body[:off] + inner + body[off + len(block.group("body")) :]
     check = _BULLET_RE.match(out)
     if check is None:
         return None
