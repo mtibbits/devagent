@@ -46,6 +46,10 @@ EOF
   export TMPROOT
   export DEVAGENT_ISSUE_BACKEND_DIR="$TMPROOT/backends"
   wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+  # #704: the MR phase's code backend is the same stub; with no issue-mrs
+  # file it exits 78 (no lookup), so no expectation here changes.
+  export DEVAGENT_CODE_BACKEND_DIR="$TMPROOT/code-backends"
+  wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
   wbs_tracker_install_shims "$TMPROOT/shims" "$TMPROOT/network.log"
   export PATH="$TMPROOT/shims:$PATH"
 }
