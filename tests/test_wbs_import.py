@@ -496,10 +496,11 @@ def test_exclusions_parse_one_line_union():
             "<!-- wbs-exclude Issue-5 -->\n"                     # 9 no colon
             "<!-- WBS-Exclude: Issue-5 -->\n"                    # 10 wrong case
             "Prose names the wbs-exclude: Issue-11 convention.\n"  # 11 silent
-            "<!-- wbs-exclude: 12 -->\n")                        # 12 a bare id
+            "<!-- wbs-exclude: 12 -->\n"                         # 12 a bare id
+            "<!-- wbs-exclude: Issue-5. Issue-x Issue-99 -->\n")  # 13 bad shapes; 99 well formed
     ids, warns = wbs_import.exclusions(text, "W.md", m)
     assert ids == [(1, "Issue-1"), (1, "Issue-2"), (2, "Issue-5"), (2, "Issue-6"),
-                   (2, "Issue-7"), (6, "Issue-8")]
+                   (2, "Issue-7"), (6, "Issue-8"), (13, "Issue-99")]
     near = "not an exclusion line (want '<!-- wbs-exclude: <id>, ... -->' on one line); ignored"
     assert warns == [
         "wbs init --merge: W.md line 6: '#4' is not an issue id; ignored",
@@ -507,6 +508,8 @@ def test_exclusions_parse_one_line_union():
         f"wbs init --merge: W.md line 9: {near}",
         f"wbs init --merge: W.md line 10: {near}",
         "wbs init --merge: W.md line 12: '12' is not an issue id; ignored",
+        "wbs init --merge: W.md line 13: 'Issue-5.' is not an issue id; ignored",
+        "wbs init --merge: W.md line 13: 'Issue-x' is not an issue id; ignored",
     ]
     hit = {n.leaf for _ln, i in ids for n in wbs_import.resolve_id(m, i)}
     assert hit == {"Issue-1", "Issue-2", "Issue-5", "Issue-6", "Issue-7", "Issue-8"}
@@ -521,7 +524,7 @@ def test_merge_parent_present_appends_last_child():
     out, stats = merged(base, m)
     assert out == base.replace("Issue-2}\n", "Issue-2}\n  - [ ] Three {issue: Issue-3}\n")
     assert stats == {"added": ["Issue-3"], "under_existing": 1, "new_tops": 0,
-                     "present": 2, "excluded": 0}
+                     "present": 2, "excluded": 0, "warnings": []}
 
 
 def test_merge_new_epic_nests_new_children_only():
@@ -552,9 +555,15 @@ def test_merge_milestone_tie_first_in_document_order():
     # the first container wins, at any depth
     base = ("- [ ] Top\n  - [ ] A {milestone: M1}\n    - [ ] a\n"
             "- [ ] B {milestone: M1}\n  - [ ] b\n")
-    m = wbs_import.build([src([rec("8", title="Eight", milestone="M1")])])
-    out, _stats = merged(base, m)
-    assert out == base.replace("    - [ ] a\n", "    - [ ] a\n    - [ ] Eight {issue: Issue-8}\n")
+    m = wbs_import.build([src([rec("8", title="Eight", milestone="M1"),
+                               rec("9", title="Nine", milestone="M1")])])
+    out, stats = merged(base, m)
+    assert out == base.replace("    - [ ] a\n", "    - [ ] a\n    - [ ] Eight {issue: Issue-8}\n"
+                                                "    - [ ] Nine {issue: Issue-9}\n")
+    # the tie is named once per milestone; one candidate is silent
+    assert stats["warnings"] == [
+        "milestone 'M1' has 2 candidate nodes (lines 2, 4); its issues go under the first"]
+    assert merged("- [ ] A {milestone: M1}\n", m)[1]["warnings"] == []
 
 
 def test_merge_unparented_reused_or_created():
@@ -639,11 +648,12 @@ def test_merge_present_and_excluded_counts():
     base = (MERGE_FIX / "base.md").read_text(encoding="utf-8")
     _out, stats = merged(base, _fixture_model())
     assert stats == {"added": [f"Issue-{i}" for i in (4, 5, 6, 8, 9, 10, 13, 14, 15, 16)],
-                     "under_existing": 3, "new_tops": 7, "present": 5, "excluded": 1}
+                     "under_existing": 3, "new_tops": 7, "present": 5, "excluded": 1,
+                     "warnings": []}
     # P and K count the selection only
     _out, stats = merged(base, _fixture_model(), rng="epic:5")
     assert stats == {"added": ["Issue-5", "Issue-6"], "under_existing": 0, "new_tops": 2,
-                     "present": 1, "excluded": 0}
+                     "present": 1, "excluded": 0, "warnings": []}
 
 
 def test_merge_after_unterminated_last_line():

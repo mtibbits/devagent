@@ -1901,7 +1901,8 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   last child of its parent's anchor (at that node's last child's
   indentation); at top level when it is a group; under the first node in
   document order with no `issue` meta whose `milestone` meta is its
-  milestone, else under a new milestone node; under a top-level
+  milestone (several are named in a warning), else under a new milestone
+  node; under a top-level
   `Unparented`, else `Unassigned`, else a new `Unparented`. New top-level
   nodes follow the existing ones in the import's order. No existing node
   is moved, renamed, re-glyphed or removed, and the file changes only by

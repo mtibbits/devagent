@@ -641,25 +641,34 @@ def _has_prefix(model: Model, iid: str) -> bool:
                for s in model.sources)
 
 
+def _id_shape(model: Model, iid: str) -> bool:
+    """Whether some configured source reads iid as an issue id."""
+    if not _has_prefix(model, iid):
+        return False
+    try:
+        _id_token(model, iid)
+    except RangeError:
+        return False
+    return True
+
+
 def resolve_id(model: Model, iid: str) -> list[Node]:
     """The tracker issues a WBS `issue` id (or an exclusion id) names, by
     `wbs update`'s leaf_lookup rule: a configured dir_prefix is required
     (a bare N or Jira key names nothing), the longest prefix wins, and a
     Jira source reads digits as <keyprefix>-N or takes a key verbatim."""
-    if not _has_prefix(model, iid):
+    if not _id_shape(model, iid):
         return []
-    try:
-        sis, v = _id_token(model, iid)
-    except RangeError:
-        return []
+    sis, v = _id_token(model, iid)
     return [h for h in (_node_for(model, si, v) for si in sorted(sis)) if h]
 
 
 def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
     """The exclusion lines' ids as (line, id) pairs, and the warnings.
 
-    A token outside the id charset, or (given a model) with no configured
-    dir_prefix, is warned about and skipped; so is a line starting `<!--`
+    A token outside the id charset, or (given a model) one no configured
+    source reads as an id (no dir_prefix, or a bad shape after it), is
+    warned about and skipped; so is a line starting `<!--`
     that holds `wbs-exclude` (any case) but does not parse. A prefix and a
     suffix test plus a split: nothing here backtracks on a long line.
     """
@@ -682,7 +691,7 @@ def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[
         for tok in re.split(r"[,\s]+", inner[len(EXCLUDE_KEY):]):
             if not tok:
                 continue
-            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and not _has_prefix(model, tok)):
+            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and not _id_shape(model, tok)):
                 warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
                 continue
             ids.append((ln, tok))
@@ -736,7 +745,8 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     milestone containers (casefolded title order), `Unparented`.
 
     Returns {added: [leaf...] in node order, under_existing: U, new_tops: T,
-    present: P, excluded: K}; U and T count issues (a new container is not
+    present: P, excluded: K, warnings: [...]}; a warning names a milestone
+    with several candidate nodes. U and T count issues (a new container is not
     one), P the selected issues present, K those absent and excluded.
     """
     by_leaf = {n.leaf: n for n in model.nodes}
@@ -768,6 +778,8 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     new_ms: dict[str, list[dict]] = {}
     loose: list[dict] = []
     under = 0
+    warnings: list[str] = []
+    tied: set[str] = set()
     for n in add:
         if n.parent is not None and n.parent.leaf in add_leaves:
             continue                                        # rule 1
@@ -780,7 +792,13 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
         elif n.rec["milestone"]:
             title = n.rec["milestone"]                      # rule 4
             want = (title, safe_meta(title))
-            home = next((pn for pn in containers if pn["meta"].get("milestone") in want), None)
+            homes = [pn for pn in containers if pn["meta"].get("milestone") in want]
+            if len(homes) > 1 and title not in tied:
+                tied.add(title)
+                lines = ", ".join(str(pn["source_line"]) for pn in homes)
+                warnings.append(f"milestone '{title}' has {len(homes)} candidate nodes "
+                                f"(lines {lines}); its issues go under the first")
+            home = homes[0] if homes else None
             if home is not None:
                 node = new(n, 1)
                 _append_under(home, node)
@@ -805,7 +823,8 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
             "new_tops": sum(_count_issues(t) for t in added_tops),
             "present": sum(1 for leaf in present if leaf in selected),
             "excluded": sum(1 for leaf in excluded
-                            if leaf in selected and leaf not in present)}
+                            if leaf in selected and leaf not in present),
+            "warnings": warnings}
 
 
 def inserted_only(old: str, new: str) -> bool:
@@ -970,6 +989,8 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     for w in warns:
         _say(w)
     stats = merge(model, selected, tree, devdoc_dir, [i for _ln, i in ids])
+    for w in stats["warnings"]:
+        _say(f"wbs init --merge: {dest}: {w}")
     tail = f"{stats['present']} already present, {stats['excluded']} excluded"
     if not stats["added"]:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
