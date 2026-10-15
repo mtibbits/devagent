@@ -4,6 +4,7 @@
 #   init [project] [--force]
 #   init [project] --from-tracker [--all | --since YYYY-MM-DD | --since <issue-id>
 #                                  | --open-only | --epic <issue-id>]
+#   init [project] [--from-tracker] --merge [--all | --since … | --open-only | --epic …]
 #   init [project] [--from-tracker] --survey
 #   <issue-id> := N | <dir_prefix>N | <JIRA-KEY>        (--flag=value also accepted)
 #
@@ -13,10 +14,14 @@
 # history: one `issue-list` call per configured source (origin
 # issue_source, fork issue_source_fork), then scripts/lib/wbs-import.py
 # (Python never spawns a backend script). --survey prints the survey JSON
-# and writes nothing, so it also runs beside an existing WBS.md.
+# and writes nothing, so it also runs beside an existing WBS.md. --merge
+# (#707) adds the tracker's issues an existing WBS.md lacks, inserting
+# whole lines only; ids in a `<!-- wbs-exclude: ... -->` line are skipped.
 #
-# Exit: 0 written (or surveyed); 1 die (an existing WBS.md, a bad config
-# value, a backend without issue-list or failing, malformed backend output);
+# Exit: 0 written (or surveyed, or merged, or nothing to merge); 1 die (an
+# existing WBS.md without --merge, a missing or unreadable one with it, a
+# bad config value, a backend without issue-list or failing, malformed
+# backend output, a merge that would change an existing line);
 # 2 a usage error, raised before any tracker call, or a range value only the
 # data can check (an --epic that names no epic, a calendar-invalid date);
 # 10 no range flag and a closed share at or above
@@ -43,14 +48,14 @@ source "$SCRIPT_DIR/lib/template_resolve.sh"
 
 usage_die() {
   echo "wbs init: $*" >&2
-  echo "usage: wbs init [project] [--force] | [project] --from-tracker [--all | --since <date|issue-id> | --open-only | --epic <issue-id>] | [project] [--from-tracker] --survey" >&2
+  echo "usage: wbs init [project] [--force] | [project] --from-tracker [--all | --since <date|issue-id> | --open-only | --epic <issue-id>] | [project] [--from-tracker] --merge [<range>] | [project] [--from-tracker] --survey" >&2
   exit 2
 }
 
 DATE_RE='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
 ID_RE='^([0-9]+|[A-Za-z][A-Za-z0-9_-]*[0-9]+)$'
 
-force=0 tracker=0 survey=0 ranges=0 range="" project_arg=""
+force=0 tracker=0 survey=0 merge=0 ranges=0 range="" project_arg=""
 _range() { ranges=$((ranges + 1)); range="$1"; }
 # _range_val <since|epic> <value>
 _range_val() {
@@ -71,6 +76,7 @@ while (($#)); do
     --force)        force=1 ;;
     --from-tracker) tracker=1 ;;
     --survey)       survey=1 tracker=1 ;;
+    --merge)        merge=1 tracker=1 ;;
     --all)          _range all ;;
     --open-only)    _range open-only ;;
     --since|--epic)
@@ -92,8 +98,9 @@ done
 
 (( ranges <= 1 )) || usage_die "give at most one of --all, --since, --open-only, --epic"
 if (( force == 1 && (tracker == 1 || ranges > 0) )); then
-  usage_die "--force overwrites from the template; it cannot be combined with --from-tracker (merging an existing WBS is #707)"
+  usage_die "--force overwrites from the template; it cannot be combined with --from-tracker or --merge (--merge adds the tracker's missing issues to an existing WBS.md)"
 fi
+(( survey == 0 || merge == 0 )) || usage_die "--survey writes nothing; it cannot be combined with --merge"
 (( ranges == 0 || tracker == 1 )) || usage_die "a range flag needs --from-tracker"
 (( survey == 0 || ranges == 0 )) || usage_die "--survey takes no range flag"
 
@@ -109,8 +116,10 @@ dest="$devdoc_dir/WBS.md"
 if (( tracker == 0 )) && [[ -e "$dest" && $force -ne 1 ]]; then
   die "wbs init: $dest exists; pass --force to overwrite"
 fi
-if (( tracker == 1 && survey == 0 )) && [[ -e "$dest" ]]; then
-  die "wbs init: $dest exists"
+if (( merge == 1 )); then
+  [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first"
+elif (( tracker == 1 && survey == 0 )) && [[ -e "$dest" ]]; then
+  die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it"
 fi
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
@@ -119,7 +128,7 @@ fi
 # #341. The `if …; then` captures the rc so `set -e` cannot swallow the die on a
 # genuine no-template case (template_resolve returns 1 when no layer matches).
 template=""
-if (( survey == 0 )); then
+if (( survey == 0 && merge == 0 )); then
   if resolved="$(template_resolve "$project" wbs_template)"; then
     template="$(printf '%s\n' "$resolved" | sed -n 's/^path=//p')"
   fi
@@ -183,6 +192,7 @@ _imp_fetch FORK issue_source_fork
 
 mode=import
 (( survey == 0 )) || mode=survey
+(( merge == 0 )) || mode=merge
 env "${imp_env[@]}" \
   WBS_IMP_MODE="$mode" WBS_IMP_RANGE="$range" WBS_IMP_PCT="$pct" \
   WBS_IMP_PROJECT="$project" WBS_IMP_DEST="$dest" WBS_IMP_TEMPLATE="$template" \
