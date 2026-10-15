@@ -16,6 +16,9 @@
 #       78 (not implemented). Cat the list file, write <list>.err (else
 #       $STUB_STATE_LIST_ERR) to stderr, exit with <list>.rc (else
 #       ${STUB_STATE_LIST_RC:-0}).
+#   issue-list <repo>   (#706, `wbs init --from-tracker`)
+#       the same file rule as state-list, with issue-list.<backend>[.<repo_>]
+#       (with neither, exit 78; <list>.err to stderr; exit <list>.rc, else 0).
 #   issue-mrs <repo> <id>...
 #       output file: $WBS_STUB_ROOT/issue-mrs.<backend>.<repo, / -> _> when
 #       it exists, else $WBS_STUB_ROOT/issue-mrs.<backend>; with neither,
@@ -42,6 +45,17 @@ case "${1:-}" in
     [[ -f "$list.err" ]] && err="$(cat "$list.err")"
     [[ -n "$err" ]] && printf '%s\n' "$err" >&2
     rc="${STUB_STATE_LIST_RC:-0}"
+    [[ -f "$list.rc" ]] && rc="$(cat "$list.rc")"
+    exit "$rc"
+    ;;
+  issue-list)
+    repo="${2:-}"
+    list="$root/issue-list.$backend"
+    [[ -f "$list.${repo//\//_}" ]] && list="$list.${repo//\//_}"
+    [[ -f "$list" ]] || exit 78
+    cat "$list"
+    [[ -f "$list.err" ]] && cat "$list.err" >&2
+    rc=0
     [[ -f "$list.rc" ]] && rc="$(cat "$list.rc")"
     exit "$rc"
     ;;

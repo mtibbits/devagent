@@ -32,3 +32,14 @@ run_backend_suite() {
 @test "contract: custom-stub backend" {
   run_backend_suite custom
 }
+
+@test "contract: every issue backend answers issue-list without a repo with 1 or 78, never 2 (#706)" {
+  local f n=0
+  for f in "${BATS_DIR}/../scripts/issue/"*.sh; do
+    n=$((n + 1))
+    run "$f" issue-list
+    [ "$status" -eq 1 ] || [ "$status" -eq 78 ] || {
+      echo "$(basename "$f") issue-list without a repo: status $status" >&2; false; }
+  done
+  [ "$n" -eq 4 ]
+}

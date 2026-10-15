@@ -11,7 +11,8 @@
 #
 # The five verbs fetch, create, transition, state and comment-list MUST be
 # implemented for the dispatcher to function; state-list MAY be (an absent
-# one makes `wbs update` use local checklists, #703). Until a verb is
+# one makes `wbs update` use local checklists, #703), and so MAY issue-list
+# (an absent one makes `wbs init --from-tracker` refuse, #706). Until a verb is
 # implemented it exits 78 (EX_CONFIG) with a documented message so callers
 # can report "backend not implemented" cleanly.
 
@@ -30,13 +31,14 @@ Usage: custom.sh <verb> [args…]
   state <repo> <num>
   comment-list <repo> <num>
   state-list <repo>
+  issue-list <repo>
 EOF
   exit 2
 }
 
 verb="${1:-}"; shift || true
 case "$verb" in
-  fetch|create|transition|state|comment-list|state-list)
+  fetch|create|transition|state|comment-list|state-list|issue-list)
     bc_die_not_implemented custom "$verb" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
