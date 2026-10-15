@@ -33,7 +33,8 @@
 #   id not in the list    -> unchanged, reported once
 #                            (`<id> not found on <backend> <repo>`)
 #
-# Checklist rule:
+# Checklist rule (checklist_state in scripts/lib/wbs-tracker.py, shared with
+# `wbs init --from-tracker`, #706):
 #   - the ACTIVE revision has step rows, all `[x]` or `[-]` -> `[x]` (done)
 #   - else any step row anywhere `[x]` or `[~]`             -> `[~]` (in progress)
 #   - else (step rows, no progress)                         -> `[ ]` (pending)
@@ -323,42 +324,11 @@ def say(msg: str) -> None:
     print(msg.encode("ascii", "replace").decode("ascii"), file=sys.stderr)
 
 
-# Step row `- [<glyph>] <num>. <name>`: _checklist_line_re (see header).
-ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
-DONE_GLYPHS = {"x", "-"}
-PROGRESS_GLYPHS = {"x", "~"}
-
-
 @functools.lru_cache(maxsize=None)
 def checklist_state(issue_id: str) -> "str | None":
-    """Return the glyph an issue's checklist step rows imply.
-
-    `[x]` reads the active revision block only, and an empty one is not
-    done (#700). Progress deliberately reads every row in the file: the
-    leaf rolls up the whole issue, so a just-started revision stays `[~]`.
-
-    Returns None when the checklist is missing or has no step rows (no
-    signal).
-    """
-    cl = devdoc_dir / issue_id / "checklist.md"
-    if not cl.exists():
-        return None
-    glyphs = []
-    active = []  # rows after the last `## Revision ` heading
-    for line in cl.read_text(encoding="utf-8").splitlines():
-        if line.startswith("## Revision "):
-            active = []
-        m = ROW_RE.match(line)
-        if m:
-            glyphs.append(m.group(1))
-            active.append(m.group(1))
-    if not glyphs:
-        return None
-    if active and all(g in DONE_GLYPHS for g in active):
-        return "x"
-    if any(g in PROGRESS_GLYPHS for g in glyphs):
-        return "~"
-    return " "
+    # The checklist rule (see header) lives in wbs-tracker.py, shared with
+    # `wbs init --from-tracker` (#706).
+    return trk.checklist_state(devdoc_dir, issue_id)
 
 
 # --- tracker sources ---------------------------------------------------------
@@ -404,7 +374,8 @@ def leaf_lookup(iid: str):
     when none matches). Memoised, so `not found` prints once per id."""
     if not sources:
         return ("none", None, None)  # no tracker configured: the checklist rule
-    for src in sources:
+    # the longest dir_prefix wins (Issue-Fork- before Issue-), as in wbs init
+    for src in sorted(sources, key=lambda s: -len(s["PREFIX"])):
         prefix = src["PREFIX"]
         if not iid.startswith(prefix) or len(iid) == len(prefix):
             continue

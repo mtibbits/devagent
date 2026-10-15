@@ -12,7 +12,13 @@ usage() {
   cat >&2 <<'EOF'
 usage: /devagent:wbs <init|update|show> [project] [args]
 
-  init [--force]                        scaffold <devdoc>/WBS.md
+  init [--force]                        scaffold <devdoc>/WBS.md from the template
+  init --from-tracker [--all | --since <date|issue-id> | --open-only | --epic <issue-id>]
+                                        build <devdoc>/WBS.md from the tracker's issue history; with
+                                        no range flag and a closed share at or above
+                                        auto_import_below_pct, print the survey JSON and
+                                        WBS-INIT: choose-range and exit 10, writing nothing
+  init [--from-tracker] --survey        print the survey JSON only
   update [--offline]                    set issue-leaf glyphs from the tracker, linked MRs, else checklists; add the active issue
   show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
 EOF

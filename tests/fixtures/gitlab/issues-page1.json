@@ -4,11 +4,16 @@
     "iid": 1,
     "project_id": 4242,
     "title": "Issue 1",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/1"
   },
   {
@@ -16,12 +21,17 @@
     "iid": 2,
     "project_id": 4242,
     "title": "Issue 2",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/2"
   },
   {
@@ -29,11 +39,16 @@
     "iid": 3,
     "project_id": 4242,
     "title": "Issue 3",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/3"
   },
   {
@@ -41,11 +56,16 @@
     "iid": 4,
     "project_id": 4242,
     "title": "Issue 4",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/4"
   },
   {
@@ -53,12 +73,17 @@
     "iid": 5,
     "project_id": 4242,
     "title": "Issue 5",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/5"
   },
   {
@@ -66,11 +91,16 @@
     "iid": 6,
     "project_id": 4242,
     "title": "Issue 6",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/6"
   },
   {
@@ -78,11 +108,16 @@
     "iid": 7,
     "project_id": 4242,
     "title": "Issue 7",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/7"
   },
   {
@@ -90,12 +125,17 @@
     "iid": 8,
     "project_id": 4242,
     "title": "Issue 8",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/8"
   },
   {
@@ -103,11 +143,16 @@
     "iid": 9,
     "project_id": 4242,
     "title": "Issue 9",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/9"
   },
   {
@@ -115,11 +160,16 @@
     "iid": 10,
     "project_id": 4242,
     "title": "Issue 10",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/10"
   },
   {
@@ -127,12 +177,17 @@
     "iid": 11,
     "project_id": 4242,
     "title": "Issue 11",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/11"
   },
   {
@@ -140,11 +195,16 @@
     "iid": 12,
     "project_id": 4242,
     "title": "Issue 12",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/12"
   },
   {
@@ -152,11 +212,16 @@
     "iid": 13,
     "project_id": 4242,
     "title": "Issue 13",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/13"
   },
   {
@@ -164,12 +229,17 @@
     "iid": 14,
     "project_id": 4242,
     "title": "Issue 14",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/14"
   },
   {
@@ -177,11 +247,16 @@
     "iid": 15,
     "project_id": 4242,
     "title": "Issue 15",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/15"
   },
   {
@@ -189,11 +264,16 @@
     "iid": 16,
     "project_id": 4242,
     "title": "Issue 16",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/16"
   },
   {
@@ -201,12 +281,17 @@
     "iid": 17,
     "project_id": 4242,
     "title": "Issue 17",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/17"
   },
   {
@@ -214,11 +299,16 @@
     "iid": 18,
     "project_id": 4242,
     "title": "Issue 18",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/18"
   },
   {
@@ -226,11 +316,16 @@
     "iid": 19,
     "project_id": 4242,
     "title": "Issue 19",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/19"
   },
   {
@@ -238,12 +333,17 @@
     "iid": 20,
     "project_id": 4242,
     "title": "Issue 20",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/20"
   },
   {
@@ -251,11 +351,16 @@
     "iid": 21,
     "project_id": 4242,
     "title": "Issue 21",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/21"
   },
   {
@@ -263,11 +368,16 @@
     "iid": 22,
     "project_id": 4242,
     "title": "Issue 22",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/22"
   },
   {
@@ -275,12 +385,17 @@
     "iid": 23,
     "project_id": 4242,
     "title": "Issue 23",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/23"
   },
   {
@@ -288,11 +403,16 @@
     "iid": 24,
     "project_id": 4242,
     "title": "Issue 24",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/24"
   },
   {
@@ -300,11 +420,16 @@
     "iid": 25,
     "project_id": 4242,
     "title": "Issue 25",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/25"
   },
   {
@@ -312,12 +437,17 @@
     "iid": 26,
     "project_id": 4242,
     "title": "Issue 26",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/26"
   },
   {
@@ -325,11 +455,16 @@
     "iid": 27,
     "project_id": 4242,
     "title": "Issue 27",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/27"
   },
   {
@@ -337,11 +472,16 @@
     "iid": 28,
     "project_id": 4242,
     "title": "Issue 28",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/28"
   },
   {
@@ -349,12 +489,17 @@
     "iid": 29,
     "project_id": 4242,
     "title": "Issue 29",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/29"
   },
   {
@@ -362,11 +507,16 @@
     "iid": 30,
     "project_id": 4242,
     "title": "Issue 30",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/30"
   },
   {
@@ -374,11 +524,16 @@
     "iid": 31,
     "project_id": 4242,
     "title": "Issue 31",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/31"
   },
   {
@@ -386,12 +541,17 @@
     "iid": 32,
     "project_id": 4242,
     "title": "Issue 32",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/32"
   },
   {
@@ -399,11 +559,16 @@
     "iid": 33,
     "project_id": 4242,
     "title": "Issue 33",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/33"
   },
   {
@@ -411,11 +576,16 @@
     "iid": 34,
     "project_id": 4242,
     "title": "Issue 34",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/34"
   },
   {
@@ -423,12 +593,17 @@
     "iid": 35,
     "project_id": 4242,
     "title": "Issue 35",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/35"
   },
   {
@@ -436,11 +611,16 @@
     "iid": 36,
     "project_id": 4242,
     "title": "Issue 36",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/36"
   },
   {
@@ -448,11 +628,16 @@
     "iid": 37,
     "project_id": 4242,
     "title": "Issue 37",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/37"
   },
   {
@@ -460,12 +645,17 @@
     "iid": 38,
     "project_id": 4242,
     "title": "Issue 38",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/38"
   },
   {
@@ -473,11 +663,16 @@
     "iid": 39,
     "project_id": 4242,
     "title": "Issue 39",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/39"
   },
   {
@@ -485,11 +680,16 @@
     "iid": 40,
     "project_id": 4242,
     "title": "Issue 40",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/40"
   },
   {
@@ -497,12 +697,17 @@
     "iid": 41,
     "project_id": 4242,
     "title": "Issue 41",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/41"
   },
   {
@@ -510,11 +715,16 @@
     "iid": 42,
     "project_id": 4242,
     "title": "Issue 42",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/42"
   },
   {
@@ -522,11 +732,16 @@
     "iid": 43,
     "project_id": 4242,
     "title": "Issue 43",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/43"
   },
   {
@@ -534,12 +749,17 @@
     "iid": 44,
     "project_id": 4242,
     "title": "Issue 44",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/44"
   },
   {
@@ -547,11 +767,16 @@
     "iid": 45,
     "project_id": 4242,
     "title": "Issue 45",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/45"
   },
   {
@@ -559,11 +784,16 @@
     "iid": 46,
     "project_id": 4242,
     "title": "Issue 46",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/46"
   },
   {
@@ -571,12 +801,17 @@
     "iid": 47,
     "project_id": 4242,
     "title": "Issue 47",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/47"
   },
   {
@@ -584,11 +819,16 @@
     "iid": 48,
     "project_id": 4242,
     "title": "Issue 48",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/48"
   },
   {
@@ -596,11 +836,16 @@
     "iid": 49,
     "project_id": 4242,
     "title": "Issue 49",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/49"
   },
   {
@@ -608,12 +853,17 @@
     "iid": 50,
     "project_id": 4242,
     "title": "Issue 50",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/50"
   },
   {
@@ -621,11 +871,16 @@
     "iid": 51,
     "project_id": 4242,
     "title": "Issue 51",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/51"
   },
   {
@@ -633,11 +888,16 @@
     "iid": 52,
     "project_id": 4242,
     "title": "Issue 52",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/52"
   },
   {
@@ -645,12 +905,17 @@
     "iid": 53,
     "project_id": 4242,
     "title": "Issue 53",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/53"
   },
   {
@@ -658,11 +923,16 @@
     "iid": 54,
     "project_id": 4242,
     "title": "Issue 54",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/54"
   },
   {
@@ -670,11 +940,16 @@
     "iid": 55,
     "project_id": 4242,
     "title": "Issue 55",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/55"
   },
   {
@@ -682,12 +957,17 @@
     "iid": 56,
     "project_id": 4242,
     "title": "Issue 56",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/56"
   },
   {
@@ -695,11 +975,16 @@
     "iid": 57,
     "project_id": 4242,
     "title": "Issue 57",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/57"
   },
   {
@@ -707,11 +992,16 @@
     "iid": 58,
     "project_id": 4242,
     "title": "Issue 58",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/58"
   },
   {
@@ -719,12 +1009,17 @@
     "iid": 59,
     "project_id": 4242,
     "title": "Issue 59",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/59"
   },
   {
@@ -732,11 +1027,16 @@
     "iid": 60,
     "project_id": 4242,
     "title": "Issue 60",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/60"
   },
   {
@@ -744,11 +1044,16 @@
     "iid": 61,
     "project_id": 4242,
     "title": "Issue 61",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/61"
   },
   {
@@ -756,12 +1061,17 @@
     "iid": 62,
     "project_id": 4242,
     "title": "Issue 62",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/62"
   },
   {
@@ -769,11 +1079,16 @@
     "iid": 63,
     "project_id": 4242,
     "title": "Issue 63",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/63"
   },
   {
@@ -781,11 +1096,16 @@
     "iid": 64,
     "project_id": 4242,
     "title": "Issue 64",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/64"
   },
   {
@@ -793,12 +1113,17 @@
     "iid": 65,
     "project_id": 4242,
     "title": "Issue 65",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/65"
   },
   {
@@ -806,11 +1131,16 @@
     "iid": 66,
     "project_id": 4242,
     "title": "Issue 66",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/66"
   },
   {
@@ -818,11 +1148,16 @@
     "iid": 67,
     "project_id": 4242,
     "title": "Issue 67",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/67"
   },
   {
@@ -830,12 +1165,17 @@
     "iid": 68,
     "project_id": 4242,
     "title": "Issue 68",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/68"
   },
   {
@@ -843,11 +1183,16 @@
     "iid": 69,
     "project_id": 4242,
     "title": "Issue 69",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/69"
   },
   {
@@ -855,11 +1200,16 @@
     "iid": 70,
     "project_id": 4242,
     "title": "Issue 70",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/70"
   },
   {
@@ -867,12 +1217,17 @@
     "iid": 71,
     "project_id": 4242,
     "title": "Issue 71",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/71"
   },
   {
@@ -880,11 +1235,16 @@
     "iid": 72,
     "project_id": 4242,
     "title": "Issue 72",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/72"
   },
   {
@@ -892,11 +1252,16 @@
     "iid": 73,
     "project_id": 4242,
     "title": "Issue 73",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/73"
   },
   {
@@ -904,12 +1269,17 @@
     "iid": 74,
     "project_id": 4242,
     "title": "Issue 74",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/74"
   },
   {
@@ -917,11 +1287,16 @@
     "iid": 75,
     "project_id": 4242,
     "title": "Issue 75",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/75"
   },
   {
@@ -929,11 +1304,16 @@
     "iid": 76,
     "project_id": 4242,
     "title": "Issue 76",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/76"
   },
   {
@@ -941,12 +1321,17 @@
     "iid": 77,
     "project_id": 4242,
     "title": "Issue 77",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/77"
   },
   {
@@ -954,11 +1339,16 @@
     "iid": 78,
     "project_id": 4242,
     "title": "Issue 78",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/78"
   },
   {
@@ -966,11 +1356,16 @@
     "iid": 79,
     "project_id": 4242,
     "title": "Issue 79",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/79"
   },
   {
@@ -978,12 +1373,17 @@
     "iid": 80,
     "project_id": 4242,
     "title": "Issue 80",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/80"
   },
   {
@@ -991,11 +1391,16 @@
     "iid": 81,
     "project_id": 4242,
     "title": "Issue 81",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/81"
   },
   {
@@ -1003,11 +1408,16 @@
     "iid": 82,
     "project_id": 4242,
     "title": "Issue 82",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/82"
   },
   {
@@ -1015,12 +1425,17 @@
     "iid": 83,
     "project_id": 4242,
     "title": "Issue 83",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/83"
   },
   {
@@ -1028,11 +1443,16 @@
     "iid": 84,
     "project_id": 4242,
     "title": "Issue 84",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/84"
   },
   {
@@ -1040,11 +1460,16 @@
     "iid": 85,
     "project_id": 4242,
     "title": "Issue 85",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/85"
   },
   {
@@ -1052,12 +1477,17 @@
     "iid": 86,
     "project_id": 4242,
     "title": "Issue 86",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/86"
   },
   {
@@ -1065,11 +1495,16 @@
     "iid": 87,
     "project_id": 4242,
     "title": "Issue 87",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/87"
   },
   {
@@ -1077,11 +1512,16 @@
     "iid": 88,
     "project_id": 4242,
     "title": "Issue 88",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/88"
   },
   {
@@ -1089,12 +1529,17 @@
     "iid": 89,
     "project_id": 4242,
     "title": "Issue 89",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/89"
   },
   {
@@ -1102,11 +1547,16 @@
     "iid": 90,
     "project_id": 4242,
     "title": "Issue 90",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/90"
   },
   {
@@ -1114,11 +1564,16 @@
     "iid": 91,
     "project_id": 4242,
     "title": "Issue 91",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/91"
   },
   {
@@ -1126,12 +1581,17 @@
     "iid": 92,
     "project_id": 4242,
     "title": "Issue 92",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/92"
   },
   {
@@ -1139,11 +1599,16 @@
     "iid": 93,
     "project_id": 4242,
     "title": "Issue 93",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/93"
   },
   {
@@ -1151,11 +1616,16 @@
     "iid": 94,
     "project_id": 4242,
     "title": "Issue 94",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/94"
   },
   {
@@ -1163,12 +1633,17 @@
     "iid": 95,
     "project_id": 4242,
     "title": "Issue 95",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/95"
   },
   {
@@ -1176,11 +1651,16 @@
     "iid": 96,
     "project_id": 4242,
     "title": "Issue 96",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/96"
   },
   {
@@ -1188,11 +1668,16 @@
     "iid": 97,
     "project_id": 4242,
     "title": "Issue 97",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/97"
   },
   {
@@ -1200,12 +1685,17 @@
     "iid": 98,
     "project_id": 4242,
     "title": "Issue 98",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug",
       "status::in-progress"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/98"
   },
   {
@@ -1213,11 +1703,16 @@
     "iid": 99,
     "project_id": 4242,
     "title": "Issue 99",
+    "description": "",
     "state": "opened",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": null,
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/99"
   },
   {
@@ -1225,11 +1720,16 @@
     "iid": 100,
     "project_id": 4242,
     "title": "Issue 100",
+    "description": "",
     "state": "closed",
     "labels": [
       "bug"
     ],
+    "created_at": "2026-09-01T09:00:00.000Z",
     "closed_at": "2026-10-01T12:00:00.000Z",
+    "milestone": null,
+    "issue_type": "issue",
+    "blocking_issues_count": 0,
     "web_url": "https://gitlab.example/foo/bar/-/issues/100"
   }
 ]

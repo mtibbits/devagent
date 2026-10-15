@@ -73,6 +73,11 @@ on_merge       = "Done"
 # not_planned_resolutions = ["Won't Do"]  # jira: wbs update reads these done
                                           # resolutions as [-] (#703)
 
+[project.myproj.wbs]           # optional (#706)
+auto_import_below_pct = 20     # wbs init --from-tracker imports everything while the
+                               # closed share is below this (integer 0-100); at or
+                               # above it /devagent:wbs asks how far back to go
+
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"
 
@@ -96,8 +101,8 @@ MYPROJ_DATA_ROOT = "~/src/myprojData"
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
-**issue backend** implements five verbs and may implement a sixth,
-`state-list`:
+**issue backend** implements five verbs and may implement two more,
+`state-list` and `issue-list`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -107,13 +112,16 @@ GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 | `state` | `<repo> <num>` | backend state |
 | `comment-list` | `<repo> <num>` | markdown to stdout |
 | `state-list` | `<repo>` | one `<id>` TAB `<class>` line per issue (optional) |
+| `issue-list` | `<repo>` | one JSON record per issue (optional) |
 
 `state-list` is what `wbs update` reads to set leaf glyphs from the
 tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
 `other`; the in-progress signal is the `github_labels.in_progress` /
 `gitlab_labels.in_progress` label (GitHub defaults to `in progress`). A
 backend without it exits 78 (or 2, unknown verb), and `wbs update` then
-uses local checklists. See spec §9.1.
+uses local checklists. `issue-list` is what `wbs init --from-tracker`
+reads to build a new `WBS.md` from the tracker history; without it that
+command stops. See spec §9.1.
 
 Every **code backend** implements five verbs and may implement a sixth,
 `issue-mrs`:

@@ -1,0 +1,988 @@
+{
+  "data": {
+    "repository": {
+      "issues": {
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "Y3Vyc29yOjUw"
+        },
+        "nodes": [
+          {
+            "number": 1,
+            "title": "Data pipeline",
+            "body": "Epic Data pipeline.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-03T10:00:00Z",
+            "closedAt": "2026-01-24T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": [
+                {
+                  "name": "epic"
+                }
+              ]
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/1"
+          },
+          {
+            "number": 2,
+            "title": "Reporting",
+            "body": "Epic Reporting.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-05T10:00:00Z",
+            "closedAt": "2026-01-27T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": [
+                {
+                  "name": "epic"
+                }
+              ]
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/2"
+          },
+          {
+            "number": 3,
+            "title": "Storage layer",
+            "body": "Epic Storage layer.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-07T10:00:00Z",
+            "closedAt": "2026-01-30T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": [
+                {
+                  "name": "epic"
+                }
+              ]
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/3"
+          },
+          {
+            "number": 4,
+            "title": "Task 4",
+            "body": "Work item 4.\n\nDetails for task 4.\n\nParent epic: #1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-09T10:00:00Z",
+            "closedAt": "2026-02-02T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/4"
+          },
+          {
+            "number": 5,
+            "title": "Task 5",
+            "body": "Work item 5.\n\nDetails for task 5.\n\nParent epic: https://github.com/acme/testproj/issues/1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-11T10:00:00Z",
+            "closedAt": "2026-02-05T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/5"
+          },
+          {
+            "number": 6,
+            "title": "Task 6",
+            "body": "Work item 6.\n\nDetails for task 6.\n\nParent epic: data-pipeline — https://github.com/acme/testproj/issues/1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-13T10:00:00Z",
+            "closedAt": "2026-02-08T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/6"
+          },
+          {
+            "number": 7,
+            "title": "Task 7",
+            "body": "Work item 7.\n\nDetails for task 7.\n\nParent epic: data-pipeline https://github.com/acme/testproj/issues/1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-15T10:00:00Z",
+            "closedAt": "2026-02-04T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/7"
+          },
+          {
+            "number": 8,
+            "title": "Task 8",
+            "body": "Work item 8.\n\nDetails for task 8.\n\nParent epic: #1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-17T10:00:00Z",
+            "closedAt": "2026-02-07T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/8"
+          },
+          {
+            "number": 9,
+            "title": "Task 9",
+            "body": "Work item 9.\n\nDetails for task 9.\n\nParent epic: https://github.com/acme/testproj/issues/1",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-19T10:00:00Z",
+            "closedAt": "2026-02-10T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/9"
+          },
+          {
+            "number": 10,
+            "title": "Task 10",
+            "body": "Work item 10.\n\nDetails for task 10.\n\nParent epic: #2",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-21T10:00:00Z",
+            "closedAt": "2026-02-13T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/10"
+          },
+          {
+            "number": 11,
+            "title": "Task 11",
+            "body": "Work item 11.\n\nDetails for task 11.\n\nParent epic: https://github.com/acme/testproj/issues/2",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-23T10:00:00Z",
+            "closedAt": "2026-02-16T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/11"
+          },
+          {
+            "number": 12,
+            "title": "Task 12",
+            "body": "Work item 12.\n\nDetails for task 12.\n\nParent epic: reporting — https://github.com/acme/testproj/issues/2",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-25T10:00:00Z",
+            "closedAt": "2026-02-19T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/12"
+          },
+          {
+            "number": 13,
+            "title": "Task 13",
+            "body": "Work item 13.\n\nDetails for task 13.\n\nParent epic: reporting https://github.com/acme/testproj/issues/2",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-27T10:00:00Z",
+            "closedAt": "2026-02-22T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/13"
+          },
+          {
+            "number": 14,
+            "title": "Task 14",
+            "body": "Work item 14.\n\nDetails for task 14.\n\nParent epic: #3",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-29T10:00:00Z",
+            "closedAt": "2026-02-18T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": {
+              "number": 2,
+              "url": "https://github.com/acme/testproj/issues/2"
+            },
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/14"
+          },
+          {
+            "number": 15,
+            "title": "Task 15",
+            "body": "Work item 15.\n\nDetails for task 15.\n\nParent epic: #3",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-01-31T10:00:00Z",
+            "closedAt": "2026-02-21T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/15"
+          },
+          {
+            "number": 16,
+            "title": "Task 16",
+            "body": "Work item 16.\n\nDetails for task 16.\n\nParent epic: https://github.com/acme/testproj/issues/3",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-02T10:00:00Z",
+            "closedAt": "2026-02-24T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/16"
+          },
+          {
+            "number": 17,
+            "title": "Task 17",
+            "body": "Work item 17.\n\nDetails for task 17.\n\nParent epic: storage-layer — https://github.com/acme/testproj/issues/3",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-04T10:00:00Z",
+            "closedAt": "2026-02-27T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/17"
+          },
+          {
+            "number": 18,
+            "title": "Task 18",
+            "body": "Work item 18.\n\nDetails for task 18.\n\nParent epic: #3",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-06T10:00:00Z",
+            "closedAt": "2026-03-02T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/18"
+          },
+          {
+            "number": 19,
+            "title": "Task 19",
+            "body": "Work item 19.\n\n```\nParent epic: #1\n```\n",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-08T10:00:00Z",
+            "closedAt": "2026-03-05T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/19"
+          },
+          {
+            "number": 20,
+            "title": "Task 20",
+            "body": "Parent epic: data-pipeline\n\nWork item 20.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-10T10:00:00Z",
+            "closedAt": "2026-03-08T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/20"
+          },
+          {
+            "number": 21,
+            "title": "Task 21",
+            "body": "Work item 21.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-12T10:00:00Z",
+            "closedAt": "2026-03-04T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/21"
+          },
+          {
+            "number": 22,
+            "title": "Task 22",
+            "body": "Work item 22.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-14T10:00:00Z",
+            "closedAt": "2026-03-07T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": [
+                {
+                  "number": 21,
+                  "url": "https://github.com/acme/testproj/issues/21"
+                }
+              ]
+            },
+            "url": "https://github.com/acme/testproj/issues/22"
+          },
+          {
+            "number": 23,
+            "title": "Task 23",
+            "body": "Work item 23.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-16T10:00:00Z",
+            "closedAt": "2026-03-10T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/23"
+          },
+          {
+            "number": 24,
+            "title": "Task 24",
+            "body": "Work item 24.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-18T10:00:00Z",
+            "closedAt": "2026-03-13T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/24"
+          },
+          {
+            "number": 25,
+            "title": "Task 25",
+            "body": "Work item 25.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-20T10:00:00Z",
+            "closedAt": "2026-03-16T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": [
+                {
+                  "name": "bug"
+                }
+              ]
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/25"
+          },
+          {
+            "number": 26,
+            "title": "Task 26",
+            "body": "Work item 26.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-22T10:00:00Z",
+            "closedAt": "2026-03-19T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/26"
+          },
+          {
+            "number": 27,
+            "title": "Task 27",
+            "body": "Work item 27.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-24T10:00:00Z",
+            "closedAt": "2026-03-22T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/27"
+          },
+          {
+            "number": 28,
+            "title": "Task 28",
+            "body": "Work item 28.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-26T10:00:00Z",
+            "closedAt": "2026-03-18T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/28"
+          },
+          {
+            "number": 29,
+            "title": "Task 29",
+            "body": "Work item 29.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-02-28T10:00:00Z",
+            "closedAt": "2026-03-21T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/29"
+          },
+          {
+            "number": 30,
+            "title": "Task 30",
+            "body": "Work item 30.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-02T10:00:00Z",
+            "closedAt": "2026-03-24T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/30"
+          },
+          {
+            "number": 31,
+            "title": "Task 31",
+            "body": "Work item 31.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-04T10:00:00Z",
+            "closedAt": "2026-03-27T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/31"
+          },
+          {
+            "number": 32,
+            "title": "Task 32",
+            "body": "Work item 32.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-06T10:00:00Z",
+            "closedAt": "2026-03-30T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/32"
+          },
+          {
+            "number": 33,
+            "title": "Task 33",
+            "body": "Work item 33.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-08T10:00:00Z",
+            "closedAt": "2026-04-02T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/33"
+          },
+          {
+            "number": 34,
+            "title": "Task 34",
+            "body": "Work item 34.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-10T10:00:00Z",
+            "closedAt": "2026-04-05T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/34"
+          },
+          {
+            "number": 35,
+            "title": "Task 35",
+            "body": "Work item 35.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-12T10:00:00Z",
+            "closedAt": "2026-04-01T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/35"
+          },
+          {
+            "number": 36,
+            "title": "Task 36",
+            "body": "Work item 36.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-14T10:00:00Z",
+            "closedAt": "2026-04-04T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/36"
+          },
+          {
+            "number": 37,
+            "title": "Task 37",
+            "body": "Work item 37.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-16T10:00:00Z",
+            "closedAt": "2026-04-07T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/37"
+          },
+          {
+            "number": 38,
+            "title": "Task 38",
+            "body": "Work item 38.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-18T10:00:00Z",
+            "closedAt": "2026-04-10T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/38"
+          },
+          {
+            "number": 39,
+            "title": "Task 39",
+            "body": "Work item 39.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-20T10:00:00Z",
+            "closedAt": "2026-04-13T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/39"
+          },
+          {
+            "number": 40,
+            "title": "Task 40",
+            "body": "Work item 40.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-22T10:00:00Z",
+            "closedAt": "2026-04-16T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/40"
+          },
+          {
+            "number": 41,
+            "title": "Task 41",
+            "body": "Work item 41.",
+            "state": "CLOSED",
+            "stateReason": "COMPLETED",
+            "createdAt": "2026-03-24T10:00:00Z",
+            "closedAt": "2026-04-19T15:30:00Z",
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/41"
+          },
+          {
+            "number": 42,
+            "title": "Task 42",
+            "body": "Work item 42.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-03-26T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/42"
+          },
+          {
+            "number": 43,
+            "title": "Task 43",
+            "body": "Work item 43.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-03-28T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/43"
+          },
+          {
+            "number": 44,
+            "title": "Task 44",
+            "body": "Work item 44.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-03-30T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/44"
+          },
+          {
+            "number": 45,
+            "title": "Task 45",
+            "body": "Work item 45.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-01T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/45"
+          },
+          {
+            "number": 46,
+            "title": "Task 46",
+            "body": "Work item 46.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-03T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/46"
+          },
+          {
+            "number": 47,
+            "title": "Task 47",
+            "body": "Work item 47.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-05T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/47"
+          },
+          {
+            "number": 48,
+            "title": "Task 48",
+            "body": "Work item 48.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-07T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/48"
+          },
+          {
+            "number": 49,
+            "title": "Task 49",
+            "body": "Work item 49.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-09T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/49"
+          },
+          {
+            "number": 50,
+            "title": "Task 50",
+            "body": "Work item 50.",
+            "state": "OPEN",
+            "stateReason": null,
+            "createdAt": "2026-04-11T10:00:00Z",
+            "closedAt": null,
+            "milestone": null,
+            "labels": {
+              "nodes": []
+            },
+            "issueType": null,
+            "parent": null,
+            "blockedBy": {
+              "nodes": []
+            },
+            "url": "https://github.com/acme/testproj/issues/50"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -12,6 +12,9 @@
   "GET /api/v4/projects/foo%2Fhtml/issues?per_page=100&page=1": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
   "GET /api/v4/projects/foo%2Fhtml/issues?per_page=100&page=2": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
   "GET /api/v4/projects/foo%2Fobject/issues?per_page=100&page=1": {"status": 200, "body": "{\"message\":\"not a list\"}"},
+  "GET /api/v4/projects/foo%2Fshaped/issues?per_page=100&page=1": {"status": 200, "body_file": "issues-shaped.json"},
+  "GET /api/v4/projects/foo%2Fshaped/issues/21/links": {"status": 200, "body_file": "links-shaped-21.json"},
+  "GET /api/v4/projects/foo%2Fnocreated/issues?per_page=100&page=1": {"status": 200, "body": "[{\"iid\": 1, \"title\": \"t\", \"description\": \"\", \"state\": \"opened\", \"labels\": [], \"web_url\": \"https://gitlab.example/foo/nocreated/-/issues/1\"}]"},
 
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7": {"status": 200, "body_file": "mr.json"},
   "GET /api/v4/projects/foo%2Fbar/merge_requests/7/notes?per_page=100&page=1": {"status": 200, "body_file": "mr-notes.json"},

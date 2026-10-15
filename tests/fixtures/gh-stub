@@ -114,7 +114,11 @@ case "$sub $sub2" in
     ;;
 
   "issue list")
-    # issue/github.sh state-list (#703): every issue, the fields it classifies.
+    # issue/github.sh state-list (#703): every issue, the fields it classifies;
+    # issue-list (#706): every issue with the fields `wbs init` imports. With
+    # GH_STUB_ISSUE_LIST_UNKNOWN_FIELD=1 an issue-list call answers as a gh
+    # older than 2.95 does (measured with 2.60: exit 1, this stderr), so the
+    # GraphQL fallback runs.
     [ -n "${GH_STUB_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_ARGS_LOG"
     _pair() {  # _pair <flag> <value> -- "$@": <flag> is followed by <value>
       local f="$1" v="$2" prev="" a; shift 3
@@ -124,8 +128,16 @@ case "$sub $sub2" in
     _has_flag --repo -- "$@" || _assert_fail "issue list: missing --repo"
     _pair --state all -- "$@" || _assert_fail "issue list: want --state all: $*"
     _pair --limit 5000 -- "$@" || _assert_fail "issue list: want --limit 5000: $*"
-    _pair --json number,state,stateReason,labels -- "$@" \
-      || _assert_fail "issue list: want --json number,state,stateReason,labels: $*"
+    _il_fields=number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url
+    if _pair --json "$_il_fields" -- "$@"; then
+      if [ "${GH_STUB_ISSUE_LIST_UNKNOWN_FIELD:-}" = 1 ]; then
+        printf '%s\n' 'Unknown JSON field: "issueType"' 'Available fields:' '  assignees' >&2
+        exit 1
+      fi
+    else
+      _pair --json number,state,stateReason,labels -- "$@" \
+        || _assert_fail "issue list: want --json number,state,stateReason,labels or the issue-list set: $*"
+    fi
     case "${GH_STUB_CASE:-standard}" in
       fail) echo "gh: HTTP 401: Bad credentials" >&2; exit 1 ;;
     esac

@@ -1,0 +1,34 @@
+{
+  "issues": [
+    {
+      "id": "20005",
+      "key": "CYCLE-5",
+      "self": "https://jira.example/rest/api/2/issue/20005",
+      "fields": {
+        "summary": "Task 5",
+        "description": "Work item 5.\n\nDetails for task 5.\n\nParent epic: https://jira.example/browse/SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-11T10:00:00.000+0000",
+        "resolutiondate": "2026-02-05T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-05T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    }
+  ],
+  "isLast": false,
+  "nextPageToken": "TOKA"
+}

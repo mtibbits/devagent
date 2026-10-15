@@ -163,3 +163,42 @@ def test_cli_check_uses_parse():
     good = _cli("1\tdone\n2\topen\n3\tother\n")
     assert good.returncode == 0
     assert good.stdout.strip() == b"3"
+
+
+# --- checklist_state (lifted from wbs-update.sh, #706) -----------------------
+def _checklist(tmp_path, body, iid="Issue-1", newline=True):
+    d = tmp_path / iid
+    d.mkdir()
+    (d / "checklist.md").write_text(body + ("\n" if newline else ""), encoding="utf-8")
+    return tmp_path
+
+
+def test_checklist_state_missing_is_none(tmp_path):
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") is None
+
+
+def test_checklist_state_no_rows_is_none(tmp_path):
+    _checklist(tmp_path, "# Issue-1\n\n## Log\n- note")
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") is None
+
+
+def test_checklist_state_active_revision_done(tmp_path):
+    _checklist(tmp_path, "## Revision 1\n- [ ]  0. pull\n- [ ]  1. draft\n"
+               "## Revision 2\n- [x]  0. pull\n- [-]  1. draft")
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") == "x"
+
+
+def test_checklist_state_progress_anywhere(tmp_path):
+    _checklist(tmp_path, "## Revision 1\n- [x]  0. pull\n"
+               "## Revision 2\n- [ ]  0. pull\n- [ ]  1. draft")
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") == "~"
+
+
+def test_checklist_state_pending(tmp_path):
+    _checklist(tmp_path, "- [ ]  0. pull\n- [ ]  1. draft")
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") == " "
+
+
+def test_checklist_state_unterminated_last_row_counts(tmp_path):
+    _checklist(tmp_path, "- [x]  0. pull\n- [x]  1. draft", newline=False)
+    assert wbs_tracker.checklist_state(tmp_path, "Issue-1") == "x"

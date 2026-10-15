@@ -1,0 +1,1437 @@
+{
+  "issues": [
+    {
+      "id": "20001",
+      "key": "SHAPED-1",
+      "self": "https://jira.example/rest/api/2/issue/20001",
+      "fields": {
+        "summary": "Data pipeline",
+        "description": "Epic Data pipeline.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-03T10:00:00.000+0000",
+        "resolutiondate": "2026-01-24T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-01-24T15:30:00.000+0000",
+        "labels": [
+          "epic"
+        ],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20002",
+      "key": "SHAPED-2",
+      "self": "https://jira.example/rest/api/2/issue/20002",
+      "fields": {
+        "summary": "Reporting",
+        "description": "Epic Reporting.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-05T10:00:00.000+0000",
+        "resolutiondate": "2026-01-27T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-01-27T15:30:00.000+0000",
+        "labels": [
+          "epic"
+        ],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20003",
+      "key": "SHAPED-3",
+      "self": "https://jira.example/rest/api/2/issue/20003",
+      "fields": {
+        "summary": "Storage layer",
+        "description": "Epic Storage layer.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-07T10:00:00.000+0000",
+        "resolutiondate": "2026-01-30T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-01-30T15:30:00.000+0000",
+        "labels": [
+          "epic"
+        ],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20004",
+      "key": "SHAPED-4",
+      "self": "https://jira.example/rest/api/2/issue/20004",
+      "fields": {
+        "summary": "Task 4",
+        "description": "Work item 4.\n\nDetails for task 4.\n\nParent epic: #1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-09T10:00:00.000+0000",
+        "resolutiondate": "2026-02-02T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-02T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20005",
+      "key": "SHAPED-5",
+      "self": "https://jira.example/rest/api/2/issue/20005",
+      "fields": {
+        "summary": "Task 5",
+        "description": "Work item 5.\n\nDetails for task 5.\n\nParent epic: https://jira.example/browse/SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-11T10:00:00.000+0000",
+        "resolutiondate": "2026-02-05T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-05T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20006",
+      "key": "SHAPED-6",
+      "self": "https://jira.example/rest/api/2/issue/20006",
+      "fields": {
+        "summary": "Task 6",
+        "description": "Work item 6.\n\nDetails for task 6.\n\nParent epic: data-pipeline — https://jira.example/browse/SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-13T10:00:00.000+0000",
+        "resolutiondate": "2026-02-08T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-08T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20007",
+      "key": "SHAPED-7",
+      "self": "https://jira.example/rest/api/2/issue/20007",
+      "fields": {
+        "summary": "Task 7",
+        "description": "Work item 7.\n\nDetails for task 7.\n\nParent epic: data-pipeline https://jira.example/browse/SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-15T10:00:00.000+0000",
+        "resolutiondate": "2026-02-04T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-04T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20008",
+      "key": "SHAPED-8",
+      "self": "https://jira.example/rest/api/2/issue/20008",
+      "fields": {
+        "summary": "Task 8",
+        "description": "Work item 8.\n\nDetails for task 8.\n\nParent epic: SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-17T10:00:00.000+0000",
+        "resolutiondate": "2026-02-07T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-07T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20009",
+      "key": "SHAPED-9",
+      "self": "https://jira.example/rest/api/2/issue/20009",
+      "fields": {
+        "summary": "Task 9",
+        "description": "Work item 9.\n\nDetails for task 9.\n\nParent epic: https://jira.example/browse/SHAPED-1",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-19T10:00:00.000+0000",
+        "resolutiondate": "2026-02-10T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-10T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20010",
+      "key": "SHAPED-10",
+      "self": "https://jira.example/rest/api/2/issue/20010",
+      "fields": {
+        "summary": "Task 10",
+        "description": "Work item 10.\n\nDetails for task 10.\n\nParent epic: #2",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-21T10:00:00.000+0000",
+        "resolutiondate": "2026-02-13T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-13T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20011",
+      "key": "SHAPED-11",
+      "self": "https://jira.example/rest/api/2/issue/20011",
+      "fields": {
+        "summary": "Task 11",
+        "description": "Work item 11.\n\nDetails for task 11.\n\nParent epic: https://jira.example/browse/SHAPED-2",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-23T10:00:00.000+0000",
+        "resolutiondate": "2026-02-16T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-16T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20012",
+      "key": "SHAPED-12",
+      "self": "https://jira.example/rest/api/2/issue/20012",
+      "fields": {
+        "summary": "Task 12",
+        "description": "Work item 12.\n\nDetails for task 12.\n\nParent epic: reporting — https://jira.example/browse/SHAPED-2",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-25T10:00:00.000+0000",
+        "resolutiondate": "2026-02-19T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-19T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20013",
+      "key": "SHAPED-13",
+      "self": "https://jira.example/rest/api/2/issue/20013",
+      "fields": {
+        "summary": "Task 13",
+        "description": "Work item 13.\n\nDetails for task 13.\n\nParent epic: reporting https://jira.example/browse/SHAPED-2",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-27T10:00:00.000+0000",
+        "resolutiondate": "2026-02-22T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-22T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20014",
+      "key": "SHAPED-14",
+      "self": "https://jira.example/rest/api/2/issue/20014",
+      "fields": {
+        "summary": "Task 14",
+        "description": "Work item 14.\n\nDetails for task 14.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-29T10:00:00.000+0000",
+        "resolutiondate": "2026-02-18T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-18T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": [],
+        "parent": {
+          "id": "20002",
+          "key": "SHAPED-2",
+          "fields": {
+            "summary": "Reporting"
+          }
+        }
+      }
+    },
+    {
+      "id": "20015",
+      "key": "SHAPED-15",
+      "self": "https://jira.example/rest/api/2/issue/20015",
+      "fields": {
+        "summary": "Task 15",
+        "description": "Work item 15.\n\nDetails for task 15.\n\nParent epic: #3",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-01-31T10:00:00.000+0000",
+        "resolutiondate": "2026-02-21T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-21T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20016",
+      "key": "SHAPED-16",
+      "self": "https://jira.example/rest/api/2/issue/20016",
+      "fields": {
+        "summary": "Task 16",
+        "description": "Work item 16.\n\nDetails for task 16.\n\nParent epic: https://jira.example/browse/SHAPED-3",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-02T10:00:00.000+0000",
+        "resolutiondate": "2026-02-24T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-24T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20017",
+      "key": "SHAPED-17",
+      "self": "https://jira.example/rest/api/2/issue/20017",
+      "fields": {
+        "summary": "Task 17",
+        "description": "Work item 17.\n\nDetails for task 17.\n\nParent epic: storage-layer — https://jira.example/browse/SHAPED-3",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-04T10:00:00.000+0000",
+        "resolutiondate": "2026-02-27T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-02-27T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20018",
+      "key": "SHAPED-18",
+      "self": "https://jira.example/rest/api/2/issue/20018",
+      "fields": {
+        "summary": "Task 18",
+        "description": "Work item 18.\n\nDetails for task 18.\n\nParent epic: SHAPED-3",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-06T10:00:00.000+0000",
+        "resolutiondate": "2026-03-02T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-02T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20019",
+      "key": "SHAPED-19",
+      "self": "https://jira.example/rest/api/2/issue/20019",
+      "fields": {
+        "summary": "Task 19",
+        "description": "Work item 19.\n\n```\nParent epic: #1\n```\n",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-08T10:00:00.000+0000",
+        "resolutiondate": "2026-03-05T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-05T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20020",
+      "key": "SHAPED-20",
+      "self": "https://jira.example/rest/api/2/issue/20020",
+      "fields": {
+        "summary": "Task 20",
+        "description": "Parent epic: data-pipeline\n\nWork item 20.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-10T10:00:00.000+0000",
+        "resolutiondate": "2026-03-08T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-08T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20021",
+      "key": "SHAPED-21",
+      "self": "https://jira.example/rest/api/2/issue/20021",
+      "fields": {
+        "summary": "Task 21",
+        "description": "Work item 21.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-12T10:00:00.000+0000",
+        "resolutiondate": "2026-03-04T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-04T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": [
+          {
+            "id": "30022",
+            "type": {
+              "id": "10000",
+              "name": "Blocks",
+              "inward": "is blocked by",
+              "outward": "blocks"
+            },
+            "outwardIssue": {
+              "id": "20022",
+              "key": "SHAPED-22",
+              "fields": {
+                "summary": "Task 22"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "20022",
+      "key": "SHAPED-22",
+      "self": "https://jira.example/rest/api/2/issue/20022",
+      "fields": {
+        "summary": "Task 22",
+        "description": "Work item 22.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-14T10:00:00.000+0000",
+        "resolutiondate": "2026-03-07T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-07T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": [
+          {
+            "id": "30021",
+            "type": {
+              "id": "10000",
+              "name": "Blocks",
+              "inward": "is blocked by",
+              "outward": "blocks"
+            },
+            "inwardIssue": {
+              "id": "20021",
+              "key": "SHAPED-21",
+              "fields": {
+                "summary": "Task 21"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "20023",
+      "key": "SHAPED-23",
+      "self": "https://jira.example/rest/api/2/issue/20023",
+      "fields": {
+        "summary": "Task 23",
+        "description": "Work item 23.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-16T10:00:00.000+0000",
+        "resolutiondate": "2026-03-10T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-10T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20024",
+      "key": "SHAPED-24",
+      "self": "https://jira.example/rest/api/2/issue/20024",
+      "fields": {
+        "summary": "Task 24",
+        "description": "Work item 24.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-18T10:00:00.000+0000",
+        "resolutiondate": "2026-03-13T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-13T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20025",
+      "key": "SHAPED-25",
+      "self": "https://jira.example/rest/api/2/issue/20025",
+      "fields": {
+        "summary": "Task 25",
+        "description": "Work item 25.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-20T10:00:00.000+0000",
+        "resolutiondate": "2026-03-16T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-16T15:30:00.000+0000",
+        "labels": [
+          "bug"
+        ],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20026",
+      "key": "SHAPED-26",
+      "self": "https://jira.example/rest/api/2/issue/20026",
+      "fields": {
+        "summary": "Task 26",
+        "description": "Work item 26.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-22T10:00:00.000+0000",
+        "resolutiondate": "2026-03-19T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-19T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20027",
+      "key": "SHAPED-27",
+      "self": "https://jira.example/rest/api/2/issue/20027",
+      "fields": {
+        "summary": "Task 27",
+        "description": "Work item 27.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-24T10:00:00.000+0000",
+        "resolutiondate": "2026-03-22T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-22T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20028",
+      "key": "SHAPED-28",
+      "self": "https://jira.example/rest/api/2/issue/20028",
+      "fields": {
+        "summary": "Task 28",
+        "description": "Work item 28.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-26T10:00:00.000+0000",
+        "resolutiondate": "2026-03-18T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-18T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20029",
+      "key": "SHAPED-29",
+      "self": "https://jira.example/rest/api/2/issue/20029",
+      "fields": {
+        "summary": "Task 29",
+        "description": "Work item 29.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-02-28T10:00:00.000+0000",
+        "resolutiondate": "2026-03-21T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-21T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20030",
+      "key": "SHAPED-30",
+      "self": "https://jira.example/rest/api/2/issue/20030",
+      "fields": {
+        "summary": "Task 30",
+        "description": null,
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-02T10:00:00.000+0000",
+        "resolutiondate": "2026-03-24T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-24T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20031",
+      "key": "SHAPED-31",
+      "self": "https://jira.example/rest/api/2/issue/20031",
+      "fields": {
+        "summary": "Task 31",
+        "description": "Work item 31.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-04T10:00:00.000+0000",
+        "resolutiondate": "2026-03-27T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-27T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20032",
+      "key": "SHAPED-32",
+      "self": "https://jira.example/rest/api/2/issue/20032",
+      "fields": {
+        "summary": "Task 32",
+        "description": "Work item 32.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-06T10:00:00.000+0000",
+        "resolutiondate": "2026-03-30T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-03-30T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20033",
+      "key": "SHAPED-33",
+      "self": "https://jira.example/rest/api/2/issue/20033",
+      "fields": {
+        "summary": "Task 33",
+        "description": "Work item 33.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-08T10:00:00.000+0000",
+        "resolutiondate": "2026-04-02T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-02T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20034",
+      "key": "SHAPED-34",
+      "self": "https://jira.example/rest/api/2/issue/20034",
+      "fields": {
+        "summary": "Task 34",
+        "description": "Work item 34.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-10T10:00:00.000+0000",
+        "resolutiondate": "2026-04-05T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-05T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20035",
+      "key": "SHAPED-35",
+      "self": "https://jira.example/rest/api/2/issue/20035",
+      "fields": {
+        "summary": "Task 35",
+        "description": "Work item 35.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-12T10:00:00.000+0000",
+        "resolutiondate": "2026-04-01T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-01T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20036",
+      "key": "SHAPED-36",
+      "self": "https://jira.example/rest/api/2/issue/20036",
+      "fields": {
+        "summary": "Task 36",
+        "description": "Work item 36.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-14T10:00:00.000+0000",
+        "resolutiondate": "2026-04-04T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-04T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20037",
+      "key": "SHAPED-37",
+      "self": "https://jira.example/rest/api/2/issue/20037",
+      "fields": {
+        "summary": "Task 37",
+        "description": "Work item 37.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-16T10:00:00.000+0000",
+        "resolutiondate": "2026-04-07T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-07T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20038",
+      "key": "SHAPED-38",
+      "self": "https://jira.example/rest/api/2/issue/20038",
+      "fields": {
+        "summary": "Task 38",
+        "description": "Work item 38.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-18T10:00:00.000+0000",
+        "resolutiondate": "2026-04-10T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-10T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20039",
+      "key": "SHAPED-39",
+      "self": "https://jira.example/rest/api/2/issue/20039",
+      "fields": {
+        "summary": "Task 39",
+        "description": "Work item 39.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-20T10:00:00.000+0000",
+        "resolutiondate": "2026-04-13T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-13T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20040",
+      "key": "SHAPED-40",
+      "self": "https://jira.example/rest/api/2/issue/20040",
+      "fields": {
+        "summary": "Task 40",
+        "description": "Work item 40.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-22T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-16T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20041",
+      "key": "SHAPED-41",
+      "self": "https://jira.example/rest/api/2/issue/20041",
+      "fields": {
+        "summary": "Task 41",
+        "description": "Work item 41.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-03-24T10:00:00.000+0000",
+        "resolutiondate": "2026-04-19T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-04-19T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20042",
+      "key": "SHAPED-42",
+      "self": "https://jira.example/rest/api/2/issue/20042",
+      "fields": {
+        "summary": "Task 42",
+        "description": "Work item 42.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-03-26T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-03-26T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20043",
+      "key": "SHAPED-43",
+      "self": "https://jira.example/rest/api/2/issue/20043",
+      "fields": {
+        "summary": "Task 43",
+        "description": "Work item 43.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-03-28T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-03-28T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20044",
+      "key": "SHAPED-44",
+      "self": "https://jira.example/rest/api/2/issue/20044",
+      "fields": {
+        "summary": "Task 44",
+        "description": "Work item 44.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-03-30T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-03-30T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20045",
+      "key": "SHAPED-45",
+      "self": "https://jira.example/rest/api/2/issue/20045",
+      "fields": {
+        "summary": "Task 45",
+        "description": "Work item 45.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-01T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-01T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20046",
+      "key": "SHAPED-46",
+      "self": "https://jira.example/rest/api/2/issue/20046",
+      "fields": {
+        "summary": "Task 46",
+        "description": "Work item 46.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-03T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-03T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20047",
+      "key": "SHAPED-47",
+      "self": "https://jira.example/rest/api/2/issue/20047",
+      "fields": {
+        "summary": "Task 47",
+        "description": "Work item 47.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-05T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-05T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20048",
+      "key": "SHAPED-48",
+      "self": "https://jira.example/rest/api/2/issue/20048",
+      "fields": {
+        "summary": "Task 48",
+        "description": "Work item 48.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-07T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-07T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20049",
+      "key": "SHAPED-49",
+      "self": "https://jira.example/rest/api/2/issue/20049",
+      "fields": {
+        "summary": "Task 49",
+        "description": "Work item 49.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-09T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-09T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20050",
+      "key": "SHAPED-50",
+      "self": "https://jira.example/rest/api/2/issue/20050",
+      "fields": {
+        "summary": "Task 50",
+        "description": "Work item 50.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-04-11T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-04-11T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    }
+  ],
+  "isLast": false,
+  "nextPageToken": "SHAPEDPAGE2"
+}

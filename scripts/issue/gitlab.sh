@@ -11,6 +11,8 @@
 #   comment-list <repo> <num>                       → markdown
 #   state-list   <repo>                             → `<iid>\t<class>` lines
 #                (optional verb, read by `wbs update`; #703)
+#   issue-list   <repo>                             → JSON Lines records
+#                (optional verb, read by `wbs init --from-tracker`; #706)
 
 set -euo pipefail
 
@@ -27,6 +29,7 @@ Usage: gitlab.sh <verb> [args…]
   state <repo> <num>
   comment-list <repo> <num>
   state-list <repo>
+  issue-list <repo>
 EOF
   exit 2
 }
@@ -193,6 +196,15 @@ cmd_comment_list() {
   done
 }
 
+# gl_class($ip): a GitLab issue's state-list class; state-list and issue-list
+# both prepend it, so the two verbs cannot drift (#706).
+_GL_CLASS_JQ='
+  def gl_class($ip):
+    if .state == "closed" then "done"
+    elif .state == "opened" then
+      (if $ip != "" and any(.labels[]?; . == $ip) then "in_progress" else "open" end)
+    else error("unrecognised state \(.state) on #\(.iid)") end;'
+
 # state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
 # `<iid>` TAB `<class>` line each, for `wbs update`. Pages the issues list
 # (no `state` filter returns opened and closed). Classes: closed -> done;
@@ -210,12 +222,63 @@ cmd_state_list() {
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
     bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
-  printf '%s' "$resp" | jq -r --arg ip "$ip" '
-    .[] | "\(.iid)\t\(
-      if .state == "closed" then "done"
-      elif .state == "opened" then
-        (if $ip != "" and any(.labels[]?; . == $ip) then "in_progress" else "open" end)
-      else error("unrecognised state \(.state) on #\(.iid)") end)"' || return 5
+  printf '%s' "$resp" | jq -r --arg ip "$ip" "$_GL_CLASS_JQ"'
+    .[] | "\(.iid)\t\(gl_class($ip))"' || return 5
+}
+
+# issue-list <repo> (#706, spec §9.1 MAY): every issue of <repo> as one JSON
+# Lines record (contract: scripts/lib/wbs-import.py), sorted by iid, for
+# `wbs init --from-tracker`. Pages the same issues list as state-list. Each
+# issue whose blocking_issues_count is above 0 (the issues IT blocks;
+# measured, Issue-706 U4) costs one GET .../issues/<iid>/links; every
+# `blocks` link puts this issue's web_url into the target's blocked_by,
+# matched by web_url (a target outside the list is dropped).
+# Mapping: id <- iid; state opened/closed -> open/closed; class <- gl_class;
+# title <- title; body <- description (null -> ""); created <- created_at,
+# closed <- closed_at, else updated_at (GitLab before 10.6 did not record
+# closed_at), date part; milestone <- milestone.title; labels <-
+# labels; type <- issue_type; parent null (GitLab epics are out of scope);
+# url <- web_url.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
+# for other HTTP failures; 5 an unrecognised state, a record without
+# created_at, or a page or links answer that is not a JSON array (fail
+# closed). Never 2, which means "unknown verb".
+_GL_ISSUE_JQ='
+  sort_by(.iid) | .[]
+  | if (.created_at // "") == "" then error("record #\(.iid) lacks created_at") else . end
+  | gl_class($ip) as $cls
+  | (if .state == "closed" then "closed" else "open" end) as $st
+  | {id: (.iid | tostring), title: (.title // ""), body: (.description // ""),
+     state: $st, class: $cls, created: .created_at[0:10],
+     closed: (if $st == "closed" then ((.closed_at // .updated_at // "")[0:10]) else null end),
+     milestone: (.milestone.title // null),
+     labels: [.labels[]? | if type == "string" then . else .name end],
+     type: (.issue_type // null), parent: null,
+     blocked_by: ($edges[.web_url] // []), url: .web_url}'
+
+cmd_issue_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || { echo "gitlab.sh issue-list: repo required" >&2; exit 1; }
+  local enc; enc="$(urlenc "$repo")"
+  local base; base="$(api_base)"
+  local ip; ip="$(_gl_stage_label in_progress)"
+  local resp blockers iid src links pairs="" edges
+  resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
+  blockers="$(printf '%s' "$resp" \
+    | jq -r '.[] | select((.blocking_issues_count // 0) > 0) | "\(.iid)\t\(.web_url)"' \
+    | tr -d '\r')" || return 5
+  while IFS=$'\t' read -r iid src; do
+    [ -n "$iid" ] || continue
+    links="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+      bc_curl GET "${base}/projects/${enc}/issues/${iid}/links")" || return
+    pairs+="$(printf '%s' "$links" | jq -c --arg s "$src" --arg iid "$iid" '
+      if type != "array" then error("links of #\($iid) is not a JSON array") else . end
+      | map(select(.link_type == "blocks") | {t: .web_url, s: $s})')"$'\n' || return 5
+  done <<<"$blockers"
+  edges="$(printf '%s' "$pairs" | jq -cs 'add // [] | group_by(.t)
+    | map({key: .[0].t, value: (map(.s) | unique)}) | from_entries')" || return 5
+  printf '%s' "$resp" | jq -c --arg ip "$ip" --argjson edges "$edges" "$_GL_CLASS_JQ$_GL_ISSUE_JQ" || return 5
 }
 
 # --- dispatch ----------------------------------------------------------------
@@ -228,6 +291,7 @@ case "$verb" in
   state)        cmd_state "$@" ;;
   comment-list) cmd_comment_list "$@" ;;
   state-list)   cmd_state_list "$@" ;;
+  issue-list)   cmd_issue_list "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac

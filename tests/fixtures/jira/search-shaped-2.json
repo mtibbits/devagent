@@ -1,0 +1,325 @@
+{
+  "issues": [
+    {
+      "id": "20082",
+      "key": "SHAPED-82",
+      "self": "https://jira.example/rest/api/2/issue/20082",
+      "fields": {
+        "summary": "Task 82",
+        "description": "Work item 82.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Won't Do"
+        },
+        "created": "2026-06-14T10:00:00.000+0000",
+        "resolutiondate": "2026-07-09T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-07-09T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20083",
+      "key": "SHAPED-83",
+      "self": "https://jira.example/rest/api/2/issue/20083",
+      "fields": {
+        "summary": "Epic: Search",
+        "description": "Epic Epic: Search.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-06-16T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-06-16T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20084",
+      "key": "SHAPED-84",
+      "self": "https://jira.example/rest/api/2/issue/20084",
+      "fields": {
+        "summary": "Epic: Notifications",
+        "description": "Epic Epic: Notifications.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-06-18T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-06-18T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20085",
+      "key": "SHAPED-85",
+      "self": "https://jira.example/rest/api/2/issue/20085",
+      "fields": {
+        "summary": "Task 85",
+        "description": "Parent epic: #83\n\nWork item 85.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-06-20T10:00:00.000+0000",
+        "resolutiondate": "2026-07-11T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-07-11T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20086",
+      "key": "SHAPED-86",
+      "self": "https://jira.example/rest/api/2/issue/20086",
+      "fields": {
+        "summary": "Task 86",
+        "description": "Parent epic: https://jira.example/browse/SHAPED-83\n\nWork item 86.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-06-22T10:00:00.000+0000",
+        "resolutiondate": "2026-07-14T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-07-14T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20087",
+      "key": "SHAPED-87",
+      "self": "https://jira.example/rest/api/2/issue/20087",
+      "fields": {
+        "summary": "Task 87",
+        "description": "Parent epic: search — https://jira.example/browse/SHAPED-83\n\nWork item 87.",
+        "status": {
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done"
+          }
+        },
+        "resolution": {
+          "name": "Done"
+        },
+        "created": "2026-06-24T10:00:00.000+0000",
+        "resolutiondate": "2026-07-17T15:30:00.000+0000",
+        "statuscategorychangedate": "2026-07-17T15:30:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20088",
+      "key": "SHAPED-88",
+      "self": "https://jira.example/rest/api/2/issue/20088",
+      "fields": {
+        "summary": "Task 88",
+        "description": "Parent epic: search https://jira.example/browse/SHAPED-83\n\nWork item 88.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-06-26T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-06-26T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20089",
+      "key": "SHAPED-89",
+      "self": "https://jira.example/rest/api/2/issue/20089",
+      "fields": {
+        "summary": "Task 89",
+        "description": "Parent epic: #83\n\nWork item 89.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-06-28T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-06-28T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20090",
+      "key": "SHAPED-90",
+      "self": "https://jira.example/rest/api/2/issue/20090",
+      "fields": {
+        "summary": "Task 90",
+        "description": "Parent epic: https://jira.example/browse/SHAPED-84\n\nWork item 90.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-06-30T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-06-30T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20091",
+      "key": "SHAPED-91",
+      "self": "https://jira.example/rest/api/2/issue/20091",
+      "fields": {
+        "summary": "Task 91",
+        "description": "Parent epic: #84\n\nWork item 91.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-07-02T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-07-02T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20092",
+      "key": "SHAPED-92",
+      "self": "https://jira.example/rest/api/2/issue/20092",
+      "fields": {
+        "summary": "Task 92",
+        "description": "Parent epic: notifications — https://jira.example/browse/SHAPED-84\n\nWork item 92.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-07-04T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-07-04T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    },
+    {
+      "id": "20093",
+      "key": "SHAPED-93",
+      "self": "https://jira.example/rest/api/2/issue/20093",
+      "fields": {
+        "summary": "Task 93",
+        "description": "Parent epic: https://jira.example/browse/SHAPED-84\n\nWork item 93.",
+        "status": {
+          "name": "To Do",
+          "statusCategory": {
+            "id": 2,
+            "key": "new",
+            "name": "To Do"
+          }
+        },
+        "resolution": null,
+        "created": "2026-07-06T10:00:00.000+0000",
+        "resolutiondate": null,
+        "statuscategorychangedate": "2026-07-06T10:00:00.000+0000",
+        "labels": [],
+        "issuetype": {
+          "name": "Task"
+        },
+        "issuelinks": []
+      }
+    }
+  ],
+  "isLast": true
+}

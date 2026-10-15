@@ -5,7 +5,8 @@ An issue backend's `state-list <repo>` verb prints one line per issue:
 `<id>` TAB `<class>`, where `<class>` is one of done, not_planned,
 in_progress, open or other (spec section 9.1). `parse_state_list` reads
 that output; `resolve` decides a leaf's glyph from the tracker class and
-the local checklist. Reconcile and auto-add both call `resolve`, so the
+the local checklist, which `checklist_state` reads (shared by `wbs update`
+and `wbs init --from-tracker`, #706). Reconcile and auto-add both call `resolve`, so the
 two entry points cannot drift. `mr_effect` is the MR phase's rule (#704):
 it applies a leaf's linked-MR state (scripts/lib/mr-link.py) on top of
 the tracker phase's result.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import Path
 
 CLASSES = ("done", "not_planned", "in_progress", "open", "other")
 LINE_RE = re.compile(rf"^([^\t]+)\t({'|'.join(CLASSES)})$")
@@ -46,6 +48,44 @@ def parse_state_list(text: str) -> dict[str, str]:
             raise ValueError(f"malformed line {n}: {line}")
         out[iid] = cls
     return out
+
+
+# Step row `- [<glyph>] <num>. <name>`: _checklist_line_re
+# (scripts/lib/checklist.sh); the full rule is in wbs-update.sh's header.
+ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
+DONE_GLYPHS = {"x", "-"}
+PROGRESS_GLYPHS = {"x", "~"}
+
+
+def checklist_state(devdoc_dir: Path, issue_id: str) -> str | None:
+    """Return the glyph an issue's checklist step rows imply.
+
+    `[x]` reads the active revision block only, and an empty one is not
+    done (#700). Progress deliberately reads every row in the file: the
+    leaf rolls up the whole issue, so a just-started revision stays `[~]`.
+
+    Returns None when the checklist is missing or has no step rows (no
+    signal).
+    """
+    cl = Path(devdoc_dir) / issue_id / "checklist.md"
+    if not cl.exists():
+        return None
+    glyphs = []
+    active = []  # rows after the last `## Revision ` heading
+    for line in cl.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## Revision "):
+            active = []
+        m = ROW_RE.match(line)
+        if m:
+            glyphs.append(m.group(1))
+            active.append(m.group(1))
+    if not glyphs:
+        return None
+    if active and all(g in DONE_GLYPHS for g in active):
+        return "x"
+    if any(g in PROGRESS_GLYPHS for g in glyphs):
+        return "~"
+    return " "
 
 
 def resolve(

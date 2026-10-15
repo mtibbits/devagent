@@ -197,3 +197,139 @@ teardown() { :; }
   printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
   grep -qFx $'11\tin_progress' "$BATS_TEST_TMPDIR/list"
 }
+
+# --- #706 issue-list ---------------------------------------------------------
+# Fixtures: tests/fixtures/issue-github/issue-list-shaped.json and
+# issue-list-graphql/{1,2}.json, written by tests/fixtures/wbs-import/
+# make-fixtures.py (provenance in its header).
+
+_il_shaped() { export GH_STUB_ISSUE_LIST_FILE="${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-shaped.json"; }
+_il_check()  { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check; }
+# _il_graphql: the GraphQL pages, copied so the stub's call counter never
+# writes into the committed fixture tree.
+_il_graphql() {
+  mkdir -p "$BATS_TEST_TMPDIR/gql"
+  cp "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-graphql/"*.json "$BATS_TEST_TMPDIR/gql/"
+  export GH_STUB_GRAPHQL_DIR="$BATS_TEST_TMPDIR/gql" GH_STUB_ISSUE_LIST_UNKNOWN_FIELD=1
+}
+
+@test "[github] issue-list passes --limit 5000 and yields 62 records" {
+  _il_shaped
+  "$ISSUE_SCRIPT" issue-list acme/testproj > "$BATS_TEST_TMPDIR/il"
+  run _il_check < "$BATS_TEST_TMPDIR/il"
+  [ "$status" -eq 0 ]
+  [ "$output" = 62 ]
+}
+
+@test "[github] issue-list asks gh for every issue with the issue-list fields" {
+  _il_shaped
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh.log"
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 0 ]
+  run cat "$GH_STUB_ARGS_LOG"
+  [ "$output" = "issue list --repo acme/testproj --state all --limit 5000 --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url" ]
+}
+
+@test "[github] issue-list and state-list agree on every (id, class)" {
+  _il_shaped
+  "$ISSUE_SCRIPT" issue-list acme/testproj | jq -r '"\(.id)\t\(.class)"' | tr -d '\r' | sort > "$BATS_TEST_TMPDIR/a"
+  "$ISSUE_SCRIPT" state-list acme/testproj | sort > "$BATS_TEST_TMPDIR/b"
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/b")" -eq 62 ]
+  cmp "$BATS_TEST_TMPDIR/a" "$BATS_TEST_TMPDIR/b"
+}
+
+@test "[github] issue-list falls back to GraphQL on an older gh and yields identical records" {
+  _il_shaped
+  "$ISSUE_SCRIPT" issue-list acme/testproj > "$BATS_TEST_TMPDIR/primary"
+  _il_graphql
+  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh.log"
+  "$ISSUE_SCRIPT" issue-list acme/testproj > "$BATS_TEST_TMPDIR/fallback"
+  [ -s "$BATS_TEST_TMPDIR/primary" ]
+  cmp "$BATS_TEST_TMPDIR/primary" "$BATS_TEST_TMPDIR/fallback"
+  [ "$(cat "$BATS_TEST_TMPDIR/gql/count")" -eq 2 ]
+  # the second page asks for the first page's cursor
+  grep -qF '[cursor=Y3Vyc29yOjUw]' "$GH_STUB_ARGS_LOG"
+}
+
+@test "[github] issue-list GraphQL fallback refuses a repeated cursor" {
+  _il_graphql
+  # page 2 claims a next page at page 1's cursor again
+  jq '.data.repository.issues.pageInfo = {hasNextPage: true, endCursor: "Y3Vyc29yOjUw"}' \
+    "$BATS_TEST_TMPDIR/gql/2.json" > "$BATS_TEST_TMPDIR/gql/2.tmp"
+  mv "$BATS_TEST_TMPDIR/gql/2.tmp" "$BATS_TEST_TMPDIR/gql/2.json"
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"cursor"*"repeated"* ]]
+}
+
+@test "[github] issue-list GraphQL fallback stops loudly at its page cap" {
+  _il_graphql
+  local k page
+  page="$(jq -c '.data.repository.issues.pageInfo = {hasNextPage: true, endCursor: "@C@"}
+    | .data.repository.issues.nodes = []' \
+    "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-graphql/2.json")"
+  for k in $(seq 1 101); do
+    printf '%s' "${page//@C@/C$k}" > "$BATS_TEST_TMPDIR/gql/$k.json"
+  done
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"truncated"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/gql/count")" -eq 100 ]
+}
+
+@test "[github] issue-list at the --limit of 5000 fails closed as truncated" {
+  jq '[range(5000) as $i | .[0] | .number = $i + 1]' \
+    "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-shaped.json" > "$BATS_TEST_TMPDIR/big.json"
+  export GH_STUB_ISSUE_LIST_FILE="$BATS_TEST_TMPDIR/big.json"
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"truncated"* ]]
+}
+
+@test "[github] issue-list maps native parent, blockedBy and issueType" {
+  _il_shaped
+  "$ISSUE_SCRIPT" issue-list acme/testproj > "$BATS_TEST_TMPDIR/il"
+  run jq -r 'select(.id == "14") | .parent' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = "https://github.com/acme/testproj/issues/2" ]
+  run jq -c 'select(.id == "22") | .blocked_by' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '["https://github.com/acme/testproj/issues/21"]' ]
+  # issueType: a named type maps to its name
+  jq '(.[] | select(.number == 1) | .issueType) = {"id": "IT_1", "name": "Epic"}' \
+    "$GH_STUB_ISSUE_LIST_FILE" > "$BATS_TEST_TMPDIR/typed.json"
+  GH_STUB_ISSUE_LIST_FILE="$BATS_TEST_TMPDIR/typed.json" "$ISSUE_SCRIPT" issue-list acme/testproj > "$BATS_TEST_TMPDIR/il"
+  run jq -r 'select(.id == "1") | .type' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = Epic ]
+}
+
+@test "[github] issue-list fails closed on a record missing parent, blockedBy or issueType" {
+  local k
+  for k in parent blockedBy issueType; do
+    jq --arg k "$k" '(.[0]) |= del(.[$k])' \
+      "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-shaped.json" > "$BATS_TEST_TMPDIR/strip.json"
+    GH_STUB_ISSUE_LIST_FILE="$BATS_TEST_TMPDIR/strip.json" run "$ISSUE_SCRIPT" issue-list acme/testproj
+    [ "$status" -eq 5 ]
+    [[ "$output" == *"$k"* ]]
+  done
+}
+
+@test "[github] issue-list fails closed on an unrecognised state" {
+  jq '(.[0].state) = "MERGED"' \
+    "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-shaped.json" > "$BATS_TEST_TMPDIR/bad.json"
+  export GH_STUB_ISSUE_LIST_FILE="$BATS_TEST_TMPDIR/bad.json"
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"unrecognised state MERGED on #1"* ]]
+}
+
+@test "[github] issue-list without a repo exits 1, not 2" {
+  run "$ISSUE_SCRIPT" issue-list
+  [ "$status" -eq 1 ]
+}
+
+@test "[github] issue-list fails with gh" {
+  _il_shaped
+  export GH_STUB_CASE=fail
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 401"* ]]
+}
