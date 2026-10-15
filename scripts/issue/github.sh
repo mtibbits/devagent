@@ -2,7 +2,8 @@
 # scripts/issue/github.sh — GitHub issue backend.
 # Backend contract: implements all five issue verbs per spec §9.1
 # (fetch, create, transition, state, comment-list), plus the optional
-# state-list that `wbs update` reads (#703).
+# state-list that `wbs update` reads (#703) and issue-list that
+# `wbs init --from-tracker` reads (#706).
 # Output shape conforms to spec §9.3.
 
 set -euo pipefail
@@ -193,6 +194,19 @@ cmd_transition() {
   gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null 2>&1 || return 0
 }
 
+# gh_class($ip): a gh issue record's state-list class (#703); state-list and
+# issue-list both prepend it, so the two verbs cannot drift (#706).
+_GH_CLASS_JQ='
+  def gh_class($ip):
+    if .state == "CLOSED" then
+      (if .stateReason == "COMPLETED" then "done"
+       elif .stateReason == "NOT_PLANNED" or .stateReason == "DUPLICATE" then "not_planned"
+       else "other" end)
+    elif .state == "OPEN" then
+      (if $ip != "" and any(.labels[]?; (.name | ascii_downcase) == ($ip | ascii_downcase))
+       then "in_progress" else "open" end)
+    else error("unrecognised state \(.state) on #\(.number)") end;'
+
 # state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
 # `<number>` TAB `<class>` line each, for `wbs update`. One `gh issue list`
 # call (gh pages internally). Classes:
@@ -215,20 +229,128 @@ cmd_state_list() {
   ip="$(_stage_label in_progress)"
   json="$(_gh_json issue list --repo "$repo" --state all --limit 5000 \
     --json number,state,stateReason,labels)" || return 1
-  out="$(printf '%s' "$json" | jq -r --arg ip "$ip" '
-    .[] | "\(.number)\t\(
-      if .state == "CLOSED" then
-        (if .stateReason == "COMPLETED" then "done"
-         elif .stateReason == "NOT_PLANNED" or .stateReason == "DUPLICATE" then "not_planned"
-         else "other" end)
-      elif .state == "OPEN" then
-        (if $ip != "" and any(.labels[]?; (.name | ascii_downcase) == ($ip | ascii_downcase))
-         then "in_progress" else "open" end)
-      else error("unrecognised state \(.state) on #\(.number)") end)"')" || return 5
+  out="$(printf '%s' "$json" | jq -r --arg ip "$ip" "$_GH_CLASS_JQ"'
+    .[] | "\(.number)\t\(gh_class($ip))"')" || return 5
   if [ "$(printf '%s\n' "$out" | grep -c .)" = 5000 ]; then
     echo "github.sh: state-list returned the --limit of 5000 issues; older issues are missing" >&2
   fi
   [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# issue-list <repo> (#706, spec §9.1 MAY): every issue of <repo> as one
+# JSON Lines record (the contract and its checker: scripts/lib/wbs-import.py),
+# sorted by number, for `wbs init --from-tracker`. One `gh issue list` call
+# (gh pages internally) asks for the record fields; a gh older than 2.95
+# lacks issueType/parent/blockedBy and exits 1 with `Unknown JSON field`
+# (measured with 2.60), and then the same fields come from GraphQL pages of
+# 100 instead. Both paths feed one normalizer, so their output is identical.
+# Mapping: id <- number; state OPEN/CLOSED -> open/closed; class <- gh_class;
+# created/closed <- createdAt/closedAt (date part); milestone <- its title;
+# labels <- names; type <- issueType.name; parent <- parent.url; blocked_by
+# <- blockedBy node urls (a node without one gets
+# https://github.com/<repo>/issues/<number>); url <- url.
+# Exit: 0 ok; 1 gh failure or no repo arg; 5 a record with an unrecognised
+# state, a missing parent/blockedBy/issueType key or unreadable JSON, a
+# repeated GraphQL cursor, or a truncated list (the --limit of 5000, or the
+# GraphQL cap of 100 pages, reached). Never 2, which means "unknown verb".
+_GH_ISSUE_JQ='
+  def need($k): if has($k) then . else error("record #\(.number) lacks \($k)") end;
+  sort_by(.number) | .[] | need("parent") | need("blockedBy") | need("issueType")
+  | gh_class($ip) as $cls
+  | (if .state == "CLOSED" then "closed" else "open" end) as $st
+  | {id: (.number | tostring), title: (.title // ""), body: (.body // ""),
+     state: $st, class: $cls,
+     created: ((.createdAt // "")[0:10]),
+     closed: (if $st == "closed" then ((.closedAt // "")[0:10]) else null end),
+     milestone: (.milestone.title // null),
+     labels: [.labels[]?.name],
+     type: (.issueType.name // null),
+     parent: (.parent.url // null),
+     blocked_by: [.blockedBy.nodes[]? | (.url // "https://github.com/\($repo)/issues/\(.number)")],
+     url: .url}'
+
+# The GraphQL page shape, mapped onto `gh issue list --json` records.
+_GH_GQL_QUERY='query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    issues(first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title body state stateReason createdAt closedAt
+        milestone { title }
+        labels(first: 100) { nodes { name } }
+        issueType { name }
+        parent { number url }
+        blockedBy(first: 100) { nodes { number url } }
+        url
+      }
+    }
+  }
+}'
+_GH_GQL_ADAPT_JQ='
+  .data.repository.issues
+  | if (.nodes | type) != "array" then error("GraphQL page lacks issues.nodes") else . end
+  | .nodes | map(
+      {number, title, body, state, stateReason: (.stateReason // ""), createdAt,
+       closedAt, milestone, labels: (.labels.nodes // []), issueType, parent,
+       blockedBy: {nodes: (.blockedBy.nodes // []),
+                   totalCount: ((.blockedBy.nodes // []) | length)},
+       url})'
+_GH_GQL_MAX_PAGES=100
+
+# _gh_issue_list_graphql <repo>: every issue as a gh-shaped JSON array.
+_gh_issue_list_graphql() {
+  local repo="$1" owner="${1%%/*}" name="${1#*/}" cursor="" pages=0 acc="" resp meta more
+  local -A seen=()
+  while :; do
+    if (( pages >= _GH_GQL_MAX_PAGES )); then
+      echo "github.sh: issue-list truncated: the GraphQL fallback reached its cap of ${_GH_GQL_MAX_PAGES} pages" >&2
+      return 5
+    fi
+    local args=(api graphql -f "query=${_GH_GQL_QUERY}" -f "owner=${owner}" -f "name=${name}")
+    [ -z "$cursor" ] || args+=(-f "cursor=${cursor}")
+    resp="$(_gh_json "${args[@]}")" || return 1
+    pages=$((pages + 1))
+    meta="$(printf '%s' "$resp" | jq -r '.data.repository.issues.pageInfo
+      | "\(.hasNextPage)\t\(.endCursor // "")"' | tr -d '\r')" || return 5
+    acc+="$(printf '%s' "$resp" | jq -c "$_GH_GQL_ADAPT_JQ")"$'\n' || return 5
+    IFS=$'\t' read -r more cursor <<<"$meta"
+    [ "$more" = true ] || break
+    [ -n "$cursor" ] || { echo "github.sh: issue-list GraphQL page has a next page but no cursor" >&2; return 5; }
+    if [ -n "${seen[$cursor]:-}" ]; then
+      echo "github.sh: issue-list GraphQL cursor repeated ($cursor); stopping" >&2
+      return 5
+    fi
+    seen[$cursor]=1
+  done
+  printf '%s' "$acc" | jq -cs 'add // []' || return 5
+}
+
+cmd_issue_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || _die "issue/github.sh issue-list: repo required"
+  _need gh
+  _need jq
+  local ip json err n
+  ip="$(_stage_label in_progress)"
+  err="$(mktemp)"
+  if json="$(gh issue list --repo "$repo" --state all --limit 5000 \
+      --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url \
+      2>"$err")"; then
+    rm -f "$err"
+    n="$(printf '%s' "$json" | jq 'length' | tr -d '\r')" || return 5
+    if [ "$n" = 5000 ]; then
+      echo "github.sh: issue-list truncated: gh returned its --limit of 5000 issues" >&2
+      return 5
+    fi
+  elif grep -q 'Unknown JSON field' "$err"; then
+    rm -f "$err"
+    json="$(_gh_issue_list_graphql "$repo")" || return
+  else
+    echo "gh issue list failed: $(cat "$err")" >&2
+    rm -f "$err"
+    return 1
+  fi
+  printf '%s' "$json" | jq -c --arg ip "$ip" --arg repo "$repo" "$_GH_CLASS_JQ$_GH_ISSUE_JQ" || return 5
 }
 
 main() {
@@ -245,6 +367,7 @@ main() {
     create)        cmd_create       "$@" ;;
     transition)    cmd_transition   "$@" ;;
     state-list)    cmd_state_list   "$@" ;;
+    issue-list)    cmd_issue_list   "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2
