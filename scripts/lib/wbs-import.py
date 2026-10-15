@@ -24,15 +24,40 @@ object per issue (spec section 9.1); empty output is a repo with no issues:
 `parse_issue_list` is the one predicate for that contract: the backend
 tests (via `check`) and `wbs init` both use it.
 
+The rest is pure work over those records, for scripts/wbs-init.sh:
+- `build`: a node per record; its parent is the native `parent` URL, else
+  the first `Parent epic:` line outside a code fence (`parent_line`), else
+  none (a root; the attempt is listed in the survey's unresolved_parents).
+- `select`: the leaf ids a range imports. all; open-only; since:<date>
+  (open, or closed on or after it); since:<issue-id> (open, or numbered
+  from it: a bare N in every source, <dir_prefix>N in that one only);
+  epic:<issue-id> (that epic's subtree and the path above it). The first
+  three then add every ancestor, and every descendant of those, so an
+  imported child brings its epic and an imported epic all its children.
+- `survey` and `render` (see each).
+
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
                         count and exit 0, or the error on stderr and exit 1.
+  wbs-import.py run     `wbs init --from-tracker`, configured by environment:
+      WBS_IMP_<S>_{FILE,BACKEND,REPO,PREFIX,KEYPREFIX}  S = ORIGIN, FORK
+                        (a source with no FILE is absent)
+      WBS_IMP_MODE      survey | import
+      WBS_IMP_RANGE     "" | all | open-only | since:<v> | epic:<v>
+      WBS_IMP_PCT       auto_import_below_pct
+      WBS_IMP_PROJECT, WBS_IMP_DEST, WBS_IMP_TEMPLATE, DEVDOC_DIR
+    Exit 0 written (or survey printed); 1 malformed backend output, or DEST
+    already exists; 2 a range value that names nothing; 10 (CHOOSE_RANGE_RC)
+    when no range was given and the closed share is not below the
+    threshold: the survey JSON, then the line CHOOSE_RANGE_MARKER, on
+    stdout, and nothing written.
 """
 from __future__ import annotations
 
 import datetime
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -625,7 +650,78 @@ def _stdout(text: str) -> None:
     sys.stdout.buffer.flush()
 
 
+CHOOSE_RANGE_MARKER = "WBS-INIT: choose-range"
+CHOOSE_RANGE_RC = 10
+
+
+def _say(msg: str) -> None:
+    # ASCII only: a cp1252 stderr must not crash the run
+    print(msg.encode("ascii", "replace").decode("ascii"), file=sys.stderr)
+
+
+def run(env) -> int:
+    sources = []
+    for S, name in (("ORIGIN", "origin"), ("FORK", "fork")):
+        f = env.get(f"WBS_IMP_{S}_FILE", "")
+        if not f:
+            continue
+        src = {"source": name, "backend": env.get(f"WBS_IMP_{S}_BACKEND", ""),
+               "repo": env.get(f"WBS_IMP_{S}_REPO", ""),
+               "prefix": env.get(f"WBS_IMP_{S}_PREFIX", ""),
+               "keyprefix": env.get(f"WBS_IMP_{S}_KEYPREFIX", "")}
+        try:
+            src["records"] = parse_issue_list(Path(f).read_bytes().decode("utf-8", "replace"))
+        except ValueError as e:
+            _say(f"wbs init: {src['backend']} {src['repo']} issue-list output is malformed: {e}")
+            return 1
+        sources.append(src)
+    project = env.get("WBS_IMP_PROJECT", "")
+    pct = int(env.get("WBS_IMP_PCT", "20"))
+    model = build(sources)
+    sv = survey(model, pct, project=project)
+    sv_text = json.dumps(sv, indent=2, ensure_ascii=False) + "\n"
+    if env.get("WBS_IMP_MODE") == "survey":
+        _stdout(sv_text)
+        return 0
+    rng = env.get("WBS_IMP_RANGE", "")
+    auto = False
+    if not rng:
+        if not sv["auto_import"]:
+            _stdout(sv_text + CHOOSE_RANGE_MARKER + "\n")
+            return CHOOSE_RANGE_RC
+        rng, auto = "all", True
+    try:
+        selected = select(model, rng)
+    except RangeError as e:
+        _say(f"wbs init: {e}")
+        return 2
+    template = Path(env["WBS_IMP_TEMPLATE"]).read_bytes().decode("utf-8")
+    preamble = template_preamble(template.replace("\r\n", "\n"), project)
+    froms = ", ".join(f"{s['backend']} {s['repo']}" for s in sources)
+    note = (f"wbs init --from-tracker {datetime.date.today().isoformat()} {rng}: "
+            f"{len(selected)} issues from {froms}")
+    doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note)
+    dest = Path(env["WBS_IMP_DEST"])
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(dest, "xb") as f:
+            f.write(doc.encode("utf-8"))
+    except FileExistsError:
+        _say(f"wbs init: {dest} exists")
+        return 1
+    picked = [n for n in model.nodes if n.leaf in selected]
+    epics = sum(1 for n in picked if n.group)
+    loose = sum(1 for n in picked if n.parent is None and not n.group)
+    line = f"wbs init: wrote {dest}: {len(selected)} issues ({epics} epics, {loose} unparented)"
+    if auto:
+        line += f"; closed share {sv['closed_share_pct']}% < {pct}%"
+    _say(line)
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[1:] == ["run"]:
+        return run(os.environ)
     if argv[1:] == ["check"]:
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
         try:
@@ -635,7 +731,7 @@ def main(argv: list[str]) -> int:
             return 1
         _stdout(f"{len(recs)}\n")
         return 0
-    print("usage: wbs-import.py check", file=sys.stderr)
+    print("usage: wbs-import.py check | run", file=sys.stderr)
     return 2
 
 
