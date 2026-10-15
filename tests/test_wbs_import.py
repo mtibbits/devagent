@@ -686,6 +686,45 @@ def test_merge_existing_lines_untouched(tmp_path):
         assert sum(j2 - j1 for op, _i1, _i2, j1, j2 in ops if op == "insert") == 5, kind
 
 
+def _run_merge(dest):
+    m = _fixture_model()
+    return wbs_import._run_merge(m, wbs_import.select(m, "all"), dest, dest.parent)
+
+
+def test_run_merge_refusal_writes_nothing(tmp_path, monkeypatch, capsys):
+    data = (MERGE_FIX / "base.md").read_bytes()
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(data)
+    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    rc = _run_merge(dest)
+    assert rc == 1
+    assert "refusing to write" in capsys.readouterr().err
+    assert dest.read_bytes() == data
+
+
+def test_run_merge_unreadable_dest(tmp_path, capsys):
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(b"# W\n\xff\n")
+    rc = _run_merge(dest)
+    assert rc == 1
+    assert f"cannot read {dest}" in capsys.readouterr().err
+
+
+def test_run_merge_write_failure(tmp_path, monkeypatch, capsys):
+    data = (MERGE_FIX / "base.md").read_bytes()
+
+    def deny(self, _data):
+        raise PermissionError(13, "Permission denied")
+
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(data)
+    monkeypatch.setattr(Path, "write_bytes", deny)
+    rc = _run_merge(dest)
+    assert rc == 1
+    assert f"cannot write {dest}" in capsys.readouterr().err
+    assert dest.read_bytes() == data
+
+
 def test_inserted_only_postcondition_fires():
     io = wbs_import.inserted_only
     old = "a\nb\nc\n"

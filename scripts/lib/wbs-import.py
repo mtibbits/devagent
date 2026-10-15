@@ -981,7 +981,11 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
         _say(f"wbs init --merge: refusing to write {dest}: an existing line would change "
              "(a bug; please report); nothing written")
         return 1
-    dest.write_bytes(rendered.encode("utf-8"))
+    try:
+        dest.write_bytes(rendered.encode("utf-8"))
+    except OSError as e:
+        _say(f"wbs init --merge: cannot write {dest}: {e}")
+        return 1
     _say(f"wbs init --merge: added {len(stats['added'])} issues to {dest} "
          f"({stats['under_existing']} under existing nodes, {stats['new_tops']} in new "
          f"top-level nodes); {tail}")
