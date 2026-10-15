@@ -34,6 +34,9 @@ the README's "Versioning & releases" section has the release procedure.
     back to GraphQL on an older gh; a GitHub Enterprise server without those GraphQL fields
     is not supported. JIRA is Cloud only.
   - Behaviour change: `wbs init` now exits 2 on any unknown flag (it warned and ignored one).
+  - Fixed: `wbs update` matches a leaf to the source with the longest `dir_prefix`, as
+    spec §13.2 says; with `Issue-` and `Issue-Fork-` configured, fork leaves were
+    `unmatched` and their glyphs never updated.
   - Behaviour change: the JIRA search behind `state-list` now fails (exit 5) on any
     `nextPageToken` seen before, not only a repeat of the last one, and at 1000 pages; in
     `wbs update` (and cleanup's run) that aborts the tracker phase with one warning.

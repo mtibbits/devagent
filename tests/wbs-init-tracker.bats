@@ -306,6 +306,19 @@ _expected_all() {
   grep -qFx -- '  - [x] Fork two {issue: Issue-Fork-2, status_src: tracker}' "$TMPDEV/WBS.md"
   grep -qFx -- '  - [x] Fork one {issue: Issue-Fork-1, status_src: tracker}' "$TMPDEV/WBS.md"
   grep -c '^\[issue-list\]' "$TMPROOT/backend.log" | grep -qx 2
+  # wbs update matches the fork leaves by the longest dir_prefix: an
+  # unchanged tracker changes nothing, and a reopened fork issue is seen
+  "$REPO/scripts/issue/github.sh" state-list acme/testproj > "$TMPROOT/state-list.github.acme_testproj"
+  printf '1\tdone\n2\tdone\n' > "$TMPROOT/state-list.github.me_testproj-fork"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/imported"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" != *"not found"* ]]
+  cmp "$TMPROOT/imported" "$TMPDEV/WBS.md"
+  printf '1\tdone\n2\topen\n' > "$TMPROOT/state-list.github.me_testproj-fork"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  grep -qFx -- '  - [~] Fork two {issue: Issue-Fork-2, status_src: tracker}' "$TMPDEV/WBS.md"
 }
 
 @test "fork with backend and repo but no dir_prefix dies" {

@@ -48,7 +48,7 @@ usage_die() {
 }
 
 DATE_RE='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
-ID_RE='^([0-9]+|[A-Za-z][A-Za-z0-9_-]*[0-9]+|[A-Z][A-Z0-9_]*-[0-9]+)$'
+ID_RE='^([0-9]+|[A-Za-z][A-Za-z0-9_-]*[0-9]+)$'
 
 force=0 tracker=0 survey=0 ranges=0 range="" project_arg=""
 _range() { ranges=$((ranges + 1)); range="$1"; }

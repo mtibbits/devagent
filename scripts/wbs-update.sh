@@ -374,7 +374,8 @@ def leaf_lookup(iid: str):
     when none matches). Memoised, so `not found` prints once per id."""
     if not sources:
         return ("none", None, None)  # no tracker configured: the checklist rule
-    for src in sources:
+    # the longest dir_prefix wins (Issue-Fork- before Issue-), as in wbs init
+    for src in sorted(sources, key=lambda s: -len(s["PREFIX"])):
         prefix = src["PREFIX"]
         if not iid.startswith(prefix) or len(iid) == len(prefix):
             continue
