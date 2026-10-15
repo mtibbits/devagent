@@ -1,4 +1,5 @@
 """Tests for scripts/lib/wbs-import.py (#706)."""
+import difflib
 import importlib.util
 import json
 import subprocess
@@ -445,3 +446,247 @@ def test_survey_empty_project():
     assert s["epics"] == [] and s["milestones"] == [] and s["unresolved_parents"] == []
     assert s["created"] == {"first": None, "last": None}
     assert s["closed_on"] == {"first": None, "last": None, "by_month": {}}
+
+
+# --- merge into an existing WBS (#707) -----------------------------------------
+MERGE_FIX = REPO / "tests" / "fixtures" / "wbs-merge"
+wbs_bytes = _load("wbs_bytes", REPO / "tests" / "helpers" / "wbs_bytes.py")
+J = "https://j.example/browse/"
+
+
+def merged(base, model, rng="all", excluded=None):
+    """(rendered text, stats) of a merge over parse_text(base); the exclusion
+    ids come from the base's own exclusion lines unless given."""
+    tree = parser.parse_text(base)
+    if excluded is None:
+        excluded = [i for _ln, i in wbs_import.exclusions(base, "WBS.md", model)[0]]
+    stats = wbs_import.merge(model, wbs_import.select(model, rng), tree,
+                             Path("/nonexistent"), excluded)
+    return parser.render_markdown(tree), stats
+
+
+def test_merge_resolves_wbs_ids_like_ranges():
+    m = wbs_import.build([src([rec("3"), rec("7")]),
+                          src([rec("3", url="https://github.com/me/f/issues/3")],
+                              name="fork", repo="me/f", prefix="Issue-Fork-")])
+
+    def leaves(iid):
+        return [n.leaf for n in wbs_import.resolve_id(m, iid)]
+    assert leaves("Issue-3") == ["Issue-3"]
+    assert leaves("Issue-Fork-3") == ["Issue-Fork-3"]
+    # leaf_lookup's rule: a dir_prefix is required (the range flags keep bare N)
+    for none in ("TODO", "Issue-x", "Issue-", "Issue-Fork-", "7", "Issue-99"):
+        assert leaves(none) == [], none
+    jm = wbs_import.build([src([rec("PK-12", url=J + "PK-12")],
+                               backend="jira", repo="PK", keyprefix="PK")])
+    assert [n.rec["id"] for n in wbs_import.resolve_id(jm, "Issue-12")] == ["PK-12"]
+    assert [n.rec["id"] for n in wbs_import.resolve_id(jm, "Issue-PK-12")] == ["PK-12"]
+    assert wbs_import.resolve_id(jm, "PK-12") == []
+    assert wbs_import.resolve_id(jm, "12") == []
+
+
+def test_exclusions_parse_one_line_union():
+    assert wbs_import.EXCLUDE_KEY == "wbs-exclude:"
+    m = wbs_import.build([src([rec(str(i)) for i in range(1, 14)])])
+    text = ("<!-- wbs-exclude: Issue-1, Issue-2 -->\n"          # 1
+            "  <!-- wbs-exclude: Issue-5 Issue-6,Issue-7 -->\n"  # 2 indented, mixed separators
+            "```\n<!-- wbs-exclude: Issue-9 -->\n```\n"          # 3-5 fenced: not read
+            "<!-- wbs-exclude: #4, Issue-8 -->\n"                # 6 a bad token
+            "<!-- wbs-exclude: Issue-3\n-->\n"                   # 7-8 two lines
+            "<!-- wbs-exclude Issue-5 -->\n"                     # 9 no colon
+            "<!-- WBS-Exclude: Issue-5 -->\n"                    # 10 wrong case
+            "Prose names the wbs-exclude: Issue-11 convention.\n"  # 11 silent
+            "<!-- wbs-exclude: 12 -->\n")                        # 12 a bare id
+    ids, warns = wbs_import.exclusions(text, "W.md", m)
+    assert ids == [(1, "Issue-1"), (1, "Issue-2"), (2, "Issue-5"), (2, "Issue-6"),
+                   (2, "Issue-7"), (6, "Issue-8")]
+    near = "not an exclusion line (want '<!-- wbs-exclude: <id>, ... -->' on one line); ignored"
+    assert warns == [
+        "wbs init --merge: W.md line 6: '#4' is not an issue id; ignored",
+        f"wbs init --merge: W.md line 7: {near}",
+        f"wbs init --merge: W.md line 9: {near}",
+        f"wbs init --merge: W.md line 10: {near}",
+        "wbs init --merge: W.md line 12: '12' is not an issue id; ignored",
+    ]
+    hit = {n.leaf for _ln, i in ids for n in wbs_import.resolve_id(m, i)}
+    assert hit == {"Issue-1", "Issue-2", "Issue-5", "Issue-6", "Issue-7", "Issue-8"}
+    # Issue-1 names neither Issue-10 nor Issue-13 (a control sharing the token)
+    assert "Issue-10" not in hit and "Issue-13" not in hit
+
+
+def test_merge_parent_present_appends_last_child():
+    base = "# W\n\n- [ ] Epic {issue: Issue-1}\n  - [ ] Two {issue: Issue-2}\n\nTail.\n"
+    m = wbs_import.build([src([rec("1", labels=["epic"]), rec("2", parent=GH + "1"),
+                               rec("3", title="Three", parent=GH + "1")])])
+    out, stats = merged(base, m)
+    assert out == base.replace("Issue-2}\n", "Issue-2}\n  - [ ] Three {issue: Issue-3}\n")
+    assert stats == {"added": ["Issue-3"], "under_existing": 1, "new_tops": 0,
+                     "present": 2, "excluded": 0}
+
+
+def test_merge_new_epic_nests_new_children_only():
+    base = "- [ ] Misc\n  - [ ] Seven {issue: Issue-7}\n"
+    m = wbs_import.build([src([rec("5", title="Epic: Beta", labels=["epic"]),
+                               done("6", title="Six", parent=GH + "5"),
+                               rec("7", title="Seven", parent=GH + "5")])])
+    out, stats = merged(base, m)
+    assert out == base + ("- [ ] Epic: Beta {issue: Issue-5}\n"
+                          "  - [x] Six {issue: Issue-6, status_src: tracker}\n")
+    assert (stats["under_existing"], stats["new_tops"]) == (0, 2)
+
+
+def test_merge_milestone_existing_container_then_new():
+    # a node with milestone AND issue meta is not a container
+    base = ("- [ ] Release {issue: Issue-1, milestone: M1}\n"
+            "- [ ] Milestone one {milestone: M1}\n  - [ ] Plan\n")
+    m = wbs_import.build([src([rec("1", title="Release"),
+                               rec("8", title="Eight", milestone="M1"),
+                               rec("9", title="Nine", milestone="M2")])])
+    out, stats = merged(base, m)
+    assert out == base + ("  - [ ] Eight {issue: Issue-8}\n"
+                          "- [ ] M2 {milestone: M2}\n  - [ ] Nine {issue: Issue-9}\n")
+    assert (stats["under_existing"], stats["new_tops"]) == (1, 1)
+
+
+def test_merge_milestone_tie_first_in_document_order():
+    # the first container wins, at any depth
+    base = ("- [ ] Top\n  - [ ] A {milestone: M1}\n    - [ ] a\n"
+            "- [ ] B {milestone: M1}\n  - [ ] b\n")
+    m = wbs_import.build([src([rec("8", title="Eight", milestone="M1")])])
+    out, _stats = merged(base, m)
+    assert out == base.replace("    - [ ] a\n", "    - [ ] a\n    - [ ] Eight {issue: Issue-8}\n")
+
+
+def test_merge_unparented_reused_or_created():
+    m = wbs_import.build([src([rec("1"), rec("2"), rec("3", title="Three")])])
+    three = "  - [ ] Three {issue: Issue-3}\n"
+    # an existing top-level Unparented wins over an earlier Unassigned
+    base = ("- [ ] Unassigned\n  - [ ] One {issue: Issue-1}\n"
+            "- [ ] Unparented\n  - [ ] Two {issue: Issue-2}\n")
+    assert merged(base, m)[0] == base + three
+    # else a top-level Unassigned (wbs update's bucket)
+    base = "- [ ] Unassigned\n  - [ ] One {issue: Issue-1}\n  - [ ] Two {issue: Issue-2}\n"
+    assert merged(base, m)[0] == base + three
+    # else a new Unparented: a nested bucket, or one with an issue, is not reused
+    base = ("- [ ] Unparented {issue: Issue-1}\n"
+            "- [ ] Group\n  - [ ] Unparented\n  - [ ] Unassigned\n  - [ ] Two {issue: Issue-2}\n")
+    out, stats = merged(base, m)
+    assert out == base + "- [ ] Unparented\n" + three
+    assert (stats["under_existing"], stats["new_tops"]) == (0, 1)
+
+
+def test_merge_new_tops_order():
+    base = "- [ ] Hand {issue: Issue-1}\n\nTail.\n"
+    m = wbs_import.build([src([rec("1"), rec("2", title="Loose"),
+                               rec("3", title="Bee", milestone="beta"),
+                               rec("4", title="Ay", milestone="Alpha"),
+                               rec("5", title="Epic: E", labels=["epic"])])])
+    out, stats = merged(base, m)
+    assert out == ("- [ ] Hand {issue: Issue-1}\n"
+                   "- [ ] Epic: E {issue: Issue-5}\n"
+                   "- [ ] Alpha {milestone: Alpha}\n  - [ ] Ay {issue: Issue-4}\n"
+                   "- [ ] beta {milestone: beta}\n  - [ ] Bee {issue: Issue-3}\n"
+                   "- [ ] Unparented\n  - [ ] Loose {issue: Issue-2}\n"
+                   "\nTail.\n")
+    assert stats["new_tops"] == 4
+
+
+def test_merge_excluded_parent_children_fall_through():
+    base = "<!-- wbs-exclude: Issue-5 -->\n- [ ] Hand {issue: Issue-1}\n"
+    m = wbs_import.build([src([rec("1"), rec("5", title="Epic: Beta", labels=["epic"]),
+                               rec("6", title="Six", parent=GH + "5"),
+                               rec("7", title="Seven", milestone="M1", parent=GH + "5")])])
+    out, stats = merged(base, m)
+    assert out == base + ("- [ ] M1 {milestone: M1}\n  - [ ] Seven {issue: Issue-7}\n"
+                          "- [ ] Unparented\n  - [ ] Six {issue: Issue-6}\n")
+    assert (stats["added"], stats["excluded"]) == (["Issue-6", "Issue-7"], 1)
+
+
+def test_merge_depends_on_includes_present():
+    base = "- [ ] Twelve {issue: Issue-PK-12}\n"
+    m = wbs_import.build([src([rec("PK-12", url=J + "PK-12"),
+                               rec("PK-13", title="Thirteen", url=J + "PK-13",
+                                   blocked_by=[J + "PK-12"]),
+                               rec("PK-14", title="Fourteen", url=J + "PK-14",
+                                   blocked_by=[J + "PK-13"])],
+                              backend="jira", repo="PK", keyprefix="PK")])
+    out, _stats = merged(base, m)
+    # a present blocker keeps its own spelling; a new one is the leaf form
+    assert out == base + ("- [ ] Unparented\n"
+                          "  - [ ] Thirteen {issue: Issue-13, depends_on: Issue-PK-12}\n"
+                          "  - [ ] Fourteen {issue: Issue-14, depends_on: Issue-13}\n")
+
+
+def test_merge_depth_follows_last_sibling():
+    base = "- [ ] Epic {issue: Issue-1}\n    - [ ] Two {issue: Issue-2}\n"
+    m = wbs_import.build([src([rec("1", labels=["epic"]), rec("2", parent=GH + "1"),
+                               rec("3", title="Three", parent=GH + "1"),
+                               rec("4", title="Four", parent=GH + "3")])])
+    out, _stats = merged(base, m)
+    assert out == base + ("    - [ ] Three {issue: Issue-3}\n"
+                          "      - [ ] Four {issue: Issue-4}\n")
+    epic, = parser.parse_text(out)["children"]
+    assert [c["meta"]["issue"] for c in epic["children"]] == ["Issue-2", "Issue-3"]
+    assert [c["meta"]["issue"] for c in epic["children"][1]["children"]] == ["Issue-4"]
+
+
+def _fixture_model():
+    text = (MERGE_FIX / "issue-list.jsonl").read_text(encoding="utf-8")
+    return wbs_import.build([src(wbs_import.parse_issue_list(text), repo="acme/testproj")])
+
+
+def test_merge_present_and_excluded_counts():
+    base = (MERGE_FIX / "base.md").read_text(encoding="utf-8")
+    _out, stats = merged(base, _fixture_model())
+    assert stats == {"added": [f"Issue-{i}" for i in (4, 5, 6, 8, 9, 10, 13, 14, 15, 16)],
+                     "under_existing": 3, "new_tops": 7, "present": 5, "excluded": 1}
+    # P and K count the selection only
+    _out, stats = merged(base, _fixture_model(), rng="epic:5")
+    assert stats == {"added": ["Issue-5", "Issue-6"], "under_existing": 0, "new_tops": 2,
+                     "present": 1, "excluded": 0}
+
+
+def test_merge_after_unterminated_last_line():
+    m = wbs_import.build([src([rec("1"), rec("2", title="Two")])])
+    for eol in ("\n", "\r\n"):
+        base = f"# W{eol}{eol}- [ ] Hand {{issue: Issue-1}}"
+        out, _stats = merged(base, m)
+        assert out == (f"# W{eol}{eol}- [ ] Hand {{issue: Issue-1}}{eol}"
+                       f"- [ ] Unparented{eol}  - [ ] Two {{issue: Issue-2}}")
+        assert wbs_import.inserted_only(base, out)
+
+
+def test_merge_existing_lines_untouched(tmp_path):
+    # preserve.md: 1, 2, 3 present; 4 under Leaf A (after its note), 7 under
+    # the M1 container Epic one, 10 under Leaf D, 5 in a new Unparented
+    m = wbs_import.build([src([rec("1"), rec("2"), rec("3"),
+                               rec("4", parent=GH + "1"), rec("5"),
+                               rec("7", milestone="M1"), rec("10", parent=GH + "3")])])
+    for kind in wbs_bytes.KINDS:
+        dst = tmp_path / f"{kind}.md"
+        assert wbs_bytes.variant(str(REPO / "tests" / "fixtures" / "wbs" / "preserve.md"),
+                                 kind, str(dst)) == 0
+        with open(dst, encoding="utf-8", newline="") as f:
+            base = f.read()
+        out, stats = merged(base, m)
+        assert len(stats["added"]) == 4
+        old, new = base.splitlines(keepends=True), out.splitlines(keepends=True)
+        ops = difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes()
+        assert {op for op, *_ in ops} == {"equal", "insert"}, kind
+        assert sum(j2 - j1 for op, _i1, _i2, j1, j2 in ops if op == "insert") == 5, kind
+
+
+def test_inserted_only_postcondition_fires():
+    io = wbs_import.inserted_only
+    old = "a\nb\nc\n"
+    assert io(old, old)
+    assert io(old, "x\na\nb\ny\nc\nz\n")
+    assert not io(old, "a\nB\nc\n")              # a mutated line
+    assert not io(old, "a\nc\n")                 # a deleted line
+    assert not io(old, "a\nx\nc\nb\n")           # an old line moved
+    assert not io(old, "a\r\nb\nc\n")            # a changed terminator
+    assert io("a\nb", "a\nb\nx")                 # an unterminated last line gains the EOL
+    assert io("a\r\nb", "a\r\nb\r\nx")
+    assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
+    assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
+    assert not io("a\nb", "a\nbz\nx")
