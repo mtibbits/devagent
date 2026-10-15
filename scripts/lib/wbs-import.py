@@ -123,6 +123,501 @@ def parse_issue_list(text: str) -> list[dict]:
     return out
 
 
+# --- parent lines and issue references ----------------------------------------
+# A body line `Parent epic: <value>` outside a code fence names the parent
+# (the crrf convention, commands/crrf.md). Fences are wbs-parser.py's
+# (_classify_lines, #701: an opener with no closer is not a fence). The key
+# is case-insensitive and may sit in a list item, a quote, or `**`/`__`.
+# No regex here backtracks on a long line: lines are rstripped first and the
+# value is split on whitespace, not matched with a lazy group.
+PARENT_KEY_RE = re.compile(
+    r"^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?parent epic:(?:\*\*|__)?[ \t]*", re.IGNORECASE)
+NUM_RE = re.compile(r"#([0-9]+)")
+JIRA_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+")
+MD_LINK_RE = re.compile(r"\[[^\]\n]*\]\(([^()\s]+)\)")
+URL_RE = re.compile(r"https?://\S+")
+SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+SEPARATORS = {chr(0x2014), chr(0x2013), "--", "-"}
+
+GITHUB_REF_RE = re.compile(
+    r"^https?://[^/\s]+/(?P<repo>[^/\s]+/[^/\s]+)/issues/(?P<n>[0-9]+)/?(?:[?#]\S*)?$")
+GITLAB_REF_RE = re.compile(
+    r"^https?://[^/\s]+/(?P<repo>\S+?)/-/(?:issues|work_items)/(?P<n>[0-9]+)/?(?:[?#]\S*)?$")
+JIRA_REF_RE = re.compile(
+    r"^https?://[^/\s]+/browse/(?P<key>[A-Z][A-Z0-9_]*-[0-9]+)/?(?:[?#]\S*)?$")
+
+_parser = None
+
+
+def _wbs_parser():
+    global _parser
+    if _parser is None:
+        _parser = _load("wbs_parser", HERE / "wbs-parser.py")
+    return _parser
+
+
+def _value_form(val: str, jira: bool) -> tuple[str, str]:
+    m = NUM_RE.fullmatch(val)
+    if m:
+        return ("num", m.group(1))
+    if jira and JIRA_KEY_RE.fullmatch(val):
+        return ("key", val)
+    m = MD_LINK_RE.fullmatch(val)
+    if m:
+        return ("url", m.group(1))
+    toks = val.split()
+    last = toks[-1]
+    if last.startswith("<") and last.endswith(">"):
+        last = last[1:-1]
+    if URL_RE.fullmatch(last) and (
+        len(toks) <= 2 or (len(toks) == 3 and toks[1] in SEPARATORS)
+    ):
+        return ("url", last)
+    if SLUG_RE.fullmatch(val):
+        return ("slug", val)
+    return ("other", val)
+
+
+def parent_line(body: str, jira: bool = False) -> tuple[str, str, str] | None:
+    """The first `Parent epic:` line outside a fence, as (kind, value, raw).
+
+    kind: num (`#N`, same source), key (a bare Jira key; Jira sources only),
+    url (an issue URL, alone, after a slug and an optional dash, in <>, or
+    as a markdown link), slug (one slug-like token: unresolvable) or other.
+    raw is the line, stripped. None when no line has a value.
+    """
+    lines = body.splitlines(keepends=True)
+    kinds, _bodies, _unclosed = _wbs_parser()._classify_lines(lines)
+    for (kind, _m), line in zip(kinds, lines):
+        if kind in ("fence", "code"):
+            continue
+        s = line.rstrip()
+        m = PARENT_KEY_RE.match(s)
+        if not m:
+            continue
+        val = s[m.end():]
+        if val.endswith(("**", "__")):
+            val = val[:-2].rstrip()
+        if not val:
+            continue
+        kind, value = _value_form(val, jira)
+        return (kind, value, s.strip())
+    return None
+
+
+def parse_ref(url: str) -> tuple[str | None, str] | None:
+    """An issue URL as (repo, id): GitHub and GitLab give the repo path and
+    the number, Jira gives (None, key). The host is not compared (GHES,
+    self-hosted GitLab). None for any other URL."""
+    m = GITHUB_REF_RE.match(url) or GITLAB_REF_RE.match(url)
+    if m:
+        return (m.group("repo"), m.group("n"))
+    m = JIRA_REF_RE.match(url)
+    if m:
+        return (None, m.group("key"))
+    return None
+
+
+# --- the model ------------------------------------------------------------------
+class RangeError(Exception):
+    """A range value only the data can check (exit 2)."""
+
+
+class Node:
+    def __init__(self, si: int, source: dict, rec: dict):
+        self.si, self.source, self.rec = si, source, rec
+        rid = rec["id"]
+        tail = re.search(r"([0-9]+)$", rid)
+        self.num = int(tail.group(1)) if tail else 0
+        kp = source.get("keyprefix") or ""
+        if source["backend"] == "jira" and kp and re.fullmatch(re.escape(kp) + r"-[0-9]+", rid):
+            self.leaf = f"{source['prefix']}{self.num}"
+        else:
+            self.leaf = f"{source['prefix']}{rid}"
+        self.parent: Node | None = None
+        self.children: list[Node] = []
+        self.blockers: list[Node] = []
+        self.epic = is_epic(rec)
+
+    @property
+    def order(self):
+        return (self.si, self.num, self.rec["id"])
+
+    @property
+    def group(self) -> bool:
+        return self.epic or bool(self.children)
+
+    @property
+    def is_open(self) -> bool:
+        return self.rec["state"] == "open"
+
+
+class Model:
+    def __init__(self, sources: list[dict]):
+        self.sources = sources
+        self.nodes: list[Node] = []
+        self.by_id: dict[tuple[int, str], Node] = {}
+        self.unresolved: list[dict] = []
+        self.dropped_deps = 0
+
+    def roots(self) -> list[Node]:
+        return [n for n in self.nodes if n.parent is None]
+
+
+def is_epic(rec: dict) -> bool:
+    """`type` Epic, else an `epic` label, else a title starting `Epic:`."""
+    if (rec.get("type") or "").casefold() == "epic":
+        return True
+    if any(label.casefold() == "epic" for label in rec.get("labels", [])):
+        return True
+    return re.match(r"\s*Epic:", rec.get("title") or "") is not None
+
+
+def _resolve_url(model: Model, url: str) -> tuple[Node | None, str]:
+    ref = parse_ref(url)
+    if ref is None:
+        return (None, "unrecognised-form")
+    repo, rid = ref
+    if repo is None:
+        jira = [i for i, s in enumerate(model.sources) if s["backend"] == "jira"]
+        for si in jira:
+            if (si, rid) in model.by_id:
+                return (model.by_id[(si, rid)], "")
+        return (None, "not-found" if jira else "foreign")
+    hits = [i for i, s in enumerate(model.sources)
+            if s["backend"] != "jira" and s["repo"].casefold() == repo.casefold()]
+    for si in hits:
+        if (si, rid) in model.by_id:
+            return (model.by_id[(si, rid)], "")
+    return (None, "not-found" if hits else "foreign")
+
+
+def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node | None, str]:
+    if kind == "num":
+        kp = node.source.get("keyprefix") or ""
+        rid = f"{kp}-{value}" if node.source["backend"] == "jira" else value
+        hit = model.by_id.get((node.si, rid))
+        return (hit, "" if hit else "not-found")
+    if kind == "key":
+        hit = model.by_id.get((node.si, value))
+        return (hit, "" if hit else "not-found")
+    if kind == "url":
+        return _resolve_url(model, value)
+    return (None, "slug-only" if kind == "slug" else "unrecognised-form")
+
+
+def build(sources: list[dict]) -> Model:
+    """Nodes, parents and blockers from each source's records.
+
+    sources: [{source, backend, repo, prefix, keyprefix, records}], origin
+    first. A parent comes from the native `parent` URL first, then the
+    `Parent epic:` line; the first that resolves wins. An issue with no
+    resolving parent is a root, and its attempts go to `unresolved`. An edge
+    that would close a cycle (a self-parent included) is dropped, in node
+    order, and reported as `cycle`.
+    """
+    model = Model(sources)
+    for si, source in enumerate(sources):
+        for rec in source["records"]:
+            node = Node(si, source, rec)
+            model.nodes.append(node)
+            model.by_id[(si, rec["id"])] = node
+    model.nodes.sort(key=lambda n: n.order)
+
+    wanted: list[tuple[Node, Node, str]] = []
+    for node in model.nodes:
+        attempts = []
+        got = None
+        native = node.rec.get("parent")
+        if native:
+            got, why = _resolve_url(model, native)
+            if not got:
+                attempts.append((f"parent: {native}", why))
+        if not got:
+            pl = parent_line(node.rec["body"], jira=node.source["backend"] == "jira")
+            if pl:
+                got, why = _resolve_line(model, node, pl[0], pl[1])
+                if not got:
+                    attempts.append((pl[2], why))
+                line = pl[2]
+        else:
+            line = f"parent: {native}"
+        if got:
+            wanted.append((node, got, line))
+        else:
+            model.unresolved += [{"issue": node.leaf, "line": ln, "reason": why}
+                                 for ln, why in attempts]
+
+    for child, parent, line in wanted:
+        up = parent
+        while up is not None and up is not child:
+            up = up.parent
+        if up is child:
+            model.unresolved.append({"issue": child.leaf, "line": line, "reason": "cycle"})
+            continue
+        child.parent = parent
+        parent.children.append(child)
+    for node in model.nodes:
+        node.children.sort(key=lambda n: n.order)
+
+    for node in model.nodes:
+        for url in node.rec["blocked_by"]:
+            hit, _why = _resolve_url(model, url)
+            if hit is None:
+                model.dropped_deps += 1
+            elif hit is not node and hit not in node.blockers:
+                node.blockers.append(hit)
+    return model
+
+
+# --- selection --------------------------------------------------------------------
+DATE_ARG_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")
+
+
+def _ancestors(node: Node) -> list[Node]:
+    out = []
+    while node.parent is not None:
+        node = node.parent
+        out.append(node)
+    return out
+
+
+def _subtree(node: Node) -> list[Node]:
+    out = [node]
+    for c in node.children:
+        out += _subtree(c)
+    return out
+
+
+def _close(base: list[Node]) -> set[str]:
+    """base, its ancestors, then every descendant of those: an imported child
+    brings its epic, and an imported epic brings all its children."""
+    s1: dict[int, Node] = {}
+    for n in base:
+        for m in [n, *_ancestors(n)]:
+            s1[id(m)] = m
+    out: set[str] = set()
+    for n in s1.values():
+        out.update(m.leaf for m in _subtree(n))
+    return out
+
+
+def _id_token(model: Model, token: str) -> tuple[set[int], str]:
+    """An <issue-id> as (source indexes, id-or-number): a bare N names every
+    source; <dir_prefix>N (or <dir_prefix><KEY>) one; a Jira key the Jira
+    sources."""
+    if re.fullmatch(r"[0-9]+", token):
+        return (set(range(len(model.sources))), token)
+    order = sorted(range(len(model.sources)), key=lambda i: -len(model.sources[i]["prefix"]))
+    for si in order:
+        prefix = model.sources[si]["prefix"]
+        if prefix and token.startswith(prefix) and len(token) > len(prefix):
+            rest = token[len(prefix):]
+            if re.fullmatch(r"[0-9]+", rest) or (
+                model.sources[si]["backend"] == "jira" and JIRA_KEY_RE.fullmatch(rest)
+            ):
+                return ({si}, rest)
+    if JIRA_KEY_RE.fullmatch(token):
+        jira = {i for i, s in enumerate(model.sources) if s["backend"] == "jira"}
+        if not jira:
+            raise RangeError(f"{token} is a Jira key, but no configured source is Jira")
+        return (jira, token)
+    raise RangeError(f"{token} names no configured source")
+
+
+def _num_of(model: Model, si: int, value: str) -> int:
+    tail = re.search(r"([0-9]+)$", value)
+    return int(tail.group(1)) if tail else 0
+
+
+def _node_for(model: Model, si: int, value: str) -> Node | None:
+    if re.fullmatch(r"[0-9]+", value) and model.sources[si]["backend"] == "jira":
+        value = f"{model.sources[si].get('keyprefix') or ''}-{value}"
+    return model.by_id.get((si, value))
+
+
+def _epics_hint(model: Model) -> str:
+    groups = [n.leaf for n in model.nodes if n.group]
+    return "epics: " + (", ".join(groups) if groups else "(none)")
+
+
+def _select_epic(model: Model, node: Node) -> set[str]:
+    return {n.leaf for n in _subtree(node)} | {n.leaf for n in _ancestors(node)}
+
+
+def select(model: Model, rng: str) -> set[str]:
+    """The leaf ids a range imports (see the module docstring).
+
+    rng: all | open-only | since:YYYY-MM-DD | since:<issue-id> | epic:<issue-id>.
+    Raises RangeError for a value that names nothing (with the epics listed
+    for epic:), a calendar-invalid date, or an ambiguous bare epic number.
+    """
+    nodes = model.nodes
+    if rng == "all":
+        return {n.leaf for n in nodes}
+    if rng == "open-only":
+        return _close([n for n in nodes if n.is_open])
+    kind, _, value = rng.partition(":")
+    if kind == "since" and DATE_ARG_RE.match(value):
+        if not _is_date(value):
+            raise RangeError(f"--since {value} is not a calendar date")
+        return _close([n for n in nodes if n.is_open or (n.rec["closed"] or "") >= value])
+    if kind == "since":
+        sis, v = _id_token(model, value)
+        floor = _num_of(model, 0, v)
+        return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
+    if kind == "epic":
+        sis, v = _id_token(model, value)
+        hits = [h for h in (_node_for(model, si, v) for si in sorted(sis)) if h]
+        if len(hits) > 1:
+            raise RangeError(f"--epic {value} is ambiguous; name one of "
+                             + ", ".join(h.leaf for h in hits))
+        if not hits or not hits[0].group:
+            raise RangeError(f"--epic {value} names no epic; {_epics_hint(model)}")
+        return _select_epic(model, hits[0])
+    raise RangeError(f"unknown range {rng}")
+
+
+# --- rendering ----------------------------------------------------------------------
+def _collapse(s: str) -> str:
+    return " ".join(s.split())
+
+
+def safe_title(s: str) -> str:
+    """A title as one node line's text: whitespace runs (CR, LF, TAB) become
+    one space; braces become parentheses (a trailing `{...}` would read as
+    metadata); leading `- [<c>] ` bullets, then a leading `- [`, go."""
+    s = _collapse(s or "").replace("{", "(").replace("}", ")")
+    while True:
+        m = re.match(r"- \[.?\] ", s)
+        if not m:
+            break
+        s = s[m.end():].lstrip()
+    if s.startswith("- ["):
+        s = s[3:].lstrip()
+    return s or "(no title)"
+
+
+def safe_meta(s: str) -> str:
+    """safe_title, and a value the meta grammar reads back: `"` -> `'`,
+    `[`/`]` -> `(`/`)`."""
+    return (safe_title(s).replace('"', "'").replace("[", "(").replace("]", ")"))
+
+
+def template_preamble(text: str, project: str) -> str:
+    """The resolved template's lines before its first node line, with
+    {{PROJECT}} substituted; a template with no node line is all preamble."""
+    text = text.replace("{{PROJECT}}", project)
+    lines = text.splitlines(keepends=True)
+    kinds, _b, _u = _wbs_parser()._classify_lines(lines)
+    for i, (kind, _m) in enumerate(kinds):
+        if kind == "node":
+            return "".join(lines[:i])
+    return text
+
+
+def _glyph(node: Node, devdoc_dir) -> tuple[str, str | None]:
+    got = trk.resolve(" ", node.rec["class"], trk.checklist_state(devdoc_dir, node.leaf),
+                      None, mr_hold=False)
+    return got if got else (" ", None)
+
+
+def _issue_node(node: Node, selected: set[str], depth: int, devdoc_dir) -> dict:
+    glyph, status_src = _glyph(node, devdoc_dir)
+    meta: dict = {"issue": node.leaf}
+    deps = [b.leaf for b in node.blockers if b.leaf in selected]
+    if deps:
+        meta["depends_on"] = deps[0] if len(deps) == 1 else deps
+    if status_src:
+        meta["status_src"] = status_src
+    return {"text": safe_title(node.rec["title"]), "glyph": glyph, "depth": depth,
+            "meta": meta,
+            "children": [_issue_node(c, selected, depth + 1, devdoc_dir)
+                         for c in node.children if c.leaf in selected]}
+
+
+def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str) -> str:
+    """The new WBS.md: preamble, one `<!-- note -->` line, a blank line, then
+    the nodes: group nodes (epics, or roots with children) in node order,
+    then one container per milestone (casefolded title order), then
+    `Unparented`. Containers appear only when non-empty and carry no issue.
+    Glyphs come from wbs-tracker.py `resolve` (tracker class, then the
+    issue's checklist), as `wbs update` derives them."""
+    roots = [n for n in model.roots() if n.leaf in selected]
+    groups = [n for n in roots if n.group]
+    rest = [n for n in roots if not n.group]
+    tops = [_issue_node(n, selected, 1, devdoc_dir) for n in groups]
+    by_ms: dict[str, list[Node]] = {}
+    for n in rest:
+        if n.rec["milestone"]:
+            by_ms.setdefault(n.rec["milestone"], []).append(n)
+    for title in sorted(by_ms, key=lambda t: (t.casefold(), t)):
+        tops.append({"text": safe_title(title), "glyph": " ", "depth": 1,
+                     "meta": {"milestone": safe_meta(title)},
+                     "children": [_issue_node(n, selected, 2, devdoc_dir) for n in by_ms[title]]})
+    loose = [n for n in rest if not n.rec["milestone"]]
+    if loose:
+        tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
+                     "children": [_issue_node(n, selected, 2, devdoc_dir) for n in loose]})
+    if preamble and not preamble.endswith("\n"):
+        preamble += "\n"
+    doc = f"{preamble}<!-- {note} -->\n"
+    if tops:
+        doc += "\n" + _wbs_parser().render_nodes({"title": "", "children": tops})
+    return doc
+
+
+# --- survey -----------------------------------------------------------------------
+def survey(model: Model, pct: int, project: str = "") -> dict:
+    """The survey JSON (spec section 13.2). The closed share counts closed
+    and not-planned issues over every source combined; `auto_import` is
+    share < pct, strictly, and true for an empty project."""
+    recs = [n.rec for n in model.nodes]
+    total = len(recs)
+    not_planned = sum(1 for r in recs if r["class"] == "not_planned")
+    closed_all = sum(1 for r in recs if r["state"] == "closed")
+    created = sorted(r["created"] for r in recs)
+    closed_on = sorted(r["closed"] for r in recs if r["state"] == "closed")
+    by_month: dict[str, int] = {}
+    for d in closed_on:
+        by_month[d[:7]] = by_month.get(d[:7], 0) + 1
+    ms: dict[str, int] = {}
+    for r in recs:
+        if r["milestone"]:
+            ms[r["milestone"]] = ms.get(r["milestone"], 0) + 1
+    groups = [n for n in model.nodes if n.group]
+    return {
+        "project": project,
+        "sources": [{"source": s["source"], "backend": s["backend"], "repo": s["repo"],
+                     "prefix": s["prefix"], "issues": len(s["records"])}
+                    for s in model.sources],
+        "total": total,
+        "open": total - closed_all,
+        "closed": closed_all - not_planned,
+        "not_planned": not_planned,
+        "closed_share_pct": closed_all * 100 // total if total else 0,
+        "auto_import_below_pct": pct,
+        "auto_import": total == 0 or closed_all * 100 < pct * total,
+        "epics": [{"issue": n.leaf, "title": n.rec["title"], "state": n.rec["state"],
+                   "children": len(n.children),
+                   "open_children": sum(1 for c in n.children if c.is_open)}
+                  for n in groups],
+        "milestones": [{"title": t, "issues": ms[t]}
+                       for t in sorted(ms, key=lambda t: (t.casefold(), t))],
+        "no_parent": sum(1 for n in model.roots() if not n.group),
+        "unresolved_parents": model.unresolved,
+        "dropped_dependencies": model.dropped_deps,
+        "created": {"first": created[0] if created else None,
+                    "last": created[-1] if created else None},
+        "closed_on": {"first": closed_on[0] if closed_on else None,
+                      "last": closed_on[-1] if closed_on else None,
+                      "by_month": by_month},
+        "options": {"all": total,
+                    "open_only": len(select(model, "open-only")),
+                    "epic": {n.leaf: len(_select_epic(model, n)) for n in groups}},
+    }
+
+
 def _stdout(text: str) -> None:
     # UTF-8 bytes, LF: safe on a cp1252 console
     sys.stdout.flush()
