@@ -42,7 +42,9 @@ teardown() {
   names="$(potholes_fixture_private_names "$REPO/tests/fixtures/private-project-names.txt")"
   [ -n "$names" ]
   while IFS= read -r p; do files+=("$REPO/tests/fixtures/$p"); done < <(python3 "$GEN" --manifest)
-  files+=("$GEN")
+  files+=("$GEN" "$REPO"/tests/fixtures/wbs-merge/*)
+  # 11 manifest files, the generator, the 3 #707 merge fixtures
+  [ "${#files[@]}" -eq 15 ]
   # control: a planted name is found, so rc 1 below means "no match"
   name="$(printf '%s\n' "$names" | head -1)"
   printf 'x %s y\n' "$name" > "$TMPROOT/planted"
@@ -52,6 +54,12 @@ teardown() {
     rc=0; grep -liwF -- "$name" "${files[@]}" || rc=$?
     [ "$rc" -eq 1 ]
   done <<< "$names"
+}
+
+@test "merge fixtures: the issue list meets the issue-list contract" {
+  run python3 "$REPO/scripts/lib/wbs-import.py" check < "$REPO/tests/fixtures/wbs-merge/issue-list.jsonl"
+  [ "$status" -eq 0 ]
+  [ "$(tr -d '\r' <<< "$output")" = 16 ]
 }
 
 # --- wbs init --from-tracker (Task 9) ------------------------------------------
