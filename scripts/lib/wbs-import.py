@@ -53,7 +53,8 @@ CLI:
       DEVDOC_DIR
     Exit 0 written (or survey printed, or a merge with nothing to add); 1
     malformed backend output, DEST already exists (import), DEST unreadable
-    or not UTF-8 (merge), or an existing line would change (merge, a bug);
+    or not UTF-8 (merge), an existing line would change (merge, a bug), or
+    the write fails (merge);
     2 a range value that names nothing; 10 (CHOOSE_RANGE_RC) when no range
     was given and the closed share is not below the threshold: the survey
     JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing

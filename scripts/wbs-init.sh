@@ -21,7 +21,8 @@
 # Exit: 0 written (or surveyed, or merged, or nothing to merge); 1 die (an
 # existing WBS.md without --merge, a missing or unreadable one with it, a
 # bad config value, a backend without issue-list or failing, malformed
-# backend output, a merge that would change an existing line);
+# backend output, a merge that would change an existing line or whose
+# write fails);
 # 2 a usage error, raised before any tracker call, or a range value only the
 # data can check (an --epic that names no epic, a calendar-invalid date);
 # 10 no range flag and a closed share at or above

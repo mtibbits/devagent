@@ -1911,8 +1911,8 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   that runs before the write, and the file is written only when an issue
   was added, so a second run changes nothing. Exit `0` merged or nothing
   to add; `1` a missing `WBS.md` (before any tracker call), an unreadable
-  or non-UTF-8 one, malformed backend output, or a write that would
-  change an existing line; `2` a usage error (`--merge` with `--force` or
+  or non-UTF-8 one, malformed backend output, a write that would
+  change an existing line, or a write that fails; `2` a usage error (`--merge` with `--force` or
   `--survey`) or a range only the data can check.
 - `/devagent:wbs update [--offline]` — invoked by step 20 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the

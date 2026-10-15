@@ -121,8 +121,9 @@ tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
 `gitlab_labels.in_progress` label (GitHub defaults to `in progress`). A
 backend without it exits 78 (or 2, unknown verb), and `wbs update` then
 uses local checklists. `issue-list` is what `wbs init --from-tracker`
-reads to build a new `WBS.md` from the tracker history; without it that
-command stops. See spec §9.1.
+reads to build a new `WBS.md` from the tracker history, and what
+`wbs init --merge` reads to add the issues an existing one lacks; without
+it those commands stop. See spec §9.1.
 
 Every **code backend** implements five verbs and may implement a sixth,
 `issue-mrs`:

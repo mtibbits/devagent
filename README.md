@@ -285,7 +285,7 @@ and `issue-list` (spec §9.1):
 | `state`        | `<repo> <num>`                                  | backend state       |
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
 | `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
-| `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker`; absent = exit 78, or 2) |
+| `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker` and `--merge`; absent = exit 78, or 2) |
 
 Every code backend MUST implement five verbs and MAY implement `issue-mrs`
 (spec §9.2):
