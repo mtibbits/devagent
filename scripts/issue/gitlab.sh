@@ -196,14 +196,6 @@ cmd_comment_list() {
   done
 }
 
-# state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
-# `<iid>` TAB `<class>` line each, for `wbs update`. Pages the issues list
-# (no `state` filter returns opened and closed). Classes: closed -> done;
-# opened + the in_progress label (_gl_stage_label) -> in_progress; opened ->
-# open. GitLab has no close reason, so never not_planned or other.
-# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
-# for other HTTP failures; 5 a record with an unrecognised state or
-# unreadable JSON (fail closed). Never 2, which means "unknown verb".
 # gl_class($ip): a GitLab issue's state-list class; state-list and issue-list
 # both prepend it, so the two verbs cannot drift (#706).
 _GL_CLASS_JQ='
@@ -213,6 +205,14 @@ _GL_CLASS_JQ='
       (if $ip != "" and any(.labels[]?; . == $ip) then "in_progress" else "open" end)
     else error("unrecognised state \(.state) on #\(.iid)") end;'
 
+# state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
+# `<iid>` TAB `<class>` line each, for `wbs update`. Pages the issues list
+# (no `state` filter returns opened and closed). Classes: closed -> done;
+# opened + the in_progress label (_gl_stage_label) -> in_progress; opened ->
+# open. GitLab has no close reason, so never not_planned or other.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
+# for other HTTP failures; 5 a record with an unrecognised state or
+# unreadable JSON (fail closed). Never 2, which means "unknown verb".
 cmd_state_list() {
   local repo="${1:-}"
   [ -n "$repo" ] || { echo "gitlab.sh state-list: repo required" >&2; exit 1; }

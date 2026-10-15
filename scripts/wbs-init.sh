@@ -183,10 +183,8 @@ _imp_fetch FORK issue_source_fork
 
 mode=import
 (( survey == 0 )) || mode=survey
-rc=0
 env "${imp_env[@]}" \
   WBS_IMP_MODE="$mode" WBS_IMP_RANGE="$range" WBS_IMP_PCT="$pct" \
   WBS_IMP_PROJECT="$project" WBS_IMP_DEST="$dest" WBS_IMP_TEMPLATE="$template" \
   DEVDOC_DIR="$devdoc_dir" \
-  python3 "$SCRIPT_DIR/lib/wbs-import.py" run || rc=$?
-exit "$rc"
+  python3 "$SCRIPT_DIR/lib/wbs-import.py" run

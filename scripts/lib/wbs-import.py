@@ -59,6 +59,7 @@ import importlib.util
 import json
 import os
 import re
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -265,12 +266,16 @@ class RangeError(Exception):
     """A range value only the data can check (exit 2)."""
 
 
+def _tail_num(s: str) -> int:
+    tail = re.search(r"([0-9]+)$", s)
+    return int(tail.group(1)) if tail else 0
+
+
 class Node:
     def __init__(self, si: int, source: dict, rec: dict):
         self.si, self.source, self.rec = si, source, rec
         rid = rec["id"]
-        tail = re.search(r"([0-9]+)$", rid)
-        self.num = int(tail.group(1)) if tail else 0
+        self.num = _tail_num(rid)
         kp = source.get("keyprefix") or ""
         if source["backend"] == "jira" and kp and re.fullmatch(re.escape(kp) + r"-[0-9]+", rid):
             self.leaf = f"{source['prefix']}{self.num}"
@@ -325,27 +330,19 @@ def _resolve_url(model: Model, url: str) -> tuple[Node | None, str]:
 def _resolve_ref(model: Model, ref: tuple[str | None, str]) -> tuple[Node | None, str]:
     repo, rid = ref
     if repo is None:
-        jira = [i for i, s in enumerate(model.sources) if s["backend"] == "jira"]
-        for si in jira:
-            if (si, rid) in model.by_id:
-                return (model.by_id[(si, rid)], "")
-        return (None, "not-found" if jira else "foreign")
-    hits = [i for i, s in enumerate(model.sources)
-            if s["backend"] != "jira" and s["repo"].casefold() == repo.casefold()]
-    for si in hits:
+        sis = [i for i, s in enumerate(model.sources) if s["backend"] == "jira"]
+    else:
+        sis = [i for i, s in enumerate(model.sources)
+               if s["backend"] != "jira" and s["repo"].casefold() == repo.casefold()]
+    for si in sis:
         if (si, rid) in model.by_id:
             return (model.by_id[(si, rid)], "")
-    return (None, "not-found" if hits else "foreign")
+    return (None, "not-found" if sis else "foreign")
 
 
 def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node | None, str]:
-    if kind == "num":
-        kp = node.source.get("keyprefix") or ""
-        rid = f"{kp}-{value}" if node.source["backend"] == "jira" else value
-        hit = model.by_id.get((node.si, rid))
-        return (hit, "" if hit else "not-found")
-    if kind == "key":
-        hit = model.by_id.get((node.si, value))
+    if kind in ("num", "key"):
+        hit = _node_for(model, node.si, value)
         return (hit, "" if hit else "not-found")
     if kind == "url":
         return _resolve_url(model, value)
@@ -420,9 +417,6 @@ def build(sources: list[dict]) -> Model:
 
 
 # --- selection --------------------------------------------------------------------
-DATE_ARG_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")
-
-
 def _ancestors(node: Node) -> list[Node]:
     out = []
     while node.parent is not None:
@@ -433,22 +427,22 @@ def _ancestors(node: Node) -> list[Node]:
 
 def _subtree(node: Node) -> list[Node]:
     out = [node]
-    for c in node.children:
-        out += _subtree(c)
+    for n in out:
+        out.extend(n.children)
     return out
 
 
 def _close(base: list[Node]) -> set[str]:
     """base, its ancestors, then every descendant of those: an imported child
     brings its epic, and an imported epic brings all its children."""
-    s1: dict[int, Node] = {}
-    for n in base:
-        for m in [n, *_ancestors(n)]:
-            s1[id(m)] = m
-    out: set[str] = set()
-    for n in s1.values():
-        out.update(m.leaf for m in _subtree(n))
-    return out
+    seen: set[Node] = set()
+    stack = [m for n in base for m in (n, *_ancestors(n))]
+    while stack:
+        n = stack.pop()
+        if n not in seen:
+            seen.add(n)
+            stack.extend(n.children)
+    return {n.leaf for n in seen}
 
 
 def _id_token(model: Model, token: str) -> tuple[set[int], str]:
@@ -472,11 +466,6 @@ def _id_token(model: Model, token: str) -> tuple[set[int], str]:
             raise RangeError(f"{token} is a Jira key, but no configured source is Jira")
         return (jira, token)
     raise RangeError(f"{token} names no configured source")
-
-
-def _num_of(model: Model, si: int, value: str) -> int:
-    tail = re.search(r"([0-9]+)$", value)
-    return int(tail.group(1)) if tail else 0
 
 
 def _node_for(model: Model, si: int, value: str) -> Node | None:
@@ -507,13 +496,13 @@ def select(model: Model, rng: str) -> set[str]:
     if rng == "open-only":
         return _close([n for n in nodes if n.is_open])
     kind, _, value = rng.partition(":")
-    if kind == "since" and DATE_ARG_RE.match(value):
+    if kind == "since" and DATE_RE.match(value):
         if not _is_date(value):
             raise RangeError(f"--since {value} is not a calendar date")
         return _close([n for n in nodes if n.is_open or (n.rec["closed"] or "") >= value])
     if kind == "since":
         sis, v = _id_token(model, value)
-        floor = _num_of(model, 0, v)
+        floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
         sis, v = _id_token(model, value)
@@ -627,13 +616,8 @@ def survey(model: Model, pct: int, project: str = "") -> dict:
     closed_all = sum(1 for r in recs if r["state"] == "closed")
     created = sorted(r["created"] for r in recs)
     closed_on = sorted(r["closed"] for r in recs if r["state"] == "closed")
-    by_month: dict[str, int] = {}
-    for d in closed_on:
-        by_month[d[:7]] = by_month.get(d[:7], 0) + 1
-    ms: dict[str, int] = {}
-    for r in recs:
-        if r["milestone"]:
-            ms[r["milestone"]] = ms.get(r["milestone"], 0) + 1
+    by_month = dict(Counter(d[:7] for d in closed_on))
+    ms = Counter(r["milestone"] for r in recs if r["milestone"])
     groups = [n for n in model.nodes if n.group]
     return {
         "project": project,

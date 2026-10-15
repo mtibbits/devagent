@@ -264,11 +264,12 @@ _il_graphql() {
 
 @test "[github] issue-list GraphQL fallback stops loudly at its page cap" {
   _il_graphql
-  local k
+  local k page
+  page="$(jq -c '.data.repository.issues.pageInfo = {hasNextPage: true, endCursor: "@C@"}
+    | .data.repository.issues.nodes = []' \
+    "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-graphql/2.json")"
   for k in $(seq 1 101); do
-    jq --arg c "C$k" '.data.repository.issues.pageInfo = {hasNextPage: true, endCursor: $c}
-      | .data.repository.issues.nodes = []' \
-      "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-graphql/2.json" > "$BATS_TEST_TMPDIR/gql/$k.json"
+    printf '%s' "${page//@C@/C$k}" > "$BATS_TEST_TMPDIR/gql/$k.json"
   done
   run "$ISSUE_SCRIPT" issue-list acme/testproj
   [ "$status" -eq 5 ]

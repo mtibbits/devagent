@@ -279,7 +279,7 @@ _GH_GQL_QUERY='query($owner: String!, $name: String!, $cursor: String) {
         milestone { title }
         labels(first: 100) { nodes { name } }
         issueType { name }
-        parent { number url }
+        parent { url }
         blockedBy(first: 100) { nodes { number url } }
         url
       }
@@ -292,8 +292,7 @@ _GH_GQL_ADAPT_JQ='
   | .nodes | map(
       {number, title, body, state, stateReason: (.stateReason // ""), createdAt,
        closedAt, milestone, labels: (.labels.nodes // []), issueType, parent,
-       blockedBy: {nodes: (.blockedBy.nodes // []),
-                   totalCount: ((.blockedBy.nodes // []) | length)},
+       blockedBy: {nodes: (.blockedBy.nodes // [])},
        url})'
 _GH_GQL_MAX_PAGES=100
 
@@ -330,24 +329,24 @@ cmd_issue_list() {
   [ -n "$repo" ] || _die "issue/github.sh issue-list: repo required"
   _need gh
   _need jq
-  local ip json err n
+  local ip json err msg ok=1 n
   ip="$(_stage_label in_progress)"
   err="$(mktemp)"
-  if json="$(gh issue list --repo "$repo" --state all --limit 5000 \
-      --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url \
-      2>"$err")"; then
-    rm -f "$err"
+  json="$(gh issue list --repo "$repo" --state all --limit 5000 \
+    --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url \
+    2>"$err")" || ok=0
+  msg="$(cat "$err")"
+  rm -f "$err"
+  if [ "$ok" = 1 ]; then
     n="$(printf '%s' "$json" | jq 'length' | tr -d '\r')" || return 5
     if [ "$n" = 5000 ]; then
       echo "github.sh: issue-list truncated: gh returned its --limit of 5000 issues" >&2
       return 5
     fi
-  elif grep -q 'Unknown JSON field' "$err"; then
-    rm -f "$err"
+  elif [[ "$msg" == *'Unknown JSON field'* ]]; then
     json="$(_gh_issue_list_graphql "$repo")" || return
   else
-    echo "gh issue list failed: $(cat "$err")" >&2
-    rm -f "$err"
+    echo "gh issue list failed: $msg" >&2
     return 1
   fi
   printf '%s' "$json" | jq -c --arg ip "$ip" --arg repo "$repo" "$_GH_CLASS_JQ$_GH_ISSUE_JQ" || return 5
