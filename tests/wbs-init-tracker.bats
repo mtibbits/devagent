@@ -684,3 +684,24 @@ _shaped_import_cut() {
   grep -qF '| `issue-list`' "$REPO/README.md"
   sed -n '/^### 9\.1 /,/^### 9\.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" | grep -qE '^issue-list +<repo>'
 }
+
+@test "docs name --merge and the exclusion line in every home" {
+  local key spec spec13 home rc
+  key="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-import.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.EXCLUDE_KEY)' | tr -d '\r')"
+  [ "$key" = "wbs-exclude:" ]
+  spec="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+  spec13="$TMPROOT/spec13"
+  sed -n '/^### 13\.1 /,/^### 13\.3 /p' "$spec" > "$spec13"
+  for home in "$REPO/commands/wbs.md" "$spec13" "$REPO/scripts/wbs.sh"; do
+    grep -qF -- '--merge' "$home" || { echo "no --merge in $home"; false; }
+  done
+  for home in "$REPO/commands/wbs.md" "$spec13"; do
+    grep -qF -- "<!-- $key" "$home" || { echo "no exclusion line in $home"; false; }
+  done
+  # no home still says merging is #707's job (control: a planted line is found)
+  printf 'merging is #707\n' > "$TMPROOT/planted"
+  rc=0; grep -n 'is #707' "$TMPROOT/planted" >/dev/null || rc=$?
+  [ "$rc" -eq 0 ]
+  rc=0; grep -n 'is #707' "$REPO/commands/wbs.md" "$spec" "$REPO/scripts/wbs-init.sh" "$REPO/CHANGELOG.md" || rc=$?
+  [ "$rc" -eq 1 ]
+}

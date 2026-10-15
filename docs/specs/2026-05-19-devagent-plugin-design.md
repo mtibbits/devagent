@@ -1842,6 +1842,10 @@ the `status_src` and `mr` meta of a leaf whose state it resolved (#703,
 #704; set, replaced or removed in place) and adds new nodes as whole
 lines in the file's line-ending style (#701).
 
+An HTML comment line `<!-- wbs-exclude: Issue-12, Issue-40 -->` outside
+a fence lists issues `wbs init --merge` must not add (#707). Like any
+comment it is kept byte-for-byte; merge reads it and never writes one.
+
 ### 13.2 Commands
 
 - `/devagent:wbs init [--force]` — scaffold from `wbs_template.md`
@@ -1873,14 +1877,42 @@ lines in the file's line-ending style (#701).
   `<dir_prefix>N` in that one); `--epic` that epic's subtree and the path
   above it. The first three also import every imported issue's epic and
   all of an imported epic's children. An existing `WBS.md` is refused
-  (`--survey` still runs), `--force` cannot be combined with it (merging
-  is #707), and any unknown flag is a usage error. Exit `2` is a usage
+  (`--survey` still runs; `--merge` adds to it), `--force` cannot be
+  combined with it, and any unknown flag is a usage error. Exit `2` is a usage
   error, raised before any tracker call, or a value only the data can check
   (an `--epic` that names no epic, a calendar-invalid date), raised after
   the read-only `issue-list` calls; `1` is any other failure. #706 also
   hardened the JIRA search both verbs share: any `nextPageToken` seen
   before (a cycle, not only a repeat) or a 1000th page fails the call
   with `5`, which aborts the `wbs update` tracker phase (and cleanup's run).
+- `/devagent:wbs init [--from-tracker] --merge [--all | --since … |
+  --open-only | --epic <issue-id>]` (#707) — add to an existing `WBS.md`
+  the selected tracker issues it lacks, with the same `issue-list` calls,
+  parent rules, range flags and threshold (exit `10`; the re-run keeps
+  `--merge`). An issue is present when any node's `issue` meta names it
+  by `wbs update`'s rule: a `dir_prefix` is required, the longest wins,
+  and a JIRA source reads digits as `<KEY>-N`; the first such node is its
+  anchor. The ids on `<!-- wbs-exclude: … -->` lines (§13.1; one line,
+  `wbs-exclude:` case-sensitive, ids split on commas and whitespace,
+  several lines combined) are skipped; a bad id or a malformed line is
+  warned about and ignored. Exclusion is per issue: an excluded epic's
+  children are placed by the rules below. Each issue added goes, by the
+  first rule that fits: inside its parent when that is added too; as the
+  last child of its parent's anchor (at that node's last child's
+  indentation); at top level when it is a group; under the first node in
+  document order with no `issue` meta whose `milestone` meta is its
+  milestone, else under a new milestone node; under a top-level
+  `Unparented`, else `Unassigned`, else a new `Unparented`. New top-level
+  nodes follow the existing ones in the import's order. No existing node
+  is moved, renamed, re-glyphed or removed, and the file changes only by
+  inserted whole lines, except that an unterminated last line gains the
+  file's line ending when a new line follows it (§13.1, #701); a check of
+  that runs before the write, and the file is written only when an issue
+  was added, so a second run changes nothing. Exit `0` merged or nothing
+  to add; `1` a missing `WBS.md` (before any tracker call), an unreadable
+  or non-UTF-8 one, malformed backend output, or a write that would
+  change an existing line; `2` a usage error (`--merge` with `--force` or
+  `--survey`) or a range only the data can check.
 - `/devagent:wbs update [--offline]` — invoked by step 20 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active
