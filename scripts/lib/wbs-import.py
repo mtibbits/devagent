@@ -126,12 +126,16 @@ def _check_record(rec) -> str | None:
 def parse_issue_list(text: str) -> list[dict]:
     """Decode issue-list output; blank lines are skipped, CRLF absorbed.
 
-    Raises ValueError("malformed line <n>: <why>") for a line that is not
-    one contract record, or for an id listed twice.
+    Only LF ends a record: jq writes U+2028, U+2029 and NEL raw inside a
+    string, and str.splitlines() would break a record on them.
+
+    Raises ValueError("malformed line <n>: <why>[ (issue <id>)]") for a line
+    that is not one contract record, or for an id listed twice.
     """
     out: list[dict] = []
     seen: set[str] = set()
-    for n, line in enumerate(text.splitlines(), start=1):
+    for n, line in enumerate(text.split("\n"), start=1):
+        line = line.rstrip("\r")
         if not line.strip():
             continue
         try:
@@ -140,7 +144,9 @@ def parse_issue_list(text: str) -> list[dict]:
             raise ValueError(f"malformed line {n}: not JSON") from None
         why = _check_record(rec)
         if why:
-            raise ValueError(f"malformed line {n}: {why}")
+            rid = rec.get("id") if isinstance(rec, dict) else None
+            named = f" (issue {rid})" if isinstance(rid, str) and rid else ""
+            raise ValueError(f"malformed line {n}: {why}{named}")
         if rec["id"] in seen:
             raise ValueError(f"malformed line {n}: duplicate id {rec['id']}")
         seen.add(rec["id"])
@@ -156,13 +162,15 @@ def parse_issue_list(text: str) -> list[dict]:
 # No regex here backtracks on a long line: lines are rstripped first and the
 # value is split on whitespace, not matched with a lazy group.
 PARENT_KEY_RE = re.compile(
-    r"^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?parent epic:(?:\*\*|__)?[ \t]*", re.IGNORECASE)
+    r"^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?parent epic(?:\*\*|__)?:(?:\*\*|__)?[ \t]*",
+    re.IGNORECASE)
 NUM_RE = re.compile(r"#([0-9]+)")
 JIRA_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+")
-MD_LINK_RE = re.compile(r"\[[^\]\n]*\]\(([^()\s]+)\)")
+MD_LINK_URL_RE = re.compile(r"\]\((https?://[^()\s]+)\)")
 URL_RE = re.compile(r"https?://\S+")
+REPO_NUM_RE = re.compile(r"(?P<repo>[^\s/#]+/[^\s#]+)#(?P<n>[0-9]+)")
 SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
-SEPARATORS = {chr(0x2014), chr(0x2013), "--", "-"}
+TRAILING = ".,;:)>"
 
 GITHUB_REF_RE = re.compile(
     r"^https?://[^/\s]+/(?P<repo>[^/\s]+/[^/\s]+)/issues/(?P<n>[0-9]+)/?(?:[?#]\S*)?$")
@@ -182,23 +190,27 @@ def _wbs_parser():
 
 
 def _value_form(val: str, jira: bool) -> tuple[str, str]:
-    m = NUM_RE.fullmatch(val)
+    """The value's reference, by the first rule that fits: a leading `#N`
+    (or, on Jira, a leading key), a markdown link's URL, the first URL
+    token, a leading `owner/repo#N`; else one slug-like token (slug) or
+    anything else (other). Trailing prose and punctuation are ignored."""
+    toks = val.split()
+    first = toks[0].rstrip(TRAILING)
+    m = NUM_RE.fullmatch(first)
     if m:
         return ("num", m.group(1))
-    if jira and JIRA_KEY_RE.fullmatch(val):
-        return ("key", val)
-    m = MD_LINK_RE.fullmatch(val)
+    if jira and JIRA_KEY_RE.fullmatch(first):
+        return ("key", first)
+    m = MD_LINK_URL_RE.search(val)
     if m:
         return ("url", m.group(1))
-    toks = val.split()
-    last = toks[-1]
-    if last.startswith("<") and last.endswith(">"):
-        last = last[1:-1]
-    if URL_RE.fullmatch(last) and (
-        len(toks) <= 2 or (len(toks) == 3 and toks[1] in SEPARATORS)
-    ):
-        return ("url", last)
-    if SLUG_RE.fullmatch(val):
+    for tok in toks:
+        tok = tok.lstrip("<(").rstrip(TRAILING)
+        if URL_RE.fullmatch(tok):
+            return ("url", tok)
+    if REPO_NUM_RE.fullmatch(first):
+        return ("ref", first)
+    if len(toks) == 1 and SLUG_RE.fullmatch(val):
         return ("slug", val)
     return ("other", val)
 
@@ -207,10 +219,15 @@ def parent_line(body: str, jira: bool = False) -> tuple[str, str, str] | None:
     """The first `Parent epic:` line outside a fence, as (kind, value, raw).
 
     kind: num (`#N`, same source), key (a bare Jira key; Jira sources only),
-    url (an issue URL, alone, after a slug and an optional dash, in <>, or
-    as a markdown link), slug (one slug-like token: unresolvable) or other.
+    url (an issue URL anywhere in the value, a markdown link's included),
+    ref (`owner/repo#N`), slug (one slug-like token: unresolvable) or other.
     raw is the line, stripped. None when no line has a value.
     """
+    # Bodies come from anyone who can file an issue, and wbs-parser's fence
+    # pairing is quadratic in unclosed openers: classify only a body that
+    # can hold the key.
+    if "parent epic" not in body.casefold():
+        return None
     lines = body.splitlines(keepends=True)
     kinds, _bodies, _unclosed = _wbs_parser()._classify_lines(lines)
     for (kind, _m), line in zip(kinds, lines):
@@ -302,6 +319,10 @@ def _resolve_url(model: Model, url: str) -> tuple[Node | None, str]:
     ref = parse_ref(url)
     if ref is None:
         return (None, "unrecognised-form")
+    return _resolve_ref(model, ref)
+
+
+def _resolve_ref(model: Model, ref: tuple[str | None, str]) -> tuple[Node | None, str]:
     repo, rid = ref
     if repo is None:
         jira = [i for i, s in enumerate(model.sources) if s["backend"] == "jira"]
@@ -328,6 +349,9 @@ def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node
         return (hit, "" if hit else "not-found")
     if kind == "url":
         return _resolve_url(model, value)
+    if kind == "ref":
+        m = REPO_NUM_RE.fullmatch(value)
+        return _resolve_ref(model, (m.group("repo"), m.group("n")))
     return (None, "slug-only" if kind == "slug" else "unrecognised-form")
 
 

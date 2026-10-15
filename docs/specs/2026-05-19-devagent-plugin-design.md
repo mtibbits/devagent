@@ -1852,11 +1852,13 @@ lines in the file's line-ending style (#701).
   `issue-list` call each, §9.1); `<issue-id>` is `N`, `<dir_prefix>N` or a
   JIRA key, and `--flag=value` is accepted. A parent comes from the native
   parent field, else a `Parent epic:` body line outside a code fence (`#N`,
-  an issue URL, optionally after a slug and a dash); a slug-only line is
-  listed in the survey, not resolved. Epics (and any issue with children)
+  `owner/repo#N`, or an issue URL anywhere in the value, trailing prose
+  ignored); a slug-only line is listed in the survey, not resolved.
+  Epics (and any issue with children)
   are top-level nodes; the other roots go under one node per milestone,
   then `Unparented`. Glyphs come from the same rule as `wbs update`, so an
-  update straight after an import changes nothing. The survey counts the
+  update straight after an import changes nothing in its tracker phase
+  (the MR phase may still mark leaves with linked MRs). The survey counts the
   closed share over all sources combined (not planned counts as closed).
   Below `[project.<p>.wbs].auto_import_below_pct` (default 20) everything
   is imported; at or above it, with no range flag, init prints the survey

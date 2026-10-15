@@ -21,7 +21,8 @@ the README's "Versioning & releases" section has the release procedure.
     issues. Epics (and issues with children) become top-level nodes; children come from
     the native parent field or a `Parent epic:` body line outside a code fence; other
     issues go under one node per milestone, then `Unparented`. Glyphs follow the
-    `wbs update` rule, so an update straight after an import changes nothing.
+    `wbs update` rule, so the tracker phase of an update straight after an import changes
+    nothing (with a code backend set, the MR phase may still mark leaves that have linked MRs).
   - The closed share (closed plus not planned, all sources combined) decides the flow:
     below `[project.<p>.wbs] auto_import_below_pct` (default 20) everything is imported;
     at or above it, with no range flag, init prints a survey and `WBS-INIT: choose-range`,

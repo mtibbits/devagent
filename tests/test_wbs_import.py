@@ -58,6 +58,18 @@ def test_contract_parse_issue_list_rejects(name, bad):
         wbs_import.parse_issue_list(lines(rec("1"), bad))
 
 
+@pytest.mark.parametrize("sep", [chr(0x2028), chr(0x2029), chr(0x85)])
+def test_contract_line_separators_inside_a_string_stay_in_the_record(sep):
+    # jq writes U+2028, U+2029 and NEL raw inside a JSON string; only LF ends a record
+    text = json.dumps(rec("1", body="a" + sep + "b"), ensure_ascii=False) + "\r\n"
+    assert [r["body"] for r in wbs_import.parse_issue_list(text)] == ["a" + sep + "b"]
+
+
+def test_contract_error_names_the_issue():
+    with pytest.raises(ValueError, match=r"^malformed line 1: bad date in closed \(issue 7\)$"):
+        wbs_import.parse_issue_list(lines(rec("7", state="closed", **{"class": "done"}, closed="")))
+
+
 def test_contract_check_cli():
     ok = subprocess.run([sys.executable, str(LIB), "check"], input=lines(rec("1"), rec("2")),
                         capture_output=True, text=True)
@@ -85,6 +97,14 @@ GH = "https://github.com/o/r/issues/"
     ("Parent epic: data-pipeline", ("slug", "data-pipeline")),
     ("Parent epic: the data pipeline one", ("other", "the data pipeline one")),
     ("Parent epic: #3   " + chr(13) + chr(10), ("num", "3")),
+    # forms from real issue bodies (#706 review)
+    ("Parent epic: #238. Tracker: this fork, `o/r`.", ("num", "238")),
+    ("**Parent epic:** o/r#85. Child 6 of 6.", ("ref", "o/r#85")),
+    ("**Parent epic:** [#68 " + chr(0x2014) + " Stage 1 work](" + GH + "68).", ("url", GH + "68")),
+    ("Parent epic: #83 " + chr(0x2014) + " Tuning", ("num", "83")),
+    ("Parent epic: " + GH + "3.", ("url", GH + "3")),
+    ("**Parent epic**: #3", ("num", "3")),
+    ("Parent epic: Data pipeline " + chr(0x2014) + " " + GH + "3", ("url", GH + "3")),
 ])
 def test_parent_line_forms(body, want):
     got = wbs_import.parent_line(body)
@@ -117,6 +137,15 @@ def test_parent_line_first_match_wins():
 def test_parent_line_jira_bare_key():
     assert wbs_import.parent_line("Parent epic: PROJ-12", jira=True)[:2] == ("key", "PROJ-12")
     assert wbs_import.parent_line("Parent epic: PROJ-12")[:2] == ("slug", "PROJ-12")
+
+
+def test_parent_line_skips_a_body_without_the_key_fast():
+    # wbs-parser's fence pairing is quadratic in unclosed openers; a body that
+    # cannot hold the key is never classified
+    import time
+    t = time.monotonic()
+    assert wbs_import.parent_line("```x\n" * 4000) is None
+    assert time.monotonic() - t < 1.0
 
 
 def test_parent_line_no_backtracking_on_long_whitespace():
@@ -180,6 +209,14 @@ def test_same_source_number_stays_in_its_source():
                                rec("5", body="Parent epic: #1", url="https://github.com/me/f/issues/5")],
                               name="fork", repo="me/f", prefix="Issue-Fork-")])
     assert tree_of(m)["Issue-Fork-5"] == "Issue-Fork-1"
+
+
+def test_owner_repo_number_resolves():
+    m = wbs_import.build([src([rec("1", labels=["epic"])]),
+                          src([rec("5", body="**Parent epic:** o/r#1. Child 1 of 1.",
+                                   url="https://github.com/me/f/issues/5")],
+                              name="fork", repo="me/f", prefix="Issue-Fork-")])
+    assert tree_of(m)["Issue-Fork-5"] == "Issue-1"
 
 
 def test_foreign_url_unresolved():

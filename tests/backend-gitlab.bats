@@ -193,6 +193,12 @@ _il_check() { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check;
   [ -z "$(printf '%s' "$output" | tr -d '\r')" ]
 }
 
+@test "[gitlab] issue-list dates a closed issue with no closed_at by updated_at" {
+  "$ISSUE_SCRIPT" issue-list foo/shaped > "$BATS_TEST_TMPDIR/il"
+  run jq -c 'select(.id == "35") | [.state, .closed]' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '')" = '["closed","2026-04-01"]' ]
+}
+
 @test "[gitlab] issue-list fails closed on a record without created_at" {
   run "$ISSUE_SCRIPT" issue-list foo/nocreated
   [ "$status" -eq 5 ]

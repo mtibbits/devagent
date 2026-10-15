@@ -234,8 +234,9 @@ cmd_state_list() {
 # `blocks` link puts this issue's web_url into the target's blocked_by,
 # matched by web_url (a target outside the list is dropped).
 # Mapping: id <- iid; state opened/closed -> open/closed; class <- gl_class;
-# title <- title; body <- description (null -> ""); created/closed <-
-# created_at/closed_at (date part); milestone <- milestone.title; labels <-
+# title <- title; body <- description (null -> ""); created <- created_at,
+# closed <- closed_at, else updated_at (GitLab before 10.6 did not record
+# closed_at), date part; milestone <- milestone.title; labels <-
 # labels; type <- issue_type; parent null (GitLab epics are out of scope);
 # url <- web_url.
 # Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
@@ -249,7 +250,7 @@ _GL_ISSUE_JQ='
   | (if .state == "closed" then "closed" else "open" end) as $st
   | {id: (.iid | tostring), title: (.title // ""), body: (.description // ""),
      state: $st, class: $cls, created: .created_at[0:10],
-     closed: (if $st == "closed" then ((.closed_at // "")[0:10]) else null end),
+     closed: (if $st == "closed" then ((.closed_at // .updated_at // "")[0:10]) else null end),
      milestone: (.milestone.title // null),
      labels: [.labels[]? | if type == "string" then . else .name end],
      type: (.issue_type // null), parent: null,

@@ -48,7 +48,9 @@ Per-backend native fields (all else empty, as on the real project):
 - GitHub: #14 native parent #2 (its body line says #3: native wins);
   #22 blockedBy #21.
 - GitLab: #21 blocking_issues_count 1, its links file says it blocks #22;
-  #14's body line says #2; #30 has a null description.
+  #14's body line says #2; #30 has a null description; #35 is closed with a
+  null closed_at (GitLab did not record it before 10.6), its updated_at the
+  close time.
 - Jira: #14 native parent SHAPED-2 (no body line); #22 carries the inward
   Blocks entry from SHAPED-21 and #21 the outward one; #30 has a null
   description; #40 is done with a null resolutiondate (closed date from
@@ -101,6 +103,7 @@ OPEN = {83, 84, *range(88, 94), *range(42, 51)}
 NOT_PLANNED = {82}
 LABELS = {25: ["bug"]}
 NULL_DESCRIPTION = 30          # GitLab and Jira only
+GITLAB_NULL_CLOSED_AT = 35     # closed before GitLab recorded closed_at
 JIRA_NO_RESOLUTIONDATE = 40
 
 
@@ -231,7 +234,8 @@ def gl_record(n: int) -> dict:
         "description": body("gitlab", n),
         "state": "opened" if n in OPEN else "closed",
         "created_at": gl_ts(created(n)), "updated_at": gl_ts(closed(n) or created(n)),
-        "closed_at": gl_ts(closed(n)), "labels": labels(n), "milestone": None,
+        "closed_at": None if n == GITLAB_NULL_CLOSED_AT else gl_ts(closed(n)),
+        "labels": labels(n), "milestone": None,
         "issue_type": "issue",
         "web_url": f"https://gitlab.example/{GL_REPO}/-/issues/{n}",
         "blocking_issues_count": 1 if n == 21 else 0,
