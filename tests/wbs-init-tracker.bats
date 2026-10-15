@@ -420,7 +420,8 @@ _expected_all() {
   # no code_source (no MR phase) and no active issue (no auto-add)
   grep -qFx 'issue list --repo acme/testproj --state all --limit 5000 --json number,state,stateReason,labels' "$TMPROOT/gh.log"
   [ "$(wc -l < "$TMPROOT/gh.log")" -eq 1 ]
-  ! grep -q Unassigned "$TMPDEV/WBS.md"
+  run grep -q Unassigned "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
 }
 
 @test "round trip: wbs update after an import changes nothing (jira)" {
