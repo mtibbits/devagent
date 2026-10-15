@@ -10,6 +10,7 @@
 > checklist, records which in `status_src`, and writes `mr` (open, draft or merged) for an
 > open issue an MR closes. It changes only that glyph and those values and adds
 > newly active issues; every other line, this note included, is kept byte-for-byte.
+> `/devagent:wbs init --from-tracker` builds a new file from the tracker's issue history instead.
 
 - [ ] Top-level milestone or epic {est: 0w, milestone: M1, owner: @you, cost: 0}
   - [ ] First leaf {issue: Issue-1, est: 1w}

@@ -16,6 +16,28 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: `wbs init --from-tracker` seeds `WBS.md` from tracker history (#706).**
+  - `wbs init --from-tracker` builds a new `WBS.md` from every configured issue source's
+    issues. Epics (and issues with children) become top-level nodes; children come from
+    the native parent field or a `Parent epic:` body line outside a code fence; other
+    issues go under one node per milestone, then `Unparented`. Glyphs follow the
+    `wbs update` rule, so an update straight after an import changes nothing.
+  - The closed share (closed plus not planned, all sources combined) decides the flow:
+    below `[project.<p>.wbs] auto_import_below_pct` (default 20) everything is imported;
+    at or above it, with no range flag, init prints a survey and `WBS-INIT: choose-range`,
+    exits 10 and writes nothing, and `/devagent:wbs` asks how far back to go: `--all`,
+    `--since <date|issue-id>`, `--open-only` or `--epic <issue-id>`. `--survey` prints the
+    survey only. An existing `WBS.md` is refused; merging into one is #707.
+  - New optional backend verb `issue-list <repo>` (github, gitlab, jira; the `custom` stub
+    exits 78). GitHub needs gh 2.95 or later for native parents and dependencies and falls
+    back to GraphQL on an older gh; a GitHub Enterprise server without those GraphQL fields
+    is not supported. JIRA is Cloud only.
+  - Behaviour change: `wbs init` now exits 2 on any unknown flag (it warned and ignored one).
+  - Behaviour change: the JIRA search behind `state-list` now fails (exit 5) on any
+    `nextPageToken` seen before, not only a repeat of the last one, and at 1000 pages; in
+    `wbs update` (and cleanup's run) that aborts the tracker phase with one warning.
+  - Not breaking: no command, flag or file format is removed.
+
 - **Changed: `wbs update` shows linked MR state on open issue leaves (#704).**
   - After the tracker phase, a leaf whose issue the tracker reports open takes `[~]`,
     `status_src: mr` and `mr: open`, `mr: draft` or `mr: merged` when an MR links the

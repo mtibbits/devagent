@@ -420,3 +420,20 @@ _expected_all() {
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   cmp "$TMPROOT/imported" "$TMPDEV/WBS.md"
 }
+
+# --- docs (Task 10) --------------------------------------------------------------
+@test "docs name the script's marker and exit code" {
+  local consts marker rc spec13 home
+  consts="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-import.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.CHOOSE_RANGE_MARKER); print(m.CHOOSE_RANGE_RC)' | tr -d '\r')"
+  marker="$(sed -n 1p <<< "$consts")"; rc="$(sed -n 2p <<< "$consts")"
+  [ "$marker" = "WBS-INIT: choose-range" ] && [ "$rc" = 10 ]
+  spec13="$TMPROOT/spec13"
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" > "$spec13"
+  for home in "$REPO/commands/wbs.md" "$spec13" "$REPO/scripts/wbs.sh"; do
+    grep -qF "$marker" "$home" || { echo "no marker in $home"; false; }
+    grep -qE "(exit|exits|code) \`?${rc}\`?([^0-9]|$)" "$home" || { echo "no exit $rc in $home"; false; }
+  done
+  # the verb is in both contract homes
+  grep -qF '| `issue-list`' "$REPO/README.md"
+  sed -n '/^### 9\.1 /,/^### 9\.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" | grep -qE '^issue-list +<repo>'
+}

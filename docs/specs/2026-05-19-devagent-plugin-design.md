@@ -184,6 +184,10 @@ commit_template  = "commitMessageTemplate.md"
 checking = "opus"                        # improve(5) / review(15) / redmr(16) / preship(17)
 # thinking = "opus"                      # draft(2) / implement(9) / quality(10) / document(11) / draftmr(14)
 # "15"     = "fable"                     # a numeric per-step override wins over its class tier
+
+[project.volk.wbs]                       # `wbs init --from-tracker` (#706); see §13.2
+# auto_import_below_pct = 20             # integer 0-100: import every issue when the closed share
+                                         # is below this; at or above, init surveys and asks
 ```
 
 `include_coauthor` (per-project bool, default `true`) is a **strip-guard**, not a generator:
@@ -1497,6 +1501,7 @@ transition   <repo> <num> <semantic-stage>                 → exit 0 on success
 state        <repo> <num>                                  → backend state to stdout
 comment-list <repo> <num>                                  → markdown to stdout
 state-list   <repo>                                        → "<id>\t<class>" lines (MAY)
+issue-list   <repo>                                        → JSON Lines records (MAY)
 ```
 
 `<semantic-stage>` is a key from `[project.<name>.issue_workflow]`
@@ -1529,6 +1534,37 @@ repo with no issues). `78` (not implemented) and `2` (unknown verb, as in a
 backend older than the verb) mean "no state lookup". Any other exit is a
 lookup failure, which aborts the `wbs update` tracker phase (§13.2).
 `wbs update` is the verb's only caller.
+
+`issue-list` MAY be implemented too (#706); `wbs init --from-tracker`
+(§13.2) is its only caller. It prints one compact JSON object per issue of
+`<repo>` (JSON Lines), and empty output for a repo with no issues:
+
+```json
+{"id":"12","title":"t","body":"b","state":"closed","class":"done",
+ "created":"2026-01-02","closed":"2026-02-01","milestone":null,
+ "labels":["epic"],"type":null,
+ "parent":"https://github.com/o/r/issues/3",
+ "blocked_by":["https://github.com/o/r/issues/4"],
+ "url":"https://github.com/o/r/issues/12"}
+```
+
+(one line in the output). `id` is as for `state-list`; `state` is `open` or
+`closed`; `class` is the record's `state-list` class, and a backend
+computes both verbs' class with one shared rule; `created` and `closed` are
+`YYYY-MM-DD` dates, `closed` a date exactly when `state` is `closed`;
+`milestone`, `type` and `parent` are strings or null; `labels` and
+`blocked_by` are string arrays; `parent`, `blocked_by` and `url` are issue
+URLs (JIRA: `<base>/browse/<KEY>`). The checker is
+`scripts/lib/wbs-import.py check`. Exit codes are those of `state-list`;
+`5` also means a truncated list (GitHub's `--limit 5000`, or its GraphQL
+fallback's 100-page cap, reached) or a paging walk that does not end. GitHub
+reads `parent`, `blockedBy` and `issueType` through `gh issue list` (gh
+2.95 or later) and falls back to GraphQL on an older gh; a GitHub server
+without those GraphQL fields (an older GHES) is not supported. GitLab sets
+`parent` to null (epics are out of scope) and reads `blocked_by` from the
+`links` of each issue whose `blocking_issues_count` is above 0. JIRA is
+Cloud only, as for `state-list`; a done issue with no `resolutiondate`
+takes its `closed` date from `statuscategorychangedate`.
 
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 
@@ -1808,7 +1844,38 @@ lines in the file's line-ending style (#701).
 
 ### 13.2 Commands
 
-- `/devagent:wbs init` — scaffold from `wbs_template.md`
+- `/devagent:wbs init [--force]` — scaffold from `wbs_template.md`
+- `/devagent:wbs init --from-tracker [--all | --since YYYY-MM-DD |
+  --since <issue-id> | --open-only | --epic <issue-id>]` and
+  `/devagent:wbs init [--from-tracker] --survey` (#706) — build a fresh
+  `WBS.md` from the tracker history of every configured issue source (one
+  `issue-list` call each, §9.1); `<issue-id>` is `N`, `<dir_prefix>N` or a
+  JIRA key, and `--flag=value` is accepted. A parent comes from the native
+  parent field, else a `Parent epic:` body line outside a code fence (`#N`,
+  an issue URL, optionally after a slug and a dash); a slug-only line is
+  listed in the survey, not resolved. Epics (and any issue with children)
+  are top-level nodes; the other roots go under one node per milestone,
+  then `Unparented`. Glyphs come from the same rule as `wbs update`, so an
+  update straight after an import changes nothing. The survey counts the
+  closed share over all sources combined (not planned counts as closed).
+  Below `[project.<p>.wbs].auto_import_below_pct` (default 20) everything
+  is imported; at or above it, with no range flag, init prints the survey
+  JSON, then the line `WBS-INIT: choose-range`, writes nothing and
+  exits `10`, and `/devagent:wbs` asks the operator how far back to go and
+  re-runs once with the chosen flag. `--all` imports everything;
+  `--open-only` open issues; `--since` open issues plus those closed on or
+  after the date, or numbered from the id (a bare `N` in every source,
+  `<dir_prefix>N` in that one); `--epic` that epic's subtree and the path
+  above it. The first three also import every imported issue's epic and
+  all of an imported epic's children. An existing `WBS.md` is refused
+  (`--survey` still runs), `--force` cannot be combined with it (merging
+  is #707), and any unknown flag is a usage error. Exit `2` is a usage
+  error, raised before any tracker call, or a value only the data can check
+  (an `--epic` that names no epic, a calendar-invalid date), raised after
+  the read-only `issue-list` calls; `1` is any other failure. #706 also
+  hardened the JIRA search both verbs share: any `nextPageToken` seen
+  before (a cycle, not only a repeat) or a 1000th page fails the call
+  with `5`, which aborts the `wbs update` tracker phase (and cleanup's run).
 - `/devagent:wbs update [--offline]` — invoked by step 20 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active
