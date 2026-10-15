@@ -484,6 +484,11 @@ def _node_for(model: Model, si: int, value: str) -> Node | None:
     return model.by_id.get((si, value))
 
 
+def _hits(model: Model, sis: set[int], value: str) -> list[Node]:
+    """The nodes an _id_token result names, in source order."""
+    return [h for h in (_node_for(model, si, value) for si in sorted(sis)) if h]
+
+
 def _epics_hint(model: Model) -> str:
     groups = [n.leaf for n in model.nodes if n.group]
     return "epics: " + (", ".join(groups) if groups else "(none)")
@@ -515,8 +520,7 @@ def select(model: Model, rng: str) -> set[str]:
         floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
-        sis, v = _id_token(model, value)
-        hits = [h for h in (_node_for(model, si, v) for si in sorted(sis)) if h]
+        hits = _hits(model, *_id_token(model, value))
         if len(hits) > 1:
             raise RangeError(f"--epic {value} is ambiguous; name one of "
                              + ", ".join(h.leaf for h in hits))
@@ -570,31 +574,34 @@ def _glyph(node: Node, devdoc_dir) -> tuple[str, str | None]:
     return got if got else (" ", None)
 
 
-def _issue_node(node: Node, selected: set[str], depth: int, devdoc_dir, *,
-                deps_in: dict[str, str] | None = None) -> dict:
+def _issue_node(node: Node, selected: set[str], depth: int, devdoc_dir,
+                deps_in: dict[str, str]) -> dict:
     """A new node for `node` and its selected children. `depends_on` names
-    the selected blockers, or, with deps_in ({leaf: spelling to write}),
-    the blockers it holds."""
+    the blockers deps_in ({leaf: spelling to write}) holds."""
     glyph, status_src = _glyph(node, devdoc_dir)
     meta: dict = {"issue": node.leaf}
-    if deps_in is None:
-        deps = [b.leaf for b in node.blockers if b.leaf in selected]
-    else:
-        deps = [deps_in[b.leaf] for b in node.blockers if b.leaf in deps_in]
+    deps = [deps_in[b.leaf] for b in node.blockers if b.leaf in deps_in]
     if deps:
         meta["depends_on"] = deps[0] if len(deps) == 1 else deps
     if status_src:
         meta["status_src"] = status_src
     return {"text": safe_title(node.rec["title"]), "glyph": glyph, "depth": depth,
             "meta": meta,
-            "children": [_issue_node(c, selected, depth + 1, devdoc_dir, deps_in=deps_in)
+            "children": [_issue_node(c, selected, depth + 1, devdoc_dir, deps_in)
                          for c in node.children if c.leaf in selected]}
 
 
-def _milestone_node(title: str, depth: int, children: list[dict]) -> dict:
-    """A milestone container: no issue, the title as text and meta."""
-    return {"text": safe_title(title), "glyph": " ", "depth": depth,
-            "meta": {"milestone": safe_meta(title)}, "children": children}
+def _top_level(groups: list[dict], by_ms: dict[str, list[dict]], loose: list[dict]) -> list[dict]:
+    """New top-level nodes in render's order: the groups, one container per
+    milestone (casefolded title order), then `Unparented` when non-empty."""
+    tops = list(groups)
+    for title in sorted(by_ms, key=lambda t: (t.casefold(), t)):
+        tops.append({"text": safe_title(title), "glyph": " ", "depth": 1,
+                     "meta": {"milestone": safe_meta(title)}, "children": by_ms[title]})
+    if loose:
+        tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
+                     "children": loose})
+    return tops
 
 
 def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str) -> str:
@@ -607,18 +614,17 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
     roots = [n for n in model.roots() if n.leaf in selected]
     groups = [n for n in roots if n.group]
     rest = [n for n in roots if not n.group]
-    tops = [_issue_node(n, selected, 1, devdoc_dir) for n in groups]
-    by_ms: dict[str, list[Node]] = {}
+    spell = {leaf: leaf for leaf in selected}
+
+    def new(n: Node, depth: int) -> dict:
+        return _issue_node(n, selected, depth, devdoc_dir, spell)
+
+    group_nodes = [new(n, 1) for n in groups]
+    by_ms: dict[str, list[dict]] = {}
     for n in rest:
         if n.rec["milestone"]:
-            by_ms.setdefault(n.rec["milestone"], []).append(n)
-    for title in sorted(by_ms, key=lambda t: (t.casefold(), t)):
-        tops.append(_milestone_node(
-            title, 1, [_issue_node(n, selected, 2, devdoc_dir) for n in by_ms[title]]))
-    loose = [n for n in rest if not n.rec["milestone"]]
-    if loose:
-        tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
-                     "children": [_issue_node(n, selected, 2, devdoc_dir) for n in loose]})
+            by_ms.setdefault(n.rec["milestone"], []).append(new(n, 2))
+    tops = _top_level(group_nodes, by_ms, [new(n, 2) for n in rest if not n.rec["milestone"]])
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
     doc = f"{preamble}<!-- {note} -->\n"
@@ -636,20 +642,16 @@ ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 
 
-def _has_prefix(model: Model, iid: str) -> bool:
-    return any(s["prefix"] and iid.startswith(s["prefix"]) and len(iid) > len(s["prefix"])
-               for s in model.sources)
-
-
-def _id_shape(model: Model, iid: str) -> bool:
-    """Whether some configured source reads iid as an issue id."""
-    if not _has_prefix(model, iid):
-        return False
+def _id_parts(model: Model, iid: str) -> tuple[set[int], str] | None:
+    """iid read by _id_token when some configured source reads it as an
+    issue id behind its dir_prefix; else None."""
+    if not any(s["prefix"] and iid.startswith(s["prefix"]) and len(iid) > len(s["prefix"])
+               for s in model.sources):
+        return None
     try:
-        _id_token(model, iid)
+        return _id_token(model, iid)
     except RangeError:
-        return False
-    return True
+        return None
 
 
 def resolve_id(model: Model, iid: str) -> list[Node]:
@@ -657,10 +659,8 @@ def resolve_id(model: Model, iid: str) -> list[Node]:
     `wbs update`'s leaf_lookup rule: a configured dir_prefix is required
     (a bare N or Jira key names nothing), the longest prefix wins, and a
     Jira source reads digits as <keyprefix>-N or takes a key verbatim."""
-    if not _id_shape(model, iid):
-        return []
-    sis, v = _id_token(model, iid)
-    return [h for h in (_node_for(model, si, v) for si in sorted(sis)) if h]
+    parts = _id_parts(model, iid)
+    return _hits(model, *parts) if parts else []
 
 
 def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
@@ -691,7 +691,7 @@ def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[
         for tok in re.split(r"[,\s]+", inner[len(EXCLUDE_KEY):]):
             if not tok:
                 continue
-            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and not _id_shape(model, tok)):
+            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and _id_parts(model, tok) is None):
                 warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
                 continue
             ids.append((ln, tok))
@@ -708,21 +708,6 @@ def _walk(nodes: list[dict]):
 def _count_issues(node: dict) -> int:
     own = 1 if "issue" in node["meta"] else 0
     return own + sum(_count_issues(c) for c in node["children"])
-
-
-def _append_under(parent: dict, new: dict) -> None:
-    """Append `new` as parent's last child, at its last child's parse-time
-    depth (else one deeper), so it lines up with its siblings."""
-    kids = parent["children"]
-    depth = kids[-1]["depth"] if kids else parent["depth"] + 1
-    _set_depth(new, depth)
-    kids.append(new)
-
-
-def _set_depth(node: dict, depth: int) -> None:
-    node["depth"] = depth
-    for c in node["children"]:
-        _set_depth(c, depth + 1)
 
 
 def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
@@ -768,7 +753,13 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     deps_in.update((leaf, leaf) for leaf in add_leaves)
 
     def new(n: Node, depth: int) -> dict:
-        return _issue_node(n, add_leaves, depth, devdoc_dir, deps_in=deps_in)
+        return _issue_node(n, add_leaves, depth, devdoc_dir, deps_in)
+
+    def put_under(home: dict, n: Node) -> None:
+        """n as home's last child, at its last child's parse-time depth
+        (else one deeper), so it lines up with its siblings."""
+        kids = home["children"]
+        kids.append(new(n, kids[-1]["depth"] if kids else home["depth"] + 1))
 
     containers = [pn for pn in existing if "issue" not in pn["meta"]]
     tops = [pn for pn in tree["children"] if "issue" not in pn["meta"]]
@@ -777,50 +768,40 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     groups: list[dict] = []
     new_ms: dict[str, list[dict]] = {}
     loose: list[dict] = []
-    under = 0
     warnings: list[str] = []
-    tied: set[str] = set()
+    homes_for: dict[str, list[dict]] = {}
     for n in add:
         if n.parent is not None and n.parent.leaf in add_leaves:
             continue                                        # rule 1
         if n.parent is not None and n.parent.leaf in present:
-            node = new(n, 1)                                # rule 2
-            _append_under(present[n.parent.leaf], node)
-            under += _count_issues(node)
+            put_under(present[n.parent.leaf], n)            # rule 2
         elif n.group:
             groups.append(new(n, 1))                        # rule 3
         elif n.rec["milestone"]:
             title = n.rec["milestone"]                      # rule 4
-            want = (title, safe_meta(title))
-            homes = [pn for pn in containers if pn["meta"].get("milestone") in want]
-            if len(homes) > 1 and title not in tied:
-                tied.add(title)
-                lines = ", ".join(str(pn["source_line"]) for pn in homes)
-                warnings.append(f"milestone '{title}' has {len(homes)} candidate nodes "
-                                f"(lines {lines}); its issues go under the first")
-            home = homes[0] if homes else None
-            if home is not None:
-                node = new(n, 1)
-                _append_under(home, node)
-                under += _count_issues(node)
+            if title not in homes_for:
+                want = (title, safe_meta(title))
+                homes_for[title] = [pn for pn in containers
+                                    if pn["meta"].get("milestone") in want]
+                if len(homes_for[title]) > 1:
+                    lines = ", ".join(str(pn["source_line"]) for pn in homes_for[title])
+                    warnings.append(f"milestone '{title}' has {len(homes_for[title])} "
+                                    f"candidate nodes (lines {lines}); its issues go under "
+                                    "the first")
+            if homes_for[title]:
+                put_under(homes_for[title][0], n)
             else:
                 new_ms.setdefault(title, []).append(new(n, 2))
         elif bucket is not None:
-            node = new(n, 1)                                # rule 5
-            _append_under(bucket, node)
-            under += _count_issues(node)
+            put_under(bucket, n)                            # rule 5
         else:
             loose.append(new(n, 2))
 
-    added_tops = list(groups)
-    for title in sorted(new_ms, key=lambda t: (t.casefold(), t)):
-        added_tops.append(_milestone_node(title, 1, new_ms[title]))
-    if loose:
-        added_tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
-                           "children": loose})
+    added_tops = _top_level(groups, new_ms, loose)
     tree["children"].extend(added_tops)
-    return {"added": [n.leaf for n in add], "under_existing": under,
-            "new_tops": sum(_count_issues(t) for t in added_tops),
+    new_tops = sum(_count_issues(t) for t in added_tops)
+    return {"added": [n.leaf for n in add], "under_existing": len(add) - new_tops,
+            "new_tops": new_tops,
             "present": sum(1 for leaf in present if leaf in selected),
             "excluded": sum(1 for leaf in excluded
                             if leaf in selected and leaf not in present),
@@ -995,11 +976,12 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     if not stats["added"]:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0
-    if not inserted_only(source, parser.render_markdown(tree)):
+    rendered = parser.render_markdown(tree)
+    if not inserted_only(source, rendered):
         _say(f"wbs init --merge: refusing to write {dest}: an existing line would change "
              "(a bug; please report); nothing written")
         return 1
-    parser.write_markdown(dest, tree)
+    dest.write_bytes(rendered.encode("utf-8"))
     _say(f"wbs init --merge: added {len(stats['added'])} issues to {dest} "
          f"({stats['under_existing']} under existing nodes, {stats['new_tops']} in new "
          f"top-level nodes); {tail}")
