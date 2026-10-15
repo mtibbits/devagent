@@ -7,6 +7,8 @@
 #
 # state-list <repo> (#703) is the optional verb `wbs update` reads; it emits
 # issue KEYS (`PROJ-12`), not the internal ids the per-issue verbs take.
+# issue-list <repo> (#706) is the optional verb `wbs init --from-tracker`
+# reads; its records are keyed the same way. Both are Jira Cloud only.
 
 set -euo pipefail
 
@@ -23,6 +25,7 @@ Usage: jira.sh <verb> [args…]
   state <repo> <num>
   comment-list <repo> <num>
   state-list <repo>
+  issue-list <repo>
 EOF
   exit 2
 }
@@ -187,13 +190,23 @@ _jira_not_planned() {
   printf '%s\n' "$list" | tr -d '\r' | jq -Rsc 'split("\n") | map(select(length > 0))'
 }
 
-# Every issue of the project, as one JSON array: the enhanced JQL search,
-# paged on nextPageToken until isLast (or no token).
+# _jira_search_all <key> <fields>: every issue of the project, as one JSON
+# array: the enhanced JQL search, paged on nextPageToken until isLast (or no
+# token). A token seen before (a repeat or a longer cycle), or more than
+# _JIRA_MAX_PAGES pages, returns 5 (#706: the server is not trusted to end
+# the walk).
+_JIRA_MAX_PAGES=1000
 _jira_search_all() {
-  local key="$1" url tok="" prev="" pages="" resp out page last u auth
-  url="$(base)/rest/api/2/search/jql?jql=$(_urlenc "project = \"${key}\" ORDER BY key")&fields=status,resolution&maxResults=100"
+  local key="$1" fields="$2" url tok="" pages="" resp out page last u auth n=0
+  local -A seen=()
+  url="$(base)/rest/api/2/search/jql?jql=$(_urlenc "project = \"${key}\" ORDER BY key")&fields=${fields}&maxResults=100"
   auth="$(auth_header)"
   while :; do
+    if (( n >= _JIRA_MAX_PAGES )); then
+      echo "jira.sh: search stopped at its cap of ${_JIRA_MAX_PAGES} pages" >&2
+      return 5
+    fi
+    n=$((n + 1))
     u="$url"
     [ -z "$tok" ] || u="${url}&nextPageToken=$(_urlenc "$tok")"
     resp="$(bc_curl_auth "$auth" GET "$u" -H 'Accept: application/json')" || return
@@ -205,14 +218,26 @@ _jira_search_all() {
     { IFS=$'\t' read -r last tok; IFS= read -r page; } <<<"$out"
     pages+="$page"$'\n'
     { [ "$last" = true ] || [ -z "$tok" ]; } && break
-    if [ "$tok" = "$prev" ]; then
-      echo "jira.sh state-list: nextPageToken repeated ($tok); stopping" >&2
+    if [ -n "${seen[$tok]:-}" ]; then
+      echo "jira.sh: nextPageToken repeated ($tok); stopping" >&2
       return 5
     fi
-    prev="$tok"
+    seen[$tok]=1
   done
   printf '%s' "$pages" | jq -s 'add // []' || return 5
 }
+
+# jira_class($np): an issue's state-list class; state-list and issue-list
+# both prepend it, so the two verbs cannot drift (#706).
+_JIRA_CLASS_JQ='
+  def jira_class($np):
+    (.fields.status.statusCategory.key // "") as $c
+    | (.fields.resolution.name // "") as $r
+    | if $c == "done" then (if any($np[]; . == $r) then "not_planned" else "done" end)
+      elif $c == "indeterminate" then "in_progress"
+      elif $c == "new" then "open"
+      elif $c == "undefined" then "other"
+      else error("unrecognised statusCategory \($c) on \(.key)") end;'
 
 # state-list <repo> (#703, spec §9.1 MAY): every issue of the project, one
 # `<key>` TAB `<class>` line each, for `wbs update`. The project key is
@@ -229,16 +254,54 @@ cmd_state_list() {
   local key="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
   local np all
   np="$(_jira_not_planned)" || return 5
-  all="$(_jira_search_all "$key")" || return
-  printf '%s' "$all" | jq -r --argjson np "$np" '
-    .[] | "\(.key)\t\(
-      (.fields.status.statusCategory.key // "") as $c
-      | (.fields.resolution.name // "") as $r
-      | if $c == "done" then (if any($np[]; . == $r) then "not_planned" else "done" end)
-        elif $c == "indeterminate" then "in_progress"
-        elif $c == "new" then "open"
-        elif $c == "undefined" then "other"
-        else error("unrecognised statusCategory \($c) on \(.key)") end)"' || return 5
+  all="$(_jira_search_all "$key" status,resolution)" || return
+  printf '%s' "$all" | jq -r --argjson np "$np" "$_JIRA_CLASS_JQ"'
+    .[] | "\(.key)\t\(jira_class($np))"' || return 5
+}
+
+# issue-list <repo> (#706, spec §9.1 MAY): every issue of the project as one
+# JSON Lines record (contract: scripts/lib/wbs-import.py), sorted by key, for
+# `wbs init --from-tracker`. The same search as state-list, with more fields.
+# Mapping: id <- key; state closed iff statusCategory done; class <-
+# jira_class; title <- summary; body <- description (null -> ""); created
+# <- created (date part); closed <- resolutiondate, else
+# statuscategorychangedate (date part) when closed; milestone null (Jira has
+# none; fixVersions is not read); labels <- labels; type <-
+# issuetype.name; parent <- <base>/browse/<parent.key>; blocked_by <- the
+# Blocks links holding an inwardIssue (on issue X, inwardIssue Y reads "X is
+# blocked by Y"; Issue-706 U3, ASSERTED from Atlassian's link-type docs);
+# url <- <base>/browse/<key>.
+# Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
+# for other HTTP failures; 5 an unrecognised status category, unreadable
+# JSON, or a paging walk that does not end (fail closed). Never 2.
+_JIRA_ISSUE_JQ='
+  sort_by(.key) | .[] | jira_class($np) as $cls
+  | (if (.fields.status.statusCategory.key // "") == "done" then "closed" else "open" end) as $st
+  | {id: .key, title: (.fields.summary // ""), body: (.fields.description // ""),
+     state: $st, class: $cls, created: ((.fields.created // "")[0:10]),
+     closed: (if $st == "closed"
+              then ((.fields.resolutiondate // .fields.statuscategorychangedate // "")[0:10])
+              else null end),
+     milestone: null,
+     labels: (.fields.labels // []),
+     type: (.fields.issuetype.name // null),
+     parent: (if .fields.parent.key then "\($base)/browse/\(.fields.parent.key)" else null end),
+     blocked_by: [.fields.issuelinks[]?
+                  | select(.type.name == "Blocks" and .inwardIssue.key)
+                  | "\($base)/browse/\(.inwardIssue.key)"],
+     url: "\($base)/browse/\(.key)"}'
+
+cmd_issue_list() {
+  local repo="${1:-}"
+  [ -n "$repo" ] || { echo "jira.sh issue-list: repo required" >&2; exit 1; }
+  local key="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
+  local np all b
+  np="$(_jira_not_planned)" || return 5
+  all="$(_jira_search_all "$key" \
+    summary,description,status,resolution,created,resolutiondate,statuscategorychangedate,labels,issuetype,parent,issuelinks)" \
+    || return
+  b="$(base)"
+  printf '%s' "$all" | jq -c --argjson np "$np" --arg base "${b%/}" "$_JIRA_CLASS_JQ$_JIRA_ISSUE_JQ" || return 5
 }
 
 verb="${1:-}"; shift || true
@@ -249,6 +312,7 @@ case "$verb" in
   state)        cmd_state "$@" ;;
   comment-list) cmd_comment_list "$@" ;;
   state-list)   cmd_state_list "$@" ;;
+  issue-list)   cmd_issue_list "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac

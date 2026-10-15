@@ -9,6 +9,7 @@
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22PROJ%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 200, "body_file": "search-page1.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22PROJ%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100&nextPageToken=CAEaAggD%3D": {"status": 200, "body_file": "search-page2.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22DENIED%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 401, "body": "{\"errorMessages\":[\"Unauthorized\"]}"},
+  "GET /rest/api/2/search/jql?jql=project%20%3D%20%22DENIED%22%20ORDER%20BY%20key&fields=summary,description,status,resolution,created,resolutiondate,statuscategorychangedate,labels,issuetype,parent,issuelinks&maxResults=100": {"status": 401, "body": "{\"errorMessages\":[\"Unauthorized\"]}"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22BAD%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 200, "body_file": "search-badcategory.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22NOCAT%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 200, "body_file": "search-undefined.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22ALT%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 200, "body_file": "search-alt.json"},

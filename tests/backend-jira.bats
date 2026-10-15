@@ -160,3 +160,75 @@ teardown() {
   [ "$status" -eq 5 ]
   [[ "$output" == *"nextPageToken repeated"* ]]
 }
+
+# --- #706 issue-list ---------------------------------------------------------
+# search-shaped-{1,2}.json and search-cycle-{1,2}.json are written by
+# tests/fixtures/wbs-import/make-fixtures.py (provenance in its header; the
+# issuelinks direction is ASSERTED there). SHAPED pages 50 + 12 records by
+# nextPageToken SHAPEDPAGE2; CYCLE answers tokens TOKB -> TOKA -> TOKB.
+
+_il_check() { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check; }
+
+@test "[jira] issue-list follows nextPageToken" {
+  "$ISSUE_SCRIPT" issue-list SHAPED > "$BATS_TEST_TMPDIR/il"
+  run _il_check < "$BATS_TEST_TMPDIR/il"
+  [ "$status" -eq 0 ]
+  [ "$output" = 62 ]
+  grep -qF 'fields=summary,description,status,resolution,created,resolutiondate,statuscategorychangedate,labels,issuetype,parent,issuelinks&maxResults=100&nextPageToken=SHAPEDPAGE2' "$FIXTURE_REQUEST_LOG"
+}
+
+@test "[jira] issue-list and state-list agree on every (id, class)" {
+  export DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS="Won't Do"
+  "$ISSUE_SCRIPT" issue-list SHAPED | jq -r '"\(.id)\t\(.class)"' | tr -d '\r' | sort > "$BATS_TEST_TMPDIR/a"
+  "$ISSUE_SCRIPT" state-list SHAPED | sort > "$BATS_TEST_TMPDIR/b"
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/b")" -eq 62 ]
+  grep -qFx $'SHAPED-82\tnot_planned' "$BATS_TEST_TMPDIR/b"
+  cmp "$BATS_TEST_TMPDIR/a" "$BATS_TEST_TMPDIR/b"
+}
+
+@test "[jira] issue-list maps parent and Blocks links" {
+  "$ISSUE_SCRIPT" issue-list SHAPED > "$BATS_TEST_TMPDIR/il"
+  run jq -r 'select(.id == "SHAPED-14") | .parent' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = "$FIXTURE_URL/browse/SHAPED-2" ]
+  run jq -c 'select(.id == "SHAPED-22") | .blocked_by' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = "[\"$FIXTURE_URL/browse/SHAPED-21\"]" ]
+  # SHAPED-21's own outward entry ("blocks SHAPED-22") is not a blocker
+  run jq -c 'select(.id == "SHAPED-21") | .blocked_by' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '[]' ]
+}
+
+@test "[jira] issue-list maps the record fields" {
+  "$ISSUE_SCRIPT" issue-list SHAPED > "$BATS_TEST_TMPDIR/il"
+  run jq -c 'select(.id == "SHAPED-1") | [.title, .state, .class, .created, .closed, .milestone, .labels, .type, .url]' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = "[\"Data pipeline\",\"closed\",\"done\",\"2026-01-03\",\"2026-01-24\",null,[\"epic\"],\"Task\",\"$FIXTURE_URL/browse/SHAPED-1\"]" ]
+  run jq -c 'select(.id == "SHAPED-42") | [.state, .class, .closed]' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '["open","open",null]' ]
+  # done with no resolutiondate: the closed date is the status category change
+  run jq -r 'select(.id == "SHAPED-40") | .closed' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = 2026-04-16 ]
+  # a null description is an empty body
+  run jq -r 'select(.id == "SHAPED-30") | .body' "$BATS_TEST_TMPDIR/il"
+  [ -z "$(printf '%s' "$output" | tr -d '\r')" ]
+}
+
+@test "[jira] state-list refuses a token cycle, not only a repeat" {
+  run timeout 60 "$ISSUE_SCRIPT" state-list CYCLE
+  [ "$status" -ne 124 ]
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"nextPageToken repeated"* ]]
+}
+
+@test "[jira] issue-list refuses a token cycle" {
+  run timeout 60 "$ISSUE_SCRIPT" issue-list CYCLE
+  [ "$status" -eq 5 ]
+}
+
+@test "[jira] issue-list on 401 exits 3" {
+  run "$ISSUE_SCRIPT" issue-list DENIED
+  [ "$status" -eq 3 ]
+}
+
+@test "[jira] issue-list without a repo exits 1, not 2" {
+  run "$ISSUE_SCRIPT" issue-list
+  [ "$status" -eq 1 ]
+}
