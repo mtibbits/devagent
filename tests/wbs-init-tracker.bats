@@ -354,7 +354,7 @@ _expected_all() {
   _setup_project; _gh
   _init --force --from-tracker
   [ "$status" -eq 2 ]
-  [[ "$stderr" == *"#707"* ]]
+  [[ "$stderr" == *"--merge"* ]]
   [ ! -e "$TMPDEV/WBS.md" ]
   _init --survey --force
   [ "$status" -eq 2 ]
@@ -441,6 +441,231 @@ _expected_all() {
   run bash "$REPO/scripts/wbs.sh" update testproj
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   cmp "$TMPROOT/imported" "$TMPDEV/WBS.md"
+}
+
+# --- --merge (#707) ----------------------------------------------------------------
+# tests/fixtures/wbs-merge: base.md is a hand-arranged WBS and issue-list.jsonl
+# the tracker (issues 1-16). Expected placement over base.md:
+#   4      child of 1 (present)       last child of the Issue-1 node (rule 2)
+#   16     child of 3 (present)       child of Issue-3, after its note (rule 2)
+#   5, 6   epic 5 absent, 6 its child new top-level Epic: Beta holding 6 only;
+#                                     7 (present, moved by hand) stays (rules 3, 1)
+#   8      milestone M1               under the existing Milestone one (rule 4)
+#   9      milestone M2               new top-level M2 container (rule 4); the
+#                                     fenced Issue-9 line is not a node
+#   10, 13, 14, 15  no parent         new top-level Unparented (rule 5); 13 is
+#                                     named only by a FENCED exclusion line; 14
+#                                     depends on 4 (new), 15 on 2 (present)
+#   11     [-] present                untouched
+#   12     excluded                   not added
+MERGE_FIX="$REPO/tests/fixtures/wbs-merge"
+BYTES="$REPO/tests/helpers/wbs_bytes.py"
+
+# _merge_setup [kind] [base]: the stub backend over the merge issue list, and
+# WBS.md = that variant of base (default lf, base.md); a copy in $TMPROOT/base
+_merge_setup() {
+  _setup_project; _stub
+  cp "$MERGE_FIX/issue-list.jsonl" "$TMPROOT/issue-list.github.acme_testproj"
+  mkdir -p "$TMPDEV"
+  python3 "$BYTES" variant "$MERGE_FIX/${2:-base.md}" "${1:-lf}" "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/base"
+  : > "$TMPROOT/backend.log"
+}
+
+# _merge_expected <src> <dst> <lf|crlf>: base.md's expected merge, built by
+# byte insertion (independently of the parser)
+_merge_expected() {
+  python3 "$BYTES" insert-after "$1" "$2.1" "Note: task 3 waits on the vendor." "$3" \
+    "    - [ ] Task 16 {issue: Issue-16}" \
+    "  - [ ] Task 4 {issue: Issue-4}"
+  python3 "$BYTES" insert-after "$2.1" "$2" "  - [ ] Plan the release" "$3" \
+    "  - [ ] Task 8 {issue: Issue-8}" \
+    "- [ ] Epic: Beta {issue: Issue-5}" \
+    "  - [x] Task 6 {issue: Issue-6, status_src: tracker}" \
+    "- [ ] M2 {milestone: M2}" \
+    "  - [ ] Task 9 {issue: Issue-9}" \
+    "- [ ] Unparented" \
+    "  - [ ] Task 10 {issue: Issue-10}" \
+    "  - [ ] Task 13 {issue: Issue-13}" \
+    "  - [ ] Task 14 {issue: Issue-14, depends_on: Issue-4}" \
+    "  - [ ] Task 15 {issue: Issue-15, depends_on: Issue-2}"
+}
+
+# _only_inserts <old> <new>: rc 1 when diff's normal output has only `a`
+# hunks (the filter keeps any other line), rc 0 otherwise
+_only_inserts() {
+  local rc=0
+  diff "$1" "$2" > "$TMPROOT/hunks" || rc=$?
+  [ "$rc" -eq 1 ] || return 2
+  grep -vE '^([0-9]+a[0-9]+(,[0-9]+)?|> .*)$' "$TMPROOT/hunks"
+}
+
+@test "--merge adds exactly the missing issues under the expected nodes, inserted lines only (every variant)" {
+  local kind eol rc
+  for kind in lf crlf lf-nofinal crlf-nofinal; do
+    _merge_setup "$kind"
+    eol=lf; [[ "$kind" == crlf* ]] && eol=crlf
+    _merge_expected "$TMPROOT/base" "$TMPROOT/want" "$eol"
+    _init --merge --all
+    [ "$status" -eq 0 ] || { echo "$kind: $stderr"; false; }
+    cmp "$TMPROOT/want" "$TMPDEV/WBS.md"
+    [ "$stderr" = "wbs init --merge: added 10 issues to $TMPDEV/WBS.md (3 under existing nodes, 7 in new top-level nodes); 5 already present, 1 excluded" ]
+    rc=0; _only_inserts "$TMPROOT/base" "$TMPDEV/WBS.md" || rc=$?
+    [ "$rc" -eq 1 ] || { echo "$kind: not inserts only"; cat "$TMPROOT/hunks"; false; }
+  done
+  # control: a changed line is a `c` hunk, which the filter keeps
+  sed 's/^- \[ \] Misc/- [ ] Misc!/' "$TMPDEV/WBS.md" > "$TMPROOT/changed"
+  rc=0; _only_inserts "$TMPROOT/base" "$TMPROOT/changed" >/dev/null || rc=$?
+  [ "$rc" -eq 0 ]
+}
+
+@test "--merge: a second run writes nothing" {
+  _merge_setup lf
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  cp "$TMPDEV/WBS.md" "$TMPROOT/first"
+  chmod a-w "$TMPDEV/WBS.md"
+  if [ -w "$TMPDEV/WBS.md" ]; then
+    skip "cannot make WBS.md read-only here"
+  fi
+  _init --merge --all
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "wbs init --merge: nothing to add to $TMPDEV/WBS.md; 15 already present, 1 excluded" ]
+  cmp "$TMPROOT/first" "$TMPDEV/WBS.md"
+}
+
+@test "--merge: an issue filed after the first merge is the only one added" {
+  _merge_setup lf
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  cp "$TMPDEV/WBS.md" "$TMPROOT/first"
+  printf '%s\n' '{"id":"17","title":"Task 17","body":"","state":"open","class":"open","created":"2026-03-17","closed":null,"milestone":null,"labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/17"}' \
+    >> "$TMPROOT/issue-list.github.acme_testproj"
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$stderr" = "wbs init --merge: added 1 issues to $TMPDEV/WBS.md (1 under existing nodes, 0 in new top-level nodes); 15 already present, 1 excluded" ]
+  local rc=0
+  diff "$TMPROOT/first" "$TMPDEV/WBS.md" > "$TMPROOT/hunks" || rc=$?
+  [ "$rc" -eq 1 ]
+  [ "$(wc -l < "$TMPROOT/hunks")" -eq 2 ]
+  grep -qE '^[0-9]+a[0-9]+$' "$TMPROOT/hunks"
+  [ "$(sed -n 2p "$TMPROOT/hunks")" = "> "'  - [ ] Task 17 {issue: Issue-17}' ]
+  # in the existing Unparented, after its last child
+  grep -A1 -Fx -- '  - [ ] Task 15 {issue: Issue-15, depends_on: Issue-2}' "$TMPDEV/WBS.md" | tail -1 \
+    | grep -qFx -- '  - [ ] Task 17 {issue: Issue-17}'
+}
+
+@test "--merge: an excluded issue is not added, a [-] leaf stays, a fenced exclusion is not read" {
+  _merge_setup lf
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  run grep -c '{issue: Issue-12' "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
+  [ "$output" = 0 ]
+  [ "$(grep -c 'Issue-11' "$TMPDEV/WBS.md")" -eq 1 ]
+  grep -qFx -- '  - [-] Task 11 {issue: Issue-11, status_src: tracker}' "$TMPROOT/base"
+  grep -qFx -- '  - [-] Task 11 {issue: Issue-11, status_src: tracker}' "$TMPDEV/WBS.md"
+  grep -qFx -- '  - [ ] Task 13 {issue: Issue-13}' "$TMPDEV/WBS.md"
+}
+
+# _shaped_import_cut: a #706 --all import of the shaped fixture in
+# $TMPROOT/import, and WBS.md = that import less Issue-9 and its Unparented block
+_shaped_import_cut() {
+  _setup_project; _stub
+  _init --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  cp "$TMPDEV/WBS.md" "$TMPROOT/import"
+  sed -e '/{issue: Issue-9[,}]/d' -e '/^- \[ \] Unparented$/,$d' "$TMPROOT/import" > "$TMPDEV/WBS.md"
+  [ "$(( $(wc -l < "$TMPROOT/import") - $(wc -l < "$TMPDEV/WBS.md") ))" -eq 35 ]
+}
+
+@test "--merge: re-adding deleted leaves reproduces a #706 import" {
+  _shaped_import_cut
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [[ "$stderr" == *"added 34 issues"* ]]
+  cmp "$TMPROOT/import" "$TMPDEV/WBS.md"
+}
+
+@test "--merge --open-only adds only the open selection" {
+  _shaped_import_cut
+  _issues > "$TMPROOT/before"
+  _init --merge --open-only
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _issues > "$TMPROOT/after"
+  comm -13 "$TMPROOT/before" "$TMPROOT/after" > "$TMPROOT/got"
+  _ids 42 43 44 45 46 47 48 49 50 > "$TMPROOT/want"
+  diff "$TMPROOT/want" "$TMPROOT/got"
+  [ "$(comm -23 "$TMPROOT/before" "$TMPROOT/after" | wc -l)" -eq 0 ]
+}
+
+@test "--merge on a missing WBS.md dies before any tracker call" {
+  _setup_project; _stub
+  _init --merge --all
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"WBS.md missing; run 'wbs init --from-tracker' first"* ]]
+  [ ! -e "$TMPDEV/WBS.md" ]
+  [ ! -s "$TMPROOT/gh.log" ]
+  [ ! -s "$TMPROOT/backend.log" ]
+  # the remedy works
+  _init --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+}
+
+@test "--from-tracker on an existing WBS.md names --merge, and the remedy works" {
+  _merge_setup lf
+  _init --from-tracker --all
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"exists; pass --merge"* ]]
+  cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  [ ! -s "$TMPROOT/backend.log" ]
+  _init --from-tracker --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [[ "$stderr" == *"added 10 issues"* ]]
+}
+
+@test "--merge flag crossings exit 2 before any tracker call" {
+  _merge_setup lf
+  local args want
+  for args in "--merge --force|cannot be combined with --from-tracker or --merge" \
+              "--force --merge --all|cannot be combined with --from-tracker or --merge" \
+              "--merge --survey|cannot be combined with --merge" \
+              "--merge --all --open-only|give at most one of" \
+              "--merge=x|unknown flag"; do
+    want="${args#*|}"
+    # shellcheck disable=SC2086
+    _init ${args%%|*}
+    [ "$status" -eq 2 ] || { echo "args: $args -> $status: $stderr"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "args: $args: $stderr"; false; }
+  done
+  cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  [ ! -s "$TMPROOT/backend.log" ]
+  [ ! -s "$TMPROOT/gh.log" ]
+}
+
+@test "--merge with no range at or above the threshold: survey, marker, exit 10, WBS.md unchanged" {
+  _setup_project; _gh
+  mkdir -p "$TMPDEV"
+  printf '# mine\n\n- [ ] Hand {issue: Issue-1}\n' > "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/base"
+  _init --merge
+  [ "$status" -eq 10 ]
+  [ "${lines[${#lines[@]}-1]}" = "WBS-INIT: choose-range" ]
+  _survey_json | jq -e '.auto_import == false and .total == 62' >/dev/null
+  cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+}
+
+@test "--merge reuses an existing Unassigned bucket" {
+  _merge_setup lf base-unassigned.md
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  grep -A4 -Fx -- '  - [ ] Task 7 {issue: Issue-7}' "$TMPDEV/WBS.md" > "$TMPROOT/got"
+  printf '%s\n' '  - [ ] Task 7 {issue: Issue-7}' '  - [ ] Task 10 {issue: Issue-10}' \
+    '  - [ ] Task 13 {issue: Issue-13}' '  - [ ] Task 14 {issue: Issue-14, depends_on: Issue-4}' \
+    '  - [ ] Task 15 {issue: Issue-15, depends_on: Issue-2}' > "$TMPROOT/want"
+  diff "$TMPROOT/want" "$TMPROOT/got"
+  run grep -c Unparented "$TMPDEV/WBS.md"
+  [ "$output" = 0 ]
 }
 
 # --- docs (Task 10) --------------------------------------------------------------
