@@ -146,3 +146,72 @@ teardown() {
   [ "$status" -ne 124 ]
   [ "$status" -eq 5 ]
 }
+
+# --- #706 issue-list ---------------------------------------------------------
+# issues-page{1,2}.json, issues-shaped.json and links-shaped-21.json are
+# written by tests/fixtures/wbs-import/make-fixtures.py (provenance in its
+# header; the page files keep #703's records and add the issue-list keys).
+
+_il_check() { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check; }
+
+@test "[gitlab] issue-list pages past 100" {
+  "$ISSUE_SCRIPT" issue-list "$REPO_ARG" > "$BATS_TEST_TMPDIR/il"
+  run _il_check < "$BATS_TEST_TMPDIR/il"
+  [ "$status" -eq 0 ]
+  [ "$output" = 103 ]
+  grep -q 'issues?per_page=100&page=2' "$FIXTURE_REQUEST_LOG"
+}
+
+@test "[gitlab] issue-list and state-list agree on every (id, class)" {
+  local r
+  for r in foo/bar foo/shaped; do
+    "$ISSUE_SCRIPT" issue-list "$r" | jq -r '"\(.id)\t\(.class)"' | tr -d '\r' | sort > "$BATS_TEST_TMPDIR/a"
+    "$ISSUE_SCRIPT" state-list "$r" | sort > "$BATS_TEST_TMPDIR/b"
+    [ "$(wc -l < "$BATS_TEST_TMPDIR/b")" -gt 60 ]
+    cmp "$BATS_TEST_TMPDIR/a" "$BATS_TEST_TMPDIR/b"
+  done
+}
+
+@test "[gitlab] issue-list reads blocking links only where counted" {
+  "$ISSUE_SCRIPT" issue-list foo/shaped > "$BATS_TEST_TMPDIR/il"
+  run _il_check < "$BATS_TEST_TMPDIR/il"
+  [ "$output" = 62 ]
+  [ "$(grep -c '/links' "$FIXTURE_REQUEST_LOG")" -eq 1 ]
+  grep -q 'GET /api/v4/projects/foo%2Fshaped/issues/21/links' "$FIXTURE_REQUEST_LOG"
+  run jq -c 'select(.id == "22") | .blocked_by' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '["https://gitlab.example/foo/shaped/-/issues/21"]' ]
+  run jq -c 'select(.id == "21") | .blocked_by' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '[]' ]
+}
+
+@test "[gitlab] issue-list maps the record fields" {
+  "$ISSUE_SCRIPT" issue-list foo/shaped > "$BATS_TEST_TMPDIR/il"
+  run jq -c 'select(.id == "1") | [.state, .class, .created, .closed, .labels, .type, .parent, .url]' "$BATS_TEST_TMPDIR/il"
+  [ "$(printf '%s' "$output" | tr -d '\r')" = '["closed","done","2026-01-03","2026-01-24",["epic"],"issue",null,"https://gitlab.example/foo/shaped/-/issues/1"]' ]
+  # a null description is an empty body
+  run jq -r 'select(.id == "30") | .body' "$BATS_TEST_TMPDIR/il"
+  [ -z "$(printf '%s' "$output" | tr -d '\r')" ]
+}
+
+@test "[gitlab] issue-list fails closed on a record without created_at" {
+  run "$ISSUE_SCRIPT" issue-list foo/nocreated
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"created_at"* ]]
+}
+
+@test "[gitlab] issue-list fails closed on a non-array page" {
+  run timeout 60 "$ISSUE_SCRIPT" issue-list foo/html
+  [ "$status" -eq 5 ]
+  run timeout 60 "$ISSUE_SCRIPT" issue-list foo/object
+  [ "$status" -eq 5 ]
+}
+
+@test "[gitlab] issue-list on 401 exits 3" {
+  run "$ISSUE_SCRIPT" issue-list foo/denied
+  [ "$status" -eq 3 ]
+}
+
+@test "[gitlab] issue-list without a repo exits 1, not 2" {
+  run "$ISSUE_SCRIPT" issue-list
+  [ "$status" -eq 1 ]
+}
