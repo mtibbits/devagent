@@ -52,6 +52,7 @@ def test_contract_parse_issue_list_ok_and_empty():
     ("closed_on_open", rec("2", closed="2026-02-01")),
     ("no_closed_date", rec("2", state="closed", **{"class": "done"})),
     ("duplicate_id", rec("1")),
+    ("bad_id", rec("2}/x")),
 ])
 def test_contract_parse_issue_list_rejects(name, bad):
     with pytest.raises(ValueError, match=r"^malformed line 2: "):

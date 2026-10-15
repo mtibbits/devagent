@@ -272,8 +272,8 @@ cmd_issue_list() {
     [ -n "$iid" ] || continue
     links="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
       bc_curl GET "${base}/projects/${enc}/issues/${iid}/links")" || return
-    pairs+="$(printf '%s' "$links" | jq -c --arg s "$src" '
-      if type != "array" then error("links of #'"$iid"' is not a JSON array") else . end
+    pairs+="$(printf '%s' "$links" | jq -c --arg s "$src" --arg iid "$iid" '
+      if type != "array" then error("links of #\($iid) is not a JSON array") else . end
       | map(select(.link_type == "blocks") | {t: .web_url, s: $s})')"$'\n' || return 5
   done <<<"$blockers"
   edges="$(printf '%s' "$pairs" | jq -cs 'add // [] | group_by(.t)

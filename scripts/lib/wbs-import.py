@@ -110,6 +110,9 @@ def _check_record(rec) -> str | None:
             return f"wrong type in {key}"
     if not rec["id"]:
         return "empty id"
+    # the id lands in a meta block and a devdoc path
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", rec["id"]):
+        return "bad id"
     if rec["state"] not in ("open", "closed"):
         return f"bad state {rec['state']}"
     if rec["class"] not in trk.CLASSES:

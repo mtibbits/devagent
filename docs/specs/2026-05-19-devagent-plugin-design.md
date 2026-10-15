@@ -1859,7 +1859,10 @@ lines in the file's line-ending style (#701).
   then `Unparented`. Glyphs come from the same rule as `wbs update`, so an
   update straight after an import changes nothing in its tracker phase
   (the MR phase may still mark leaves with linked MRs). The survey counts the
-  closed share over all sources combined (not planned counts as closed).
+  closed share over all sources combined (not planned counts as closed);
+  its `dropped_dependencies` counts blocked-by links that name no fetched
+  issue (a link to an issue outside the chosen range is dropped at render,
+  uncounted).
   Below `[project.<p>.wbs].auto_import_below_pct` (default 20) everything
   is imported; at or above it, with no range flag, init prints the survey
   JSON, then the line `WBS-INIT: choose-range`, writes nothing and
