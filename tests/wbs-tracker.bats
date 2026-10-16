@@ -653,3 +653,24 @@ EOF
   run grep -vc '^scripts/lib/wbs-tracker.py:' <<< "$hits"
   [ "$output" = "0" ] || { echo "$hits"; false; }
 }
+
+# _phrase_count <file>: lines of the fall-through phrase in <file>, with comment
+# markers stripped and whitespace collapsed, so a reflow cannot break the pin.
+_phrase_count() {
+  sed 's/^# \{0,1\}//' "$1" | tr -s ' \n' ' ' | grep -cF 'falls through to the next shorter' || true
+}
+
+@test "docs: every home states the fall-through rule (#792)" {
+  # planted control: the pipeline finds the phrase across a wrapped comment
+  printf '%s\n' '# a rest of the wrong shape falls' '#   through to the next' '# shorter dir_prefix' > "$TMPROOT/control"
+  run _phrase_count "$TMPROOT/control"
+  [ "$output" = "1" ]
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" > "$TMPROOT/spec"
+  sed -n '1,/^set -euo pipefail/p' "$REPO/scripts/wbs-update.sh" > "$TMPROOT/header"
+  local home
+  for home in "$TMPROOT/spec" "$REPO/commands/wbs.md" "$TMPROOT/header"; do
+    [ -s "$home" ] || { echo "empty home: $home"; false; }
+    run _phrase_count "$home"
+    [ "$output" -ge 1 ] || { echo "no fall-through rule in $home"; false; }
+  done
+}

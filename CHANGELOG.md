@@ -16,6 +16,21 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `wbs init` and `wbs update` read a leaf's issue id by one rule (#792).**
+  - The rule lives in `scripts/lib/wbs-tracker.py` (`leaf_for`, `parse_leaf`): `dir_prefix`es
+    are tried longest first, and a rest of the wrong shape for the source's backend falls
+    through to the next shorter `dir_prefix`.
+  - Behaviour change in `wbs update`: a fall-through leaf such as `Issue-FOO-1` (a JIRA origin
+    `Issue-` beside a GitHub fork `Issue-F`) now gets its tracker signal instead of none, and
+    a leaf naming the active issue in key form (`Issue-PROJ-12` for `Issue-12`) counts as
+    present, so no second leaf is added under `Unassigned`, also under `--offline`.
+  - `wbs init --merge` now finds and excludes custom-backend and other non-numeric ids
+    (`Issue-abc`, `Issue-T-3`) instead of warning that they are not issue ids.
+  - `wbs init` warns once per run about a leaf two issues share (an origin `F1` under
+    `Issue-` and a fork `1` under `Issue-F` are both `Issue-F1`), naming the issue it
+    resolves to.
+  - `--since` and `--epic` read a `<dir_prefix><id>` on a custom source.
+  - Not breaking: no command, flag or file format is removed or changed in meaning.
 - **Added: `wbs init --merge` adds missing tracker issues to an existing `WBS.md` (#707).**
   - `wbs init --merge` (implies `--from-tracker`; same range flags and threshold) inserts
     each tracker issue the file lacks under its parent's node, else at top level for an

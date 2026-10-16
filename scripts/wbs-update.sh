@@ -8,11 +8,13 @@
 #
 # Tracker sources. A source is configured when its `backend`, `repo` and
 # `dir_prefix` are all set: `issue_source_fork` and `issue_source`. A leaf
-# belongs to the source whose dir_prefix its id carries (the longest match
-# wins: `Issue-Fork-` before `Issue-`); the rest of the id is looked up (GitHub/GitLab: digits; JIRA:
-# digits N read as key `<pk>-N`, pk from scripts/lib/wbs-tracker.py
-# `jira_keyprefix`, or a key verbatim). An id that fits no configured source is no
-# signal. Each source's backend
+# id is read by the rule `wbs init` shares (scripts/lib/wbs-tracker.py
+# `parse_leaf`, #792): dir_prefixes are tried longest first (`Issue-Fork-`
+# before `Issue-`), and the rest of the id must fit the source's backend
+# (GitHub/GitLab: digits; JIRA: digits N read as key `<pk>-N`, pk from
+# `jira_keyprefix`, or a key verbatim; any other backend: any rest). A rest
+# of the wrong shape falls through to the next shorter dir_prefix; an id
+# that fits no configured source is no signal. Each source's backend
 # (${DEVAGENT_ISSUE_BACKEND_DIR:-scripts/issue}/<backend>.sh) is asked once
 # per run, `state-list <repo>` (spec §9.1), for every issue's class. Cost:
 # one call per source per run, ceil(N/100) list pages (GitHub: one
@@ -109,7 +111,9 @@
 # abort skips the MR phase.
 #
 # Plus: if the project's active_issue is set and is not yet present in
-# the WBS, append it under a synthetic "Unassigned" top-level node so
+# the WBS (a leaf is present when it spells the issue exactly, or when the
+# rule above reads both as the same source's same key, online or
+# --offline), append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
 # precedence (local checklist only when the tracker phase aborted); with no
 # signal it is written as `[ ]` with no status_src.
