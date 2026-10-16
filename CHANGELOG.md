@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: `wbs init --merge` adds missing tracker issues to an existing `WBS.md` (#707).**
+  - `wbs init --merge` (implies `--from-tracker`; same range flags and threshold) inserts
+    each tracker issue the file lacks under its parent's node, else at top level for an
+    epic, else under its milestone's node, else under `Unparented` (or an existing
+    `Unassigned`). Existing lines are untouched: the diff is inserted lines only (an
+    unterminated last line gains the file's line ending when a line follows it), and a
+    second run adds nothing.
+  - A deliberately deleted issue stays out when an exclusion line names it:
+    `<!-- wbs-exclude: Issue-12, Issue-40 -->`.
+  - Behaviour change: `wbs init --from-tracker` on an existing `WBS.md` now names
+    `--merge` in its refusal, and the `--force` refusal names `--merge` instead of #707.
+  - Not breaking: no command, flag or file format is removed or changed in meaning.
+
 - **Added: `wbs init --from-tracker` seeds `WBS.md` from tracker history (#706).**
   - `wbs init --from-tracker` builds a new `WBS.md` from every configured issue source's
     issues. Epics (and issues with children) become top-level nodes; children come from
@@ -28,7 +41,7 @@ the README's "Versioning & releases" section has the release procedure.
     at or above it, with no range flag, init prints a survey and `WBS-INIT: choose-range`,
     exits 10 and writes nothing, and `/devagent:wbs` asks how far back to go: `--all`,
     `--since <date|issue-id>`, `--open-only` or `--epic <issue-id>`. `--survey` prints the
-    survey only. An existing `WBS.md` is refused; merging into one is #707.
+    survey only. An existing `WBS.md` is refused; `--merge` adds to one (#707).
   - New optional backend verb `issue-list <repo>` (github, gitlab, jira; the `custom` stub
     exits 78). GitHub needs gh 2.95 or later for native parents and dependencies and falls
     back to GraphQL on an older gh; a GitHub Enterprise server without those GraphQL fields

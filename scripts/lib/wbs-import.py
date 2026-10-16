@@ -35,6 +35,10 @@ The rest is pure work over those records, for scripts/wbs-init.sh:
   three then add every ancestor, and every descendant of those, so an
   imported child brings its epic and an imported epic all its children.
 - `survey` and `render` (see each).
+- `merge` (#707, `wbs init --merge`): the same model and selection, added
+  to an existing WBS.md parsed by wbs-parser.py; only whole lines are
+  inserted (`inserted_only` checks it before the write), and the ids of
+  `<!-- wbs-exclude: ... -->` lines (`exclusions`) are skipped.
 
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
@@ -42,15 +46,19 @@ CLI:
   wbs-import.py run     `wbs init --from-tracker`, configured by environment:
       WBS_IMP_<S>_{FILE,BACKEND,REPO,PREFIX,KEYPREFIX}  S = ORIGIN, FORK
                         (a source with no FILE is absent)
-      WBS_IMP_MODE      survey | import
+      WBS_IMP_MODE      survey | import | merge
       WBS_IMP_RANGE     "" | all | open-only | since:<v> | epic:<v>
       WBS_IMP_PCT       auto_import_below_pct
-      WBS_IMP_PROJECT, WBS_IMP_DEST, WBS_IMP_TEMPLATE, DEVDOC_DIR
-    Exit 0 written (or survey printed); 1 malformed backend output, or DEST
-    already exists; 2 a range value that names nothing; 10 (CHOOSE_RANGE_RC)
-    when no range was given and the closed share is not below the
-    threshold: the survey JSON, then the line CHOOSE_RANGE_MARKER, on
-    stdout, and nothing written.
+      WBS_IMP_PROJECT, WBS_IMP_DEST, WBS_IMP_TEMPLATE (not read by merge),
+      DEVDOC_DIR
+    Exit 0 written (or survey printed, or a merge with nothing to add); 1
+    malformed backend output, DEST already exists (import), DEST unreadable
+    or not UTF-8 (merge), an existing line would change (merge, a bug), or
+    the write fails (merge);
+    2 a range value that names nothing; 10 (CHOOSE_RANGE_RC) when no range
+    was given and the closed share is not below the threshold: the survey
+    JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing
+    written.
 """
 from __future__ import annotations
 
@@ -477,6 +485,11 @@ def _node_for(model: Model, si: int, value: str) -> Node | None:
     return model.by_id.get((si, value))
 
 
+def _hits(model: Model, sis: set[int], value: str) -> list[Node]:
+    """The nodes an _id_token result names, in source order."""
+    return [h for h in (_node_for(model, si, value) for si in sorted(sis)) if h]
+
+
 def _epics_hint(model: Model) -> str:
     groups = [n.leaf for n in model.nodes if n.group]
     return "epics: " + (", ".join(groups) if groups else "(none)")
@@ -508,8 +521,7 @@ def select(model: Model, rng: str) -> set[str]:
         floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
-        sis, v = _id_token(model, value)
-        hits = [h for h in (_node_for(model, si, v) for si in sorted(sis)) if h]
+        hits = _hits(model, *_id_token(model, value))
         if len(hits) > 1:
             raise RangeError(f"--epic {value} is ambiguous; name one of "
                              + ", ".join(h.leaf for h in hits))
@@ -563,18 +575,34 @@ def _glyph(node: Node, devdoc_dir) -> tuple[str, str | None]:
     return got if got else (" ", None)
 
 
-def _issue_node(node: Node, selected: set[str], depth: int, devdoc_dir) -> dict:
+def _issue_node(node: Node, selected: set[str], depth: int, devdoc_dir,
+                deps_in: dict[str, str]) -> dict:
+    """A new node for `node` and its selected children. `depends_on` names
+    the blockers deps_in ({leaf: spelling to write}) holds."""
     glyph, status_src = _glyph(node, devdoc_dir)
     meta: dict = {"issue": node.leaf}
-    deps = [b.leaf for b in node.blockers if b.leaf in selected]
+    deps = [deps_in[b.leaf] for b in node.blockers if b.leaf in deps_in]
     if deps:
         meta["depends_on"] = deps[0] if len(deps) == 1 else deps
     if status_src:
         meta["status_src"] = status_src
     return {"text": safe_title(node.rec["title"]), "glyph": glyph, "depth": depth,
             "meta": meta,
-            "children": [_issue_node(c, selected, depth + 1, devdoc_dir)
+            "children": [_issue_node(c, selected, depth + 1, devdoc_dir, deps_in)
                          for c in node.children if c.leaf in selected]}
+
+
+def _top_level(groups: list[dict], by_ms: dict[str, list[dict]], loose: list[dict]) -> list[dict]:
+    """New top-level nodes in render's order: the groups, one container per
+    milestone (casefolded title order), then `Unparented` when non-empty."""
+    tops = list(groups)
+    for title in sorted(by_ms, key=lambda t: (t.casefold(), t)):
+        tops.append({"text": safe_title(title), "glyph": " ", "depth": 1,
+                     "meta": {"milestone": safe_meta(title)}, "children": by_ms[title]})
+    if loose:
+        tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
+                     "children": loose})
+    return tops
 
 
 def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str) -> str:
@@ -587,25 +615,222 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
     roots = [n for n in model.roots() if n.leaf in selected]
     groups = [n for n in roots if n.group]
     rest = [n for n in roots if not n.group]
-    tops = [_issue_node(n, selected, 1, devdoc_dir) for n in groups]
-    by_ms: dict[str, list[Node]] = {}
+    spell = {leaf: leaf for leaf in selected}
+
+    def new(n: Node, depth: int) -> dict:
+        return _issue_node(n, selected, depth, devdoc_dir, spell)
+
+    group_nodes = [new(n, 1) for n in groups]
+    by_ms: dict[str, list[dict]] = {}
     for n in rest:
         if n.rec["milestone"]:
-            by_ms.setdefault(n.rec["milestone"], []).append(n)
-    for title in sorted(by_ms, key=lambda t: (t.casefold(), t)):
-        tops.append({"text": safe_title(title), "glyph": " ", "depth": 1,
-                     "meta": {"milestone": safe_meta(title)},
-                     "children": [_issue_node(n, selected, 2, devdoc_dir) for n in by_ms[title]]})
-    loose = [n for n in rest if not n.rec["milestone"]]
-    if loose:
-        tops.append({"text": "Unparented", "glyph": " ", "depth": 1, "meta": {},
-                     "children": [_issue_node(n, selected, 2, devdoc_dir) for n in loose]})
+            by_ms.setdefault(n.rec["milestone"], []).append(new(n, 2))
+    tops = _top_level(group_nodes, by_ms, [new(n, 2) for n in rest if not n.rec["milestone"]])
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
     doc = f"{preamble}<!-- {note} -->\n"
     if tops:
         doc += "\n" + _wbs_parser().render_nodes({"title": "", "children": tops})
     return doc
+
+
+# --- merge into an existing WBS (#707) ------------------------------------------
+# One line, outside a fence: `<!-- wbs-exclude: Issue-12, Issue-40 -->`. Ids
+# split on commas and whitespace; several lines form a union. Merge reads
+# them and never writes one.
+EXCLUDE_KEY = "wbs-exclude:"
+ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
+
+
+def _id_parts(model: Model, iid: str) -> tuple[set[int], str] | None:
+    """iid read by _id_token when some configured source reads it as an
+    issue id behind its dir_prefix; else None."""
+    if not any(s["prefix"] and iid.startswith(s["prefix"]) and len(iid) > len(s["prefix"])
+               for s in model.sources):
+        return None
+    try:
+        return _id_token(model, iid)
+    except RangeError:
+        return None
+
+
+def resolve_id(model: Model, iid: str) -> list[Node]:
+    """The tracker issues a WBS `issue` id (or an exclusion id) names, by
+    `wbs update`'s leaf_lookup rule: a configured dir_prefix is required
+    (a bare N or Jira key names nothing), the longest prefix wins, and a
+    Jira source reads digits as <keyprefix>-N or takes a key verbatim."""
+    parts = _id_parts(model, iid)
+    return _hits(model, *parts) if parts else []
+
+
+def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
+    """The exclusion lines' ids as (line, id) pairs, and the warnings.
+
+    A token outside the id charset, or (given a model) one no configured
+    source reads as an id (no dir_prefix, or a bad shape after it), is
+    warned about and skipped; so is a line starting `<!--`
+    that holds `wbs-exclude` (any case) but does not parse. A prefix and a
+    suffix test plus a split: nothing here backtracks on a long line.
+    """
+    lines = text.splitlines(keepends=True)
+    kinds, bodies, _u = _wbs_parser()._classify_lines(lines)
+    ids: list[tuple[int, str]] = []
+    warns: list[str] = []
+    for ln, ((kind, _m), body) in enumerate(zip(kinds, bodies), start=1):
+        if kind in ("fence", "code"):
+            continue
+        s = body.strip(" \t")
+        if not s.startswith("<!--"):
+            continue
+        inner = s[4:-3].strip() if len(s) >= 7 and s.endswith("-->") else None
+        if inner is None or not inner.startswith(EXCLUDE_KEY):
+            if "wbs-exclude" in s.casefold():
+                warns.append(f"wbs init --merge: {dest} line {ln}: not an exclusion line "
+                             f"({EXCLUDE_WANT}); ignored")
+            continue
+        for tok in re.split(r"[,\s]+", inner[len(EXCLUDE_KEY):]):
+            if not tok:
+                continue
+            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and _id_parts(model, tok) is None):
+                warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
+                continue
+            ids.append((ln, tok))
+    return ids, warns
+
+
+def _walk(nodes: list[dict]):
+    """Parsed nodes in document order (the parser appends in line order)."""
+    for n in nodes:
+        yield n
+        yield from _walk(n["children"])
+
+
+def _count_issues(node: dict) -> int:
+    own = 1 if "issue" in node["meta"] else 0
+    return own + sum(_count_issues(c) for c in node["children"])
+
+
+def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
+          excluded_ids: list[str]) -> dict:
+    """Add to a parsed WBS (`tree`, mutated) each selected tracker issue it
+    lacks and no exclusion id names. No existing node is moved or changed.
+
+    Present: a parsed node's `issue` meta resolves to the issue (resolve_id,
+    or an exact leaf match); the first such node is its anchor. Placement,
+    the first rule that fits:
+      1. a parent being added: inside that new parent;
+      2. a present parent: the last child of its anchor;
+      3. a group (epic, or an issue with children): a new top-level node;
+      4. a milestone: under the first node (any depth, document order) with
+         no `issue` meta whose `milestone` meta is the title or its
+         safe_meta form, else a new top-level container per title;
+      5. else under the first top-level `Unparented` with no `issue` meta,
+         else such an `Unassigned`, else a new top-level `Unparented`.
+    New top-level nodes follow the existing ones in render's order: groups,
+    milestone containers (casefolded title order), `Unparented`.
+
+    Returns {added: [leaf...] in node order, under_existing: U, new_tops: T,
+    present: P, excluded: K, warnings: [...]}; a warning names a milestone
+    with several candidate nodes. U and T count issues (a new container is not
+    one), P the selected issues present, K those absent and excluded.
+    """
+    by_leaf = {n.leaf: n for n in model.nodes}
+    existing = list(_walk(tree["children"]))
+    present: dict[str, dict] = {}
+    for pn in existing:
+        iid = pn["meta"].get("issue")
+        if not isinstance(iid, str):
+            continue
+        hits = resolve_id(model, iid) or ([by_leaf[iid]] if iid in by_leaf else [])
+        for h in hits:
+            present.setdefault(h.leaf, pn)
+    excluded = {h.leaf for i in excluded_ids for h in resolve_id(model, i)}
+
+    add = [n for n in model.nodes
+           if n.leaf in selected and n.leaf not in present and n.leaf not in excluded]
+    add_leaves = {n.leaf for n in add}
+    deps_in = {leaf: pn["meta"]["issue"] for leaf, pn in present.items()}
+    deps_in.update((leaf, leaf) for leaf in add_leaves)
+
+    def new(n: Node, depth: int) -> dict:
+        return _issue_node(n, add_leaves, depth, devdoc_dir, deps_in)
+
+    def put_under(home: dict, n: Node) -> None:
+        """n as home's last child, at its last child's parse-time depth
+        (else one deeper), so it lines up with its siblings."""
+        kids = home["children"]
+        kids.append(new(n, kids[-1]["depth"] if kids else home["depth"] + 1))
+
+    containers = [pn for pn in existing if "issue" not in pn["meta"]]
+    tops = [pn for pn in tree["children"] if "issue" not in pn["meta"]]
+    bucket = (next((pn for pn in tops if pn["text"] == "Unparented"), None)
+              or next((pn for pn in tops if pn["text"] == "Unassigned"), None))
+    groups: list[dict] = []
+    new_ms: dict[str, list[dict]] = {}
+    loose: list[dict] = []
+    warnings: list[str] = []
+    homes_for: dict[str, list[dict]] = {}
+    for n in add:
+        if n.parent is not None and n.parent.leaf in add_leaves:
+            continue                                        # rule 1
+        if n.parent is not None and n.parent.leaf in present:
+            put_under(present[n.parent.leaf], n)            # rule 2
+        elif n.group:
+            groups.append(new(n, 1))                        # rule 3
+        elif n.rec["milestone"]:
+            title = n.rec["milestone"]                      # rule 4
+            if title not in homes_for:
+                want = (title, safe_meta(title))
+                homes_for[title] = [pn for pn in containers
+                                    if pn["meta"].get("milestone") in want]
+                if len(homes_for[title]) > 1:
+                    lines = ", ".join(str(pn["source_line"]) for pn in homes_for[title])
+                    warnings.append(f"milestone '{title}' has {len(homes_for[title])} "
+                                    f"candidate nodes (lines {lines}); its issues go under "
+                                    "the first")
+            if homes_for[title]:
+                put_under(homes_for[title][0], n)
+            else:
+                new_ms.setdefault(title, []).append(new(n, 2))
+        elif bucket is not None:
+            put_under(bucket, n)                            # rule 5
+        else:
+            loose.append(new(n, 2))
+
+    added_tops = _top_level(groups, new_ms, loose)
+    tree["children"].extend(added_tops)
+    new_tops = sum(_count_issues(t) for t in added_tops)
+    return {"added": [n.leaf for n in add], "under_existing": len(add) - new_tops,
+            "new_tops": new_tops,
+            "present": sum(1 for leaf in present if leaf in selected),
+            "excluded": sum(1 for leaf in excluded
+                            if leaf in selected and leaf not in present),
+            "warnings": warnings}
+
+
+def inserted_only(old: str, new: str) -> bool:
+    """Whether `new` is `old` with whole lines inserted: old's lines appear
+    in order in new, each with its terminator. The one exception, #701's
+    rule: an unterminated old last line may gain the file's EOL when a line
+    follows it."""
+    parser = _wbs_parser()
+    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    terms = [ln[len(parser._body(ln)):] for ln in olds]
+    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+    j = 0
+    for i, line in enumerate(olds):
+        last_open = i == len(olds) - 1 and not terms[i]
+        while j < len(news):
+            got = news[j]
+            j += 1
+            if got == line and not (last_open and j < len(news)):
+                break
+            if last_open and got == line + eol and j < len(news):
+                break
+        else:
+            return False
+    return True
 
 
 # --- survey -----------------------------------------------------------------------
@@ -706,6 +931,8 @@ def run(env) -> int:
     except RangeError as e:
         _say(f"wbs init: {e}")
         return 2
+    if env.get("WBS_IMP_MODE") == "merge":
+        return _run_merge(model, selected, Path(env["WBS_IMP_DEST"]), env.get("DEVDOC_DIR", ""))
     template = Path(env["WBS_IMP_TEMPLATE"]).read_bytes().decode("utf-8")
     preamble = template_preamble(template.replace("\r\n", "\n"), project)
     froms = ", ".join(f"{s['backend']} {s['repo']}" for s in sources)
@@ -727,6 +954,42 @@ def run(env) -> int:
     if auto:
         line += f"; closed share {sv['closed_share_pct']}% < {pct}%"
     _say(line)
+    return 0
+
+
+def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
+    """`wbs init --merge`: insert the missing issues into dest, writing only
+    when something was added and no existing line would change."""
+    parser = _wbs_parser()
+    try:
+        tree = parser.parse_file(dest)
+    except (OSError, UnicodeDecodeError) as e:
+        _say(f"wbs init --merge: cannot read {dest}: {e}")
+        return 1
+    source = tree["source_text"]
+    ids, warns = exclusions(source, dest, model)
+    for w in warns:
+        _say(w)
+    stats = merge(model, selected, tree, devdoc_dir, [i for _ln, i in ids])
+    for w in stats["warnings"]:
+        _say(f"wbs init --merge: {dest}: {w}")
+    tail = f"{stats['present']} already present, {stats['excluded']} excluded"
+    if not stats["added"]:
+        _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
+        return 0
+    rendered = parser.render_markdown(tree)
+    if not inserted_only(source, rendered):
+        _say(f"wbs init --merge: refusing to write {dest}: an existing line would change "
+             "(a bug; please report); nothing written")
+        return 1
+    try:
+        dest.write_bytes(rendered.encode("utf-8"))
+    except OSError as e:
+        _say(f"wbs init --merge: cannot write {dest}: {e}")
+        return 1
+    _say(f"wbs init --merge: added {len(stats['added'])} issues to {dest} "
+         f"({stats['under_existing']} under existing nodes, {stats['new_tops']} in new "
+         f"top-level nodes); {tail}")
     return 0
 
 

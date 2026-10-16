@@ -18,6 +18,11 @@ usage: /devagent:wbs <init|update|show> [project] [args]
                                         no range flag and a closed share at or above
                                         auto_import_below_pct, print the survey JSON and
                                         WBS-INIT: choose-range and exit 10, writing nothing
+  init --merge [--all | --since <date|issue-id> | --open-only | --epic <issue-id>]
+                                        add the tracker's issues missing from an existing
+                                        <devdoc>/WBS.md under their parent, milestone or
+                                        Unparented; existing lines are untouched; ids in a
+                                        <!-- wbs-exclude: ... --> line are skipped
   init [--from-tracker] --survey        print the survey JSON only
   update [--offline]                    set issue-leaf glyphs from the tracker, linked MRs, else checklists; add the active issue
   show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
