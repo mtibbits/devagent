@@ -289,6 +289,29 @@ def test_jira_leaf_ids_and_number_refs():
                           "Issue-OLD-4": "Issue-1"}
 
 
+# (backend, dir_prefix, keyprefix, record id, leaf): the leaf a writer gives a
+# record (#792 moves this rule into wbs-tracker.py's leaf_for; these rows pin it)
+LEAF_RULE = [
+    ("jira", "Issue-", "PROJ", "PROJ-12", "Issue-12"),
+    ("jira", "Issue-", "PROJ", "OLD-4", "Issue-OLD-4"),
+    ("jira", "Issue-", "PROJ", "FOO-1", "Issue-FOO-1"),
+    ("jira", "Issue-", "PROJ", "PX-5", "Issue-PX-5"),
+    ("jira", "Issue-P", "PK", "X-5", "Issue-PX-5"),
+    ("github", "Issue-F", "", "7", "Issue-F7"),
+    ("gitlab", "Issue-", "", "3", "Issue-3"),
+    ("custom", "Issue-", "", "abc", "Issue-abc"),
+    ("custom", "Issue-", "", "T-3", "Issue-T-3"),
+    ("custom", "Issue-", "", "F1", "Issue-F1"),
+]
+
+
+@pytest.mark.parametrize("backend, prefix, kp, rid, leaf", LEAF_RULE)
+def test_node_leaf_rule_characterized(backend, prefix, kp, rid, leaf):
+    m = wbs_import.build([src([rec(rid)], backend=backend, repo=kp or "o/r",
+                              prefix=prefix, keyprefix=kp)])
+    assert m.nodes[0].leaf == leaf
+
+
 # --- selection ---------------------------------------------------------------
 def demo_model():
     """1 epic (closed) with closed 2 and open 3; 4 epic (closed) with closed
