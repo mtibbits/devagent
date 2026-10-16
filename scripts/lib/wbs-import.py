@@ -68,6 +68,7 @@ import json
 import os
 import re
 from collections import Counter
+from collections.abc import Iterator
 import sys
 from pathlib import Path
 
@@ -363,6 +364,18 @@ def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node
     return (None, "slug-only" if kind == "slug" else "unrecognised-form")
 
 
+def _parent_attempts(model: Model, node: Node) -> Iterator[tuple[str, Node | None, str]]:
+    """Each parent source in precedence order, as (line, parent, why). Lazy, so a
+    native parent that resolves leaves the body unparsed."""
+    native = node.rec.get("parent")
+    if native:
+        yield (f"parent: {native}", *_resolve_url(model, native))
+    pl = parent_line(node.rec["body"], jira=node.source["backend"] == "jira")
+    if pl:
+        kind, value, raw = pl
+        yield (raw, *_resolve_line(model, node, kind, value))
+
+
 def build(sources: list[dict]) -> Model:
     """Nodes, parents and blockers from each source's records.
 
@@ -384,23 +397,11 @@ def build(sources: list[dict]) -> Model:
     wanted: list[tuple[Node, Node, str]] = []
     for node in model.nodes:
         attempts = []
-        got = None
-        native = node.rec.get("parent")
-        if native:
-            got, why = _resolve_url(model, native)
-            if not got:
-                attempts.append((f"parent: {native}", why))
-        if not got:
-            pl = parent_line(node.rec["body"], jira=node.source["backend"] == "jira")
-            if pl:
-                got, why = _resolve_line(model, node, pl[0], pl[1])
-                if not got:
-                    attempts.append((pl[2], why))
-                line = pl[2]
-        else:
-            line = f"parent: {native}"
-        if got:
-            wanted.append((node, got, line))
+        for line, got, why in _parent_attempts(model, node):
+            if got:
+                wanted.append((node, got, line))
+                break
+            attempts.append((line, why))
         else:
             model.unresolved += [{"issue": node.leaf, "line": ln, "reason": why}
                                  for ln, why in attempts]

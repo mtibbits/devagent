@@ -249,6 +249,28 @@ def test_cycle_broken_and_reported():
         ("Issue-2", "cycle"), ("Issue-3", "cycle")]
 
 
+def test_unresolved_entries_do_not_leak_a_prior_parent_line():
+    # Issue-2 resolves first, so a parent line from it is live when the roots are visited.
+    m = wbs_import.build([src([rec("1"), rec("2", body="Parent epic: #1"),
+                               rec("3", parent=GH + "99"),
+                               rec("4"),
+                               rec("5", parent=GH + "98", body="Parent epic: #97")])])
+    assert tree_of(m) == {"Issue-1": None, "Issue-2": "Issue-1", "Issue-3": None,
+                          "Issue-4": None, "Issue-5": None}
+    assert m.unresolved == [
+        {"issue": "Issue-3", "line": "parent: " + GH + "99", "reason": "not-found"},
+        {"issue": "Issue-5", "line": "parent: " + GH + "98", "reason": "not-found"},
+        {"issue": "Issue-5", "line": "Parent epic: #97", "reason": "not-found"}]
+
+
+def test_cycle_entry_carries_the_resolving_parent_line():
+    m = wbs_import.build([src([rec("1", parent=GH + "2"), rec("2", body="Parent epic: #1"),
+                               rec("3", body="Parent epic: #4"), rec("4", parent=GH + "3")])])
+    assert m.unresolved == [
+        {"issue": "Issue-2", "line": "Parent epic: #1", "reason": "cycle"},
+        {"issue": "Issue-4", "line": "parent: " + GH + "3", "reason": "cycle"}]
+
+
 def test_is_epic_type_label_title():
     assert wbs_import.is_epic(rec("1", type="Epic"))
     assert wbs_import.is_epic(rec("1", labels=["EPIC"]))

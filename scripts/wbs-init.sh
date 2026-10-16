@@ -104,6 +104,13 @@ fi
 (( survey == 0 || merge == 0 )) || usage_die "--survey writes nothing; it cannot be combined with --merge"
 (( ranges == 0 || tracker == 1 )) || usage_die "a range flag needs --from-tracker"
 (( survey == 0 || ranges == 0 )) || usage_die "--survey takes no range flag"
+# One mode from here on (#799): template | import | survey | merge; --force
+# modifies template only. The guards above read the parse-time flags, which
+# keeps their error order independent of flag order.
+mode=template
+(( tracker == 0 )) || mode=import
+(( survey == 0 )) || mode=survey
+(( merge == 0 )) || mode=merge
 
 active_resolve_project_try "$project_arg"
 project="$ACTIVE_RESOLVED_PROJECT"
@@ -114,14 +121,12 @@ devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 
 dest="$devdoc_dir/WBS.md"
 
-if (( tracker == 0 )) && [[ -e "$dest" && $force -ne 1 ]]; then
-  die "wbs init: $dest exists; pass --force to overwrite"
-fi
-if (( merge == 1 )); then
-  [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first"
-elif (( tracker == 1 && survey == 0 )) && [[ -e "$dest" ]]; then
-  die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it"
-fi
+case $mode in
+  template) [[ ! -e "$dest" ]] || (( force )) || die "wbs init: $dest exists; pass --force to overwrite" ;;
+  import)   [[ ! -e "$dest" ]] || die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it" ;;
+  merge)    [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first" ;;
+  survey)   ;;  # writes nothing, so an existing WBS.md is fine
+esac
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
 # [project.<name>.paths].wbs_template override (layer 1) is honored — not just
@@ -129,14 +134,14 @@ fi
 # #341. The `if …; then` captures the rc so `set -e` cannot swallow the die on a
 # genuine no-template case (template_resolve returns 1 when no layer matches).
 template=""
-if (( survey == 0 && merge == 0 )); then
+if [[ $mode == template || $mode == import ]]; then
   if resolved="$(template_resolve "$project" wbs_template)"; then
     template="$(printf '%s\n' "$resolved" | sed -n 's/^path=//p')"
   fi
   [[ -n "$template" ]] || die "no wbs_template.md found for '$project' (checked project paths, devdoc, plugin)"
 fi
 
-if (( tracker == 0 )); then
+if [[ $mode == template ]]; then
   mkdir -p "$(dirname "$dest")"
   sed -e "s|{{PROJECT}}|${project}|g" "$template" > "$dest"
   info "wbs init: wrote $dest from $template"
@@ -191,9 +196,6 @@ _imp_fetch() {
 _imp_fetch ORIGIN issue_source
 _imp_fetch FORK issue_source_fork
 
-mode=import
-(( survey == 0 )) || mode=survey
-(( merge == 0 )) || mode=merge
 env "${imp_env[@]}" \
   WBS_IMP_MODE="$mode" WBS_IMP_RANGE="$range" WBS_IMP_PCT="$pct" \
   WBS_IMP_PROJECT="$project" WBS_IMP_DEST="$dest" WBS_IMP_TEMPLATE="$template" \
