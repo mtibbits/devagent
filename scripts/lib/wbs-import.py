@@ -68,6 +68,7 @@ import json
 import os
 import re
 from collections import Counter
+from collections.abc import Iterator
 import sys
 from pathlib import Path
 
@@ -363,7 +364,7 @@ def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node
     return (None, "slug-only" if kind == "slug" else "unrecognised-form")
 
 
-def _parent_attempts(model: Model, node: Node):
+def _parent_attempts(model: Model, node: Node) -> Iterator[tuple[str, Node | None, str]]:
     """Each parent source in precedence order, as (line, parent, why). Lazy, so a
     native parent that resolves leaves the body unparsed."""
     native = node.rec.get("parent")

@@ -125,6 +125,7 @@ case $mode in
   template) [[ ! -e "$dest" ]] || (( force )) || die "wbs init: $dest exists; pass --force to overwrite" ;;
   import)   [[ ! -e "$dest" ]] || die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it" ;;
   merge)    [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first" ;;
+  survey)   ;;  # writes nothing, so an existing WBS.md is fine
 esac
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
