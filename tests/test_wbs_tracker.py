@@ -202,3 +202,104 @@ def test_checklist_state_pending(tmp_path):
 def test_checklist_state_unterminated_last_row_counts(tmp_path):
     _checklist(tmp_path, "- [x]  0. pull\n- [x]  1. draft", newline=False)
     assert wbs_tracker.checklist_state(tmp_path, "Issue-1") == "x"
+
+
+# --- the leaf <-> issue-id codec (#792) ----------------------------------------
+def _src(prefix, backend, keyprefix=""):
+    return {"prefix": prefix, "backend": backend, "keyprefix": keyprefix}
+
+
+JIRA_ORIGIN = _src("Issue-", "jira", "PROJ")
+GH_FORK = _src("Issue-F", "github")
+WORKED = [JIRA_ORIGIN, GH_FORK]
+
+
+@pytest.mark.parametrize("iid, which, key", [
+    ("Issue-FOO-1", 0, "FOO-1"),
+    ("Issue-F7", 1, "7"),
+    ("Issue-12", 0, "PROJ-12"),
+    ("Issue-PROJ-12", 0, "PROJ-12"),
+])
+def test_parse_leaf_worked_example(iid, which, key):
+    got = wbs_tracker.parse_leaf(WORKED, iid)
+    assert got is not None
+    assert got[0] is WORKED[which]
+    assert got[1] == key
+
+
+@pytest.mark.parametrize("backend, iid, key", [
+    ("github", "Issue-7", "7"),
+    ("github", "Issue-x", None),
+    ("gitlab", "Issue-7", "7"),
+    ("gitlab", "Issue-x", None),
+    ("jira", "Issue-12", "PROJ-12"),
+    ("jira", "Issue-OLD-4", "OLD-4"),
+    ("jira", "Issue-abc-5", None),
+    ("custom", "Issue-abc", "abc"),
+    ("custom", "Issue-T-3", "T-3"),
+    ("custom", "Issue-", None),
+    ("custom", "Task-5", None),
+])
+def test_parse_leaf_accepts_by_backend_shape(backend, iid, key):
+    one = _src("Issue-", backend, "PROJ" if backend == "jira" else "")
+    got = wbs_tracker.parse_leaf([one], iid)
+    if key is None:
+        assert got is None
+    else:
+        assert got == (one, key)
+        assert got[0] is one
+
+
+def test_parse_leaf_never_matches_an_empty_prefix():
+    blank = _src("", "custom")
+    assert wbs_tracker.parse_leaf([blank], "Issue-7") is None
+    assert wbs_tracker.parse_leaf([blank], "7") is None
+    gh = _src("Issue-", "github")
+    assert wbs_tracker.parse_leaf([blank, gh], "Issue-7")[0] is gh
+
+
+def test_parse_leaf_falls_through_to_a_shorter_prefix():
+    assert wbs_tracker.parse_leaf(WORKED, "Issue-FOO-1")[0] is JIRA_ORIGIN
+    origin, fork = _src("Issue-", "custom"), _src("Issue-F", "github")
+    assert wbs_tracker.parse_leaf([origin, fork], "Issue-Fx") == (origin, "Fx")
+    assert wbs_tracker.parse_leaf([origin, fork], "Issue-Fx")[0] is origin
+    assert wbs_tracker.parse_leaf([origin, fork], "Issue-F1") == (fork, "1")
+    assert wbs_tracker.parse_leaf([origin, fork], "Issue-F1")[0] is fork
+
+
+def test_parse_leaf_order_independent():
+    rev = list(reversed(WORKED))
+    for iid in ("Issue-FOO-1", "Issue-F7", "Issue-12", "Issue-PROJ-12", "Issue-TODO"):
+        a, b = wbs_tracker.parse_leaf(WORKED, iid), wbs_tracker.parse_leaf(rev, iid)
+        assert a == b, iid
+        assert a is None or a[0] is b[0], iid
+
+
+def test_parse_leaf_issue_todo_on_github_is_none():
+    assert wbs_tracker.parse_leaf([_src("Issue-", "github")], "Issue-TODO") is None
+
+
+# The same rows as test_wbs_import.py's LEAF_RULE (Node.leaf's rule at fd44173).
+@pytest.mark.parametrize("backend, prefix, kp, rid, leaf", [
+    ("jira", "Issue-", "PROJ", "PROJ-12", "Issue-12"),
+    ("jira", "Issue-", "PROJ", "OLD-4", "Issue-OLD-4"),
+    ("jira", "Issue-", "PROJ", "FOO-1", "Issue-FOO-1"),
+    ("jira", "Issue-", "PROJ", "PX-5", "Issue-PX-5"),
+    ("jira", "Issue-P", "PK", "X-5", "Issue-PX-5"),
+    ("github", "Issue-F", "", "7", "Issue-F7"),
+    ("gitlab", "Issue-", "", "3", "Issue-3"),
+    ("custom", "Issue-", "", "abc", "Issue-abc"),
+    ("custom", "Issue-", "", "T-3", "Issue-T-3"),
+    ("custom", "Issue-", "", "F1", "Issue-F1"),
+])
+def test_leaf_for_rule(backend, prefix, kp, rid, leaf):
+    assert wbs_tracker.leaf_for(_src(prefix, backend, kp), rid) == leaf
+
+
+@pytest.mark.parametrize("env, want", [
+    ({"DEVAGENT_JIRA_PROJECT_KEY": "ALT"}, "ALT"),
+    ({}, "PROJ"),
+    ({"DEVAGENT_JIRA_PROJECT_KEY": ""}, "PROJ"),
+])
+def test_jira_keyprefix_env_then_repo(env, want):
+    assert wbs_tracker.jira_keyprefix(env, "PROJ") == want

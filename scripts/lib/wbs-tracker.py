@@ -9,7 +9,10 @@ the local checklist, which `checklist_state` reads (shared by `wbs update`
 and `wbs init --from-tracker`, #706). Reconcile and auto-add both call `resolve`, so the
 two entry points cannot drift. `mr_effect` is the MR phase's rule (#704):
 it applies a leaf's linked-MR state (scripts/lib/mr-link.py) on top of
-the tracker phase's result.
+the tracker phase's result. `leaf_for` and `parse_leaf` are the one rule
+between a WBS leaf's `issue` id and a tracker issue (#792): `wbs init`
+writes leaves with the first, and it and `wbs update` read them with the
+second.
 
 CLI:
   wbs-tracker.py check   read state-list output on stdin; print the issue
@@ -21,6 +24,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 CLASSES = ("done", "not_planned", "in_progress", "open", "other")
@@ -48,6 +52,72 @@ def parse_state_list(text: str) -> dict[str, str]:
             raise ValueError(f"malformed line {n}: {line}")
         out[iid] = cls
     return out
+
+
+# --- the leaf <-> issue-id codec (#792) -----------------------------------------
+# A source is any mapping with `prefix` (its dir_prefix), `backend` and
+# `keyprefix` (the Jira key prefix; "" off Jira).
+DIGITS_RE = re.compile(r"[0-9]+")                    # used with fullmatch
+JIRA_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+")  # used with fullmatch
+
+
+def jira_keyprefix(env: Mapping[str, str], repo: str) -> str:
+    """The Jira key prefix a source's bare numbers stand for: the
+    DEVAGENT_JIRA_PROJECT_KEY variable when it is set and non-empty, else
+    the source's repo. This is the rule scripts/issue/jira.sh uses when it
+    creates an issue. The caller passes its environment in, so nothing is
+    read at import time."""
+    return env.get("DEVAGENT_JIRA_PROJECT_KEY") or repo
+
+
+def leaf_for(source: Mapping[str, str], record_id: str) -> str:
+    """The leaf id a writer gives a tracker record: the source's dir_prefix
+    and the record id. On Jira, a key `<keyprefix>-N` is written as the
+    number N alone (the Jira backend's internal id convention, #756).
+
+    The map is not injective across sources: an origin record `F1` under
+    `Issue-` and a fork record `1` under `Issue-F` both give `Issue-F1`.
+    That is why callers that ask "is this record present" also accept an
+    exact leaf match.
+    """
+    kp = source.get("keyprefix") or ""
+    if source["backend"] == "jira" and kp and re.fullmatch(re.escape(kp) + r"-[0-9]+", record_id):
+        return f"{source['prefix']}{int(record_id.rsplit('-', 1)[1])}"
+    return f"{source['prefix']}{record_id}"
+
+
+def parse_leaf(
+    sources: Sequence[Mapping[str, str]], iid: str
+) -> tuple[Mapping[str, str], str] | None:
+    """The (source, record id) a leaf id names, or None (#792).
+
+    A dir_prefix is required: a bare number or key names nothing, and a
+    source with an empty dir_prefix is never matched. Prefixes are tried
+    longest first, and the rest of the id must have the source backend's
+    shape: GitHub and GitLab take digits; Jira takes digits N as the key
+    `<keyprefix>-N`, or a key verbatim; any other backend takes any rest.
+    A rest of the wrong shape falls through to the next shorter prefix, so
+    `Issue-FOO-1` passes a GitHub fork `Issue-F` and reaches a Jira origin
+    `Issue-`. No prefix left gives None. The source returned is the very
+    mapping passed in.
+    """
+    for src in sorted((s for s in sources if s["prefix"]), key=lambda s: -len(s["prefix"])):
+        prefix = src["prefix"]
+        if len(iid) <= len(prefix) or not iid.startswith(prefix):
+            continue
+        rest = iid[len(prefix):]
+        backend = src["backend"]
+        if backend in ("github", "gitlab"):
+            if DIGITS_RE.fullmatch(rest):
+                return (src, rest)
+        elif backend == "jira":
+            if DIGITS_RE.fullmatch(rest):
+                return (src, f"{src['keyprefix']}-{rest}")
+            if JIRA_KEY_RE.fullmatch(rest):
+                return (src, rest)
+        else:
+            return (src, rest)
+    return None
 
 
 # Step row `- [<glyph>] <num>. <name>`: _checklist_line_re
