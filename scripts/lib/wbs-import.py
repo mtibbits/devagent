@@ -44,8 +44,10 @@ CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
                         count and exit 0, or the error on stderr and exit 1.
   wbs-import.py run     `wbs init --from-tracker`, configured by environment:
-      WBS_IMP_<S>_{FILE,BACKEND,REPO,PREFIX,KEYPREFIX}  S = ORIGIN, FORK
-                        (a source with no FILE is absent)
+      WBS_IMP_<S>_{FILE,BACKEND,REPO,PREFIX}  S = ORIGIN, FORK
+                        (a source with no FILE is absent); a Jira source's
+                        key prefix comes from DEVAGENT_JIRA_PROJECT_KEY,
+                        else its repo (wbs-tracker.py `jira_keyprefix`)
       WBS_IMP_MODE      survey | import | merge
       WBS_IMP_RANGE     "" | all | open-only | since:<v> | epic:<v>
       WBS_IMP_PCT       auto_import_below_pct
@@ -178,7 +180,7 @@ PARENT_KEY_RE = re.compile(
     r"^[ \t]*(?:[-*>][ \t]*)?(?:\*\*|__)?parent epic(?:\*\*|__)?:(?:\*\*|__)?[ \t]*",
     re.IGNORECASE)
 NUM_RE = re.compile(r"#([0-9]+)")
-JIRA_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+")
+JIRA_KEY_RE = trk.JIRA_KEY_RE
 MD_LINK_URL_RE = re.compile(r"\]\((https?://[^()\s]+)\)")
 URL_RE = re.compile(r"https?://\S+")
 REPO_NUM_RE = re.compile(r"(?P<repo>[^\s/#]+/[^\s#]+)#(?P<n>[0-9]+)")
@@ -288,11 +290,7 @@ class Node:
         self.si, self.source, self.rec = si, source, rec
         rid = rec["id"]
         self.num = _tail_num(rid)
-        kp = source.get("keyprefix") or ""
-        if source["backend"] == "jira" and kp and re.fullmatch(re.escape(kp) + r"-[0-9]+", rid):
-            self.leaf = f"{source['prefix']}{self.num}"
-        else:
-            self.leaf = f"{source['prefix']}{rid}"
+        self.leaf = trk.leaf_for(source, rid)
         self.parent: Node | None = None
         self.children: list[Node] = []
         self.blockers: list[Node] = []
@@ -457,21 +455,20 @@ def _close(base: list[Node]) -> set[str]:
     return {n.leaf for n in seen}
 
 
+def _source_index(model: Model, source) -> int:
+    """The index of a model source, by identity (parse_leaf returns it)."""
+    return next(i for i, s in enumerate(model.sources) if s is source)
+
+
 def _id_token(model: Model, token: str) -> tuple[set[int], str]:
     """An <issue-id> as (source indexes, id-or-number): a bare N names every
-    source; <dir_prefix>N (or <dir_prefix><KEY>) one; a Jira key the Jira
-    sources."""
+    source; a leaf id names the one source the shared codec reads it in
+    (wbs-tracker.py `parse_leaf`, #792); a Jira key the Jira sources."""
     if re.fullmatch(r"[0-9]+", token):
         return (set(range(len(model.sources))), token)
-    order = sorted(range(len(model.sources)), key=lambda i: -len(model.sources[i]["prefix"]))
-    for si in order:
-        prefix = model.sources[si]["prefix"]
-        if prefix and token.startswith(prefix) and len(token) > len(prefix):
-            rest = token[len(prefix):]
-            if re.fullmatch(r"[0-9]+", rest) or (
-                model.sources[si]["backend"] == "jira" and JIRA_KEY_RE.fullmatch(rest)
-            ):
-                return ({si}, rest)
+    hit = trk.parse_leaf(model.sources, token)
+    if hit is not None:
+        return ({_source_index(model, hit[0])}, hit[1])
     if JIRA_KEY_RE.fullmatch(token):
         jira = {i for i, s in enumerate(model.sources) if s["backend"] == "jira"}
         if not jira:
@@ -644,33 +641,57 @@ ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 
 
-def _id_parts(model: Model, iid: str) -> tuple[set[int], str] | None:
-    """iid read by _id_token when some configured source reads it as an
-    issue id behind its dir_prefix; else None."""
-    if not any(s["prefix"] and iid.startswith(s["prefix"]) and len(iid) > len(s["prefix"])
-               for s in model.sources):
-        return None
-    try:
-        return _id_token(model, iid)
-    except RangeError:
-        return None
-
-
 def resolve_id(model: Model, iid: str) -> list[Node]:
-    """The tracker issues a WBS `issue` id (or an exclusion id) names, by
-    `wbs update`'s leaf_lookup rule: a configured dir_prefix is required
-    (a bare N or Jira key names nothing), the longest prefix wins, and a
-    Jira source reads digits as <keyprefix>-N or takes a key verbatim."""
-    parts = _id_parts(model, iid)
-    return _hits(model, *parts) if parts else []
+    """The tracker issue a WBS `issue` id (or an exclusion id) names, by the
+    shared codec (wbs-tracker.py `parse_leaf`), as `wbs update` reads it:
+    a configured dir_prefix is required (a bare N or Jira key names
+    nothing), and the rest must fit the source's backend, else the next
+    shorter dir_prefix is tried. [] when it names no fetched record."""
+    hit = trk.parse_leaf(model.sources, iid)
+    if hit is None:
+        return []
+    node = model.by_id.get((_source_index(model, hit[0]), hit[1]))
+    return [node] if node else []
+
+
+def _is_leaf(model: Model, iid: str) -> bool:
+    return any(n.leaf == iid for n in model.nodes)
+
+
+def named_leaves(model: Model, iid: str) -> set[str]:
+    """The leaves of the records a WBS id names: the codec's answer united
+    with an exact leaf match. A writer's leaf may read as another record
+    (leaf_for is not injective), so presence and exclusion take both."""
+    leaves = {n.leaf for n in resolve_id(model, iid)}
+    if _is_leaf(model, iid):
+        leaves.add(iid)
+    return leaves
+
+
+def leaf_collisions(model: Model, mode: str) -> list[str]:
+    """One warning per leaf two or more records share, in node order;
+    `mode` prefixes it (`wbs init` or `wbs init --merge`)."""
+    groups: dict[str, list[Node]] = {}
+    for n in model.nodes:
+        groups.setdefault(n.leaf, []).append(n)
+    out = []
+    for leaf, nodes in groups.items():
+        if len(nodes) < 2:
+            continue
+        names = [f"{n.source['source']} {n.rec['id']}" for n in nodes]
+        who = ", ".join(names[:-1]) + " and " + names[-1]
+        hit = trk.parse_leaf(model.sources, leaf)
+        answer = f"{hit[0]['source']} {hit[1]}" if hit else "no issue"
+        out.append(f"{mode}: leaf {leaf} names {who}; it resolves to {answer}")
+    return out
 
 
 def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
     """The exclusion lines' ids as (line, id) pairs, and the warnings.
 
-    A token outside the id charset, or (given a model) one no configured
-    source reads as an id (no dir_prefix, or a bad shape after it), is
-    warned about and skipped; so is a line starting `<!--`
+    A token outside the id charset, or (given a model) one that is neither
+    read as an id by the shared codec (no dir_prefix, or a bad shape after
+    every one) nor some record's exact leaf, is warned about and skipped; so is a line starting `<!--`
     that holds `wbs-exclude` (any case) but does not parse. A prefix and a
     suffix test plus a split: nothing here backtracks on a long line.
     """
@@ -693,7 +714,13 @@ def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[
         for tok in re.split(r"[,\s]+", inner[len(EXCLUDE_KEY):]):
             if not tok:
                 continue
-            if not ID_TOKEN_RE.fullmatch(tok) or (model is not None and _id_parts(model, tok) is None):
+            # Deliberately by SHAPE, not by "names a record": a well-formed
+            # Issue-99 that no fetched record has passes silently. The
+            # presence and exclusion sets (named_leaves) are by record.
+            if not ID_TOKEN_RE.fullmatch(tok) or (
+                model is not None and trk.parse_leaf(model.sources, tok) is None
+                and not _is_leaf(model, tok)
+            ):
                 warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
                 continue
             ids.append((ln, tok))
@@ -717,8 +744,9 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     """Add to a parsed WBS (`tree`, mutated) each selected tracker issue it
     lacks and no exclusion id names. No existing node is moved or changed.
 
-    Present: a parsed node's `issue` meta resolves to the issue (resolve_id,
-    or an exact leaf match); the first such node is its anchor. Placement,
+    Present: a parsed node's `issue` meta names the issue, by the shared
+    codec (resolve_id) or by an exact leaf match, both counting
+    (named_leaves); the first such node is its anchor. Placement,
     the first rule that fits:
       1. a parent being added: inside that new parent;
       2. a present parent: the last child of its anchor;
@@ -736,17 +764,15 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     with several candidate nodes. U and T count issues (a new container is not
     one), P the selected issues present, K those absent and excluded.
     """
-    by_leaf = {n.leaf: n for n in model.nodes}
     existing = list(_walk(tree["children"]))
     present: dict[str, dict] = {}
     for pn in existing:
         iid = pn["meta"].get("issue")
         if not isinstance(iid, str):
             continue
-        hits = resolve_id(model, iid) or ([by_leaf[iid]] if iid in by_leaf else [])
-        for h in hits:
-            present.setdefault(h.leaf, pn)
-    excluded = {h.leaf for i in excluded_ids for h in resolve_id(model, i)}
+        for leaf in named_leaves(model, iid):
+            present.setdefault(leaf, pn)
+    excluded = {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
 
     add = [n for n in model.nodes
            if n.leaf in selected and n.leaf not in present and n.leaf not in excluded]
@@ -904,8 +930,9 @@ def run(env) -> int:
             continue
         src = {"source": name, "backend": env.get(f"WBS_IMP_{S}_BACKEND", ""),
                "repo": env.get(f"WBS_IMP_{S}_REPO", ""),
-               "prefix": env.get(f"WBS_IMP_{S}_PREFIX", ""),
-               "keyprefix": env.get(f"WBS_IMP_{S}_KEYPREFIX", "")}
+               "prefix": env.get(f"WBS_IMP_{S}_PREFIX", "")}
+        src["keyprefix"] = (trk.jira_keyprefix(env, src["repo"])
+                            if src["backend"] == "jira" else "")
         try:
             src["records"] = parse_issue_list(Path(f).read_bytes().decode("utf-8", "replace"))
         except ValueError as e:
@@ -932,7 +959,10 @@ def run(env) -> int:
     except RangeError as e:
         _say(f"wbs init: {e}")
         return 2
-    if env.get("WBS_IMP_MODE") == "merge":
+    merging = env.get("WBS_IMP_MODE") == "merge"
+    for w in leaf_collisions(model, "wbs init --merge" if merging else "wbs init"):
+        _say(w)
+    if merging:
         return _run_merge(model, selected, Path(env["WBS_IMP_DEST"]), env.get("DEVDOC_DIR", ""))
     template = Path(env["WBS_IMP_TEMPLATE"]).read_bytes().decode("utf-8")
     preamble = template_preamble(template.replace("\r\n", "\n"), project)
