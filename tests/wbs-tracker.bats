@@ -84,6 +84,31 @@ _list_on() {
   printf '%s\n' "$@" > "$TMPROOT/state-list.$backend.${repo//\//_}"
 }
 
+# _key_form_leg [--offline]: a WBS whose only leaf names PROJ-12 in key form;
+# active Issue-12 is present (no second leaf), active Issue-13 is added.
+_key_form_leg() {
+  _config jira PROJ no
+  _list_on jira PROJ $'PROJ-12\tin_progress'
+  printf '%s\n' '# testproj WBS' '' '- [ ] Twelve {issue: Issue-PROJ-12, est: 1w}' > "$TMPDEV/WBS.input"
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _active Issue-12
+  _update "$@"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  run grep -c Unassigned "$TMPDEV/WBS.md"
+  [ "$output" = "0" ]
+  run grep -c '{issue: Issue-12,' "$TMPDEV/WBS.md"
+  [ "$output" = "0" ]
+  # positive control: an issue no leaf names is added once
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _active Issue-13
+  _update "$@"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  run grep -c Unassigned "$TMPDEV/WBS.md"
+  [ "$output" = "1" ]
+  run grep -c '{issue: Issue-13, est: ?w' "$TMPDEV/WBS.md"
+  [ "$output" = "1" ]
+}
+
 # _list_fail <repo> <rc> <stderr>: the stub's state-list for <repo> fails.
 _list_fail() {
   local f="$TMPROOT/state-list.github.${1//\//_}"
@@ -575,31 +600,6 @@ EOF
   [ "$output" = "1" ]
   _update
   [[ "$output" != *WARNING* ]]
-}
-
-# _key_form_leg [--offline]: a WBS whose only leaf names PROJ-12 in key form;
-# active Issue-12 is present (no second leaf), active Issue-13 is added.
-_key_form_leg() {
-  _config jira PROJ no
-  _list_on jira PROJ $'PROJ-12\tin_progress'
-  printf '%s\n' '# testproj WBS' '' '- [ ] Twelve {issue: Issue-PROJ-12, est: 1w}' > "$TMPDEV/WBS.input"
-  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
-  _active Issue-12
-  _update "$@"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  run grep -c Unassigned "$TMPDEV/WBS.md"
-  [ "$output" = "0" ]
-  run grep -c '{issue: Issue-12,' "$TMPDEV/WBS.md"
-  [ "$output" = "0" ]
-  # positive control: an issue no leaf names is added once
-  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
-  _active Issue-13
-  _update "$@"
-  [ "$status" -eq 0 ] || { echo "$output"; false; }
-  run grep -c Unassigned "$TMPDEV/WBS.md"
-  [ "$output" = "1" ]
-  run grep -c '{issue: Issue-13, est: ?w' "$TMPDEV/WBS.md"
-  [ "$output" = "1" ]
 }
 
 @test "a key-form leaf names the active issue: no second leaf, online (#792)" {
