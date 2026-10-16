@@ -500,6 +500,26 @@ _only_inserts() {
   grep -vE '^([0-9]+a[0-9]+(,[0-9]+)?|> .*)$' "$TMPROOT/hunks"
 }
 
+# _swap <flagsA> <flagsB>: `wbs init` with each flag string (word-split), each
+# from the base WBS.md; leaves rc_a/rc_b, out_a/out_b, err_a/err_b and
+# $TMPROOT/wbs_a, $TMPROOT/wbs_b, and asserts the two orders agree
+_swap() {
+  cp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  # shellcheck disable=SC2086
+  _init $1
+  rc_a=$status; out_a=$output; err_a=$stderr
+  cp "$TMPDEV/WBS.md" "$TMPROOT/wbs_a"
+  cp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  # shellcheck disable=SC2086
+  _init $2
+  rc_b=$status; out_b=$output; err_b=$stderr
+  cp "$TMPDEV/WBS.md" "$TMPROOT/wbs_b"
+  [ "$rc_a" -eq "$rc_b" ] || { echo "'$1' -> $rc_a, '$2' -> $rc_b"; false; }
+  [ "$out_a" = "$out_b" ]
+  [ "$err_a" = "$err_b" ]
+  cmp "$TMPROOT/wbs_a" "$TMPROOT/wbs_b"
+}
+
 @test "--merge adds exactly the missing issues under the expected nodes, inserted lines only (every variant)" {
   local kind eol rc
   for kind in lf crlf lf-nofinal crlf-nofinal; do
@@ -641,6 +661,39 @@ _shaped_import_cut() {
   cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
   [ ! -s "$TMPROOT/backend.log" ]
   [ ! -s "$TMPROOT/gh.log" ]
+}
+
+@test "wbs init: order-swapped flag pairs agree, and the multi-error order holds" {
+  _merge_setup lf
+  # the merge pair writes, the same in both orders
+  _swap "--merge --from-tracker --all" "--from-tracker --merge --all"
+  [ "$rc_a" -eq 0 ] || { echo "$err_a"; false; }
+  [[ "$err_a" == *"added 10 issues"* ]]
+  run cmp -s "$TMPROOT/base" "$TMPROOT/wbs_a"
+  [ "$status" -eq 1 ]
+  # the survey pair prints the same survey and writes nothing
+  _swap "--survey --from-tracker" "--from-tracker --survey"
+  [ "$rc_a" -eq 0 ] || { echo "$err_a"; false; }
+  jq -e '.total == 16' <<<"$out_a" >/dev/null
+  jq -e '.total == 16' <<<"$out_b" >/dev/null
+  cmp "$TMPROOT/base" "$TMPROOT/wbs_a"
+  cmp "$TMPROOT/base" "$TMPROOT/wbs_b"
+  # from here on, no tracker call
+  : > "$TMPROOT/backend.log"
+  _swap "--survey --merge" "--merge --survey"
+  [ "$rc_a" -eq 2 ]
+  [[ "$err_a" == *"cannot be combined with --merge"* ]]
+  cmp "$TMPROOT/base" "$TMPROOT/wbs_a"
+  # with several errors, a parse-loop error comes first, then the range count
+  _init --merge --survey --bogus
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"unknown flag '--bogus'"* ]]
+  _init --merge --survey --all --open-only
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"give at most one of"* ]]
+  [ ! -s "$TMPROOT/gh.log" ]
+  cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  [ ! -s "$TMPROOT/backend.log" ]
 }
 
 @test "--merge with no range at or above the threshold: survey, marker, exit 10, WBS.md unchanged" {
