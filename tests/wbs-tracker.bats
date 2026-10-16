@@ -644,3 +644,12 @@ EOF
   printf '%s\n' '# testproj WBS' '' '- [~] Todo {issue: Issue-TODO, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   _update_diff --offline
 }
+
+@test "DEVAGENT_JIRA_PROJECT_KEY has one home outside the backends (#792)" {
+  # wbs-tracker.py `jira_keyprefix` is the one reader outside scripts/issue/
+  run git -C "$REPO" grep -n DEVAGENT_JIRA_PROJECT_KEY -- scripts ':!scripts/issue'
+  [ "$status" -eq 0 ] || { echo "no hit: the guard measures nothing"; false; }
+  local hits="$output"
+  run grep -vc '^scripts/lib/wbs-tracker.py:' <<< "$hits"
+  [ "$output" = "0" ] || { echo "$hits"; false; }
+}

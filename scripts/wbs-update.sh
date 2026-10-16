@@ -10,8 +10,8 @@
 # `dir_prefix` are all set: `issue_source_fork` and `issue_source`. A leaf
 # belongs to the source whose dir_prefix its id carries (the longest match
 # wins: `Issue-Fork-` before `Issue-`); the rest of the id is looked up (GitHub/GitLab: digits; JIRA:
-# digits N read as key `<pk>-N`, pk = DEVAGENT_JIRA_PROJECT_KEY else the
-# repo, or a key verbatim). An id that fits no configured source is no
+# digits N read as key `<pk>-N`, pk from scripts/lib/wbs-tracker.py
+# `jira_keyprefix`, or a key verbatim). An id that fits no configured source is no
 # signal. Each source's backend
 # (${DEVAGENT_ISSUE_BACKEND_DIR:-scripts/issue}/<backend>.sh) is asked once
 # per run, `state-list <repo>` (spec §9.1), for every issue's class. Cost:

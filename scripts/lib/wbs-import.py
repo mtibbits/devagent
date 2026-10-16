@@ -46,8 +46,7 @@ CLI:
   wbs-import.py run     `wbs init --from-tracker`, configured by environment:
       WBS_IMP_<S>_{FILE,BACKEND,REPO,PREFIX}  S = ORIGIN, FORK
                         (a source with no FILE is absent); a Jira source's
-                        key prefix comes from DEVAGENT_JIRA_PROJECT_KEY,
-                        else its repo (wbs-tracker.py `jira_keyprefix`)
+                        key prefix is wbs-tracker.py `jira_keyprefix`
       WBS_IMP_MODE      survey | import | merge
       WBS_IMP_RANGE     "" | all | open-only | since:<v> | epic:<v>
       WBS_IMP_PCT       auto_import_below_pct
