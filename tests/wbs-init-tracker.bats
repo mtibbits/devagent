@@ -514,7 +514,7 @@ _swap() {
   _init $2
   rc_b=$status; out_b=$output; err_b=$stderr
   cp "$TMPDEV/WBS.md" "$TMPROOT/wbs_b"
-  [ "$rc_a" -eq "$rc_b" ] || { echo "'$1' -> $rc_a, '$2' -> $rc_b"; false; }
+  [ "$rc_a" -eq "$rc_b" ] || { echo "'$1' -> $rc_a, '$2' -> $rc_b"; printf '%s\n--\n%s\n' "$err_a" "$err_b"; false; }
   [ "$out_a" = "$out_b" ] || { diff <(printf '%s\n' "$out_a") <(printf '%s\n' "$out_b"); false; }
   [ "$err_a" = "$err_b" ] || { diff <(printf '%s\n' "$err_a") <(printf '%s\n' "$err_b"); false; }
   cmp "$TMPROOT/wbs_a" "$TMPROOT/wbs_b"
