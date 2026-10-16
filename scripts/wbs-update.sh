@@ -444,8 +444,14 @@ def names_issue(iid, issue) -> bool:
         return True
     if not isinstance(iid, str):
         return False
-    a, b = trk.parse_leaf(sources, iid), trk.parse_leaf(sources, issue)
+    a, b = leaf_hit(iid), leaf_hit(issue)
     return a is not None and b is not None and a[0] is b[0] and a[1] == b[1]
+
+
+@functools.lru_cache(maxsize=None)
+def leaf_hit(iid: str):
+    # memoised: the active issue is read once, not at every node visited
+    return trk.parse_leaf(sources, iid)
 
 
 def find_issue_node(node, issue):

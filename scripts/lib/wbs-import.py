@@ -64,6 +64,7 @@ CLI:
 from __future__ import annotations
 
 import datetime
+import functools
 import importlib.util
 import json
 import os
@@ -318,6 +319,11 @@ class Model:
 
     def roots(self) -> list[Node]:
         return [n for n in self.nodes if n.parent is None]
+
+    @functools.cached_property
+    def leaves(self) -> set[str]:
+        """Every node's leaf (read after build; nodes are fixed by then)."""
+        return {n.leaf for n in self.nodes}
 
 
 def is_epic(rec: dict) -> bool:
@@ -653,16 +659,12 @@ def resolve_id(model: Model, iid: str) -> list[Node]:
     return [node] if node else []
 
 
-def _is_leaf(model: Model, iid: str) -> bool:
-    return any(n.leaf == iid for n in model.nodes)
-
-
 def named_leaves(model: Model, iid: str) -> set[str]:
     """The leaves of the records a WBS id names: the codec's answer united
     with an exact leaf match. A writer's leaf may read as another record
     (leaf_for is not injective), so presence and exclusion take both."""
     leaves = {n.leaf for n in resolve_id(model, iid)}
-    if _is_leaf(model, iid):
+    if iid in model.leaves:
         leaves.add(iid)
     return leaves
 
@@ -718,7 +720,7 @@ def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[
             # presence and exclusion sets (named_leaves) are by record.
             if not ID_TOKEN_RE.fullmatch(tok) or (
                 model is not None and trk.parse_leaf(model.sources, tok) is None
-                and not _is_leaf(model, tok)
+                and tok not in model.leaves
             ):
                 warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
                 continue

@@ -99,7 +99,8 @@ def parse_leaf(
     A rest of the wrong shape falls through to the next shorter prefix, so
     `Issue-FOO-1` passes a GitHub fork `Issue-F` and reaches a Jira origin
     `Issue-`. No prefix left gives None. The source returned is the very
-    mapping passed in.
+    mapping passed in. Sources with equal prefixes keep their input order,
+    so callers list the origin first.
     """
     for src in sorted((s for s in sources if s["prefix"]), key=lambda s: -len(s["prefix"])):
         prefix = src["prefix"]

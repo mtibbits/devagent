@@ -856,7 +856,7 @@ COLLISION = "leaf Issue-F1 names origin F1 and fork 1; it resolves to fork 1"
 
 
 def _jsonl(path, records):
-    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    path.write_text(lines(*records), encoding="utf-8")
     return str(path)
 
 
