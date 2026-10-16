@@ -275,6 +275,19 @@ def test_parse_leaf_order_independent():
         assert a is None or a[0] is b[0], iid
 
 
+@pytest.mark.parametrize("jira", [
+    {"prefix": "Issue-", "backend": "jira", "keyprefix": ""},
+    {"prefix": "Issue-", "backend": "jira"},
+])
+def test_parse_leaf_jira_without_a_keyprefix_reads_no_digits(jira):
+    # no key prefix: digits name no key (not "-12"); a key is still read,
+    # and the digits fall through to a shorter prefix
+    assert wbs_tracker.parse_leaf([jira], "Issue-12") is None
+    assert wbs_tracker.parse_leaf([jira], "Issue-PROJ-12") == (jira, "PROJ-12")
+    origin = _src("I", "custom")
+    assert wbs_tracker.parse_leaf([jira, origin], "Issue-12") == (origin, "ssue-12")
+
+
 def test_parse_leaf_issue_todo_on_github_is_none():
     assert wbs_tracker.parse_leaf([_src("Issue-", "github")], "Issue-TODO") is None
 

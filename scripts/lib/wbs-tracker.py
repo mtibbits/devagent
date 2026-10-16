@@ -95,7 +95,8 @@ def parse_leaf(
     source with an empty dir_prefix is never matched. Prefixes are tried
     longest first, and the rest of the id must have the source backend's
     shape: GitHub and GitLab take digits; Jira takes digits N as the key
-    `<keyprefix>-N`, or a key verbatim; any other backend takes any rest.
+    `<keyprefix>-N` (only with a key prefix), or a key verbatim; any other
+    backend takes any rest.
     A rest of the wrong shape falls through to the next shorter prefix, so
     `Issue-FOO-1` passes a GitHub fork `Issue-F` and reaches a Jira origin
     `Issue-`. No prefix left gives None. The source returned is the very
@@ -112,8 +113,9 @@ def parse_leaf(
             if DIGITS_RE.fullmatch(rest):
                 return (src, rest)
         elif backend == "jira":
-            if DIGITS_RE.fullmatch(rest):
-                return (src, f"{src['keyprefix']}-{rest}")
+            kp = src.get("keyprefix") or ""
+            if kp and DIGITS_RE.fullmatch(rest):  # no key prefix: digits name no key
+                return (src, f"{kp}-{rest}")
             if JIRA_KEY_RE.fullmatch(rest):
                 return (src, rest)
         else:

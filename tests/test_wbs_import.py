@@ -897,6 +897,24 @@ def test_leaf_collision_warns_once_and_keys_by_leaf(tmp_path, capsys):
     assert err2.count(f"wbs init --merge: {COLLISION}") == 1
 
 
+def test_equal_dir_prefixes_resolve_to_the_origin(tmp_path, capsys):
+    # The wbs-import side of the tie-break wbs-update.sh pins in bats ("equal
+    # dir_prefixes: update reads the origin, as wbs init does"): run() lists
+    # the origin first, and resolve_id keeps that order on a tie.
+    fork_rec = rec("1", url="https://github.com/me/f/issues/1")
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", [rec("1")]),
+           "WBS_IMP_ORIGIN_BACKEND": "github", "WBS_IMP_ORIGIN_REPO": "o/r",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-",
+           "WBS_IMP_FORK_FILE": _jsonl(tmp_path / "f.jsonl", [fork_rec]),
+           "WBS_IMP_FORK_BACKEND": "github", "WBS_IMP_FORK_REPO": "me/f",
+           "WBS_IMP_FORK_PREFIX": "Issue-", "WBS_IMP_MODE": "survey"}
+    assert wbs_import.run(env) == 0
+    sv = json.loads(capsys.readouterr().out)
+    assert [s["source"] for s in sv["sources"]] == ["origin", "fork"]
+    m = wbs_import.build([src([rec("1")]), src([fork_rec], name="fork", repo="me/f")])
+    assert [_named(n) for n in wbs_import.resolve_id(m, "Issue-1")] == [("origin", "1")]
+
+
 def test_presence_unions_codec_and_exact_leaf():
     # origin FOO-1 is written Issue-FOO-1, which the codec reads as fork OO-1
     # (Issue-F + key OO-1); fork OO-1 is written Issue-F1. With "codec, else
