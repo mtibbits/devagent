@@ -1897,8 +1897,9 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   leaf once per run. The ids on `<!-- wbs-exclude: … -->` lines (§13.1;
   one line, `wbs-exclude:` case-sensitive, ids split on commas and
   whitespace, several lines combined) are read by the same rule and
-  skipped; a bad id or a malformed line is warned about and ignored. Exclusion is per issue: an excluded epic's
-  children are placed by the rules below. Each issue added goes, by the
+  skipped; a bad id or a malformed line is warned about and ignored.
+  Exclusion is per issue: an excluded epic's children are placed by the
+  rules below. Each issue added goes, by the
   first rule that fits: inside its parent when that is added too; as the
   last child of its parent's anchor (at that node's last child's
   indentation); at top level when it is a group; under the first node in

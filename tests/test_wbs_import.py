@@ -965,6 +965,14 @@ def test_range_since_reads_a_custom_id_by_the_codec():
     assert wbs_import.select(m, "since:Issue-T-3") == {"Issue-T-3", "Issue-T-4"}
 
 
+def test_range_since_a_custom_id_without_a_number_is_refused():
+    # a custom source reads any rest, so `Issue-TODO` names it; with no
+    # trailing number there is nothing to compare, not "from 0"
+    m = wbs_import.build([src([done(i) for i in ("T-1", "T-2")], backend="custom", repo="c/r")])
+    with pytest.raises(wbs_import.RangeError, match="no trailing number"):
+        wbs_import.select(m, "since:Issue-TODO")
+
+
 def _jira_env(tmp_path, records, mode, **extra):
     env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", records),
            "WBS_IMP_ORIGIN_BACKEND": "jira", "WBS_IMP_ORIGIN_REPO": "PROJ",

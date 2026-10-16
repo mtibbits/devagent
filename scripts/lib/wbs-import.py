@@ -521,6 +521,8 @@ def select(model: Model, rng: str) -> set[str]:
         return _close([n for n in nodes if n.is_open or (n.rec["closed"] or "") >= value])
     if kind == "since":
         sis, v = _id_token(model, value)
+        if not re.search(r"[0-9]+$", v):
+            raise RangeError(f"--since {value} has no trailing number to compare")
         floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
@@ -692,8 +694,9 @@ def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[
 
     A token outside the id charset, or (given a model) one that is neither
     read as an id by the shared codec (no dir_prefix, or a bad shape after
-    every one) nor some record's exact leaf, is warned about and skipped; so is a line starting `<!--`
-    that holds `wbs-exclude` (any case) but does not parse. A prefix and a
+    every one) nor some record's exact leaf, is warned about and skipped;
+    so is a line starting `<!--` that holds `wbs-exclude` (any case) but
+    does not parse. A prefix and a
     suffix test plus a split: nothing here backtracks on a long line.
     """
     lines = text.splitlines(keepends=True)

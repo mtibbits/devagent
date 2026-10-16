@@ -351,7 +351,9 @@ for S in ("ORIGIN", "FORK"):
     env["keyprefix"] = (trk.jira_keyprefix(os.environ, env["REPO"])
                         if env["BACKEND"] == "jira" else "")
     sources.append(env)
-# Longest dir_prefix first: "Issue-" is a prefix of "Issue-Fork-".
+# Longest dir_prefix first, for the order of the notes and the abort below
+# only: parse_leaf orders sources itself. The sort is stable, so equal
+# prefixes keep the origin first.
 sources.sort(key=lambda src: len(src["PREFIX"]), reverse=True)
 # --offline: the source table is built from config alone; no class is known
 offline = any(src["STATUS"] == "offline" for src in sources)
@@ -376,6 +378,13 @@ if aborted:
         f"({detail}); no glyph changed. Run 'wbs update --offline' (or set "
         f"DEVAGENT_WBS_OFFLINE=1) to reconcile from local checklists only.")
 
+
+@functools.lru_cache(maxsize=None)
+def leaf_hit(iid: str):
+    """trk.parse_leaf over the config-built sources, memoised per id."""
+    return trk.parse_leaf(sources, iid)
+
+
 @functools.lru_cache(maxsize=None)
 def leaf_lookup(iid: str):
     """(class, source, key) for a leaf id; class is a state-list class or
@@ -384,7 +393,7 @@ def leaf_lookup(iid: str):
     none). Memoised, so `not found` prints once per id."""
     if not sources or offline:
         return ("none", None, None)  # no tracker, or --offline: the checklist rule
-    hit = trk.parse_leaf(sources, iid)
+    hit = leaf_hit(iid)
     if hit is None:
         return ("unmatched", None, None)
     src, key = hit
@@ -446,12 +455,6 @@ def names_issue(iid, issue) -> bool:
         return False
     a, b = leaf_hit(iid), leaf_hit(issue)
     return a is not None and b is not None and a[0] is b[0] and a[1] == b[1]
-
-
-@functools.lru_cache(maxsize=None)
-def leaf_hit(iid: str):
-    # memoised: the active issue is read once, not at every node visited
-    return trk.parse_leaf(sources, iid)
 
 
 def find_issue_node(node, issue):
