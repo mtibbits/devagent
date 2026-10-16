@@ -384,23 +384,24 @@ def build(sources: list[dict]) -> Model:
     wanted: list[tuple[Node, Node, str]] = []
     for node in model.nodes:
         attempts = []
-        got = None
+        hit = None                       # (parent, line) of the attempt that resolved
         native = node.rec.get("parent")
         if native:
             got, why = _resolve_url(model, native)
-            if not got:
+            if got:
+                hit = (got, f"parent: {native}")
+            else:
                 attempts.append((f"parent: {native}", why))
-        if not got:
+        if hit is None:
             pl = parent_line(node.rec["body"], jira=node.source["backend"] == "jira")
             if pl:
                 got, why = _resolve_line(model, node, pl[0], pl[1])
-                if not got:
+                if got:
+                    hit = (got, pl[2])
+                else:
                     attempts.append((pl[2], why))
-                line = pl[2]
-        else:
-            line = f"parent: {native}"
-        if got:
-            wanted.append((node, got, line))
+        if hit:
+            wanted.append((node, *hit))
         else:
             model.unresolved += [{"issue": node.leaf, "line": ln, "reason": why}
                                  for ln, why in attempts]
