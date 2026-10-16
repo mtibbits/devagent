@@ -36,7 +36,8 @@ teardown() {
 }
 
 # _config <origin-backend|none> <origin-repo> <fork: yes|no|noprefix|short>
-# (short: a github fork whose dir_prefix is "Issue-F", #792)
+# (short: a github fork whose dir_prefix is "Issue-F"; same: one whose
+# dir_prefix equals the origin's, a misconfiguration; #792)
 _config() {
   local ob="$1" orepo="$2" fork="$3"
   {
@@ -53,6 +54,8 @@ _config() {
              'repo = "me/testproj-fork"' ;;
       short) printf '%s\n' '' '[project.testproj.issue_source_fork]' 'backend = "github"' \
              'repo = "me/testproj-fork"' 'dir_prefix = "Issue-F"' ;;
+      same) printf '%s\n' '' '[project.testproj.issue_source_fork]' 'backend = "github"' \
+             'repo = "me/testproj-fork"' 'dir_prefix = "Issue-"' ;;
     esac
   } > "$HOME/.claude/devagent/config.toml"
 }
@@ -643,6 +646,16 @@ EOF
   [[ "$output" != *"not found"* ]]
   printf '%s\n' '# testproj WBS' '' '- [~] Todo {issue: Issue-TODO, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
   _update_diff --offline
+}
+
+@test "equal dir_prefixes: update reads the origin, as wbs init does (#792)" {
+  # wbs-import.py lists origin first; parse_leaf keeps input order on a tie
+  _config github acme/testproj same
+  _list acme/testproj $'1\tdone'
+  _list me/testproj-fork $'1\tnot_planned'
+  printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: tracker}' > "$TMPDEV/expected"
+  _update_diff
 }
 
 @test "DEVAGENT_JIRA_PROJECT_KEY has one home outside the backends (#792)" {

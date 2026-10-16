@@ -338,7 +338,9 @@ def checklist_state(issue_id: str) -> "str | None":
 
 # --- tracker sources ---------------------------------------------------------
 sources = []
-for S in ("FORK", "ORIGIN"):
+# Origin first, as wbs-import.py lists them: parse_leaf keeps input order
+# between equal dir_prefixes, so both callers read such a leaf alike.
+for S in ("ORIGIN", "FORK"):
     env = {k: os.environ.get(f"WBS_TRK_{S}_{k}", "") for k in
            ("STATUS", "PREFIX", "BACKEND", "REPO", "FILE", "DETAIL")}
     if env["STATUS"] in ("", "off"):
