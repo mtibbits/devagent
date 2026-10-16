@@ -35,7 +35,9 @@ teardown() {
   rm -rf "$TMPROOT"
 }
 
-# _config <origin-backend|none> <origin-repo> <fork: yes|no|noprefix>
+# _config <origin-backend|none> <origin-repo> <fork: yes|no|noprefix|short>
+# (short: a github fork whose dir_prefix is "Issue-F"; same: one whose
+# dir_prefix equals the origin's, a misconfiguration; #792)
 _config() {
   local ob="$1" orepo="$2" fork="$3"
   {
@@ -50,6 +52,10 @@ _config() {
              'repo = "me/testproj-fork"' 'dir_prefix = "Issue-Fork-"' ;;
       noprefix) printf '%s\n' '' '[project.testproj.issue_source_fork]' 'backend = "github"' \
              'repo = "me/testproj-fork"' ;;
+      short) printf '%s\n' '' '[project.testproj.issue_source_fork]' 'backend = "github"' \
+             'repo = "me/testproj-fork"' 'dir_prefix = "Issue-F"' ;;
+      same) printf '%s\n' '' '[project.testproj.issue_source_fork]' 'backend = "github"' \
+             'repo = "me/testproj-fork"' 'dir_prefix = "Issue-"' ;;
     esac
   } > "$HOME/.claude/devagent/config.toml"
 }
@@ -68,6 +74,39 @@ _cl() {
 _list() {
   local repo="$1"; shift
   printf '%s\n' "$@" > "$TMPROOT/state-list.github.${repo//\//_}"
+}
+
+# _list_on <backend> <repo> <line>...: the stub state-list output for <repo>
+# on a backend other than github (#792).
+_list_on() {
+  local backend="$1" repo="$2"
+  shift 2
+  printf '%s\n' "$@" > "$TMPROOT/state-list.$backend.${repo//\//_}"
+}
+
+# _key_form_leg [--offline]: a WBS whose only leaf names PROJ-12 in key form;
+# active Issue-12 is present (no second leaf), active Issue-13 is added.
+_key_form_leg() {
+  _config jira PROJ no
+  _list_on jira PROJ $'PROJ-12\tin_progress'
+  printf '%s\n' '# testproj WBS' '' '- [ ] Twelve {issue: Issue-PROJ-12, est: 1w}' > "$TMPDEV/WBS.input"
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _active Issue-12
+  _update "$@"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  run grep -c Unassigned "$TMPDEV/WBS.md"
+  [ "$output" = "0" ]
+  run grep -c '{issue: Issue-12,' "$TMPDEV/WBS.md"
+  [ "$output" = "0" ]
+  # positive control: an issue no leaf names is added once
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _active Issue-13
+  _update "$@"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  run grep -c Unassigned "$TMPDEV/WBS.md"
+  [ "$output" = "1" ]
+  run grep -c '{issue: Issue-13, est: ?w' "$TMPDEV/WBS.md"
+  [ "$output" = "1" ]
 }
 
 # _list_fail <repo> <rc> <stderr>: the stub's state-list for <repo> fails.
@@ -561,4 +600,90 @@ EOF
   [ "$output" = "1" ]
   _update
   [[ "$output" != *WARNING* ]]
+}
+
+@test "a key-form leaf names the active issue: no second leaf, online (#792)" {
+  _key_form_leg
+}
+
+@test "a key-form leaf names the active issue: no second leaf, --offline (#792)" {
+  _key_form_leg --offline
+}
+
+@test "the worked-example leaves take their glyph from the codec's source (#792)" {
+  _config jira PROJ short
+  _list_on jira PROJ $'FOO-1\tdone' $'PROJ-12\tin_progress'
+  _list me/testproj-fork $'7\tnot_planned'
+  cat > "$TMPDEV/WBS.md" <<'EOF'
+# testproj WBS
+
+- [ ] Foo {issue: Issue-FOO-1, est: 1w}
+- [ ] Seven {issue: Issue-F7, est: 1w}
+- [ ] Twelve {issue: Issue-12, est: 1w}
+- [ ] Key {issue: Issue-PROJ-12, est: 1w}
+EOF
+  cat > "$TMPDEV/expected" <<'EOF'
+# testproj WBS
+
+- [x] Foo {issue: Issue-FOO-1, est: 1w, status_src: tracker}
+- [-] Seven {issue: Issue-F7, est: 1w, status_src: tracker}
+- [~] Twelve {issue: Issue-12, est: 1w, status_src: tracker}
+- [~] Key {issue: Issue-PROJ-12, est: 1w, status_src: tracker}
+EOF
+  _update_diff
+  [[ "$output" != *"not found"* ]]
+}
+
+@test "a prefixed leaf of the wrong shape gives no signal; --offline keeps the checklist rule (#792)" {
+  _config github acme/testproj no
+  printf '%s\n' '# testproj WBS' '' '- [ ] Todo {issue: Issue-TODO, est: 1w}' > "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  _cl Issue-TODO progress
+  _list acme/testproj $'1\tdone'
+  _update
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [[ "$output" != *"not found"* ]]
+  printf '%s\n' '# testproj WBS' '' '- [~] Todo {issue: Issue-TODO, est: 1w, status_src: checklist}' > "$TMPDEV/expected"
+  _update_diff --offline
+}
+
+@test "equal dir_prefixes: update reads the origin, as wbs init does (#792)" {
+  # wbs-import.py lists origin first; parse_leaf keeps input order on a tie
+  _config github acme/testproj same
+  _list acme/testproj $'1\tdone'
+  _list me/testproj-fork $'1\tnot_planned'
+  printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [x] One {issue: Issue-1, est: 1w, status_src: tracker}' > "$TMPDEV/expected"
+  _update_diff
+}
+
+@test "DEVAGENT_JIRA_PROJECT_KEY has one home outside the backends (#792)" {
+  # wbs-tracker.py `jira_keyprefix` is the one reader outside scripts/issue/
+  run git -C "$REPO" grep -n DEVAGENT_JIRA_PROJECT_KEY -- scripts ':!scripts/issue'
+  [ "$status" -eq 0 ] || { echo "no hit: the guard measures nothing"; false; }
+  local hits="$output"
+  run grep -vc '^scripts/lib/wbs-tracker.py:' <<< "$hits"
+  [ "$output" = "0" ] || { echo "$hits"; false; }
+}
+
+# _phrase_count <file>: lines of the fall-through phrase in <file>, with comment
+# markers stripped and whitespace collapsed, so a reflow cannot break the pin.
+_phrase_count() {
+  sed 's/^# \{0,1\}//' "$1" | tr -s ' \n' ' ' | grep -cF 'falls through to the next shorter' || true
+}
+
+@test "docs: every home states the fall-through rule (#792)" {
+  # planted control: the pipeline finds the phrase across a wrapped comment
+  printf '%s\n' '# a rest of the wrong shape falls' '#   through to the next' '# shorter dir_prefix' > "$TMPROOT/control"
+  run _phrase_count "$TMPROOT/control"
+  [ "$output" = "1" ]
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" > "$TMPROOT/spec"
+  sed -n '1,/^set -euo pipefail/p' "$REPO/scripts/wbs-update.sh" > "$TMPROOT/header"
+  local home
+  for home in "$TMPROOT/spec" "$REPO/commands/wbs.md" "$TMPROOT/header"; do
+    [ -s "$home" ] || { echo "empty home: $home"; false; }
+    run _phrase_count "$home"
+    [ "$output" -ge 1 ] || { echo "no fall-through rule in $home"; false; }
+  done
 }

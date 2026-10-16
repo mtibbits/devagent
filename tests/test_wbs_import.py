@@ -289,6 +289,29 @@ def test_jira_leaf_ids_and_number_refs():
                           "Issue-OLD-4": "Issue-1"}
 
 
+# (backend, dir_prefix, keyprefix, record id, leaf): the leaf a writer gives a
+# record (#792 moves this rule into wbs-tracker.py's leaf_for; these rows pin it)
+LEAF_RULE = [
+    ("jira", "Issue-", "PROJ", "PROJ-12", "Issue-12"),
+    ("jira", "Issue-", "PROJ", "OLD-4", "Issue-OLD-4"),
+    ("jira", "Issue-", "PROJ", "FOO-1", "Issue-FOO-1"),
+    ("jira", "Issue-", "PROJ", "PX-5", "Issue-PX-5"),
+    ("jira", "Issue-P", "PK", "X-5", "Issue-PX-5"),
+    ("github", "Issue-F", "", "7", "Issue-F7"),
+    ("gitlab", "Issue-", "", "3", "Issue-3"),
+    ("custom", "Issue-", "", "abc", "Issue-abc"),
+    ("custom", "Issue-", "", "T-3", "Issue-T-3"),
+    ("custom", "Issue-", "", "F1", "Issue-F1"),
+]
+
+
+@pytest.mark.parametrize("backend, prefix, kp, rid, leaf", LEAF_RULE)
+def test_node_leaf_rule_characterized(backend, prefix, kp, rid, leaf):
+    m = wbs_import.build([src([rec(rid)], backend=backend, repo=kp or "o/r",
+                              prefix=prefix, keyprefix=kp)])
+    assert m.nodes[0].leaf == leaf
+
+
 # --- selection ---------------------------------------------------------------
 def demo_model():
     """1 epic (closed) with closed 2 and open 3; 4 epic (closed) with closed
@@ -761,3 +784,239 @@ def test_inserted_only_postcondition_fires():
     assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
     assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
     assert not io("a\nb", "a\nbz\nx")
+
+
+# --- the shared leaf <-> issue-id codec (#792) ---------------------------------
+trk = wbs_import.trk
+
+
+def _named(node):
+    return (node.source["source"], node.rec["id"])
+
+
+def worked_model():
+    """The issue's worked example: a Jira origin `Issue-` (key prefix PROJ)
+    with FOO-1 and PROJ-12, and a GitHub fork `Issue-F` with 7."""
+    return wbs_import.build([
+        src([rec("FOO-1", url=J + "FOO-1"), rec("PROJ-12", url=J + "PROJ-12")],
+            backend="jira", repo="PROJ", keyprefix="PROJ"),
+        src([rec("7", url="https://github.com/me/f/issues/7")],
+            name="fork", repo="me/f", prefix="Issue-F")])
+
+
+@pytest.mark.parametrize("iid, want", [
+    ("Issue-FOO-1", ("origin", "FOO-1")),
+    ("Issue-F7", ("fork", "7")),
+    ("Issue-12", ("origin", "PROJ-12")),
+    ("Issue-PROJ-12", ("origin", "PROJ-12")),
+])
+def test_resolve_id_agrees_with_parse_leaf_worked_example(iid, want):
+    m = worked_model()
+    got = trk.parse_leaf(m.sources, iid)
+    assert (got[0]["source"], got[1]) == want
+    assert [_named(n) for n in wbs_import.resolve_id(m, iid)] == [want]
+
+
+def custom_model(ids=("abc", "T-3")):
+    return wbs_import.build([src([rec(i) for i in ids], backend="custom", repo="c/r")])
+
+
+@pytest.mark.parametrize("leg", ["present", "excluded"])
+def test_custom_ids_present_and_excluded_without_warning(leg):
+    m = custom_model()
+    if leg == "present":
+        base = "# W\n\n- [ ] A {issue: Issue-abc}\n- [ ] T {issue: Issue-T-3}\n"
+        _out, stats = merged(base, m)
+        assert stats["added"] == []
+        assert stats["present"] == 2
+    else:
+        base = "# W\n\n<!-- wbs-exclude: Issue-abc, Issue-T-3 -->\n\n- [ ] Other\n"
+        assert wbs_import.exclusions(base, "W.md", m)[1] == []
+        _out, stats = merged(base, m)
+        assert stats["added"] == []
+        assert stats["excluded"] == 2
+
+
+def test_issue_todo_names_nothing():
+    m = wbs_import.build([src([rec("1")])])
+    assert wbs_import.resolve_id(m, "Issue-TODO") == []
+    _ids, warns = wbs_import.exclusions("<!-- wbs-exclude: Issue-TODO -->\n", "W.md", m)
+    assert warns == ["wbs init --merge: W.md line 1: 'Issue-TODO' is not an issue id; ignored"]
+
+
+def collision_sources():
+    """A custom origin `Issue-` with F1 and a GitHub fork `Issue-F` with 1:
+    both records are written as the leaf Issue-F1."""
+    return [src([rec("F1")], backend="custom", repo="c/r"),
+            src([rec("1", url="https://github.com/me/f/issues/1")],
+                name="fork", repo="me/f", prefix="Issue-F")]
+
+
+COLLISION = "leaf Issue-F1 names origin F1 and fork 1; it resolves to fork 1"
+
+
+def _jsonl(path, records):
+    path.write_text(lines(*records), encoding="utf-8")
+    return str(path)
+
+
+def test_leaf_collision_warns_once_and_keys_by_leaf(tmp_path, capsys):
+    m = wbs_import.build(collision_sources())
+    # (a) one line, prefixed by the run's mode
+    assert wbs_import.leaf_collisions(m, "wbs init") == [f"wbs init: {COLLISION}"]
+    assert wbs_import.leaf_collisions(m, "wbs init --merge") == [f"wbs init --merge: {COLLISION}"]
+    # (b) present by the leaf
+    _out, stats = merged("# W\n\n- [ ] X {issue: Issue-F1}\n", m)
+    assert stats["added"] == []
+    # (c) excluded by the leaf
+    _out, stats = merged("# W\n\n<!-- wbs-exclude: Issue-F1 -->\n\n- [ ] Other\n", m)
+    assert stats["added"] == []
+    # (d) through run(): run 1 adds, run 2 adds nothing; one warning per run
+    origin, fork = collision_sources()
+    dest = tmp_path / "WBS.md"
+    base = "# W\n\n- [ ] Other\n"
+    dest.write_text(base, encoding="utf-8")
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", origin["records"]),
+           "WBS_IMP_ORIGIN_BACKEND": "custom", "WBS_IMP_ORIGIN_REPO": "c/r",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-",
+           "WBS_IMP_FORK_FILE": _jsonl(tmp_path / "f.jsonl", fork["records"]),
+           "WBS_IMP_FORK_BACKEND": "github", "WBS_IMP_FORK_REPO": "me/f",
+           "WBS_IMP_FORK_PREFIX": "Issue-F",
+           "WBS_IMP_MODE": "merge", "WBS_IMP_RANGE": "all",
+           "WBS_IMP_DEST": str(dest), "DEVDOC_DIR": str(tmp_path)}
+    capsys.readouterr()
+    assert wbs_import.run(env) == 0
+    err1 = capsys.readouterr().err
+    after1 = dest.read_bytes()
+    assert after1 != base.encode("utf-8")
+    assert err1.count(f"wbs init --merge: {COLLISION}") == 1
+    assert wbs_import.run(env) == 0
+    err2 = capsys.readouterr().err
+    assert dest.read_bytes() == after1
+    assert "nothing to add" in err2
+    assert err2.count(f"wbs init --merge: {COLLISION}") == 1
+
+
+def test_equal_dir_prefixes_resolve_to_the_origin(tmp_path, capsys):
+    # The wbs-import side of the tie-break wbs-update.sh pins in bats ("equal
+    # dir_prefixes: update reads the origin, as wbs init does"): run() lists
+    # the origin first, and resolve_id keeps that order on a tie.
+    fork_rec = rec("1", url="https://github.com/me/f/issues/1")
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", [rec("1")]),
+           "WBS_IMP_ORIGIN_BACKEND": "github", "WBS_IMP_ORIGIN_REPO": "o/r",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-",
+           "WBS_IMP_FORK_FILE": _jsonl(tmp_path / "f.jsonl", [fork_rec]),
+           "WBS_IMP_FORK_BACKEND": "github", "WBS_IMP_FORK_REPO": "me/f",
+           "WBS_IMP_FORK_PREFIX": "Issue-", "WBS_IMP_MODE": "survey"}
+    assert wbs_import.run(env) == 0
+    sv = json.loads(capsys.readouterr().out)
+    assert [s["source"] for s in sv["sources"]] == ["origin", "fork"]
+    m = wbs_import.build([src([rec("1")]), src([fork_rec], name="fork", repo="me/f")])
+    assert [_named(n) for n in wbs_import.resolve_id(m, "Issue-1")] == [("origin", "1")]
+
+
+def test_presence_unions_codec_and_exact_leaf():
+    # origin FOO-1 is written Issue-FOO-1, which the codec reads as fork OO-1
+    # (Issue-F + key OO-1); fork OO-1 is written Issue-F1. With "codec, else
+    # exact", origin FOO-1 would be re-added on every merge.
+    m = wbs_import.build([
+        src([rec("FOO-1", url=J + "FOO-1")], backend="jira", repo="PROJ", keyprefix="PROJ"),
+        src([rec("OO-1", url=J + "OO-1")], name="fork", backend="jira", repo="OO",
+            prefix="Issue-F", keyprefix="OO")])
+    assert sorted(n.leaf for n in m.nodes) == ["Issue-F1", "Issue-FOO-1"]
+    base = "# W\n\n- [ ] A {issue: Issue-FOO-1}\n- [ ] B {issue: Issue-F1}\n"
+    _out, stats = merged(base, m)
+    assert stats["added"] == []
+
+
+FIXTURES = REPO / "tests" / "fixtures"
+
+
+def _fixture_ids():
+    """Each backend's issue ids as its issue-list verb emits them, and the
+    count each set must have (an empty set must not pass)."""
+    def load(*parts):
+        return json.loads((FIXTURES.joinpath(*parts)).read_text(encoding="utf-8"))
+    gh = [str(i["number"]) for i in load("issue-github", "issue-list-shaped.json")]
+    gl = [str(i["iid"]) for i in load("gitlab", "issues-shaped.json")]
+    jira = [i["key"] for n in (1, 2) for i in load("jira", f"search-shaped-{n}.json")["issues"]]
+    text = (FIXTURES / "wbs-merge" / "issue-list.jsonl").read_text(encoding="utf-8")
+    merge_ids = [json.loads(ln)["id"] for ln in text.splitlines() if ln.strip()]
+    return {"github": (gh, 62), "gitlab": (gl, 62), "jira": (jira, 62),
+            "merge": (merge_ids, 16), "custom": (["abc", "T-3"], 2)}
+
+
+def _set_source(kind, ids, name, prefix):
+    if kind == "jira":
+        kw = {"backend": "jira", "repo": "SHAPED", "keyprefix": "SHAPED"}
+    else:
+        kw = {"backend": "github" if kind == "merge" else kind, "repo": f"{kind}/r"}
+    return src([rec(i) for i in ids], name=name, prefix=prefix, **kw)
+
+
+KINDS = ("github", "gitlab", "jira", "merge", "custom")
+ROUND_TRIP = ([[(k, "origin", "Issue-")] for k in KINDS]
+              + [[("github", "origin", "Issue-"), (k, "fork", "Issue-Fork-")] for k in KINDS]
+              + [[("jira", "origin", "Issue-"), ("github", "fork", "Issue-F")]])
+
+
+@pytest.mark.parametrize("config", ROUND_TRIP,
+                         ids=["+".join(f"{k}@{p}" for k, _n, p in c) for c in ROUND_TRIP])
+def test_leaf_codec_round_trips_non_colliding_records(config):
+    sets = _fixture_ids()
+    m = wbs_import.build([_set_source(k, sets[k][0], name, prefix) for k, name, prefix in config])
+    for si, (k, _name, _prefix) in enumerate(config):
+        assert sum(1 for n in m.nodes if n.si == si) == sets[k][1], k
+    assert wbs_import.leaf_collisions(m, "wbs init") == []
+    # Writer -> reader only: a key-form leaf such as Issue-SHAPED-1 is not
+    # leaf_for's spelling, so the inverse direction is not a round trip.
+    for n in m.nodes:
+        got = trk.parse_leaf(m.sources, n.leaf)
+        assert got is not None, n.leaf
+        assert got[0] is n.source, n.leaf
+        assert got[1] == n.rec["id"], n.leaf
+
+
+def test_range_since_reads_a_custom_id_by_the_codec():
+    m = wbs_import.build([src([done(i) for i in ("T-1", "T-2", "T-3", "T-4")],
+                              backend="custom", repo="c/r")])
+    assert wbs_import.select(m, "since:Issue-T-3") == {"Issue-T-3", "Issue-T-4"}
+
+
+def test_range_since_a_custom_id_without_a_number_is_refused():
+    # a custom source reads any rest, so `Issue-TODO` names it; with no
+    # trailing number there is nothing to compare, not "from 0"
+    m = wbs_import.build([src([done(i) for i in ("T-1", "T-2")], backend="custom", repo="c/r")])
+    with pytest.raises(wbs_import.RangeError, match="no trailing number"):
+        wbs_import.select(m, "since:Issue-TODO")
+
+
+def _jira_env(tmp_path, records, mode, **extra):
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", records),
+           "WBS_IMP_ORIGIN_BACKEND": "jira", "WBS_IMP_ORIGIN_REPO": "PROJ",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-", "WBS_IMP_ORIGIN_KEYPREFIX": "WRONG",
+           "WBS_IMP_MODE": mode, "WBS_IMP_RANGE": "all", "WBS_IMP_PROJECT": "p",
+           "DEVDOC_DIR": str(tmp_path)}
+    env.update(extra)
+    return env
+
+
+def test_run_derives_jira_keyprefix_from_env(tmp_path, capsys):
+    epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")
+    for var, want in (({"DEVAGENT_JIRA_PROJECT_KEY": "ALT"}, "Issue-1"), ({}, "Issue-ALT-1")):
+        assert wbs_import.run(_jira_env(tmp_path, [epic], "survey", **var)) == 0
+        sv = json.loads(capsys.readouterr().out)
+        assert sv["epics"][0]["issue"] == want
+
+
+def test_run_derived_jira_keyprefix_resolves_a_parent_line(tmp_path):
+    # wbs-import.py's _resolve_line -> _node_for reads `#1` as <keyprefix>-1
+    epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")
+    child = rec("ALT-2", title="Child", body="Parent epic: #1", url=J + "ALT-2")
+    (tmp_path / "t.md").write_text("# {project} WBS\n\n", encoding="utf-8")
+    dest = tmp_path / "out" / "WBS.md"
+    env = _jira_env(tmp_path, [epic, child], "import", DEVAGENT_JIRA_PROJECT_KEY="ALT",
+                    WBS_IMP_TEMPLATE=str(tmp_path / "t.md"), WBS_IMP_DEST=str(dest))
+    assert wbs_import.run(env) == 0
+    body = dest.read_text(encoding="utf-8")
+    assert "- [ ] Epic {issue: Issue-1}\n  - [ ] Child {issue: Issue-2}\n" in body

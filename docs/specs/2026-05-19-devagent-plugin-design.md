@@ -1890,13 +1890,16 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   the selected tracker issues it lacks, with the same `issue-list` calls,
   parent rules, range flags and threshold (exit `10`; the re-run keeps
   `--merge`). An issue is present when any node's `issue` meta names it
-  by `wbs update`'s rule: a `dir_prefix` is required, the longest wins,
-  and a JIRA source reads digits as `<KEY>-N`; the first such node is its
-  anchor. The ids on `<!-- wbs-exclude: … -->` lines (§13.1; one line,
-  `wbs-exclude:` case-sensitive, ids split on commas and whitespace,
-  several lines combined) are skipped; a bad id or a malformed line is
-  warned about and ignored. Exclusion is per issue: an excluded epic's
-  children are placed by the rules below. Each issue added goes, by the
+  by `wbs update`'s rule (below; the fall-through to a shorter
+  `dir_prefix` included) or spells its leaf exactly; the first such node
+  is its anchor. Two issues can share a leaf (an origin `F1` under
+  `Issue-` and a fork `1` under `Issue-F`); `wbs init` warns about such a
+  leaf once per run. The ids on `<!-- wbs-exclude: … -->` lines (§13.1;
+  one line, `wbs-exclude:` case-sensitive, ids split on commas and
+  whitespace, several lines combined) are read by the same rule and
+  skipped; a bad id or a malformed line is warned about and ignored.
+  Exclusion is per issue: an excluded epic's children are placed by the
+  rules below. Each issue added goes, by the
   first rule that fits: inside its parent when that is added too; as the
   last child of its parent's anchor (at that node's last child's
   indentation); at top level when it is a group; under the first node in
@@ -1918,9 +1921,17 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active
   issue; every other line is kept byte-for-byte. The tracker state comes
-  from one `state-list` call (§9.1) per configured issue source; a leaf
-  maps to the source whose `dir_prefix` it carries (the longest matching
-  `dir_prefix` wins, so `Issue-Fork-` before `Issue-`). Closed as
+  from one `state-list` call (§9.1) per configured issue source. A leaf
+  names the issue that one rule reads it as, shared with `wbs init`
+  (`scripts/lib/wbs-tracker.py` `parse_leaf`, #792): `dir_prefix`es are
+  tried longest first (`Issue-Fork-` before `Issue-`), and the rest of
+  the leaf must fit the source's backend: GitHub and GitLab take digits,
+  JIRA takes digits `N` as the key `<KEY>-N` or a key verbatim, and a
+  custom backend takes any rest. A rest of the wrong shape falls through
+  to the next shorter `dir_prefix`, so `Issue-FOO-1` passes a GitHub fork
+  `Issue-F` and reaches a JIRA origin `Issue-`; with none left the leaf
+  gives no signal. The active issue counts as present when a leaf names
+  it by that rule or spells it exactly, with or without `--offline`. Closed as
   completed gives `[x]`, closed as not planned `[-]`, in progress `[~]`
   (a hand-set `[P]`, `[!]` or `[?]` is kept), and open falls through to
   the checklist, except that an all-done checklist gives `[~]` until the

@@ -8,11 +8,13 @@
 #
 # Tracker sources. A source is configured when its `backend`, `repo` and
 # `dir_prefix` are all set: `issue_source_fork` and `issue_source`. A leaf
-# belongs to the source whose dir_prefix its id carries (the longest match
-# wins: `Issue-Fork-` before `Issue-`); the rest of the id is looked up (GitHub/GitLab: digits; JIRA:
-# digits N read as key `<pk>-N`, pk = DEVAGENT_JIRA_PROJECT_KEY else the
-# repo, or a key verbatim). An id that fits no configured source is no
-# signal. Each source's backend
+# id is read by the rule `wbs init` shares (scripts/lib/wbs-tracker.py
+# `parse_leaf`, #792): dir_prefixes are tried longest first (`Issue-Fork-`
+# before `Issue-`), and the rest of the id must fit the source's backend
+# (GitHub/GitLab: digits; JIRA: digits N read as key `<pk>-N`, pk from
+# `jira_keyprefix`, or a key verbatim; any other backend: any rest). A rest
+# of the wrong shape falls through to the next shorter dir_prefix; an id
+# that fits no configured source is no signal. Each source's backend
 # (${DEVAGENT_ISSUE_BACKEND_DIR:-scripts/issue}/<backend>.sh) is asked once
 # per run, `state-list <repo>` (spec §9.1), for every issue's class. Cost:
 # one call per source per run, ceil(N/100) list pages (GitHub: one
@@ -109,7 +111,9 @@
 # abort skips the MR phase.
 #
 # Plus: if the project's active_issue is set and is not yet present in
-# the WBS, append it under a synthetic "Unassigned" top-level node so
+# the WBS (a leaf is present when it spells the issue exactly, or when the
+# rule above reads both as the same source's same key, online or
+# --offline), append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
 # precedence (local checklist only when the tracker phase aborted); with no
 # signal it is written as `[ ]` with no status_src.
@@ -193,8 +197,10 @@ fi
 # --- tracker fetch (#703) ----------------------------------------------------
 # Runs only past the scope guard, the --if-exists exit and the parser check.
 # Each source hands the Python reconcile WBS_TRK_<S>_* (S = ORIGIN | FORK):
-# STATUS off|nolookup|ok|failed, PREFIX, BACKEND, REPO, KEYPREFIX (jira),
-# FILE (state-list stdout) and DETAIL (why nolookup / failed).
+# STATUS off|offline|nolookup|ok|failed, PREFIX, BACKEND, REPO,
+# FILE (state-list stdout) and DETAIL (why nolookup / failed). Under
+# --offline a configured source is `offline`: no call is made, but the
+# source table still reaches the shared codec (#792).
 backend_dir="${DEVAGENT_ISSUE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/issue}"
 trk_tmp="$(mktemp -d)"
 trap 'rm -rf "$trk_tmp"' EXIT
@@ -202,20 +208,20 @@ trk_env=()
 
 _trk_fetch() {
   local S="$1" table="$2"
-  local backend repo prefix status=off file="" detail="" keyprefix="" sh cli rc err
-  (( offline == 0 )) || return 0  # no WBS_TRK_<S>_* vars: the source is off
+  local backend repo prefix status=off file="" detail="" sh cli rc err
   backend="$(config_get_project_field "$project" "$table.backend" 2>/dev/null || true)"
   repo="$(config_get_project_field "$project" "$table.repo" 2>/dev/null || true)"
   prefix="$(config_get_project_field "$project" "$table.dir_prefix" 2>/dev/null || true)"
   if [[ -n "$backend" && -n "$repo" && -n "$prefix" ]]; then
-    [[ "$backend" == jira ]] && keyprefix="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
     sh="$backend_dir/$backend.sh"
     case "$backend" in
       github) cli=gh ;;
       gitlab|jira) cli=curl ;;  # both state-list paths are REST via curl
       *) cli="" ;;
     esac
-    if [[ ! -f "$sh" || ! -x "$sh" ]]; then
+    if (( offline )); then
+      status=offline  # no call; the source table still reaches the codec
+    elif [[ ! -f "$sh" || ! -x "$sh" ]]; then
       status=nolookup detail="no script"
     elif [[ -n "$cli" ]] && ! command -v "$cli" >/dev/null 2>&1; then
       status=nolookup detail="$cli not on PATH"
@@ -238,7 +244,7 @@ _trk_fetch() {
   fi
   trk_env+=("WBS_TRK_${S}_STATUS=$status" "WBS_TRK_${S}_PREFIX=$prefix"
             "WBS_TRK_${S}_BACKEND=$backend" "WBS_TRK_${S}_REPO=$repo"
-            "WBS_TRK_${S}_KEYPREFIX=$keyprefix" "WBS_TRK_${S}_FILE=$file"
+            "WBS_TRK_${S}_FILE=$file"
             "WBS_TRK_${S}_DETAIL=$detail")
 }
 
@@ -290,7 +296,6 @@ python3 <<'PY'
 import functools
 import importlib.util
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -333,15 +338,25 @@ def checklist_state(issue_id: str) -> "str | None":
 
 # --- tracker sources ---------------------------------------------------------
 sources = []
-for S in ("FORK", "ORIGIN"):
+# Origin first, as wbs-import.py lists them: parse_leaf keeps input order
+# between equal dir_prefixes, so both callers read such a leaf alike.
+for S in ("ORIGIN", "FORK"):
     env = {k: os.environ.get(f"WBS_TRK_{S}_{k}", "") for k in
-           ("STATUS", "PREFIX", "BACKEND", "REPO", "KEYPREFIX", "FILE", "DETAIL")}
+           ("STATUS", "PREFIX", "BACKEND", "REPO", "FILE", "DETAIL")}
     if env["STATUS"] in ("", "off"):
         continue
     env["S"] = S
+    # the shared codec's keys (wbs-tracker.py `parse_leaf`, #792)
+    env["prefix"], env["backend"] = env["PREFIX"], env["BACKEND"]
+    env["keyprefix"] = (trk.jira_keyprefix(os.environ, env["REPO"])
+                        if env["BACKEND"] == "jira" else "")
     sources.append(env)
-# Longest dir_prefix first: "Issue-" is a prefix of "Issue-Fork-".
+# Longest dir_prefix first, for the order of the notes and the abort below
+# only: parse_leaf orders sources itself. The sort is stable, so equal
+# prefixes keep the origin first.
 sources.sort(key=lambda src: len(src["PREFIX"]), reverse=True)
+# --offline: the source table is built from config alone; no class is known
+offline = any(src["STATUS"] == "offline" for src in sources)
 
 aborted = None  # (source, detail) of the first failed source
 for src in sources:
@@ -363,45 +378,32 @@ if aborted:
         f"({detail}); no glyph changed. Run 'wbs update --offline' (or set "
         f"DEVAGENT_WBS_OFFLINE=1) to reconcile from local checklists only.")
 
-DIGITS = re.compile(r"^[0-9]+$")
-JIRA_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[0-9]+$")
+
+@functools.lru_cache(maxsize=None)
+def leaf_hit(iid: str):
+    """trk.parse_leaf over the config-built sources, memoised per id."""
+    return trk.parse_leaf(sources, iid)
 
 
 @functools.lru_cache(maxsize=None)
 def leaf_lookup(iid: str):
     """(class, source, key) for a leaf id; class is a state-list class or
-    none / missing / unmatched, source the matching tracker source (None
-    when none matches). Memoised, so `not found` prints once per id."""
-    if not sources:
-        return ("none", None, None)  # no tracker configured: the checklist rule
-    # the longest dir_prefix wins (Issue-Fork- before Issue-), as in wbs init
-    for src in sorted(sources, key=lambda s: -len(s["PREFIX"])):
-        prefix = src["PREFIX"]
-        if not iid.startswith(prefix) or len(iid) == len(prefix):
-            continue
-        rest = iid[len(prefix):]
-        backend = src["BACKEND"]
-        if backend == "jira":
-            if DIGITS.match(rest):
-                key = f"{src['KEYPREFIX']}-{rest}"
-            elif JIRA_KEY.match(rest):
-                key = rest
-            else:
-                return ("unmatched", None, None)
-        elif backend in ("github", "gitlab"):
-            if not DIGITS.match(rest):
-                return ("unmatched", None, None)
-            key = rest
-        else:
-            key = rest
-        if src["STATUS"] != "ok":
-            return ("none", src, key)  # no lookup for this source
-        cls = src["classes"].get(key)
-        if cls is None:
-            say(f"wbs update: {iid} not found on {backend} {src['REPO']}; glyph unchanged")
-            return ("missing", src, key)
-        return (cls, src, key)
-    return ("unmatched", None, None)
+    none / missing / unmatched, source the tracker source the shared codec
+    reads the id in (wbs-tracker.py `parse_leaf`, #792; None when it names
+    none). Memoised, so `not found` prints once per id."""
+    if not sources or offline:
+        return ("none", None, None)  # no tracker, or --offline: the checklist rule
+    hit = leaf_hit(iid)
+    if hit is None:
+        return ("unmatched", None, None)
+    src, key = hit
+    if src["STATUS"] != "ok":
+        return ("none", src, key)  # no lookup for this source
+    cls = src["classes"].get(key)
+    if cls is None:
+        say(f"wbs update: {iid} not found on {src['BACKEND']} {src['REPO']}; glyph unchanged")
+        return ("missing", src, key)
+    return (cls, src, key)
 
 
 def leaf_class(iid: str) -> str:
@@ -442,8 +444,21 @@ if not aborted and mode == "apply":  # the keys pass needs only the leaf ids
 
 
 # Auto-add active_issue under "Unassigned" if not already in WBS anywhere.
+def names_issue(iid, issue) -> bool:
+    """A leaf id names the issue when it spells it exactly, or when the
+    shared codec reads both as the same source's same key (#792). The
+    source table is built from config alone, so this holds online, under
+    --offline and on an aborted tracker phase."""
+    if iid == issue:
+        return True
+    if not isinstance(iid, str):
+        return False
+    a, b = leaf_hit(iid), leaf_hit(issue)
+    return a is not None and b is not None and a[0] is b[0] and a[1] == b[1]
+
+
 def find_issue_node(node, issue):
-    if node.get("meta", {}).get("issue") == issue:
+    if names_issue(node.get("meta", {}).get("issue"), issue):
         return node
     for k in node.get("children", []):
         r = find_issue_node(k, issue)

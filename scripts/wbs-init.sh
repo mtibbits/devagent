@@ -164,7 +164,7 @@ imp_env=()
 
 # _imp_fetch <ORIGIN|FORK> <table>: one issue-list call; dies on any failure.
 _imp_fetch() {
-  local S="$1" table="$2" backend repo prefix keyprefix="" sh file err rc
+  local S="$1" table="$2" backend repo prefix sh file err rc
   backend="$(config_get_project_field "$project" "$table.backend" 2>/dev/null || true)"
   repo="$(config_get_project_field "$project" "$table.repo" 2>/dev/null || true)"
   prefix="$(config_get_project_field "$project" "$table.dir_prefix" 2>/dev/null || true)"
@@ -174,7 +174,6 @@ _imp_fetch() {
   # a source silently dropped would corrupt the survey
   [[ -n "$backend" && -n "$repo" && -n "$prefix" ]] \
     || die "wbs init: [project.$project.$table] needs backend, repo and dir_prefix for --from-tracker"
-  [[ "$backend" == jira ]] && keyprefix="${DEVAGENT_JIRA_PROJECT_KEY:-$repo}"
   sh="$backend_dir/$backend.sh"
   [[ -f "$sh" && -x "$sh" ]] || die "wbs init: no issue backend script $sh"
   file="$imp_tmp/$S.out" err="$imp_tmp/$S.err"
@@ -189,8 +188,7 @@ _imp_fetch() {
     *) die "wbs init: $backend issue-list $repo failed (exit $rc): $(grep -v '^[[:space:]]*$' "$err" | tail -n 1 | tr -d '\r' || true)" ;;
   esac
   imp_env+=("WBS_IMP_${S}_FILE=$file" "WBS_IMP_${S}_BACKEND=$backend"
-            "WBS_IMP_${S}_REPO=$repo" "WBS_IMP_${S}_PREFIX=$prefix"
-            "WBS_IMP_${S}_KEYPREFIX=$keyprefix")
+            "WBS_IMP_${S}_REPO=$repo" "WBS_IMP_${S}_PREFIX=$prefix")
 }
 
 _imp_fetch ORIGIN issue_source
