@@ -121,14 +121,11 @@ devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 
 dest="$devdoc_dir/WBS.md"
 
-if [[ $mode == template && -e "$dest" && $force -ne 1 ]]; then
-  die "wbs init: $dest exists; pass --force to overwrite"
-fi
-if [[ $mode == merge ]]; then
-  [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first"
-elif [[ $mode == import && -e "$dest" ]]; then
-  die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it"
-fi
+case $mode in
+  template) [[ ! -e "$dest" ]] || (( force )) || die "wbs init: $dest exists; pass --force to overwrite" ;;
+  import)   [[ ! -e "$dest" ]] || die "wbs init: $dest exists; pass --merge to add the tracker's missing issues to it" ;;
+  merge)    [[ -f "$dest" ]] || die "wbs init --merge: $dest missing; run 'wbs init --from-tracker' first" ;;
+esac
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
 # [project.<name>.paths].wbs_template override (layer 1) is honored — not just

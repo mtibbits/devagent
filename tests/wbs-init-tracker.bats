@@ -669,8 +669,8 @@ _shaped_import_cut() {
   _swap "--merge --from-tracker --all" "--from-tracker --merge --all"
   [ "$rc_a" -eq 0 ] || { echo "$err_a"; false; }
   [[ "$err_a" == *"added 10 issues"* ]]
-  run cmp -s "$TMPROOT/base" "$TMPROOT/wbs_a"
-  [ "$status" -eq 1 ]
+  _merge_expected "$TMPROOT/base" "$TMPROOT/want" lf
+  cmp "$TMPROOT/want" "$TMPROOT/wbs_a"
   # the survey pair prints the same survey and writes nothing
   _swap "--survey --from-tracker" "--from-tracker --survey"
   [ "$rc_a" -eq 0 ] || { echo "$err_a"; false; }
