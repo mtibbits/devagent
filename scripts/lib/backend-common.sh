@@ -150,7 +150,7 @@ bc_gitlab_paginate() {
   local -A seen=()
   while :; do
     if (( ${#seen[@]} >= max )); then
-      echo "bc_gitlab_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
+      echo "bc_gitlab_paginate: walk of ${url} stopped at its cap of ${max} pages (if the list is really that long, raise BC_MAX_PAGES where the caller sets it, else DEVAGENT_BC_MAX_PAGES)" >&2
       return 6
     fi
     pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
@@ -189,7 +189,7 @@ bc_jira_paginate() {
   local -A seen=()
   while :; do
     if (( ${#seen[@]} >= max )); then
-      echo "bc_jira_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
+      echo "bc_jira_paginate: walk of ${url} stopped at its cap of ${max} pages (if the list is really that long, raise BC_MAX_PAGES where the caller sets it, else DEVAGENT_BC_MAX_PAGES)" >&2
       return 6
     fi
     resp="$(bc_curl GET "${url}?startAt=${start}&maxResults=100" "$@")" || return

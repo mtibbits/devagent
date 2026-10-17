@@ -154,7 +154,7 @@ Exit-code conventions across all backends:
 | 2 | usage error (bad/missing args, unknown verb) |
 | 3 | auth failure (HTTP 401/403) |
 | 4 | not found (HTTP 404) |
-| 5 | malformed or non-ending response (a 2xx page that is not the expected JSON, or a paging walk that does not end) |
+| 5 | malformed, truncated or non-ending response (a 2xx page that is not the expected JSON, a list cut at a backend's limit, or a paging walk that does not end) |
 | 78 | not implemented (reserved for stubs) |
 
 The markdown shapes produced by `fetch`, `comment-list` and `mr-comments` are
