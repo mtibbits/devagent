@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # backend-common.sh — shared helpers for issue/* and code/* backends.
 # Source-only; do not execute.
+#
+# Return codes of the helpers below: 0 ok; 1 any other failure; 3 an HTTP
+# 401/403 answer and 4 an HTTP 404 answer (bc_curl); 5 a malformed 2xx page
+# (the paging helpers); 6 a paging walk that does not end (bc_gitlab_paginate,
+# bc_jira_paginate; #774). A walk does not end when a page is byte-identical
+# to ANY earlier page of the same walk, or when it reaches the page cap: for
+# GitLab, `max` full pages with no short page (so a list of exactly max x 100
+# records also returns 6, because the page that would end it is never
+# requested); for Jira, `max` pages without reaching .total. The cap is the
+# caller's BC_MAX_PAGES (often a `local`), else DEVAGENT_BC_MAX_PAGES, else
+# 1000; the helpers never assign BC_MAX_PAGES. 6 is internal: no backend verb
+# exits with it, every caller maps it to its own 5 (spec §9.1), and the public
+# list of exit codes is the README's exit-code table.
 
 # Returns 0 iff $1 is on PATH.
 bc_have_cli() {
@@ -118,6 +131,9 @@ bc_curl_auth() {
 # object) returns 5: callers run this inside `$(...)`, where set -e is off, so
 # each jq checks its own status (#703 review — it used to loop forever, or
 # return an empty list).
+# The walk stops with 6 (#774) at the page cap or at a page byte-identical to
+# any earlier page; a server that ignores `page` stops at page 2. A cap that is
+# not a positive integer returns 1 before any request.
 bc_gitlab_paginate() {
   local url="$1"; shift
   local page=1 acc="[]" pg="" n=""
@@ -151,6 +167,13 @@ bc_gitlab_paginate() {
 # promised comments. Loop startAt+=page-length until a page is empty or we have
 # reached .total.
 #   Usage: bc_jira_paginate <url-without-query> [extra curl args…]
+# A 2xx page that is not an object with a .comments array, or whose .total is
+# not a count, returns 5 (#774: an HTML page used to repeat startAt=0 forever,
+# and an error object read as zero comments). The walk stops with 6 at the page
+# cap or at a page byte-identical to any earlier page, as in bc_gitlab_paginate.
+# Accepted under-delivery: `comments: []` while startAt < .total ends the walk
+# with what was read (Jira's .total can count comments the caller may not
+# see), and a missing .total reads as 0, so the walk ends after one page.
 bc_jira_paginate() {
   local url="$1"; shift
   local start=0 n=0 acc="[]" resp="" out="" got="" total=""
