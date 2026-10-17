@@ -691,14 +691,27 @@ def _render_meta(meta: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+_USAGE = "usage: wbs-parser.py {parse|edges|leaves|render [--allow-removals]} <path>"
+
+
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
-        print(
-            "usage: wbs-parser.py {parse|edges|leaves|render} <path>",
-            file=sys.stderr,
-        )
+        print(_USAGE, file=sys.stderr)
         return 2
     cmd = argv[1]
+    allow_removals = False
+    if cmd == "render":
+        args = []
+        for tok in argv[2:]:
+            if tok == "--allow-removals":
+                allow_removals = True
+            elif tok.startswith("--"):
+                print(f"wbs-parser.py render: unknown flag '{tok}'", file=sys.stderr)
+                print(_USAGE, file=sys.stderr)
+                return 2
+            else:
+                args.append(tok)
+        argv = argv[:2] + args
     path = Path(argv[2]) if len(argv) > 2 else None
     if cmd == "parse":
         print(json.dumps(parse_file(path), indent=2))
@@ -711,8 +724,20 @@ def _cli(argv: list[str]) -> int:
             print(f"{issue}\t{leaf['text']}")
     elif cmd == "render":
         tree = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            if tree.get("source_text") is not None:
+                out = render_document(tree, allow_removals=allow_removals)
+            else:
+                out = render_nodes(tree)
+        except ValueError as e:
+            # The flag relaxes removals only, so only they name it.
+            hint = ""
+            if str(e).endswith("is not in the tree"):
+                hint = "; pass --allow-removals to drop removed nodes"
+            print(f"wbs-parser.py render: {e}{hint}", file=sys.stderr)
+            return 1
         # Bytes: text-mode stdout turns `\n` into `\r\n` on Windows.
-        sys.stdout.buffer.write(render_markdown(tree).encode("utf-8"))
+        sys.stdout.buffer.write(out.encode("utf-8"))
     else:
         print(f"unknown subcommand: {cmd}", file=sys.stderr)
         return 2

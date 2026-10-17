@@ -751,3 +751,78 @@ def test_check_runs_on_a_noop_render(tmp_path, doc_writes):
     with pytest.raises(ValueError, match=re.escape(f"{p} check refused the write")):
         wbs_parser.write_markdown(p, tree, check=lambda old, new: False)
     assert doc_writes == []
+
+
+# #764 — the `render` CLI refuses removals unless given --allow-removals
+
+PARSER = str(REPO / "scripts" / "lib" / "wbs-parser.py")
+LEAF_B = "  - [~] Leaf B {issue: Issue-2, est: 1w, depends_on: Issue-1}\n"
+RENDER_USAGE = "usage: wbs-parser.py {parse|edges|leaves|render [--allow-removals]} <path>"
+
+
+def _cli_tree(tmp_path, variants, edit):
+    p = variants["lf"]
+    res = subprocess.run([sys.executable, PARSER, "parse", str(p)], capture_output=True, check=True)
+    tree = json.loads(res.stdout.decode("utf-8"))
+    edit(tree)
+    j = tmp_path / "tree.json"
+    j.write_bytes(json.dumps(tree).encode("utf-8"))
+    return p, str(j)
+
+
+def _render_cli(*args):
+    """(rc, stdout bytes, stderr text); stderr's line ends are the host's."""
+    res = subprocess.run([sys.executable, PARSER, "render", *args], capture_output=True)
+    return res.returncode, res.stdout, res.stderr.decode("utf-8").replace("\r\n", "\n")
+
+
+def _drop_leaf_b(tree):
+    epic = tree["children"][0]
+    epic["children"] = [n for n in epic["children"] if n["text"] != "Leaf B"]
+
+
+def test_render_cli_refuses_a_removed_node(tmp_path, variants):
+    _p, j = _cli_tree(tmp_path, variants, _drop_leaf_b)
+    rc, out, err = _render_cli(j)
+    assert rc == 1
+    assert out == b""
+    assert err == (
+        "wbs-parser.py render: line 17: node 'Leaf B' is not in the tree; "
+        "pass --allow-removals to drop removed nodes\n"
+    )
+
+
+def test_render_cli_allow_removals_drops_the_line(tmp_path, variants):
+    p, j = _cli_tree(tmp_path, variants, _drop_leaf_b)
+    rc, out, err = _render_cli("--allow-removals", j)
+    assert (rc, err) == (0, "")
+    assert out == p.read_bytes().replace(LEAF_B.encode("utf-8"), b"")
+
+
+def test_render_cli_allow_removals_after_the_path(tmp_path, variants):
+    p, j = _cli_tree(tmp_path, variants, _drop_leaf_b)
+    rc, out, err = _render_cli(j, "--allow-removals")
+    assert (rc, err) == (0, "")
+    assert out == p.read_bytes().replace(LEAF_B.encode("utf-8"), b"")
+
+
+def test_render_cli_unknown_flag_is_a_usage_error(tmp_path, variants):
+    _p, j = _cli_tree(tmp_path, variants, _drop_leaf_b)
+    rc, out, err = _render_cli("--allow-removal", j)
+    assert rc == 2
+    assert out == b""
+    assert err.splitlines() == [
+        "wbs-parser.py render: unknown flag '--allow-removal'",
+        RENDER_USAGE,
+    ]
+
+
+def test_render_cli_move_refusal_has_no_hint(tmp_path, variants):
+    _p, j = _cli_tree(tmp_path, variants, lambda t: t["children"][0]["children"].reverse())
+    rc, out, err = _render_cli("--allow-removals", j)
+    assert rc == 1
+    assert out == b""
+    assert err == (
+        "wbs-parser.py render: line 15: node 'Leaf A' moved; "
+        "moving or reordering nodes is not supported\n"
+    )
