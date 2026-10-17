@@ -21,12 +21,14 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 }
 
 @test "hermetic-env neutralizes the #240 pins and hostile git config (#322)" {
-  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99 DEVAGENT_SUITE_JOBS=9 DEVAGENT_FETCH_TIMEOUT=9
+  export DEVAGENT_ACTIVE_PROJECT=volk DEVAGENT_ACTIVE_ISSUE=Issue-99 DEVAGENT_SUITE_JOBS=9 DEVAGENT_FETCH_TIMEOUT=9 DEVAGENT_BC_MAX_PAGES=2 BC_MAX_PAGES=2
   . "$REPO/tests/lib/hermetic-env.bash"
   [ -z "${DEVAGENT_ACTIVE_PROJECT:-}" ]
   [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]
   [ -z "${DEVAGENT_SUITE_JOBS:-}" ]                       # #593: the one-run jobs override
   [ -z "${DEVAGENT_FETCH_TIMEOUT:-}" ]   # #660: the one-run fetch bound
+  [ -z "${DEVAGENT_BC_MAX_PAGES:-}" ]   # #774: the paging cap
+  [ -z "${BC_MAX_PAGES:-}" ]
   [ "$GIT_CONFIG_GLOBAL" = /dev/null ]
   [ "$GIT_CONFIG_SYSTEM" = /dev/null ]
 }
