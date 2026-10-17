@@ -246,8 +246,11 @@ _il_check() { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check;
 @test "[gitlab] issue-list, fetch and comment-list exit 5, not 6, on a repeated page (#774)" {
   run timeout 60 "$ISSUE_SCRIPT" issue-list foo/repeat
   [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats page 1"* ]]
   run timeout 60 "$ISSUE_SCRIPT" fetch foo/repeat 42
   [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats page 1"* ]]
   run timeout 60 "$ISSUE_SCRIPT" comment-list foo/repeat 42
   [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats page 1"* ]]
 }

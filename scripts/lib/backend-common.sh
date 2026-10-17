@@ -123,10 +123,10 @@ bc_curl_auth() {
 
 # Print the page cap of a paging walk: the caller's BC_MAX_PAGES, else
 # DEVAGENT_BC_MAX_PAGES, else 1000. Returns 1, naming the helper $1, when the
-# cap is not a positive integer (#774).
+# cap is not a positive integer of at most 18 digits (#774).
 _bc_page_cap() {
   local cap="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
-  [[ "$cap" =~ ^[1-9][0-9]*$ ]] || { echo "$1: page cap '${cap}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
+  [[ "$cap" =~ ^[1-9][0-9]{0,17}$ ]] || { echo "$1: page cap '${cap}' is not a positive integer of at most 18 digits (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
   printf '%s' "$cap"
 }
 
@@ -198,7 +198,7 @@ bc_jira_paginate() {
       | tr -d '\r')" || out=""
     IFS=$'\t' read -r got total <<<"$out"
     [[ "$got" =~ ^[0-9]+$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} lacks a .comments array" >&2; return 5; }
-    [[ "$total" =~ ^[0-9]+$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} has a .total that is not a count" >&2; return 5; }
+    [[ "$total" =~ ^[0-9]{1,18}$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} has a .total that is not a count" >&2; return 5; }
     if [ -n "${seen[$resp]:-}" ]; then
       echo "bc_jira_paginate: page at startAt=${start} of ${url} repeats the page at startAt=${seen[$resp]}" >&2
       return 6

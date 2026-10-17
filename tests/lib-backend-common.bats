@@ -170,7 +170,7 @@ _capped_caller() { local BC_MAX_PAGES=2; local rc=0; "$@" >/dev/null || rc=$?; e
 
 @test "a page cap that is not a positive integer returns 1 before any request (#774)" {
   local cap
-  for cap in 0 1k; do
+  for cap in 0 1k 99999999999999999999; do
     export DEVAGENT_BC_MAX_PAGES="$cap"
     : > "$BATS_TEST_TMPDIR/calls"
     STUB_MODE=gl-distinct

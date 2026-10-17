@@ -20,7 +20,7 @@ the README's "Versioning & releases" section has the release procedure.
   - A 2xx Jira comment page that is not a JSON object with a `.comments` array (a login page,
     a proxy's error object) now exits `5` and names the page. Before, an HTML page repeated
     `startAt=0` until killed, and an error object printed `## Comments (0)` with exit 0.
-  - The GitLab and Jira paging walks stop at 1000 pages, or at a page byte-identical to an
+  - The GitLab paging walks and the Jira comment walk stop at 1000 pages, or at a page byte-identical to an
     earlier page of the same walk, with exit `5`. A server that ignores `page` or `startAt` stops
     at page 2. `DEVAGENT_BC_MAX_PAGES` sets the cap (spec §9.1).
   - Affects GitLab `fetch`, `comment-list`, `state-list`, `issue-list` and the code backend's

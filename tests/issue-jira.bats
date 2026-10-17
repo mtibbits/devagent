@@ -166,4 +166,5 @@ PY
   : > "$FIXTURE_REQUEST_LOG"
   run timeout 60 "$SCRIPT" fetch PROJ PROJ-REPEAT
   [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats the page at startAt=0"* ]]
 }
