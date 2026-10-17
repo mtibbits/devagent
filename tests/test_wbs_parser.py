@@ -10,6 +10,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 FIX = REPO / "tests" / "fixtures" / "wbs"
+PARSER = str(REPO / "scripts" / "lib" / "wbs-parser.py")
 
 
 def _load(name, path):
@@ -515,9 +516,8 @@ NODE_KEYS = {
 
 def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path):
     p = variants["crlf"]
-    parser = str(REPO / "scripts" / "lib" / "wbs-parser.py")
     res = subprocess.run(
-        [sys.executable, parser, "parse", str(p)], capture_output=True, check=True
+        [sys.executable, PARSER, "parse", str(p)], capture_output=True, check=True
     )
     tree = json.loads(res.stdout.decode("utf-8"))
     assert set(tree) == {"title", "children", "source_text"}
@@ -526,7 +526,7 @@ def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path
     j = tmp_path / "tree.json"
     j.write_bytes(res.stdout)
     res = subprocess.run(
-        [sys.executable, parser, "render", str(j)], capture_output=True, check=True
+        [sys.executable, PARSER, "render", str(j)], capture_output=True, check=True
     )
     assert res.stdout == p.read_bytes()
 
@@ -572,14 +572,10 @@ def _b_under_a(depth):
     return tree
 
 
-def test_reparent_is_refused():
+@pytest.mark.parametrize("depth", [2, 1], ids=["new-depth", "same-depth"])
+def test_reparent_is_refused(depth):
     with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
-        wbs_parser.render_markdown(_b_under_a(2))
-
-
-def test_reparent_at_the_same_depth_is_refused():
-    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
-        wbs_parser.render_markdown(_b_under_a(1))
+        wbs_parser.render_markdown(_b_under_a(depth))
 
 
 def test_depth_change_alone_is_refused():
@@ -755,15 +751,13 @@ def test_check_runs_on_a_noop_render(tmp_path, doc_writes):
 
 # #764 — the `render` CLI refuses removals unless given --allow-removals
 
-PARSER = str(REPO / "scripts" / "lib" / "wbs-parser.py")
 LEAF_B = "  - [~] Leaf B {issue: Issue-2, est: 1w, depends_on: Issue-1}\n"
 RENDER_USAGE = "usage: wbs-parser.py {parse|edges|leaves|render [--allow-removals]} <path>"
 
 
 def _cli_tree(tmp_path, variants, edit):
     p = variants["lf"]
-    res = subprocess.run([sys.executable, PARSER, "parse", str(p)], capture_output=True, check=True)
-    tree = json.loads(res.stdout.decode("utf-8"))
+    tree = wbs_parser.parse_file(p)
     edit(tree)
     j = tmp_path / "tree.json"
     j.write_bytes(json.dumps(tree).encode("utf-8"))

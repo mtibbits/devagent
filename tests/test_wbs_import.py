@@ -1060,12 +1060,10 @@ def _write_via(entry, tmp_path):
                         WBS_IMP_TEMPLATE=str(tmp_path / "t.md"), WBS_IMP_DEST=str(dest))
         assert wbs_import.run(env) == 0
     else:
-        (tmp_path / "t.md").write_bytes(b"# {{PROJECT}} WBS\n")
         force = "1" if entry == "template-force" else "0"
+        env, dest = _template_env(tmp_path, b"# {{PROJECT}} WBS\n", "p", force)
         if force == "1":
             dest.write_bytes(b"hand-edited\n")
-        env = {"WBS_IMP_TEMPLATE": str(tmp_path / "t.md"), "WBS_IMP_PROJECT": "p",
-               "WBS_IMP_DEST": str(dest), "WBS_IMP_FORCE": force}
         assert wbs_import.write_template(env) == 0
     return dest
 

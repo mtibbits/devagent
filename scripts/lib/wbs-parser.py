@@ -33,9 +33,9 @@ those keys into the meta block (set, replaced or removed in place), and
 new nodes (no `source_line`) are inserted as whole lines in the file's
 line-ending style. It refuses, with `ValueError`, a removed node line
 unless `allow_removals`, and a node whose depth, parent or sibling order
-changed (#764). `render_markdown` is `render_document` with removals
-refused; a tree without `source_text` renders as v1 does (`render_nodes`:
-title plus nodes only).
+changed (#764). `render_markdown` is `render_document`, removals refused
+unless `allow_removals`; a tree without `source_text` renders as v1 does
+(`render_nodes`: title plus nodes only).
 
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
@@ -329,10 +329,14 @@ def dependency_edges(tree: dict) -> list[tuple[str, str]]:
     return edges
 
 
-def render_markdown(tree: dict) -> str:
+class _NodeRemoved(ValueError):
+    """`render_document`'s removal refusal, the one `allow_removals` relaxes."""
+
+
+def render_markdown(tree: dict, *, allow_removals: bool = False) -> str:
     """Render a tree: the document when it carries `source_text`, else v1."""
     if tree.get("source_text") is not None:
-        return render_document(tree)
+        return render_document(tree, allow_removals=allow_removals)
     return render_nodes(tree)
 
 
@@ -453,63 +457,62 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
 
     owner: dict[int, int] = {}  # id(node) -> line index
     by_line: dict[int, dict] = {}  # line index -> node
-
-    def claim(node: dict) -> None:
-        i = node.get("source_line", 0) - 1
-        if 0 <= i < n and kinds[i][0] == "node" and i not in by_line:
-            by_line[i] = node
-            owner[id(node)] = i
-            for k in node.get("children", []):
-                claim(k)
-        # A new node's whole subtree is new: its children claim nothing.
-
-    for top in tree.get("children", []):
-        claim(top)
-
-    # Parse-time parent per node line, against the tree's: owned parent line
-    # (-1: root) and the previous owned sibling's line, per owned line.
-    parse_parent = _parse_parents(kinds)
+    # Per owned line, against the parse: its tree parent's line (-1: root)
+    # and its previous owned sibling's line (-1: none).
     tree_parent: dict[int, int] = {}
     prev_sibling: dict[int, int] = {}
-    carried: set[int] = set()  # lines unclaimed nodes still name
+    carried: set[int] = set()  # lines that nodes inside new subtrees still name
 
-    def record(parent: dict, parent_line: int | None) -> None:
+    def carry(node: dict) -> None:
+        line = node.get("source_line")
+        if isinstance(line, int):
+            carried.add(line - 1)
+        for k in node.get("children", []):
+            carry(k)
+
+    def claim(parent: dict, parent_line: int) -> None:
         prev = -1
-        for child in parent.get("children", []):
-            i = owner.get(id(child))
-            if i is None:
-                line = child.get("source_line")
-                if isinstance(line, int):
-                    carried.add(line - 1)
-                record(child, None)
-                continue
-            tree_parent[i] = parent_line
-            prev_sibling[i] = prev
-            prev = i
-            record(child, i)
+        for node in parent.get("children", []):
+            i = node.get("source_line", 0) - 1
+            if 0 <= i < n and kinds[i][0] == "node" and i not in by_line:
+                by_line[i] = node
+                owner[id(node)] = i
+                tree_parent[i], prev_sibling[i] = parent_line, prev
+                prev = i
+                claim(node, i)
+            else:
+                # A new node's whole subtree is new: its children claim nothing.
+                carry(node)
 
-    record(tree, -1)
+    claim(tree, -1)
+
+    parse_parent = _parse_parents(kinds)
+
+    def text_at(i: int) -> str:
+        return _split_text_and_meta(kinds[i][1].group("rest").rstrip())[0]
+
+    def moved(i: int) -> ValueError:
+        return ValueError(
+            f"line {i + 1}: node '{text_at(i)}' moved; moving or reordering nodes is not supported"
+        )
+
     for i, (kind, m) in enumerate(kinds):
         if kind != "node":
             continue
-        text = _split_text_and_meta(m.group("rest").rstrip())[0]
-        moved = ValueError(
-            f"line {i + 1}: node '{text}' moved; moving or reordering nodes is not supported"
-        )
         node = by_line.get(i)
         if node is None:
             # claim() never descends into a new node, so a node moved under
             # one leaves its line unowned: a move, not a removal.
             if i in carried:
-                raise moved
+                raise moved(i)
             if not allow_removals:
-                raise ValueError(f"line {i + 1}: node '{text}' is not in the tree")
+                raise _NodeRemoved(f"line {i + 1}: node '{text_at(i)}' is not in the tree")
         elif (
             node["depth"] != _depth(m)
             or tree_parent[i] != parse_parent[i]
             or prev_sibling[i] > i
         ):
-            raise moved
+            raise moved(i)
 
     def block_end(i: int) -> int:
         """Last line of node line i's block (see spec §13.1 / #701)."""
@@ -735,14 +738,11 @@ def _cli(argv: list[str]) -> int:
     elif cmd == "render":
         tree = json.loads(path.read_text(encoding="utf-8"))
         try:
-            if tree.get("source_text") is not None:
-                out = render_document(tree, allow_removals=allow_removals)
-            else:
-                out = render_nodes(tree)
+            out = render_markdown(tree, allow_removals=allow_removals)
         except ValueError as e:
             # The flag relaxes removals only, so only they name it.
             hint = ""
-            if str(e).endswith("is not in the tree"):
+            if isinstance(e, _NodeRemoved):
                 hint = "; pass --allow-removals to drop removed nodes"
             print(f"wbs-parser.py render: {e}{hint}", file=sys.stderr)
             return 1
