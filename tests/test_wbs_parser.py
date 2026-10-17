@@ -642,3 +642,29 @@ def test_render_document_requires_source_text():
     tree.pop("source_text")
     with pytest.raises(ValueError, match=re.escape("render_document: the tree has no source_text")):
         wbs_parser.render_document(tree)
+
+
+INSERTION_TEXTS = [
+    "# t\n- [ ] Epic two\n  - [ ] Leaf D {issue: Issue-3}\n"
+    "Note not indented\n  - [ ] Leaf E {issue: Issue-4}\n",
+    "# t\n- [ ] Epic two\n\n## Sub\n\n  - [ ] Leaf D {issue: Issue-3}\n",
+]
+
+
+@pytest.mark.parametrize(
+    "text, want",
+    [
+        ((FIX / "preserve.md").read_bytes().decode("utf-8"),
+         {12: -1, 14: 12, 16: 12, 17: 12, 29: -1, 30: 29}),
+        ((FIX / "nested.md").read_bytes().decode("utf-8"),
+         {2: -1, 3: 2, 4: 3, 5: 3, 6: 2, 7: 6}),
+        ((FIX / "simple.md").read_bytes().decode("utf-8"), {2: -1, 3: 2, 4: 2}),
+        (INSERTION_TEXTS[0], {1: -1, 2: 1, 4: 1}),
+        (INSERTION_TEXTS[1], {1: -1, 5: 1}),
+    ],
+    ids=["preserve", "nested", "simple", "col0-note", "heading-between"],
+)
+def test_parse_parents_known_maps(text, want):
+    """Hand-written {node line index: parent line index, -1 for the root}."""
+    kinds, _bodies, _ = wbs_parser._classify_lines(text.splitlines(keepends=True))
+    assert wbs_parser._parse_parents(kinds) == want

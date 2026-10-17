@@ -158,6 +158,25 @@ def _classify_lines(
     return kinds, bodies, unclosed_at
 
 
+def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
+    """Map each node line index to its parent's node line index (-1: root).
+
+    The one home of the parser's nesting rule: a node's parent is the
+    nearest earlier node of smaller depth. Parse and render both call it.
+    """
+    parents: dict[int, int] = {}
+    stack: list[tuple[int, int]] = [(-1, -1)]  # (depth, line index)
+    for i, (kind, m) in enumerate(kinds):
+        if kind != "node":
+            continue
+        depth = _depth(m)
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        parents[i] = stack[-1][1]
+        stack.append((depth, i))
+    return parents
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
@@ -167,8 +186,9 @@ def parse_file(path: Path | str) -> dict:
 
 def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
-    stack: list[tuple[int, dict]] = [(-1, root)]
     kinds, _bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    parents = _parse_parents(kinds)
+    by_line: dict[int, dict] = {-1: root}
     if unclosed_at is not None:
         print(
             f"wbs-parser: unclosed code fence at line {unclosed_at} ignored; "
@@ -197,11 +217,8 @@ def parse_text(text: str) -> dict:
             "children": [],
             "source_line": lineno,
         }
-        while stack and stack[-1][0] >= depth:
-            stack.pop()
-        parent = stack[-1][1]
-        parent["children"].append(node)
-        stack.append((depth, node))
+        by_line[parents[lineno - 1]]["children"].append(node)
+        by_line[lineno - 1] = node
     return root
 
 
