@@ -321,7 +321,7 @@ def dependency_edges(tree: dict) -> list[tuple[str, str]]:
 def render_markdown(tree: dict) -> str:
     """Render a tree: the document when it carries `source_text`, else v1."""
     if tree.get("source_text") is not None:
-        return _render_document(tree)
+        return render_document(tree)
     return render_nodes(tree)
 
 
@@ -371,19 +371,33 @@ def render_nodes(tree: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_document(tree: dict) -> str:
+def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     """Re-emit `source_text` line by line, changing only what the tree changed.
 
     A node owns the line its `source_line` names when that line is a node
     line no earlier node claimed; a node that owns none is new. Owned lines
     are kept verbatim, glyph-patched, or regenerated (text/meta change).
-    Unowned node lines (removed nodes) are dropped. Every other line is
-    kept verbatim. A new node goes after its preceding sibling's owned
-    subtree; with no preceding sibling, just before the parent's first
-    existing child, or after the block of a parent that has none. Its own
-    children follow it.
+    Every other line is kept verbatim. A new node goes after its preceding
+    sibling's owned subtree; with no preceding sibling, just before the
+    parent's first existing child, or after the block of a parent that has
+    none. Its own children follow it.
+
+    Before any output is built, the node lines are checked in line order and
+    the first violation raises `ValueError` (#764):
+
+    - an unowned node line is a removal, `line <n>: node '<text>' is not in
+      the tree`, unless `allow_removals`, which drops the line;
+    - an owned node whose depth, parent or order among its owned siblings
+      differs from its line's at parse time, or an unowned line that a node
+      under a new node still names, is a move: `line <n>: node '<text>'
+      moved; moving or reordering nodes is not supported`. `allow_removals`
+      never relaxes it.
+
+    `<text>` is the source line's own text. New nodes are not a reorder.
     """
-    src = tree["source_text"]
+    src = tree.get("source_text")
+    if src is None:
+        raise ValueError("render_document: the tree has no source_text")
     lines = src.splitlines(keepends=True)
     n = len(lines)
     kinds, bodies, _ = _classify_lines(lines)
@@ -404,6 +418,51 @@ def _render_document(tree: dict) -> str:
 
     for top in tree.get("children", []):
         claim(top)
+
+    # Parse-time parent per node line, against the tree's: owned parent line
+    # (-1: root) and the previous owned sibling's line, per owned line.
+    parse_parent = _parse_parents(kinds)
+    tree_parent: dict[int, int] = {}
+    prev_sibling: dict[int, int] = {}
+    carried: set[int] = set()  # lines unclaimed nodes still name
+
+    def record(parent: dict, parent_line: int | None) -> None:
+        prev = -1
+        for child in parent.get("children", []):
+            i = owner.get(id(child))
+            if i is None:
+                line = child.get("source_line")
+                if isinstance(line, int):
+                    carried.add(line - 1)
+                record(child, None)
+                continue
+            tree_parent[i] = parent_line
+            prev_sibling[i] = prev
+            prev = i
+            record(child, i)
+
+    record(tree, -1)
+    for i, (kind, m) in enumerate(kinds):
+        if kind != "node":
+            continue
+        text = _split_text_and_meta(m.group("rest").rstrip())[0]
+        moved = ValueError(
+            f"line {i + 1}: node '{text}' moved; moving or reordering nodes is not supported"
+        )
+        node = by_line.get(i)
+        if node is None:
+            # claim() never descends into a new node, so a node moved under
+            # one leaves its line unowned: a move, not a removal.
+            if i in carried:
+                raise moved
+            if not allow_removals:
+                raise ValueError(f"line {i + 1}: node '{text}' is not in the tree")
+        elif (
+            node["depth"] != _depth(m)
+            or tree_parent[i] != parse_parent[i]
+            or prev_sibling[i] > i
+        ):
+            raise moved
 
     def block_end(i: int) -> int:
         """Last line of node line i's block (see spec §13.1 / #701)."""

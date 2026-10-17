@@ -621,6 +621,7 @@ def test_new_node_among_owned_siblings_is_not_a_reorder():
     tree["children"].insert(1, _new_node("N", 1))
     want = W_MD.replace("  - [ ] A1 {issue: Issue-2}\n", "  - [ ] A1 {issue: Issue-2}\n- [ ] N\n")
     assert wbs_parser.render_markdown(tree) == want
+    assert wbs_parser.render_document(tree) == want
 
 
 def test_owned_edits_still_render_after_the_checks():
@@ -635,6 +636,7 @@ def test_owned_edits_still_render_after_the_checks():
         tree = wbs_parser.parse_text(W_MD)
         edit(tree["children"][1])
         assert wbs_parser.render_markdown(tree) == W_MD.replace(line, want), want
+        assert wbs_parser.render_document(tree) == W_MD.replace(line, want), want
 
 
 def test_render_document_requires_source_text():
