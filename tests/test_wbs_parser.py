@@ -670,3 +670,84 @@ def test_parse_parents_known_maps(text, want):
     """Hand-written {node line index: parent line index, -1 for the root}."""
     kinds, _bodies, _ = wbs_parser._classify_lines(text.splitlines(keepends=True))
     assert wbs_parser._parse_parents(kinds) == want
+
+
+# #764 — one write path: prepare_write, write_markdown(check=), write_document
+
+
+def test_write_document_writes_bytes_verbatim(variants):
+    p = variants["crlf-nofinal"]
+    text = p.read_bytes().decode("utf-8")
+    p.write_bytes(b"old")
+    wbs_parser.write_document(p, text)
+    assert p.read_bytes() == text.encode("utf-8")
+    assert not p.read_bytes().endswith(b"\n")
+
+
+def test_write_document_exclusive(tmp_path):
+    p = tmp_path / "new.md"
+    wbs_parser.write_document(p, "x\n", exclusive=True)
+    assert p.read_bytes() == b"x\n"
+    with pytest.raises(FileExistsError):
+        wbs_parser.write_document(p, "y\n", exclusive=True)
+    assert p.read_bytes() == b"x\n"
+
+
+def test_prepare_write_returns_the_text_and_writes_nothing(tmp_path):
+    p = _w(tmp_path)
+    tree = wbs_parser.parse_file(p)
+    tree["children"][1]["glyph"] = "x"
+    want = W_MD.replace("- [ ] B {", "- [x] B {")
+    assert wbs_parser.prepare_write(p, tree) == want
+    assert p.read_bytes() == W_MD.encode("utf-8")
+    tree["children"] = tree["children"][:1]
+    with pytest.raises(ValueError, match=re.escape(f"{p} line 7: node 'B' is not in the tree")):
+        wbs_parser.prepare_write(p, tree)
+    assert p.read_bytes() == W_MD.encode("utf-8")
+
+
+def test_write_markdown_check_veto(tmp_path):
+    p = _w(tmp_path)
+    tree = wbs_parser.parse_file(p)
+    tree["children"][1]["glyph"] = "x"
+    want = W_MD.replace("- [ ] B {", "- [x] B {")
+    seen = []
+
+    def veto(old, new):
+        seen.append((old, new))
+        return False
+
+    with pytest.raises(ValueError, match=re.escape(f"{p} check refused the write")):
+        wbs_parser.write_markdown(p, tree, check=veto)
+    assert seen == [(W_MD, want)]
+    assert p.read_bytes() == W_MD.encode("utf-8")
+    assert wbs_parser.write_markdown(p, tree, check=lambda old, new: True) is True
+    assert p.read_bytes() == want.encode("utf-8")
+
+
+@pytest.fixture
+def doc_writes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        wbs_parser, "write_document",
+        lambda path, text, *, exclusive=False: calls.append((path, text, exclusive)),
+    )
+    return calls
+
+
+def test_write_markdown_routes_through_write_document(tmp_path, doc_writes):
+    p = _w(tmp_path)
+    tree = wbs_parser.parse_file(p)
+    assert wbs_parser.write_markdown(p, tree) is False
+    assert doc_writes == []
+    tree["children"][1]["glyph"] = "x"
+    assert wbs_parser.write_markdown(p, tree) is True
+    assert doc_writes == [(p, W_MD.replace("- [ ] B {", "- [x] B {"), False)]
+
+
+def test_check_runs_on_a_noop_render(tmp_path, doc_writes):
+    p = _w(tmp_path)
+    tree = wbs_parser.parse_file(p)
+    with pytest.raises(ValueError, match=re.escape(f"{p} check refused the write")):
+        wbs_parser.write_markdown(p, tree, check=lambda old, new: False)
+    assert doc_writes == []
