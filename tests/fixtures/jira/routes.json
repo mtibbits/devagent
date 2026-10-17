@@ -24,5 +24,10 @@
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22CYCLE%22%20ORDER%20BY%20key&fields=summary,description,status,resolution,created,resolutiondate,statuscategorychangedate,labels,issuetype,parent,issuelinks&maxResults=100&nextPageToken=TOKB": {"status": 200, "body_file": "search-cycle-2.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22CYCLE%22%20ORDER%20BY%20key&fields=summary,description,status,resolution,created,resolutiondate,statuscategorychangedate,labels,issuetype,parent,issuelinks&maxResults=100&nextPageToken=TOKA": {"status": 200, "body_file": "search-cycle-1.json"},
   "GET /rest/api/2/search/jql?jql=project%20%3D%20%22LOOP%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100": {"status": 200, "body_file": "search-loop.json"},
-  "GET /rest/api/2/search/jql?jql=project%20%3D%20%22LOOP%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100&nextPageToken=SAME": {"status": 200, "body_file": "search-loop.json"}
+  "GET /rest/api/2/search/jql?jql=project%20%3D%20%22LOOP%22%20ORDER%20BY%20key&fields=status,resolution&maxResults=100&nextPageToken=SAME": {"status": 200, "body_file": "search-loop.json"},
+  "GET /rest/api/2/issue/PROJ-HTML/comment?startAt=0&maxResults=100": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
+  "GET /rest/api/2/issue/PROJ-NOCOMMENTS/comment?startAt=0&maxResults=100": {"status": 200, "body": "{\"errorMessages\":[\"proxy says no\"]}"},
+  "GET /rest/api/2/issue/PROJ-REPEAT": {"status": 200, "body_file": "issue.json"},
+  "GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=0&maxResults=100": {"status": 200, "body_file": "comments-full.json"},
+  "GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=100&maxResults=100": {"status": 200, "body_file": "comments-full.json"}
 }
