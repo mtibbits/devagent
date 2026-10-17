@@ -120,12 +120,24 @@ bc_curl_auth() {
 # return an empty list).
 bc_gitlab_paginate() {
   local url="$1"; shift
-  local page=1 acc="[]" pg n
+  local page=1 acc="[]" pg="" n=""
+  local max="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  local -A seen=()
+  [[ "$max" =~ ^[1-9][0-9]*$ ]] || { echo "bc_gitlab_paginate: page cap '${max}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
   while :; do
+    if (( page > max )); then
+      echo "bc_gitlab_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
+      return 6
+    fi
     pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
     n="$(printf '%s' "$pg" | jq 'if type == "array" then length else error("not a JSON array") end' \
       | tr -d '\r')" || n=""
     [[ "$n" =~ ^[0-9]+$ ]] || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
+    if [ -n "${seen[$pg]:-}" ]; then
+      echo "bc_gitlab_paginate: page ${page} of ${url} repeats page ${seen[$pg]}" >&2
+      return 6
+    fi
+    seen[$pg]=$page
     acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')" || return 5
     [ "$n" -lt 100 ] && break
     page=$((page + 1))
@@ -141,13 +153,29 @@ bc_gitlab_paginate() {
 #   Usage: bc_jira_paginate <url-without-query> [extra curl args…]
 bc_jira_paginate() {
   local url="$1"; shift
-  local start=0 acc="[]" resp pg got total
+  local start=0 n=0 acc="[]" resp="" out="" got="" total=""
+  local max="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  local -A seen=()
+  [[ "$max" =~ ^[1-9][0-9]*$ ]] || { echo "bc_jira_paginate: page cap '${max}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
   while :; do
+    if (( n >= max )); then
+      echo "bc_jira_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
+      return 6
+    fi
+    n=$((n + 1))
     resp="$(bc_curl GET "${url}?startAt=${start}&maxResults=100" "$@")" || return
-    pg="$(printf '%s' "$resp" | jq '.comments // []')"
-    got="$(printf '%s' "$pg" | jq 'length')"
-    total="$(printf '%s' "$resp" | jq '.total // 0')"
-    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')"
+    out="$(printf '%s' "$resp" | jq -r 'if type == "object" and (.comments | type) == "array"
+        then "\(.comments | length)\t\(.total // 0)" else error("lacks a .comments array") end' \
+      | tr -d '\r')" || out=""
+    IFS=$'\t' read -r got total <<<"$out"
+    [[ "$got" =~ ^[0-9]+$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} lacks a .comments array" >&2; return 5; }
+    [[ "$total" =~ ^[0-9]+$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} has a .total that is not a count" >&2; return 5; }
+    if [ -n "${seen[$resp]:-}" ]; then
+      echo "bc_jira_paginate: page at startAt=${start} of ${url} repeats the page at startAt=${seen[$resp]}" >&2
+      return 6
+    fi
+    seen[$resp]=$start
+    acc="$(printf '%s\n%s\n' "$acc" "$resp" | jq -s '.[0] + .[1].comments')" || return 5
     start=$((start + got))
     { [ "$got" -eq 0 ] || [ "$start" -ge "$total" ]; } && break
   done
