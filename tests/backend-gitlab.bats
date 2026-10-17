@@ -221,3 +221,33 @@ _il_check() { python3 "${BATS_TEST_DIRNAME}/../scripts/lib/wbs-import.py" check;
   run "$ISSUE_SCRIPT" issue-list
   [ "$status" -eq 1 ]
 }
+
+# #774: bc_gitlab_paginate stops a walk that does not end. foo/repeat serves
+# fixtures/gitlab/full-page-a.json for page 1 and page 2 (issues, issue 42 notes,
+# MR 7 notes); foo/endless serves full-page-a/b/c.json for pages 1-3 and has no
+# page 4, so a broken cap gets a 404 (exit 4) instead of hanging. Generated with
+#   jq -cn --argjson k <0|1|2> '[range(100) | {id: (. + 1 + 100*$k)}]'
+# (100 distinct objects per file: ids 1-100, 101-200, 201-300).
+@test "[gitlab] state-list stops at a page that repeats page 1 (#774)" {
+  run timeout 60 "$ISSUE_SCRIPT" state-list foo/repeat
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"bc_gitlab_paginate: page 2 of ${FIXTURE_URL}/api/v4/projects/foo%2Frepeat/issues repeats page 1"* ]]
+  [ "$(grep -cF 'GET /api/v4/projects/foo%2Frepeat/issues?per_page=100&page=' "$FIXTURE_REQUEST_LOG")" -eq 2 ]
+}
+
+@test "[gitlab] state-list stops at DEVAGENT_BC_MAX_PAGES (#774)" {
+  export DEVAGENT_BC_MAX_PAGES=3
+  run timeout 60 "$ISSUE_SCRIPT" state-list foo/endless
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"stopped at its cap of 3 pages"* ]]
+  [ "$(grep -cF 'GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=' "$FIXTURE_REQUEST_LOG")" -eq 3 ]
+}
+
+@test "[gitlab] issue-list, fetch and comment-list exit 5, not 6, on a repeated page (#774)" {
+  run timeout 60 "$ISSUE_SCRIPT" issue-list foo/repeat
+  [ "$status" -eq 5 ]
+  run timeout 60 "$ISSUE_SCRIPT" fetch foo/repeat 42
+  [ "$status" -eq 5 ]
+  run timeout 60 "$ISSUE_SCRIPT" comment-list foo/repeat 42
+  [ "$status" -eq 5 ]
+}
