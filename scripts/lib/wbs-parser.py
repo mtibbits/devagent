@@ -51,6 +51,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 STATE_GLYPHS: dict[str, str] = {
@@ -325,17 +326,53 @@ def render_markdown(tree: dict) -> str:
     return render_nodes(tree)
 
 
-def write_markdown(path: Path | str, tree: dict) -> bool:
-    """Write the rendered tree to `path` as UTF-8 bytes, only if it changed.
+def prepare_write(
+    path: Path | str,
+    tree: dict,
+    check: Callable[[str, str], bool] | None = None,
+) -> str:
+    """The text `write_markdown(path, tree, check)` would write; writes nothing.
 
-    Returns whether it wrote. Bytes, not text mode: text mode would turn
-    `\\n` into `\\r\\n` on Windows.
+    Renders with removals refused, then runs the optional `check(old, new)`
+    veto (#764). Either refusal raises `ValueError` prefixed with `path`.
     """
-    rendered = render_markdown(tree)
-    if rendered == tree.get("source_text"):
+    try:
+        new = render_document(tree)
+    except ValueError as e:
+        raise ValueError(f"{path} {e}") from None
+    if check is not None and not check(tree["source_text"], new):
+        raise ValueError(f"{path} check refused the write")
+    return new
+
+
+def write_markdown(
+    path: Path | str,
+    tree: dict,
+    check: Callable[[str, str], bool] | None = None,
+) -> bool:
+    """`prepare_write`, then write through `write_document` only if it changed.
+
+    Returns whether it wrote. `check` runs even when nothing would change.
+    """
+    new = prepare_write(path, tree, check)
+    if new == tree["source_text"]:
         return False
-    Path(path).write_bytes(rendered.encode("utf-8"))
+    write_document(path, new)
     return True
+
+
+def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> None:
+    """Write `text` to `path` as UTF-8 bytes: the one writer of WBS.md bytes.
+
+    `exclusive` refuses an existing file (`FileExistsError`). Bytes, not
+    text mode: text mode would turn `\n` into `\r\n` on Windows.
+    """
+    data = text.encode("utf-8")
+    if exclusive:
+        with open(path, "xb") as f:
+            f.write(data)
+    else:
+        Path(path).write_bytes(data)
 
 
 _GLYPH_FOR_STATE = {v: k for k, v in STATE_GLYPHS.items()}
