@@ -516,8 +516,9 @@ NODE_KEYS = {
 
 def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path):
     p = variants["crlf"]
+    parser = str(REPO / "scripts" / "lib" / "wbs-parser.py")
     res = subprocess.run(
-        [sys.executable, PARSER, "parse", str(p)], capture_output=True, check=True
+        [sys.executable, parser, "parse", str(p)], capture_output=True, check=True
     )
     tree = json.loads(res.stdout.decode("utf-8"))
     assert set(tree) == {"title", "children", "source_text"}
@@ -526,7 +527,7 @@ def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path
     j = tmp_path / "tree.json"
     j.write_bytes(res.stdout)
     res = subprocess.run(
-        [sys.executable, PARSER, "render", str(j)], capture_output=True, check=True
+        [sys.executable, parser, "render", str(j)], capture_output=True, check=True
     )
     assert res.stdout == p.read_bytes()
 
