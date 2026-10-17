@@ -121,6 +121,15 @@ bc_curl_auth() {
   BC_AUTH_HEADER="$header" bc_curl "$@"
 }
 
+# Print the page cap of a paging walk: the caller's BC_MAX_PAGES, else
+# DEVAGENT_BC_MAX_PAGES, else 1000. Returns 1, naming the helper $1, when the
+# cap is not a positive integer (#774).
+_bc_page_cap() {
+  local cap="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  [[ "$cap" =~ ^[1-9][0-9]*$ ]] || { echo "$1: page cap '${cap}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
+  printf '%s' "$cap"
+}
+
 # Fetch every page of a GitLab list endpoint and emit one concatenated JSON
 # array (#137). GitLab defaults to 20 items/page; without paging, notes past the
 # first page are silently dropped. bc_curl exposes only the body (not the
@@ -137,11 +146,10 @@ bc_curl_auth() {
 bc_gitlab_paginate() {
   local url="$1"; shift
   local page=1 acc="[]" pg="" n=""
-  local max="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  local max; max="$(_bc_page_cap bc_gitlab_paginate)" || return 1
   local -A seen=()
-  [[ "$max" =~ ^[1-9][0-9]*$ ]] || { echo "bc_gitlab_paginate: page cap '${max}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
   while :; do
-    if (( page > max )); then
+    if (( ${#seen[@]} >= max )); then
       echo "bc_gitlab_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
       return 6
     fi
@@ -176,16 +184,14 @@ bc_gitlab_paginate() {
 # see), and a missing .total reads as 0, so the walk ends after one page.
 bc_jira_paginate() {
   local url="$1"; shift
-  local start=0 n=0 acc="[]" resp="" out="" got="" total=""
-  local max="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  local start=0 acc="[]" resp="" out="" got="" total=""
+  local max; max="$(_bc_page_cap bc_jira_paginate)" || return 1
   local -A seen=()
-  [[ "$max" =~ ^[1-9][0-9]*$ ]] || { echo "bc_jira_paginate: page cap '${max}' is not a positive integer (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
   while :; do
-    if (( n >= max )); then
+    if (( ${#seen[@]} >= max )); then
       echo "bc_jira_paginate: walk of ${url} stopped at its cap of ${max} pages (raise DEVAGENT_BC_MAX_PAGES if the list is really that long)" >&2
       return 6
     fi
-    n=$((n + 1))
     resp="$(bc_curl GET "${url}?startAt=${start}&maxResults=100" "$@")" || return
     out="$(printf '%s' "$resp" | jq -r 'if type == "object" and (.comments | type) == "array"
         then "\(.comments | length)\t\(.total // 0)" else error("lacks a .comments array") end' \
