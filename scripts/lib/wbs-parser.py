@@ -25,25 +25,35 @@ An opener with no closer is not a fence: it is reported on stderr and
 the lines after it parse as usual (#701).
 
 The root also carries `source_text`, the file's exact text (an additive
-field; the metadata schema is unaffected). `render_markdown` of a tree
+field; the metadata schema is unaffected). `render_document` of a tree
 that has it reproduces the document line by line: an unchanged line is
 written back byte for byte, a glyph change rewrites one character, a
 change to the owned keys `status_src` (#703) and `mr` (#704) splices only
 those keys into the meta block (set, replaced or removed in place), and
 new nodes (no `source_line`) are inserted as whole lines in the file's
-line-ending style. A tree without `source_text` renders as v1 does
-(`render_nodes`: title plus nodes only).
+line-ending style. It refuses, with `ValueError`, a removed node line
+unless `allow_removals`, and a node whose depth, parent or sibling order
+changed (#764). `render_markdown` is `render_document` with removals
+refused; a tree without `source_text` renders as v1 does (`render_nodes`:
+title plus nodes only).
+
+Every WBS.md write goes through `write_document`: `write_markdown` is
+`prepare_write` (render plus an optional `check(old, new)` veto, writing
+nothing) followed by `write_document`.
 
 CLI:
     wbs-parser.py parse <path>          # emits JSON tree to stdout
     wbs-parser.py edges <path>          # emits dependency edges, one per line
     wbs-parser.py leaves <path>         # emits one leaf per line (issue or text)
-    wbs-parser.py render <json-path>    # JSON tree → markdown to stdout
-                                        # (a `parse` tree reproduces the file)
+    wbs-parser.py render [--allow-removals] <json-path>
+                                        # JSON tree → markdown to stdout
+                                        # (a `parse` tree reproduces the file;
+                                        # a removed node exits 1 without the flag)
 
 The Python API (used by tests and by sibling scripts via importlib) is
-`parse_file`, `parse_text`, `render_markdown`, `render_nodes`,
-`write_markdown`, `leaves`, `dependency_edges`.
+`parse_file`, `parse_text`, `render_document`, `render_markdown`,
+`render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
+`leaves`, `dependency_edges`.
 """
 
 from __future__ import annotations

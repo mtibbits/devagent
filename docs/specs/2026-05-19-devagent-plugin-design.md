@@ -1846,6 +1846,31 @@ the `status_src` and `mr` meta of a leaf whose state it resolved (#703,
 #704; set, replaced or removed in place) and adds new nodes as whole
 lines in the file's line-ending style (#701).
 
+That document render is `render_document(tree, *, allow_removals=False)`
+in `scripts/lib/wbs-parser.py` (#764). It needs the `source_text` that
+`parse` puts on the root, and before writing anything it refuses, with a
+`ValueError` naming the first offending line, the two edits a line-local
+render cannot express. A node line the tree no longer holds is a removal,
+`line <n>: node '<text>' is not in the tree`, unless `allow_removals`
+(`wbs-parser.py render --allow-removals` on the CLI). A node whose depth,
+parent or order among its existing siblings changed, including one moved
+under a new node, is a move, `line <n>: node '<text>' moved; moving or
+reordering nodes is not supported`, and `allow_removals` never relaxes it.
+New nodes are not a reorder. `prepare_write(path, tree, check=None)`
+returns the text a write would produce, or raises, and writes nothing.
+`write_markdown(path, tree, check=None)` is `prepare_write` plus the write,
+and `check(old, new)` can veto it (`wbs init --merge` passes
+`inserted_only`). The bytes go through `write_document(path, text,
+exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
+`wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
+plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
+`WBS.md` writer must write through `write_markdown` or `write_document`.
+A test guards this over `wbs-import.py`, `wbs-init.sh` and
+`wbs-update.sh`; a new writer file must join that list. Plain `wbs init`
+now runs `python3`, like `show` and `update`. The `source_text` field
+makes `parse` JSON larger: +25% to +37% on eleven real `WBS.md` files of
+18 to 152 nodes (measured 2026-10-17).
+
 An HTML comment line `<!-- wbs-exclude: Issue-12, Issue-40 -->` outside
 a fence lists issues `wbs init --merge` must not add (#707). Like any
 comment it is kept byte-for-byte; merge reads it and never writes one.

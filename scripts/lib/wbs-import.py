@@ -60,6 +60,13 @@ CLI:
     was given and the closed share is not below the threshold: the survey
     JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing
     written.
+  wbs-import.py template   plain `wbs init` / `--force` (#764): WBS_IMP_TEMPLATE
+                        with `{{PROJECT}}` replaced by WBS_IMP_PROJECT, written
+                        to WBS_IMP_DEST; only WBS_IMP_FORCE=1 overwrites.
+    Exit 0 written; 1 DEST exists without force, the template is unreadable
+    or not UTF-8, or the write fails.
+
+Every write of DEST goes through wbs-parser.py `write_document` (#764).
 """
 from __future__ import annotations
 
