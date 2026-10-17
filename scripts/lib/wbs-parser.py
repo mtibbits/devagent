@@ -353,7 +353,8 @@ def prepare_write(
     try:
         new = render_document(tree)
     except ValueError as e:
-        raise type(e)(f"{path} {e}") from None  # the type: a removal stays _NodeRemoved
+        cls = _NodeRemoved if isinstance(e, _NodeRemoved) else ValueError
+        raise cls(f"{path} {e}") from None
     if check is not None and not check(tree["source_text"], new):
         raise ValueError(f"{path} check refused the write")
     return new

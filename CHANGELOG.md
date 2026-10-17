@@ -32,11 +32,12 @@ the README's "Versioning & releases" section has the release procedure.
     check=None)`, whose `check(old, new)` can veto the write. `write_markdown` of a tree without
     `source_text` now raises; it used to write the v1 render.
   - `wbs update`, `wbs init`, `wbs init --force`, the fresh `--from-tracker` import and
-    `--merge` now all write through `write_document` (#749 makes it atomic). No flag, refusal
-    message or exit code of theirs changed.
-  - Two `wbs init` improvements: a template that is not UTF-8 is refused with `wbs init: cannot
-    read <template>: …`, and a project name containing `&`, `\` or `|` is substituted literally,
-    where `sed` used to mangle it. Plain `wbs init` now needs `python3`.
+    `--merge` now all write through `write_document` (#749 makes it atomic). No flag changed,
+    and every existing refusal keeps its message and exit code.
+  - Two `wbs init` improvements: a template that is not UTF-8 or cannot be read is refused,
+    exit 1, with `wbs init: cannot read <template>: …` (where `sed` printed its own error and
+    exited 2), and a project name containing `&`, `\` or `|` is substituted literally, where
+    `sed` used to mangle it. Plain `wbs init` now needs `python3`.
   - Compatibility: a direct `scripts/lib/wbs-parser.py render` or `write_markdown` caller that
     removes nodes, moves nodes or passes a tree without `source_text` is affected.
 

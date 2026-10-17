@@ -1155,12 +1155,16 @@ def _direct_writes(src):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
+        recv = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else None
         if isinstance(f, ast.Attribute) and (f.attr in _PATH_WRITES or (
-                isinstance(f.value, ast.Name) and f.value.id in ("os", "shutil")
-                and f.attr in _OS_WRITES)):
+                recv in ("os", "shutil") and f.attr in _OS_WRITES)
+                or (recv == "os" and f.attr == "open")):  # os.open's flags: fail closed
             hits.append(f"{node.lineno}: {f.attr}")
-        elif isinstance(f, ast.Name) and f.id == "open":
-            mode = node.args[1] if len(node.args) > 1 else next(
+        elif (isinstance(f, ast.Name) and f.id == "open") or (
+                isinstance(f, ast.Attribute) and f.attr == "open"):
+            # open(path, mode) and io.open(path, mode); Path(p).open(mode)
+            at = 1 if isinstance(f, ast.Name) or recv == "io" else 0
+            mode = node.args[at] if len(node.args) > at else next(
                 (k.value for k in node.keywords if k.arg == "mode"), None)
             if mode is None:
                 continue
@@ -1172,9 +1176,12 @@ def _direct_writes(src):
 
 def _dest_redirects(sh, name):
     """Uncommented shell lines redirecting any fd to $name / ${name}, or naming
-    it in a cp, mv, install, tee or dd command (a read there fails closed)."""
+    it in a cp, mv, install, tee, dd, truncate, `sed -i` or `perl -i` command
+    (a read there fails closed)."""
     var = r'"?\$\{?' + name + r'\b\}?"?'
-    pat = re.compile(r'[0-9]?>>?\s*' + var + r'|\b(cp|mv|install|tee|dd)\b.*' + var)
+    pat = re.compile(r'[0-9]?>[>|]?\s*' + var
+                     + r'|\b(cp|mv|install|tee|dd|truncate)\b.*' + var
+                     + r'|\b(sed|perl)\b.*\s-\w*i.*' + var)
     return [f"{i}: {line.strip()}" for i, line in enumerate(sh.splitlines(), 1)
             if not line.lstrip().startswith("#") and pat.search(line)]
 
@@ -1216,16 +1223,20 @@ def test_no_writer_bypasses_write_document():
     for py in ('Path(d).write_bytes(b"")', 'open(d, "xb")', "open(d, m)",
                'open(d, mode=f"{m}")', 'open(d, mode="a")', 'open(d, "r+b")',
                "os.replace(t, d)", "shutil.copyfile(t, d)", "Path(t).rename(d)",
-               "Path(d).touch()"):
+               "Path(d).touch()", 'Path(d).open("wb")', 'Path(d).open(mode="w")',
+               'io.open(d, "wb")', "os.open(d, os.O_WRONLY | os.O_CREAT)"):
         assert _direct_writes(py), py
     for sh, name in (('sed x "$t" > "$dest"', "dest"), ('printf x 2>"$dest"', "dest"),
                      ("echo >> ${dest}", "dest"), ('echo > "$wbs"', "wbs"),
                      ('cp "$t" "$dest"', "dest"), ('mv "$t" "$dest"', "dest"),
                      ('printf x | tee "$dest"', "dest"), ('dd if=x of="$dest"', "dest"),
-                     ('install -m 644 "$t" "$WBS_PATH"', "WBS_PATH")):
+                     ('install -m 644 "$t" "$WBS_PATH"', "WBS_PATH"),
+                     ('sed -i "s/a/b/" "$dest"', "dest"), ('perl -pi -e x "$dest"', "dest"),
+                     ('truncate -s0 "$dest"', "dest"), ('echo >| "$dest"', "dest")):
         assert _dest_redirects(sh, name), sh
     assert _direct_writes('"""uses write_bytes"""\nopen(d)\nopen(d, "rb")\n'
-                          's.replace("a", "b")\n') == []
+                          's.replace("a", "b")\nPath(d).open()\nio.open(d, "r")\n') == []
+    assert _dest_redirects('sed -n "1p" "$dest"\n', "dest") == []
     assert _dest_redirects('  # sed x > "$dest"\n', "dest") == []
     assert _dest_redirects('echo > "$destdir/x"\n', "dest") == []
     assert _dest_redirects('echo > "$wbs_dir/x"\n', "wbs") == []
