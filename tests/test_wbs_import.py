@@ -1193,6 +1193,10 @@ def test_no_writer_bypasses_write_document():
     init = (REPO / "scripts" / "wbs-init.sh").read_text(encoding="utf-8")
     update = (REPO / "scripts" / "wbs-update.sh").read_text(encoding="utf-8")
     body = _heredoc(update)
+    # the redirect legs check by name: pin that those names still hold WBS.md
+    assert 'dest="$devdoc_dir/WBS.md"' in init
+    assert 'wbs="$devdoc_dir/WBS.md"' in update
+    assert 'WBS_PATH="$wbs"' in update
     assert _direct_writes(imp) == []
     assert _dest_redirects(init, "dest") == []
     assert _direct_writes(body) == []

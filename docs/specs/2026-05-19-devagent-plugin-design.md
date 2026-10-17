@@ -1860,7 +1860,7 @@ New nodes are not a reorder. `prepare_write(path, tree, check=None)`
 returns the text a write would produce, or raises, and writes nothing.
 `write_markdown(path, tree, check=None)` is `prepare_write` plus the write,
 and `check(old, new)` can veto it (`wbs init --merge` passes
-`inserted_only`). The bytes go through `write_document(path, text,
+`inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
 `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
 plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
