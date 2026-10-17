@@ -21,8 +21,9 @@ the README's "Versioning & releases" section has the release procedure.
     `ValueError` for a node line the tree no longer holds (`line <n>: node '<text>' is not in the
     tree`) unless `allow_removals`, and for a node whose depth, parent or sibling order changed
     (`line <n>: node '<text>' moved; moving or reordering nodes is not supported`). Before, a
-    filtered tree silently deleted lines and a move silently snapped back. `render_markdown` and
-    `write_markdown` refuse removals; `write_markdown` prefixes the message with the path.
+    filtered tree silently deleted lines and a move silently snapped back. `render_markdown` (unless
+    given `allow_removals`, which it passes on) and `write_markdown` refuse removals;
+    `write_markdown` prefixes the message with the path.
   - `wbs-parser.py render` of a JSON tree with a node removed now exits 1, naming the node,
     unless given `--allow-removals`; an unknown `--` flag exits 2 with the usage. The `parse`
     output is unchanged.

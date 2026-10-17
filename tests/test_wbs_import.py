@@ -1142,6 +1142,12 @@ def test_write_template_refuses_a_non_utf8_template(tmp_path, capsys):
     assert not dest.exists()
 
 
+_PATH_WRITES = ("write_bytes", "write_text", "touch", "rename", "symlink_to", "hardlink_to")
+# only on an `os.` / `shutil.` receiver: `str.replace` would otherwise match
+_OS_WRITES = ("replace", "rename", "renames", "copy", "copyfile", "copy2", "move",
+              "link", "symlink")
+
+
 def _direct_writes(src):
     """Calls in Python source that write a file other than via write_document."""
     hits = []
@@ -1149,7 +1155,9 @@ def _direct_writes(src):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
-        if isinstance(f, ast.Attribute) and f.attr in ("write_bytes", "write_text"):
+        if isinstance(f, ast.Attribute) and (f.attr in _PATH_WRITES or (
+                isinstance(f.value, ast.Name) and f.value.id in ("os", "shutil")
+                and f.attr in _OS_WRITES)):
             hits.append(f"{node.lineno}: {f.attr}")
         elif isinstance(f, ast.Name) and f.id == "open":
             mode = node.args[1] if len(node.args) > 1 else next(
@@ -1157,14 +1165,16 @@ def _direct_writes(src):
             if mode is None:
                 continue
             literal = isinstance(mode, ast.Constant) and isinstance(mode.value, str)
-            if not literal or set(mode.value) & set("wxa"):  # non-literal fails closed
+            if not literal or set(mode.value) & set("wxa+"):  # non-literal fails closed
                 hits.append(f"{node.lineno}: open")
     return hits
 
 
 def _dest_redirects(sh, name):
-    """Uncommented shell lines redirecting any fd to $name / ${name}."""
-    pat = re.compile(r'[0-9]?>>?\s*"?\$\{?' + name + r'\b\}?"?')
+    """Uncommented shell lines redirecting any fd to $name / ${name}, or naming
+    it in a cp, mv, install, tee or dd command (a read there fails closed)."""
+    var = r'"?\$\{?' + name + r'\b\}?"?'
+    pat = re.compile(r'[0-9]?>>?\s*' + var + r'|\b(cp|mv|install|tee|dd)\b.*' + var)
     return [f"{i}: {line.strip()}" for i, line in enumerate(sh.splitlines(), 1)
             if not line.lstrip().startswith("#") and pat.search(line)]
 
@@ -1204,12 +1214,19 @@ def test_no_writer_bypasses_write_document():
     assert _calls_to(body, "write_markdown") == 1
     # planted controls through the same predicates
     for py in ('Path(d).write_bytes(b"")', 'open(d, "xb")', "open(d, m)",
-               'open(d, mode=f"{m}")', 'open(d, mode="a")'):
+               'open(d, mode=f"{m}")', 'open(d, mode="a")', 'open(d, "r+b")',
+               "os.replace(t, d)", "shutil.copyfile(t, d)", "Path(t).rename(d)",
+               "Path(d).touch()"):
         assert _direct_writes(py), py
     for sh, name in (('sed x "$t" > "$dest"', "dest"), ('printf x 2>"$dest"', "dest"),
-                     ("echo >> ${dest}", "dest"), ('echo > "$wbs"', "wbs")):
+                     ("echo >> ${dest}", "dest"), ('echo > "$wbs"', "wbs"),
+                     ('cp "$t" "$dest"', "dest"), ('mv "$t" "$dest"', "dest"),
+                     ('printf x | tee "$dest"', "dest"), ('dd if=x of="$dest"', "dest"),
+                     ('install -m 644 "$t" "$WBS_PATH"', "WBS_PATH")):
         assert _dest_redirects(sh, name), sh
-    assert _direct_writes('"""uses write_bytes"""\nopen(d)\nopen(d, "rb")\n') == []
+    assert _direct_writes('"""uses write_bytes"""\nopen(d)\nopen(d, "rb")\n'
+                          's.replace("a", "b")\n') == []
     assert _dest_redirects('  # sed x > "$dest"\n', "dest") == []
     assert _dest_redirects('echo > "$destdir/x"\n', "dest") == []
     assert _dest_redirects('echo > "$wbs_dir/x"\n', "wbs") == []
+    assert _dest_redirects('cp "$t" "$destdir/x"\n', "dest") == []

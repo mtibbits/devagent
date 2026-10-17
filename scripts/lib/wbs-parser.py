@@ -353,7 +353,7 @@ def prepare_write(
     try:
         new = render_document(tree)
     except ValueError as e:
-        raise ValueError(f"{path} {e}") from None
+        raise type(e)(f"{path} {e}") from None  # the type: a removal stays _NodeRemoved
     if check is not None and not check(tree["source_text"], new):
         raise ValueError(f"{path} check refused the write")
     return new
@@ -379,7 +379,7 @@ def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> N
     """Write `text` to `path` as UTF-8 bytes: the one writer of WBS.md bytes.
 
     `exclusive` refuses an existing file (`FileExistsError`). Bytes, not
-    text mode: text mode would turn `\n` into `\r\n` on Windows.
+    text mode: text mode would turn `\\n` into `\\r\\n` on Windows.
     """
     data = text.encode("utf-8")
     if exclusive:

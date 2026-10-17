@@ -698,7 +698,8 @@ def test_prepare_write_returns_the_text_and_writes_nothing(tmp_path):
     assert wbs_parser.prepare_write(p, tree) == want
     assert p.read_bytes() == W_MD.encode("utf-8")
     tree["children"] = tree["children"][:1]
-    with pytest.raises(ValueError, match=re.escape(f"{p} line 7: node 'B' is not in the tree")):
+    with pytest.raises(wbs_parser._NodeRemoved,
+                       match=re.escape(f"{p} line 7: node 'B' is not in the tree")):
         wbs_parser.prepare_write(p, tree)
     assert p.read_bytes() == W_MD.encode("utf-8")
 
