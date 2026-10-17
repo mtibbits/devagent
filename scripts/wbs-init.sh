@@ -143,7 +143,8 @@ fi
 
 if [[ $mode == template ]]; then
   mkdir -p "$(dirname "$dest")"
-  sed -e "s|{{PROJECT}}|${project}|g" "$template" > "$dest"
+  WBS_IMP_TEMPLATE="$template" WBS_IMP_PROJECT="$project" WBS_IMP_DEST="$dest" \
+    WBS_IMP_FORCE="$force" python3 "$SCRIPT_DIR/lib/wbs-import.py" template
   info "wbs init: wrote $dest from $template"
   exit 0
 fi

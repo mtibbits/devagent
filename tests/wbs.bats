@@ -121,6 +121,27 @@ _init_state() {
   [ "$status" -ne 0 ]
 }
 
+@test "wbs init --force over an existing WBS.md writes the template bytes (#764)" {
+  mkdir -p "$TMPDEV/templates"
+  printf '# {{PROJECT}} WBS\r\nX\r\n' > "$TMPDEV/templates/wbs_template.md"
+  bash "$REPO/scripts/wbs.sh" init testproj
+  echo "hand-edited" >> "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" init testproj --force
+  [ "$status" -eq 0 ]
+  printf '# testproj WBS\r\nX\r\n' > "$TMPROOT/expected.md"
+  cmp "$TMPROOT/expected.md" "$TMPDEV/WBS.md"
+}
+
+@test "wbs init over an existing WBS.md is refused and leaves it byte-identical (#764)" {
+  bash "$REPO/scripts/wbs.sh" init testproj
+  echo "hand-edited" >> "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+  run bash "$REPO/scripts/wbs.sh" init testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"exists; pass --force to overwrite"* ]]
+  cmp "$TMPROOT/before.md" "$TMPDEV/WBS.md"
+}
+
 @test "wbs init honors an L2 devdoc wbs_template override (#341)" {
   mkdir -p "$TMPDEV/templates"
   printf '# {{PROJECT}} WBS\nCUSTOM-L2-MARKER\n' > "$TMPDEV/templates/wbs_template.md"

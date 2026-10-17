@@ -1028,9 +1028,36 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     return 0
 
 
+def write_template(env) -> int:
+    """`wbs init` / `--force`: the template with `{{PROJECT}}` substituted,
+    written through write_document (#764). Only WBS_IMP_FORCE=1 overwrites;
+    any other value refuses an existing dest."""
+    template, dest = env["WBS_IMP_TEMPLATE"], env["WBS_IMP_DEST"]
+    try:
+        # strict UTF-8: parse_file reads UTF-8, so no other wbs command could
+        # read the WBS.md a non-UTF-8 template would give
+        text = Path(template).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        _say(f"wbs init: cannot read {template}: {e}")
+        return 1
+    # literal, as sed's s||| was not for &, \ or |; other bytes (CR) kept
+    text = text.replace("{{PROJECT}}", env.get("WBS_IMP_PROJECT", ""))
+    try:
+        _wbs_parser().write_document(dest, text, exclusive=env.get("WBS_IMP_FORCE") != "1")
+    except FileExistsError:
+        _say(f"wbs init: {dest} exists; pass --force to overwrite")
+        return 1
+    except OSError as e:
+        _say(f"wbs init: cannot write {dest}: {e}")
+        return 1
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if argv[1:] == ["run"]:
         return run(os.environ)
+    if argv[1:] == ["template"]:
+        return write_template(os.environ)
     if argv[1:] == ["check"]:
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
         try:
@@ -1040,7 +1067,7 @@ def main(argv: list[str]) -> int:
             return 1
         _stdout(f"{len(recs)}\n")
         return 0
-    print("usage: wbs-import.py check | run", file=sys.stderr)
+    print("usage: wbs-import.py check | run | template", file=sys.stderr)
     return 2
 
 
