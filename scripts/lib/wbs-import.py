@@ -977,8 +977,7 @@ def run(env) -> int:
     dest = Path(env["WBS_IMP_DEST"])
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(dest, "xb") as f:
-            f.write(doc.encode("utf-8"))
+        _wbs_parser().write_document(dest, doc, exclusive=True)
     except FileExistsError:
         _say(f"wbs init: {dest} exists")
         return 1
@@ -1012,13 +1011,14 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     if not stats["added"]:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0
-    rendered = parser.render_markdown(tree)
-    if not inserted_only(source, rendered):
+    try:
+        parser.write_markdown(dest, tree, check=inserted_only)
+    except ValueError:
+        # A render refusal (a removed or moved node, which merge never makes)
+        # is the same bug class as the veto, so it gets the same message.
         _say(f"wbs init --merge: refusing to write {dest}: an existing line would change "
              "(a bug; please report); nothing written")
         return 1
-    try:
-        dest.write_bytes(rendered.encode("utf-8"))
     except OSError as e:
         _say(f"wbs init --merge: cannot write {dest}: {e}")
         return 1
