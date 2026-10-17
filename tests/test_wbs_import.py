@@ -1,7 +1,9 @@
 """Tests for scripts/lib/wbs-import.py (#706)."""
+import ast
 import difflib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -1020,3 +1022,192 @@ def test_run_derived_jira_keyprefix_resolves_a_parent_line(tmp_path):
     assert wbs_import.run(env) == 0
     body = dest.read_text(encoding="utf-8")
     assert "- [ ] Epic {issue: Issue-1}\n  - [ ] Child {issue: Issue-2}\n" in body
+
+
+# --- #764: every WBS.md writer goes through write_document ---------------------
+@pytest.fixture
+def writes(monkeypatch):
+    """Record each write_document call of the parser module wbs_import uses."""
+    p = wbs_import._wbs_parser()
+    real = p.write_document
+    calls = []
+
+    def recorder(path, text, *, exclusive=False):
+        calls.append((Path(path), text, exclusive))
+        return real(path, text, exclusive=exclusive)
+
+    monkeypatch.setattr(p, "write_document", recorder)
+    return calls
+
+
+def _write_via(entry, tmp_path):
+    """Drive one writer entry point; return its dest."""
+    p = wbs_import._wbs_parser()
+    dest = tmp_path / "WBS.md"
+    if entry == "update":
+        # stands in for scripts/wbs-update.sh's heredoc, which loads its own copy
+        dest.write_bytes((REPO / "tests" / "fixtures" / "wbs" / "preserve.md").read_bytes())
+        tree = p.parse_file(dest)
+        tree["children"][0]["children"][0]["glyph"] = "x"
+        assert p.write_markdown(dest, tree) is True
+    elif entry == "merge":
+        dest.write_bytes((MERGE_FIX / "base.md").read_bytes())
+        assert _run_merge(dest) == 0
+    elif entry == "import":
+        epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")
+        (tmp_path / "t.md").write_text("# {project} WBS\n\n", encoding="utf-8")
+        env = _jira_env(tmp_path, [epic], "import", DEVAGENT_JIRA_PROJECT_KEY="ALT",
+                        WBS_IMP_TEMPLATE=str(tmp_path / "t.md"), WBS_IMP_DEST=str(dest))
+        assert wbs_import.run(env) == 0
+    else:
+        (tmp_path / "t.md").write_bytes(b"# {{PROJECT}} WBS\n")
+        force = "1" if entry == "template-force" else "0"
+        if force == "1":
+            dest.write_bytes(b"hand-edited\n")
+        env = {"WBS_IMP_TEMPLATE": str(tmp_path / "t.md"), "WBS_IMP_PROJECT": "p",
+               "WBS_IMP_DEST": str(dest), "WBS_IMP_FORCE": force}
+        assert wbs_import.write_template(env) == 0
+    return dest
+
+
+@pytest.mark.parametrize("entry, exclusive", [
+    ("update", False), ("merge", False), ("import", True),
+    ("template", True), ("template-force", False),
+])
+def test_every_writer_calls_write_document_once(entry, exclusive, tmp_path, writes):
+    dest = _write_via(entry, tmp_path)
+    assert len(writes) == 1
+    assert writes[0][0] == dest
+    assert writes[0][2] is exclusive
+    assert dest.read_bytes() == writes[0][1].encode("utf-8")
+
+
+def test_run_merge_veto_message_is_unchanged(tmp_path, monkeypatch, capsys):
+    data = (MERGE_FIX / "base.md").read_bytes()
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(data)
+    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    assert _run_merge(dest) == 1
+    assert (f"wbs init --merge: refusing to write {dest}: an existing line would change "
+            "(a bug; please report); nothing written") in capsys.readouterr().err.splitlines()
+    assert dest.read_bytes() == data
+
+
+def test_run_import_refuses_an_existing_dest(tmp_path, capsys):
+    dest = tmp_path / "out" / "WBS.md"
+    dest.parent.mkdir()
+    dest.write_bytes(b"hand-edited\n")
+    epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")
+    (tmp_path / "t.md").write_text("# {project} WBS\n\n", encoding="utf-8")
+    env = _jira_env(tmp_path, [epic], "import", DEVAGENT_JIRA_PROJECT_KEY="ALT",
+                    WBS_IMP_TEMPLATE=str(tmp_path / "t.md"), WBS_IMP_DEST=str(dest))
+    assert wbs_import.run(env) == 1
+    assert f"wbs init: {dest} exists" in capsys.readouterr().err.splitlines()
+    assert dest.read_bytes() == b"hand-edited\n"
+
+
+def _template_env(tmp_path, data, project="proj", force=None):
+    t = tmp_path / "wbs_template.md"
+    t.write_bytes(data)
+    env = {"WBS_IMP_TEMPLATE": str(t), "WBS_IMP_PROJECT": project,
+           "WBS_IMP_DEST": str(tmp_path / "WBS.md")}
+    if force is not None:
+        env["WBS_IMP_FORCE"] = force
+    return env, tmp_path / "WBS.md"
+
+
+@pytest.mark.parametrize("data", [
+    b"# {{PROJECT}} WBS\n\nfor {{PROJECT}}\n",
+    b"# {{PROJECT}} WBS\r\n\r\nfor {{PROJECT}}\r\n",
+    b"# {{PROJECT}} WBS\n\nfor {{PROJECT}}",
+], ids=["lf", "crlf", "nofinal"])
+@pytest.mark.parametrize("project", ["proj", "a&b|c\\d"], ids=["plain", "sed-specials"])
+def test_write_template_substitutes_and_keeps_bytes(data, project, tmp_path):
+    env, dest = _template_env(tmp_path, data, project)
+    assert wbs_import.write_template(env) == 0
+    assert dest.read_bytes() == data.replace(b"{{PROJECT}}", project.encode("utf-8"))
+
+
+@pytest.mark.parametrize("force", [None, "0", "true"], ids=["unset", "0", "true"])
+def test_write_template_refuses_an_existing_dest_without_force(force, tmp_path, capsys):
+    env, dest = _template_env(tmp_path, b"# {{PROJECT}} WBS\n", force=force)
+    dest.write_bytes(b"hand-edited\n")
+    assert wbs_import.write_template(env) == 1
+    assert capsys.readouterr().err == f"wbs init: {dest} exists; pass --force to overwrite\n"
+    assert dest.read_bytes() == b"hand-edited\n"
+
+
+def test_write_template_refuses_a_non_utf8_template(tmp_path, capsys):
+    env, dest = _template_env(tmp_path, b"# {{PROJECT}} \xff\n")
+    assert wbs_import.write_template(env) == 1
+    assert capsys.readouterr().err.startswith(f"wbs init: cannot read {env['WBS_IMP_TEMPLATE']}: ")
+    assert not dest.exists()
+
+
+def _direct_writes(src):
+    """Calls in Python source that write a file other than via write_document."""
+    hits = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr in ("write_bytes", "write_text"):
+            hits.append(f"{node.lineno}: {f.attr}")
+        elif isinstance(f, ast.Name) and f.id == "open":
+            mode = node.args[1] if len(node.args) > 1 else next(
+                (k.value for k in node.keywords if k.arg == "mode"), None)
+            if mode is None:
+                continue
+            literal = isinstance(mode, ast.Constant) and isinstance(mode.value, str)
+            if not literal or set(mode.value) & set("wxa"):  # non-literal fails closed
+                hits.append(f"{node.lineno}: open")
+    return hits
+
+
+def _dest_redirects(sh, name):
+    """Uncommented shell lines redirecting any fd to $name / ${name}."""
+    pat = re.compile(r'[0-9]?>>?\s*"?\$\{?' + name + r'\b\}?"?')
+    return [f"{i}: {line.strip()}" for i, line in enumerate(sh.splitlines(), 1)
+            if not line.lstrip().startswith("#") and pat.search(line)]
+
+
+def _calls_to(src, attr):
+    return sum(1 for n in ast.walk(ast.parse(src))
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr == attr)
+
+
+def _heredoc(sh, delim="PY"):
+    lines_ = sh.splitlines()
+    start = next(i for i, line in enumerate(lines_) if line.rstrip().endswith(f"<<'{delim}'"))
+    end = lines_.index(delim, start)
+    return "\n".join(lines_[start + 1:end]) + "\n"
+
+
+def test_no_writer_bypasses_write_document():
+    """The guard's universe is the three WBS.md writer files: wbs-import.py,
+    wbs-init.sh and wbs-update.sh (its heredoc Python, plus redirects to its
+    path variables `wbs` and `WBS_PATH`). A new WBS.md writer file must join
+    this list."""
+    imp = LIB.read_text(encoding="utf-8")
+    init = (REPO / "scripts" / "wbs-init.sh").read_text(encoding="utf-8")
+    update = (REPO / "scripts" / "wbs-update.sh").read_text(encoding="utf-8")
+    body = _heredoc(update)
+    assert _direct_writes(imp) == []
+    assert _dest_redirects(init, "dest") == []
+    assert _direct_writes(body) == []
+    assert _dest_redirects(update, "wbs") + _dest_redirects(update, "WBS_PATH") == []
+    assert _calls_to(imp, "write_document") == 2
+    assert _calls_to(imp, "write_markdown") == 1
+    assert _calls_to(body, "write_markdown") == 1
+    # planted controls through the same predicates
+    for py in ('Path(d).write_bytes(b"")', 'open(d, "xb")', "open(d, m)",
+               'open(d, mode=f"{m}")', 'open(d, mode="a")'):
+        assert _direct_writes(py), py
+    for sh, name in (('sed x "$t" > "$dest"', "dest"), ('printf x 2>"$dest"', "dest"),
+                     ("echo >> ${dest}", "dest"), ('echo > "$wbs"', "wbs")):
+        assert _dest_redirects(sh, name), sh
+    assert _direct_writes('"""uses write_bytes"""\nopen(d)\nopen(d, "rb")\n') == []
+    assert _dest_redirects('  # sed x > "$dest"\n', "dest") == []
+    assert _dest_redirects('echo > "$destdir/x"\n', "dest") == []
+    assert _dest_redirects('echo > "$wbs_dir/x"\n', "wbs") == []
