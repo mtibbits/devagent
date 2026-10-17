@@ -16,6 +16,21 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: Jira comment paging fails closed, and both paging helpers stop a walk that does not end (#774).**
+  - A 2xx Jira comment page that is not a JSON object with a `.comments` array (a login page,
+    a proxy's error object) now exits `5` and names the page. Before, an HTML page repeated
+    `startAt=0` until killed, and an error object printed `## Comments (0)` with exit 0.
+  - The GitLab paging walks and the Jira comment walk stop at 1000 pages, or at a page
+    byte-identical to an earlier page of the same walk, with exit `5`. A server that returns the
+    same bytes for every `page` or `startAt` stops at page 2. `DEVAGENT_BC_MAX_PAGES` sets the cap
+    (spec §9.1).
+  - Affects GitLab `fetch`, `comment-list`, `state-list`, `issue-list` and the code backend's
+    `mr-comments`, and Jira `fetch` and `comment-list`. A closeout's `wbs update` no longer
+    hangs on a GitLab server that ignores `page`: it warns `tracker lookup failed for gitlab
+    <repo> (exit 5: bc_gitlab_paginate: page 2 of <url> repeats page 1)`, changes no glyph and
+    exits 0.
+  - The README exit-code table gains the `5` row.
+  - Not breaking: no new exit code. The walks that used to hang or under-report now exit `5`.
 - **Fixed: `wbs init` and `wbs update` read a leaf's issue id by one rule (#792).**
   - The rule lives in `scripts/lib/wbs-tracker.py` (`leaf_for`, `parse_leaf`): `dir_prefix`es
     are tried longest first, and a rest of the wrong shape for the source's backend falls

@@ -174,3 +174,12 @@ _related_calls() {
   [ -z "$output" ]
   [ "$(_related_calls)" -eq 0 ]
 }
+
+# #774: foo/repeat's MR 7 notes serve fixtures/gitlab/full-page-a.json for page 1
+# and page 2 (provenance in tests/backend-gitlab.bats).
+@test "code/gitlab.sh mr-comments exits 5, not 6, when notes repeat page 1 (#774)" {
+  run --separate-stderr timeout 60 "$SCRIPT" mr-comments "https://gitlab.example/foo/repeat/-/merge_requests/7"
+  [ "$status" -eq 5 ]
+  [[ "$stderr" == *"repeats page 1"* ]]
+  [ "$(grep -cF 'GET /api/v4/projects/foo%2Frepeat/merge_requests/7/notes?per_page=100&page=' "$FIXTURE_REQUEST_LOG")" -eq 2 ]
+}

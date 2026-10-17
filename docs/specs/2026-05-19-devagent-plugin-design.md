@@ -1557,8 +1557,12 @@ computes both verbs' class with one shared rule; `created` and `closed` are
 URLs (JIRA: `<base>/browse/<KEY>`). The checker is
 `scripts/lib/wbs-import.py check`. Exit codes are those of `state-list`;
 `5` also means a truncated list (GitHub's `--limit 5000`, or its GraphQL
-fallback's 100-page cap, reached) or a paging walk that does not end. GitHub
-reads `parent`, `blockedBy` and `issueType` through `gh issue list` (gh
+fallback's 100-page cap, reached) or a paging walk that does not end.
+The same `5` covers the GitLab and Jira comment walks behind `fetch`,
+`comment-list` and §9.2 `mr-comments` (#774): a malformed comment page, more
+than `DEVAGENT_BC_MAX_PAGES` pages (default 1000; a caller's `BC_MAX_PAGES`
+takes precedence), or a page byte-identical to an earlier page of the walk.
+GitHub reads `parent`, `blockedBy` and `issueType` through `gh issue list` (gh
 2.95 or later) and falls back to GraphQL on an older gh; a GitHub server
 without those GraphQL fields (an older GHES) is not supported. GitLab sets
 `parent` to null (epics are out of scope) and reads `blocked_by` from the

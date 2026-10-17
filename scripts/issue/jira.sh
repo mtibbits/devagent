@@ -60,7 +60,7 @@ cmd_fetch() {
   issue_json="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}" \
     -H 'Accept: application/json')" || return
   comments_json="$(BC_AUTH_HEADER="$(auth_header)" \
-    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return
+    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return "$(( $? == 6 ? 5 : $? ))"   # #774: a walk that does not end is this verb's 5
 
   local title state author labels url body
   title="$(echo "$issue_json"   | jq -r '.fields.summary')"
@@ -164,7 +164,7 @@ cmd_comment_list() {
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
   local resp
   resp="$(BC_AUTH_HEADER="$(auth_header)" \
-    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return
+    bc_jira_paginate "$(base)/rest/api/2/issue/${num}/comment" -H 'Accept: application/json')" || return "$(( $? == 6 ? 5 : $? ))"
   local count
   count="$(echo "$resp" | jq 'length')"
   bc_emit_comments_header "$count"

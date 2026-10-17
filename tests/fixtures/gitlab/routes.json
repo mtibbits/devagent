@@ -36,5 +36,15 @@
   "GET /api/v4/projects/foo%2Fbar/issues/404/related_merge_requests?per_page=100": {"status": 404, "body": "{\"message\":\"404 Not found\"}"},
   "GET /api/v4/projects/foo%2Fbar/issues/401/related_merge_requests?per_page=100": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"},
   "GET /api/v4/projects/foo%2Fbar/issues/501/related_merge_requests?per_page=100": {"status": 200, "body": "<html><body>Sign in</body></html>", "headers": {"Content-Type": "text/html"}},
-  "GET /api/v4/projects/foo%2Fbar": {"status": 200, "body_file": "project-bar.json"}
+  "GET /api/v4/projects/foo%2Fbar": {"status": 200, "body_file": "project-bar.json"},
+  "GET /api/v4/projects/foo%2Frepeat/issues?per_page=100&page=1": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Frepeat/issues?per_page=100&page=2": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Frepeat/issues/42": {"status": 200, "body_file": "issue.json"},
+  "GET /api/v4/projects/foo%2Frepeat/issues/42/notes?per_page=100&page=1": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Frepeat/issues/42/notes?per_page=100&page=2": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Frepeat/merge_requests/7/notes?per_page=100&page=1": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Frepeat/merge_requests/7/notes?per_page=100&page=2": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=1": {"status": 200, "body_file": "full-page-a.json"},
+  "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=2": {"status": 200, "body_file": "full-page-b.json"},
+  "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=3": {"status": 200, "body_file": "full-page-c.json"}
 }

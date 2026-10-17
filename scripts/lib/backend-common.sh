@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # backend-common.sh — shared helpers for issue/* and code/* backends.
 # Source-only; do not execute.
+#
+# Return codes of the helpers below: 0 ok; 1 any other failure; 3 an HTTP
+# 401/403 answer and 4 an HTTP 404 answer (bc_curl); 5 a malformed 2xx page
+# (the paging helpers); 6 a paging walk that does not end (bc_gitlab_paginate,
+# bc_jira_paginate; #774). A walk does not end when a page is byte-identical
+# to ANY earlier page of the same walk, or when it reaches the page cap: for
+# GitLab, `max` full pages with no short page (so a list of exactly max x 100
+# records also returns 6, because the page that would end it is never
+# requested); for Jira, `max` pages without reaching .total. The cap is the
+# caller's BC_MAX_PAGES (often a `local`), else DEVAGENT_BC_MAX_PAGES, else
+# 1000; the helpers never assign BC_MAX_PAGES. 6 is internal: no backend verb
+# exits with it, every caller maps it to its own 5 (spec §9.1), and the public
+# list of exit codes is the README's exit-code table.
 
 # Returns 0 iff $1 is on PATH.
 bc_have_cli() {
@@ -108,6 +121,15 @@ bc_curl_auth() {
   BC_AUTH_HEADER="$header" bc_curl "$@"
 }
 
+# Print the page cap of a paging walk: the caller's BC_MAX_PAGES, else
+# DEVAGENT_BC_MAX_PAGES, else 1000. Returns 1, naming the helper $1, when the
+# cap is not a positive integer of at most 18 digits (#774).
+_bc_page_cap() {
+  local cap="${BC_MAX_PAGES:-${DEVAGENT_BC_MAX_PAGES:-1000}}"
+  [[ "$cap" =~ ^[1-9][0-9]{0,17}$ ]] || { echo "$1: page cap '${cap}' is not a positive integer of at most 18 digits (BC_MAX_PAGES / DEVAGENT_BC_MAX_PAGES)" >&2; return 1; }
+  printf '%s' "$cap"
+}
+
 # Fetch every page of a GitLab list endpoint and emit one concatenated JSON
 # array (#137). GitLab defaults to 20 items/page; without paging, notes past the
 # first page are silently dropped. bc_curl exposes only the body (not the
@@ -118,14 +140,28 @@ bc_curl_auth() {
 # object) returns 5: callers run this inside `$(...)`, where set -e is off, so
 # each jq checks its own status (#703 review — it used to loop forever, or
 # return an empty list).
+# The walk stops with 6 (#774) at the page cap or at a page byte-identical to
+# any earlier page; a server that ignores `page` stops at page 2. A cap that is
+# not a positive integer returns 1 before any request.
 bc_gitlab_paginate() {
   local url="$1"; shift
-  local page=1 acc="[]" pg n
+  local page=1 acc="[]" pg="" n=""
+  local max; max="$(_bc_page_cap bc_gitlab_paginate)" || return 1
+  local -A seen=()
   while :; do
+    if (( ${#seen[@]} >= max )); then
+      echo "bc_gitlab_paginate: walk of ${url} stopped at its cap of ${max} pages (if the list is really that long, raise BC_MAX_PAGES where the caller sets it, else DEVAGENT_BC_MAX_PAGES)" >&2
+      return 6
+    fi
     pg="$(bc_curl GET "${url}?per_page=100&page=${page}" "$@")" || return
     n="$(printf '%s' "$pg" | jq 'if type == "array" then length else error("not a JSON array") end' \
       | tr -d '\r')" || n=""
     [[ "$n" =~ ^[0-9]+$ ]] || { echo "bc_gitlab_paginate: page ${page} of ${url} is not a JSON array" >&2; return 5; }
+    if [ -n "${seen[$pg]:-}" ]; then
+      echo "bc_gitlab_paginate: page ${page} of ${url} repeats page ${seen[$pg]}" >&2
+      return 6
+    fi
+    seen[$pg]=$page
     acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')" || return 5
     [ "$n" -lt 100 ] && break
     page=$((page + 1))
@@ -139,15 +175,36 @@ bc_gitlab_paginate() {
 # promised comments. Loop startAt+=page-length until a page is empty or we have
 # reached .total.
 #   Usage: bc_jira_paginate <url-without-query> [extra curl args…]
+# A 2xx page that is not an object with a .comments array, or whose .total is
+# not a count, returns 5 (#774: an HTML page used to repeat startAt=0 forever,
+# and an error object read as zero comments). The walk stops with 6 at the page
+# cap or at a page byte-identical to any earlier page, as in bc_gitlab_paginate.
+# Accepted under-delivery: `comments: []` while startAt < .total ends the walk
+# with what was read (Jira's .total can count comments the caller may not
+# see), and a missing .total reads as 0, so the walk ends after one page.
 bc_jira_paginate() {
   local url="$1"; shift
-  local start=0 acc="[]" resp pg got total
+  local start=0 acc="[]" resp="" out="" got="" total=""
+  local max; max="$(_bc_page_cap bc_jira_paginate)" || return 1
+  local -A seen=()
   while :; do
+    if (( ${#seen[@]} >= max )); then
+      echo "bc_jira_paginate: walk of ${url} stopped at its cap of ${max} pages (if the list is really that long, raise BC_MAX_PAGES where the caller sets it, else DEVAGENT_BC_MAX_PAGES)" >&2
+      return 6
+    fi
     resp="$(bc_curl GET "${url}?startAt=${start}&maxResults=100" "$@")" || return
-    pg="$(printf '%s' "$resp" | jq '.comments // []')"
-    got="$(printf '%s' "$pg" | jq 'length')"
-    total="$(printf '%s' "$resp" | jq '.total // 0')"
-    acc="$(printf '%s\n%s\n' "$acc" "$pg" | jq -s 'add')"
+    out="$(printf '%s' "$resp" | jq -r 'if type == "object" and (.comments | type) == "array"
+        then "\(.comments | length)\t\(.total // 0)" else error("lacks a .comments array") end' \
+      | tr -d '\r')" || out=""
+    IFS=$'\t' read -r got total <<<"$out"
+    [[ "$got" =~ ^[0-9]+$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} lacks a .comments array" >&2; return 5; }
+    [[ "$total" =~ ^[0-9]{1,18}$ ]] || { echo "bc_jira_paginate: page at startAt=${start} of ${url} has a .total that is not a count" >&2; return 5; }
+    if [ -n "${seen[$resp]:-}" ]; then
+      echo "bc_jira_paginate: page at startAt=${start} of ${url} repeats the page at startAt=${seen[$resp]}" >&2
+      return 6
+    fi
+    seen[$resp]=$start
+    acc="$(printf '%s\n%s\n' "$acc" "$resp" | jq -s '.[0] + .[1].comments')" || return 5
     start=$((start + got))
     { [ "$got" -eq 0 ] || [ "$start" -ge "$total" ]; } && break
   done

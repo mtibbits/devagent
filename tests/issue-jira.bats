@@ -138,3 +138,33 @@ PY
   grep -q "GET /rest/api/2/issue/PROJ-42/comment?startAt=100&maxResults=100" "$FIXTURE_REQUEST_LOG"
   rm -rf "$tmpfix"
 }
+
+# #774: bc_jira_paginate fails closed on a 2xx page that is not a comment page,
+# and stops a walk that repeats a page. fixtures/jira/comments-full.json (total
+# 1000, 100 comments) is served for both startAt=0 and startAt=100 of PROJ-REPEAT;
+# it was generated with
+#   jq -cn '{startAt: 0, maxResults: 100, total: 1000, comments: [range(100) | {id: (. + 1 | tostring), author: {displayName: "U"}, created: "2026-05-12T00:00:00.000+0000", body: "c"}]}'
+@test "issue/jira.sh comment-list fails closed on a 2xx HTML comment page (#774)" {
+  run timeout 60 "$SCRIPT" comment-list PROJ PROJ-HTML
+  [ "$status" -ne 124 ]
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"bc_jira_paginate: page at startAt=0 of ${FIXTURE_URL}/rest/api/2/issue/PROJ-HTML/comment lacks a .comments array"* ]]
+}
+
+@test "issue/jira.sh comment-list fails closed on a 2xx JSON object without comments (#774)" {
+  run timeout 60 "$SCRIPT" comment-list PROJ PROJ-NOCOMMENTS
+  [ "$status" -eq 5 ]
+  [[ "$output" != *"## Comments (0)"* ]]
+  [[ "$output" == *"bc_jira_paginate: page at startAt=0 of ${FIXTURE_URL}/rest/api/2/issue/PROJ-NOCOMMENTS/comment lacks a .comments array"* ]]
+}
+
+@test "issue/jira.sh comment-list and fetch exit 5, not 6, on a repeated comment page (#774)" {
+  run timeout 60 "$SCRIPT" comment-list PROJ PROJ-REPEAT
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats the page at startAt=0"* ]]
+  [ "$(grep -cF 'GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=' "$FIXTURE_REQUEST_LOG")" -eq 2 ]
+  : > "$FIXTURE_REQUEST_LOG"
+  run timeout 60 "$SCRIPT" fetch PROJ PROJ-REPEAT
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"repeats the page at startAt=0"* ]]
+}
