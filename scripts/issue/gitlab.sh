@@ -56,7 +56,7 @@ cmd_fetch() {
   local issue_json comments_json
   issue_json="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/issues/${num}")" || return
   comments_json="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return
+    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return "$(( $? == 6 ? 5 : $? ))"   # #774: a walk that does not end is this verb's 5
 
   local title state author labels url body
   title="$(echo "$issue_json" | jq -r '.title')"
@@ -183,7 +183,7 @@ cmd_comment_list() {
   local base; base="$(api_base)"
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return
+    bc_gitlab_paginate "${base}/projects/${enc}/issues/${num}/notes")" || return "$(( $? == 6 ? 5 : $? ))"
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"
   bc_emit_comments_header "$count"
@@ -211,8 +211,10 @@ _GL_CLASS_JQ='
 # opened + the in_progress label (_gl_stage_label) -> in_progress; opened ->
 # open. GitLab has no close reason, so never not_planned or other.
 # Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
-# for other HTTP failures; 5 a record with an unrecognised state or
-# unreadable JSON (fail closed). Never 2, which means "unknown verb".
+# for other HTTP failures; 5 a record with an unrecognised state,
+# unreadable JSON (fail closed), or a paging walk that does not end (more
+# than the page cap, or a repeated page; #774). Never 2, which means
+# "unknown verb".
 cmd_state_list() {
   local repo="${1:-}"
   [ -n "$repo" ] || { echo "gitlab.sh state-list: repo required" >&2; exit 1; }
@@ -221,7 +223,7 @@ cmd_state_list() {
   local ip; ip="$(_gl_stage_label in_progress)"
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
+    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return "$(( $? == 6 ? 5 : $? ))"
   printf '%s' "$resp" | jq -r --arg ip "$ip" "$_GL_CLASS_JQ"'
     .[] | "\(.iid)\t\(gl_class($ip))"' || return 5
 }
@@ -241,8 +243,9 @@ cmd_state_list() {
 # url <- web_url.
 # Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
 # for other HTTP failures; 5 an unrecognised state, a record without
-# created_at, or a page or links answer that is not a JSON array (fail
-# closed). Never 2, which means "unknown verb".
+# created_at, a page or links answer that is not a JSON array (fail
+# closed), or a paging walk that does not end (more than the page cap, or a
+# repeated page; #774). Never 2, which means "unknown verb".
 _GL_ISSUE_JQ='
   sort_by(.iid) | .[]
   | if (.created_at // "") == "" then error("record #\(.iid) lacks created_at") else . end
@@ -264,7 +267,7 @@ cmd_issue_list() {
   local ip; ip="$(_gl_stage_label in_progress)"
   local resp blockers iid src links pairs="" edges
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return
+    bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return "$(( $? == 6 ? 5 : $? ))"
   blockers="$(printf '%s' "$resp" \
     | jq -r '.[] | select((.blocking_issues_count // 0) > 0) | "\(.iid)\t\(.web_url)"' \
     | tr -d '\r')" || return 5

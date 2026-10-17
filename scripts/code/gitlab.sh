@@ -119,7 +119,7 @@ cmd_mr_comments() {
   local base; base="$(api_base)"
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_gitlab_paginate "${base}/projects/${enc}/merge_requests/${iid}/notes")" || return
+    bc_gitlab_paginate "${base}/projects/${enc}/merge_requests/${iid}/notes")" || return "$(( $? == 6 ? 5 : $? ))"   # #774: a walk that does not end is this verb's 5
   local count
   count="$(echo "$resp" | jq '[.[] | select(.system==false)] | length')"
   bc_emit_comments_header "$count"
