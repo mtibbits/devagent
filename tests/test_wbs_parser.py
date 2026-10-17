@@ -1,6 +1,7 @@
 """Tests for scripts/lib/wbs-parser.py."""
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -362,7 +363,7 @@ def test_document_render_reflects_title_text_meta_and_removal():
 
     tree = wbs_parser.parse_text(src)
     tree["children"] = [n for n in tree["children"] if n["text"] != "Epic two"]
-    out = wbs_parser.render_markdown(tree)
+    out = wbs_parser.render_document(tree, allow_removals=True)
     expected = src.replace("- [ ] Epic two {est: 2w}\n", "").replace(
         "  - [ ] Leaf D {issue: Issue-3, est: 1w}\n", ""
     )
@@ -528,3 +529,116 @@ def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path
         [sys.executable, parser, "render", str(j)], capture_output=True, check=True
     )
     assert res.stdout == p.read_bytes()
+
+
+# #764 — the document render refuses removals, moves and reorders
+
+W_MD = (
+    "# W\n\nProse.\n\n- [ ] A {issue: Issue-1}\n"
+    "  - [ ] A1 {issue: Issue-2}\n- [ ] B {issue: Issue-3}\n"
+)
+MOVED = "moved; moving or reordering nodes is not supported"
+
+
+def _w(tmp_path):
+    p = tmp_path / "w.md"
+    p.write_bytes(W_MD.encode("utf-8"))
+    return p
+
+
+def test_write_markdown_refuses_a_filtered_tree(tmp_path):
+    p = _w(tmp_path)
+    tree = wbs_parser.parse_file(p)
+    tree["children"] = tree["children"][:1]
+    with pytest.raises(ValueError, match=re.escape("w.md line 7: node 'B' is not in the tree")):
+        wbs_parser.write_markdown(p, tree)
+    assert p.read_bytes() == W_MD.encode("utf-8")
+
+
+def test_render_document_removal_needs_allow_removals():
+    tree = wbs_parser.parse_text(W_MD)
+    tree["children"] = tree["children"][:1]
+    with pytest.raises(ValueError, match=re.escape("line 7: node 'B' is not in the tree")):
+        wbs_parser.render_document(tree)
+    out = wbs_parser.render_document(tree, allow_removals=True)
+    assert out == W_MD.replace("- [ ] B {issue: Issue-3}\n", "")
+
+
+def _b_under_a(depth):
+    tree = wbs_parser.parse_text(W_MD)
+    b = tree["children"].pop()
+    b["depth"] = depth
+    tree["children"][0]["children"].append(b)
+    return tree
+
+
+def test_reparent_is_refused():
+    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
+        wbs_parser.render_markdown(_b_under_a(2))
+
+
+def test_reparent_at_the_same_depth_is_refused():
+    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
+        wbs_parser.render_markdown(_b_under_a(1))
+
+
+def test_depth_change_alone_is_refused():
+    tree = wbs_parser.parse_text(W_MD)
+    tree["children"][1]["depth"] = 2
+    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
+        wbs_parser.render_markdown(tree)
+
+
+def test_reorder_is_refused():
+    tree = wbs_parser.parse_text(W_MD)
+    tree["children"].reverse()
+    with pytest.raises(ValueError, match=re.escape(f"line 5: node 'A' {MOVED}")):
+        wbs_parser.render_markdown(tree)
+
+
+def test_nested_reorder_is_refused():
+    tree = wbs_parser.parse_file(FIX / "preserve.md")
+    tree["children"][0]["children"].reverse()
+    with pytest.raises(ValueError, match=re.escape(f"line 15: node 'Leaf A' {MOVED}")):
+        wbs_parser.render_markdown(tree)
+
+
+def test_move_under_a_new_node_is_refused():
+    """`claim()` never descends into a new node, so B's line is unowned; the
+    refusal must not read that as a removal that `allow_removals` permits."""
+    tree = wbs_parser.parse_text(W_MD)
+    b = tree["children"].pop()
+    b["depth"] = 2
+    tree["children"].append(_new_node("N", 1, children=[b]))
+    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
+        wbs_parser.render_markdown(tree)
+    with pytest.raises(ValueError, match=re.escape(f"line 7: node 'B' {MOVED}")):
+        wbs_parser.render_document(tree, allow_removals=True)
+
+
+def test_new_node_among_owned_siblings_is_not_a_reorder():
+    tree = wbs_parser.parse_text(W_MD)
+    tree["children"].insert(1, _new_node("N", 1))
+    want = W_MD.replace("  - [ ] A1 {issue: Issue-2}\n", "  - [ ] A1 {issue: Issue-2}\n- [ ] N\n")
+    assert wbs_parser.render_markdown(tree) == want
+
+
+def test_owned_edits_still_render_after_the_checks():
+    line = "- [ ] B {issue: Issue-3}"
+    cases = [
+        (lambda b: b.update(glyph="x", state="done"), "- [x] B {issue: Issue-3}"),
+        (lambda b: b.update(text="B2"), "- [ ] B2 {issue: Issue-3}"),
+        (lambda b: b["meta"].update(status_src="tracker"),
+         "- [ ] B {issue: Issue-3, status_src: tracker}"),
+    ]
+    for edit, want in cases:
+        tree = wbs_parser.parse_text(W_MD)
+        edit(tree["children"][1])
+        assert wbs_parser.render_markdown(tree) == W_MD.replace(line, want), want
+
+
+def test_render_document_requires_source_text():
+    tree = wbs_parser.parse_text(W_MD)
+    tree.pop("source_text")
+    with pytest.raises(ValueError, match=re.escape("render_document: the tree has no source_text")):
+        wbs_parser.render_document(tree)
