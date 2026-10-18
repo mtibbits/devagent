@@ -16,6 +16,21 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `wbs update` honours `wbs-exclude` lines; the WBS parser reads them (#780).**
+  - `wbs update` no longer auto-adds an active issue that a `<!-- wbs-exclude: … -->` line
+    names (by the shared id rule, so `Issue-PROJ-12` names a Jira project's `Issue-12`). It
+    prints one `wbs update: <id> is listed in a wbs-exclude line (line N); not added. …` line
+    instead, and no warning about exclusion lines. A leaf already in the file is still
+    reconciled.
+  - `wbs-parser.py parse` JSON gains `exclusions` (`[[line, id], ...]`) and
+    `exclusion_warnings`.
+  - **Behaviour change** (#707 is still unreleased): `wbs init --merge` exclusion warnings
+    change from `wbs init --merge: <dest> line N: …` to `wbs init --merge: <dest>: line N: …`,
+    the prefix its placement warnings already use.
+  - `inserted_only` moved from `wbs-import.py` to `wbs-parser.py`, next to `render_document`,
+    and both share one line-ending helper.
+  - Not breaking: no flag or file format changes meaning.
+
 - **Changed: the WBS document render refuses removed and moved nodes, and every `WBS.md` write goes through one helper (#764).**
   - `scripts/lib/wbs-parser.py` gains `render_document(tree, *, allow_removals=False)`. It raises
     `ValueError` for a node line the tree no longer holds (`line <n>: node '<text>' is not in the
