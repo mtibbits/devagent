@@ -17,8 +17,8 @@ the README's "Versioning & releases" section has the release procedure.
 ## [Unreleased]
 
 - **Fixed: `wbs init` reuses a milestone node whose title starts with a quote, and imports a checkbox-only title as `(no title)` (#789).**
-  - The WBS meta writer now quotes a value that starts with `"` or `'`, in `'…'` when the
-    value holds a `"`. A tracker milestone `'v1'` is written `{milestone: "'v1'"}`. Before,
+  - The WBS meta writer now quotes a value that starts with `"` or `'`. Any quoted value
+    that holds a `"` is now written in `'…'`, so it reads back whole. A tracker milestone `'v1'` is written `{milestone: "'v1'"}`. Before,
     it was written `{milestone: 'v1'}` and read back as `v1`, so every `wbs init --merge`
     that added an issue with that milestone wrote another `'v1'` node, and
     `wbs show --milestone "'v1'"` found none. A line that `wbs update` has to regenerate

@@ -811,7 +811,7 @@ def _render_meta(meta: dict) -> str:
             or v.startswith(('"', "'"))
         ):
             # _parse_meta reads a quote-led value as quoted, so write it quoted
-            # (#789); the grammar has no escapes, so both quote kinds can't be.
+            # (#789). No escapes: a value with both quote kinds can't be written.
             q = "'" if '"' in v else '"'
             parts.append(f"{k}: {q}{v}{q}")
         else:
