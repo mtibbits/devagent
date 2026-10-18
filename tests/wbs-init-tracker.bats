@@ -464,6 +464,14 @@ JSONL
   [ "$(grep -c '^- \[' <<< "$output")" -eq 0 ]
 }
 
+@test "docs: spec 13.1 states how a quote-led meta value is written (#789)" {
+  local spec13="$TMPROOT/spec13"
+  sed -n '/^### 13\.1 /,/^### 13\.3 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" > "$spec13"
+  # the literal the test above proves wbs init writes
+  grep -qF -- "{milestone: \"'v1'\"}" "$spec13"
+  grep -qF -- "--milestone \"'v1'\"" "$spec13"
+}
+
 # --- --merge (#707) ----------------------------------------------------------------
 # tests/fixtures/wbs-merge: base.md is a hand-arranged WBS and issue-list.jsonl
 # the tracker (issues 1-16). Expected placement over base.md:
