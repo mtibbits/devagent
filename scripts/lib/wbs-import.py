@@ -37,8 +37,9 @@ The rest is pure work over those records, for scripts/wbs-init.sh:
 - `survey` and `render` (see each).
 - `merge` (#707, `wbs init --merge`): the same model and selection, added
   to an existing WBS.md parsed by wbs-parser.py; only whole lines are
-  inserted (`inserted_only` checks it before the write), and the ids of
-  `<!-- wbs-exclude: ... -->` lines (`exclusions`) are skipped.
+  inserted (wbs-parser.py's `inserted_only` checks it before the write),
+  and the ids of `<!-- wbs-exclude: ... -->` lines (`exclusions`) are
+  skipped.
 
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
@@ -847,30 +848,6 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
             "warnings": warnings}
 
 
-def inserted_only(old: str, new: str) -> bool:
-    """Whether `new` is `old` with whole lines inserted: old's lines appear
-    in order in new, each with its terminator. The one exception, #701's
-    rule: an unterminated old last line may gain the file's EOL when a line
-    follows it."""
-    parser = _wbs_parser()
-    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
-    terms = [ln[len(parser._body(ln)):] for ln in olds]
-    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
-    j = 0
-    for i, line in enumerate(olds):
-        last_open = i == len(olds) - 1 and not terms[i]
-        while j < len(news):
-            got = news[j]
-            j += 1
-            if got == line and not (last_open and j < len(news)):
-                break
-            if last_open and got == line + eol and j < len(news):
-                break
-        else:
-            return False
-    return True
-
-
 # --- survey -----------------------------------------------------------------------
 def survey(model: Model, pct: int, project: str = "") -> dict:
     """The survey JSON (spec section 13.2). The closed share counts closed
@@ -1019,7 +996,7 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0
     try:
-        parser.write_markdown(dest, tree, check=inserted_only)
+        parser.write_markdown(dest, tree, check=parser.inserted_only)
     except ValueError:
         # A render refusal (a removed or moved node, which merge never makes)
         # is the same bug class as the veto, so it gets the same message.

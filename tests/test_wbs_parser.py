@@ -1,4 +1,5 @@
 """Tests for scripts/lib/wbs-parser.py."""
+import ast
 import importlib.util
 import json
 import re
@@ -892,3 +893,42 @@ def test_parse_cli_json_carries_exclusions(tmp_path):
     assert tree["exclusions"] == [[ln, i] for ln, i in EXCL_IDS]
     assert tree["exclusion_warnings"] == _excl_warnings()
     assert all(isinstance(w, str) for w in tree["exclusion_warnings"])
+
+
+# #780 — inserted_only lives next to render_document
+def test_inserted_only_postcondition_fires():
+    io = wbs_parser.inserted_only
+    old = "a\nb\nc\n"
+    assert io(old, old)
+    assert io(old, "x\na\nb\ny\nc\nz\n")
+    assert not io(old, "a\nB\nc\n")              # a mutated line
+    assert not io(old, "a\nc\n")                 # a deleted line
+    assert not io(old, "a\nx\nc\nb\n")           # an old line moved
+    assert not io(old, "a\r\nb\nc\n")            # a changed terminator
+    assert io("a\nb", "a\nb\nx")                 # an unterminated last line gains the EOL
+    assert io("a\r\nb", "a\r\nb\r\nx")
+    assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
+    assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
+    assert not io("a\nb", "a\nbz\nx")
+
+
+def test_line_ends_is_the_one_eol_rule():
+    le = wbs_parser._line_ends
+    assert le(["a\r\n", "b"], ["a", "b"]) == (["\r\n", ""], "\r\n")
+    assert "a\rb".splitlines(keepends=True) == ["a\r", "b"]
+    assert le(["a\r", "b"], ["a", "b"]) == (["\r", ""], "\r")
+    assert le([], []) == ([], "\n")
+
+
+def _defs_named(source, name):
+    return sum(1 for n in ast.walk(ast.parse(source))
+               if isinstance(n, ast.FunctionDef) and n.name == name)
+
+
+def test_inserted_only_has_one_home():
+    # planted control: the walker sees a definition (the literal is split so
+    # the AC's git grep for the definition finds only the real one)
+    assert _defs_named("def " + "inserted_only(a, b):\n    pass\n", "inserted_only") == 1
+    hits = {p.name: _defs_named(p.read_text(encoding="utf-8"), "inserted_only")
+            for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
+    assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}

@@ -59,7 +59,7 @@ CLI:
 The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
-`leaves`, `dependency_edges`.
+`inserted_only`, `leaves`, `dependency_edges`.
 """
 
 from __future__ import annotations
@@ -522,8 +522,7 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     lines = src.splitlines(keepends=True)
     n = len(lines)
     kinds, bodies, _ = _classify_lines(lines)
-    terms = [line[len(b):] for line, b in zip(lines, bodies)]
-    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+    terms, eol = _line_ends(lines, bodies)
 
     owner: dict[int, int] = {}  # id(node) -> line index
     by_line: dict[int, dict] = {}  # line index -> node
@@ -682,6 +681,36 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     if out and n and not terms[-1]:
         out[-1][1] = ""
     return "".join(body + term for body, term in out)
+
+
+def _line_ends(lines: list[str], bodies: list[str]) -> tuple[list[str], str]:
+    """Each line's terminator, and the file's EOL: the first of `\\r\\n`,
+    `\\n` or `\\r` among them, else `\\n` (#701). `render_document` and
+    `inserted_only` share it."""
+    terms = [line[len(b):] for line, b in zip(lines, bodies)]
+    return terms, next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+
+
+def inserted_only(old: str, new: str) -> bool:
+    """Whether `new` is `old` with whole lines inserted: old's lines appear
+    in order in new, each with its terminator. The one exception, #701's
+    rule: an unterminated old last line may gain the file's EOL when a line
+    follows it."""
+    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    terms, eol = _line_ends(olds, [_body(ln) for ln in olds])
+    j = 0
+    for i, line in enumerate(olds):
+        last_open = i == len(olds) - 1 and not terms[i]
+        while j < len(news):
+            got = news[j]
+            j += 1
+            if got == line and not (last_open and j < len(news)):
+                break
+            if last_open and got == line + eol and j < len(news):
+                break
+        else:
+            return False
+    return True
 
 
 # Meta keys `wbs update` writes; a change to them alone is spliced in place.

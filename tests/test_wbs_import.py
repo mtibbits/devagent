@@ -710,7 +710,7 @@ def test_merge_after_unterminated_last_line():
         out, _stats = merged(base, m)
         assert out == (f"# W{eol}{eol}- [ ] Hand {{issue: Issue-1}}{eol}"
                        f"- [ ] Unparented{eol}  - [ ] Two {{issue: Issue-2}}")
-        assert wbs_import.inserted_only(base, out)
+        assert parser.inserted_only(base, out)
 
 
 def test_merge_existing_lines_untouched(tmp_path):
@@ -742,7 +742,7 @@ def test_run_merge_refusal_writes_nothing(tmp_path, monkeypatch, capsys):
     data = (MERGE_FIX / "base.md").read_bytes()
     dest = tmp_path / "WBS.md"
     dest.write_bytes(data)
-    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    monkeypatch.setattr(wbs_import._wbs_parser(), "inserted_only", lambda old, new: False)
     rc = _run_merge(dest)
     assert rc == 1
     assert "refusing to write" in capsys.readouterr().err
@@ -770,22 +770,6 @@ def test_run_merge_write_failure(tmp_path, monkeypatch, capsys):
     assert rc == 1
     assert f"cannot write {dest}" in capsys.readouterr().err
     assert dest.read_bytes() == data
-
-
-def test_inserted_only_postcondition_fires():
-    io = wbs_import.inserted_only
-    old = "a\nb\nc\n"
-    assert io(old, old)
-    assert io(old, "x\na\nb\ny\nc\nz\n")
-    assert not io(old, "a\nB\nc\n")              # a mutated line
-    assert not io(old, "a\nc\n")                 # a deleted line
-    assert not io(old, "a\nx\nc\nb\n")           # an old line moved
-    assert not io(old, "a\r\nb\nc\n")            # a changed terminator
-    assert io("a\nb", "a\nb\nx")                 # an unterminated last line gains the EOL
-    assert io("a\r\nb", "a\r\nb\r\nx")
-    assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
-    assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
-    assert not io("a\nb", "a\nbz\nx")
 
 
 # --- the shared leaf <-> issue-id codec (#792) ---------------------------------
@@ -1084,7 +1068,7 @@ def test_run_merge_veto_message_is_unchanged(tmp_path, monkeypatch, capsys):
     data = (MERGE_FIX / "base.md").read_bytes()
     dest = tmp_path / "WBS.md"
     dest.write_bytes(data)
-    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    monkeypatch.setattr(wbs_import._wbs_parser(), "inserted_only", lambda old, new: False)
     assert _run_merge(dest) == 1
     assert (f"wbs init --merge: refusing to write {dest}: an existing line would change "
             "(a bug; please report); nothing written") in capsys.readouterr().err.splitlines()
