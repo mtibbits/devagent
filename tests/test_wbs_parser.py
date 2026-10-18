@@ -497,6 +497,35 @@ def test_owned_change_with_other_meta_change_regenerates():
     assert out == "# t\n\n- [ ] A {issue: Issue-1, est: 2w}\n"
 
 
+# #789: quote-led meta values round-trip
+@pytest.mark.parametrize(
+    "v,rendered",
+    [
+        ("'x", "{k: \"'x\"}"),
+        ('"x', "{k: '\"x'}"),
+        ('a "b", c', "{k: 'a \"b\", c'}"),
+        ("x'", "{k: x'}"),
+        ("@a b", "{k: @a b}"),
+        ("", "{k: }"),
+    ],
+    ids=["sq-led", "dq-led", "dq-comma", "sq-trailing", "at-space", "empty"],
+)
+def test_render_meta_quote_led_values_round_trip(v, rendered):
+    assert wbs_parser._render_meta({"k": v}) == rendered
+    assert wbs_parser.parse_text(f"- [ ] n {rendered}\n")["children"][0]["meta"] == {"k": v}
+
+
+def test_regenerated_line_keeps_a_quote_led_hand_value():
+    src = "# t\n\n- [ ] Rel {milestone: \"'v1'\", status_src: tracker}\n"
+    tree = wbs_parser.parse_text(src)
+    node = tree["children"][0]
+    assert node["meta"] == {"milestone": "'v1'", "status_src": "tracker"}
+    node["text"] = "Release"
+    out = wbs_parser.render_markdown(tree)
+    assert out == "# t\n\n- [ ] Release {milestone: \"'v1'\", status_src: tracker}\n"
+    assert wbs_parser.parse_text(out)["children"][0]["meta"]["milestone"] == "'v1'"
+
+
 def test_tree_without_source_text_renders_v1():
     tree = wbs_parser.parse_file(FIX / "simple.md")
     tree.pop("source_text", None)
