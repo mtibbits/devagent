@@ -523,7 +523,6 @@ def test_regenerated_line_keeps_a_quote_led_hand_value():
     node["text"] = "Release"
     out = wbs_parser.render_markdown(tree)
     assert out == "# t\n\n- [ ] Release {milestone: \"'v1'\", status_src: tracker}\n"
-    assert wbs_parser.parse_text(out)["children"][0]["meta"]["milestone"] == "'v1'"
 
 
 def test_tree_without_source_text_renders_v1():

@@ -552,7 +552,7 @@ def _collapse(s: str) -> str:
 def safe_title(s: str) -> str:
     """A title as one node line's text: whitespace runs (CR, LF, TAB) become
     one space; braces become parentheses (a trailing `{...}` would read as
-    metadata); leading `- [<c>]` checkboxes (a space after each is optional), then a
+    metadata); leading `- [<c>]` checkboxes (space after optional), then a
     leading `- [`, go."""
     s = _collapse(s or "").replace("{", "(").replace("}", ")")
     while True:

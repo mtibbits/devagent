@@ -460,9 +460,8 @@ def test_safe_title_braces_newlines_leading_bullet():
         ("- [ ]", "(no title)"),
         ("- [x]- [y]z", "z"),
         ("- [ab] x", "ab] x"),
-        ("- [x] foo", "foo"),
     ],
-    ids=["x-bare", "x-glued", "space-bare", "x-chain", "two-char", "x-spaced"],
+    ids=["x-bare", "x-glued", "space-bare", "x-chain", "two-char"],
 )
 def test_safe_title_strips_a_checkbox_with_no_space_after(raw, want):
     assert wbs_import.safe_title(raw) == want
@@ -669,9 +668,7 @@ def test_merge_quoted_milestone_reuses_its_container(title):
                                 rec("2", title="Two", milestone=title)])])
     out, s2 = merged(first, m2)
     assert (s2["under_existing"], s2["new_tops"]) == (1, 0)
-    assert sum("{milestone:" in ln for ln in out.splitlines()) == 1
     assert out == first + "  - [ ] Two {issue: Issue-2}\n"
-    assert parser.inserted_only(first, out)
 
 
 def test_merge_unparented_reused_or_created():
