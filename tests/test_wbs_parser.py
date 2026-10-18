@@ -1,4 +1,5 @@
 """Tests for scripts/lib/wbs-parser.py."""
+import ast
 import importlib.util
 import json
 import re
@@ -521,7 +522,8 @@ def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path
         [sys.executable, parser, "parse", str(p)], capture_output=True, check=True
     )
     tree = json.loads(res.stdout.decode("utf-8"))
-    assert set(tree) == {"title", "children", "source_text"}
+    assert set(tree) == {"title", "children", "source_text", "exclusions",
+                         "exclusion_warnings"}
     for node in _walk(tree):
         assert set(node) == NODE_KEYS, node["text"]
     j = tmp_path / "tree.json"
@@ -822,3 +824,111 @@ def test_render_cli_move_refusal_has_no_hint(tmp_path, variants):
         "wbs-parser.py render: line 15: node 'Leaf A' moved; "
         "moving or reordering nodes is not supported\n"
     )
+
+
+# #780 — the parser reads one-line `<!-- wbs-<key>: <value> -->` directives
+# Twin of test_wbs_import.py::test_exclusions_parse_one_line_union's text.
+EXCL_TEXT = ("<!-- wbs-exclude: Issue-1, Issue-2 -->\n"          # 1
+             "  <!-- wbs-exclude: Issue-5 Issue-6,Issue-7 -->\n"  # 2 indented, mixed separators
+             "```\n<!-- wbs-exclude: Issue-9 -->\n```\n"          # 3-5 fenced: not read
+             "<!-- wbs-exclude: #4, Issue-8 -->\n"                # 6 a bad token
+             "<!-- wbs-exclude: Issue-3\n-->\n"                   # 7-8 two lines
+             "<!-- wbs-exclude Issue-5 -->\n"                     # 9 no colon
+             "<!-- WBS-Exclude: Issue-5 -->\n"                    # 10 wrong case
+             "Prose names the wbs-exclude: Issue-11 convention.\n"  # 11 silent
+             "<!-- wbs-exclude: 12 -->\n"                         # 12 a bare id
+             "<!-- wbs-exclude: Issue-5. Issue-x Issue-99 -->\n")  # 13 bad shapes; 99 well formed
+EXCL_IDS = [(1, "Issue-1"), (1, "Issue-2"), (2, "Issue-5"), (2, "Issue-6"), (2, "Issue-7"),
+            (6, "Issue-8"), (12, "12"), (13, "Issue-5."), (13, "Issue-x"), (13, "Issue-99")]
+
+
+def _excl_warnings():
+    near = f"not an exclusion line ({wbs_parser.EXCLUDE_WANT}); ignored"
+    return ["line 6: '#4' is not an issue id; ignored",
+            f"line 7: {near}", f"line 9: {near}", f"line 10: {near}"]
+
+
+def test_parse_text_exclusions_are_grammar_only():
+    tree = wbs_parser.parse_text(EXCL_TEXT)
+    assert tree["exclusions"] == EXCL_IDS
+    assert tree["exclusion_warnings"] == _excl_warnings()
+    # the fenced line 4 and the prose line 11 give nothing
+    assert not [ln for ln, _i in tree["exclusions"] if ln in (4, 11)]
+    assert not [w for w in tree["exclusion_warnings"]
+                if w.startswith(("line 4:", "line 11:"))]
+
+
+def test_parse_text_collects_but_never_prints_exclusion_warnings(capsys):
+    wbs_parser.parse_text(EXCL_TEXT)
+    assert capsys.readouterr().err == ""
+
+
+def test_parse_text_without_directives_has_empty_exclusion_keys():
+    for tree in (wbs_parser.parse_text(""), wbs_parser.parse_file(FIX / "simple.md")):
+        assert tree["exclusions"] == []
+        assert tree["exclusion_warnings"] == []
+
+
+def test_directive_reader_reads_only_known_keys():
+    assert wbs_parser.DIRECTIVE_KEYS == ("exclude",)
+    tree = wbs_parser.parse_text("<!-- wbs-scope: 1-9 -->\n<!-- wbs-foo: x -->\n")
+    assert tree["exclusions"] == []
+    assert tree["exclusion_warnings"] == []
+    kinds, bodies, _ = wbs_parser._classify_lines(["<!-- wbs-exclude: A -->"])
+    # The value is RAW: the leading space is the contract #797's key extends;
+    # callers strip.
+    assert wbs_parser._directives(kinds, bodies) == [(1, "exclude", " A")]
+
+
+def test_exclusion_grammar_constants_live_in_the_parser():
+    assert wbs_parser.EXCLUDE_KEY == "wbs-exclude:"
+
+
+def test_parse_cli_json_carries_exclusions(tmp_path):
+    p = tmp_path / "W.md"
+    p.write_bytes(EXCL_TEXT.encode("utf-8"))
+    res = subprocess.run([sys.executable, PARSER, "parse", str(p)], capture_output=True,
+                         check=True)
+    tree = json.loads(res.stdout.decode("utf-8"))
+    assert tree["exclusions"] == [[ln, i] for ln, i in EXCL_IDS]
+    assert tree["exclusion_warnings"] == _excl_warnings()
+    assert all(isinstance(w, str) for w in tree["exclusion_warnings"])
+
+
+# #780 — inserted_only lives next to render_document
+def test_inserted_only_postcondition_fires():
+    io = wbs_parser.inserted_only
+    old = "a\nb\nc\n"
+    assert io(old, old)
+    assert io(old, "x\na\nb\ny\nc\nz\n")
+    assert not io(old, "a\nB\nc\n")              # a mutated line
+    assert not io(old, "a\nc\n")                 # a deleted line
+    assert not io(old, "a\nx\nc\nb\n")           # an old line moved
+    assert not io(old, "a\r\nb\nc\n")            # a changed terminator
+    assert io("a\nb", "a\nb\nx")                 # an unterminated last line gains the EOL
+    assert io("a\r\nb", "a\r\nb\r\nx")
+    assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
+    assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
+    assert not io("a\nb", "a\nbz\nx")
+
+
+def test_line_ends_is_the_one_eol_rule():
+    le = wbs_parser._line_ends
+    assert le(["a\r\n", "b"], ["a", "b"]) == (["\r\n", ""], "\r\n")
+    assert "a\rb".splitlines(keepends=True) == ["a\r", "b"]
+    assert le(["a\r", "b"], ["a", "b"]) == (["\r", ""], "\r")
+    assert le([], []) == ([], "\n")
+
+
+def _defs_named(source, name):
+    return sum(1 for n in ast.walk(ast.parse(source))
+               if isinstance(n, ast.FunctionDef) and n.name == name)
+
+
+def test_inserted_only_has_one_home():
+    # planted control: the walker sees a definition (the literal is split so
+    # the AC's git grep for the definition finds only the real one)
+    assert _defs_named("def " + "inserted_only(a, b):\n    pass\n", "inserted_only") == 1
+    hits = {p.name: _defs_named(p.read_text(encoding="utf-8"), "inserted_only")
+            for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
+    assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}

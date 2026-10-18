@@ -25,6 +25,7 @@ usage: /devagent:wbs <init|update|show> [project] [args]
                                         <!-- wbs-exclude: ... --> line are skipped
   init [--from-tracker] --survey        print the survey JSON only
   update [--offline]                    set issue-leaf glyphs from the tracker, linked MRs, else checklists; add the active issue
+                                        unless a wbs-exclude line lists it
   show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
 EOF
   exit 2

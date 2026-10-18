@@ -2,6 +2,7 @@
 import ast
 import difflib
 import importlib.util
+import inspect
 import json
 import re
 import subprocess
@@ -506,7 +507,7 @@ def merged(base, model, rng="all", excluded=None):
     ids come from the base's own exclusion lines unless given."""
     tree = parser.parse_text(base)
     if excluded is None:
-        excluded = [i for _ln, i in wbs_import.exclusions(base, "WBS.md", model)[0]]
+        excluded = [i for _ln, i in wbs_import.exclusions(tree, model)[0]]
     stats = wbs_import.merge(model, wbs_import.select(model, rng), tree,
                              Path("/nonexistent"), excluded)
     return parser.render_markdown(tree), stats
@@ -533,7 +534,6 @@ def test_merge_resolves_wbs_ids_like_ranges():
 
 
 def test_exclusions_parse_one_line_union():
-    assert wbs_import.EXCLUDE_KEY == "wbs-exclude:"
     m = wbs_import.build([src([rec(str(i)) for i in range(1, 14)])])
     text = ("<!-- wbs-exclude: Issue-1, Issue-2 -->\n"          # 1
             "  <!-- wbs-exclude: Issue-5 Issue-6,Issue-7 -->\n"  # 2 indented, mixed separators
@@ -545,18 +545,28 @@ def test_exclusions_parse_one_line_union():
             "Prose names the wbs-exclude: Issue-11 convention.\n"  # 11 silent
             "<!-- wbs-exclude: 12 -->\n"                         # 12 a bare id
             "<!-- wbs-exclude: Issue-5. Issue-x Issue-99 -->\n")  # 13 bad shapes; 99 well formed
-    ids, warns = wbs_import.exclusions(text, "W.md", m)
+    ids, warns = wbs_import.exclusions(parser.parse_text(text), m)
     assert ids == [(1, "Issue-1"), (1, "Issue-2"), (2, "Issue-5"), (2, "Issue-6"),
                    (2, "Issue-7"), (6, "Issue-8"), (13, "Issue-99")]
     near = "not an exclusion line (want '<!-- wbs-exclude: <id>, ... -->' on one line); ignored"
     assert warns == [
-        "wbs init --merge: W.md line 6: '#4' is not an issue id; ignored",
-        f"wbs init --merge: W.md line 7: {near}",
-        f"wbs init --merge: W.md line 9: {near}",
-        f"wbs init --merge: W.md line 10: {near}",
-        "wbs init --merge: W.md line 12: '12' is not an issue id; ignored",
-        "wbs init --merge: W.md line 13: 'Issue-5.' is not an issue id; ignored",
-        "wbs init --merge: W.md line 13: 'Issue-x' is not an issue id; ignored",
+        "line 6: '#4' is not an issue id; ignored",
+        f"line 7: {near}",
+        f"line 9: {near}",
+        f"line 10: {near}",
+        "line 12: '12' is not an issue id; ignored",
+        "line 13: 'Issue-5.' is not an issue id; ignored",
+        "line 13: 'Issue-x' is not an issue id; ignored",
+    ]
+    # merge's composed output: today's text with `W.md line` now `W.md: line`
+    assert [f"wbs init --merge: W.md: {w}" for w in warns] == [
+        "wbs init --merge: W.md: line 6: '#4' is not an issue id; ignored",
+        f"wbs init --merge: W.md: line 7: {near}",
+        f"wbs init --merge: W.md: line 9: {near}",
+        f"wbs init --merge: W.md: line 10: {near}",
+        "wbs init --merge: W.md: line 12: '12' is not an issue id; ignored",
+        "wbs init --merge: W.md: line 13: 'Issue-5.' is not an issue id; ignored",
+        "wbs init --merge: W.md: line 13: 'Issue-x' is not an issue id; ignored",
     ]
     hit = {n.leaf for _ln, i in ids for n in wbs_import.resolve_id(m, i)}
     assert hit == {"Issue-1", "Issue-2", "Issue-5", "Issue-6", "Issue-7", "Issue-8"}
@@ -710,7 +720,7 @@ def test_merge_after_unterminated_last_line():
         out, _stats = merged(base, m)
         assert out == (f"# W{eol}{eol}- [ ] Hand {{issue: Issue-1}}{eol}"
                        f"- [ ] Unparented{eol}  - [ ] Two {{issue: Issue-2}}")
-        assert wbs_import.inserted_only(base, out)
+        assert parser.inserted_only(base, out)
 
 
 def test_merge_existing_lines_untouched(tmp_path):
@@ -742,7 +752,7 @@ def test_run_merge_refusal_writes_nothing(tmp_path, monkeypatch, capsys):
     data = (MERGE_FIX / "base.md").read_bytes()
     dest = tmp_path / "WBS.md"
     dest.write_bytes(data)
-    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    monkeypatch.setattr(wbs_import._wbs_parser(), "inserted_only", lambda old, new: False)
     rc = _run_merge(dest)
     assert rc == 1
     assert "refusing to write" in capsys.readouterr().err
@@ -770,22 +780,6 @@ def test_run_merge_write_failure(tmp_path, monkeypatch, capsys):
     assert rc == 1
     assert f"cannot write {dest}" in capsys.readouterr().err
     assert dest.read_bytes() == data
-
-
-def test_inserted_only_postcondition_fires():
-    io = wbs_import.inserted_only
-    old = "a\nb\nc\n"
-    assert io(old, old)
-    assert io(old, "x\na\nb\ny\nc\nz\n")
-    assert not io(old, "a\nB\nc\n")              # a mutated line
-    assert not io(old, "a\nc\n")                 # a deleted line
-    assert not io(old, "a\nx\nc\nb\n")           # an old line moved
-    assert not io(old, "a\r\nb\nc\n")            # a changed terminator
-    assert io("a\nb", "a\nb\nx")                 # an unterminated last line gains the EOL
-    assert io("a\r\nb", "a\r\nb\r\nx")
-    assert not io("a\nb", "a\nb\r\nx")           # ... the file's EOL only
-    assert not io("a\nb", "a\nb\n")              # ... and only when a line follows it
-    assert not io("a\nb", "a\nbz\nx")
 
 
 # --- the shared leaf <-> issue-id codec (#792) ---------------------------------
@@ -833,7 +827,7 @@ def test_custom_ids_present_and_excluded_without_warning(leg):
         assert stats["present"] == 2
     else:
         base = "# W\n\n<!-- wbs-exclude: Issue-abc, Issue-T-3 -->\n\n- [ ] Other\n"
-        assert wbs_import.exclusions(base, "W.md", m)[1] == []
+        assert wbs_import.exclusions(parser.parse_text(base), m)[1] == []
         _out, stats = merged(base, m)
         assert stats["added"] == []
         assert stats["excluded"] == 2
@@ -842,8 +836,43 @@ def test_custom_ids_present_and_excluded_without_warning(leg):
 def test_issue_todo_names_nothing():
     m = wbs_import.build([src([rec("1")])])
     assert wbs_import.resolve_id(m, "Issue-TODO") == []
-    _ids, warns = wbs_import.exclusions("<!-- wbs-exclude: Issue-TODO -->\n", "W.md", m)
-    assert warns == ["wbs init --merge: W.md line 1: 'Issue-TODO' is not an issue id; ignored"]
+    _ids, warns = wbs_import.exclusions(parser.parse_text("<!-- wbs-exclude: Issue-TODO -->\n"), m)
+    assert warns == ["line 1: 'Issue-TODO' is not an issue id; ignored"]
+
+
+def test_exclusion_warnings_keep_todays_line_order():
+    # A source-check warning (line 1) above a grammar warning (line 2) keeps
+    # today's single-pass line order.
+    m = wbs_import.build([src([rec("1")])])
+    text = "<!-- wbs-exclude: Issue-x -->\n<!-- WBS-Exclude: Issue-1 -->\n"
+    _ids, warns = wbs_import.exclusions(parser.parse_text(text), m)
+    near = f"not an exclusion line ({parser.EXCLUDE_WANT}); ignored"
+    assert warns == ["line 1: 'Issue-x' is not an issue id; ignored", f"line 2: {near}"]
+
+
+def test_exclusions_takes_no_dest():
+    assert list(inspect.signature(wbs_import.exclusions).parameters) == ["tree", "model"]
+    for name in ("EXCLUDE_KEY", "ID_TOKEN_RE", "EXCLUDE_WANT"):
+        assert not hasattr(wbs_import, name), name
+
+
+def test_run_merge_prefixes_every_exclusion_and_placement_warning(tmp_path, capsys):
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(b"# W\n\n"
+                     b"- [ ] One {milestone: M1}\n"            # 3
+                     b"- [ ] Two {milestone: M1}\n"            # 4
+                     b"<!-- WBS-Exclude: Issue-5 -->\n"        # 5 malformed
+                     b"<!-- wbs-exclude: Issue-TODO -->\n")    # 6 an unknown id
+    m = wbs_import.build([src([rec("3", milestone="M1")])])
+    assert wbs_import._run_merge(m, wbs_import.select(m, "all"), dest, tmp_path) == 0
+    err = capsys.readouterr().err.splitlines()
+    head = f"wbs init --merge: {dest}: "
+    near = f"not an exclusion line ({parser.EXCLUDE_WANT}); ignored"
+    assert f"{head}line 5: {near}" in err
+    assert f"{head}line 6: 'Issue-TODO' is not an issue id; ignored" in err
+    assert (f"{head}milestone 'M1' has 2 candidate nodes (lines 3, 4); "
+            "its issues go under the first") in err
+    assert not [ln for ln in err if f"{dest} line " in ln]
 
 
 def collision_sources():
@@ -1084,7 +1113,7 @@ def test_run_merge_veto_message_is_unchanged(tmp_path, monkeypatch, capsys):
     data = (MERGE_FIX / "base.md").read_bytes()
     dest = tmp_path / "WBS.md"
     dest.write_bytes(data)
-    monkeypatch.setattr(wbs_import, "inserted_only", lambda old, new: False)
+    monkeypatch.setattr(wbs_import._wbs_parser(), "inserted_only", lambda old, new: False)
     assert _run_merge(dest) == 1
     assert (f"wbs init --merge: refusing to write {dest}: an existing line would change "
             "(a bug; please report); nothing written") in capsys.readouterr().err.splitlines()

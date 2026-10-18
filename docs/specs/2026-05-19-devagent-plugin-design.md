@@ -1860,7 +1860,7 @@ New nodes are not a reorder. `prepare_write(path, tree, check=None)`
 returns the text a write would produce, or raises, and writes nothing.
 `write_markdown(path, tree, check=None)` is `prepare_write` plus the write,
 and `check(old, new)` can veto it (`wbs init --merge` passes
-`inserted_only`). The bytes go through `write_document(path, text, *,
+wbs-parser.py's `inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
 `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
 plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
@@ -1871,9 +1871,18 @@ now runs `python3`, like `show` and `update`. The `source_text` field
 makes `parse` JSON larger: +25% to +37% on eleven real `WBS.md` files of
 18 to 152 nodes (measured 2026-10-17).
 
-An HTML comment line `<!-- wbs-exclude: Issue-12, Issue-40 -->` outside
-a fence lists issues `wbs init --merge` must not add (#707). Like any
-comment it is kept byte-for-byte; merge reads it and never writes one.
+A directive is a one-line HTML comment `<!-- wbs-<key>: <value> -->`
+outside a fence (#780). `wbs-<key>:` is case-sensitive, and a line
+starting `<!--` that names a known key but does not parse is malformed.
+`wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
+(`[[line, id], ...]`) and `exclusion_warnings`. Like any comment a
+directive line is kept byte-for-byte; the commands read it and never
+write one. The one key today is `wbs-exclude`: the line
+`<!-- wbs-exclude: Issue-12, Issue-40 -->` lists issues not to add
+(#707). Its ids are split on commas and whitespace, and several lines
+form a union. `wbs init --merge` skips them and is the one reporter of
+malformed lines and unknown ids; `wbs update` does not auto-add an
+active issue they name (#780).
 
 ### 13.2 Commands
 
@@ -1923,10 +1932,9 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   `dir_prefix` included) or spells its leaf exactly; the first such node
   is its anchor. Two issues can share a leaf (an origin `F1` under
   `Issue-` and a fork `1` under `Issue-F`); `wbs init` warns about such a
-  leaf once per run. The ids on `<!-- wbs-exclude: … -->` lines (§13.1;
-  one line, `wbs-exclude:` case-sensitive, ids split on commas and
-  whitespace, several lines combined) are read by the same rule and
-  skipped; a bad id or a malformed line is warned about and ignored.
+  leaf once per run. The ids on `<!-- wbs-exclude: … -->` lines (grammar:
+  §13.1) are read by the same rule and skipped; a bad id or a malformed
+  line is warned about and ignored (`wbs init --merge: <dest>: line N: …`).
   Exclusion is per issue: an excluded epic's children are placed by the
   rules below. Each issue added goes, by the
   first rule that fits: inside its parent when that is added too; as the
@@ -1960,7 +1968,11 @@ comment it is kept byte-for-byte; merge reads it and never writes one.
   to the next shorter `dir_prefix`, so `Issue-FOO-1` passes a GitHub fork
   `Issue-F` and reaches a JIRA origin `Issue-`; with none left the leaf
   gives no signal. The active issue counts as present when a leaf names
-  it by that rule or spells it exactly, with or without `--offline`. Closed as
+  it by that rule or spells it exactly, with or without `--offline`. An
+  active issue that a `wbs-exclude` line names by the same rule is not
+  added: update prints `wbs update: <id> is listed in a wbs-exclude line
+  (line N); not added. …` once and no warning about exclusion lines, and
+  a leaf already in the file is still reconciled (#780). Closed as
   completed gives `[x]`, closed as not planned `[-]`, in progress `[~]`
   (a hand-set `[P]`, `[!]` or `[?]` is kept), and open falls through to
   the checklist, except that an all-done checklist gives `[~]` until the

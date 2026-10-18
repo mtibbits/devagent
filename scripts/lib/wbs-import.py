@@ -37,8 +37,9 @@ The rest is pure work over those records, for scripts/wbs-init.sh:
 - `survey` and `render` (see each).
 - `merge` (#707, `wbs init --merge`): the same model and selection, added
   to an existing WBS.md parsed by wbs-parser.py; only whole lines are
-  inserted (`inserted_only` checks it before the write), and the ids of
-  `<!-- wbs-exclude: ... -->` lines (`exclusions`) are skipped.
+  inserted (wbs-parser.py's `inserted_only` checks it before the write),
+  and the ids of `<!-- wbs-exclude: ... -->` lines (`exclusions`) are
+  skipped.
 
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
@@ -129,7 +130,7 @@ def _check_record(rec) -> str | None:
     if not rec["id"]:
         return "empty id"
     # the id lands in a meta block and a devdoc path
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", rec["id"]):
+    if not _wbs_parser().ID_TOKEN_RE.fullmatch(rec["id"]):
         return "bad id"
     if rec["state"] not in ("open", "closed"):
         return f"bad state {rec['state']}"
@@ -647,13 +648,6 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
 
 
 # --- merge into an existing WBS (#707) ------------------------------------------
-# One line, outside a fence: `<!-- wbs-exclude: Issue-12, Issue-40 -->`. Ids
-# split on commas and whitespace; several lines form a union. Merge reads
-# them and never writes one.
-EXCLUDE_KEY = "wbs-exclude:"
-ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
-EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
-
 
 def resolve_id(model: Model, iid: str) -> list[Node]:
     """The tracker issue a WBS `issue` id (or an exclusion id) names, by the
@@ -696,46 +690,27 @@ def leaf_collisions(model: Model, mode: str) -> list[str]:
     return out
 
 
-def exclusions(text: str, dest, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
-    """The exclusion lines' ids as (line, id) pairs, and the warnings.
+def exclusions(tree: dict, model: Model) -> tuple[list[tuple[int, str]], list[str]]:
+    """The exclusion lines' ids as (line, id) pairs, and the warnings, unprefixed.
 
-    A token outside the id charset, or (given a model) one that is neither
-    read as an id by the shared codec (no dir_prefix, or a bad shape after
-    every one) nor some record's exact leaf, is warned about and skipped;
-    so is a line starting `<!--` that holds `wbs-exclude` (any case) but
-    does not parse. A prefix and a
-    suffix test plus a split: nothing here backtracks on a long line.
+    The parsed tree's `exclusions` and `exclusion_warnings` (wbs-parser.py
+    applies the grammar), plus the source check: an id that is neither read
+    as an id by the shared codec (no dir_prefix, or a bad shape after every
+    one) nor some record's exact leaf is warned about and skipped. Warnings
+    come in line order, the parser's first within a line.
     """
-    lines = text.splitlines(keepends=True)
-    kinds, bodies, _u = _wbs_parser()._classify_lines(lines)
+    parser = _wbs_parser()
     ids: list[tuple[int, str]] = []
-    warns: list[str] = []
-    for ln, ((kind, _m), body) in enumerate(zip(kinds, bodies), start=1):
-        if kind in ("fence", "code"):
+    warns = [(parser.warning_line(w), w) for w in tree["exclusion_warnings"]]
+    for ln, tok in tree["exclusions"]:
+        # Deliberately by SHAPE, not by "names a record": a well-formed
+        # Issue-99 that no fetched record has passes silently. The
+        # presence and exclusion sets (named_leaves) are by record.
+        if trk.parse_leaf(model.sources, tok) is None and tok not in model.leaves:
+            warns.append((ln, parser.NOT_AN_ID.format(ln, tok)))
             continue
-        s = body.strip(" \t")
-        if not s.startswith("<!--"):
-            continue
-        inner = s[4:-3].strip() if len(s) >= 7 and s.endswith("-->") else None
-        if inner is None or not inner.startswith(EXCLUDE_KEY):
-            if "wbs-exclude" in s.casefold():
-                warns.append(f"wbs init --merge: {dest} line {ln}: not an exclusion line "
-                             f"({EXCLUDE_WANT}); ignored")
-            continue
-        for tok in re.split(r"[,\s]+", inner[len(EXCLUDE_KEY):]):
-            if not tok:
-                continue
-            # Deliberately by SHAPE, not by "names a record": a well-formed
-            # Issue-99 that no fetched record has passes silently. The
-            # presence and exclusion sets (named_leaves) are by record.
-            if not ID_TOKEN_RE.fullmatch(tok) or (
-                model is not None and trk.parse_leaf(model.sources, tok) is None
-                and tok not in model.leaves
-            ):
-                warns.append(f"wbs init --merge: {dest} line {ln}: '{tok}' is not an issue id; ignored")
-                continue
-            ids.append((ln, tok))
-    return ids, warns
+        ids.append((ln, tok))
+    return ids, [w for _ln, w in sorted(warns, key=lambda p: p[0])]
 
 
 def _walk(nodes: list[dict]):
@@ -845,30 +820,6 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
             "excluded": sum(1 for leaf in excluded
                             if leaf in selected and leaf not in present),
             "warnings": warnings}
-
-
-def inserted_only(old: str, new: str) -> bool:
-    """Whether `new` is `old` with whole lines inserted: old's lines appear
-    in order in new, each with its terminator. The one exception, #701's
-    rule: an unterminated old last line may gain the file's EOL when a line
-    follows it."""
-    parser = _wbs_parser()
-    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
-    terms = [ln[len(parser._body(ln)):] for ln in olds]
-    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
-    j = 0
-    for i, line in enumerate(olds):
-        last_open = i == len(olds) - 1 and not terms[i]
-        while j < len(news):
-            got = news[j]
-            j += 1
-            if got == line and not (last_open and j < len(news)):
-                break
-            if last_open and got == line + eol and j < len(news):
-                break
-        else:
-            return False
-    return True
 
 
 # --- survey -----------------------------------------------------------------------
@@ -1007,10 +958,9 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     except (OSError, UnicodeDecodeError) as e:
         _say(f"wbs init --merge: cannot read {dest}: {e}")
         return 1
-    source = tree["source_text"]
-    ids, warns = exclusions(source, dest, model)
+    ids, warns = exclusions(tree, model)
     for w in warns:
-        _say(w)
+        _say(f"wbs init --merge: {dest}: {w}")
     stats = merge(model, selected, tree, devdoc_dir, [i for _ln, i in ids])
     for w in stats["warnings"]:
         _say(f"wbs init --merge: {dest}: {w}")
@@ -1019,7 +969,7 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0
     try:
-        parser.write_markdown(dest, tree, check=inserted_only)
+        parser.write_markdown(dest, tree, check=parser.inserted_only)
     except ValueError:
         # A render refusal (a removed or moved node, which merge never makes)
         # is the same bug class as the veto, so it gets the same message.

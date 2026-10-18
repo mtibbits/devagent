@@ -37,6 +37,12 @@ changed (#764). `render_markdown` is `render_document`, removals refused
 unless `allow_removals`; a tree without `source_text` renders as v1 does
 (`render_nodes`: title plus nodes only).
 
+The root also carries `exclusions` and `exclusion_warnings` (additive,
+#780): the ids of one-line `<!-- wbs-exclude: ... -->` directives outside
+a fence, as `(line, id)` pairs, and the grammar warnings for malformed
+lines and bad tokens, unprefixed. The parser never prints them; whether an
+id names a configured source is the caller's check.
+
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
 nothing) followed by `write_document`.
@@ -53,7 +59,8 @@ CLI:
 The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
-`leaves`, `dependency_edges`.
+`inserted_only`, `leaves`, `dependency_edges`; wbs-import.py also reads the
+exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`.
 """
 
 from __future__ import annotations
@@ -188,6 +195,79 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
     return parents
 
 
+# One-line directives (#780), outside a fence: `<!-- wbs-<key>: <value> -->`.
+# `wbs-exclude` ids split on commas and whitespace; several lines form a union.
+ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+ID_SPLIT_RE = re.compile(r"[,\s]+")
+EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
+# An exclusion warning is `line N: <text>`; wbs-import.py adds its own
+# source-check warnings in the same shape and orders by `warning_line`.
+NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
+# #797 adds "scope"; the second to land adds its key here
+EXCLUDE = "exclude"
+DIRECTIVE_KEYS: tuple[str, ...] = (EXCLUDE,)
+EXCLUDE_KEY = f"wbs-{EXCLUDE}:"
+
+
+def _directives(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str]
+) -> list[tuple[int, str, str | None]]:
+    """The directive lines as `(line, key, value)`, in line order.
+
+    `value` is the raw text after `wbs-<key>:`; None marks a line starting
+    `<!--` that names `wbs-<key>` (any case) but does not parse. Fenced
+    lines are not read. A prefix and a suffix test: nothing here backtracks
+    on a long line.
+    """
+    out: list[tuple[int, str, str | None]] = []
+    for ln, ((kind, _m), body) in enumerate(zip(kinds, bodies), start=1):
+        if kind in ("fence", "code"):
+            continue
+        s = body.strip(" \t")
+        if not s.startswith("<!--"):
+            continue
+        inner = s[4:-3].strip() if len(s) >= 7 and s.endswith("-->") else None
+        folded = s.casefold()
+        for key in DIRECTIVE_KEYS:
+            tag = f"wbs-{key}:"
+            if inner is not None and inner.startswith(tag):
+                out.append((ln, key, inner[len(tag):]))
+            elif tag[:-1] in folded:
+                out.append((ln, key, None))
+    return out
+
+
+def warning_line(warning: str) -> int:
+    """The N of an `exclusion_warnings` entry, `line N: ...`."""
+    return int(warning[len("line "):warning.index(":")])
+
+
+def _exclusions(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str]
+) -> tuple[list[tuple[int, str]], list[str]]:
+    """The `wbs-exclude` ids as (line, id) pairs, and the grammar warnings.
+
+    Grammar only: a token outside the id charset, or a malformed line, is a
+    warning; whether an id names a configured source is the caller's check.
+    """
+    ids: list[tuple[int, str]] = []
+    warns: list[str] = []
+    for ln, key, value in _directives(kinds, bodies):
+        if key != EXCLUDE:
+            continue
+        if value is None:
+            warns.append(f"line {ln}: not an exclusion line ({EXCLUDE_WANT}); ignored")
+            continue
+        for tok in ID_SPLIT_RE.split(value):
+            if not tok:
+                continue
+            if ID_TOKEN_RE.fullmatch(tok):
+                ids.append((ln, tok))
+            else:
+                warns.append(NOT_AN_ID.format(ln, tok))
+    return ids, warns
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
@@ -197,7 +277,8 @@ def parse_file(path: Path | str) -> dict:
 
 def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
-    kinds, _bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    kinds, bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    root["exclusions"], root["exclusion_warnings"] = _exclusions(kinds, bodies)
     parents = _parse_parents(kinds)
     by_line: dict[int, dict] = {-1: root}
     if unclosed_at is not None:
@@ -453,8 +534,7 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     lines = src.splitlines(keepends=True)
     n = len(lines)
     kinds, bodies, _ = _classify_lines(lines)
-    terms = [line[len(b):] for line, b in zip(lines, bodies)]
-    eol = next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+    terms, eol = _line_ends(lines, bodies)
 
     owner: dict[int, int] = {}  # id(node) -> line index
     by_line: dict[int, dict] = {}  # line index -> node
@@ -613,6 +693,36 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     if out and n and not terms[-1]:
         out[-1][1] = ""
     return "".join(body + term for body, term in out)
+
+
+def _line_ends(lines: list[str], bodies: list[str]) -> tuple[list[str], str]:
+    """Each line's terminator, and the file's EOL: the first of `\\r\\n`,
+    `\\n` or `\\r` among them, else `\\n` (#701). `render_document` and
+    `inserted_only` share it."""
+    terms = [line[len(b):] for line, b in zip(lines, bodies)]
+    return terms, next((t for t in terms if t in ("\r\n", "\n", "\r")), "\n")
+
+
+def inserted_only(old: str, new: str) -> bool:
+    """Whether `new` is `old` with whole lines inserted: old's lines appear
+    in order in new, each with its terminator. The one exception, #701's
+    rule: an unterminated old last line may gain the file's EOL when a line
+    follows it."""
+    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    terms, eol = _line_ends(olds, [_body(ln) for ln in olds])
+    j = 0
+    for i, line in enumerate(olds):
+        last_open = i == len(olds) - 1 and not terms[i]
+        while j < len(news):
+            got = news[j]
+            j += 1
+            if got == line and not (last_open and j < len(news)):
+                break
+            if last_open and got == line + eol and j < len(news):
+                break
+        else:
+            return False
+    return True
 
 
 # Meta keys `wbs update` writes; a change to them alone is spliced in place.
