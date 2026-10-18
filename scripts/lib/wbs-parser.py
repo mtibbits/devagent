@@ -808,8 +808,14 @@ def _render_meta(meta: dict) -> str:
             parts.append(f"{k}: [{', '.join(str(x) for x in v)}]")
         elif isinstance(v, str) and (
             "," in v or ":" in v or (" " in v and not v.startswith("@"))
+            or v.startswith(('"', "'"))
         ):
-            parts.append(f'{k}: "{v}"')
+            # _parse_meta reads a value that starts with a quote as quoted, so
+            # it must be written quoted (#789): in "...", or in '...' when it
+            # holds a ". A value holding both quote characters cannot be
+            # written faithfully (the grammar has no escapes).
+            q = "'" if '"' in v else '"'
+            parts.append(f"{k}: {q}{v}{q}")
         else:
             parts.append(f"{k}: {v}")
     return "{" + ", ".join(parts) + "}"
