@@ -59,7 +59,8 @@ CLI:
 The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
-`inserted_only`, `leaves`, `dependency_edges`.
+`inserted_only`, `leaves`, `dependency_edges`; wbs-import.py also reads the
+exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`.
 """
 
 from __future__ import annotations
@@ -196,7 +197,6 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
 
 # One-line directives (#780), outside a fence: `<!-- wbs-<key>: <value> -->`.
 # `wbs-exclude` ids split on commas and whitespace; several lines form a union.
-EXCLUDE_KEY = "wbs-exclude:"
 ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 ID_SPLIT_RE = re.compile(r"[,\s]+")
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
@@ -205,6 +205,7 @@ EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
 # #797 adds "scope"; the second to land adds its key here
 DIRECTIVE_KEYS: tuple[str, ...] = ("exclude",)
+EXCLUDE_KEY = f"wbs-{DIRECTIVE_KEYS[0]}:"  # the tag _directives matches
 
 
 def _directives(

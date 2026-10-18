@@ -601,8 +601,10 @@ _not_added() {
 
 @test "an excluded pinned active issue is not added; one not-added line, bytes unchanged (#780)" {
   local out
-  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
-    '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.input"
+  # Issue-12 shares line 3 with another id and is named again on line 5;
+  # the first line is the one reported
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-3, Issue-12 -->' \
+    '- [ ] One {issue: Issue-1, est: 1w}' '<!-- wbs-exclude: Issue-12 -->' > "$TMPDEV/WBS.input"
   cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
   _list acme/testproj $'1\topen'
   _mr acme/testproj $'issue\t1\tnone'
@@ -610,6 +612,7 @@ _not_added() {
   out="$output"
   [ "$status" -eq 0 ] || { echo "$out"; false; }
   [ "$(grep -cxF "$(_not_added Issue-12 3)" <<<"$out")" = 1 ]
+  [ "$(grep -c 'not added' <<<"$out")" = 1 ]
   cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
   # the keys pass ran (one issue-mrs call), so say() kept it to one line (U1)
   [ "$(_calls)" -eq 1 ]
