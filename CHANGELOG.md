@@ -16,6 +16,20 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `wbs init` reuses a milestone node whose title starts with a quote, and imports a checkbox-only title as `(no title)` (#789).**
+  - The WBS meta writer now quotes a value that starts with `"` or `'`, in `'…'` when the
+    value holds a `"`. A tracker milestone `'v1'` is written `{milestone: "'v1'"}`. Before,
+    it was written `{milestone: 'v1'}` and read back as `v1`, so every `wbs init --merge`
+    that added an issue with that milestone wrote another `'v1'` node, and
+    `wbs show --milestone "'v1'"` found none. A line that `wbs update` has to regenerate
+    (when its in-place `status_src`/`mr` edit cannot apply) now keeps a hand-written
+    `"'v1'"` instead of turning it into `v1`.
+  - A node written by an earlier unreleased build as `{milestone: 'v1'}` is not matched by
+    the fix. Edit it to `{milestone: "'v1'"}`.
+  - `wbs init` titles: `- [x]` becomes `(no title)` and `- [x]foo` becomes `foo` (were
+    `x]` and `x]foo`).
+  - Not breaking: no command, flag or file format changes meaning. A value that holds both
+    quote characters still cannot be written.
 - **Changed: `wbs update` honours `wbs-exclude` lines; the WBS parser reads them (#780).**
   - `wbs update` no longer auto-adds an active issue that a `<!-- wbs-exclude: … -->` line
     names (by the shared id rule, so `Issue-PROJ-12` names a Jira project's `Issue-12`). It
