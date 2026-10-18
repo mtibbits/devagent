@@ -204,8 +204,9 @@ EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 # source-check warnings in the same shape and orders by `warning_line`.
 NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
 # #797 adds "scope"; the second to land adds its key here
-DIRECTIVE_KEYS: tuple[str, ...] = ("exclude",)
-EXCLUDE_KEY = f"wbs-{DIRECTIVE_KEYS[0]}:"  # the tag _directives matches
+EXCLUDE = "exclude"
+DIRECTIVE_KEYS: tuple[str, ...] = (EXCLUDE,)
+EXCLUDE_KEY = f"wbs-{EXCLUDE}:"
 
 
 def _directives(
@@ -252,7 +253,7 @@ def _exclusions(
     ids: list[tuple[int, str]] = []
     warns: list[str] = []
     for ln, key, value in _directives(kinds, bodies):
-        if key != "exclude":
+        if key != EXCLUDE:
             continue
         if value is None:
             warns.append(f"line {ln}: not an exclusion line ({EXCLUDE_WANT}); ignored")

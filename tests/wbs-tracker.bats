@@ -692,7 +692,7 @@ _phrase_count() {
 
 # _not_added <id> <line>: the one line update prints instead of adding <id>.
 _not_added() {
-  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from that line to track it in the WBS.\n' "$1" "$2"
+  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from every wbs-exclude line that lists it to track it in the WBS.\n' "$1" "$2"
 }
 
 @test "Jira key form: wbs-exclude Issue-PROJ-12 keeps active Issue-12 out (#780)" {

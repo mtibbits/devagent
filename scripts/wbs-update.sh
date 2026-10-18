@@ -482,7 +482,7 @@ if active_issue:
         excluded_at = next((ln for ln, x in tree["exclusions"] if names_issue(x, active_issue)), None)
     if excluded_at is not None:
         say(f"wbs update: {active_issue} is listed in a wbs-exclude line (line {excluded_at}); "
-            "not added. Remove it from that line to track it in the WBS.")
+            "not added. Remove it from every wbs-exclude line that lists it to track it in the WBS.")
     elif found is None:
         unassigned = next(
             (n for n in tree["children"] if n["text"] == "Unassigned"),

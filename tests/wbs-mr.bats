@@ -596,7 +596,7 @@ EOF
 
 # _not_added <id> <line>: the one line update prints instead of adding <id>.
 _not_added() {
-  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from that line to track it in the WBS.\n' "$1" "$2"
+  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from every wbs-exclude line that lists it to track it in the WBS.\n' "$1" "$2"
 }
 
 @test "an excluded pinned active issue is not added; one not-added line, bytes unchanged (#780)" {
