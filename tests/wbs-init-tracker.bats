@@ -443,6 +443,27 @@ _expected_all() {
   cmp "$TMPROOT/imported" "$TMPDEV/WBS.md"
 }
 
+@test "wbs show --milestone finds quote-led milestone nodes by their written form (#789)" {
+  _setup_project; _stub
+  cat > "$TMPROOT/issue-list.github.acme_testproj" <<'JSONL'
+{"id":"1","title":"One","body":"","state":"open","class":"open","created":"2026-03-01","closed":null,"milestone":"'v1'","labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/1"}
+{"id":"2","title":"Two","body":"","state":"open","class":"open","created":"2026-03-02","closed":null,"milestone":"\"v1\"","labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/2"}
+JSONL
+  _init --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  grep -qFx -- "- [ ] 'v1' {milestone: \"'v1'\"}" "$TMPDEV/WBS.md"
+  grep -qFx -- "- [ ] \"v1\" {milestone: \"'v1'\"}" "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone "'v1'"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^- \[' <<< "$output")" -eq 2 ]
+  [[ "$output" == *"  - [ ] One {issue: Issue-1}"* ]]
+  [[ "$output" == *"  - [ ] Two {issue: Issue-2}"* ]]
+  # the stored form is the safe_meta one; the tracker's own "v1" finds nothing
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone '"v1"'
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^- \[' <<< "$output")" -eq 0 ]
+}
+
 # --- --merge (#707) ----------------------------------------------------------------
 # tests/fixtures/wbs-merge: base.md is a hand-arranged WBS and issue-list.jsonl
 # the tracker (issues 1-16). Expected placement over base.md:
