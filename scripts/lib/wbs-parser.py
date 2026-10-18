@@ -37,6 +37,12 @@ changed (#764). `render_markdown` is `render_document`, removals refused
 unless `allow_removals`; a tree without `source_text` renders as v1 does
 (`render_nodes`: title plus nodes only).
 
+The root also carries `exclusions` and `exclusion_warnings` (additive,
+#780): the ids of one-line `<!-- wbs-exclude: ... -->` directives outside
+a fence, as `(line, id)` pairs, and the grammar warnings for malformed
+lines and bad tokens, unprefixed. The parser never prints them; whether an
+id names a configured source is the caller's check.
+
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
 nothing) followed by `write_document`.
@@ -188,6 +194,68 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
     return parents
 
 
+# One-line directives (#780), outside a fence: `<!-- wbs-<key>: <value> -->`.
+# `wbs-exclude` ids split on commas and whitespace; several lines form a union.
+EXCLUDE_KEY = "wbs-exclude:"
+ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
+# #797 adds "scope"; the second to land adds its key here
+DIRECTIVE_KEYS: tuple[str, ...] = ("exclude",)
+
+
+def _directives(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str]
+) -> list[tuple[int, str, str | None]]:
+    """The directive lines as `(line, key, value)`, in line order.
+
+    `value` is the raw text after `wbs-<key>:`; None marks a line starting
+    `<!--` that names `wbs-<key>` (any case) but does not parse. Fenced
+    lines are not read. A prefix and a suffix test: nothing here backtracks
+    on a long line.
+    """
+    out: list[tuple[int, str, str | None]] = []
+    for ln, ((kind, _m), body) in enumerate(zip(kinds, bodies), start=1):
+        if kind in ("fence", "code"):
+            continue
+        s = body.strip(" \t")
+        if not s.startswith("<!--"):
+            continue
+        inner = s[4:-3].strip() if len(s) >= 7 and s.endswith("-->") else None
+        for key in DIRECTIVE_KEYS:
+            tag = f"wbs-{key}:"
+            if inner is not None and inner.startswith(tag):
+                out.append((ln, key, inner[len(tag):]))
+            elif f"wbs-{key}" in s.casefold():
+                out.append((ln, key, None))
+    return out
+
+
+def _exclusions(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str]
+) -> tuple[list[tuple[int, str]], list[str]]:
+    """The `wbs-exclude` ids as (line, id) pairs, and the grammar warnings.
+
+    Grammar only: a token outside the id charset, or a malformed line, is a
+    warning; whether an id names a configured source is the caller's check.
+    """
+    ids: list[tuple[int, str]] = []
+    warns: list[str] = []
+    for ln, key, value in _directives(kinds, bodies):
+        if key != "exclude":
+            continue
+        if value is None:
+            warns.append(f"line {ln}: not an exclusion line ({EXCLUDE_WANT}); ignored")
+            continue
+        for tok in re.split(r"[,\s]+", value):
+            if not tok:
+                continue
+            if ID_TOKEN_RE.fullmatch(tok):
+                ids.append((ln, tok))
+            else:
+                warns.append(f"line {ln}: '{tok}' is not an issue id; ignored")
+    return ids, warns
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
@@ -197,7 +265,8 @@ def parse_file(path: Path | str) -> dict:
 
 def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
-    kinds, _bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    kinds, bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    root["exclusions"], root["exclusion_warnings"] = _exclusions(kinds, bodies)
     parents = _parse_parents(kinds)
     by_line: dict[int, dict] = {-1: root}
     if unclosed_at is not None:
