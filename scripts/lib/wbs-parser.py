@@ -25,25 +25,35 @@ An opener with no closer is not a fence: it is reported on stderr and
 the lines after it parse as usual (#701).
 
 The root also carries `source_text`, the file's exact text (an additive
-field; the metadata schema is unaffected). `render_markdown` of a tree
+field; the metadata schema is unaffected). `render_document` of a tree
 that has it reproduces the document line by line: an unchanged line is
 written back byte for byte, a glyph change rewrites one character, a
 change to the owned keys `status_src` (#703) and `mr` (#704) splices only
 those keys into the meta block (set, replaced or removed in place), and
 new nodes (no `source_line`) are inserted as whole lines in the file's
-line-ending style. A tree without `source_text` renders as v1 does
+line-ending style. It refuses, with `ValueError`, a removed node line
+unless `allow_removals`, and a node whose depth, parent or sibling order
+changed (#764). `render_markdown` is `render_document`, removals refused
+unless `allow_removals`; a tree without `source_text` renders as v1 does
 (`render_nodes`: title plus nodes only).
+
+Every WBS.md write goes through `write_document`: `write_markdown` is
+`prepare_write` (render plus an optional `check(old, new)` veto, writing
+nothing) followed by `write_document`.
 
 CLI:
     wbs-parser.py parse <path>          # emits JSON tree to stdout
     wbs-parser.py edges <path>          # emits dependency edges, one per line
     wbs-parser.py leaves <path>         # emits one leaf per line (issue or text)
-    wbs-parser.py render <json-path>    # JSON tree → markdown to stdout
-                                        # (a `parse` tree reproduces the file)
+    wbs-parser.py render [--allow-removals] <json-path>
+                                        # JSON tree → markdown to stdout
+                                        # (a `parse` tree reproduces the file;
+                                        # a removed node exits 1 without the flag)
 
 The Python API (used by tests and by sibling scripts via importlib) is
-`parse_file`, `parse_text`, `render_markdown`, `render_nodes`,
-`write_markdown`, `leaves`, `dependency_edges`.
+`parse_file`, `parse_text`, `render_document`, `render_markdown`,
+`render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
+`leaves`, `dependency_edges`.
 """
 
 from __future__ import annotations
@@ -51,6 +61,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 STATE_GLYPHS: dict[str, str] = {
@@ -158,6 +169,25 @@ def _classify_lines(
     return kinds, bodies, unclosed_at
 
 
+def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
+    """Map each node line index to its parent's node line index (-1: root).
+
+    The one home of the parser's nesting rule: a node's parent is the
+    nearest earlier node of smaller depth. Parse and render both call it.
+    """
+    parents: dict[int, int] = {}
+    stack: list[tuple[int, int]] = [(-1, -1)]  # (depth, line index)
+    for i, (kind, m) in enumerate(kinds):
+        if kind != "node":
+            continue
+        depth = _depth(m)
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        parents[i] = stack[-1][1]
+        stack.append((depth, i))
+    return parents
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
@@ -167,8 +197,9 @@ def parse_file(path: Path | str) -> dict:
 
 def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
-    stack: list[tuple[int, dict]] = [(-1, root)]
     kinds, _bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
+    parents = _parse_parents(kinds)
+    by_line: dict[int, dict] = {-1: root}
     if unclosed_at is not None:
         print(
             f"wbs-parser: unclosed code fence at line {unclosed_at} ignored; "
@@ -197,11 +228,8 @@ def parse_text(text: str) -> dict:
             "children": [],
             "source_line": lineno,
         }
-        while stack and stack[-1][0] >= depth:
-            stack.pop()
-        parent = stack[-1][1]
-        parent["children"].append(node)
-        stack.append((depth, node))
+        by_line[parents[lineno - 1]]["children"].append(node)
+        by_line[lineno - 1] = node
     return root
 
 
@@ -301,24 +329,65 @@ def dependency_edges(tree: dict) -> list[tuple[str, str]]:
     return edges
 
 
-def render_markdown(tree: dict) -> str:
+class _NodeRemoved(ValueError):
+    """`render_document`'s removal refusal, the one `allow_removals` relaxes."""
+
+
+def render_markdown(tree: dict, *, allow_removals: bool = False) -> str:
     """Render a tree: the document when it carries `source_text`, else v1."""
     if tree.get("source_text") is not None:
-        return _render_document(tree)
+        return render_document(tree, allow_removals=allow_removals)
     return render_nodes(tree)
 
 
-def write_markdown(path: Path | str, tree: dict) -> bool:
-    """Write the rendered tree to `path` as UTF-8 bytes, only if it changed.
+def prepare_write(
+    path: Path | str,
+    tree: dict,
+    check: Callable[[str, str], bool] | None = None,
+) -> str:
+    """The text `write_markdown(path, tree, check)` would write; writes nothing.
 
-    Returns whether it wrote. Bytes, not text mode: text mode would turn
-    `\\n` into `\\r\\n` on Windows.
+    Renders with removals refused, then runs the optional `check(old, new)`
+    veto (#764). Either refusal raises `ValueError` prefixed with `path`.
     """
-    rendered = render_markdown(tree)
-    if rendered == tree.get("source_text"):
+    try:
+        new = render_document(tree)
+    except ValueError as e:
+        cls = _NodeRemoved if isinstance(e, _NodeRemoved) else ValueError
+        raise cls(f"{path} {e}") from None
+    if check is not None and not check(tree["source_text"], new):
+        raise ValueError(f"{path} check refused the write")
+    return new
+
+
+def write_markdown(
+    path: Path | str,
+    tree: dict,
+    check: Callable[[str, str], bool] | None = None,
+) -> bool:
+    """`prepare_write`, then write through `write_document` only if it changed.
+
+    Returns whether it wrote. `check` runs even when nothing would change.
+    """
+    new = prepare_write(path, tree, check)
+    if new == tree["source_text"]:
         return False
-    Path(path).write_bytes(rendered.encode("utf-8"))
+    write_document(path, new)
     return True
+
+
+def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> None:
+    """Write `text` to `path` as UTF-8 bytes: the one writer of WBS.md bytes.
+
+    `exclusive` refuses an existing file (`FileExistsError`). Bytes, not
+    text mode: text mode would turn `\\n` into `\\r\\n` on Windows.
+    """
+    data = text.encode("utf-8")
+    if exclusive:
+        with open(path, "xb") as f:
+            f.write(data)
+    else:
+        Path(path).write_bytes(data)
 
 
 _GLYPH_FOR_STATE = {v: k for k, v in STATE_GLYPHS.items()}
@@ -354,19 +423,33 @@ def render_nodes(tree: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_document(tree: dict) -> str:
+def render_document(tree: dict, *, allow_removals: bool = False) -> str:
     """Re-emit `source_text` line by line, changing only what the tree changed.
 
     A node owns the line its `source_line` names when that line is a node
     line no earlier node claimed; a node that owns none is new. Owned lines
     are kept verbatim, glyph-patched, or regenerated (text/meta change).
-    Unowned node lines (removed nodes) are dropped. Every other line is
-    kept verbatim. A new node goes after its preceding sibling's owned
-    subtree; with no preceding sibling, just before the parent's first
-    existing child, or after the block of a parent that has none. Its own
-    children follow it.
+    Every other line is kept verbatim. A new node goes after its preceding
+    sibling's owned subtree; with no preceding sibling, just before the
+    parent's first existing child, or after the block of a parent that has
+    none. Its own children follow it.
+
+    Before any output is built, the node lines are checked in line order and
+    the first violation raises `ValueError` (#764):
+
+    - an unowned node line is a removal, `line <n>: node '<text>' is not in
+      the tree`, unless `allow_removals`, which drops the line;
+    - an owned node whose depth, parent or order among its owned siblings
+      differs from its line's at parse time, or an unowned line that a node
+      under a new node still names, is a move: `line <n>: node '<text>'
+      moved; moving or reordering nodes is not supported`. `allow_removals`
+      never relaxes it.
+
+    `<text>` is the source line's own text. New nodes are not a reorder.
     """
-    src = tree["source_text"]
+    src = tree.get("source_text")
+    if src is None:
+        raise ValueError("render_document: the tree has no source_text")
     lines = src.splitlines(keepends=True)
     n = len(lines)
     kinds, bodies, _ = _classify_lines(lines)
@@ -375,18 +458,62 @@ def _render_document(tree: dict) -> str:
 
     owner: dict[int, int] = {}  # id(node) -> line index
     by_line: dict[int, dict] = {}  # line index -> node
+    # Per owned line, against the parse: its tree parent's line (-1: root)
+    # and its previous owned sibling's line (-1: none).
+    tree_parent: dict[int, int] = {}
+    prev_sibling: dict[int, int] = {}
+    carried: set[int] = set()  # lines that nodes inside new subtrees still name
 
-    def claim(node: dict) -> None:
-        i = node.get("source_line", 0) - 1
-        if 0 <= i < n and kinds[i][0] == "node" and i not in by_line:
-            by_line[i] = node
-            owner[id(node)] = i
-            for k in node.get("children", []):
-                claim(k)
-        # A new node's whole subtree is new: its children claim nothing.
+    def carry(node: dict) -> None:
+        line = node.get("source_line")
+        if isinstance(line, int):
+            carried.add(line - 1)
+        for k in node.get("children", []):
+            carry(k)
 
-    for top in tree.get("children", []):
-        claim(top)
+    def claim(parent: dict, parent_line: int) -> None:
+        prev = -1
+        for node in parent.get("children", []):
+            i = node.get("source_line", 0) - 1
+            if 0 <= i < n and kinds[i][0] == "node" and i not in by_line:
+                by_line[i] = node
+                owner[id(node)] = i
+                tree_parent[i], prev_sibling[i] = parent_line, prev
+                prev = i
+                claim(node, i)
+            else:
+                # A new node's whole subtree is new: its children claim nothing.
+                carry(node)
+
+    claim(tree, -1)
+
+    parse_parent = _parse_parents(kinds)
+
+    def text_at(i: int) -> str:
+        return _split_text_and_meta(kinds[i][1].group("rest").rstrip())[0]
+
+    def moved(i: int) -> ValueError:
+        return ValueError(
+            f"line {i + 1}: node '{text_at(i)}' moved; moving or reordering nodes is not supported"
+        )
+
+    for i, (kind, m) in enumerate(kinds):
+        if kind != "node":
+            continue
+        node = by_line.get(i)
+        if node is None:
+            # claim() never descends into a new node, so a node moved under
+            # one leaves its line unowned: a move, not a removal.
+            if i in carried:
+                raise moved(i)
+            if not allow_removals:
+                raise _NodeRemoved(f"line {i + 1}: node '{text_at(i)}' is not in the tree")
+        elif (
+            node["depth"] != _depth(m)
+            or tree_parent[i] != parse_parent[i]
+            or prev_sibling[i] > i
+        ):
+            raise moved(i)
 
     def block_end(i: int) -> int:
         """Last line of node line i's block (see spec §13.1 / #701)."""
@@ -578,14 +705,27 @@ def _render_meta(meta: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+_USAGE = "usage: wbs-parser.py {parse|edges|leaves|render [--allow-removals]} <path>"
+
+
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
-        print(
-            "usage: wbs-parser.py {parse|edges|leaves|render} <path>",
-            file=sys.stderr,
-        )
+        print(_USAGE, file=sys.stderr)
         return 2
     cmd = argv[1]
+    allow_removals = False
+    if cmd == "render":
+        args = []
+        for tok in argv[2:]:
+            if tok == "--allow-removals":
+                allow_removals = True
+            elif tok.startswith("--"):
+                print(f"wbs-parser.py render: unknown flag '{tok}'", file=sys.stderr)
+                print(_USAGE, file=sys.stderr)
+                return 2
+            else:
+                args.append(tok)
+        argv = argv[:2] + args
     path = Path(argv[2]) if len(argv) > 2 else None
     if cmd == "parse":
         print(json.dumps(parse_file(path), indent=2))
@@ -598,8 +738,17 @@ def _cli(argv: list[str]) -> int:
             print(f"{issue}\t{leaf['text']}")
     elif cmd == "render":
         tree = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            out = render_markdown(tree, allow_removals=allow_removals)
+        except ValueError as e:
+            # The flag relaxes removals only, so only they name it.
+            hint = ""
+            if isinstance(e, _NodeRemoved):
+                hint = "; pass --allow-removals to drop removed nodes"
+            print(f"wbs-parser.py render: {e}{hint}", file=sys.stderr)
+            return 1
         # Bytes: text-mode stdout turns `\n` into `\r\n` on Windows.
-        sys.stdout.buffer.write(render_markdown(tree).encode("utf-8"))
+        sys.stdout.buffer.write(out.encode("utf-8"))
     else:
         print(f"unknown subcommand: {cmd}", file=sys.stderr)
         return 2

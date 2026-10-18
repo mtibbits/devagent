@@ -60,6 +60,13 @@ CLI:
     was given and the closed share is not below the threshold: the survey
     JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing
     written.
+  wbs-import.py template   plain `wbs init` / `--force` (#764): WBS_IMP_TEMPLATE
+                        with `{{PROJECT}}` replaced by WBS_IMP_PROJECT, written
+                        to WBS_IMP_DEST; only WBS_IMP_FORCE=1 overwrites.
+    Exit 0 written; 1 DEST exists without force, the template is unreadable
+    or not UTF-8, or the write fails.
+
+Every write of DEST goes through wbs-parser.py `write_document` (#764).
 """
 from __future__ import annotations
 
@@ -977,8 +984,7 @@ def run(env) -> int:
     dest = Path(env["WBS_IMP_DEST"])
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(dest, "xb") as f:
-            f.write(doc.encode("utf-8"))
+        _wbs_parser().write_document(dest, doc, exclusive=True)
     except FileExistsError:
         _say(f"wbs init: {dest} exists")
         return 1
@@ -1012,13 +1018,14 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     if not stats["added"]:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0
-    rendered = parser.render_markdown(tree)
-    if not inserted_only(source, rendered):
+    try:
+        parser.write_markdown(dest, tree, check=inserted_only)
+    except ValueError:
+        # A render refusal (a removed or moved node, which merge never makes)
+        # is the same bug class as the veto, so it gets the same message.
         _say(f"wbs init --merge: refusing to write {dest}: an existing line would change "
              "(a bug; please report); nothing written")
         return 1
-    try:
-        dest.write_bytes(rendered.encode("utf-8"))
     except OSError as e:
         _say(f"wbs init --merge: cannot write {dest}: {e}")
         return 1
@@ -1028,9 +1035,36 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
     return 0
 
 
+def write_template(env) -> int:
+    """`wbs init` / `--force`: the template with `{{PROJECT}}` substituted,
+    written through write_document (#764). Only WBS_IMP_FORCE=1 overwrites;
+    any other value refuses an existing dest."""
+    template, dest = env["WBS_IMP_TEMPLATE"], env["WBS_IMP_DEST"]
+    try:
+        # strict UTF-8: parse_file reads UTF-8, so no other wbs command could
+        # read the WBS.md a non-UTF-8 template would give
+        text = Path(template).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        _say(f"wbs init: cannot read {template}: {e}")
+        return 1
+    # literal, as sed's s||| was not for &, \ or |; other bytes (CR) kept
+    text = text.replace("{{PROJECT}}", env.get("WBS_IMP_PROJECT", ""))
+    try:
+        _wbs_parser().write_document(dest, text, exclusive=env.get("WBS_IMP_FORCE") != "1")
+    except FileExistsError:
+        _say(f"wbs init: {dest} exists; pass --force to overwrite")
+        return 1
+    except OSError as e:
+        _say(f"wbs init: cannot write {dest}: {e}")
+        return 1
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if argv[1:] == ["run"]:
         return run(os.environ)
+    if argv[1:] == ["template"]:
+        return write_template(os.environ)
     if argv[1:] == ["check"]:
         text = sys.stdin.buffer.read().decode("utf-8", "replace")
         try:
@@ -1040,7 +1074,7 @@ def main(argv: list[str]) -> int:
             return 1
         _stdout(f"{len(recs)}\n")
         return 0
-    print("usage: wbs-import.py check | run", file=sys.stderr)
+    print("usage: wbs-import.py check | run | template", file=sys.stderr)
     return 2
 
 
