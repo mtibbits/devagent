@@ -1838,8 +1838,8 @@ space and does not start with `@`, or starts with `"` or `'` (#789). It is
 wrapped in `"…"`, or in `'…'` when it holds a `"`. The reader takes a value
 that starts with a quote as quoted, up to the next matching quote, so a
 quote-led value written bare would lose its quotes. There are no escapes: a
-value that holds both quote characters cannot be written, and list items
-are written unquoted. The rule applies to the lines the commands write (new
+value that holds both quote characters does not round-trip (the read garbles
+it and the keys after it), and list items are written unquoted. The rule applies to the lines the commands write (new
 nodes and regenerated lines). Every other line keeps its own quoting.
 `wbs init` writes a milestone node's `milestone` as the tracker title in its
 `safe_meta` form: the node-title normalisation (whitespace runs collapsed to
