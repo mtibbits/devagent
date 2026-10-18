@@ -198,7 +198,11 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
 # `wbs-exclude` ids split on commas and whitespace; several lines form a union.
 EXCLUDE_KEY = "wbs-exclude:"
 ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+ID_SPLIT_RE = re.compile(r"[,\s]+")
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
+# An exclusion warning is `line N: <text>`; wbs-import.py adds its own
+# source-check warnings in the same shape and orders by `warning_line`.
+NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
 # #797 adds "scope"; the second to land adds its key here
 DIRECTIVE_KEYS: tuple[str, ...] = ("exclude",)
 
@@ -221,13 +225,19 @@ def _directives(
         if not s.startswith("<!--"):
             continue
         inner = s[4:-3].strip() if len(s) >= 7 and s.endswith("-->") else None
+        folded = s.casefold()
         for key in DIRECTIVE_KEYS:
             tag = f"wbs-{key}:"
             if inner is not None and inner.startswith(tag):
                 out.append((ln, key, inner[len(tag):]))
-            elif f"wbs-{key}" in s.casefold():
+            elif tag[:-1] in folded:
                 out.append((ln, key, None))
     return out
+
+
+def warning_line(warning: str) -> int:
+    """The N of an `exclusion_warnings` entry, `line N: ...`."""
+    return int(warning[len("line "):warning.index(":")])
 
 
 def _exclusions(
@@ -246,13 +256,13 @@ def _exclusions(
         if value is None:
             warns.append(f"line {ln}: not an exclusion line ({EXCLUDE_WANT}); ignored")
             continue
-        for tok in re.split(r"[,\s]+", value):
+        for tok in ID_SPLIT_RE.split(value):
             if not tok:
                 continue
             if ID_TOKEN_RE.fullmatch(tok):
                 ids.append((ln, tok))
             else:
-                warns.append(f"line {ln}: '{tok}' is not an issue id; ignored")
+                warns.append(NOT_AN_ID.format(ln, tok))
     return ids, warns
 
 

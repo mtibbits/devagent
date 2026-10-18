@@ -130,7 +130,7 @@ def _check_record(rec) -> str | None:
     if not rec["id"]:
         return "empty id"
     # the id lands in a meta block and a devdoc path
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", rec["id"]):
+    if not _wbs_parser().ID_TOKEN_RE.fullmatch(rec["id"]):
         return "bad id"
     if rec["state"] not in ("open", "closed"):
         return f"bad state {rec['state']}"
@@ -648,8 +648,6 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
 
 
 # --- merge into an existing WBS (#707) ------------------------------------------
-# Exclusion lines (`<!-- wbs-exclude: ... -->`): wbs-parser.py reads them; merge never writes one.
-
 
 def resolve_id(model: Model, iid: str) -> list[Node]:
     """The tracker issue a WBS `issue` id (or an exclusion id) names, by the
@@ -692,24 +690,24 @@ def leaf_collisions(model: Model, mode: str) -> list[str]:
     return out
 
 
-def exclusions(tree: dict, model: Model | None = None) -> tuple[list[tuple[int, str]], list[str]]:
+def exclusions(tree: dict, model: Model) -> tuple[list[tuple[int, str]], list[str]]:
     """The exclusion lines' ids as (line, id) pairs, and the warnings, unprefixed.
 
     The parsed tree's `exclusions` and `exclusion_warnings` (wbs-parser.py
-    applies the grammar), plus the source check: given a model, an id that
-    is neither read as an id by the shared codec (no dir_prefix, or a bad
-    shape after every one) nor some record's exact leaf is warned about and
-    skipped. Warnings come in line order, the parser's first within a line.
+    applies the grammar), plus the source check: an id that is neither read
+    as an id by the shared codec (no dir_prefix, or a bad shape after every
+    one) nor some record's exact leaf is warned about and skipped. Warnings
+    come in line order, the parser's first within a line.
     """
+    parser = _wbs_parser()
     ids: list[tuple[int, str]] = []
-    warns = [(int(w.split(":", 1)[0][len("line "):]), w) for w in tree["exclusion_warnings"]]
+    warns = [(parser.warning_line(w), w) for w in tree["exclusion_warnings"]]
     for ln, tok in tree["exclusions"]:
         # Deliberately by SHAPE, not by "names a record": a well-formed
         # Issue-99 that no fetched record has passes silently. The
         # presence and exclusion sets (named_leaves) are by record.
-        if model is not None and trk.parse_leaf(model.sources, tok) is None \
-                and tok not in model.leaves:
-            warns.append((ln, f"line {ln}: '{tok}' is not an issue id; ignored"))
+        if trk.parse_leaf(model.sources, tok) is None and tok not in model.leaves:
+            warns.append((ln, parser.NOT_AN_ID.format(ln, tok)))
             continue
         ids.append((ln, tok))
     return ids, [w for _ln, w in sorted(warns, key=lambda p: p[0])]

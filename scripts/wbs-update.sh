@@ -477,8 +477,10 @@ if active_issue:
         if found is not None:
             break
     # #780: a wbs-exclude line (wbs-parser.py) keeps the active issue out
-    excluded_at = next((ln for ln, x in tree["exclusions"] if names_issue(x, active_issue)), None)
-    if found is None and excluded_at is not None:
+    excluded_at = None
+    if found is None:
+        excluded_at = next((ln for ln, x in tree["exclusions"] if names_issue(x, active_issue)), None)
+    if excluded_at is not None:
         say(f"wbs update: {active_issue} is listed in a wbs-exclude line (line {excluded_at}); "
             "not added. Remove it from that line to track it in the WBS.")
     elif found is None:
