@@ -116,7 +116,10 @@
 # --offline), append it under a synthetic "Unassigned" top-level node so
 # newly-pulled issues auto-appear. Its glyph goes through the same
 # precedence (local checklist only when the tracker phase aborted); with no
-# signal it is written as `[ ]` with no status_src.
+# signal it is written as `[ ]` with no status_src. An active issue that a
+# `<!-- wbs-exclude: ... -->` line names (by the same rule) is not added: one
+# `not added` line is printed instead, and update never warns about
+# exclusion lines (`wbs init --merge` does; #780).
 #
 # Reconciliation derives from the tracker and the checklist (the
 # authoritative sources), not from state.last_step. Safe to run any time,
@@ -473,7 +476,12 @@ if active_issue:
         found = find_issue_node(top, active_issue)
         if found is not None:
             break
-    if found is None:
+    # #780: a wbs-exclude line (wbs-parser.py) keeps the active issue out
+    excluded_at = next((ln for ln, x in tree["exclusions"] if names_issue(x, active_issue)), None)
+    if found is None and excluded_at is not None:
+        say(f"wbs update: {active_issue} is listed in a wbs-exclude line (line {excluded_at}); "
+            "not added. Remove it from that line to track it in the WBS.")
+    elif found is None:
         unassigned = next(
             (n for n in tree["children"] if n["text"] == "Unassigned"),
             None,

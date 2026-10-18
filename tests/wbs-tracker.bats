@@ -687,3 +687,39 @@ _phrase_count() {
     [ "$output" -ge 1 ] || { echo "no fall-through rule in $home"; false; }
   done
 }
+
+# --- #780: wbs-exclude lines keep the active issue out of the auto-add ---------
+
+# _not_added <id> <line>: the one line update prints instead of adding <id>.
+_not_added() {
+  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from that line to track it in the WBS.\n' "$1" "$2"
+}
+
+@test "Jira key form: wbs-exclude Issue-PROJ-12 keeps active Issue-12 out (#780)" {
+  local out
+  _config jira PROJ no
+  _list_on jira PROJ $'PROJ-12\topen'
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-PROJ-12 -->' > "$TMPDEV/WBS.md"
+  _active Issue-12
+  _update
+  out="$output"
+  [ "$status" -eq 0 ] || { echo "$out"; false; }
+  [ "$(grep -c Unassigned "$TMPDEV/WBS.md")" = 0 ]
+  [ "$(grep -cxF "$(_not_added Issue-12 3)" <<<"$out")" = 1 ]
+  # control: an exclusion naming another key leaves Issue-12 to be added once
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-PROJ-13 -->' > "$TMPDEV/WBS.md"
+  _update
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
+}
+
+@test "an excluded issue that has a leaf is still reconciled (#780)" {
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
+    '- [ ] Twelve {issue: Issue-12, est: 1w}' > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
+    '- [x] Twelve {issue: Issue-12, est: 1w, status_src: tracker}' > "$TMPDEV/expected"
+  _list acme/testproj $'12\tdone'
+  _active Issue-12
+  _update_diff
+  [ "$(grep -c 'not added' <<<"$output")" = 0 ]
+}

@@ -591,3 +591,86 @@ EOF
   cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
   [ "$(_calls)" -eq 1 ]
 }
+
+# --- #780: an active issue a wbs-exclude line names is not auto-added ---------
+
+# _not_added <id> <line>: the one line update prints instead of adding <id>.
+_not_added() {
+  printf 'wbs update: %s is listed in a wbs-exclude line (line %s); not added. Remove it from that line to track it in the WBS.\n' "$1" "$2"
+}
+
+@test "an excluded pinned active issue is not added; one not-added line, bytes unchanged (#780)" {
+  local out
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
+    '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.input"
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _list acme/testproj $'1\topen'
+  _mr acme/testproj $'issue\t1\tnone'
+  DEVAGENT_ACTIVE_ISSUE=Issue-12 _update
+  out="$output"
+  [ "$status" -eq 0 ] || { echo "$out"; false; }
+  [ "$(grep -cxF "$(_not_added Issue-12 3)" <<<"$out")" = 1 ]
+  cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  # the keys pass ran (one issue-mrs call), so say() kept it to one line (U1)
+  [ "$(_calls)" -eq 1 ]
+  [ "$(grep -c Unassigned "$TMPDEV/WBS.md")" = 0 ]
+  # control: without the exclusion line, Issue-12 is added
+  printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  DEVAGENT_ACTIVE_ISSUE=Issue-12 _update
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
+}
+
+@test "update prints no exclusion warning: malformed line, unknown prefix (#780)" {
+  local out
+  printf '%s\n' '# testproj WBS' '' '<!-- WBS-Exclude: Issue-5 -->' \
+    '<!-- wbs-exclude: Task-9 -->' '<!-- wbs-exclude: Issue-12 -->' \
+    '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  _list acme/testproj $'1\topen'
+  _mr acme/testproj $'issue\t1\tnone'
+  DEVAGENT_ACTIVE_ISSUE=Issue-12 _update
+  out="$output"
+  [ "$status" -eq 0 ] || { echo "$out"; false; }
+  [ "$(grep -cxF "$(_not_added Issue-12 5)" <<<"$out")" = 1 ]
+  [ "$(grep -c 'not an exclusion line' <<<"$out")" = 0 ]
+  [ "$(grep -c 'is not an issue id' <<<"$out")" = 0 ]
+  [ "$(grep -vxF "$(_not_added Issue-12 5)" <<<"$out" | grep -ci 'wbs-exclude')" = 0 ]
+  # positive control: the file really carries a warning that update suppressed
+  [ "$(python3 "$REPO/scripts/lib/wbs-parser.py" parse "$TMPDEV/WBS.md" \
+        | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["exclusion_warnings"]))')" = 1 ]
+}
+
+@test "an exclusion id the codec cannot read does not exclude (#780)" {
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: 12 -->' \
+    '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  _list acme/testproj $'1\topen'
+  _mr acme/testproj $'issue\t1\tnone'
+  DEVAGENT_ACTIVE_ISSUE=Issue-12 _update
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
+  [ "$(grep -c 'not added' <<<"$output")" = 0 ]
+}
+
+@test "the shared active_issue slot, no pin: same result (#780)" {
+  local out
+  printf '%s\n' '# testproj WBS' '' '<!-- wbs-exclude: Issue-12 -->' \
+    '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.input"
+  cp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  _list acme/testproj $'1\topen'
+  _mr acme/testproj $'issue\t1\tnone'
+  _active Issue-12
+  # cleanup's path: the shared slot, no session pin, --offline
+  run env -u DEVAGENT_ACTIVE_ISSUE bash "$REPO/scripts/wbs.sh" update testproj --offline
+  out="$output"
+  [ "$status" -eq 0 ] || { echo "$out"; false; }
+  [ "$(grep -cxF "$(_not_added Issue-12 3)" <<<"$out")" = 1 ]
+  cmp "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  # offline: no issue-mrs call (the stub log is absent or holds none)
+  [ ! -e "$TMPROOT/backend.log" ] || [ "$(_calls)" -eq 0 ]
+  [ "$(grep -c Unassigned "$TMPDEV/WBS.md")" = 0 ]
+  # control: without the exclusion line, the slot's issue is added
+  printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"
+  run env -u DEVAGENT_ACTIVE_ISSUE bash "$REPO/scripts/wbs.sh" update testproj --offline
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [ "$(grep -c '{issue: Issue-12, est: ?w' "$TMPDEV/WBS.md")" = 1 ]
+}
