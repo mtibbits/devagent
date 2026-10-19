@@ -932,6 +932,108 @@ def test_default_set_unnumbered_other_backend():
     assert ds["unmarked"] == []
 
 
+def _merge_env(tmp_path, records, data, rng=""):
+    """A `wbs init --merge` run env over one GitHub source; dest holds data."""
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(data.encode("utf-8") if isinstance(data, str) else data)
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", records),
+           "WBS_IMP_ORIGIN_BACKEND": "github", "WBS_IMP_ORIGIN_REPO": "o/r",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-", "WBS_IMP_MODE": "merge",
+           "WBS_IMP_RANGE": rng, "WBS_IMP_PROJECT": "p", "WBS_IMP_DEST": str(dest),
+           "DEVDOC_DIR": str(tmp_path)}
+    return env, dest
+
+
+HAND = "- [ ] Hand {issue: Issue-1}\n"
+SCOPE_TWICE = "# W\n\n<!-- wbs-scope: all -->\n" + HAND + "<!-- wbs-scope: all -->\n"
+SCOPE_999 = "# W\n\n<!-- wbs-scope: epic:Issue-999 -->\n" + HAND
+FIX_IT = "fix it, or pass a range flag; nothing written"
+
+
+def test_unflagged_merge_scope_line_errors(tmp_path, capsys):
+    recs = [rec(str(i)) for i in range(1, 4)]
+    m = wbs_import.build([src(recs)])
+    cases = [
+        (SCOPE_TWICE, "wbs-scope is on lines 3, 5; keep one line, or pass a range flag; "
+                      "nothing written"),
+        ("# W\n\n<!-- WBS-Scope: all -->\n" + HAND,
+         "line 3: not a scope line (want '<!-- wbs-scope: <range> -->' on one line); " + FIX_IT),
+    ]
+    for value in ("epic:Issue-999", ""):
+        with pytest.raises(wbs_import.RangeError) as e:
+            wbs_import.select(m, value)
+        cases.append((f"# W\n\n<!-- wbs-scope: {value} -->\n" + HAND,
+                      f"line 3: wbs-scope '{value}' names nothing ({e.value}); " + FIX_IT))
+    for text, msg in cases:
+        env, dest = _merge_env(tmp_path, recs, text)
+        before = dest.read_bytes()
+        assert wbs_import.run(env) == 2, text
+        assert capsys.readouterr().err == f"wbs init --merge: {dest}: {msg}\n"
+        assert dest.read_bytes() == before
+    # (e) a comment that only mentions the key is no second scope line
+    env, dest = _merge_env(tmp_path, recs, "# W\n\n<!-- the wbs-scope line below was "
+                           "written by wbs init -->\n<!-- wbs-scope: all -->\n" + HAND)
+    assert wbs_import.run(env) == 0
+    # (d) the parse comes first: an unreadable WBS.md exits 1 before any survey
+    env, dest = _merge_env(tmp_path, [done(str(i)) for i in range(1, 61)], b"# W\n\xff\n")
+    assert wbs_import.run(env) == 1
+    out = capsys.readouterr()
+    assert "WBS-INIT:" not in out.out
+    assert f"cannot read {dest}" in out.err
+
+
+def test_flagged_merge_never_reads_the_scope_line(tmp_path, capsys):
+    recs = [rec(str(i)) for i in range(1, 4)]
+    for text in (SCOPE_TWICE, SCOPE_999):
+        env, dest = _merge_env(tmp_path, recs, text, rng="all")
+        assert wbs_import.run(env) == 0
+        got = dest.read_text(encoding="utf-8")
+        assert parser.inserted_only(text, got)
+        assert "{issue: Issue-2}" in got and "{issue: Issue-3}" in got
+        assert [ln for ln in got.splitlines() if "wbs-scope" in ln] == \
+            [ln for ln in text.splitlines() if "wbs-scope" in ln]
+        capsys.readouterr()
+
+
+CAP_LINE = ("wbs init --merge: {n} issues are newer than the newest in {dest} (cap 50); "
+            "pass --all, --since <date|issue-id>, --open-only or --epic <issue-id>")
+
+
+def test_unflagged_merge_cap_boundary(tmp_path, capsys):
+    assert wbs_import.MERGE_CAP == 50
+    env, dest = _merge_env(tmp_path, [rec(str(i)) for i in range(1, 52)], "# W\n\n" + HAND)
+    assert wbs_import.run(env) == 0
+    assert "added 50 issues" in capsys.readouterr().err
+    (tmp_path / "b").mkdir()
+    env, dest = _merge_env(tmp_path / "b", [rec(str(i)) for i in range(1, 53)], "# W\n\n" + HAND)
+    before = dest.read_bytes()
+    assert wbs_import.run(env) == wbs_import.CHOOSE_RANGE_RC
+    out = capsys.readouterr()
+    assert out.out.splitlines()[-1] == wbs_import.CHOOSE_RANGE_MARKER
+    sv = json.loads(out.out[:out.out.rindex(wbs_import.CHOOSE_RANGE_MARKER)])
+    assert sv["merge"]["new_since_newest"] == 51
+    assert sv["merge"]["older_absent"] == 0
+    assert sv["merge"]["scope"] is None
+    assert out.err == CAP_LINE.format(n=51, dest=dest) + "\n"
+    assert dest.read_bytes() == before
+
+
+def test_unflagged_merge_tail_counts_older(tmp_path, capsys):
+    env, dest = _merge_env(tmp_path, [rec(str(i)) for i in range(1, 6)],
+                           "# W\n\n- [ ] A {issue: Issue-3}\n- [ ] B {issue: Issue-5}\n")
+    assert wbs_import.run(env) == 0
+    assert capsys.readouterr().err == (
+        f"wbs init --merge: nothing to add to {dest}; 2 already present, 0 excluded; "
+        "3 older issues not added (pass --since <id> or --all)\n")
+
+
+def test_unflagged_merge_prints_each_exclusion_warning_once(tmp_path, capsys):
+    env, dest = _merge_env(tmp_path, [rec(str(i)) for i in range(1, 6)],
+                           "# W\n\n<!-- WBS-Exclude: Issue-5 -->\n" + HAND)
+    assert wbs_import.run(env) == 0
+    assert capsys.readouterr().err.count("line 3: not an exclusion line") == 1
+
+
 def _run_merge(dest):
     m = _fixture_model()
     return wbs_import._run_merge(m, wbs_import.select(m, "all"), dest, dest.parent)
