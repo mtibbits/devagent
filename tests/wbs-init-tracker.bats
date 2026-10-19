@@ -765,7 +765,7 @@ _shaped_import_cut() {
 # _append_issue <id> <state> [parent-number]: one contract record on the stub's list
 _append_issue() {
   local cls=open closed=null parent=null
-  [ "$2" = closed ] && { cls=done; closed='"2026-07-20"'; }
+  [ "$2" = closed ] && { cls='done'; closed='"2026-07-20"'; }
   [ -z "${3:-}" ] || parent="\"https://github.com/acme/testproj/issues/$3\""
   printf '%s\n' "{\"id\":\"$1\",\"title\":\"Task $1\",\"body\":\"\",\"state\":\"$2\",\"class\":\"$cls\",\"created\":\"2026-07-01\",\"closed\":$closed,\"milestone\":null,\"labels\":[],\"type\":null,\"parent\":$parent,\"blocked_by\":[],\"url\":\"https://github.com/acme/testproj/issues/$1\"}" \
     >> "$TMPROOT/issue-list.github.acme_testproj"
