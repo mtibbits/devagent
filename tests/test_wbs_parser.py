@@ -343,6 +343,18 @@ def test_new_child_of_an_existing_parent_is_placed_by_its_siblings():
     assert wbs_parser.render_markdown(tree) == childless.replace("  note\n", "  note\n" + new)
 
 
+def test_insert_after_leaf_with_fenced_note():
+    # A fence at the leaf's own indent ends the leaf's block (#701), so a new
+    # sibling lands before it. Pins `_block_end`'s fence arm, which the
+    # order pass (#803) shares.
+    text = "# t\n- [ ] E\n  - [ ] a\n  ```\n  - [ ] not a node\n  ```\n"
+    tree = wbs_parser.parse_text(text)
+    tree["children"][0]["children"].append(_new_node("b", 2, {}))
+    assert wbs_parser.render_markdown(tree) == text.replace(
+        "  - [ ] a\n", "  - [ ] a\n  - [ ] b\n"
+    )
+
+
 @pytest.mark.parametrize(
     "text",
     ["# t\r\n- [ ] a\n  note\r\n- [ ] b\r", "# t\r- [ ] a\r  note\r- [ ] b\r"],
@@ -451,6 +463,12 @@ def test_other_meta_change_still_regenerates():
 def test_mr_is_known_key():
     tree = wbs_parser.parse_text("# t\n\n- [~] A {issue: Issue-1, status_src: mr, mr: open}\n")
     assert tree["children"][0]["meta_unknown_keys"] == []
+
+
+def test_priority_is_a_known_meta_key():
+    # #803: the ordering rule reads `priority`, so it is no longer unknown.
+    tree = wbs_parser.parse_text("- [ ] a {priority: P1, x: 1}\n")
+    assert tree["children"][0]["meta_unknown_keys"] == ["x"]
 
 
 def test_mr_splice_add_with_status_src(variants):

@@ -89,7 +89,7 @@ STATE_GLYPHS: dict[str, str] = {
 KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
         "issue", "est", "cost", "owner", "milestone", "start", "due",
-        "depends_on", "status_src", "mr",
+        "depends_on", "status_src", "mr", "priority",
     }
 )
 
@@ -421,16 +421,22 @@ def leaves(tree: dict) -> list[dict]:
     return out
 
 
+def _dep_ids(meta: dict) -> list[str]:
+    """A node's `depends_on` entries as a list (a scalar is one entry)."""
+    dep = meta.get("depends_on")
+    if not dep:
+        return []
+    return dep if isinstance(dep, list) else [dep]
+
+
 def dependency_edges(tree: dict) -> list[tuple[str, str]]:
     edges: list[tuple[str, str]] = []
 
     def walk(node: dict) -> None:
         if "meta" in node:
             issue = node["meta"].get("issue")
-            dep = node["meta"].get("depends_on")
-            if issue and dep:
-                deps = dep if isinstance(dep, list) else [dep]
-                for d in deps:
+            if issue:
+                for d in _dep_ids(node["meta"]):
                     edges.append((issue, d))
         for k in node.get("children", []):
             walk(k)
@@ -624,30 +630,6 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
         ):
             raise moved(i)
 
-    def block_end(i: int) -> int:
-        """Last line of node line i's block (see spec §13.1 / #701)."""
-        m = kinds[i][1]
-        depth, indent = _depth(m), _indent_width(bodies[i])
-        last, in_fence = i, False
-        for j in range(i + 1, n):
-            kind = kinds[j][0]
-            if kind == "code":
-                last = j
-            elif kind == "fence":
-                if not in_fence and _indent_width(bodies[j]) <= indent:
-                    break
-                in_fence = not in_fence
-                last = j
-            elif kind == "node":
-                if _depth(kinds[j][1]) <= depth:
-                    break
-                last = j
-            elif bodies[j].strip():
-                if _indent_width(bodies[j]) <= indent:
-                    break
-                last = j
-        return last
-
     def subtree_end(node: dict, i: int) -> int:
         """Last line of node line i's block or of any owned descendant's.
 
@@ -655,7 +637,7 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
         node's source block from its later children; anchoring at the block
         end alone would re-parent those children under an inserted node.
         """
-        end = block_end(i)
+        end = _block_end(kinds, bodies, i)
         for k in node.get("children", []):
             j = owner.get(id(k))
             if j is not None:
@@ -678,7 +660,7 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
                     anchor = first_node - 1 if first_node is not None else n - 1
                 else:
                     kids = [owner[id(k)] for k in parent["children"] if id(k) in owner]
-                    anchor = min(kids) - 1 if kids else block_end(parent_line)
+                    anchor = min(kids) - 1 if kids else _block_end(kinds, bodies, parent_line)
             inserts.setdefault(anchor, []).append(child)
 
     place(tree, None)
@@ -713,15 +695,56 @@ def render_document(tree: dict, *, allow_removals: bool = False) -> str:
         for node in inserts.get(i, []):
             emit_new(node)
 
-    # Only the source's last line can lack a terminator. Anything emitted
-    # after it needs one; the output's last line keeps the source's
-    # final-newline state.
-    for pair in out[:-1]:
-        if not pair[1]:
-            pair[1] = eol
-    if out and n and not terms[-1]:
-        out[-1][1] = ""
-    return "".join(body + term for body, term in out)
+    return _join(out, eol, bool(n) and not terms[-1])
+
+
+def _block_end(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str], i: int
+) -> int:
+    """Last line of node line i's block (see spec §13.1 / #701).
+
+    The one block rule: `render_document` places inserts by it and
+    `order_text` moves whole blocks by it.
+    """
+    m = kinds[i][1]
+    depth, indent = _depth(m), _indent_width(bodies[i])
+    last, in_fence = i, False
+    for j in range(i + 1, len(kinds)):
+        kind = kinds[j][0]
+        if kind == "code":
+            last = j
+        elif kind == "fence":
+            if not in_fence and _indent_width(bodies[j]) <= indent:
+                break
+            in_fence = not in_fence
+            last = j
+        elif kind == "node":
+            if _depth(kinds[j][1]) <= depth:
+                break
+            last = j
+        elif bodies[j].strip():
+            if _indent_width(bodies[j]) <= indent:
+                break
+            last = j
+    return last
+
+
+def _join(out: list, eol: str, open_end: bool) -> str:
+    """Join `[body, terminator]` pairs by #701's rule.
+
+    Only the source's last line can lack a terminator. Anything emitted
+    after it needs one (`eol`); the output's last line keeps the source's
+    final-newline state (`open_end`: the source's last line had none).
+    """
+    last = len(out) - 1
+    parts: list[str] = []
+    for k, (body, term) in enumerate(out):
+        if k < last and not term:
+            term = eol
+        elif k == last and open_end:
+            term = ""
+        parts.append(body + term)
+    return "".join(parts)
 
 
 def _line_ends(lines: list[str], bodies: list[str]) -> tuple[list[str], str]:
