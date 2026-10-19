@@ -65,7 +65,7 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
-scope directive's `SCOPE_KEY`.
+scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
 """
 
 from __future__ import annotations
@@ -208,12 +208,12 @@ EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 # An exclusion warning is `line N: <text>`; wbs-import.py adds its own
 # source-check warnings in the same shape and orders by `warning_line`.
 NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
-# Both keys are read here: `wbs-exclude` (#780) and `wbs-scope` (#797).
 EXCLUDE = "exclude"
 SCOPE = "scope"
 DIRECTIVE_KEYS: tuple[str, ...] = (EXCLUDE, SCOPE)
 EXCLUDE_KEY = f"wbs-{EXCLUDE}:"
-SCOPE_KEY = f"wbs-{SCOPE}:"
+SCOPE_TAG = f"wbs-{SCOPE}"
+SCOPE_KEY = f"{SCOPE_TAG}:"
 
 
 def _directives(
@@ -291,7 +291,7 @@ def _scopes(
             continue
         if value is not None:
             out.append((ln, value.strip()))
-        elif bodies[ln - 1].strip(" \t")[4:].lstrip().casefold().startswith(SCOPE_KEY[:-1]):
+        elif bodies[ln - 1].strip(" \t")[4:].lstrip().casefold().startswith(SCOPE_TAG):
             out.append((ln, None))
     return out
 

@@ -770,6 +770,13 @@ def _excluded_leaves(model: Model, excluded_ids: list[str]) -> set[str]:
     return {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
 
 
+def _present_excluded(present: dict, excluded: set[str], selected: set[str]) -> dict:
+    """The summary's P (selected issues present) and K (absent and excluded)."""
+    return {"present": sum(1 for leaf in present if leaf in selected),
+            "excluded": sum(1 for leaf in excluded
+                            if leaf in selected and leaf not in present)}
+
+
 MERGE_CAP = 50
 
 
@@ -787,7 +794,7 @@ def read_scope(tree: dict) -> tuple[int | None, str | None]:
         return (None, None)
     if len(scopes) > 1:
         lines = ", ".join(str(ln) for ln, _v in scopes)
-        raise ScopeError(f"{_wbs_parser().SCOPE_KEY[:-1]} is on lines {lines}; keep one "
+        raise ScopeError(f"{_wbs_parser().SCOPE_TAG} is on lines {lines}; keep one "
                          "line, or pass a range flag; nothing written")
     ln, value = scopes[0]
     if value is None:
@@ -846,18 +853,13 @@ def default_set(model: Model, tree: dict, scope_set: set[str],
         seen.add(leaf)
         name = n.source["source"]
         k = mark_num(n)
-        if name not in marks:
-            if name not in held:
-                unmarked.add(name)
-            older += 1
-        elif k is not None and k > marks[name][0]:
+        if name in marks and k is not None and k > marks[name][0]:
             add.add(leaf)
         else:
             older += 1
-    return {"add": add,
-            "present": sum(1 for leaf in present if leaf in scope_set),
-            "excluded": sum(1 for leaf in excluded
-                            if leaf in scope_set and leaf not in present),
+            if name not in held:
+                unmarked.add(name)
+    return {"add": add, **_present_excluded(present, excluded, scope_set),
             "new_since_newest": len(add), "older_absent": older,
             "newest_present": {s: marks[s][1] if s in marks else None
                                for s in ("origin", "fork")},
@@ -951,10 +953,7 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     tree["children"].extend(added_tops)
     new_tops = sum(_count_issues(t) for t in added_tops)
     return {"added": [n.leaf for n in add], "under_existing": len(add) - new_tops,
-            "new_tops": new_tops,
-            "present": sum(1 for leaf in present if leaf in selected),
-            "excluded": sum(1 for leaf in excluded
-                            if leaf in selected and leaf not in present),
+            "new_tops": new_tops, **_present_excluded(present, excluded, selected),
             "warnings": warnings}
 
 
@@ -1041,9 +1040,8 @@ def run(env) -> int:
     pct = int(env.get("WBS_IMP_PCT", "20"))
     model = build(sources)
     sv = survey(model, pct, project=project)
-    sv_text = json.dumps(sv, indent=2, ensure_ascii=False) + "\n"
     if env.get("WBS_IMP_MODE") == "survey":
-        _stdout(sv_text)
+        _stdout(_survey_text(sv))
         return 0
     rng = env.get("WBS_IMP_RANGE", "")
     merging = env.get("WBS_IMP_MODE") == "merge"
@@ -1053,8 +1051,7 @@ def run(env) -> int:
     auto = False
     if not rng:
         if not sv["auto_import"]:
-            _stdout(sv_text + CHOOSE_RANGE_MARKER + "\n")
-            return CHOOSE_RANGE_RC
+            return _choose_range(sv)
         rng, auto = "all", True
     try:
         selected = select(model, rng)
@@ -1089,6 +1086,16 @@ def run(env) -> int:
     return 0
 
 
+def _survey_text(sv: dict) -> str:
+    return json.dumps(sv, indent=2, ensure_ascii=False) + "\n"
+
+
+def _choose_range(sv: dict) -> int:
+    """Exit 10's stdout: the survey JSON, then CHOOSE_RANGE_MARKER."""
+    _stdout(_survey_text(sv) + CHOOSE_RANGE_MARKER + "\n")
+    return CHOOSE_RANGE_RC
+
+
 def _parse_dest(dest: Path) -> dict | None:
     try:
         return _wbs_parser().parse_file(dest)
@@ -1121,7 +1128,7 @@ def _run_unflagged_merge(model: Model, sv: dict, dest: Path, devdoc_dir) -> int:
         _say(f"wbs init --merge: {dest}: {e}")
         return 2
     except RangeError as e:
-        _say(f"wbs init --merge: {dest}: line {ln}: {_wbs_parser().SCOPE_KEY[:-1]} "
+        _say(f"wbs init --merge: {dest}: line {ln}: {_wbs_parser().SCOPE_TAG} "
              f"'{value}' names nothing ({e}); fix it, or pass a range flag; nothing written")
         return 2
     for w in leaf_collisions(model, "wbs init --merge"):
@@ -1134,19 +1141,17 @@ def _run_unflagged_merge(model: Model, sv: dict, dest: Path, devdoc_dir) -> int:
         counts = {"scope": value, "present": ds["present"], "excluded": ds["excluded"],
                   "new_since_newest": ds["new_since_newest"],
                   "older_absent": ds["older_absent"], "newest_present": ds["newest_present"]}
-        _stdout(json.dumps({**sv, "merge": counts}, indent=2, ensure_ascii=False) + "\n"
-                + CHOOSE_RANGE_MARKER + "\n")
         _say(f"wbs init --merge: {ds['new_since_newest']} issues are newer than the newest in "
              f"{dest} (cap {MERGE_CAP}); pass --all, --since <date|issue-id>, --open-only "
              "or --epic <issue-id>")
-        return CHOOSE_RANGE_RC
+        return _choose_range({**sv, "merge": counts})
     return _run_merge(model, selected, dest, devdoc_dir, tree=tree, excl=excl,
                       only=ds["add"], older=ds["older_absent"])
 
 
 def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir, *,
                tree: dict | None = None, excl: list[str] | None = None,
-               only: set[str] | None = None, older: int | None = None) -> int:
+               only: set[str] | None = None, older: int = 0) -> int:
     """`wbs init --merge`: insert the missing issues into dest, writing only
     when something was added and no existing line would change. A given
     `tree` is dest already parsed, and given `excl` its exclusion ids
@@ -1162,7 +1167,7 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir, *,
     stats = merge(model, selected, tree, devdoc_dir, excl, only=only)
     for w in stats["warnings"]:
         _say(f"wbs init --merge: {dest}: {w}")
-    # ordered parts: a later count slots in before the older-issues part
+    # ordered parts: #787's missing-from-tracker count slots in before the older-issues part
     parts = [f"{stats['present']} already present, {stats['excluded']} excluded"]
     if older:
         parts.append(f"{older} older issues not added (pass --since <id> or --all)")
