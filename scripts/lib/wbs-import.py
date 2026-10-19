@@ -1167,7 +1167,7 @@ def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir, *,
     stats = merge(model, selected, tree, devdoc_dir, excl, only=only)
     for w in stats["warnings"]:
         _say(f"wbs init --merge: {dest}: {w}")
-    # ordered parts: #787's missing-from-tracker count slots in before the older-issues part
+    # ordered parts: #787 extends parts[0] with ", M missing from the tracker"
     parts = [f"{stats['present']} already present, {stats['excluded']} excluded"]
     if older:
         parts.append(f"{older} older issues not added (pass --since <id> or --all)")
