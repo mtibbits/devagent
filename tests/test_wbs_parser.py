@@ -551,7 +551,7 @@ def test_parse_cli_json_is_additive_and_render_cli_roundtrips(variants, tmp_path
     )
     tree = json.loads(res.stdout.decode("utf-8"))
     assert set(tree) == {"title", "children", "source_text", "exclusions",
-                         "exclusion_warnings"}
+                         "exclusion_warnings", "scopes"}
     for node in _walk(tree):
         assert set(node) == NODE_KEYS, node["text"]
     j = tmp_path / "tree.json"
@@ -898,10 +898,11 @@ def test_parse_text_without_directives_has_empty_exclusion_keys():
 
 
 def test_directive_reader_reads_only_known_keys():
-    assert wbs_parser.DIRECTIVE_KEYS == ("exclude",)
+    assert wbs_parser.DIRECTIVE_KEYS == ("exclude", "scope")
     tree = wbs_parser.parse_text("<!-- wbs-scope: 1-9 -->\n<!-- wbs-foo: x -->\n")
     assert tree["exclusions"] == []
     assert tree["exclusion_warnings"] == []
+    assert tree["scopes"] == [(1, "1-9")]
     kinds, bodies, _ = wbs_parser._classify_lines(["<!-- wbs-exclude: A -->"])
     # The value is RAW: the leading space is the contract #797's key extends;
     # callers strip.
@@ -910,6 +911,40 @@ def test_directive_reader_reads_only_known_keys():
 
 def test_exclusion_grammar_constants_live_in_the_parser():
     assert wbs_parser.EXCLUDE_KEY == "wbs-exclude:"
+
+
+# #797 — the wbs-scope line, read by the same directive reader
+SCOPE_TEXT = (
+    "<!-- wbs-scope: all -->\n"                                    # 1
+    "  <!-- wbs-scope:  epic:Issue-2  -->\n"                       # 2
+    "```\n"                                                        # 3
+    "<!-- wbs-scope: open-only -->\n"                              # 4: fenced
+    "```\n"                                                        # 5
+    "<!-- WBS-Scope: all -->\n"                                    # 6: unparsed
+    "<!-- wbs-scope: since:2026-03-01\n"                           # 7: unparsed
+    "-->\n"                                                        # 8
+    "the wbs-scope: x convention\n"                                # 9: prose
+    "<!-- wbs-scope: -->\n"                                        # 10: empty value
+    "<!-- the wbs-scope line below was written by wbs init -->\n"  # 11: a mention
+    "<!-- wbs-scope all -->\n"                                     # 12: unparsed
+)
+
+
+def test_parse_text_reads_scope_lines_grammar_only():
+    tree = wbs_parser.parse_text(SCOPE_TEXT)
+    assert tree["scopes"] == [(1, "all"), (2, "epic:Issue-2"), (6, None), (7, None),
+                              (10, ""), (12, None)]
+    assert tree["exclusions"] == []
+    assert tree["exclusion_warnings"] == []
+
+
+def test_scope_key_constant_lives_in_the_parser():
+    assert wbs_parser.SCOPE_KEY == "wbs-scope:"
+
+
+def test_parse_text_without_directives_has_empty_scopes():
+    for tree in (wbs_parser.parse_text(""), wbs_parser.parse_file(FIX / "simple.md")):
+        assert tree["scopes"] == []
 
 
 def test_parse_cli_json_carries_exclusions(tmp_path):

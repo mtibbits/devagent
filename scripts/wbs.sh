@@ -17,12 +17,16 @@ usage: /devagent:wbs <init|update|show> [project] [args]
                                         build <devdoc>/WBS.md from the tracker's issue history; with
                                         no range flag and a closed share at or above
                                         auto_import_below_pct, print the survey JSON and
-                                        WBS-INIT: choose-range and exit 10, writing nothing
+                                        WBS-INIT: choose-range and exit 10, writing nothing;
+                                        records its range in a <!-- wbs-scope: ... --> line
   init --merge [--all | --since <date|issue-id> | --open-only | --epic <issue-id>]
                                         add the tracker's issues missing from an existing
                                         <devdoc>/WBS.md under their parent, milestone or
                                         Unparented; existing lines are untouched; ids in a
-                                        <!-- wbs-exclude: ... --> line are skipped
+                                        <!-- wbs-exclude: ... --> line are skipped; with no
+                                        range flag, only issues inside that scope and newer
+                                        than the newest present per source; above the cap
+                                        (cap 50), the survey, WBS-INIT: choose-range, exit 10
   init [--from-tracker] --survey        print the survey JSON only
   update [--offline]                    set issue-leaf glyphs from the tracker, linked MRs, else checklists; add the active issue
                                         unless a wbs-exclude line lists it

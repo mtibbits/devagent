@@ -1889,16 +1889,26 @@ makes `parse` JSON larger: +25% to +37% on eleven real `WBS.md` files of
 
 A directive is a one-line HTML comment `<!-- wbs-<key>: <value> -->`
 outside a fence (#780). `wbs-<key>:` is case-sensitive, and a line
-starting `<!--` that names a known key but does not parse is malformed.
-`wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
+starting `<!--` that names a known key but does not parse is malformed
+(for `wbs-scope`, only when the comment's text starts with the key; see
+below). `wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
 (`[[line, id], ...]`) and `exclusion_warnings`. Like any comment a
 directive line is kept byte-for-byte; the commands read it and never
-write one. The one key today is `wbs-exclude`: the line
+write one, except `--from-tracker`, which writes the scope line once.
+There are two keys. `wbs-exclude`: the line
 `<!-- wbs-exclude: Issue-12, Issue-40 -->` lists issues not to add
 (#707). Its ids are split on commas and whitespace, and several lines
 form a union. `wbs init --merge` skips them and is the one reporter of
 malformed lines and unknown ids; `wbs update` does not auto-add an
-active issue they name (#780).
+active issue they name (#780). `wbs-scope` (#797): the line
+`<!-- wbs-scope: <range> -->`, `<range>` one of `all`, `open-only`,
+`since:<YYYY-MM-DD>`, `since:<id>` or `epic:<leaf>`, is written once by
+`wbs init --from-tracker` on the line after its note, and read only by
+an unflagged `wbs init --merge` (§13.2). More than one such line, a
+malformed one (a comment whose text starts `wbs-scope` but does not
+parse; a comment that merely mentions the key is not one), or a value
+that names nothing makes that merge exit `2` naming the lines. `parse`
+exposes `scopes` (`[[line, value-or-null], ...]`).
 
 ### 13.2 Commands
 
@@ -1925,7 +1935,9 @@ active issue they name (#780).
   is imported; at or above it, with no range flag, init prints the survey
   JSON, then the line `WBS-INIT: choose-range`, writes nothing and
   exits `10`, and `/devagent:wbs` asks the operator how far back to go and
-  re-runs once with the chosen flag. `--all` imports everything;
+  re-runs once with the chosen flag. The new file's note line is followed
+  by `<!-- wbs-scope: <range> -->` (§13.1), the range it was built from
+  (`all` for an auto-import; an `--epic` id as its leaf). `--all` imports everything;
   `--open-only` open issues; `--since` open issues plus those closed on or
   after the date, or numbered from the id (a bare `N` in every source,
   `<dir_prefix>N` in that one); `--epic` that epic's subtree and the path
@@ -1942,8 +1954,28 @@ active issue they name (#780).
 - `/devagent:wbs init [--from-tracker] --merge [--all | --since … |
   --open-only | --epic <issue-id>]` (#707) — add to an existing `WBS.md`
   the selected tracker issues it lacks, with the same `issue-list` calls,
-  parent rules, range flags and threshold (exit `10`; the re-run keeps
-  `--merge`). An issue is present when any node's `issue` meta names it
+  parent rules and range flags. A range flag overrides the file's
+  `wbs-scope` line for that run. With no range flag (#797) the merge reads
+  that line (none: `all`), selects its range, and adds only the default
+  set: the in-scope absent issues that no exclusion names and that are
+  numbered above the newest present issue of their own source (the mark;
+  a JIRA key counts only within its source's project). A source with no
+  present issue has no mark: its absent issues are not added and, when one
+  is in scope and not excluded, it gets the notice `no <source> issue is
+  in <dest>; pass a range flag to add its issues`. A source whose present
+  issues carry no comparable number also has no mark: its absent issues
+  count as older and nothing is added. Closure is not re-applied (a new child does not bring an older
+  absent epic), and the closed-share threshold does not apply. With more
+  than 50 issues in the default set (cap 50) it prints the survey JSON
+  with a `merge` object (`scope`, `present`, `excluded`,
+  `new_since_newest`, `older_absent`, and `newest_present` with `origin`
+  and `fork` keys), then `WBS-INIT: choose-range`, writes nothing and
+  exits `10`; `merge.new_since_newest` is the in-scope count that tripped
+  the cap, while `options.*` are tracker totals. The re-run keeps
+  `--merge`. The summary line ends `P already present, K excluded`, then
+  `; O older issues not added (pass --since <id> or --all)` when O > 0.
+  Known limit: the mark is a high-water mark, so a newer issue added
+  first (by `update` or by hand) puts older absent ones below it. An issue is present when any node's `issue` meta names it
   by `wbs update`'s rule (below; the fall-through to a shorter
   `dir_prefix` included) or spells its leaf exactly; the first such node
   is its anchor. Two issues can share a leaf (an origin `F1` under
@@ -1969,7 +2001,9 @@ active issue they name (#780).
   to add; `1` a missing `WBS.md` (before any tracker call), an unreadable
   or non-UTF-8 one, malformed backend output, a write that would
   change an existing line, or a write that fails; `2` a usage error (`--merge` with `--force` or
-  `--survey`) or a range only the data can check.
+  `--survey`), a range only the data can check, or a duplicate, malformed
+  or nothing-naming `wbs-scope` line (no range flag); `10` no range flag
+  and more than 50 issues in the default set.
 - `/devagent:wbs update [--offline]` — invoked by step 20 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active

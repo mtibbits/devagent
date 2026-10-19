@@ -39,7 +39,11 @@ The rest is pure work over those records, for scripts/wbs-init.sh:
   to an existing WBS.md parsed by wbs-parser.py; only whole lines are
   inserted (wbs-parser.py's `inserted_only` checks it before the write),
   and the ids of `<!-- wbs-exclude: ... -->` lines (`exclusions`) are
-  skipped.
+  skipped. With no range flag (#797) the selection is the file's
+  `<!-- wbs-scope: <range> -->` line (`read_scope`; none: all), which
+  `render` writes after the seed's note (`scope_value`), and only
+  `default_set` is added: the in-scope absent issues numbered (`mark_num`)
+  above the newest present issue of their own source.
 
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
@@ -57,10 +61,12 @@ CLI:
     malformed backend output, DEST already exists (import), DEST unreadable
     or not UTF-8 (merge), an existing line would change (merge, a bug), or
     the write fails (merge);
-    2 a range value that names nothing; 10 (CHOOSE_RANGE_RC) when no range
-    was given and the closed share is not below the threshold: the survey
-    JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing
-    written.
+    2 a range value that names nothing, or (merge, no range) a duplicate,
+    malformed or nothing-naming wbs-scope line; 10 (CHOOSE_RANGE_RC) when
+    no range was given and, on import, the closed share is not below the
+    threshold, or, on merge, the default set holds more than MERGE_CAP
+    issues: the survey JSON (merge: with a `merge` object), then the line
+    CHOOSE_RANGE_MARKER, on stdout, and nothing written.
   wbs-import.py template   plain `wbs init` / `--force` (#764): WBS_IMP_TEMPLATE
                         with `{{PROJECT}}` replaced by WBS_IMP_PROJECT, written
                         to WBS_IMP_DEST; only WBS_IMP_FORCE=1 overwrites.
@@ -510,6 +516,18 @@ def _select_epic(model: Model, node: Node) -> set[str]:
     return {n.leaf for n in _subtree(node)} | {n.leaf for n in _ancestors(node)}
 
 
+def _epic_node(model: Model, value: str) -> Node:
+    """The one epic an `epic:` value names; RangeError when it names none
+    (the epics listed) or is ambiguous."""
+    hits = _hits(model, *_id_token(model, value))
+    if len(hits) > 1:
+        raise RangeError(f"--epic {value} is ambiguous; name one of "
+                         + ", ".join(h.leaf for h in hits))
+    if not hits or not hits[0].group:
+        raise RangeError(f"--epic {value} names no epic; {_epics_hint(model)}")
+    return hits[0]
+
+
 def select(model: Model, rng: str) -> set[str]:
     """The leaf ids a range imports (see the module docstring).
 
@@ -534,14 +552,18 @@ def select(model: Model, rng: str) -> set[str]:
         floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
-        hits = _hits(model, *_id_token(model, value))
-        if len(hits) > 1:
-            raise RangeError(f"--epic {value} is ambiguous; name one of "
-                             + ", ".join(h.leaf for h in hits))
-        if not hits or not hits[0].group:
-            raise RangeError(f"--epic {value} names no epic; {_epics_hint(model)}")
-        return _select_epic(model, hits[0])
+        return _select_epic(model, _epic_node(model, value))
     raise RangeError(f"unknown range {rng}")
+
+
+def scope_value(model: Model, rng: str) -> str:
+    """The `wbs-scope` value a seed writes for a range `select` accepted
+    (#797): an epic as its leaf, so it reads back in its one source; every
+    other range as given (a bare `since:N` names every source)."""
+    kind, _, value = rng.partition(":")
+    if kind == "epic":
+        return f"epic:{_epic_node(model, value).leaf}"
+    return rng
 
 
 # --- rendering ----------------------------------------------------------------------
@@ -619,9 +641,11 @@ def _top_level(groups: list[dict], by_ms: dict[str, list[dict]], loose: list[dic
     return tops
 
 
-def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str) -> str:
-    """The new WBS.md: preamble, one `<!-- note -->` line, a blank line, then
-    the nodes: group nodes (epics, or roots with children) in node order,
+def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str,
+           scope: str | None = None) -> str:
+    """The new WBS.md: preamble, one `<!-- note -->` line, the
+    `<!-- wbs-scope: <scope> -->` line when a scope is given (#797), a
+    blank line, then the nodes: group nodes (epics, or roots with children) in node order,
     then one container per milestone (casefolded title order), then
     `Unparented`. Containers appear only when non-empty and carry no issue.
     Glyphs come from wbs-tracker.py `resolve` (tracker class, then the
@@ -643,6 +667,8 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
     doc = f"{preamble}<!-- {note} -->\n"
+    if scope is not None:
+        doc += f"<!-- {_wbs_parser().SCOPE_KEY} {scope} -->\n"
     if tops:
         doc += "\n" + _wbs_parser().render_nodes({"title": "", "children": tops})
     return doc
@@ -726,8 +752,122 @@ def _count_issues(node: dict) -> int:
     return own + sum(_count_issues(c) for c in node["children"])
 
 
+def present_map(model: Model, tree: dict) -> dict[str, dict]:
+    """{leaf: anchor node} for each tracker issue a parsed WBS holds: a
+    node's `issue` meta names it by named_leaves; the first such node
+    (document order) is its anchor."""
+    present: dict[str, dict] = {}
+    for pn in _walk(tree["children"]):
+        iid = pn["meta"].get("issue")
+        if not isinstance(iid, str):
+            continue
+        for leaf in named_leaves(model, iid):
+            present.setdefault(leaf, pn)
+    return present
+
+
+def _excluded_leaves(model: Model, excluded_ids: list[str]) -> set[str]:
+    return {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
+
+
+def _present_excluded(present: dict, excluded: set[str], selected: set[str]) -> dict:
+    """The summary's P (selected issues present) and K (absent and excluded)."""
+    return {"present": sum(1 for leaf in present if leaf in selected),
+            "excluded": sum(1 for leaf in excluded
+                            if leaf in selected and leaf not in present)}
+
+
+MERGE_CAP = 50
+
+
+class ScopeError(Exception):
+    """A `wbs-scope` line an unflagged merge cannot use (exit 2); the message
+    follows `wbs init --merge: <dest>: `."""
+
+
+def read_scope(tree: dict) -> tuple[int | None, str | None]:
+    """The parsed WBS's one scope line as (line, value), or (None, None) when
+    it has none. ScopeError for more than one line (a near-miss counts) or
+    for a line that does not parse."""
+    scopes = tree["scopes"]
+    if not scopes:
+        return (None, None)
+    if len(scopes) > 1:
+        lines = ", ".join(str(ln) for ln, _v in scopes)
+        raise ScopeError(f"{_wbs_parser().SCOPE_TAG} is on lines {lines}; keep one "
+                         "line, or pass a range flag; nothing written")
+    ln, value = scopes[0]
+    if value is None:
+        raise ScopeError(f"line {ln}: not a scope line (want '<!-- "
+                         f"{_wbs_parser().SCOPE_KEY} <range> -->' on one line); "
+                         "fix it, or pass a range flag; nothing written")
+    return (ln, value)
+
+
+def mark_num(node: Node) -> int | None:
+    """The number a merge mark compares (#797): a Jira key's number when its
+    project is the source's key prefix (keys compare only within a project,
+    wbs-tracker.py `jira_key_split`), else the id's trailing number; None
+    when there is none to compare."""
+    if node.source["backend"] == "jira":
+        split = trk.jira_key_split(node.rec["id"])
+        kp = node.source.get("keyprefix") or ""
+        return split[1] if split and kp and split[0] == kp else None
+    return node.num or None
+
+
+def default_set(model: Model, tree: dict, scope_set: set[str],
+                excluded_ids: list[str]) -> dict:
+    """What an unflagged `wbs init --merge` adds (#797): the issues in
+    scope_set that the WBS lacks, no exclusion names, and that are numbered
+    (mark_num) above the newest present issue of their own source.
+
+    Returns {add: {leaf}, present: P, excluded: K, new_since_newest: N,
+    older_absent: O, newest_present: {"origin": leaf|None, "fork": leaf|None},
+    unmarked: [source name]}. P and K count as merge() does over scope_set;
+    K + O + N is every absent issue in scope_set, and N is len(add). A source
+    with no numbered present issue has no mark: its absent issues count in
+    O, and when it has no present issue at all and one such absent issue,
+    it is listed in `unmarked` (the notice). Nothing is closed over parents:
+    a new child does not bring an older absent epic.
+    """
+    present = present_map(model, tree)
+    excluded = _excluded_leaves(model, excluded_ids)
+    marks: dict[str, tuple[int, str]] = {}
+    held: set[str] = set()  # sources with a present issue, numbered or not
+    for n in model.nodes:
+        k = mark_num(n)
+        name = n.source["source"]
+        if n.leaf in present:
+            held.add(name)
+            if k is not None and (name not in marks or k > marks[name][0]):
+                marks[name] = (k, n.leaf)
+    add: set[str] = set()
+    older = 0
+    unmarked: set[str] = set()
+    seen: set[str] = set()
+    for n in model.nodes:
+        leaf = n.leaf
+        if leaf not in scope_set or leaf in present or leaf in excluded or leaf in seen:
+            continue
+        seen.add(leaf)
+        name = n.source["source"]
+        k = mark_num(n)
+        if name in marks and k is not None and k > marks[name][0]:
+            add.add(leaf)
+        else:
+            older += 1
+            if name not in held:
+                unmarked.add(name)
+    return {"add": add, **_present_excluded(present, excluded, scope_set),
+            "new_since_newest": len(add), "older_absent": older,
+            "newest_present": {s: marks[s][1] if s in marks else None
+                               for s in ("origin", "fork")},
+            "unmarked": [s["source"] for s in model.sources if s["source"] in unmarked]}
+
+
 def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
-          excluded_ids: list[str]) -> dict:
+          excluded_ids: list[str], only: set[str] | None = None) -> dict:
     """Add to a parsed WBS (`tree`, mutated) each selected tracker issue it
     lacks and no exclusion id names. No existing node is moved or changed.
 
@@ -749,20 +889,17 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     Returns {added: [leaf...] in node order, under_existing: U, new_tops: T,
     present: P, excluded: K, warnings: [...]}; a warning names a milestone
     with several candidate nodes. U and T count issues (a new container is not
-    one), P the selected issues present, K those absent and excluded.
+    one), P the selected issues present, K those absent and excluded. `only`
+    (the unflagged default set, #797) further limits what is added, never
+    P or K.
     """
     existing = list(_walk(tree["children"]))
-    present: dict[str, dict] = {}
-    for pn in existing:
-        iid = pn["meta"].get("issue")
-        if not isinstance(iid, str):
-            continue
-        for leaf in named_leaves(model, iid):
-            present.setdefault(leaf, pn)
-    excluded = {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
+    present = present_map(model, tree)
+    excluded = _excluded_leaves(model, excluded_ids)
 
     add = [n for n in model.nodes
-           if n.leaf in selected and n.leaf not in present and n.leaf not in excluded]
+           if n.leaf in selected and n.leaf not in present and n.leaf not in excluded
+           and (only is None or n.leaf in only)]
     add_leaves = {n.leaf for n in add}
     deps_in = {leaf: pn["meta"]["issue"] for leaf, pn in present.items()}
     deps_in.update((leaf, leaf) for leaf in add_leaves)
@@ -816,10 +953,7 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     tree["children"].extend(added_tops)
     new_tops = sum(_count_issues(t) for t in added_tops)
     return {"added": [n.leaf for n in add], "under_existing": len(add) - new_tops,
-            "new_tops": new_tops,
-            "present": sum(1 for leaf in present if leaf in selected),
-            "excluded": sum(1 for leaf in excluded
-                            if leaf in selected and leaf not in present),
+            "new_tops": new_tops, **_present_excluded(present, excluded, selected),
             "warnings": warnings}
 
 
@@ -906,23 +1040,24 @@ def run(env) -> int:
     pct = int(env.get("WBS_IMP_PCT", "20"))
     model = build(sources)
     sv = survey(model, pct, project=project)
-    sv_text = json.dumps(sv, indent=2, ensure_ascii=False) + "\n"
     if env.get("WBS_IMP_MODE") == "survey":
-        _stdout(sv_text)
+        _stdout(_survey_text(sv))
         return 0
     rng = env.get("WBS_IMP_RANGE", "")
+    merging = env.get("WBS_IMP_MODE") == "merge"
+    if merging and not rng:
+        return _run_unflagged_merge(model, sv, Path(env["WBS_IMP_DEST"]),
+                                    env.get("DEVDOC_DIR", ""))
     auto = False
     if not rng:
         if not sv["auto_import"]:
-            _stdout(sv_text + CHOOSE_RANGE_MARKER + "\n")
-            return CHOOSE_RANGE_RC
+            return _choose_range(sv)
         rng, auto = "all", True
     try:
         selected = select(model, rng)
     except RangeError as e:
         _say(f"wbs init: {e}")
         return 2
-    merging = env.get("WBS_IMP_MODE") == "merge"
     for w in leaf_collisions(model, "wbs init --merge" if merging else "wbs init"):
         _say(w)
     if merging:
@@ -932,7 +1067,8 @@ def run(env) -> int:
     froms = ", ".join(f"{s['backend']} {s['repo']}" for s in sources)
     note = (f"wbs init --from-tracker {datetime.date.today().isoformat()} {rng}: "
             f"{len(selected)} issues from {froms}")
-    doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note)
+    doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note,
+                 scope=scope_value(model, rng))
     dest = Path(env["WBS_IMP_DEST"])
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -950,22 +1086,92 @@ def run(env) -> int:
     return 0
 
 
-def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir) -> int:
-    """`wbs init --merge`: insert the missing issues into dest, writing only
-    when something was added and no existing line would change."""
-    parser = _wbs_parser()
+def _survey_text(sv: dict) -> str:
+    return json.dumps(sv, indent=2, ensure_ascii=False) + "\n"
+
+
+def _choose_range(sv: dict) -> int:
+    """Exit 10's stdout: the survey JSON, then CHOOSE_RANGE_MARKER."""
+    _stdout(_survey_text(sv) + CHOOSE_RANGE_MARKER + "\n")
+    return CHOOSE_RANGE_RC
+
+
+def _parse_dest(dest: Path) -> dict | None:
     try:
-        tree = parser.parse_file(dest)
+        return _wbs_parser().parse_file(dest)
     except (OSError, UnicodeDecodeError) as e:
         _say(f"wbs init --merge: cannot read {dest}: {e}")
-        return 1
+        return None
+
+
+def _say_exclusions(model: Model, tree: dict, dest: Path) -> list[str]:
+    """The exclusion ids, each warning printed once."""
     ids, warns = exclusions(tree, model)
     for w in warns:
         _say(f"wbs init --merge: {dest}: {w}")
-    stats = merge(model, selected, tree, devdoc_dir, [i for _ln, i in ids])
+    return [i for _ln, i in ids]
+
+
+def _run_unflagged_merge(model: Model, sv: dict, dest: Path, devdoc_dir) -> int:
+    """`wbs init --merge` with no range flag (#797). In order: parse WBS.md;
+    read its `wbs-scope` line (none: all) and select it; warn; add only the
+    default set (`default_set`), a notice per source with no present issue;
+    above MERGE_CAP, the survey with its `merge` counts, the marker, exit 10,
+    nothing written."""
+    tree = _parse_dest(dest)
+    if tree is None:
+        return 1
+    try:
+        ln, value = read_scope(tree)
+        selected = select(model, "all" if value is None else value)
+    except ScopeError as e:
+        _say(f"wbs init --merge: {dest}: {e}")
+        return 2
+    except RangeError as e:
+        _say(f"wbs init --merge: {dest}: line {ln}: {_wbs_parser().SCOPE_TAG} "
+             f"'{value}' names nothing ({e}); fix it, or pass a range flag; nothing written")
+        return 2
+    for w in leaf_collisions(model, "wbs init --merge"):
+        _say(w)
+    excl = _say_exclusions(model, tree, dest)
+    ds = default_set(model, tree, selected, excl)
+    for name in ds["unmarked"]:
+        _say(f"wbs init --merge: no {name} issue is in {dest}; pass a range flag to add its issues")
+    if ds["new_since_newest"] > MERGE_CAP:
+        counts = {"scope": value, "present": ds["present"], "excluded": ds["excluded"],
+                  "new_since_newest": ds["new_since_newest"],
+                  "older_absent": ds["older_absent"], "newest_present": ds["newest_present"]}
+        _say(f"wbs init --merge: {ds['new_since_newest']} issues are newer than the newest in "
+             f"{dest} (cap {MERGE_CAP}); pass --all, --since <date|issue-id>, --open-only "
+             "or --epic <issue-id>")
+        return _choose_range({**sv, "merge": counts})
+    return _run_merge(model, selected, dest, devdoc_dir, tree=tree, excl=excl,
+                      only=ds["add"], older=ds["older_absent"])
+
+
+def _run_merge(model: Model, selected: set[str], dest: Path, devdoc_dir, *,
+               tree: dict | None = None, excl: list[str] | None = None,
+               only: set[str] | None = None, older: int = 0) -> int:
+    """`wbs init --merge`: insert the missing issues into dest, writing only
+    when something was added and no existing line would change. A given
+    `tree` is dest already parsed, and given `excl` its exclusion ids
+    (warnings already printed); `only` limits the adds (merge), and `older`
+    > 0 adds the summary's older-issues tail."""
+    parser = _wbs_parser()
+    if tree is None:
+        tree = _parse_dest(dest)
+        if tree is None:
+            return 1
+    if excl is None:
+        excl = _say_exclusions(model, tree, dest)
+    stats = merge(model, selected, tree, devdoc_dir, excl, only=only)
     for w in stats["warnings"]:
         _say(f"wbs init --merge: {dest}: {w}")
-    tail = f"{stats['present']} already present, {stats['excluded']} excluded"
+    # ordered parts: #787 extends parts[0] with ", M missing from the tracker"
+    parts = [f"{stats['present']} already present, {stats['excluded']} excluded"]
+    if older:
+        parts.append(f"{older} older issues not added (pass --since <id> or --all)")
+    tail = "; ".join(parts)
     if not stats["added"]:
         _say(f"wbs init --merge: nothing to add to {dest}; {tail}")
         return 0

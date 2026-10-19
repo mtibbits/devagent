@@ -151,6 +151,11 @@ _ids() { printf 'Issue-%s\n' "$@" | sort; }
 
 _survey_json() { printf '%s\n' "$output" | sed '/^WBS-INIT: /d'; }
 
+# _py_const <scripts/lib file> <name>...: each module constant, one per line
+_py_const() {
+  (cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u, sys; s = u.spec_from_file_location("m", sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m); print(*(getattr(m, n) for n in sys.argv[2:]), sep="\n")' "$@") | tr -d '\r'
+}
+
 @test "survey counts: github shaped fixture" {
   _setup_project; _gh
   _init --from-tracker --survey
@@ -183,6 +188,7 @@ _survey_json() { printf '%s\n' "$output" | sed '/^WBS-INIT: /d'; }
   [ "$status" -eq 10 ]
   [ "${lines[${#lines[@]}-1]}" = "WBS-INIT: choose-range" ]
   _survey_json | jq -e '.auto_import == false and .total == 62' >/dev/null
+  _survey_json | jq -e 'has("merge") | not' >/dev/null
   [ ! -e "$TMPDEV/WBS.md" ]
   [ "$(grep -c '^issue list ' "$TMPROOT/gh.log")" -eq 1 ]
 }
@@ -207,7 +213,8 @@ _leaf() {
 _expected_all() {
   local n g
   sed -e 's/{{PROJECT}}/testproj/g' -e '/^- \[/,$d' "$REPO/templates/wbs_template.md"
-  printf '%s\n' '<!-- wbs init --from-tracker DATE all: 62 issues from github acme/testproj -->' ''
+  printf '%s\n' '<!-- wbs init --from-tracker DATE all: 62 issues from github acme/testproj -->' \
+    '<!-- wbs-scope: all -->' ''
   _leaf 1 1 x "Data pipeline"; for n in 4 5 6 7 8 9; do _leaf 2 "$n" x; done
   _leaf 1 2 x "Reporting"; for n in 10 11 12 13 14; do _leaf 2 "$n" x; done
   _leaf 1 3 x "Storage layer"; for n in 15 16 17 18; do _leaf 2 "$n" x; done
@@ -295,6 +302,31 @@ _expected_all() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Issue-1, Issue-2, Issue-3, Issue-83, Issue-84"* ]]
   [ ! -e "$TMPDEV/WBS.md" ]
+}
+
+@test "--from-tracker writes its range as a wbs-scope line (auto-import: all; --since 2026-03-01)" {
+  _setup_project; _gh no 'auto_import_below_pct = 80'
+  _init --from-tracker
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: all -->' "$TMPDEV/WBS.md")" -eq 1 ]
+  [ "$(grep -A1 '^<!-- wbs init --from-tracker ' "$TMPDEV/WBS.md" | tail -1)" = '<!-- wbs-scope: all -->' ]
+  rm "$TMPDEV/WBS.md"
+  _gh
+  _init --from-tracker --since 2026-03-01
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -c 'wbs-scope' "$TMPDEV/WBS.md")" -eq 1 ]
+  [ "$(grep -cFx '<!-- wbs-scope: since:2026-03-01 -->' "$TMPDEV/WBS.md")" -eq 1 ]
+}
+
+@test "--from-tracker --epic Issue-2 writes epic:Issue-2, and a bare --epic 2 writes the same leaf" {
+  _setup_project; _stub
+  _init --from-tracker --epic Issue-2
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: epic:Issue-2 -->' "$TMPDEV/WBS.md")" -eq 1 ]
+  rm "$TMPDEV/WBS.md"
+  _init --from-tracker --epic 2
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: epic:Issue-2 -->' "$TMPDEV/WBS.md")" -eq 1 ]
 }
 
 @test "fork: leaves carry the fork prefix and the share is combined" {
@@ -717,7 +749,7 @@ _shaped_import_cut() {
   [ ! -s "$TMPROOT/backend.log" ]
 }
 
-@test "--merge with no range at or above the threshold: survey, marker, exit 10, WBS.md unchanged" {
+@test "--merge with no range above the cap: survey with merge counts, marker, exit 10, WBS.md unchanged" {
   _setup_project; _gh
   mkdir -p "$TMPDEV"
   printf '# mine\n\n- [ ] Hand {issue: Issue-1}\n' > "$TMPDEV/WBS.md"
@@ -725,8 +757,153 @@ _shaped_import_cut() {
   _init --merge
   [ "$status" -eq 10 ]
   [ "${lines[${#lines[@]}-1]}" = "WBS-INIT: choose-range" ]
-  _survey_json | jq -e '.auto_import == false and .total == 62' >/dev/null
+  _survey_json | jq -e '.total == 62 and .merge.new_since_newest == 61 and .merge.older_absent == 0 and .merge.present == 1 and .merge.excluded == 0 and .merge.scope == null and .merge.newest_present.origin == "Issue-1" and .merge.newest_present.fork == null' >/dev/null
+  [ "$stderr" = "wbs init --merge: 61 issues are newer than the newest in $TMPDEV/WBS.md (cap 50); pass --all, --since <date|issue-id>, --open-only or --epic <issue-id>" ]
   cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+}
+
+# _append_issue <id> <state> [parent-number]: one contract record on the stub's list
+_append_issue() {
+  local cls=open closed=null parent=null
+  [ "$2" = closed ] && { cls='done'; closed='"2026-07-20"'; }
+  [ -z "${3:-}" ] || parent="\"https://github.com/acme/testproj/issues/$3\""
+  printf '%s\n' "{\"id\":\"$1\",\"title\":\"Task $1\",\"body\":\"\",\"state\":\"$2\",\"class\":\"$cls\",\"created\":\"2026-07-01\",\"closed\":$closed,\"milestone\":null,\"labels\":[],\"type\":null,\"parent\":$parent,\"blocked_by\":[],\"url\":\"https://github.com/acme/testproj/issues/$1\"}" \
+    >> "$TMPROOT/issue-list.github.acme_testproj"
+}
+
+@test "--merge with no range flag adds only the issue newer than the newest present (no wbs-scope line)" {
+  local rc
+  _setup_project; _stub
+  _init --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  sed -i -e '/wbs-scope/d' -e '/{issue: Issue-93[,}]/d' "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/base"
+  _issues > "$TMPROOT/before"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _issues > "$TMPROOT/after"
+  comm -13 "$TMPROOT/before" "$TMPROOT/after" > "$TMPROOT/got"
+  _ids 93 > "$TMPROOT/want"
+  diff "$TMPROOT/want" "$TMPROOT/got"
+  [[ "$output" != *"WBS-INIT: choose-range"* ]]
+  rc=0; _only_inserts "$TMPROOT/base" "$TMPDEV/WBS.md" || rc=$?
+  [ "$rc" -eq 1 ]
+  [ "$stderr" = "wbs init --merge: added 1 issues to $TMPDEV/WBS.md (1 under existing nodes, 0 in new top-level nodes); 61 already present, 0 excluded" ]
+}
+
+@test "an --epic Issue-2 seed: an unflagged --merge adds only the new child of Issue-2" {
+  _setup_project; _stub
+  _init --from-tracker --epic Issue-2
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _append_issue 94 open 2
+  _append_issue 95 open
+  _issues > "$TMPROOT/before"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _issues > "$TMPROOT/after"
+  comm -13 "$TMPROOT/before" "$TMPROOT/after" > "$TMPROOT/got"
+  _ids 94 > "$TMPROOT/want"
+  diff "$TMPROOT/want" "$TMPROOT/got"
+}
+
+@test "an --open-only seed: an unflagged --merge adds the new open issue and no closed one" {
+  _setup_project; _stub
+  _init --from-tracker --open-only
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: open-only -->' "$TMPDEV/WBS.md")" -eq 1 ]
+  _append_issue 94 open
+  _append_issue 95 closed
+  _issues > "$TMPROOT/before"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _issues > "$TMPROOT/after"
+  comm -13 "$TMPROOT/before" "$TMPROOT/after" > "$TMPROOT/got"
+  _ids 94 > "$TMPROOT/want"
+  diff "$TMPROOT/want" "$TMPROOT/got"
+  [ "$(grep -cE '^Issue-([1-9]|[1-3][0-9]|4[01]|82|95)$' "$TMPROOT/got")" -eq 0 ]
+}
+
+@test "an unflagged --merge with no present issue adds nothing and names the range flags; --merge --all adds everything" {
+  _setup_project; _gh no 'auto_import_below_pct = 80'
+  mkdir -p "$TMPDEV"
+  printf '# mine\n\n- [ ] Hand\n' > "$TMPDEV/WBS.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/base"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  cmp "$TMPROOT/base" "$TMPDEV/WBS.md"
+  [ "${stderr_lines[0]}" = "wbs init --merge: no origin issue is in $TMPDEV/WBS.md; pass a range flag to add its issues" ]
+  [ "${stderr_lines[${#stderr_lines[@]}-1]}" = "wbs init --merge: nothing to add to $TMPDEV/WBS.md; 0 already present, 0 excluded; 62 older issues not added (pass --since <id> or --all)" ]
+  # the printed remedy, executed
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -c '{issue: ' "$TMPDEV/WBS.md")" -eq 62 ]
+}
+
+@test "two wbs-scope lines, or one that names nothing, make an unflagged --merge exit 2 naming the lines; WBS.md unchanged" {
+  local scope='<!-- wbs-scope: all -->' nums first n
+  _merge_setup lf
+  python3 "$BYTES" insert-after "$TMPROOT/base" "$TMPROOT/base1" "<!-- kept as written" lf "$scope"
+  python3 "$BYTES" insert-after "$TMPROOT/base1" "$TMPROOT/base2" "Issue-4 is planned." lf "$scope"
+  [ "$(grep -cFx -- "$scope" "$TMPROOT/base2")" -eq 2 ]
+  nums="$(grep -nFx -- "$scope" "$TMPROOT/base2" | cut -d: -f1 | paste -sd, - | sed 's/,/, /g')"
+  cp "$TMPROOT/base2" "$TMPDEV/WBS.md"
+  _init --merge
+  [ "$status" -eq 2 ]
+  [ "$stderr" = "wbs init --merge: $TMPDEV/WBS.md: wbs-scope is on lines $nums; keep one line, or pass a range flag; nothing written" ]
+  cmp "$TMPROOT/base2" "$TMPDEV/WBS.md"
+  # the printed remedies, executed: a range flag ...
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [[ "$stderr" == *"added 10 issues"* ]]
+  # ... or keep one line
+  first="${nums%%,*}"
+  sed "${first}d" "$TMPROOT/base2" > "$TMPDEV/WBS.md"
+  _issues > "$TMPROOT/before"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  _issues > "$TMPROOT/after"
+  [ "$(comm -13 "$TMPROOT/before" "$TMPROOT/after" | wc -l)" -ge 1 ]
+  # one line that names nothing
+  sed 's/^<!-- wbs-scope: all -->$/<!-- wbs-scope: epic:Issue-999 -->/' "$TMPROOT/base1" > "$TMPROOT/base3"
+  n="$(grep -nFx -- '<!-- wbs-scope: epic:Issue-999 -->' "$TMPROOT/base3" | cut -d: -f1)"
+  [ -n "$n" ]
+  cp "$TMPROOT/base3" "$TMPDEV/WBS.md"
+  _init --merge
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == "wbs init --merge: $TMPDEV/WBS.md: line $n: wbs-scope 'epic:Issue-999' names nothing ("*"); fix it, or pass a range flag; nothing written" ]]
+  cmp "$TMPROOT/base3" "$TMPDEV/WBS.md"
+  _init --merge --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [[ "$stderr" == *"added 10 issues"* ]]
+  # ... or fix the line
+  sed 's/epic:Issue-999/epic:Issue-1/' "$TMPROOT/base3" > "$TMPDEV/WBS.md"
+  _init --merge
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+}
+
+@test "--merge with a range flag ignores the wbs-scope line (every range)" {
+  local flags err_a
+  _shaped_import_cut
+  [ "$(grep -c 'wbs-scope' "$TMPDEV/WBS.md")" -eq 1 ]
+  sed -e 's/^<!-- wbs-scope: all -->$/<!-- wbs-scope: epic:Issue-999 -->\n<!-- wbs-scope: open-only -->/' \
+    "$TMPDEV/WBS.md" > "$TMPROOT/scoped"
+  [ "$(grep -c 'wbs-scope' "$TMPROOT/scoped")" -eq 2 ]
+  sed '/wbs-scope/d' "$TMPDEV/WBS.md" > "$TMPROOT/bare"
+  for flags in "--all" "--since 2026-06-01" "--since 40" "--open-only" "--epic 1"; do
+    cp "$TMPROOT/scoped" "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    _init --merge $flags
+    [ "$status" -eq 0 ] || { echo "$flags (scoped): $stderr"; false; }
+    err_a=$stderr
+    grep -v 'wbs-scope' "$TMPDEV/WBS.md" > "$TMPROOT/a_after"
+    cp "$TMPROOT/bare" "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    _init --merge $flags
+    [ "$status" -eq 0 ] || { echo "$flags (bare): $stderr"; false; }
+    [ "$err_a" = "$stderr" ] || { printf '%s\n--\n%s\n' "$err_a" "$stderr"; false; }
+    [[ "$stderr" == *"added "* ]]
+    cmp "$TMPROOT/a_after" "$TMPDEV/WBS.md"
+  done
 }
 
 @test "--merge reuses an existing Unassigned bucket" {
@@ -745,7 +922,7 @@ _shaped_import_cut() {
 # --- docs (Task 10) --------------------------------------------------------------
 @test "docs name the script's marker and exit code" {
   local consts marker rc spec13 home
-  consts="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-import.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.CHOOSE_RANGE_MARKER); print(m.CHOOSE_RANGE_RC)' | tr -d '\r')"
+  consts="$(_py_const wbs-import.py CHOOSE_RANGE_MARKER CHOOSE_RANGE_RC)"
   marker="$(sed -n 1p <<< "$consts")"; rc="$(sed -n 2p <<< "$consts")"
   [ "$marker" = "WBS-INIT: choose-range" ] && [ "$rc" = 10 ]
   spec13="$TMPROOT/spec13"
@@ -769,7 +946,7 @@ _shaped_import_cut() {
 
 @test "docs name --merge and the exclusion line in every home" {
   local key spec spec13 home rc
-  key="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-parser.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.EXCLUDE_KEY)' | tr -d '\r')"
+  key="$(_py_const wbs-parser.py EXCLUDE_KEY)"
   [ "$key" = "wbs-exclude:" ]
   spec="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
   spec13="$TMPROOT/spec13"
@@ -785,5 +962,35 @@ _shaped_import_cut() {
   rc=0; grep -n 'is #707' "$TMPROOT/planted" >/dev/null || rc=$?
   [ "$rc" -eq 0 ]
   rc=0; grep -n 'is #707' "$REPO/commands/wbs.md" "$spec" "$REPO/scripts/wbs-init.sh" "$REPO/CHANGELOG.md" || rc=$?
+  [ "$rc" -eq 1 ]
+}
+
+@test "docs name wbs-scope, the merge counts and the cap in every home" {
+  local key cap spec spec13 spec132 home rc
+  key="$(_py_const wbs-parser.py SCOPE_KEY)"
+  [ "$key" = "wbs-scope:" ]
+  cap="$(_py_const wbs-import.py MERGE_CAP)"
+  [ "$cap" = 50 ]
+  spec="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+  spec13="$TMPROOT/spec13"
+  spec132="$TMPROOT/spec132"
+  sed -n '/^### 13\.1 /,/^### 13\.3 /p' "$spec" > "$spec13"
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$spec" > "$spec132"
+  for home in "$REPO/commands/wbs.md" "$spec13"; do
+    grep -qF -- "<!-- $key" "$home" || { echo "no scope line in $home"; false; }
+  done
+  for home in "$REPO/commands/wbs.md" "$spec132"; do
+    grep -qF 'merge.new_since_newest' "$home" || { echo "no merge.new_since_newest in $home"; false; }
+  done
+  for home in "$REPO/commands/wbs.md" "$spec132" "$REPO/scripts/wbs.sh"; do
+    grep -qF -- "(cap ${cap})" "$home" || { echo "no (cap ${cap}) in $home"; false; }
+  done
+  # the threshold no longer governs --merge (control: a planted line is found)
+  printf '# wbs init --from-tracker (and --merge) imports\n' > "$TMPROOT/planted"
+  rc=0; grep -qF '(and --merge)' "$TMPROOT/planted" || rc=$?
+  [ "$rc" -eq 0 ]
+  rc=0; grep -qF '(and --merge)' "$REPO/docs-site/configuration.md" || rc=$?
+  [ "$rc" -eq 1 ]
+  rc=0; grep -qF 'range flags and threshold' "$spec132" || rc=$?
   [ "$rc" -eq 1 ]
 }

@@ -41,7 +41,11 @@ The root also carries `exclusions` and `exclusion_warnings` (additive,
 #780): the ids of one-line `<!-- wbs-exclude: ... -->` directives outside
 a fence, as `(line, id)` pairs, and the grammar warnings for malformed
 lines and bad tokens, unprefixed. The parser never prints them; whether an
-id names a configured source is the caller's check.
+id names a configured source is the caller's check. It also carries
+`scopes` (additive, #797): the one-line `<!-- wbs-scope: <range> -->`
+directives outside a fence, as `(line, value)` pairs, the value stripped
+and None for a near-miss line that does not parse; whether the value names
+a range is the caller's check.
 
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
@@ -60,7 +64,8 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`; wbs-import.py also reads the
-exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`.
+exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
+scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
 """
 
 from __future__ import annotations
@@ -203,10 +208,12 @@ EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 # An exclusion warning is `line N: <text>`; wbs-import.py adds its own
 # source-check warnings in the same shape and orders by `warning_line`.
 NOT_AN_ID = "line {}: '{}' is not an issue id; ignored"
-# #797 adds "scope"; the second to land adds its key here
 EXCLUDE = "exclude"
-DIRECTIVE_KEYS: tuple[str, ...] = (EXCLUDE,)
+SCOPE = "scope"
+DIRECTIVE_KEYS: tuple[str, ...] = (EXCLUDE, SCOPE)
 EXCLUDE_KEY = f"wbs-{EXCLUDE}:"
+SCOPE_TAG = f"wbs-{SCOPE}"
+SCOPE_KEY = f"{SCOPE_TAG}:"
 
 
 def _directives(
@@ -268,6 +275,27 @@ def _exclusions(
     return ids, warns
 
 
+def _scopes(
+    kinds: list[tuple[str, re.Match | None]], bodies: list[str]
+) -> list[tuple[int, str | None]]:
+    """The `wbs-scope` lines as (line, value), in line order.
+
+    Grammar only: the value is stripped (an empty one stays ""), and None
+    marks a near-miss, a comment whose text starts `wbs-scope` (any case)
+    but does not parse. A comment that only mentions the key elsewhere is
+    no entry. Whether the value names a range is wbs-import.py's check.
+    """
+    out: list[tuple[int, str | None]] = []
+    for ln, key, value in _directives(kinds, bodies):
+        if key != SCOPE:
+            continue
+        if value is not None:
+            out.append((ln, value.strip()))
+        elif bodies[ln - 1].strip(" \t")[4:].lstrip().casefold().startswith(SCOPE_TAG):
+            out.append((ln, None))
+    return out
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
@@ -279,6 +307,7 @@ def parse_text(text: str) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
     kinds, bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
     root["exclusions"], root["exclusion_warnings"] = _exclusions(kinds, bodies)
+    root["scopes"] = _scopes(kinds, bodies)
     parents = _parse_parents(kinds)
     by_line: dict[int, dict] = {-1: root}
     if unclosed_at is not None:

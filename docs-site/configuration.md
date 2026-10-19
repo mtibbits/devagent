@@ -74,7 +74,7 @@ on_merge       = "Done"
                                           # resolutions as [-] (#703)
 
 [project.myproj.wbs]           # optional (#706)
-auto_import_below_pct = 20     # wbs init --from-tracker (and --merge) imports
+auto_import_below_pct = 20     # wbs init --from-tracker imports
                                # everything while the closed share is below this
                                # (integer 0-100); at or above it /devagent:wbs
                                # asks how far back to go
