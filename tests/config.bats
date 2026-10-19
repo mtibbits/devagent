@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0   # #803: run --separate-stderr for wbs_order_config
+
 load 'lib/bats-helpers'
 
 setup() {
@@ -204,4 +206,41 @@ teardown() { teardown_tmp_devagent_home; }
   run python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get-list "$f" project.p.ok
   [ "$status" -eq 0 ]
   [ "${lines[1]}" = "b" ]
+}
+
+# _wbs_cfg <toml lines>: a fresh fixture config plus a [project.toy.wbs] table.
+_wbs_cfg() {
+  install_fixture_config config-twoproject.toml
+  printf '\n[project.toy.wbs]\n%s\n' "$1" >> "$DA_HOME/config.toml"
+}
+
+@test "wbs_order_config: defaults, true/false, an invalid value, an unknown key (#803)" {
+  run --separate-stderr wbs_order_config toy 'wbs order'
+  [ "$status" -eq 0 ]
+  [ "$output" = "WBS_ORDER=1 WBS_COMPLETED_LAST=0" ]
+  [ "$stderr" = "" ]
+
+  _wbs_cfg $'order_on_update = false\ncompleted_last = true'
+  run --separate-stderr wbs_order_config toy 'wbs order'
+  [ "$status" -eq 0 ]
+  [ "$output" = "WBS_ORDER=0 WBS_COMPLETED_LAST=1" ]
+  [ "$stderr" = "" ]
+
+  _wbs_cfg 'order_on_update = "maybe"'
+  run --separate-stderr wbs_order_config toy 'wbs order'
+  [ "$status" -eq 3 ]
+  [ "$output" = "WBS_ORDER=1 WBS_COMPLETED_LAST=0" ]
+  [ "$stderr" = "wbs order: [project.toy.wbs] order_on_update must be true or false, got 'maybe'" ]
+
+  _wbs_cfg $'completed_last = 1\norder_on_update = false'
+  run --separate-stderr wbs_order_config toy 'wbs update' '; ordering skipped'
+  [ "$status" -eq 3 ]
+  [ "$output" = "WBS_ORDER=0 WBS_COMPLETED_LAST=0" ]
+  [ "$stderr" = "wbs update: [project.toy.wbs] completed_last must be true or false, got '1'; ordering skipped" ]
+
+  _wbs_cfg $'order_on_updates = false\nauto_import_below_pct = 30'
+  run --separate-stderr wbs_order_config toy 'wbs update'
+  [ "$status" -eq 0 ]
+  [ "$output" = "WBS_ORDER=1 WBS_COMPLETED_LAST=0" ]
+  [ "$stderr" = "wbs update: [project.toy.wbs] unknown key 'order_on_updates' ignored" ]
 }

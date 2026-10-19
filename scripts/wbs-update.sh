@@ -132,6 +132,17 @@
 # replaced or removed in place), new nodes are inserted as whole lines,
 # and the file is not rewritten when nothing changed.
 #
+# Then the order pass (#803; wbs-parser.py `write_update`, the same rule as
+# `wbs order`): each non-root node's children are sorted by dependency, then
+# priority, moving whole blocks with every line's bytes kept, on every run,
+# --offline and an aborted tracker phase included. It is kept only when
+# `permuted_only` accepts it; else the unordered result is written and
+# `wbs update: ordering skipped: <reason>` printed. `[project.<p>.wbs]`
+# `order_on_update = false` turns it off and `completed_last = true` puts
+# finished siblings last; an invalid value of either warns
+# (`... must be true or false, got '<v>'; ordering skipped`), skips the
+# order pass and still writes the glyphs (exit 0).
+#
 # Flags:
 #   --if-exists   exit 0 silently when <devdoc>/WBS.md does not exist
 #                 (used by cleanup.sh and other auto-call sites)
@@ -185,6 +196,16 @@ if [[ ! -f "$wbs" ]]; then
     exit 0
   fi
   die "wbs update: $wbs missing; run /devagent:wbs init first"
+fi
+
+# #803: the order pass's config. An invalid value never stops the update
+# (status at cleanup must not block on a config typo): it warns, once per
+# key, and ordering is skipped.
+order_rc=0
+order_cfg="$(wbs_order_config "$project" 'wbs update' '; ordering skipped')" || order_rc=$?
+read -r -a order_env <<<"$order_cfg"
+if (( order_rc != 0 )); then
+  order_env=(WBS_ORDER=0 WBS_COMPLETED_LAST=0)
 fi
 
 parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
@@ -288,7 +309,7 @@ mr_env=("WBS_MR_STATUS=$mr_status" "WBS_MR_BACKEND=$code_backend"
 # only `<S> TAB <repo> TAB <key>` per open key an MR lookup needs; `apply` is
 # the run that reports and writes.
 _reconcile() {
-env ${trk_env[@]+"${trk_env[@]}"} ${mr_env[@]+"${mr_env[@]}"} \
+env ${trk_env[@]+"${trk_env[@]}"} ${mr_env[@]+"${mr_env[@]}"} "${order_env[@]}" \
 WBS_MODE="$1" \
 WBS_PATH="$wbs" \
 PARSER_PATH="$parser" \
@@ -629,7 +650,9 @@ if not aborted and mr_status != "offline":
                 else:
                     node["meta"][k] = v
 
-mod.write_markdown(wbs_path, tree)
+for line in mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
+                             completed_last=os.environ["WBS_COMPLETED_LAST"] == "1"):
+    say(f"wbs update: {line}")
 PY
 }
 

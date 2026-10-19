@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0   # #803: run --separate-stderr for wbs order --dry-run
+
 REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 # #322: hermetic env (pins / git config / TZ / locale)
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
@@ -974,4 +976,86 @@ EOF
   [ -e "$TMPROOT/network.log" ]
   grep -q '^gh issue list' "$TMPROOT/network.log"
   rm -f "$TMPROOT/network.log"
+}
+
+# --- #803: wbs order ---------------------------------------------------------
+
+# _wbs_order_cfg <key> <raw-value>: append one [project.testproj.wbs] key.
+_wbs_order_cfg() {
+  local cfg="$HOME/.claude/devagent/config.toml"
+  if ! grep -qxF '[project.testproj.wbs]' "$cfg"; then
+    printf '\n[project.testproj.wbs]\n' >> "$cfg"
+  fi
+  printf '%s = %s\n' "$1" "$2" >> "$cfg"
+}
+
+# An out-of-order set (S depends on T) and its sorted form.
+_wbs_order_fixture() {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] S {issue: Issue-1, depends_on: Issue-2}' '  - [ ] T {issue: Issue-2}' \
+    > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] T {issue: Issue-2}' '  - [ ] S {issue: Issue-1, depends_on: Issue-2}' \
+    > "$TMPDEV/WBS.expected"
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+@test "wbs order reorders, then a second run says already in order (#803)" {
+  _wbs_order_fixture
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  [ "$output" = "wbs order: reordered 1 of 1 sibling sets in $TMPDEV/WBS.md" ]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  [ "$output" = "wbs order: already in order" ]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.expected"
+}
+
+@test "wbs order --dry-run prints an a/ b/ diff and writes nothing (#803)" {
+  _wbs_order_fixture
+  run --separate-stderr bash "$REPO/scripts/wbs.sh" order testproj --dry-run
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "--- a/WBS.md" ]
+  [ "${lines[1]}" = "+++ b/WBS.md" ]
+  [[ "$output" != *"wbs order:"* ]]
+  [[ "$stderr" == *"wbs order: would reorder 1 of 1 sibling sets in $TMPDEV/WBS.md"* ]]
+  [[ "$stderr" == *"wbs order: dry run; nothing written"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+@test "wbs order rejects an unknown flag and an extra argument (#803)" {
+  _wbs_order_fixture
+  run bash "$REPO/scripts/wbs.sh" order testproj --bogus
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"wbs order: unknown flag '--bogus'"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  run bash "$REPO/scripts/wbs.sh" order testproj extra
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"wbs order: unexpected argument 'extra'"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+@test "wbs order: an invalid config value exits 2 and writes nothing (#803)" {
+  _wbs_order_fixture
+  cfg="$HOME/.claude/devagent/config.toml"
+  cp "$cfg" "$cfg.base"
+  _wbs_order_cfg order_on_update '"maybe"'
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 2 ]
+  [ "$output" = "wbs order: [project.testproj.wbs] order_on_update must be true or false, got 'maybe'" ]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  cp "$cfg.base" "$cfg"
+  _wbs_order_cfg completed_last 1
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 2 ]
+  [ "$output" = "wbs order: [project.testproj.wbs] completed_last must be true or false, got '1'" ]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+@test "wbs order: a missing WBS.md exits 1 (#803)" {
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"wbs order: $TMPDEV/WBS.md missing"* ]]
+  [ ! -e "$TMPDEV/WBS.md" ]
 }
