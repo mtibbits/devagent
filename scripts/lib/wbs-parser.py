@@ -515,7 +515,7 @@ def write_update(
     report: list[str] = []
     if order:
         ordered, warnings, _n, _m = _order(final, completed_last)
-        ok, reason = permuted_only(final, ordered)
+        ok, reason = (True, "") if ordered == final else permuted_only(final, ordered)
         if ok:
             final, report = ordered, warnings
         else:
@@ -540,23 +540,22 @@ def order_file(
     except (OSError, UnicodeDecodeError) as e:
         return 1, [f"cannot read {dest}: {e}"], ""
     ordered, report, n, m = _order(text, completed_last)
-    ok, reason = permuted_only(text, ordered)
-    if not ok:
-        return 1, [f"ordering skipped: {reason}; nothing written"], ""
-    if dry_run:
-        if ordered == text:
-            report.append("already in order")
-        else:
-            report.append(f"would reorder {n} of {m} sibling sets in {dest}")
-        report.append("dry run; nothing written")
-        return 0, report, unified_diff(text, ordered)
     if ordered == text:
-        return 0, report + ["already in order"], ""
-    try:
-        write_document(path, ordered)
-    except OSError as e:
-        return 1, report + [f"cannot write {dest}: {e}"], ""
-    return 0, report + [f"reordered {n} of {m} sibling sets in {dest}"], ""
+        summary = "already in order"
+    else:
+        ok, reason = permuted_only(text, ordered)
+        if not ok:
+            return 1, [f"ordering skipped: {reason}; nothing written"], ""
+        verb = "would reorder" if dry_run else "reordered"
+        summary = f"{verb} {n} of {m} sibling sets in {dest}"
+    if dry_run:
+        return 0, report + [summary, "dry run; nothing written"], unified_diff(text, ordered)
+    if ordered != text:
+        try:
+            write_document(path, ordered)
+        except OSError as e:
+            return 1, report + [f"cannot write {dest}: {e}"], ""
+    return 0, report + [summary], ""
 
 
 def unified_diff(old: str, new: str) -> str:
@@ -922,11 +921,12 @@ def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
             warns.append((i, lambda L, i=i, shown=shown:
                           f"line {L(i)}: priority '{shown}' is not P1, P2, P3 or P4; ignored"))
 
-    def subtree(i: int) -> list[int]:
-        out = [i]
-        for c in kids.get(i, []):
-            out.extend(subtree(c))
-        return out
+    # Each node's subtree, built once bottom-up: a child's line follows its
+    # parent's, so reverse line order sees every child first.
+    subs: dict[int, list[int]] = {}
+    for i in sorted(parents, reverse=True):
+        subs[i] = [i] + [d for c in kids.get(i, []) for d in subs[c]]
+    subtree = subs.__getitem__
 
     def name(c: int) -> str:
         issue = metas[c].get("issue")
@@ -1065,15 +1065,12 @@ def _assemble(
                 continue
             blocks, end = run
             for start, stop in blocks:
-                emit_block(start, stop)
+                # A block's own line is not its run's start again: emit it,
+                # then walk the rest of the block for inner runs.
+                index_map[start] = len(out)
+                out.append(pairs[start])
+                emit(start + 1, stop)
             i = end + 1
-
-    def emit_block(start: int, stop: int) -> None:
-        # A block's own line is not its run's start again: emit it, then
-        # walk the rest of the block for inner runs.
-        index_map[start] = len(out)
-        out.append(pairs[start])
-        emit(start + 1, stop)
 
     emit(0, len(pairs) - 1)
     return out, index_map

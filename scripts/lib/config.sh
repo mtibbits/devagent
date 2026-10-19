@@ -186,10 +186,15 @@ config_suite_env_resolve() {
 # opt-out (`order_on_updates = false`) must not pass silently.
 wbs_order_config() {
   local project="$1" caller="$2" suffix="${3:-}"
-  local table="project.${project}.wbs" rc=0 key v bit order=1 last=0 keys
+  local table="project.${project}.wbs" rc=0 key v order=1 last=0 keys
+  # One list-keys call; a key is only fetched when the table holds it, so the
+  # usual config (neither key set) costs one python start, not three.
+  keys="$(_config_toml list-keys "$(config_path)" "$table" 2>/dev/null)" || keys=""
+  keys="${keys//$'\r'/}"
   for key in order_on_update completed_last; do
+    [[ $'\n'"$keys"$'\n' == *$'\n'"$key"$'\n'* ]] || continue
     v="$(config_get_project_field "$project" "wbs.$key" 2>/dev/null)" || continue
-    v="$(printf '%s' "$v" | tr -d '\r')"
+    v="${v//$'\r'/}"
     case "$v" in
       true|false) ;;
       *)
@@ -199,17 +204,13 @@ wbs_order_config() {
         continue
         ;;
     esac
-    bit=0
-    if [[ "$v" == true ]]; then
-      bit=1
-    fi
+    [[ "$v" == true ]] && v=1 || v=0
     if [[ "$key" == order_on_update ]]; then
-      order="$bit"
+      order="$v"
     else
-      last="$bit"
+      last="$v"
     fi
   done
-  keys="$(_config_toml list-keys "$(config_path)" "$table" 2>/dev/null | tr -d '\r')" || keys=""
   while IFS= read -r key; do
     case "$key" in
       ''|auto_import_below_pct|order_on_update|completed_last) ;;

@@ -77,11 +77,7 @@ fi
 
 wbs="$devdoc_dir/WBS.md"
 [[ -f "$wbs" ]] || die "wbs order: $wbs missing; run /devagent:wbs init first"
-order_rc=0
-order_cfg="$(wbs_order_config "$project" 'wbs order')" || order_rc=$?
-if (( order_rc != 0 )); then
-  exit 2
-fi
+order_cfg="$(wbs_order_config "$project" 'wbs order')" || exit 2
 read -r -a order_env <<<"$order_cfg"
 
 parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"

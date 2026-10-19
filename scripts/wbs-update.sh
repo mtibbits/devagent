@@ -128,10 +128,10 @@
 # The write is line-local (#701). Unchanged lines (prose, headings,
 # comments, fenced blocks), meta formatting, line endings and the
 # final-newline state are kept byte for byte. Before the order pass
-# below, only a changed glyph
-# character and the `status_src` and `mr` meta are rewritten (set,
-# replaced or removed in place), new nodes are inserted as whole lines,
-# and the file is not rewritten when nothing changed.
+# below, only a changed glyph character and the `status_src` and `mr`
+# meta are rewritten (set, replaced or removed in place), new nodes are
+# inserted as whole lines, and the file is not rewritten when nothing
+# changed.
 #
 # Then the order pass (#803; wbs-parser.py `write_update`, the same rule as
 # `wbs order`): each non-root node's children are sorted by dependency, then
@@ -202,10 +202,9 @@ fi
 # #803: the order pass's config. An invalid value never stops the update
 # (status at cleanup must not block on a config typo): it warns, once per
 # key, and ordering is skipped.
-order_rc=0
-order_cfg="$(wbs_order_config "$project" 'wbs update' '; ordering skipped')" || order_rc=$?
-read -r -a order_env <<<"$order_cfg"
-if (( order_rc != 0 )); then
+if order_cfg="$(wbs_order_config "$project" 'wbs update' '; ordering skipped')"; then
+  read -r -a order_env <<<"$order_cfg"
+else
   order_env=(WBS_ORDER=0 WBS_COMPLETED_LAST=0)
 fi
 
