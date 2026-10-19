@@ -62,7 +62,7 @@ for arg in "$@"; do
   esac
 done
 
-active_resolve_project_try "$project_arg"
+active_resolve_project_try "$project_arg" || exit 2
 project="$ACTIVE_RESOLVED_PROJECT"
 if ! config_is_project "$project"; then
   printf "wbs order: unknown project '%s'\n" "$project" >&2

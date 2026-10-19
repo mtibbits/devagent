@@ -624,12 +624,12 @@ def test_inner_set_sorted_under_left_alone_outer():
 
 # --- Task 4: permuted_only -------------------------------------------------------
 
-ACCEPT = [(name, kind) for name in sorted(CASES) for kind in ("lf", "crlf", "lf-nofinal")]
+ACCEPT = [(name, kind) for name in sorted(CASES) for kind in wbs_bytes.KINDS]
 
 
 def test_permuted_only_subject_set_is_not_empty():
     assert len(CASES) >= 20
-    assert len(ACCEPT) == 3 * len(CASES)
+    assert len(ACCEPT) == 4 * len(CASES)
 
 
 @pytest.mark.parametrize(("name", "kind"), ACCEPT)
@@ -782,6 +782,19 @@ def test_check_failure_write_update(tmp_path, drop_last_line):
     _flip_t(tree)
     report = wbs_parser.write_update(dest, tree, order=True)
     assert report == ["ordering skipped: the ordered text has 4 lines, the base 5"]
+    assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
+
+
+def test_order_exception_still_writes_glyphs(tmp_path, monkeypatch):
+    def boom(pairs, runs):
+        raise RuntimeError("mover broke")
+
+    monkeypatch.setattr(wbs_parser, "_assemble", boom)
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    tree = wbs_parser.parse_file(dest)
+    _flip_t(tree)
+    report = wbs_parser.write_update(dest, tree, order=True)
+    assert report == ["ordering skipped: RuntimeError: mover broke"]
     assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
 
 

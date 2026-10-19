@@ -506,7 +506,8 @@ def write_update(
 
     The base U is `prepare_write(path, tree)` (its refusals raise). With
     `order`, U is ordered and the result kept only when `permuted_only`
-    accepts it; else U is written and the report is the skip line alone,
+    accepts it; else (a rejection, or an exception in the pass) U is
+    written and the report is the skip line alone,
     since the order warnings describe a text it does not write. Writes
     through `write_document` only when the text differs from the file's.
     Returns the report lines, unprefixed.
@@ -514,8 +515,13 @@ def write_update(
     final = prepare_write(path, tree)
     report: list[str] = []
     if order:
-        ordered, warnings, _n, _m = _order(final, completed_last)
-        ok, reason = (True, "") if ordered == final else permuted_only(final, ordered)
+        # A sort bug never blocks a status change: an exception skips the
+        # order pass like a failed check does.
+        try:
+            ordered, warnings, _n, _m = _order(final, completed_last)
+            ok, reason = (True, "") if ordered == final else permuted_only(final, ordered)
+        except Exception as e:
+            ok, reason = False, f"{type(e).__name__}: {e}"
         if ok:
             final, report = ordered, warnings
         else:
