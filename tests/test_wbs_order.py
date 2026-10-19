@@ -705,3 +705,172 @@ def test_permuted_only_unclosed_fence():
     ok, reason = wbs_parser.permuted_only(UNCLOSED, out)
     assert ok is False
     assert reason == "line 4: node 'S' changed parent or depth"
+
+
+# --- Task 5: the two writers -----------------------------------------------------
+
+OUT_OF_ORDER = _doc(
+    "# t WBS",
+    "",
+    "- [ ] E",
+    "  - [ ] S {issue: Issue-1, depends_on: Issue-2}",
+    "  - [ ] T {issue: Issue-2}",
+)
+IN_ORDER = _doc(
+    "# t WBS",
+    "",
+    "- [ ] E",
+    "  - [ ] T {issue: Issue-2}",
+    "  - [ ] S {issue: Issue-1, depends_on: Issue-2}",
+)
+
+
+@pytest.fixture
+def doc_writes(monkeypatch):
+    """Record each write_document call the writers make."""
+    real = wbs_parser.write_document
+    calls = []
+
+    def recorder(path, text, *, exclusive=False):
+        calls.append((Path(path), text))
+        return real(path, text, exclusive=exclusive)
+
+    monkeypatch.setattr(wbs_parser, "write_document", recorder)
+    return calls
+
+
+@pytest.fixture
+def drop_last_line(monkeypatch):
+    """A broken block mover: it drops the last line it emits."""
+    real = wbs_parser._assemble
+
+    def broken(pairs, runs):
+        out, index_map = real(pairs, runs)
+        return out[:-1], index_map
+
+    monkeypatch.setattr(wbs_parser, "_assemble", broken)
+
+
+def _dest(tmp_path, text):
+    dest = tmp_path / "WBS.md"
+    dest.write_bytes(text.encode("utf-8"))
+    return dest
+
+
+def _flip_t(tree, glyph="~"):
+    leaf = tree["children"][0]["children"][1]
+    assert leaf["text"] == "T"
+    leaf["glyph"] = glyph
+    leaf["state"] = wbs_parser.STATE_GLYPHS[glyph]
+
+
+def test_check_failure_order_file(tmp_path, drop_last_line, doc_writes):
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    rc, report, diff = wbs_parser.order_file(dest)
+    assert rc == 1
+    assert report == ["ordering skipped: the ordered text has 4 lines, the base 5; nothing written"]
+    assert diff == ""
+    assert doc_writes == []
+    assert dest.read_bytes() == OUT_OF_ORDER.encode("utf-8")
+    rc, report, diff = wbs_parser.order_file(dest, dry_run=True)
+    assert (rc, diff) == (1, "")
+
+
+def test_check_failure_write_update(tmp_path, drop_last_line):
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    tree = wbs_parser.parse_file(dest)
+    _flip_t(tree)
+    report = wbs_parser.write_update(dest, tree, order=True)
+    assert report == ["ordering skipped: the ordered text has 4 lines, the base 5"]
+    assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
+
+
+def test_no_inputs_byte_identical(tmp_path, doc_writes):
+    data = (FIX / "nested.md").read_bytes()
+    text = data.decode("utf-8")
+    assert "priority" not in text and "depends_on" not in text
+    assert _counts(text)[1] >= 2
+    dest = _dest(tmp_path, text)
+    assert wbs_parser.order_file(dest) == (0, ["already in order"], "")
+    assert wbs_parser.write_update(dest, wbs_parser.parse_file(dest), order=True) == []
+    assert doc_writes == []
+    assert dest.read_bytes() == data
+
+
+def test_order_file_orders_then_is_a_fixed_point(tmp_path, doc_writes):
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    rc, report, diff = wbs_parser.order_file(dest)
+    assert (rc, report, diff) == (0, [f"reordered 1 of 1 sibling sets in {dest}"], "")
+    assert dest.read_bytes() == IN_ORDER.encode("utf-8")
+    assert wbs_parser.order_file(dest) == (0, ["already in order"], "")
+    assert len(doc_writes) == 1
+
+
+def test_order_file_completed_last(tmp_path):
+    dest = _dest(tmp_path, FINISHED_SLOTS)
+    rc, _report, _diff = wbs_parser.order_file(dest, completed_last=True)
+    assert rc == 0
+    assert dest.read_bytes().decode("utf-8").splitlines()[1:] == [
+        "  - [ ] B {priority: P1}", "  - [ ] A {priority: P4}", "  - [x] F1", "  - [-] F2"]
+
+
+@pytest.mark.parametrize("kind", ["lf", "lf-nofinal"])
+def test_order_file_dry_run(tmp_path, kind, doc_writes):
+    base = _variant(tmp_path, OUT_OF_ORDER, kind)
+    dest = _dest(tmp_path, base)
+    rc, report, diff = wbs_parser.order_file(dest, dry_run=True)
+    assert rc == 0
+    assert report == [f"would reorder 1 of 1 sibling sets in {dest}", "dry run; nothing written"]
+    assert diff.startswith("--- a/WBS.md\n+++ b/WBS.md\n")
+    assert ("\\ No newline at end of file" in diff) is (kind == "lf-nofinal")
+    assert doc_writes == []
+    assert dest.read_bytes() == base.encode("utf-8")
+
+
+def test_order_file_dry_run_in_order(tmp_path):
+    dest = _dest(tmp_path, IN_ORDER)
+    assert wbs_parser.order_file(dest, dry_run=True) == (
+        0, ["already in order", "dry run; nothing written"], "")
+
+
+def test_unified_diff_marks_each_unterminated_side():
+    diff = wbs_parser.unified_diff("a\nb", "b\na")
+    assert diff == (
+        "--- a/WBS.md\n+++ b/WBS.md\n@@ -1,2 +1,2 @@\n"
+        "-a\n-b\n\\ No newline at end of file\n+b\n+a\n\\ No newline at end of file\n"
+    )
+    assert wbs_parser.unified_diff("x\n", "x\n") == ""
+
+
+def test_order_file_unreadable(tmp_path):
+    missing = tmp_path / "WBS.md"
+    rc, report, diff = wbs_parser.order_file(missing)
+    assert (rc, diff) == (1, "")
+    assert len(report) == 1 and report[0].startswith(f"cannot read {missing}: ")
+    missing.write_bytes(b"- [ ] E \xff\n")
+    rc, report, _diff = wbs_parser.order_file(missing)
+    assert rc == 1
+    assert report[0].startswith(f"cannot read {missing}: ")
+
+
+def test_write_update_orders_after_render(tmp_path, doc_writes):
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    tree = wbs_parser.parse_file(dest)
+    _flip_t(tree)
+    assert wbs_parser.write_update(dest, tree, order=True) == []
+    assert len(doc_writes) == 1
+    assert doc_writes[0][1] == IN_ORDER.replace("- [ ] T", "- [~] T")
+
+
+def test_write_update_without_order_only_renders(tmp_path):
+    dest = _dest(tmp_path, OUT_OF_ORDER)
+    tree = wbs_parser.parse_file(dest)
+    _flip_t(tree)
+    assert wbs_parser.write_update(dest, tree, order=False) == []
+    assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
+
+
+def test_write_update_reports_order_warnings(tmp_path):
+    dest = _dest(tmp_path, WARNING_MOVES)
+    tree = wbs_parser.parse_file(dest)
+    assert wbs_parser.write_update(dest, tree, order=True) == [PRIORITY_WARN.format(2, "high")]

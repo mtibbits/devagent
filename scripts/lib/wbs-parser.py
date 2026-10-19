@@ -49,7 +49,9 @@ a range is the caller's check.
 
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
-nothing) followed by `write_document`.
+nothing) followed by `write_document`. `write_update` (`wbs update`) and
+`order_file` (`wbs order`) are the order pass's two writers (#803): each
+runs `_order` and accepts its text only when `permuted_only` does.
 
 CLI:
     wbs-parser.py parse <path>          # emits JSON tree to stdout
@@ -63,13 +65,16 @@ CLI:
 The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
-`inserted_only`, `leaves`, `dependency_edges`; wbs-import.py also reads the
+`inserted_only`, `leaves`, `dependency_edges`, and for the order pass
+(#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
+`unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
 scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
 """
 
 from __future__ import annotations
 
+import difflib
 import heapq
 import json
 import re
@@ -492,6 +497,82 @@ def write_markdown(
         return False
     write_document(path, new)
     return True
+
+
+def write_update(
+    path: Path | str, tree: dict, *, order: bool, completed_last: bool = False
+) -> list[str]:
+    """`wbs update`'s one write (#803): render, then order, then write.
+
+    The base U is `prepare_write(path, tree)` (its refusals raise). With
+    `order`, U is ordered and the result kept only when `permuted_only`
+    accepts it; else U is written and the report is the skip line alone,
+    since the order warnings describe a text it does not write. Writes
+    through `write_document` only when the text differs from the file's.
+    Returns the report lines, unprefixed.
+    """
+    final = prepare_write(path, tree)
+    report: list[str] = []
+    if order:
+        ordered, warnings, _n, _m = _order(final, completed_last)
+        ok, reason = permuted_only(final, ordered)
+        if ok:
+            final, report = ordered, warnings
+        else:
+            report = [f"ordering skipped: {reason}"]
+    if final != tree["source_text"]:
+        write_document(path, final)
+    return report
+
+
+def order_file(
+    path: Path | str, *, completed_last: bool = False, dry_run: bool = False
+) -> tuple[int, list[str], str]:
+    """`wbs order`'s run (#803): `(rc, report lines unprefixed, diff)`.
+
+    rc 1 for an unreadable or non-UTF-8 file, a failed `permuted_only`
+    check (nothing written) or a failed write. `dry_run` writes nothing and
+    returns the `unified_diff`.
+    """
+    dest = str(path)
+    try:
+        text = Path(path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return 1, [f"cannot read {dest}: {e}"], ""
+    ordered, report, n, m = _order(text, completed_last)
+    ok, reason = permuted_only(text, ordered)
+    if not ok:
+        return 1, [f"ordering skipped: {reason}; nothing written"], ""
+    if dry_run:
+        if ordered == text:
+            report.append("already in order")
+        else:
+            report.append(f"would reorder {n} of {m} sibling sets in {dest}")
+        report.append("dry run; nothing written")
+        return 0, report, unified_diff(text, ordered)
+    if ordered == text:
+        return 0, report + ["already in order"], ""
+    try:
+        write_document(path, ordered)
+    except OSError as e:
+        return 1, report + [f"cannot write {dest}: {e}"], ""
+    return 0, report + [f"reordered {n} of {m} sibling sets in {dest}"], ""
+
+
+def unified_diff(old: str, new: str) -> str:
+    """A unified diff of WBS.md, labelled `a/WBS.md` and `b/WBS.md`; empty
+    when equal. A side's unterminated last line is followed by a
+    `\\ No newline at end of file` line."""
+    if old == new:
+        return ""
+    out: list[str] = []
+    for line in difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True), "a/WBS.md", "b/WBS.md"
+    ):
+        out.append(line)
+        if not line.endswith(("\n", "\r")):
+            out.append("\n\\ No newline at end of file\n")
+    return "".join(out)
 
 
 def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> None:
