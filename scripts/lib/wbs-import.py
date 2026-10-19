@@ -819,18 +819,22 @@ def default_set(model: Model, tree: dict, scope_set: set[str],
     older_absent: O, newest_present: {"origin": leaf|None, "fork": leaf|None},
     unmarked: [source name]}. P and K count as merge() does over scope_set;
     K + O + N is every absent issue in scope_set, and N is len(add). A source
-    with no present issue has no mark: its absent issues count in O, and it
-    is listed in `unmarked` when it has one. Nothing is closed over parents:
+    with no numbered present issue has no mark: its absent issues count in
+    O, and when it has no present issue at all and one such absent issue,
+    it is listed in `unmarked` (the notice). Nothing is closed over parents:
     a new child does not bring an older absent epic.
     """
     present = present_map(model, tree)
     excluded = _excluded_leaves(model, excluded_ids)
     marks: dict[str, tuple[int, str]] = {}
+    held: set[str] = set()  # sources with a present issue, numbered or not
     for n in model.nodes:
         k = mark_num(n)
         name = n.source["source"]
-        if n.leaf in present and k is not None and (name not in marks or k > marks[name][0]):
-            marks[name] = (k, n.leaf)
+        if n.leaf in present:
+            held.add(name)
+            if k is not None and (name not in marks or k > marks[name][0]):
+                marks[name] = (k, n.leaf)
     add: set[str] = set()
     older = 0
     unmarked: set[str] = set()
@@ -843,7 +847,8 @@ def default_set(model: Model, tree: dict, scope_set: set[str],
         name = n.source["source"]
         k = mark_num(n)
         if name not in marks:
-            unmarked.add(name)
+            if name not in held:
+                unmarked.add(name)
             older += 1
         elif k is not None and k > marks[name][0]:
             add.add(leaf)

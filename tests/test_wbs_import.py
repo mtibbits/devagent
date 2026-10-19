@@ -900,6 +900,18 @@ def test_default_set_scope_limits_every_count():
     assert (ds["present"], ds["excluded"], ds["older_absent"], ds["new_since_newest"]) == (1, 0, 1, 1)
 
 
+def test_default_set_notice_only_for_a_source_with_nothing_present():
+    # a present issue with no number to compare gives no mark, but the
+    # source is not "no issue is in WBS.md": no notice, its absent count older
+    m = wbs_import.build([src([rec(i, url=J + i) for i in ("OLD-5", "PROJ-1", "PROJ-2")],
+                              backend="jira", repo="PROJ", keyprefix="PROJ")])
+    ds = default_set(m, _wbs("Issue-OLD-5"))
+    assert (ds["present"], ds["unmarked"], ds["older_absent"], ds["add"]) == (1, [], 2, set())
+    m = wbs_import.build([src([rec("abc"), rec("def")], backend="custom")])
+    ds = default_set(m, _wbs("Issue-abc"))
+    assert (ds["present"], ds["unmarked"], ds["older_absent"], ds["add"]) == (1, [], 1, set())
+
+
 def _ac10():
     m = wbs_import.build([src([rec(str(i)) for i in range(1, 7)])])
     return m, ["Issue-2", "Issue-5"]
