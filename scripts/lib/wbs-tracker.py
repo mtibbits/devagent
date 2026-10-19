@@ -61,6 +61,18 @@ DIGITS_RE = re.compile(r"[0-9]+")                    # used with fullmatch
 JIRA_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+")  # used with fullmatch
 
 
+def jira_key_split(key: str) -> tuple[str, int] | None:
+    """A Jira key as (project, number), or None when it is not a key.
+
+    Keys compare by number only within one project: `OLD-50` is not newer
+    than `PROJ-41`. wbs-import.py's merge mark (#797) uses this; #765's
+    `--since` narrowing is its other intended caller."""
+    if not JIRA_KEY_RE.fullmatch(key):
+        return None
+    project, _, num = key.rpartition("-")
+    return (project, int(num))
+
+
 def jira_keyprefix(env: Mapping[str, str], repo: str) -> str:
     """The Jira key prefix a source's bare numbers stand for: the
     DEVAGENT_JIRA_PROJECT_KEY variable when it is set and non-empty, else

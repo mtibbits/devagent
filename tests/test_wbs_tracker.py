@@ -316,3 +316,15 @@ def test_leaf_for_rule(backend, prefix, kp, rid, leaf):
 ])
 def test_jira_keyprefix_env_then_repo(env, want):
     assert wbs_tracker.jira_keyprefix(env, "PROJ") == want
+
+
+@pytest.mark.parametrize("key, want", [
+    ("PROJ-41", ("PROJ", 41)),
+    ("A_B2-007", ("A_B2", 7)),
+    ("proj-1", None),
+    ("PROJ-", None),
+    ("41", None),
+    ("PROJ-4a", None),
+])
+def test_jira_key_split(key, want):
+    assert wbs_tracker.jira_key_split(key) == want
