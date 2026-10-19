@@ -959,3 +959,33 @@ _append_issue() {
   rc=0; grep -n 'is #707' "$REPO/commands/wbs.md" "$spec" "$REPO/scripts/wbs-init.sh" "$REPO/CHANGELOG.md" || rc=$?
   [ "$rc" -eq 1 ]
 }
+
+@test "docs name wbs-scope, the merge counts and the cap in every home" {
+  local key cap spec spec13 spec132 home rc
+  key="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-parser.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.SCOPE_KEY)' | tr -d '\r')"
+  [ "$key" = "wbs-scope:" ]
+  cap="$(cd "$REPO/scripts/lib" && python3 -c 'import importlib.util as u; s = u.spec_from_file_location("m", "wbs-import.py"); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.MERGE_CAP)' | tr -d '\r')"
+  [ "$cap" = 50 ]
+  spec="$REPO/docs/specs/2026-05-19-devagent-plugin-design.md"
+  spec13="$TMPROOT/spec13"
+  spec132="$TMPROOT/spec132"
+  sed -n '/^### 13\.1 /,/^### 13\.3 /p' "$spec" > "$spec13"
+  sed -n '/^### 13\.2 /,/^### 13\.3 /p' "$spec" > "$spec132"
+  for home in "$REPO/commands/wbs.md" "$spec13"; do
+    grep -qF -- "<!-- $key" "$home" || { echo "no scope line in $home"; false; }
+  done
+  for home in "$REPO/commands/wbs.md" "$spec132"; do
+    grep -qF 'merge.new_since_newest' "$home" || { echo "no merge.new_since_newest in $home"; false; }
+  done
+  for home in "$REPO/commands/wbs.md" "$spec132" "$REPO/scripts/wbs.sh"; do
+    grep -qF -- "(cap ${cap})" "$home" || { echo "no (cap ${cap}) in $home"; false; }
+  done
+  # the threshold no longer governs --merge (control: a planted line is found)
+  printf '# wbs init --from-tracker (and --merge) imports\n' > "$TMPROOT/planted"
+  rc=0; grep -qF '(and --merge)' "$TMPROOT/planted" || rc=$?
+  [ "$rc" -eq 0 ]
+  rc=0; grep -qF '(and --merge)' "$REPO/docs-site/configuration.md" || rc=$?
+  [ "$rc" -eq 1 ]
+  rc=0; grep -qF 'range flags and threshold' "$spec132" || rc=$?
+  [ "$rc" -eq 1 ]
+}

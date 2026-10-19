@@ -39,7 +39,11 @@ The rest is pure work over those records, for scripts/wbs-init.sh:
   to an existing WBS.md parsed by wbs-parser.py; only whole lines are
   inserted (wbs-parser.py's `inserted_only` checks it before the write),
   and the ids of `<!-- wbs-exclude: ... -->` lines (`exclusions`) are
-  skipped.
+  skipped. With no range flag (#797) the selection is the file's
+  `<!-- wbs-scope: <range> -->` line (`read_scope`; none: all), which
+  `render` writes after the seed's note (`scope_value`), and only
+  `default_set` is added: the in-scope absent issues numbered (`mark_num`)
+  above the newest present issue of their own source.
 
 CLI:
   wbs-import.py check   read issue-list output on stdin; print the record
@@ -57,10 +61,12 @@ CLI:
     malformed backend output, DEST already exists (import), DEST unreadable
     or not UTF-8 (merge), an existing line would change (merge, a bug), or
     the write fails (merge);
-    2 a range value that names nothing; 10 (CHOOSE_RANGE_RC) when no range
-    was given and the closed share is not below the threshold: the survey
-    JSON, then the line CHOOSE_RANGE_MARKER, on stdout, and nothing
-    written.
+    2 a range value that names nothing, or (merge, no range) a duplicate,
+    malformed or nothing-naming wbs-scope line; 10 (CHOOSE_RANGE_RC) when
+    no range was given and, on import, the closed share is not below the
+    threshold, or, on merge, the default set holds more than MERGE_CAP
+    issues: the survey JSON (merge: with a `merge` object), then the line
+    CHOOSE_RANGE_MARKER, on stdout, and nothing written.
   wbs-import.py template   plain `wbs init` / `--force` (#764): WBS_IMP_TEMPLATE
                         with `{{PROJECT}}` replaced by WBS_IMP_PROJECT, written
                         to WBS_IMP_DEST; only WBS_IMP_FORCE=1 overwrites.

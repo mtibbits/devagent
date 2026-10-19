@@ -17,6 +17,9 @@
 # and writes nothing, so it also runs beside an existing WBS.md. --merge
 # (#707) adds the tracker's issues an existing WBS.md lacks, inserting
 # whole lines only; ids in a `<!-- wbs-exclude: ... -->` line are skipped.
+# --from-tracker writes its range as a `<!-- wbs-scope: <range> -->` line;
+# --merge with no range flag adds only the issues in that scope numbered
+# above the newest present one of their source (#797).
 #
 # Exit: 0 written (or surveyed, or merged, or nothing to merge); 1 die (an
 # existing WBS.md without --merge, a missing or unreadable one with it, a
@@ -24,10 +27,13 @@
 # backend output, a merge that would change an existing line or whose
 # write fails);
 # 2 a usage error, raised before any tracker call, or a range value only the
-# data can check (an --epic that names no epic, a calendar-invalid date);
-# 10 no range flag and a closed share at or above
-# [project.<p>.wbs].auto_import_below_pct (default 20): the survey JSON and
-# then the line `WBS-INIT: choose-range` on stdout, nothing written.
+# data can check (an --epic that names no epic, a calendar-invalid date), or
+# (--merge, no range flag) a duplicate, malformed or nothing-naming
+# wbs-scope line;
+# 10 no range flag and, on a fresh import, a closed share at or above
+# [project.<p>.wbs].auto_import_below_pct (default 20), or, on --merge,
+# more than 50 issues to add (cap 50): the survey JSON and then the line
+# `WBS-INIT: choose-range` on stdout, nothing written.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -103,7 +103,7 @@ the README's "Versioning & releases" section has the release procedure.
   - `--since` and `--epic` read a `<dir_prefix><id>` on a custom source.
   - Not breaking: no command, flag or file format is removed or changed in meaning.
 - **Added: `wbs init --merge` adds missing tracker issues to an existing `WBS.md` (#707).**
-  - `wbs init --merge` (implies `--from-tracker`; same range flags and threshold) inserts
+  - `wbs init --merge` (implies `--from-tracker`; same range flags) inserts
     each tracker issue the file lacks under its parent's node, else at top level for an
     epic, else under its milestone's node, else under `Unparented` (or an existing
     `Unassigned`). Existing lines are untouched: the diff is inserted lines only (an
@@ -111,6 +111,17 @@ the README's "Versioning & releases" section has the release procedure.
     second run adds nothing.
   - A deliberately deleted issue stays out when an exclusion line names it:
     `<!-- wbs-exclude: Issue-12, Issue-40 -->`.
+  - With no range flag (#797), `--merge` adds only the issues inside the range the file
+    was seeded with (its `<!-- wbs-scope: <range> -->` line; none: `all`) that are
+    numbered above the newest issue the file holds from the same source (a JIRA key
+    compares only within its project); the closed-share threshold no longer applies to
+    `--merge`. Above 50 such issues (cap 50) it prints the survey with a `merge` object
+    (`new_since_newest`, `older_absent` and more), `WBS-INIT: choose-range`, and exits
+    10, writing nothing. A duplicate, malformed or nothing-naming `wbs-scope` line exits
+    2 naming its lines. The summary gains `; N older issues not added (pass --since <id>
+    or --all)`, and `wbs-parser.py parse` JSON gains a `scopes` key. Known limit: the
+    newest present issue is a high-water mark, so a newer issue added first puts older
+    absent ones below it.
   - Behaviour change: `wbs init --from-tracker` on an existing `WBS.md` now names
     `--merge` in its refusal, and the `--force` refusal names `--merge` instead of #707.
   - Not breaking: no command, flag or file format is removed or changed in meaning.
@@ -127,7 +138,8 @@ the README's "Versioning & releases" section has the release procedure.
     at or above it, with no range flag, init prints a survey and `WBS-INIT: choose-range`,
     exits 10 and writes nothing, and `/devagent:wbs` asks how far back to go: `--all`,
     `--since <date|issue-id>`, `--open-only` or `--epic <issue-id>`. `--survey` prints the
-    survey only. An existing `WBS.md` is refused; `--merge` adds to one (#707).
+    survey only. An existing `WBS.md` is refused; `--merge` adds to one (#707). The new
+    file records its range as `<!-- wbs-scope: <range> -->` after its note line (#797).
   - New optional backend verb `issue-list <repo>` (github, gitlab, jira; the `custom` stub
     exits 78). GitHub needs gh 2.95 or later for native parents and dependencies and falls
     back to GraphQL on an older gh; a GitHub Enterprise server without those GraphQL fields
