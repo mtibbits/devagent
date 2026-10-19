@@ -1959,9 +1959,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   set: the in-scope absent issues that no exclusion names and that are
   numbered above the newest present issue of their own source (the mark;
   a JIRA key counts only within its source's project). A source with no
-  present issue has no mark: its absent issues are not added and it gets
-  the notice `no <source> issue is in <dest>; pass a range flag to add its
-  issues`. Closure is not re-applied (a new child does not bring an older
+  present issue has no mark: its absent issues are not added and, when one
+  is in scope and not excluded, it gets the notice `no <source> issue is
+  in <dest>; pass a range flag to add its issues`. Closure is not re-applied (a new child does not bring an older
   absent epic), and the closed-share threshold does not apply. With more
   than 50 issues in the default set (cap 50) it prints the survey JSON
   with a `merge` object (`scope`, `present`, `excluded`,
