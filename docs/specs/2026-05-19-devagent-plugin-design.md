@@ -61,7 +61,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 18 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 19 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
@@ -1049,7 +1049,7 @@ bare while the pointer names a different project acts on the pointer's
 project — both Issue-553 misfires (`wbs.sh update` writing another project's
 WBS; `preship-evidence.sh` resolving another project's issue) were this shape.
 Since #572, every PROTECTED resolving script (triage: the normative
-`docs/resolver-scope-triage.md`, 14 PROTECTED / 4 EXEMPT of the 18-member
+`docs/resolver-scope-triage.md`, 15 PROTECTED / 4 EXEMPT of the 19-member
 universe, pinned by `tests/resolver-scope-triage.bats`) calls
 `active_guard_scope` after its own validation and before any read, write, cd,
 or network call. The guard is tri-state:
