@@ -1064,3 +1064,13 @@ _wbs_order_fixture() {
   [[ "$output" == *"wbs order: $TMPDEV/WBS.md missing"* ]]
   [ ! -e "$TMPDEV/WBS.md" ]
 }
+
+@test "wbs order: an unresolvable project exits 2 (#803)" {
+  _wbs_order_fixture
+  printf '\n[project.other]\nsource_dir = "%s/other"\ndevdoc_dir = "%s/other-devdoc"\n' \
+    "$TMPROOT" "$TMPROOT" >> "$HOME/.claude/devagent/config.toml"
+  run env -u DEVAGENT_ACTIVE_PROJECT -u DEVAGENT_ACTIVE_ISSUE bash "$REPO/scripts/wbs.sh" order
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"pass project explicitly"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}

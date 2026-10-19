@@ -796,6 +796,9 @@ def test_order_exception_still_writes_glyphs(tmp_path, monkeypatch):
     report = wbs_parser.write_update(dest, tree, order=True)
     assert report == ["ordering skipped: RuntimeError: mover broke"]
     assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
+    assert wbs_parser.order_file(dest) == (
+        1, ["ordering skipped: RuntimeError: mover broke; nothing written"], "")
+    assert dest.read_bytes() == OUT_OF_ORDER.replace("- [ ] T", "- [~] T").encode("utf-8")
 
 
 def test_no_inputs_byte_identical(tmp_path, doc_writes):

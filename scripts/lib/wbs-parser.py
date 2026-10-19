@@ -545,13 +545,16 @@ def order_file(
         text = Path(path).read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as e:
         return 1, [f"cannot read {dest}: {e}"], ""
-    ordered, report, n, m = _order(text, completed_last)
+    try:
+        ordered, report, n, m = _order(text, completed_last)
+        ok, reason = (True, "") if ordered == text else permuted_only(text, ordered)
+    except Exception as e:
+        return 1, [f"ordering skipped: {type(e).__name__}: {e}; nothing written"], ""
+    if not ok:
+        return 1, [f"ordering skipped: {reason}; nothing written"], ""
     if ordered == text:
         summary = "already in order"
     else:
-        ok, reason = permuted_only(text, ordered)
-        if not ok:
-            return 1, [f"ordering skipped: {reason}; nothing written"], ""
         verb = "would reorder" if dry_run else "reordered"
         summary = f"{verb} {n} of {m} sibling sets in {dest}"
     if dry_run:

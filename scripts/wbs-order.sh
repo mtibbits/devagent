@@ -19,8 +19,8 @@
 # nothing.
 #
 # Exit: 0 written, nothing to do, or a dry run; 1 a missing, unreadable or
-# non-UTF-8 WBS.md, a failed permutation check (nothing written; under
-# --dry-run no diff either) or a failed write; 2 a usage error (an unknown
+# non-UTF-8 WBS.md, a failed permutation check or an error in the order
+# pass (nothing written; under --dry-run no diff either) or a failed write; 2 a usage error (an unknown
 # flag, an extra argument), an unknown project, an unset devdoc_dir, or an
 # invalid `[project.<p>.wbs]` order_on_update or completed_last value.
 #
