@@ -746,8 +746,91 @@ def _count_issues(node: dict) -> int:
     return own + sum(_count_issues(c) for c in node["children"])
 
 
+def present_map(model: Model, tree: dict) -> dict[str, dict]:
+    """{leaf: anchor node} for each tracker issue a parsed WBS holds: a
+    node's `issue` meta names it by named_leaves; the first such node
+    (document order) is its anchor."""
+    present: dict[str, dict] = {}
+    for pn in _walk(tree["children"]):
+        iid = pn["meta"].get("issue")
+        if not isinstance(iid, str):
+            continue
+        for leaf in named_leaves(model, iid):
+            present.setdefault(leaf, pn)
+    return present
+
+
+def _excluded_leaves(model: Model, excluded_ids: list[str]) -> set[str]:
+    return {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
+
+
+MERGE_CAP = 50
+
+
+def mark_num(node: Node) -> int | None:
+    """The number a merge mark compares (#797): a Jira key's number when its
+    project is the source's key prefix (keys compare only within a project,
+    wbs-tracker.py `jira_key_split`), else the id's trailing number; None
+    when there is none to compare."""
+    if node.source["backend"] == "jira":
+        split = trk.jira_key_split(node.rec["id"])
+        kp = node.source.get("keyprefix") or ""
+        return split[1] if split and kp and split[0] == kp else None
+    return node.num or None
+
+
+def default_set(model: Model, tree: dict, scope_set: set[str],
+                excluded_ids: list[str]) -> dict:
+    """What an unflagged `wbs init --merge` adds (#797): the issues in
+    scope_set that the WBS lacks, no exclusion names, and that are numbered
+    (mark_num) above the newest present issue of their own source.
+
+    Returns {add: {leaf}, present: P, excluded: K, new_since_newest: N,
+    older_absent: O, newest_present: {"origin": leaf|None, "fork": leaf|None},
+    unmarked: [source name]}. P and K count as merge() does over scope_set;
+    K + O + N is every absent issue in scope_set, and N is len(add). A source
+    with no present issue has no mark: its absent issues count in O, and it
+    is listed in `unmarked` when it has one. Nothing is closed over parents:
+    a new child does not bring an older absent epic.
+    """
+    present = present_map(model, tree)
+    excluded = _excluded_leaves(model, excluded_ids)
+    marks: dict[str, tuple[int, str]] = {}
+    for n in model.nodes:
+        k = mark_num(n)
+        name = n.source["source"]
+        if n.leaf in present and k is not None and (name not in marks or k > marks[name][0]):
+            marks[name] = (k, n.leaf)
+    add: set[str] = set()
+    older = 0
+    unmarked: set[str] = set()
+    seen: set[str] = set()
+    for n in model.nodes:
+        leaf = n.leaf
+        if leaf not in scope_set or leaf in present or leaf in excluded or leaf in seen:
+            continue
+        seen.add(leaf)
+        name = n.source["source"]
+        k = mark_num(n)
+        if name not in marks:
+            unmarked.add(name)
+            older += 1
+        elif k is not None and k > marks[name][0]:
+            add.add(leaf)
+        else:
+            older += 1
+    return {"add": add,
+            "present": sum(1 for leaf in present if leaf in scope_set),
+            "excluded": sum(1 for leaf in excluded
+                            if leaf in scope_set and leaf not in present),
+            "new_since_newest": len(add), "older_absent": older,
+            "newest_present": {s: marks[s][1] if s in marks else None
+                               for s in ("origin", "fork")},
+            "unmarked": [s["source"] for s in model.sources if s["source"] in unmarked]}
+
+
 def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
-          excluded_ids: list[str]) -> dict:
+          excluded_ids: list[str], only: set[str] | None = None) -> dict:
     """Add to a parsed WBS (`tree`, mutated) each selected tracker issue it
     lacks and no exclusion id names. No existing node is moved or changed.
 
@@ -769,20 +852,17 @@ def merge(model: Model, selected: set[str], tree: dict, devdoc_dir,
     Returns {added: [leaf...] in node order, under_existing: U, new_tops: T,
     present: P, excluded: K, warnings: [...]}; a warning names a milestone
     with several candidate nodes. U and T count issues (a new container is not
-    one), P the selected issues present, K those absent and excluded.
+    one), P the selected issues present, K those absent and excluded. `only`
+    (the unflagged default set, #797) further limits what is added, never
+    P or K.
     """
     existing = list(_walk(tree["children"]))
-    present: dict[str, dict] = {}
-    for pn in existing:
-        iid = pn["meta"].get("issue")
-        if not isinstance(iid, str):
-            continue
-        for leaf in named_leaves(model, iid):
-            present.setdefault(leaf, pn)
-    excluded = {leaf for i in excluded_ids for leaf in named_leaves(model, i)}
+    present = present_map(model, tree)
+    excluded = _excluded_leaves(model, excluded_ids)
 
     add = [n for n in model.nodes
-           if n.leaf in selected and n.leaf not in present and n.leaf not in excluded]
+           if n.leaf in selected and n.leaf not in present and n.leaf not in excluded
+           and (only is None or n.leaf in only)]
     add_leaves = {n.leaf for n in add}
     deps_in = {leaf: pn["meta"]["issue"] for leaf, pn in present.items()}
     deps_in.update((leaf, leaf) for leaf in add_leaves)

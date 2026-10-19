@@ -828,6 +828,110 @@ def test_merge_existing_lines_untouched(tmp_path):
         assert sum(j2 - j1 for op, _i1, _i2, j1, j2 in ops if op == "insert") == 5, kind
 
 
+# --- the unflagged merge's default set (#797) ---------------------------------------
+def _wbs(*leaves):
+    return parser.parse_text("".join(f"- [ ] H {{issue: {leaf}}}\n" for leaf in leaves))
+
+
+def default_set(model, tree, rng="all", excluded=()):
+    return wbs_import.default_set(model, tree, wbs_import.select(model, rng), list(excluded))
+
+
+def fork_src(records):
+    return src([dict(r, url=f"https://github.com/me/f/issues/{r['id']}") for r in records],
+               name="fork", repo="me/f", prefix="Issue-Fork-")
+
+
+def test_default_set_jira_marks_by_project():
+    def model(*ids):
+        return wbs_import.build([src([rec(i, url=J + i) for i in ids], backend="jira",
+                                     repo="PROJ", keyprefix="PROJ")])
+    m = model("PROJ-40", "PROJ-41", "PROJ-12")
+    ds = default_set(m, _wbs("Issue-40"))
+    assert ds["add"] == {"Issue-41"}
+    assert ds["older_absent"] == 1
+    assert ds["new_since_newest"] == 1
+    assert ds["newest_present"] == {"origin": "Issue-40", "fork": None}
+    # a foreign-project key neither sets a mark nor is above one (#765's rule)
+    m = model("PROJ-40", "PROJ-41", "PROJ-12", "OLD-50")
+    ds = default_set(m, _wbs("Issue-40"))
+    assert ds["add"] == {"Issue-41"}
+    assert ds["older_absent"] == 2
+
+
+def test_default_set_mark_is_per_source():
+    m = wbs_import.build([src([rec("3"), rec("5"), rec("10"), rec("11")]),
+                          fork_src([rec("2"), rec("4"), rec("7")])])
+    ds = default_set(m, _wbs("Issue-10", "Issue-Fork-4"))
+    # one shared mark (10) would drop Issue-Fork-7
+    assert ds["add"] == {"Issue-11", "Issue-Fork-7"}
+    assert ds["older_absent"] == 3
+    assert ds["newest_present"] == {"origin": "Issue-10", "fork": "Issue-Fork-4"}
+    assert ds["unmarked"] == []
+
+
+def test_default_set_excluded_split_both_sides_of_the_mark():
+    m = wbs_import.build([src([rec(str(i)) for i in range(1, 7)])])
+    ds = default_set(m, _wbs("Issue-3"), excluded=["Issue-2", "Issue-5"])
+    assert ds["excluded"] == 2
+    assert ds["older_absent"] == 1
+    assert ds["new_since_newest"] == 2
+    assert ds["add"] == {"Issue-4", "Issue-6"}
+    assert ds["present"] == 1
+    assert ds["excluded"] + ds["older_absent"] + ds["new_since_newest"] == 5
+
+
+def test_default_set_source_with_no_present_issue():
+    m = wbs_import.build([src([rec("1"), rec("2")]),
+                          fork_src([rec("1"), rec("2"), rec("3")])])
+    ds = default_set(m, _wbs("Issue-1"))
+    assert ds["unmarked"] == ["fork"]
+    assert ds["older_absent"] == 3
+    assert ds["add"] == {"Issue-2"}
+    assert ds["newest_present"] == {"origin": "Issue-1", "fork": None}
+
+
+def test_default_set_scope_limits_every_count():
+    m = wbs_import.build([src([rec("1", labels=["epic"]), rec("2", parent=GH + "1"),
+                               rec("3", parent=GH + "1"), rec("9")])])
+    ds = default_set(m, _wbs("Issue-2"), rng="epic:1")
+    # Issue-9 is absent and above the mark, but outside the scope: in no count
+    assert ds["add"] == {"Issue-3"}
+    assert (ds["present"], ds["excluded"], ds["older_absent"], ds["new_since_newest"]) == (1, 0, 1, 1)
+
+
+def _ac10():
+    m = wbs_import.build([src([rec(str(i)) for i in range(1, 7)])])
+    return m, ["Issue-2", "Issue-5"]
+
+
+def test_merge_only_restricts_adds_not_counts():
+    m, excl = _ac10()
+    sel = wbs_import.select(m, "all")
+    full = wbs_import.merge(m, sel, _wbs("Issue-3"), Path("/nonexistent"), excl)
+    only = wbs_import.merge(m, sel, _wbs("Issue-3"), Path("/nonexistent"), excl,
+                            only={"Issue-4"})
+    assert only["added"] == ["Issue-4"]
+    assert (only["present"], only["excluded"]) == (full["present"], full["excluded"])
+
+
+def test_default_set_counts_agree_with_merge():
+    m, excl = _ac10()
+    ds = default_set(m, _wbs("Issue-3"), excluded=excl)
+    stats = wbs_import.merge(m, wbs_import.select(m, "all"), _wbs("Issue-3"),
+                             Path("/nonexistent"), excl, only=ds["add"])
+    assert ds["present"] == stats["present"]
+    assert ds["excluded"] == stats["excluded"]
+    assert set(stats["added"]) == ds["add"]
+
+
+def test_default_set_unnumbered_other_backend():
+    m = wbs_import.build([src([rec("T-12"), rec("T-13")], backend="custom")])
+    ds = default_set(m, _wbs("Issue-T-12"))
+    assert ds["add"] == {"Issue-T-13"}
+    assert ds["unmarked"] == []
+
+
 def _run_merge(dest):
     m = _fixture_model()
     return wbs_import._run_merge(m, wbs_import.select(m, "all"), dest, dest.parent)
