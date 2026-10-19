@@ -70,9 +70,11 @@ scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
 
 from __future__ import annotations
 
+import heapq
 import json
 import re
 import sys
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -775,6 +777,328 @@ def inserted_only(old: str, new: str) -> bool:
         else:
             return False
     return True
+
+
+# The order pass (#803): each non-root node's children, by dependency, then
+# inherited priority, then fan-out. Text in, text out, after any render.
+PRIORITY_RE = re.compile(r"P[1-4]")
+DEFAULT_PRIORITY = 3
+FINISHED_GLYPHS = frozenset("x-")
+
+
+def order_text(text: str, *, completed_last: bool = False) -> tuple[str, list[str]]:
+    """`text` with each non-root node's children in order, and the warnings.
+
+    The rule (spec §13.1): a node is finished when its own glyph is `[x]` or
+    `[-]`. Within one set of siblings, open sibling S follows open sibling T
+    when an open node under S (S included) has a `depends_on` entry naming
+    the `issue` of an open node under T; ids match by exact string. Among the
+    siblings whose dependencies are placed, the next is the one with the
+    most urgent effective priority (the most urgent `priority: P1`-`P4` of
+    the open nodes under it or under any sibling depending on it,
+    transitively; P3 when none), then the most transitive dependents, then
+    its current position. Finished siblings keep their slots, or with
+    `completed_last` follow the open ones in their old order. Top-level
+    nodes never move.
+
+    A set is left as it is, with one warning naming its parent's line, when
+    a line separates two of its sibling blocks, a sibling's subtree is not
+    one block (`_block_end`), the siblings differ in depth, or the siblings
+    form a dependency cycle. Each malformed `priority` warns once and counts
+    as missing. Warning line numbers are those of the returned text.
+    """
+    new, warnings, _n, _m = _order(text, completed_last)
+    return new, warnings
+
+
+def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
+    """`order_text`, plus N (sets reordered) and M (sets of two or more
+    siblings under a non-root parent, the ones left alone included)."""
+    lines = text.splitlines(keepends=True)
+    kinds, bodies, _ = _classify_lines(lines)
+    terms, eol = _line_ends(lines, bodies)
+    parents = _parse_parents(kinds)
+    kids: dict[int, list[int]] = {}
+    for i, p in parents.items():
+        kids.setdefault(p, []).append(i)
+    ends = {i: _block_end(kinds, bodies, i) for i in parents}
+    is_open: dict[int, bool] = {}
+    texts: dict[int, str] = {}
+    metas: dict[int, dict] = {}
+    prio: dict[int, int | None] = {}
+    # (U line index, message given the U-index -> output-line-number map)
+    warns: list[tuple[int, Callable[[Callable[[int], int]], str]]] = []
+    for i in parents:
+        m = kinds[i][1]
+        is_open[i] = m.group("glyph") not in FINISHED_GLYPHS
+        texts[i], metas[i] = _split_text_and_meta(m.group("rest").rstrip())
+        v = metas[i].get("priority")
+        prio[i] = None
+        if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
+            prio[i] = int(v[1])
+        elif "priority" in metas[i]:
+            shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
+            warns.append((i, lambda L, i=i, shown=shown:
+                          f"line {L(i)}: priority '{shown}' is not P1, P2, P3 or P4; ignored"))
+
+    def subtree(i: int) -> list[int]:
+        out = [i]
+        for c in kids.get(i, []):
+            out.extend(subtree(c))
+        return out
+
+    def name(c: int) -> str:
+        issue = metas[c].get("issue")
+        return issue if isinstance(issue, str) and issue else texts[c]
+
+    runs: dict[int, tuple[list[tuple[int, int]], int]] = {}
+    n_sets = m_sets = 0
+    for p, cs in kids.items():
+        if p == -1 or len(cs) < 2:
+            continue
+        m_sets += 1
+        why = _left_alone(cs, kinds, ends, subtree)
+        new = None
+        if why is None:
+            new, cycle = _rank(cs, is_open, metas, prio, subtree, completed_last)
+            if new is None:
+                names = ", ".join(name(c) for c in cycle)
+                why = lambda L, names=names: f"dependency cycle among {names}"
+        if why is not None:
+            warns.append((p, lambda L, p=p, why=why:
+                          f"line {L(p)}: children of '{texts[p]}' left in order: {why(L)}"))
+        elif new != cs:
+            n_sets += 1
+            runs[cs[0]] = ([(c, ends[c]) for c in new], ends[cs[-1]])
+    out, index_map = _assemble(list(zip(bodies, terms)), runs)
+
+    def line_no(u: int) -> int:
+        return index_map[u] + 1
+
+    warns.sort(key=lambda w: line_no(w[0]))
+    new_text = _join(out, eol, bool(lines) and not terms[-1])
+    return new_text, [fmt(line_no) for _u, fmt in warns], n_sets, m_sets
+
+
+def _left_alone(cs, kinds, ends, subtree):
+    """Why the sibling set `cs` (line indexes) cannot move, or None.
+
+    The reason is a function of the line-number map, since the lines it
+    names may move with an enclosing block.
+    """
+    for c in cs:
+        if any(ends[d] > ends[c] for d in subtree(c)[1:]):
+            split = ends[c] + 1
+            return lambda L, c=c: f"line {L(split)} splits the subtree of line {L(c)}"
+    for a, b in zip(cs, cs[1:]):
+        if ends[a] + 1 != b:
+            gap = ends[a] + 1
+            return lambda L: f"line {L(gap)} separates two of them"
+    depth = _depth(kinds[cs[0]][1])
+    for c in cs[1:]:
+        if _depth(kinds[c][1]) != depth:
+            return lambda L, c=c: f"line {L(c)} is not at the depth of line {L(cs[0])}"
+    return None
+
+
+def _rank(cs, is_open, metas, prio, subtree, completed_last):
+    """The new order of the sibling set `cs`, or `(None, cycle)` where
+    `cycle` is the siblings in any dependency cycle, in current order."""
+    opens = [c for c in cs if is_open[c]]
+    pos = {c: k for k, c in enumerate(opens)}
+    holders: dict[str, set[int]] = {}
+    own: dict[int, int] = {}
+    for c in opens:
+        vals = []
+        for d in subtree(c):
+            if not is_open[d]:
+                continue
+            issue = metas[d].get("issue")
+            if isinstance(issue, str) and issue:
+                holders.setdefault(issue, set()).add(c)
+            if prio[d] is not None:
+                vals.append(prio[d])
+        own[c] = min(vals, default=DEFAULT_PRIORITY)
+    needs: dict[int, set[int]] = {c: set() for c in opens}  # c follows these
+    for c in opens:
+        for d in subtree(c):
+            if is_open[d]:
+                for dep in _dep_ids(metas[d]):
+                    needs[c] |= holders.get(dep, set()) - {c}
+    dependents: dict[int, set[int]] = {c: set() for c in opens}
+    for c in opens:
+        for t in needs[c]:
+            dependents[t].add(c)
+    reach: dict[int, set[int]] = {}
+    for c in opens:
+        seen: set[int] = set()
+        stack = [c]
+        while stack:
+            for y in dependents[stack.pop()]:
+                if y not in seen:
+                    seen.add(y)
+                    stack.append(y)
+        reach[c] = seen
+    cycle = [c for c in opens if c in reach[c]]
+    if cycle:
+        return None, cycle
+    key = {c: (min([own[c]] + [own[d] for d in reach[c]]), -len(reach[c]), pos[c])
+           for c in opens}
+    waiting = {c: len(needs[c]) for c in opens}
+    ready = [(key[c], c) for c in opens if not needs[c]]
+    heapq.heapify(ready)
+    ranked: list[int] = []
+    while ready:
+        _k, c = heapq.heappop(ready)
+        ranked.append(c)
+        for d in dependents[c]:
+            waiting[d] -= 1
+            if not waiting[d]:
+                heapq.heappush(ready, (key[d], d))
+    if completed_last:
+        return ranked + [c for c in cs if not is_open[c]], None
+    it = iter(ranked)
+    return [next(it) if is_open[c] else c for c in cs], None
+
+
+def _assemble(
+    pairs: list[tuple[str, str]], runs: dict[int, tuple[list[tuple[int, int]], int]]
+) -> tuple[list[tuple[str, str]], list[int]]:
+    """The block mover: `pairs` (body, terminator per line) with each sorted
+    run re-emitted. `runs` maps a run's first line to its blocks `(start,
+    end)` in the new order and the run's last line. Blocks are walked line
+    by line, so a sorted run inside a moved block is applied too. Returns
+    the lines and `index_map`, where `index_map[u]` is line u's new index.
+    """
+    out: list[tuple[str, str]] = []
+    index_map = [0] * len(pairs)
+
+    def emit(lo: int, hi: int) -> None:
+        i = lo
+        while i <= hi:
+            run = runs.get(i)
+            if run is None:
+                index_map[i] = len(out)
+                out.append(pairs[i])
+                i += 1
+                continue
+            blocks, end = run
+            for start, stop in blocks:
+                emit_block(start, stop)
+            i = end + 1
+
+    def emit_block(start: int, stop: int) -> None:
+        # A block's own line is not its run's start again: emit it, then
+        # walk the rest of the block for inner runs.
+        index_map[start] = len(out)
+        out.append(pairs[start])
+        emit(start + 1, stop)
+
+    emit(0, len(pairs) - 1)
+    return out, index_map
+
+
+def permuted_only(old: str, new: str) -> tuple[bool, str]:
+    """Whether `new` is `old` with only runs of sibling blocks permuted, and
+    the first violation (`""` when ok). The check `order_text`'s callers
+    run before writing; it compares against `old`, not the file on disk.
+
+    It holds when the line counts and the multisets of bodies match; the
+    multisets of (body, terminator) match once each side's unterminated
+    last line gains `old`'s EOL, and the final-newline state is unchanged;
+    every node keeps its body, depth and parent chain; and a canonical walk
+    matches, in which each block holds its lines in order and each run of
+    consecutive sibling blocks under a non-root parent is a multiset.
+
+    It cannot see which runs `order_text` chose to move: a mover that
+    reorders a run the rule leaves alone passes; the rule's own tests own
+    that case.
+    """
+    olds, news = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    if len(olds) != len(news):
+        return False, f"the ordered text has {len(news)} lines, the base {len(olds)}"
+    if not olds:
+        return True, ""
+    okinds, obodies, _ = _classify_lines(olds)
+    nkinds, nbodies, _ = _classify_lines(news)
+    oterms, eol = _line_ends(olds, obodies)
+    nterms, _ = _line_ends(news, nbodies)
+
+    pool = Counter(obodies)
+    for k, body in enumerate(nbodies):
+        if not pool[body]:
+            return False, f"line {k + 1}: '{body}' is not a line of the base"
+        pool[body] -= 1
+
+    def closed(terms: list[str]) -> list[str]:
+        return terms[:-1] + [terms[-1] or eol]
+
+    ocl, ncl = closed(oterms), closed(nterms)
+    pool = Counter(zip(obodies, ocl))
+    for k, pair in enumerate(zip(nbodies, ncl)):
+        if not pool[pair]:
+            return False, f"line {k + 1}: line ending changed"
+        pool[pair] -= 1
+    if bool(oterms[-1]) != bool(nterms[-1]):
+        return False, f"line {len(news)}: line ending changed"
+
+    okeys, nkeys = _node_keys(okinds, obodies), _node_keys(nkinds, nbodies)
+    pool = Counter(okeys.values())
+    for i, key in nkeys.items():
+        if not pool[key]:
+            return False, f"line {i + 1}: node '{_node_text(nbodies[i])}' changed parent or depth"
+        pool[key] -= 1
+    for i, key in okeys.items():
+        if pool[key]:
+            k = nbodies.index(obodies[i])
+            return False, f"line {k + 1}: node '{_node_text(obodies[i])}' changed parent or depth"
+
+    if _canon(okinds, obodies, ocl) != _canon(nkinds, nbodies, ncl):
+        k = next(k for k, (a, b) in enumerate(zip(olds, news)) if a != b)
+        return False, f"line {k + 1}: block structure changed"
+    return True, ""
+
+
+def _node_text(body: str) -> str:
+    return _split_text_and_meta(_BULLET_RE.match(body).group("rest").rstrip())[0]
+
+
+def _node_keys(kinds, bodies) -> dict[int, tuple]:
+    """Each node line's key: (body, depth, parent's key), root None."""
+    keys: dict[int, tuple] = {}
+    for i, p in _parse_parents(kinds).items():
+        keys[i] = (bodies[i], _depth(kinds[i][1]), keys[p] if p >= 0 else None)
+    return keys
+
+
+def _canon(kinds, bodies, terms) -> tuple:
+    """The text as nested blocks, each run of consecutive sibling blocks
+    under a non-root parent sorted, so a permuted run compares equal."""
+    parents = _parse_parents(kinds)
+    ends = {i: _block_end(kinds, bodies, i) for i in parents}
+
+    def walk(lo: int, hi: int) -> tuple:
+        items: list[tuple] = []
+        j = lo
+        while j <= hi:
+            if kinds[j][0] != "node":
+                items.append(("L", bodies[j], terms[j]))
+                j += 1
+                continue
+            run = [j]
+            e = min(ends[j], hi)
+            while e + 1 <= hi and kinds[e + 1][0] == "node" and parents[e + 1] == parents[j]:
+                run.append(e + 1)
+                e = min(ends[e + 1], hi)
+            blocks = [(bodies[s], terms[s], walk(s + 1, min(ends[s], hi))) for s in run]
+            if parents[j] == -1:
+                items.extend(("B",) + b for b in blocks)
+            else:
+                items.append(("R", tuple(sorted(blocks))))
+            j = e + 1
+        return tuple(items)
+
+    return walk(0, len(kinds) - 1)
 
 
 # Meta keys `wbs update` writes; a change to them alone is spliced in place.
