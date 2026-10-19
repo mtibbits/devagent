@@ -1889,8 +1889,9 @@ makes `parse` JSON larger: +25% to +37% on eleven real `WBS.md` files of
 
 A directive is a one-line HTML comment `<!-- wbs-<key>: <value> -->`
 outside a fence (#780). `wbs-<key>:` is case-sensitive, and a line
-starting `<!--` that names a known key but does not parse is malformed.
-`wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
+starting `<!--` that names a known key but does not parse is malformed
+(for `wbs-scope`, only when the comment's text starts with the key; see
+below). `wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
 (`[[line, id], ...]`) and `exclusion_warnings`. Like any comment a
 directive line is kept byte-for-byte; the commands read it and never
 write one, except `--from-tracker`, which writes the scope line once.
@@ -1961,7 +1962,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   a JIRA key counts only within its source's project). A source with no
   present issue has no mark: its absent issues are not added and, when one
   is in scope and not excluded, it gets the notice `no <source> issue is
-  in <dest>; pass a range flag to add its issues`. Closure is not re-applied (a new child does not bring an older
+  in <dest>; pass a range flag to add its issues`. A source whose present
+  issues carry no comparable number also has no mark: its absent issues
+  count as older and nothing is added. Closure is not re-applied (a new child does not bring an older
   absent epic), and the closed-share threshold does not apply. With more
   than 50 issues in the default set (cap 50) it prints the survey JSON
   with a `merge` object (`scope`, `present`, `excluded`,
