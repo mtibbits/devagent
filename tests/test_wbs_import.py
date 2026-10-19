@@ -393,6 +393,43 @@ def render(model, selected=None, preamble="# p WBS\n\n", devdoc=None, note="n"):
     return wbs_import.render(model, sel, preamble, devdoc or Path("/nonexistent"), note)
 
 
+def jira_epic_model():
+    """One Jira source (keyprefix PROJ): epic PROJ-1 with child PROJ-2."""
+    return wbs_import.build([src([rec("PROJ-1", labels=["epic"], url=J + "PROJ-1"),
+                                  rec("PROJ-2", parent=J + "PROJ-1", url=J + "PROJ-2")],
+                                 backend="jira", repo="PROJ", keyprefix="PROJ")])
+
+
+@pytest.mark.parametrize("which, rng, want", [
+    ("demo", "all", "all"),
+    ("demo", "open-only", "open-only"),
+    ("demo", "since:2026-03-01", "since:2026-03-01"),
+    ("demo", "epic:1", "epic:Issue-1"),
+    ("demo", "epic:Issue-1", "epic:Issue-1"),
+    ("demo", "since:40", "since:40"),
+    ("demo", "since:Issue-40", "since:Issue-40"),
+    ("jira", "epic:PROJ-1", "epic:Issue-1"),
+    ("jira", "epic:1", "epic:Issue-1"),
+    ("jira", "all", "all"),
+])
+def test_scope_value_forms_round_trip(which, rng, want):
+    # #797: the seed's scope line reads back, through select, as the range it wrote
+    m = demo_model() if which == "demo" else jira_epic_model()
+    assert wbs_import.scope_value(m, rng) == want
+    assert wbs_import.select(m, wbs_import.scope_value(m, rng)) == wbs_import.select(m, rng)
+
+
+def test_render_writes_the_scope_line_after_the_note():
+    m = demo_model()
+    sel = wbs_import.select(m, "all")
+    plain = wbs_import.render(m, sel, "# p WBS\n\n", Path("/nonexistent"), "n")
+    scoped = wbs_import.render(m, sel, "# p WBS\n\n", Path("/nonexistent"), "n", scope="all")
+    assert "<!-- n -->\n<!-- wbs-scope: all -->\n\n" in scoped
+    assert scoped == plain.replace("<!-- n -->\n", "<!-- n -->\n<!-- wbs-scope: all -->\n")
+    assert wbs_import.render(m, sel, "# p WBS\n\n", Path("/nonexistent"), "n",
+                             scope=None) == plain == render(m)
+
+
 def test_unparented_by_milestone_then_unparented():
     out = render(demo_model())
     assert out == (

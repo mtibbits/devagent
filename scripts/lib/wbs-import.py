@@ -510,6 +510,18 @@ def _select_epic(model: Model, node: Node) -> set[str]:
     return {n.leaf for n in _subtree(node)} | {n.leaf for n in _ancestors(node)}
 
 
+def _epic_node(model: Model, value: str) -> Node:
+    """The one epic an `epic:` value names; RangeError when it names none
+    (the epics listed) or is ambiguous."""
+    hits = _hits(model, *_id_token(model, value))
+    if len(hits) > 1:
+        raise RangeError(f"--epic {value} is ambiguous; name one of "
+                         + ", ".join(h.leaf for h in hits))
+    if not hits or not hits[0].group:
+        raise RangeError(f"--epic {value} names no epic; {_epics_hint(model)}")
+    return hits[0]
+
+
 def select(model: Model, rng: str) -> set[str]:
     """The leaf ids a range imports (see the module docstring).
 
@@ -534,14 +546,18 @@ def select(model: Model, rng: str) -> set[str]:
         floor = _tail_num(v)
         return _close([n for n in nodes if n.is_open or (n.si in sis and n.num >= floor)])
     if kind == "epic":
-        hits = _hits(model, *_id_token(model, value))
-        if len(hits) > 1:
-            raise RangeError(f"--epic {value} is ambiguous; name one of "
-                             + ", ".join(h.leaf for h in hits))
-        if not hits or not hits[0].group:
-            raise RangeError(f"--epic {value} names no epic; {_epics_hint(model)}")
-        return _select_epic(model, hits[0])
+        return _select_epic(model, _epic_node(model, value))
     raise RangeError(f"unknown range {rng}")
+
+
+def scope_value(model: Model, rng: str) -> str:
+    """The `wbs-scope` value a seed writes for a range `select` accepted
+    (#797): an epic as its leaf, so it reads back in its one source; every
+    other range as given (a bare `since:N` names every source)."""
+    kind, _, value = rng.partition(":")
+    if kind == "epic":
+        return f"epic:{_epic_node(model, value).leaf}"
+    return rng
 
 
 # --- rendering ----------------------------------------------------------------------
@@ -619,9 +635,11 @@ def _top_level(groups: list[dict], by_ms: dict[str, list[dict]], loose: list[dic
     return tops
 
 
-def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str) -> str:
-    """The new WBS.md: preamble, one `<!-- note -->` line, a blank line, then
-    the nodes: group nodes (epics, or roots with children) in node order,
+def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: str,
+           scope: str | None = None) -> str:
+    """The new WBS.md: preamble, one `<!-- note -->` line, the
+    `<!-- wbs-scope: <scope> -->` line when a scope is given (#797), a
+    blank line, then the nodes: group nodes (epics, or roots with children) in node order,
     then one container per milestone (casefolded title order), then
     `Unparented`. Containers appear only when non-empty and carry no issue.
     Glyphs come from wbs-tracker.py `resolve` (tracker class, then the
@@ -643,6 +661,8 @@ def render(model: Model, selected: set[str], preamble: str, devdoc_dir, note: st
     if preamble and not preamble.endswith("\n"):
         preamble += "\n"
     doc = f"{preamble}<!-- {note} -->\n"
+    if scope is not None:
+        doc += f"<!-- {_wbs_parser().SCOPE_KEY} {scope} -->\n"
     if tops:
         doc += "\n" + _wbs_parser().render_nodes({"title": "", "children": tops})
     return doc
@@ -932,7 +952,8 @@ def run(env) -> int:
     froms = ", ".join(f"{s['backend']} {s['repo']}" for s in sources)
     note = (f"wbs init --from-tracker {datetime.date.today().isoformat()} {rng}: "
             f"{len(selected)} issues from {froms}")
-    doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note)
+    doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note,
+                 scope=scope_value(model, rng))
     dest = Path(env["WBS_IMP_DEST"])
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:

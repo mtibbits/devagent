@@ -207,7 +207,8 @@ _leaf() {
 _expected_all() {
   local n g
   sed -e 's/{{PROJECT}}/testproj/g' -e '/^- \[/,$d' "$REPO/templates/wbs_template.md"
-  printf '%s\n' '<!-- wbs init --from-tracker DATE all: 62 issues from github acme/testproj -->' ''
+  printf '%s\n' '<!-- wbs init --from-tracker DATE all: 62 issues from github acme/testproj -->' \
+    '<!-- wbs-scope: all -->' ''
   _leaf 1 1 x "Data pipeline"; for n in 4 5 6 7 8 9; do _leaf 2 "$n" x; done
   _leaf 1 2 x "Reporting"; for n in 10 11 12 13 14; do _leaf 2 "$n" x; done
   _leaf 1 3 x "Storage layer"; for n in 15 16 17 18; do _leaf 2 "$n" x; done
@@ -295,6 +296,31 @@ _expected_all() {
   [ "$status" -eq 2 ]
   [[ "$stderr" == *"Issue-1, Issue-2, Issue-3, Issue-83, Issue-84"* ]]
   [ ! -e "$TMPDEV/WBS.md" ]
+}
+
+@test "--from-tracker writes its range as a wbs-scope line (auto-import: all; --since 2026-03-01)" {
+  _setup_project; _gh no 'auto_import_below_pct = 80'
+  _init --from-tracker
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: all -->' "$TMPDEV/WBS.md")" -eq 1 ]
+  [ "$(grep -A1 '^<!-- wbs init --from-tracker ' "$TMPDEV/WBS.md" | tail -1)" = '<!-- wbs-scope: all -->' ]
+  rm "$TMPDEV/WBS.md"
+  _gh
+  _init --from-tracker --since 2026-03-01
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -c 'wbs-scope' "$TMPDEV/WBS.md")" -eq 1 ]
+  [ "$(grep -cFx '<!-- wbs-scope: since:2026-03-01 -->' "$TMPDEV/WBS.md")" -eq 1 ]
+}
+
+@test "--from-tracker --epic Issue-2 writes epic:Issue-2, and a bare --epic 2 writes the same leaf" {
+  _setup_project; _stub
+  _init --from-tracker --epic Issue-2
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: epic:Issue-2 -->' "$TMPDEV/WBS.md")" -eq 1 ]
+  rm "$TMPDEV/WBS.md"
+  _init --from-tracker --epic 2
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(grep -cFx '<!-- wbs-scope: epic:Issue-2 -->' "$TMPDEV/WBS.md")" -eq 1 ]
 }
 
 @test "fork: leaves carry the fork prefix and the share is combined" {
