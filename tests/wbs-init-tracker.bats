@@ -443,6 +443,27 @@ _expected_all() {
   cmp "$TMPROOT/imported" "$TMPDEV/WBS.md"
 }
 
+@test "wbs show --milestone finds quote-led milestone nodes by their written form (#789)" {
+  _setup_project; _stub
+  cat > "$TMPROOT/issue-list.github.acme_testproj" <<'JSONL'
+{"id":"1","title":"One","body":"","state":"open","class":"open","created":"2026-03-01","closed":null,"milestone":"'v1'","labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/1"}
+{"id":"2","title":"Two","body":"","state":"open","class":"open","created":"2026-03-02","closed":null,"milestone":"\"v1\"","labels":[],"type":null,"parent":null,"blocked_by":[],"url":"https://github.com/acme/testproj/issues/2"}
+JSONL
+  _init --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  grep -qFx -- "- [ ] 'v1' {milestone: \"'v1'\"}" "$TMPDEV/WBS.md"
+  grep -qFx -- "- [ ] \"v1\" {milestone: \"'v1'\"}" "$TMPDEV/WBS.md"
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone "'v1'"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^- \[' <<< "$output")" -eq 2 ]
+  [[ "$output" == *"  - [ ] One {issue: Issue-1}"* ]]
+  [[ "$output" == *"  - [ ] Two {issue: Issue-2}"* ]]
+  # the stored form is the safe_meta one; the tracker's own "v1" finds nothing
+  run bash "$REPO/scripts/wbs.sh" show testproj --milestone '"v1"'
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^- \[' <<< "$output")" -eq 0 ]
+}
+
 # --- --merge (#707) ----------------------------------------------------------------
 # tests/fixtures/wbs-merge: base.md is a hand-arranged WBS and issue-list.jsonl
 # the tracker (issues 1-16). Expected placement over base.md:
@@ -736,6 +757,14 @@ _shaped_import_cut() {
   # the verb is in both contract homes
   grep -qF '| `issue-list`' "$REPO/README.md"
   sed -n '/^### 9\.1 /,/^### 9\.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" | grep -qE '^issue-list +<repo>'
+}
+
+@test "docs: spec 13.1 states how a quote-led meta value is written (#789)" {
+  local spec13="$TMPROOT/spec13"
+  sed -n '/^### 13\.1 /,/^### 13\.3 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" > "$spec13"
+  # the literal the quote-led --milestone test proves wbs init writes
+  grep -qF -- "{milestone: \"'v1'\"}" "$spec13"
+  grep -qF -- "--milestone \"'v1'\"" "$spec13"
 }
 
 @test "docs name --merge and the exclusion line in every home" {

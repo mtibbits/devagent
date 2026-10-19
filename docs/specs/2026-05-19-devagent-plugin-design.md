@@ -1833,6 +1833,22 @@ from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
 MRs linked to the leaf's open issue (#704). `wbs update` owns both keys: a
 hand-written `mr` value is rewritten or removed.
 
+A string meta value is written quoted when it holds `,` or `:`, holds a
+space and does not start with `@`, or starts with `"` or `'` (#789). It is
+wrapped in `"…"`, or in `'…'` when it holds a `"`. The reader takes a value
+that starts with a quote as quoted, up to the next matching quote, so a
+quote-led value written bare would lose its quotes. There are no escapes: a
+value that holds both quote characters does not round-trip (the read garbles
+it and the keys after it), and list items are written unquoted. The rule applies to the lines the commands write (new
+nodes and regenerated lines). Every other line keeps its own quoting.
+`wbs init` writes a milestone node's `milestone` as the tracker title in its
+`safe_meta` form: the node-title normalisation (whitespace runs collapsed to
+one space, `{`/`}` written as `(`/`)`, leading checkboxes stripped), then
+`"` written as `'` and `[`/`]` as `(`/`)`. So a tracker milestone `"v1"`
+gives `{milestone: "'v1'"}`. `wbs show --milestone` compares the value as
+read: `--milestone "'v1'"` finds that node, and `--milestone '"v1"'` finds
+none.
+
 A node is a `- [g] …` line outside a fenced code block. A fence may
 open at any indentation, so a fence in a leaf's indented note hides the
 node-shaped lines up to its closer. Every other

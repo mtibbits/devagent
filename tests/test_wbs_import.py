@@ -452,6 +452,40 @@ def test_safe_title_braces_newlines_leading_bullet():
     assert leaf["text"] == "Fix (braces) and lines" and leaf["meta"] == {"issue": "Issue-1"}
 
 
+@pytest.mark.parametrize(
+    "raw,want",
+    [
+        ("- [x]", "(no title)"),
+        ("- [x]foo", "foo"),
+        ("- [ ]", "(no title)"),
+        ("- [x]- [y]z", "z"),
+        ("- [ab] x", "ab] x"),
+    ],
+    ids=["x-bare", "x-glued", "space-bare", "x-chain", "two-char"],
+)
+def test_safe_title_strips_a_checkbox_with_no_space_after(raw, want):
+    assert wbs_import.safe_title(raw) == want
+
+
+@pytest.mark.parametrize(
+    "title,want",
+    [
+        ("'v1'", "'v1'"),
+        ('"v1"', "'v1'"),
+        ("'beta", "'beta"),
+        ("v1'", "v1'"),
+        ("'v1' beta", "'v1' beta"),
+    ],
+    ids=["sq-wrapped", "dq-wrapped", "sq-led", "sq-trailing", "sq-spaced"],
+)
+def test_quote_led_milestone_container_parses_to_its_safe_meta(title, want):
+    # #789: a container written for a quote-led milestone reads back as safe_meta
+    m = wbs_import.build([src([rec("1", milestone=title)])])
+    ms, = parser.parse_text(render(m))["children"]
+    assert ms["meta"] == {"milestone": want}
+    assert want == wbs_import.safe_meta(title)
+
+
 def test_render_preamble_is_kept_and_title_not_repeated():
     out = render(demo_model(), preamble="# p WBS\n\n> note\n\n")
     assert out.startswith("# p WBS\n\n> note\n\n<!-- n -->\n\n- [x] ")
@@ -621,6 +655,20 @@ def test_merge_milestone_tie_first_in_document_order():
     assert stats["warnings"] == [
         "milestone 'M1' has 2 candidate nodes (lines 2, 4); its issues go under the first"]
     assert merged("- [ ] A {milestone: M1}\n", m)[1]["warnings"] == []
+
+
+@pytest.mark.parametrize("title", ["'v1'", '"v1"', "'beta"],
+                         ids=["sq-wrapped", "dq-wrapped", "sq-led"])
+def test_merge_quoted_milestone_reuses_its_container(title):
+    # #789: the second merge finds the container the first one wrote
+    base = "# p WBS\n\n- [ ] Root\n"
+    first, s1 = merged(base, wbs_import.build([src([rec("1", title="One", milestone=title)])]))
+    assert s1["new_tops"] == 1
+    m2 = wbs_import.build([src([rec("1", title="One", milestone=title),
+                                rec("2", title="Two", milestone=title)])])
+    out, s2 = merged(first, m2)
+    assert (s2["under_existing"], s2["new_tops"]) == (1, 0)
+    assert out == first + "  - [ ] Two {issue: Issue-2}\n"
 
 
 def test_merge_unparented_reused_or_created():
