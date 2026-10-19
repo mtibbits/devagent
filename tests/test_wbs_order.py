@@ -874,3 +874,51 @@ def test_write_update_reports_order_warnings(tmp_path):
     dest = _dest(tmp_path, WARNING_MOVES)
     tree = wbs_parser.parse_file(dest)
     assert wbs_parser.write_update(dest, tree, order=True) == [PRIORITY_WARN.format(2, "high")]
+
+
+# --- Task 8: the regression fixture -----------------------------------------------
+# devagent's WBS.md as the operator hand-sorted it on 2026-10-15 (devDoc blob
+# 7b25b038:devagent/WBS.md), with the epic demo (Issue-791) at P4 instead of
+# P2, the one edit the operator made before upgrading (devDoc 72821f19).
+
+HAND_SORTED = (FIX / "devagent-hand-sorted.md").read_bytes().decode("utf-8")
+DEMO_P4 = "{issue: Issue-791, priority: P4}"
+
+
+def _epic(text, issue):
+    return next(c for c in wbs_parser.parse_text(text)["children"]
+                if c["meta"].get("issue") == issue)
+
+
+def test_hand_sorted_fixture_shape():
+    tree = wbs_parser.parse_text(HAND_SORTED)
+    open_leaves = [n for n in wbs_parser.leaves(tree) if n["glyph"] not in "x-"]
+    assert len(HAND_SORTED.splitlines()) == 153
+    assert "\r" not in HAND_SORTED
+    assert len(tree["children"]) == 11
+    assert len(open_leaves) == 104
+    assert all(isinstance(n["meta"].get("priority"), str)
+               and wbs_parser.PRIORITY_RE.fullmatch(n["meta"]["priority"]) for n in open_leaves)
+    assert sum(1 for n in open_leaves if n["meta"].get("depends_on")) >= 40
+    assert len(_epic(HAND_SORTED, "Issue-705")["children"]) >= 30
+    assert HAND_SORTED.count(DEMO_P4) == 1
+
+
+@pytest.mark.parametrize("cl", [True, False])
+def test_hand_sorted_is_fixed_point(cl):
+    out, warnings, n, m = wbs_parser._order(HAND_SORTED, cl)
+    assert (n, m) == (0, 11)
+    assert out == HAND_SORTED
+    assert warnings == []
+
+
+def test_demo_at_p2_moves_one_set():
+    # Before the operator's edit, the first cleanup after upgrading makes
+    # exactly one move: the demo rises to the end of #705's P2 group.
+    p2 = HAND_SORTED.replace(DEMO_P4, "{issue: Issue-791, priority: P2}")
+    out, warnings, n, m = wbs_parser._order(p2, True)
+    assert (n, m) == (1, 11)
+    assert warnings == []
+    ids = [c["meta"]["issue"] for c in _epic(out, "Issue-705")["children"]]
+    assert ids.index("Issue-791") == 7
+    assert wbs_parser.permuted_only(p2, out) == (True, "")

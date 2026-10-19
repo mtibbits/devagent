@@ -1,0 +1,153 @@
+# devagent WBS
+
+- [ ] Epic #580 evidence-integrity residuals {issue: Issue-580, milestone: tranche-5}
+  - [~] scan-build-18 analyzes nothing on a build dir CMake configured without it {issue: Issue-684, priority: P1, est: ?w, status_src: checklist}
+  - [ ] step-13 analyzers read source_dir, not the issue's worktree, and stamp no head or branch {issue: Issue-689, priority: P1, est: ?w}
+  - [ ] compiler row reads clean when a diff changes only headers or .cpp/.cxx sources {issue: Issue-694, priority: P2, est: ?w, depends_on: Issue-683}
+  - [ ] run-suite records 0 passed when a project's pytest addopts already say -q {issue: Issue-709, priority: P2, est: ?w}
+  - [ ] compiler row reads clean on Windows: MSVC diagnostics and backslash paths are dropped {issue: Issue-685, priority: P2, est: ?w, depends_on: Issue-683}
+  - [ ] born-red and record-scope write into whichever issue the shared slot names {issue: Issue-690, priority: P2, est: ?w}
+  - [ ] preship passes a born-red: Evidence line that no born-red.sh run produced {issue: Issue-691, priority: P2, est: ?w}
+  - [ ] analyze-shellcheck drops NEW findings for non-ASCII or quoted names and colored diffs {issue: Issue-695, priority: P2, est: ?w}
+  - [ ] step 13 is marked done when a static analyzer row reports that its tool failed {issue: Issue-696, priority: P2, est: ?w, depends_on: [Issue-683, Issue-684, Issue-694]}
+  - [ ] preship passes an MR whose Evidence block hides a file_modes: no-op suite run {issue: Issue-697, priority: P2, est: ?w}
+  - [ ] run-suite's suite runs another clone's scripts when DEVAGENT_ROOT is inherited {issue: Issue-699, priority: P2, est: ?w}
+  - [ ] failed or truncated shellcheck artifacts pass preship and leave step 13 marked done {issue: Issue-692, priority: P2, est: ?w}
+  - [ ] born-red and record-scope measure source_dir, so a worktree issue's vacuous test passes {issue: Issue-698, priority: P2, est: ?w}
+  - [ ] run-suite records file_modes: posix and modes=posix when its chmod probe itself fails {issue: Issue-693, priority: P3, est: ?w}
+  - [x] run-suite trusts the global active_issue for its evidence path {issue: Issue-659, est: ?w, status_src: tracker}
+  - [x] preship-evidence tree-stamp fallback passes when it cannot verify the checkout {issue: Issue-655, est: ?w, status_src: tracker}
+  - [x] mark or refuse evidence from unsupported environments {issue: Issue-654, est: ?w, depends_on: Issue-655, status_src: tracker}
+  - [x] clone detection clause is inert for local-path origins {issue: Issue-656, est: ?w, status_src: tracker}
+  - [x] venv pytest counting + mixed-framework gap {issue: Issue-466, est: ?w, status_src: tracker}
+  - [x] stamp the analyzer version in evidence artifact headers {issue: Issue-657, est: ?w, status_src: tracker}
+  - [x] detect stale blessed clones before they produce evidence {issue: Issue-660, est: ?w, depends_on: Issue-655, status_src: tracker}
+  - [x] analyze-shellcheck records a failed shellcheck run as 0 findings and marks step 13 done {issue: Issue-675, est: ?w, status_src: tracker}
+  - [x] stamp tool versions in the cmake analyzer family's static and sanitizer artifacts {issue: Issue-676, est: ?w, status_src: tracker}
+  - [x] carry the analyzer version stamp into the MR body's Evidence block {issue: Issue-677, est: ?w, status_src: tracker}
+  - [x] document the shellcheck floor for users of the shellcheck analyzer {issue: Issue-678, est: ?w, status_src: tracker}
+  - [x] clang-format, iwyu, scan-build-18 and compiler rows read clean or pass when the tool fails {issue: Issue-683, est: ?w, status_src: tracker}
+- [ ] Epic #581 scope-resolution stragglers {issue: Issue-581, milestone: tranche-5}
+  - [ ] eight project-resolving scripts accept an unknown project name {issue: Issue-661, priority: P1, est: ?w}
+  - [ ] automatic DEVAGENT_ env loader for capture-family scripts {issue: Issue-662, priority: P2, est: ?w}
+  - [ ] worktree checkouts land on the scope guard UNDECIDABLE branch {issue: Issue-658, priority: P2, est: ?w}
+  - [ ] stale non-empty DEVAGENT_PROJECT is silently reused across captures {issue: Issue-663, priority: P2, est: ?w, depends_on: Issue-662}
+  - [ ] batch the scope guard config reads and export the fetched source_dir {issue: Issue-664, priority: P3, est: ?w}
+- [ ] Epic #404 onboarding website and go-public packaging {issue: Issue-404}
+  - [x] author the six onboarding pages {issue: Issue-461, est: ?w, status_src: tracker}
+  - [x] private preview artifact for operator review {issue: Issue-462, est: ?w, status_src: tracker}
+  - [x] decide repository visibility for site and distribution {issue: Issue-463, est: ?w, status_src: tracker}
+  - [x] go-public preflight {issue: Issue-464, est: ?w, depends_on: Issue-463, status_src: tracker}
+  - [x] Pages deployment workflow {issue: Issue-465, est: ?w, depends_on: [Issue-463, Issue-464], status_src: tracker}
+- [ ] Epic #705 WBS from shared tracker history {issue: Issue-705}
+  - [ ] tidy wbs-init.sh flag modes and the build() parent-line binding {issue: Issue-799, priority: P4}
+  - [ ] share one issue-id resolver between wbs init and wbs update {issue: Issue-792, priority: P2}
+  - [ ] guard bc_jira_paginate on non-JSON pages and cap bc_gitlab_paginate {issue: Issue-774, priority: P2}
+  - [ ] close WBS writer traps and route every WBS.md write through one path {issue: Issue-764, priority: P2, depends_on: Issue-799}
+  - [ ] parse wbs-exclude in the WBS parser and honour it in wbs update {issue: Issue-780, priority: P2, depends_on: Issue-792}
+  - [ ] round-trip quoted milestones and checkbox-only titles in wbs init {issue: Issue-789, priority: P2}
+  - [ ] stop wbs init --merge exiting 10 on every run over a mature WBS {issue: Issue-797, priority: P2}
+  - [ ] measure the GitLab /links and Jira Blocks shapes against live servers {issue: Issue-778, priority: P3}
+  - [ ] move GitHub issue-list to one gh api graphql --paginate path {issue: Issue-779, priority: P3}
+  - [ ] make backend paging linear and GitLab blocker links scale {issue: Issue-776, priority: P3, depends_on: [Issue-774, Issue-778]}
+  - [ ] prefer a merge-shaped milestone container in wbs init --merge {issue: Issue-763, priority: P4}
+  - [ ] decide whether a stale checklist [x] yields to an open tracker issue {issue: Issue-767, priority: P3}
+  - [ ] fix WBS meta splice leftovers and stale mr: with no code backend {issue: Issue-771, priority: P3}
+  - [ ] add a wbs exclude command that writes wbs-exclude lines {issue: Issue-761, priority: P3, depends_on: [Issue-780, Issue-792, Issue-764]}
+  - [ ] add --dry-run to wbs update and wbs init --merge; reject unknown flags {issue: Issue-762, priority: P3, depends_on: Issue-799}
+  - [ ] compare Jira keys by project and number in wbs init --since {issue: Issue-765, priority: P3}
+  - [ ] degrade GitHub issue-list on servers lacking the newer issue fields {issue: Issue-768, priority: P3, depends_on: Issue-779}
+  - [ ] degrade the WBS MR phase per issue instead of aborting it project-wide {issue: Issue-769, priority: P3, depends_on: Issue-774}
+  - [ ] skip WBS node lines inside HTML comments; settle unclosed fences {issue: Issue-775, priority: P3}
+  - [ ] make wbs update and wbs init report what they actually did {issue: Issue-777, priority: P3}
+  - [ ] make wbs-parser fence pairing linear on pathological issue bodies {issue: Issue-785, priority: P3}
+  - [ ] report WBS backend and config mistakes instead of ignoring them {issue: Issue-786, priority: P3}
+  - [ ] report WBS leaves whose tracker issues no longer exist in wbs init --merge {issue: Issue-787, priority: P3, depends_on: Issue-792}
+  - [ ] show MR state for a renamed GitLab project in wbs update {issue: Issue-794, priority: P3}
+  - [ ] split WBS lines only on CR and LF, and name the file on invalid UTF-8 {issue: Issue-796, priority: P3}
+  - [ ] use one catch-all node name for WBS issues with no parent {issue: Issue-801, priority: P3, depends_on: Issue-792}
+  - [ ] widen how wbs update finds an issue's linked MRs {issue: Issue-802, priority: P3}
+  - [ ] find linked MRs from the code repo for Jira and split-repo projects {issue: Issue-770, priority: P3}
+  - [ ] re-parent moved issues in wbs init --merge with --reparent {issue: Issue-781, priority: P3, depends_on: [Issue-764, Issue-763]}
+  - [ ] read GitLab epics as WBS parents in wbs init --from-tracker {issue: Issue-783, priority: P3, depends_on: Issue-799}
+  - [ ] support Jira Data Center and Server in the WBS tracker verbs {issue: Issue-798, priority: P3, depends_on: [Issue-774, Issue-776]}
+  - [ ] share one URL encoder across the issue and code backends {issue: Issue-793, priority: P4}
+  - [ ] tie issue-list class to state in the backend contract {issue: Issue-800, priority: P4}
+  - [ ] share one tracker-fetch helper between wbs init and wbs update {issue: Issue-766, priority: P4}
+  - [ ] fix WBS template and docs drift left by the tracker epic {issue: Issue-772, priority: P4}
+  - [ ] generate WBS fixtures, share helpers, test the page cap, unskip gh legs {issue: Issue-773, priority: P4}
+  - [ ] run the WBS epic's end-to-end demo and record its evidence on the epic {issue: Issue-791, priority: P4}
+  - [x] fix wbs update downgrading leaves with no local checklist {issue: Issue-702, est: ?w, status_src: tracker}
+  - [x] fix wbs update misreading revisioned checklists {issue: Issue-700, est: ?w, depends_on: Issue-702, status_src: tracker}
+  - [x] fix wbs update dropping and rewriting WBS.md lines it never changed {issue: Issue-701, est: ?w, depends_on: Issue-702, status_src: tracker}
+  - [x] derive WBS leaf status from tracker issue state {issue: Issue-703, est: ?w, depends_on: Issue-702, status_src: tracker}
+  - [x] show linked MR state on WBS leaves {issue: Issue-704, est: ?w, depends_on: Issue-703, status_src: tracker}
+  - [x] seed the WBS from tracker history on an ongoing project {issue: Issue-706, est: ?w, status_src: tracker}
+  - [x] merge new tracker issues into an existing WBS {issue: Issue-707, est: ?w, depends_on: [Issue-701, Issue-706], status_src: tracker}
+- [ ] Epic #711 issue trust gate for shared queues {issue: Issue-711}
+  - [ ] add events and whoami verbs to the issue backends {issue: Issue-712, priority: P1, est: ?w}
+  - [ ] load the trust policy and refuse trusted worker identities {issue: Issue-713, priority: P1, est: ?w, depends_on: Issue-712}
+  - [ ] quarantine a pulled issue until a human releases it {issue: Issue-714, priority: P1, est: ?w, depends_on: [Issue-710, Issue-712, Issue-713]}
+  - [ ] stage pulled text and gate it on deterministic checks {issue: Issue-715, priority: P1, est: ?w, depends_on: [Issue-712, Issue-713, Issue-714]}
+  - [ ] check issue provenance against tracker history at pull {issue: Issue-716, priority: P1, est: ?w, depends_on: [Issue-712, Issue-713, Issue-715]}
+  - [ ] screen a pulled issue before its text steers the workflow {issue: Issue-717, priority: P2, est: ?w, depends_on: [Issue-715, Issue-716]}
+  - [ ] claim the issue at pull instead of at draft {issue: Issue-719, priority: P2, est: ?w, depends_on: [Issue-710, Issue-712, Issue-713, Issue-714, Issue-715, Issue-717]}
+  - [ ] check the plugin's outward writes against the issue's bounds {issue: Issue-718, priority: P1, est: ?w, depends_on: [Issue-712, Issue-713, Issue-714, Issue-715, Issue-716, Issue-717, Issue-719]}
+  - [ ] document the shared-queue trust model {issue: Issue-721, priority: P3, est: ?w, depends_on: Issue-718}
+  - [ ] countersign issues with SSH signatures verified at pull {issue: Issue-720, priority: P3, est: ?w, depends_on: [Issue-712, Issue-713, Issue-714, Issue-715, Issue-716, Issue-718, Issue-721]}
+- [ ] Unassigned
+  - [ ] tracker transitions ignore the configured stage mappings {issue: Issue-710, priority: P1, est: ?w}
+  - [ ] jira backend addresses a bare issue number as the internal id, not the key {issue: Issue-756, priority: P2}
+  - [ ] read issue-checklist status through one revision-aware reader {issue: Issue-784, priority: P2}
+  - [ ] route twelve files' raw devdoc_dir reads through project_devdoc_dir {issue: Issue-790, priority: P2}
+  - [ ] ship and mergetoall tests hard-code /usr/bin/git and fail where git lives elsewhere {issue: Issue-680, priority: P3, est: ?w}
+  - [ ] One whole-branch code review per issue {issue: Issue-669, priority: P3, est: ?w}
+  - [ ] batch the config reads in template.sh list (31 s in Git Bash) {issue: Issue-795, priority: P3}
+  - [ ] report MR CI status after ship and gate mergetoall on green {issue: Issue-782, priority: P3}
+  - [ ] roll leaf status up to parent and epic nodes in the WBS {issue: Issue-788, priority: P3}
+  - [ ] Trial a cheaper session model for the close-out phase {issue: Issue-670, priority: P4, est: ?w}
+  - [ ] Clear the shellcheck notes that make the contributor lint disagree between 0.9.0/0.10.0 and 0.11.0 {issue: Issue-679, priority: P4, est: ?w}
+  - [ ] Shared pass-through stub helper for bats tests {issue: Issue-681, priority: P4, est: ?w, depends_on: Issue-680}
+  - [x] Issue-613 {issue: Issue-613, est: ?w, status_src: tracker}
+  - [x] Issue-591 {issue: Issue-591, est: ?w, status_src: tracker}
+  - [x] Issue-339 {issue: Issue-339, est: ?w, status_src: tracker}
+  - [x] Issue-590 {issue: Issue-590, est: ?w, status_src: tracker}
+  - [x] Issue-593 {issue: Issue-593, est: ?w, status_src: tracker}
+  - [x] Issue-595 {issue: Issue-595, est: ?w, status_src: tracker}
+  - [x] Issue-594 {issue: Issue-594, est: ?w, status_src: tracker}
+  - [x] Issue-596 {issue: Issue-596, est: ?w, status_src: tracker}
+  - [x] Issue-597 {issue: Issue-597, est: ?w, status_src: tracker}
+  - [x] Issue-598 {issue: Issue-598, est: ?w, status_src: tracker}
+  - [x] Issue-600 {issue: Issue-600, est: ?w, status_src: tracker}
+  - [x] Issue-601 {issue: Issue-601, est: ?w, status_src: tracker}
+- [ ] Epic: Portfolio view across devagent projects {issue: Issue-724}
+  - [ ] define the versioned portfolio JSON schema {issue: Issue-725, priority: P1}
+  - [ ] aggregate all project WBS files into portfolio JSON {issue: Issue-726, priority: P1, depends_on: Issue-725}
+  - [ ] list ready WBS leaves across all projects {issue: Issue-727, priority: P2, depends_on: [Issue-725, Issue-726]}
+  - [ ] render the portfolio as a static HTML page {issue: Issue-728, priority: P2, depends_on: [Issue-726, Issue-727]}
+- [ ] Epic: Actuals ledger of tokens and time per issue {issue: Issue-729}
+  - [ ] archive session transcripts into a durable ledger {issue: Issue-731, priority: P1}
+  - [ ] fix cost-report attribution across projects and worktrees {issue: Issue-730, priority: P2}
+  - [ ] derive agent time and operator time per issue {issue: Issue-733, priority: P2, depends_on: Issue-730}
+  - [ ] report unattributed token cost as per-project overhead {issue: Issue-732, priority: P3, depends_on: Issue-730}
+  - [ ] record issue milestones from checklists, tracker and MRs {issue: Issue-734, priority: P3}
+  - [ ] provide per-issue actuals as a source for the portfolio {issue: Issue-735, priority: P2, depends_on: [Issue-725, Issue-726, Issue-730, Issue-731, Issue-732, Issue-733, Issue-734]}
+- [ ] Epic: Time and token estimates calibrated against actuals {issue: Issue-736}
+  - [ ] define what est measures and add token and range keys {issue: Issue-737, priority: P2}
+  - [ ] record an estimate per issue and compare it at impact {issue: Issue-738, priority: P2, depends_on: Issue-737}
+  - [ ] write planned and approved estimates onto WBS leaves {issue: Issue-754, priority: P2, depends_on: [Issue-737, Issue-738]}
+  - [ ] report estimates against actuals per project {issue: Issue-739, priority: P3, depends_on: [Issue-737, Issue-738, Issue-735]}
+  - [ ] flag open WBS leaves that carry no estimate {issue: Issue-740, priority: P3, depends_on: Issue-737}
+  - [ ] propose estimates for unestimated leaves from closed work {issue: Issue-741, priority: P3, depends_on: [Issue-737, Issue-739, Issue-754, Issue-725]}
+- [ ] Epic: Completion forecasting and capacity planning {issue: Issue-742}
+  - [ ] declare operator capacity in config and check it in doctor {issue: Issue-743, priority: P3}
+  - [ ] forecast project completion with a monte carlo simulation {issue: Issue-744, priority: P1, depends_on: [Issue-725, Issue-726, Issue-727, Issue-737, Issue-739, Issue-743]}
+  - [ ] model operator attention as a shared forecast resource {issue: Issue-745, priority: P3, depends_on: [Issue-743, Issue-744]}
+  - [ ] record forecasts and score them against outcomes {issue: Issue-746, priority: P3, depends_on: [Issue-744, Issue-734, Issue-725]}
+  - [ ] show forecasts and what-if allocation in the portfolio page {issue: Issue-747, priority: P2, depends_on: [Issue-725, Issue-728, Issue-743, Issue-744, Issue-745, Issue-746, Issue-753]}
+- [ ] Epic: Parallel lanes for one project {issue: Issue-748}
+  - [ ] add lane open and close commands {issue: Issue-753, priority: P1}
+  - [ ] serialize devdoc commits and WBS writes across sessions {issue: Issue-749, priority: P1}
+  - [ ] fix quality, redmr and preship reading source_dir {issue: Issue-751, priority: P2}
+  - [ ] list open lanes in status {issue: Issue-750, priority: P3, depends_on: Issue-753}
+  - [ ] add a two-lane end-to-end test and source_dir allow-list {issue: Issue-752, priority: P3, depends_on: [Issue-749, Issue-750, Issue-751, Issue-753, Issue-658, Issue-689, Issue-698, Issue-690, Issue-691]}
