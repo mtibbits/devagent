@@ -9,7 +9,8 @@ Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the use
 This is the workflow step-20 entrypoint. Identical behavior to
 `/devagent:wbs update`; exists as a separate command so the 24-step
 workflow chaining (`--auto`, `--through`) and skill mapping can
-reference a single verb.
+reference a single verb. Like `/devagent:wbs update`, this step also sorts
+each parent's children by dependency, then priority (#803).
 
 ## Completion handoff
 

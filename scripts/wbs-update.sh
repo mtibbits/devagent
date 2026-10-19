@@ -127,7 +127,8 @@
 #
 # The write is line-local (#701). Unchanged lines (prose, headings,
 # comments, fenced blocks), meta formatting, line endings and the
-# final-newline state are kept byte for byte. Only a changed glyph
+# final-newline state are kept byte for byte. Before the order pass
+# below, only a changed glyph
 # character and the `status_src` and `mr` meta are rewritten (set,
 # replaced or removed in place), new nodes are inserted as whole lines,
 # and the file is not rewritten when nothing changed.

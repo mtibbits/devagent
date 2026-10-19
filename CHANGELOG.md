@@ -16,6 +16,29 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed (breaking): `wbs update` sorts each parent's children by dependency, then priority (#803).**
+  - Within every non-root node, open siblings run in dependency order (`depends_on` naming
+    a sibling's `issue`), then by the most urgent `priority: P1`-`P4` inherited from the
+    siblings waiting on them (P3 when none), then by how many siblings wait on them, then
+    by current position. `priority` is now a recognized meta key. Top-level nodes never
+    move. Whole blocks move and every line keeps its bytes; a file with no `priority` and
+    no dependency between siblings is byte-identical. Cleanup's `wbs update` runs it too.
+  - Breaking: spec §13.1 promised that `wbs update` changes only glyphs and the
+    `status_src` and `mr` meta. Now lines can move at the next cleanup. Tracker-imported
+    files (`wbs init --from-tracker` / `--merge`) already carry `depends_on` from tracker
+    blockers, so the first `wbs update` after upgrading can reorder them even without any
+    `priority`.
+  - Preview before upgrading: `/devagent:wbs order --dry-run` prints the moves as a diff
+    and writes nothing. Opt out: `order_on_update = false` in `[project.<p>.wbs]`.
+    `completed_last = true` puts finished siblings after the open ones (default: they
+    keep their positions). An invalid value warns and skips ordering in `wbs update`; a
+    misspelt key in that table warns.
+  - New `/devagent:wbs order [--dry-run]` sorts on request (exit 2 on a usage error or an
+    invalid config value, 1 on an unreadable file or a failed check).
+  - An existing `WBS.md` keeps its old preamble text (the recognized-keys line and the
+    "changes only that glyph" sentence); edit it by hand if you want it current.
+  - The next release is a major one.
+
 - **Fixed: `wbs init` reuses a milestone node whose title starts with a quote, and imports a checkbox-only title as `(no title)` (#789).**
   - The WBS meta writer now quotes a value that starts with `"` or `'`. Any quoted value
     that holds a `"` is now written in `'…'`, so it reads back whole. A tracker milestone

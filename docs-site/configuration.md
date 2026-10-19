@@ -73,11 +73,15 @@ on_merge       = "Done"
 # not_planned_resolutions = ["Won't Do"]  # jira: wbs update reads these done
                                           # resolutions as [-] (#703)
 
-[project.myproj.wbs]           # optional (#706)
+[project.myproj.wbs]           # optional (#706, #803)
 auto_import_below_pct = 20     # wbs init --from-tracker imports
                                # everything while the closed share is below this
                                # (integer 0-100); at or above it /devagent:wbs
                                # asks how far back to go
+order_on_update = true         # wbs update sorts each parent's children by
+                               # dependency, then priority (P1-P4); false: off.
+                               # Preview with /devagent:wbs order --dry-run
+completed_last = false         # true: finished siblings follow the open ones
 
 [project.myproj.step_models]   # optional per-step-class model tiers
 checking = "opus"

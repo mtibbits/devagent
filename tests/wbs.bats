@@ -960,6 +960,11 @@ _wbs701_progress() {
   grep -qF 'byte-for-byte' "$REPO/commands/wbs.md"
   spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
   [[ "$spec131" == *byte-for-byte* ]]
+  # #803: priority joins each recognized-keys list, and the order pass is documented
+  grep -qF 'depends_on, status_src, mr, priority' "$REPO/templates/wbs_template.md"
+  [[ "$spec131" == *'`status_src`, `mr`, `priority`'* ]]
+  [[ "$spec131" == *'**Ordering (#803).**'* ]]
+  grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }
 
 @test "wbs.bats network shim catches a real backend call (#703 control)" {
