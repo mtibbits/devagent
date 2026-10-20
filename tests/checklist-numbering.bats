@@ -215,6 +215,7 @@ CL
     # The 4th arg is what makes the mismatch detectable; a self-mark that omits
     # it silently reopens the wrong-row class.
     local n=0 f
+    # Same 7-set as SCRIPT_TYPED in tests/next-backing.bats; change both with spec §6.3.
     for f in pull branch commit analyze ship mergetoall cleanup; do
         while IFS= read -r hit; do
             n=$((n + 1))
