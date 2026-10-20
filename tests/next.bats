@@ -230,6 +230,42 @@ EOC
   grep -qE '^- \[ \] +18\. ship' "$DEVDOC/Issue-676/checklist.md"
 }
 
+# --- #812: scripts/spike.sh is a helper /devagent:spike calls with its own verbs,
+# not step 3's entry point. The real tree has it executable, so these run the
+# collision for real. The cleanup row is there because --auto implies --through
+# cleanup, which next.sh validates against the checklist.
+_spike_checklist() {
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x]  0. pull
+- [x]  2. draft
+- [ ]  3. spike
+- [ ]  4. scope
+- [ ] 23. cleanup
+EOC
+}
+
+@test "next on the spike row dispatches /devagent:spike, not spike.sh (#812)" {
+  _spike_checklist
+  local before
+  before="$(cat "$DEVDOC/Issue-676/checklist.md")"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 3 (spike), skill-backed"* ]]
+  [[ "$output" == *"Run /devagent:spike volk"* ]]
+  [[ "$output" != *"usage: spike.sh"* ]]
+  [[ "$output" != *"first argument must be"* ]]
+  [ "$(cat "$DEVDOC/Issue-676/checklist.md")" = "$before" ]
+}
+
+@test "next --auto on the spike row emits CHAIN: and exits 0 (#812)" {
+  _spike_checklist
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Run /devagent:spike volk"* ]]
+  [[ "$output" == *"CHAIN: /devagent:next volk --auto"* ]]
+  [[ "$output" != *"usage: spike.sh"* ]]
+}
+
 @test "next --auto halts (nonzero, no advance) when a dispatched script step exits nonzero (#337)" {
   # next.sh dispatches script steps with NO rc check (next.sh:~158) — halt-on-
   # failure exists ONLY via the file's `set -euo pipefail`. Pin it: mark 2-7 done
