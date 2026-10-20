@@ -61,7 +61,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 18 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 19 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
@@ -188,6 +188,8 @@ checking = "opus"                        # improve(5) / review(15) / redmr(16) /
 [project.volk.wbs]                       # `wbs init --from-tracker` (#706); see §13.2
 # auto_import_below_pct = 20             # integer 0-100: import every issue when the closed share
                                          # is below this; at or above, init surveys and asks
+# order_on_update = true                 # #803: wbs update sorts each parent's children (§13.1)
+# completed_last = false                 # true: finished siblings follow the open ones
 ```
 
 `include_coauthor` (per-project bool, default `true`) is a **strip-guard**, not a generator:
@@ -1047,7 +1049,7 @@ bare while the pointer names a different project acts on the pointer's
 project — both Issue-553 misfires (`wbs.sh update` writing another project's
 WBS; `preship-evidence.sh` resolving another project's issue) were this shape.
 Since #572, every PROTECTED resolving script (triage: the normative
-`docs/resolver-scope-triage.md`, 14 PROTECTED / 4 EXEMPT of the 18-member
+`docs/resolver-scope-triage.md`, 15 PROTECTED / 4 EXEMPT of the 19-member
 universe, pinned by `tests/resolver-scope-triage.bats`) calls
 `active_guard_scope` after its own validation and before any read, write, cd,
 or network call. The guard is tri-state:
@@ -1826,8 +1828,9 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`, `status_src`, `mr`. Unrecognized keys are
-preserved verbatim for forward compatibility. `wbs update` writes
+`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`. Unrecognized keys are
+preserved verbatim for forward compatibility. `priority` (`P1` to `P4`, P1
+the most urgent) ranks a node among its siblings (#803; see Ordering below). `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
 from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
 MRs linked to the leaf's open issue (#704). `wbs update` owns both keys: a
@@ -1859,8 +1862,10 @@ LF or CRLF line endings, the presence or absence of a final newline) is
 written back byte-for-byte by `wbs update` and by `wbs-parser.py render`
 of a `parse` tree. `wbs update` changes only the glyph character and
 the `status_src` and `mr` meta of a leaf whose state it resolved (#703,
-#704; set, replaced or removed in place) and adds new nodes as whole
-lines in the file's line-ending style (#701).
+#704; set, replaced or removed in place), adds new nodes as whole
+lines in the file's line-ending style (#701), and then, by default, moves
+whole sibling blocks by the ordering rule below (#803), with every line's
+bytes kept byte-for-byte.
 
 That document render is `render_document(tree, *, allow_removals=False)`
 in `scripts/lib/wbs-parser.py` (#764). It needs the `source_text` that
@@ -1878,14 +1883,60 @@ returns the text a write would produce, or raises, and writes nothing.
 and `check(old, new)` can veto it (`wbs init --merge` passes
 wbs-parser.py's `inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
-`wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
+`wbs order`, `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
 plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
 `WBS.md` writer must write through `write_markdown` or `write_document`.
-A test guards this over `wbs-import.py`, `wbs-init.sh` and
-`wbs-update.sh`; a new writer file must join that list. Plain `wbs init`
+A test guards this over `wbs-import.py`, `wbs-init.sh`, `wbs-update.sh`
+and `wbs-order.sh`, and over `wbs-parser.py`'s own writers (`write_update`
+for `wbs update` and `order_file` for `wbs order`, #803), whose only direct
+write is `write_document`; a new writer file must join that list. Plain `wbs init`
 now runs `python3`, like `show` and `update`. The `source_text` field
 makes `parse` JSON larger: +25% to +37% on eleven real `WBS.md` files of
 18 to 152 nodes (measured 2026-10-17).
+
+**Ordering (#803).** `wbs update` (by default) and `wbs order` keep the
+children of every non-root node in order; top-level nodes never move. A
+node is finished when its own glyph is `[x]` or `[-]`; any other glyph is
+open. Each sibling stands for itself and every node under it. Open sibling
+S comes after open sibling T when an open node under S has a `depends_on`
+entry naming the `issue` of an open node under T: ids match by exact
+string, a node with `depends_on` and no `issue` still counts, and an id
+that names nothing in another sibling's subtree constrains nothing. A
+sibling's own priority is the most urgent `priority` among the open nodes
+under it, P3 when there is none. A value other than `P1` to `P4` counts as
+missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`
+on every run. Its effective priority is the most urgent of its own and
+that of every open sibling depending on it, directly or through other
+siblings, and its fan-out is the number of those siblings. The open
+siblings are sorted topologically: among those whose dependencies are
+placed, the next is the one with the most urgent effective priority, then
+the larger fan-out, then the earlier position. So a set with no `priority`
+and no dependency between its siblings never moves. Finished siblings keep
+their positions; with `[project.<p>.wbs] completed_last = true` they
+follow the open ones in their old relative order. A set is left as it is,
+with one warning `line N: children of '<text>' left in order: <why>`
+naming its parent's line, when a line separates two of its sibling blocks
+(a blank line, prose or a `wbs-exclude` line: `line M separates two of
+them`), a sibling's subtree is not one block (`line M splits the subtree
+of line K`), its siblings differ in depth (`line M is not at the depth of
+line K`), or they form a dependency cycle (`dependency cycle among
+<names>`, each by its `issue`, else its text). Warning line numbers are
+those of the text written. The pass works on text after the render
+(`prepare_write`), so it never meets the render's move refusal: it moves
+whole blocks, a node's line plus the lines its block holds, fences
+included, and every line keeps its bytes byte-for-byte. Before any write,
+`permuted_only(old, new)` checks that the result is the base with only
+runs of sibling blocks permuted: the same lines and line endings, every
+node's parent and depth kept, every block contiguous and byte-identical,
+and every other line in place. When it fails, `wbs update` writes its
+unordered result and prints `wbs update: ordering skipped: <reason>`, and
+`wbs order` writes nothing and exits 1. `[project.<p>.wbs] order_on_update
+= false` turns the pass off in `wbs update`. An invalid value of either
+key (anything but `true` or `false`) warns `[project.<p>.wbs] <key> must
+be true or false, got '<v>'`; `wbs update` adds `; ordering skipped`,
+skips the pass and still writes its glyphs. A key in that table other than
+`auto_import_below_pct`, `order_on_update` and `completed_last` warns
+`unknown key '<k>' ignored`.
 
 A directive is a one-line HTML comment `<!-- wbs-<key>: <value> -->`
 outside a fence (#780). `wbs-<key>:` is case-sensitive, and a line
@@ -2043,6 +2094,24 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   glyph is held between runs. A failed MR lookup writes none of the MR
   phase's changes (glyphs and `mr` values may be stale), prints one
   warning and exits 0; `--offline` skips it too.
+  Last, it sorts each non-root node's children by the §13.1 ordering rule
+  (#803) on every run, `--offline` and an aborted lookup included, unless
+  `[project.<p>.wbs] order_on_update = false`. One write carries the
+  glyphs, the MR phase's values and the moves.
+- `/devagent:wbs order [--dry-run]` (#803) — sort each non-root node's
+  children by the §13.1 ordering rule and write the result; `wbs update`
+  runs the same pass by default. It honours `completed_last`, and ignores
+  `order_on_update` but still validates it. Output: `wbs order: reordered
+  N of M sibling sets in <dest>` or `wbs order: already in order`, after
+  any warning lines. `--dry-run` prints a unified diff of `WBS.md`
+  (labels `a/WBS.md` and `b/WBS.md`) on stdout and the report lines on
+  stderr, and writes nothing. Exit `0` written, nothing to do, or a dry
+  run; `1` a missing, unreadable or non-UTF-8 `WBS.md`, a failed
+  `permuted_only` check (nothing written, and no diff) or a failed write;
+  `2` an unknown flag or extra argument, an unknown project, an unset
+  `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. It
+  takes no lock yet: the WBS lock is #749's, whose caller list gains
+  `wbs order`.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only
 

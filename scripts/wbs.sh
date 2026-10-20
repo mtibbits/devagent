@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat >&2 <<'EOF'
-usage: /devagent:wbs <init|update|show> [project] [args]
+usage: /devagent:wbs <init|update|order|show> [project] [args]
 
   init [--force]                        scaffold <devdoc>/WBS.md from the template
   init --from-tracker [--all | --since <date|issue-id> | --open-only | --epic <issue-id>]
@@ -29,7 +29,9 @@ usage: /devagent:wbs <init|update|show> [project] [args]
                                         (cap 50), the survey, WBS-INIT: choose-range, exit 10
   init [--from-tracker] --survey        print the survey JSON only
   update [--offline]                    set issue-leaf glyphs from the tracker, linked MRs, else checklists; add the active issue
-                                        unless a wbs-exclude line lists it
+                                        unless a wbs-exclude line lists it, then sort each parent's children
+                                        (order_on_update = false turns the sort off)
+  order [--dry-run]                     sort each parent's children by dependency, then priority
   show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
 EOF
   exit 2
@@ -41,6 +43,7 @@ sub="$1"; shift
 case "$sub" in
   init)   exec bash "$SCRIPT_DIR/wbs-init.sh"   "$@" ;;
   update) exec bash "$SCRIPT_DIR/wbs-update.sh" "$@" ;;
+  order)  exec bash "$SCRIPT_DIR/wbs-order.sh"  "$@" ;;
   show)   exec bash "$SCRIPT_DIR/wbs-show.sh"   "$@" ;;
   *)      usage ;;
 esac

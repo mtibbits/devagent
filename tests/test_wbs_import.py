@@ -1381,7 +1381,12 @@ def _write_via(entry, tmp_path):
         dest.write_bytes((REPO / "tests" / "fixtures" / "wbs" / "preserve.md").read_bytes())
         tree = p.parse_file(dest)
         tree["children"][0]["children"][0]["glyph"] = "x"
-        assert p.write_markdown(dest, tree) is True
+        assert p.write_update(dest, tree, order=True) == []
+    elif entry == "order":
+        # stands in for scripts/wbs-order.sh's heredoc (#803)
+        dest.write_bytes(b"- [ ] E\n  - [ ] S {depends_on: T}\n  - [ ] T {issue: T}\n")
+        rc, _report, _diff = p.order_file(dest)
+        assert rc == 0
     elif entry == "merge":
         dest.write_bytes((MERGE_FIX / "base.md").read_bytes())
         assert _run_merge(dest) == 0
@@ -1401,7 +1406,7 @@ def _write_via(entry, tmp_path):
 
 
 @pytest.mark.parametrize("entry, exclusive", [
-    ("update", False), ("merge", False), ("import", True),
+    ("update", False), ("order", False), ("merge", False), ("import", True),
     ("template", True), ("template-force", False),
 ])
 def test_every_writer_calls_write_document_once(entry, exclusive, tmp_path, writes):
@@ -1532,25 +1537,42 @@ def _heredoc(sh, delim="PY"):
 
 
 def test_no_writer_bypasses_write_document():
-    """The guard's universe is the three WBS.md writer files: wbs-import.py,
-    wbs-init.sh and wbs-update.sh (its heredoc Python, plus redirects to its
-    path variables `wbs` and `WBS_PATH`). A new WBS.md writer file must join
-    this list."""
+    """The guard's universe is the four WBS.md writer files: wbs-import.py,
+    wbs-init.sh, wbs-update.sh and wbs-order.sh (each script's heredoc
+    Python, plus redirects to its path variables), and the parser's own
+    writers (`write_markdown`, and #803's `write_update` and `order_file`),
+    whose only direct write is inside `write_document`. A new WBS.md writer
+    file must join this list."""
     imp = LIB.read_text(encoding="utf-8")
     init = (REPO / "scripts" / "wbs-init.sh").read_text(encoding="utf-8")
     update = (REPO / "scripts" / "wbs-update.sh").read_text(encoding="utf-8")
+    order_sh = (REPO / "scripts" / "wbs-order.sh").read_text(encoding="utf-8")
+    parser_src = (REPO / "scripts" / "lib" / "wbs-parser.py").read_text(encoding="utf-8")
     body = _heredoc(update)
+    order_body = _heredoc(order_sh)
     # the redirect legs check by name: pin that those names still hold WBS.md
     assert 'dest="$devdoc_dir/WBS.md"' in init
     assert 'wbs="$devdoc_dir/WBS.md"' in update
     assert 'WBS_PATH="$wbs"' in update
+    assert 'wbs="$devdoc_dir/WBS.md"' in order_sh
     assert _direct_writes(imp) == []
     assert _dest_redirects(init, "dest") == []
     assert _direct_writes(body) == []
     assert _dest_redirects(update, "wbs") + _dest_redirects(update, "WBS_PATH") == []
+    assert _direct_writes(order_body) == []
+    assert _dest_redirects(order_sh, "wbs") == []
     assert _calls_to(imp, "write_document") == 2
     assert _calls_to(imp, "write_markdown") == 1
-    assert _calls_to(body, "write_markdown") == 1
+    assert _calls_to(body, "write_update") == 1
+    assert _calls_to(body, "write_markdown") == 0
+    assert _calls_to(order_body, "order_file") == 1
+    # the parser writes bytes only inside write_document
+    tree = ast.parse(parser_src)
+    span = next((n.lineno, n.end_lineno) for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "write_document")
+    hits = _direct_writes(parser_src)
+    assert hits
+    assert [h for h in hits if not span[0] <= int(h.split(":")[0]) <= span[1]] == []
     # planted controls through the same predicates
     for py in ('Path(d).write_bytes(b"")', 'open(d, "xb")', "open(d, m)",
                'open(d, mode=f"{m}")', 'open(d, mode="a")', 'open(d, "r+b")',

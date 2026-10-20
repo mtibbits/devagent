@@ -157,6 +157,8 @@ fi
 
 # --- --from-tracker (#706) ----------------------------------------------------
 pct=20
+# A new [project.<p>.wbs] key joins the known-key list in config.sh's
+# wbs_order_config too, or every cleanup warns it is unknown (#803).
 if v="$(config_get_project_field "$project" wbs.auto_import_below_pct 2>/dev/null)"; then
   v="$(printf '%s' "$v" | tr -d '\r')"
   [[ "$v" =~ ^(0|[1-9][0-9]?|100)$ ]] \

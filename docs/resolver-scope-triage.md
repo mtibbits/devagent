@@ -1,6 +1,6 @@
 # Resolver-scope triage (#572)
 
-The 18 scripts that resolve the active project — the 17 call sites of
+The 19 scripts that resolve the active project — the 18 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
@@ -13,12 +13,12 @@ diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 18 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 19 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 `scripts/wbs.sh` (comment-only match at `:5`; a pure dispatcher that `exec`s
-`wbs-init.sh` / `wbs-update.sh` / `wbs-show.sh`, all listed).
+`wbs-init.sh` / `wbs-update.sh` / `wbs-order.sh` / `wbs-show.sh`, all listed).
 
 | script | class | reason | `config_is_project` |
 |---|---|---|---|
@@ -38,10 +38,11 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `template.sh` | EXEMPT | read-only resolver/printer; the `# === template <key> (layer=<L>) ===` banner names the resolved file, so a wrong scope is self-identifying — and it is the workflow's hottest script, called with `--project` at five sites | no-validation |
 | `transition-draft-start.sh` | PROTECTED | the only OFF-MACHINE effect: fires a real `on_draft_start` tracker transition for `transition_issue = true` projects | no-validation |
 | `wbs-init.sh` | PROTECTED | scaffolds `<devdoc>/WBS.md` in another project | validates (`:36`) |
+| `wbs-order.sh` | PROTECTED | reorders another project's committed `WBS.md` (#803; the same write as `wbs-update.sh`'s order pass) | validates (`:67`) |
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **14 PROTECTED, 4 EXEMPT; 10 validate, 8 no-validation.** The eight
+Counts: **15 PROTECTED, 4 EXEMPT; 11 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,

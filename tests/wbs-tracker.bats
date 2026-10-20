@@ -723,3 +723,94 @@ _not_added() {
   _update_diff
   [ "$(grep -c 'not added' <<<"$output")" = 0 ]
 }
+
+# --- #803: wbs update orders by default ---------------------------------------
+
+# _wbs_cfg <key> <raw-value>: append one [project.testproj.wbs] key.
+_wbs_cfg() {
+  local cfg="$HOME/.claude/devagent/config.toml"
+  if ! grep -qxF '[project.testproj.wbs]' "$cfg"; then
+    printf '\n[project.testproj.wbs]\n' >> "$cfg"
+  fi
+  printf '%s = %s\n' "$1" "$2" >> "$cfg"
+}
+
+# The set A (depends on C), B, C; the stub closes Issue-2 (B).
+_order_leg() {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] A {issue: Issue-1, depends_on: Issue-3}' \
+    '  - [ ] B {issue: Issue-2}' \
+    '  - [ ] C {issue: Issue-3}' > "$TMPDEV/WBS.md"
+  _list acme/testproj $'1\topen' $'2\tdone' $'3\topen'
+}
+
+# _order_expect <line>...: the expected WBS.md, with the leaf lines given.
+_order_expect() {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$@" > "$TMPDEV/expected"
+}
+
+A_LINE='  - [ ] A {issue: Issue-1, depends_on: Issue-3}'
+B_DONE='  - [x] B {issue: Issue-2, status_src: tracker}'
+C_LINE='  - [ ] C {issue: Issue-3}'
+
+@test "cleanup's call: one write flips the glyph and sorts the set; a repeat is a no-op (#803)" {
+  _order_leg
+  _order_expect "$C_LINE" "$B_DONE" "$A_LINE"
+  run "$REPO/scripts/wbs-update.sh" --if-exists testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  run "$REPO/scripts/wbs-update.sh" --if-exists testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "order_on_update = false keeps the order and still updates glyphs (#803)" {
+  _order_leg
+  _wbs_cfg order_on_update false
+  _order_expect "$A_LINE" "$B_DONE" "$C_LINE"
+  _update_diff
+}
+
+@test "an invalid order_on_update or completed_last warns, writes the glyph, exits 0 (#803)" {
+  local cfg="$HOME/.claude/devagent/config.toml"
+  cp "$cfg" "$cfg.base"
+  _order_expect "$A_LINE" "$B_DONE" "$C_LINE"
+
+  _order_leg
+  _wbs_cfg order_on_update '"maybe"'
+  _update_diff
+  run grep -cxF "wbs update: [project.testproj.wbs] order_on_update must be true or false, got 'maybe'; ordering skipped" <<<"$output"
+  [ "$output" = "1" ]
+
+  cp "$cfg.base" "$cfg"
+  _order_leg
+  _wbs_cfg completed_last 1
+  _update_diff
+  run grep -cxF "wbs update: [project.testproj.wbs] completed_last must be true or false, got '1'; ordering skipped" <<<"$output"
+  [ "$output" = "1" ]
+}
+
+@test "completed_last = true moves a leaf closed in this run after its open siblings (#803)" {
+  _order_leg
+  _wbs_cfg completed_last true
+  _order_expect "$C_LINE" "$A_LINE" "$B_DONE"
+  _update_diff
+}
+
+@test "an aborted tracker lookup still orders (#803)" {
+  _order_leg
+  _list_fail acme/testproj 1 'HTTP 401'
+  # no glyph changes; C (one dependent) leads, then A and B by position
+  _order_expect "$C_LINE" "$A_LINE" '  - [ ] B {issue: Issue-2}'
+  _update_diff
+  [[ "$output" == *"wbs update: WARNING: tracker lookup failed for github acme/testproj"* ]]
+}
+
+@test "an unknown [project.p.wbs] key warns once (#803)" {
+  _order_leg
+  _wbs_cfg order_on_updates false
+  _order_expect "$C_LINE" "$B_DONE" "$A_LINE"
+  _update_diff
+  run grep -cxF "wbs update: [project.testproj.wbs] unknown key 'order_on_updates' ignored" <<<"$output"
+  [ "$output" = "1" ]
+}

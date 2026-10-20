@@ -172,6 +172,55 @@ config_suite_env_resolve() {
   done <<< "$_keys"
 }
 
+# wbs_order_config <project> <caller> [suffix]
+#
+# #803: the one reader of the order pass's [project.<p>.wbs] keys, shared by
+# `wbs update` and `wbs order`. Prints `WBS_ORDER=0|1 WBS_COMPLETED_LAST=0|1`
+# on stdout: `order_on_update` (default true) and `completed_last` (default
+# false), each `true` or `false`. An invalid value prints one stderr line,
+#   <caller>: [project.<p>.wbs] <key> must be true or false, got '<v>'<suffix>
+# keeps that key's default, and makes the status 3 (else 0); the caller maps
+# 3 to its own behaviour. A key in the table outside the known set prints
+#   <caller>: [project.<p>.wbs] unknown key '<k>' ignored
+# and never changes the status: with ordering on by default, a misspelt
+# opt-out (`order_on_updates = false`) must not pass silently.
+wbs_order_config() {
+  local project="$1" caller="$2" suffix="${3:-}"
+  local table="project.${project}.wbs" rc=0 key v order=1 last=0 keys
+  # One list-keys call; a key is only fetched when the table holds it, so the
+  # usual config (neither key set) costs one python start, not three.
+  keys="$(_config_toml list-keys "$(config_path)" "$table" 2>/dev/null)" || keys=""
+  keys="${keys//$'\r'/}"
+  for key in order_on_update completed_last; do
+    [[ $'\n'"$keys"$'\n' == *$'\n'"$key"$'\n'* ]] || continue
+    v="$(config_get_project_field "$project" "wbs.$key" 2>/dev/null)" || continue
+    v="${v//$'\r'/}"
+    case "$v" in
+      true|false) ;;
+      *)
+        printf "%s: [%s] %s must be true or false, got '%s'%s\n" \
+          "$caller" "$table" "$key" "$v" "$suffix" >&2
+        rc=3
+        continue
+        ;;
+    esac
+    [[ "$v" == true ]] && v=1 || v=0
+    if [[ "$key" == order_on_update ]]; then
+      order="$v"
+    else
+      last="$v"
+    fi
+  done
+  while IFS= read -r key; do
+    case "$key" in
+      ''|auto_import_below_pct|order_on_update|completed_last) ;;
+      *) printf "%s: [%s] unknown key '%s' ignored\n" "$caller" "$table" "$key" >&2 ;;
+    esac
+  done <<< "$keys"
+  printf 'WBS_ORDER=%s WBS_COMPLETED_LAST=%s\n' "$order" "$last"
+  return "$rc"
+}
+
 # step_models_tier <project> <step-num> [issue_dir]
 # #150 surfacing + #151 dispatch consumer. Echoes the model tier for a workflow
 # step from the optional [project.<name>.step_models] table, or returns nonzero

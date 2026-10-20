@@ -18,9 +18,9 @@ _rows() {
   sed -n 's/^| *`\([a-z0-9-]*\.sh\)` *|.*/\1/p' "$DOC" | sort
 }
 
-@test "triage table lists exactly the 18 resolving scripts (#572 AC1)" {
+@test "triage table lists exactly the 19 resolving scripts (#572 AC1, #803)" {
   [ -f "$DOC" ]
-  [ "$(_universe | wc -l)" -eq 18 ]
+  [ "$(_universe | wc -l)" -eq 19 ]
   diff <(_universe) <(_rows)
 }
 
@@ -42,11 +42,11 @@ _rows() {
     esac
   done < <(sed -n '/^| *`[a-z0-9-]*\.sh` *|/p' "$DOC")
   # floor guard (register: Issue-151 — count what the assertions ran against)
-  [ "$checked" -eq 18 ]
+  [ "$checked" -eq 19 ]
 }
 
 @test "every row records a config_is_project validation status (#572 AC1)" {
   [ -f "$DOC" ]
   run bash -c "sed -n '/^| *\`[a-z0-9-]*\.sh\` *|/p' '$DOC' | grep -cE 'validates|no-validation'"
-  [ "$output" -eq 18 ]
+  [ "$output" -eq 19 ]
 }
