@@ -235,6 +235,8 @@ EOC
 # collision for real. The cleanup row is there because --auto implies --through
 # cleanup, which next.sh validates against the checklist.
 _spike_checklist() {
+  # The collision under test: without an executable spike.sh these pass vacuously.
+  [ -x "$PLUGIN_ROOT/scripts/spike.sh" ]
   cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
 - [x]  0. pull
 - [x]  2. draft
