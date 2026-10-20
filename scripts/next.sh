@@ -11,7 +11,8 @@
 #
 # Dispatch: every step is preceded by a "dispatch: <project>/<issue> — step N
 # (<name>), <backing>" header. If scripts/<step-name>.sh exists and is
-# executable and the name is not in STEP_NAMED_HELPERS (#812), exec it. Otherwise print "→ Run /devagent:<step-name> <project>"
+# executable and is not a step-named helper (#812), exec it.
+# Otherwise print "→ Run /devagent:<step-name> <project>"
 # so the calling model invokes the slash command (skill-backed steps), then
 # re-invokes "/devagent:next <project> ..." from the emitted CHAIN: line when
 # the skill is done. Both emissions carry the resolved project (#578).
@@ -56,19 +57,18 @@ phase_breaks() {
   fi
 }
 
-# #812: scripts that carry a workflow step's NAME but are NOT that step's entry
-# point: helpers its slash command calls with their own verbs. Spec §6.3's Type
-# column is a step's backing; an executable scripts/<step>.sh is only a proxy for
-# it. spike.sh is called as `spike.sh create|teardown` by commands/spike.md, and
-# §6.3 types step 3 `command`, so it dispatches skill-backed.
-# tests/next-backing.bats pins every scripts/<step>.sh against §6.3 and fails when
-# a new helper collides with a step name; add such a helper HERE.
+# #812: scripts that carry a workflow step's NAME but are helpers its slash
+# command calls with their own verbs (`spike.sh create|teardown`), not the
+# step's entry point; spec §6.3 types those steps `command`/`skill`.
+# tests/next-backing.bats fails when a new helper collides with a step name;
+# add such a helper HERE.
 STEP_NAMED_HELPERS=" spike "
 
-# step_backing <step-name>: prints `script-backed` or `skill-backed`. The ONE
-# backing decision: the dispatch header and the exec branch both read it.
+# step_backing <step-name> <script-path>: prints `script-backed` or
+# `skill-backed`. The ONE backing decision: the dispatch header and the exec
+# branch both read it.
 step_backing() {
-  if [[ "$STEP_NAMED_HELPERS" != *" $1 "* && -x "$PLUGIN_ROOT/scripts/$1.sh" ]]; then
+  if [[ "$STEP_NAMED_HELPERS" != *" $1 "* && -x "$2" ]]; then
     echo script-backed
   else
     echo skill-backed
@@ -232,7 +232,7 @@ main() {
     # until a downstream prerequisite gate fires, and the script-backed steps
     # that mutate the repo hardest were the silent ones.
     local _backing
-    _backing="$(step_backing "$name")"
+    _backing="$(step_backing "$name" "$script_path")"
     # Header, not a trailing parenthetical: it now precedes BOTH branches, so it
     # must read as a label for what follows rather than dangle above it.
     echo "dispatch: $project/$active — step $cur ($name), $_backing"

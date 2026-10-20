@@ -25,7 +25,7 @@ _die() { printf '%s\n' "$1" >&2; return 1; }
 # change both with §6.3.
 SCRIPT_TYPED=" pull branch commit analyze ship mergetoall cleanup "
 
-# D4's stub: exit 3 is distinct from every real refusal, and next.sh's set -e
+# The stub: exit 3 is distinct from every real refusal, and next.sh's set -e
 # propagates it; the header prints before the exec, so it is captured either way.
 _write_stub() {
     printf '#!/usr/bin/env bash\necho STUB-RAN\nexit 3\n' > "$1"
@@ -70,11 +70,11 @@ _backing_mismatches() {
         fi
     done < <(_canonical_steps)
 
-    local row out want hdr hdr_ok stub_ok
+    local row out want hdr ran should_run
     for row in "${examined[@]}"; do
         num="${row%% *}"; name="${row#* }"
         printf '%s\n' "- [ ] $num. $name" '' '## Log' > "$BATS_TEST_TMPDIR/dd/Issue-1/checklist.md"
-        out="$(env DA_HOME="$DA_HOME" bash "$r/scripts/next.sh" p 2>&1)" || true
+        out="$(bash "$r/scripts/next.sh" p 2>&1)" || true
         want=skill-backed
         if [[ "$SCRIPT_TYPED" == *" $name "* ]]; then
             want=script-backed
@@ -84,20 +84,12 @@ _backing_mismatches() {
             echo "MISMATCH $name: no dispatch header; out='$(head -n3 <<<"$out")'"
             continue
         fi
-        hdr_ok=no
-        if [[ "$hdr" == *"step $num ($name), $want"* ]]; then
-            hdr_ok=yes
-        fi
-        stub_ok=no
-        if [[ "$out" == *STUB-RAN* ]]; then
-            if [[ "$want" == script-backed ]]; then stub_ok=yes; fi
-        else
-            if [[ "$want" == skill-backed ]]; then stub_ok=yes; fi
-        fi
-        if [[ "$hdr_ok" != yes || "$stub_ok" != yes ]]; then
-            local ran=no
-            if [[ "$out" == *STUB-RAN* ]]; then ran=yes; fi
-            echo "MISMATCH $name: want $want; header '$hdr'; hdr-ok $hdr_ok; stub-ran $ran"
+        ran=no
+        if [[ "$out" == *STUB-RAN* ]]; then ran=yes; fi
+        should_run=no
+        if [[ "$want" == script-backed ]]; then should_run=yes; fi
+        if [[ "$hdr" != *"step $num ($name), $want"* || "$ran" != "$should_run" ]]; then
+            echo "MISMATCH $name: want $want; header '$hdr'; stub-ran $ran"
         fi
     done
 }
@@ -111,13 +103,11 @@ _backing_mismatches() {
     local res
     res="$(_backing_mismatches "$root")"
     local s
-    for s in $SCRIPT_TYPED; do
-        grep -qx "EXAMINED $s" <<<"$res" || _die "script-typed step '$s' not examined: $res"
+    # spike is the floor that keeps the skill-backed-with-a-script branch
+    # non-empty; a rename of spike.sh edits it with next.sh's STEP_NAMED_HELPERS.
+    for s in $SCRIPT_TYPED spike; do
+        grep -qx "EXAMINED $s" <<<"$res" || _die "step '$s' not examined: $res"
     done
-    # Floor: keeps the skill-backed-with-a-script branch non-empty. It pins the
-    # collision's EXISTENCE — a later rename of spike.sh fails here; edit this
-    # floor together with next.sh's STEP_NAMED_HELPERS.
-    grep -qx "EXAMINED spike" <<<"$res" || _die "spike.sh not examined: $res"
     if grep -q '^MISMATCH' <<<"$res"; then
         _die "$res"
     fi
