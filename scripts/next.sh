@@ -11,7 +11,7 @@
 #
 # Dispatch: every step is preceded by a "dispatch: <project>/<issue> — step N
 # (<name>), <backing>" header. If scripts/<step-name>.sh exists and is
-# executable, exec it. Otherwise print "→ Run /devagent:<step-name> <project>"
+# executable and the name is not in STEP_NAMED_HELPERS (#812), exec it. Otherwise print "→ Run /devagent:<step-name> <project>"
 # so the calling model invokes the slash command (skill-backed steps), then
 # re-invokes "/devagent:next <project> ..." from the emitted CHAIN: line when
 # the skill is done. Both emissions carry the resolved project (#578).
@@ -53,6 +53,25 @@ phase_breaks() {
     printf '%s\n' "$v"
   else
     printf '%s\n' "implement quality updatewbs"
+  fi
+}
+
+# #812: scripts that carry a workflow step's NAME but are NOT that step's entry
+# point: helpers its slash command calls with their own verbs. Spec §6.3's Type
+# column is a step's backing; an executable scripts/<step>.sh is only a proxy for
+# it. spike.sh is called as `spike.sh create|teardown` by commands/spike.md, and
+# §6.3 types step 3 `command`, so it dispatches skill-backed.
+# tests/next-backing.bats pins every scripts/<step>.sh against §6.3 and fails when
+# a new helper collides with a step name; add such a helper HERE.
+STEP_NAMED_HELPERS=" spike "
+
+# step_backing <step-name>: prints `script-backed` or `skill-backed`. The ONE
+# backing decision: the dispatch header and the exec branch both read it.
+step_backing() {
+  if [[ "$STEP_NAMED_HELPERS" != *" $1 "* && -x "$PLUGIN_ROOT/scripts/$1.sh" ]]; then
+    echo script-backed
+  else
+    echo skill-backed
   fi
 }
 
@@ -212,12 +231,12 @@ main() {
     # misresolution (stale pointer, concurrent session) is otherwise invisible
     # until a downstream prerequisite gate fires, and the script-backed steps
     # that mutate the repo hardest were the silent ones.
-    local _backing="skill-backed"
-    [[ -x "$script_path" ]] && _backing="script-backed"
+    local _backing
+    _backing="$(step_backing "$name")"
     # Header, not a trailing parenthetical: it now precedes BOTH branches, so it
     # must read as a label for what follows rather than dangle above it.
     echo "dispatch: $project/$active — step $cur ($name), $_backing"
-    if [[ -x "$script_path" ]]; then
+    if [[ "$_backing" == script-backed ]]; then
       # Script-backed step: exec it. The script marks the checkbox and logs.
       # When chaining (and not at the target), suppress the script's
       # "Would you like to continue on to /devagent:X?" question so the
