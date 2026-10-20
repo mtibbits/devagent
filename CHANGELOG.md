@@ -16,6 +16,11 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `/devagent:next` hands step 3 (spike) to `/devagent:spike` instead of running the `spike.sh` helper (#812).**
+  An issue flagged `spike: required` no longer halts an `--auto` chain with spike.sh's
+  usage error. A new guard test (`tests/next-backing.bats`) pins every step-named script's
+  dispatch backing to spec §6.3's Type column.
+
 - **Changed (breaking): `wbs update` sorts each parent's children by dependency, then priority (#803).**
   - Within every non-root node, open siblings run in dependency order (`depends_on` naming
     a sibling's `issue`), then by the most urgent `priority: P1`-`P4` inherited from the
