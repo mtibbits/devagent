@@ -146,7 +146,7 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
 }
 
 @test "transition_fire: gated off calls no backend (#710)" {
-  sed -i 's/transition_issue = true/transition_issue = false/' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" project.testproj.permissions.transition_issue false
   transition_fire draft testproj Issue-1 on_draft_start github acme/x 1 2>"$BATS_TEST_TMPDIR/err"
   [ "$TRANSITION_OUTCOME" = gated ]
   [ ! -e "$STUB_LOG" ]
@@ -163,7 +163,7 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
 }
 
 @test "transition_fire: rc 0 without a mapping is unmapped (#710)" {
-  sed -i '/^on_ship/d' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" project.testproj.issue_workflow.on_ship
   transition_fire ship testproj Issue-1 on_ship github acme/x 1
   [ "$TRANSITION_OUTCOME" = unmapped ]
   [ -z "$TRANSITION_TARGET" ]
@@ -172,7 +172,7 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
 
 @test "transition_fire: a custom backend with rc 0 and no generic mapping is landed (#710)" {
   cp "$STUB_DIR/github.sh" "$STUB_DIR/mytracker.sh"
-  sed -i '/^on_ship/d' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" project.testproj.issue_workflow.on_ship
   transition_fire ship testproj Issue-1 on_ship mytracker acme/x 1
   [ "$TRANSITION_OUTCOME" = landed ]
   [ -z "$TRANSITION_TARGET" ]
@@ -208,10 +208,10 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
   [ "$output" = '"In Review" on acme/x' ]
   run transition_plan_note testproj on_ship "" ""
   [ "$output" = "skipped (no issue tracker configured)" ]
-  sed -i '/^on_ship/d' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" project.testproj.issue_workflow.on_ship
   run transition_plan_note testproj on_ship github acme/x
   [ "$output" = "skipped (no tracker state mapped)" ]
-  sed -i 's/transition_issue = true/transition_issue = false/' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" project.testproj.permissions.transition_issue false
   run transition_plan_note testproj on_ship github acme/x
   [ "$output" = "skipped (permissions.transition_issue not enabled)" ]
 }

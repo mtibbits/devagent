@@ -407,7 +407,7 @@ STUB
 }
 
 @test "sync: an unmapped on_merge writes no marker, so a mapping added later still fires (#710)" {
-    sed -i '/^on_merge /d' "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_workflow.on_merge"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     devagent_assert_logged "issue/github transition acme/testproj 1 on_merge --project testproj"
@@ -416,7 +416,7 @@ STUB
 }
 
 @test "sync: no issue tracker writes the skipped marker, Issue and Issue-Fork legs (#710)" {
-    sed -i '/^\[project.testproj.issue_source\]/,/^$/d' "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     [[ "$output" == *"sync: no issue tracker configured for Issue-1; skipping on_merge transition"* ]]

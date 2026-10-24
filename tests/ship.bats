@@ -639,7 +639,7 @@ EOF
 @test "ship.sh with no issue_source skips the transition instead of dying (#710)" {
     # ship read issue_source.backend/repo without a fallback and died under set -e;
     # it now falls through to no-tracker like sync and draft start.
-    sed -i '/^\[project.testproj.issue_source\]/,/^$/d' "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
     run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"ship: no issue tracker configured for Issue-1; skipping on_ship transition"* ]]

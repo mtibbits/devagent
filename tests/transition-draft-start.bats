@@ -141,7 +141,7 @@ _real_github_backend() {
 }
 
 @test "draft start with no issue tracker skips, Issue and Issue-Fork legs (#710)" {
-    sed -i '/^\[project.testproj.issue_source\]/,/^$/d' "$HOME/.claude/devagent/config.toml"
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
     run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     [[ "$output" == *"draft: no issue tracker configured for Issue-1; skipping on_draft_start transition"* ]]

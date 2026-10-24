@@ -323,7 +323,7 @@ STUB
 
 @test "doctor makes no tracker call unless transition_issue is true (#710)" {
   _tracker_setup
-  sed -i 's/^transition_issue = true$/transition_issue = false/' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" project.volk.permissions.transition_issue false
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
   [ ! -e "$STUB_DIR/calls" ]
