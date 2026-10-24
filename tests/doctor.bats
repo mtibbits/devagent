@@ -258,3 +258,101 @@ CL
 # No doctor test asserts a hit against the LIVE seed: #613 curated it, and
 # tests/potholes-seed-canary.bats asserts the live seed is clean. The predicate's ability to
 # fire is proven by the planted control in potholes-seed-canary.bats.
+
+# ---- #710: the tracker stage mapping (warn-only) ----
+
+# _tracker_setup: transition_issue on, the skeleton's issue_workflow, and a stub
+# backend dir whose state-exists logs each call and answers rc-<target> (spaces
+# as _), else $STUB_DIR/rc, else 0.
+_tracker_setup() {
+  printf '%s\n' '' '[project.volk.permissions]' 'transition_issue = true' \
+    '' '[project.volk.issue_workflow]' 'on_draft_start = "In Progress"' \
+    'on_ship = "In Review"' 'on_merge = "Done"' >> "$DA_HOME/config.toml"
+  STUB_DIR="$BATS_TEST_TMPDIR/issue"
+  mkdir -p "$STUB_DIR"
+  cat > "$STUB_DIR/github.sh" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "$STUB_DIR/calls"
+[ "\$1" = state-exists ] || exit 2
+f="$STUB_DIR/rc-\$(printf '%s' "\$3" | tr ' ' _)"
+[ -f "\$f" ] && exit "\$(cat "\$f")"
+exit "\$(cat "$STUB_DIR/rc" 2>/dev/null || echo 0)"
+STUB
+  chmod +x "$STUB_DIR/github.sh"
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
+}
+
+@test "doctor warns, never fails, on a mapped state missing on the tracker (#710)" {
+  _tracker_setup
+  echo 4 > "$STUB_DIR/rc-In_Review"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN tracker state on_ship → 'In Review' on gnuradio/volk — label not found on the tracker — create it (devagent never creates it) or change [project.volk.issue_workflow] on_ship"* ]]
+  [[ "$output" == *"OK   tracker state on_merge → 'Done' on gnuradio/volk"* ]]
+}
+
+@test "doctor OKs present mapped states (#710)" {
+  _tracker_setup
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK   tracker state on_draft_start → 'In Progress' on gnuradio/volk"* ]]
+  [[ "$output" == *"OK   tracker state on_ship → 'In Review' on gnuradio/volk"* ]]
+  [[ "$output" == *"OK   tracker state on_merge → 'Done' on gnuradio/volk"* ]]
+  grep -qxF 'state-exists gnuradio/volk In Review' "$STUB_DIR/calls"
+  [ "$(wc -l < "$STUB_DIR/calls")" -eq 3 ]
+}
+
+@test "doctor skips the tracker check when unreachable, after one call (#710)" {
+  _tracker_setup
+  echo 1 > "$STUB_DIR/rc"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SKIP tracker states on gnuradio/volk — tracker unreachable or unauthenticated (state-exists exit 1); mapped states not checked"* ]]
+  [ "$(grep -c 'SKIP tracker states' <<<"$output")" -eq 1 ]
+  [ "$(wc -l < "$STUB_DIR/calls")" -eq 1 ]
+}
+
+@test "doctor skips a backend without state-exists (#710)" {
+  _tracker_setup
+  echo 78 > "$STUB_DIR/rc"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SKIP tracker states on gnuradio/volk — backend has no state-exists"* ]]
+  [ "$(wc -l < "$STUB_DIR/calls")" -eq 1 ]
+}
+
+@test "doctor makes no tracker call unless transition_issue is true (#710)" {
+  _tracker_setup
+  sed -i 's/^transition_issue = true$/transition_issue = false/' "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUB_DIR/calls" ]
+  run grep -F 'tracker state' <<<"$output"
+  [ "$status" -eq 1 ]
+}
+
+@test "doctor warns on unread label keys, the retired namespace key and the nested §3.2 table (#710)" {
+  printf '%s\n' '' '[project.volk.github_labels]' 'in_progress = "status: wip"' 'on_ship = "In Review"' \
+    '' '[project.volk.gitlab_labels]' 'remove_others_in_namespace = "status::"' \
+    '' '[project.volk.issue_workflow.github_labels]' 'in_review = "In Review"' >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN project.volk.github_labels.in_progress — not read: stage keys are on_draft_start, on_ship, on_merge (#710)"* ]]
+  [[ "$output" == *"WARN project.volk.gitlab_labels.remove_others_in_namespace — retired (#710): a transition now removes the other mapped stage labels; delete this key"* ]]
+  [[ "$output" == *"WARN project.volk.issue_workflow.github_labels — nested label table is not read; move its entries to [project.volk.github_labels] keyed on_draft_start/on_ship/on_merge (#710)"* ]]
+  # a key that IS read draws no warning
+  run grep -F 'github_labels.on_ship' <<<"$output"
+  [ "$status" -eq 1 ]
+}
+
+@test "doctor warns on a set retired env override (#710)" {
+  DEVAGENT_GITLAB_LABEL_NAMESPACE="status::" run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN env DEVAGENT_GITLAB_LABEL_NAMESPACE — retired (#710), ignored; unset it"* ]]
+}
+
+@test "doctor warns on a set live per-stage override (#710)" {
+  DEVAGENT_GITHUB_LABEL_ON_SHIP="Shipped" run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN env DEVAGENT_GITHUB_LABEL_ON_SHIP — process-global override active: every project's on_ship writes 'Shipped'"* ]]
+}
