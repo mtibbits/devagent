@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
+. "$DEVAGENT_ROOT/scripts/lib/transition.sh"
 
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
@@ -116,9 +117,8 @@ sync_one_project() {
         issue_num="${issue_arg#Issue-}"
     fi
 
-    local code_sh issue_sh state
+    local code_sh state
     code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
-    issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
     [ -x "$code_sh" ] || return 0
     # #141: guard the network call so a per-project mr-state failure (auth/network)
     # warns and skips instead of aborting the whole --all loop under set -e.
@@ -138,27 +138,35 @@ sync_one_project() {
 
     # #219: gate the remote on_merge transition. This is an outward, autonomous
     # mutation of tracker state — sync runs --all batch/non-interactive and must
-    # continue-on-failure (#141), so read the gate directly and FAIL CLOSED
-    # (skip + warn) rather than calling permission_gate (which would prompt or
-    # die and abort the loop). Deliberately do NOT write the "merged" idempotence
-    # marker when gated off, so enabling transition_issue later still fires.
-    # (ship's on_ship is NOT gated here — it is already behind ship's push_mr
-    # gate + an explicit interactive ship; see ship.sh.)
-    local allow_transition
-    allow_transition="$(config_get_project_field "$project" permissions.transition_issue 2>/dev/null || echo false)"
-    if [ "$allow_transition" != "true" ]; then
-        echo "sync: on_merge transition for $project/$issue_arg skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)" >&2
-        return 0
-    fi
-
-    if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
-        echo "sync: no issue tracker configured for $issue_arg; skipping on_merge transition" >&2
-    elif [ -x "$issue_sh" ]; then
-        if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_merge; then
-            echo "warning: on_merge transition failed for $project/$issue_arg" >&2
-        fi
-    fi
-    log_append "$issue_dir" sync "$issue_arg merged → on_merge fired"
+    # continue-on-failure (#141), so transition_fire reads the gate directly and
+    # FAILS CLOSED (skip + warn) rather than calling permission_gate (which would
+    # prompt or die and abort the loop). Every transition is behind the gate,
+    # ship's on_ship included (#710 reopened #219/#344's ungated on_ship).
+    #
+    # The log line below is the idempotence marker (the awk above matches
+    # `  sync: .* merged`), so it is written only when nothing is left to retry
+    # (#710; pre-#710 `merged → on_merge fired` lines still match, and nothing
+    # is backfilled):
+    #   landed      <issue> merged → on_merge landed: "<state>" on <repo>
+    #               (… landed on <repo>: a custom backend that maps for itself)
+    #   no-tracker  <issue> merged → on_merge skipped: no issue tracker configured
+    # gated, unmapped, no-backend and failed write NO marker, so the next sync
+    # retries: enabling the gate, adding the mapping or a recovered tracker still
+    # fires. A failure prints one warning (with the retry note) and no log line —
+    # a second spelling that must never match the marker would be a fragile
+    # machine-read field, repeated on every cron --all (register 586).
+    transition_fire sync "$project" "$issue_arg" on_merge "$issue_backend" "$issue_repo" "$issue_num" \
+        " — no merge marker written; sync retries it next run"
+    case "$TRANSITION_OUTCOME" in
+        landed)
+            if [ -n "$TRANSITION_TARGET" ]; then
+                log_append "$issue_dir" sync "$issue_arg merged → on_merge landed: \"$TRANSITION_TARGET\" on $issue_repo"
+            else
+                log_append "$issue_dir" sync "$issue_arg merged → on_merge landed on $issue_repo"
+            fi ;;
+        no-tracker)
+            log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: no issue tracker configured" ;;
+    esac
 }
 
 if [ "${1:-}" = "--all" ]; then

@@ -88,3 +88,65 @@ EOF
     devagent_assert_logged "issue/github transition acme/testproj 2 on_draft_start"
     devagent_refute_logged "transition acme/testproj 1 on_draft_start"
 }
+
+# ---- #710: the transition writes the configured mapping ----
+
+# _real_github_backend: the REAL issue/github.sh against the stub gh, so the
+# assertion lands at gh's boundary (the argv of `gh issue edit`), not at a
+# verb-logging stub. No DEVAGENT_PROJECT is exported (hermetic-env unsets it).
+_real_github_backend() {
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_ROOT/scripts/issue"
+    mkdir -p "$DEVAGENT_TMP/ghbin"
+    cp "$DEVAGENT_ROOT/tests/fixtures/gh-stub" "$DEVAGENT_TMP/ghbin/gh"
+    chmod +x "$DEVAGENT_TMP/ghbin/gh"
+    export PATH="$DEVAGENT_TMP/ghbin:$PATH"
+    export GH_STUB_ARGV_LOG="$DEVAGENT_TMP/gh-argv"
+    : > "$GH_STUB_ARGV_LOG"
+    export GH_STUB_REPO_LABELS='[{"name":"In Progress"},{"name":"In Review"},{"name":"Done"}]'
+}
+
+@test "draft start passes the resolved project to the backend (#710)" {
+    run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_draft_start --project testproj"
+}
+
+@test "draft start runs the real github backend: the mapped label lands at the gh boundary (#710)" {
+    _real_github_backend
+    run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qxF '[issue] [edit] [1] [--repo] [acme/testproj] [--add-label] [In Progress]' "$GH_STUB_ARGV_LOG"
+}
+
+@test "draft start with ambient DEVAGENT_PROJECT=<other> uses the resolved project's mapping (#710)" {
+    _real_github_backend
+    printf '%s\n' '' '[project.other.issue_workflow]' 'on_draft_start = "WRONG"' \
+        >> "$HOME/.claude/devagent/config.toml"
+    DEVAGENT_PROJECT=other run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qxF '[issue] [edit] [1] [--repo] [acme/testproj] [--add-label] [In Progress]' "$GH_STUB_ARGV_LOG"
+    run grep -F 'WRONG' "$GH_STUB_ARGV_LOG"
+    [ "$status" -eq 1 ]
+}
+
+@test "draft start warns with the exit code when the label is missing, and exits 0 (#710)" {
+    _real_github_backend
+    export GH_STUB_REPO_LABELS='[{"name":"In Review"},{"name":"Done"}]'
+    run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"github.sh: label 'In Progress' (on_draft_start) not found on acme/testproj"* ]]
+    [[ "$output" == *"warning: on_draft_start transition failed for testproj/Issue-1 (exit 4) — continuing per spec §11"* ]]
+    run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+    [ "$status" -eq 1 ]
+}
+
+@test "draft start with no issue tracker skips, Issue and Issue-Fork legs (#710)" {
+    sed -i '/^\[project.testproj.issue_source\]/,/^$/d' "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"draft: no issue tracker configured for Issue-1; skipping on_draft_start transition"* ]]
+    DEVAGENT_ACTIVE_ISSUE=Issue-Fork-3 run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"draft: no issue tracker configured for Issue-Fork-3; skipping on_draft_start transition"* ]]
+    devagent_refute_logged "transition"
+}

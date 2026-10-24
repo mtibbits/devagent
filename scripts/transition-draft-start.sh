@@ -23,6 +23,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+. "$DEVAGENT_ROOT/scripts/lib/transition.sh"
 
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
 
@@ -48,14 +49,6 @@ main() {
         return 0
     fi
 
-    # Gate FIRST, fail-closed (#219). Do not touch the tracker without consent.
-    local allow_transition
-    allow_transition="$(config_get_project_field "$project" permissions.transition_issue 2>/dev/null || echo false)"
-    if [ "$allow_transition" != "true" ]; then
-        echo "draft: on_draft_start transition for $project/$issue_arg skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)" >&2
-        return 0
-    fi
-
     # Route to the right issue tracker based on origin (mirror of sync/ship).
     local issue_backend issue_repo issue_num
     if [[ "$issue_arg" == Issue-Fork-* ]]; then
@@ -68,18 +61,12 @@ main() {
         issue_num="${issue_arg#Issue-}"
     fi
 
-    if [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
-        echo "draft: no issue tracker configured for $issue_arg; skipping on_draft_start transition" >&2
-        return 0
-    fi
-
-    local issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/$issue_backend.sh"
-    [ -x "$issue_sh" ] || { echo "draft: issue backend $issue_sh not executable; skipping on_draft_start transition" >&2; return 0; }
-
-    # Failure WARNS, never dies — a tracker hiccup must not block drafting (§11).
-    if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_draft_start; then
-        echo "warning: on_draft_start transition failed for $project/$issue_arg — continuing per spec §11" >&2
-    fi
+    # Gate FIRST, fail-closed (#219): transition_fire checks
+    # permissions.transition_issue before any tracker call, then routes, then
+    # hands the backend the project resolved here as --project (#710: never an
+    # ambient DEVAGENT_PROJECT). A failure WARNS with its exit code, never dies —
+    # a tracker hiccup must not block drafting (§11).
+    transition_fire draft "$project" "$issue_arg" on_draft_start "$issue_backend" "$issue_repo" "$issue_num"
 }
 
 main "$@"
