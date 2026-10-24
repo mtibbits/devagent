@@ -105,6 +105,49 @@ stage_map_kind() {
   esac
 }
 
+# transition_args <b> <args…>: parse a built-in backend's
+#   transition <repo> <num> <semantic-stage> [--project <name>]
+# into TA_REPO TA_NUM TA_STAGE TA_PROJECT. Returns 2 with one stderr line for
+# anything else: a missing positional, --project with no value or an empty one,
+# --project=x, a repeated --project, or any other argument (a first `--flag`
+# on a positional script must refuse, not be read as a stage; register 655).
+# The TA_* setter-globals are the return channel, read by the calling backend.
+# shellcheck disable=SC2034
+transition_args() {
+  local b="$1"; shift
+  TA_REPO="${1:-}" TA_NUM="${2:-}" TA_STAGE="${3:-}" TA_PROJECT=""
+  local seen=0
+  if [ -z "$TA_REPO" ] || [ -z "$TA_NUM" ] || [ -z "$TA_STAGE" ] \
+     || [[ "$TA_REPO" == -* || "$TA_NUM" == -* || "$TA_STAGE" == -* ]]; then
+    echo "$b: usage: transition <repo> <num> <semantic-stage> [--project <name>]" >&2
+    return 2
+  fi
+  shift 3
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --project)
+        if [ "$seen" = 1 ] || [ -z "${2:-}" ]; then
+          echo "$b: transition: --project takes one non-empty value" >&2
+          return 2
+        fi
+        TA_PROJECT="$2"; seen=1; shift 2 ;;
+      *)
+        echo "$b: transition: unknown argument '$1'" >&2
+        return 2 ;;
+    esac
+  done
+}
+
+# transition_unmapped <backend> <stage> <project>: the one warning a built-in
+# backend prints for a stage with no mapping (it then exits 0, no tracker call).
+transition_unmapped() {
+  if [ -n "$3" ]; then
+    echo "$1.sh: no tracker state mapped for '$2' (project $3); transition skipped" >&2
+  else
+    echo "$1.sh: no tracker state mapped for '$2' (no --project: only $(stage_map_env_var "$1" "$2") is read); transition skipped" >&2
+  fi
+}
+
 # transition_gate_open <project>: 0 iff permissions.transition_issue is exactly
 # true. Every transition — on_draft_start, on_ship and on_merge — is behind it
 # (#710 reopened #219/#344's ungated on_ship, decided while on_ship wrote
@@ -128,6 +171,8 @@ transition_gate_open() {
 # warning is the backend's own). <suffix> is appended to the lines of the
 # outcomes that leave nothing done (failed, no-backend): sync passes its
 # retry note there.
+# The TRANSITION_* setter-globals are the return channel, read by the caller.
+# shellcheck disable=SC2034
 transition_fire() {
   local caller="$1" project="$2" issue_arg="$3" stage="$4" backend="$5" repo="$6" num="$7" suffix="${8:-}"
   TRANSITION_OUTCOME="" TRANSITION_RC=0 TRANSITION_TARGET=""

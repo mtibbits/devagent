@@ -118,92 +118,205 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$status" -eq 2 ]
 }
 
-# ---- #87: github_labels config fallback + fail-safe skip for transitions ----
-# These exercise cmd_transition's stage→label resolution. The gh-stub logs every
-# `gh issue edit` to GH_STUB_ARGS_LOG, so "the label step ran / did not run" is
-# directly observable, and GH_STUB_MISSING_LABEL simulates a label absent from
-# the repo.
+# ---- #710 (supersedes #87's block): transitions write the configured mapping ----
+# The gh-stub logs `issue view`, `issue edit` and `label list` to GH_STUB_ARGV_LOG
+# one bracketed element per argv word, so a test asserts the exact native write
+# at gh's boundary: which label is added, which are removed, and that a missing
+# label is never created. The project arrives as `--project`, never through an
+# ambient DEVAGENT_PROJECT.
 
-# Write a per-project github_labels config into the temp DA_HOME (#87).
-_write_github_labels_config() {
+# The skeleton's config shape (templates/config.toml.skel): issue_workflow
+# names a label on GitHub; no github_labels table, no env override.
+_write_skeleton_config() {
   cat > "$DA_HOME/config.toml" <<TOML
-[project.testproj.github_labels]
-on_ship = "shipped"
+[project.testproj.issue_workflow]
+on_draft_start = "In Progress"
+on_ship        = "In Review"
+on_merge       = "Done"
+
+[project.other.issue_workflow]
+on_ship = "WRONG"
 TOML
 }
 
-@test "transition: unconfigured on_ship makes no gh issue edit call (#87)" {
-  export DEVAGENT_PROJECT="testproj"
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
-  [ "$status" -eq 0 ]
-  # fail-safe skip: the stub logged no `gh issue edit` invocation at all
-  [ ! -s "$GH_STUB_ARGS_LOG" ]
+_transition_setup() {
+  _write_skeleton_config
+  export GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/gh-argv"
+  : > "$GH_STUB_ARGV_LOG"
+  # The repo's labels: the three stage labels, a lookalike and a non-stage one.
+  export GH_STUB_REPO_LABELS='[{"name":"In Progress"},{"name":"In Review"},{"name":"Done"},{"name":"In Review (old)"},{"name":"bug"}]'
 }
 
-@test "transition: configured github_labels.on_ship is applied (#87)" {
-  export DEVAGENT_PROJECT="testproj"
-  _write_github_labels_config
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+# _assert_stage_write <stage> <issue-labels-json> <expected edit line>
+_assert_stage_write() {
+  _transition_setup
+  export GH_STUB_LABELS_JSON="$2"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 "$1" --project testproj
   [ "$status" -eq 0 ]
-  run grep -q -- '--add-label shipped' "$GH_STUB_ARGS_LOG"
-  [ "$status" -eq 0 ]
+  grep -qxF "$3" "$GH_STUB_ARGV_LOG"
+  # bug is not a stage label, and an absent stage label is never named
+  run grep -F '[--remove-label] [bug]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
 }
 
-@test "transition: unconfigured on_merge makes no gh issue edit call (#87)" {
-  export DEVAGENT_PROJECT="testproj"
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_merge
-  [ "$status" -eq 0 ]
-  [ ! -s "$GH_STUB_ARGS_LOG" ]
+@test "transition on_draft_start: the skeleton mapping adds the label and removes present stage labels (#710)" {
+  _assert_stage_write on_draft_start '[{"name":"Done"},{"name":"bug"}]' \
+    '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [In Progress] [--remove-label] [Done]'
+  run grep -F '[--remove-label] [In Review]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
 }
 
-@test "transition: configured-but-missing label skips cleanly, exit 0 (#87)" {
-  export DEVAGENT_PROJECT="testproj"
-  _write_github_labels_config
-  # "shipped" (configured) and "on_ship" (the old bug's fallthrough) both absent
-  export GH_STUB_MISSING_LABEL="shipped on_ship"
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
-  [ "$status" -eq 0 ]
-  # the configured label WAS attempted (gh called) then failed → fail-safe skip;
-  # this isolates the gh-failure branch from the empty-label early return, so the
-  # test fails if the config fallback regresses (not just if `|| return 0` is dropped)
-  run grep -q -- '--add-label shipped' "$GH_STUB_ARGS_LOG"
-  [ "$status" -eq 0 ]
+@test "transition on_ship: the skeleton mapping adds the label and removes present stage labels (#710)" {
+  _assert_stage_write on_ship '[{"name":"In Progress"},{"name":"bug"}]' \
+    '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [In Review] [--remove-label] [In Progress]'
+  run grep -F '[--remove-label] [Done]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
 }
 
-@test "transition: DEVAGENT_GITHUB_LABEL_ON_SHIP env overrides config (#87)" {
-  export DEVAGENT_PROJECT="testproj"
-  _write_github_labels_config
+@test "transition on_merge: the skeleton mapping adds the label and removes present stage labels (#710)" {
+  _assert_stage_write on_merge '[{"name":"In Review"},{"name":"bug"}]' \
+    '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [Done] [--remove-label] [In Review]'
+  run grep -F '[--remove-label] [In Progress]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: an ambient DEVAGENT_PROJECT never picks the mapping (#710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  # (a) ambient `other` maps WRONG; the explicit --project wins
+  DEVAGENT_PROJECT=other run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  grep -qxF '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [In Review]' "$GH_STUB_ARGV_LOG"
+  run grep -F 'WRONG' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+  # (b) ambient `testproj` without --project reads no config: no gh call at all
+  : > "$GH_STUB_ARGV_LOG"
+  DEVAGENT_PROJECT=testproj run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  [ "$status" -eq 0 ]
+  [ ! -s "$GH_STUB_ARGV_LOG" ]
+  [[ "$output" == *"github.sh: no tracker state mapped for 'on_ship' (no --project: only DEVAGENT_GITHUB_LABEL_ON_SHIP is read); transition skipped"* ]]
+}
+
+@test "transition: an unmapped stage warns once, exits 0, makes no gh call (#710)" {
+  _transition_setup
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_merge --project other
+  [ "$status" -eq 0 ]
+  [ ! -s "$GH_STUB_ARGV_LOG" ]
+  [ "$output" = "github.sh: no tracker state mapped for 'on_merge' (project other); transition skipped" ]
+}
+
+@test "transition: a missing mapped label exits 4 naming it; no edit, no create (#710)" {
+  _transition_setup
+  # "In Review" is gone; only its lookalike remains — a substring match must not pass
+  export GH_STUB_REPO_LABELS='[{"name":"In Progress"},{"name":"Done"},{"name":"In Review (old)"}]'
+  export GH_STUB_LABELS_JSON='[{"name":"In Progress"}]'
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"github.sh: label 'In Review' (on_ship) not found on gnuradio/volk; devagent does not create labels — create it or change the mapping"* ]]
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+  grep -qF '[label] [list]' "$GH_STUB_ARGV_LOG"
+}
+
+@test "transition: already in the target state makes no edit (#710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"in review"},{"name":"bug"}]'
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  # the issue WAS read (the mapping resolved), and that read found nothing to do
+  grep -qxF '[issue] [view] [676] [--repo] [gnuradio/volk] [--json] [labels]' "$GH_STUB_ARGV_LOG"
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: a 403 from issue edit exits 1 (#710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  export GH_STUB_EDIT_FAIL=403
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 403"* ]]
+}
+
+@test "transition: issue 401 exits 1 before any edit (#710)" {
+  _transition_setup
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 401 on_ship --project testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 401"* ]]
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: a failed label lookup exits 1, not 4 (#710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  export GH_STUB_LABEL_LIST_FAIL=1
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 1 ]
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: an absent stage label is never named for removal (#710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_merge --project testproj
+  [ "$status" -eq 0 ]
+  grep -qxF '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [Done]' "$GH_STUB_ARGV_LOG"
+  run grep -F -- '--remove-label' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: DEVAGENT_GITHUB_LABEL_ON_SHIP env overrides config (#87, #710)" {
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  export GH_STUB_REPO_LABELS='[{"name":"env-ship"}]'
   export DEVAGENT_GITHUB_LABEL_ON_SHIP="env-ship"
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
   [ "$status" -eq 0 ]
-  run grep -q -- '--add-label env-ship' "$GH_STUB_ARGS_LOG"
-  [ "$status" -eq 0 ]
+  grep -qF '[--add-label] [env-ship]' "$GH_STUB_ARGV_LOG"
 }
 
-@test "transition: built-in in_progress default still applies (#87 regression)" {
-  export DEVAGENT_PROJECT="testproj"
-  export GH_STUB_ARGS_LOG="$BATS_TEST_TMPDIR/gh-args"
-  : > "$GH_STUB_ARGS_LOG"
-  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 in_progress
+@test "transition: the built-in in_progress default is retired (#710)" {
+  _transition_setup
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 in_progress --project testproj
   [ "$status" -eq 0 ]
-  run grep -q -- '--add-label in progress' "$GH_STUB_ARGS_LOG"
+  [ ! -s "$GH_STUB_ARGV_LOG" ]
+}
+
+@test "transition: a missing or empty --project value, --project=x, or an unknown flag exits 2 (#710)" {
+  _transition_setup
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project ""
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project=testproj
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --bogus
+  [ "$status" -eq 2 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676
+  [ "$status" -eq 2 ]
+  [ ! -s "$GH_STUB_ARGV_LOG" ]
+}
+
+@test "state-exists: 0 for a case-insensitive exact match, 4 when absent, 1 when gh fails (#710)" {
+  _transition_setup
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-exists gnuradio/volk "in review"
   [ "$status" -eq 0 ]
+  # a substring of "In Review" and of its lookalike is not a match
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-exists gnuradio/volk "Review"
+  [ "$status" -eq 4 ]
+  export GH_STUB_LABEL_LIST_FAIL=1
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-exists gnuradio/volk "In Review"
+  [ "$status" -eq 1 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-exists gnuradio/volk
+  [ "$status" -eq 2 ]
 }
 
 @test "transition: no executable 'gh label create' introduced (#87 scope guard)" {
-  # Option-3 (default names + label auto-creation) is deferred; the only allowed
-  # mention of `gh label create` is the seam comment. Lock criterion 4 vs drift.
+  # Label creation (#87's Option 3) stays deferred: devagent never creates a
+  # label. Lock that against drift.
   run grep -nE '^[[:space:]]*gh[[:space:]]+label[[:space:]]+create' \
     "$PLUGIN_ROOT/scripts/issue/github.sh"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 1 ]
 }

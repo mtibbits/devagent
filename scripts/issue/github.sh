@@ -2,13 +2,22 @@
 # scripts/issue/github.sh — GitHub issue backend.
 # Backend contract: implements all five issue verbs per spec §9.1
 # (fetch, create, transition, state, comment-list), plus the optional
-# state-list that `wbs update` reads (#703) and issue-list that
-# `wbs init --from-tracker` reads (#706).
+# state-list that `wbs update` reads (#703), issue-list that
+# `wbs init --from-tracker` reads (#706) and state-exists that the transition
+# pre-check and doctor's tracker check share (#710).
 # Output shape conforms to spec §9.3.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/paths.sh
+source "${SCRIPT_DIR}/../lib/paths.sh"
+# shellcheck source=../lib/io.sh
+source "${SCRIPT_DIR}/../lib/io.sh"
+# shellcheck source=../lib/config.sh
+source "${SCRIPT_DIR}/../lib/config.sh"
+# shellcheck source=../lib/transition.sh
+source "${SCRIPT_DIR}/../lib/transition.sh"
 
 _die() { echo "$*" >&2; exit 1; }
 _need() { command -v "$1" >/dev/null 2>&1 || _die "$1 not found on PATH"; }
@@ -139,59 +148,93 @@ cmd_create() {
   printf '%s\n' "$num"
 }
 
-# Resolve the GitHub label for a semantic stage, or empty if the stage has none.
-# Precedence (parity with gitlab.sh / jira.sh):
-#   1. DEVAGENT_GITHUB_LABEL_<STAGE> env override
-#   2. per-project `github_labels.<stage>` config (gitlab/jira parity)
-#   3. built-in defaults: in_progress → "in progress", done → "done",
-#      blocked → "blocked"
-#   4. otherwise empty — the stage has no mapped label (e.g. on_ship / on_merge
-#      with nothing configured). Empty is the fail-safe-skip signal for
-#      cmd_transition; it is also the Option-3 seam where a default label name
-#      would be resolved later (#87).
-_stage_label() {
-  local stage="$1"
-  local var="DEVAGENT_GITHUB_LABEL_${stage^^}"
-  local label="${!var:-}"
-  if [ -z "$label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    # shellcheck source=../lib/paths.sh
-    source "${SCRIPT_DIR}/../lib/paths.sh"
-    # shellcheck source=../lib/io.sh
-    source "${SCRIPT_DIR}/../lib/io.sh"
-    # shellcheck source=../lib/config.sh
-    source "${SCRIPT_DIR}/../lib/config.sh"
-    label="$(config_get_project_field "$DEVAGENT_PROJECT" "github_labels.${stage}" 2>/dev/null || true)"
-  fi
-  if [ -z "$label" ]; then
-    case "$stage" in
-      in_progress) label="in progress" ;;
-      done)        label="done" ;;
-      blocked)     label="blocked" ;;
-    esac
-  fi
-  printf '%s' "$label"
+# _stage_label <stage> <project>: the GitHub label a semantic stage names for
+# <project>, or empty when it has none — stage_map_target's precedence (env
+# override, then github_labels, then issue_workflow; scripts/lib/transition.sh).
+# The seam #703's in-progress signal and claim-at-pull read. There is no
+# built-in default: #710 retired in_progress/done/blocked, which no caller
+# passes. Returns 1 when the config cannot be read.
+_stage_label() { stage_map_target github "${2:-}" "$1"; }
+
+# _gh_label_exists <repo> <name>: 0 when <repo> has a label named exactly
+# <name> (case-insensitively, as GitHub names labels), 4 when it has none, 1
+# when the lookup itself failed — a failed lookup never answers 4. gh's
+# --search is fuzzy and server-side (#710 U3, measured with gh 2.95.0), so the
+# exact match is made here: a substring or a lookalike never counts.
+_gh_label_exists() {
+  local json n
+  json="$(_gh_json label list --repo "$1" --search "$2" --json name --limit 100)" || return 1
+  n="$(printf '%s' "$json" | jq -r --arg n "$2" \
+    '[.[] | select((.name | ascii_downcase) == ($n | ascii_downcase))] | length' | tr -d '\r')" || return 1
+  [[ "$n" =~ ^[0-9]+$ ]] || return 1
+  if [ "$n" -gt 0 ]; then return 0; fi
+  return 4
 }
 
+# transition <repo> <num> <semantic-stage> [--project <name>] (spec §9.1):
+# write the label the stage maps to for <project> and remove the other mapped
+# stage labels the issue carries, so it never holds in-progress, in-review and
+# done together. Without --project only the env override is read (#710: never
+# an ambient DEVAGENT_PROJECT). Reads the issue first; already labelled with
+# the target and no other stage label is success with no write. A label absent
+# from the repo is never created (#87): exit 4 naming it. Exit: 0 landed /
+# already there / no mapping (one warning, no gh call); 2 usage; 4 the target
+# label is not on the repo; 1 anything else — gh reports 401/403/network as
+# its own exit 1, so GitHub never answers 3.
 cmd_transition() {
-  local repo="${1:?repo required}"
-  local num="${2:?issue number required}"
-  local stage="${3:?semantic stage required}"
+  transition_args github.sh "$@" || return
+  local repo="$TA_REPO" num="$TA_NUM" stage="$TA_STAGE" project="$TA_PROJECT"
+  local target others
+  target="$(stage_map_target github "$project" "$stage")" || return 1
+  if [ -z "$target" ]; then
+    transition_unmapped github "$stage" "$project"
+    return 0
+  fi
+  others="$(stage_map_others github "$project" "$stage")" || return 1
   _need gh
-  local label
-  label="$(_stage_label "$stage")"
-  # Fail-safe skip (#87): a stage with no env/config/built-in label (e.g.
-  # on_ship / on_merge unconfigured) skips the label step entirely — no
-  # `gh issue edit` call. Previously this fell through to `--add-label <stage>`,
-  # which failed on every ship/sync because no such label exists in the repo
-  # (degraded to warning-spam). Option-3 seam: a default name resolves in
-  # _stage_label above.
-  [ -n "$label" ] || return 0
-  # gh accepts repeated --add-label; idempotent because GitHub silently ignores
-  # re-adding the same label. A configured-but-missing label makes gh fail;
-  # treat that as a fail-safe skip (not a hard error) so ship/sync still succeed
-  # without warning-spam. Option-3 seam: `gh label create "$label"` + retry
-  # slots into this failure branch later.
-  gh issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null 2>&1 || return 0
+  _need jq
+  local json present p o has_target=0 remove=()
+  json="$(_gh_view "$repo" "$num" labels)" || return 1
+  present="$(printf '%s' "$json" | jq -r '.labels[]?.name' | tr -d '\r')" || return 1
+  while IFS= read -r p; do
+    if [ -n "$p" ] && [ "${p,,}" = "${target,,}" ]; then has_target=1; fi
+  done <<<"$present"
+  # Only a stage label the issue carries is named for removal, by the name it
+  # carries (an absent one is a no-op, never an argument), in stage order.
+  while IFS= read -r o; do
+    [ -n "$o" ] || continue
+    while IFS= read -r p; do
+      if [ -n "$p" ] && [ "${p,,}" = "${o,,}" ]; then remove+=("$p"); break; fi
+    done <<<"$present"
+  done <<<"$others"
+  if [ "$has_target" = 1 ] && [ "${#remove[@]}" -eq 0 ]; then
+    return 0
+  fi
+  local rc=0
+  _gh_label_exists "$repo" "$target" || rc=$?
+  case "$rc" in
+    0) ;;
+    4) echo "github.sh: label '$target' ($stage) not found on $repo; devagent does not create labels — create it or change the mapping" >&2
+       return 4 ;;
+    *) return 1 ;;
+  esac
+  local args=(issue edit "$num" --repo "$repo" --add-label "$target")
+  for o in "${remove[@]+"${remove[@]}"}"; do args+=(--remove-label "$o"); done
+  _gh_json "${args[@]}" >/dev/null || return 1
+}
+
+# state-exists <repo> <label> (#710, spec §9.1 MAY): 0 the label exists on
+# <repo>, 4 it does not, 2 usage; any other code is undetermined (1: gh
+# failed — auth, network, …). The transition pre-check and doctor's tracker
+# check share _gh_label_exists, so they cannot disagree.
+cmd_state_exists() {
+  if [ "$#" -ne 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
+    echo "github.sh: usage: state-exists <repo> <label>" >&2
+    return 2
+  fi
+  _need gh
+  _need jq
+  _gh_label_exists "$1" "$2"
 }
 
 # gh_class($ip): a gh issue record's state-list class (#703); state-list and
@@ -213,20 +256,22 @@ _GH_CLASS_JQ='
 #   CLOSED + COMPLETED                 -> done
 #   CLOSED + NOT_PLANNED / DUPLICATE   -> not_planned
 #   CLOSED + any other reason          -> other
-#   OPEN + the in_progress label       -> in_progress (_stage_label above;
-#                                         matched case-insensitively, as GitHub
-#                                         names labels)
+#   OPEN + the on_draft_start label    -> in_progress (_stage_label above, for
+#                                         the per-call DEVAGENT_PROJECT that
+#                                         `wbs update` sets; matched
+#                                         case-insensitively, as GitHub names
+#                                         labels; no mapping, no in_progress)
 #   OPEN                               -> open
-# Exit: 0 ok; 1 gh failure or no repo arg; 5 a record with an unrecognised
-# state or unreadable JSON (fail closed: a renamed field must not read as a
-# class). Never 2, which means "unknown verb" to `wbs update`.
+# Exit: 0 ok; 1 gh failure, unreadable config or no repo arg; 5 a record with
+# an unrecognised state or unreadable JSON (fail closed: a renamed field must
+# not read as a class). Never 2, which means "unknown verb" to `wbs update`.
 cmd_state_list() {
   local repo="${1:-}"
   [ -n "$repo" ] || _die "issue/github.sh state-list: repo required"
   _need gh
   _need jq
   local ip json out
-  ip="$(_stage_label in_progress)"
+  ip="$(_stage_label on_draft_start "${DEVAGENT_PROJECT:-}")" || return 1
   json="$(_gh_json issue list --repo "$repo" --state all --limit 5000 \
     --json number,state,stateReason,labels)" || return 1
   out="$(printf '%s' "$json" | jq -r --arg ip "$ip" "$_GH_CLASS_JQ"'
@@ -330,7 +375,7 @@ cmd_issue_list() {
   _need gh
   _need jq
   local ip json err msg ok=1 n
-  ip="$(_stage_label in_progress)"
+  ip="$(_stage_label on_draft_start "${DEVAGENT_PROJECT:-}")" || return 1
   err="$(mktemp)"
   json="$(gh issue list --repo "$repo" --state all --limit 5000 \
     --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url \
@@ -365,6 +410,7 @@ main() {
     comment-list)  cmd_comment_list "$@" ;;
     create)        cmd_create       "$@" ;;
     transition)    cmd_transition   "$@" ;;
+    state-exists)  cmd_state_exists "$@" ;;
     state-list)    cmd_state_list   "$@" ;;
     issue-list)    cmd_issue_list   "$@" ;;
     *)

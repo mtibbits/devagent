@@ -477,6 +477,10 @@ EOF
 
 @test "real github backend: each recorded class sets its glyph (#703)" {
   _config github acme/testproj no
+  # #710: the in-progress label is the one on_draft_start maps to (the fixture's
+  # "in progress", matched case-insensitively); there is no built-in default.
+  printf '%s\n' '' '[project.testproj.issue_workflow]' 'on_draft_start = "In Progress"' \
+    >> "$HOME/.claude/devagent/config.toml"
   unset DEVAGENT_ISSUE_BACKEND_DIR
   mkdir -p "$TMPROOT/ghbin"
   cp "$REPO/tests/fixtures/gh-stub" "$TMPROOT/ghbin/gh"

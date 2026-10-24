@@ -6,7 +6,10 @@
 #     --json number,state,stateReason,labels
 # 62 records (59 OPEN, 3 CLOSED/COMPLETED as recorded). Edits, so every class
 # is covered (an edit to a capture is a provenance event):
-#   #756 OPEN       + label "in progress"      (default in-progress label)
+#   #756 OPEN       + label "in progress"      (an on_draft_start label; it was the
+#                                               built-in default until #710 retired
+#                                               it — that note is an edit, the data
+#                                               is unchanged)
 #   #754 OPEN       + label "status: wip"      (the config/env override label)
 #   #701 CLOSED     stateReason COMPLETED -> NOT_PLANNED
 #   #700 CLOSED     stateReason COMPLETED -> DUPLICATE
@@ -40,7 +43,13 @@ setup() {
   export GH_STUB_CASE="standard"
   export GH_TOKEN="dummy-token"
   export GH_STUB_ISSUE_LIST_FILE="${BATS_TEST_DIRNAME}/fixtures/issue-github/state-list.json"
-  unset DEVAGENT_GITHUB_LABEL_IN_PROGRESS DEVAGENT_PROJECT
+}
+
+# _config <lines…>: a config.toml under a test-local HOME (DA_HOME is unset here).
+_config() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.claude/devagent"
+  printf '%s\n' '[project.testproj]' 'source_dir = "/tmp"' '' "$@" > "$HOME/.claude/devagent/config.toml"
 }
 
 teardown() { :; }
@@ -76,16 +85,20 @@ teardown() { :; }
 }
 
 @test "[github] transition exits 0 (label-based per spec 9.1)" {
-  export DEVAGENT_PROJECT="contract-test"
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  export DEVAGENT_GITHUB_LABEL_ON_DRAFT_START="In Progress"
+  export GH_STUB_REPO_LABELS='[{"name":"In Progress"}]'
+  export GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/argv"
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
+  grep -qxF '[issue] [edit] [42] [--repo] [foo/bar] [--add-label] [In Progress]' "$GH_STUB_ARGV_LOG"
 }
 
 @test "[github] transition is idempotent" {
-  export DEVAGENT_PROJECT="contract-test"
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  export DEVAGENT_GITHUB_LABEL_ON_DRAFT_START="In Progress"
+  export GH_STUB_REPO_LABELS='[{"name":"In Progress"}]'
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
 }
 
@@ -135,6 +148,7 @@ teardown() { :; }
 }
 
 @test "[github] state-list classifies each recorded state" {
+  export DEVAGENT_GITHUB_LABEL_ON_DRAFT_START="in progress"
   run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
   [ "$status" -eq 0 ]
   printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
@@ -147,8 +161,8 @@ teardown() { :; }
   grep -qFx $'753\topen' "$BATS_TEST_TMPDIR/list"
 }
 
-@test "[github] state-list honours github_labels.in_progress" {
-  export DEVAGENT_GITHUB_LABEL_IN_PROGRESS="status: wip"
+@test "[github] state-list honours the DEVAGENT_GITHUB_LABEL_ON_DRAFT_START override (#710)" {
+  export DEVAGENT_GITHUB_LABEL_ON_DRAFT_START="status: wip"
   run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
   [ "$status" -eq 0 ]
   printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
@@ -156,18 +170,46 @@ teardown() { :; }
   grep -qFx $'756\topen' "$BATS_TEST_TMPDIR/list"
 }
 
-@test "[github] state-list honours the github_labels.in_progress config key" {
-  export HOME="$BATS_TEST_TMPDIR/home"
-  mkdir -p "$HOME/.claude/devagent"
-  printf '%s\n' '[project.testproj]' 'source_dir = "/tmp"' '' \
-    '[project.testproj.github_labels]' 'in_progress = "status: wip"' \
-    > "$HOME/.claude/devagent/config.toml"
+@test "[github] state-list honours the github_labels.on_draft_start config key (#710)" {
+  _config '[project.testproj.github_labels]' 'on_draft_start = "status: wip"'
+  # wbs update's per-call channel names the project (Q1: only transition takes --project)
   export DEVAGENT_PROJECT=testproj
   run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
   [ "$status" -eq 0 ]
   printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
   grep -qFx $'754\tin_progress' "$BATS_TEST_TMPDIR/list"
   grep -qFx $'756\topen' "$BATS_TEST_TMPDIR/list"
+}
+
+@test "[github] state-list reads the issue_workflow.on_draft_start mapping as the in-progress label (#710)" {
+  _config '[project.testproj.issue_workflow]' 'on_draft_start = "In Progress"'
+  export DEVAGENT_PROJECT=testproj
+  run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
+  # the fixture's "in progress" label, matched case-insensitively
+  grep -qFx $'756\tin_progress' "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'754\topen' "$BATS_TEST_TMPDIR/list"
+}
+
+@test "[github] state-list ignores the retired github_labels.in_progress key and env (#710)" {
+  _config '[project.testproj.github_labels]' 'in_progress = "in progress"'
+  export DEVAGENT_PROJECT=testproj
+  export DEVAGENT_GITHUB_LABEL_IN_PROGRESS="status: wip"
+  run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
+  run grep -F in_progress "$BATS_TEST_TMPDIR/list"
+  [ "$status" -eq 1 ]
+}
+
+@test "[github] state-list without an on_draft_start mapping never says in_progress (#710)" {
+  run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'756\topen' "$BATS_TEST_TMPDIR/list"
+  run grep -F in_progress "$BATS_TEST_TMPDIR/list"
+  [ "$status" -eq 1 ]
 }
 
 @test "[github] state-list fails with gh" {
@@ -190,7 +232,8 @@ teardown() { :; }
 }
 
 @test "[github] state-list matches the in-progress label case-insensitively (#703 review)" {
-  # GitHub label names are case-insensitive: "In Progress" is the default label
+  # GitHub label names are case-insensitive: the fixture says "In Progress"
+  export DEVAGENT_GITHUB_LABEL_ON_DRAFT_START="in progress"
   export GH_STUB_ISSUE_LIST_FILE="${BATS_TEST_DIRNAME}/fixtures/issue-github/state-list-case.json"
   run "$ISSUE_SCRIPT" state-list "$REPO_ARG"
   [ "$status" -eq 0 ]
@@ -228,6 +271,22 @@ _il_graphql() {
   [ "$status" -eq 0 ]
   run cat "$GH_STUB_ARGS_LOG"
   [ "$output" = "issue list --repo acme/testproj --state all --limit 5000 --json number,title,body,state,stateReason,createdAt,closedAt,milestone,labels,issueType,parent,blockedBy,url" ]
+}
+
+@test "[github] issue-list classifies in_progress from the on_draft_start mapping (#710)" {
+  jq '(.[] | select(.number == 42) | .labels) = [{"name":"In Progress"}]' \
+    "${BATS_TEST_DIRNAME}/fixtures/issue-github/issue-list-shaped.json" > "$BATS_TEST_TMPDIR/il.json"
+  export GH_STUB_ISSUE_LIST_FILE="$BATS_TEST_TMPDIR/il.json"
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | jq -r 'select(.id == "42") | .class' | tr -d '\r' > "$BATS_TEST_TMPDIR/c"
+  [ "$(cat "$BATS_TEST_TMPDIR/c")" = open ]
+  _config '[project.testproj.issue_workflow]' 'on_draft_start = "In Progress"'
+  export DEVAGENT_PROJECT=testproj
+  run "$ISSUE_SCRIPT" issue-list acme/testproj
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" | jq -r 'select(.id == "42") | .class' | tr -d '\r' > "$BATS_TEST_TMPDIR/c"
+  [ "$(cat "$BATS_TEST_TMPDIR/c")" = in_progress ]
 }
 
 @test "[github] issue-list and state-list agree on every (id, class)" {
