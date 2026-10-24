@@ -143,6 +143,7 @@ sync_one_project() {
     #   landed      <issue> merged → on_merge landed: "<state>" on <repo>
     #               (… landed on <repo>: a custom backend that maps for itself)
     #   no-tracker  <issue> merged → on_merge skipped: no issue tracker configured
+    #   fork-only   <issue> merged → on_merge skipped: fork_only (upstream tracker not targeted)
     # gated, unmapped, no-backend and failed write NO marker, so the next sync
     # retries: enabling the gate, adding the mapping or a recovered tracker still
     # fires. A failure prints one warning (with the retry note) and no log line —
@@ -155,6 +156,8 @@ sync_one_project() {
             log_append "$issue_dir" sync "$issue_arg merged → on_merge landed${TRANSITION_TARGET:+: \"$TRANSITION_TARGET\"} on $issue_repo" ;;
         no-tracker)
             log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: no issue tracker configured" ;;
+        fork-only)
+            log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: fork_only (upstream tracker not targeted)" ;;
     esac
 }
 

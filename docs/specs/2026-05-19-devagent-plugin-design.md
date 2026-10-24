@@ -1796,9 +1796,9 @@ Three semantic events trigger backend transitions:
 
 | Event | Stage | Hook |
 |---|---|---|
-| Start of `draft` (step 2) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
+| Start of `draft` (step 2) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219), skipped under `fork_only` for an upstream (`Issue-N`) issue, and warns on failure rather than dying (#325) |
 | End of `ship` (step 18) | `on_ship` | `ship.sh` after successful MR creation; gated by `permissions.transition_issue` like the others (#710 reopened #219's consent-by-ship-action), skipped under `fork_only`, and a failing transition degrades to a warn — ship still completes |
-| MR merged upstream (async) | `on_merge` | `/devagent:sync`; gated by `permissions.transition_issue` (#219). Its log line is the idempotence marker, written only when the transition landed (or no tracker is configured), so one that did not land retries on the next sync (#710) |
+| MR merged upstream (async) | `on_merge` | `/devagent:sync`; gated by `permissions.transition_issue` (#219) and skipped under `fork_only` for an upstream (`Issue-N`) issue. Its log line is the idempotence marker, written only when the transition landed (or no tracker is configured, or `fork_only` skipped it), so one that did not land retries on the next sync (#710) |
 
 The `commit` → `analyze` ordering (steps 12 → 13) exists because
 `static_analysis_diff.py` requires a `git diff` against a baseline,

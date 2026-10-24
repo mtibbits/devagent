@@ -50,6 +50,10 @@ the README's "Versioning & releases" section has the release procedure.
     transition that failed, was gated off or has no mapping writes none and is retried on
     the next sync. Old `merged → on_merge fired` lines still count; merged issues are not
     backfilled.
+  - Under `fork_only = true` the upstream tracker is never transitioned: draft and sync now
+    skip an upstream (`Issue-N`) issue's `on_draft_start` and `on_merge` as ship already
+    skipped `on_ship` (sync logs `… skipped: fork_only (upstream tracker not targeted)` as
+    its marker). Before #710 nothing landed, so this keeps the documented promise.
   - New optional backend verb `state-exists <repo> <state>` (0 present, 4 absent).
     `/devagent:doctor` warns on label-table keys no transition reads, the retired keys and
     env names, spec §3.2's nested `issue_workflow.github_labels` table and any set
@@ -60,7 +64,10 @@ the README's "Versioning & releases" section has the release procedure.
     — `sync --all` on every run — until their labels exist on the tracker.
   - The GitLab group-label path (`include_ancestor_groups=true`) is unverified against a
     live GitLab instance; no configured project uses GitLab.
-  - Not breaking: the stage names and DEVAGENT_* override names are unchanged; the one behavior that stops is a per-stage override with transition_issue = false writing at ship, an undocumented seam.
+  - Not breaking: the stage names and DEVAGENT_* override names are unchanged.
+    Two behaviors stop: a per-stage override with transition_issue = false writing at
+    ship, an undocumented seam; and a custom backend that refuses the trailing
+    `--project`, whose transitions fail with a warning until it accepts the argument.
 
 - **Fixed: `/devagent:next` hands step 3 (spike) to `/devagent:spike` instead of running the `spike.sh` helper (#812).**
   An issue flagged `spike: required` no longer halts an `--auto` chain with spike.sh's

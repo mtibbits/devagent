@@ -57,5 +57,7 @@
   "PUT /api/v4/projects/foo%2Fbar/issues/43": {"status": 200, "body_file": "issue-43.json"},
   "GET /api/v4/projects/foo%2Fbar/issues/44": {"status": 200, "body_file": "issue-44.json"},
   "PUT /api/v4/projects/foo%2Fbar/issues/44": {"status": 403, "body": "{\"message\":\"403 Forbidden\"}"},
+  "GET /api/v4/projects/foo%2Fbar/issues/45": {"status": 200, "body_file": "issue-45.json"},
+  "PUT /api/v4/projects/foo%2Fbar/issues/45": {"status": 200, "body_file": "issue-45.json"},
   "GET /api/v4/projects/foo%2Fdenied/labels/In%20Review?include_ancestor_groups=true": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"}
 }

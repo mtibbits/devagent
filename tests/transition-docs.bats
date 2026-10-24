@@ -46,7 +46,9 @@ SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
 }
 
 @test "CHANGELOG carries the #710 Not breaking line (#710)" {
-  grep -qxF '  - Not breaking: the stage names and DEVAGENT_* override names are unchanged; the one behavior that stops is a per-stage override with transition_issue = false writing at ship, an undocumented seam.' "$PLUGIN_ROOT/CHANGELOG.md"
+  grep -qxF '  - Not breaking: the stage names and DEVAGENT_* override names are unchanged.' "$PLUGIN_ROOT/CHANGELOG.md"
+  grep -qxF '    Two behaviors stop: a per-stage override with transition_issue = false writing at' "$PLUGIN_ROOT/CHANGELOG.md"
+  grep -qxF '    `--project`, whose transitions fail with a warning until it accepts the argument.' "$PLUGIN_ROOT/CHANGELOG.md"
   grep -qF '  - Changed: on_ship is gated by permissions.transition_issue (was ungated, #219/#344).' "$PLUGIN_ROOT/CHANGELOG.md"
 }
 

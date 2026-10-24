@@ -218,6 +218,11 @@ _assert_stage_write() {
   grep -qF '[label] [list]' "$GH_STUB_ARGV_LOG"
 }
 
+@test "transition: the target already present with a stale stage label still removes it (#710 review)" {
+  _assert_stage_write on_ship '[{"name":"In Review"},{"name":"In Progress"}]' \
+    '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [In Review] [--remove-label] [In Progress]'
+}
+
 @test "transition: already in the target state makes no edit (#710)" {
   _transition_setup
   export GH_STUB_LABELS_JSON='[{"name":"in review"},{"name":"bug"}]'

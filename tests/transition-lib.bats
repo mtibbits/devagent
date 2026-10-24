@@ -153,6 +153,17 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
   grep -qxF "draft: on_draft_start transition for testproj/Issue-1 skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)" "$BATS_TEST_TMPDIR/err"
 }
 
+@test "transition_fire: fork_only skips an upstream issue but not an Issue-Fork one (#710 review)" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" project.testproj.fork_only true
+  transition_fire sync testproj Issue-1 on_merge github acme/x 1 2>"$BATS_TEST_TMPDIR/err"
+  [ "$TRANSITION_OUTCOME" = fork-only ]
+  [ ! -e "$STUB_LOG" ]
+  grep -qxF "sync: fork_only: skipping on_merge transition for Issue-1 (the upstream tracker is not targeted)" "$BATS_TEST_TMPDIR/err"
+  transition_fire sync testproj Issue-Fork-1 on_merge github acme/fork 1 2>/dev/null
+  [ "$TRANSITION_OUTCOME" = landed ]
+  grep -qxF '[transition] [acme/fork] [1] [on_merge] [--project] [testproj]' "$STUB_LOG"
+}
+
 @test "transition_fire: appends --project; rc 0 with a target is landed (#710)" {
   transition_fire ship testproj Issue-1 on_ship github acme/x 1 2>"$BATS_TEST_TMPDIR/err"
   [ "$TRANSITION_OUTCOME" = landed ]

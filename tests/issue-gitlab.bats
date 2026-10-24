@@ -111,6 +111,12 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+@test "transition: the target already present with a stale stage label still PUTs its removal (#710 review)" {
+  run "$SCRIPT" transition foo/bar 45 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  [ "$(_put_body 45)" = '{"add_labels":"In Review","remove_labels":"In Progress"}' ]
+}
+
 @test "transition: the retired namespace key and env are not sent (#710)" {
   printf '%s\n' '' '[project.testproj.gitlab_labels]' 'remove_others_in_namespace = "status::"' >> "$DA_HOME/config.toml"
   export DEVAGENT_GITLAB_LABEL_NAMESPACE="status::"

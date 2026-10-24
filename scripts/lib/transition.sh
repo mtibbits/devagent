@@ -125,11 +125,15 @@ stage_map_carried() {
 # failure; a 404 is 4 (absent) only when <confirm-url> answers, so a token
 # that cannot see the resource, or a wrong base path, never reads as absent.
 stage_state_probe() {
-  local rc=0
-  bc_curl_auth "$1" GET "$2" -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+  local rc=0 err confirm=0
+  err="$(bc_curl_auth "$1" GET "$2" -H 'Accept: application/json' 2>&1 >/dev/null)" || rc=$?
   if [ "$rc" = 4 ]; then
-    rc=0
-    bc_curl_auth "$1" GET "$3" -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+    confirm=1 rc=0
+    err="$(bc_curl_auth "$1" GET "$3" -H 'Accept: application/json' 2>&1 >/dev/null)" || rc=$?
+  fi
+  # An undetermined lookup keeps bc_curl's HTTP diagnostic (#138).
+  if [ "$rc" != 0 ] && [ -n "$err" ]; then printf '%s\n' "$err" >&2; fi
+  if [ "$confirm" = 1 ]; then
     case "$rc" in
       0) return 4 ;;
       3) return 3 ;;
@@ -203,6 +207,13 @@ transition_gate_open() {
   [ "${v//$'\r'/}" = true ]
 }
 
+# transition_fork_only <project>: 0 iff the project sets fork_only = true.
+transition_fork_only() {
+  local v
+  v="$(config_get_project_field "$1" fork_only 2>/dev/null || true)"
+  [ "${v//$'\r'/}" = true ]
+}
+
 # transition_route <project> <issue_arg>: the issue's tracker, by origin —
 # Issue-Fork-NNN to issue_source_fork, Issue-NNN to issue_source — in the
 # setter-globals TR_BACKEND TR_REPO TR_NUM. An absent source leaves backend and
@@ -227,7 +238,7 @@ transition_backend_sh() {
 # transition_fire <caller> <project> <issue_arg> <stage> <backend> <repo> <num> [suffix]
 # Gate, route and fire one transition. Call it BARE, never in $(…): it returns
 # its result in three setter-globals and must not lose them to a subshell.
-#   TRANSITION_OUTCOME  gated | no-tracker | no-backend | failed | unmapped | landed
+#   TRANSITION_OUTCOME  gated | fork-only | no-tracker | no-backend | failed | unmapped | landed
 #   TRANSITION_RC       the backend's exit code (0 unless it ran and failed)
 #   TRANSITION_TARGET   the generic mapped state ("" for none, or a custom
 #                       backend that maps for itself)
@@ -245,6 +256,13 @@ transition_fire() {
   if ! transition_gate_open "$project"; then
     TRANSITION_OUTCOME=gated
     echo "$caller: $stage transition for $project/$issue_arg skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)" >&2
+    return 0
+  fi
+  # fork_only: the upstream tracker is never targeted. An Issue-Fork-* issue
+  # routes to the fork's own tracker, which is not upstream.
+  if [[ "$issue_arg" != Issue-Fork-* ]] && transition_fork_only "$project"; then
+    TRANSITION_OUTCOME=fork-only
+    echo "$caller: fork_only: skipping $stage transition for $issue_arg (the upstream tracker is not targeted)" >&2
     return 0
   fi
   if [ -z "$backend" ] || [ -z "$repo" ]; then

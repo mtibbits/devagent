@@ -140,6 +140,14 @@ _real_github_backend() {
     [ "$status" -eq 1 ]
 }
 
+@test "draft start under fork_only skips an upstream issue (#710 review)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
+    run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"draft: fork_only: skipping on_draft_start transition for Issue-1 (the upstream tracker is not targeted)"* ]]
+    devagent_refute_logged "transition"
+}
+
 @test "draft start with no issue tracker skips, Issue and Issue-Fork legs (#710)" {
     devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
     run "$DEVAGENT_ROOT/scripts/transition-draft-start.sh" "$TEST_PROJECT"

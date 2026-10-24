@@ -434,6 +434,15 @@ STUB
     grep -qF 'sync: Issue-Fork-3 merged → on_merge skipped: no issue tracker configured' "$DEVDOC_DIR/Issue-Fork-3/checklist.md"
 }
 
+@test "sync: fork_only skips an upstream issue's on_merge and writes the skipped marker (#710 review)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sync: fork_only: skipping on_merge transition for Issue-1 (the upstream tracker is not targeted)"* ]]
+    grep -qF 'sync: Issue-1 merged → on_merge skipped: fork_only (upstream tracker not targeted)' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_refute_logged "transition"
+}
+
 @test "sync runs the real github backend: Done lands at the gh boundary (#710)" {
     export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_ROOT/scripts/issue"
     mkdir -p "$DEVAGENT_TMP/ghbin"
