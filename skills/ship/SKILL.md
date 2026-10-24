@@ -27,7 +27,7 @@ the MR lands:
 | Setting              | Behavior                                                  |
 |----------------------|-----------------------------------------------------------|
 | (defaults)           | MR opens directly against `code_source.upstream`.         |
-| `fork_first = true`  | MR opens against `code_source.fork` first; upstream PR is intended as a later step. The `on_ship` issue transition still fires on the upstream tracker. |
+| `fork_first = true`  | MR opens against `code_source.fork` first; upstream PR is intended as a later step. The `on_ship` issue transition fires on the upstream tracker only with `permissions.transition_issue = true` (#710). |
 | `fork_only = true`   | MR opens against `code_source.fork`. The upstream tracker is NOT transitioned. Use when you're iterating on the fork and not yet ready to engage upstream. Implies `fork_first = true`; requires `code_source.fork` to be set. |
 
 Concretely, `fork_only = true` lets you build a backlog of changes on

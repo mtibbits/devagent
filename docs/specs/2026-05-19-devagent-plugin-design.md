@@ -163,17 +163,14 @@ backend     = "github"
 upstream    = "gnuradio/volk"
 fork        = "mtibbits/volk"
 
-[project.volk.issue_workflow]
-on_draft_start = "In Progress"
-on_ship        = "In Review"
+[project.volk.issue_workflow]             # the tracker state each transition writes:
+on_draft_start = "In Progress"           #   a label on GitHub and GitLab, a status on JIRA
+on_ship        = "In Review"             #   (#710; must already exist — devagent never creates it)
 on_merge       = "Done"
 # not_planned_resolutions = ["Won't Do"]   # jira: wbs update reads these done resolutions as [-] (§9.1)
 
-[project.volk.issue_workflow.github_labels]      # only used when issue backend = "github"
-in_progress = "status: in-progress"
-in_review   = "status: in-review"
-done        = "status: done"
-remove_others_in_namespace = "status:"
+# [project.volk.github_labels]           # optional per-stage label override (gitlab: gitlab_labels)
+# on_ship = "status: in-review"          # keys are the stages on_draft_start / on_ship / on_merge
 
 [project.volk.paths]                     # artifact overrides, relative to devdoc_dir
 coding_standards = "codingStandards.md"
@@ -1377,10 +1374,15 @@ Defined per project in `[project.<name>.permissions]`. Each gate:
 - unset → treat as `false`
 
 Exception — `transition_issue`: a `false` value does **not** prompt
-`y/N`. The outward transitions it gates (`on_draft_start`, `on_merge`)
-fire in autonomous/batch contexts where no operator is present to
-answer, so `false` means **skip + warn (fail-closed)** instead
-(#219/#141/#325).
+`y/N`. It gates every tracker transition — `on_draft_start`, `on_ship`
+and `on_merge` — and two of them fire in autonomous/batch contexts
+where no operator is present to answer, so `false` means **skip + warn
+(fail-closed)** instead (#219/#141/#325). `on_ship` joined them in #710:
+#219 and #344 left it ungated while it wrote nothing (the push_mr gate
+and the interactive ship were taken as consent), but once the stage
+mappings resolve an ungated `on_ship` writes at every ship of a project
+whose `transition_issue` is false — for a `fork_first` project, to the
+upstream third-party tracker.
 
 Gates enforced by the script that performs the gated action, not by
 the chaining layer. `--auto` cannot suppress a gate. `$NOTE` cannot
@@ -1394,7 +1396,7 @@ Gate set:
 | `push_mr` | `ship.sh` |
 | `merge_mr` | `mergetoall.sh` |
 | `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
-| `transition_issue` | the autonomous outward transitions: `on_draft_start` (`transition-draft-start.sh`, #325) and `on_merge` (`sync.sh`, #219). **Not** `on_ship` — `ship.sh` fires it ungated (consent rides the ship action, #219). |
+| `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 
 ### 8.1 Hooks surface (PreToolUse / SessionStart) — #453 scaffold
@@ -1499,20 +1501,62 @@ Two separate backend dimensions per project:
 ```
 fetch        <repo> <num>                                  → markdown to stdout
 create       <repo> <title> <body-file> [--label X]…       → new <num> to stdout
-transition   <repo> <num> <semantic-stage>                 → exit 0 on success
+transition   <repo> <num> <semantic-stage> [--project <name>]  → exit 0 on success
 state        <repo> <num>                                  → backend state to stdout
 comment-list <repo> <num>                                  → markdown to stdout
 state-list   <repo>                                        → "<id>\t<class>" lines (MAY)
 issue-list   <repo>                                        → JSON Lines records (MAY)
+state-exists <repo> <state-name>                           → exit 0 present / 4 absent (MAY)
 ```
 
-`<semantic-stage>` is a key from `[project.<name>.issue_workflow]`
-(e.g., `in_progress`). The backend script maps to its native state
-representation:
+`<semantic-stage>` is a stage key of `[project.<name>.issue_workflow]`:
+`on_draft_start`, `on_ship` or `on_merge` (#710). The callers always
+append `--project <name>`, the project they resolved; a custom backend may
+ignore it. A built-in backend reads the stage's mapped state for that
+project — never an ambient `DEVAGENT_PROJECT` — with this precedence
+(`scripts/lib/transition.sh`):
 
-- GitHub: add/remove labels per `github_labels` config sub-block
-- GitLab: same label model
-- JIRA: native state transitions via REST API
+1. the per-stage env override, names unchanged:
+   `DEVAGENT_GITHUB_LABEL_<STAGE>`, `DEVAGENT_GITLAB_LABELS_<STAGE>`,
+   `DEVAGENT_JIRA_STAGE_<STAGE>` (`<STAGE>` upper-cased, `-` as `_`). These
+   are **process-global** operator and test seams: a stale one redirects
+   every project's write, and `doctor` warns while one is set;
+2. `[project.<name>.github_labels].<stage>` (GitHub) or
+   `[project.<name>.gitlab_labels].<stage>` (GitLab);
+3. `[project.<name>.issue_workflow].<stage>`, for every backend.
+
+Without `--project` only step 1 is read. A built-in backend refuses any
+other trailing argument (`--project=x`, an empty value, an unknown flag)
+with exit 2. Each writes natively, reading the issue first:
+
+- GitHub: `gh issue edit --add-label <state>`, removing the other mapped
+  stage labels the issue carries; the label must already exist on the repo
+  (matched case-insensitively, as GitHub names labels).
+- GitLab: checks the label exists — the project's or an ancestor group's —
+  **before** any write (GitLab creates a label named in `add_labels`), then
+  PUTs `add_labels` with the other mapped stage labels the issue carries as
+  `remove_labels`.
+- JIRA: POSTs the transition whose target status is the mapped one.
+
+An issue already in the target state is success with no write, and an
+absent stage label is never named for removal. devagent never creates a
+label or a status. `transition` exits:
+
+| exit | meaning |
+|---|---|
+| 0 | landed; already in the target state; or no mapping for the stage (one stderr warning, no tracker call) |
+| 2 | usage only |
+| 3 | auth refused (GitLab/JIRA HTTP 401/403) |
+| 4 | the mapped state was not found (GitHub/GitLab: the label is absent; JIRA: no transition to that status from the current one; GitLab/JIRA: the issue 404s) |
+| 1 | anything else — `gh` reports 401/403/network as its own exit 1, so GitHub never answers 3 |
+
+Callers treat any non-zero exit as "did not land": they warn with the exit
+code and continue (§11).
+
+`state-exists` MAY be implemented (#710): `0` the state exists, `4` it does
+not, `2` usage; any other exit is undetermined, never "absent". The GitHub
+and GitLab transition pre-check and `doctor`'s warn-only tracker check share
+it; a backend without it makes `doctor` skip that tracker.
 
 The first five verbs MUST be implemented; `state-list` MAY be (#703). It
 prints one line per issue of `<repo>`: the issue id (the GitHub or GitLab
@@ -1523,8 +1567,10 @@ owns:
 - `done`: closed as completed (JIRA: `done` status category)
 - `not_planned`: closed as not planned or duplicate (JIRA: `done` category
   with a resolution listed in `issue_workflow.not_planned_resolutions`)
-- `in_progress`: open with the `in_progress` stage label (JIRA:
-  `indeterminate` category)
+- `in_progress`: open with the label `on_draft_start` maps to (the same
+  precedence as `transition`, for the per-call `DEVAGENT_PROJECT` that
+  `wbs update` sets; no mapping, no `in_progress`) (JIRA: `indeterminate`
+  category)
 - `open`: open otherwise (JIRA: `new` category)
 - `other`: closed with a reason the backend does not recognise, or a state
   the tracker leaves uncategorised (JIRA: the `undefined` "No Category"
@@ -1751,17 +1797,19 @@ Three semantic events trigger backend transitions:
 | Event | Stage | Hook |
 |---|---|---|
 | Start of `draft` (step 2) | `on_draft_start` | `/devagent:draft` invokes `scripts/transition-draft-start.sh` once `issue.md` is confirmed and *before* invoking the writing-plans skill; gated by `permissions.transition_issue` (fail-closed skip-warn like `on_merge`, #219) and warns on failure rather than dying (#325) |
-| End of `ship` (step 18) | `on_ship` | `ship.sh` after successful MR creation; **not** gated by `transition_issue` (consent-by-ship-action, #219), and a failing transition degrades to a warn — ship still completes |
-| MR merged upstream (async) | `on_merge` | `/devagent:sync` |
+| End of `ship` (step 18) | `on_ship` | `ship.sh` after successful MR creation; gated by `permissions.transition_issue` like the others (#710 reopened #219's consent-by-ship-action), skipped under `fork_only`, and a failing transition degrades to a warn — ship still completes |
+| MR merged upstream (async) | `on_merge` | `/devagent:sync`; gated by `permissions.transition_issue` (#219). Its log line is the idempotence marker, written only when the transition landed (or no tracker is configured), so one that did not land retries on the next sync (#710) |
 
 The `commit` → `analyze` ordering (steps 12 → 13) exists because
 `static_analysis_diff.py` requires a `git diff` against a baseline,
 which requires a commit. With squash-on-merge, the noise of a
 post-analyze amend commit is acceptable — both end up squashed.
 
-If a transition fails (auth expired, JIRA disallows the transition
-from current state), the **step proceeds anyway** but the failure is
-logged with reason. Tracker-state failures do not block real work.
+If a transition fails (auth expired, a mapped label missing from the
+tracker, JIRA disallows the transition from current state), the
+backend exits non-zero — any non-zero exit means the write did not land
+(§9.1) — and the **step proceeds anyway**, warning with the exit code.
+Tracker-state failures do not block real work.
 
 ## 12. Templates / artifacts registry
 

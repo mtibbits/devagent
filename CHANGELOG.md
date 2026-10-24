@@ -16,6 +16,48 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: tracker transitions write the configured stage mapping (#710).**
+  - `on_draft_start` (draft), `on_ship` (ship) and `on_merge` (sync) now write the state
+    `[project.<p>.issue_workflow]` names: a label on GitHub and GitLab, a status on JIRA.
+    Before, none of them read the config: GitHub skipped silently, GitLab sent an empty
+    label, and JIRA exited 2. On GitHub and GitLab the transition also removes the other
+    mapped stage labels the issue carries. An issue already in the target state is left
+    alone. devagent never creates a label or status; GitLab is checked before any write.
+  - The callers pass the project they resolved as `transition … --project <name>`; the
+    backends no longer read an ambient `DEVAGENT_PROJECT` for a transition. Precedence:
+    the per-stage env override (`DEVAGENT_GITHUB_LABEL_<STAGE>`,
+    `DEVAGENT_GITLAB_LABELS_<STAGE>`, `DEVAGENT_JIRA_STAGE_<STAGE>`; process-global), then
+    an optional `[project.<p>.github_labels]` / `gitlab_labels` table keyed by stage, then
+    `issue_workflow`. A custom backend receives `--project` and may ignore it.
+  - Changed: on_ship is gated by permissions.transition_issue (was ungated, #219/#344).
+    `transition_issue = false` now skips every transition, an interactive ship's included;
+    ship's plan line names the tracker repo and the state, or why it is skipped.
+  - `state-list` and `issue-list` read the label `on_draft_start` maps to as the
+    in-progress signal. The unreleased `github_labels.in_progress` /
+    `gitlab_labels.in_progress` keys, their env names and GitHub's `in progress` default
+    (#703) are gone, as are GitLab's `remove_others_in_namespace` key and
+    `DEVAGENT_GITLAB_LABEL_NAMESPACE`.
+  - A transition that did not land exits non-zero: 4 when the mapped label or status is
+    missing (named in the message), 3 on a GitLab/JIRA 401/403, 1 otherwise. The step
+    warns with the exit code and carries on. A stage with no mapping is one warning and
+    exit 0 on every backend; JIRA's exit 2 is now usage only.
+  - Sync's log line says what happened — `merged → on_merge landed: "<state>" on <repo>`,
+    or `… skipped: no issue tracker configured` — and it is the idempotence marker, so a
+    transition that failed, was gated off or has no mapping writes none and is retried on
+    the next sync. Old `merged → on_merge fired` lines still count; merged issues are not
+    backfilled.
+  - New optional backend verb `state-exists <repo> <state>` (0 present, 4 absent).
+    `/devagent:doctor` warns on label-table keys no transition reads, the retired keys and
+    env names, spec §3.2's nested `issue_workflow.github_labels` table and any set
+    per-stage override; with `transition_issue = true` it checks each mapped state on the
+    tracker — a warning, never a failure, skipped when the tracker is unreachable.
+  - Cost on `transition_issue = true` projects: doctor makes up to three label lookups per
+    tracker; draft, ship and sync read the issue before writing; and these projects warn
+    — `sync --all` on every run — until their labels exist on the tracker.
+  - The GitLab group-label path (`include_ancestor_groups=true`) is unverified against a
+    live GitLab instance; no configured project uses GitLab.
+  - Not breaking: the stage names and DEVAGENT_* override names are unchanged; the one behavior that stops is a per-stage override with transition_issue = false writing at ship, an undocumented seam.
+
 - **Fixed: `/devagent:next` hands step 3 (spike) to `/devagent:spike` instead of running the `spike.sh` helper (#812).**
   An issue flagged `spike: required` no longer halts an `--auto` chain with spike.sh's
   usage error. A new guard test (`tests/next-backing.bats`) pins every step-named script's
