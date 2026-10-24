@@ -28,9 +28,11 @@ setup() {
   ISSUE_NUM_401="PROJ-401"
   export JIRA_USER="dummy@example.com"
   export JIRA_TOKEN="dummy-token"
-  export DEVAGENT_JIRA_STAGE_IN_PROGRESS="In Progress"
-  unset DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS DEVAGENT_JIRA_PROJECT_KEY DEVAGENT_PROJECT
+  unset DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS DEVAGENT_JIRA_PROJECT_KEY
   contract_load_fixtures
+  # After the fixture load: it re-sources hermetic-env, which unsets the stage
+  # overrides (#710).
+  export DEVAGENT_JIRA_STAGE_ON_SHIP="In Review"
   export DEVAGENT_JIRA_BASE="$FIXTURE_URL"
 }
 
@@ -67,14 +69,15 @@ teardown() {
 }
 
 @test "[jira] transition exits 0" {
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_ship
   [ "$status" -eq 0 ]
+  grep -qF $'POST /rest/api/2/issue/PROJ-42/transitions\t{"transition":{"id":"31"}}' "$FIXTURE_REQUEST_LOG"
 }
 
 @test "[jira] transition is idempotent" {
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_ship
   [ "$status" -eq 0 ]
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_ship
   [ "$status" -eq 0 ]
 }
 

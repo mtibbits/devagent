@@ -8,11 +8,23 @@ setup() {
   export JIRA_USER="dummy@example.com"
   export DEVAGENT_JIRA_BASE="$FIXTURE_URL"
   SCRIPT="${BATS_TEST_DIRNAME}/../scripts/issue/jira.sh"
+  # #710: the skeleton's config shape — issue_workflow names a status on JIRA.
+  export DA_HOME="$BATS_TEST_TMPDIR/da"
+  mkdir -p "$DA_HOME"
+  cat > "$DA_HOME/config.toml" <<'TOML'
+[project.testproj.issue_workflow]
+on_draft_start = "In Progress"
+on_ship        = "In Review"
+on_merge       = "Done"
+TOML
 }
 
 teardown() {
   fixture_stop
 }
+
+# _requests: the request log without the fixture server's own startup probe.
+_requests() { grep -v '^GET /__ping__' "$FIXTURE_REQUEST_LOG" || true; }
 
 @test "issue/jira.sh fetch emits spec 9.3 markdown" {
   run "$SCRIPT" fetch PROJ PROJ-42
@@ -38,12 +50,66 @@ teardown() {
   grep -q "POST /rest/api/2/issue" "$FIXTURE_REQUEST_LOG"
 }
 
-@test "issue/jira.sh transition POSTs transition id" {
-  export DEVAGENT_JIRA_STAGE_IN_PROGRESS="In Progress"
-  run "$SCRIPT" transition PROJ PROJ-42 in_progress
+@test "transition on_draft_start: an issue already In Progress gets no POST (#710)" {
+  run "$SCRIPT" transition PROJ PROJ-42 on_draft_start --project testproj
   [ "$status" -eq 0 ]
-  grep -q "POST /rest/api/2/issue/PROJ-42/transitions" "$FIXTURE_REQUEST_LOG"
-  grep -q '"id":"21"' "$FIXTURE_REQUEST_LOG"
+  grep -q $'^GET /rest/api/2/issue/PROJ-42\t' "$FIXTURE_REQUEST_LOG"
+  run grep -c '^POST ' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition on_ship|on_merge POSTs the mapped id (#710)" {
+  run "$SCRIPT" transition PROJ PROJ-42 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  grep -qxF $'POST /rest/api/2/issue/PROJ-42/transitions\t{"transition":{"id":"31"}}' "$FIXTURE_REQUEST_LOG"
+  : > "$FIXTURE_REQUEST_LOG"
+  run "$SCRIPT" transition PROJ PROJ-42 on_merge --project testproj
+  [ "$status" -eq 0 ]
+  grep -qxF $'POST /rest/api/2/issue/PROJ-42/transitions\t{"transition":{"id":"41"}}' "$FIXTURE_REQUEST_LOG"
+}
+
+@test "transition without a mapping exits 0 with one warning, never 2 (#710)" {
+  run "$SCRIPT" transition PROJ PROJ-42 on_ship --project other
+  [ "$status" -eq 0 ]
+  [ "$output" = "jira.sh: no tracker state mapped for 'on_ship' (project other); transition skipped" ]
+  [ -z "$(_requests)" ]
+}
+
+@test "transition to an unavailable status exits 4 naming it (#710)" {
+  export DEVAGENT_JIRA_STAGE_ON_SHIP="Blocked"
+  run "$SCRIPT" transition PROJ PROJ-42 on_ship --project testproj
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"jira.sh: no transition to status 'Blocked' (on_ship) from 'In Progress' on PROJ-42"* ]]
+  run grep -c '^POST ' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: a 403 on the POST exits 3 (#710)" {
+  run "$SCRIPT" transition PROJ PROJ-43 on_ship --project testproj
+  [ "$status" -eq 3 ]
+  grep -qxF $'POST /rest/api/2/issue/PROJ-43/transitions\t{"transition":{"id":"31"}}' "$FIXTURE_REQUEST_LOG"
+}
+
+@test "transition: a bad --project or a missing positional exits 2 (#710)" {
+  # mapped, so only the argument refusal (not a missing mapping) can exit 2
+  export DEVAGENT_JIRA_STAGE_ON_SHIP="In Review"
+  run "$SCRIPT" transition PROJ PROJ-42 on_ship --project
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" transition PROJ PROJ-42 on_ship --bogus
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" transition PROJ PROJ-42
+  [ "$status" -eq 2 ]
+  [ -z "$(_requests)" ]
+}
+
+@test "state-exists: 0 known, 4 unknown (#710)" {
+  run "$SCRIPT" state-exists PROJ "In Review"
+  [ "$status" -eq 0 ]
+  grep -q '^GET /rest/api/2/status/In%20Review' "$FIXTURE_REQUEST_LOG"
+  run "$SCRIPT" state-exists PROJ "Blocked"
+  [ "$status" -eq 4 ]
+  run "$SCRIPT" state-exists PROJ
+  [ "$status" -eq 2 ]
 }
 
 @test "issue/jira.sh state prints status name" {
