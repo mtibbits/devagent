@@ -94,24 +94,21 @@ check_tracker_mapping() {
   done < <(_config_toml list-tables "$(config_path)" 2>/dev/null || true)
 
   transition_gate_open "$project" || return 0
-  local which backend repo sh kind stage target rc n
+  local which backend repo sh kind stage target rc
   for which in issue_source issue_source_fork; do
     backend="$(config_get_project_field "$project" "$which.backend" 2>/dev/null || true)"
     repo="$(config_get_project_field "$project" "$which.repo" 2>/dev/null || true)"
     backend="${backend//$'\r'/}"; repo="${repo//$'\r'/}"
     [[ -n "$backend" && -n "$repo" ]] || continue
-    sh="${DEVAGENT_ISSUE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/issue}/$backend.sh"
+    sh="$(transition_backend_sh "$backend")"
     if [[ ! -x "$sh" ]]; then
       check "tracker states on $repo" skip "issue backend $sh not executable"
       continue
     fi
     kind="$(stage_map_kind "$backend")"
-    n=0
-    for stage in on_draft_start on_ship on_merge; do
+    for stage in $_TRANSITION_STAGES; do
       target="$(stage_map_target "$backend" "$project" "$stage" 2>/dev/null || true)"
       [[ -n "$target" ]] || continue
-      (( n < 3 )) || break
-      n=$((n + 1))
       rc=0
       "$sh" state-exists "$repo" "$target" </dev/null >/dev/null 2>&1 || rc=$?
       case "$rc" in
@@ -132,8 +129,8 @@ check_transition_env() {
   for name in DEVAGENT_GITLAB_LABEL_NAMESPACE DEVAGENT_GITHUB_LABEL_IN_PROGRESS DEVAGENT_GITLAB_LABELS_IN_PROGRESS; do
     if [[ -n "${!name:-}" ]]; then check "env $name" warn "retired (#710), ignored; unset it"; fi
   done
-  for b in github gitlab jira; do
-    for stage in on_draft_start on_ship on_merge; do
+  for b in $_TRANSITION_BUILTINS; do
+    for stage in $_TRANSITION_STAGES; do
       name="$(stage_map_env_var "$b" "$stage")"
       if [[ -n "${!name:-}" ]]; then
         check "env $name" warn "process-global override active: every project's $stage writes '${!name}'"

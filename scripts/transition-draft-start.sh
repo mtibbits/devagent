@@ -49,24 +49,15 @@ main() {
         return 0
     fi
 
-    # Route to the right issue tracker based on origin (mirror of sync/ship).
-    local issue_backend issue_repo issue_num
-    if [[ "$issue_arg" == Issue-Fork-* ]]; then
-        issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
-        issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
-        issue_num="${issue_arg#Issue-Fork-}"
-    else
-        issue_backend="$(config_get_project_field "$project" issue_source.backend 2>/dev/null || true)"
-        issue_repo="$(config_get_project_field    "$project" issue_source.repo    2>/dev/null || true)"
-        issue_num="${issue_arg#Issue-}"
-    fi
+    # Route to the right issue tracker based on origin.
+    transition_route "$project" "$issue_arg"
 
     # Gate FIRST, fail-closed (#219): transition_fire checks
     # permissions.transition_issue before any tracker call, then routes, then
     # hands the backend the project resolved here as --project (#710: never an
     # ambient DEVAGENT_PROJECT). A failure WARNS with its exit code, never dies —
     # a tracker hiccup must not block drafting (§11).
-    transition_fire draft "$project" "$issue_arg" on_draft_start "$issue_backend" "$issue_repo" "$issue_num"
+    transition_fire draft "$project" "$issue_arg" on_draft_start "$TR_BACKEND" "$TR_REPO" "$TR_NUM"
 }
 
 main "$@"

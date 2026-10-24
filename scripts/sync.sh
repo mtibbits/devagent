@@ -106,16 +106,9 @@ sync_one_project() {
     # — without this guard, sync would fire on_merge with an empty issue number.
     [ -n "$issue_arg" ] || return 0
 
-    # Route to the right issue tracker based on origin (mirror of ship.sh).
-    if [[ "$issue_arg" == Issue-Fork-* ]]; then
-        issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
-        issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
-        issue_num="${issue_arg#Issue-Fork-}"
-    else
-        issue_backend="$(config_get_project_field "$project" issue_source.backend 2>/dev/null || true)"
-        issue_repo="$(config_get_project_field    "$project" issue_source.repo    2>/dev/null || true)"
-        issue_num="${issue_arg#Issue-}"
-    fi
+    # Route to the right issue tracker based on origin.
+    transition_route "$project" "$issue_arg"
+    issue_backend="$TR_BACKEND" issue_repo="$TR_REPO" issue_num="$TR_NUM"
 
     local code_sh state
     code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
@@ -159,11 +152,7 @@ sync_one_project() {
         " — no merge marker written; sync retries it next run"
     case "$TRANSITION_OUTCOME" in
         landed)
-            if [ -n "$TRANSITION_TARGET" ]; then
-                log_append "$issue_dir" sync "$issue_arg merged → on_merge landed: \"$TRANSITION_TARGET\" on $issue_repo"
-            else
-                log_append "$issue_dir" sync "$issue_arg merged → on_merge landed on $issue_repo"
-            fi ;;
+            log_append "$issue_dir" sync "$issue_arg merged → on_merge landed${TRANSITION_TARGET:+: \"$TRANSITION_TARGET\"} on $issue_repo" ;;
         no-tracker)
             log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: no issue tracker configured" ;;
     esac

@@ -236,17 +236,8 @@ fi
 # Route to the right issue tracker based on the issue's origin:
 #   Issue-Fork-NNN -> issue_source_fork (the fork's tracker)
 #   Issue-NNN      -> issue_source       (the upstream tracker)
-if [[ "$issue_arg" == Issue-Fork-* ]]; then
-    issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
-    issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
-    issue_num="${issue_arg#Issue-Fork-}"
-else
-    # #710: fall through to no-tracker like sync and draft start (this leg read
-    # issue_source bare and died under set -e when it was absent).
-    issue_backend="$(config_get_project_field "$project" issue_source.backend 2>/dev/null || true)"
-    issue_repo="$(config_get_project_field    "$project" issue_source.repo    2>/dev/null || true)"
-    issue_num="${issue_arg#Issue-}"
-fi
+transition_route "$project" "$issue_arg"
+issue_backend="$TR_BACKEND" issue_repo="$TR_REPO" issue_num="$TR_NUM"
 
 mr_body="$issue_dir/mr.md"
 [ -r "$mr_body" ] || die "missing $mr_body (run /devagent:draftmr first)"

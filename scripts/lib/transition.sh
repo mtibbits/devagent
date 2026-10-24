@@ -22,6 +22,11 @@
 # (#663: such exports go stale).
 
 _TRANSITION_STAGES="on_draft_start on_ship on_merge"
+# The built-in backends, which map stages here; a custom backend maps for itself.
+_TRANSITION_BUILTINS="github gitlab jira"
+
+# stage_map_builtin <backend>: 0 iff <backend> is a built-in backend.
+stage_map_builtin() { [[ " $_TRANSITION_BUILTINS " == *" $1 "* ]]; }
 
 # stage_map_env_var <backend> <stage>: the env override's name, or nothing for
 # a backend without one (or a stage that cannot form a variable name).
@@ -76,13 +81,18 @@ _stage_map_key() {
   if [ "$1" = github ]; then printf '%s' "${2,,}"; else printf '%s' "$2"; fi
 }
 
-# stage_map_others <backend> <project> <stage>: the other two stages' mapped
-# states, one per line in stage order, deduplicated, never the target itself.
-# These are the stale stage labels a transition removes. Returns 1 as
-# stage_map_target does.
+# stage_map_others <backend> <project> <stage> [target]: the other two stages'
+# mapped states, one per line in stage order, deduplicated, never the target
+# itself. These are the stale stage labels a transition removes. A caller that
+# already resolved <stage>'s target passes it, saving its config reads. Returns
+# 1 as stage_map_target does.
 stage_map_others() {
   local backend="$1" project="$2" stage="$3" target s t k seen
-  target="$(stage_map_target "$backend" "$project" "$stage")" || return 1
+  if [ "$#" -ge 4 ]; then
+    target="$4"
+  else
+    target="$(stage_map_target "$backend" "$project" "$stage")" || return 1
+  fi
   seen=$'\n'"$(_stage_map_key "$backend" "$target")"$'\n'
   for s in $_TRANSITION_STAGES; do
     [ "$s" != "$stage" ] || continue
@@ -94,6 +104,42 @@ stage_map_others() {
     printf '%s\n' "$t"
   done
   return 0
+}
+
+# stage_map_carried <backend> <present> <names>: each of <names> (one per line)
+# that <present> (the issue's labels, one per line) carries, in <names> order,
+# printed as the issue carries it — compared by _stage_map_key.
+stage_map_carried() {
+  local o p k
+  while IFS= read -r o; do
+    [ -n "$o" ] || continue
+    k="$(_stage_map_key "$1" "$o")"
+    while IFS= read -r p; do
+      if [ -n "$p" ] && [ "$(_stage_map_key "$1" "$p")" = "$k" ]; then printf '%s\n' "$p"; break; fi
+    done <<<"$2"
+  done <<<"$3"
+}
+
+# stage_state_probe <auth-header> <url> <confirm-url>: a state-exists lookup
+# (needs backend-common.sh). 0 <url> answers, 3 auth refused, 1 any other
+# failure; a 404 is 4 (absent) only when <confirm-url> answers, so a token
+# that cannot see the resource, or a wrong base path, never reads as absent.
+stage_state_probe() {
+  local rc=0
+  bc_curl_auth "$1" GET "$2" -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = 4 ]; then
+    rc=0
+    bc_curl_auth "$1" GET "$3" -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0) return 4 ;;
+      3) return 3 ;;
+      *) return 1 ;;
+    esac
+  fi
+  case "$rc" in
+    0|3) return "$rc" ;;
+    *)   return 1 ;;
+  esac
 }
 
 # stage_map_kind <backend>: what a mapped state is on that tracker.
@@ -116,7 +162,6 @@ stage_map_kind() {
 transition_args() {
   local b="$1"; shift
   TA_REPO="${1:-}" TA_NUM="${2:-}" TA_STAGE="${3:-}" TA_PROJECT=""
-  local seen=0
   if [ -z "$TA_REPO" ] || [ -z "$TA_NUM" ] || [ -z "$TA_STAGE" ] \
      || [[ "$TA_REPO" == -* || "$TA_NUM" == -* || "$TA_STAGE" == -* ]]; then
     echo "$b: usage: transition <repo> <num> <semantic-stage> [--project <name>]" >&2
@@ -126,11 +171,11 @@ transition_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --project)
-        if [ "$seen" = 1 ] || [ -z "${2:-}" ]; then
+        if [ -n "$TA_PROJECT" ] || [ -z "${2:-}" ]; then
           echo "$b: transition: --project takes one non-empty value" >&2
           return 2
         fi
-        TA_PROJECT="$2"; seen=1; shift 2 ;;
+        TA_PROJECT="$2"; shift 2 ;;
       *)
         echo "$b: transition: unknown argument '$1'" >&2
         return 2 ;;
@@ -156,6 +201,27 @@ transition_gate_open() {
   local v
   v="$(config_get_project_field "$1" permissions.transition_issue 2>/dev/null || true)"
   [ "${v//$'\r'/}" = true ]
+}
+
+# transition_route <project> <issue_arg>: the issue's tracker, by origin —
+# Issue-Fork-NNN to issue_source_fork, Issue-NNN to issue_source — in the
+# setter-globals TR_BACKEND TR_REPO TR_NUM. An absent source leaves backend and
+# repo empty, which transition_fire reads as no-tracker.
+# shellcheck disable=SC2034
+transition_route() {
+  local which=issue_source
+  if [[ "$2" == Issue-Fork-* ]]; then
+    which=issue_source_fork; TR_NUM="${2#Issue-Fork-}"
+  else
+    TR_NUM="${2#Issue-}"
+  fi
+  TR_BACKEND="$(config_get_project_field "$1" "$which.backend" 2>/dev/null || true)"
+  TR_REPO="$(config_get_project_field    "$1" "$which.repo"    2>/dev/null || true)"
+}
+
+# transition_backend_sh <backend>: the backend script's path.
+transition_backend_sh() {
+  printf '%s' "${DEVAGENT_ISSUE_BACKEND_DIR:-$(plugin_root)/scripts/issue}/$1.sh"
 }
 
 # transition_fire <caller> <project> <issue_arg> <stage> <backend> <repo> <num> [suffix]
@@ -186,7 +252,7 @@ transition_fire() {
     echo "$caller: no issue tracker configured for $issue_arg; skipping $stage transition" >&2
     return 0
   fi
-  local sh="${DEVAGENT_ISSUE_BACKEND_DIR:-$(plugin_root)/scripts/issue}/$backend.sh"
+  local sh; sh="$(transition_backend_sh "$backend")"
   if [ ! -x "$sh" ]; then
     TRANSITION_OUTCOME=no-backend
     echo "$caller: issue backend $sh not executable; skipping $stage transition$suffix" >&2
@@ -197,7 +263,7 @@ transition_fire() {
   if [ "$TRANSITION_RC" -ne 0 ]; then
     TRANSITION_OUTCOME=failed
     echo "warning: $stage transition failed for $project/$issue_arg (exit $TRANSITION_RC) — continuing per spec §11$suffix" >&2
-  elif [ -z "$TRANSITION_TARGET" ] && [[ " github gitlab jira " == *" $backend "* ]]; then
+  elif [ -z "$TRANSITION_TARGET" ] && stage_map_builtin "$backend"; then
     TRANSITION_OUTCOME=unmapped
   else
     TRANSITION_OUTCOME=landed
@@ -217,7 +283,7 @@ transition_plan_note() {
     t="$(stage_map_target "$backend" "$project" "$stage" 2>/dev/null || true)"
     if [ -n "$t" ]; then
       echo "\"$t\" on $repo"
-    elif [[ " github gitlab jira " == *" $backend "* ]]; then
+    elif stage_map_builtin "$backend"; then
       echo "skipped (no tracker state mapped)"
     else
       echo "on $repo"

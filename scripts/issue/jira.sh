@@ -55,15 +55,6 @@ trim_date() { echo "${1%%T*}"; }
 # %20, never +). Same encoding gitlab.sh's urlenc produces.
 _urlenc() { jq -rn --arg s "$1" '$s | @uri' | tr -d '\r'; }
 
-_jira_load_config() {
-  # shellcheck source=../lib/paths.sh
-  source "${SCRIPT_DIR}/../lib/paths.sh"
-  # shellcheck source=../lib/io.sh
-  source "${SCRIPT_DIR}/../lib/io.sh"
-  # shellcheck source=../lib/config.sh
-  source "${SCRIPT_DIR}/../lib/config.sh"
-}
-
 cmd_fetch() {
   local repo="${1:-}" num="${2:-}"
   { [ -z "$repo" ] || [ -z "$num" ]; } && usage
@@ -179,23 +170,8 @@ cmd_transition() {
 # "absent" only when GET /myself (which also checks the credentials) answers.
 cmd_state_exists() {
   { [ "$#" -eq 2 ] && [ -n "$1" ] && [ -n "$2" ]; } || usage
-  local rc=0
-  bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/status/$(_urlenc "$2")" \
-    -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
-  if [ "$rc" = 4 ]; then
-    rc=0
-    bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/myself" \
-      -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
-    case "$rc" in
-      0) return 4 ;;
-      3) return 3 ;;
-      *) return 1 ;;
-    esac
-  fi
-  case "$rc" in
-    0|3) return "$rc" ;;
-    *)   return 1 ;;
-  esac
+  stage_state_probe "$(auth_header)" \
+    "$(base)/rest/api/2/status/$(_urlenc "$2")" "$(base)/rest/api/2/myself"
 }
 
 cmd_state() {
@@ -232,7 +208,6 @@ cmd_comment_list() {
 _jira_not_planned() {
   local list="${DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS:-}"
   if [ -z "$list" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    _jira_load_config
     list="$(config_get_project_list "$DEVAGENT_PROJECT" issue_workflow.not_planned_resolutions 2>/dev/null || true)"
   fi
   printf '%s\n' "$list" | tr -d '\r' | jq -Rsc 'split("\n") | map(select(length > 0))'

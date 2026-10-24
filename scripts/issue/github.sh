@@ -190,7 +190,7 @@ cmd_transition() {
     transition_unmapped github "$stage" "$project"
     return 0
   fi
-  others="$(stage_map_others github "$project" "$stage")" || return 1
+  others="$(stage_map_others github "$project" "$stage" "$target")" || return 1
   # gh's --add-label/--remove-label take comma-separated lists, so a label
   # holding a comma would reach GitHub as two labels — a wrong write. Refuse
   # it before any gh call (#710 review).
@@ -206,21 +206,13 @@ cmd_transition() {
   done <<<"$others"
   _need gh
   _need jq
-  local json present p o has_target=0 remove=()
+  local json present o remove=()
   json="$(_gh_view "$repo" "$num" labels)" || return 1
   present="$(printf '%s' "$json" | jq -r '.labels[]?.name' | tr -d '\r')" || return 1
-  while IFS= read -r p; do
-    if [ -n "$p" ] && [ "${p,,}" = "${target,,}" ]; then has_target=1; fi
-  done <<<"$present"
   # Only a stage label the issue carries is named for removal, by the name it
   # carries (an absent one is a no-op, never an argument), in stage order.
-  while IFS= read -r o; do
-    [ -n "$o" ] || continue
-    while IFS= read -r p; do
-      if [ -n "$p" ] && [ "${p,,}" = "${o,,}" ]; then remove+=("$p"); break; fi
-    done <<<"$present"
-  done <<<"$others"
-  if [ "$has_target" = 1 ] && [ "${#remove[@]}" -eq 0 ]; then
+  mapfile -t remove < <(stage_map_carried github "$present" "$others")
+  if [ -n "$(stage_map_carried github "$present" "$target")" ] && [ "${#remove[@]}" -eq 0 ]; then
     return 0
   fi
   local rc=0

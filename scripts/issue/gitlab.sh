@@ -139,24 +139,10 @@ _gl_stage_label() { stage_map_target gitlab "${2:-}" "$1"; }
 # an under-scoped token) or a wrong path, so a label 404 is "absent" only when
 # the project itself answers.
 _gl_label_exists() {
-  local enc name rc=0; enc="$(urlenc "$1")"; name="$(urlenc "$2")"
-  BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-    bc_curl GET "$(api_base)/projects/${enc}/labels/${name}?include_ancestor_groups=true" >/dev/null 2>&1 \
-    || rc=$?
-  if [ "$rc" = 4 ]; then
-    rc=0
-    BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
-      bc_curl GET "$(api_base)/projects/${enc}" >/dev/null 2>&1 || rc=$?
-    case "$rc" in
-      0) return 4 ;;
-      3) return 3 ;;
-      *) return 1 ;;
-    esac
-  fi
-  case "$rc" in
-    0|3) return "$rc" ;;
-    *)   return 1 ;;
-  esac
+  local enc; enc="$(urlenc "$1")"
+  stage_state_probe "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    "$(api_base)/projects/${enc}/labels/$(urlenc "$2")?include_ancestor_groups=true" \
+    "$(api_base)/projects/${enc}"
 }
 
 # transition <repo> <num> <semantic-stage> [--project <name>] (spec §9.1):
@@ -179,7 +165,7 @@ cmd_transition() {
     transition_unmapped gitlab "$stage" "$project"
     return 0
   fi
-  others="$(stage_map_others gitlab "$project" "$stage")" || return 1
+  others="$(stage_map_others gitlab "$project" "$stage" "$target")" || return 1
   _gl_label_exists "$repo" "$target" || rc=$?
   case "$rc" in
     0) ;;
@@ -189,19 +175,14 @@ cmd_transition() {
   esac
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
-  local issue_json present p o has_target=0 remove=""
+  local issue_json present remove
   issue_json="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/issues/${num}")" || return
   present="$(printf '%s' "$issue_json" | jq -r '.labels[]? | if type == "string" then . else .name end' | tr -d '\r')" || return 1
-  while IFS= read -r p; do
-    if [ -n "$p" ] && [ "$p" = "$target" ]; then has_target=1; fi
-  done <<<"$present"
   # Only a stage label the issue carries is named for removal (an absent one is
   # a no-op, never an argument), in stage order.
-  while IFS= read -r o; do
-    [ -n "$o" ] || continue
-    if printf '%s\n' "$present" | grep -qxF -- "$o"; then remove+="${remove:+,}$o"; fi
-  done <<<"$others"
-  if [ "$has_target" = 1 ] && [ -z "$remove" ]; then
+  remove="$(stage_map_carried gitlab "$present" "$others")"
+  remove="${remove//$'\n'/,}"
+  if [ -n "$(stage_map_carried gitlab "$present" "$target")" ] && [ -z "$remove" ]; then
     return 0
   fi
   local payload
