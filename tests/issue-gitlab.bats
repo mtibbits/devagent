@@ -7,6 +7,23 @@ setup() {
   export GITLAB_TOKEN="dummy-token"
   export DEVAGENT_GITLAB_API="$FIXTURE_URL/api/v4"
   SCRIPT="${BATS_TEST_DIRNAME}/../scripts/issue/gitlab.sh"
+  # #710: the skeleton's config shape — issue_workflow names a label on GitLab.
+  export DA_HOME="$BATS_TEST_TMPDIR/da"
+  mkdir -p "$DA_HOME"
+  cat > "$DA_HOME/config.toml" <<'TOML'
+[project.testproj.issue_workflow]
+on_draft_start = "In Progress"
+on_ship        = "In Review"
+on_merge       = "Done"
+TOML
+}
+
+# _requests: the request log without the fixture server's own startup probe.
+_requests() { grep -v '^GET /__ping__' "$FIXTURE_REQUEST_LOG" || true; }
+
+# _put_body <iid>: the body of every PUT to issue <iid>, one per line.
+_put_body() {
+  awk -F'\t' -v p="PUT /api/v4/projects/foo%2Fbar/issues/$1" '$1 == p { print $2 }' "$FIXTURE_REQUEST_LOG"
 }
 
 teardown() {
@@ -36,12 +53,99 @@ teardown() {
   grep -q "POST /api/v4/projects/foo%2Fbar/issues" "$FIXTURE_REQUEST_LOG"
 }
 
-@test "issue/gitlab.sh transition PUTs label update" {
-  export DEVAGENT_GITLAB_LABELS_IN_PROGRESS="status::in-progress"
-  export DEVAGENT_GITLAB_LABEL_NAMESPACE="status::"
-  run "$SCRIPT" transition foo/bar 42 in_progress
+@test "transition <stage> PUTs the mapped add_labels with matching remove_labels (#710)" {
+  run "$SCRIPT" transition foo/bar 43 on_ship --project testproj
   [ "$status" -eq 0 ]
-  grep -q "PUT /api/v4/projects/foo%2Fbar/issues/42" "$FIXTURE_REQUEST_LOG"
+  [ "$(_put_body 43)" = '{"add_labels":"In Review","remove_labels":"In Progress"}' ]
+  # the label check is logged before the PUT
+  local check put
+  check="$(grep -n '^GET /api/v4/projects/foo%2Fbar/labels/In%20Review?include_ancestor_groups=true' "$FIXTURE_REQUEST_LOG" | cut -d: -f1)"
+  put="$(grep -n '^PUT /api/v4/projects/foo%2Fbar/issues/43' "$FIXTURE_REQUEST_LOG" | cut -d: -f1)"
+  [ "$check" -lt "$put" ]
+  : > "$FIXTURE_REQUEST_LOG"
+  run "$SCRIPT" transition foo/bar 43 on_merge --project testproj
+  [ "$status" -eq 0 ]
+  [ "$(_put_body 43)" = '{"add_labels":"Done","remove_labels":"In Progress"}' ]
+  # no stage label on issue 42: nothing to remove, so no remove_labels key
+  run "$SCRIPT" transition foo/bar 42 on_draft_start --project testproj
+  [ "$status" -eq 0 ]
+  [ "$(_put_body 42)" = '{"add_labels":"In Progress"}' ]
+}
+
+@test "transition checks the label first: missing exits 4, no PUT, no label POST (#710)" {
+  export DEVAGENT_GITLAB_LABELS_ON_SHIP="Nope"
+  run "$SCRIPT" transition foo/bar 42 on_ship --project testproj
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"gitlab.sh: label 'Nope' (on_ship) not found on foo/bar or its groups (or the project is not visible to this token); devagent does not create labels — create it or change the mapping"* ]]
+  # the label lookup is the first and only request: nothing was written
+  [ "$(_requests | wc -l)" -eq 1 ]
+  grep -q '^GET /api/v4/projects/foo%2Fbar/labels/Nope?include_ancestor_groups=true' "$FIXTURE_REQUEST_LOG"
+}
+
+@test "transition accepts a group-level label via include_ancestor_groups (#710)" {
+  export DEVAGENT_GITLAB_LABELS_ON_SHIP="Group Label"
+  run "$SCRIPT" transition foo/bar 42 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  [ "$(_put_body 42)" = '{"add_labels":"Group Label"}' ]
+}
+
+@test "transition: label-check 401 exits 3 with no PUT (#710)" {
+  run "$SCRIPT" transition foo/denied 42 on_ship --project testproj
+  [ "$status" -eq 3 ]
+  run grep -c '^PUT ' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: a 403 on the PUT exits 3 (#710)" {
+  run "$SCRIPT" transition foo/bar 44 on_ship --project testproj
+  [ "$status" -eq 3 ]
+  [ "$(_put_body 44)" = '{"add_labels":"In Review"}' ]
+}
+
+@test "transition: an issue already carrying the target gets no PUT (#710)" {
+  run "$SCRIPT" transition foo/bar 43 on_draft_start --project testproj
+  [ "$status" -eq 0 ]
+  grep -q '^GET /api/v4/projects/foo%2Fbar/issues/43' "$FIXTURE_REQUEST_LOG"
+  run grep -c '^PUT ' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: the retired namespace key and env are not sent (#710)" {
+  printf '%s\n' '' '[project.testproj.gitlab_labels]' 'remove_others_in_namespace = "status::"' >> "$DA_HOME/config.toml"
+  export DEVAGENT_GITLAB_LABEL_NAMESPACE="status::"
+  run "$SCRIPT" transition foo/bar 42 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  [ "$(_put_body 42)" = '{"add_labels":"In Review"}' ]
+  run grep -F 'status::' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
+}
+
+@test "transition: unmapped exits 0 with no request (#710)" {
+  run "$SCRIPT" transition foo/bar 42 on_ship --project other
+  [ "$status" -eq 0 ]
+  [ "$output" = "gitlab.sh: no tracker state mapped for 'on_ship' (project other); transition skipped" ]
+  [ -z "$(_requests)" ]
+}
+
+@test "transition: a bad --project or a missing positional exits 2 (#710)" {
+  run "$SCRIPT" transition foo/bar 42 on_ship --project
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" transition foo/bar 42 on_ship --project=testproj
+  [ "$status" -eq 2 ]
+  run "$SCRIPT" transition foo/bar 42
+  [ "$status" -eq 2 ]
+  [ -z "$(_requests)" ]
+}
+
+@test "state-exists: 0 / 4 / 3 (#710)" {
+  run "$SCRIPT" state-exists foo/bar "In Review"
+  [ "$status" -eq 0 ]
+  run "$SCRIPT" state-exists foo/bar "Nope"
+  [ "$status" -eq 4 ]
+  run "$SCRIPT" state-exists foo/denied "In Review"
+  [ "$status" -eq 3 ]
+  run "$SCRIPT" state-exists foo/bar
+  [ "$status" -eq 2 ]
 }
 
 @test "issue/gitlab.sh state prints opened" {

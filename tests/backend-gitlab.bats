@@ -25,9 +25,15 @@ setup() {
   contract_load_fixtures
   # After the fixture load: it re-sources hermetic-env, which unsets the stage
   # overrides (#710).
-  export DEVAGENT_GITLAB_LABELS_IN_PROGRESS="status::in-progress"
-  export DEVAGENT_GITLAB_LABEL_NAMESPACE="status::"
+  export DEVAGENT_GITLAB_LABELS_ON_DRAFT_START="status::in-progress"
   export DEVAGENT_GITLAB_API="$FIXTURE_URL/api/v4"
+}
+
+# _config <lines…>: a config.toml under a test-local HOME (DA_HOME is unset here).
+_config() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME/.claude/devagent"
+  printf '%s\n' '[project.testproj]' 'source_dir = "/tmp"' '' "$@" > "$HOME/.claude/devagent/config.toml"
 }
 
 teardown() {
@@ -63,14 +69,15 @@ teardown() {
 }
 
 @test "[gitlab] transition exits 0" {
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
+  grep -qxF $'PUT /api/v4/projects/foo%2Fbar/issues/42\t{"add_labels":"status::in-progress"}' "$FIXTURE_REQUEST_LOG"
 }
 
 @test "[gitlab] transition is idempotent" {
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
-  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" in_progress
+  run "$ISSUE_SCRIPT" transition "$REPO_ARG" "$ISSUE_NUM_OK" on_draft_start
   [ "$status" -eq 0 ]
 }
 
@@ -112,8 +119,18 @@ teardown() {
   grep -qFx $'102\topen' "$BATS_TEST_TMPDIR/list"
 }
 
+@test "[gitlab] state-list reads the issue_workflow.on_draft_start mapping as the in-progress label (#710)" {
+  unset DEVAGENT_GITLAB_LABELS_ON_DRAFT_START
+  _config '[project.testproj.issue_workflow]' 'on_draft_start = "status::in-progress"'
+  # wbs update's per-call channel names the project (Q1: only transition takes --project)
+  export DEVAGENT_PROJECT=testproj
+  "$ISSUE_SCRIPT" state-list "$REPO_ARG" > "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'101\tin_progress' "$BATS_TEST_TMPDIR/list"
+  grep -qFx $'102\topen' "$BATS_TEST_TMPDIR/list"
+}
+
 @test "[gitlab] state-list without an in-progress label never says in_progress" {
-  unset DEVAGENT_GITLAB_LABELS_IN_PROGRESS DEVAGENT_PROJECT
+  unset DEVAGENT_GITLAB_LABELS_ON_DRAFT_START
   "$ISSUE_SCRIPT" state-list "$REPO_ARG" > "$BATS_TEST_TMPDIR/list"
   grep -qFx $'2\topen' "$BATS_TEST_TMPDIR/list"
   run grep -c in_progress "$BATS_TEST_TMPDIR/list"

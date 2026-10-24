@@ -6,30 +6,41 @@
 # Verbs (spec §9.1):
 #   fetch        <repo> <num>                       → markdown to stdout
 #   create       <repo> <title> <body-file> [--label X]…  → new <num>
-#   transition   <repo> <num> <semantic-stage>      → exit 0
+#   transition   <repo> <num> <semantic-stage> [--project <name>]  → exit 0
 #   state        <repo> <num>                       → backend state
 #   comment-list <repo> <num>                       → markdown
 #   state-list   <repo>                             → `<iid>\t<class>` lines
 #                (optional verb, read by `wbs update`; #703)
 #   issue-list   <repo>                             → JSON Lines records
 #                (optional verb, read by `wbs init --from-tracker`; #706)
+#   state-exists <repo> <label>                     → exit 0 present / 4 absent
+#                (optional verb, the transition pre-check and doctor; #710)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/backend-common.sh
 source "${SCRIPT_DIR}/../lib/backend-common.sh"
+# shellcheck source=../lib/paths.sh
+source "${SCRIPT_DIR}/../lib/paths.sh"
+# shellcheck source=../lib/io.sh
+source "${SCRIPT_DIR}/../lib/io.sh"
+# shellcheck source=../lib/config.sh
+source "${SCRIPT_DIR}/../lib/config.sh"
+# shellcheck source=../lib/transition.sh
+source "${SCRIPT_DIR}/../lib/transition.sh"
 
 usage() {
   cat <<EOF >&2
 Usage: gitlab.sh <verb> [args…]
   fetch <repo> <num>
   create <repo> <title> <body-file> [--label X]…
-  transition <repo> <num> <semantic-stage>
+  transition <repo> <num> <semantic-stage> [--project <name>]
   state <repo> <num>
   comment-list <repo> <num>
   state-list <repo>
   issue-list <repo>
+  state-exists <repo> <label>
 EOF
   exit 2
 }
@@ -112,58 +123,89 @@ cmd_create() {
   echo "$resp" | jq -r '.iid'
 }
 
-_gl_load_config() {
-  # shellcheck source=../lib/paths.sh
-  source "${SCRIPT_DIR}/../lib/paths.sh"
-  # shellcheck source=../lib/io.sh
-  source "${SCRIPT_DIR}/../lib/io.sh"
-  # shellcheck source=../lib/config.sh
-  source "${SCRIPT_DIR}/../lib/config.sh"
+# _gl_stage_label <stage> <project>: the GitLab label a semantic stage names
+# for <project>, or empty (no built-in default) — stage_map_target's
+# precedence (env override, then gitlab_labels, then issue_workflow;
+# scripts/lib/transition.sh). transition adds it; state-list and issue-list
+# read on_draft_start's as the in-progress signal (#703, #710).
+_gl_stage_label() { stage_map_target gitlab "${2:-}" "$1"; }
+
+# _gl_label_exists <repo> <name>: 0 when the label is visible to <repo> — a
+# project label or one of its ancestor groups' (#710 N7: GitLab answers a
+# group label only with include_ancestor_groups=true; U1, asserted from
+# GitLab's docs, unverified against a live instance) — 4 when it is not, 3
+# auth refused, 1 any other failure. A failed lookup never answers 4.
+_gl_label_exists() {
+  local enc name rc=0; enc="$(urlenc "$1")"; name="$(urlenc "$2")"
+  BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+    bc_curl GET "$(api_base)/projects/${enc}/labels/${name}?include_ancestor_groups=true" >/dev/null 2>&1 \
+    || rc=$?
+  case "$rc" in
+    0|3|4) return "$rc" ;;
+    *)     return 1 ;;
+  esac
 }
 
-# _gl_stage_var <stage>: the env override's name, DEVAGENT_GITLAB_LABELS_<STAGE>.
-_gl_stage_var() {
-  printf 'DEVAGENT_GITLAB_LABELS_%s' "$(echo "$1" | tr '[:lower:]' '[:upper:]' | tr - _)"
-}
-
-# _gl_stage_label <stage>: the label for a semantic stage —
-# the _gl_stage_var env, else the project's
-# `gitlab_labels.<stage>` config, else empty (no built-in default).
-# transition adds it; state-list reads in_progress from it (#703).
-_gl_stage_label() {
-  local stage="$1" var label
-  var="$(_gl_stage_var "$stage")"
-  label="${!var:-}"
-  if [ -z "$label" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    _gl_load_config
-    label="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.${stage}" 2>/dev/null || true)"
-  fi
-  printf '%s' "$label"
-}
-
+# transition <repo> <num> <semantic-stage> [--project <name>] (spec §9.1):
+# check the target label exists BEFORE any write — GitLab creates a label
+# named in add_labels that does not exist, and devagent never creates one
+# (#87) — then read the issue and PUT the target with the other mapped stage
+# labels it carries as remove_labels (the key is omitted when there are none),
+# so it never holds in-progress, in-review and done together. Without
+# --project only the env override is read (#710: never an ambient
+# DEVAGENT_PROJECT). Already labelled with the target and no other stage label
+# is success with no PUT. Exit: 0 landed / already there / no mapping (one
+# warning, no request); 2 usage; 3 auth refused (401/403); 4 the label is not
+# visible to the project, or the issue 404s; 1 anything else.
 cmd_transition() {
-  local repo="${1:-}" num="${2:-}" stage="${3:-}"
-  { [ -z "$repo" ] || [ -z "$num" ] || [ -z "$stage" ]; } && usage
-
-  local add_label remove_prefix
-  local var_add
-  var_add="$(_gl_stage_var "$stage")"
-  add_label="$(_gl_stage_label "$stage")"
-  remove_prefix="${DEVAGENT_GITLAB_LABEL_NAMESPACE:-}"
-
-  if [ -z "${!var_add:-}" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    _gl_load_config
-    remove_prefix="$(config_get_project_field "$DEVAGENT_PROJECT" "gitlab_labels.remove_others_in_namespace" 2>/dev/null || true)"
+  transition_args gitlab.sh "$@" || return
+  local repo="$TA_REPO" num="$TA_NUM" stage="$TA_STAGE" project="$TA_PROJECT"
+  local target others rc=0
+  target="$(stage_map_target gitlab "$project" "$stage")" || return 1
+  if [ -z "$target" ]; then
+    transition_unmapped gitlab "$stage" "$project"
+    return 0
   fi
-
+  others="$(stage_map_others gitlab "$project" "$stage")" || return 1
+  _gl_label_exists "$repo" "$target" || rc=$?
+  case "$rc" in
+    0) ;;
+    4) echo "gitlab.sh: label '$target' ($stage) not found on $repo or its groups (or the project is not visible to this token); devagent does not create labels — create it or change the mapping" >&2
+       return 4 ;;
+    *) return "$rc" ;;
+  esac
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
+  local issue_json present p o has_target=0 remove=""
+  issue_json="$(bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" GET "${base}/projects/${enc}/issues/${num}")" || return
+  present="$(printf '%s' "$issue_json" | jq -r '.labels[]? | if type == "string" then . else .name end' | tr -d '\r')" || return 1
+  while IFS= read -r p; do
+    if [ -n "$p" ] && [ "$p" = "$target" ]; then has_target=1; fi
+  done <<<"$present"
+  # Only a stage label the issue carries is named for removal (an absent one is
+  # a no-op, never an argument), in stage order.
+  while IFS= read -r o; do
+    [ -n "$o" ] || continue
+    if printf '%s\n' "$present" | grep -qxF -- "$o"; then remove+="${remove:+,}$o"; fi
+  done <<<"$others"
+  if [ "$has_target" = 1 ] && [ -z "$remove" ]; then
+    return 0
+  fi
   local payload
-  payload="$(jq -n --arg add "$add_label" --arg rmprefix "$remove_prefix" \
-    '{add_labels:$add} + (if $rmprefix=="" then {} else {remove_labels:$rmprefix} end)')"
+  payload="$(jq -nc --arg add "$target" --arg rm "$remove" \
+    '{add_labels:$add} + (if $rm == "" then {} else {remove_labels:$rm} end)')"
   bc_curl_auth "PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" PUT "${base}/projects/${enc}/issues/${num}" \
     -H "Content-Type: application/json" \
     --data "$payload" >/dev/null
+}
+
+# state-exists <repo> <label> (#710, spec §9.1 MAY): 0 the label is visible to
+# <repo> (project or ancestor group), 4 it is not, 2 usage; any other code is
+# undetermined (3 auth refused, 1 any other failure). The transition
+# pre-check and doctor's tracker check share _gl_label_exists.
+cmd_state_exists() {
+  { [ "$#" -eq 2 ] && [ -n "$1" ] && [ -n "$2" ]; } || usage
+  _gl_label_exists "$1" "$2"
 }
 
 cmd_state() {
@@ -208,7 +250,8 @@ _GL_CLASS_JQ='
 # state-list <repo> (#703, spec §9.1 MAY): every issue of <repo>, one
 # `<iid>` TAB `<class>` line each, for `wbs update`. Pages the issues list
 # (no `state` filter returns opened and closed). Classes: closed -> done;
-# opened + the in_progress label (_gl_stage_label) -> in_progress; opened ->
+# opened + the on_draft_start label (_gl_stage_label, for the per-call
+# DEVAGENT_PROJECT `wbs update` sets) -> in_progress; opened ->
 # open. GitLab has no close reason, so never not_planned or other.
 # Exit: 0 ok; 1 no repo arg; 3 HTTP 401/403 (bc_curl); other bc_curl codes
 # for other HTTP failures; 5 a record with an unrecognised state,
@@ -220,7 +263,7 @@ cmd_state_list() {
   [ -n "$repo" ] || { echo "gitlab.sh state-list: repo required" >&2; exit 1; }
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
-  local ip; ip="$(_gl_stage_label in_progress)"
+  local ip; ip="$(_gl_stage_label on_draft_start "${DEVAGENT_PROJECT:-}")" || return 1
   local resp
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
     bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return "$(( $? == 6 ? 5 : $? ))"
@@ -264,7 +307,7 @@ cmd_issue_list() {
   [ -n "$repo" ] || { echo "gitlab.sh issue-list: repo required" >&2; exit 1; }
   local enc; enc="$(urlenc "$repo")"
   local base; base="$(api_base)"
-  local ip; ip="$(_gl_stage_label in_progress)"
+  local ip; ip="$(_gl_stage_label on_draft_start "${DEVAGENT_PROJECT:-}")" || return 1
   local resp blockers iid src links pairs="" edges
   resp="$(BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
     bc_gitlab_paginate "${base}/projects/${enc}/issues")" || return "$(( $? == 6 ? 5 : $? ))"
@@ -294,6 +337,7 @@ case "$verb" in
   state)        cmd_state "$@" ;;
   comment-list) cmd_comment_list "$@" ;;
   state-list)   cmd_state_list "$@" ;;
+  state-exists) cmd_state_exists "$@" ;;
   issue-list)   cmd_issue_list "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
