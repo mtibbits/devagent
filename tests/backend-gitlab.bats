@@ -22,9 +22,11 @@ setup() {
   ISSUE_NUM_401="401"
   MR_URL_OK="https://gitlab.example/foo/bar/-/merge_requests/7"
   export GITLAB_TOKEN="dummy-token"
+  contract_load_fixtures
+  # After the fixture load: it re-sources hermetic-env, which unsets the stage
+  # overrides (#710).
   export DEVAGENT_GITLAB_LABELS_IN_PROGRESS="status::in-progress"
   export DEVAGENT_GITLAB_LABEL_NAMESPACE="status::"
-  contract_load_fixtures
   export DEVAGENT_GITLAB_API="$FIXTURE_URL/api/v4"
 }
 

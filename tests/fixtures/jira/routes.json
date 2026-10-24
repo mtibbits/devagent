@@ -29,5 +29,10 @@
   "GET /rest/api/2/issue/PROJ-NOCOMMENTS/comment?startAt=0&maxResults=100": {"status": 200, "body": "{\"errorMessages\":[\"proxy says no\"]}"},
   "GET /rest/api/2/issue/PROJ-REPEAT": {"status": 200, "body_file": "issue.json"},
   "GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=0&maxResults=100": {"status": 200, "body_file": "comments-full.json"},
-  "GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=100&maxResults=100": {"status": 200, "body_file": "comments-full.json"}
+  "GET /rest/api/2/issue/PROJ-REPEAT/comment?startAt=100&maxResults=100": {"status": 200, "body_file": "comments-full.json"},
+
+  "GET /rest/api/2/status/In%20Review": {"status": 200, "body": "{\"id\": \"10001\", \"name\": \"In Review\"}"},
+  "GET /rest/api/2/issue/PROJ-43": {"status": 200, "body_file": "issue-43.json"},
+  "GET /rest/api/2/issue/PROJ-43/transitions": {"status": 200, "body_file": "transitions.json"},
+  "POST /rest/api/2/issue/PROJ-43/transitions": {"status": 403, "body": "{\"errorMessages\":[\"You do not have permission to transition this issue.\"]}"}
 }
