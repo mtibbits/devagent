@@ -46,5 +46,18 @@
   "GET /api/v4/projects/foo%2Frepeat/merge_requests/7/notes?per_page=100&page=2": {"status": 200, "body_file": "full-page-a.json"},
   "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=1": {"status": 200, "body_file": "full-page-a.json"},
   "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=2": {"status": 200, "body_file": "full-page-b.json"},
-  "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=3": {"status": 200, "body_file": "full-page-c.json"}
+  "GET /api/v4/projects/foo%2Fendless/issues?per_page=100&page=3": {"status": 200, "body_file": "full-page-c.json"},
+
+  "GET /api/v4/projects/foo%2Fbar/labels/In%20Progress?include_ancestor_groups=true": {"status": 200, "body": "{\"id\": 1, \"name\": \"In Progress\"}"},
+  "GET /api/v4/projects/foo%2Fbar/labels/In%20Review?include_ancestor_groups=true": {"status": 200, "body": "{\"id\": 2, \"name\": \"In Review\"}"},
+  "GET /api/v4/projects/foo%2Fbar/labels/Done?include_ancestor_groups=true": {"status": 200, "body": "{\"id\": 3, \"name\": \"Done\"}"},
+  "GET /api/v4/projects/foo%2Fbar/labels/status%3A%3Ain-progress?include_ancestor_groups=true": {"status": 200, "body": "{\"id\": 4, \"name\": \"status::in-progress\"}"},
+  "GET /api/v4/projects/foo%2Fbar/labels/Group%20Label?include_ancestor_groups=true": {"status": 200, "body": "{\"id\": 9, \"name\": \"Group Label\", \"is_project_label\": false}"},
+  "GET /api/v4/projects/foo%2Fbar/issues/43": {"status": 200, "body_file": "issue-43.json"},
+  "PUT /api/v4/projects/foo%2Fbar/issues/43": {"status": 200, "body_file": "issue-43.json"},
+  "GET /api/v4/projects/foo%2Fbar/issues/44": {"status": 200, "body_file": "issue-44.json"},
+  "PUT /api/v4/projects/foo%2Fbar/issues/44": {"status": 403, "body": "{\"message\":\"403 Forbidden\"}"},
+  "GET /api/v4/projects/foo%2Fbar/issues/45": {"status": 200, "body_file": "issue-45.json"},
+  "PUT /api/v4/projects/foo%2Fbar/issues/45": {"status": 200, "body_file": "issue-45.json"},
+  "GET /api/v4/projects/foo%2Fdenied/labels/In%20Review?include_ancestor_groups=true": {"status": 401, "body": "{\"message\":\"401 Unauthorized\"}"}
 }

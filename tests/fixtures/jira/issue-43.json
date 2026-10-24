@@ -1,0 +1,18 @@
+{
+  "key": "PROJ-43",
+  "fields": {
+    "summary": "JIRA issue on a read-only token",
+    "description": "Body of the JIRA issue.\n\nSecond paragraph.",
+    "status": {
+      "name": "In Progress"
+    },
+    "reporter": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "displayName": "Alice"
+    },
+    "labels": [
+      "bug",
+      "performance"
+    ]
+  }
+}

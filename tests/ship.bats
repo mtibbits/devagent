@@ -133,7 +133,7 @@ EOF
     devagent_assert_logged "issue/github transition acme/testproj 1 on_ship"
     # ...and its failure produced a warn on stderr (merged into $output by `run`),
     # not a die. Substring match: the real message has a `warning: ` prefix.
-    [[ "$output" == *"issue transition failed"* ]]
+    [[ "$output" == *"on_ship transition failed"* ]]
     # ship completed regardless: mr_url stored and step 18 marked.
     grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
         "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
@@ -179,6 +179,32 @@ EOF
 }
 
 @test "ship.sh routes Issue-Fork-* transition to issue_source_fork tracker" {
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.issue_source_fork]
+backend = "github"
+repo    = "me/testproj"
+EOF
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
+    echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
+    bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
+        "$DEVDOC_DIR/Issue-Fork-51"
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 17 x
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
+        && echo x >a.txt && git add a.txt \
+        && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/fork-51"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
+    devagent_refute_logged "issue/github transition acme/testproj"
+}
+
+@test "ship.sh under fork_only still transitions an Issue-Fork-* issue's own tracker (#710 review)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
     cat >> "$HOME/.claude/devagent/config.toml" <<EOF
 
 [project.$TEST_PROJECT.issue_source_fork]
@@ -597,4 +623,52 @@ EOF
   run grep -q '^mr_url' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
   [ "$status" -ne 0 ]                                                 # no mr_url stored
   grep -qE '^- \[ \] +18\. ship' "$DEVDOC_DIR/Issue-1/checklist.md"   # step 15 unmarked
+}
+
+# ---- #710: on_ship is gated by permissions.transition_issue and names its target ----
+
+@test "ship.sh passes --project to on_ship (#710)" {
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_ship --project testproj"
+}
+
+@test "ship.sh with transition_issue=false fires no on_ship, says why, plan line names the gate (#710)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
+    # push_mr=false makes permission_gate print the plan (a pre-granted gate prints none)
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
+    DA_YES=1 run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"issue:      Issue-1 → on_ship: skipped (permissions.transition_issue not enabled)"* ]]
+    [[ "$output" == *"ship: on_ship transition for testproj/Issue-1 skipped — permissions.transition_issue not enabled (remote tracker state left unchanged)"* ]]
+    devagent_refute_logged "transition"
+    grep -q 'mr_url *= *"https://github.com/acme/testproj/pull/77"' \
+        "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "ship.sh plan line names tracker repo and state (#710)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
+    DA_YES=1 run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'issue:      Issue-1 → on_ship: "In Review" on acme/testproj'* ]]
+}
+
+@test "ship.sh fork_only plan line says skipped (fork_only) (#710)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.push_mr" false
+    DA_YES=1 run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"issue:      Issue-1 → on_ship: skipped (fork_only)"* ]]
+    devagent_refute_logged "issue/github transition"
+}
+
+@test "ship.sh with no issue_source skips the transition instead of dying (#710)" {
+    # ship read issue_source.backend/repo without a fallback and died under set -e;
+    # it now falls through to no-tracker like sync and draft start.
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ship: no issue tracker configured for Issue-1; skipping on_ship transition"* ]]
+    devagent_refute_logged "issue/github transition"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }

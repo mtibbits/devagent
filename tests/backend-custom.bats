@@ -25,7 +25,18 @@ assert_not_implemented() {
 }
 
 @test "issue/custom.sh transition exits 78" {
-  run "$ISSUE" transition foo/bar 42 in_progress
+  run "$ISSUE" transition foo/bar 42 on_draft_start
+  assert_not_implemented "$status" "$output"
+}
+
+@test "custom.sh transition with a trailing --project still exits 78, not 2 (#710)" {
+  # the callers always append --project; a custom backend may ignore it
+  run "$ISSUE" transition foo/bar 42 on_ship --project testproj
+  assert_not_implemented "$status" "$output"
+}
+
+@test "custom.sh state-exists exits 78 (#710)" {
+  run "$ISSUE" state-exists foo/bar "In Review"
   assert_not_implemented "$status" "$output"
 }
 

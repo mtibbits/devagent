@@ -1,0 +1,13 @@
+{
+  "iid": 44,
+  "title": "Issue on a pull-only token",
+  "description": "",
+  "state": "opened",
+  "author": {
+    "username": "alice"
+  },
+  "labels": [
+    "bug"
+  ],
+  "web_url": "https://gitlab.example/foo/bar/-/issues/44"
+}

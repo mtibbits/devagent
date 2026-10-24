@@ -144,3 +144,29 @@ _make_branch() {
     [ "$( git -C "$FORK" rev-parse main )" = "$fork_main_before" ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }
+
+# ---- #710: a fork_first ship writes the UPSTREAM tracker only behind the gate ----
+# volk-shaped: the upstream Issue-N routes to the third-party tracker gnuradio/volk.
+_volk_shape() {
+    local c="$HOME/.claude/devagent/config.toml"
+    devagent_config_set "$c" "project.$TEST_PROJECT.issue_source.repo" "gnuradio/volk"
+    devagent_config_set "$c" "project.$TEST_PROJECT.code_source.upstream" "gnuradio/volk"
+    devagent_config_set "$c" "project.$TEST_PROJECT.code_source.fork" "mtibbits/volk"
+    _make_branch a.txt issue
+}
+
+@test "fork_first upstream issue with transition_issue=false writes nothing upstream (#710)" {
+    _volk_shape
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.transition_issue" false
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_refute_logged "issue/github transition"
+    [[ "$output" == *"on_ship transition for testproj/Issue-1 skipped — permissions.transition_issue not enabled"* ]]
+}
+
+@test "fork_first upstream issue with transition_issue=true transitions gnuradio/volk (#710)" {
+    _volk_shape
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition gnuradio/volk 1 on_ship --project testproj"
+}

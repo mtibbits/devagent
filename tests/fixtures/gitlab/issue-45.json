@@ -1,0 +1,14 @@
+{
+  "iid": 45,
+  "title": "Issue in review with a stale stage label",
+  "description": "",
+  "state": "opened",
+  "author": {
+    "username": "alice"
+  },
+  "labels": [
+    "In Review",
+    "In Progress"
+  ],
+  "web_url": "https://gitlab.example/foo/bar/-/issues/45"
+}

@@ -200,7 +200,7 @@ push_mr            = false
 merge_mr           = false
 merge_to_all_prs   = false
 commit_devdoc      = false
-transition_issue   = false   # (#219) allow sync to fire the remote on_merge tracker transition; fail-closed
+transition_issue   = false   # every tracker transition (draft, ship, sync) writes only when true; fail-closed (#219, #710)
 
 [project.{{PROJECT}}.issue_source]
 backend = "{{ISSUE_BACKEND}}"
@@ -212,11 +212,11 @@ backend = "{{CODE_BACKEND}}"
 upstream = "{{CODE_UPSTREAM}}"
 fork = "{{CODE_FORK}}"
 
-[project.{{PROJECT}}.issue_workflow]
-on_draft_start = "In Progress"
-on_ship        = "In Review"
+[project.{{PROJECT}}.issue_workflow]   # the tracker state each transition writes: a label on
+on_draft_start = "In Progress"         # GitHub/GitLab, a status on JIRA; it must already exist
+on_ship        = "In Review"           # (devagent never creates one; doctor warns when missing)
 on_merge       = "Done"
 # not_planned_resolutions = ["Won't Do"]   # jira: wbs update reads these done resolutions as [-] (#703)
-# wbs update reads an open issue carrying the in-progress label as [~]: set it with
-# [project.{{PROJECT}}.github_labels] in_progress = "..." (default "in progress") or
-# [project.{{PROJECT}}.gitlab_labels] in_progress = "..." (no default) (#703)
+# wbs update reads an open issue carrying the on_draft_start label as [~] (#703, #710).
+# A per-stage label override: [project.{{PROJECT}}.github_labels] (or gitlab_labels)
+# keyed on_draft_start / on_ship / on_merge.

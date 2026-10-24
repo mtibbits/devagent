@@ -9,23 +9,34 @@
 # issue KEYS (`PROJ-12`), not the internal ids the per-issue verbs take.
 # issue-list <repo> (#706) is the optional verb `wbs init --from-tracker`
 # reads; its records are keyed the same way. Both are Jira Cloud only.
+# state-exists <repo> <status> (#710) is the optional verb doctor's tracker
+# check reads.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/backend-common.sh
 source "${SCRIPT_DIR}/../lib/backend-common.sh"
+# shellcheck source=../lib/paths.sh
+source "${SCRIPT_DIR}/../lib/paths.sh"
+# shellcheck source=../lib/io.sh
+source "${SCRIPT_DIR}/../lib/io.sh"
+# shellcheck source=../lib/config.sh
+source "${SCRIPT_DIR}/../lib/config.sh"
+# shellcheck source=../lib/transition.sh
+source "${SCRIPT_DIR}/../lib/transition.sh"
 
 usage() {
   cat <<EOF >&2
 Usage: jira.sh <verb> [args…]
   fetch <repo> <num>
   create <repo> <title> <body-file> [--label X]…
-  transition <repo> <num> <semantic-stage>
+  transition <repo> <num> <semantic-stage> [--project <name>]
   state <repo> <num>
   comment-list <repo> <num>
   state-list <repo>
   issue-list <repo>
+  state-exists <repo> <status>
 EOF
   exit 2
 }
@@ -43,15 +54,6 @@ trim_date() { echo "${1%%T*}"; }
 # Percent-encode one query value (jq @uri: unreserved chars kept, space ->
 # %20, never +). Same encoding gitlab.sh's urlenc produces.
 _urlenc() { jq -rn --arg s "$1" '$s | @uri' | tr -d '\r'; }
-
-_jira_load_config() {
-  # shellcheck source=../lib/paths.sh
-  source "${SCRIPT_DIR}/../lib/paths.sh"
-  # shellcheck source=../lib/io.sh
-  source "${SCRIPT_DIR}/../lib/io.sh"
-  # shellcheck source=../lib/config.sh
-  source "${SCRIPT_DIR}/../lib/config.sh"
-}
 
 cmd_fetch() {
   local repo="${1:-}" num="${2:-}"
@@ -118,36 +120,58 @@ cmd_create() {
   echo "$resp" | jq -r '.key'
 }
 
+# transition <key-repo> <key> <semantic-stage> [--project <name>] (spec §9.1):
+# move the issue to the status the stage maps to for <project>. Without
+# --project only DEVAGENT_JIRA_STAGE_<STAGE> is read (#710: never an ambient
+# DEVAGENT_PROJECT). Reads the issue first: already in the target status is
+# success with no POST. Exit: 0 landed / already there / no mapping (one
+# warning, no request — no longer 2, which is usage only); 2 usage; 3 auth
+# refused (401/403); 4 no transition to the target from the current status,
+# or the issue 404s; 1 anything else.
 cmd_transition() {
-  local repo="${1:-}" num="${2:-}" stage="${3:-}"
-  { [ -z "$repo" ] || [ -z "$num" ] || [ -z "$stage" ]; } && usage
-
-  local var="DEVAGENT_JIRA_STAGE_$(echo "$stage" | tr '[:lower:]' '[:upper:]' | tr - _)"
-  local target_name="${!var:-}"
-  if [ -z "$target_name" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    _jira_load_config
-    target_name="$(config_get_project_field "$DEVAGENT_PROJECT" "issue_workflow.${stage}" 2>/dev/null || true)"
-  fi
+  transition_args jira.sh "$@" || return
+  local num="$TA_NUM" stage="$TA_STAGE" project="$TA_PROJECT"
+  local target_name
+  target_name="$(stage_map_target jira "$project" "$stage")" || return 1
   if [ -z "$target_name" ]; then
-    echo "no JIRA stage mapping for '$stage'" >&2; exit 2
+    transition_unmapped jira "$stage" "$project"
+    return 0
   fi
+
+  local issue_json current
+  issue_json="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}" \
+    -H 'Accept: application/json')" || return
+  current="$(printf '%s' "$issue_json" | jq -r '.fields.status.name // ""' | tr -d '\r')" || return 1
+  [ "$current" != "$target_name" ] || return 0
 
   local tr_json
   tr_json="$(bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/issue/${num}/transitions" \
     -H 'Accept: application/json')" || return
   local id
-  id="$(echo "$tr_json" | jq -r --arg n "$target_name" \
-    '.transitions[] | select(.to.name==$n) | .id' | head -n1)"
-  if [ -z "$id" ] || [ "$id" = "null" ]; then
-    # Per spec §11: failed transitions log but do not block real work.
-    echo "warn: no transition to '$target_name' available; logged-only" >&2
-    return 0
+  id="$(printf '%s' "$tr_json" | jq -r --arg n "$target_name" \
+    '[.transitions[]? | select(.to.name == $n) | .id][0] // ""' | tr -d '\r')" || return 1
+  if [ -z "$id" ]; then
+    echo "jira.sh: no transition to status '$target_name' ($stage) from '$current' on $num" >&2
+    return 4
   fi
   local payload
   payload="$(jq -nc --arg id "$id" '{transition:{id:$id}}')"
   bc_curl_auth "$(auth_header)" POST "$(base)/rest/api/2/issue/${num}/transitions" \
     -H 'Content-Type: application/json' \
     --data "$payload" >/dev/null
+}
+
+# state-exists <repo> <status> (#710, spec §9.1 MAY): 0 the site knows the
+# status, 4 it does not, 2 usage; any other code is undetermined (3 auth
+# refused, 1 any other failure). Jira Cloud's GET /status/{name} 404s an
+# unknown name (#710 U5, asserted from Atlassian's docs). Doctor's warn-only
+# tracker check is its one reader. A failed lookup never answers 4: a wrong
+# DEVAGENT_JIRA_BASE context path 404s every resource, so a status 404 is
+# "absent" only when GET /myself (which also checks the credentials) answers.
+cmd_state_exists() {
+  { [ "$#" -eq 2 ] && [ -n "$1" ] && [ -n "$2" ]; } || usage
+  stage_state_probe "$(auth_header)" \
+    "$(base)/rest/api/2/status/$(_urlenc "$2")" "$(base)/rest/api/2/myself"
 }
 
 cmd_state() {
@@ -184,7 +208,6 @@ cmd_comment_list() {
 _jira_not_planned() {
   local list="${DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS:-}"
   if [ -z "$list" ] && [ -n "${DEVAGENT_PROJECT:-}" ]; then
-    _jira_load_config
     list="$(config_get_project_list "$DEVAGENT_PROJECT" issue_workflow.not_planned_resolutions 2>/dev/null || true)"
   fi
   printf '%s\n' "$list" | tr -d '\r' | jq -Rsc 'split("\n") | map(select(length > 0))'
@@ -313,6 +336,7 @@ case "$verb" in
   comment-list) cmd_comment_list "$@" ;;
   state-list)   cmd_state_list "$@" ;;
   issue-list)   cmd_issue_list "$@" ;;
+  state-exists) cmd_state_exists "$@" ;;
   ""|-h|--help) usage ;;
   *) usage ;;
 esac

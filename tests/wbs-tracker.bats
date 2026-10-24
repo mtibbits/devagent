@@ -25,8 +25,8 @@ setup() {
   wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
   wbs_tracker_install_shims "$TMPROOT/shims" "$TMPROOT/network.log"
   export PATH="$TMPROOT/shims:$PATH"
-  unset DEVAGENT_WBS_OFFLINE DEVAGENT_JIRA_PROJECT_KEY DEVAGENT_GITHUB_LABEL_IN_PROGRESS \
-    DEVAGENT_GITLAB_LABELS_IN_PROGRESS DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS DEVAGENT_PROJECT
+  unset DEVAGENT_WBS_OFFLINE DEVAGENT_JIRA_PROJECT_KEY DEVAGENT_GITHUB_LABEL_ON_DRAFT_START \
+    DEVAGENT_GITLAB_LABELS_ON_DRAFT_START DEVAGENT_JIRA_NOT_PLANNED_RESOLUTIONS DEVAGENT_PROJECT
 }
 
 teardown() {
@@ -477,6 +477,10 @@ EOF
 
 @test "real github backend: each recorded class sets its glyph (#703)" {
   _config github acme/testproj no
+  # #710: the in-progress label is the one on_draft_start maps to (the fixture's
+  # "in progress", matched case-insensitively); there is no built-in default.
+  printf '%s\n' '' '[project.testproj.issue_workflow]' 'on_draft_start = "In Progress"' \
+    >> "$HOME/.claude/devagent/config.toml"
   unset DEVAGENT_ISSUE_BACKEND_DIR
   mkdir -p "$TMPROOT/ghbin"
   cp "$REPO/tests/fixtures/gh-stub" "$TMPROOT/ghbin/gh"
@@ -515,7 +519,7 @@ EOF
   export PATH
   fixture_start "$REPO/tests/fixtures/gitlab"
   export DEVAGENT_GITLAB_API="$FIXTURE_URL/api/v4" GITLAB_TOKEN=dummy-token
-  export DEVAGENT_GITLAB_LABELS_IN_PROGRESS="status::in-progress"
+  export DEVAGENT_GITLAB_LABELS_ON_DRAFT_START="status::in-progress"
   cat > "$TMPDEV/WBS.md" <<'EOF'
 # testproj WBS
 

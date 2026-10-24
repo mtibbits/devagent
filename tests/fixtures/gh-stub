@@ -23,6 +23,16 @@
 #   GH_STUB_GRAPHQL_COUNT the call counter file (default <dir>/count). Each
 #                         call also appends its bracketed argv to
 #                         $GH_STUB_ARGS_LOG when that is set.
+#   GH_STUB_ARGV_LOG      if set, `issue view`, `issue edit` and `label list`
+#                         append their argv here, one bracketed element per
+#                         word (#710), e.g.
+#                         [issue] [edit] [1] [--repo] [acme/x] [--add-label] [In Review]
+#                         so a multi-word label cannot read as two words.
+#   GH_STUB_REPO_LABELS   `gh label list` payload, a JSON array of {"name": …}
+#                         (#710; default []). gh's --search is fuzzy, so the
+#                         stub answers with every label and the caller matches.
+#   GH_STUB_LABEL_LIST_FAIL=1  `gh label list` fails as gh does on HTTP 401
+#   GH_STUB_EDIT_FAIL=<code>   `gh issue edit` fails with `HTTP <code>` (#710)
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -45,6 +55,14 @@ _has_flag() {
   local a
   for a in "$@"; do [ "$a" = "$want" ] && return 0; done
   return 1
+}
+
+_argv_log() {
+  # #710: one bracketed element per argv word, appended to GH_STUB_ARGV_LOG.
+  [ -n "${GH_STUB_ARGV_LOG:-}" ] || return 0
+  local line="" a
+  for a in "$@"; do line+="[$a] "; done
+  printf '%s\n' "${line% }" >> "$GH_STUB_ARGV_LOG"
 }
 
 _run_jq() {
@@ -98,6 +116,7 @@ fi
 
 case "$sub $sub2" in
   "issue view")
+    _argv_log "$@"
     num="${3:-}"
     [ -n "$num" ] || _assert_fail "issue view: missing issue number"
     _has_flag --repo -- "$@" || _assert_fail "issue view: missing --repo"
@@ -154,6 +173,11 @@ case "$sub $sub2" in
     # whether the label step ran at all, and simulate labels that are absent
     # from the repo so the fail-safe-skip path is observable.
     [ -n "${GH_STUB_ARGS_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_ARGS_LOG"
+    _argv_log "$@"
+    if [ -n "${GH_STUB_EDIT_FAIL:-}" ]; then
+      echo "gh: HTTP ${GH_STUB_EDIT_FAIL}: Resource not accessible by integration" >&2
+      exit 1
+    fi
     if [ -n "${GH_STUB_MISSING_LABEL:-}" ]; then
       _prev=""
       for _a in "$@"; do
@@ -166,6 +190,20 @@ case "$sub $sub2" in
       done
     fi
     exit 0
+    ;;
+
+  "label list")
+    # issue/github.sh's label-existence check (#710): --search narrows
+    # server-side, fuzzily, so the stub answers with every repo label.
+    _argv_log "$@"
+    _has_flag --repo -- "$@" || _assert_fail "label list: missing --repo"
+    _has_flag --search -- "$@" || _assert_fail "label list: missing --search"
+    _has_flag name -- "$@" || _assert_fail "label list: want --json name: $*"
+    if [ "${GH_STUB_LABEL_LIST_FAIL:-}" = 1 ]; then
+      echo "gh: HTTP 401: Bad credentials" >&2
+      exit 1
+    fi
+    printf '%s\n' "${GH_STUB_REPO_LABELS:-[]}"
     ;;
 
   "pr view")

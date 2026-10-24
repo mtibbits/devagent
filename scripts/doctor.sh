@@ -13,6 +13,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"      # #316: state_ctx_get for the c
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"   # #316: checklist_step_state_by_name
 source "$PLUGIN_ROOT/scripts/lib/secrets.sh"
 # shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/transition.sh"   # #710: the tracker stage mapping
+# shellcheck source=/dev/null
 # shellcheck disable=SC2034  # consumed by template_resolve.sh (sourced next), which keys its
 # source-set off DEVAGENT_ROOT — pinned to the plugin so an ambient/other-lib value cannot redirect it.
 DEVAGENT_ROOT="$PLUGIN_ROOT"
@@ -56,6 +58,85 @@ check_template_resolves() {
   else
     check "checklist template '$name'" fail "not resolvable via registry or plugin: $path"
   fi
+}
+
+# check_tracker_mapping <project> (#710): warn-only — never touches ERRORS.
+# Offline, for every project: label-table keys no transition reads, the retired
+# remove_others_in_namespace key, and spec §3.2's nested
+# issue_workflow.<backend>_labels table (list-keys drops sub-tables, so it is
+# found with list-tables). Then, only when permissions.transition_issue is
+# true, doctor's one tracker query: each mapped stage's state, checked with the
+# backend's optional state-exists verb — the predicate the transition
+# pre-check uses — for issue_source and issue_source_fork. At most three calls
+# per tracker; an undetermined answer (auth, network) skips the rest of that
+# tracker, so doctor never reports a missing state it could not see.
+check_tracker_mapping() {
+  local project="$1" b k t
+  for b in github gitlab; do
+    while IFS= read -r k; do
+      k="${k//$'\r'/}"
+      case "$k" in
+        ""|on_draft_start|on_ship|on_merge) ;;
+        remove_others_in_namespace)
+          check "project.$project.${b}_labels.$k" warn "retired (#710): a transition now removes the other mapped stage labels; delete this key" ;;
+        *)
+          check "project.$project.${b}_labels.$k" warn "not read: stage keys are on_draft_start, on_ship, on_merge (#710)" ;;
+      esac
+    done < <(_config_toml list-keys "$(config_path)" "project.$project.${b}_labels" 2>/dev/null || true)
+  done
+  while IFS= read -r t; do
+    t="${t//$'\r'/}"
+    case "$t" in
+      "project.$project.issue_workflow."*_labels)
+        b="${t##*.}"; b="${b%_labels}"
+        check "$t" warn "nested label table is not read; move its entries to [project.$project.${b}_labels] keyed on_draft_start/on_ship/on_merge (#710)" ;;
+    esac
+  done < <(_config_toml list-tables "$(config_path)" 2>/dev/null || true)
+
+  transition_gate_open "$project" || return 0
+  local which backend repo sh kind stage target rc
+  for which in issue_source issue_source_fork; do
+    backend="$(config_get_project_field "$project" "$which.backend" 2>/dev/null || true)"
+    repo="$(config_get_project_field "$project" "$which.repo" 2>/dev/null || true)"
+    backend="${backend//$'\r'/}"; repo="${repo//$'\r'/}"
+    [[ -n "$backend" && -n "$repo" ]] || continue
+    sh="$(transition_backend_sh "$backend")"
+    if [[ ! -x "$sh" ]]; then
+      check "tracker states on $repo" skip "issue backend $sh not executable"
+      continue
+    fi
+    kind="$(stage_map_kind "$backend")"
+    for stage in $_TRANSITION_STAGES; do
+      target="$(stage_map_target "$backend" "$project" "$stage" 2>/dev/null || true)"
+      [[ -n "$target" ]] || continue
+      rc=0
+      "$sh" state-exists "$repo" "$target" </dev/null >/dev/null 2>&1 || rc=$?
+      case "$rc" in
+        0) check "tracker state $stage → '$target' on $repo" ok ;;
+        4) check "tracker state $stage → '$target' on $repo" warn "$kind not found on the tracker — create it (devagent never creates it) or change [project.$project.issue_workflow] $stage" ;;
+        2|78) check "tracker states on $repo" skip "backend has no state-exists"; break ;;
+        *) check "tracker states on $repo" skip "tracker unreachable or unauthenticated (state-exists exit $rc); mapped states not checked"; break ;;
+      esac
+    done
+  done
+}
+
+# check_transition_env (#710, global, warn-only): the per-stage overrides are
+# process-global — a set one redirects EVERY project's write — and the three
+# retired names are ignored, so say so while any is set.
+check_transition_env() {
+  local name b stage
+  for name in DEVAGENT_GITLAB_LABEL_NAMESPACE DEVAGENT_GITHUB_LABEL_IN_PROGRESS DEVAGENT_GITLAB_LABELS_IN_PROGRESS; do
+    if [[ -n "${!name:-}" ]]; then check "env $name" warn "retired (#710), ignored; unset it"; fi
+  done
+  for b in $_TRANSITION_BUILTINS; do
+    for stage in $_TRANSITION_STAGES; do
+      name="$(stage_map_env_var "$b" "$stage")"
+      if [[ -n "${!name:-}" ]]; then
+        check "env $name" warn "process-global override active: every project's $stage writes '${!name}'"
+      fi
+    done
+  done
 }
 
 check_one_project() {
@@ -175,6 +256,8 @@ check_one_project() {
       check "potholes register contract ($ly layer)" fail "$f unreadable — the predicate could not run"
     fi
   done
+
+  check_tracker_mapping "$project"
 
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
@@ -314,6 +397,8 @@ if [[ -d "$(secrets_dir)" ]]; then
 else
   check "secrets dir present" fail "no $(secrets_dir)"
 fi
+
+check_transition_env
 
 # #541: recommended-plugin check — WARN only, never touches ERRORS.
 # Tri-state (Issue-314/243): capture the CLI output, never pipe-under-`!`;

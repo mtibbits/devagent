@@ -274,18 +274,19 @@ To add a new backend:
 
 ### Contract summary
 
-Every issue backend MUST implement five verbs and MAY implement `state-list`
-and `issue-list` (spec §9.1):
+Every issue backend MUST implement five verbs and MAY implement `state-list`,
+`issue-list` and `state-exists` (spec §9.1):
 
 | Verb           | Args                                            | Output / exit       |
 |----------------|-------------------------------------------------|---------------------|
 | `fetch`        | `<repo> <num>`                                  | markdown to stdout  |
 | `create`       | `<repo> <title> <body-file> [--label X]…`       | new num to stdout   |
-| `transition`   | `<repo> <num> <semantic-stage>`                 | exit 0              |
+| `transition`   | `<repo> <num> <semantic-stage> [--project <name>]` | exit 0 landed, already there or no mapping; non-zero = did not land (the callers always append `--project`; a custom backend must accept it and may ignore it) |
 | `state`        | `<repo> <num>`                                  | backend state       |
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
 | `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
 | `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker` and `--merge`; absent = exit 78, or 2) |
+| `state-exists` | `<repo> <state-name>`                           | exit 0 present, 4 absent, else undetermined (optional; read by `doctor`; absent = exit 78, or 2) |
 
 Every code backend MUST implement five verbs and MAY implement `issue-mrs`
 (spec §9.2):
@@ -305,9 +306,9 @@ Exit-code conventions across all backends:
 |------|--------------------------------------------------|
 | 0    | success                                          |
 | 1    | generic failure                                  |
-| 2    | usage error (bad/missing args, unknown verb)     |
-| 3    | auth failure (HTTP 401/403)                      |
-| 4    | not found (HTTP 404)                             |
+| 2    | usage error (bad/missing args, unknown verb) — and only that: a `transition` with no stage mapping exits 0 with a warning |
+| 3    | auth failure (HTTP 401/403); the github issue backend goes through `gh`, which reports 401/403 as its own exit 1, so it answers 1 |
+| 4    | not found (HTTP 404); for `transition`, the mapped label or status is not on the tracker (devagent never creates it) |
 | 5    | malformed, truncated or non-ending response (a 2xx page that is not the expected JSON, a list cut at a backend's limit, or a paging walk that does not end) |
 | 78   | not implemented (EX_CONFIG; reserved for stubs)  |
 

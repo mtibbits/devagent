@@ -33,8 +33,11 @@ teardown() { devagent_test_teardown; }
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     devagent_assert_logged "code/github mr-state https://github.com/acme/testproj/pull/77"
-    devagent_assert_logged "issue/github transition acme/testproj 1 on_merge"
-    grep -q 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_merge --project testproj"
+    # the marker regex sync.sh itself reads (the positive leg of every negative
+    # grep below), on the line that names what landed (#710)
+    grep -qE '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -qF 'sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
 @test "sync.sh fail-closes the on_merge transition when transition_issue is off (#219)" {
@@ -49,8 +52,8 @@ teardown() { devagent_test_teardown; }
     # The operator is told why.
     [[ "$output" == *"transition_issue"* ]]
     # And the idempotence marker is NOT written, so enabling the gate later still fires.
-    run grep 'sync: Issue-1 merged' "$DEVDOC_DIR/Issue-1/checklist.md"
-    [ "$status" -ne 0 ]
+    run grep -E '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
 }
 
 @test "sync.sh skips issues whose MR is still open" {
@@ -284,8 +287,10 @@ EOF
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' impact
     [[ "$output" == *"CLOSEOUT:"* ]]                                       # nudged
     [[ "$output" == *"transition_issue"* ]]                               # #219 skip-warn
-    run grep 'merged .* on_merge fired' "$DEVDOC_DIR/Issue-1/checklist.md" # marker NOT written
-    [ "$status" -ne 0 ]
+    # marker NOT written — grep sync.sh's own marker regex, so a reworded marker
+    # line cannot pass this vacuously (#710)
+    run grep -E '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
 }
 
 @test "sync leaves a NON-closeout [?] untouched (#363)" {
@@ -361,4 +366,94 @@ CL
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' impact
+}
+
+# ---- #710: sync's log records the real outcome ----
+
+# _rc_stub: the issue stub exits with the code in $DEVAGENT_TMP/rc, so one test
+# can fail a transition and then let it land.
+_rc_stub() {
+    printf '%s\n' "$1" > "$DEVAGENT_TMP/rc"
+    cat > "$DEVAGENT_TMP/fake-issue/github.sh" <<STUB
+#!/usr/bin/env bash
+echo "issue/github \$@" >> "$DEVAGENT_STUB_LOG"
+exit "\$(cat "$DEVAGENT_TMP/rc")"
+STUB
+    chmod +x "$DEVAGENT_TMP/fake-issue/github.sh"
+}
+
+@test "sync: a transition that did not land writes no marker and retries next run (#710)" {
+    _rc_stub 4
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"warning: on_merge transition failed for testproj/Issue-1 (exit 4) — continuing per spec §11 — no merge marker written; sync retries it next run"* ]]
+    run grep -E '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
+    # the tracker recovers: the next sync retries, lands, and writes the marker
+    printf '0\n' > "$DEVAGENT_TMP/rc"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'transition acme/testproj 1 on_merge' "$DEVAGENT_STUB_LOG")" -eq 2 ]
+    grep -qF 'sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+@test "sync: an old 'on_merge fired' line still suppresses a re-fire (#710)" {
+    printf '%s\n' '- 2026-05-19 15:00  sync: Issue-1 merged → on_merge fired' >> "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q '^## Log' "$DEVDOC_DIR/Issue-1/checklist.md"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    run grep -c 'transition' "$DEVAGENT_STUB_LOG"
+    [ "$output" -eq 0 ]
+}
+
+@test "sync: an unmapped on_merge writes no marker, so a mapping added later still fires (#710)" {
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_workflow.on_merge"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition acme/testproj 1 on_merge --project testproj"
+    run grep -E '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
+}
+
+@test "sync: no issue tracker writes the skipped marker, Issue and Issue-Fork legs (#710)" {
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.issue_source"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sync: no issue tracker configured for Issue-1; skipping on_merge transition"* ]]
+    grep -qF 'sync: Issue-1 merged → on_merge skipped: no issue tracker configured' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_refute_logged "transition"
+    # Issue-Fork leg: no issue_source_fork table
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-3"
+    cp "$DEVDOC_DIR/Issue-1/checklist.md" "$DEVDOC_DIR/Issue-Fork-3/checklist.md"
+    sed -i '/  sync: /d' "$DEVDOC_DIR/Issue-Fork-3/checklist.md"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-3"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-3"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sync: no issue tracker configured for Issue-Fork-3; skipping on_merge transition"* ]]
+    grep -qF 'sync: Issue-Fork-3 merged → on_merge skipped: no issue tracker configured' "$DEVDOC_DIR/Issue-Fork-3/checklist.md"
+}
+
+@test "sync: fork_only skips an upstream issue's on_merge and writes the skipped marker (#710 review)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sync: fork_only: skipping on_merge transition for Issue-1 (the upstream tracker is not targeted)"* ]]
+    grep -qF 'sync: Issue-1 merged → on_merge skipped: fork_only (upstream tracker not targeted)' "$DEVDOC_DIR/Issue-1/checklist.md"
+    devagent_refute_logged "transition"
+}
+
+@test "sync runs the real github backend: Done lands at the gh boundary (#710)" {
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_ROOT/scripts/issue"
+    mkdir -p "$DEVAGENT_TMP/ghbin"
+    cp "$DEVAGENT_ROOT/tests/fixtures/gh-stub" "$DEVAGENT_TMP/ghbin/gh"
+    chmod +x "$DEVAGENT_TMP/ghbin/gh"
+    export PATH="$DEVAGENT_TMP/ghbin:$PATH"
+    export GH_STUB_ARGV_LOG="$DEVAGENT_TMP/gh-argv"
+    export GH_STUB_REPO_LABELS='[{"name":"In Progress"},{"name":"In Review"},{"name":"Done"}]'
+    export GH_STUB_LABELS_JSON='[{"name":"In Review"}]'
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qxF '[issue] [edit] [1] [--repo] [acme/testproj] [--add-label] [Done] [--remove-label] [In Review]' "$GH_STUB_ARGV_LOG"
+    grep -qF 'sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' "$DEVDOC_DIR/Issue-1/checklist.md"
 }

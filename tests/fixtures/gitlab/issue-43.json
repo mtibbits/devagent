@@ -1,0 +1,14 @@
+{
+  "iid": 43,
+  "title": "Issue in progress",
+  "description": "",
+  "state": "opened",
+  "author": {
+    "username": "alice"
+  },
+  "labels": [
+    "In Progress",
+    "bug"
+  ],
+  "web_url": "https://gitlab.example/foo/bar/-/issues/43"
+}

@@ -16,6 +16,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/coauthor.sh"
 . "$DEVAGENT_ROOT/scripts/lib/stacked.sh"
+. "$DEVAGENT_ROOT/scripts/lib/transition.sh"
 # shellcheck source=lib/zerodiff.sh
 . "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
 
@@ -235,15 +236,8 @@ fi
 # Route to the right issue tracker based on the issue's origin:
 #   Issue-Fork-NNN -> issue_source_fork (the fork's tracker)
 #   Issue-NNN      -> issue_source       (the upstream tracker)
-if [[ "$issue_arg" == Issue-Fork-* ]]; then
-    issue_backend="$(config_get_project_field "$project" issue_source_fork.backend 2>/dev/null || true)"
-    issue_repo="$(config_get_project_field    "$project" issue_source_fork.repo    2>/dev/null || true)"
-    issue_num="${issue_arg#Issue-Fork-}"
-else
-    issue_backend="$(config_get_project_field "$project" issue_source.backend)"
-    issue_repo="$(config_get_project_field    "$project" issue_source.repo)"
-    issue_num="${issue_arg#Issue-}"
-fi
+transition_route "$project" "$issue_arg"
+issue_backend="$TR_BACKEND" issue_repo="$TR_REPO" issue_num="$TR_NUM"
 
 mr_body="$issue_dir/mr.md"
 [ -r "$mr_body" ] || die "missing $mr_body (run /devagent:draftmr first)"
@@ -255,6 +249,9 @@ if [ "$fork_only" = "true" ]; then
 elif [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo_for_plan="$fork_repo (fork)"
 fi
+# #710: the plan names the tracker repo and the state on_ship writes, or why it
+# writes nothing. Informational: permission_gate prints it only when it prompts.
+on_ship_note="$(transition_plan_note "$project" on_ship "$issue_backend" "$issue_repo" "$issue_arg")"
 plan="$(cat <<EOF
 ship plan
   branch:     $branch
@@ -262,7 +259,7 @@ ship plan
   MR repo:    $target_repo_for_plan
   base:       $base_branch
   draft?:     $ship_as_draft_proj
-  issue:      $issue_arg → on_ship${ff_plan}
+  issue:      $issue_arg → on_ship: ${on_ship_note}${ff_plan}
 EOF
 )"
 permission_gate "$project" push_mr "$plan"
@@ -322,24 +319,18 @@ fi
 mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$pr_head" "$base_branch" "${draft_flag[@]}")"
 [ -n "$mr_url" ] || die "create-mr returned empty URL"
 
-# Fire on_ship transition. Tolerate missing transition verb / failures per §11.
-# Skipped under fork_only. Also skipped if the routed backend/repo isn't
-# configured (e.g. Issue-Fork-* with no [issue_source_fork] block).
-# #219 audit: this transition is intentionally NOT gated by permissions.
-# transition_issue (which gates sync's autonomous on_merge). on_ship fires only
-# inside an explicit, interactive ship that already passed the push_mr gate
-# above — the consent is the ship action itself — so it is not the ungated
-# autonomous mutation sync was.
-issue_sh="$DEVAGENT_ISSUE_BACKEND_DIR/${issue_backend:-}.sh"
-if [ "$fork_only" = "true" ]; then
-    echo "fork-only mode: skipping on_ship transition" >&2
-elif [ -z "$issue_backend" ] || [ -z "$issue_repo" ]; then
-    echo "ship.sh: no issue tracker configured for $issue_arg; skipping transition" >&2
-elif [ -x "$issue_sh" ]; then
-    if ! "$issue_sh" transition "$issue_repo" "$issue_num" on_ship; then
-        echo "warning: issue transition failed — continuing per spec §11" >&2
-    fi
-fi
+# Fire on_ship. transition_fire gates it on permissions.transition_issue like
+# every transition, skips an upstream (Issue-N) issue under fork_only (the
+# upstream tracker is not targeted; an Issue-Fork-* issue's own tracker is),
+# routes it (no-tracker when the routed backend/repo is not configured, e.g.
+# Issue-Fork-* with no [issue_source_fork]) and passes the project as
+# --project; a failure warns with its exit code and ship completes (§11).
+# #710 reopens the #219/#344 audit, which left on_ship ungated as "only
+# incidentally downstream of the push_mr gate" while it wrote nothing: once the
+# mappings resolve, an ungated on_ship writes at every ship of a project whose
+# transition_issue is false — for a fork_first project, to the upstream
+# third-party tracker.
+transition_fire ship "$project" "$issue_arg" on_ship "$issue_backend" "$issue_repo" "$issue_num"
 
 state_ctx_set_many "$project" "$issue_arg" \
   str mr_url         "$mr_url" \

@@ -48,12 +48,14 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 
 [project.myproj.permissions]   # pre-grants: true = proceed unprompted,
                                # false = stop and ask (autonomous paths
-                               # skip instead of asking). All ship false.
+                               # skip instead of asking; transition_issue
+                               # skips even an interactive ship's on_ship).
+                               # All ship false.
 push_mr          = true        # step 18 pushes + opens the MR unprompted
 merge_mr         = false       # legacy alias of merge_to_all_prs; no step merges the MR
 merge_to_all_prs = false       # step 19 local integration branch
 commit_devdoc    = true        # step 23 commits the devdoc unprompted
-transition_issue = true        # tracker state transitions fire unprompted
+transition_issue = true        # every tracker transition (draft, ship, sync) writes only when true
 
 [project.myproj.issue_source]  # where tickets live
 backend = "github"             # github | gitlab | jira | custom
@@ -66,10 +68,12 @@ backend  = "github"
 upstream = "you/myproj"
 fork     = "you/myproj"
 
-[project.myproj.issue_workflow] # semantic stage -> tracker state
-on_draft_start = "In Progress"
-on_ship        = "In Review"
-on_merge       = "Done"
+[project.myproj.issue_workflow] # semantic stage -> tracker state: a label on
+on_draft_start = "In Progress"  # GitHub/GitLab, a status on JIRA. It must
+on_ship        = "In Review"    # already exist; devagent never creates one.
+on_merge       = "Done"         # Optional per-stage label override:
+                                # [project.myproj.github_labels] (or
+                                # gitlab_labels) keyed on_draft_start/on_ship/on_merge
 # not_planned_resolutions = ["Won't Do"]  # jira: wbs update reads these done
                                           # resolutions as [-] (#703)
 
@@ -106,23 +110,45 @@ MYPROJ_DATA_ROOT = "~/src/myprojData"
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
-**issue backend** implements five verbs and may implement two more,
-`state-list` and `issue-list`:
+**issue backend** implements five verbs and may implement three more,
+`state-list`, `issue-list` and `state-exists`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
 | `fetch` | `<repo> <num>` | markdown to stdout |
 | `create` | `<repo> <title> <body-file> [--label X]…` | new num to stdout |
-| `transition` | `<repo> <num> <semantic-stage>` | exit 0 |
+| `transition` | `<repo> <num> <semantic-stage> [--project <name>]` | exit 0 landed, already there or no mapping; non-zero did not land |
 | `state` | `<repo> <num>` | backend state |
 | `comment-list` | `<repo> <num>` | markdown to stdout |
 | `state-list` | `<repo>` | one `<id>` TAB `<class>` line per issue (optional) |
 | `issue-list` | `<repo>` | one JSON record per issue (optional) |
+| `state-exists` | `<repo> <state-name>` | exit 0 present, 4 absent (optional) |
+
+`transition` writes the tracker state the stage maps to: the
+`issue_workflow` value, unless a `github_labels` / `gitlab_labels` table
+overrides that stage. The callers append `--project <name>` (a custom
+backend may ignore it), and every transition is behind
+`permissions.transition_issue`. A built-in backend reads the issue first,
+writes the target and removes the other mapped stage labels the issue
+carries; a mapped label or status missing from the tracker is never
+created, and the backend exits non-zero naming it while the step carries
+on. On GitLab the label is checked — the project's or an ancestor group's
+— before any write. (The group-label path is unverified against a live
+GitLab instance.)
+
+The per-stage environment overrides `DEVAGENT_GITHUB_LABEL_<STAGE>`,
+`DEVAGENT_GITLAB_LABELS_<STAGE>` and `DEVAGENT_JIRA_STAGE_<STAGE>` take
+precedence over config, and they are process-global: a stale one redirects
+every project's write. `/devagent:doctor` warns while one is set, and, for
+a project with `transition_issue = true`, checks each mapped state with
+`state-exists` — a warning, never a failure, skipped when the tracker is
+unreachable.
 
 `state-list` is what `wbs update` reads to set leaf glyphs from the
 tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
-`other`; the in-progress signal is the `github_labels.in_progress` /
-`gitlab_labels.in_progress` label (GitHub defaults to `in progress`). A
+`other`; the in-progress signal is the label `issue_workflow.on_draft_start`
+maps to, after any `github_labels` / `gitlab_labels` or environment
+override. There is no default label. A
 backend without it exits 78 (or 2, unknown verb), and `wbs update` then
 uses local checklists. `issue-list` is what `wbs init --from-tracker`
 reads to build a new `WBS.md` from the tracker history, and what
