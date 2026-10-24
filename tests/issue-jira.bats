@@ -112,6 +112,14 @@ _requests() { grep -v '^GET /__ping__' "$FIXTURE_REQUEST_LOG" || true; }
   [ "$status" -eq 2 ]
 }
 
+@test "state-exists: a status 404 from a site that 404s /myself too is undetermined, not absent (#710)" {
+  # a wrong DEVAGENT_JIRA_BASE context path 404s every resource
+  export DEVAGENT_JIRA_BASE="$FIXTURE_URL/wrong-context"
+  run "$SCRIPT" state-exists PROJ "In Review"
+  [ "$status" -eq 1 ]
+  grep -q '^GET /wrong-context/rest/api/2/myself' "$FIXTURE_REQUEST_LOG"
+}
+
 @test "issue/jira.sh state prints status name" {
   run "$SCRIPT" state PROJ PROJ-42
   [ "$status" -eq 0 ]

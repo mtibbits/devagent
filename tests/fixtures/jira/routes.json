@@ -34,5 +34,6 @@
   "GET /rest/api/2/status/In%20Review": {"status": 200, "body": "{\"id\": \"10001\", \"name\": \"In Review\"}"},
   "GET /rest/api/2/issue/PROJ-43": {"status": 200, "body_file": "issue-43.json"},
   "GET /rest/api/2/issue/PROJ-43/transitions": {"status": 200, "body_file": "transitions.json"},
-  "POST /rest/api/2/issue/PROJ-43/transitions": {"status": 403, "body": "{\"errorMessages\":[\"You do not have permission to transition this issue.\"]}"}
+  "POST /rest/api/2/issue/PROJ-43/transitions": {"status": 403, "body": "{\"errorMessages\":[\"You do not have permission to transition this issue.\"]}"},
+  "GET /rest/api/2/myself": {"status": 200, "body": "{\"accountId\": \"5b10a2844c20165700ede21g\", \"displayName\": \"Dummy\"}"}
 }

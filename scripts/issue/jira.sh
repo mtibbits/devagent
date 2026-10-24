@@ -174,15 +174,27 @@ cmd_transition() {
 # status, 4 it does not, 2 usage; any other code is undetermined (3 auth
 # refused, 1 any other failure). Jira Cloud's GET /status/{name} 404s an
 # unknown name (#710 U5, asserted from Atlassian's docs). Doctor's warn-only
-# tracker check is its one reader.
+# tracker check is its one reader. A failed lookup never answers 4: a wrong
+# DEVAGENT_JIRA_BASE context path 404s every resource, so a status 404 is
+# "absent" only when GET /myself (which also checks the credentials) answers.
 cmd_state_exists() {
   { [ "$#" -eq 2 ] && [ -n "$1" ] && [ -n "$2" ]; } || usage
   local rc=0
   bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/status/$(_urlenc "$2")" \
     -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = 4 ]; then
+    rc=0
+    bc_curl_auth "$(auth_header)" GET "$(base)/rest/api/2/myself" \
+      -H 'Accept: application/json' >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0) return 4 ;;
+      3) return 3 ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$rc" in
-    0|3|4) return "$rc" ;;
-    *)     return 1 ;;
+    0|3) return "$rc" ;;
+    *)   return 1 ;;
   esac
 }
 

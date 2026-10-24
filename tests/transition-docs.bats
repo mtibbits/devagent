@@ -49,3 +49,9 @@ SPEC="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -qxF '  - Not breaking: the stage names and DEVAGENT_* override names are unchanged; the one behavior that stops is a per-stage override with transition_issue = false writing at ship, an undocumented seam.' "$PLUGIN_ROOT/CHANGELOG.md"
   grep -qF '  - Changed: on_ship is gated by permissions.transition_issue (was ungated, #219/#344).' "$PLUGIN_ROOT/CHANGELOG.md"
 }
+
+@test "README and CHANGELOG tell a custom backend it must accept the trailing --project (#710 review)" {
+  grep -E '^\| `transition` ' "$PLUGIN_ROOT/README.md" | grep -qF -- '[--project <name>]'
+  grep -E '^\| `transition` ' "$PLUGIN_ROOT/README.md" | grep -qF 'a custom backend must accept it and may ignore it'
+  grep -qF 'A custom backend must now accept the trailing `--project <name>`' "$PLUGIN_ROOT/CHANGELOG.md"
+}

@@ -134,15 +134,28 @@ _gl_stage_label() { stage_map_target gitlab "${2:-}" "$1"; }
 # project label or one of its ancestor groups' (#710 N7: GitLab answers a
 # group label only with include_ancestor_groups=true; U1, asserted from
 # GitLab's docs, unverified against a live instance) — 4 when it is not, 3
-# auth refused, 1 any other failure. A failed lookup never answers 4.
+# auth refused, 1 any other failure. A failed lookup never answers 4: GitLab
+# also 404s a label of a project the token cannot see (a private project and
+# an under-scoped token) or a wrong path, so a label 404 is "absent" only when
+# the project itself answers.
 _gl_label_exists() {
   local enc name rc=0; enc="$(urlenc "$1")"; name="$(urlenc "$2")"
   BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
     bc_curl GET "$(api_base)/projects/${enc}/labels/${name}?include_ancestor_groups=true" >/dev/null 2>&1 \
     || rc=$?
+  if [ "$rc" = 4 ]; then
+    rc=0
+    BC_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN:-}" \
+      bc_curl GET "$(api_base)/projects/${enc}" >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0) return 4 ;;
+      3) return 3 ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$rc" in
-    0|3|4) return "$rc" ;;
-    *)     return 1 ;;
+    0|3) return "$rc" ;;
+    *)   return 1 ;;
   esac
 }
 

@@ -320,3 +320,17 @@ _assert_stage_write() {
     "$PLUGIN_ROOT/scripts/issue/github.sh"
   [ "$status" -eq 1 ]
 }
+
+@test "transition: a mapped label containing a comma is refused, never split by gh (#710 review)" {
+  # gh's --add-label/--remove-label are comma-separated lists, so "a, b" would
+  # reach GitHub as two labels — a wrong write on the tracker.
+  _transition_setup
+  export GH_STUB_LABELS_JSON='[{"name":"bug"}]'
+  export GH_STUB_REPO_LABELS='[{"name":"review, pending"}]'
+  export DEVAGENT_GITHUB_LABEL_ON_SHIP="review, pending"
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"github.sh: label 'review, pending' (on_ship) contains a comma, which gh splits into two labels; rename it or change the mapping"* ]]
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}

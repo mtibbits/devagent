@@ -281,7 +281,7 @@ Every issue backend MUST implement five verbs and MAY implement `state-list`,
 |----------------|-------------------------------------------------|---------------------|
 | `fetch`        | `<repo> <num>`                                  | markdown to stdout  |
 | `create`       | `<repo> <title> <body-file> [--label X]…`       | new num to stdout   |
-| `transition`   | `<repo> <num> <semantic-stage> --project <name>` | exit 0 landed, already there or no mapping; non-zero = did not land (the callers always append `--project`; a custom backend must accept it and may ignore it) |
+| `transition`   | `<repo> <num> <semantic-stage> [--project <name>]` | exit 0 landed, already there or no mapping; non-zero = did not land (the callers always append `--project`; a custom backend must accept it and may ignore it) |
 | `state`        | `<repo> <num>`                                  | backend state       |
 | `comment-list` | `<repo> <num>`                                  | markdown to stdout  |
 | `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |

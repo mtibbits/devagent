@@ -191,6 +191,19 @@ cmd_transition() {
     return 0
   fi
   others="$(stage_map_others github "$project" "$stage")" || return 1
+  # gh's --add-label/--remove-label take comma-separated lists, so a label
+  # holding a comma would reach GitHub as two labels — a wrong write. Refuse
+  # it before any gh call (#710 review).
+  if [[ "$target" == *,* ]]; then
+    echo "github.sh: label '$target' ($stage) contains a comma, which gh splits into two labels; rename it or change the mapping" >&2
+    return 1
+  fi
+  while IFS= read -r o; do
+    if [[ "$o" == *,* ]]; then
+      echo "github.sh: mapped stage label '$o' contains a comma, which gh splits into two labels; rename it or change the mapping" >&2
+      return 1
+    fi
+  done <<<"$others"
   _need gh
   _need jq
   local json present p o has_target=0 remove=()

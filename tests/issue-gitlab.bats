@@ -77,9 +77,10 @@ teardown() {
   run "$SCRIPT" transition foo/bar 42 on_ship --project testproj
   [ "$status" -eq 4 ]
   [[ "$output" == *"gitlab.sh: label 'Nope' (on_ship) not found on foo/bar or its groups (or the project is not visible to this token); devagent does not create labels — create it or change the mapping"* ]]
-  # the label lookup is the first and only request: nothing was written
-  [ "$(_requests | wc -l)" -eq 1 ]
-  grep -q '^GET /api/v4/projects/foo%2Fbar/labels/Nope?include_ancestor_groups=true' "$FIXTURE_REQUEST_LOG"
+  # the label lookup is the first request, and nothing was written
+  [ "$(_requests | head -1 | cut -f1)" = 'GET /api/v4/projects/foo%2Fbar/labels/Nope?include_ancestor_groups=true' ]
+  run grep -cE '^(PUT|POST) ' "$FIXTURE_REQUEST_LOG"
+  [ "$status" -eq 1 ]
 }
 
 @test "transition accepts a group-level label via include_ancestor_groups (#710)" {
@@ -146,6 +147,15 @@ teardown() {
   [ "$status" -eq 3 ]
   run "$SCRIPT" state-exists foo/bar
   [ "$status" -eq 2 ]
+}
+
+@test "state-exists: a label 404 on a project the token cannot see is undetermined, not absent (#710)" {
+  # GitLab answers 404, not 403, for a private project an under-scoped token
+  # cannot see, and for a wrong path: the label 404 alone proves nothing.
+  run "$SCRIPT" state-exists foo/ghost "In Review"
+  [ "$status" -eq 1 ]
+  # the project itself was probed
+  grep -qF $'GET /api/v4/projects/foo%2Fghost\t' "$FIXTURE_REQUEST_LOG"
 }
 
 @test "issue/gitlab.sh state prints opened" {

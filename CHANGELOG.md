@@ -28,7 +28,9 @@ the README's "Versioning & releases" section has the release procedure.
     the per-stage env override (`DEVAGENT_GITHUB_LABEL_<STAGE>`,
     `DEVAGENT_GITLAB_LABELS_<STAGE>`, `DEVAGENT_JIRA_STAGE_<STAGE>`; process-global), then
     an optional `[project.<p>.github_labels]` / `gitlab_labels` table keyed by stage, then
-    `issue_workflow`. A custom backend receives `--project` and may ignore it.
+    `issue_workflow`. A custom backend must now accept the trailing `--project <name>`
+    (it may ignore it); one that refuses unknown arguments fails every transition, with a
+    warning, until it is updated.
   - Changed: on_ship is gated by permissions.transition_issue (was ungated, #219/#344).
     `transition_issue = false` now skips every transition, an interactive ship's included;
     ship's plan line names the tracker repo and the state, or why it is skipped.
@@ -38,7 +40,9 @@ the README's "Versioning & releases" section has the release procedure.
     (#703) are gone, as are GitLab's `remove_others_in_namespace` key and
     `DEVAGENT_GITLAB_LABEL_NAMESPACE`.
   - A transition that did not land exits non-zero: 4 when the mapped label or status is
-    missing (named in the message), 3 on a GitLab/JIRA 401/403, 1 otherwise. The step
+    missing (named in the message) or a GitLab/JIRA issue 404s, 3 on a GitLab/JIRA
+    401/403, 1 otherwise (a GitHub label containing a comma, which gh would split, is
+    refused with 1). The step
     warns with the exit code and carries on. A stage with no mapping is one warning and
     exit 0 on every backend; JIRA's exit 2 is now usage only.
   - Sync's log line says what happened — `merged → on_merge landed: "<state>" on <repo>`,
