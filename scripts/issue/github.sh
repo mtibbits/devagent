@@ -198,12 +198,6 @@ cmd_transition() {
     echo "github.sh: label '$target' ($stage) contains a comma, which gh splits into two labels; rename it or change the mapping" >&2
     return 1
   fi
-  while IFS= read -r o; do
-    if [[ "$o" == *,* ]]; then
-      echo "github.sh: mapped stage label '$o' contains a comma, which gh splits into two labels; rename it or change the mapping" >&2
-      return 1
-    fi
-  done <<<"$others"
   _need gh
   _need jq
   local json present o remove=()
@@ -212,6 +206,14 @@ cmd_transition() {
   # Only a stage label the issue carries is named for removal, by the name it
   # carries (an absent one is a no-op, never an argument), in stage order.
   mapfile -t remove < <(stage_map_carried github "$present" "$others")
+  # A stale stage label is refused on the same grounds, but only one the issue
+  # carries: a label that is never sent cannot be split.
+  for o in "${remove[@]+"${remove[@]}"}"; do
+    if [[ "$o" == *,* ]]; then
+      echo "github.sh: stage label '$o' on the issue contains a comma, which gh splits into two labels; rename it or change the mapping" >&2
+      return 1
+    fi
+  done
   if [ -n "$(stage_map_carried github "$present" "$target")" ] && [ "${#remove[@]}" -eq 0 ]; then
     return 0
   fi

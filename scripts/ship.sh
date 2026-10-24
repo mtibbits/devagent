@@ -251,11 +251,7 @@ elif [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
 fi
 # #710: the plan names the tracker repo and the state on_ship writes, or why it
 # writes nothing. Informational: permission_gate prints it only when it prompts.
-if [ "$fork_only" = "true" ]; then
-    on_ship_note="skipped (fork_only)"
-else
-    on_ship_note="$(transition_plan_note "$project" on_ship "$issue_backend" "$issue_repo")"
-fi
+on_ship_note="$(transition_plan_note "$project" on_ship "$issue_backend" "$issue_repo" "$issue_arg")"
 plan="$(cat <<EOF
 ship plan
   branch:     $branch
@@ -323,22 +319,18 @@ fi
 mr_url="$("$code_sh" create-mr "$target_repo" "$title" "$mr_body_send" "$pr_head" "$base_branch" "${draft_flag[@]}")"
 [ -n "$mr_url" ] || die "create-mr returned empty URL"
 
-# Fire on_ship. Skipped under fork_only: the upstream tracker is not targeted.
-# Otherwise transition_fire gates it on permissions.transition_issue like every
-# transition, routes it (no-tracker when the routed backend/repo is not
-# configured, e.g. Issue-Fork-* with no [issue_source_fork]) and passes the
-# project as --project; a failure warns with its exit code and ship completes
-# (§11).
+# Fire on_ship. transition_fire gates it on permissions.transition_issue like
+# every transition, skips an upstream (Issue-N) issue under fork_only (the
+# upstream tracker is not targeted; an Issue-Fork-* issue's own tracker is),
+# routes it (no-tracker when the routed backend/repo is not configured, e.g.
+# Issue-Fork-* with no [issue_source_fork]) and passes the project as
+# --project; a failure warns with its exit code and ship completes (§11).
 # #710 reopens the #219/#344 audit, which left on_ship ungated as "only
 # incidentally downstream of the push_mr gate" while it wrote nothing: once the
 # mappings resolve, an ungated on_ship writes at every ship of a project whose
 # transition_issue is false — for a fork_first project, to the upstream
 # third-party tracker.
-if [ "$fork_only" = "true" ]; then
-    echo "fork-only mode: skipping on_ship transition" >&2
-else
-    transition_fire ship "$project" "$issue_arg" on_ship "$issue_backend" "$issue_repo" "$issue_num"
-fi
+transition_fire ship "$project" "$issue_arg" on_ship "$issue_backend" "$issue_repo" "$issue_num"
 
 state_ctx_set_many "$project" "$issue_arg" \
   str mr_url         "$mr_url" \

@@ -18,6 +18,8 @@ the auth doctor hook, auth-secret presence and reachability.
 
 Forward arguments verbatim.
 
+Per project, the tracker-mapping check (#710, warn-only) flags `github_labels`/`gitlab_labels` keys no transition reads, the retired keys and a nested `issue_workflow.<backend>_labels` table. With `transition_issue = true` it also asks the tracker (`state-exists`, up to three calls per tracker, so a network call) whether each mapped label or status exists, and skips when the tracker is unreachable or unauthenticated. One global check warns while a process-global per-stage override (`DEVAGENT_GITHUB_LABEL_<STAGE>` and its GitLab/JIRA kin) or a retired env name is set.
+
 Per project, `potholes_workflow register: <path|not configured|absent>` names the shared workflow register the project resolves (FAIL on a relative path or unreadable config). One global #611 row, WARN only: `seed carries no private project name` runs the
 private-project-name predicate over the shipped `templates/potholes.md` for
 every non-public project key in the LIVE config (the suite canary skips until

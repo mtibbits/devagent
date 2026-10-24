@@ -203,6 +203,32 @@ EOF
     devagent_refute_logged "issue/github transition acme/testproj"
 }
 
+@test "ship.sh under fork_only still transitions an Issue-Fork-* issue's own tracker (#710 review)" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.fork_only" true
+    cat >> "$HOME/.claude/devagent/config.toml" <<EOF
+
+[project.$TEST_PROJECT.issue_source_fork]
+backend = "github"
+repo    = "me/testproj"
+EOF
+    mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
+    echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"
+    echo "fork issue title" > "$DEVDOC_DIR/Issue-Fork-51/.devagent-title"
+    bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template standard \
+        "$DEVDOC_DIR/Issue-Fork-51"
+    mark_step "$DEVDOC_DIR/Issue-Fork-51/checklist.md" 17 x
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" active_issue "Issue-Fork-51"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" issue_dir "$DEVDOC_DIR/Issue-Fork-51"
+    ( cd "$SOURCE_DIR" && git checkout -q -b feat/fork-51 \
+        && echo x >a.txt && git add a.txt \
+        && git -c user.email=t@example.com -c user.name=Test commit -q -m s )
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/fork-51"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-Fork-51
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "issue/github transition me/testproj 51 on_ship"
+    devagent_refute_logged "issue/github transition acme/testproj"
+}
+
 @test "ship.sh skips transition for Issue-Fork-* with no issue_source_fork configured" {
     mkdir -p "$DEVDOC_DIR/Issue-Fork-51"
     echo "MR body" > "$DEVDOC_DIR/Issue-Fork-51/mr.md"

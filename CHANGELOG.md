@@ -28,9 +28,11 @@ the README's "Versioning & releases" section has the release procedure.
     the per-stage env override (`DEVAGENT_GITHUB_LABEL_<STAGE>`,
     `DEVAGENT_GITLAB_LABELS_<STAGE>`, `DEVAGENT_JIRA_STAGE_<STAGE>`; process-global), then
     an optional `[project.<p>.github_labels]` / `gitlab_labels` table keyed by stage, then
-    `issue_workflow`. A custom backend must now accept the trailing `--project <name>`
-    (it may ignore it); one that refuses unknown arguments fails every transition, with a
-    warning, until it is updated.
+    `issue_workflow`.
+  - Changed: the backend `transition` verb takes a trailing `--project <name>`.
+    A custom backend must now accept the trailing `--project <name>` (it may ignore it);
+    one that refuses unknown arguments fails every transition, with a warning, until it
+    is updated.
   - Changed: on_ship is gated by permissions.transition_issue (was ungated, #219/#344).
     `transition_issue = false` now skips every transition, an interactive ship's included;
     ship's plan line names the tracker repo and the state, or why it is skipped.
@@ -50,10 +52,11 @@ the README's "Versioning & releases" section has the release procedure.
     transition that failed, was gated off or has no mapping writes none and is retried on
     the next sync. Old `merged → on_merge fired` lines still count; merged issues are not
     backfilled.
-  - Under `fork_only = true` the upstream tracker is never transitioned: draft and sync now
-    skip an upstream (`Issue-N`) issue's `on_draft_start` and `on_merge` as ship already
-    skipped `on_ship` (sync logs `… skipped: fork_only (upstream tracker not targeted)` as
-    its marker). Before #710 nothing landed, so this keeps the documented promise.
+  - Under `fork_only = true` the upstream tracker is never transitioned: draft, ship and
+    sync skip an upstream (`Issue-N`) issue's transition (sync logs `… skipped: fork_only
+    (upstream tracker not targeted)` as its marker). An `Issue-Fork-N` issue's own fork
+    tracker is now transitioned at ship too; ship skipped every issue under `fork_only`
+    before. Before #710 nothing landed, so this keeps the documented promise.
   - New optional backend verb `state-exists <repo> <state>` (0 present, 4 absent).
     `/devagent:doctor` warns on label-table keys no transition reads, the retired keys and
     env names, spec §3.2's nested `issue_workflow.github_labels` table and any set
@@ -64,10 +67,10 @@ the README's "Versioning & releases" section has the release procedure.
     — `sync --all` on every run — until their labels exist on the tracker.
   - The GitLab group-label path (`include_ancestor_groups=true`) is unverified against a
     live GitLab instance; no configured project uses GitLab.
-  - Not breaking: the stage names and DEVAGENT_* override names are unchanged.
-    Two behaviors stop: a per-stage override with transition_issue = false writing at
-    ship, an undocumented seam; and a custom backend that refuses the trailing
-    `--project`, whose transitions fail with a warning until it accepts the argument.
+  - Not breaking: the stage names and DEVAGENT_* override names are unchanged; the
+    one behavior that stops is a per-stage override with transition_issue = false
+    writing at ship, an undocumented seam (the custom-backend `--project` contract is
+    the Changed item above).
 
 - **Fixed: `/devagent:next` hands step 3 (spike) to `/devagent:spike` instead of running the `spike.sh` helper (#812).**
   An issue flagged `spike: required` no longer halts an `--auto` chain with spike.sh's

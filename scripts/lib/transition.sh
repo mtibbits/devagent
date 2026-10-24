@@ -289,14 +289,19 @@ transition_fire() {
   return 0
 }
 
-# transition_plan_note <project> <stage> <backend> <repo>: what a transition
-# would do, for a plan line (ship's, D7) — decided in transition_fire's order.
+# transition_plan_note <project> <stage> <backend> <repo> [issue_arg]: what a
+# transition would do, for a plan line (ship's, D7) — decided in
+# transition_fire's order.
 transition_plan_note() {
-  local project="$1" stage="$2" backend="$3" repo="$4" t
+  local project="$1" stage="$2" backend="$3" repo="$4" issue_arg="${5:-}" t
   if ! transition_gate_open "$project"; then
     echo "skipped (permissions.transition_issue not enabled)"
+  elif [[ "$issue_arg" != Issue-Fork-* ]] && transition_fork_only "$project"; then
+    echo "skipped (fork_only)"
   elif [ -z "$backend" ] || [ -z "$repo" ]; then
     echo "skipped (no issue tracker configured)"
+  elif [ ! -x "$(transition_backend_sh "$backend")" ]; then
+    echo "skipped (issue backend not executable)"
   else
     t="$(stage_map_target "$backend" "$project" "$stage" 2>/dev/null || true)"
     if [ -n "$t" ]; then

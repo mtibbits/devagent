@@ -214,6 +214,16 @@ _append_config() { printf '%s\n' "$@" >> "$DA_HOME/config.toml"; }
   [ ! -e "$STUB_LOG" ]
 }
 
+@test "transition_plan_note: fork_only skips an upstream issue only; a non-executable backend is skipped (#710 review)" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set-bool "$DA_HOME/config.toml" project.testproj.fork_only true
+  run transition_plan_note testproj on_ship github acme/x Issue-1
+  [ "$output" = "skipped (fork_only)" ]
+  run transition_plan_note testproj on_ship github acme/fork Issue-Fork-1
+  [ "$output" = '"In Review" on acme/fork' ]
+  run transition_plan_note testproj on_ship nosuch acme/fork Issue-Fork-1
+  [ "$output" = "skipped (issue backend not executable)" ]
+}
+
 @test "transition_plan_note: prints all four forms (#710)" {
   run transition_plan_note testproj on_ship github acme/x
   [ "$output" = '"In Review" on acme/x' ]

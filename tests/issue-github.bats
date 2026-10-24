@@ -326,6 +326,26 @@ _assert_stage_write() {
   [ "$status" -eq 1 ]
 }
 
+@test "transition: a comma in a stale stage label the issue does not carry blocks nothing (#710 red-team)" {
+  _transition_setup
+  export DEVAGENT_GITHUB_LABEL_ON_MERGE="done, shipped"
+  export GH_STUB_LABELS_JSON='[{"name":"In Progress"},{"name":"bug"}]'
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 0 ]
+  grep -qxF '[issue] [edit] [676] [--repo] [gnuradio/volk] [--add-label] [In Review] [--remove-label] [In Progress]' "$GH_STUB_ARGV_LOG"
+}
+
+@test "transition: a stale stage label the issue carries is refused when it holds a comma (#710 red-team)" {
+  _transition_setup
+  export DEVAGENT_GITHUB_LABEL_ON_MERGE="done, shipped"
+  export GH_STUB_LABELS_JSON='[{"name":"done, shipped"}]'
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" transition gnuradio/volk 676 on_ship --project testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"github.sh: stage label 'done, shipped' on the issue contains a comma, which gh splits into two labels; rename it or change the mapping"* ]]
+  run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
+  [ "$status" -eq 1 ]
+}
+
 @test "transition: a mapped label containing a comma is refused, never split by gh (#710 review)" {
   # gh's --add-label/--remove-label are comma-separated lists, so "a, b" would
   # reach GitHub as two labels — a wrong write on the tracker.
