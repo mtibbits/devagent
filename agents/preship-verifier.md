@@ -93,8 +93,8 @@ verification passed; FAIL otherwise).
    the artifact was produced in — `worktree_path` else `source_dir`, with the
    artifact's `tree:` stamp cross-checked against it (#571), tree clean, suite
    green, the `suite:` line exact — and note it names only the
-   frameworks the tree HAS, so a bats-only project's line is `<ok>/<plan> bats @ <sha>`
-   and a pytest-only project's is `<n> pytest @ <sha>`, never `, 0 pytest` for an absent
+   frameworks the tree HAS, so a bats-only project's line is `<ok>/<plan> bats @ <full head sha>`
+   and a pytest-only project's is `<n> pytest @ <full head sha>`, never `, 0 pytest` for an absent
    framework (#466); an artifact recording `pytest: (error)` fails outright because the
    suite was never measured —
    `files:` == the baseline..HEAD diff count; a single `platform:` line, when present,
@@ -108,6 +108,9 @@ verification passed; FAIL otherwise).
    Each Evidence `analyzer:` line must equal a counted line of a newest step-13
    artifact, once (#677). A counted line the block leaves out prints
    `Evidence analyzer line omitted`: not a failure, but quote it in preship.md.
+   A suite-line mismatch names `evidence-stamp.sh` as its remedy. Never run
+   `evidence-stamp.sh`: it rewrites the block this check verifies, so running it here
+   would turn the check green on its own output (#894). Report the FAIL instead.
 
    **`TREE UNATTESTED`**: the artifact's `tree:` is absent here (e.g. a WSL
    clone seen from Windows). Check it where it was produced; for WSL, in the

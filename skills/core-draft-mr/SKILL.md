@@ -75,43 +75,58 @@ re-typed.
    DEVAGENT_ACTIVE_ISSUE is pinned. tests/run-suite.bats "#571/#659 AC5" runs this
    command verbatim, so keep its shape.)
 
-   From the newest `analysis/<date>-suite-count.txt`, write the `suite:` line naming
-   ONLY the frameworks the artifact reports present (#466). A framework whose line reads
-   `(none)` is ABSENT from the tree and must not appear in the Evidence at all. The
-   framework line is the one that starts `bats:`; the artifact's `bats_jobs:` line
-   is the run MODE (#593 — how many test files ran at a time), never a count, and never
-   appears in the Evidence:
+   Then write `mr.md` with steps 2–5 filled and the template's Evidence block as it
+   stands; if an `analysis/<date>-born-red.txt` exists, add `born-red: <its verdict>`
+   to the block. Then stamp the three machine-checked lines from the artifact (#894):
 
-   | artifact | `suite:` line |
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>   # writes suite:, files:, platform: into mr.md
+   ```
+
+   (Same two arguments as run-suite. tests/evidence-stamp.bats W1 runs this command
+   verbatim, so keep its shape.) On a refusal, follow the remedy it prints; never type
+   the three lines. The stamper refuses, changing nothing, when the artifact cannot
+   honestly describe HEAD: none exists, its `head:` is not HEAD (a commit came after
+   the suite ran), it records `dirty: yes`, its `tree:` is not the issue's tree (an
+   artifact from the WSL clone needs `--attest-tree`, gathered as
+   `agents/preship-verifier.md` describes), or it has no well-formed `platform:` line.
+   An mr.md with no Evidence block is left alone, with a warning (the checker warns and
+   passes it for back-compat, unless the checking config declares `evidence_platforms`,
+   which requires the block: #654).
+
+   What the stamper writes, from the newest `analysis/<date>-suite-count.txt`: a
+   `suite:` line naming ONLY the frameworks the artifact reports present (#466). A
+   framework whose line reads `(none)` is ABSENT from the tree and never appears in the
+   Evidence. The framework line is the one that starts `bats:`; the artifact's
+   `bats_jobs:` line is the run MODE (#593 — how many test files ran at a time), never a
+   count, and never appears in the Evidence:
+
+   | artifact | `suite:` line the stamper writes |
    |---|---|
-   | `bats: <ok>/<plan>` + `pytest: <n> passed` | `<ok>/<plan> bats, <n> pytest @ <head-sha>` |
-   | `bats: <ok>/<plan>` + `pytest: (none)` | `<ok>/<plan> bats @ <head-sha>` |
-   | `bats: (none)` + `pytest: <n> passed` | `<n> pytest @ <head-sha>` |
-   | `bats: (none)` + `pytest: (none)` | `none @ <head-sha>` (#411) |
+   | `bats: <ok>/<plan>` + `pytest: <n> passed` | `<ok>/<plan> bats, <n> pytest @ <full head sha>` |
+   | `bats: <ok>/<plan>` + `pytest: (none)` | `<ok>/<plan> bats @ <full head sha>` |
+   | `bats: (none)` + `pytest: <n> passed` | `<n> pytest @ <full head sha>` |
+   | `bats: (none)` + `pytest: (none)` | `none @ <full head sha>` (#411) |
 
-   Never write `, 0 pytest` for a `pytest: (none)` artifact — a measured zero and an
-   absent framework are different facts, and the first is a false green (#572 MINOR-5).
-   An artifact reading `pytest: (error)` means `tests/test_*.py` exist but produced no
-   counts: the suite was NOT measured, preship fails on it, and no Evidence line is
-   writable — fix the interpreter and re-run run-suite before continuing.
-   Copy the artifact's `platform:` line (#654: where the suite ran) into the Evidence
-   block whole and unchanged, on its own line after `files:`; never retype it.
+   The SHA is the artifact's full 40-character `head:`, because the checker compares it
+   byte for byte. There is never a `, 0 pytest` for a `pytest: (none)` artifact — a
+   measured zero and an absent framework are different facts, and the first is a false
+   green (#572 MINOR-5). An artifact reading `pytest: (error)` means `tests/test_*.py`
+   exist but produced no counts: the suite was NOT measured, the stamper refuses it,
+   and preship fails on it — fix the interpreter and re-run run-suite before continuing.
+   The stamper copies the artifact's `platform:` line (#654: where the suite ran) into
+   the Evidence block whole and unchanged, on its own line after `files:`.
    `preship-evidence.sh` compares it with the artifact byte for byte and fails a
-   mismatch, naming the line to write. When the checking operator's config declares
-   `evidence_platforms`, a block without the line fails too, acknowledged or not. An
-   artifact with no `platform:` line predates #654: delete the template's `platform:`
-   line. Never leave that placeholder, and never keep two `platform:` lines: either
-   fails preship, declared or not. This checked line is also the #600 disclosure: a
-   mode-UNVERIFIED run (a `file_modes:` line starting `file_modes: no-op;`, where
-   chmod was a no-op) records `modes=no-op` in it, from the same probe, so nothing
-   needs quoting in prose.
-   Also write `files: <n> changed`
-   (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`).
-   If an `analysis/<date>-born-red.txt` exists, add
-   `born-red: <its verdict>`. preship's verification #4 (#359) hard-checks
-   these against the artifact + git, so they must be exact. (No Evidence block
-   in the template ⇒ skip — the checker warns and passes for back-compat, unless the
-   checking config declares `evidence_platforms`, which requires the block: #654.)
+   mismatch. When the checking operator's config declares `evidence_platforms`, a block
+   without the line fails too, acknowledged or not. An artifact with no `platform:` line
+   predates #654: the stamper refuses it, so re-run run-suite with this plugin's
+   scripts. Never keep two `platform:` lines: that fails preship, declared or not. This
+   checked line is also the #600 disclosure: a mode-UNVERIFIED run (a `file_modes:`
+   line starting `file_modes: no-op;`, where chmod was a no-op) records `modes=no-op`
+   in it, from the same probe, so nothing needs quoting in prose.
+   It also writes `files: <n> changed`
+   (n = `git diff --name-only <baseline_sha>..HEAD | wc -l`). preship's verification
+   #4 (#359) hard-checks all three against the artifact + git.
 
    Then copy the step-13 analyzer stamps (#677). A step-13 artifact is an
    `analysis/*.txt` whose basename matches
@@ -129,7 +144,7 @@ re-typed.
    Evidence `analyzer:` line that no counted line backs, or one standing twice, and
    warns, naming the line, about a counted line the block omits. It checks membership
    only: the position after `platform:` is a copy convention, not checked.
-7. **Write `<issue-dir>/mr.md`.**
+7. **Check `mr.md`.** The stamper printed `stamped` or `unchanged`.
 
 ## Halt and ask if
 

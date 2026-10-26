@@ -425,9 +425,34 @@ The MR body carries the platform too. `/devagent:draftmr` copies the artifact's
 `platform:` line into `mr.md`'s `## Evidence` block, and preship compares the two
 byte for byte, declared or not. A mismatch fails and names the exact line, and so
 does an Evidence `platform:` line with no artifact line behind it, or a second
-`platform:` line. So the template's placeholder must be filled, or deleted when the
-artifact has no `platform:` line: left as it is, it fails preship even when nothing
-is declared.
+`platform:` line. The stamper below replaces the template's placeholder, and refuses
+an artifact that has no `platform:` line: left as it is, the placeholder fails
+preship even when nothing is declared.
+
+**Writing the Evidence block (#894).** The `suite:`, `files:` and `platform:` lines
+are written by a script, never by hand:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>
+```
+
+`suite:` is rebuilt from the newest suite-count artifact, `files:` is the
+`git diff --name-only <baseline_sha>..HEAD` count, and `platform:` is the artifact's
+own line. The stamper and preship build these lines from the same functions
+(`scripts/lib/evidence.sh`), so they cannot disagree. The `suite:` line ends in the
+full 40-character head SHA (the placeholders say `<full head sha>`): preship compares
+it byte for byte, and a short SHA, the `git log --oneline` form, fails. The stamper
+refuses, leaving `mr.md` unchanged, when there is no artifact, when the artifact's
+`head:` is not HEAD (a commit came after the suite ran), when it records
+`dirty: yes`, when its `tree:` is another local checkout, when it has no well-formed
+`platform:` line, or when it records `pytest: (error)`. Each refusal prints the
+remedy: re-run `run-suite.sh` in the tree being shipped, then the stamper. An
+artifact produced in the WSL clone and stamped from Windows needs
+`--attest-tree 'head=<full sha> dirty=no path=<tree>'`, exactly as preship does.
+draftmr runs the stamper, and review and redmr re-run `run-suite.sh` and then the
+stamper after any commit they make, so the block always names HEAD. Only those three
+lines change, and each keeps its own line ending. A CRLF block keeps its CRs, but it
+passes preship on GNU userlands only once #849 lands.
 
 The Evidence block also carries the analyzer stamps (#677). `/devagent:draftmr` copies
 every counted `analyzer:` line of the newest step-13 artifacts (the newest

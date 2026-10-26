@@ -456,3 +456,71 @@ _fx_art() {
     _st
     _refused "NUL bytes"
 }
+
+# --- Task 8: the verifier never stamps --------------------------------------------
+
+@test "#894 W4 the preship verifier forbids running evidence-stamp.sh" {
+    # D3: preship checks the block the stamper writes; a verifier that ran it would turn
+    # the check green on its own output (register 353). Whitespace-normalised: the
+    # prose wraps.
+    local v="$DEVAGENT_ROOT/agents/preship-verifier.md" t
+    t="$(tr -s '[:space:]' ' ' < "$v")"
+    [[ "$t" == *'Never run `evidence-stamp.sh`'* ]] || { echo "no ban in $v"; return 1; }
+    [[ "$t" == *'never run `run-suite.sh`'* ]]                 # the sibling ban still stands
+}
+
+# --- Task 9: wiring ----------------------------------------------------------------
+STAMP_LINE='bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>'
+RS_LINE='bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>'
+
+@test "#894 W1 the core-draft-mr stamp command, run verbatim, stamps the issue it names" {
+    # Read from the SKILL (register Issue-106: running a VARIANT of a published command is
+    # not running it), its placeholders filled, run under a SPACED plugin root
+    # (Issue-597), as run-suite.bats AC5 runs the run-suite line.
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) skip "MSYS ln -s copies or fails; the spaced root needs a real symlink" ;; esac
+    local skill="$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" line cmd want have
+    [ "$(grep -c 'scripts/evidence-stamp\.sh"' "$skill")" -eq 1 ]      # one published form
+    line="$(grep 'scripts/evidence-stamp\.sh"' "$skill")"
+    cmd="${line%%#*}"                                                  # drop the trailing comment
+    cmd="$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ "$cmd" = "$STAMP_LINE" ]
+    # register 461: the published command passes every mandatory positional of the usage.
+    want="$(printf '%s\n' "$USAGE" | sed 's/\[.*\]//' | grep -o '<[^>]*>' | wc -l)"
+    have="$(printf '%s\n' "$cmd" | grep -o '<[^>]*>' | wc -l)"
+    [ "$want" -eq 2 ] && [ "$have" -eq "$want" ]
+    cmd="${cmd/<project>/$TEST_PROJECT}"; cmd="${cmd/<Issue-N>/Issue-1}"
+    _shape bats; _rs; _mr_tpl
+    ln -s "$DEVAGENT_ROOT" "$DEVAGENT_TMP/plugin root"
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_TMP/plugin root" run bash -c "$cmd"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$(_ev_line suite)" = "suite: 1/1 bats @ $(git rev-parse HEAD)" ]
+}
+
+# _region <file> - from the '**Commit applied fixes (#148).**' item to the next bare
+# integer item (6a./7a. do not end it), heading, or EOF.
+_region() {
+    awk '/[*][*]Commit applied fixes [(]#148[)][.][*][*]/{f=1; print; next}
+         f && (/^[0-9]+\. / || /^#/){exit} f' "$1"
+}
+
+@test "#894 W2 review and redmr re-stamp after a commit" {
+    local f r a b
+    for f in commands/review.md commands/redmr.md; do
+        r="$(_region "$DEVAGENT_ROOT/$f")"
+        [ -n "$r" ] || { echo "no #148 item in $f"; return 1; }
+        [ "$(grep -cF -- "$RS_LINE" <<<"$r")" -eq 1 ] || { echo "$f: run-suite line count"; return 1; }
+        [ "$(grep -cF -- "$STAMP_LINE" <<<"$r")" -eq 1 ] || { echo "$f: stamp line count"; return 1; }
+        a="$(grep -nF -- "$RS_LINE" <<<"$r" | cut -d: -f1)"
+        b="$(grep -nF -- "$STAMP_LINE" <<<"$r" | cut -d: -f1)"
+        [ "$a" -lt "$b" ] || { echo "$f: the stamp comes before run-suite"; return 1; }
+    done
+}
+
+@test "#894 W3 CHANGELOG Unreleased carries the Added and Changed entries" {
+    local u
+    u="$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$DEVAGENT_ROOT/CHANGELOG.md")"
+    [ -n "$u" ]
+    grep -E '^- \*\*Added:' <<<"$u" | grep -F 'evidence-stamp.sh' | grep -qF '(#894)' \
+        || { echo "no Added entry"; return 1; }
+    grep -E '^- \*\*Changed:' <<<"$u" | grep -qF '(#894)' || { echo "no Changed entry"; return 1; }
+}
