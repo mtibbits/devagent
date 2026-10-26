@@ -29,8 +29,8 @@
 # → every check hard-dies. Any git/parse failure dies loud (#117/#314 — never
 # "0 checked"); no prompts (safe under --auto).
 # #466: the reconstruction is PER-FRAMEWORK. A bats-only project's Evidence line is
-# `<ok>/<plan> bats @ <sha>` (NOT `…, 0 pytest`, which claimed a measured zero for an
-# absent framework) and a pytest-only project's is `<passed> pytest @ <sha>` (previously
+# `<ok>/<plan> bats @ <full head sha>` (NOT `…, 0 pytest`, which claimed a measured zero for an
+# absent framework) and a pytest-only project's is `<passed> pytest @ <full head sha>` (previously
 # the nonsense `/ bats, …`, which reconciled against itself and shipped twice). This is
 # a DELIBERATE break for any single-framework mr.md drafted before #466: the mismatch
 # message names the exact correct line, so remediation is one edit. An artifact
@@ -130,6 +130,11 @@
 # the analyzer's. Stated blind spots: the stamp is a claim the artifact makes; and in a
 # ShellCheck-family artifact, a findings line whose file path starts analyzer: would
 # count. This arm runs on the main path only: the #149 no-Evidence exit never reaches it.
+# #894 ONE SOURCE. The newest-artifact pick, the head:/dirty:/bats:/pytest: reads, the
+# canonical suite: line, the files: count, the platform: line read and the tree rung live
+# in scripts/lib/evidence.sh, and this script calls them. Its other consumer is
+# scripts/evidence-stamp.sh, which WRITES the suite:, files: and platform: lines from the
+# same functions, so the writer and this checker cannot rebuild a line two ways.
 set -euo pipefail
 
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -145,6 +150,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 # shellcheck source=lib/platform.sh
 . "$DEVAGENT_ROOT/scripts/lib/platform.sh"
+# shellcheck source=lib/evidence.sh
+. "$DEVAGENT_ROOT/scripts/lib/evidence.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -223,7 +230,7 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
   local art="$1" head="$2" no_block="${3:-}" body e decl n ack_head ack_body ack_remedy
   local ack_re='^head=([[:xdigit:]]+) platform=(.+)$'
   platform_verdict=""; _plat_attest_used=false
-  a_platform_line="$(sed -n '/^platform:/{p;q;}' "$art")"
+  a_platform_line="$(evidence_platform_line "$art")"
   _plat_line_hint="${a_platform_line:-the platform: line of an artifact re-run by run-suite}"
   if [ -z "$a_platform_line" ]; then
     if $PLATFORM_DECLARED_SET; then
@@ -233,10 +240,10 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
     fi
     return 0
   fi
-  body="${a_platform_line#platform:}"
-  body="${body#"${body%%[![:space:]]*}"}"
-  if ! platform_body_valid "$body"; then
-    fails+=("artifact 'platform:' line '$body' is not the one shape run-suite writes ('os=<v> kernel=<v> fs=<v> modes=posix|no-op') — re-run run-suite (#654)")
+  evidence_platform_check "$a_platform_line"
+  body="$EVIDENCE_PLATFORM_BODY"
+  if [ -n "$EVIDENCE_PLATFORM_PROBLEM" ]; then
+    fails+=("$EVIDENCE_PLATFORM_PROBLEM")
     return 0
   fi
   if ! $PLATFORM_DECLARED_SET; then
@@ -274,9 +281,6 @@ _platform_rung() {   # <artifact file> <its head: sha> [no-block]
 }
 # _qjoin <item...> - stdout: 'a', 'b', ... (the quoted list the failure messages name).
 _qjoin() { local o="" x; for x; do o+="${o:+, }'$x'"; done; printf '%s' "$o"; }
-# _art_head <artifact> - stdout: the head: sha (q-form: no pipe for pipefail, register wf
-# Issue-595). The ONE read of that field, for the #149 exit and the main path.
-_art_head() { sed -n '/^head:/{s/^head:[[:space:]]*\([^ ]*\).*/\1/p;q;}' "$1"; }
 # _fail_exit - report every fails[] entry and exit 1: the ONE FAIL report, for both exits.
 _fail_exit() {
   local f
@@ -306,7 +310,7 @@ if ! grep -q '^## Evidence' "$mr"; then
   # two exits.
   # "No artifact at all" stays the plain #149 path — absence is not a failed
   # measurement, and the non-empty guard is what keeps it that way.
-  _early_artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
+  _early_artifact="$(evidence_newest_artifact "$issue_dir")"
   # #601: read the pytest body with the SAME whitespace-tolerant parse as a_pytest_body
   # below (keep the two spellings identical), so a padded '(error)' is refused here
   # exactly as it is on the main path; the exact-match grep this replaced let
@@ -330,7 +334,7 @@ if ! grep -q '^## Evidence' "$mr"; then
   # declaration, or no artifact: byte-identical.
   if $PLATFORM_DECLARED_SET && [ -n "$_early_artifact" ]; then
     fails=()
-    _platform_rung "$_early_artifact" "$(_art_head "$_early_artifact")" no-block
+    _platform_rung "$_early_artifact" "$(evidence_art_head "$_early_artifact")" no-block
     _platform_attest_warn
     # Prepended, not appended: the rung ran first only because it records a_platform_line.
     fails=("mr.md has no '## Evidence' block, and $_ep_where is declared, so the MR body must say where its evidence was produced (#654). Give mr.md its ## Evidence block (/devagent:draftmr writes it from templates/mr_template.md), carrying suite:, files: and $_plat_line_hint" ${fails[@]+"${fails[@]}"})
@@ -358,98 +362,39 @@ while IFS= read -r _ev_line; do
 done <<<"$block"
 ev_platform="${ev_platforms[0]-}"
 
-# Newest suite-count artifact.
-artifact="$(ls -1 "$issue_dir/analysis/"*-suite-count.txt 2>/dev/null | sort | tail -1 || true)"
+# Newest suite-count artifact (#894: lib/evidence.sh, shared with evidence-stamp.sh).
+artifact="$(evidence_newest_artifact "$issue_dir")"
 [ -n "$artifact" ] || die "preship-evidence: no suite-count artifact — run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project $(basename "$issue_dir")\` at HEAD (#572/#659: pass the project and the issue explicitly)"
 
-a_head="$(_art_head "$artifact")"
-a_dirty="$(sed -n 's/^head:.*dirty:[[:space:]]*\([a-z]*\).*/\1/p' "$artifact" | head -1)"
-a_ok="$(sed -n 's/^bats:[[:space:]]*\([0-9][0-9]*\)\/.*/\1/p' "$artifact" | head -1)"
-a_plan="$(sed -n 's/^bats:[[:space:]]*[0-9][0-9]*\/\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
+# #894: head:/dirty:, the framework counts and bodies, and the canonical suite: line,
+# read once by the shared lib (setter-globals; never $( … )). The verdict-only fields
+# (notok, failed, errors) stay here: the stamper never judges green (#894 D5).
+evidence_suite_resolve "$artifact"
+a_head="$EVIDENCE_A_HEAD"
+a_dirty="$EVIDENCE_A_DIRTY"
+a_ok="$EVIDENCE_BATS_OK"
+a_plan="$EVIDENCE_BATS_PLAN"
 a_notok="$(sed -n 's/^bats:.*notok=\([0-9][0-9]*\).*/\1/p' "$artifact" | head -1)"
-a_passed="$(sed -n 's/^pytest:[[:space:]]*\([0-9][0-9]*\) passed.*/\1/p' "$artifact" | head -1)"
 a_failed="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) failed.*/\1/p' "$artifact" | head -1)"
 # #466 (redmr): pytest ERRORS were invisible to this whole chain — an error is not a
 # "failed", so `2 passed, 1 error` recorded `0 failed` and reconciled green. The bats
 # side has had its equivalent invariant since #406; this is pytest's.
 a_errors="$(sed -n 's/^pytest:.*[^0-9]\([0-9][0-9]*\) errors\?.*/\1/p' "$artifact" | head -1)"
-# #466: the framework line BODIES (everything after the separator whitespace, verbatim),
-# parsed HERE with the same sed idiom as the numeric fields above rather than by inline
-# greps further down — one parsing convention for one file format, so a new state
-# token or a schema tweak has a single home. The numeric fields cannot answer the
-# presence question: a_ok/a_passed are empty for BOTH "(none)" and an unparseable line,
-# and this checker must tell those apart. #601: the ':[[:space:]]*' strips LEADING
-# padding only, so 'bats:   (none)' reads as absent, while 'bats: (none) ' (a trailing
-# blank) is unparseable and fails closed. tests/preship-evidence.bats pins both, so these
-# two reads need no separate whitespace normalisation.
-a_bats_body="$(sed -n 's/^bats:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
-a_pytest_body="$(sed -n 's/^pytest:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
+# #466/#601: the framework line BODIES are the lib's (evidence_suite_resolve's comment);
+# tests/preship-evidence.bats pins the padding rules.
 
 cur_head="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse HEAD 2>/dev/null || true)"
 [ -n "$cur_head" ] || die "preship-evidence: could not resolve current HEAD"
 
 fails=()
 
-# #571/#655 TREE RUNG. The artifact names the checkout that produced it; compare it
-# with the tree THIS check resolves, so the artifact and its checker can no longer
-# agree with each other while both disagree with reality. Every arm, in the header's
-# vocabulary (the verdict ends the PASS line):
-#   no tree: line         -> unstamped: the #149 absent⇒no-gate pattern above (every
-#                            pre-#571 artifact).
-#   exists here and -ef   -> checked.
-#   exists here, not -ef  -> FAIL "produced from tree" (#571). #659 retired the pair's
-#                            old arity asymmetry: run-suite now takes its issue from the
-#                            argument or the pin and refuses the shared slot. A mismatch
-#                            still follows when the two are pointed at DIFFERENT issues,
-#                            e.g. this script run bare and unpinned reads the shared
-#                            slot (header, ISSUE PRECEDENCE).
-#   absent here           -> undecidable HERE: the artifact came from another
-#                            environment (e.g. the WSL clone). Before #655 this arm
-#                            warned and passed on head: alone, so the rung never ran
-#                            for any cross-environment preship. Now it FAILS
-#                            TREE UNATTESTED unless --attest-tree matches this
-#                            artifact's head: and tree: exactly, with dirty=no ->
-#                            attested, and the attestation is echoed on the PASS line.
-# The head:/dirty:/suite checks below run on EVERY arm: an attestation vouches for the
-# checkout, never for the counts.
-tree_unattested="TREE UNATTESTED"
-a_tree="$(sed -n 's/^tree:[[:space:]]*\(.*\)$/\1/p' "$artifact" | head -1)"
-tree_verdict="unstamped"; _attest_used=false
-if [ -z "$a_tree" ]; then
-  :
-elif [ -d "$a_tree" ]; then
-  if [ "$a_tree" -ef "$work_dir" ]; then
-    tree_verdict="checked"
-  else
-    fails+=("artifact was produced from tree '$a_tree' but this check resolves '$work_dir' — re-run run-suite in the tree being shipped (#571)")
-  fi
-elif [ -z "$attest_tree" ]; then
-  fails+=("$tree_unattested — the artifact records tree '$a_tree', which does not exist in THIS environment, so this check cannot tell which checkout produced the evidence (#571/#655). Either re-run run-suite in the tree being shipped, from an environment that can run the suite; or, when the artifact came from another environment (the sanctioned WSL flow), verify that tree THERE (git -C '<tree>' rev-parse HEAD must print the artifact's head:, and git -C '<tree>' status --porcelain must print nothing) and re-run this check adding --attest-tree 'head=<the sha it printed> dirty=no path=<that tree>'. The rung is then attested by you, not checked here, and the PASS line records your claim; an attestation binds to this artifact's head: and tree:, so every new artifact needs a new one.")
-else
-  _attest_used=true
-  _attest_re='^head=([[:xdigit:]]+) dirty=([^ ]+) path=(.+)$'
-  if [[ "$attest_tree" =~ $_attest_re ]]; then
-    _att_head="${BASH_REMATCH[1]}"; _att_dirty="${BASH_REMATCH[2]}"; _att_path="${BASH_REMATCH[3]}"
-    _n_fails="${#fails[@]}"
-    [ "$_att_path" = "$a_tree" ] \
-      || fails+=("$tree_unattested — --attest-tree names path '$_att_path' but the artifact records tree '$a_tree'; attest the tree the artifact names (#655)")
-    [ "$_att_head" = "$a_head" ] \
-      || fails+=("$tree_unattested — --attest-tree names head $_att_head but the artifact records head $a_head; attest the full SHA the producing tree prints now (#655)")
-    [ "$_att_dirty" = "no" ] \
-      || fails+=("$tree_unattested — --attest-tree reports dirty=$_att_dirty: the producing tree has uncommitted changes, so it is no longer the tree that was measured; commit or clean it there and re-run run-suite (#655)")
-    [ "${#fails[@]}" -gt "$_n_fails" ] \
-      || tree_verdict="attested: $attest_tree — verified by the caller in the producing environment, not checked here"
-  else
-    fails+=("$tree_unattested — malformed --attest-tree '$attest_tree': the one accepted form is 'head=<full sha> dirty=no path=<tree>' (#655)")
-  fi
-fi
-# An attestation the rung did not need (the checked, mismatch and unstamped arms) is
-# redundant: this environment decided, or there is no stamp to bind to. Refusing it
-# would fail an idempotent caller whose environments happen to coincide, so warn and
-# ignore it (the rule the #580 sibling's rungs copy).
-if [ -n "$attest_tree" ] && [ "$_attest_used" = false ]; then
-  warn "preship-evidence: --attest-tree ignored — the tree rung did not need it (#655)"
-fi
+# #571/#655 TREE RUNG: every arm, and the unneeded-attestation warning, are in
+# scripts/lib/evidence.sh (evidence_tree_rung, #894), shared with evidence-stamp.sh. The
+# head:/dirty:/suite checks below run on EVERY arm: an attestation vouches for the
+# checkout, never for the counts. tree_verdict is set HERE, before the upstream rung,
+# which reads it (B′).
+evidence_tree_rung preship-evidence "$artifact" "$a_head" "$work_dir" "$attest_tree"
+tree_verdict="$EVIDENCE_TREE_VERDICT"
 # #660 BRANCH (header).
 issue_label="$(basename "$issue_dir")"
 # _art_field <key>: one artifact field, first match, whitespace after the colon stripped.
@@ -580,56 +525,27 @@ fi
 [ "${a_failed:-0}" = "0" ] || fails+=("pytest failed=$a_failed (suite not green)")
 [ "${a_errors:-0}" = "0" ] || fails+=("pytest errors=$a_errors (suite not green — a collection/fixture ERROR is not a 'failed' and was invisible to this check before #466)")
 
-# Reconstruct the canonical suite line from the frameworks the artifact reports
-# PRESENT, and compare (exact). #411 established the neither-framework form; #466
-# generalizes it per-framework, because the pair had two working shapes and two broken:
-#   both        -> "<ok>/<plan> bats, <passed> pytest @ <sha>"  (byte-identical to #359)
-#   neither     -> "none @ <sha>"                                (byte-identical to #411)
-#   pytest-only -> was "/ bats, <passed> pytest @ <sha>". NOT merely unmatchable: this
-#                  checker compares mr.md against its OWN reconstruction, so an operator
-#                  who copied the nonsense string reconciled cleanly. factorAI/Issue-85
-#                  and koopmanGNN/Issue-106 both SHIPPED that way (#466).
-#   bats-only   -> was "<ok>/<plan> bats, 0 pytest @ <sha>". "0 pytest" reads as a
-#                  MEASURED zero rather than an absent framework: a false green
-#                  (#572 redmr MINOR-5).
-# One representation, both sides — mirrored in templates/mr_template.md,
-# skills/core-draft-mr/SKILL.md and agents/preship-verifier.md, which move in the same
-# commit. All three verdicts below are fails+= entries, never die: this script's
-# contract is to accumulate and report EVERY failure in one run (fails=() above), and a
-# die would hand the operator one failure per round-trip.
-# One sentence, one home: both unparseable-artifact verdicts end in it, and a reworded
-# copy would leave the operator two phrasings for one class of failure.
-unparseable="— refusing to reconstruct an Evidence line from an unparseable artifact (#466). Re-run run-suite. Set DEVAGENT_PYTEST_PYTHON if run-suite cannot find your project's interpreter."
-if [ "$a_pytest_body" = "(error)" ]; then
-  fails+=("artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest produced no counts (missing interpreter, a venv without pytest, or a collection error). The pytest suite was NOT measured, so no Evidence line can honestly describe it. Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run them, or fix the venv, then re-run run-suite (#466). There is no OVERRIDE for this — unlike the tree guard's DEVAGENT_TREE_GUARD_OVERRIDE, an unmeasured suite is not a condition an operator can knowingly accept, and the DEVAGENT_PYTEST_PYTHON seam names a working interpreter rather than silencing the verdict. Deleting the Evidence block does not help either: the same refusal runs above the #149 back-compat exit.")
-fi
-parts=()
-if [ "$a_bats_body" != "(none)" ]; then
-  if [ -n "$a_ok" ] && [ -n "$a_plan" ]; then
-    parts+=("$a_ok/$a_plan bats")
+# The canonical suite line, rebuilt from the frameworks the artifact reports PRESENT,
+# compared exactly. The per-framework forms (#411/#466) and their history are in
+# scripts/lib/evidence.sh (evidence_suite_resolve), the one home this script and
+# evidence-stamp.sh share (#894) — mirrored in templates/mr_template.md,
+# skills/core-draft-mr/SKILL.md, agents/preship-verifier.md, scripts/lib/evidence.sh and
+# scripts/evidence-stamp.sh, which move in the same commit. The (error) and unparseable
+# verdicts are fails+= entries, never die: this script's contract is to accumulate and
+# report EVERY failure in one run (fails=() above), and a die would hand the operator
+# one failure per round-trip.
+fails+=(${EVIDENCE_SUITE_PROBLEMS[@]+"${EVIDENCE_SUITE_PROBLEMS[@]}"})
+expected_suite="$EVIDENCE_SUITE_LINE"
+# #894: the remedy is the stamper, which writes the line from this artifact. A CRLF
+# block is the exception: this check reads the CR into the line (#849), and stamping
+# keeps every CR, so naming the stamper there would hand out a remedy that cannot work.
+if [ "$ev_suite" != "$expected_suite" ]; then
+  if [[ "$ev_suite" == *$'\r' ]]; then
+    fails+=("Evidence suite line mismatch: mr.md='${ev_suite%$'\r'}' (a CRLF line) vs artifact='$expected_suite' — this check reads the CR as part of the line until #849 lands, and stamping keeps it, so convert mr.md's line endings to LF, then re-run this check (#849)")
   else
-    fails+=("artifact 'bats:' line is neither '(none)' nor '<ok>/<plan> notok=<n>' $unparseable")
+    fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite' — write it with \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh\" $project $issue_label\`, which copies the suite:, files: and platform: lines from this artifact, never by hand (#894)")
   fi
 fi
-if [ "$a_pytest_body" != "(none)" ] && [ "$a_pytest_body" != "(error)" ]; then
-  if [ -n "$a_passed" ]; then
-    parts+=("$a_passed pytest")
-  else
-    fails+=("artifact 'pytest:' line is neither '(none)'/'(error)' nor '<n> passed, <m> failed' $unparseable")
-  fi
-fi
-# An (error) artifact contributes no parts entry, so expected_suite still reconstructs
-# from whatever else is present and the operator sees the suite-line verdict ALONGSIDE
-# the (error) verdict rather than instead of it.
-if [ "${#parts[@]}" -eq 0 ]; then
-  expected_suite="none @ $a_head"
-elif [ "${#parts[@]}" -eq 1 ]; then
-  expected_suite="${parts[0]} @ $a_head"
-else
-  expected_suite="${parts[0]}, ${parts[1]} @ $a_head"
-fi
-[ "$ev_suite" = "$expected_suite" ] \
-  || fails+=("Evidence suite line mismatch: mr.md='$ev_suite' vs artifact='$expected_suite'")
 # #654 b' EVIDENCE LINE (header). ev_platforms is compared with the artifact's raw line,
 # which _platform_rung read above (a_platform_line: one parse, register Issue-565). Every arm:
 #   two or more lines   -> FAIL, declared or not: exactly one may stand; names each, and the
@@ -714,9 +630,14 @@ done
 # files: == diff of baseline..HEAD (baseline from state — die loud when unset).
 baseline="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null || true)"
 [ -n "$baseline" ] || die "preship-evidence: baseline_sha unset — cannot verify files: (never diff against nothing)"
-actual_files="$("$DEVAGENT_GIT" -C "$work_dir" diff --name-only "$baseline..HEAD" 2>/dev/null | grep -c . || true)"
-[ "$ev_files" = "$actual_files" ] \
-  || fails+=("Evidence files mismatch: mr.md=$ev_files vs git diff $baseline..HEAD=$actual_files")
+# #894 D6: a failed git diff is reported, never counted as 0 (register Issue-314).
+if evidence_files_count "$work_dir" "$baseline"; then
+  actual_files="$EVIDENCE_FILES_COUNT"
+  [ "$ev_files" = "$actual_files" ] \
+    || fails+=("Evidence files mismatch: mr.md=$ev_files vs git diff $baseline..HEAD=$actual_files")
+else
+  fails+=("Evidence files: git diff $baseline..HEAD failed — cannot count (#894)")
+fi
 
 [ "${#fails[@]}" -eq 0 ] || _fail_exit
 echo "preship-evidence: PASS — mr.md Evidence matches $artifact ($expected_suite; files=$ev_files) [tree=$tree_verdict] [upstream=$upstream_verdict] [platform=$platform_verdict]" >&2
