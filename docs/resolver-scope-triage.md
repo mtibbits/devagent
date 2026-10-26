@@ -1,19 +1,20 @@
 # Resolver-scope triage (#572)
 
-The 19 scripts that resolve the active project — the 18 call sites of
+The 20 scripts that resolve the active project — the 19 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
 `active_guard_scope`) or EXEMPT (read-only and self-identifying; no guard).
 Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
-row, re-anchored after #590 moved its guard.
+row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh` row, added by
+#894 at its own commit.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 19 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 20 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
@@ -26,6 +27,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `checklist-init.sh` | PROTECTED | resolved project selects the per-project checklist template (§12 registry, `:38-39`); a wrong scope writes another project's template into the named issue dir | no-validation |
 | `comments.sh` | PROTECTED | writes `<issue-dir>/revisions/r<N>/comments.md` and appends a `## Log` line in the resolved project | no-validation |
 | `depends.sh` | PROTECTED | `depends_add` records into another project's dependency graph; the read-only `list` form shares the same resolution site | no-validation |
+| `evidence-stamp.sh` | PROTECTED | rewrites the `## Evidence` block of another project's `mr.md` from that project's suite-count artifact (#894) — the write side of `preship-evidence.sh`'s verdict | validates (`:94`) |
 | `grep.sh` | EXEMPT | read-only search; every output line is prefixed with the issue-dir path, so a wrong scope is self-identifying and leaves no record | no-validation |
 | `history.sh` | EXEMPT | read-only chronological print with the same self-identifying path prefix | no-validation |
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
@@ -42,7 +44,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **15 PROTECTED, 4 EXEMPT; 11 validate, 8 no-validation.** The eight
+Counts: **16 PROTECTED, 4 EXEMPT; 12 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,

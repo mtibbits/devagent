@@ -61,7 +61,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 19 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 20 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
