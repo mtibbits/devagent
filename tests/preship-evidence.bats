@@ -818,3 +818,14 @@ _art894() {
     [[ "$output" == *"#849"* ]]
     [[ "$output" != *"evidence-stamp.sh"* ]]
 }
+
+@test "#894 D6: a git diff that fails while counting files: is reported, never counted as 0" {
+    local bad=0123456789abcdef0123456789abcdef01234567           # no such commit
+    _artifact "$HEAD_SHA" no 100 100 0 20 0
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$bad"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence files: git diff $bad..HEAD failed — cannot count (#894)"* ]]
+    [[ "$output" != *"files mismatch"* ]]
+}

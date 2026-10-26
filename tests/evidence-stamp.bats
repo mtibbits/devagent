@@ -524,3 +524,11 @@ _region() {
         || { echo "no Added entry"; return 1; }
     grep -E '^- \*\*Changed:' <<<"$u" | grep -qF '(#894)' || { echo "no Changed entry"; return 1; }
 }
+
+@test "#894 D6 a git diff that fails while counting files: dies and writes nothing" {
+    _shape bats; _rs; _mr_tpl; _save
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha \
+        0123456789abcdef0123456789abcdef01234567                     # no such commit
+    _st
+    _refused "a count git did not produce is never written"
+}
