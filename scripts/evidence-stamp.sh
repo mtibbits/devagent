@@ -12,8 +12,8 @@
 #
 #   usage: evidence-stamp.sh <project> <Issue-N> [--attest-tree '<attestation>']
 #
-# Callers: core-draft-mr step 6 (draftmr), and review / redmr after any commit they make
-# (D3). It re-stamps at those commits and NOT inside preship: preship checks this block,
+# Callers: draftmr (core-draft-mr fills the Evidence block with it), and review / redmr
+# after any commit they make (D3). It re-stamps at those commits and NOT inside preship: preship checks this block,
 # and stamping there would make the check compare its own output (register Issue-353);
 # the preship verifier is forbidden to run it. A commit made by hand outside review and
 # redmr is not an --auto chain: preship still fails it, and its suite-line mismatch
