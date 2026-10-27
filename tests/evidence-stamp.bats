@@ -313,6 +313,21 @@ _f6() {
     [[ "$output" == *"[tree=checked]"* ]]
 }
 
+@test "#894 A3 a stale attested artifact's remedy asks for a fresh attestation (= spelling)" {
+    local h att
+    h="$(git rev-parse HEAD)"; att="head=$h dirty=no path=$FOREIGN_TREE"
+    _hand_art "$h" "$FOREIGN_TREE" "1/1 notok=0" "(none)" "$PLAT"
+    _mr_tpl
+    _st --attest-tree="$att"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"[tree=attested: head=$h"* ]]
+    echo late > late.txt; git add late.txt; git commit -q -m late
+    _save
+    _st --attest-tree="$att"
+    _refused "STALE ARTIFACT"
+    [[ "$output" == *"with a fresh --attest-tree for the new artifact's head"* ]]
+}
+
 @test "#894 U1 usage contract" {
     local -a c
     run bash -c '"$1" --help 2>/dev/null' _ "$ST"
@@ -455,6 +470,28 @@ _fx_art() {
     printf '## Evidence\nsuite: a\0b\nfiles: 1 changed\n' > "$MR"; _save
     _st
     _refused "NUL bytes"
+}
+
+@test "#894 B5d two Evidence headings die unchanged" {
+    printf '## Evidence\nsuite: a\n## Evidence\nsuite: b\n' > "$MR"; _save
+    _st
+    _refused "2 '## Evidence' headings — keep one"
+}
+
+@test "#894 B5e an Evidence block with no suite: line dies unchanged" {
+    printf '## Evidence\nfiles: 1 changed\n## Checklist\n' > "$MR"; _save
+    _st
+    _refused "has no 'suite:' line"
+}
+
+@test "#894 B5f an unset baseline_sha dies unchanged, never diffing against nothing" {
+    local h
+    h="$(git rev-parse HEAD)"
+    _hand_art "$h" "$(_canon)" "1/1 notok=0" "(none)" "$PLAT"
+    _mr_tpl; _save
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha ""
+    _st
+    _refused "baseline_sha unset"
 }
 
 # --- Task 8: the verifier never stamps --------------------------------------------
