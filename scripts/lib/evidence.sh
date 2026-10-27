@@ -70,7 +70,7 @@ evidence_platform_check() {
 # from whatever else is present and the checker reports the suite-line verdict ALONGSIDE
 # the (error) verdict rather than instead of it.
 evidence_suite_resolve() {
-  local artifact="$1" unparseable
+  local artifact="$1" unparseable p joined=""
   local -a parts=()
   EVIDENCE_SUITE_PROBLEMS=()
   EVIDENCE_A_HEAD="$(evidence_art_head "$artifact")"
@@ -106,13 +106,8 @@ evidence_suite_resolve() {
       EVIDENCE_SUITE_PROBLEMS+=("artifact 'pytest:' line is neither '(none)'/'(error)' nor '<n> passed, <m> failed' $unparseable")
     fi
   fi
-  if [ "${#parts[@]}" -eq 0 ]; then
-    EVIDENCE_SUITE_LINE="none @ $EVIDENCE_A_HEAD"
-  elif [ "${#parts[@]}" -eq 1 ]; then
-    EVIDENCE_SUITE_LINE="${parts[0]} @ $EVIDENCE_A_HEAD"
-  else
-    EVIDENCE_SUITE_LINE="${parts[0]}, ${parts[1]} @ $EVIDENCE_A_HEAD"
-  fi
+  for p in ${parts[@]+"${parts[@]}"}; do joined+="${joined:+, }$p"; done
+  EVIDENCE_SUITE_LINE="${joined:-none} @ $EVIDENCE_A_HEAD"
 }
 
 # evidence_files_count <work_dir> <baseline> - sets EVIDENCE_FILES_COUNT to the number

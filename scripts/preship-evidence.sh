@@ -311,15 +311,16 @@ if ! grep -q '^## Evidence' "$mr"; then
   # "No artifact at all" stays the plain #149 path — absence is not a failed
   # measurement, and the non-empty guard is what keeps it that way.
   _early_artifact="$(evidence_newest_artifact "$issue_dir")"
-  # #601: read the pytest body with the SAME whitespace-tolerant parse as a_pytest_body
-  # below (keep the two spellings identical), so a padded '(error)' is refused here
-  # exactly as it is on the main path; the exact-match grep this replaced let
-  # 'pytest:   (error)' fall through to the WARN below. Declared blind spot: a TRAILING
-  # blank ('(error) ') is not '(error)' on either path. It is an unparseable line, and
-  # this back-compat path deliberately lets unparseable lines through (#149).
+  # #601: the pytest body is the lib's (evidence_suite_resolve, the main path's read), so a
+  # padded '(error)' is refused here exactly as it is on the main path; the exact-match
+  # grep this replaced let 'pytest:   (error)' fall through to the WARN below. Declared
+  # blind spot: a TRAILING blank ('(error) ') is not '(error)' on either path. It is an
+  # unparseable line, and this back-compat path deliberately lets unparseable lines
+  # through (#149).
   _early_pytest_body=""
   if [ -n "$_early_artifact" ]; then
-    _early_pytest_body="$(sed -n 's/^pytest:[[:space:]]*\(.*\)$/\1/p' "$_early_artifact" | head -1)"
+    evidence_suite_resolve "$_early_artifact"
+    _early_pytest_body="$EVIDENCE_PYTEST_BODY"
   fi
   if [ "$_early_pytest_body" = "(error)" ]; then
     die "preship-evidence: artifact records 'pytest: (error)' — tests/test_*.py exist in the measured tree but pytest could not be RUN (missing interpreter, a venv without pytest, or an import/collection error). The suite was NOT measured, so nothing can honestly describe it, and removing the '## Evidence' block does not make it shippable (#466). Point DEVAGENT_PYTEST_PYTHON at an interpreter that can run the suite, then re-run run-suite."

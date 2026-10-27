@@ -109,9 +109,9 @@ active_tree_resolve "$project" "$issue"   # setter-globals; never $( … )
 active_guard_tree evidence-stamp          # strictly after active_guard_scope (#571)
 work_dir="$ACTIVE_TREE_DIR"
 
-# NUL bytes: a bash variable cannot carry one, so the rewrite would drop it.
-_bytes="$(wc -c < "$mr")"; _bytes_nonul="$(LC_ALL=C tr -d '\0' < "$mr" | wc -c)"
-[ "$((_bytes))" -eq "$((_bytes_nonul))" ] \
+# NUL bytes: a bash variable cannot carry one, so the rewrite would drop it. A NUL-
+# delimited read succeeds only when it finds a NUL before EOF.
+! IFS= read -r -d '' _ < "$mr" \
   || die "evidence-stamp: mr.md contains NUL bytes — refusing to rewrite it (bash cannot carry them, so bytes would be lost)"
 
 # Read mr.md into lines (content, CR stripped) and their terminators, builtins only.
@@ -213,17 +213,19 @@ for _i in "${!lines[@]}"; do
     _insert "${new[platform]}"
   fi
 done
-content=""
+content=""; original=""
 for _i in "${!out_l[@]}"; do content+="${out_l[_i]}${out_t[_i]}"; done
+# lines[]/terms[] rebuild mr.md byte for byte (no NUL, checked above).
+for _i in "${!lines[@]}"; do original+="${lines[_i]}${terms[_i]}"; done
+if [ "$content" = "$original" ]; then
+  info "evidence-stamp: unchanged — $mr already carries the lines of $artifact [tree=$EVIDENCE_TREE_VERDICT]"
+  exit 0
+fi
 
 tmp="$(mktemp "$mr.stamp.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 cp -p "$mr" "$tmp"
 printf '%s' "$content" > "$tmp"
 summary="suite: $EVIDENCE_SUITE_LINE; files: $EVIDENCE_FILES_COUNT changed; $plat_line"
-if cmp -s "$tmp" "$mr"; then
-  info "evidence-stamp: unchanged — $mr already carries the lines of $artifact [tree=$EVIDENCE_TREE_VERDICT]"
-  exit 0
-fi
 mv -f "$tmp" "$mr"
 info "evidence-stamp: stamped $mr from $artifact ($summary) [tree=$EVIDENCE_TREE_VERDICT]"
