@@ -16,6 +16,34 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: `scripts/evidence-stamp.sh` writes the MR Evidence block's suite:, files: and platform: lines from the suite-count artifact (#894).**
+  - `evidence-stamp.sh <project> <Issue-N>` rebuilds `suite:` from the newest
+    `analysis/<date>-suite-count.txt` (with the full 40-character head SHA), counts
+    `files:` from `git diff --name-only <baseline_sha>..HEAD`, and copies the artifact's
+    `platform:` line verbatim. A hand-copied short SHA failed preship three times.
+  - It refuses, leaving `mr.md` byte-identical, when there is no artifact, the artifact's
+    `head:` is not HEAD, it records `dirty: yes`, its `tree:` is another checkout, it has
+    no well-formed `platform:` line, or it records `pytest: (error)`. Each refusal names
+    the remedy: re-run `run-suite.sh`, then the stamper. It does not judge green.
+  - An artifact whose `tree:` does not exist here (the WSL clone's, stamped from Windows)
+    takes preship-evidence's `--attest-tree`, with the same grammar and validation.
+  - Only the three column-0 lines inside `## Evidence` change, each keeping its own line
+    ending (CRLF, LF, or none at EOF); a missing `files:` or `platform:` is inserted
+    after `suite:`; a re-run with the same artifact is a byte-for-byte no-op.
+  - `scripts/lib/evidence.sh` is the one home of the artifact pick, the line forms and
+    the tree rung; the stamper and `preship-evidence.sh` both call it.
+- **Changed: draftmr runs the stamper, review and redmr re-stamp after a commit, and the placeholders say <full head sha> (#894).**
+  - core-draft-mr step 6 runs `evidence-stamp.sh` after run-suite instead of having the
+    model retype the lines; `commands/review.md` item 6a and `commands/redmr.md` item 7a
+    re-run `run-suite.sh` and then the stamper when the step committed. The preship
+    verifier is told never to run the stamper.
+  - preship-evidence's suite-line mismatch now names the stamper as the remedy (a CRLF
+    line names #849 instead). A `git diff` that fails while counting `files:` is now
+    reported as that failure instead of as a files mismatch against 0.
+  - The `suite:` placeholders in the template, core-draft-mr, the preship verifier and the
+    spec say `<full head sha>`.
+  - Not breaking: a correct hand-filled block still passes.
+
 - **Fixed: tracker transitions write the configured stage mapping (#710).**
   - `on_draft_start` (draft), `on_ship` (ship) and `on_merge` (sync) now write the state
     `[project.<p>.issue_workflow]` names: a label on GitHub and GitLab, a status on JIRA.

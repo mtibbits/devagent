@@ -13,24 +13,27 @@
 ## Evidence
 <!-- Filled by /devagent:draftmr from the newest analysis/<date>-suite-count.txt
      (run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>` first —
-     #572/#659: pass the project and the issue explicitly). Machine-checked by preship (#359) — do not
-     hand-edit the lines below. The optional 'born-red:' line is filled from a
-     born-red artifact (#362) when present.
-     The suite: line names ONLY the frameworks the tree actually has (#466) — write
-     whichever ONE of these four the artifact describes:
-       both        ->  suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
-       bats only   ->  suite: <bats-ok>/<bats-plan> bats @ <sha>
-       pytest only ->  suite: <pytest-passed> pytest @ <sha>
-       neither     ->  suite: none @ <sha>            (#411)
-     "bats only" means the artifact reads `pytest: (none)`; never write ", 0 pytest" for
+     #572/#659: pass the project and the issue explicitly). The suite:, files: and
+     platform: lines below are written by scripts/evidence-stamp.sh from that artifact
+     and git (#894), and machine-checked by preship (#359) — do not hand-edit them. The
+     optional 'born-red:' line is filled from a born-red artifact (#362) when present.
+     The suite: line names ONLY the frameworks the tree actually has (#466); the stamper
+     writes whichever ONE of these four the artifact describes, with the full 40-character
+     head SHA (preship compares it byte for byte, so a short SHA fails):
+       both        ->  suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <full head sha>
+       bats only   ->  suite: <bats-ok>/<bats-plan> bats @ <full head sha>
+       pytest only ->  suite: <pytest-passed> pytest @ <full head sha>
+       neither     ->  suite: none @ <full head sha>            (#411)
+     "bats only" means the artifact reads `pytest: (none)`; never ", 0 pytest" for
      an absent framework — it reads as a measured zero (#572 MINOR-5). An artifact
      reading `pytest: (error)` is NOT shippable at all: the suite was never measured;
      fix the interpreter and re-run run-suite.
      The platform: line (#654) is the artifact's own platform: line, copied whole and
-     unchanged: preship compares the two byte for byte. Replace the placeholder below,
-     or delete it when the artifact has no platform: line: left as it is, it fails
-     preship even when nothing is declared. Once the checking config declares
-     evidence_platforms, a block without the line fails too.
+     unchanged: preship compares the two byte for byte. The stamper replaces the
+     placeholder below, and refuses an artifact with no platform: line (re-run run-suite
+     with this plugin's scripts): left as it is, the placeholder fails preship even when
+     nothing is declared. Once the checking config declares evidence_platforms, a block
+     without the line fails too.
      The analyzer: lines (#677) are the step-13 analyzer stamps. From the newest
      analysis/*.txt per name whose basename matches
      ^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$
@@ -39,7 +42,7 @@
        analyzer: <tool> <version>   (or: analyzer: <tool> (version unknown))
      platform: is the suite run, not the analyzer's. An omitted line warns, an
      unbacked or repeated one fails. -->
-suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <sha>
+suite: <bats-ok>/<bats-plan> bats, <pytest-passed> pytest @ <full head sha>
 files: <n> changed
 platform: <replace this line with the artifact's platform: line, copied whole>
 

@@ -61,7 +61,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 19 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 20 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
@@ -1222,8 +1222,8 @@ entry dies before anything is decided.
   line with no artifact line fails, and so do two or more Evidence `platform:` lines
   (exactly one may stand). An Evidence block without the line is unchecked while
   nothing is declared; under a declaration it fails, acknowledged or not, naming the
-  line to paste. The template's placeholder therefore fails preship until it is filled,
-  or deleted when the artifact has no line, declared or not.
+  line to paste. The template's placeholder therefore fails preship until
+  evidence-stamp.sh fills it; the stamper refuses an artifact with no line (#894).
 - The MR body carries the step-13 analyzer stamps too (#677; not a rung, so no PASS-line
   verdict). A step-13 artifact is an `analysis/*.txt` whose basename matches
   `^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$` exactly, and
@@ -1338,9 +1338,9 @@ installed only system-wide is a routine shape, and selecting it on existence alo
 turned a tree that measured fine into an unshippable `(error)`. The explicit
 `DEVAGENT_PYTEST_PYTHON` is deliberately NOT probed — an operator's stated choice must
 fail loudly rather than silently fall through to an interpreter they did not name. The reconstruction is
-`<ok>/<plan> bats, <passed> pytest @ <sha>` when both are present,
-`<ok>/<plan> bats @ <sha>` or `<passed> pytest @ <sha>` when one is, and
-`none @ <sha>` when neither — the two single-framework forms replace a `, 0 pytest`
+`<ok>/<plan> bats, <passed> pytest @ <full head sha>` when both are present,
+`<ok>/<plan> bats @ <full head sha>` or `<passed> pytest @ <full head sha>` when one is, and
+`none @ <full head sha>` when neither — the two single-framework forms replace a `, 0 pytest`
 suffix that claimed a measured zero for an absent framework and a `/ bats` prefix that
 reconciled only against itself. `(error)` fails preship outright with no override: an
 unmeasured suite is not a condition an operator can knowingly accept. That refusal is
@@ -1351,6 +1351,32 @@ search is overridable via `DEVAGENT_PYTEST_PYTHON` — the same `DEVAGENT_<TOOL>
 `DEVAGENT_GIT`/`DEVAGENT_GH`/`DEVAGENT_CMAKE` use — so an unsupported virtualenv layout,
 or a linked worktree that an untracked venv never reached, is unsupported rather than
 unshippable. The seam names a working interpreter; it cannot silence the verdict.
+
+The Evidence block's `suite:`, `files:` and `platform:` lines are WRITTEN by
+`scripts/evidence-stamp.sh <project> <Issue-N> [--attest-tree '<attestation>']` (#894),
+never typed: the hand copy failed preship three times on a `git log --oneline` short
+SHA, and nothing refreshed the block after a post-draftmr commit.
+`scripts/lib/evidence.sh` is the single source of the newest-artifact pick, the
+canonical line forms (the reconstruction above) and the #571/#655 tree rung; the
+stamper and `preship-evidence.sh` both call it, so the writer cannot write a line the
+checker rebuilds differently. The stamper refuses, leaving `mr.md` byte-identical,
+when the artifact cannot honestly describe HEAD: none exists, its `head:` is not HEAD,
+it records `dirty: yes`, the tree rung fails (an absent `tree:` needs the same
+`--attest-tree` the checker takes), its `platform:` line is missing or malformed, or
+it records `pytest: (error)` or an unparseable framework line. It does not judge
+green: a red, well-formed artifact is stamped as measured and preship fails it.
+draftmr (core-draft-mr step 6) runs it, and review and redmr re-run `run-suite.sh`
+and then the stamper after any commit they make, because those are the `--auto` steps
+that commit after draftmr. preship does not stamp: it checks this block, and a check
+that rewrote its own input would pass on its own output; the preship verifier is
+forbidden to run the stamper. A commit made by hand elsewhere is still failed by
+preship, whose suite-line mismatch names the stamper (a CRLF line names #849
+instead). Only the three column-0 lines inside `## Evidence` change; each keeps its own
+terminator (CRLF, LF, or none at EOF), a missing `files:` or `platform:` is inserted
+after `suite:` / `files:`, a re-run with the same artifact is a byte-for-byte no-op, and
+the read and rewrite use bash builtins only, written through a temp file and one `mv`.
+A `git diff` that fails while counting `files:` is reported (checker) or refused
+(stamper), never counted as 0.
 
 Interpreter resolution is single-sourced in `scripts/lib/python-interp.sh`
 (`python_interp_resolve <primary_tree> [<fallback_tree>]`, a setter-global). Both

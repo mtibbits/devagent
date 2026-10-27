@@ -51,6 +51,16 @@ Per `commands/draft.md`.
    report and the pushed branch cannot diverge (the #101/#102 failure). Devdoc
    artifacts (analysis/, mr.md) are NOT committed here; they are governed by
    `commit_devdoc` at cleanup.
+7a. **Re-stamp the Evidence block (#894), only when this step committed** (a fix,
+   a merge-forward), so mr.md's `suite:` line names HEAD again:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>
+   ```
+
+   The environment, `--attest-tree` and refusal rules are `commands/review.md`
+   item 6a's. No commit: skip this item.
 
 ## Dispatch contract
 

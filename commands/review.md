@@ -107,6 +107,21 @@ Per `commands/draft.md`.
    uncommitted fixes are a defect — ship.sh (18) refuses to push when
    tracked files are modified. Devdoc artifacts (analysis/, mr.md) are
    NOT committed here; they are governed by `commit_devdoc` at cleanup.
+6a. **Re-stamp the Evidence block (#894), only when this step committed.** Any
+   commit made during this step (a fix, a merge-forward) moves HEAD past the
+   suite-count artifact, so mr.md's `suite:` line names an old SHA. Re-measure,
+   then re-stamp, in the environment the project's suite runs in (README
+   "Running the test suite"):
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>
+   ```
+
+   A stamp from another environment's artifact needs `--attest-tree`, gathered as
+   `agents/preship-verifier.md` describes for `TREE UNATTESTED`. If the stamper
+   refuses, follow its printed remedy; never edit the three lines by hand. No commit:
+   skip this item, because the block is still current.
 7. Log:
 
    ```bash

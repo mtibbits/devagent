@@ -512,9 +512,12 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
     # Issue-458/583: the subject list grows with the claim). CHANGELOG.md is
     # presence-only: its released [1.0.0] #571 entry is a historical record under
     # a dated heading (register Issue-541), so the absence leg skips it.
+    # #894: the tree rung moved into scripts/lib/evidence.sh, and evidence-stamp.sh takes
+    # the same --attest-tree, so both join the homes (register Issue-583).
     local homes=(scripts/preship-evidence.sh agents/preship-verifier.md
-                 docs/specs/2026-05-19-devagent-plugin-design.md README.md)
-    [ "${#homes[@]}" -eq 4 ]
+                 docs/specs/2026-05-19-devagent-plugin-design.md README.md
+                 scripts/lib/evidence.sh scripts/evidence-stamp.sh)
+    [ "${#homes[@]}" -eq 6 ]
     # The retired contract, in the spellings its homes actually used. The text is
     # whitespace-normalised because the verifier's copy wraps mid-phrase (register
     # Issue-612/465).
@@ -534,10 +537,11 @@ _pe() { run "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1
         [ "$n" -eq 0 ] || { echo "$f still states the warn-and-proceed contract"; return 1; }
     done
     grep -qF -- '--attest-tree' "$DEVAGENT_ROOT/CHANGELOG.md" || { echo "no CHANGELOG entry"; return 1; }
-    # The verifier must name the tag the script emits, taken from the script
-    # itself (register Issue-286/598: a checker must be TOLD the gate's contract).
+    # The verifier must name the tag the script emits, taken from the rung's home
+    # (register Issue-286/598: a checker must be TOLD the gate's contract). Since #894
+    # the rung lives in scripts/lib/evidence.sh, which the checker sources.
     local tag
-    tag="$(sed -n 's/^tree_unattested="\(.*\)"$/\1/p' "$DEVAGENT_ROOT/scripts/preship-evidence.sh")"
+    tag="$(sed -n 's/^tree_unattested="\(.*\)"$/\1/p' "$DEVAGENT_ROOT/scripts/lib/evidence.sh")"
     [ "$tag" = "TREE UNATTESTED" ]
     grep -qF -- "$tag" "$DEVAGENT_ROOT/agents/preship-verifier.md" || { echo "verifier does not name $tag"; return 1; }
 }

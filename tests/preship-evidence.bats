@@ -241,11 +241,18 @@ _artifact_raw() {
     # separately and by an ANCHORED pattern: a bare 'pytest @ <sha>' grep is satisfied
     # by the pre-existing BOTH-frameworks form, so that leg could never redden
     # (register Issue-151/Issue-337 — a vacuous presence guard).
+    # #894: every home spells the SHA <full head sha>, because the checker compares the
+    # artifact's full head: byte for byte and a short <sha>/<head-sha> read as the
+    # git log --oneline form (three preship failures). The spec is a home too (Task 1's
+    # census), and the absence leg below retires the old spellings everywhere they stood.
     local f
-    for f in "$DEVAGENT_ROOT/templates/mr_template.md" \
-             "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" \
-             "$DEVAGENT_ROOT/agents/preship-verifier.md"; do
-        [ "$(grep -cE 'bats @ <(head-)?sha>' "$f")" -ge 1 ] \
+    local homes=("$DEVAGENT_ROOT/templates/mr_template.md"
+                 "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md"
+                 "$DEVAGENT_ROOT/agents/preship-verifier.md"
+                 "$DEVAGENT_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md")
+    [ "${#homes[@]}" -eq 4 ]
+    for f in "${homes[@]}"; do
+        [ "$(grep -cF 'bats @ <full head sha>' "$f")" -ge 1 ] \
             || { echo "no bats-only form in $f"; return 1; }
         # The pytest-only form is a 'pytest @ <sha>' that is NOT the tail of the
         # both-frameworks form, whose distinguishing token is the 'bats,' separator.
@@ -253,8 +260,15 @@ _artifact_raw() {
         # anchored character-class version returned a different count under LC_ALL than
         # under the ambient locale (register Issue-106 — running a VARIANT of a command
         # is not running it). This pins the CLAIM, not one phrasing of it.
-        [ "$(grep -E 'pytest @ <(head-)?sha>' "$f" | grep -vc 'bats,')" -ge 1 ] \
+        [ "$(grep -F 'pytest @ <full head sha>' "$f" | grep -vc 'bats,')" -ge 1 ] \
             || { echo "no pytest-only form in $f"; return 1; }
+    done
+    # Absence: no home, and neither script that rebuilds the line, still says <sha> or
+    # <head-sha>. Planted control first, so a grep that matches nothing cannot pass.
+    [ "$(printf 'x @ <sha>\ny @ <head-sha>\n' | grep -cE '@ <(head-)?sha>')" -eq 2 ]
+    for f in "${homes[@]}" "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$DEVAGENT_ROOT/scripts/lib/evidence.sh"; do
+        run grep -cE '@ <(head-)?sha>' "$f"
+        [ "$status" -eq 1 ] && [ "$output" = 0 ] || { echo "$f still says <sha>/<head-sha>"; return 1; }
     done
 }
 
@@ -762,4 +776,56 @@ _artifact_raw() {
     [[ "$p" == *"omitted"* ]]
     [[ "$p" == *"quote"* ]]
     grep -qF '#677 ANALYZER LINES (not a rung' "$DEVAGENT_ROOT/scripts/preship-evidence.sh"
+}
+
+# --- #894: the suite-line mismatch names the stamper ------------------------------
+# _art894 - an artifact the stamper accepts: the canonical tree, a valid platform: line
+# and the full head (bats 100/100, pytest 20).
+_art894() {
+    printf 'head: %s  dirty: no\ntree: %s\nbats: 100/100 notok=0\npytest: 20 passed, 0 failed\nbranch: main\nupstream: (no-origin)\nplatform: os=Linux kernel=6.6.87 fs=ext4 modes=posix\n' \
+        "$HEAD_SHA" "$(cd "$SOURCE_DIR" && pwd -P)" > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+}
+
+@test "#894 remedy: a short-SHA suite line names evidence-stamp.sh, and running it as printed clears the mismatch" {
+    local cmd
+    _art894
+    _mr "100/100 bats, 20 pytest @ ${HEAD_SHA:0:7}" 1          # the incident shape
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'scripts/evidence-stamp.sh" testproj Issue-1'* ]]
+    [[ "$output" == *'$CLAUDE_PLUGIN_ROOT'* ]]                # printed literally, as :363's is
+    [[ "$output" == *"never by hand (#894)"* ]]
+    # register 353: the printed remedy, executed as printed.
+    cmd="$(printf '%s\n' "$output" | grep -o '`bash "$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh"[^`]*`' | head -1)"
+    cmd="${cmd//\`/}"
+    [ -n "$cmd" ]
+    CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" run bash -c "$cmd"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    _run
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "#894 remedy-crlf: a CRLF suite line points at #849, not at the stamper" {
+    # The CR stays in the line this checker reads only on a GNU userland; Git Bash's
+    # text-mode sed strips it, so there the line matches and nothing fails (#849).
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) skip "Git Bash strips the CR this leg needs (#849)" ;; esac
+    _art894
+    printf '## Summary\r\nx\r\n## Evidence\r\nsuite: 100/100 bats, 20 pytest @ %s\r\nfiles: 1 changed\r\n' \
+        "$HEAD_SHA" > "$DEVDOC_DIR/Issue-1/mr.md"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence suite line mismatch"* ]]
+    [[ "$output" == *"#849"* ]]
+    [[ "$output" != *"evidence-stamp.sh"* ]]
+}
+
+@test "#894 D6: a git diff that fails while counting files: is reported, never counted as 0" {
+    local bad=0123456789abcdef0123456789abcdef01234567           # no such commit
+    _artifact "$HEAD_SHA" no 100 100 0 20 0
+    _mr "100/100 bats, 20 pytest @ $HEAD_SHA" 1
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$bad"
+    _run
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Evidence files: git diff $bad..HEAD failed — cannot count (#894)"* ]]
+    [[ "$output" != *"files mismatch"* ]]
 }
