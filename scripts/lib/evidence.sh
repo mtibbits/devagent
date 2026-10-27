@@ -6,8 +6,8 @@
 # canonical suite: line rebuilt from it, the files: count, the platform: line, and the
 # #571/#655 tree rung that says whether the artifact describes the tree being shipped.
 # Two consumers: scripts/preship-evidence.sh (the checker, verification #4) and
-# scripts/evidence-stamp.sh (the writer, run by core-draft-mr step 6 and after a review or
-# redmr commit). Both build the lines from these functions, so the writer cannot write a
+# scripts/evidence-stamp.sh (the writer, run by draftmr and after a review or redmr
+# commit). Both build the lines from these functions, so the writer cannot write a
 # line the checker would rebuild differently (register Issue-565/585: two
 # implementations of one question drift). The messages are the checker's, moved here
 # byte for byte; the vocabulary (rung, verdict, <RUNG> UNATTESTED, --attest-tree) is
