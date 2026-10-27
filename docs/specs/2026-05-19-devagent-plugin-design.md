@@ -1222,8 +1222,8 @@ entry dies before anything is decided.
   line with no artifact line fails, and so do two or more Evidence `platform:` lines
   (exactly one may stand). An Evidence block without the line is unchecked while
   nothing is declared; under a declaration it fails, acknowledged or not, naming the
-  line to paste. The template's placeholder therefore fails preship until it is filled,
-  or deleted when the artifact has no line, declared or not.
+  line to paste. The template's placeholder therefore fails preship until
+  evidence-stamp.sh fills it; the stamper refuses an artifact with no line (#894).
 - The MR body carries the step-13 analyzer stamps too (#677; not a rung, so no PASS-line
   verdict). A step-13 artifact is an `analysis/*.txt` whose basename matches
   `^[0-9]{4}-[0-9]{2}-[0-9]{2}-(shellcheck|static|asan|ubsan|tsan)\.txt$` exactly, and

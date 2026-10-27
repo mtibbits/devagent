@@ -136,7 +136,7 @@ re-typed.
    a `shellcheck` or `static` artifact, and only line 2 of an `asan`, `ubsan` or `tsan`
    one, if it starts `analyzer:` (an unstamped sanitizer artifact has none). Copy each
    counted line into the Evidence block whole, without its trailing CR, after
-   `platform:` (after `files:` when the platform line was deleted), in name order
+   `platform:`, in name order
    (shellcheck, static, asan, ubsan, tsan) and then artifact order; an exact repeat
    goes in once. A `(version unknown)` stamp is copied as it stands, and when no
    artifact has a counted line there is no `analyzer:` line. `platform:` describes the
@@ -144,7 +144,10 @@ re-typed.
    Evidence `analyzer:` line that no counted line backs, or one standing twice, and
    warns, naming the line, about a counted line the block omits. It checks membership
    only: the position after `platform:` is a copy convention, not checked.
-7. **Check `mr.md`.** The stamper printed `stamped` or `unchanged`.
+7. **Check `mr.md`.** After the analyzer lines are in, run the stamper again with the
+   same arguments (and the same `--attest-tree`, if any): it must print `unchanged`. A
+   `stamped` means an edit after the first stamp touched one of the three lines; the
+   re-run has restored them, so check that edit for other damage.
 
 ## Halt and ask if
 

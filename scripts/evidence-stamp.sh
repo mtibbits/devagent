@@ -159,6 +159,8 @@ _refuse() {   # <entry...>
   exit 1
 }
 remedy="run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/run-suite.sh\" $project $issue_label\` in the tree being shipped, then re-run \`bash \"\$CLAUDE_PLUGIN_ROOT/scripts/evidence-stamp.sh\" $project $issue_label\`"
+# An attestation binds to one artifact's head: and tree:, so a re-run needs a new one.
+[ -z "$attest_tree" ] || remedy+=" with a fresh --attest-tree for the new artifact's head (#655)"
 artifact="$(evidence_newest_artifact "$issue_dir")"
 [ -n "$artifact" ] || _refuse "no suite-count artifact in $issue_dir/analysis — $remedy"
 cur_head="$("$DEVAGENT_GIT" -C "$work_dir" rev-parse HEAD 2>/dev/null || true)"

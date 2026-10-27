@@ -14,7 +14,8 @@
 # preship-evidence.sh's header.
 # Sourced, never executed. Setter-globals: never call a setter inside $( … ), and none
 # of these functions dies (each caller decides whether a problem is a fails+= entry or
-# a refusal). Requires lib/platform.sh (platform_body_valid); DEVAGENT_GIT defaults to git.
+# a refusal). Requires lib/platform.sh (platform_body_valid) and lib/io.sh (warn);
+# DEVAGENT_GIT defaults to git.
 
 # The tree rung's failure tag. Column 0 so a sweep can read it with one sed.
 tree_unattested="TREE UNATTESTED"
