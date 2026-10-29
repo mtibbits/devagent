@@ -69,6 +69,41 @@ if [ -z "$all_prs" ]; then
     exit 0
 fi
 
+# --- #782: requires green CI. After the auto-skips (a skip reads nothing) and before
+# the #26 preflight and the permission gate (a non-green read fetches nothing and
+# prompts nothing, so DA_YES cannot bypass it). No mr_url → no MR → no CI to gate (D2).
+# Red marks row 19 [!] (the current step may be an earlier row); hold exits 1 so
+# next.sh's #558 advance guard never sees an unmarked exit 0.
+. "$DEVAGENT_ROOT/scripts/lib/ci.sh"
+mr_url="$(state_ctx_get "$project" mr_url "$issue_arg" 2>/dev/null || true)"
+if [ -n "$mr_url" ]; then
+    ci_gate_resolve "$project"
+    if [ "$CI_GATE" != off ]; then
+        ci_read "$project" "$issue_arg" "$mr_url"
+        ci_report "$issue_dir"
+        ci_verdict
+        case "$CI_VERDICT" in
+            red)
+                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --step 19 mergetoall "$issue_dir" "$CI_LINE" || true
+                exit 1 ;;
+            hold)
+                echo "mergetoall: not merging until CI is green; nothing was marked" >&2
+                exit 1 ;;
+            proceed) ;;
+            *) die "mergetoall: unexpected CI verdict '$CI_VERDICT'; nothing was marked" ;;
+        esac
+        # The squash below takes the LOCAL $branch; CI checked the forge's head. A local
+        # commit not pushed (or a branch behind the forge) would merge code CI never ran.
+        if [ -n "$CI_HEAD" ]; then
+            local_tip="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --verify --quiet "$branch^{commit}" 2>/dev/null || true)"
+            if [ "$local_tip" != "$CI_HEAD" ]; then
+                echo "mergetoall: local $branch (${local_tip:0:7}) is not the MR head CI checked (${CI_HEAD:0:7}); push or pull it so CI runs on what merges, then re-run; nothing was marked" >&2
+                exit 1
+            fi
+        fi
+    fi
+fi
+
 # --- #26 Defect B: a stale all_prs base bundles the upstream delta into the
 # squash commit. FF is impossible (squash-divergent), so detect and refuse. ---
 . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"

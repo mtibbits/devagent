@@ -27,3 +27,33 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$ISSUE_DIR" "why"
   [ "$status" -ne 0 ]
 }
+
+@test "#782 checklist-stuck --step marks the named row, not the current one" {
+  for s in 2 4 5 6 7; do "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" "$s" x >/dev/null; done
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --step 19 mergetoall "$ISSUE_DIR" "CI FAILED: x"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[!\] 19\. mergetoall' "$ISSUE_DIR/checklist.md"
+  grep -qE '^- \[ \]  8\. branch' "$ISSUE_DIR/checklist.md"           # the current step is untouched
+  grep -q '^Step:        19 mergetoall' "$ISSUE_DIR/STUCK"
+  grep -q '^Reason:      CI FAILED: x' "$ISSUE_DIR/STUCK"
+}
+
+@test "#782 checklist-stuck --step refuses a row the checklist lacks" {
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --step 99 mergetoall "$ISSUE_DIR" "why"
+  [ "$status" -ne 0 ]
+  [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#782 checklist-stuck --step refuses a row whose name differs (#558 guard)" {
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --step 18 mergetoall "$ISSUE_DIR" "why"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to mark step 18 as 'mergetoall'"* ]]
+  grep -qE '^- \[ \] 18\. ship' "$ISSUE_DIR/checklist.md"
+  [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#782 checklist-stuck --step without a name is a usage error" {
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --step 19
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--step needs a step number and name"* ]]
+}

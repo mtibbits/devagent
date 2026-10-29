@@ -140,7 +140,7 @@ state_unset() {
 
 # Canonical per-issue key set (#98). These travel with an issue across
 # park/resume and are cleared on pull/cleanup. Defaults mirror state_init.
-STATE_ISSUE_KEYS="branch baseline_sha worktree_path spike_worktree_path mr_url revision pending_comments_file last_step last_step_name"
+STATE_ISSUE_KEYS="branch baseline_sha worktree_path spike_worktree_path mr_url revision pending_comments_file last_step last_step_name ci_seen_head ci_seen_at"
 
 # state_context_save <project> <issue> — snapshot current top-level per-issue
 # keys into [context.<issue>], replacing any stale snapshot for the same issue
@@ -299,7 +299,8 @@ state_cleanup_finish() {
 _STATE_RESTORE_SPECS=(str branch '""' str baseline_sha '""'
                       str worktree_path '""' str spike_worktree_path '""' str mr_url '""'
                       int revision 1 int last_step 0
-                      str last_step_name '""' str pending_comments_file '""')
+                      str last_step_name '""' str pending_comments_file '""'
+                      str ci_seen_head '""' str ci_seen_at '""')   # #782: ci_seen_at = epoch secs
 
 # state_context_restore <project> <issue> — restore the snapshotted keys from
 # [context.<issue>] (defaults for missing keys), delete the snapshot — ONE

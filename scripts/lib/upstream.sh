@@ -42,15 +42,24 @@ upstream_fetch() {
     return 0
 }
 
-# _upstream_bounded <work_dir> <secs> <git args...>   (#660)
-# The ONE home for a network call that must not hang an unattended chain: `timeout -k 5
+# bounded_call <secs> <cmd> [args...]   (#660, #782)
+# THE home for a network call that must not hang an unattended chain: `timeout -k 5
 # <secs>` (which also ends an ssh passphrase/host-key prompt, an askpass helper, or a
-# black-holed connection) plus GIT_TERMINAL_PROMPT=0. git's stdout passes through; its
-# stderr is dropped (the caller words its own diagnosis). Exit 124, or 137 after the KILL,
-# means the bound expired. Needs timeout(1) on PATH; upstream_branch_tip checks that first.
+# black-holed connection; under Git Bash it also ends a native gh.exe/jq.exe grandchild,
+# measured Issue-782). stdout and stderr pass through untouched; the rc is the command's.
+# Exit 124, or 137 after the KILL, means the bound expired. Needs timeout(1) on PATH;
+# callers check that first (upstream_branch_tip, ci_read).
+bounded_call() {
+    local secs="$1"; shift
+    timeout -k 5 "$secs" "$@"
+}
+
+# _upstream_bounded <work_dir> <secs> <git args...>   (#660)
+# bounded_call for git: GIT_TERMINAL_PROMPT=0, git's stdout passes through, its stderr is
+# dropped (the caller words its own diagnosis).
 _upstream_bounded() {
     local work_dir="$1" secs="$2"; shift 2
-    GIT_TERMINAL_PROMPT=0 timeout -k 5 "$secs" "$DEVAGENT_GIT" -C "$work_dir" "$@" 2>/dev/null
+    GIT_TERMINAL_PROMPT=0 bounded_call "$secs" "$DEVAGENT_GIT" -C "$work_dir" "$@" 2>/dev/null
 }
 
 # upstream_branch_tip <work_dir> <branch> <timeout_secs>   (#660)

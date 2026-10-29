@@ -80,7 +80,8 @@ devAgent/
 ├── hooks/                   # PreToolUse hooks: git-guard.sh (opt-in git-reflex guard, #352); hooks.json
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
-│   │                        #   check-step-pairings.py — #558 pairing census)
+│   │                        #   check-step-pairings.py — #558 pairing census,
+│   │                        #   ci.sh — #782 MR CI read/line/gate)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -209,6 +210,8 @@ spike_worktree_path = ""                     # #536: throwaway spike worktree wh
 last_step      = 9
 last_step_name = "implement"
 mr_url         = "https://github.com/gnuradio/volk/pull/842"   # set after ship
+ci_seen_head   = "1443d97dbcf82a95eca477ceb21b2524bb29a244"   # #782: MR head CI last saw
+ci_seen_at     = "1761700000"                # #782: epoch secs it was first seen (grace clock)
 revision       = 1
 updated_at     = "2026-05-19T14:32:00-04:00"
 
@@ -226,7 +229,7 @@ ever need it. Order is not preserved; v1 does not depend on order.
 
 Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
 `worktree_path`, `spike_worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
-`last_step`, `last_step_name` belong to the active issue, not the
+`last_step`, `last_step_name`, `ci_seen_head`, `ci_seen_at` belong to the active issue, not the
 project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Since #240 the
 **`[context.<issue>]` sub-table is the authoritative home** of these
 keys; the top-level copies are a compatibility **mirror**, maintained
@@ -595,7 +598,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop |
+| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
 | 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
@@ -785,6 +788,46 @@ Next up: step 10 (quality). Continue? [Y/n/skip/stuck]
   these steps cut its main-session cost ~56%. `session_rehydrate` (#456)
   pairs with it.
 
+After ship, the MR's CI status is reported, never waited for (#782):
+
+- **The CI line.** Every `next` invocation that reaches a dispatchable
+  post-ship row (ship `[x]` in the active block, the current step past it,
+  an `mr_url` recorded) makes one bounded read of the code backend's
+  `mr-checks` (§9.2; 20 s) and prints one line before any `PHASE BREAK`:
+  `CI PASSED: <n> checks on <url> (head <sha7>)`, `CI PENDING: <p> of <n>
+  checks still running on …: <names>`, `CI FAILED: <url> (head <sha7>):
+  <name> [<CONCLUSION>] <link>; …` (the bracket only for a conclusion other
+  than FAILURE/ERROR), `CI NONE: no checks reported on …`, `CI UNKNOWN:
+  <url>: <reason>` (a failed, timed-out or unparseable read; never read as
+  none or green), or `CI NOT CHECKED: <backend> has no mr-checks`. A merged
+  or closed MR prints nothing. A STUCK or `[?]` row returns first and prints
+  none, and so does a `--through` target that is already complete. Each
+  change of `<result> <sha7>` also writes one `ci:` log line. The cost is one
+  read (measured 0.7-2.75 s) per `next` from ship until cleanup, including
+  after merge.
+- **Report mode never halts.** With the default `ci_gate = "report"` the
+  line changes no row, no exit status and no dispatch. `CI PENDING` and `CI
+  UNKNOWN` are information for the operator, never an instruction to re-run
+  anything.
+- **`mergetoall` requires green.** Step 19 reads after its auto-skips and
+  before its fetch and permission prompt: red marks row 19 `[!]` with the
+  `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing
+  marked; `none` holds for `DEVAGENT_CI_GRACE_SECS` (120 s) after devagent
+  first sees that head (`ci_seen_head`/`ci_seen_at`), then proceeds. A
+  proceed still exits 1, nothing marked, when the local issue branch is not
+  the head CI checked (the squash takes the local branch). With no
+  `mr_url` there is no read and no gate. When `next` dispatches step 19 the
+  read is mergetoall's own, so the invocation still prints one line.
+- **Block mode.** `ci_gate = "block"` gates every post-ship step the same
+  way: red marks the step about to run `[!]` (exit 1, the STUCK path);
+  pending, unknown or `none` inside the grace prints `CI gate: holding step
+  <N> (<name>) until CI finishes; nothing was marked` and a Resume line, and
+  exits 0 with no `CHAIN:`.
+- **`ci_gate`** is `report`, `block` or `off` (`[project.<name>] ci_gate`,
+  else `[defaults] ci_gate`); any other value stops `next` at its first
+  in-window read. `off` makes no read at all and is the reviewed de-scope
+  for a flaky or slow CI.
+
 ### 7.3 External chaining
 
 The VSCode extension at work launches one Claude Code session per
@@ -793,6 +836,14 @@ for priority shifts. The plugin treats that extension as a downstream
 consumer, not a dependency. The plugin's contract is the same whether
 chaining happens via `--auto`, via external session orchestration, or
 via the operator typing `/devagent:next` between steps.
+
+A worker reads `ci_gate = "block"` (§7.2) from the checklist, not from
+the text: a `[!]` row plus a `STUCK` file whose reason starts `CI FAILED:`
+means red, and a human is needed. An unchanged row with no `STUCK` file
+means held; retry on the worker's own schedule. The hold has two shapes:
+at step 19 it is `mergetoall`'s exit 1 with row 19 still `[ ]`, which ends
+the chain and makes `next` exit non-zero; at steps 20-23 it is an exit-0
+`CI gate: holding step …` line. The `CI …:` prefix says the same.
 
 ### 7.4 Step model tiers (`step_models`)
 
@@ -1654,10 +1705,11 @@ mr-state     <mr-url>                                       → open|merged|clos
 mr-comments  <mr-url>                                       → markdown to stdout (§9.3)
 merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
 issue-mrs    <repo> <id>...                                 → issue/mr lines (MAY)
+mr-checks    <mr-url>                                       → state/head/check lines (MAY)
 ```
 
-The first five verbs MUST be implemented; `issue-mrs` MAY be (#704). For
-each issue number `<id>` of `<repo>` it reports the MRs linked to the
+The first five verbs MUST be implemented; `issue-mrs` (#704) and `mr-checks`
+(#782) MAY be. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
 issue. An MR links an issue when its title or description carries a
 closing-keyword reference that resolves to it, whatever the MR's target
 branch: GitHub's keyword set (`close`, `closes`, `closed`, `fix`, `fixes`,
@@ -1704,6 +1756,33 @@ record, non-JSON, a repeated page cursor or a full GitLab page. Any exit
 but `0`, `2` and `78` aborts the `wbs update` MR phase (§13.2).
 `wbs update` is the verb's only caller today; #734 is expected to read the
 `mr` lines' timestamps.
+
+`mr-checks` MAY be implemented (#782; GitHub does). It reports the MR's
+state, the head SHA as the forge reports it, and one line per check,
+de-duplicated to the latest run per workflow and name, in the forge's
+order (TAB-separated):
+
+```
+state    open|merged|closed
+head     <40-hex>
+pass     <name>  <link>
+pending  <name>  <link>
+fail     <name>  <link>  <CONCLUSION>
+```
+
+`<link>` is `-` when the check has none (an empty TAB field would collapse).
+
+GitHub makes one `gh pr view --json headRefOid,state,statusCheckRollup`
+call. A not-yet-completed run counts as pending and outranks a completed
+run of the same check; SUCCESS, SKIPPED and NEUTRAL pass; FAILURE,
+CANCELLED, TIMED_OUT, ACTION_REQUIRED and STARTUP_FAILURE fail (a commit
+status: SUCCESS passes, PENDING and EXPECTED are pending, FAILURE and ERROR
+fail). Any other value, `STALE` included, is an unrecognised record. Exit
+`0` is success; `1` a CLI or transport failure, a missing CLI, or bad
+arguments (never `2`); `5` an unrecognised record or non-JSON; `78` and
+`2` mean "not checked". On a non-zero exit the last stderr line is a bare
+reason (`gh exited <rc>`, `jq not on PATH`, `unrecognised rollup: …`) that
+`scripts/lib/ci.sh` quotes in its `CI UNKNOWN:` line (§7.2).
 
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 

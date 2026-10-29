@@ -3,7 +3,7 @@
 # (agents/*.md), the checking-command wrappers (commands/{preship,redmr,improve}),
 # and the converted user-facing skills (skills/{capture,ship}). Sibling of
 # tests/skill-next-size-canary.bats, which guards skills/next/SKILL.md on the SAME
-# frontmatter-stripped-body measure — that canary's 2,000/800 pins are NOT touched
+# frontmatter-stripped-body measure — that canary's 2,176/800 pins are NOT touched
 # here (they carry next.md's proven-doubler history; see that file).
 #
 # Measure: frontmatter-stripped body chars, the EXACT next-canary idiom
@@ -12,8 +12,8 @@
 # count is +4; #439 "state the basis, subtract like from like").
 #
 # Ceilings ≈ current + ~25% headroom; floors ≈ half of current (anti-hollowing).
-# The headroom is deliberately LOOSER than the next canary's tight ~4% (2000 on a
-# 1916 body): next.md is the proven-doubler with a known regrowth driver, so it
+# The headroom is deliberately LOOSER than the next canary's tight ~1% (2176 on a
+# 2151 body, #782): next.md is the proven-doubler with a known regrowth driver, so it
 # earns a tight pin; these are stabler prompt bodies where a ~25% ceiling still
 # catches doubling without flapping on ordinary edits. Numbers documented per
 # file below (measured at baseline 090d1a5; tests-only, so identical at HEAD).

@@ -2,15 +2,18 @@
 # SIBLING: tests/prompt-size-canary.bats (#531) guards the other per-invocation
 # prompt files (agents/*.md, checking-command wrappers, capture/ship skills) on
 # this SAME frontmatter-stripped-body measure. This file keeps next.md's own
-# tight 2,000/800 pins (its proven-doubler history earns them); do not merge.
+# tight 2,176/800 pins (its proven-doubler history earns them); do not merge.
 #
 # #439 size canary: next.md doubled in three weeks (2,961 → 5,659 chars,
 # 06-18 → 07-10) before the thinning; the operative body of its successor
 # (skills/next/SKILL.md) reloads on ~14 steps per --auto traversal, so silent
-# regrowth is a per-issue token tax. Ceiling per #439's target. The floor is an
+# regrowth is a per-issue token tax. Ceiling per #439's target, raised once by #782:
+# its no-polling rule (CI PENDING/UNKNOWN is information; never re-run next or gh to
+# wait for CI) must load on EVERY invocation, so it lives here, not in a reference.
+# Measured body after #782: 2151 chars; ceiling = 2151 + 25 = 2176. The floor is an
 # ANTI-VACUOUS guard, not a contract guard: it catches a missing/emptied file
-# (0 chars would otherwise satisfy the ceiling), but at a 1916-char body it only
-# fires once ~58% of the text is gone. The contracts themselves are pinned by the
+# (0 chars would otherwise satisfy the ceiling), but at a 2151-char body it only
+# fires once ~63% of the text is gone. The contracts themselves are pinned by the
 # #125/#116 literal greps in tests/command-usage-docs.bats.
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
@@ -22,11 +25,11 @@ SKILL="$REPO/skills/next/SKILL.md"
   [ -f "$SKILL" ]
 }
 
-@test "operative body (frontmatter-stripped) is 800..2000 chars (#439)" {
+@test "operative body (frontmatter-stripped) is 800..2176 chars (#439, #782)" {
   # Body-side complement of the frontmatter extractor idiom in
   # tests/lib/skill-fixture-check.sh (`next` skips the --- delimiters).
   body_chars="$(awk '/^---$/{c++; next} c>=2{print}' "$SKILL" | wc -c)"
   echo "body_chars=$body_chars" >&2
-  [ "$body_chars" -le 2000 ]
+  [ "$body_chars" -le 2176 ]
   [ "$body_chars" -ge 800 ]
 }

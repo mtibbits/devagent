@@ -483,3 +483,271 @@ EOC
   [ "$status" -eq 0 ]
   [[ "$output" != *"Plan budget"* ]]
 }
+
+# --- #782: the CI line in the ship-to-merge window, and the block gate --------
+# The real code/github.sh runs through the gh-stub (tests/fixtures/gh-stub `pr view`
+# arm) into lib/ci.sh, so the backend grammar and its consumer are pinned together.
+CI_URL=https://github.com/acme/volk/pull/9
+
+# _ci_window <fixture> [gate] [backend]: issue shipped (row 18 [x], 19 [-]), mr_url
+# recorded, current step 20. mr_url is appended with printf (never sed: the
+# state-toml sed canary).
+_ci_window() {
+  local fx="$1" gate="${2:-}" backend="${3:-github}"
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/volk"
+devdoc_dir = "$DEVDOC"
+${gate:+ci_gate = \"$gate\"}
+
+[project.volk.code_source]
+backend = "$backend"
+EOF
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 18. ship
+- [-] 19. mergetoall
+- [ ] 20. updatewbs
+- [ ] 21. impact
+- [ ] 22. lessonslearned
+- [ ] 23. cleanup
+
+## Log
+EOC
+  printf 'mr_url = "%s"\n' "$CI_URL" >> "$DA_HOME/state/volk.toml"
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  cp "$PLUGIN_ROOT/tests/fixtures/gh-stub" "$BATS_TEST_TMPDIR/bin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+  export DEVAGENT_GH="$BATS_TEST_TMPDIR/bin/gh"
+  _ci_fixture "$fx"
+  export GH_STUB_PR_CHECKS_LOG="$BATS_TEST_TMPDIR/pr-checks.log"
+}
+
+_ci_fixture() { export GH_STUB_PR_CHECKS_FILE="$PLUGIN_ROOT/tests/fixtures/code-github/mr-checks-$1.json"; }
+_ci_rows() { grep '^- \[' "$DEVDOC/Issue-676/checklist.md"; }
+_ci_count() { grep -c '^CI ' <<<"$output" || true; }
+
+@test "#782 report: a FAILURE plus an IN_PROGRESS rollup prints CI FAILED and dispatches step 20 as today" {
+  _ci_window red
+  local before; before="$(_ci_rows)"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CI FAILED: $CI_URL (head a1b2c3d): bats shard 2 of 4 https://github.com/acme/volk/actions/runs/1/job/12"* ]]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  [ "$(_ci_rows)" = "$before" ]
+}
+
+@test "#782 report: all IN_PROGRESS prints CI PENDING: 2 of 2 checks still running" {
+  _ci_window pending
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CI PENDING: 2 of 2 checks still running on $CI_URL (head a1b2c3d): bats shard 1 of 4, lint"* ]]
+}
+
+@test "#782 report: [] prints CI NONE: no checks reported" {
+  _ci_window none
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CI NONE: no checks reported on $CI_URL (head a1b2c3d)"* ]]
+}
+
+@test "#782 report: state MERGED prints no CI line" {
+  _ci_window merged
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ "$(_ci_count)" -eq 0 ]
+  [ "$(cat "$GH_STUB_PR_CHECKS_LOG")" = pr-checks ]          # positive control: it read
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+}
+
+@test "#782 report: gh exit 1 prints CI UNKNOWN: <url>: gh exited 1" {
+  _ci_window none
+  GH_STUB_PR_CHECKS_RC=1 run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qxF "CI UNKNOWN: $CI_URL: gh exited 1" <<<"$output"
+}
+
+@test "#782 report: a read past DEVAGENT_CI_READ_SECS=2 prints CI UNKNOWN: <url>: timed out after 2s within 8 s" {
+  _ci_window none
+  local t0=$SECONDS
+  DEVAGENT_CI_READ_SECS=2 GH_STUB_PR_CHECKS_SLEEP=30 run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qxF "CI UNKNOWN: $CI_URL: timed out after 2s" <<<"$output"
+  [ $((SECONDS - t0)) -lt 8 ]                                 # the stub would hang 30 s
+}
+
+@test "#782 report: with timeout(1) hidden the read prints CI UNKNOWN: <url>: timeout(1) not on PATH" {
+  load 'lib/doctor-harness'
+  _ci_window red
+  curated_path_without timeout       # shadows timeout's dir (~1 s for a large /usr/bin)
+  if command -v timeout; then false; fi
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qxF "CI UNKNOWN: $CI_URL: timeout(1) not on PATH" <<<"$output"
+  [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]                           # no unbounded call was made
+}
+
+@test "#782 a CANCELLED then later SUCCESS run of one check prints CI PASSED" {
+  _ci_window superseded
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qxF "CI PASSED: 1 checks on $CI_URL (head a1b2c3d)" <<<"$output"
+}
+
+@test "#782 every invocation in the window prints exactly one CI line" {
+  _ci_window pending
+  local row flags
+  for row in 20 21 22; do
+    for flags in "" "--auto"; do
+      # shellcheck disable=SC2086  # flags is "" or one word
+      run "$PLUGIN_ROOT/scripts/next.sh" volk $flags
+      [ "$status" -eq 0 ]
+      [ "$(_ci_count)" -eq 1 ] || { echo "row $row flags '$flags': $(_ci_count) lines"; false; }
+    done
+    sed -i -E "s/^- \[ \] +$row\./- [x] $row./" "$DEVDOC/Issue-676/checklist.md"
+  done
+}
+
+@test "#782 a checklist with no ship row and mr_url set runs as before, with no CI line and no read" {
+  _ci_window red
+  sed -i '/18\. ship/d' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ "$(_ci_count)" -eq 0 ]
+  [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+}
+
+@test "#782 before ship: no CI line and no read" {
+  _ci_window red
+  sed -i 's/^- \[x\] 18\. ship/- [ ] 18. ship/' "$DEVDOC/Issue-676/checklist.md"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$(_ci_count)" -eq 0 ]
+  [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+}
+
+@test "#782 block: red marks step 20 [!] with the CI FAILED reason" {
+  _ci_window red block
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 1 ]
+  grep -qE '^- \[!\] 20\. updatewbs' "$DEVDOC/Issue-676/checklist.md"
+  grep -qF "Reason:      CI FAILED: $CI_URL" "$DEVDOC/Issue-676/STUCK"
+  [[ "$output" != *"→ Run"* ]]
+}
+
+@test "#782 block: pending holds step 20, prints Resume with the run's flags, exits 0, marks nothing, no CHAIN:" {
+  _ci_window pending block
+  local before; before="$(_ci_rows)"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  grep -qxF "CI gate: holding step 20 (updatewbs) until CI finishes; nothing was marked" <<<"$output"
+  grep -qxF "  Resume once CI has finished: run /clear, then /devagent:next volk --auto" <<<"$output"
+  [ "$(_ci_rows)" = "$before" ]
+  [ ! -e "$DEVDOC/Issue-676/STUCK" ]
+  [[ "$output" != *"CHAIN:"* ]]
+  [[ "$output" != *"→ Run"* ]]
+}
+
+@test "#782 block: no checks inside the grace holds step 20 and marks nothing" {
+  _ci_window none block
+  local before; before="$(_ci_rows)"
+  DEVAGENT_CI_GRACE_SECS=600 run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  grep -qF "CI NONE: no checks reported on $CI_URL" <<<"$output"
+  grep -qxF "CI gate: holding step 20 (updatewbs) until CI finishes; nothing was marked" <<<"$output"
+  [ "$(_ci_rows)" = "$before" ]
+  [[ "$output" != *"→ Run"* ]]
+}
+
+@test "#782 block: green dispatches step 20 normally" {
+  _ci_window green block
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  grep -qF "CI PASSED: 3 checks on $CI_URL" <<<"$output"
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+}
+
+@test "#782 block: red → [!] → unstuck → green dispatches step 20" {
+  _ci_window red block
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$DEVDOC/Issue-676"
+  [ "$status" -eq 0 ]
+  _ci_fixture green
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+}
+
+@test "#782 ci_gate = \"maybe\" dies with the exact message" {
+  _ci_window green maybe
+  local before; before="$(_ci_rows)"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ci_gate must be report, block or off (got 'maybe')"* ]]
+  [ "$(_ci_rows)" = "$before" ]
+}
+
+@test "#782 ci_gate = \"off\" makes no read" {
+  _ci_window red off
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+  [ "$(_ci_count)" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+}
+
+@test "#782 a shipped issue with mr_url and no ci_seen_* prints a CI line and records ci_seen_head and ci_seen_at" {
+  _ci_window pending
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ "$(_ci_count)" -eq 1 ]
+  local head at
+  head="$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.ci_seen_head)"
+  at="$(python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" get "$DA_HOME/state/volk.toml" context.Issue-676.ci_seen_at)"
+  [ "$head" = a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 ]
+  [[ "$at" =~ ^[0-9]+$ ]]
+}
+
+@test "#782 no mr_url: no CI line and no read" {
+  _ci_window red
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/state/volk.toml" mr_url
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ "$(_ci_count)" -eq 0 ]
+  [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+}
+
+@test "#782 identical results write one ci: log line" {
+  _ci_window pending
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$(grep -c '  ci: ' "$DEVDOC/Issue-676/checklist.md")" -eq 1 ]
+  _ci_fixture red
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$(grep -c '  ci: ' "$DEVDOC/Issue-676/checklist.md")" -eq 2 ]
+}
+
+@test "#782 a hand-annotated ship row (18. ship:) still prints the CI line" {
+  _ci_window green
+  local f="$DEVDOC/Issue-676/checklist.md" body
+  body="$(<"$f")"
+  printf '%s\n' "${body/- \[x\] 18. ship/- [x] 18. ship:}" > "$f"
+  grep -qxF -- '- [x] 18. ship:' "$f"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qF "CI PASSED: 3 checks on $CI_URL" <<<"$output"
+}
+
+@test "#782 a backend without mr-checks prints CI NOT CHECKED: custom has no mr-checks" {
+  _ci_window red "" custom
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qxF "CI NOT CHECKED: custom has no mr-checks" <<<"$output"
+}
+
+@test "#782 the CI line comes directly before the PHASE BREAK lines" {
+  _ci_window pending
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CI PENDING: "*$'\n'"PHASE BREAK before step 20 (updatewbs)"* ]]
+}

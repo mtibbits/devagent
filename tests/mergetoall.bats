@@ -263,3 +263,184 @@ EOF
     subj="$( cd "$SOURCE_DIR" && git log -1 --pretty=%s dev/all-prs )"
     [ "$subj" = "feat: x" ]
 }
+
+# --- #782: mergetoall requires green CI ---------------------------------------
+# The real code/github.sh runs through the gh-stub's `pr view` arm into lib/ci.sh.
+# Existing legs record no mr_url, so they take D2 (no read, no gate).
+CI_URL=https://github.com/acme/testproj/pull/77
+
+# _ci_serve <fixture>: serve mr-checks-<fixture>.json with headRefOid = $CI_HEAD.
+_ci_serve() {
+    jq --arg h "$CI_HEAD" '.headRefOid = $h' \
+        "$BATS_TEST_DIRNAME/fixtures/code-github/mr-checks-$1.json" > "$DEVAGENT_TMP/mr-checks.json"
+    export GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/mr-checks.json"
+}
+
+# _ci_mta <fixture>: an MR recorded whose forge head is the local issue branch tip, as
+# after a push (mergetoall merges only the head CI checked).
+_ci_mta() {
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    CI_HEAD="$( cd "$SOURCE_DIR" && git rev-parse feat/1-x )"
+    _ci_serve "$1"
+    export GH_STUB_PR_CHECKS_LOG="$DEVAGENT_TMP/pr-checks.log"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "$CI_URL"
+}
+
+_all_prs_tip() { ( cd "$SOURCE_DIR" && git rev-parse dev/all-prs ); }
+_state() { _devagent_toml get "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" "$1"; }
+
+@test "#782 red marks step 19 [!] and STUCK carries the CI FAILED line" {
+    _ci_mta red
+    local tip; tip="$(_all_prs_tip)"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '!' mergetoall
+    grep -q 'Reason:      CI FAILED: ' "$DEVDOC_DIR/Issue-1/STUCK"
+    grep -q '^Step:        19 mergetoall' "$DEVDOC_DIR/Issue-1/STUCK"
+    [ "$(_all_prs_tip)" = "$tip" ]
+}
+
+@test "#782 pending exits 1, leaves step 19 [ ], writes no STUCK" {
+    _ci_mta pending
+    local tip; tip="$(_all_prs_tip)"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"CI PENDING: 2 of 2 checks still running on $CI_URL"* ]]
+    [[ "$output" == *"mergetoall: not merging until CI is green; nothing was marked"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
+    [ ! -e "$DEVDOC_DIR/Issue-1/STUCK" ]
+    [ "$(_all_prs_tip)" = "$tip" ]
+}
+
+@test "#782 [] within DEVAGENT_CI_GRACE_SECS of ci_seen_at holds; after it proceeds" {
+    _ci_mta none
+    DEVAGENT_CI_GRACE_SECS=600 run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
+    [ "$(_state context.Issue-1.ci_seen_head)" = "$CI_HEAD" ]      # the clock started
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" context.Issue-1.ci_seen_at "$(( $(date +%s) - 1000 ))"
+    DEVAGENT_CI_GRACE_SECS=600 run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CI NONE: no checks reported on $CI_URL"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
+@test "#782 a new head with [] resets ci_seen_at and holds even when the old head's record is old" {
+    _ci_mta none
+    local f="$HOME/.claude/devagent/state/$TEST_PROJECT.toml" t0
+    devagent_state_set "$f" context.Issue-1.ci_seen_head 0000000000000000000000000000000000000001
+    devagent_state_set "$f" context.Issue-1.ci_seen_at "$(( $(date +%s) - 1000 ))"
+    t0="$(date +%s)"
+    DEVAGENT_CI_GRACE_SECS=600 run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [ "$(_state context.Issue-1.ci_seen_head)" = "$CI_HEAD" ]
+    [ "$(_state context.Issue-1.ci_seen_at)" -ge "$t0" ]
+}
+
+@test "#782 the zero-diff and the unconfigured auto-skips make no CI read" {
+    _ci_mta red
+    local base
+    base="$( cd "$SOURCE_DIR" && git rev-parse feat/1-x )"
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$base"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 - mergetoall
+    [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' '
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha ""
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 - mergetoall
+    [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+}
+
+@test "#782 green merges as before and prints CI PASSED" {
+    _ci_mta green
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head ${CI_HEAD:0:7})"* ]]
+    ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
+@test "#782 green on the MR head with an unpushed local commit holds, nothing marked" {
+    _ci_mta green
+    ( cd "$SOURCE_DIR" && echo nit >> a.txt \
+      && git -c user.email=t@example.com -c user.name=Test commit -qam "nit, not pushed" )
+    local tip; tip="$(_all_prs_tip)"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"is not the MR head CI checked (${CI_HEAD:0:7})"* ]]
+    [[ "$output" == *"nothing was marked"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
+    [ ! -e "$DEVDOC_DIR/Issue-1/STUCK" ]
+    [ "$(_all_prs_tip)" = "$tip" ]
+}
+
+@test "#782 ci_gate = \"off\" merges past a red rollup with no read" {
+    _ci_mta red
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.ci_gate" off
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ ! -e "$GH_STUB_PR_CHECKS_LOG" ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
+@test "#782 red → [!] → unstuck → a green rollup on a new head merges" {
+    _ci_mta red
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '!' mergetoall
+    run "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$DEVDOC_DIR/Issue-1"
+    [ "$status" -eq 0 ]
+    # The remedy: a fix pushed to the issue branch is the new head, and it went green.
+    ( cd "$SOURCE_DIR" && echo fix >> a.txt \
+      && git -c user.email=t@example.com -c user.name=Test commit -qam "fix the test" )
+    CI_HEAD="$( cd "$SOURCE_DIR" && git rev-parse feat/1-x )"
+    _ci_serve green
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head ${CI_HEAD:0:7})"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
+@test "#782 next --auto from step 19 with green CI prints exactly one CI line, then PHASE BREAK before step 20" {
+    _ci_mta green
+    local s
+    for s in 8 9 10 11 12 13 14 15 16 18; do mark_step "$DEVDOC_DIR/Issue-1/checklist.md" "$s" x; done
+    run "$DEVAGENT_ROOT/scripts/next.sh" "$TEST_PROJECT" --auto
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+    [ "$(grep -c '^CI ' <<<"$output")" -eq 1 ]
+    [[ "$output" == *"PHASE BREAK before step 20 (updatewbs)"* ]]
+}
+
+@test "#782 next --auto dispatching a stubbed ship: CI line, then PHASE BREAK before step 20 (updatewbs), then Resume" {
+    # ship.bats' setup inside this harness: a git PATH shim, an issue-backend stub,
+    # mr.md, .devagent-title. Row 19 starts [-] (the standard template's default).
+    echo "MR body" > "$DEVDOC_DIR/Issue-1/mr.md"
+    echo "kernels: add NEONv8 FMA tier" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    devagent_stub git ""
+    mkdir -p "$DEVAGENT_TMP/fake-issue"
+    printf '#!/usr/bin/env bash\necho "issue/github $*" >> "%s"\n' "$DEVAGENT_STUB_LOG" > "$DEVAGENT_TMP/fake-issue/github.sh"
+    chmod +x "$DEVAGENT_TMP/fake-issue/github.sh"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/fake-issue"
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    export GH_STUB_CREATE_URL="$CI_URL"
+    export GH_STUB_PR_CHECKS_FILE="$BATS_TEST_DIRNAME/fixtures/code-github/mr-checks-pending.json"
+    local s
+    for s in 8 9 10 11 12 13 14 15 16; do mark_step "$DEVDOC_DIR/Issue-1/checklist.md" "$s" x; done
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 -
+    run "$DEVAGENT_ROOT/scripts/next.sh" "$TEST_PROJECT" --auto
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+    local ci pb rs
+    ci="$(grep -n '^CI PENDING: ' <<<"$output" | cut -d: -f1)"
+    pb="$(grep -n '^PHASE BREAK before step 20 (updatewbs)' <<<"$output" | cut -d: -f1)"
+    rs="$(grep -nxF "  Resume: run /clear, then /devagent:next $TEST_PROJECT --auto" <<<"$output" | cut -d: -f1)"
+    [ -n "$ci" ] && [ -n "$pb" ] && [ -n "$rs" ]
+    [ "$ci" -lt "$pb" ] && [ "$pb" -lt "$rs" ]
+}

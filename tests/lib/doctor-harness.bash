@@ -138,12 +138,12 @@ EOF
 # NOT an error when there is no claude to hide: that is the CI shape, and the first
 # consumer is the test named for it. A hard failure there would make that test's
 # verdict a function of the machine — precisely what this issue removes.
-curated_path_without_claude() {
-  local newpath="" d shadow entry n=0 dropped=0
+curated_path_without() {
+  local exe="$1" newpath="" d shadow entry n=0 dropped=0
   local IFS=:
   for d in $PATH; do
     [ -n "$d" ] || continue                       # an empty PATH element means CWD
-    if [ -x "$d/claude" ]; then
+    if [ -x "$d/$exe" ]; then
       # Under BATS_TEST_TMPDIR so bats reaps the shadow dirs with the test; a bare
       # `mktemp -d` left one behind per call, and this helper cannot trap (callers
       # keep running).
@@ -170,10 +170,10 @@ curated_path_without_claude() {
       # misdirection this issue exists to remove.
       for entry in "$d"/*; do
         [ -e "$entry" ] || continue               # unmatched glob
-        [ "${entry##*/}" = claude ] && continue
+        case "${entry##*/}" in "$exe"|"$exe.exe") continue ;; esac   # Git Bash: jq is jq.exe
         ln -s "$entry" "$shadow/${entry##*/}" 2>/dev/null || dropped=$((dropped + 1))
       done
-      [ "$dropped" -eq 0 ] || echo "curated_path_without_claude: $dropped entry(ies) of $d could not be linked into the curated PATH" >&2
+      [ "$dropped" -eq 0 ] || echo "curated_path_without_$exe: $dropped entry(ies) of $d could not be linked into the curated PATH" >&2
       newpath="${newpath:+$newpath:}$shadow"
       n=$((n + 1))
     else
@@ -181,6 +181,10 @@ curated_path_without_claude() {
     fi
   done
   export PATH="$newpath"
-  [ "$n" -gt 0 ] || echo "curated_path_without_claude: no claude on PATH (already absent — no-op)"
+  [ "$n" -gt 0 ] || echo "curated_path_without_$exe: no $exe on PATH (already absent — no-op)"
   return 0
 }
+
+# curated_path_without <exe> (#782): the same, for any executable (timeout, jq). The
+# cost note above applies per hidden dir: /usr/bin is the big one for timeout.
+curated_path_without_claude() { curated_path_without claude; }
