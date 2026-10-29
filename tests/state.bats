@@ -354,3 +354,12 @@ CFG
   specs="$(printf '%s\n' "${spec_keys[@]}" | LC_ALL=C sort)"
   [ "$keys" = "$specs" ]
 }
+
+@test "#782 cleanup resets ci_seen_head and ci_seen_at" {
+  state_init volk
+  state_set_many volk str ci_seen_head a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 str ci_seen_at 1761700000
+  [ "$(state_get volk ci_seen_head)" = a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 ]
+  state_cleanup_finish volk
+  [ "$(state_get volk ci_seen_head)" = "" ]
+  [ "$(state_get volk ci_seen_at)" = "" ]
+}
