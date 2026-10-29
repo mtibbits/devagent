@@ -39,6 +39,7 @@ EOF
   chmod +x "$BATS_TEST_TMPDIR/code/stub.sh"
   export DEVAGENT_CODE_BACKEND_DIR="$BATS_TEST_TMPDIR/code"
   for l in paths io config state active checklist log ci; do
+    # shellcheck source=/dev/null
     source "$PLUGIN_ROOT/scripts/lib/$l.sh"
   done
 }
