@@ -647,6 +647,17 @@ _ci_count() { grep -c '^CI ' <<<"$output" || true; }
   [[ "$output" != *"→ Run"* ]]
 }
 
+@test "#782 block: no checks inside the grace holds step 20 and marks nothing" {
+  _ci_window none block
+  local before; before="$(_ci_rows)"
+  DEVAGENT_CI_GRACE_SECS=600 run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  grep -qF "CI NONE: no checks reported on $CI_URL" <<<"$output"
+  grep -qxF "CI gate: holding step 20 (updatewbs) until CI finishes; nothing was marked" <<<"$output"
+  [ "$(_ci_rows)" = "$before" ]
+  [[ "$output" != *"→ Run"* ]]
+}
+
 @test "#782 block: green dispatches step 20 normally" {
   _ci_window green block
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto

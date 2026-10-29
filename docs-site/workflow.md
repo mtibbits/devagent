@@ -45,7 +45,7 @@ Rows in execution order.
 | 16 | `redmr` | Ship | Red-team adversarial review of the MR before shipping |
 | 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria |
 | 18 | `ship` | Ship | Push the branch and open the MR |
-| 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch |
+| 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR |
 | 20 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
 | 21 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
 | 22 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |

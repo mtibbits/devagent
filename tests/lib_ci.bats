@@ -91,15 +91,19 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   [ "$CI_LINE" = "CI NONE: no checks reported on $URL (head a1b2c3d)" ]
 }
 
-@test "#782 CI UNKNOWN line quotes the backend's last stderr line" {
-  CI_STUB_RC=1 CI_STUB_ERR=$'some gh noise\ngh exited 1' ci_read volk Issue-676 "$URL"
+@test "#782 CI UNKNOWN line quotes the backend's last stderr line; the lines above it go to stderr" {
+  CI_STUB_RC=1 CI_STUB_ERR=$'HTTP 401: Bad credentials\n\ngh exited 1' \
+    ci_read volk Issue-676 "$URL" 2>"$BATS_TEST_TMPDIR/err"
   [ "$CI_RESULT" = unknown ]
   [ "$CI_LINE" = "CI UNKNOWN: $URL: gh exited 1" ]
+  grep -qF 'ci: stub mr-checks: HTTP 401: Bad credentials' "$BATS_TEST_TMPDIR/err"
+  ! grep -qF 'gh exited 1' "$BATS_TEST_TMPDIR/err"
 }
 
 @test "#782 CI UNKNOWN with a silent backend names its exit" {
-  CI_STUB_RC=5 ci_read volk Issue-676 "$URL"
+  CI_STUB_RC=5 ci_read volk Issue-676 "$URL" 2>"$BATS_TEST_TMPDIR/err"
   [ "$CI_LINE" = "CI UNKNOWN: $URL: stub mr-checks exited 5" ]
+  [ ! -s "$BATS_TEST_TMPDIR/err" ]
 }
 
 @test "#782 CI UNKNOWN on a read past the bound" {

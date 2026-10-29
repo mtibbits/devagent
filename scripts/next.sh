@@ -227,7 +227,7 @@ main() {
       ci_verdict
       if [[ "$CI_VERDICT" == red ]]; then
         # checklist-stuck marks the CURRENT step, which here is the one about to run.
-        "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$issue_dir" "$CI_LINE" || true
+        bash "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$issue_dir" "$CI_LINE" || true
         [[ "$(checklist_step_state "$checklist" "$cur")" == "!" ]] \
           || die "CI gate: could not mark step $cur ($name) [!] for $CI_LINE"
         continue

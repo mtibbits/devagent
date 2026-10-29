@@ -1708,8 +1708,8 @@ issue-mrs    <repo> <id>...                                 → issue/mr lines (
 mr-checks    <mr-url>                                       → state/head/check lines (MAY)
 ```
 
-The first five verbs MUST be implemented; `issue-mrs` MAY be (#704). For
-each issue number `<id>` of `<repo>` it reports the MRs linked to the
+The first five verbs MUST be implemented; `issue-mrs` (#704) and `mr-checks`
+(#782) MAY be. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
 issue. An MR links an issue when its title or description carries a
 closing-keyword reference that resolves to it, whatever the MR's target
 branch: GitHub's keyword set (`close`, `closes`, `closed`, `fix`, `fixes`,

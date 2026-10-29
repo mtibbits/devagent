@@ -71,7 +71,7 @@ _ci_unknown() { CI_LINE="CI UNKNOWN: $1: $2"; }
 # A failed or unparseable read is `unknown`, never `none` or `green` (register
 # Issue-243): the gate holds on it.
 ci_read() {
-  local project="$1" issue="$2" url="$3" backend script out="" rc=0 errf last secs
+  local project="$1" issue="$2" url="$3" backend script out="" rc=0 errf errs last secs
   CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
   backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
   backend="${backend//$'\r'/}"
@@ -92,7 +92,11 @@ ci_read() {
     78|2) CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: $backend has no mr-checks" ;;
     124|137) _ci_unknown "$url" "timed out after ${secs}s" ;;
     *)
-      last="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r' | tail -n 1)"
+      errs="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r')"
+      last="${errs##*$'\n'}"
+      # The CI line carries only the bare last line; the lines above it are the backend's
+      # own diagnosis (gh's HTTP 401/404, a DNS failure), so they go to stderr, not away.
+      [[ "$errs" != *$'\n'* ]] || warn "ci: $backend mr-checks: ${errs%$'\n'*}"
       _ci_unknown "$url" "${last:-$backend mr-checks exited $rc}" ;;
   esac
   [ "$errf" = /dev/null ] || rm -f "$errf"
