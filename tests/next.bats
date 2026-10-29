@@ -518,7 +518,7 @@ EOC
   cp "$PLUGIN_ROOT/tests/fixtures/gh-stub" "$BATS_TEST_TMPDIR/bin/gh"
   chmod +x "$BATS_TEST_TMPDIR/bin/gh"
   export DEVAGENT_GH="$BATS_TEST_TMPDIR/bin/gh"
-  export GH_STUB_PR_CHECKS_FILE="$PLUGIN_ROOT/tests/fixtures/code-github/mr-checks-$fx.json"
+  _ci_fixture "$fx"
   export GH_STUB_PR_CHECKS_LOG="$BATS_TEST_TMPDIR/pr-checks.log"
 }
 

@@ -288,7 +288,7 @@ _ci_mta() {
 }
 
 _all_prs_tip() { ( cd "$SOURCE_DIR" && git rev-parse dev/all-prs ); }
-_state() { python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" "$1"; }
+_state() { _devagent_toml get "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" "$1"; }
 
 @test "#782 red marks step 19 [!] and STUCK carries the CI FAILED line" {
     _ci_mta red

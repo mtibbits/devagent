@@ -453,7 +453,6 @@ case "$verb" in
         issue_mrs "$@"
         ;;
     mr-checks)
-        # bad args exit 1, never 2: 2 means "no such verb" to lib/ci.sh (#782)
         [ $# -eq 1 ] || { echo "usage: code/github.sh mr-checks <mr-url>" >&2; exit 1; }
         mr_checks "$1"
         ;;

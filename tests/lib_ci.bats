@@ -156,9 +156,11 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   local at; at="$(state_issue_get volk Issue-676 ci_seen_at)"
   [[ "$at" =~ ^[0-9]+$ ]]
   [ "$at" -ge "$t0" ]
+  [ "$CI_SEEN_AT" = "$at" ]
   state_issue_set_many volk Issue-676 str ci_seen_at 1000
   ci_read volk Issue-676 "$URL"                       # same head: no rewrite
   [ "$(state_issue_get volk Issue-676 ci_seen_at)" = 1000 ]
+  [ "$CI_SEEN_AT" = 1000 ]
 }
 
 @test "#782 ci_report logs once per (result, head)" {
@@ -211,35 +213,44 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   local r want
   for r in red:red pending:hold unknown:hold green:proceed notchecked:proceed merged:proceed closed:proceed; do
     CI_RESULT="${r%%:*}"; want="${r#*:}"
-    ci_verdict volk Issue-676
+    ci_verdict
     [ "$CI_VERDICT" = "$want" ] || { echo "$r gave $CI_VERDICT"; false; }
   done
 }
 
 @test "#782 ci_verdict: none inside grace is hold, outside is proceed" {
-  CI_RESULT=none; CI_HEAD="$HEAD40"
-  state_issue_set_many volk Issue-676 str ci_seen_head "$HEAD40" str ci_seen_at "$(date +%s)"
-  DEVAGENT_CI_GRACE_SECS=600 ci_verdict volk Issue-676
+  CI_RESULT=none
+  CI_SEEN_AT="$(date +%s)"
+  DEVAGENT_CI_GRACE_SECS=600 ci_verdict
   [ "$CI_VERDICT" = hold ]
-  state_issue_set_many volk Issue-676 str ci_seen_at "$(( $(date +%s) - 1000 ))"
-  DEVAGENT_CI_GRACE_SECS=600 ci_verdict volk Issue-676
+  CI_SEEN_AT="$(( $(date +%s) - 1000 ))"
+  DEVAGENT_CI_GRACE_SECS=600 ci_verdict
   [ "$CI_VERDICT" = proceed ]
 }
 
-@test "#782 ci_verdict: none with an empty or garbage ci_seen_at holds" {
-  CI_RESULT=none
-  ci_verdict volk Issue-676
+@test "#782 ci_verdict: none with an empty or garbage CI_SEEN_AT holds" {
+  CI_RESULT=none; CI_SEEN_AT=""
+  ci_verdict
   [ "$CI_VERDICT" = hold ]
-  state_issue_set_many volk Issue-676 str ci_seen_at "12x"
-  ci_verdict volk Issue-676
+  CI_SEEN_AT="12x"
+  ci_verdict
+  [ "$CI_VERDICT" = hold ]
+  # ci_read hands a garbled stored clock through unchanged, so it holds too.
+  _out
+  state_issue_set_many volk Issue-676 str ci_seen_head "$HEAD40" str ci_seen_at "12x"
+  ci_read volk Issue-676 "$URL"
+  ci_verdict
   [ "$CI_VERDICT" = hold ]
 }
 
-@test "#782 ci_verdict: none judged by another head's ci_seen_at holds" {
-  # A failed head write must not let the new head inherit the old head's clock.
-  CI_RESULT=none; CI_HEAD="$HEAD40"
+@test "#782 ci_verdict: none after a failed head write holds, not judged by another head's clock" {
+  _out
   state_issue_set_many volk Issue-676 str ci_seen_head 0000000000000000000000000000000000000001 \
                                       str ci_seen_at "$(( $(date +%s) - 1000 ))"
-  DEVAGENT_CI_GRACE_SECS=600 ci_verdict volk Issue-676
+  state_ctx_set_many() { return 1; }
+  ci_read volk Issue-676 "$URL" 2>/dev/null
+  [ "$CI_RESULT" = none ]
+  [ -z "$CI_SEEN_AT" ]
+  DEVAGENT_CI_GRACE_SECS=600 ci_verdict
   [ "$CI_VERDICT" = hold ]
 }

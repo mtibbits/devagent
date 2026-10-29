@@ -34,7 +34,7 @@ the README's "Versioning & releases" section has the release procedure.
   - New optional code-backend verb `mr-checks` (GitHub: one `gh pr view --json
     headRefOid,state,statusCheckRollup`), the shared `bounded_call` in
     `scripts/lib/upstream.sh`, `scripts/lib/ci.sh`, per-issue state keys `ci_seen_head`
-    and `ci_seen_at`, and `checklist-stuck.sh --step <N>`.
+    and `ci_seen_at`, and `checklist-stuck.sh --step <N> <name>`.
 - **Added: `scripts/evidence-stamp.sh` writes the MR Evidence block's suite:, files: and platform: lines from the suite-count artifact (#894).**
   - `evidence-stamp.sh <project> <Issue-N>` rebuilds `suite:` from the newest
     `analysis/<date>-suite-count.txt` (with the full 40-character head SHA), counts

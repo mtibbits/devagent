@@ -72,21 +72,19 @@ fi
 # --- #782: requires green CI. After the auto-skips (a skip reads nothing) and before
 # the #26 preflight and the permission gate (a non-green read fetches nothing and
 # prompts nothing, so DA_YES cannot bypass it). No mr_url → no MR → no CI to gate (D2).
-# Red marks row 19 [!] by number (the current step may be an earlier row); hold exits 1
-# so next.sh's #558 advance guard never sees an unmarked exit 0. lib/ci.sh sources
-# upstream.sh, and the #26 block below sources it again: intentional and idempotent.
+# Red marks row 19 [!] (the current step may be an earlier row); hold exits 1 so
+# next.sh's #558 advance guard never sees an unmarked exit 0.
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
-ci_issue="$(active_resolve_issue "$project" "$issue_arg" 2>/dev/null || true)"
 mr_url="$(state_ctx_get "$project" mr_url "$issue_arg" 2>/dev/null || true)"
-if [ -n "$mr_url" ] && [ -n "$ci_issue" ]; then
+if [ -n "$mr_url" ]; then
     ci_gate_resolve "$project"
     if [ "$CI_GATE" != off ]; then
-        ci_read "$project" "$ci_issue" "$mr_url"
+        ci_read "$project" "$issue_arg" "$mr_url"
         ci_report "$issue_dir"
-        ci_verdict "$project" "$ci_issue"
+        ci_verdict
         case "$CI_VERDICT" in
             red)
-                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --step 19 "$issue_dir" "$CI_LINE" || true
+                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --step 19 mergetoall "$issue_dir" "$CI_LINE" || true
                 exit 1 ;;
             hold)
                 echo "mergetoall: not merging until CI is green; nothing was marked" >&2

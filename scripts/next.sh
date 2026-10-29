@@ -204,27 +204,27 @@ main() {
     # iteration that dispatches mergetoall the read is ITS (it gates on green), so
     # this one is skipped (D1). Nothing here waits for CI.
     local ci_now=0
-    if (( ci_done == 0 )); then
+    if (( ci_done == 0 )) && [[ "$name" != mergetoall ]]; then
       local _ship_st _ship_row _mr_url
       _ship_st="$(checklist_step_state_by_name "$checklist" ship 2>/dev/null || true)"
       if [[ "$_ship_st" == x ]]; then
+        _mr_url="$(state_ctx_get "$project" mr_url "$active" 2>/dev/null || true)"
+        [[ -n "$_mr_url" ]] || ci_done=1   # shipped with no MR recorded: no CI to read
         _ship_row="$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+ship([[:space:]]|$)" "$checklist" \
             | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | tail -n1)"
-        _mr_url="$(state_ctx_get "$project" mr_url "$active" 2>/dev/null || true)"
         if [[ -n "$_ship_row" && -n "$_mr_url" ]] && (( 10#$cur > 10#$_ship_row )); then
           ci_gate_resolve "$project"
-          if [[ "$CI_GATE" == off ]]; then
-            ci_done=1
-          elif [[ "$name" != mergetoall ]]; then
+          ci_done=1
+          if [[ "$CI_GATE" != off ]]; then
             ci_read "$project" "$active" "$_mr_url"
             ci_report "$issue_dir"
-            ci_done=1; ci_now=1
+            ci_now=1
           fi
         fi
       fi
     fi
     if (( ci_now == 1 )) && [[ "$CI_GATE" == block ]]; then
-      ci_verdict "$project" "$active"
+      ci_verdict
       if [[ "$CI_VERDICT" == red ]]; then
         # checklist-stuck marks the CURRENT step, which here is the one about to run.
         "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$issue_dir" "$CI_LINE" || true
