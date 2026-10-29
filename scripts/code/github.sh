@@ -208,6 +208,8 @@ issue_mrs() {
 #   head   <40-hex>
 #   pass|pending  <name>  <link>
 #   fail          <name>  <link>  <CONCLUSION>
+# <link> is `-` when the check has none: TAB is IFS whitespace, so an empty field
+# would collapse and shift <CONCLUSION> into it on the reader's side.
 # One `gh pr view --json headRefOid,state,statusCheckRollup` call, one jq filter.
 # Exit: 0 ok; 1 bad args, gh missing or failed, jq missing (never 2: 2 and 78
 # mean "no verb"); 5 an unrecognised record or non-JSON. On a non-zero exit the
@@ -241,7 +243,8 @@ def bucket:
     | map(max_by([(.__typename == "CheckRun" and .status != "COMPLETED"), (.startedAt // ""), ._i]))
     | sort_by(._i) | .[]
     | (bucket // error("unrecognised check \(.name // .context): \(.__typename) \(.status // .state) \(.conclusion // "")")) as $b
-    | $b + "\t" + ((.name // .context) | clean) + "\t" + ((.detailsUrl // .targetUrl // "") | clean)
+    | $b + "\t" + ((.name // .context) | clean) + "\t"
+      + ((.detailsUrl // .targetUrl // "") | clean | if . == "" then "-" else . end)
       + (if $b == "fail" then "\t" + ((.conclusion // .state // "") | clean) else "" end) )'
 
 mr_checks() {

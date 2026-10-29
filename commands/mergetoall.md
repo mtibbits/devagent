@@ -49,14 +49,15 @@ the MR's CI once (bounded at 20 s) after its auto-skips and before it
 fetches or prompts, prints one `CI …:` line, and acts on it:
 
 - **Green** (`CI PASSED`), or a backend with no `mr-checks` (`CI NOT
-  CHECKED`): merges as before.
+  CHECKED`): merges as before. A configured backend whose script is missing
+  reads `CI UNKNOWN` and holds.
 - **Pending or unknown** (`CI PENDING`, `CI UNKNOWN`): exits 1 with
   `mergetoall: not merging until CI is green; nothing was marked`. Row 19
   stays `[ ]`; run `/devagent:next` again once CI has finished. Do not
   poll for it.
-- **No checks** (`CI NONE`): holds the same way for 120 s after the forge
-  first reports a new head commit (checks may not have registered yet),
-  then merges.
+- **No checks** (`CI NONE`): holds the same way for 120 s after devagent
+  first sees a new head commit (checks may not have registered yet), then
+  merges.
 - **Red** (`CI FAILED`): marks row 19 `[!]` and writes `STUCK` with the
   `CI FAILED:` line. The remedy depends on the failure:
   - a test failure: push a fix to the issue branch;

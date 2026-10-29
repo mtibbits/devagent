@@ -114,14 +114,27 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   [ $((SECONDS - t0)) -lt 8 ]
 }
 
-@test "#782 CI NOT CHECKED line, and an unset backend reads (none)" {
-  rm "$BATS_TEST_TMPDIR/code/stub.sh"
-  ci_read volk Issue-676 "$URL"
-  [ "$CI_RESULT" = notchecked ]
-  [ "$CI_LINE" = "CI NOT CHECKED: stub has no mr-checks" ]
+@test "#782 an unset backend reads CI NOT CHECKED: (none)" {
   python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" project.volk.code_source.backend
   ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = notchecked ]
   [ "$CI_LINE" = "CI NOT CHECKED: (none) has no mr-checks" ]
+}
+
+@test "#782 a configured backend whose script is missing is UNKNOWN, not NOT CHECKED" {
+  rm "$BATS_TEST_TMPDIR/code/stub.sh"
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = unknown ]
+  [ "$CI_LINE" = "CI UNKNOWN: $URL: stub.sh not found or not executable" ]
+  ci_verdict
+  [ "$CI_VERDICT" = hold ]
+}
+
+@test "#782 a fail line whose link is - keeps its [CONCLUSION] bracket and prints no link" {
+  _out $'fail\tdeploy\t-\tCANCELLED' $'fail\tlint\t-\tFAILURE'
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = red ]
+  [ "$CI_LINE" = "CI FAILED: $URL (head a1b2c3d): deploy [CANCELLED]; lint" ]
 }
 
 @test "#782 ci_read: exit 78 and exit 2 are notchecked" {

@@ -812,8 +812,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
 - **`mergetoall` requires green.** Step 19 reads after its auto-skips and
   before its fetch and permission prompt: red marks row 19 `[!]` with the
   `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing
-  marked; `none` holds for `DEVAGENT_CI_GRACE_SECS` (120 s) after the forge
-  first reports a head (`ci_seen_head`/`ci_seen_at`), then proceeds. A
+  marked; `none` holds for `DEVAGENT_CI_GRACE_SECS` (120 s) after devagent
+  first sees that head (`ci_seen_head`/`ci_seen_at`), then proceeds. A
   proceed still exits 1, nothing marked, when the local issue branch is not
   the head CI checked (the squash takes the local branch). With no
   `mr_url` there is no read and no gate. When `next` dispatches step 19 the
@@ -1769,6 +1769,8 @@ pass     <name>  <link>
 pending  <name>  <link>
 fail     <name>  <link>  <CONCLUSION>
 ```
+
+`<link>` is `-` when the check has none (an empty TAB field would collapse).
 
 GitHub makes one `gh pr view --json headRefOid,state,statusCheckRollup`
 call. A not-yet-completed run counts as pending and outranks a completed

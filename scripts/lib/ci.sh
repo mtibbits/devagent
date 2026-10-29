@@ -76,8 +76,14 @@ ci_read() {
   backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
   backend="${backend//$'\r'/}"
   script="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$backend.sh"
-  if [ -z "$backend" ] || [ ! -x "$script" ]; then
-    CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: ${backend:-(none)} has no mr-checks"
+  if [ -z "$backend" ]; then
+    CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: (none) has no mr-checks"
+    return 0
+  fi
+  # A configured backend with no runnable script is a broken install, not a backend
+  # without the verb (that one answers 2/78 below): unknown holds the gate.
+  if [ ! -x "$script" ]; then
+    _ci_unknown "$url" "$backend.sh not found or not executable"
     return 0
   fi
   if ! command -v timeout >/dev/null 2>&1; then
@@ -114,7 +120,7 @@ ci_read() {
       fail)
         n=$((n + 1)); item="$name"
         case "$concl" in FAILURE|ERROR|'') ;; *) item+=" [$concl]" ;; esac
-        [ -z "$link" ] || item+=" $link"
+        case "$link" in ''|-) ;; *) item+=" $link" ;; esac   # `-` = no link (§9.2)
         fails+=("$item") ;;
       '') ;;
       *) bad=1 ;;

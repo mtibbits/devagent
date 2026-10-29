@@ -25,7 +25,7 @@ the README's "Versioning & releases" section has the release procedure.
     for CI, and the next skill tells the model never to re-run anything to wait.
   - `mergetoall` reads before it fetches or prompts: red marks row 19 `[!]` with the
     `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing marked; no
-    checks holds for 120 s after the forge first reports a head, then merges. It also
+    checks holds for 120 s after devagent first sees that head, then merges. It also
     holds when the local issue branch is not the MR head CI checked (an unpushed
     commit). `DA_YES=1` does not bypass it.
   - New config key `ci_gate`: `report` (default), `block` (a pending CI also holds every
@@ -34,7 +34,8 @@ the README's "Versioning & releases" section has the release procedure.
   - New optional code-backend verb `mr-checks` (GitHub: one `gh pr view --json
     headRefOid,state,statusCheckRollup`), the shared `bounded_call` in
     `scripts/lib/upstream.sh`, `scripts/lib/ci.sh`, per-issue state keys `ci_seen_head`
-    and `ci_seen_at`, and `checklist-stuck.sh --step <N> <name>`.
+    and `ci_seen_at`, and `checklist-stuck.sh --step <N> <name>` (mark row N, guarded
+    by its name, instead of the current step).
 - **Added: `scripts/evidence-stamp.sh` writes the MR Evidence block's suite:, files: and platform: lines from the suite-count artifact (#894).**
   - `evidence-stamp.sh <project> <Issue-N>` rebuilds `suite:` from the newest
     `analysis/<date>-suite-count.txt` (with the full 40-character head SHA), counts

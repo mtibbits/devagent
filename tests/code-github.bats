@@ -618,6 +618,14 @@ _bucket_of() {
     grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80' <<<"$output"
 }
 
+@test "#782 mr-checks emits - for an empty link, so the conclusion keeps its own field" {
+    _chk nolink
+    [ "$status" -eq 0 ]
+    grep -qxF $'fail\tsc-nolink\t-\tFAILURE' <<<"$output"
+    grep -qxF $'fail\tcr-nolink\t-\tCANCELLED' <<<"$output"
+    grep -qxF $'pass\tcr-pass-nolink\t-' <<<"$output"
+}
+
 @test "#782 mr-checks keeps the latest run per workflow+name (CANCELLED then SUCCESS → one pass)" {
     _chk superseded
     [ "$status" -eq 0 ]

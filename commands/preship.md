@@ -63,7 +63,7 @@ verbatim, substituting this step's per-step deltas:
 
 - ANY FAIL ⇒ run
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" "$ISSUE_DIR" "preship: <one-line failure list>"`
-  and STOP. NB: checklist-stuck.sh takes NO step-number argument — it marks the
+  and STOP. NB: without `--step`, checklist-stuck.sh marks the
   CURRENT step, which is preship when steps 0-16 are terminal (guaranteed under
   next.sh dispatch; on manual out-of-order invocation, verify the checklist's
   current step is 21 first). The `[!]` plus STUCK file is the halt next.sh

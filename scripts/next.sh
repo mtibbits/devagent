@@ -210,8 +210,10 @@ main() {
       if [[ "$_ship_st" == x ]]; then
         _mr_url="$(state_ctx_get "$project" mr_url "$active" 2>/dev/null || true)"
         [[ -n "$_mr_url" ]] || ci_done=1   # shipped with no MR recorded: no CI to read
-        _ship_row="$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+ship([[:space:]]|$)" "$checklist" \
-            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | tail -n1)"
+        # The name boundary matches _checklist_line_re's (a hand-annotated `18. ship:` row
+        # is still ship), and `|| true` keeps a no-match from exiting next under pipefail.
+        _ship_row="$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+ship([^A-Za-z0-9_-]|$)" "$checklist" \
+            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | tail -n1 || true)"
         if [[ -n "$_ship_row" && -n "$_mr_url" ]] && (( 10#$cur > 10#$_ship_row )); then
           ci_gate_resolve "$project"
           ci_done=1

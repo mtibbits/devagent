@@ -29,3 +29,5 @@ StatusContext entries use the shape recorded from kubernetes/kubernetes#143547
 - `twoworkflows`: two workflows' jobs both named `build`.
 - `buckets`: one entry per bucket-table row, plus a QUEUED CheckRun.
 - `unmapped`: a COMPLETED CheckRun whose conclusion is `STALE`.
+- `nolink`: a FAILURE StatusContext and two CheckRuns (CANCELLED, SUCCESS), all
+  with an empty link (emitted as `-`).

@@ -727,6 +727,17 @@ _ci_count() { grep -c '^CI ' <<<"$output" || true; }
   [ "$(grep -c '  ci: ' "$DEVDOC/Issue-676/checklist.md")" -eq 2 ]
 }
 
+@test "#782 a hand-annotated ship row (18. ship:) still prints the CI line" {
+  _ci_window green
+  local f="$DEVDOC/Issue-676/checklist.md" body
+  body="$(<"$f")"
+  printf '%s\n' "${body/- \[x\] 18. ship/- [x] 18. ship:}" > "$f"
+  grep -qxF -- '- [x] 18. ship:' "$f"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  grep -qF "CI PASSED: 3 checks on $CI_URL" <<<"$output"
+}
+
 @test "#782 a backend without mr-checks prints CI NOT CHECKED: custom has no mr-checks" {
   _ci_window red "" custom
   run "$PLUGIN_ROOT/scripts/next.sh" volk

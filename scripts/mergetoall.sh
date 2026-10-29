@@ -89,6 +89,8 @@ if [ -n "$mr_url" ]; then
             hold)
                 echo "mergetoall: not merging until CI is green; nothing was marked" >&2
                 exit 1 ;;
+            proceed) ;;
+            *) die "mergetoall: unexpected CI verdict '$CI_VERDICT'; nothing was marked" ;;
         esac
         # The squash below takes the LOCAL $branch; CI checked the forge's head. A local
         # commit not pushed (or a branch behind the forge) would merge code CI never ran.
