@@ -1,0 +1,26 @@
+{
+  "headRefOid": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-20T10:05:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/acme/volk/actions/runs/1/job/71",
+      "name": "build",
+      "startedAt": "2026-10-20T10:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-20T10:05:00Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/acme/volk/actions/runs/1/job/72",
+      "name": "build",
+      "startedAt": "2026-10-20T10:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "Release"
+    }
+  ]
+}

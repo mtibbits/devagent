@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+bats_require_minimum_version 1.5.0   # #782: run --separate-stderr for mr-checks' bare reason
 load 'helpers/common'
 
 setup() { devagent_test_setup; }
@@ -572,4 +573,123 @@ _query_shape_ok() {
     _issue_mrs
     [ "$status" -eq 1 ]
     [ "$(_gql_calls)" -eq 0 ]
+}
+
+# --- mr-checks (#782) --------------------------------------------------------
+# The gh-stub's `pr view` arm serves tests/fixtures/code-github/mr-checks-*.json
+# (provenance: mr-checks-README.md) to the real verb and its real jq filter.
+CHK_URL=https://github.com/acme/volk/pull/9
+
+_chk() {
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    export GH_STUB_PR_CHECKS_FILE="$GQL_FIX/mr-checks-$1.json"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$CHK_URL"
+}
+
+# _bucket_of <name>: the bucket column of the line naming <name>.
+_bucket_of() {
+    awk -F'\t' -v n="$1" '$2 == n { print $1 }' <<<"$output"
+}
+
+@test "#782 mr-checks turns the recorded #760 rollup into state merged, its head and 12 pass lines" {
+    _chk 760
+    [ "$status" -eq 0 ]
+    local head
+    head="$(jq -r .headRefOid "$GQL_FIX/mr-checks-760.json" | tr -d '\r')"
+    [ "${lines[0]}" = $'state\tmerged' ]
+    [ "${lines[1]}" = $'head\t'"$head" ]
+    [ "$(grep -c $'^pass\t' <<<"$output")" -eq 12 ]
+    [ "${#lines[@]}" -eq 14 ]
+}
+
+@test "#782 mr-checks maps every bucket-table row" {
+    _chk buckets
+    [ "$status" -eq 0 ]
+    local n want
+    for want in sc-success:pass sc-pending:pending sc-expected:pending sc-failure:fail sc-error:fail \
+                cr-success:pass cr-skipped:pass cr-neutral:pass cr-failure:fail cr-cancelled:fail \
+                cr-timed_out:fail cr-action_required:fail cr-startup_failure:fail cr-queued:pending; do
+        n="${want%%:*}"
+        [ "$(_bucket_of "$n")" = "${want#*:}" ] || { echo "bucket of $n: '$(_bucket_of "$n")'"; false; }
+    done
+    grep -qxF $'fail\tcr-action_required\thttps://github.com/acme/volk/actions/runs/1/job/86\tACTION_REQUIRED' <<<"$output"
+    grep -qxF $'fail\tsc-error\thttps://ci.example/5\tERROR' <<<"$output"
+    grep -qxF $'pass\tcr-success\thttps://github.com/acme/volk/actions/runs/1/job/80' <<<"$output"
+}
+
+@test "#782 mr-checks keeps the latest run per workflow+name (CANCELLED then SUCCESS → one pass)" {
+    _chk superseded
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 3 ]
+    [ "${lines[2]}" = $'pass\tlint\thttps://github.com/acme/volk/actions/runs/1/job/52' ]
+}
+
+@test "#782 a queued re-run outranks its completed FAILURE" {
+    _chk requeued
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 3 ]
+    [ "${lines[2]}" = $'pending\tlint\thttps://github.com/acme/volk/actions/runs/1/job/62' ]
+}
+
+@test "#782 mr-checks keeps two workflows' same-named jobs apart" {
+    _chk twoworkflows
+    [ "$status" -eq 0 ]
+    [ "$(grep -c $'\tbuild\t' <<<"$output")" -eq 2 ]
+}
+
+@test "#782 mr-checks on an empty rollup prints only state and head" {
+    _chk none
+    [ "$status" -eq 0 ]
+    [ "$output" = $'state\topen\nhead\ta1b2c3d4e5f60718293a4b5c6d7e8f9012345678' ]
+}
+
+@test "#782 mr-checks maps a gh failure to exit 1 with reason 'gh exited 1', and gh's 2 also to 1" {
+    GH_STUB_PR_CHECKS_RC=1 _chk none
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "gh exited 1" ]
+    GH_STUB_PR_CHECKS_RC=2 _chk none
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "gh exited 2" ]
+}
+
+@test "#782 mr-checks exits 5 on an unmapped conclusion (STALE)" {
+    _chk unmapped
+    [ "$status" -eq 5 ]
+    [[ "${stderr_lines[-1]}" == "unrecognised rollup: "* ]]
+    [[ "$output" != *$'\tlint\t'* ]]
+}
+
+@test "#782 mr-checks exits 5 on a non-JSON body" {
+    printf 'not json\n' > "$DEVAGENT_TMP/bad.json"
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/bad.json" \
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 5 ]
+    [[ "${stderr_lines[-1]}" == "unrecognised rollup: "* ]]
+}
+
+@test "#782 mr-checks without jq exits 1 'jq not on PATH'" {
+    load 'lib/doctor-harness'
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    export GH_STUB_PR_CHECKS_FILE="$GQL_FIX/mr-checks-none.json"
+    curated_path_without jq
+    if command -v jq; then false; fi
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "jq not on PATH" ]
+}
+
+@test "#782 mr-checks with no url exits 1, never 2" {
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks
+    [ "$status" -eq 1 ]
+}
+
+@test "#782 custom.sh and gitlab.sh answer mr-checks with 2 (no verb)" {
+    run "$DEVAGENT_ROOT/scripts/code/custom.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 2 ]
+    run "$DEVAGENT_ROOT/scripts/code/gitlab.sh" mr-checks "$CHK_URL"
+    [ "$status" -eq 2 ]
 }

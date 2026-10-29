@@ -33,6 +33,13 @@
 #                         stub answers with every label and the caller matches.
 #   GH_STUB_LABEL_LIST_FAIL=1  `gh label list` fails as gh does on HTTP 401
 #   GH_STUB_EDIT_FAIL=<code>   `gh issue edit` fails with `HTTP <code>` (#710)
+#   GH_STUB_PR_CHECKS_FILE  `gh pr view --json headRefOid,state,statusCheckRollup`
+#                         payload file (#782; required when that call is made)
+#   GH_STUB_PR_CHECKS_LOG  if set, that call appends `pr-checks` here, so a
+#                         "no read" leg can assert the file is absent
+#   GH_STUB_PR_CHECKS_SLEEP=<n>  that call execs `sleep <n>` (a hung forge)
+#   GH_STUB_PR_CHECKS_RC=<rc>    that call prints `stub: forced failure` to
+#                         stderr and exits <rc> (0/unset = serve the file)
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -208,6 +215,18 @@ case "$sub $sub2" in
 
   "pr view")
     _has_flag --json -- "$@" || _assert_fail "pr view: missing --json"
+    # code/github.sh mr-checks (#782): the raw rollup; the backend runs its own jq.
+    if _has_flag headRefOid,state,statusCheckRollup -- "$@"; then
+      [ -z "${GH_STUB_PR_CHECKS_LOG:-}" ] || echo pr-checks >> "$GH_STUB_PR_CHECKS_LOG"
+      [ -z "${GH_STUB_PR_CHECKS_SLEEP:-}" ] || exec sleep "$GH_STUB_PR_CHECKS_SLEEP"
+      if [ "${GH_STUB_PR_CHECKS_RC:-0}" != 0 ]; then
+        echo "stub: forced failure" >&2
+        exit "$GH_STUB_PR_CHECKS_RC"
+      fi
+      [ -n "${GH_STUB_PR_CHECKS_FILE:-}" ] || _assert_fail "pr view: GH_STUB_PR_CHECKS_FILE unset"
+      cat "$GH_STUB_PR_CHECKS_FILE"
+      exit 0
+    fi
     # gh runs --jq internally; the stub returns the already-filtered output.
     if _has_flag state -- "$@"; then
       echo "open"

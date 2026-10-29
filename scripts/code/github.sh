@@ -5,7 +5,8 @@
 # pre-validation — branch-exists (#41) and merged-pr-head (#154). Backends may omit
 # either; ship.sh treats a non-1 exit as "can't determine" and leaves the parent
 # base unchanged. These two verbs are header-comment-only (not in spec §9.2).
-# Plus the optional §9.2 verb issue-mrs (#704), read by `wbs update`.
+# Plus the optional §9.2 verbs issue-mrs (#704), read by `wbs update`, and
+# mr-checks (#782), read by lib/ci.sh (next and mergetoall).
 # All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT so tests can stub.
 set -euo pipefail
 
@@ -30,6 +31,7 @@ verbs:
   branch-exists <repo> <branch>
   merged-pr-head <repo> <branch>
   issue-mrs    <owner/name> <num>...
+  mr-checks    <mr-url>
 EOF
     exit 2
 }
@@ -197,6 +199,71 @@ issue_mrs() {
     fi
     # Never exit 2 (python's own code for an unopenable script): 2 means "no verb".
     python3 "$(dirname "${BASH_SOURCE[0]}")/../lib/mr-link.py" emit github "$canon" < "$tmp/norm" || exit 5
+}
+
+# --- mr-checks (#782) --------------------------------------------------------
+# Optional §9.2 verb: the PR's state, its head SHA as the forge reports it, and
+# one line per de-duplicated check, in rollup order (TAB-separated):
+#   state  open|merged|closed
+#   head   <40-hex>
+#   pass|pending  <name>  <link>
+#   fail          <name>  <link>  <CONCLUSION>
+# One `gh pr view --json headRefOid,state,statusCheckRollup` call, one jq filter.
+# Exit: 0 ok; 1 bad args, gh missing or failed, jq missing (never 2: 2 and 78
+# mean "no verb"); 5 an unrecognised record or non-JSON. On a non-zero exit the
+# LAST stderr line is a bare reason (no prefix): lib/ci.sh quotes it.
+# The bucket table is the decision. STALE is deliberately unmapped: it fails
+# closed (exit 5, CI UNKNOWN). Dedup key = workflowName + name/context, keeping a
+# not-yet-COMPLETED run first, then the latest startedAt, then rollup order. Known
+# limit: two non-Actions apps posting same-named checks (empty workflowName)
+# collapse into one.
+# shellcheck disable=SC2016  # jq, not shell
+GH_MR_CHECKS_JQ='def clean: tostring | gsub("[\t\r\n]"; " ");
+def bucket:
+  if .__typename == "StatusContext" then
+    {"SUCCESS":"pass","PENDING":"pending","EXPECTED":"pending",
+     "FAILURE":"fail","ERROR":"fail"}[.state // ""]
+  elif .__typename == "CheckRun" then
+    if .status != "COMPLETED" then "pending"
+    else {"SUCCESS":"pass","SKIPPED":"pass","NEUTRAL":"pass",
+          "FAILURE":"fail","CANCELLED":"fail","TIMED_OUT":"fail",
+          "ACTION_REQUIRED":"fail","STARTUP_FAILURE":"fail"}[.conclusion // ""]
+    end
+  else null end;
+({"OPEN":"open","MERGED":"merged","CLOSED":"closed"}[.state // ""]
+   // error("state \(.state)")) as $st
+| ((.headRefOid // "") | if test("^[0-9a-f]{40}$") then . else error("head \(.)") end) as $head
+| "state\t\($st)", "head\t\($head)",
+  ( .statusCheckRollup // [] | to_entries
+    | map(.value + {_i: .key,
+                    _k: [(.value.workflowName // ""), (.value.name // .value.context // "")]})
+    | group_by(._k)
+    | map(max_by([(.__typename == "CheckRun" and .status != "COMPLETED"), (.startedAt // ""), ._i]))
+    | sort_by(._i) | .[]
+    | (bucket // error("unrecognised check \(.name // .context): \(.__typename) \(.status // .state) \(.conclusion // "")")) as $b
+    | $b + "\t" + ((.name // .context) | clean) + "\t" + ((.detailsUrl // .targetUrl // "") | clean)
+      + (if $b == "fail" then "\t" + ((.conclusion // .state // "") | clean) else "" end) )'
+
+mr_checks() {
+    local url="$1" rc=0
+    bc_have_cli "$DEVAGENT_GH" || { echo "gh not on PATH" >&2; exit 1; }
+    bc_have_cli jq || { echo "jq not on PATH" >&2; exit 1; }
+    local tmp; tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064  # expand $tmp now
+    trap "rm -rf '$tmp'" EXIT
+    GH_PROMPT_DISABLED=1 "$DEVAGENT_GH" pr view "$url" --json headRefOid,state,statusCheckRollup         </dev/null >"$tmp/out" 2>"$tmp/err" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        cat "$tmp/err" >&2
+        echo "gh exited $rc" >&2      # gh's own 2 ("cancelled") must not read as "no verb"
+        exit 1
+    fi
+    rc=0
+    jq -r "$GH_MR_CHECKS_JQ" <"$tmp/out" >"$tmp/lines" 2>"$tmp/jqerr" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "unrecognised rollup: $(grep -v '^[[:space:]]*$' "$tmp/jqerr" | tail -n 1 | tr -d '\r')" >&2
+        exit 5
+    fi
+    tr -d '\r' <"$tmp/lines"
 }
 
 verb="${1:-}"; shift || usage
@@ -384,6 +451,11 @@ case "$verb" in
         # bad args exit 1, never 2: 2 means "no such verb" to wbs update (#704)
         [ $# -ge 1 ] || { echo "usage: code/github.sh issue-mrs <owner/name> <num>..." >&2; exit 1; }
         issue_mrs "$@"
+        ;;
+    mr-checks)
+        # bad args exit 1, never 2: 2 means "no such verb" to lib/ci.sh (#782)
+        [ $# -eq 1 ] || { echo "usage: code/github.sh mr-checks <mr-url>" >&2; exit 1; }
+        mr_checks "$1"
         ;;
     *) usage ;;
 esac
