@@ -699,7 +699,7 @@ _ci_count() { grep -c '^CI ' <<<"$output" || true; }
 
 @test "#782 no mr_url: no CI line and no read" {
   _ci_window red
-  sed -i '/^mr_url/d' "$DA_HOME/state/volk.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/state/volk.toml" mr_url
   run "$PLUGIN_ROOT/scripts/next.sh" volk
   [ "$status" -eq 0 ]
   [ "$(_ci_count)" -eq 0 ]

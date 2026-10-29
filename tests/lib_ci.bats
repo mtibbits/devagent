@@ -114,7 +114,7 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   ci_read volk Issue-676 "$URL"
   [ "$CI_RESULT" = notchecked ]
   [ "$CI_LINE" = "CI NOT CHECKED: stub has no mr-checks" ]
-  sed -i '/code_source/,$d' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" project.volk.code_source.backend
   ci_read volk Issue-676 "$URL"
   [ "$CI_LINE" = "CI NOT CHECKED: (none) has no mr-checks" ]
 }
@@ -189,10 +189,10 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   printf '\n[defaults]\nci_gate = "block"\n' >> "$DA_HOME/config.toml"
   ci_gate_resolve volk
   [ "$CI_GATE" = block ]
-  sed -i 's|^devdoc_dir = .*|&\nci_gate = "off"|' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.ci_gate '"off"'
   ci_gate_resolve volk
   [ "$CI_GATE" = off ]
-  sed -i 's|^ci_gate = "off"|ci_gate = "maybe"|' "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.ci_gate '"maybe"'
   run ci_gate_resolve volk
   [ "$status" -eq 1 ]
   [[ "$output" == *"ci_gate must be report, block or off (got 'maybe')"* ]]
@@ -217,8 +217,8 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
 }
 
 @test "#782 ci_verdict: none inside grace is hold, outside is proceed" {
-  CI_RESULT=none
-  state_issue_set_many volk Issue-676 str ci_seen_at "$(date +%s)"
+  CI_RESULT=none; CI_HEAD="$HEAD40"
+  state_issue_set_many volk Issue-676 str ci_seen_head "$HEAD40" str ci_seen_at "$(date +%s)"
   DEVAGENT_CI_GRACE_SECS=600 ci_verdict volk Issue-676
   [ "$CI_VERDICT" = hold ]
   state_issue_set_many volk Issue-676 str ci_seen_at "$(( $(date +%s) - 1000 ))"
@@ -232,5 +232,14 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   [ "$CI_VERDICT" = hold ]
   state_issue_set_many volk Issue-676 str ci_seen_at "12x"
   ci_verdict volk Issue-676
+  [ "$CI_VERDICT" = hold ]
+}
+
+@test "#782 ci_verdict: none judged by another head's ci_seen_at holds" {
+  # A failed head write must not let the new head inherit the old head's clock.
+  CI_RESULT=none; CI_HEAD="$HEAD40"
+  state_issue_set_many volk Issue-676 str ci_seen_head 0000000000000000000000000000000000000001 \
+                                      str ci_seen_at "$(( $(date +%s) - 1000 ))"
+  DEVAGENT_CI_GRACE_SECS=600 ci_verdict volk Issue-676
   [ "$CI_VERDICT" = hold ]
 }

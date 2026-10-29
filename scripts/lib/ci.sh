@@ -157,14 +157,18 @@ ci_report() {
 # ci_seen_at holds, and so does an unrecognised result (fail closed).
 # shellcheck disable=SC2034  # CI_VERDICT is the return channel — read by next.sh/mergetoall.sh
 ci_verdict() {
-  local project="$1" issue="$2" at
+  local project="$1" issue="$2" at seen
   case "${CI_RESULT:-}" in
     red) CI_VERDICT=red ;;
     pending|unknown) CI_VERDICT=hold ;;
     none)
       _ci_secs DEVAGENT_CI_GRACE_SECS 120
+      # The clock must be THIS head's: a failed _ci_record_head write (it only warns)
+      # would otherwise judge a new head by the previous head's old ci_seen_at.
       at="$(state_issue_get "$project" "$issue" ci_seen_at 2>/dev/null || true)"
-      if [[ "$at" =~ ^[0-9]+$ ]] && (( $(date +%s) - 10#$at >= _CI_SECS )); then
+      seen="$(state_issue_get "$project" "$issue" ci_seen_head 2>/dev/null || true)"
+      if [[ -n "${CI_HEAD:-}" && "$seen" == "$CI_HEAD" && "$at" =~ ^[0-9]+$ ]] \
+         && (( $(date +%s) - 10#$at >= _CI_SECS )); then
         CI_VERDICT=proceed
       else
         CI_VERDICT=hold
