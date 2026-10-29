@@ -43,6 +43,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/ci.sh"
 
 # phase_breaks <project> — the step names a continued chain stops before, one
 # space-separated line. An empty value is a legal "no breaks".
@@ -149,6 +151,9 @@ main() {
   local checklist="$issue_dir/checklist.md"
   [[ -f "$checklist" ]] || die "checklist.md missing at $checklist"
 
+  # #782: at most one CI read per invocation (see the window block below).
+  local ci_done=0
+
   # Dispatch loop. Each iteration re-reads the checklist so script steps
   # that mark themselves complete cause the next iteration to advance.
   while :; do
@@ -189,6 +194,48 @@ main() {
     if [[ "$cur_state" == "?" ]]; then
       warn "Step $cur ($name) is [?] blocked-on-external. Consider /devagent:park."
       return 0
+    fi
+
+    # #782: the MR's CI status. Window: ship is [x] in the active block, the current
+    # step is past ship's row, and an mr_url is recorded. One bounded read per
+    # invocation (ci_done), printed before any PHASE BREAK. Report mode (default)
+    # never marks, halts or changes the exit status; `ci_gate = "block"` marks a red
+    # step [!] and holds a pending/unknown one (exit 0, no dispatch). On the
+    # iteration that dispatches mergetoall the read is ITS (it gates on green), so
+    # this one is skipped (D1). Nothing here waits for CI.
+    local ci_now=0
+    if (( ci_done == 0 )); then
+      local _ship_st _ship_row _mr_url
+      _ship_st="$(checklist_step_state_by_name "$checklist" ship 2>/dev/null || true)"
+      if [[ "$_ship_st" == x ]]; then
+        _ship_row="$(grep -E "^- \[.\][[:space:]]+[0-9]+\.[[:space:]]+ship([[:space:]]|$)" "$checklist" \
+            | sed -E 's/^- \[.\][[:space:]]+([0-9]+)\..*/\1/' | tail -n1)"
+        _mr_url="$(state_ctx_get "$project" mr_url "$active" 2>/dev/null || true)"
+        if [[ -n "$_ship_row" && -n "$_mr_url" ]] && (( 10#$cur > 10#$_ship_row )); then
+          ci_gate_resolve "$project"
+          if [[ "$CI_GATE" == off ]]; then
+            ci_done=1
+          elif [[ "$name" != mergetoall ]]; then
+            ci_read "$project" "$active" "$_mr_url"
+            ci_report "$issue_dir"
+            ci_done=1; ci_now=1
+          fi
+        fi
+      fi
+    fi
+    if (( ci_now == 1 )) && [[ "$CI_GATE" == block ]]; then
+      ci_verdict "$project" "$active"
+      if [[ "$CI_VERDICT" == red ]]; then
+        # checklist-stuck marks the CURRENT step, which here is the one about to run.
+        "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$issue_dir" "$CI_LINE" || true
+        [[ "$(checklist_step_state "$checklist" "$cur")" == "!" ]] \
+          || die "CI gate: could not mark step $cur ($name) [!] for $CI_LINE"
+        continue
+      elif [[ "$CI_VERDICT" == hold ]]; then
+        echo "CI gate: holding step $cur ($name) until CI finishes; nothing was marked"
+        echo "  Resume once CI has finished: run /clear, then /devagent:next $project$resume_flags"
+        return 0
+      fi
     fi
 
     if (( chained == 1 )) && [[ "$breaks" == *" $name "* ]]; then
@@ -256,6 +303,12 @@ main() {
         DEVAGENT_CHAIN_ACTIVE=1 NOTE="$note" "$script_path" "$project"
       else
         NOTE="$note" "$script_path" "$project"
+      fi
+      # #782 (D1): a mergetoall that merged ([x]) passed its own CI gate, which read
+      # and printed the line; an auto-skip ([-]) read nothing, so the next step reads.
+      if [[ "$name" == mergetoall ]] && (( ci_done == 0 )) \
+         && [[ "$(checklist_step_state_by_name "$checklist" mergetoall 2>/dev/null || true)" == x ]]; then
+        ci_done=1
       fi
       # If chaining and we've reached the target, stop.
       if [[ -n "$through" && "$name" == "$through" ]]; then
