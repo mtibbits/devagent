@@ -97,7 +97,8 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   [ "$CI_RESULT" = unknown ]
   [ "$CI_LINE" = "CI UNKNOWN: $URL: gh exited 1" ]
   grep -qF 'ci: stub mr-checks: HTTP 401: Bad credentials' "$BATS_TEST_TMPDIR/err"
-  ! grep -qF 'gh exited 1' "$BATS_TEST_TMPDIR/err"
+  run grep -qF 'gh exited 1' "$BATS_TEST_TMPDIR/err"
+  [ "$status" -ne 0 ]
 }
 
 @test "#782 CI UNKNOWN with a silent backend names its exit" {
