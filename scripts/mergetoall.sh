@@ -69,6 +69,32 @@ if [ -z "$all_prs" ]; then
     exit 0
 fi
 
+# --- #782: requires green CI. After the auto-skips (a skip reads nothing) and before
+# the #26 preflight and the permission gate (a non-green read fetches nothing and
+# prompts nothing, so DA_YES cannot bypass it). No mr_url → no MR → no CI to gate (D2).
+# Red marks row 19 [!] by number (the current step may be an earlier row); hold exits 1
+# so next.sh's #558 advance guard never sees an unmarked exit 0. lib/ci.sh sources
+# upstream.sh, and the #26 block below sources it again: intentional and idempotent.
+. "$DEVAGENT_ROOT/scripts/lib/ci.sh"
+ci_issue="$(active_resolve_issue "$project" "$issue_arg" 2>/dev/null || true)"
+mr_url="$(state_ctx_get "$project" mr_url "$issue_arg" 2>/dev/null || true)"
+if [ -n "$mr_url" ] && [ -n "$ci_issue" ]; then
+    ci_gate_resolve "$project"
+    if [ "$CI_GATE" != off ]; then
+        ci_read "$project" "$ci_issue" "$mr_url"
+        ci_report "$issue_dir"
+        ci_verdict "$project" "$ci_issue"
+        case "$CI_VERDICT" in
+            red)
+                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --step 19 "$issue_dir" "$CI_LINE" || true
+                exit 1 ;;
+            hold)
+                echo "mergetoall: not merging until CI is green; nothing was marked" >&2
+                exit 1 ;;
+        esac
+    fi
+fi
+
 # --- #26 Defect B: a stale all_prs base bundles the upstream delta into the
 # squash commit. FF is impossible (squash-divergent), so detect and refuse. ---
 . "$DEVAGENT_ROOT/scripts/lib/upstream.sh"

@@ -6,8 +6,15 @@ source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 
+# --step <N> (#782): mark row N instead of the current step — mergetoall's CI gate
+# marks its own row 19 while an earlier row may still be the first unchecked one.
+step=""
+if [[ "${1:-}" == --step ]]; then
+  [[ "${2:-}" =~ ^[0-9]+$ ]] || { echo "checklist-stuck.sh: --step needs a step number" >&2; exit 2; }
+  step="$2"; shift 2
+fi
 [[ $# -ge 2 ]] || {
-  echo "usage: checklist-stuck.sh <issue-dir> <reason...>" >&2
+  echo "usage: checklist-stuck.sh [--step <N>] <issue-dir> <reason...>" >&2
   exit 2
 }
 issue_dir="$1"; shift
@@ -15,9 +22,13 @@ reason="$*"
 file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 
-cur="$(checklist_current_step "$file")"
-[[ "$cur" != "done" ]] || die "checklist is already complete; nothing to mark stuck"
-name="$(checklist_step_name "$file" "$cur")"
+if [[ -n "$step" ]]; then
+  cur="$step"
+else
+  cur="$(checklist_current_step "$file")"
+  [[ "$cur" != "done" ]] || die "checklist is already complete; nothing to mark stuck"
+fi
+name="$(checklist_step_name "$file" "$cur")" || die "no step $cur in $file"
 
 # Find last good step number for the STUCK file.
 last_good=""
