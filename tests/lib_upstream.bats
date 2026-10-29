@@ -283,3 +283,22 @@ _argv660() {   # a git that records its argv ELEMENT-delimited (register Issue-5
     [ "$(git -C "$REPO" rev-parse refs/remotes/origin/main)" = "$old" ]   # not written
     [ ! -e "$REPO/.git/FETCH_HEAD" ]
 }
+
+@test "#782 bounded_call cuts a hung command off at the bound and returns 124" {
+    printf '#!/usr/bin/env bash\nexec sleep 30\n' > "$DEVAGENT_TMP/hang782"
+    chmod +x "$DEVAGENT_TMP/hang782"
+    local t0=$SECONDS rc=0
+    bounded_call 1 "$DEVAGENT_TMP/hang782" || rc=$?
+    [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]
+    [ $((SECONDS - t0)) -lt 8 ]                                      # the stub would hang 30 s
+}
+
+@test "#782 bounded_call passes stdout, stderr and rc through" {
+    printf '#!/usr/bin/env bash\necho o\necho e >&2\nexit 3\n' > "$DEVAGENT_TMP/talk782"
+    chmod +x "$DEVAGENT_TMP/talk782"
+    local rc=0
+    bounded_call 5 "$DEVAGENT_TMP/talk782" >"$DEVAGENT_TMP/o" 2>"$DEVAGENT_TMP/e" || rc=$?
+    [ "$rc" -eq 3 ]
+    [ "$(cat "$DEVAGENT_TMP/o")" = "o" ]
+    [ "$(cat "$DEVAGENT_TMP/e")" = "e" ]
+}
