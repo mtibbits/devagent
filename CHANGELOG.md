@@ -25,8 +25,9 @@ the README's "Versioning & releases" section has the release procedure.
     for CI, and the next skill tells the model never to re-run anything to wait.
   - `mergetoall` reads before it fetches or prompts: red marks row 19 `[!]` with the
     `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing marked; no
-    checks holds for 120 s after the forge first reports a head, then merges.
-    `DA_YES=1` does not bypass it.
+    checks holds for 120 s after the forge first reports a head, then merges. It also
+    holds when the local issue branch is not the MR head CI checked (an unpushed
+    commit). `DA_YES=1` does not bypass it.
   - New config key `ci_gate`: `report` (default), `block` (a pending CI also holds every
     post-ship step with exit 0 and nothing marked; red marks it `[!]`) or `off` (no
     read). Any other value stops `next`.

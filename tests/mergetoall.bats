@@ -268,12 +268,21 @@ EOF
 # The real code/github.sh runs through the gh-stub's `pr view` arm into lib/ci.sh.
 # Existing legs record no mr_url, so they take D2 (no read, no gate).
 CI_URL=https://github.com/acme/testproj/pull/77
-CI_HEAD=a1b2c3d4e5f60718293a4b5c6d7e8f9012345678
 
+# _ci_serve <fixture>: serve mr-checks-<fixture>.json with headRefOid = $CI_HEAD.
+_ci_serve() {
+    jq --arg h "$CI_HEAD" '.headRefOid = $h' \
+        "$BATS_TEST_DIRNAME/fixtures/code-github/mr-checks-$1.json" > "$DEVAGENT_TMP/mr-checks.json"
+    export GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/mr-checks.json"
+}
+
+# _ci_mta <fixture>: an MR recorded whose forge head is the local issue branch tip, as
+# after a push (mergetoall merges only the head CI checked).
 _ci_mta() {
     cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
     chmod +x "$DEVAGENT_STUB_BIN/gh"
-    export GH_STUB_PR_CHECKS_FILE="$BATS_TEST_DIRNAME/fixtures/code-github/mr-checks-$1.json"
+    CI_HEAD="$( cd "$SOURCE_DIR" && git rev-parse feat/1-x )"
+    _ci_serve "$1"
     export GH_STUB_PR_CHECKS_LOG="$DEVAGENT_TMP/pr-checks.log"
     devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" mr_url "$CI_URL"
 }
@@ -351,9 +360,23 @@ _state() { python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$HOME/.claude/deva
     _ci_mta green
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head a1b2c3d)"* ]]
+    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head ${CI_HEAD:0:7})"* ]]
     ( cd "$SOURCE_DIR" && git log --oneline dev/all-prs ) | grep -q "feat: x"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+}
+
+@test "#782 green on the MR head with an unpushed local commit holds, nothing marked" {
+    _ci_mta green
+    ( cd "$SOURCE_DIR" && echo nit >> a.txt \
+      && git -c user.email=t@example.com -c user.name=Test commit -qam "nit, not pushed" )
+    local tip; tip="$(_all_prs_tip)"
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"is not the MR head CI checked (${CI_HEAD:0:7})"* ]]
+    [[ "$output" == *"nothing was marked"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
+    [ ! -e "$DEVDOC_DIR/Issue-1/STUCK" ]
+    [ "$(_all_prs_tip)" = "$tip" ]
 }
 
 @test "#782 ci_gate = \"off\" merges past a red rollup with no read" {
@@ -372,12 +395,14 @@ _state() { python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" get "$HOME/.claude/deva
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '!' mergetoall
     run "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$DEVDOC_DIR/Issue-1"
     [ "$status" -eq 0 ]
-    jq '.headRefOid = "b1b2c3d4e5f60718293a4b5c6d7e8f9012345678"' \
-        "$BATS_TEST_DIRNAME/fixtures/code-github/mr-checks-green.json" > "$DEVAGENT_TMP/green-new.json"
-    export GH_STUB_PR_CHECKS_FILE="$DEVAGENT_TMP/green-new.json"
+    # The remedy: a fix pushed to the issue branch is the new head, and it went green.
+    ( cd "$SOURCE_DIR" && echo fix >> a.txt \
+      && git -c user.email=t@example.com -c user.name=Test commit -qam "fix the test" )
+    CI_HEAD="$( cd "$SOURCE_DIR" && git rev-parse feat/1-x )"
+    _ci_serve green
     run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head b1b2c3d)"* ]]
+    [[ "$output" == *"CI PASSED: 3 checks on $CI_URL (head ${CI_HEAD:0:7})"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
 }
 

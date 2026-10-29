@@ -65,6 +65,12 @@ fetches or prompts, prints one `CI …:` line, and acts on it:
     forge.
 
   Either way, then run `/devagent:unstuck` and `/devagent:next`.
+- **Local branch is not the MR head** (a commit not pushed yet, or a
+  branch behind a push made elsewhere): exits 1 with `mergetoall: local
+  <branch> (<sha7>) is not the MR head CI checked (<sha7>)`, nothing
+  marked. Push or pull the branch, let CI run on it, and re-run. The
+  squash takes the local branch, so this keeps unchecked code out of
+  `all_prs_branch`.
 
 `DA_YES=1` does not bypass this: the CI check runs before the permission
 gate. The only way past a red or pending CI is the reviewed de-scope

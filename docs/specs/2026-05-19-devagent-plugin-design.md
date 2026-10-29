@@ -813,7 +813,9 @@ After ship, the MR's CI status is reported, never waited for (#782):
   before its fetch and permission prompt: red marks row 19 `[!]` with the
   `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing
   marked; `none` holds for `DEVAGENT_CI_GRACE_SECS` (120 s) after the forge
-  first reports a head (`ci_seen_head`/`ci_seen_at`), then proceeds. With no
+  first reports a head (`ci_seen_head`/`ci_seen_at`), then proceeds. A
+  proceed still exits 1, nothing marked, when the local issue branch is not
+  the head CI checked (the squash takes the local branch). With no
   `mr_url` there is no read and no gate. When `next` dispatches step 19 the
   read is mergetoall's own, so the invocation still prints one line.
 - **Block mode.** `ci_gate = "block"` gates every post-ship step the same

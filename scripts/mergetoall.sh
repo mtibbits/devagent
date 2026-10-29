@@ -92,6 +92,15 @@ if [ -n "$mr_url" ] && [ -n "$ci_issue" ]; then
                 echo "mergetoall: not merging until CI is green; nothing was marked" >&2
                 exit 1 ;;
         esac
+        # The squash below takes the LOCAL $branch; CI checked the forge's head. A local
+        # commit not pushed (or a branch behind the forge) would merge code CI never ran.
+        if [ -n "$CI_HEAD" ]; then
+            local_tip="$("$DEVAGENT_GIT" -C "$source_dir" rev-parse --verify --quiet "$branch^{commit}" 2>/dev/null || true)"
+            if [ "$local_tip" != "$CI_HEAD" ]; then
+                echo "mergetoall: local $branch (${local_tip:0:7}) is not the MR head CI checked (${CI_HEAD:0:7}); push or pull it so CI runs on what merges, then re-run; nothing was marked" >&2
+                exit 1
+            fi
+        fi
     fi
 fi
 
