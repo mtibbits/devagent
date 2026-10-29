@@ -32,6 +32,7 @@ _ci_secs() {
 # ci_gate_resolve <project>: sets CI_GATE from `[project.<name>] ci_gate`, else
 # `[defaults] ci_gate`, else `report`. Any other value dies (Issue-780: an opt-out key
 # must not be misspelled into silence).
+# shellcheck disable=SC2034  # CI_GATE is the return channel — read by next.sh/mergetoall.sh
 ci_gate_resolve() {
   local v
   if v="$(config_get_project_field "$1" ci_gate 2>/dev/null)"; then :
@@ -154,6 +155,7 @@ ci_report() {
 # unknown, or none inside DEVAGENT_CI_GRACE_SECS, default 120 s, of the head's
 # ci_seen_at: checks may not have registered yet); else proceed. An empty or garbled
 # ci_seen_at holds, and so does an unrecognised result (fail closed).
+# shellcheck disable=SC2034  # CI_VERDICT is the return channel — read by next.sh/mergetoall.sh
 ci_verdict() {
   local project="$1" issue="$2" at
   case "${CI_RESULT:-}" in
