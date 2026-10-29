@@ -71,3 +71,10 @@ C="$REPO/commands"
     [ "$status" -ne 0 ] || { echo "$f.sh still shows positional [project]" >&2; return 1; }
   done
 }
+
+# --- #782: the next skill tells the model not to wait on CI ---------------------
+@test "#782 next skill carries the no-polling rule" {
+  F="$REPO/skills/next/SKILL.md"
+  grep -qF 'is information, not an instruction' "$F"
+  grep -qF 'never re-run `/devagent:next`, `gh pr checks` or `gh pr view`' "$F"
+}

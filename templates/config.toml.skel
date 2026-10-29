@@ -25,6 +25,11 @@ ship_as_draft = false
 # start, so a fresh session resumes without /devagent:catchup. Pairs with
 # phase_breaks. Default off; must be a LITERALLY BARE line, like git_guard.
 # session_rehydrate = true
+# ci_gate (#782): what the MR's CI status does after ship. "report" (default):
+# every next call prints one CI line, and mergetoall requires green. "block": a
+# pending CI also holds the post-ship step (nothing marked) and a red one marks it
+# [!]. "off": no CI read at all. A [project.<name>] ci_gate wins over this value.
+# ci_gate = "report"
 
 # Shared WORKFLOW pothole register (#611): one absolute path, read by every
 # project as a union with the plugin seed and the project's own

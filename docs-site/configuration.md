@@ -17,6 +17,12 @@ phase_breaks = "implement quality updatewbs"   # the default: an --auto chain st
                                                # starts in a fresh session; "" disables
 # print the active issue and next step at session start (a bare line: no comment on it)
 session_rehydrate = true
+ci_gate = "report"   # the default. After ship, next prints one CI line; mergetoall
+                     # requires green. "block" also holds a pending step (exit 0,
+                     # nothing marked) and marks a red one [!]; "off" reads nothing.
+                     # Read only as [defaults] ci_gate or [project.<name>] ci_gate:
+                     # any other spelling or table is ignored, so the gate stays
+                     # in report mode. Any other value stops next with an error.
 
 [project.myproj]
 source_dir       = "/home/you/src/myproj"      # the code checkout
@@ -155,8 +161,8 @@ reads to build a new `WBS.md` from the tracker history, and what
 `wbs init --merge` reads to add the issues an existing one lacks; without
 it those commands stop. See spec §9.1.
 
-Every **code backend** implements five verbs and may implement a sixth,
-`issue-mrs`:
+Every **code backend** implements five verbs and may implement two more,
+`issue-mrs` and `mr-checks`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -166,6 +172,7 @@ Every **code backend** implements five verbs and may implement a sixth,
 | `mr-comments` | `<mr-url>` | markdown to stdout |
 | `merge-mr` | `<mr-url> [--method squash\|merge\|rebase]` | exit 0 |
 | `issue-mrs` | `<repo> <id>...` | `issue` and `mr` lines per issue (optional) |
+| `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check (optional) |
 
 `issue-mrs` is what `wbs update` reads to show linked-MR state on open
 issue leaves (`[~]` with `mr: open`, `draft` or `merged`). An MR links an
@@ -174,6 +181,13 @@ issue when its title or description carries a closing-keyword reference
 `Related: #N` mention does not. GitHub costs one GraphQL call per 50 open
 leaves, GitLab one call per open leaf. A backend without it exits 78 (or
 2, unknown verb), and `wbs update` then shows no MR state. See spec §9.2.
+
+`mr-checks` is what `/devagent:next` reads after ship to print one `CI …:`
+line (`CI PASSED`, `CI PENDING`, `CI FAILED`, `CI NONE`, `CI UNKNOWN`),
+and what `mergetoall` reads to refuse a red or pending branch. It is one
+bounded call (20 s) per `next` invocation from ship until cleanup; nothing
+waits for CI. GitHub implements it; a backend without it prints `CI NOT
+CHECKED` and gates nothing. See spec §7.2 and §9.2.
 
 Exit-code conventions across all backends:
 

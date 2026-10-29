@@ -16,6 +16,24 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: after ship, `/devagent:next` prints the MR's CI status, and `mergetoall` requires green CI (#782).**
+  - From the call after ship until cleanup, every `next` invocation makes one bounded
+    read (20 s) and prints one line before any `PHASE BREAK`: `CI PASSED`, `CI PENDING`,
+    `CI FAILED` (each failed check with its link, plus `[CONCLUSION]` when it is not a
+    plain FAILURE), `CI NONE`, `CI UNKNOWN: <url>: <reason>` or `CI NOT CHECKED`. A
+    merged MR prints nothing. Each new result writes one `ci:` log line. Nothing waits
+    for CI, and the next skill tells the model never to re-run anything to wait.
+  - `mergetoall` reads before it fetches or prompts: red marks row 19 `[!]` with the
+    `CI FAILED:` line in `STUCK`; pending or unknown exits 1 with nothing marked; no
+    checks holds for 120 s after the forge first reports a head, then merges.
+    `DA_YES=1` does not bypass it.
+  - New config key `ci_gate`: `report` (default), `block` (a pending CI also holds every
+    post-ship step with exit 0 and nothing marked; red marks it `[!]`) or `off` (no
+    read). Any other value stops `next`.
+  - New optional code-backend verb `mr-checks` (GitHub: one `gh pr view --json
+    headRefOid,state,statusCheckRollup`), the shared `bounded_call` in
+    `scripts/lib/upstream.sh`, `scripts/lib/ci.sh`, per-issue state keys `ci_seen_head`
+    and `ci_seen_at`, and `checklist-stuck.sh --step <N>`.
 - **Added: `scripts/evidence-stamp.sh` writes the MR Evidence block's suite:, files: and platform: lines from the suite-count artifact (#894).**
   - `evidence-stamp.sh <project> <Issue-N>` rebuilds `suite:` from the newest
     `analysis/<date>-suite-count.txt` (with the full 40-character head SHA), counts

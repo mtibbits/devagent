@@ -42,6 +42,35 @@ Honors `permissions.merge_to_all_prs` (falls back to the legacy
 chaining layer suppresses the inter-step prompt but does **not**
 suppress permission gates (spec §7.2).
 
+## Requires green CI (#782)
+
+When the issue has a recorded MR (`mr_url`, set by ship), the script reads
+the MR's CI once (bounded at 20 s) after its auto-skips and before it
+fetches or prompts, prints one `CI …:` line, and acts on it:
+
+- **Green** (`CI PASSED`), or a backend with no `mr-checks` (`CI NOT
+  CHECKED`): merges as before.
+- **Pending or unknown** (`CI PENDING`, `CI UNKNOWN`): exits 1 with
+  `mergetoall: not merging until CI is green; nothing was marked`. Row 19
+  stays `[ ]`; run `/devagent:next` again once CI has finished. Do not
+  poll for it.
+- **No checks** (`CI NONE`): holds the same way for 120 s after the forge
+  first reports a new head commit (checks may not have registered yet),
+  then merges.
+- **Red** (`CI FAILED`): marks row 19 `[!]` and writes `STUCK` with the
+  `CI FAILED:` line. The remedy depends on the failure:
+  - a test failure: push a fix to the issue branch;
+  - a check shown with `[ACTION_REQUIRED]`, `[STARTUP_FAILURE]`,
+    `[CANCELLED]` or `[TIMED_OUT]`: approve or re-run the workflow on the
+    forge.
+
+  Either way, then run `/devagent:unstuck` and `/devagent:next`.
+
+`DA_YES=1` does not bypass this: the CI check runs before the permission
+gate. The only way past a red or pending CI is the reviewed de-scope
+`ci_gate = "off"` (per project, or under `[defaults]`), which skips the
+read entirely.
+
 ## If the permission gate prompts
 
 If `merge_to_all_prs = false` (or unset) and you (the model) are
