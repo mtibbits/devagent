@@ -1,0 +1,104 @@
+{
+  "autoMergeRequest": null,
+  "baseRefName": "main",
+  "closingIssuesReferences": [
+    {
+      "id": "I_1",
+      "number": 676,
+      "repository": {
+        "id": "R_1",
+        "name": "volk",
+        "owner": {
+          "id": "U_1",
+          "login": "acme"
+        }
+      },
+      "url": "https://github.com/acme/volk/issues/676"
+    },
+    {
+      "id": "I_2",
+      "number": 12,
+      "repository": {
+        "id": "R_2",
+        "name": "tracker",
+        "owner": {
+          "id": "U_2",
+          "login": "Other-Org"
+        }
+      },
+      "url": "https://github.com/Other-Org/tracker/issues/12"
+    }
+  ],
+  "commits": [
+    {
+      "authoredDate": "2026-10-20T09:00:00Z",
+      "authors": [
+        {
+          "email": "alice@example.com",
+          "id": "U_a",
+          "login": "alice",
+          "name": "Alice"
+        }
+      ],
+      "committedDate": "2026-10-20T09:00:00Z",
+      "messageBody": "Body of the first commit.\n\nSigned-off-by: Alice <alice@example.com>\nCo-Authored-By: Bot <bot@example.com>",
+      "messageHeadline": "first",
+      "oid": "1111111111111111111111111111111111111111"
+    },
+    {
+      "authoredDate": "2026-10-20T09:30:00Z",
+      "authors": [
+        {
+          "email": "bob@example.com",
+          "id": "U_b",
+          "login": "bob",
+          "name": "Bob"
+        }
+      ],
+      "committedDate": "2026-10-20T09:30:00Z",
+      "messageBody": "Reviewed-by: Carol <carol@example.com>\nSigned-off-by: Alice <alice@example.com>   \nsigned-off-by: Bob <bob@example.com>",
+      "messageHeadline": "second",
+      "oid": "2222222222222222222222222222222222222222"
+    }
+  ],
+  "headRefOid": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  "isDraft": false,
+  "mergeCommit": null,
+  "mergeStateStatus": "CLEAN",
+  "mergeable": "MERGEABLE",
+  "number": 9,
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-20T10:05:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/acme/volk/actions/runs/1/job/31",
+      "name": "bats shard 1 of 4",
+      "startedAt": "2026-10-20T10:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-20T10:05:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/acme/volk/actions/runs/1/job/32",
+      "name": "lint",
+      "startedAt": "2026-10-20T10:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-20T10:05:00Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/acme/volk/actions/runs/1/job/33",
+      "name": "Analyze (actions)",
+      "startedAt": "2026-10-20T10:00:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CodeQL"
+    }
+  ],
+  "title": "Fix the\tvolk thing"
+}

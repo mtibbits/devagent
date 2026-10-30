@@ -3,7 +3,9 @@
 # code backend's `mr-checks` verb, turned into one result, one `CI …:` line, one
 # deduplicated `ci:` log line, and a gate verdict. next.sh prints the line on every
 # invocation in the ship-to-merge window; mergetoall.sh requires green; `ci_gate =
-# "block"` gates every post-ship step. Nothing here waits for CI.
+# "block"` gates every post-ship step. Nothing here waits for CI. ci_read_view
+# (#885) reads the superset verb `mr-view` through the same fetch and parser for
+# the merge step (mergemr.sh).
 #
 # Every ci_* function is a SETTER-GLOBAL: call it bare, never as $(...) (register
 # Issue-282; ci_gate_resolve's die must exit the caller, Issue-120). Expects
@@ -64,52 +66,83 @@ _ci_record_head() {
   fi
 }
 
-_ci_unknown() { CI_LINE="CI UNKNOWN: $1: $2"; }
+_ci_unknown() { CI_LINE="CI UNKNOWN: $1: $2"; _CI_REASON="$2"; }
 
-# ci_read <project> <issue> <mr_url>: sets CI_RESULT (red|pending|green|none|merged|
-# closed|notchecked|unknown), CI_LINE, CI_HEAD and CI_SEEN_AT. Never dies; returns 0.
-# A failed or unparseable read is `unknown`, never `none` or `green` (register
-# Issue-243): the gate holds on it.
-ci_read() {
-  local project="$1" issue="$2" url="$3" backend script out="" rc=0 errf errs last secs
-  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
+# _ci_fetch <project> <url> <verb> <knob> <default>: one bounded read of the code
+# backend's <verb> on <url>, bounded by the <knob> seconds (_ci_secs, <default>).
+# Sets _CI_OUT to its stdout and returns 0; on any failure sets CI_RESULT/CI_LINE
+# (notchecked or unknown) and _CI_REASON (the bare reason) and returns 1.
+_ci_fetch() {
+  local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script rc=0 errf errs last secs
+  _CI_OUT=""; _CI_REASON=""
   backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
   backend="${backend//$'\r'/}"
   script="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$backend.sh"
   if [ -z "$backend" ]; then
-    CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: (none) has no mr-checks"
-    return 0
+    CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: (none) has no $verb"; _CI_REASON="(none) has no $verb"
+    return 1
   fi
   # A configured backend with no runnable script is a broken install, not a backend
   # without the verb (that one answers 2/78 below): unknown holds the gate.
   if [ ! -x "$script" ]; then
     _ci_unknown "$url" "$backend.sh not found or not executable"
-    return 0
+    return 1
   fi
   if ! command -v timeout >/dev/null 2>&1; then
     _ci_unknown "$url" "timeout(1) not on PATH"
-    return 0
+    return 1
   fi
-  _ci_secs DEVAGENT_CI_READ_SECS 20; secs="$_CI_SECS"
+  _ci_secs "$knob" "$def"; secs="$_CI_SECS"
   errf="$(mktemp 2>/dev/null)" || errf=/dev/null
-  out="$(bounded_call "$secs" "$script" mr-checks "$url" </dev/null 2>"$errf")" || rc=$?
+  _CI_OUT="$(bounded_call "$secs" "$script" "$verb" "$url" </dev/null 2>"$errf")" || rc=$?
   case "$rc" in
     0) ;;
-    78|2) CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: $backend has no mr-checks" ;;
+    78|2) CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: $backend has no $verb"; _CI_REASON="$backend has no $verb" ;;
     124|137) _ci_unknown "$url" "timed out after ${secs}s" ;;
     *)
       errs="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r')"
       last="${errs##*$'\n'}"
       # The CI line carries only the bare last line; the lines above it are the backend's
       # own diagnosis (gh's HTTP 401/404, a DNS failure), so they go to stderr, not away.
-      [[ "$errs" != *$'\n'* ]] || warn "ci: $backend mr-checks: ${errs%$'\n'*}"
-      _ci_unknown "$url" "${last:-$backend mr-checks exited $rc}" ;;
+      [[ "$errs" != *$'\n'* ]] || warn "ci: $backend $verb: ${errs%$'\n'*}"
+      _ci_unknown "$url" "${last:-$backend $verb exited $rc}" ;;
   esac
   [ "$errf" = /dev/null ] || rm -f "$errf"
-  [ "$rc" -eq 0 ] || return 0
+  [ "$rc" -eq 0 ] || return 1
+  return 0
+}
 
-  local state="" head="" b name link concl item n=0 bad=0
+# _ci_view_kind <kind> <field> <field2>: stores one mr-view singleton in its MV_*
+# global; returns 1 when the value is not one the grammar allows.
+_ci_view_kind() {
+  local k="$1" v="$2" v2="$3"
+  case "$k" in
+    draft)       [[ "$v" =~ ^(true|false)$ ]] && MV_DRAFT="$v" ;;
+    base)        [ -n "$v" ] && [ "$v" != - ] && MV_BASE="$v" ;;
+    mergeable)   [[ "$v" =~ ^(MERGEABLE|CONFLICTING|UNKNOWN)$ ]] && MV_MERGEABLE="$v" ;;
+    mergestate)  [[ "$v" =~ ^[A-Z_]+$ ]] && MV_MERGESTATE="$v" ;;
+    automerge)   [[ "$v" =~ ^(on|off)$ ]] && MV_AUTOMERGE="$v" ;;
+    queue)       [[ "$v" =~ ^(true|false)$ ]] && MV_QUEUE="$v" ;;
+    number)      [[ "$v" =~ ^[1-9][0-9]{0,8}$ ]] && MV_NUMBER="$v" ;;
+    title)       [ -n "$v" ] && MV_TITLE="$v" ;;
+    mergecommit) [[ "$v" =~ ^([0-9a-f]{40}|-)$ ]] && MV_MERGECOMMIT="$v" ;;
+    commits)     [[ "$v" =~ ^(0|[1-9][0-9]{0,8})$ ]] && [[ "$v2" =~ ^(0|[1-9][0-9]{0,8})$ ]] \
+                   && MV_COMMITS_TOTAL="$v" && MV_COMMITS_READ="$v2" ;;
+    *) false ;;
+  esac
+}
+
+# _ci_parse <project> <issue> <url> <verb> <mode>: classifies _CI_OUT. Mode `strict`
+# (mr-checks) accepts only state/head/pass/pending/fail; mode `view` (mr-view) also
+# the singleton kinds of _ci_view_kind plus closes/trailer, into the MV_* globals.
+# Any other kind is bad: CI UNKNOWN "unrecognised <verb> output". In view mode a
+# missing, invalid or repeated singleton leaves the CI result standing but sets
+# MV_ERR (MV_OK stays 0).
+_ci_parse() {
+  local project="$1" issue="$2" url="$3" verb="$4" mode="$5" out="$_CI_OUT"
+  local state="" head="" b name link concl item n=0 bad=0 mv_bad="" k
   local -a pend=() fails=()
+  local -A seen=()
   out="${out//$'\r'/}"
   while IFS=$'\t' read -r b name link concl; do
     case "$b" in
@@ -123,13 +156,31 @@ ci_read() {
         case "$link" in ''|-) ;; *) item+=" $link" ;; esac   # `-` = no link (§9.2)
         fails+=("$item") ;;
       '') ;;
+      draft|base|mergeable|mergestate|automerge|queue|number|title|mergecommit|commits)
+        if [ "$mode" != view ]; then bad=1
+        elif [ -n "${seen[$b]:-}" ]; then mv_bad="${mv_bad:-$b repeated}"
+        else
+          seen[$b]=1
+          _ci_view_kind "$b" "$name" "$link" || mv_bad="${mv_bad:-$b invalid}"
+        fi ;;
+      closes)
+        if [ "$mode" != view ]; then bad=1
+        elif [[ "$name" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] && [[ "$link" =~ ^[1-9][0-9]*$ ]]; then
+          MV_CLOSES+=("$name#$link")
+        else mv_bad="${mv_bad:-closes invalid}"
+        fi ;;
+      trailer)
+        if [ "$mode" != view ]; then bad=1
+        elif [ -n "$name" ]; then MV_TRAILERS+=("$name")
+        else mv_bad="${mv_bad:-trailer invalid}"
+        fi ;;
       *) bad=1 ;;
     esac
   done <<<"$out"
   case "$state" in open|merged|closed) ;; *) bad=1 ;; esac
   [[ "$head" =~ ^[0-9a-f]{40}$ ]] || bad=1
   if [ "$bad" -eq 1 ]; then
-    _ci_unknown "$url" "unrecognised mr-checks output"
+    _ci_unknown "$url" "unrecognised $verb output"
     return 0
   fi
   CI_HEAD="$head"
@@ -148,6 +199,60 @@ ci_read() {
   else
     CI_RESULT=none; CI_LINE="CI NONE: no checks reported on $at"
   fi
+  [ "$mode" = view ] || return 0
+  for k in draft base mergeable mergestate automerge queue number title mergecommit commits; do
+    [ -n "${seen[$k]:-}" ] || mv_bad="${mv_bad:-$k missing}"
+  done
+  if [ -z "$mv_bad" ]; then MV_OK=1; else MV_ERR="unrecognised $verb output: $mv_bad"; fi
+  return 0
+}
+
+# ci_read <project> <issue> <mr_url>: sets CI_RESULT (red|pending|green|none|merged|
+# closed|notchecked|unknown), CI_LINE, CI_HEAD and CI_SEEN_AT from the backend's
+# mr-checks, bounded by DEVAGENT_CI_READ_SECS (default 20). Never dies; returns 0.
+# A failed or unparseable read is `unknown`, never `none` or `green` (register
+# Issue-243): the gate holds on it.
+ci_read() {
+  local project="$1" issue="$2" url="$3"
+  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
+  _ci_fetch "$project" "$url" mr-checks DEVAGENT_CI_READ_SECS 20 || return 0
+  _ci_parse "$project" "$issue" "$url" mr-checks strict
+}
+
+# ci_read_view <project> <issue> <mr_url> (#885): the merge step's one read of the
+# PR. Reads the backend's mr-view (mr-checks' lines plus the merge facts), bounded
+# by DEVAGENT_MERGEMR_READ_SECS (default 20), and sets ci_read's CI_* globals from
+# the same lines, plus:
+#   MV_OK             1 only when every singleton kind is present and valid, else 0
+#   MV_ERR            why not, a bare reason (the backend's last stderr line, `timed
+#                     out after Ns`, `<backend> has no mr-view`, `unrecognised
+#                     mr-view output[: <kind> missing|invalid|repeated]`); empty
+#                     when MV_OK=1
+#   MV_DRAFT MV_QUEUE true|false
+#   MV_BASE MV_TITLE  text
+#   MV_MERGEABLE      MERGEABLE|CONFLICTING|UNKNOWN
+#   MV_MERGESTATE     GitHub's mergeStateStatus (CLEAN, BLOCKED, ...)
+#   MV_AUTOMERGE      on|off
+#   MV_NUMBER         the PR number
+#   MV_MERGECOMMIT    <40-hex> or -
+#   MV_CLOSES         array of owner/name#n, one per closing reference
+#   MV_TRAILERS       array of distinct Signed-off-by:/Co-authored-by: lines
+#   MV_COMMITS_TOTAL MV_COMMITS_READ   the PR's commit count; the commits read
+# Every MV_* is reset first, so a failed read never shows an earlier read's values.
+# Never dies; returns 0. A setter-global: call it bare.
+# shellcheck disable=SC2034  # MV_* are the return channel — read by mergemr.sh
+ci_read_view() {
+  local project="$1" issue="$2" url="$3"
+  CI_RESULT=unknown; CI_LINE=""; CI_HEAD=""; CI_SEEN_AT=""
+  MV_OK=0; MV_ERR=""; MV_DRAFT=""; MV_BASE=""; MV_MERGEABLE=""; MV_MERGESTATE=""
+  MV_AUTOMERGE=""; MV_QUEUE=""; MV_NUMBER=""; MV_TITLE=""; MV_MERGECOMMIT=""
+  MV_CLOSES=(); MV_TRAILERS=(); MV_COMMITS_TOTAL=""; MV_COMMITS_READ=""
+  if ! _ci_fetch "$project" "$url" mr-view DEVAGENT_MERGEMR_READ_SECS 20; then
+    MV_ERR="$_CI_REASON"
+    return 0
+  fi
+  _ci_parse "$project" "$issue" "$url" mr-view view
+  [ "$CI_RESULT" != unknown ] || MV_ERR="${MV_ERR:-$_CI_REASON}"
   return 0
 }
 

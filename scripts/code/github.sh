@@ -5,8 +5,10 @@
 # pre-validation — branch-exists (#41) and merged-pr-head (#154). Backends may omit
 # either; ship.sh treats a non-1 exit as "can't determine" and leaves the parent
 # base unchanged. These two verbs are header-comment-only (not in spec §9.2).
-# Plus the optional §9.2 verbs issue-mrs (#704), read by `wbs update`, and
-# mr-checks (#782), read by lib/ci.sh (next and mergetoall).
+# Plus the optional §9.2 verbs issue-mrs (#704), read by `wbs update`,
+# mr-checks (#782), read by lib/ci.sh (next and mergetoall), and mr-view (#885),
+# read by lib/ci.sh's ci_read_view (mergemr). merge-mr also takes
+# --match-head-commit/--subject/--body, or --disable-auto alone (#885).
 # All gh/git calls go through $DEVAGENT_GH / $DEVAGENT_GIT so tests can stub.
 set -euo pipefail
 
@@ -27,11 +29,14 @@ verbs:
   create-mr    <repo> <title> <body-file> <head> <base> [--draft]
   mr-state     <mr-url>
   mr-comments  <mr-url>
-  merge-mr     <mr-url> [--method squash|merge|rebase]
+  merge-mr     <mr-url> [--method squash|merge|rebase] [--match-head-commit <40-hex>]
+               [--subject <s>] [--body <b>]
+  merge-mr     <mr-url> --disable-auto
   branch-exists <repo> <branch>
   merged-pr-head <repo> <branch>
   issue-mrs    <owner/name> <num>...
   mr-checks    <mr-url>
+  mr-view      <mr-url>
 EOF
     exit 2
 }
@@ -269,6 +274,106 @@ mr_checks() {
     tr -d '\r' <"$tmp/lines"
 }
 
+# --- mr-view (#885) ----------------------------------------------------------
+# Optional §9.2 verb: the mr-checks lines unchanged, then what the merge step
+# (scripts/mergemr.sh, through lib/ci.sh ci_read_view) decides on, one kind per
+# line, TAB-separated; every field `clean`ed and an empty one printed `-`:
+#   draft       true|false
+#   base        <branch>
+#   mergeable   MERGEABLE|CONFLICTING|UNKNOWN
+#   mergestate  <mergeStateStatus>
+#   automerge   on|off
+#   queue       true|false
+#   number      <n>
+#   title       <text>
+#   mergecommit <40-hex>|-
+#   closes      <owner/name>  <n>   one per closingIssuesReferences entry
+#   trailer     <line>   a Signed-off-by:/Co-authored-by: line (key in any case)
+#                        of the commit messages, distinct by exact line after
+#                        trimming trailing whitespace, in commit order
+#   commits     <totalCount>  <read>
+# Two calls: `gh pr view --json <GH_MR_VIEW_FIELDS>`, then one GraphQL query for
+# isInMergeQueue and commits{totalCount}, which gh pr view does not offer
+# (research U2: two reads, no composite). Owner, name and number come from the
+# URL, as mr-comments parses it, and travel as query variables.
+# Exit: 0 ok; 1 bad args, a URL that is not a PR's, gh missing or failed, jq
+# missing; 5 an unrecognised record or non-JSON. Never 2 (2 and 78 mean "no
+# verb"). On a non-zero exit the LAST stderr line is a bare reason: gh's own last
+# line when gh failed.
+GH_MR_VIEW_FIELDS=headRefOid,state,statusCheckRollup,isDraft,baseRefName,mergeable,mergeStateStatus,autoMergeRequest,closingIssuesReferences,commits,title,number,mergeCommit
+# shellcheck disable=SC2016  # GraphQL, not shell
+GH_MR_VIEW_QUERY='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){isInMergeQueue commits{totalCount}}}}'
+# shellcheck disable=SC2016  # jq, not shell
+GH_MR_VIEW_JQ='def clean: tostring | gsub("[\t\r\n]"; " ");
+def field: if . == null then "-" else (clean | if . == "" then "-" else . end) end;
+($g[0].data.repository.pullRequest // error("GraphQL reply has no pullRequest")) as $p
+| (if ($p.isInMergeQueue | type) == "boolean" then $p.isInMergeQueue
+   else error("isInMergeQueue \($p.isInMergeQueue)") end) as $queue
+| (if ($p.commits.totalCount | type) == "number" then $p.commits.totalCount
+   else error("commits.totalCount \($p.commits.totalCount)") end) as $total
+| (if (.isDraft | type) == "boolean" then .isDraft else error("isDraft \(.isDraft)") end) as $draft
+| (if (.number | type) == "number" then .number else error("number \(.number)") end) as $num
+| ((.commits // []) | if type == "array" then . else error("commits \(type)") end) as $commits
+| "draft\t\($draft)",
+  "base\t\(.baseRefName | field)",
+  "mergeable\t\(.mergeable | field)",
+  "mergestate\t\(.mergeStateStatus | field)",
+  "automerge\t\(if .autoMergeRequest == null then "off" else "on" end)",
+  "queue\t\($queue)",
+  "number\t\($num)",
+  "title\t\(.title | field)",
+  "mergecommit\t\(.mergeCommit.oid | field)",
+  ( (.closingIssuesReferences // [])[]
+    | "closes\t\(.repository.owner.login | field)/\(.repository.name | field)\t\(.number | field)" ),
+  ( [ $commits[] | (.messageBody // "") | split("\n")[] | sub("\\s+$"; "")
+      | select(test("^(signed-off-by|co-authored-by):"; "i")) ]
+    | reduce .[] as $l ([]; if any(.[]; . == $l) then . else . + [$l] end)
+    | .[] | "trailer\t\(field)" ),
+  "commits\t\($total)\t\($commits | length)"'
+
+# _mv_fail <errfile> <rc>: gh's non-blank stderr (its last line last), else
+# `gh exited <rc>`; exit 1 (gh's own 2, "cancelled", must not read as "no verb").
+_mv_fail() {
+    local errs
+    errs="$( { grep -v '^[[:space:]]*$' "$1" 2>/dev/null || true; } | tr -d '\r')"
+    if [ -n "$errs" ]; then printf '%s\n' "$errs" >&2; else echo "gh exited $2" >&2; fi
+    exit 1
+}
+
+mr_view() {
+    local raw="$1" url rest host owner repo kind num _x scheme rc=0
+    url="${raw%%#*}"; url="${url%%\?*}"
+    rest="${url#*://}"; host="${rest%%/*}"
+    IFS=/ read -r owner repo kind num _x <<<"${rest#*/}"
+    if [[ "$rest" != */* ]] || [ "$kind" != pull ] || ! [[ "$num" =~ ^[1-9][0-9]{0,9}$ ]] \
+       || [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$host" ]; then
+        echo "mr-view: not a PR URL: $raw" >&2
+        exit 1
+    fi
+    scheme=https; [[ "$url" == *://* ]] && scheme="${url%%://*}"
+    url="$scheme://$host/$owner/$repo/pull/$num"
+    bc_have_cli "$DEVAGENT_GH" || { echo "gh not on PATH" >&2; exit 1; }
+    bc_have_cli jq || { echo "jq not on PATH" >&2; exit 1; }
+    local tmp; tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064  # expand $tmp now
+    trap "rm -rf '$tmp'" EXIT
+    GH_PROMPT_DISABLED=1 "$DEVAGENT_GH" pr view "$url" --json "$GH_MR_VIEW_FIELDS" \
+        </dev/null >"$tmp/view" 2>"$tmp/err" || rc=$?
+    [ "$rc" -eq 0 ] || _mv_fail "$tmp/err" "$rc"
+    GH_PROMPT_DISABLED=1 "$DEVAGENT_GH" api graphql --hostname "$host" -f "query=$GH_MR_VIEW_QUERY" \
+        -f "owner=$owner" -f "name=$repo" -F "number=$num" \
+        </dev/null >"$tmp/gql" 2>"$tmp/err" || rc=$?
+    [ "$rc" -eq 0 ] || _mv_fail "$tmp/err" "$rc"
+    { jq -r "$GH_MR_CHECKS_JQ" <"$tmp/view" \
+        && jq -r --slurpfile g "$tmp/gql" "$GH_MR_VIEW_JQ" <"$tmp/view"; } \
+        >"$tmp/lines" 2>"$tmp/jqerr" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "unrecognised record: $(grep -v '^[[:space:]]*$' "$tmp/jqerr" | tail -n 1 | tr -d '\r')" >&2
+        exit 5
+    fi
+    tr -d '\r' <"$tmp/lines"
+}
+
 verb="${1:-}"; shift || usage
 case "$verb" in
     push-branch)
@@ -364,21 +469,39 @@ case "$verb" in
         fi
         ;;
     merge-mr)
+        # #885: gh's flags go in a fixed order (method, match-head, subject,
+        # body) whatever order they were given in; an empty --body is passed,
+        # not dropped. --disable-auto is a form of its own. gh never prompts:
+        # GH_PROMPT_DISABLED=1 and stdin from /dev/null on every call.
         [ $# -ge 1 ] || usage
         url="$1"; shift
-        method="squash"
+        method="squash"; merge_flags=(); disable=0; other=0
+        match=(); subject=(); body=()
         while [ $# -gt 0 ]; do
             case "$1" in
                 --method)
                     case "${2:-}" in
-                        squash|merge|rebase) method="$2"; shift 2 ;;
+                        squash|merge|rebase) method="$2"; other=1; shift 2 ;;
                         *) echo "code/github.sh: --method must be squash|merge|rebase" >&2; exit 2 ;;
                     esac
                     ;;
+                --match-head-commit)
+                    [[ "${2:-}" =~ ^[0-9a-f]{40}$ ]] \
+                        || { echo "code/github.sh: --match-head-commit needs a 40-hex SHA" >&2; exit 2; }
+                    match=(--match-head-commit "$2"); other=1; shift 2 ;;
+                --subject) [ $# -ge 2 ] || usage; subject=(--subject "$2"); other=1; shift 2 ;;
+                --body)    [ $# -ge 2 ] || usage; body=(--body "$2"); other=1; shift 2 ;;
+                --disable-auto) disable=1; shift ;;
                 *) usage ;;
             esac
         done
-        "$DEVAGENT_GH" pr merge "$url" --"$method"
+        if [ "$disable" = 1 ]; then
+            [ "$other" = 0 ] || usage
+            merge_flags=(--disable-auto)
+        else
+            merge_flags=(--"$method" "${match[@]+"${match[@]}"}" "${subject[@]+"${subject[@]}"}" "${body[@]+"${body[@]}"}")
+        fi
+        GH_PROMPT_DISABLED=1 "$DEVAGENT_GH" pr merge "$url" "${merge_flags[@]}" </dev/null
         ;;
     branch-exists)
         [ $# -eq 2 ] || usage
@@ -458,6 +581,10 @@ case "$verb" in
     mr-checks)
         [ $# -eq 1 ] || { echo "usage: code/github.sh mr-checks <mr-url>" >&2; exit 1; }
         mr_checks "$1"
+        ;;
+    mr-view)
+        [ $# -eq 1 ] || { echo "usage: code/github.sh mr-view <mr-url>" >&2; exit 1; }
+        mr_view "$1"
         ;;
     *) usage ;;
 esac
