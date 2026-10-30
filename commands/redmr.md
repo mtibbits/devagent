@@ -52,9 +52,11 @@ Per `commands/draft.md`.
    artifacts (analysis/, mr.md) are NOT committed here; they are governed by
    `commit_devdoc` at cleanup.
 7a. **Re-stamp the Evidence block (#894), only when this step committed** (a fix,
-   a merge-forward), so mr.md's `suite:` line names HEAD again:
+   a merge-forward), so mr.md's `suite:` line names HEAD again. After a
+   merge-forward, run `rebaseline.sh` before the re-stamp (#885):
 
    ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/rebaseline.sh" <project> <Issue-N>   # merge-forward only
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>
    ```
