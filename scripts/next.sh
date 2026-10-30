@@ -191,7 +191,9 @@ main() {
       [[ -f "$issue_dir/STUCK" ]] && sed 's/^/  /' "$issue_dir/STUCK" >&2
       return 1
     fi
-    if [[ "$cur_state" == "?" ]]; then
+    # #885: a [?] mergemr row is a wait on the PR, resumed by re-running the step
+    # (it re-reads and marks itself); every other [?] keeps the park hint.
+    if [[ "$cur_state" == "?" && "$name" != mergemr ]]; then
       warn "Step $cur ($name) is [?] blocked-on-external. Consider /devagent:park."
       return 0
     fi
@@ -202,9 +204,11 @@ main() {
     # never marks, halts or changes the exit status; `ci_gate = "block"` marks a red
     # step [!] and holds a pending/unknown one (exit 0, no dispatch). On the
     # iteration that dispatches mergetoall the read is ITS (it gates on green), so
-    # this one is skipped (D1). Nothing here waits for CI.
+    # this one is skipped (D1). Nothing here waits for CI. mergemr (#885) reads and
+    # prints CI itself and must write its own [?], so it skips this read and the
+    # block gate alike (ci_now stays 0).
     local ci_now=0
-    if (( ci_done == 0 )) && [[ "$name" != mergetoall ]]; then
+    if (( ci_done == 0 )) && [[ "$name" != mergetoall && "$name" != mergemr ]]; then
       local _ship_st _ship_row _mr_url
       _ship_st="$(checklist_step_state_by_name "$checklist" ship 2>/dev/null || true)"
       if [[ "$_ship_st" == x ]]; then
@@ -311,6 +315,17 @@ main() {
       if [[ "$name" == mergetoall ]] && (( ci_done == 0 )) \
          && [[ "$(checklist_step_state_by_name "$checklist" mergetoall 2>/dev/null || true)" == x ]]; then
         ci_done=1
+      fi
+      # #885: mergemr read the PR (and printed its CI line), so this invocation reads
+      # no more. It exits 0 on [x], [-] or [?]: [?] is a wait, so the chain stops
+      # cleanly here, before the target check and the #558 advance guard (the row
+      # did not move, by design). Re-running next re-dispatches it.
+      if [[ "$name" == mergemr ]]; then
+        ci_done=1
+        if [[ "$(checklist_step_state_by_name "$checklist" mergemr 2>/dev/null || true)" == "?" ]]; then
+          echo "WAITING at step $cur (mergemr): the PR is not merged yet; state is on disk. Re-check later: /devagent:next $project$resume_flags"
+          return 0
+        fi
       fi
       # If chaining and we've reached the target, stop.
       if [[ -n "$through" && "$name" == "$through" ]]; then

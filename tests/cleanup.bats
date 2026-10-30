@@ -588,3 +588,18 @@ make_oneshot_issue() {
     [[ "$output" != *"refusing to mark"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 x cleanup
 }
+
+@test "#885 cleanup refuses while mergemr is [?], naming /devagent:mergemr" {
+    # A mergemr row waiting on the PR (setup marked updatewbs..lessonslearned [x]; the
+    # shift keeps their glyphs and leaves cleanup at 24).
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" updatewbs
+    sed -i -E 's/^(- \[.\] 19\. mergetoall)$/\1\n- [?] 20. mergemr/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 '?' mergemr
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"closeout steps not terminal: mergemr:[?]"* ]]
+    [[ "$output" == *"run /devagent:mergemr first"* ]]
+    # No side effect ran: cleanup unmarked, source repo still on the branch.
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
+    [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
+}

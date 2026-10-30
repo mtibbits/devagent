@@ -48,8 +48,9 @@ issue_arg="$cleanup_target"
 # Design A1+B1+C2 per the issue: block (die) on all three, naming every
 # offender at once; the per-step escape is marking [-] (skip), auditable in
 # the checklist. BY NAME (numbers vary by template), absent step => no gate.
+# #885: mergemr joins the list — a [?] there is a PR still waiting to merge.
 # Runs before any side effect (the tree restore below).
-offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" updatewbs impact lessonslearned)"
+offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" mergemr updatewbs impact lessonslearned)"
 if [ -n "$offenders" ]; then
     # Derive the remediation commands from the offender list itself — one
     # authoritative name list (the helper args above).

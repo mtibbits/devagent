@@ -33,7 +33,7 @@ A `PHASE BREAK` line also ends it: the next phase (at implement, quality,
 updatewbs; config `phase_breaks`) belongs in a fresh session. Relay the
 Resume line and stop. `--no-breaks` opts out.
 
-`CI PENDING:`/`CI UNKNOWN:` is information, not an instruction: relay it; never re-run `/devagent:next`, `gh pr checks` or `gh pr view` to wait for CI.
+`CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction: relay it; never re-run `/devagent:next`, `gh pr checks` or `gh pr view` to wait for CI or merge.
 
 ## Zero-diff (artifact-only) issues
 
