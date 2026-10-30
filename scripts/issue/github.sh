@@ -3,8 +3,9 @@
 # Backend contract: implements all five issue verbs per spec §9.1
 # (fetch, create, transition, state, comment-list), plus the optional
 # state-list that `wbs update` reads (#703), issue-list that
-# `wbs init --from-tracker` reads (#706) and state-exists that the transition
-# pre-check and doctor's tracker check share (#710).
+# `wbs init --from-tracker` reads (#706), state-exists that the transition
+# pre-check and doctor's tracker check share (#710), and state-class
+# (`<class>\t<reason>` for one issue) that the merge step reads (#885).
 # Output shape conforms to spec §9.3.
 
 set -euo pipefail
@@ -289,6 +290,30 @@ cmd_state_list() {
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 
+# state-class <repo> <num> (#885, spec §9.1 MAY): one issue's state-list class
+# and why it closed, `<class>` TAB `<reason>`, for the merge step's dependency
+# check. One `gh issue view --json number,state,stateReason,labels` call. The
+# class is gh_class("") — the shared rule, with no in-progress label, so an open
+# issue is `open`; the reason is stateReason lowercased with `_` as a space
+# (`not planned`), or `-` when there is none.
+# Exit: 0 ok; 1 gh failure or bad args; 5 an unrecognised state or unreadable
+# JSON. Never 2, which means "unknown verb".
+cmd_state_class() {
+  if [ "$#" -ne 2 ] || [ -z "$1" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+    echo "github.sh: usage: state-class <repo> <num>" >&2
+    return 1
+  fi
+  _need gh
+  _need jq
+  local json out
+  json="$(_gh_view "$1" "$2" number,state,stateReason,labels)" || return 1
+  out="$(printf '%s' "$json" | jq -r "$_GH_CLASS_JQ"'
+    gh_class("") + "\t"
+    + ((.stateReason // "") | tostring | ascii_downcase | gsub("_"; " ")
+       | gsub("[\t\r\n]"; " ") | if . == "" then "-" else . end)')" || return 5
+  printf '%s\n' "${out//$'\r'/}"
+}
+
 # issue-list <repo> (#706, spec §9.1 MAY): every issue of <repo> as one
 # JSON Lines record (the contract and its checker: scripts/lib/wbs-import.py),
 # sorted by number, for `wbs init --from-tracker`. One `gh issue list` call
@@ -419,6 +444,7 @@ main() {
     transition)    cmd_transition   "$@" ;;
     state-exists)  cmd_state_exists "$@" ;;
     state-list)    cmd_state_list   "$@" ;;
+    state-class)   cmd_state_class  "$@" ;;
     issue-list)    cmd_issue_list   "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2

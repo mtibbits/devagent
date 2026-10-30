@@ -359,3 +359,60 @@ _assert_stage_write() {
   run grep -F '[issue] [edit]' "$GH_STUB_ARGV_LOG"
   [ "$status" -eq 1 ]
 }
+
+# --- state-class (#885) --------------------------------------------------------
+# One issue's class (gh_class, as state-list) and its close reason, TAB-separated.
+_state_class() {
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-class acme/x 12
+}
+
+@test "#885 state-class closed COMPLETED → done" {
+  export GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/argv.log"
+  GH_STUB_ISSUE_STATE=CLOSED GH_STUB_STATE_REASON=COMPLETED _state_class
+  [ "$status" -eq 0 ]
+  [ "$output" = $'done\tcompleted' ]
+  # one read: the fields gh_class needs, nothing else
+  [ "$(cat "$GH_STUB_ARGV_LOG")" = "[issue] [view] [12] [--repo] [acme/x] [--json] [number,state,stateReason,labels]" ]
+}
+
+@test "#885 state-class NOT_PLANNED → not_planned / not planned" {
+  GH_STUB_ISSUE_STATE=CLOSED GH_STUB_STATE_REASON=NOT_PLANNED _state_class
+  [ "$status" -eq 0 ]
+  [ "$output" = $'not_planned\tnot planned' ]
+}
+
+@test "#885 state-class DUPLICATE → not_planned / duplicate" {
+  GH_STUB_ISSUE_STATE=CLOSED GH_STUB_STATE_REASON=DUPLICATE _state_class
+  [ "$status" -eq 0 ]
+  [ "$output" = $'not_planned\tduplicate' ]
+}
+
+@test "#885 state-class open → open / -" {
+  _state_class
+  [ "$status" -eq 0 ]
+  [ "$output" = $'open\t-' ]
+  # closed for a reason gh_class does not know is other, with that reason
+  GH_STUB_ISSUE_STATE=CLOSED GH_STUB_STATE_REASON=SOME_NEW_REASON _state_class
+  [ "$status" -eq 0 ]
+  [ "$output" = $'other\tsome new reason' ]
+}
+
+@test "#885 state-class gh failure exits 1" {
+  GH_STUB_CASE=fail _state_class
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"gh issue view failed"* ]]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-class acme/x 404
+  [ "$status" -eq 1 ]
+}
+
+@test "#885 state-class: an unrecognised state exits 5; bad arguments exit 1, never 2" {
+  GH_STUB_ISSUE_STATE=LOCKED _state_class
+  [ "$status" -eq 5 ]
+  [[ "$output" != *$'\t'* ]]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-class acme/x
+  [ "$status" -eq 1 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-class acme/x 12x
+  [ "$status" -eq 1 ]
+  run "$PLUGIN_ROOT/scripts/issue/github.sh" state-class acme/x 12 extra
+  [ "$status" -eq 1 ]
+}

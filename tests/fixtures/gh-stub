@@ -11,6 +11,9 @@
 #   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
 #   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
 #   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
+#   GH_STUB_ISSUE_STATE   issue-view state (#885; default OPEN)
+#   GH_STUB_STATE_REASON  issue-view stateReason, e.g. COMPLETED (#885;
+#                         default null)
 #   GH_STUB_ISSUE_LIST_FILE  `gh issue list` payload file (#703; required —
 #                            this stub is copied out of the fixtures dir)
 #   GH_STUB_GRAPHQL_DIR   `gh api graphql` responses (#704): the k-th call
@@ -105,10 +108,16 @@ _issue_json() {
   # deliberately non-`tier:*`.
   labels='[{"name": "bug"}, {"name": "performance"}]'
   [ -n "${GH_STUB_LABELS_JSON:-}" ] && labels="$GH_STUB_LABELS_JSON"
+  # #885: issue/github.sh state-class reads state and stateReason.
+  local reason=null number=676
+  [ -n "${GH_STUB_STATE_REASON:-}" ] && reason="\"$GH_STUB_STATE_REASON\""
+  [[ "${1:-}" =~ ^[0-9]+$ ]] && number="$1"
   cat <<JSON
 {
+  "number": $number,
   "title": "Demo issue title",
-  "state": "OPEN",
+  "state": "${GH_STUB_ISSUE_STATE:-OPEN}",
+  "stateReason": $reason,
   "author": {"login": "alice"},
   "labels": $labels,
   "url": "https://github.com/gnuradio/volk/issues/676",
@@ -146,7 +155,7 @@ case "$sub $sub2" in
       fail)  echo "stub-gh: simulated failure" >&2; exit 1 ;;
       noisy) echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2 ;;
     esac
-    _issue_json
+    _issue_json "$num"
     ;;
 
   "issue list")
