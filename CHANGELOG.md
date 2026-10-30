@@ -53,7 +53,9 @@ the README's "Versioning & releases" section has the release procedure.
     checklist or revision-block override that has a ship row but no mergemr row.
   - Upgrade notes:
     - `merge_mr = true` now merges PRs from `/devagent:next`. Check every project that
-      sets it before upgrading.
+      sets it before upgrading. Nothing merges on upgrade alone: an un-migrated
+      checklist has no mergemr row, and a migrated in-flight issue has no
+      `verified_head`, so it stops at rule 10 until a post-upgrade preship records one.
     - A repo with no CI stops at `[!]` (rule 17) under the default `merge_checks =
       "required"`; set `merge_checks = "if-present"` for it to merge without CI.
     - `ci_gate = "off"` does not apply to mergemr: it always reads CI.

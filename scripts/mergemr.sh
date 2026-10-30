@@ -86,7 +86,7 @@ _done() {
 _last_logged() {
     awk '/^## Log/ { p = 1; next } /^## / { p = 0 } p' "$cl" \
         | grep -E '^- [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}  mergemr: ' \
-        | tail -n 1 | sed -E 's/^- [0-9-]+ [0-9:]+  mergemr: //' || true
+        | tail -n 1 | sed -E 's/^- [0-9-]+ [0-9:]+  mergemr: //' | tr -d '\r' || true
 }
 
 # _wait <rule> <reason> [log message]: [?], print, log once per change; exit 0. The

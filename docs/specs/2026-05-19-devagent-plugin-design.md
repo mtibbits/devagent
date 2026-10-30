@@ -88,7 +88,8 @@ devAgent/
 │   ├── docs-site/           # #465: pandoc template + link filter for build-docs-site.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, doctor.sh,
-│   │   migrate-checklist-numbering.sh (#558 in-flight upgrade), ...
+│   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
+│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -284,8 +285,13 @@ these helpers without changing callers.
 
 **Renumbering support (#558).** `scripts/migrate-checklist-numbering.sh`
 migrates an in-flight checklist between numbering schemes, keyed by step NAME
-(`--all` walks configured projects, `--dry-run` previews, `--reverse` inverts for
-a rollback, `--include-completed` overrides the completed-record waiver).
+(`--all` walks configured projects, `--dry-run` previews, `--reverse` undoes the
+#885 renumber (back to the #558 scheme), `--reverse-558` undoes #558,
+`--include-completed` overrides the completed-record waiver).
+`scripts/rebaseline.sh` (#885) re-keys `baseline_sha` to the merge base after a
+merge-forward of the base branch into the issue branch, so the diff later steps
+read is the branch's own; it refuses off-branch, an ambiguous (criss-cross) base
+or a base that would move backwards.
 `scripts/lib/check-step-pairings.py` is its CI counterpart: it asserts every
 name-adjacent step/number pairing on live surfaces and, with `--list-bare`,
 emits the undecidable bare-`step N` sites for human triage. `checklist_mark`
@@ -854,7 +860,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
   later re-reads the PR. mergetoall (19) holds on pending CI before mergemr
   runs, so an `--auto` chain reaches mergemr only with mergetoall `[-]` or
   CI green. Knobs: `DEVAGENT_MERGEMR_READ_SECS` (20 s, each PR or dependency
-  read) and `DEVAGENT_MERGEMR_MERGE_SECS` (30 s, the merge call).
+  read) and `DEVAGENT_MERGEMR_MERGE_SECS` (30 s, the merge call);
+  `DEVAGENT_REBASELINE_FETCH_SECS` (20 s) bounds `rebaseline.sh`'s base fetch.
 
 ### 7.3 External chaining
 

@@ -6,11 +6,13 @@ source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 
-# --step <N> <name> (#782): mark row N instead of the current step.
-# <name> is checklist_mark's #558 row guard: a row N that is not <name> dies unmarked.
+# --step <N> <name> (#782): mark row N instead of the current step. Kept for operators;
+# scripts use --name (#885). <name> is checklist_mark's #558 row guard: a row N that is
+# not <name> dies unmarked.
 # --name <step-name> (#885): mark the row NAMED <step-name> instead of the current step,
-# wherever the template numbers it — mergetoall's CI gate marks its own row while an
-# earlier row may still be the first unchecked one. An absent name dies, checklist untouched.
+# wherever the template numbers it — mergetoall's CI gate and mergemr's stops mark their
+# own row while an earlier row may still be the first unchecked one. An absent name dies,
+# checklist untouched.
 step="" step_name="" by_name=""
 if [[ "${1:-}" == --step ]]; then
   [[ "${2:-}" =~ ^[0-9]+$ && -n "${3:-}" ]] \

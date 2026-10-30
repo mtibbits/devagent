@@ -77,8 +77,8 @@ any other `issue_source`:
 1. its recorded PR (`[context.<dep>].mr_url`), via `mr-state`: merged is
    satisfied; open or draft waits `PR open`; closed waits `PR closed unmerged`;
 2. its linked PRs, one `issue-mrs` call per tracker repo (a GitHub tracker
-   only): merged is satisfied; open or draft waits `PR open`; none falls
-   through;
+   only): merged is satisfied; open or draft waits `PR open`; none, or only
+   closed-unmerged PRs, falls through;
 3. its tracker issue, via the issue backend's `state-class`: closed as
    completed is satisfied; open waits `open, no PR`; closed for another
    reason waits `closed: <reason>` (e.g. `closed: not planned`), so you
@@ -151,7 +151,8 @@ read PR <url>: <error>`.
 - `ci_gate = "off"` does **not** apply here: rules 15-17 always use #782's
   CI verdict, because merging is a stronger act than reporting.
 - `DEVAGENT_MERGEMR_READ_SECS` (20): the bound on the PR read, the re-read
-  after a merge and each dependency read.
+  after a merge and each dependency read. Dependency reads (rule 7) run on
+  every re-check of a waiting row, whatever `merge_mr` says.
 - `DEVAGENT_MERGEMR_MERGE_SECS` (30): the bound on the merge call and on the
   auto-merge disable.
 - `DEVAGENT_CI_GRACE_SECS` (120): #782's grace before "no checks" counts.

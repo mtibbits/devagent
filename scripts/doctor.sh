@@ -129,11 +129,17 @@ check_tracker_mapping() {
 # closeout gate (#558), silently. Plugin defaults are not overrides; a template
 # with no ship row (oneshot, research) needs no merge step.
 check_merge_step() {
-  local project="$1" key res path
-  if [[ -n "$(config_get_project_field "$project" permissions.merge_mr 2>/dev/null || true)" ]] \
+  local project="$1" key res path mm
+  mm="$(config_get_project_field "$project" permissions.merge_mr 2>/dev/null || true)"
+  mm="${mm//$'\r'/}"
+  if [[ -n "$mm" ]] \
      && [[ -z "$(config_get_project_field "$project" permissions.merge_to_all_prs 2>/dev/null || true)" ]]; then
     # shellcheck disable=SC2016  # the backticks are literal markdown, not a command
-    check "project.$project.permissions.merge_mr" warn '`merge_mr` now approves merging the PR at step 20; set `merge_to_all_prs` to keep gating mergetoall (or ignore this if you do not use mergetoall)'
+    if [[ "$mm" == true ]]; then
+      check "project.$project.permissions.merge_mr" warn '`merge_mr` now approves merging the PR at step 20; set `merge_to_all_prs` to keep gating mergetoall (or ignore this if you do not use mergetoall)'
+    else
+      check "project.$project.permissions.merge_mr" warn '`merge_mr` no longer gates mergetoall; set `merge_to_all_prs` to keep that gate (or ignore this if you do not use mergetoall)'
+    fi
   fi
   for key in checklist-standard checklist-perf checklist-docs-only checklist-oneshot checklist-research revision_block; do
     # §12 resolver (#425: no hand-built template path): skip the plugin layer.

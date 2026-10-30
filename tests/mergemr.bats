@@ -947,6 +947,16 @@ _argv() { printf '[%s]\n' "$@"; echo --; }
     [ "$(_mrlog | grep -cxF 'waiting (6): stacked on dev')" -eq 1 ]
 }
 
+@test "#885 quiet waiting: an unchanged wait in a CRLF checklist logs once" {
+    _view draft=true
+    _run
+    _wait_is 5 "draft PR"
+    sed -i 's/\r*$/\r/' "$CL"
+    _run; _run
+    [ "$status" -eq 0 ]
+    [ "$(_mrlog | tr -d '\r' | grep -cxF 'waiting (5): draft PR')" -eq 1 ]
+}
+
 # ---- on_merge ---------------------------------------------------------------------------
 
 _marker() { grep -E '^- [0-9-]+ [0-9:]+  sync: .* merged' "$CL" | sed -E 's/^- [0-9-]+ [0-9:]+  //'; }

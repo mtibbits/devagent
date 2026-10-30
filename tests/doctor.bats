@@ -366,6 +366,14 @@ STUB
   [[ "$output" == *'WARN project.volk.permissions.merge_mr — `merge_mr` now approves merging the PR at step 20; set `merge_to_all_prs` to keep gating mergetoall (or ignore this if you do not use mergetoall)'* ]]
 }
 
+@test "doctor's merge_mr warning for a false merge_mr does not say it approves merging (#885)" {
+  printf '%s\n' '' '[project.volk.permissions]' 'merge_mr = false' >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'WARN project.volk.permissions.merge_mr — `merge_mr` no longer gates mergetoall; set `merge_to_all_prs` to keep that gate (or ignore this if you do not use mergetoall)'* ]]
+  [[ "$output" != *"now approves merging"* ]]
+}
+
 @test "doctor is silent on merge_mr when merge_to_all_prs is also set (#885)" {
   printf '%s\n' '' '[project.volk.permissions]' 'merge_mr = true' 'merge_to_all_prs = false' >> "$DA_HOME/config.toml"
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
