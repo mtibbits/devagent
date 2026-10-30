@@ -72,13 +72,17 @@ _set_baseline_branch() {
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
 }
 
-@test "mergetoall.sh backward-compat: legacy merge_mr=true still grants permission" {
-    # Remove the new name, add the old one.
+@test "mergetoall.sh legacy merge_mr=true no longer grants permission (#885)" {
+    # #885: merge_mr now approves merging the PR at step 20 (mergemr); the
+    # one-version fallback that let it gate mergetoall is gone. Only
+    # merge_to_all_prs gates mergetoall — unset, the gate prompts and, with no
+    # TTY, halts exactly as merge_to_all_prs=false does.
     devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_to_all_prs"
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.merge_mr" true
-    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
-    [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x mergetoall
+    run bash -c "'$DEVAGENT_ROOT/scripts/mergetoall.sh' '$TEST_PROJECT' Issue-1 </dev/null"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"permission_gate: merge_to_all_prs denied"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 ' ' mergetoall
 }
 
 @test "mergetoall.sh default does NOT push (local-only)" {

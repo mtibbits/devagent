@@ -121,6 +121,32 @@ check_tracker_mapping() {
   done
 }
 
+# check_merge_step <project> (#885): warn-only — never touches ERRORS.
+# (1) permissions.merge_mr used to gate mergetoall by fallback; it now approves
+# merging the PR at mergemr (step 20), so a merge_mr with no merge_to_all_prs
+# beside it changes what it permits. (2) A devdoc checklist override copied before
+# #885 carries ship but no mergemr row: absent row = no merge step and no
+# closeout gate (#558), silently. Plugin defaults are not overrides; a template
+# with no ship row (oneshot, research) needs no merge step.
+check_merge_step() {
+  local project="$1" key res path
+  if [[ -n "$(config_get_project_field "$project" permissions.merge_mr 2>/dev/null || true)" ]] \
+     && [[ -z "$(config_get_project_field "$project" permissions.merge_to_all_prs 2>/dev/null || true)" ]]; then
+    # shellcheck disable=SC2016  # the backticks are literal markdown, not a command
+    check "project.$project.permissions.merge_mr" warn '`merge_mr` now approves merging the PR at step 20; set `merge_to_all_prs` to keep gating mergetoall (or ignore this if you do not use mergetoall)'
+  fi
+  for key in checklist-standard checklist-perf checklist-docs-only checklist-oneshot checklist-research revision_block; do
+    # §12 resolver (#425: no hand-built template path): skip the plugin layer.
+    res="$(template_resolve "$project" "$key" 2>/dev/null || true)"
+    [[ "$res" == *$'\nlayer=project' || "$res" == *$'\nlayer=devdoc' ]] || continue
+    path="${res%%$'\n'*}"; path="${path#path=}"
+    [[ -f "$path" ]] || continue
+    checklist_step_state_by_name "$path" ship >/dev/null 2>&1 || continue
+    checklist_step_state_by_name "$path" mergemr >/dev/null 2>&1 && continue
+    check "$key" warn "checklist override $path has no mergemr row; the merge step will not run or gate closeout (#885)"
+  done
+}
+
 # check_transition_env (#710, global, warn-only): the per-stage overrides are
 # process-global — a set one redirects EVERY project's write — and the three
 # retired names are ignored, so say so while any is set.
@@ -258,6 +284,7 @@ check_one_project() {
   done
 
   check_tracker_mapping "$project"
+  check_merge_step "$project"
 
   # Phase 8 auth hook.
   local hook="$PLUGIN_ROOT/scripts/lib/doctor_auth.sh"
