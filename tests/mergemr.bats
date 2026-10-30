@@ -511,3 +511,194 @@ EOF2
     _wait_is 7 "could not read Issue-3 tracker state: stub: no tracker state for #3"
     [ "$(_merges)" -eq 0 ]
 }
+
+# ---- rules 9-18: only when the step would merge -----------------------------------
+
+@test "#885 R9: a PR on another repo than ship's target is [!]" {
+    devagent_state_set "$STATE" mr_url "https://github.com/evil/testproj/pull/77"
+    _run
+    _stop_is 9 "PR is not on acme/testproj; it is on evil/testproj. Fix mr_url or code_source, then run /devagent:unstuck"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R9: no code_source.upstream is a config [!], not a repo mismatch" {
+    devagent_config_unset "$CFG" "project.$TEST_PROJECT.code_source.upstream"
+    _run
+    _stop_is 9 "no code_source.upstream configured for 'testproj'; set it, then run /devagent:unstuck"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R10: no verified_head is [!]" {
+    devagent_state_set "$STATE" verified_head ""
+    _run
+    _stop_is 10 "no verified head for this PR; run /devagent:preship"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R11: a head that is not verified_head is [!], no merge-mr call" {
+    _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    _run
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R11 with automerge calls --disable-auto first" {
+    _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb automerge=on
+    _run
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (auto-merge disabled)"
+    [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#885 R11 with automerge: a failed disable says so" {
+    _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb automerge=on
+    export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Pull request auto merge is not allowed"
+    _run
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge)"
+    [ "$(_merges)" -eq 0 ]
+}
+
+@test "#885 unverified: a commit after preship, pushed by ship, is R11" {
+    devagent_state_set "$STATE" verified_head ""
+    devagent_state_set "$STATE" mr_url ""
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" pin "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" record "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    ( cd "$SOURCE_DIR" && echo late > late.txt && git add late.txt && git commit -q -m late )
+    local h2; h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    # ship pushes the branch tip and records the PR
+    devagent_state_set "$STATE" mr_url "$URL"
+    _view head="$h2"
+    _run
+    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 unverified: a commit pushed after ship is R11" {
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" pin "$TEST_PROJECT"
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" record "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    _setb permissions.merge_mr false
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN)"
+    ( cd "$SOURCE_DIR" && echo fix > fix.txt && git add fix.txt && git commit -q -m fix )
+    local h2; h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2"
+    _setb permissions.merge_mr true
+    _run
+    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R12: automerge on waits, no merge-mr call" {
+    _view automerge=on
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R12: in a merge queue waits, no merge-mr call" {
+    _view queue=true mergestate=BLOCKED
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/BLOCKED)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R12 reason shows red CI" {
+    _view automerge=on checks="fail:ci"
+    _run
+    _wait_is 12 "merge accepted; waiting (red, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R13: mergeable UNKNOWN waits" {
+    _view mergeable=UNKNOWN mergestate=UNKNOWN
+    _run
+    _wait_is 13 "mergeability not computed yet"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R13: mergestate UNKNOWN with MERGEABLE waits" {
+    _view mergestate=UNKNOWN
+    _run
+    _wait_is 13 "mergeability not computed yet"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R14: CONFLICTING is [!]" {
+    _view mergeable=CONFLICTING mergestate=DIRTY
+    _run
+    _stop_is 14 "conflict with main; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R15: red CI is [!] naming the failing check" {
+    _view checks="pass:lint fail:ci"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R15: red with another check pending is [!]" {
+    _view checks="fail:lint pending:ci"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): lint; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+}
+
+@test "#885 R15: ci_gate=off still reaches R15" {
+    _set ci_gate off
+    _view checks="fail:ci"
+    _run
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+}
+
+@test "#885 R16: pending CI waits with the CI line alone" {
+    _view checks="pass:lint pending:ci"
+    _run
+    _wait_is 16 "CI PENDING: 1 of 2 checks still running on $URL (head ${PR_HEAD:0:7}): ci"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R16: BLOCKED with a check pending waits" {
+    _view checks="pending:ci" mergestate=BLOCKED
+    _run
+    _wait_is 16 "CI PENDING: 1 of 1 checks still running on $URL (head ${PR_HEAD:0:7}): ci"
+}
+
+@test "#885 R16: no checks inside the grace waits" {
+    _view checks=""
+    _run
+    _wait_is 16 "checks not reported yet (grace 120s)"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R17: no checks after the grace is [!] under required" {
+    _view checks=""
+    devagent_state_set "$STATE" ci_seen_head "$PR_HEAD"
+    devagent_state_set "$STATE" ci_seen_at 1000
+    _run
+    _stop_is 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R18: BLOCKED with CI green is [!]" {
+    _view mergestate=BLOCKED
+    _run
+    _stop_is 18 "blocked by a forge rule (BLOCKED); resolve it on the forge, then run /devagent:unstuck"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R18: BEHIND is [!]" {
+    _view mergestate=BEHIND
+    _run
+    _stop_is 18 "blocked by a forge rule (BEHIND); resolve it on the forge, then run /devagent:unstuck"
+}
+
+@test "#885 [!] writes STUCK naming mergemr, logged under the mergemr tag" {
+    _view mergestate=BLOCKED
+    _run
+    [ "$status" -eq 1 ]
+    grep -qE '^Reason:[[:space:]]+mergemr rule 18: ' "$ISSUE_DIR/STUCK"
+    _mrlog | grep -qxF "STUCK: mergemr rule 18: blocked by a forge rule (BLOCKED); resolve it on the forge, then run /devagent:unstuck"
+}

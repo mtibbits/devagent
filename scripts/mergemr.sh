@@ -260,4 +260,67 @@ _deps_check
 
 [ "$merge_ok" = 1 ] || _wait 8 "waiting for merge ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"   # rule 8
 
+# ---- rules 9-18: only when the step would merge ----------------------------------------
+
+# rule 9, the trust boundary: the PR must be on ship's target repo (config_code_target_repo,
+# ship's own rule), compared case-insensitively. An empty target is a config fault.
+_rest="${mr_url#*://}"; _rest="${_rest#*/}"
+IFS=/ read -r _owner _name _ <<<"$_rest"
+pr_repo="$_owner/$_name"
+config_code_target_repo "$project"
+if [ -z "$CODE_TARGET_REPO" ]; then
+    _stop 9 "no code_source.upstream configured for '$project'; set it, then run /devagent:unstuck"
+fi
+if [ "${pr_repo,,}" != "${CODE_TARGET_REPO,,}" ]; then
+    _stop 9 "PR is not on $CODE_TARGET_REPO; it is on $pr_repo. Fix mr_url or code_source, then run /devagent:unstuck"
+fi
+
+verified_head="$(state_ctx_get "$project" verified_head "$issue_arg" 2>/dev/null || true)"
+verified_head="${verified_head//$'\r'/}"
+[ -n "$verified_head" ] || _stop 10 "no verified head for this PR; run /devagent:preship"   # rule 10
+
+if [ "$CI_HEAD" != "$verified_head" ]; then                                   # rule 11
+    # An auto-merge enabled earlier survives a push (A0.4): turn it off, or GitHub could
+    # merge the unverified head on its own.
+    _note=""
+    if [ "$MV_AUTOMERGE" = on ]; then
+        _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
+        if [ "$_RC" -eq 0 ]; then _note=" (auto-merge disabled)"
+        else _note=" (could not disable auto-merge: $_ERR; disable it on the forge)"
+        fi
+    fi
+    _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it$_note"
+fi
+
+# rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
+# auto-merge, falls through to the rules below.
+if [ "$MV_AUTOMERGE" = on ] || [ "$MV_QUEUE" = true ]; then
+    _wait 12 "merge accepted; waiting ($CI_RESULT, $MV_MERGEABLE/$MV_MERGESTATE)"
+fi
+if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # rule 13
+    _wait 13 "mergeability not computed yet"
+fi
+[ "$MV_MERGEABLE" != CONFLICTING ] \
+    || _stop 14 "conflict with $MV_BASE; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"   # rule 14
+
+# rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
+# stronger act than reporting.
+ci_verdict
+case "$CI_VERDICT" in
+    red)                                                                      # rule 15
+        _stop 15 "$CI_LINE; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
+    hold)                                                                     # rule 16
+        [ "$CI_RESULT" != none ] || _wait 16 "checks not reported yet (grace ${_CI_SECS}s)"
+        _wait 16 "$CI_LINE" ;;
+    proceed) ;;
+    *) _wait 16 "unexpected CI verdict '$CI_VERDICT'" ;;
+esac
+if [ "$CI_RESULT" = none ] && [ "$MERGE_CHECKS" = required ]; then           # rule 17
+    _stop 17 "no CI checks on head commit; set merge_checks = \"if-present\" to merge without CI, then run /devagent:unstuck"
+fi
+case "$MV_MERGESTATE" in                                                      # rule 18
+    CLEAN|HAS_HOOKS) ;;
+    *) _stop 18 "blocked by a forge rule ($MV_MERGESTATE); resolve it on the forge, then run /devagent:unstuck" ;;
+esac
+
 _die "mergemr: merging is not implemented yet; nothing was marked"
