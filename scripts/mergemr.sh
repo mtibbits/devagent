@@ -74,12 +74,12 @@ code_sh="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/${backend:-(n
 
 # ---- how a run ends ----------------------------------------------------------------
 
-# _done <log message>: [x], last_step, log. The caller fires on_merge and exits.
+# _done <glyph> <log message>: [x] or [-], last_step, log. The caller exits.
 _done() {
     state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name mergemr
-    checklist_mark_by_name "$issue_dir/checklist.md" mergemr x
-    log_append "$issue_dir" mergemr "$1"
-    echo "mergemr: $1"
+    checklist_mark_by_name "$issue_dir/checklist.md" mergemr "$1"
+    log_append "$issue_dir" mergemr "$2"
+    echo "mergemr: $2"
 }
 
 # _last_logged: the message of the last `mergemr:` line in the checklist Log.
@@ -118,35 +118,24 @@ _on_merge() {
 
 # _merged <log message>: [x], on_merge, the next-step hint; exit 0.
 _merged() {
-    _done "$1"
+    _done x "$1"
     _on_merge
     checklist_print_next_hint "$cl"
     exit 0
 }
 
-# _call <knob> <default> <cmd> [args...]: one bounded backend call, stdin from
-# /dev/null. Sets _OUT (stdout), _RC (exit code) and _ERR (a bare reason: `timed out
-# after Ns`, the last non-blank stderr line, or `<cmd> exited <rc>`). Never fails.
+# _call <knob> <default> <cmd> [args...]: one bounded backend call (lib/ci.sh
+# _ci_call: _CALL_OUT, _CALL_RC, _CALL_ERR), CRs stripped from _CALL_OUT.
 _call() {
-    local knob="$1" def="$2" errf errs; shift 2
-    _OUT=""; _RC=0; _ERR=""
-    if ! command -v timeout >/dev/null 2>&1; then
-        _RC=127; _ERR="timeout(1) not on PATH"; return 0
-    fi
-    _ci_secs "$knob" "$def"
-    errf="$(mktemp 2>/dev/null)" || errf=/dev/null
-    _OUT="$(bounded_call "$_CI_SECS" "$@" </dev/null 2>"$errf")" || _RC=$?
-    _OUT="${_OUT//$'\r'/}"
-    case "$_RC" in
-        0) ;;
-        124|137) _ERR="timed out after ${_CI_SECS}s" ;;
-        *)
-            errs="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r')"
-            _ERR="${errs##*$'\n'}"
-            [ -n "$_ERR" ] || _ERR="$(basename "$1") exited $_RC" ;;
-    esac
-    [ "$errf" = /dev/null ] || rm -f "$errf"
-    return 0
+    _ci_call "$@"
+    _CALL_OUT="${_CALL_OUT//$'\r'/}"
+}
+
+# _mr_state <url>: one bounded mr-state read (_call); _ST is its output, blanks
+# stripped and lowercased.
+_mr_state() {
+    _call DEVAGENT_MERGEMR_READ_SECS 20 "$code_sh" mr-state "$1"
+    _ST="$(printf '%s' "$_CALL_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
 }
 
 R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
@@ -154,10 +143,7 @@ R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck
 # ---- rules 1-2: whatever the backend -------------------------------------------------
 
 if [ "$ship_g" = - ]; then                                                   # rule 1
-    state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name mergemr
-    checklist_mark_by_name "$issue_dir/checklist.md" mergemr -
-    log_append "$issue_dir" mergemr "skipped: ship was skipped (no PR)"
-    echo "mergemr: skipped: ship was skipped (no PR)"
+    _done - "skipped: ship was skipped (no PR)"
     checklist_print_next_hint "$cl"
     exit 0
 fi
@@ -179,18 +165,17 @@ if [ "$backend" != github ]; then
     if [ ! -x "$code_sh" ]; then
         _wait read "could not read PR $mr_url: ${backend:-(none)}.sh not found or not executable"
     fi
-    _call DEVAGENT_MERGEMR_READ_SECS 20 "$code_sh" mr-state "$mr_url"
-    case "$_RC" in
+    _mr_state "$mr_url"
+    case "$_CALL_RC" in
         0) ;;
         78|2) _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
-        *) _wait read "could not read PR $mr_url: $_ERR" ;;
+        *) _wait read "could not read PR $mr_url: $_CALL_ERR" ;;
     esac
-    _st="$(printf '%s' "$_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-    case "$_st" in
+    case "$_ST" in
         merged) _merged "PR $mr_url merged (merge commit -)" ;;
         closed) _stop 4 "$R4_TEXT" ;;
         open)   _wait 8 "waiting for merge (merge step supports github only)" ;;
-        *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_st'" ;;
+        *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_ST'" ;;
     esac
 fi
 
@@ -219,25 +204,25 @@ default_base="$(printf '%s' "${default_base//$'\r'/}" | sed 's|^[^/]*/||')"
 _deps_check() {
     local deps dep url st repo n line cls why
     local -a order=() unsat=()
-    local -A found=() nums=() dep_of=() batch=()
+    local -A found=() nums=() dep_of=() batch=() r_be=() r_repo=() r_num=()
     deps="$(depends_list "$project" "$issue_arg")"
     for dep in $deps; do
         order+=("$dep")
         url="$(state_issue_get "$project" "$dep" mr_url 2>/dev/null || true)"
         url="${url//$'\r'/}"
         if [ -n "$url" ]; then
-            _call DEVAGENT_MERGEMR_READ_SECS 20 "$code_sh" mr-state "$url"
-            [ "$_RC" -eq 0 ] || _wait 7 "could not read $dep PR state: $_ERR"
-            st="$(printf '%s' "$_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-            case "$st" in
+            _mr_state "$url"
+            [ "$_CALL_RC" -eq 0 ] || _wait 7 "could not read $dep PR state: $_CALL_ERR"
+            case "$_ST" in
                 merged) found[$dep]="" ;;
                 open)   found[$dep]="PR open" ;;
                 closed) found[$dep]="PR closed unmerged" ;;
-                *) _wait 7 "could not read $dep PR state: unrecognised mr-state output '$st'" ;;
+                *) _wait 7 "could not read $dep PR state: unrecognised mr-state output '$_ST'" ;;
             esac
             continue
         fi
         transition_route "$project" "$dep"
+        r_be[$dep]="$TR_BACKEND" r_repo[$dep]="$TR_REPO" r_num[$dep]="$TR_NUM"
         if [ "$TR_BACKEND" = github ] && [ -n "$TR_REPO" ] && [[ "$TR_NUM" =~ ^[0-9]+$ ]]; then
             nums[$TR_REPO]+=" $TR_NUM"
             batch[$TR_REPO]+=", $dep"
@@ -247,28 +232,27 @@ _deps_check() {
     for repo in "${!nums[@]}"; do
         # shellcheck disable=SC2086  # the numbers are digits only
         _call DEVAGENT_MERGEMR_READ_SECS 20 "$code_sh" issue-mrs "$repo" ${nums[$repo]}
-        [ "$_RC" -eq 0 ] || _wait 7 "could not read ${batch[$repo]#, } linked PRs: $_ERR"
+        [ "$_CALL_RC" -eq 0 ] || _wait 7 "could not read ${batch[$repo]#, } linked PRs: $_CALL_ERR"
         while IFS=$'\t' read -r line n st; do
             if [ "$line" != issue ] || [ -z "${dep_of["$repo#$n"]:-}" ]; then continue; fi
             case "$st" in
                 merged)     found[${dep_of["$repo#$n"]}]="" ;;
                 open|draft) found[${dep_of["$repo#$n"]}]="PR open" ;;
             esac
-        done <<<"$_OUT"
+        done <<<"$_CALL_OUT"
     done
     for dep in "${order[@]+"${order[@]}"}"; do
         [ -z "${found[$dep]+set}" ] || continue
-        transition_route "$project" "$dep"
-        if [ -z "$TR_BACKEND" ] || [ -z "$TR_REPO" ]; then
+        if [ -z "${r_be[$dep]}" ] || [ -z "${r_repo[$dep]}" ]; then
             _wait 7 "could not read $dep tracker state: no issue tracker configured"
         fi
-        _call DEVAGENT_MERGEMR_READ_SECS 20 "$(transition_backend_sh "$TR_BACKEND")" state-class "$TR_REPO" "$TR_NUM"
-        case "$_RC" in
+        _call DEVAGENT_MERGEMR_READ_SECS 20 "$(transition_backend_sh "${r_be[$dep]}")" state-class "${r_repo[$dep]}" "${r_num[$dep]}"
+        case "$_CALL_RC" in
             0) ;;
-            78|2) _wait 7 "cannot read $dep tracker state on $TR_BACKEND; merge order is yours: record its PR as [context.$dep].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
-            *) _wait 7 "could not read $dep tracker state: $_ERR" ;;
+            78|2) _wait 7 "cannot read $dep tracker state on ${r_be[$dep]}; merge order is yours: record its PR as [context.$dep].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
+            *) _wait 7 "could not read $dep tracker state: $_CALL_ERR" ;;
         esac
-        IFS=$'\t' read -r cls why <<<"$_OUT"
+        IFS=$'\t' read -r cls why <<<"$_CALL_OUT"
         case "$cls" in
             done) found[$dep]="" ;;
             open|in_progress) found[$dep]="open, no PR" ;;
@@ -314,8 +298,8 @@ if [ "$CI_HEAD" != "$verified_head" ]; then                                   # 
     _note=""
     if [ "$MV_AUTOMERGE" = on ]; then
         _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" merge-mr "$mr_url" --disable-auto
-        if [ "$_RC" -eq 0 ]; then _note=" (auto-merge disabled)"
-        else _note=" (could not disable auto-merge: $_ERR; disable it on the forge)"
+        if [ "$_CALL_RC" -eq 0 ]; then _note=" (auto-merge disabled)"
+        else _note=" (could not disable auto-merge: $_CALL_ERR; disable it on the forge)"
         fi
     fi
     _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it (or push the verified head ${verified_head:0:7})$_note"
@@ -402,7 +386,7 @@ fi
 _call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" "${merge_args[@]}"
 # A bound that killed a call GitHub had already accepted is seen through rule 3 on the
 # run after /devagent:unstuck.
-[ "$_RC" -eq 0 ] || _stop 19 "merge call failed: $_ERR; then run /devagent:unstuck"
+[ "$_CALL_RC" -eq 0 ] || _stop 19 "merge call failed: $_CALL_ERR; then run /devagent:unstuck"
 
 ci_read_view "$project" "$issue_arg" "$mr_url"
 [ "$MV_OK" = 1 ] || _wait 19 "could not read PR after merge: ${MV_ERR:-${_CI_REASON:-unknown error}}"

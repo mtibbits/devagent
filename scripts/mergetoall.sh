@@ -145,8 +145,7 @@ EOF
 )"
 # #885: merge_to_all_prs alone gates this step; merge_mr approves mergemr (doctor
 # warns when merge_mr is set without merge_to_all_prs).
-gate_name=merge_to_all_prs
-permission_gate "$project" "$gate_name" "$plan"
+permission_gate "$project" merge_to_all_prs "$plan"
 
 cd "$source_dir"
 

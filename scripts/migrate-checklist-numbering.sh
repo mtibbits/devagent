@@ -89,10 +89,8 @@ NEW = {'pull':0,'research':1,'draft':2,'spike':3,'scope':4,'improve':5,'prune':6
        'analyze':13,'draftmr':14,'review':15,'redmr':16,'preship':17,'ship':18,
        'mergetoall':19,'mergemr':20,'updatewbs':21,'impact':22,'lessonslearned':23,
        'cleanup':24}
-MID = {'pull':0,'research':1,'draft':2,'spike':3,'scope':4,'improve':5,'prune':6,
-       'tighten':7,'branch':8,'implement':9,'quality':10,'document':11,'commit':12,
-       'analyze':13,'draftmr':14,'review':15,'redmr':16,'preship':17,'ship':18,
-       'mergetoall':19,'updatewbs':20,'impact':21,'lessonslearned':22,'cleanup':23}
+# MID (#558 to #885) is NEW without mergemr, every row after it one lower.
+MID = {k: v - (v > NEW['mergemr']) for k, v in NEW.items() if k != 'mergemr'}
 OLD = {'pull':0,'research':22,'draft':1,'spike':23,'scope':2,'improve':3,'prune':4,
        'tighten':5,'branch':6,'implement':7,'quality':8,'document':9,'commit':10,
        'analyze':11,'draftmr':12,'review':13,'redmr':14,'preship':21,'ship':15,
@@ -170,7 +168,7 @@ if os.environ.get("DRY") != "1":
         try: os.unlink(tmp)
         except OSError: pass
         raise
-print(f"MIGRATED {changed}" + (" (+mergemr)" if inserted else " (-mergemr)" if dropped else ""))
+print(f"MIGRATED {changed} rows" + (", +mergemr" if inserted else ", -mergemr" if dropped else ""))
 PY
 )"
   case "$out" in
@@ -179,13 +177,8 @@ PY
     NOROWS)    warn "$f: no checklist rows — skipping" ;;
     UNKNOWN*)  die "$f: unrecognised step name(s): ${out#UNKNOWN }. Refusing to guess." ;;
     MIGRATED*) migrated=$((migrated + 1))
-               n="${out#MIGRATED }"; n="${n%% *}"; extra=""
-               case "$out" in
-                 *"(+mergemr)") extra=", +mergemr" ;;
-                 *"(-mergemr)") extra=", -mergemr" ;;
-               esac
-               printf '%s %s (%s rows%s)\n' "$([ "$DRY" -eq 1 ] && echo 'would migrate' || echo 'migrated')" \
-                      "$f" "$n" "$extra" ;;
+               printf '%s %s (%s)\n' "$([ "$DRY" -eq 1 ] && echo 'would migrate' || echo 'migrated')" \
+                      "$f" "${out#MIGRATED }" ;;
     *)         die "$f: unexpected migrator output: $out" ;;
   esac
 done

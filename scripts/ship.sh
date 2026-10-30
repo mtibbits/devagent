@@ -118,17 +118,12 @@ fi
 
 code_backend="$(config_get_project_field "$project" code_source.backend)"
 upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
-fork_repo="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
-fork_first="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
-fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
 
-# fork_only implies fork_first. config_code_target_repo (lib/config.sh, #885)
-# is the one home of the PR-target rule: it dies when fork_only=true has no
-# code_source.fork, and sets CODE_TARGET_REPO (read into target_repo below).
+# config_code_target_repo (lib/config.sh, #885) is the one home of the PR-target
+# rule: it dies when fork_only=true has no code_source.fork, and sets
+# CODE_TARGET_REPO (read into target_repo below) and the effective fork_first.
 config_code_target_repo "$project"
-if [ "$fork_only" = "true" ]; then
-    fork_first=true
-fi
+fork_repo="$CODE_FORK" fork_first="$CODE_FORK_FIRST" fork_only="$CODE_FORK_ONLY"
 
 # Resolved early (#41): code_sh and target_repo are needed to pre-validate the
 # stacked parent base on the target repo before the permission-gate plan and the

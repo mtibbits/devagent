@@ -37,11 +37,7 @@ _ci_secs() {
 # shellcheck disable=SC2034  # CI_GATE is the return channel — read by next.sh/mergetoall.sh
 ci_gate_resolve() {
   local v
-  if v="$(config_get_project_field "$1" ci_gate 2>/dev/null)"; then :
-  elif v="$(config_get_default ci_gate 2>/dev/null)"; then :
-  else v=report
-  fi
-  v="${v//$'\r'/}"
+  _ci_key_resolve "$1" ci_gate report; v="$_CI_KEY_VAL"
   case "$v" in
     report|block|off) CI_GATE="$v" ;;
     *) die "ci_gate must be report, block or off (got '$v')" ;;
@@ -105,12 +101,39 @@ _ci_record_head() {
 
 _ci_unknown() { CI_LINE="CI UNKNOWN: $1: $2"; _CI_REASON="$2"; }
 
+# _ci_call <knob> <default> <cmd> [args...]: one bounded call, stdin from /dev/null,
+# bounded by the <knob> seconds (_ci_secs, <default>). Sets _CALL_OUT (stdout),
+# _CALL_RC (its exit code; 127 when timeout(1) is not on PATH), _CALL_ERRS (its
+# non-blank stderr lines) and _CALL_ERR (a bare reason: `timed out after Ns`, the
+# last of those lines, else `<cmd> exited <rc>`). Never fails. Shared by _ci_fetch
+# and mergemr.sh's backend calls.
+_ci_call() {
+  local knob="$1" def="$2" errf; shift 2
+  _CALL_OUT=""; _CALL_RC=0; _CALL_ERRS=""; _CALL_ERR=""
+  if ! command -v timeout >/dev/null 2>&1; then
+    _CALL_RC=127; _CALL_ERR="timeout(1) not on PATH"; return 0
+  fi
+  _ci_secs "$knob" "$def"
+  errf="$(mktemp 2>/dev/null)" || errf=/dev/null
+  _CALL_OUT="$(bounded_call "$_CI_SECS" "$@" </dev/null 2>"$errf")" || _CALL_RC=$?
+  case "$_CALL_RC" in
+    0) ;;
+    124|137) _CALL_ERR="timed out after ${_CI_SECS}s" ;;
+    *)
+      _CALL_ERRS="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r')"
+      _CALL_ERR="${_CALL_ERRS##*$'\n'}"
+      [ -n "$_CALL_ERR" ] || _CALL_ERR="$(basename "$1") exited $_CALL_RC" ;;
+  esac
+  [ "$errf" = /dev/null ] || rm -f "$errf"
+  return 0
+}
+
 # _ci_fetch <project> <url> <verb> <knob> <default>: one bounded read of the code
-# backend's <verb> on <url>, bounded by the <knob> seconds (_ci_secs, <default>).
-# Sets _CI_OUT to its stdout and returns 0; on any failure sets CI_RESULT/CI_LINE
-# (notchecked or unknown) and _CI_REASON (the bare reason) and returns 1.
+# backend's <verb> on <url> (_ci_call). Sets _CI_OUT to its stdout and returns 0; on
+# any failure sets CI_RESULT/CI_LINE (notchecked or unknown) and _CI_REASON (the bare
+# reason) and returns 1.
 _ci_fetch() {
-  local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script rc=0 errf errs last secs
+  local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script last
   _CI_OUT=""; _CI_REASON=""
   backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
   backend="${backend//$'\r'/}"
@@ -129,24 +152,20 @@ _ci_fetch() {
     _ci_unknown "$url" "timeout(1) not on PATH"
     return 1
   fi
-  _ci_secs "$knob" "$def"; secs="$_CI_SECS"
-  errf="$(mktemp 2>/dev/null)" || errf=/dev/null
-  _CI_OUT="$(bounded_call "$secs" "$script" "$verb" "$url" </dev/null 2>"$errf")" || rc=$?
-  case "$rc" in
-    0) ;;
+  _ci_call "$knob" "$def" "$script" "$verb" "$url"
+  _CI_OUT="$_CALL_OUT"
+  case "$_CALL_RC" in
+    0) return 0 ;;
     78|2) CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: $backend has no $verb"; _CI_REASON="$backend has no $verb" ;;
-    124|137) _ci_unknown "$url" "timed out after ${secs}s" ;;
+    124|137) _ci_unknown "$url" "$_CALL_ERR" ;;
     *)
-      errs="$( { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null || true; } | tr -d '\r')"
-      last="${errs##*$'\n'}"
+      last="${_CALL_ERRS##*$'\n'}"
       # The CI line carries only the bare last line; the lines above it are the backend's
       # own diagnosis (gh's HTTP 401/404, a DNS failure), so they go to stderr, not away.
-      [[ "$errs" != *$'\n'* ]] || warn "ci: $backend $verb: ${errs%$'\n'*}"
-      _ci_unknown "$url" "${last:-$backend $verb exited $rc}" ;;
+      [[ "$_CALL_ERRS" != *$'\n'* ]] || warn "ci: $backend $verb: ${_CALL_ERRS%$'\n'*}"
+      _ci_unknown "$url" "${last:-$backend $verb exited $_CALL_RC}" ;;
   esac
-  [ "$errf" = /dev/null ] || rm -f "$errf"
-  [ "$rc" -eq 0 ] || return 1
-  return 0
+  return 1
 }
 
 # _ci_view_kind <kind> <field> <field2>: stores one mr-view singleton in its MV_*

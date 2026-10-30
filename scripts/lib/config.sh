@@ -180,23 +180,25 @@ config_suite_env_resolve() {
 #   code_source.upstream, else code_source.fork when fork_first = true.
 #   fork_only = true implies fork_first and requires code_source.fork, else
 #   dies "fork_only=true requires code_source.fork to be set".
+# Also sets CODE_FORK (code_source.fork), CODE_FORK_ONLY and CODE_FORK_FIRST (the
+# effective value: true under fork_only), so a caller never re-derives the rule.
 # SETTER-GLOBAL, called bare (register Issue-282/Issue-120): a die inside
 # `$( … )` would only kill the subshell.
-# shellcheck disable=SC2034  # CODE_TARGET_REPO is the return channel, read by the caller
+# shellcheck disable=SC2034  # CODE_* are the return channel, read by the caller
 config_code_target_repo() {
-  local project="$1" upstream fork fork_first fork_only
+  local project="$1" upstream
   [[ -n "$project" ]] || die "config_code_target_repo: project required"
   upstream="$(config_get_project_field "$project" code_source.upstream 2>/dev/null || true)"
-  fork="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
-  fork_first="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
-  fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
-  if [ "$fork_only" = "true" ]; then
-    [ -n "$fork" ] || die "fork_only=true requires code_source.fork to be set"
-    fork_first=true
+  CODE_FORK="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
+  CODE_FORK_FIRST="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
+  CODE_FORK_ONLY="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
+  if [ "$CODE_FORK_ONLY" = "true" ]; then
+    [ -n "$CODE_FORK" ] || die "fork_only=true requires code_source.fork to be set"
+    CODE_FORK_FIRST=true
   fi
   CODE_TARGET_REPO="$upstream"
-  if [ "$fork_first" = "true" ] && [ -n "$fork" ]; then
-    CODE_TARGET_REPO="$fork"
+  if [ "$CODE_FORK_FIRST" = "true" ] && [ -n "$CODE_FORK" ]; then
+    CODE_TARGET_REPO="$CODE_FORK"
   fi
 }
 

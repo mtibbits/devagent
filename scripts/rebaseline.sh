@@ -31,9 +31,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
-. "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
-# ci.sh: _ci_secs (the knob validator); it sources upstream.sh (bounded_call).
+# ci.sh: _ci_secs (the knob validator); it sources upstream.sh (_upstream_bounded).
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 
 : "${DEVAGENT_GIT:=git}"
@@ -90,8 +89,8 @@ case "$base_ref" in
                 warn "rebaseline: could not fetch '$remote' (timeout(1) not on PATH, so the fetch cannot be bounded); using the last-known $base_ref"
             else
                 f_rc=0
-                GIT_TERMINAL_PROMPT=0 bounded_call "$secs" "$DEVAGENT_GIT" -C "$tree" fetch --quiet --no-write-fetch-head \
-                    "$remote" "+refs/heads/$rbranch:refs/remotes/$remote/$rbranch" </dev/null >/dev/null 2>&1 || f_rc=$?
+                _upstream_bounded "$tree" "$secs" fetch --quiet --no-write-fetch-head \
+                    "$remote" "+refs/heads/$rbranch:refs/remotes/$remote/$rbranch" </dev/null >/dev/null || f_rc=$?
                 case "$f_rc" in
                     0) : ;;
                     124|137) warn "rebaseline: could not fetch '$remote' (timed out after ${secs}s); using the last-known $base_ref" ;;
