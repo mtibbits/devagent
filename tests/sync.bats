@@ -457,3 +457,67 @@ STUB
     grep -qxF '[issue] [edit] [1] [--repo] [acme/testproj] [--add-label] [Done] [--remove-label] [In Review]' "$GH_STUB_ARGV_LOG"
     grep -qF 'sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
+
+# ---- #885: the merge marker is a shared helper (lib/merge-marker.sh) ----
+
+@test "#885 sync clears a [?] mergemr after a merge" {
+    local cl="$DEVDOC_DIR/Issue-1/checklist.md"
+    shift_steps_from "$cl" updatewbs
+    sed -i -E 's/^(- \[.\] 19\. mergetoall)$/\1\n- [?] 20. mergemr/' "$cl"
+    assert_step "$cl" 20 '?' mergemr
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    assert_step "$cl" 20 ' ' mergemr
+    grep -qF 'sync: unblocked 1 closeout step(s) after merge ([?]->[ ])' "$cl"
+}
+
+# _marker_line <checklist>: the last `sync:` log line, timestamp stripped.
+_marker_line() {
+    grep -E '^- [0-9-]+ [0-9:]+  sync: .* merged' "$1" | tail -n 1 | sed -E 's/^- [0-9-]+ [0-9:]+  //'
+}
+
+# _fire_direct: merge_marker_fire as mergemr calls it, then merge_marker_present.
+_fire_direct() {
+    bash -c '
+        set -euo pipefail
+        DEVAGENT_ROOT="$1"
+        . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/io.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/log.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
+        if merge_marker_present "$4/checklist.md"; then echo "present-before"; fi
+        merge_marker_fire mergemr "$2" "$3" "$4" " — no merge marker written; the next mergemr or sync run retries it"
+        if merge_marker_present "$4/checklist.md"; then echo "present-after"; fi
+    ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT" Issue-1 "$DEVDOC_DIR/Issue-1"
+}
+
+@test "#885 the marker line is written by merge_marker_fire byte-for-byte as before" {
+    local cl="$DEVDOC_DIR/Issue-1/checklist.md" seed="$DEVAGENT_TMP/seed.md" cfg="$HOME/.claude/devagent/config.toml"
+    local cfgseed="$DEVAGENT_TMP/cfg.toml" outcome want via_sync via_fn
+    cp "$cl" "$seed"; cp "$cfg" "$cfgseed"
+    for outcome in landed no-tracker fork-only; do
+        cp "$cfgseed" "$cfg"
+        case "$outcome" in
+            landed)     want='sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' ;;
+            no-tracker) devagent_config_unset "$cfg" "project.$TEST_PROJECT.issue_source"
+                        want='sync: Issue-1 merged → on_merge skipped: no issue tracker configured' ;;
+            fork-only)  devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_only" true
+                        want='sync: Issue-1 merged → on_merge skipped: fork_only (upstream tracker not targeted)' ;;
+        esac
+        cp "$seed" "$cl"
+        run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+        [ "$status" -eq 0 ]
+        via_sync="$(_marker_line "$cl")"
+        cp "$seed" "$cl"
+        run _fire_direct
+        [ "$status" -eq 0 ]
+        [[ "$output" != *"present-before"* ]]
+        [[ "$output" == *"present-after"* ]]
+        via_fn="$(_marker_line "$cl")"
+        echo "outcome=$outcome want=[$want] sync=[$via_sync] fn=[$via_fn]" >&2
+        [ "$via_sync" = "$want" ]
+        [ "$via_fn" = "$want" ]
+    done
+}

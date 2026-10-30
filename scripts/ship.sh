@@ -122,9 +122,11 @@ fork_repo="$(config_get_project_field "$project" code_source.fork 2>/dev/null ||
 fork_first="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
 fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
 
-# fork_only implies fork_first; validate the fork is configured.
+# fork_only implies fork_first. config_code_target_repo (lib/config.sh, #885)
+# is the one home of the PR-target rule: it dies when fork_only=true has no
+# code_source.fork, and sets CODE_TARGET_REPO (read into target_repo below).
+config_code_target_repo "$project"
 if [ "$fork_only" = "true" ]; then
-    [ -n "$fork_repo" ] || die "fork_only=true requires code_source.fork to be set"
     fork_first=true
 fi
 
@@ -133,10 +135,7 @@ fi
 # #26 pre-flight below.
 code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
 [ -x "$code_sh" ] || die "missing code backend $code_sh"
-target_repo="$upstream_repo"
-if [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
-    target_repo="$fork_repo"
-fi
+target_repo="$CODE_TARGET_REPO"
 ship_as_draft_global="$(config_get_default ship_as_draft 2>/dev/null || echo false)"
 ship_as_draft_proj="$(config_get_project_field "$project" ship_as_draft 2>/dev/null || echo "$ship_as_draft_global")"
 # Per-issue draft override: .devagent-draft forces draft state.

@@ -172,6 +172,34 @@ config_suite_env_resolve() {
   done <<< "$_keys"
 }
 
+# config_code_target_repo <project>
+#
+# #885: the repo a project's PRs are opened on — ship's rule, in one place for
+# ship.sh (create-mr) and mergemr.sh (its rule 9 compares mr_url against it).
+# Sets the setter-global CODE_TARGET_REPO:
+#   code_source.upstream, else code_source.fork when fork_first = true.
+#   fork_only = true implies fork_first and requires code_source.fork, else
+#   dies "fork_only=true requires code_source.fork to be set".
+# SETTER-GLOBAL, called bare (register Issue-282/Issue-120): a die inside
+# `$( … )` would only kill the subshell.
+# shellcheck disable=SC2034  # CODE_TARGET_REPO is the return channel, read by the caller
+config_code_target_repo() {
+  local project="$1" upstream fork fork_first fork_only
+  [[ -n "$project" ]] || die "config_code_target_repo: project required"
+  upstream="$(config_get_project_field "$project" code_source.upstream 2>/dev/null || true)"
+  fork="$(config_get_project_field "$project" code_source.fork 2>/dev/null || true)"
+  fork_first="$(config_get_project_field "$project" fork_first 2>/dev/null || echo false)"
+  fork_only="$(config_get_project_field "$project" fork_only 2>/dev/null || echo false)"
+  if [ "$fork_only" = "true" ]; then
+    [ -n "$fork" ] || die "fork_only=true requires code_source.fork to be set"
+    fork_first=true
+  fi
+  CODE_TARGET_REPO="$upstream"
+  if [ "$fork_first" = "true" ] && [ -n "$fork" ]; then
+    CODE_TARGET_REPO="$fork"
+  fi
+}
+
 # wbs_order_config <project> <caller> [suffix]
 #
 # #803: the one reader of the order pass's [project.<p>.wbs] keys, shared by

@@ -694,3 +694,44 @@ EOF
     [[ "$output" != *"refusing to mark"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '-' ship
 }
+
+# ---- #885: ship's target-repo rule is config_code_target_repo (lib/config.sh) ----
+# _target_repo: the helper as mergemr calls it (bare, setter-global).
+_target_repo() {
+    bash -c '
+        set -euo pipefail
+        DEVAGENT_ROOT="$1"
+        . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/io.sh"
+        . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+        config_code_target_repo "$2"
+        printf "target=%s\n" "$CODE_TARGET_REPO"
+    ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT"
+}
+
+@test "#885 fork_first PR targets the fork via config_code_target_repo" {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    run _target_repo
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"target=acme/testproj"* ]]
+    devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_first" true
+    run _target_repo
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"target=me/testproj"* ]]
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo me/testproj"
+}
+
+@test "#885 config_code_target_repo: fork_only implies fork_first; without a fork it dies" {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    devagent_config_set_bool "$cfg" "project.$TEST_PROJECT.fork_only" true
+    run _target_repo
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"target=me/testproj"* ]]
+    devagent_config_unset "$cfg" "project.$TEST_PROJECT.code_source.fork"
+    run _target_repo
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"fork_only=true requires code_source.fork to be set"* ]]
+    [[ "$output" != *"target="* ]]
+}
