@@ -702,3 +702,475 @@ EOF2
     grep -qE '^Reason:[[:space:]]+mergemr rule 18: ' "$ISSUE_DIR/STUCK"
     _mrlog | grep -qxF "STUCK: mergemr rule 18: blocked by a forge rule (BLOCKED); resolve it on the forge, then run /devagent:unstuck"
 }
+
+# ---- rule 19: the merge ----------------------------------------------------------------
+
+# _argv <elem>...: the MERGE_LOG text of one merge-mr call with these argv elements.
+_argv() { printf '[%s]\n' "$@"; echo --; }
+
+@test "#885 green: squash merges with method, match-head, subject and body; marks [x]" {
+    _view closes="acme/testproj 5;Other-Org/tracker 12" \
+          trailers="Signed-off-by: Tess <tess@example.com>;Co-authored-by: Bot <bot@example.com>"
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method squash --match-head-commit "$PR_HEAD" \
+        --subject "Add the thing (#77)" \
+        --body "$(printf 'Closes #5\nCloses Other-Org/tracker#12\n\nSigned-off-by: Tess <tess@example.com>\nCo-authored-by: Bot <bot@example.com>')")" ]
+    _mrlog | grep -qxF "merged $URL by squash at $PR_HEAD → cccccccccccccccccccccccccccccccccccccccc"
+    grep -qE '^last_step = "20"' "$STATE"
+    [ "$(_transitions)" -eq 1 ]
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#885 green: body keeps Signed-off-by, drops Co-authored-by under include_coauthor=false, writes owner/name#N" {
+    _setb include_coauthor false
+    _view closes="Other-Org/tracker 12" \
+          trailers="Co-authored-by: Bot <bot@example.com>;Signed-off-by: Ann <ann@example.com>;signed-off-by: Bob <bob@example.com>"
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method squash --match-head-commit "$PR_HEAD" \
+        --subject "Add the thing (#77)" \
+        --body "$(printf 'Closes Other-Org/tracker#12\n\nSigned-off-by: Ann <ann@example.com>\nsigned-off-by: Bob <bob@example.com>')")" ]
+}
+
+@test "#885 green: a PR that only says Related: #N gets no Closes line" {
+    _view closes=""
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method squash --match-head-commit "$PR_HEAD" \
+        --subject "Add the thing (#77)" --body "Signed-off-by: Tess <tess@example.com>")" ]
+}
+
+@test "#885 green: squash with no closes and no trailers still passes an empty --body" {
+    _view trailers=""
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method squash --match-head-commit "$PR_HEAD" \
+        --subject "Add the thing (#77)" --body "")" ]
+}
+
+@test "#885 green: rebase passes no subject or body" {
+    _set merge_method rebase
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method rebase --match-head-commit "$PR_HEAD")" ]
+    _mrlog | grep -qxF "merged $URL by rebase at $PR_HEAD → cccccccccccccccccccccccccccccccccccccccc"
+}
+
+@test "#885 green: [defaults] merge_method applies" {
+    devagent_config_set "$CFG" defaults.merge_method merge
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(cat "$MERGE_LOG")" = "$(_argv "$URL" --method merge --match-head-commit "$PR_HEAD")" ]
+}
+
+@test "#885 R9: a fork_first PR on the fork passes (case-insensitive) and merges" {
+    _setb fork_first true
+    devagent_state_set "$STATE" mr_url "https://github.com/Me/TestProj/pull/77"
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#885 R17: no checks after the grace merges under if-present" {
+    _set merge_checks if-present
+    _view checks=""
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    devagent_state_set "$STATE" ci_seen_head "$PR_HEAD"
+    devagent_state_set "$STATE" ci_seen_at 1000
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#885 merge accepted with auto-merge on: [?]; the next run is R12 with no second merge-mr" {
+    _view out=after automerge=on
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: waiting (19): merge accepted; PR still open (merge queue or auto-merge)"* ]]
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _mrlog | grep -qxF "merge accepted $URL by squash at $PR_HEAD; PR still open"
+    [ "$(_merges)" -eq 1 ]
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#885 merge accepted into a merge queue: [?]; the next run is R12 with no second merge-mr" {
+    _view out=after queue=true
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: waiting (19): merge accepted; PR still open (merge queue or auto-merge)"* ]]
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#885 a PR ejected from the queue falls through to the merge" {
+    _view queue=true
+    _run
+    _wait_is 12 "merge accepted; waiting (green, MERGEABLE/CLEAN)"
+    [ ! -e "$MERGE_LOG" ]
+    _view queue=false
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_merges)" -eq 1 ]
+}
+
+@test "#885 a disallowed method is [!] with gh's text" {
+    _set merge_method merge
+    export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Merge commits are not allowed on this repository (mergePullRequest)"
+    _run
+    _stop_is 19 "merge call failed: GraphQL: Merge commits are not allowed on this repository (mergePullRequest); then run /devagent:unstuck"
+    [ "$(_merges)" -eq 1 ]
+    [ "$(_transitions)" -eq 0 ]
+}
+
+@test "#885 a merge-mr timeout is [!]" {
+    export STUB_MERGE_SLEEP=10 DEVAGENT_MERGEMR_MERGE_SECS=1
+    _run
+    _stop_is 19 "merge call failed: timed out after 1s; then run /devagent:unstuck"
+}
+
+@test "#885 a failed or timed-out re-read after the merge waits, no STUCK" {
+    export STUB_VIEW_AFTER_RC=1
+    _run
+    _wait_is 19 "could not read PR after merge: stub: re-read failed"
+    [ "$(_merges)" -eq 1 ]
+    rm -f "$STUB_DIR/merged" "$MERGE_LOG"
+    unset STUB_VIEW_AFTER_RC
+    export STUB_VIEW_AFTER_SLEEP=10 DEVAGENT_MERGEMR_READ_SECS=1
+    _run
+    _wait_is 19 "could not read PR after merge: timed out after 1s"
+}
+
+@test "#885 a PR found closed on the re-read is rule 4" {
+    _view out=after state=closed
+    _run
+    _stop_is 4 "PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+}
+
+@test "#885 squash with more commits than were read is [!]; merge_method=merge still merges" {
+    _view commits="120 100"
+    _run
+    _stop_is 19 "PR has 120 commits but 100 were read; the squash trailers would be incomplete. Merge it by hand, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark"
+    [ ! -e "$MERGE_LOG" ]
+    bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    _set merge_method merge
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+}
+
+@test "#885 quiet waiting: three unchanged waits log once; a changed reason logs again" {
+    _view draft=true
+    _run; _run; _run
+    _wait_is 5 "draft PR"
+    [ "$(_mrlog | grep -cxF 'waiting (5): draft PR')" -eq 1 ]
+    _view base=dev
+    _run
+    _wait_is 6 "stacked on dev"
+    _view draft=true
+    _run
+    [ "$(_mrlog | grep -cxF 'waiting (5): draft PR')" -eq 2 ]
+    [ "$(_mrlog | grep -cxF 'waiting (6): stacked on dev')" -eq 1 ]
+}
+
+# ---- on_merge ---------------------------------------------------------------------------
+
+_marker() { grep -E '^- [0-9-]+ [0-9:]+  sync: .* merged' "$CL" | sed -E 's/^- [0-9-]+ [0-9:]+  //'; }
+
+@test "#885 on_merge fires once across mergemr then sync" {
+    _view state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(_transitions)" -eq 1 ]
+    STUB_MRSTATE=MERGED run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(_transitions)" -eq 1 ]
+    [ "$(_marker | wc -l)" -eq 1 ]
+}
+
+@test "#885 on_merge fires once across sync then mergemr" {
+    mark_step "$CL" 20 '?'
+    STUB_MRSTATE=MERGED run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    [ "$(_transitions)" -eq 1 ]
+    assert_step "$CL" 20 ' ' mergemr
+    _view state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_transitions)" -eq 1 ]
+    [ "$(_marker | wc -l)" -eq 1 ]
+}
+
+@test "#885 the marker line mergemr writes equals sync's byte-for-byte" {
+    _view state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(_marker)" = 'sync: Issue-1 merged → on_merge landed: "Done" on acme/testproj' ]
+}
+
+@test "#885 transition_issue=false: no call, no marker; enabling it later fires once" {
+    _setb permissions.transition_issue false
+    _view state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ "$(_transitions)" -eq 0 ]
+    [ -z "$(_marker)" ]
+    _setb permissions.transition_issue true
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(_transitions)" -eq 1 ]
+    _run
+    [ "$(_transitions)" -eq 1 ]
+}
+
+@test "#885 an 'unmerged' mergemr line is not a merge marker" {
+    _view state=closed
+    _run
+    [ "$status" -eq 1 ]
+    grep -qF 'mergemr: STUCK: mergemr rule 4: PR closed unmerged' "$CL"
+    [ -z "$(_marker)" ]
+    bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    _view state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    [ "$(_transitions)" -eq 1 ]
+}
+
+# ---- other backends ---------------------------------------------------------------------
+
+_gitlab() { _set code_source.backend gitlab; }
+
+@test "#885 other backend: mr-state merged/closed/open give [x]/[!]/[?] under both merge_mr values" {
+    _gitlab
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        rm -f "$ISSUE_DIR/STUCK"; mark_step "$CL" 20 ' '
+        STUB_MRSTATE=MERGED run "$MM" "$TEST_PROJECT" </dev/null
+        [ "$status" -eq 0 ]
+        assert_step "$CL" 20 x mergemr
+        _mrlog | grep -qxF "PR $URL merged (merge commit -)"
+        STUB_MRSTATE=closed run "$MM" "$TEST_PROJECT" </dev/null
+        _stop_is 4 "PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark"
+        rm -f "$ISSUE_DIR/STUCK"; mark_step "$CL" 20 ' '
+        STUB_MRSTATE=OPEN run "$MM" "$TEST_PROJECT" </dev/null
+        _wait_is 8 "waiting for merge (merge step supports github only)"
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+    [ "$(_transitions)" -eq 1 ]
+}
+
+@test "#885 other backend: mr-state exiting 78 or 2 is the cannot-read [?] under both merge_mr values" {
+    _gitlab
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        for rc in 78 2; do
+            STUB_MRSTATE_RC=$rc run "$MM" "$TEST_PROJECT" </dev/null
+            _wait_is read "cannot read PR state on gitlab; merge by hand, then mark this step [x] with /devagent:checklist-mark"
+        done
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 other backend: a failed or timed-out mr-state is the read [?]" {
+    _gitlab
+    STUB_MRSTATE_RC=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: stub: mr-state failed"
+    STUB_MRSTATE_SLEEP=10 DEVAGENT_MERGEMR_READ_SECS=1 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is read "could not read PR $URL: timed out after 1s"
+}
+
+@test "#885 other backend: ship [-] and no mr_url keep rules 1-2" {
+    _gitlab
+    devagent_state_set "$STATE" mr_url ""
+    _run
+    _stop_is 2 "no PR URL recorded for this issue; merge the PR by hand, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark"
+    [ "$(_calls mr-state)" -eq 0 ]
+}
+
+# ---- remedy execution (Issue-594): run each message's own steps ----------------------
+
+@test "#885 remedy R2: merge by hand, unstuck, mark [x]" {
+    devagent_state_set "$STATE" mr_url ""
+    _run
+    [ "$status" -eq 1 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" mergemr x
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#885 remedy R4: unstuck, mark [-]" {
+    _view state=closed
+    _run
+    [ "$status" -eq 1 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" mergemr -
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 - mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+# _preship: the post-ship preship's two script calls around the verifier (preship.md).
+_preship() {
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" pin "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    run "$DEVAGENT_ROOT/scripts/preship-verified-head.sh" record "$TEST_PROJECT"
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+}
+
+@test "#885 remedy R10: run preship; the stop clears and the next run merges" {
+    devagent_state_set "$STATE" verified_head ""
+    _run
+    [ "$status" -eq 1 ]
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+}
+
+@test "#885 remedy R14: merge forward, rebaseline, push, preship; the next run merges" {
+    local origin="$DEVAGENT_TMP/origin.git" upwc="$DEVAGENT_TMP/upwc" h2
+    git -c init.defaultBranch=main init -q --bare "$origin"
+    ( cd "$SOURCE_DIR" && git remote add origin "$origin" && git push -q origin main && git fetch -q origin )
+    git clone -q -b main "$origin" "$upwc"
+    ( cd "$upwc" && git config user.email u@example.com && git config user.name U \
+      && echo up > up.txt && git add up.txt && git commit -q -m up && git push -q origin main )
+    _view mergeable=CONFLICTING mergestate=DIRTY
+    _run
+    [ "$status" -eq 1 ]
+    ( cd "$SOURCE_DIR" && git fetch -q origin && git merge -q --no-edit origin/main )
+    run "$DEVAGENT_ROOT/scripts/rebaseline.sh" "$TEST_PROJECT"
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2"                       # pushed: the PR now shows the merged-forward head
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    grep -qxF "[$h2]" "$MERGE_LOG"
+}
+
+@test "#885 remedy R15: fix, push, preship; the next run merges" {
+    local h2
+    _view checks="fail:ci"
+    _run
+    [ "$status" -eq 1 ]
+    ( cd "$SOURCE_DIR" && echo fix > fix.txt && git add fix.txt && git commit -q -m fix )
+    h2="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    _view head="$h2"
+    _preship
+    assert_step "$CL" 20 ' ' mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    grep -qxF "[$h2]" "$MERGE_LOG"
+}
+
+@test "#885 remedy R17: set merge_checks = if-present, unstuck; the next run merges" {
+    _view checks=""
+    devagent_state_set "$STATE" ci_seen_head "$PR_HEAD"
+    devagent_state_set "$STATE" ci_seen_at 1000
+    _run
+    [ "$status" -eq 1 ]
+    _set merge_checks if-present
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#885 remedy trailer truncation: merge by hand, unstuck, mark [x]" {
+    _view commits="120 100"
+    _run
+    [ "$status" -eq 1 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-mark.sh" --by-name "$ISSUE_DIR" mergemr x
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 remedy failed merge: unstuck; the next run merges" {
+    export MERGE_RC=1
+    _run
+    [ "$status" -eq 1 ]
+    run bash "$DEVAGENT_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
+    [ "$status" -eq 0 ]
+    unset MERGE_RC
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    _run
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 x mergemr
+    [ ! -e "$ISSUE_DIR/STUCK" ]
+    [ "$(_merges)" -eq 2 ]
+}
+
+# ---- the real code backend ----------------------------------------------------------------
+
+@test "#885 real backend leg: mergemr.sh -> code/github.sh -> gh shows [--body] []" {
+    unset DEVAGENT_CODE_BACKEND_DIR
+    mkdir -p "$DEVAGENT_TMP/ghbin" "$DEVAGENT_TMP/gql"
+    cp "$DEVAGENT_ROOT/tests/fixtures/gh-stub" "$DEVAGENT_TMP/ghbin/gh"
+    chmod +x "$DEVAGENT_TMP/ghbin/gh"
+    export PATH="$DEVAGENT_TMP/ghbin:$PATH"
+    export GH_STUB_GRAPHQL_DIR="$DEVAGENT_TMP/gql"
+    cp "$DEVAGENT_ROOT/tests/fixtures/code-github/mr-view-gql-open.json" "$GH_STUB_GRAPHQL_DIR/1.json"
+    cp "$DEVAGENT_ROOT/tests/fixtures/code-github/mr-view-gql-open.json" "$GH_STUB_GRAPHQL_DIR/2.json"
+    jq --arg h "$PR_HEAD" '.headRefOid = $h | .closingIssuesReferences = []
+        | .commits |= map(.messageBody = "no trailers here")' \
+        "$DEVAGENT_ROOT/tests/fixtures/code-github/mr-view-open.json" > "$DEVAGENT_TMP/pr-view.json"
+    export GH_STUB_PR_VIEW_FILE="$DEVAGENT_TMP/pr-view.json"
+    export GH_STUB_PR_MERGE_LOG="$DEVAGENT_TMP/gh-merge.log"
+    _run
+    echo "$output" >&2
+    [ "$status" -eq 0 ]
+    assert_step "$CL" 20 '?' mergemr
+    [[ "$output" == *"mergemr: waiting (19): merge accepted; PR still open (merge queue or auto-merge)"* ]]
+    cat "$GH_STUB_PR_MERGE_LOG" >&2
+    [ "$(sed -n 1p "$GH_STUB_PR_MERGE_LOG")" = "[pr] [merge] [$URL] [--squash] [--match-head-commit] [$PR_HEAD] [--subject] [Fix the volk thing (#9)] [--body] []" ]
+    [ "$(sed -n 2p "$GH_STUB_PR_MERGE_LOG")" = "GH_PROMPT_DISABLED=1 stdin=notty" ]
+    [ "$(wc -l < "$GH_STUB_PR_MERGE_LOG")" -eq 2 ]
+}

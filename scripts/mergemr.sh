@@ -171,6 +171,29 @@ if [ -z "$mr_url" ]; then                                                    # r
     _wait 2 "no PR URL recorded for this issue; merge the PR by hand, then mark this step [x] with /devagent:checklist-mark"
 fi
 
+# ---- other backends: one mr-state read, whatever merge_mr says -----------------------
+# Merging is GitHub only (#885). Decided by the code backend's name, so a non-github
+# backend never reaches ci_read_view. Exit 78 (not implemented) or 2 (unknown verb)
+# means the backend cannot tell; any other failure is a read that decided nothing.
+if [ "$backend" != github ]; then
+    if [ ! -x "$code_sh" ]; then
+        _wait read "could not read PR $mr_url: ${backend:-(none)}.sh not found or not executable"
+    fi
+    _call DEVAGENT_MERGEMR_READ_SECS 20 "$code_sh" mr-state "$mr_url"
+    case "$_RC" in
+        0) ;;
+        78|2) _wait read "cannot read PR state on ${backend:-(none)}; merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
+        *) _wait read "could not read PR $mr_url: $_ERR" ;;
+    esac
+    _st="$(printf '%s' "$_OUT" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    case "$_st" in
+        merged) _merged "PR $mr_url merged (merge commit -)" ;;
+        closed) _stop 4 "$R4_TEXT" ;;
+        open)   _wait 8 "waiting for merge (merge step supports github only)" ;;
+        *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_st'" ;;
+    esac
+fi
+
 # ---- the PR read -----------------------------------------------------------------
 
 ci_read_view "$project" "$issue_arg" "$mr_url"
@@ -323,4 +346,65 @@ case "$MV_MERGESTATE" in                                                      # 
     *) _stop 18 "blocked by a forge rule ($MV_MERGESTATE); resolve it on the forge, then run /devagent:unstuck" ;;
 esac
 
-_die "mergemr: merging is not implemented yet; nothing was marked"
+# ---- rule 19: the merge -------------------------------------------------------------------
+
+# _squash_body: one `Closes <ref>` line per closing reference (`#N` on the PR's own repo,
+# case-insensitively, else `owner/name#N`) — the PR's own closingIssuesReferences and
+# nothing else, so `Related: #N` closes nothing; then the distinct Signed-off-by lines,
+# then the Co-authored-by lines unless include_coauthor = false. One blank line between
+# the two blocks only when both are non-empty. May be empty.
+_squash_body() {
+    local c t closes="" trailers="" coauthor
+    local -a sob=() co=()
+    local -A seen=()
+    for c in "${MV_CLOSES[@]+"${MV_CLOSES[@]}"}"; do     # owner/name#n (ci_read_view)
+        t="${c%#*}"
+        if [ "${t,,}" = "${pr_repo,,}" ]; then
+            closes+=$'\n'"Closes #${c##*#}"
+        else
+            closes+=$'\n'"Closes $c"
+        fi
+    done
+    coauthor="$(config_get_project_field "$project" include_coauthor 2>/dev/null || echo true)"
+    coauthor="${coauthor//$'\r'/}"
+    for t in "${MV_TRAILERS[@]+"${MV_TRAILERS[@]}"}"; do
+        [ -z "${seen[$t]:-}" ] || continue
+        seen[$t]=1
+        case "${t,,}" in
+            signed-off-by:*)  sob+=("$t") ;;
+            co-authored-by:*) co+=("$t") ;;
+        esac
+    done
+    [ "$coauthor" != false ] || co=()
+    for t in "${sob[@]+"${sob[@]}"}" "${co[@]+"${co[@]}"}"; do trailers+=$'\n'"$t"; done
+    closes="${closes#$'\n'}"; trailers="${trailers#$'\n'}"
+    if [ -n "$closes" ] && [ -n "$trailers" ]; then
+        printf '%s\n\n%s' "$closes" "$trailers"
+    else
+        printf '%s%s' "$closes" "$trailers"
+    fi
+}
+
+if [ "$MERGE_METHOD" = squash ] && (( 10#$MV_COMMITS_TOTAL > 10#$MV_COMMITS_READ )); then
+    _stop 19 "PR has $MV_COMMITS_TOTAL commits but $MV_COMMITS_READ were read; the squash trailers would be incomplete. Merge it by hand, then run /devagent:unstuck and mark this step [x] with /devagent:checklist-mark"
+fi
+merge_args=(merge-mr "$mr_url" --method "$MERGE_METHOD" --match-head-commit "$verified_head")
+if [ "$MERGE_METHOD" = squash ]; then
+    # --body is passed even when empty: gh would otherwise fill in its own default body.
+    merge_args+=(--subject "$MV_TITLE (#$MV_NUMBER)" --body "$(_squash_body)")
+fi
+_call DEVAGENT_MERGEMR_MERGE_SECS 30 "$code_sh" "${merge_args[@]}"
+# A bound that killed a call GitHub had already accepted is seen through rule 3 on the
+# run after /devagent:unstuck.
+[ "$_RC" -eq 0 ] || _stop 19 "merge call failed: $_ERR; then run /devagent:unstuck"
+
+ci_read_view "$project" "$issue_arg" "$mr_url"
+[ "$MV_OK" = 1 ] || _wait 19 "could not read PR after merge: ${MV_ERR:-${_CI_REASON:-unknown error}}"
+case "$CI_RESULT" in
+    merged) _merged "merged $mr_url by $MERGE_METHOD at $verified_head → $MV_MERGECOMMIT" ;;
+    closed) _stop 4 "$R4_TEXT" ;;
+esac
+# Still open: a merge queue took it, or the forge turned it into an auto-merge. Rule 12
+# stops a second merge call while it is pending.
+_wait 19 "merge accepted; PR still open (merge queue or auto-merge)" \
+    "merge accepted $mr_url by $MERGE_METHOD at $verified_head; PR still open"
