@@ -66,10 +66,10 @@ devAgent/
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
-├── commands/                # one .md file per command-form slash command (55)
+├── commands/                # one .md file per command-form slash command (56)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 55 + 3 = the 58 slash commands
+│                            #   (SKILL.md + references/, #452) — 56 + 3 = the 59 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +

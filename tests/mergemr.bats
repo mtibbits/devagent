@@ -1174,3 +1174,25 @@ _preship() {
     [ "$(sed -n 2p "$GH_STUB_PR_MERGE_LOG")" = "GH_PROMPT_DISABLED=1 stdin=notty" ]
     [ "$(wc -l < "$GH_STUB_PR_MERGE_LOG")" -eq 2 ]
 }
+
+# ---- commands/mergemr.md (Issue-461: a doc an agent executes is product behaviour) ----
+
+@test "#885 every fenced command in commands/mergemr.md runs with its placeholders filled" {
+    local doc="$DEVAGENT_ROOT/commands/mergemr.md" line cmd n=0
+    _view out=after state=merged mergecommit=cccccccccccccccccccccccccccccccccccccccc
+    while IFS= read -r line; do
+        n=$((n + 1))
+        cmd="${line//<project>/$TEST_PROJECT}"
+        cmd="${cmd//<issue-dir>/$ISSUE_DIR}"
+        cmd="${cmd// \[issue\]/}"
+        [[ "$cmd" != *'<'* && "$cmd" != *'['[a-z]* ]] || { echo "unfilled placeholder: $line" >&2; return 1; }
+        CLAUDE_PLUGIN_ROOT="$DEVAGENT_ROOT" run bash -c "$cmd" </dev/null
+        echo "cmd=[$cmd] status=$status output=$output" >&2
+        [ "$status" -eq 0 ]
+        [[ "$output" != *usage:* ]]
+    done < <(awk '/^```/ { f = !f; next } f && /^bash "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\// { print }' "$doc")
+    [ "$n" -eq 3 ]
+    assert_step "$CL" 20 - mergemr
+    # the bang line hands the script the command's arguments unchanged
+    grep -qxF '!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/mergemr.sh" $ARGUMENTS`' "$doc"
+}
