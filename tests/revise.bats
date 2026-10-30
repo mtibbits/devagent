@@ -336,3 +336,46 @@ EOF
   [[ "$output" == *"CHAIN: /custom:resume"* ]]
   [[ "$output" != *"CHAIN: /custom:resume volk"* ]]
 }
+
+# --- #885: a new revision forgets the verified head --------------------------
+# verified_head names the head the last passing preship verified; a revision
+# pass changes the branch, so mergemr must report rule 10 (no verified head),
+# not a misleading rule 11 (head not verified). The pin goes with it.
+
+_revise_state() {
+  HOME="$HOME" bash -c '
+    set -euo pipefail
+    DEVAGENT_ROOT="$1"
+    . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/io.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+    shift
+    if [ "$1" = set ]; then
+      state_ctx_set_many volk Issue-676 str verified_head 1111111111111111111111111111111111111111 \
+        str preship_pin_head 2222222222222222222222222222222222222222
+    else
+      state_ctx_get volk "$2" Issue-676
+    fi
+  ' _ "$DEVAGENT_ROOT" "$@"
+}
+
+@test "#885 revise clears verified_head and preship_pin_head" {
+  _revise_state set
+  [ "$(_revise_state get verified_head)" = 1111111111111111111111111111111111111111 ]
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  [ -z "$(_revise_state get verified_head)" ]
+  [ -z "$(_revise_state get preship_pin_head)" ]
+  ! grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+}
+
+@test "#885 revise --retier clears verified_head and preship_pin_head" {
+  _revise_state set
+  run_revise --retier standard volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  [ -z "$(_revise_state get verified_head)" ]
+  [ -z "$(_revise_state get preship_pin_head)" ]
+  ! grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+}

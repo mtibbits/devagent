@@ -109,7 +109,9 @@ if [[ -n "$RETIER" ]]; then
   sed -i "s/^Template: .*/Template: ${RETIER}/" "$issue_dir/checklist.md"
   # #414 shape: revision bump + step-pointer reset in ONE issue-keyed
   # transaction; pending_comments_file deliberately untouched (no comments).
-  state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" int last_step 0 str last_step_name ""
+  # #885: verified_head/preship_pin_head reset too — see the comment below.
+  state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" int last_step 0 str last_step_name "" \
+    str verified_head "" str preship_pin_head ""
   log_append "$issue_dir" revise "retier: ${old_tier:-unknown} → ${RETIER} (revision $n_new)"
   printf 'revise: retier %s → %s (revision %s)\n' "${old_tier:-unknown}" "$RETIER" "$n_new"
 else
@@ -131,7 +133,11 @@ else
   # last_step_name=ship) makes doctor's #329 step-coherence check false-FAIL (state
   # names a step the active block shows unmarked). Empty name ⇒ doctor skips the
   # check; the checklist is authoritative for resumption (next reads the glyphs).
-  state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" str pending_comments_file "$prev_comments" int last_step 0 str last_step_name ""
+  # #885: also forget verified_head and the preship pin — the revision changes the
+  # branch, so mergemr must report rule 10 (no verified head; run preship), not a
+  # misleading rule 11 (the new head "was not verified" against a stale record).
+  state_ctx_set_many "$PROJECT" "$ISSUE" int revision "$n_new" str pending_comments_file "$prev_comments" int last_step 0 str last_step_name "" \
+    str verified_head "" str preship_pin_head ""
 
   k=$(grep -c '^### @' "$prev_comments" || true)
   # #75: route through log_append so the entry lands inside the `## Log` section,
