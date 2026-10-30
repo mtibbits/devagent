@@ -5,7 +5,8 @@
 # invocation in the ship-to-merge window; mergetoall.sh requires green; `ci_gate =
 # "block"` gates every post-ship step. Nothing here waits for CI. ci_read_view
 # (#885) reads the superset verb `mr-view` through the same fetch and parser for
-# the merge step (mergemr.sh).
+# the merge step (mergemr.sh), and merge_checks_resolve/merge_method_resolve validate
+# that step's two config keys.
 #
 # Every ci_* function is a SETTER-GLOBAL: call it bare, never as $(...) (register
 # Issue-282; ci_gate_resolve's die must exit the caller, Issue-120). Expects
@@ -44,6 +45,42 @@ ci_gate_resolve() {
   case "$v" in
     report|block|off) CI_GATE="$v" ;;
     *) die "ci_gate must be report, block or off (got '$v')" ;;
+  esac
+}
+
+# _ci_key_resolve <project> <key> <default>: `[project.<name>] <key>`, else `[defaults]
+# <key>`, else <default>, CR-stripped, in _CI_KEY_VAL; the table it came from in
+# _CI_KEY_TABLE (`project.<name>` or `defaults`), so a die names the line to fix.
+_ci_key_resolve() {
+  local v
+  if v="$(config_get_project_field "$1" "$2" 2>/dev/null)"; then _CI_KEY_TABLE="project.$1"
+  elif v="$(config_get_default "$2" 2>/dev/null)"; then _CI_KEY_TABLE=defaults
+  else v="$3"; _CI_KEY_TABLE="project.$1"
+  fi
+  _CI_KEY_VAL="${v//$'\r'/}"
+}
+
+# merge_checks_resolve <project> (#885): sets MERGE_CHECKS from merge_checks, as
+# ci_gate_resolve reads ci_gate: `required` (default; the merge step stops when the
+# PR's head reports no CI checks) or `if-present` (it merges without them). Any other
+# value dies naming the key, whatever permissions.merge_mr says (Issue-780).
+# shellcheck disable=SC2034  # MERGE_CHECKS is the return channel — read by mergemr.sh
+merge_checks_resolve() {
+  _ci_key_resolve "$1" merge_checks required
+  case "$_CI_KEY_VAL" in
+    required|if-present) MERGE_CHECKS="$_CI_KEY_VAL" ;;
+    *) die "merge_checks must be required or if-present (got '$_CI_KEY_VAL'); fix [$_CI_KEY_TABLE] merge_checks" ;;
+  esac
+}
+
+# merge_method_resolve <project> (#885): sets MERGE_METHOD from merge_method: `squash`
+# (default), `merge` or `rebase`. Any other value dies naming the key.
+# shellcheck disable=SC2034  # MERGE_METHOD is the return channel — read by mergemr.sh
+merge_method_resolve() {
+  _ci_key_resolve "$1" merge_method squash
+  case "$_CI_KEY_VAL" in
+    squash|merge|rebase) MERGE_METHOD="$_CI_KEY_VAL" ;;
+    *) die "merge_method must be squash, merge or rebase (got '$_CI_KEY_VAL'); fix [$_CI_KEY_TABLE] merge_method" ;;
   esac
 }
 

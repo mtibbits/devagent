@@ -4,10 +4,10 @@
 #
 # Two jobs, one home:
 #   * the stage→state resolver (stage_map_*), read by the three built-in issue
-#     backends, the three callers and doctor, so they cannot disagree on which
+#     backends, the four callers and doctor, so they cannot disagree on which
 #     label or status a stage names;
-#   * the gate/fire/classify step (transition_*), shared by the three callers
-#     (transition-draft-start.sh, ship.sh, sync.sh).
+#   * the gate/fire/classify step (transition_*), shared by the four callers
+#     (transition-draft-start.sh, ship.sh, sync.sh, mergemr.sh).
 #
 # Precedence of stage_map_target <backend> <project> <stage> (spec §9.1):
 #   1. the per-stage env override, DEVAGENT_GITHUB_LABEL_<STAGE> (github),
