@@ -74,12 +74,12 @@ code_sh="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/${backend:-(n
 
 # ---- how a run ends ----------------------------------------------------------------
 
-# _done <glyph> <log message>: [x] or [-], last_step, log. The caller exits.
+# _done <log message>: [x], last_step, log. The caller fires on_merge and exits.
 _done() {
     state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name mergemr
-    checklist_mark_by_name "$issue_dir/checklist.md" mergemr "$1"
-    log_append "$issue_dir" mergemr "$2"
-    echo "mergemr: $2"
+    checklist_mark_by_name "$issue_dir/checklist.md" mergemr x
+    log_append "$issue_dir" mergemr "$1"
+    echo "mergemr: $1"
 }
 
 # _last_logged: the message of the last `mergemr:` line in the checklist Log.
@@ -118,7 +118,7 @@ _on_merge() {
 
 # _merged <log message>: [x], on_merge, the next-step hint; exit 0.
 _merged() {
-    _done x "$1"
+    _done "$1"
     _on_merge
     checklist_print_next_hint "$cl"
     exit 0
@@ -143,7 +143,10 @@ R4_TEXT="PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck
 # ---- rules 1-2: whatever the backend -------------------------------------------------
 
 if [ "$ship_g" = - ]; then                                                   # rule 1
-    _done - "skipped: ship was skipped (no PR)"
+    state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name mergemr
+    checklist_mark_by_name "$issue_dir/checklist.md" mergemr -
+    log_append "$issue_dir" mergemr "skipped: ship was skipped (no PR)"
+    echo "mergemr: skipped: ship was skipped (no PR)"
     checklist_print_next_hint "$cl"
     exit 0
 fi
