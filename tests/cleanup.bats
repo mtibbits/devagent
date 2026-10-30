@@ -151,9 +151,9 @@ EOF
     grep -qE '^mr_url = ""$' "$f"
     grep -qE '^baseline_sha = ""$' "$f"
     grep -qE '^revision = 1$' "$f"
-    # Quoted "23" is deliberate: cleanup re-sets last_step via the string-typed
+    # Quoted "24" is deliberate: cleanup re-sets last_step via the string-typed
     # state_set AFTER the clear, preserving today's stored form exactly.
-    grep -qE '^last_step = "23"$' "$f"
+    grep -qE '^last_step = "24"$' "$f"
 }
 
 @test "cleanup.sh garbage-collects the issue's [context] snapshot (#98 review m4)" {
@@ -378,14 +378,14 @@ SH
 
 # --- #595: the oneshot no-repo-diff boundary gate -----------------------------
 
-# A genuine oneshot issue: the real template's rows (0/9/11/22/23) with
+# A genuine oneshot issue: the real template's rows (0/9/11/23/24) with
 # everything before cleanup terminal, so cleanup IS the current step. Built by
 # the checklist-init.sh SUBPROCESS, never by sourcing checklist_init here.
 make_oneshot_issue() {
     local d="$DEVDOC_DIR/Issue-1" s
     rm -f "$d/checklist.md"
     ISSUE_ID=Issue-1 bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" --template oneshot --project "$TEST_PROJECT" "$d"
-    for s in 0 9 11 22; do mark_step "$d/checklist.md" "$s" x; done
+    for s in 0 9 11 23; do mark_step "$d/checklist.md" "$s" x; done
     ( cd "$SOURCE_DIR" && git checkout -q main \
       && git update-ref refs/remotes/origin/main "$(git rev-parse main)" )
 }
@@ -400,7 +400,7 @@ make_oneshot_issue() {
     [[ "$output" == *"--retier standard"* ]]
     # Refused BEFORE any side effect: step unmarked, devdoc untouched, so the
     # re-run after a retier starts clean.
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
     n=$( cd "$DEVDOC_DIR" && git rev-list --count HEAD )
     [ "$n" -eq 1 ]
 }
@@ -411,7 +411,7 @@ make_oneshot_issue() {
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"oneshot boundary VIOLATED"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
 }
 
 @test "cleanup REFUSES on indeterminate — fail-safe (#595 AC3)" {
@@ -420,14 +420,14 @@ make_oneshot_issue() {
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -ne 0 ]
     [[ "$output" == *"INDETERMINATE"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
 }
 
 @test "cleanup COMPLETES a clean oneshot (#595 AC2)" {
     make_oneshot_issue
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 x cleanup
 }
 
 @test "a bare cleanup re-run after a clean oneshot close still completes (#595 redmr M1)" {
@@ -451,7 +451,7 @@ make_oneshot_issue() {
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
     [[ "$output" == *"NOT CHECKED"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 x cleanup
 }
 
 @test "a standard-tier cleanup spawns no checker at all (#595 AC2, r1 SE1/SE2)" {
@@ -472,9 +472,9 @@ make_oneshot_issue() {
       && git commit -q -m "the oneshot committed" )
     run "$DEVAGENT_ROOT/scripts/next.sh" "$TEST_PROJECT" --auto
     [ "$status" -ne 0 ]
-    [[ "$output" == *"step 23 (cleanup), script-backed"* ]]
+    [[ "$output" == *"step 24 (cleanup), script-backed"* ]]
     [[ "$output" == *"oneshot boundary VIOLATED"* ]]
-    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' ' cleanup
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
 }
 
 # --- #594: the lessons-lint gate (keyed on the FILE, not the glyph) ------------
@@ -602,4 +602,30 @@ make_oneshot_issue() {
     # No side effect ran: cleanup unmarked, source repo still on the branch.
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
     [ "$(cd "$SOURCE_DIR" && git branch --show-current)" = "feat/1-x" ]
+}
+
+@test "#885 a migrated checklist advances ship → mergemr → cleanup, each script marking by name" {
+    # The setup's checklist is in the #558 scheme (closeout 20-23, no mergemr row).
+    # Migrating it inserts mergemr at 20 and moves cleanup to 24; each script then
+    # finds its own row by name. Zero-diff branch: ship auto-skips [-], so mergemr
+    # takes rule 1 ([-], no PR) and nothing reaches a backend.
+    local cl="$DEVDOC_DIR/Issue-1/checklist.md"
+    local state="$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run bash "$DEVAGENT_ROOT/scripts/migrate-checklist-numbering.sh" "$DEVDOC_DIR/Issue-1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"+mergemr"* ]]
+    assert_step "$cl" 20 ' ' mergemr
+    assert_step "$cl" 24 ' ' cleanup
+    devagent_state_set "$state" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse feat/1-x)"
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$cl" 18 '-' ship
+    run "$DEVAGENT_ROOT/scripts/mergemr.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$cl" 20 '-' mergemr
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$cl" 24 x cleanup
+    assert_step "$cl" 21 x updatewbs
 }

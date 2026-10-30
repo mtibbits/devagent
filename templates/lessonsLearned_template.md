@@ -23,7 +23,7 @@
 > and not recommended: `/devagent:reap` cannot read a heading's bracket, so if
 > the honest tag is `actionable`, also add `- Tags: [actionable]` beneath the
 > heading. A `- [[wikilink]]` bullet is a link, never a tag.
-> `/devagent:cleanup` (step 23) lints this file and refuses a red one (#594);
+> `/devagent:cleanup` (step 24) lints this file and refuses a red one (#594);
 > marking `lessonslearned` `[-]` with no file written is the only skip.
 
 ## Entries

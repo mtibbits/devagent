@@ -27,7 +27,7 @@ Per `commands/draft.md`.
    operational one-shot on the current tree, and must leave that tree with
    no unpublished change — on the base branch, no commits beyond
    `default_baseline`, no uncommitted paths — which `scripts/oneshot-zerodiff.sh`
-   checks and cleanup (23) refuses on (#595). "Must produce no repo diff" is not
+   checks and cleanup (24) refuses on (#595). "Must produce no repo diff" is not
    the form: a shared tree cannot attribute a diff to one issue.
 3. Verify `imPlan.md` has a `## Definition of done` section (proves
    tighten ran). If absent, halt — UNLESS the active revision block

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cleanup.sh — step 23. Switch source tree back to default_baseline,
+# scripts/cleanup.sh — step 24. Switch source tree back to default_baseline,
 # commit/push devdoc if permissions.commit_devdoc=true, clear active_issue.
 set -euo pipefail
 
@@ -58,7 +58,7 @@ if [ -n "$offenders" ]; then
     die "closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
-# #594: the lessons lint is ENFORCED here. Step 22 writes lessonsLearned.md and
+# #594: the lessons lint is ENFORCED here. Step 23 writes lessonsLearned.md and
 # this step commits it, so this is the one scripted chokepoint every new corpus
 # file passes through. Pre-side-effect, the #242 placement: a die leaves the
 # tree on the issue branch and a re-run after the fix is safe; cleanup is the

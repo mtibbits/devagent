@@ -12,7 +12,7 @@ standard tier (escalate with `revise.sh --retier standard`, which restarts the
 issue at draft). While this checklist's `Template:` reads `oneshot`, that is
 enforced mechanically, not by prose: `scripts/oneshot-zerodiff.sh` checks that
 the source tree carries no unpublished change (on the base branch, no commits
-beyond `default_baseline`, no uncommitted paths) and cleanup (step 23) REFUSES
+beyond `default_baseline`, no uncommitted paths) and cleanup (step 24) REFUSES
 to close on a `violated` or `indeterminate` verdict (#595); a retier lifts this
 paragraph's claim along with the tier — read the `Template:` line, not this
 prose. It cannot attribute a change to this issue (the tree is shared), so it
@@ -27,7 +27,7 @@ intent.
 - [ ]  0. pull
 - [ ]  9. implement
 - [ ] 11. document
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
 
 ## Log

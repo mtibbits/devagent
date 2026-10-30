@@ -10,7 +10,7 @@
        - line 1 names the commit of the plugin author's PRIVATE migration ledger (where every
          pre-#613 line went) — not resolvable from a public install; what left this file is in
          this repo's own history at 2438f4d.
-     The workflow never writes this file: step 22 stages lessons into the private layers
+     The workflow never writes this file: step 23 stages lessons into the private layers
      (scripts/promote-potholes.sh --add --layer); the seed changes only by PR. Keep EVERY
      section heading, even one with no entries here — `--add` validates its section against
      the union of headings, and this file is the one every project has; an empty heading

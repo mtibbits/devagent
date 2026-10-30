@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # tests/checklist-numbering.bats — #558. Step numbers are POSITIONS, not IDs:
 # every checklist template's rows carry strictly increasing numbers in file order,
-# and the standard template is contiguous 0..23. Retires the permanent-ID scheme.
+# and the standard template is contiguous 0..24 (#885). Retires the permanent-ID scheme.
 # NOTE: bats-support is not installed here, so diagnostics use printf+return 1.
 
 load 'lib/bats-helpers'
@@ -32,19 +32,19 @@ _rows() {
     [ "$n_templates" -eq 6 ] || _die "expected 6 templates, selected $n_templates"
 }
 
-@test "numbering: the standard template is contiguous 0..23" {
+@test "numbering: the standard template is contiguous 0..24" {
     local expect=0 num name
     while read -r num name; do
         [ "$num" -eq "$expect" ] || _die "standard: expected $expect for '$name', got $num"
         expect=$((expect + 1))
     done < <(_rows "$PLUGIN_ROOT/templates/checklist-standard.md")
-    [ "$expect" -eq 24 ] || _die "standard: expected 24 rows, got $expect"
+    [ "$expect" -eq 25 ] || _die "standard: expected 25 rows, got $expect"
 }
 
 @test "numbering: execution order matches the canonical step sequence" {
     local expected="pull research draft spike scope improve prune tighten branch \
 implement quality document commit analyze draftmr review redmr preship ship \
-mergetoall updatewbs impact lessonslearned cleanup"
+mergetoall mergemr updatewbs impact lessonslearned cleanup"
     local actual
     actual="$(_rows "$PLUGIN_ROOT/templates/checklist-standard.md" | cut -d' ' -f2 | tr '\n' ' ')"
     [ "$(echo $actual)" = "$(echo $expected)" ] || _die "standard step order drifted: $actual"
@@ -72,13 +72,13 @@ CFG
         [ "$output" = "opus" ] || _die "step $step: expected opus, got '$output'"
     done
     # and a NON-checking step must NOT resolve checking
-    run env DA_HOME="$home" bash "$PLUGIN_ROOT/scripts/step-model.sh" p 21
-    [ "$output" != "opus" ] || _die "step 21 (impact) wrongly resolved as checking"
+    run env DA_HOME="$home" bash "$PLUGIN_ROOT/scripts/step-model.sh" p 22
+    [ "$output" != "opus" ] || _die "step 22 (impact) wrongly resolved as checking"
 }
 
-@test "numbering: the idle threshold tracks cleanup's new number (#558)" {
-    grep -qF 'if last_step >= 23:' "$PLUGIN_ROOT/scripts/lib/statusreport-detect.py"
-    grep -qF 'last_step = 23 if any' "$PLUGIN_ROOT/scripts/statusreport.sh"
+@test "numbering: the idle threshold tracks cleanup's new number (#558, #885)" {
+    grep -qF 'if last_step >= 24:' "$PLUGIN_ROOT/scripts/lib/statusreport-detect.py"
+    grep -qF 'last_step = 24 if any' "$PLUGIN_ROOT/scripts/statusreport.sh"
 }
 
 @test "numbering: no script-typed step self-marks or records its row by number (#885)" {
@@ -86,8 +86,8 @@ CFG
     # no script depends on. Any numeric self-mark, numeric --step stuck mark, or
     # literal last_step number in these scripts reopens the #558 wrong-row class.
     local f n=0 hits
-    # SCRIPT_TYPED in tests/next-backing.bats plus mergemr (#885), which joins that set
-    # with its spec §6.3 row; change both with spec §6.3.
+    # SCRIPT_TYPED in tests/next-backing.bats (mergemr joined it with its spec §6.3
+    # row, #885); change both with spec §6.3.
     for f in pull branch commit analyze ship mergetoall mergemr cleanup; do
         [ -f "$PLUGIN_ROOT/scripts/$f.sh" ] || _die "$f.sh: missing"
         hits="$(grep -nE 'checklist_mark "\$issue_dir/checklist\.md" [0-9]|checklist-stuck\.sh" --step [0-9]|str last_step +"[0-9]' \
@@ -98,8 +98,8 @@ CFG
     [ "$n" -eq 8 ] || _die "expected 8 script-typed steps, checked $n"
 }
 
-@test "numbering: state_cleanup_finish stamps the new cleanup number (#558, B4)" {
-    grep -qF 'str last_step "23" str last_step_name "cleanup"' "$PLUGIN_ROOT/scripts/lib/state.sh"
+@test "numbering: state_cleanup_finish stamps the new cleanup number (#558, B4, #885)" {
+    grep -qF 'str last_step "24" str last_step_name "cleanup"' "$PLUGIN_ROOT/scripts/lib/state.sh"
 }
 
 @test "numbering: revise excludes the pre-draft steps BY NAME from a retier block (#558, B1)" {
@@ -294,6 +294,23 @@ CFG
     [ -n "$n" ] && [ "$n" -ge 270 ] || _die "only ${n:-0} pairings checked — selector broke"
 }
 
+@test "numbering: the census map places mergemr at 20 and shifts the closeout to 21-24 (#885)" {
+    local root="$BATS_TEST_TMPDIR/map885-root"
+    mkdir -p "$root/commands"
+    printf '%s
+' '`mergemr` (20) merges the PR.' 'updatewbs (21) then' '24/cleanup lands.'         > "$root/commands/ok.md"
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
+    [ "$status" -eq 0 ] || _die "current-scheme pairings flagged:"$'
+'"$output"
+    printf '%s
+' '`cleanup` (23) is the last step.' 'updatewbs (20) then'         > "$root/commands/stale.md"
+    run python3 "$PLUGIN_ROOT/scripts/lib/check-step-pairings.py" --root "$root"
+    [ "$status" -eq 1 ] || _die "#558-scheme pairings passed:"$'
+'"$output"
+    grep -q 'stale.md:1:' <<<"$output" || _die "cleanup (23) not flagged: $output"
+    grep -q 'stale.md:2:' <<<"$output" || _die "updatewbs (20) not flagged: $output"
+}
+
 @test "numbering: the checker flags every observed spelling family (#558 r2 BLOCKING-3)" {
     # The spelling CORPUS: one wrong-numbered line per family ever observed on
     # a live surface. r2 found five families invisible to the checker in BOTH
@@ -370,7 +387,7 @@ EOF
 
 # ---- #566: the mandatory/optional step-split claim ----
 # The split is DERIVED, not asserted: templates/checklist-standard.md is the
-# source (its rows are the 24 steps; the rows pre-marked `[-]` are the optional
+# source (its rows are the 25 steps; the rows pre-marked `[-]` are the optional
 # ones), so the mandatory count is rows-minus-skipped. Every prose home that
 # states a mandatory COUNT must state that derived number.
 #
@@ -431,7 +448,7 @@ _mandatory_step_count() {
     skipped="$(grep -cE '^- \[-\] *[0-9]+\.' "$t")"
     # Selector sanity: a broken _rows or a renamed template would derive a
     # meaningless count and make every comparison below vacuous.
-    [ "$total" -eq 24 ] || { _die "standard template: parsed $total rows, expected 24"; return 1; }
+    [ "$total" -eq 25 ] || { _die "standard template: parsed $total rows, expected 25"; return 1; }
     [ "$skipped" -ge 1 ] || { _die "standard template: parsed no pre-skipped rows"; return 1; }
     printf '%s\n' "$((total - skipped))"
 }
@@ -488,8 +505,11 @@ _split_claim_hits() {
     # analysis/2026-08-01-split-claim-census.txt) and adjust the floor IN THE
     # SAME CHANGE. Lowering it without a census is how a sweep goes quietly
     # blind (Issue-439).
-    [ "$n" -ge 8 ] \
-        || _die "split-claim sweep selected only $n claims (expected >= 8) — the predicate stopped matching"
+    # #885: 8 -> 7. The CHANGELOG #562 entry's historical split claim was
+    # de-numbered (the #566 precedent) when mergemr made the derived count 22;
+    # measured 7 claims after that change.
+    [ "$n" -ge 7 ] \
+        || _die "split-claim sweep selected only $n claims (expected >= 7) — the predicate stopped matching"
     # Locate offenders with:
     #   grep -rnE '[0-9]+ +(of them +)?mandatory|[0-9]+ of them *$' --include='*.md' .
     [ -z "$bad" ] || _die "step-split drift — expected $m mandatory, found:$bad"

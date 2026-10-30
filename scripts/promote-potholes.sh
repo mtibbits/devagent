@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # scripts/promote-potholes.sh — #586/#611/#612. Durable [pattern] → pothole-register
-# promotion across the register's LAYERS. Step 22 STAGES ops (add, retire, amend) into
+# promotion across the register's LAYERS. Step 23 STAGES ops (add, retire, amend) into
 # <issue-dir>/potholes-promotion.md (a devdoc file, immune to the shared source
 # tree's stash/revert/gate churn), each line routed to a layer by the skill's
-# judgment; step 23 (cleanup, right after its tree restore) DRAINS that file into
+# judgment; step 24 (cleanup, right after its tree restore) DRAINS that file into
 # each devdoc-resident layer file and commits EACH ONE ITSELF with a pathspec-
 # scoped commit in the repo that holds the file. The plugin seed is never written.
 #
@@ -275,7 +275,7 @@ _retire_result() {   # <section-heading> <old> <mechanism> <layer> → the Retir
     printf -- '- [%s] %s — mechanised by %s (%s).' "$sec" "$body" "$3" "$(printf '%s\n' "$toks" | potholes_cite_join)"
 }
 # Say NOW what --apply will DEFER on later — cheap, so the operator hears it at
-# step 22 where the op can still be re-routed, not at cleanup.
+# step 23 where the op can still be re-routed, not at cleanup.
 _warn_commit_devdoc() {
     [ "$(_commit_devdoc_raw)" = true ] \
         || warn "$MODE: permissions.commit_devdoc is not true for $project — cleanup will DEFER the drain (rc 3) until the flag is flipped; the staged op is kept"
@@ -331,12 +331,12 @@ _stage_init() {
     {
         echo "# Pothole promotion — $issue_id"
         echo
-        echo "<!-- #586/#611/#612: written by step 22 (core-lessons-learned item 7) via"
+        echo "<!-- #586/#611/#612: written by step 23 (core-lessons-learned item 7) via"
         echo "     scripts/promote-potholes.sh --add | --retire | --amend. One op per '## '"
         echo "     block: 'layer:' then 'op: add|retire|amend' and its keyed lines"
         echo "     ('- <line>' for add; 'old:' + 'mechanism:' for retire; 'old:' + 'new:'"
         echo "     for amend). A block without 'op:' is an add. Drained by --apply, which"
-        echo "     cleanup.sh (step 23) runs after its tree restore: every op is validated"
+        echo "     cleanup.sh (step 24) runs after its tree restore: every op is validated"
         echo "     against a temp copy of every target file, then each file is written and"
         echo "     committed path-scoped. Sanctioned hand-edits: 'status: applied by-hand"
         echo "     <sha>' after landing lines by hand, and '--drop <op>' for a stale op. -->"

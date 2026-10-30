@@ -21,7 +21,7 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "stuck refuses when checklist already done" {
-  for s in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+  for s in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
     "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" "$s" x >/dev/null
   done
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$ISSUE_DIR" "why"
@@ -71,6 +71,8 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "#885 checklist-stuck --name dies on an absent row, checklist byte-identical" {
+  # A checklist scaffolded before #885 has no mergemr row.
+  sed -i -E '/^- \[.\] +20\. mergemr$/d' "$ISSUE_DIR/checklist.md"
   cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --name mergemr "$ISSUE_DIR" "why"
   [ "$status" -eq 1 ]

@@ -239,7 +239,7 @@ devagent_config_unset()    { _devagent_toml unset    "$1" "$2"; }
 # canary); the grep guard supplies the fail-loud property a bare `sed -i` lacks.
 #
 # #420: mark/assert/delete_step must be REVISION-SCOPED exactly like production.
-# revise.sh appends a `## Revision N` block reusing step numbers 2,4..23 + closeout
+# revise.sh appends a `## Revision N` block reusing step numbers 2,4..24 + closeout
 # 16-21; unscoped helpers would flip/read EVERY block (mask a revision bug) or
 # pass off revision-1's stale glyph — the masking class #335 killed for the
 # production checklist_mark_by_name. Rather than re-implement (and re-drift) the
@@ -333,7 +333,7 @@ shift_steps_from() {
     ' "$file" > "$tmp" && mv "$tmp" "$file"
 }
 
-# #594: cleanup.sh (step 23) REQUIRES a lint-clean lessonsLearned.md once
+# #594: cleanup.sh (step 24) REQUIRES a lint-clean lessonsLearned.md once
 # `lessonslearned` is [x]. A fixture that marks that step done seeds the file it
 # claims to have written. Opt-in per caller (NOT in devagent_test_setup): only
 # tests that reach the cleanup gate need it, and an unconditional seed would

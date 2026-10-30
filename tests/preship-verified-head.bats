@@ -173,11 +173,11 @@ _clears() {
 }
 
 @test "#885 preship-verified-head: post-ship pass clears a rule 14 stop" {
-    _clears "mergemr rule 14: conflict with main; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _clears "mergemr rule 14: conflict with main; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 }
 
 @test "#885 preship-verified-head: post-ship pass clears a rule 15 stop" {
-    _clears "mergemr rule 15: ci: red (1 failed: test); fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _clears "mergemr rule 15: ci: red (1 failed: test); fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 }
 
 @test "#885 preship-verified-head: post-ship pass clears a failed post-ship preship stop" {

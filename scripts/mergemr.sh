@@ -324,14 +324,14 @@ if [ "$MV_MERGEABLE" = UNKNOWN ] || [ "$MV_MERGESTATE" = UNKNOWN ]; then      # 
     _wait 13 "mergeability not computed yet"
 fi
 [ "$MV_MERGEABLE" != CONFLICTING ] \
-    || _stop 14 "conflict with $MV_BASE; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"   # rule 14
+    || _stop 14 "conflict with $MV_BASE; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"   # rule 14
 
 # rules 15-17: #782's verdict, unchanged. ci_gate does not apply here: merging is a
 # stronger act than reporting.
 ci_verdict
 case "$CI_VERDICT" in
     red)                                                                      # rule 15
-        _stop 15 "$CI_LINE; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
+        _stop 15 "$CI_LINE; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship" ;;
     hold)                                                                     # rule 16
         [ "$CI_RESULT" != none ] || _wait 16 "checks not reported yet (grace ${_CI_SECS}s)"
         _wait 16 "$CI_LINE" ;;

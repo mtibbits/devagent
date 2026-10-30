@@ -629,28 +629,28 @@ EOF2
 @test "#885 R14: CONFLICTING is [!]" {
     _view mergeable=CONFLICTING mergestate=DIRTY
     _run
-    _stop_is 14 "conflict with main; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop_is 14 "conflict with main; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
     [ ! -e "$MERGE_LOG" ]
 }
 
 @test "#885 R15: red CI is [!] naming the failing check" {
     _view checks="pass:lint fail:ci"
     _run
-    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
     [ ! -e "$MERGE_LOG" ]
 }
 
 @test "#885 R15: red with another check pending is [!]" {
     _view checks="fail:lint pending:ci"
     _run
-    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): lint; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): lint; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 }
 
 @test "#885 R15: ci_gate=off still reaches R15" {
     _set ci_gate off
     _view checks="fail:ci"
     _run
-    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
+    _stop_is 15 "CI FAILED: $URL (head ${PR_HEAD:0:7}): ci; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship"
 }
 
 @test "#885 R16: pending CI waits with the CI line alone" {

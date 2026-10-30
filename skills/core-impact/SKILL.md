@@ -1,14 +1,14 @@
 ---
 name: core-impact
-description: "Step 21: measure and record the real-world impact of a merged change before lessons-learned"
-when_to_use: After /devagent:updatewbs (step 20) and before /devagent:lessonslearned (step 22). Run as part of /devagent:impact.
+description: "Step 22: measure and record the real-world impact of a merged change before lessons-learned"
+when_to_use: After /devagent:updatewbs (step 21) and before /devagent:lessonslearned (step 23). Run as part of /devagent:impact.
 user-invocable: false
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
 
 # devagent-impact
 
-Step 21 of the devAgent 24-step workflow. Captures the *measurable*
+Step 22 of the devAgent 24-step workflow. Captures the *measurable*
 outcome of a shipped change so future status reports, velocity
 estimates, and lessons-learned have ground truth to refer to.
 

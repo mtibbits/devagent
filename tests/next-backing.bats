@@ -21,9 +21,9 @@ _die() { printf '%s\n' "$1" >&2; return 1; }
 # Type column. These are the rows whose Type INCLUDES `script` (branch is
 # "script + skill"). A step with an executable scripts/<step>.sh dispatches
 # script-backed iff it is listed here. Edit this list only together with §6.3.
-# Same 7-set as the #558 self-mark census in tests/checklist-numbering.bats;
+# Same 8-set as the #885 self-mark census in tests/checklist-numbering.bats;
 # change both with §6.3.
-SCRIPT_TYPED=" pull branch commit analyze ship mergetoall cleanup "
+SCRIPT_TYPED=" pull branch commit analyze ship mergetoall mergemr cleanup "
 
 # The stub: exit 3 is distinct from every real refusal, and next.sh's set -e
 # propagates it; the header prints before the exec, so it is captured either way.
@@ -98,7 +98,7 @@ _backing_mismatches() {
     local n
     n="$(_canonical_steps | wc -l)"
     # A thinned template would make this test vacuous.
-    [ "$n" -eq 24 ] || _die "expected 24 canonical steps, parsed $n"
+    [ "$n" -eq 25 ] || _die "expected 25 canonical steps, parsed $n"
     _stage_tree
     local res
     res="$(_backing_mismatches "$root")"
@@ -115,7 +115,7 @@ _backing_mismatches() {
 
 @test "backing: a helper planted under a step name is caught (#812)" {
     # Positive control for the detector: green on the unfixed and the fixed tree
-    # alike, by design. impact is step 21; its §6.3 Type is `skill`.
+    # alike, by design. impact is step 22; its §6.3 Type is `skill`.
     [ ! -e "$PLUGIN_ROOT/scripts/impact.sh" ] || _die "scripts/impact.sh exists; the plant is not a plant"
     _stage_tree
     _write_stub "$root/scripts/impact.sh"

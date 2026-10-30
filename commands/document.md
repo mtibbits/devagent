@@ -39,7 +39,7 @@ Per `commands/draft.md`.
    branch; check out the base and re-run. `violated` means the tree carries
    unpublished changes: judge whether this action produced them, and if so
    escalate NOW with `/devagent:revise <project> --retier standard` (restarts
-   the issue at draft) rather than at cleanup (23), where the same check refuses
+   the issue at draft) rather than at cleanup (24), where the same check refuses
    to close. This beat is ADVISORY — cleanup owns the enforcement.
 4. Invoke `core-document-actual-work` with `$ISSUE_DIR` and
    `$NOTE`.

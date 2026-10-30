@@ -1,6 +1,6 @@
 ---
 name: core-lessons-learned
-description: "Step 22: extract reusable lessons from a completed issue"
+description: "Step 23: extract reusable lessons from a completed issue"
 when_to_use: After /devagent:impact and before /devagent:cleanup. Run as part of /devagent:lessonslearned.
 user-invocable: false
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-lessons-learned
 
-Step 22 of the devAgent 24-step workflow. Writes
+Step 23 of the devAgent 24-step workflow. Writes
 `<issue-dir>/lessonsLearned.md` capturing what to do differently next
 time. Entries tagged `actionable` are harvested by `/devagent:reap`
 into new captures.
@@ -65,7 +65,7 @@ issues, not at the end of the current one.
    flat-bullet, zero-tag files naming the file (the batch-11 gap — Issue-440–443,
    453–457, 459–460 shipped this way and silently escaped both reap and the lint).
 
-   **The lint is enforced at step 23 (#594).** `/devagent:cleanup` lints this
+   **The lint is enforced at step 24 (#594).** `/devagent:cleanup` lints this
    issue's `lessonsLearned.md` BEFORE any side effect and refuses a red file; a
    file that is present is linted whatever the step's glyph says, and with
    `lessonslearned` `[x]` a missing file is itself a refusal. Marking the step
@@ -103,7 +103,7 @@ issues, not at the end of the current one.
    mechanical detector is claimed. **Do NOT edit any register file yourself**
    — an **uncommitted** edit in a shared tree is stashed or reverted by the
    next session's gate (the #586 defect). Stage every result through
-   `promote-potholes.sh`; cleanup (step 23) drains it.
+   `promote-potholes.sh`; cleanup (step 24) drains it.
 
    7a. **Retire-on-fix.** Did this issue mechanise, in full or in part,
    something the register already warns about? Grep the union for the diff's
@@ -183,7 +183,7 @@ issues, not at the end of the current one.
    design exists to avoid). It writes `<issue-dir>/potholes-promotion.md`
    (durable in devdoc; keyed `op:` blocks, one op per block and one op per
    line; a byte-identical re-run is a no-op).
-   `/devagent:cleanup` (step 23) drains it: every op is validated against a
+   `/devagent:cleanup` (step 24) drains it: every op is validated against a
    temp copy of every target file, then each layer file (bootstrapped if
    absent) is written and gets its own path-scoped commit in the devdoc repo,
    and the file flips to `status: applied <sha>[,<sha>]`. A DEFER (rc 3 —

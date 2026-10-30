@@ -7,7 +7,7 @@
 # a single page can satisfy), install commands and the verified Claude Code
 # version match README on BOTH sides, workflow.md's step table derives from
 # templates/checklist-standard.md (one row per template step, so a step
-# insertion or rename reddens the page; the 24 pin keeps the derived count
+# insertion or rename reddens the page; the 25 pin keeps the derived count
 # honest), configuration.md names every backend verb backtick-anchored
 # (substring-proof; `state` must not ride on `mr-state`), every shellcheck
 # version home names the CONTRIBUTING.md version (#678), and the audit §E
@@ -91,7 +91,7 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qE "^\| ${num} *\| \`${cmd}\`" "$SITE/workflow.md"
     count=$((count + 1))
   done < <(sed -n 's/^- \[.\] *\([0-9]*\)\. \(.*\)$/\1 \2/p' "$PLUGIN_ROOT/templates/checklist-standard.md")
-  [ "$count" -eq 24 ]
+  [ "$count" -eq 25 ]
   run grep -c '^| [0-9]' "$SITE/workflow.md"
   [ "$output" -eq "$count" ]
 }

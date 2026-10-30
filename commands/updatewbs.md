@@ -1,5 +1,5 @@
 ---
-description: Alias for `/devagent:wbs update` (workflow step 20)
+description: Alias for `/devagent:wbs update` (workflow step 21)
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [args]"
 ---

@@ -28,8 +28,9 @@ Active revision: 1
 - [ ] 17. preship
 - [ ] 18. ship
 - [-] 19. mergetoall
-- [ ] 21. impact
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 20. mergemr
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
 
 ## Log

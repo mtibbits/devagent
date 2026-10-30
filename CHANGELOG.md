@@ -1296,8 +1296,8 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
   templates (standard, perf, docs-only) and revision blocks scaffold the row
   pre-marked `[-]` (skipped); configuring the per-project `all_prs_branch`
   flips it back to `[ ]` pending at scaffold time (pull, revise, and
-  `--retier` all apply the same filter). The workflow is now counted as
-  21 mandatory + 3 optional steps.
+  `--retier` all apply the same filter). mergetoall now counts among the
+  optional steps.
 
   **Upgrading:** if you rely on step 19 without `all_prs_branch` set (e.g.
   invoking `/devagent:mergetoall` manually), set `all_prs_branch` in
@@ -1376,7 +1376,7 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
 Current capabilities as of this release:
 
 ### Core
-- **59 slash commands** driving a fixed **24-step issue workflow** (21 mandatory,
+- **59 slash commands** driving a fixed **24-step issue workflow** (22 mandatory,
   plus the optional research step 1, spike step 3, and mergetoall step 19),
   with all state preserved on disk so you can switch issues — or hand one to a
   fresh session — without losing context.

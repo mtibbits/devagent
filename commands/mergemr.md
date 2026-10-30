@@ -57,8 +57,8 @@ merge.
 | 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
 | 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
-| 14 | `CONFLICTING` | `[!]` `conflict with <base>; merge it forward, run scripts/rebaseline.sh, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
-| 15 | CI red (red wins over pending) | `[!]` `<CI FAILED line>; fix it, re-run scripts/run-suite.sh and scripts/evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
+| 14 | `CONFLICTING` | `[!]` `conflict with <base>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
+| 15 | CI red (red wins over pending) | `[!]` `<CI FAILED line>; fix it, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
 | 16 | CI pending or unknown, or no checks inside the grace | `[?]` the `CI …:` line; no checks yet: `checks not reported yet (grace <n>s)` |
 | 17 | no checks after the grace | `merge_checks = "required"`: `[!]` `no CI checks on head commit; set merge_checks = "if-present" to merge without CI, then run /devagent:unstuck`; `"if-present"`: continue |
 | 18 | `mergeStateStatus` not `CLEAN` or `HAS_HOOKS` (e.g. `BLOCKED`, `BEHIND`) | `[!]` `blocked by a forge rule (<status>); resolve it on the forge, then run /devagent:unstuck` |

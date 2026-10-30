@@ -484,10 +484,11 @@ Active revision: 1
 - [ ] 17. preship
 - [ ] 18. ship
 - [-] 19. mergetoall
-- [ ] 20. updatewbs
-- [ ] 21. impact
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
 
 ## Log
 - 2026-05-19 14:01  pull: fetched gnuradio/volk#676, scaffold created
@@ -575,7 +576,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:crrf [topic hint]` | alias | Orchestrates capture → (scaffold) → redissue → adjudicate → file under one bounded autonomy grant; honors `permissions.push_mr` (#559) |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (21 mandatory steps + the optional research, spike, and mergetoall steps)
+### 6.3 Family B — Workflow (22 mandatory steps + the optional research, spike, and mergetoall steps)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
@@ -599,12 +600,13 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
 | 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
-| 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
-| 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
-| 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
+| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
+| 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
+| 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
+| 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
 
-**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 21 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 
@@ -701,11 +703,11 @@ blocks may carry rows the current tier omits.
 
 | Tier | Rows | For |
 |---|---|---|
-| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (23) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
+| oneshot | 0, 9, 11, 23, 24 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (24) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
 | standard | all 24 rows | Full rails: features, bugfixes (default). |
-| perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
+| perf | standard minus 21 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |
-| research | 0, 2, 4, 5, 11, 22, 23 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| research | 0, 2, 4, 5, 11, 23, 24 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 
@@ -842,7 +844,7 @@ the text: a `[!]` row plus a `STUCK` file whose reason starts `CI FAILED:`
 means red, and a human is needed. An unchanged row with no `STUCK` file
 means held; retry on the worker's own schedule. The hold has two shapes:
 at step 19 it is `mergetoall`'s exit 1 with row 19 still `[ ]`, which ends
-the chain and makes `next` exit non-zero; at steps 20-23 it is an exit-0
+the chain and makes `next` exit non-zero; at steps 21-24 it is an exit-0
 `CI gate: holding step …` line. The `CI …:` prefix says the same.
 
 ### 7.4 Step model tiers (`step_models`)
@@ -1952,7 +1954,7 @@ v1 artifact list:
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
-| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 22 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612); #613: the plugin seed is a curated public EXCERPT (≤ 100 bullets, ≤ 25 per section, line 1 `<!-- curated: ledger <devDoc sha> -->`, bare `(Issue-N)` devagent citations only; it keeps EVERY section heading, empty or not, because `--add` validates a section against the union of headings and the seed is the one file every project has), the private layers hold the full register, and `<devDoc>/templates/potholes-migration-ledger.tsv` records where every pre-#613 seed line went (`kept | merged-into F<n> | retired <mechanism>`; a retired line also carries `(devagent Issue-613)` as the retiring actor, the `_retire_result` shape); the seed changes only by PR — `--retire`/`--amend` refuse a seed line, naming its devdoc body-twin when one exists (a register distributed from this seed carries each seed line's twin in a private layer, differing only by citation form, and the union read shows the seed's spelling and hides it — the twin is the op target; an install with no private layers has no twins and gets the file-a-lesson remedy); the citation grammar `POTHOLES_ISSUE_RE` admits `Issue-N` and `Issue-Fork-N` only, so a tracker's `dir_prefix` must be `Issue-` or `Issue-Fork-`; `--apply` runs `potholes_file_check` over the whole temp copy, so a pre-existing contract violation in a layer file DEFERs the drain naming `<file>:<line>` |
+| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 23 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612); #613: the plugin seed is a curated public EXCERPT (≤ 100 bullets, ≤ 25 per section, line 1 `<!-- curated: ledger <devDoc sha> -->`, bare `(Issue-N)` devagent citations only; it keeps EVERY section heading, empty or not, because `--add` validates a section against the union of headings and the seed is the one file every project has), the private layers hold the full register, and `<devDoc>/templates/potholes-migration-ledger.tsv` records where every pre-#613 seed line went (`kept | merged-into F<n> | retired <mechanism>`; a retired line also carries `(devagent Issue-613)` as the retiring actor, the `_retire_result` shape); the seed changes only by PR — `--retire`/`--amend` refuse a seed line, naming its devdoc body-twin when one exists (a register distributed from this seed carries each seed line's twin in a private layer, differing only by citation form, and the union read shows the seed's spelling and hides it — the twin is the op target; an install with no private layers has no twins and gets the file-a-lesson remedy); the citation grammar `POTHOLES_ISSUE_RE` admits `Issue-N` and `Issue-Fork-N` only, so a tracker's `dir_prefix` must be `Issue-` or `Issue-Fork-`; `--apply` runs `potholes_file_check` over the whole temp copy, so a pre-existing contract violation in a layer file DEFERs the drain naming `<file>:<line>` |
 | `potholes_workflow` | the shared workflow layer — `[project.<p>.paths]` then global `[paths]`; no devdoc or plugin rung, so not a registry key (its own `template list` row; #611) |
 
 Migration on first install: existing files at
@@ -2208,7 +2210,7 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   `--survey`), a range only the data can check, or a duplicate, malformed
   or nothing-naming `wbs-scope` line (no range flag); `10` no range flag
   and more than 50 issues in the default set.
-- `/devagent:wbs update [--offline]` — invoked by step 20 and by
+- `/devagent:wbs update [--offline]` — invoked by step 21 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active
   issue; every other line is kept byte-for-byte. The tracker state comes
@@ -2337,14 +2339,14 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
   `blocking` with count > 0, and no subsequent passing `redmr` entry
 - **Poorly scoped** — `scope` step logged ≥3 recommendations, or the
   log contains the word "ambiguity"
-- **Idle** — `updated_at` > 7 days ago and step < 20
+- **Idle** — `updated_at` > 7 days ago and step < 24
 - **Dispatch-lint rejects** (#438) — count of `*.md` under the issue's
   `analysis/rejected/` archive (dispatched checker reports the linter rejected,
   #360). Issues with zero rejects are omitted from the list — no added noise.
 
 ### 14.5 Velocity & estimate
 
-- Velocity = issues completed (step 23) per calendar week, computed
+- Velocity = issues completed (step 24) per calendar week, computed
   over a configurable window (default 4 weeks)
 - Estimate = (remaining WBS leaves) / velocity, rendered with `± X
   weeks` band based on observed variance
@@ -2379,7 +2381,7 @@ Post-MR feedback often requires re-walking the pipeline. Pattern:
 1. `/devagent:comments` — fetch MR comments to
    `<issue-dir>/revisions/r<N>/comments.md`
 2. `/devagent:revise` — increment revision counter, append a new
-   `## Revision N` block to checklist with steps 2, 4–23 re-listed in file order as `[ ]` (the `revision_block`
+   `## Revision N` block to checklist with steps 2, 4–24 re-listed in file order as `[ ]` (the `revision_block`
    template, #76 — NOT a bare 1–15), log the revision start. Then
    `/devagent:next` resumes from `draft` with the comments in context.
    The by-name preship/closeout gates are revision-scoped to match, so

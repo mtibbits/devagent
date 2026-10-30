@@ -60,7 +60,7 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 push_mr          = true        # step 18 pushes + opens the MR unprompted
 merge_mr         = false       # legacy alias of merge_to_all_prs; no step merges the MR
 merge_to_all_prs = false       # step 19 local integration branch
-commit_devdoc    = true        # step 23 commits the devdoc unprompted
+commit_devdoc    = true        # step 24 commits the devdoc unprompted
 transition_issue = true        # every tracker transition (draft, ship, sync) writes only when true
 
 [project.myproj.issue_source]  # where tickets live
@@ -225,7 +225,7 @@ order:
    the shipped defaults.
 
 Example keys: `imPlan_template` (step 2), `mr_template` (step 14),
-`potholes` (steps 2/22/23), `checklist-standard` (issue scaffolding).
+`potholes` (steps 2/23/24), `checklist-standard` (issue scaffolding).
 
 The pothole register is layered (#611): `show potholes` prints the union of the
 plugin seed, the shared workflow register and the project's own register. The
@@ -242,7 +242,7 @@ marker names a commit in the plugin author's private devDoc — the migration
 ledger that records where every pre-#613 entry went — and is not resolvable
 from a public install; the entries that left the seed are in the plugin's own
 git history at `2438f4d`. On a fresh install the excerpt IS the register; the
-private layers you accumulate hold the rest, and step 22 writes only to those.
+private layers you accumulate hold the rest, and step 23 writes only to those.
 
 Inspect
 what resolves where with `/devagent:template list` and

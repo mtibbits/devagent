@@ -53,7 +53,7 @@ everything from disk and state:
    every copy as one section). Halt-and-report in your artifact if it cannot
    be resolved; reading the plugin seed alone is checking with less — never do
    it silently.
-4. **Spike tripwire (#536) — only on a `spike: required` issue** (checklist row 23 is
+4. **Spike tripwire (#536) — only on a `spike: required` issue** (checklist row 3 is
    not `[-]`; unflagged issues that merely declare unknowns do NOT fire this):
    - a declared `## Load-bearing unknowns` entry with NO matching verdict in
      `spike.md` is a finding (the bet was declared and never tested); and
