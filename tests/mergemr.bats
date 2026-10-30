@@ -512,6 +512,49 @@ EOF2
     [ "$(_merges)" -eq 0 ]
 }
 
+# A tracker with no state-class (jira, gitlab, custom answer `usage`, exit 2; 78 is
+# "not implemented"): the stub mirrors that. Path (2) is GitHub-only, so no issue-mrs.
+_jira_tracker() {
+    _set issue_source.backend jira
+    _set issue_source.repo ACME
+    cat > "$DEVAGENT_TMP/fake-issue/jira.sh" <<'EOF2'
+#!/usr/bin/env bash
+v="$1"; shift
+echo "issue/jira $v $*" >> "$DEVAGENT_STUB_LOG"
+case "$v" in
+  state-class) echo "usage: jira.sh <verb> ..." >&2; exit "${STUB_JIRA_SC_RC:-2}" ;;
+esac
+exit 0
+EOF2
+    chmod +x "$DEVAGENT_TMP/fake-issue/jira.sh"
+}
+JIRA_R7="cannot read Issue-2 tracker state on jira; merge order is yours: record its PR as [context.Issue-2].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark"
+
+@test "#885 deps: a dependency on a tracker without state-class and no mr_url waits with the remedy" {
+    _jira_tracker
+    _deps Issue-2
+    _run
+    _wait_is 7 "$JIRA_R7"
+    [ "$(_calls issue-mrs)" -eq 0 ]
+    [ "$(_calls merge-mr)" -eq 0 ]
+    devagent_assert_logged "issue/jira state-class ACME 2"
+    STUB_JIRA_SC_RC=78 run "$MM" "$TEST_PROJECT" </dev/null
+    _wait_is 7 "$JIRA_R7"
+    [ "$(_calls issue-mrs)" -eq 0 ]
+    [ "$(_calls merge-mr)" -eq 0 ]
+}
+
+@test "#885 deps: a dependency on a tracker without state-class with a merged mr_url is satisfied" {
+    _setb permissions.merge_mr false
+    _jira_tracker
+    _deps Issue-2; _dep_url Issue-2
+    echo MERGED > "$STUB_DIR/mrstate.2"
+    _run
+    _wait_is 8 "waiting for merge (green, MERGEABLE/CLEAN)"
+    [ "$(_calls issue-mrs)" -eq 0 ]
+    devagent_refute_logged "state-class"
+}
+
 # ---- rules 9-18: only when the step would merge -----------------------------------
 
 @test "#885 R9: a PR on another repo than ship's target is [!]" {
@@ -538,14 +581,21 @@ EOF2
 @test "#885 R11: a head that is not verified_head is [!], no merge-mr call" {
     _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     _run
-    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it"
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (or push the verified head ${PR_HEAD:0:7})"
+    [ ! -e "$MERGE_LOG" ]
+}
+
+@test "#885 R11: a verified head that was never pushed names the push remedy" {
+    devagent_state_set "$STATE" verified_head cccccccccccccccccccccccccccccccccccccccc
+    _run
+    _stop_is 11 "PR head ${PR_HEAD:0:7} was not verified; run /devagent:preship on it (or push the verified head ccccccc)"
     [ ! -e "$MERGE_LOG" ]
 }
 
 @test "#885 R11 with automerge calls --disable-auto first" {
     _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb automerge=on
     _run
-    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (auto-merge disabled)"
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (or push the verified head ${PR_HEAD:0:7}) (auto-merge disabled)"
     [ "$(cat "$MERGE_LOG")" = "$(printf '[%s]\n' "$URL" --disable-auto; echo --)" ]
     [ "$(_merges)" -eq 0 ]
 }
@@ -554,7 +604,7 @@ EOF2
     _view head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb automerge=on
     export MERGE_RC=1 STUB_MERGE_ERR="GraphQL: Pull request auto merge is not allowed"
     _run
-    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge)"
+    _stop_is 11 "PR head bbbbbbb was not verified; run /devagent:preship on it (or push the verified head ${PR_HEAD:0:7}) (could not disable auto-merge: GraphQL: Pull request auto merge is not allowed; disable it on the forge)"
     [ "$(_merges)" -eq 0 ]
 }
 
@@ -571,7 +621,7 @@ EOF2
     devagent_state_set "$STATE" mr_url "$URL"
     _view head="$h2"
     _run
-    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it"
+    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it (or push the verified head ${PR_HEAD:0:7})"
     [ ! -e "$MERGE_LOG" ]
 }
 
@@ -587,7 +637,7 @@ EOF2
     _view head="$h2"
     _setb permissions.merge_mr true
     _run
-    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it"
+    _stop_is 11 "PR head ${h2:0:7} was not verified; run /devagent:preship on it (or push the verified head ${PR_HEAD:0:7})"
     [ ! -e "$MERGE_LOG" ]
 }
 

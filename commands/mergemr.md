@@ -50,11 +50,11 @@ merge.
 | 4 | PR closed unmerged | `[!]` `PR closed unmerged. To close out an abandoned PR, run /devagent:unstuck, then mark this step [-] with /devagent:checklist-mark` |
 | 5 | draft PR | `[?]` `draft PR` |
 | 6 | base is not the default base (`default_baseline` without its remote, else `main`) | `[?]` `stacked on <base>`. The step does not retarget; retarget the PR on the forge |
-| 7 | a dependency is not satisfied | `[?]` `waiting for <dep> (<found>)[; <dep> (<found>)…]`; a failed dependency read: `[?]` `could not read <dep> <PR state\|linked PRs\|tracker state>: <error>` |
+| 7 | a dependency is not satisfied | `[?]` `waiting for <dep> (<found>)[; <dep> (<found>)…]`; a failed dependency read: `[?]` `could not read <dep> <PR state\|linked PRs\|tracker state>: <error>`; a tracker with no `state-class`: `[?]` `cannot read <dep> tracker state on <backend>; merge order is yours: record its PR as [context.<dep>].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark` |
 | 8 | `merge_mr` not `true` | `[?]` `waiting for merge (<CI result>, <mergeable>/<mergeStateStatus>)` |
 | 9 | the PR is not on ship's target repo (`code_source.upstream`, or `code_source.fork` under `fork_first`; case-insensitive) | `[!]` `PR is not on <target>; it is on <repo>. Fix mr_url or code_source, then run /devagent:unstuck`. No target configured: `[!]` `no code_source.upstream configured for '<project>'; set it, then run /devagent:unstuck` |
 | 10 | no `verified_head` | `[!]` `no verified head for this PR; run /devagent:preship` |
-| 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
+| 11 | PR head is not `verified_head` | `[!]` `PR head <sha7> was not verified; run /devagent:preship on it (or push the verified head <verified sha7>)`. With auto-merge on, it first disables it and adds ` (auto-merge disabled)`, or ` (could not disable auto-merge: <error>; disable it on the forge)` |
 | 12 | auto-merge on, or the PR is in a merge queue | `[?]` `merge accepted; waiting (<CI result>, <mergeable>/<mergeStateStatus>)`; no second merge call |
 | 13 | `mergeable` or `mergeStateStatus` is `UNKNOWN` | `[?]` `mergeability not computed yet` |
 | 14 | `CONFLICTING` | `[!]` `conflict with <base>; merge it forward, run rebaseline.sh, re-run run-suite.sh and evidence-stamp.sh (review.md 6a), push, then run /devagent:preship` |
@@ -76,12 +76,16 @@ any other `issue_source`:
 
 1. its recorded PR (`[context.<dep>].mr_url`), via `mr-state`: merged is
    satisfied; open waits `PR open`; closed waits `PR closed unmerged`;
-2. its linked PRs, one `issue-mrs` call per tracker repo: merged is
-   satisfied; open or draft waits `PR open`; none falls through;
+2. its linked PRs, one `issue-mrs` call per tracker repo (a GitHub tracker
+   only): merged is satisfied; open or draft waits `PR open`; none falls
+   through;
 3. its tracker issue, via the issue backend's `state-class`: closed as
    completed is satisfied; open waits `open, no PR`; closed for another
    reason waits `closed: <reason>` (e.g. `closed: not planned`), so you
    decide whether to drop the dependency.
+
+A dependency is readable only with a GitHub tracker or a recorded `mr_url`;
+on any other tracker (no `state-class`) the step waits and names the remedy.
 
 ## Merging (rule 19)
 

@@ -212,8 +212,10 @@ default_base="$(printf '%s' "${default_base//$'\r'/}" | sed 's|^[^/]*/||')"
 [ "$MV_BASE" = "$default_base" ] || _wait 6 "stacked on $MV_BASE"                       # rule 6
 
 # rule 7. Each dependency: the first source that answers decides — (1) its recorded
-# PR (mr-state), (2) its linked PRs (one issue-mrs call per tracker repo), (3) its
-# tracker issue (state-class). Any failed read waits at once: it decides nothing.
+# PR (mr-state), (2) its linked PRs (one issue-mrs call per tracker repo; a GitHub
+# tracker only, as issue-mrs reads GitHub issue numbers), (3) its tracker issue
+# (state-class). Any failed read waits at once: it decides nothing. A tracker with no
+# state-class (exit 78 or 2) cannot answer (3): wait with the remedy, never merge.
 _deps_check() {
     local deps dep url st repo n line cls why
     local -a order=() unsat=()
@@ -236,7 +238,7 @@ _deps_check() {
             continue
         fi
         transition_route "$project" "$dep"
-        if [ -n "$TR_REPO" ] && [[ "$TR_NUM" =~ ^[0-9]+$ ]]; then
+        if [ "$TR_BACKEND" = github ] && [ -n "$TR_REPO" ] && [[ "$TR_NUM" =~ ^[0-9]+$ ]]; then
             nums[$TR_REPO]+=" $TR_NUM"
             batch[$TR_REPO]+=", $dep"
             dep_of["$TR_REPO#$TR_NUM"]="$dep"
@@ -261,7 +263,11 @@ _deps_check() {
             _wait 7 "could not read $dep tracker state: no issue tracker configured"
         fi
         _call DEVAGENT_MERGEMR_READ_SECS 20 "$(transition_backend_sh "$TR_BACKEND")" state-class "$TR_REPO" "$TR_NUM"
-        [ "$_RC" -eq 0 ] || _wait 7 "could not read $dep tracker state: $_ERR"
+        case "$_RC" in
+            0) ;;
+            78|2) _wait 7 "cannot read $dep tracker state on $TR_BACKEND; merge order is yours: record its PR as [context.$dep].mr_url, or merge by hand, then mark this step [x] with /devagent:checklist-mark" ;;
+            *) _wait 7 "could not read $dep tracker state: $_ERR" ;;
+        esac
         IFS=$'\t' read -r cls why <<<"$_OUT"
         case "$cls" in
             done) found[$dep]="" ;;
@@ -312,7 +318,7 @@ if [ "$CI_HEAD" != "$verified_head" ]; then                                   # 
         else _note=" (could not disable auto-merge: $_ERR; disable it on the forge)"
         fi
     fi
-    _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it$_note"
+    _stop 11 "PR head ${CI_HEAD:0:7} was not verified; run /devagent:preship on it (or push the verified head ${verified_head:0:7})$_note"
 fi
 
 # rule 12: the PR's live state, not the log — a queue that ejects it, or a cancelled
