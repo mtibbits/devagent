@@ -577,3 +577,14 @@ make_oneshot_issue() {
     [ "$status" -eq 0 ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
 }
+
+# ---- #885: self-marks by name -----------------------------------------------
+@test "#885 cleanup marks its row by name on a checklist whose row number differs" {
+    # A row inserted before updatewbs leaves cleanup at 24 (setup marked 20-22 [x];
+    # the shift keeps their glyphs).
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" updatewbs
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 x cleanup
+}

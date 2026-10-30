@@ -67,6 +67,10 @@ fi
 
 branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 [ -n "$branch" ] || die "no branch in state (run /devagent:branch first)"
+# #885: this step's row, found by NAME (numbers are positions a renumber moves);
+# resolved after the issue/branch guards (their messages win) and before any work,
+# so a checklist without the row dies with nothing done.
+self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" ship)" || die "no step named 'ship' in $issue_dir/checklist.md"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have no commits to
 # push/PR. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's own
@@ -78,7 +82,7 @@ baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null |
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "no commits on branch — auto-marking step 18 [-] (zero-diff issue)"
-    checklist_mark "$issue_dir/checklist.md" 18 - ship
+    checklist_mark_by_name "$issue_dir/checklist.md" ship -
     log_append "$issue_dir" ship "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
 fi
@@ -334,9 +338,9 @@ transition_fire ship "$project" "$issue_arg" on_ship "$issue_backend" "$issue_re
 
 state_ctx_set_many "$project" "$issue_arg" \
   str mr_url         "$mr_url" \
-  str last_step      "18" \
+  str last_step      "$self_num" \
   str last_step_name "ship"
-checklist_mark "$issue_dir/checklist.md" 18 x ship
+checklist_mark_by_name "$issue_dir/checklist.md" ship x
 log_append "$issue_dir" ship "MR $mr_url${NOTE:+ — $NOTE}"
 echo "$mr_url"
 checklist_print_next_hint "$issue_dir/checklist.md"

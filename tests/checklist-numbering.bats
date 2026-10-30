@@ -81,16 +81,20 @@ CFG
     grep -qF 'last_step = 23 if any' "$PLUGIN_ROOT/scripts/statusreport.sh"
 }
 
-@test "numbering: each script self-marks its own new step number (#558)" {
-    declare -A EXPECT=( [pull]=0 [branch]=8 [commit]=12 [analyze]=13 \
-                        [ship]=18 [mergetoall]=19 [cleanup]=23 )
-    local n=0
-    for name in "${!EXPECT[@]}"; do
-        grep -qE "checklist_mark \"\\\$issue_dir/checklist\.md\" ${EXPECT[$name]} " \
-            "$PLUGIN_ROOT/scripts/${name}.sh" || _die "${name}.sh: no self-mark ${EXPECT[$name]}"
+@test "numbering: no script-typed step self-marks or records its row by number (#885)" {
+    # #885: rows are found by NAME, so a renumber is a template/map/docs sweep that
+    # no script depends on. Any numeric self-mark, numeric --step stuck mark, or
+    # literal last_step number in these scripts reopens the #558 wrong-row class.
+    local f n=0 hits
+    # Same 7-set as SCRIPT_TYPED in tests/next-backing.bats; change both with spec §6.3.
+    for f in pull branch commit analyze ship mergetoall cleanup; do
+        [ -f "$PLUGIN_ROOT/scripts/$f.sh" ] || _die "$f.sh: missing"
+        hits="$(grep -nE 'checklist_mark "\$issue_dir/checklist\.md" [0-9]|checklist-stuck\.sh" --step [0-9]|str last_step +"[0-9]' \
+                    "$PLUGIN_ROOT/scripts/$f.sh" || true)"
+        [ -z "$hits" ] || _die "$f.sh: numeric self-mark or last_step: $hits"
         n=$((n + 1))
     done
-    [ "$n" -eq 7 ] || _die "expected 7 script self-marks, checked $n"
+    [ "$n" -eq 7 ] || _die "expected 7 script-typed steps, checked $n"
 }
 
 @test "numbering: state_cleanup_finish stamps the new cleanup number (#558, B4)" {
@@ -211,20 +215,29 @@ CL
     grep -qE '^- \[x\] 10\. commit' "$F"
 }
 
-@test "numbering: every script self-mark declares its own step name (#558)" {
-    # The 4th arg is what makes the mismatch detectable; a self-mark that omits
-    # it silently reopens the wrong-row class.
-    local n=0 f
-    # Same 7-set as SCRIPT_TYPED in tests/next-backing.bats; change both with spec §6.3.
-    for f in pull branch commit analyze ship mergetoall cleanup; do
+@test "numbering: each terminal path self-marks once, by its own step name (#885)" {
+    # One checklist_mark_by_name per terminal path (success [x] or auto-skip [-]),
+    # each naming the script's OWN step; commit's two success tails share
+    # finish_step, so its count is the [x] epilogue plus the [-] skip.
+    declare -A EXPECT=( [pull]=1 [branch]=1 [commit]=2 [analyze]=2 \
+                        [ship]=2 [mergetoall]=3 [cleanup]=1 )
+    local f hit n total=0
+    for f in "${!EXPECT[@]}"; do
+        n=0
         while IFS= read -r hit; do
             n=$((n + 1))
-            [[ "$hit" =~ checklist_mark\ \"\$issue_dir/checklist\.md\"\ [0-9]+\ [x-]\ [a-z]+ ]] \
-                || _die "$f.sh: self-mark without an expected-name arg: $hit"
-        done < <(grep -o 'checklist_mark "\$issue_dir/checklist\.md" [0-9]* [x-].*' \
+            [[ "$hit" =~ ^checklist_mark_by_name\ \"\$issue_dir/checklist\.md\"\ ([a-z]+)\ [x-]$ ]] \
+                || _die "$f.sh: malformed self-mark: $hit"
+            [ "${BASH_REMATCH[1]}" = "$f" ] || _die "$f.sh: self-mark names '${BASH_REMATCH[1]}', not '$f': $hit"
+        done < <(grep -oE 'checklist_mark_by_name "\$issue_dir/checklist\.md" [^ ]+ [^ ]+$' \
                      "$PLUGIN_ROOT/scripts/$f.sh" || true)
+        [ "$n" -eq "${EXPECT[$f]}" ] || _die "$f.sh: expected ${EXPECT[$f]} self-marks, found $n"
+        total=$((total + n))
     done
-    [ "$n" -eq 12 ] || _die "expected 12 script self-marks, found $n"
+    [ "$total" -eq 12 ] || _die "expected 12 script self-marks, found $total"
+    # mergetoall's red-CI [!] goes through checklist-stuck by name too.
+    grep -qF 'checklist-stuck.sh" --name mergetoall ' "$PLUGIN_ROOT/scripts/mergetoall.sh" \
+        || _die "mergetoall.sh: red-CI stuck mark is not by name"
 }
 
 @test "numbering: next.sh STOPS when a script step exits 0 without marking (#558)" {

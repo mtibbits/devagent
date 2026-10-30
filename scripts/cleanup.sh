@@ -205,7 +205,7 @@ else
     info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"
 fi
 
-checklist_mark "$issue_dir/checklist.md" 23 x cleanup
+checklist_mark_by_name "$issue_dir/checklist.md" cleanup x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"
 
 # Reconcile the WBS against the now-completed checklist so the leaf for

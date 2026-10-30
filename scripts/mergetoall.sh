@@ -45,6 +45,10 @@ issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 
 branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
 [ -n "$branch" ] || die "no branch in state"
+# #885: this step's row, found by NAME (numbers are positions a renumber moves);
+# resolved after the issue/branch guards (their messages win) and before any work,
+# so a checklist without the row dies with nothing done.
+self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" mergetoall)" || die "no step named 'mergetoall' in $issue_dir/checklist.md"
 
 # Zero-diff guard (shared core, #241): artifact-only issues have nothing to
 # squash-merge. Classify commits-ahead on the ISSUE BRANCH by name — source_dir's
@@ -56,7 +60,7 @@ baseline_sha="$(state_ctx_get "$project" baseline_sha "$issue_arg" 2>/dev/null |
 source_dir="$(config_get_project_field "$project" source_dir)"
 if [ "$(zero_diff_classify "$DEVAGENT_GIT" "$source_dir" "$branch" "$baseline_sha")" = empty ]; then
     info "no commits on branch — auto-marking step 19 [-] (zero-diff issue)"
-    checklist_mark "$issue_dir/checklist.md" 19 - mergetoall
+    checklist_mark_by_name "$issue_dir/checklist.md" mergetoall -
     log_append "$issue_dir" mergetoall "auto-skipped: zero commits on branch (artifact-only issue)"
     exit 0
 fi
@@ -64,7 +68,7 @@ fi
 all_prs="$(config_get_project_field "$project" all_prs_branch 2>/dev/null || true)"
 if [ -z "$all_prs" ]; then
     info "all_prs_branch not configured — auto-marking step 19 [-]"
-    checklist_mark "$issue_dir/checklist.md" 19 - mergetoall
+    checklist_mark_by_name "$issue_dir/checklist.md" mergetoall -
     log_append "$issue_dir" mergetoall "auto-skipped: all_prs_branch not configured"
     exit 0
 fi
@@ -72,7 +76,7 @@ fi
 # --- #782: requires green CI. After the auto-skips (a skip reads nothing) and before
 # the #26 preflight and the permission gate (a non-green read fetches nothing and
 # prompts nothing, so DA_YES cannot bypass it). No mr_url → no MR → no CI to gate (D2).
-# Red marks row 19 [!] (the current step may be an earlier row); hold exits 1 so
+# Red marks its own row [!] by name (the current step may be an earlier row); hold exits 1 so
 # next.sh's #558 advance guard never sees an unmarked exit 0.
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 mr_url="$(state_ctx_get "$project" mr_url "$issue_arg" 2>/dev/null || true)"
@@ -84,7 +88,7 @@ if [ -n "$mr_url" ]; then
         ci_verdict
         case "$CI_VERDICT" in
             red)
-                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --step 19 mergetoall "$issue_dir" "$CI_LINE" || true
+                bash "$DEVAGENT_ROOT/scripts/checklist-stuck.sh" --name mergetoall "$issue_dir" "$CI_LINE" || true
                 exit 1 ;;
             hold)
                 echo "mergetoall: not merging until CI is green; nothing was marked" >&2
@@ -219,7 +223,7 @@ fi
 # wrong-branch commit bug (#33 class). Detached HEAD → orig_branch empty → skip.
 [ -n "$orig_branch" ] && "$DEVAGENT_GIT" checkout --quiet "$orig_branch"
 
-state_ctx_set_many "$project" "$issue_arg" str last_step "19" str last_step_name "mergetoall"
-checklist_mark "$issue_dir/checklist.md" 19 x mergetoall
+state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name "mergetoall"
+checklist_mark_by_name "$issue_dir/checklist.md" mergetoall x
 log_append "$issue_dir" mergetoall "squashed $branch → $all_prs; $push_status${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

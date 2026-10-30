@@ -747,3 +747,14 @@ EOF
   [ -f "$DEVDOC/Issue-760/checklist.md" ]
   [ ! -f "$DEVDOC/Issue-760/.devagent-step-models" ]
 }
+
+@test "#885 pull marks its row by name on a checklist whose row number differs" {
+  mkdir -p "$DEVDOC/templates"
+  printf '# OVERRIDE #885\n- [ ]  1. pull\n- [ ]  2. draft\n- [ ] 24. cleanup\n\n## Log\n' \
+    > "$DEVDOC/templates/checklist-standard.md"
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 7
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"refusing to mark"* ]]
+  grep -qE '^- \[x\]  1\. pull' "$DEVDOC/Issue-7/checklist.md"
+  grep -qE '^- \[ \]  2\. draft' "$DEVDOC/Issue-7/checklist.md"
+}

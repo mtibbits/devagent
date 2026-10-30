@@ -305,6 +305,34 @@ delete_step() {
     fi
 }
 
+shift_steps_from() {
+    # <checklist-md> <name>
+    # #885: renumber the named row and every later row of the active revision
+    # block by +1, glyphs kept — the shape a renumber that inserts a row before
+    # <name> leaves behind. A script that marks its row by NUMBER then misses it;
+    # one that marks by NAME does not care.
+    local file="$1" name="$2" start tmp
+    if ! grep -qE "^- \[.\] +[0-9]+\. ${name}([[:space:]]|$)" "$file"; then
+        echo "shift_steps_from: no step named ${name} in $file" >&2; return 1
+    fi
+    _ensure_checklist_lib
+    start="$(_checklist_scope_start_by_name "$file" "$name")"
+    tmp="$file.shift.$$"
+    awk -v s="$start" -v t="$name" '
+        NR > s && match($0, /^- \[.\][ \t]+[0-9]+\.[ \t]+[A-Za-z][A-Za-z0-9_-]*/) {
+            seg = substr($0, RSTART, RLENGTH); rest = substr($0, RSTART + RLENGTH)
+            nm = seg; sub(/^- \[.\][ \t]+[0-9]+\.[ \t]+/, "", nm)
+            if (nm == t) on = 1
+            if (on) {
+                num = seg; sub(/^- \[.\][ \t]+/, "", num); sub(/\..*$/, "", num)
+                printf "- [%s] %2d. %s%s\n", substr($0, 4, 1), num + 1, nm, rest
+                next
+            }
+        }
+        { print }
+    ' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
 # #594: cleanup.sh (step 23) REQUIRES a lint-clean lessonsLearned.md once
 # `lessonslearned` is [x]. A fixture that marks that step done seeds the file it
 # claims to have written. Opt-in per caller (NOT in devagent_test_setup): only

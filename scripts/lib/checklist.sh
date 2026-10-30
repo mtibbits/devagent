@@ -194,6 +194,30 @@ checklist_step_state_by_name() {
   return 1
 }
 
+# checklist_step_num_by_name <file> <name>
+# Prints the step NUMBER of the row whose NAME matches <name> (returns 0), or
+# returns 1 with no output when no such row exists. Same resolution as
+# checklist_step_state_by_name (active revision block when the name is there,
+# else file-wide), so the number names the row checklist_mark_by_name flips.
+# #885: a script that needs its own row number (last_step, a STUCK file) asks
+# here instead of hard-coding it, so a renumber moves no script.
+checklist_step_num_by_name() {
+  local file="$1" target="$2" line ln=0 start
+  [[ -f "$file" ]] || return 1
+  start="$(_checklist_scope_start_by_name "$file" "$target")"
+  while IFS= read -r line; do
+    ln=$((ln + 1))
+    (( ln > start )) || continue
+    if [[ "$line" =~ $_checklist_line_re ]]; then
+      if [[ "${BASH_REMATCH[3]}" == "$target" ]]; then
+        echo "${BASH_REMATCH[2]}"
+        return 0
+      fi
+    fi
+  done < "$file"
+  return 1
+}
+
 # checklist_nonterminal_by_names <file> [name ...]
 # #242: prints one "name:[glyph]" line per named step that exists in the
 # checklist and is NOT terminal ([x] done / [-] skipped). Absent names print

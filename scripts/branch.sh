@@ -47,6 +47,9 @@ issue_num="${issue_num#Fork-}"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
+# #885: this step's row, found by NAME (numbers are positions a renumber moves);
+# resolved before any work so a checklist without the row dies with nothing done.
+self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" branch)" || die "no step named 'branch' in $issue_dir/checklist.md"
 
 # Read issue type and title from marker files (written by /devagent:draft, step 2).
 type_file="$issue_dir/.devagent-type"
@@ -105,10 +108,10 @@ state_ctx_set_many "$project" "$issue_arg" \
   str branch         "$branch" \
   str baseline_sha   "$baseline_sha" \
   str worktree_path  "$worktree_dir" \
-  str last_step      "8" \
+  str last_step      "$self_num" \
   str last_step_name "branch"
 
-checklist_mark "$issue_dir/checklist.md" 8 x branch
+checklist_mark_by_name "$issue_dir/checklist.md" branch x
 log_append "$issue_dir" branch "created $branch from $baseline$([ "$baseline_override" -eq 1 ] && printf ' (per-issue override)') ($baseline_sha)${NOTE:+ — $NOTE}"
 echo "$branch"
 checklist_print_next_hint "$issue_dir/checklist.md"

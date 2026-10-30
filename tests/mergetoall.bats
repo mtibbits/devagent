@@ -444,3 +444,33 @@ _state() { _devagent_toml get "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" 
     [ -n "$ci" ] && [ -n "$pb" ] && [ -n "$rs" ]
     [ "$ci" -lt "$pb" ] && [ "$pb" -lt "$rs" ]
 }
+
+# ---- #885: self-marks by name -----------------------------------------------
+@test "#885 mergetoall marks its row by name on a checklist whose row number differs" {
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" mergetoall  # mergetoall is now 20
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x mergetoall
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 ' ' updatewbs
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"20"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "#885 mergetoall's unconfigured skip marks its row by name on a checklist whose row number differs" {
+    devagent_config_unset "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.all_prs_branch"
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" mergetoall
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 '-' mergetoall
+}
+
+@test "#885 red CI marks mergetoall [!] by name on a checklist whose row number differs" {
+    _ci_mta red
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" mergetoall
+    run "$DEVAGENT_ROOT/scripts/mergetoall.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 '!' mergetoall
+    grep -q '^Step:        20 mergetoall' "$DEVDOC_DIR/Issue-1/STUCK"
+}

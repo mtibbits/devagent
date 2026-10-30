@@ -39,6 +39,9 @@ fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
+# #885: this step's row, found by NAME (numbers are positions a renumber moves);
+# resolved before any work so a checklist without the row dies with nothing done.
+self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" analyze)" || die "no step named 'analyze' in $issue_dir/checklist.md"
 
 # #55: analyzer family. Absent or explicitly empty ⇒ cmake (byte-compatible
 # with pre-knob behavior); anything else unknown dies before any analyzer,
@@ -57,8 +60,8 @@ shellcheck)
     log_line="shellcheck (diff-scoped) complete; sanitizers skipped: none exist for bash (bats suite is the dynamic coverage)"
     ;;
 none)
-    state_ctx_set_many "$project" "$issue_arg" str last_step "13" str last_step_name "analyze"
-    checklist_mark "$issue_dir/checklist.md" 13 - analyze
+    state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name "analyze"
+    checklist_mark_by_name "$issue_dir/checklist.md" analyze -
     log_append "$issue_dir" analyze "skipped: analyze = \"none\" for project '$project' — no analyzer family applies${NOTE:+ — $NOTE}"
     checklist_print_next_hint "$issue_dir/checklist.md"
     exit 0
@@ -68,7 +71,7 @@ none)
     ;;
 esac
 
-state_ctx_set_many "$project" "$issue_arg" str last_step "13" str last_step_name "analyze"
-checklist_mark "$issue_dir/checklist.md" 13 x analyze
+state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name "analyze"
+checklist_mark_by_name "$issue_dir/checklist.md" analyze x
 log_append "$issue_dir" analyze "${log_line}${NOTE:+ — $NOTE}"
 checklist_print_next_hint "$issue_dir/checklist.md"

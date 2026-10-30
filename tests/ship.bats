@@ -672,3 +672,25 @@ EOF
     devagent_refute_logged "issue/github transition"
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
 }
+
+# ---- #885: self-marks by name -----------------------------------------------
+@test "#885 ship marks its row by name on a checklist whose row number differs" {
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" ship        # ship is now 19
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 x ship
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 ' ' mergetoall
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"19"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "#885 ship's zero-diff skip marks its row by name on a checklist whose row number differs" {
+    _install_real_git_except_push_stub
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha \
+        "$( cd "$SOURCE_DIR" && /usr/bin/git rev-parse feat/1-x )"   # no commits ahead
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" ship
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 19 '-' ship
+}

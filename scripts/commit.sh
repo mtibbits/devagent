@@ -113,8 +113,8 @@ work_dir="${worktree:-$source_dir}"
 # Success epilogue for step 12 — shared by the real-commit tail and the #116
 # no-op path so the two cannot drift. $1 = log message (caller appends NOTE).
 finish_step() {
-    state_ctx_set_many "$project" "$issue_arg" str last_step "12" str last_step_name "commit"
-    checklist_mark "$issue_dir/checklist.md" 12 x commit
+    state_ctx_set_many "$project" "$issue_arg" str last_step "$self_num" str last_step_name "commit"
+    checklist_mark_by_name "$issue_dir/checklist.md" commit x
     log_append "$issue_dir" commit "$1"
     checklist_print_next_hint "$issue_dir/checklist.md"
 }
@@ -147,6 +147,10 @@ if [ -z "$branch" ]; then
         die "branch step is complete but no branch is recorded for '$issue_arg' — state is incoherent (resume-after-cleanup? run /devagent:doctor). Restore the issue's branch ('/devagent:branch') before committing (#316)."
     fi
 fi
+# #885: this step's row, found by NAME (numbers are positions a renumber moves);
+# resolved after the issue/branch guards (their messages win) and before any work,
+# so a checklist without the row dies with nothing done.
+self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" commit)" || die "no step named 'commit' in $issue_dir/checklist.md"
 
 # #362: born-red gate — die iff the LATEST born-red artifact is FLAGGED (a new test
 # that was GREEN at baseline, i.e. never-red / vacuous). Absent / PASS / PASS
@@ -234,7 +238,7 @@ if [ -z "$staged" ]; then
                 ;;
             empty)
                 info "clean tree, no commits — auto-marking step 12 [-] (artifact-only)"
-                checklist_mark "$issue_dir/checklist.md" 12 - commit
+                checklist_mark_by_name "$issue_dir/checklist.md" commit -
                 log_append "$issue_dir" commit "auto-skipped: clean tree, no commits (artifact-only issue)"
                 exit 0
                 ;;

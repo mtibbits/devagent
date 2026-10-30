@@ -167,3 +167,24 @@ _stub_shellcheck_analyzer() {
     run grep -c 'exit=3' "$artifact"
     [ "$status" -eq 1 ]
 }
+
+# ---- #885: self-marks by name -----------------------------------------------
+@test "#885 analyze marks its row by name on a checklist whose row number differs" {
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" analyze     # analyze is now 14
+    run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 14 x analyze
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 15 ' ' draftmr
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"14"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "#885 analyze = none skips its row by name on a checklist whose row number differs" {
+    _set_analyze none
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" analyze
+    run "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 14 '-' analyze
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"14"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
