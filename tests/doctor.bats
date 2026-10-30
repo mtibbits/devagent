@@ -400,7 +400,8 @@ STUB
 @test "doctor does not warn on an oneshot override (no ship row) (#885)" {
   mkdir -p "$DA_HOME/fake-devdoc/templates"
   cp "$PLUGIN_ROOT/templates/checklist-oneshot.md" "$DA_HOME/fake-devdoc/templates/checklist-oneshot.md"
-  ! grep -q '^- \[.\] [0-9]*\. ship$' "$DA_HOME/fake-devdoc/templates/checklist-oneshot.md"
+  run grep -q '^- \[.\] [0-9]*\. ship$' "$DA_HOME/fake-devdoc/templates/checklist-oneshot.md"
+  [ "$status" -eq 1 ]
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" != *"has no mergemr row"* ]]

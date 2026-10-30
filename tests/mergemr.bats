@@ -32,7 +32,7 @@ setup() {
     ( cd "$SOURCE_DIR" \
       && git checkout -q -b feat/1-x \
       && echo f1 > f1.txt && git add f1.txt && git commit -q -m f1 )
-    export PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    PR_HEAD="$(git -C "$SOURCE_DIR" rev-parse HEAD)"; export PR_HEAD
     devagent_state_set "$STATE" branch "feat/1-x"
     devagent_state_set "$STATE" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse main)"
     devagent_state_set "$STATE" mr_url "$URL"
@@ -142,7 +142,7 @@ _view() {
     local -A f=([state]=open [head]="$PR_HEAD" [checks]="pass:ci" [draft]=false [base]=main
                 [mergeable]=MERGEABLE [mergestate]=CLEAN [automerge]=off [queue]=false
                 [number]=77 [title]="Add the thing" [mergecommit]=- [commits]="1 1"
-                [closes]="" [trailers]="Signed-off-by: Tess <tess@example.com>" [out]=)
+                [closes]="" [trailers]="Signed-off-by: Tess <tess@example.com>" [out]="")
     local kv c item path="$DEVAGENT_TMP/view.txt" k
     for kv in "$@"; do f[${kv%%=*}]="${kv#*=}"; done
     if [ "${f[out]}" = after ]; then path="$DEVAGENT_TMP/view-after.txt"; export MV_OUT_AFTER="$path"
