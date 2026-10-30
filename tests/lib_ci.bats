@@ -376,6 +376,13 @@ _view_without() {
   _view_out $'commits\t1x\t1'
   ci_read_view volk Issue-676 "$URL"
   [ "$MV_OK" = 0 ]
+  # mr-view's `-` for a null owner or name is not a repo
+  for c in $'closes\t-/volk\t5' $'closes\tacme/-\t5'; do
+    _view_out "$c"
+    ci_read_view volk Issue-676 "$URL"
+    [ "$MV_OK" = 0 ] || { echo "$c gave MV_OK=$MV_OK"; false; }
+    [ "$MV_ERR" = "unrecognised mr-view output: closes invalid" ]
+  done
 }
 
 @test "#885 ci_read_view: a kind outside the named set is bad" {

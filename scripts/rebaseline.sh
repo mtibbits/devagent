@@ -54,6 +54,7 @@ fi
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "rebaseline: issue_dir not set or missing"
 branch="$(state_ctx_get "$project" branch "$issue_arg" 2>/dev/null || true)"
+branch="${branch//$'\r'/}"
 [ -n "$branch" ] || die "rebaseline: no branch in state for $issue_arg"
 
 active_tree_resolve "$project" "$issue_arg"     # setter-globals; never $( … )

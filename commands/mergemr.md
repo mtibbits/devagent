@@ -75,7 +75,7 @@ answers decides; an `Issue-Fork-N` dependency reads `issue_source_fork`,
 any other `issue_source`:
 
 1. its recorded PR (`[context.<dep>].mr_url`), via `mr-state`: merged is
-   satisfied; open waits `PR open`; closed waits `PR closed unmerged`;
+   satisfied; open or draft waits `PR open`; closed waits `PR closed unmerged`;
 2. its linked PRs, one `issue-mrs` call per tracker repo (a GitHub tracker
    only): merged is satisfied; open or draft waits `PR open`; none falls
    through;
@@ -128,8 +128,8 @@ non-idempotent custom issue backend may see the transition twice.
 Merging is GitHub only. On any other `code_source.backend`, after rules 1
 and 2 and whatever `merge_mr` says, one `mr-state` read decides: merged is
 `[x]` (log `PR <url> merged (merge commit -)`) and `on_merge`; closed is
-rule 4; open is `[?]` (rule 8) `waiting for merge (merge step supports
-github only)`; a backend without the verb (exit 78 or 2) is `[?]` `cannot
+rule 4; draft is `[?]` (rule 5) `draft PR`; open is `[?]` (rule 8) `waiting
+for merge (merge step supports github only)`; a backend without the verb (exit 78 or 2) is `[?]` `cannot
 read PR state on <backend>; merge by hand, then mark this step [x] with
 /devagent:checklist-mark`; any other failure is `[?]` (read) `could not
 read PR <url>: <error>`.

@@ -431,6 +431,9 @@ _dep_url() { devagent_state_set "$STATE" "context.$1.mr_url" "https://github.com
     echo CLOSED > "$STUB_DIR/mrstate.2"
     _run
     _wait_is 7 "waiting for Issue-2 (PR closed unmerged)"
+    echo draft > "$STUB_DIR/mrstate.2"
+    _run
+    _wait_is 7 "waiting for Issue-2 (PR open)"
     [ "$(_calls issue-mrs)" -eq 0 ]
     devagent_refute_logged "state-class"
 }
@@ -1031,6 +1034,17 @@ _gitlab() { _set code_source.backend gitlab; }
     [ "$(_calls mr-view)" -eq 0 ]
     [ ! -e "$MERGE_LOG" ]
     [ "$(_transitions)" -eq 1 ]
+}
+
+@test "#885 other backend: a draft mr-state is the rule 5 [?] under both merge_mr values" {
+    _gitlab
+    for mm in true false; do
+        _setb permissions.merge_mr "$mm"
+        STUB_MRSTATE=draft run "$MM" "$TEST_PROJECT" </dev/null
+        _wait_is 5 "draft PR"
+    done
+    [ "$(_calls mr-view)" -eq 0 ]
+    [ ! -e "$MERGE_LOG" ]
 }
 
 @test "#885 other backend: mr-state exiting 78 or 2 is the cannot-read [?] under both merge_mr values" {

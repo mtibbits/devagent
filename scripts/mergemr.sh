@@ -109,11 +109,11 @@ _stop() {
 
 # _on_merge: fire on_merge once per revision. The marker is sync's (A0.1): skip when
 # it is present; merge_marker_fire writes it only for an outcome with nothing left
-# to retry, so a gated or failed fire is retried by the next mergemr or sync run.
+# to retry, so a gated or failed fire is retried by a direct mergemr run or the next sync.
 _on_merge() {
     merge_marker_present "$cl" && return 0
     merge_marker_fire mergemr "$project" "$issue_arg" "$issue_dir" \
-        " — no merge marker written; the next mergemr or sync run retries it"
+        " — no merge marker written; a direct /devagent:mergemr run or the next sync retries it"
 }
 
 # _merged <log message>: [x], on_merge, the next-step hint; exit 0.
@@ -177,6 +177,7 @@ if [ "$backend" != github ]; then
     case "$_ST" in
         merged) _merged "PR $mr_url merged (merge commit -)" ;;
         closed) _stop 4 "$R4_TEXT" ;;
+        draft)  _wait 5 "draft PR" ;;
         open)   _wait 8 "waiting for merge (merge step supports github only)" ;;
         *)      _wait read "could not read PR $mr_url: unrecognised mr-state output '$_ST'" ;;
     esac
@@ -217,9 +218,9 @@ _deps_check() {
             _mr_state "$url"
             [ "$_CALL_RC" -eq 0 ] || _wait 7 "could not read $dep PR state: $_CALL_ERR"
             case "$_ST" in
-                merged) found[$dep]="" ;;
-                open)   found[$dep]="PR open" ;;
-                closed) found[$dep]="PR closed unmerged" ;;
+                merged)     found[$dep]="" ;;
+                open|draft) found[$dep]="PR open" ;;
+                closed)     found[$dep]="PR closed unmerged" ;;
                 *) _wait 7 "could not read $dep PR state: unrecognised mr-state output '$_ST'" ;;
             esac
             continue

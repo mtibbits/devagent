@@ -488,7 +488,7 @@ _fire_direct() {
         . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
         . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
         if merge_marker_present "$4/checklist.md"; then echo "present-before"; fi
-        merge_marker_fire mergemr "$2" "$3" "$4" " — no merge marker written; the next mergemr or sync run retries it"
+        merge_marker_fire mergemr "$2" "$3" "$4" " — no merge marker written; a direct /devagent:mergemr run or the next sync retries it"
         if merge_marker_present "$4/checklist.md"; then echo "present-after"; fi
     ' _ "$DEVAGENT_ROOT" "$TEST_PROJECT" Issue-1 "$DEVDOC_DIR/Issue-1"
 }

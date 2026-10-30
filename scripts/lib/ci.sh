@@ -221,7 +221,8 @@ _ci_parse() {
         fi ;;
       closes)
         if [ "$mode" != view ]; then bad=1
-        elif [[ "$name" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] && [[ "$link" =~ ^[1-9][0-9]*$ ]]; then
+        elif [[ "$name" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] && [[ "$name" != -/* && "$name" != */- ]] \
+             && [[ "$link" =~ ^[1-9][0-9]*$ ]]; then
           MV_CLOSES+=("$name#$link")
         else mv_bad="${mv_bad:-closes invalid}"
         fi ;;
