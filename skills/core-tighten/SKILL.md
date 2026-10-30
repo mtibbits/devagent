@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-tighten
 
-Step 7 of the devAgent 24-step workflow. The last review pass on
+Step 7 of the devAgent 25-step workflow. The last review pass on
 `<issue-dir>/imPlan.md` before any code is written. Locks down the
 plan so the implementing engineer (often a fresh subagent in a fresh
 session) needs zero context-discovery to start.

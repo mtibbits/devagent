@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:lessonslearned
 
-Step 23 of the 24-step devAgent workflow. Invokes the
+Step 23 of the 25-step devAgent workflow. Invokes the
 `core-lessons-learned` skill to write `<issue-dir>/lessonsLearned.md`.
 
 ## Argument parsing

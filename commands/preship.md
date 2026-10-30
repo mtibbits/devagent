@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:preship
 
-Step 17 of the devAgent 24-step workflow (between redmr (16) and ship (18);
+Step 17 of the devAgent 25-step workflow (between redmr (16) and ship (18);
 since #558 the numbers agree with file order by construction).
 The verification runs in the `devagent:preship-verifier` agent, which cannot
 write files and carries the five verifications as its system prompt; this

@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:draftmr
 
-Step 14 of the 24-step devAgent workflow. Invokes the
+Step 14 of the 25-step devAgent workflow. Invokes the
 `core-draft-mr` skill to fill the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) from the
 issue's artifacts and write `<issue-dir>/mr.md`.
 

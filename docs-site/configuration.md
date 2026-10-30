@@ -23,6 +23,12 @@ ci_gate = "report"   # the default. After ship, next prints one CI line; mergeto
                      # Read only as [defaults] ci_gate or [project.<name>] ci_gate:
                      # any other spelling or table is ignored, so the gate stays
                      # in report mode. Any other value stops next with an error.
+                     # It does not apply to step 20 (mergemr), which always reads CI.
+merge_method = "squash"     # step 20's merge: squash (default) | merge | rebase
+merge_checks = "required"   # the default: step 20 merges only on green CI and stops
+                            # [!] when the PR has no checks. A repo without CI sets
+                            # merge_checks = "if-present". Both keys also work per
+                            # project; a bad value stops step 20 on every run.
 
 [project.myproj]
 source_dir       = "/home/you/src/myproj"      # the code checkout
@@ -58,8 +64,10 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
                                # skips even an interactive ship's on_ship).
                                # All ship false.
 push_mr          = true        # step 18 pushes + opens the MR unprompted
-merge_mr         = false       # legacy alias of merge_to_all_prs; no step merges the MR
-merge_to_all_prs = false       # step 19 local integration branch
+merge_mr         = false       # true: step 20 merges the PR at the preship-verified
+                               # head (#885). Read directly, never a prompt; false
+                               # waits [?] until the PR is merged elsewhere
+merge_to_all_prs = false       # step 19 local integration branch (merge_mr no longer gates it)
 commit_devdoc    = true        # step 24 commits the devdoc unprompted
 transition_issue = true        # every tracker transition (draft, ship, sync) writes only when true
 
@@ -116,8 +124,8 @@ MYPROJ_DATA_ROOT = "~/src/myprojData"
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
-**issue backend** implements five verbs and may implement three more,
-`state-list`, `issue-list` and `state-exists`:
+**issue backend** implements five verbs and may implement four more,
+`state-list`, `issue-list`, `state-exists` and `state-class`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -129,6 +137,7 @@ GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 | `state-list` | `<repo>` | one `<id>` TAB `<class>` line per issue (optional) |
 | `issue-list` | `<repo>` | one JSON record per issue (optional) |
 | `state-exists` | `<repo> <state-name>` | exit 0 present, 4 absent (optional) |
+| `state-class` | `<repo> <num>` | one `<class>` TAB `<reason>` line (optional) |
 
 `transition` writes the tracker state the stage maps to: the
 `issue_workflow` value, unless a `github_labels` / `gitlab_labels` table
@@ -156,13 +165,15 @@ tracker. The class is `done`, `not_planned`, `in_progress`, `open` or
 maps to, after any `github_labels` / `gitlab_labels` or environment
 override. There is no default label. A
 backend without it exits 78 (or 2, unknown verb), and `wbs update` then
-uses local checklists. `issue-list` is what `wbs init --from-tracker`
+uses local checklists. `state-class` is the same class for one issue, plus
+its state reason (e.g. `completed` or `not planned`; `-` for none); the merge step reads it
+to decide whether a dependency is done. `issue-list` is what `wbs init --from-tracker`
 reads to build a new `WBS.md` from the tracker history, and what
 `wbs init --merge` reads to add the issues an existing one lacks; without
 it those commands stop. See spec §9.1.
 
-Every **code backend** implements five verbs and may implement two more,
-`issue-mrs` and `mr-checks`:
+Every **code backend** implements five verbs and may implement three more,
+`issue-mrs`, `mr-checks` and `mr-view`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -170,9 +181,10 @@ Every **code backend** implements five verbs and may implement two more,
 | `create-mr` | `<repo> <title> <body-file> <head> <base> [--draft]` | MR URL to stdout |
 | `mr-state` | `<mr-url>` | `open\|merged\|closed\|draft` |
 | `mr-comments` | `<mr-url>` | markdown to stdout |
-| `merge-mr` | `<mr-url> [--method squash\|merge\|rebase]` | exit 0 |
+| `merge-mr` | `<mr-url> [--method squash\|merge\|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs` | `<repo> <id>...` | `issue` and `mr` lines per issue (optional) |
 | `mr-checks` | `<mr-url>` | `state`, `head` and one line per CI check (optional) |
+| `mr-view` | `<mr-url>` | the `mr-checks` lines plus draft, base, mergeability, auto-merge, queue, title, closing issues, trailers and commit counts (optional) |
 
 `issue-mrs` is what `wbs update` reads to show linked-MR state on open
 issue leaves (`[~]` with `mr: open`, `draft` or `merged`). An MR links an
@@ -188,6 +200,11 @@ and what `mergetoall` reads to refuse a red or pending branch. It is one
 bounded call (20 s) per `next` invocation from ship until cleanup; nothing
 waits for CI. GitHub implements it; a backend without it prints `CI NOT
 CHECKED` and gates nothing. See spec §7.2 and §9.2.
+
+`mr-view` is what step 20 (`/devagent:mergemr`) reads to decide whether to
+merge, and `merge-mr --match-head-commit` is how it merges only the head
+preship verified. GitHub implements both; on any other forge the step reads
+`mr-state` and waits for a merge done by hand.
 
 Exit-code conventions across all backends:
 

@@ -141,10 +141,13 @@ include_coauthor = false                 # strip Co-Authored-By from commit msg 
 default_baseline = "origin/main"
 all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase
+# merge_checks   = "required"            # #885: or "if-present" for a repo without CI (§6.3 row 20)
 
 [project.volk.permissions]
 push_mr            = true
-merge_mr           = true
+merge_mr           = true                # #885: step 20 merges the PR at the verified head (§8)
+merge_to_all_prs   = true                # step 19 mergetoall
 commit_devdoc      = true
 transition_issue   = true
 cleanup_on_merge   = false
@@ -196,6 +199,13 @@ devAgent never adds a `Co-Authored-By` trailer, but the driving model may. When 
 body (case-insensitive); `Signed-off-by` (DCO) is always preserved. Per-project only — there is no
 `[defaults]` layer. Set `false` for AI-attribution-averse upstreams (e.g. `volk`).
 
+`merge_method` and `merge_checks` (#885) are `[project.<name>]` keys with a `[defaults]`
+fallback, read by `mergemr.sh` (step 20) and validated on every run whatever
+`permissions.merge_mr` says; any other value stops the step naming the key.
+`merge_method` is `squash` (default), `merge` or `rebase`. `merge_checks` is `required`
+(default: no CI checks on the head after #782's grace is a `[!]` stop) or `if-present` (a repo
+without CI merges without checks). `ci_gate` (§7.2) does not apply to step 20.
+
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 
 Mutable. Out of git. One active issue per project.
@@ -230,7 +240,11 @@ ever need it. Order is not preserved; v1 does not depend on order.
 Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
 `worktree_path`, `spike_worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
 `last_step`, `last_step_name`, `ci_seen_head`, `ci_seen_at` belong to the active issue, not the
-project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Since #240 the
+project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Two #885 keys live only in
+`[context.<issue>]`, written by `scripts/preship-verified-head.sh`: `preship_pin_head` (the
+head preship's `pin` handed the verifier) and `verified_head` (that head, recorded by
+`record` after every verification passed; `mergemr.sh` merges only at it). `revise`
+clears both. Since #240 the
 **`[context.<issue>]` sub-table is the authoritative home** of these
 keys; the top-level copies are a compatibility **mirror**, maintained
 only while that issue is the shared `active_issue`. Per-key reads follow
@@ -599,18 +613,18 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
+| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
 | 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
 | 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
 
-**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 
-A tier is a named checklist template selecting WHICH of the 24 steps an issue
+A tier is a named checklist template selecting WHICH of the 25 steps an issue
 runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
 `[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
@@ -704,9 +718,9 @@ blocks may carry rows the current tier omits.
 | Tier | Rows | For |
 |---|---|---|
 | oneshot | 0, 9, 11, 23, 24 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (24) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
-| standard | all 24 rows | Full rails: features, bugfixes (default). |
+| standard | all 25 rows | Full rails: features, bugfixes (default). |
 | perf | standard minus 21 (updatewbs; impact stays) | Performance work. |
-| docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |
+| docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 20, 24 | Documentation-only changes. |
 | research | 0, 2, 4, 5, 11, 23, 24 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
@@ -806,7 +820,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
   none, and so does a `--through` target that is already complete. Each
   change of `<result> <sha7>` also writes one `ci:` log line. The cost is one
   read (measured 0.7-2.75 s) per `next` from ship until cleanup, including
-  after merge.
+  after merge. The iteration that dispatches step 20 (mergemr) prints no
+  `next` CI line: mergemr reads the PR itself and prints its own (#885).
 - **Report mode never halts.** With the default `ci_gate = "report"` the
   line changes no row, no exit status and no dispatch. `CI PENDING` and `CI
   UNKNOWN` are information for the operator, never an instruction to re-run
@@ -824,11 +839,22 @@ After ship, the MR's CI status is reported, never waited for (#782):
   way: red marks the step about to run `[!]` (exit 1, the STUCK path);
   pending, unknown or `none` inside the grace prints `CI gate: holding step
   <N> (<name>) until CI finishes; nothing was marked` and a Resume line, and
-  exits 0 with no `CHAIN:`.
+  exits 0 with no `CHAIN:`. Step 20 (mergemr) is not held: it applies the CI
+  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17).
 - **`ci_gate`** is `report`, `block` or `off` (`[project.<name>] ci_gate`,
   else `[defaults] ci_gate`); any other value stops `next` at its first
   in-window read. `off` makes no read at all and is the reviewed de-scope
-  for a flaky or slow CI.
+  for a flaky or slow CI. `off` does not apply to step 20: merging is a
+  stronger act than reporting, so mergemr always reads CI.
+- **mergemr waits, never polls (#885).** `next` dispatches step 20 from its
+  `[?]` row on every invocation (any other `[?]` row keeps the park hint).
+  While the PR is open the row stays `[?]` and `next` prints `WAITING at step
+  20 (mergemr): the PR is not merged yet; state is on disk. Re-check later:
+  /devagent:next <project>` and exits 0 with no `CHAIN:`; re-running `next`
+  later re-reads the PR. mergetoall (19) holds on pending CI before mergemr
+  runs, so an `--auto` chain reaches mergemr only with mergetoall `[-]` or
+  CI green. Knobs: `DEVAGENT_MERGEMR_READ_SECS` (20 s, each PR or dependency
+  read) and `DEVAGENT_MERGEMR_MERGE_SECS` (30 s, the merge call).
 
 ### 7.3 External chaining
 
@@ -846,6 +872,9 @@ means held; retry on the worker's own schedule. The hold has two shapes:
 at step 19 it is `mergetoall`'s exit 1 with row 19 still `[ ]`, which ends
 the chain and makes `next` exit non-zero; at steps 21-24 it is an exit-0
 `CI gate: holding step …` line. The `CI …:` prefix says the same.
+Step 20 waiting for a merge is a `[?]` mergemr row with no `STUCK` file
+and next's `WAITING` line: retry on the worker's own schedule; a `[!]`
+mergemr row with `STUCK` reason `mergemr rule <N>: …` needs a human.
 
 ### 7.4 Step model tiers (`step_models`)
 
@@ -1452,6 +1481,11 @@ Defined per project in `[project.<name>.permissions]`. Each gate:
 - `false` → print plan + prompt `y/N` before each remote-visible action
 - unset → treat as `false`
 
+Exception — `merge_mr` (#885): not a prompt. `mergemr.sh` reads it
+directly and merges only when it is exactly `true`; `false` or unset marks
+step 20 `[?]` until the PR is merged elsewhere, so neither `DA_YES=1` nor
+an interactive terminal can open it.
+
 Exception — `transition_issue`: a `false` value does **not** prompt
 `y/N`. It gates every tracker transition — `on_draft_start`, `on_ship`
 and `on_merge` — and two of them fire in autonomous/batch contexts
@@ -1473,9 +1507,10 @@ Gate set:
 | Gate | Used by |
 |---|---|
 | `push_mr` | `ship.sh` |
-| `merge_mr` | `mergetoall.sh` |
+| `merge_mr` | `mergemr.sh` (#885; read directly, see above) |
+| `merge_to_all_prs` | `mergetoall.sh` (#885 retired its `merge_mr` fallback) |
 | `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
-| `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219). |
+| `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219; `mergemr.sh`, #885, through the shared `lib/merge-marker.sh`). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 
 ### 8.1 Hooks surface (PreToolUse / SessionStart) — #453 scaffold
@@ -1586,6 +1621,7 @@ comment-list <repo> <num>                                  → markdown to stdou
 state-list   <repo>                                        → "<id>\t<class>" lines (MAY)
 issue-list   <repo>                                        → JSON Lines records (MAY)
 state-exists <repo> <state-name>                           → exit 0 present / 4 absent (MAY)
+state-class  <repo> <num>                                  → "<class>\t<reason>" (MAY)
 ```
 
 `<semantic-stage>` is a stage key of `[project.<name>.issue_workflow]`:
@@ -1697,6 +1733,18 @@ without those GraphQL fields (an older GHES) is not supported. GitLab sets
 Cloud only, as for `state-list`; a done issue with no `resolutiondate`
 takes its `closed` date from `statuscategorychangedate`.
 
+`state-class` MAY be implemented (#885; GitHub does). It prints one line
+for one issue: its `state-list` class (the shared rule with no in-progress
+label, so an open issue is `open`), a TAB, and the tracker's state reason
+lowercased with `_` as a space (`completed`, `not planned`), or `-` when
+there is none. GitHub makes one `gh issue view --json
+number,state,stateReason,labels` call. Exit `0` is success; `1` a CLI
+failure or bad arguments, never `2`; `5` an unrecognised state or
+unreadable JSON; `78` and `2` mean "no state lookup". The merge step
+(`mergemr.sh`, step 20) is its only caller: a dependency whose class is
+`done` is satisfied, `open`/`in_progress` waits `open, no PR`, anything else
+waits `closed: <reason>`.
+
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 
 ```
@@ -1706,12 +1754,19 @@ create-mr    <repo> <title> <body-file> <head> <base>       → MR URL to stdout
 mr-state     <mr-url>                                       → open|merged|closed|draft
 mr-comments  <mr-url>                                       → markdown to stdout (§9.3)
 merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
+               [--match-head-commit <40-hex>] [--subject <s>] [--body <b>]
+merge-mr     <mr-url> --disable-auto                        → exit 0
 issue-mrs    <repo> <id>...                                 → issue/mr lines (MAY)
 mr-checks    <mr-url>                                       → state/head/check lines (MAY)
+mr-view      <mr-url>                                       → mr-checks lines + merge facts (MAY)
 ```
 
-The first five verbs MUST be implemented; `issue-mrs` (#704) and `mr-checks`
-(#782) MAY be. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
+The first five verbs MUST be implemented; `issue-mrs` (#704), `mr-checks`
+(#782) and `mr-view` (#885) MAY be. `merge-mr`'s `--match-head-commit`,
+`--subject` and `--body` (#885, GitHub) merge only if the PR head is still
+that SHA and set the squash commit's subject and body (`--body` is passed
+even when empty); `--disable-auto` alone turns off auto-merge. GitHub runs
+every form with `GH_PROMPT_DISABLED=1` and stdin from `/dev/null`. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
 issue. An MR links an issue when its title or description carries a
 closing-keyword reference that resolves to it, whatever the MR's target
 branch: GitHub's keyword set (`close`, `closes`, `closed`, `fix`, `fixes`,
@@ -1785,6 +1840,33 @@ arguments (never `2`); `5` an unrecognised record or non-JSON; `78` and
 `2` mean "not checked". On a non-zero exit the last stderr line is a bare
 reason (`gh exited <rc>`, `jq not on PATH`, `unrecognised rollup: …`) that
 `scripts/lib/ci.sh` quotes in its `CI UNKNOWN:` line (§7.2).
+
+`mr-view` MAY be implemented (#885; GitHub does). It prints the `mr-checks`
+lines unchanged, then what the merge step decides on, one kind per line
+(TAB-separated, an empty field printed `-`):
+
+```
+draft        true|false
+base         <branch>
+mergeable    MERGEABLE|CONFLICTING|UNKNOWN
+mergestate   <mergeStateStatus>
+automerge    on|off
+queue        true|false
+number       <n>
+title        <text>
+mergecommit  <40-hex>|-
+closes       <owner/name>  <n>        one per closing-issue reference
+trailer      <line>                   distinct Signed-off-by:/Co-authored-by: lines
+commits      <totalCount>  <read>
+```
+
+GitHub makes two calls: `gh pr view --json` for the fields it offers, then
+one GraphQL query for `isInMergeQueue` and `commits{totalCount}`. Exit `0`
+is success; `1` bad arguments, a URL that is not a PR's, or a CLI failure
+(never `2`); `5` an unrecognised record or non-JSON; `78` and `2` mean "no
+verb". The merge step calls it on a GitHub project only; on any other code
+backend it reads `mr-state` and never merges. `scripts/lib/ci.sh`
+(`ci_read_view`) parses it with the same parser as `mr-checks`.
 
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 

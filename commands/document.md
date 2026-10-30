@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:document
 
-Step 11 of the 24-step devAgent workflow. Invokes the
+Step 11 of the 25-step devAgent workflow. Invokes the
 `core-document-actual-work` skill to write
 `<issue-dir>/actualWork.md`.
 

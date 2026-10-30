@@ -10,7 +10,7 @@ agent: devagent:plan-improver
 
 # devagent-improve
 
-Step 5 of the devAgent 24-step workflow.
+Step 5 of the devAgent 25-step workflow.
 
 <!-- #527 (pattern-completing #458): this body is the FORK PROMPT.
      `context: fork` + `agent:` have already taken effect by the time it is in

@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-impact
 
-Step 22 of the devAgent 24-step workflow. Captures the *measurable*
+Step 22 of the devAgent 25-step workflow. Captures the *measurable*
 outcome of a shipped change so future status reports, velocity
 estimates, and lessons-learned have ground truth to refer to.
 

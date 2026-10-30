@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-lessons-learned
 
-Step 23 of the devAgent 24-step workflow. Writes
+Step 23 (of 0-24) of the devAgent workflow. Writes
 `<issue-dir>/lessonsLearned.md` capturing what to do differently next
 time. Entries tagged `actionable` are harvested by `/devagent:reap`
 into new captures.

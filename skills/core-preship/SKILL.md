@@ -10,7 +10,7 @@ agent: devagent:preship-verifier
 
 # devagent-preship
 
-Step 17 of the devAgent 24-step workflow (file-ordered between redmr and ship;
+Step 17 of the devAgent 25-step workflow (file-ordered between redmr and ship;
 the number is unique, not sequential — file order is execution authority).
 
 <!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already

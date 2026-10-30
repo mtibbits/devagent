@@ -1,5 +1,5 @@
 ---
-description: "Merge step: merge the issue's PR at the preship-verified head when permissions.merge_mr = true; otherwise mark the step waiting [?] until the PR is merged."
+description: "Step 20: merge the issue's PR at the preship-verified head when permissions.merge_mr = true; otherwise mark the step waiting [?] until the PR is merged."
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue]"
 ---

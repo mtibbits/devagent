@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-draft-mr
 
-Step 14 of the devAgent 24-step workflow. Fills in
+Step 14 of the devAgent 25-step workflow. Fills in
 the resolved `mr_template.md` (§12 registry: project paths → devdoc → plugin default) from the issue's plan, actualWork, and
 analyzer findings, writing the result to `<issue-dir>/mr.md`. The
 ship step later uses `mr.md` verbatim as the MR body.

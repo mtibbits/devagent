@@ -29,7 +29,15 @@ ship_as_draft = false
 # every next call prints one CI line, and mergetoall requires green. "block": a
 # pending CI also holds the post-ship step (nothing marked) and a red one marks it
 # [!]. "off": no CI read at all. A [project.<name>] ci_gate wins over this value.
+# ci_gate does not apply to step 20 (mergemr), which always reads CI.
 # ci_gate = "report"
+# merge_method / merge_checks (#885): how step 20 (mergemr) merges the PR when
+# permissions.merge_mr = true. merge_method: "squash" (default), "merge" or
+# "rebase". merge_checks: "required" (default) merges only on green CI and stops
+# [!] when the PR has no checks; a repo without CI sets merge_checks = "if-present".
+# A [project.<name>] value wins; any other value stops step 20 on every run.
+# merge_method = "squash"
+# merge_checks = "required"
 
 # Shared WORKFLOW pothole register (#611): one absolute path, read by every
 # project as a union with the plugin seed and the project's own
@@ -202,8 +210,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # steps, custom commands): see commands/template.md.
 [project.{{PROJECT}}.permissions]
 push_mr            = false
-merge_mr           = false
-merge_to_all_prs   = false
+merge_mr           = false   # true: step 20 merges the PR at the preship-verified head (#885); never prompts
+merge_to_all_prs   = false   # step 19 mergetoall (merge_mr no longer gates it)
 commit_devdoc      = false
 transition_issue   = false   # every tracker transition (draft, ship, sync) writes only when true; fail-closed (#219, #710)
 

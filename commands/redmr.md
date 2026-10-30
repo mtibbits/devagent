@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:redmr
 
-Step 16 of the 24-step devAgent workflow. The red-team runs in the
+Step 16 of the 25-step devAgent workflow. The red-team runs in the
 `devagent:redteam-reviewer` agent, which cannot write files and carries the
 adversarial stance, severity taxonomy, and output contract as its system
 prompt; it attacks the MR body and diff using the resolved `redteam_mr.md`

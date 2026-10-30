@@ -10,10 +10,11 @@
 # regrowth is a per-issue token tax. Ceiling per #439's target, raised once by #782:
 # its no-polling rule (CI PENDING/UNKNOWN is information; never re-run next or gh to
 # wait for CI) must load on EVERY invocation, so it lives here, not in a reference.
-# Measured body after #782: 2151 chars; ceiling = 2151 + 25 = 2176. The floor is an
-# ANTI-VACUOUS guard, not a contract guard: it catches a missing/emptied file
-# (0 chars would otherwise satisfy the ceiling), but at a 2151-char body it only
-# fires once ~63% of the text is gone. The contracts themselves are pinned by the
+# Measured body after #782: 2151 chars; ceiling = 2151 + 25 = 2176. #885 added the
+# mergemr WAITING line to that rule inside the same ceiling: body now 2170 chars.
+# The floor is an ANTI-VACUOUS guard, not a contract guard: it catches a
+# missing/emptied file (0 chars would otherwise satisfy the ceiling), but at a
+# 2170-char body it only fires once ~63% of the text is gone. The contracts themselves are pinned by the
 # #125/#116 literal greps in tests/command-usage-docs.bats.
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"

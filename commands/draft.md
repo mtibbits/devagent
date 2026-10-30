@@ -8,7 +8,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 Drafts `<issue-dir>/imPlan.md` for the active issue — inline via the
 upstream `superpowers:writing-plans` skill, or via a dispatched planner
-when a step-2 tier is configured (Dispatch contract, #284). Step 2 of the 24-step
+when a step-2 tier is configured (Dispatch contract, #284). Step 2 of the 25-step
 devAgent workflow (spec §6.3).
 
 ## Argument parsing (spec §6.1)

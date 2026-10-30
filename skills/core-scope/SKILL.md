@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-scope
 
-Step 4 of the devAgent 24-step workflow. Walks the operator through
+Step 4 of the devAgent 25-step workflow. Walks the operator through
 seven scope questions and appends the answers to `<issue-dir>/imPlan.md`
 as a new `## Scope evaluation` section.
 

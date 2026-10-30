@@ -3,7 +3,7 @@
 
 ## Numbering
 
-Steps are numbered 0–23 in execution order — 24 numbered step commands in
+Steps are numbered 0–24 in execution order — 25 numbered step commands in
 all, and the checklist reads top-to-bottom. Some are optional and off by
 default: `1 research` and `3 spike` opt in per issue via the
 `## Workflow flags` block, and `19 mergetoall` opts in per project by
@@ -19,6 +19,17 @@ An `--auto` chain stops with a `PHASE BREAK` before `implement`, `quality` and
 `updatewbs`: run `/clear`, then the printed Resume command. Each phase then
 starts in a fresh session instead of re-reading the whole issue's history on
 every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
+
+Step 20, `/devagent:mergemr`, merges the PR only when the project sets
+`permissions.merge_mr = true`, and only at the head the last passing preship
+verified (`verified_head`); otherwise it marks its row `[?]` until the PR is
+merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
+while the PR is still open it prints `WAITING at step 20 (mergemr): the PR is
+not merged yet; …` and stops with exit 0. Nothing polls: run `/devagent:next`
+again later. mergetoall (19) holds on pending CI before mergemr runs, so an
+`--auto` chain reaches mergemr only with mergetoall `[-]` or CI green. Cleanup
+waits for the mergemr row; `/devagent:park` or marking the row `[-]` are the
+escapes for a PR that stays open (see `commands/mergemr.md`).
 
 ## Step table
 

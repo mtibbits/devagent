@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:quality
 
-Step 10 of the 24-step devAgent workflow. Runs two passes on the
+Step 10 of the 25-step devAgent workflow. Runs two passes on the
 changed code:
 
 1. The `simplify` skill (reuse, quality, efficiency review).
