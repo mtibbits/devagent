@@ -390,3 +390,82 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
     [ "$status" -eq 1 ] || { echo "args: $args → $status" >&2; return 1; }
   done
 }
+
+# --- comment-records (#712 Task 7). ccross is #725 with comment
+# 6387235597's lastEditedAt moved past its newest edit (hand-built).
+
+@test "[gh comment-records] #684: three comments, each with an empty last-edited" {
+  _ev 684 comment-records mtibbits/devagent 684
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+  [ "$(printf '%s\n' "$output" | cut -f1 | tr '\n' ' ')" = "5983269623 6039209608 6070341857 " ]
+  [ "$(printf '%s\n' "$output" | cut -f5 | tr -d '\n')" = "" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' 'NF==6' | wc -l)" -eq 3 ]
+  [ "$(printf '%s\n' "$output" | cut -f2,3 | sort -u)" = "$(printf '894144\tuser')" ]
+  [ "$(printf '%s\n' "$output" | head -1 | cut -f4)" = 2026-10-04T18:53:23Z ]
+}
+
+@test "[gh comment-records] #725: the edited comment's last-edited equals its edited-comment time" {
+  _ev 725 events mtibbits/devagent 725
+  [ "$status" -eq 0 ]
+  local edited
+  edited="$(printf '%s\n' "$output" | grep -E $'\tedited-comment\t6387235597$' | cut -f1)"
+  [ "$edited" = 2026-10-24T22:22:43Z ]
+  _ev 725 comment-records mtibbits/devagent 725
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 == "6387235597" { print $5 }')" = "$edited" ]
+  [ "$(printf '%s\n' "$output" | awk -F'\t' '$1 == "6387235597" { print $4 }')" = 2026-10-24T17:21:16Z ]
+}
+
+@test "[gh comment-records] s1: a body with TAB, CR, LF and a backslash parses back byte-exact" {
+  _ev s1 comment-records mtibbits/devagent 725
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/issue-events.sh"
+  local line
+  line="$(printf '%s\n' "$output" | grep '^6128903409'$'\t')"
+  [ "$(printf '%s\n' "$line" | awk -F'\t' 'NF==6' | wc -l)" -eq 1 ]
+  run jq -nr --arg l "$line" "$BC_EVENTS_JQ"' $l | split("\t") | map(bc_tsv_unescape) | .[5] == "tab\there\r\nline two back\\slash"'
+  [ "$(printf '%s' "$output" | tr -d '\r')" = "true" ]
+}
+
+@test "[gh comment-records] a last-edited later than the newest edited-comment exits 5" {
+  _ev ccross comment-records mtibbits/devagent 725
+  [ "$status" -eq 5 ]
+  [ -z "$output" ]
+}
+
+@test "[gh comment-records] a failing nested page exits 1 with empty stdout" {
+  _ev fail-nested comment-records mtibbits/devagent 725
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "[gh comment-records] no comments prints nothing and exits 0" {
+  _ev 705 comment-records mtibbits/devagent 705
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "[gh comment-records] bad arguments exit 1, never 2" {
+  local args
+  for args in "comment-records" "comment-records o/r" "comment-records o/r 0" \
+              "comment-records --kinds o/r" "comment-records o/r 1 2"; do
+    # shellcheck disable=SC2086  # word-split on purpose
+    run --separate-stderr "$GHB" $args
+    [ "$status" -eq 1 ] || { echo "args: $args → $status" >&2; return 1; }
+  done
+}
+
+@test "all three call-making verbs refuse a bare repo under GH_HOST=ghe.example with exit 1" {
+  export GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/argv"
+  export GH_HOST=ghe.example
+  local v
+  for v in "events mtibbits/devagent 66" "comment-records mtibbits/devagent 66" "whoami mtibbits/devagent"; do
+    # shellcheck disable=SC2086  # word-split on purpose
+    _ev 66 $v
+    [ "$status" -eq 1 ] || { echo "$v → $status" >&2; return 1; }
+    [ -z "$output" ]
+    [[ "$stderr" == *"host-qualify"* ]]
+  done
+  [ ! -e "$GH_STUB_ARGV_LOG" ]
+}

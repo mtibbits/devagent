@@ -710,6 +710,23 @@ cmd_events() {
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 
+# comment-records <repo> <num>: one bc_crec line per comment, sorted by
+# created then id; last-edited is the GraphQL lastEditedAt (empty when never
+# edited). The same collector and calls as events, so the two cannot disagree;
+# an empty issue prints nothing.
+cmd_comment_records() {
+  if [ "$#" -ne 2 ] || ! _gh_ev_args_ok "$@" || ! [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]]; then
+    _gh_ev_usage
+    return
+  fi
+  _gh_target comment-records "$1" || return 1
+  _need gh
+  _need jq
+  local out
+  out="$(_gh_ev_collect crecs "$2" "$_GH_EV_MAX_PAGES")" || return
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
 # whoami <repo>: the credential's numeric account id on <repo>'s host, from
 # one `/user` call. A token that cannot name a user (an App installation
 # token or Actions GITHUB_TOKEN answer 403), an expired one or no network
@@ -752,6 +769,7 @@ main() {
     state-class)   cmd_state_class  "$@" ;;
     issue-list)    cmd_issue_list   "$@" ;;
     events)        cmd_events       "$@" ;;
+    comment-records) cmd_comment_records "$@" ;;
     whoami)        cmd_whoami       "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
