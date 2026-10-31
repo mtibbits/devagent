@@ -378,7 +378,8 @@ _revise_state() {
   [ "$status" -eq 0 ]
   [ -z "$(_revise_state get verified_head)" ]
   [ -z "$(_revise_state get preship_pin_head)" ]
-  ! grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  [ "$status" -eq 1 ]
 }
 
 @test "#885 revise --retier clears verified_head and preship_pin_head" {
@@ -387,5 +388,6 @@ _revise_state() {
   [ "$status" -eq 0 ]
   [ -z "$(_revise_state get verified_head)" ]
   [ -z "$(_revise_state get preship_pin_head)" ]
-  ! grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  [ "$status" -eq 1 ]
 }

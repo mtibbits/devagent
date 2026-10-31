@@ -127,7 +127,8 @@ _pin_record() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"preship-verified-head: HEAD moved during preship (${h1:0:7} → ${h2:0:7}); nothing recorded"* ]]
     [ -z "$(_key verified_head)" ]
-    ! grep -q 'preship: verified_head' "$CL"
+    run grep -q 'preship: verified_head' "$CL"
+    [ "$status" -eq 1 ]
 }
 
 @test "#885 preship-verified-head: record refuses off-branch" {
@@ -195,7 +196,8 @@ _clears() {
     [ "$(_key verified_head)" = "$h" ]
     assert_step "$CL" 20 '!' mergemr
     cmp -s "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
-    ! grep -q 'cleared mergemr stop' "$CL"
+    run grep -q 'cleared mergemr stop' "$CL"
+    [ "$status" -eq 1 ]
 }
 
 @test "#885 preship-verified-head: a mergetoall [!] is not cleared" {
@@ -211,7 +213,8 @@ _clears() {
     assert_step "$CL" 19 '!' mergetoall
     assert_step "$CL" 20 ' ' mergemr
     cmp -s "$ISSUE_DIR/STUCK" "$DEVAGENT_TMP/STUCK.before"
-    ! grep -q 'cleared mergemr stop' "$CL"
+    run grep -q 'cleared mergemr stop' "$CL"
+    [ "$status" -eq 1 ]
 }
 
 @test "#885 preship-verified-head: pre-ship record touches no row" {
@@ -230,5 +233,6 @@ _clears() {
     [ "$status" -eq 0 ]
     assert_step "$CL" 20 '!' mergemr
     [ -f "$ISSUE_DIR/STUCK" ]
-    ! grep -q 'cleared mergemr stop' "$CL"
+    run grep -q 'cleared mergemr stop' "$CL"
+    [ "$status" -eq 1 ]
 }
