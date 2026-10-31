@@ -67,6 +67,17 @@ _stub_setup() {
   [[ "$output" != *"scripts/issue/y.sh"* ]]
 }
 
+@test "trust-off: each allow-listed home exists and carries a new-verb token" {
+  # The census excludes these paths; an exclusion that names nothing (a
+  # rename) would silently widen nothing and hide a typo (W266).
+  local home
+  for home in scripts/issue scripts/lib/issue-events.sh; do
+    [ -e "$PLUGIN_ROOT/$home" ]
+    run grep -rlwE 'events|comment-records|whoami' "$PLUGIN_ROOT/$home"
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "gh-stub api: an unknown path exits 3 naming it" {
   _stub_setup
   run "$STUB_BIN/gh" api --hostname github.com repos/o/r/pulls/1/reviews
