@@ -1629,7 +1629,37 @@ state-list   <repo>                                        → "<id>\t<class>" l
 issue-list   <repo>                                        → JSON Lines records (MAY)
 state-exists <repo> <state-name>                           → exit 0 present / 4 absent (MAY)
 state-class  <repo> <num>                                  → "<class>\t<reason>" (MAY)
+events       <repo> <num> | --kinds <repo>                 → records, or "<kind>\t<coverage>" lines (MAY)
+comment-records <repo> <num>                               → one record per comment (MAY)
+whoami       <repo>                                        → the credential's account id (MAY)
 ```
+
+`events`, `comment-records` and `whoami` (#712) are optional and read-only:
+who changed an issue and when, its comments with ids that match the event
+records, and the configured credential's own account on the repository's
+host. Their record shapes are §9.3.1. With trust off no caller invokes them
+(a census test guards this). A caller reads exit 78 or 2 as "unsupported";
+a backend that implements them never answers 2, and exits:
+
+| exit | meaning |
+|---|---|
+| 0 | complete output |
+| 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
+| 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join; a page walk that does not end; `whoami` naming no user |
+| 78 | not implemented (`custom.sh`) |
+
+Any non-zero exit leaves stdout empty: the output is printed only after
+every call, page and check succeeded. The grammar is `events <repo> <num>`,
+`events --kinds <repo>`, `comment-records <repo> <num>` and `whoami <repo>`;
+`--kinds` only directly after the verb, no other flag, no empty or extra
+argument, `<num>` matching `^[1-9][0-9]{0,9}$`. `<repo>` is
+`[HOST/]OWNER/REPO`: the host comes from the repository, and a bare
+`OWNER/REPO` means `github.com`, never `GH_HOST`, which every call of these
+verbs unsets. A bare repo while `GH_HOST` is set to another host exits 1 and
+names the remedy (host-qualify the repo); `events --kinds` makes no call and
+is not refused. `whoami` never falls back to config, git's identity or the
+auth subsystem: a token that cannot name a user (a GitHub App installation
+token, Actions `GITHUB_TOKEN`), an expired one or no network exits 1.
 
 `<semantic-stage>` is a stage key of `[project.<name>.issue_workflow]`:
 `on_draft_start`, `on_ship` or `on_merge` (#710). The callers always
@@ -1680,7 +1710,8 @@ not, `2` usage; any other exit is undetermined, never "absent". The GitHub
 and GitLab transition pre-check and `doctor`'s warn-only tracker check share
 it; a backend without it makes `doctor` skip that tracker.
 
-The first five verbs MUST be implemented; `state-list` MAY be (#703). It
+`fetch`, `create`, `transition`, `state` and `comment-list` MUST be
+implemented; `state-list` MAY be (#703). It
 prints one line per issue of `<repo>`: the issue id (the GitHub or GitLab
 issue number; the JIRA issue key, such as `PROJ-12`), a TAB, and a class.
 The backend classifies, with the label and resolution config it already
@@ -1768,7 +1799,8 @@ mr-checks    <mr-url>                                       → state/head/check
 mr-view      <mr-url>                                       → mr-checks lines + merge facts (MAY)
 ```
 
-The first five verbs MUST be implemented; `issue-mrs` (#704), `mr-checks`
+`push-branch`, `create-mr`, `mr-state`, `mr-comments` and `merge-mr` MUST
+be implemented; `issue-mrs` (#704), `mr-checks`
 (#782) and `mr-view` (#885) MAY be. `merge-mr`'s `--match-head-commit`,
 `--subject` and `--body` (#885, GitHub) merge only if the PR head is still
 that SHA and set the squash commit's subject and body (`--body` is passed
@@ -1953,6 +1985,111 @@ This quoting breaks on spaces.
   optionally followed by a path, `#fragment` or `?query`, which are ignored;
   any other form is a usage error (exit 2). Other backends accept their
   forge's own MR URL form (gitlab: `…/-/merge_requests/<iid>`).
+
+### 9.3.1 Record shapes: events, comment-records and whoami
+
+The verbs of §9.1 (#712). One emitter and its validator,
+`scripts/lib/issue-events.sh`, serve every backend that implements them.
+GitHub implements them. GitLab and JIRA do not implement these verbs yet and
+answer exit 2; the child is #900. `custom.sh` answers 78.
+
+**`events <repo> <num>`** prints one record per change, six fields separated
+by TAB, each escaped by jq's `@tsv` (`\t`, `\n`, `\r`, `\\`, `\0`):
+
+```
+<time> TAB <seq> TAB <actor> TAB <actor-type> TAB <kind> TAB <detail>
+```
+
+- `time`: UTC, `YYYY-MM-DDTHH:MM:SSZ`, no fraction.
+- `seq`: the tracker's event id where it has one, else `?`. Seq orders
+  records within one id space only.
+- `actor`: the account's numeric or opaque id on that host (never a login,
+  which can be renamed and reclaimed), or `?`.
+- `actor-type`: `user`, `bot`, `app`, `customer` or `?`.
+- `kind` and `detail`:
+
+| kind | detail |
+|---|---|
+| `created` | empty |
+| `edited-title` | empty |
+| `edited-body` | empty |
+| `edited-comment` | the comment id |
+| `deleted-comment` | `? <deleted author id or ?>` |
+| `labeled`, `unlabeled` | `<label id> <label name>` |
+| `transitioned` | `<state id or ?> <state name>` (GitHub: `? closed`, `? open`) |
+| `assigned`, `unassigned` | the assignee's id |
+| `commented` | the comment id |
+
+A detail with two parts splits on its first space only, so a label name may
+contain spaces; an id never does. A record that breaks these rules — an id
+with a space, a non-UTC time, an unknown kind or actor type — makes the verb
+exit 5.
+
+**Order and duplicates.** Records sort by time, then seq (a `?` first), then
+kind and detail; the order is deterministic, but a same-second pair is
+unordered when either seq is `?` or the two seqs come from different id
+spaces. An exact duplicate record with a numeric seq is printed once;
+`?`-seq records are never merged, and records are never merged on seq alone.
+
+**Parsing.** Keep lines with exactly six TAB-separated fields
+(`awk -F'\t' 'NF==6'`), then reverse the five escapes per field; any other
+backslash sequence rejects the line. Never parse with Bash `read`: TAB is
+IFS whitespace, so an empty field collapses. `bc_rec_parse` in
+`issue-events.sh` is the reference parse.
+
+Example (GitHub, mtibbits/devagent#561; each TAB shown as `→`):
+
+```
+2026-07-29T15:10:39Z→?→894144→user→created→
+2026-07-29T16:22:14Z→?→894144→user→edited-body→
+2026-07-29T16:22:14Z→28672894375→894144→user→edited-title→
+2026-07-29T16:22:35Z→5120586049→894144→user→commented→5120586049
+```
+
+`events` always prints at least the `created` record.
+
+**`events --kinds <repo>`** prints one `<kind> TAB <coverage>` line per kind
+the backend supplies, in the table's kind order. It is static: `<repo>` is
+checked for syntax only and no call is made, so `full` never says the
+repository exists on that host. Coverage is `full`, `last-edit-only`,
+`actor-unknown` or `detail-unknown`. "`?` in an id slot is still `full` when
+the tracker has no id for that thing (an issue open/closed state).
+`detail-unknown` means the tracker has an id or value the backend cannot
+supply (the GitHub deleted comment)." A kind a backend omits, or a backend
+answering 78 or 2, is unsupported; a backend that is missing or prints a
+malformed line is broken, never unsupported (`bc_events_coverage`).
+
+| kind | GitHub |
+|---|---|
+| `deleted-comment` | `detail-unknown` |
+| every other kind | `full` |
+
+**GitHub sources.** Title edits are REST `renamed` events. Body and comment
+edits are GraphQL `userContentEdits`, paged across all pages; when
+`includesCreatedEdit` is true the oldest node is the original text and is
+dropped, never read for a time; deleted edit nodes are kept. A
+`lastEditedAt` later than the newest edit exits 5. Labels are REST
+`labeled`/`unlabeled` events (seq, actor, the label name as REST issue
+events report it; whether that is the name at event time is unverified, so
+consumers match labels by id) joined to GraphQL `LabeledEvent`/
+`UnlabeledEvent` for the label id; a REST or GraphQL label event without its
+twin exits 5. Deleted comments are the timeline `CommentDeletedEvent`.
+Comment ids are the REST `id` (equal to GraphQL `databaseId`); a REST or
+GraphQL comment without its twin exits 5.
+
+**`comment-records <repo> <num>`** prints one record per comment, sorted by
+created time then id:
+
+```
+<id> TAB <author> TAB <author-type> TAB <created> TAB <last-edited> TAB <body>
+```
+
+`id` is the id `commented` and `edited-comment` carry; `last-edited` is empty
+for a comment never edited; `body` is the comment's raw text. An issue
+without comments prints nothing and exits 0.
+
+**`whoami <repo>`** prints one line: the configured credential's account id
+on `<repo>`'s host, the id `events` reports for that account.
 
 ### 9.4 Reference implementations (v1)
 

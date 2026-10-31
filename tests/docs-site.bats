@@ -96,8 +96,9 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   [ "$output" -eq "$count" ]
 }
 
-@test "docs-site: configuration page names all seventeen backend verbs" {
+@test "docs-site: configuration page names every backend verb" {
   for v in fetch create transition state comment-list state-list issue-list state-exists state-class \
+           events comment-records whoami \
            push-branch create-mr mr-state mr-comments merge-mr issue-mrs mr-checks mr-view; do
     grep -qF "\`$v\`" "$SITE/configuration.md"
   done

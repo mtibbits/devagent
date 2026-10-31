@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # scripts/issue/github.sh — GitHub issue backend.
-# Backend contract: implements all five issue verbs per spec §9.1
+# Backend contract: implements the required issue verbs of spec §9.1
 # (fetch, create, transition, state, comment-list), plus the optional
 # state-list that `wbs update` reads (#703), issue-list that
 # `wbs init --from-tracker` reads (#706), state-exists that the transition
-# pre-check and doctor's tracker check share (#710), and state-class
-# (`<class>\t<reason>` for one issue) that the merge step reads (#885).
-# Output shape conforms to spec §9.3.
+# pre-check and doctor's tracker check share (#710), state-class
+# (`<class>\t<reason>` for one issue) that the merge step reads (#885), and
+# the read-only events, events --kinds, comment-records and whoami (#712; no
+# caller yet). Output shape conforms to spec §9.3 and §9.3.1.
 
 set -euo pipefail
 

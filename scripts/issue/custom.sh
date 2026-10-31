@@ -9,7 +9,7 @@
 #   4. Run `bats tests/backend-contract.bats` against your backend
 #      to confirm contract compliance (see README "Custom backends").
 #
-# The five verbs fetch, create, transition, state and comment-list MUST be
+# The verbs fetch, create, transition, state and comment-list MUST be
 # implemented for the dispatcher to function; state-list MAY be (an absent
 # one makes `wbs update` use local checklists, #703), and so MAY issue-list
 # (an absent one makes `wbs init --from-tracker` refuse, #706) and
