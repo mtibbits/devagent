@@ -16,16 +16,18 @@ load 'lib/bats-helpers'
 # The backends themselves (scripts/issue) and the library are their homes.
 # Allow-list a legitimate prose hit with one more ':!<path>' pathspec and a
 # comment naming the path and the reason (none today).
+# Not seen: a verb after an unquoted backend ($be events "$repo") and a
+# Python subprocess call; the gh-stub tripwire covers a test that reaches one.
 _trust_off_hits() {
   local root="$1" verbs="${2:-events|comment-records|whoami}" re rc1=0 rc2=0
   re='(["'"'"')}]|\.sh)[[:space:]]+('"$verbs"')[[:space:]]+(["$]|--kinds)'
   # cd, not git -C: MSYS_NO_PATHCONV would also stop a /c/… root translating.
   cd "$root" || return 2
   MSYS_NO_PATHCONV=1 git grep -nE "$re" \
-    -- scripts hooks commands skills agents ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
+    -- scripts hooks commands skills agents templates ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
     || rc1=$?
   MSYS_NO_PATHCONV=1 git grep -nwE 'bc_events_coverage|issue-events' \
-    -- scripts hooks commands skills agents ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
+    -- scripts hooks commands skills agents templates ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
     || rc2=$?
   if [ "$rc1" -gt 1 ] || [ "$rc2" -gt 1 ]; then return 2; fi
   if [ "$rc1" -eq 0 ] || [ "$rc2" -eq 0 ]; then return 0; fi

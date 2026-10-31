@@ -508,6 +508,10 @@ _gh_gql_walk() {
     [ -z "$cursor" ] || args+=(-f "cursor=$cursor")
     resp="$(_gh_ev_call "${args[@]}")" || return 1
     pages=$((pages + 1))
+    if [ -z "$resp" ]; then
+      echo "github.sh: GraphQL page $pages of $path is empty" >&2
+      return 5
+    fi
     # One jq per page: the pageInfo line, then the nodes line.
     page="$(printf '%s' "$resp" | jq -r '
       if has("errors") then error("GraphQL errors: \(.errors | tojson)") else . end
@@ -560,6 +564,7 @@ _GH_EV_Q_NODE="query(\$id: ID!, \$cursor: String) {
 
 # The collector: [REST events, REST comments, W1 walk, W2 walk, W3 walk,
 # nested walks] → {records, crecs}, both checked and sorted.
+# shellcheck disable=SC2016  # a jq program, not shell
 _GH_EV_JQ='
 def atype_of($t): if $t == "User" then "user" elif $t == "Bot" then "bot" else "?" end;
 def g_actor: if . == null then {actor: "?", atype: "?"}
@@ -641,6 +646,9 @@ _gh_ev_collect() {
   w3="$(_gh_gql_walk "$cap" .data.repository.issue.comments "" "$_GH_EV_Q_COMMENTS" "${vars[@]}")" || return
   local todo
   todo="$(printf '%s' "$w3" | jq -r '.nodes[]
+    | if (.userContentEdits | type) != "object" or (.userContentEdits.nodes | type) != "array"
+         or (.userContentEdits.pageInfo.hasNextPage | type) != "boolean"
+      then error("comment \(.id): edits lack the connection") else . end
     | select(.userContentEdits.pageInfo.hasNextPage == true)
     | "\(.id)\t\(.userContentEdits.pageInfo.endCursor // "")"' | tr -d '\r')" || return 5
   while IFS= read -r line; do

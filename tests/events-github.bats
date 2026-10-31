@@ -308,6 +308,33 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [[ "$stderr" == *"repeated"* ]]
 }
 
+@test "[gh events] a comment whose nested edits lack pageInfo exits 5" {
+  local d="$BATS_TEST_TMPDIR/684"
+  cp -r "$EV/684" "$d"
+  jq -c '.data.repository.issue.comments.nodes[0].userContentEdits |= del(.pageInfo)' \
+    "$EV/684/gql/3.json" > "$d/gql/3.json"
+  local verb
+  for verb in events comment-records; do
+    export GH_STUB_EVENTS_DIR="$d" GH_STUB_GRAPHQL_DIR="$d/gql"
+    rm -f "$GH_STUB_GRAPHQL_COUNT"
+    run --separate-stderr "$GHB" "$verb" mtibbits/devagent 684
+    [ "$status" -eq 5 ]
+    [ -z "$output" ]
+  done
+}
+
+@test "[gh events] an empty GraphQL page exits 5" {
+  local g="$BATS_TEST_TMPDIR/gql"
+  mkdir -p "$g"
+  : > "$g/1.json"
+  export GH_STUB_GRAPHQL_DIR="$g"
+  rm -f "$GH_STUB_GRAPHQL_COUNT"
+  # shellcheck disable=SC2016
+  run --separate-stderr bash -c 'source "$1"; GT_HOST=github.com; _gh_gql_walk 100 .data.node.userContentEdits "" "q"' _ "$GHB"
+  [ "$status" -eq 5 ]
+  [[ "$stderr" == *"is empty"* ]]
+}
+
 @test "[gh events] a GraphQL page without pageInfo exits 5" {
   local g="$BATS_TEST_TMPDIR/gql"
   mkdir -p "$g"

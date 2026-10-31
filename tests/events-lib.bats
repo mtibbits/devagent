@@ -56,6 +56,13 @@ _rec() { _jq -nr --argjson r "$1" "$BC_EVENTS_JQ"' $r | bc_rec_check | bc_rec'; 
   [ "$status" -eq 5 ]
 }
 
+@test "bc_rec_check fails closed on a string seq" {
+  run _rec '{"time":"2026-10-01T10:00:00Z","seq":"10","actor":"1","atype":"user","kind":"commented","detail":["10"]}'
+  [ "$status" -eq 5 ]
+  run _rec '{"time":"2026-10-01T10:00:00Z","seq":1.5,"actor":"1","atype":"user","kind":"commented","detail":["10"]}'
+  [ "$status" -eq 5 ]
+}
+
 @test "bc_rec_check fails closed on a non-UTC time and on a fraction" {
   run _rec '{"time":"2026-10-01T10:00:00+01:00","seq":1,"actor":"1","atype":"user","kind":"edited-title","detail":[]}'
   [ "$status" -eq 5 ]
@@ -154,6 +161,12 @@ _rec() { _jq -nr --argjson r "$1" "$BC_EVENTS_JQ"' $r | bc_rec_check | bc_rec'; 
   run bc_events_coverage "$BATS_TEST_TMPDIR/none.sh" o/r created
   [ "$status" -eq 0 ]
   [ "$output" = "unsupported" ]
+}
+
+@test "bc_events_coverage: an unknown kind exits 1, never unsupported" {
+  run bc_events_coverage "$EVC/partial.sh" o/r edited_body
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"unsupported"* ]]
 }
 
 @test "bc_events_coverage: a missing script exits 1, never unsupported" {

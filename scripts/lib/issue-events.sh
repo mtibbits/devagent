@@ -26,7 +26,7 @@ def bc_atypes: ["user","bot","app","customer","?"];
 def bc_is_time: type == "string" and test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\z");
 def bc_is_id: (type == "string" or type == "number") and (tostring | test("\\A[^ \\t\\r\\n]+\\z"));
 def bc_is_actor: (type == "string" or type == "number") and (tostring | test("\\A([A-Za-z0-9:._-]+|\\?)\\z"));
-def bc_is_seq: tostring | test("\\A([0-9]+|\\?)\\z");
+def bc_is_seq: (type == "number" and . == floor and . >= 0) or . == "?";
 def bc_detail_ok($k):
   if ($k == "created" or $k == "edited-title" or $k == "edited-body") then length == 0
   elif $k == "deleted-comment" then length == 2 and (.[0] | bc_is_id) and (.[1] | bc_is_id)
@@ -96,6 +96,10 @@ bc_events_coverage() {
   for i in "${!order[@]}"; do rank[${order[$i]}]=$i; done
   if [ ! -f "$script" ] || [ ! -x "$script" ]; then
     echo "bc_events_coverage: $script is missing or not executable" >&2
+    return 1
+  fi
+  if [ -z "${rank[$kind]+x}" ]; then
+    echo "bc_events_coverage: unknown kind '$kind'" >&2
     return 1
   fi
   out="$("$script" events --kinds "$repo")" || rc=$?

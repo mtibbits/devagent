@@ -1645,7 +1645,7 @@ a backend that implements them never answers 2, and exits:
 |---|---|
 | 0 | complete output |
 | 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
-| 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join; a page walk that does not end; `whoami` naming no user |
+| 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join, including one from an issue that changed while it was being read (re-run); a page walk that does not end; `whoami` naming no user |
 | 78 | not implemented (`custom.sh`) |
 
 Any non-zero exit leaves stdout empty: the output is printed only after
@@ -2067,8 +2067,11 @@ malformed line is broken, never unsupported (`bc_events_coverage`).
 **GitHub sources.** Title edits are REST `renamed` events. Body and comment
 edits are GraphQL `userContentEdits`, paged across all pages; when
 `includesCreatedEdit` is true the oldest node is the original text and is
-dropped, never read for a time; deleted edit nodes are kept. A
-`lastEditedAt` later than the newest edit exits 5. Labels are REST
+dropped, never read for a time; deleted edit nodes are kept. The issue's
+`lastEditedAt` later than its newest body edit exits 5 in both verbs; a
+comment's `lastEditedAt` later than its newest edit exits 5 in
+`comment-records` only, which reports that time, while `events` checks the
+body alone (#712). Labels are REST
 `labeled`/`unlabeled` events (seq, actor, the label name as REST issue
 events report it; whether that is the name at event time is unverified, so
 consumers match labels by id) joined to GraphQL `LabeledEvent`/
