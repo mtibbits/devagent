@@ -19,6 +19,8 @@ source "${SCRIPT_DIR}/../lib/io.sh"
 source "${SCRIPT_DIR}/../lib/config.sh"
 # shellcheck source=../lib/transition.sh
 source "${SCRIPT_DIR}/../lib/transition.sh"
+# shellcheck source=../lib/issue-events.sh
+source "${SCRIPT_DIR}/../lib/issue-events.sh"
 
 _die() { echo "$*" >&2; exit 1; }
 _need() { command -v "$1" >/dev/null 2>&1 || _die "$1 not found on PATH"; }
@@ -429,6 +431,285 @@ cmd_issue_list() {
   printf '%s' "$json" | jq -c --arg ip "$ip" --arg repo "$repo" "$_GH_CLASS_JQ$_GH_ISSUE_JQ" || return 5
 }
 
+# --- #712: events, events --kinds, comment-records, whoami (spec §9.1 MAY,
+# record shapes §9.3.1). Read-only; no caller invokes them yet. The host
+# comes from <repo> (HOST/OWNER/REPO, bare OWNER/REPO = github.com) and every
+# call runs with GH_HOST unset; a bare repo under a GH_HOST naming another
+# host is refused. Output is all-or-nothing: printed only after every call,
+# page and check succeeded.
+# Exit: 0 ok; 1 bad arguments, the wrong-host refusal or a failed gh call
+# (incl. a GraphQL `errors` answer, which gh exits 1 on); 5 a malformed page
+# or record, a failed cross-check, a non-total REST/GraphQL join or a walk
+# that does not end. Never 2, which means "unknown verb".
+
+_GH_REPO_RE='^(([A-Za-z0-9.-]+)/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
+_GH_EV_MAX_PAGES=100
+
+# _gh_repo_syntax <repo>: 0 iff <repo> is [HOST/]OWNER/REPO (D-b). Sets
+# BASH_REMATCH.
+_gh_repo_syntax() {
+  [[ "$1" =~ $_GH_REPO_RE ]] || return 1
+  case "${BASH_REMATCH[3]}/${BASH_REMATCH[4]}" in
+    ./*|../*|*/.|*/..) return 1 ;;
+  esac
+}
+
+# _gh_target <verb> <repo>: set GT_HOST, GT_OWNER, GT_NAME. Never call it
+# inside $(…): it sets globals. 1 on bad syntax or the wrong-host refusal.
+_gh_target() {
+  local verb="$1" repo="$2" host
+  if ! _gh_repo_syntax "$repo"; then
+    echo "github.sh: $verb: malformed repo '$repo' (want [HOST/]OWNER/REPO)" >&2
+    return 1
+  fi
+  host="${BASH_REMATCH[2],,}"
+  GT_OWNER="${BASH_REMATCH[3]}"
+  GT_NAME="${BASH_REMATCH[4]}"
+  if [ -z "$host" ]; then
+    if [ -n "${GH_HOST:-}" ] && [ "${GH_HOST,,}" != github.com ]; then
+      echo "github.sh: $verb: GH_HOST is '$GH_HOST' but '$repo' names no host; host-qualify the repo as HOST/OWNER/REPO" >&2
+      return 1
+    fi
+    host=github.com
+  fi
+  GT_HOST="$host"
+}
+
+# _gh_ev_call <gh-args…>: gh with GH_HOST unset; stdout only, stderr shown
+# on failure (as _gh_json).
+_gh_ev_call() {
+  local out err
+  err="$(mktemp)"
+  if ! out="$(env -u GH_HOST gh "$@" 2>"$err")"; then
+    echo "github.sh: gh $1 $2 failed: $(cat "$err")" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+  printf '%s' "$out"
+}
+
+# _gh_ev_rest <path>: every page of a REST list, merged into one array.
+_gh_ev_rest() {
+  local out
+  out="$(_gh_ev_call api --hostname "$GT_HOST" --paginate "$1?per_page=100")" || return 1
+  printf '%s' "$out" | jq -cs '
+    if all(.[]; type == "array") then add // []
+    else error("a page of \($p) is not an array") end' --arg p "$1" || return 5
+}
+
+# _gh_gql_walk <cap> <conn-path> <start-cursor> <query> [gh -f/-F args…]
+# Pages the connection at jq path <conn-path> (e.g. .data.node.userContentEdits)
+# by $cursor and prints {"first": <page-1 response>, "nodes": [all nodes]}.
+# 5 on an `errors` body, a page without the connection, an empty cursor with
+# hasNextPage, a repeated cursor, or <cap> pages (the cap is an argument so a
+# test can lower it). The twin of _gh_issue_list_graphql's guards.
+_gh_gql_walk() {
+  local cap="$1" path="$2" cursor="$3" query="$4" pages=0 first="" acc="" resp meta more
+  shift 4
+  local -A seen=()
+  [ -z "$cursor" ] || seen[$cursor]=1
+  while :; do
+    if (( pages >= cap )); then
+      echo "github.sh: GraphQL walk of $path reached its cap of $cap pages" >&2
+      return 5
+    fi
+    local args=(api graphql --hostname "$GT_HOST" -f "query=$query" "$@")
+    [ -z "$cursor" ] || args+=(-f "cursor=$cursor")
+    resp="$(_gh_ev_call "${args[@]}")" || return 1
+    pages=$((pages + 1))
+    meta="$(printf '%s' "$resp" | jq -r '
+      if has("errors") then error("GraphQL errors: \(.errors | tojson)") else . end
+      | '"$path"'
+      | if type != "object" or (.nodes | type) != "array" then error("page lacks the connection") else . end
+      | "\(.pageInfo.hasNextPage)\t\(.pageInfo.endCursor // "")"' | tr -d '\r')" || {
+        echo "github.sh: GraphQL page $pages of $path is malformed" >&2
+        return 5
+      }
+    [ -n "$first" ] || first="$resp"
+    acc+="$(printf '%s' "$resp" | jq -c "$path.nodes" | tr -d '\r')"$'\n' || return 5
+    IFS=$'\t' read -r more cursor <<<"$meta"
+    [ "$more" = true ] || break
+    if [ -z "$cursor" ]; then
+      echo "github.sh: GraphQL page of $path has a next page but no cursor" >&2
+      return 5
+    fi
+    if [ -n "${seen[$cursor]:-}" ]; then
+      echo "github.sh: GraphQL cursor of $path repeated ($cursor); stopping" >&2
+      return 5
+    fi
+    seen[$cursor]=1
+  done
+  { printf '%s\n' "$first"; printf '%s' "$acc" | jq -cs 'add // []'; } \
+    | jq -cs '{first: .[0], nodes: .[1]}' | tr -d '\r'
+}
+
+_GH_EV_ACTOR='__typename ... on User { databaseId } ... on Bot { databaseId } ... on Mannequin { databaseId } ... on Organization { databaseId }'
+_GH_EV_EDITS="pageInfo { hasNextPage endCursor } nodes { editedAt deletedAt editor { $_GH_EV_ACTOR } }"
+_GH_EV_Q_ISSUE="query(\$owner: String!, \$name: String!, \$num: Int!, \$cursor: String) {
+  repository(owner: \$owner, name: \$name) { issue(number: \$num) {
+    createdAt lastEditedAt includesCreatedEdit author { $_GH_EV_ACTOR }
+    userContentEdits(first: 100, after: \$cursor) { $_GH_EV_EDITS } } } }"
+_GH_EV_Q_TIMELINE="query(\$owner: String!, \$name: String!, \$num: Int!, \$cursor: String) {
+  repository(owner: \$owner, name: \$name) { issue(number: \$num) {
+    timelineItems(first: 100, after: \$cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT, COMMENT_DELETED_EVENT]) {
+      pageInfo { hasNextPage endCursor }
+      nodes { __typename
+        ... on LabeledEvent { id createdAt label { id name } }
+        ... on UnlabeledEvent { id createdAt label { id name } }
+        ... on CommentDeletedEvent { id createdAt actor { $_GH_EV_ACTOR } deletedCommentAuthor { $_GH_EV_ACTOR } } } } } } }"
+_GH_EV_Q_COMMENTS="query(\$owner: String!, \$name: String!, \$num: Int!, \$cursor: String) {
+  repository(owner: \$owner, name: \$name) { issue(number: \$num) {
+    comments(first: 100, after: \$cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id databaseId lastEditedAt includesCreatedEdit userContentEdits(first: 100) { $_GH_EV_EDITS } } } } } }"
+_GH_EV_Q_NODE="query(\$id: ID!, \$cursor: String) {
+  node(id: \$id) { ... on IssueComment { userContentEdits(first: 100, after: \$cursor) { $_GH_EV_EDITS } } } }"
+
+# The collector: [REST events, REST comments, W1 walk, W2 walk, W3 walk,
+# nested walks] → {records, crecs}, both checked and sorted.
+_GH_EV_JQ='
+def g_actor: if . == null then {actor: "?", atype: "?"}
+  else {actor: ((.databaseId // "?") | tostring),
+        atype: (if .__typename == "User" then "user" elif .__typename == "Bot" then "bot" else "?" end)} end;
+def r_actor($who): if $who == null then {actor: "?", atype: "?"}
+  else {actor: (($who.id // "?") | tostring),
+        atype: (if .performed_via_github_app != null then "app"
+                elif $who.type == "User" then "user" elif $who.type == "Bot" then "bot" else "?" end)} end;
+def edits($inc; $what):
+  (if $inc == true then
+     (if length == 0 then error("\($what): includesCreatedEdit with no edit nodes") else .[:-1] end)
+   else . end)
+  | map(if .editedAt == null then error("\($what): an edit node has no editedAt") else . end);
+def cross($last; $what):
+  if $last != null and $last > ((map(.editedAt) | max) // "")
+  then error("\($what): lastEditedAt \($last) is later than its newest edit") else . end;
+.[0] as $ev | .[1] as $cm | .[2] as $w1 | .[4] as $w3
+| ($w1.first.data.repository.issue) as $iss
+| if ($iss | type) != "object" then error("the GraphQL issue is missing") else . end
+| (.[5] | map({key: .id, value: .nodes}) | from_entries) as $more
+| (.[3].nodes | map(select(.__typename == "LabeledEvent" or .__typename == "UnlabeledEvent"))) as $gl
+| (.[3].nodes | map(select(.__typename == "CommentDeletedEvent"))) as $gd
+| ($gl | map({key: .id, value: .}) | from_entries) as $glby
+| ($ev | map(select(.event == "labeled" or .event == "unlabeled"))) as $rl
+| ($rl | map({key: (.node_id // ""), value: .}) | from_entries) as $rlby
+| if any($rl[]; ($glby[.node_id // ""] // null) as $t
+      | $t == null or (($t.__typename == "LabeledEvent") != (.event == "labeled")))
+  then error("a REST label event has no GraphQL twin") else . end
+| if any($gl[]; ($rlby[.id] // null) == null)
+  then error("a GraphQL label event has no REST twin") else . end
+| ($w3.nodes | map({key: (.databaseId | tostring), value: .}) | from_entries) as $wby
+| ($cm | map({key: (.id | tostring), value: true}) | from_entries) as $cby
+| if any($cm[]; ($wby[.id | tostring] // null) == null)
+  then error("a REST comment has no GraphQL twin") else . end
+| if any($w3.nodes[]; ($cby[.databaseId | tostring] // null) == null)
+  then error("a GraphQL comment has no REST twin") else . end
+| ($w3.nodes | map(. as $c
+    | {id: .databaseId,
+       edits: ((.userContentEdits.nodes + ($more[$c.id] // []))
+               | edits($c.includesCreatedEdit; "comment \($c.databaseId)")
+               | cross($c.lastEditedAt; "comment \($c.databaseId)"))})) as $cedits
+| {records: ([
+    ({time: $iss.createdAt, seq: "?", kind: "created", detail: []} + ($iss.author | g_actor)),
+    ($w1.nodes | edits($iss.includesCreatedEdit; "issue body") | cross($iss.lastEditedAt; "issue body")
+      | .[] | {time: .editedAt, seq: "?", kind: "edited-body", detail: []} + (.editor | g_actor)),
+    ($cedits[] | .id as $id | .edits[]
+      | {time: .editedAt, seq: "?", kind: "edited-comment", detail: [$id]} + (.editor | g_actor)),
+    ($gd[] | {time: .createdAt, seq: "?", kind: "deleted-comment",
+              detail: ["?", ((.deletedCommentAuthor.databaseId // "?") | tostring)]} + (.actor | g_actor)),
+    ($ev[] | . as $e
+      | if .event == "renamed" then {kind: "edited-title", detail: []}
+        elif .event == "labeled" or .event == "unlabeled" then {kind: .event, detail: [$glby[.node_id].label.id, .label.name]}
+        elif .event == "closed" then {kind: "transitioned", detail: ["?", "closed"]}
+        elif .event == "reopened" then {kind: "transitioned", detail: ["?", "open"]}
+        elif .event == "assigned" or .event == "unassigned" then {kind: .event, detail: [((.assignee.id // "?") | tostring)]}
+        else empty end
+      | . + {time: $e.created_at, seq: $e.id} + ($e | r_actor($e.actor))),
+    ($cm[] | {time: .created_at, seq: .id, kind: "commented", detail: [.id]} + r_actor(.user))
+  ] | map(bc_rec_check) | bc_rec_sort),
+  crecs: ([$cm[] | . as $c
+    | {id: .id, created: .created_at, last_edited: $wby[.id | tostring].lastEditedAt, body: (.body // "")}
+      + (r_actor($c.user) | {author: .actor, atype})]
+    | map(bc_crec_check) | sort_by([.created, .id]))}
+| if $mode == "events" then .records[] | bc_rec else .crecs[] | bc_crec end'
+
+# _gh_ev_collect <mode> <num> <cap>: every call in the fixed order (REST
+# events, REST comments, W1 issue edits, W2 timeline, W3 comments, then one
+# nested walk per comment whose edits page on), then the collector; prints
+# the <mode> (events | crecs) lines. Needs _gh_target's globals.
+_gh_ev_collect() {
+  local mode="$1" num="$2" cap="$3" base ev cm w1 w2 w3 nested="" line id cur out
+  local vars=(-f "owner=$GT_OWNER" -f "name=$GT_NAME" -F "num=$num")
+  base="repos/$GT_OWNER/$GT_NAME/issues/$num"
+  ev="$(_gh_ev_rest "$base/events")" || return
+  cm="$(_gh_ev_rest "$base/comments")" || return
+  w1="$(_gh_gql_walk "$cap" .data.repository.issue.userContentEdits "" "$_GH_EV_Q_ISSUE" "${vars[@]}")" || return
+  w2="$(_gh_gql_walk "$cap" .data.repository.issue.timelineItems "" "$_GH_EV_Q_TIMELINE" "${vars[@]}")" || return
+  w3="$(_gh_gql_walk "$cap" .data.repository.issue.comments "" "$_GH_EV_Q_COMMENTS" "${vars[@]}")" || return
+  local todo
+  todo="$(printf '%s' "$w3" | jq -r '.nodes[]
+    | select(.userContentEdits.pageInfo.hasNextPage == true)
+    | "\(.id)\t\(.userContentEdits.pageInfo.endCursor // "")"' | tr -d '\r')" || return 5
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    id="${line%%$'\t'*}"
+    cur="${line#*$'\t'}"
+    if [ -z "$cur" ]; then
+      echo "github.sh: comment $id edits have a next page but no cursor" >&2
+      return 5
+    fi
+    out="$(_gh_gql_walk "$cap" .data.node.userContentEdits "$cur" "$_GH_EV_Q_NODE" -f "id=$id")" || return
+    nested+="$(printf '%s' "$out" | jq -c --arg id "$id" '{id: $id, nodes: .nodes}' | tr -d '\r')"$'\n' || return 5
+  done <<<"$todo"
+  {
+    printf '%s\n' "$ev" "$cm" "$w1" "$w2" "$w3"
+    printf '%s' "$nested" | jq -cs '.'
+  } | jq -rs --arg mode "$mode" "$BC_EVENTS_JQ$_GH_EV_JQ" | tr -d '\r' || return 5
+}
+
+_gh_ev_usage() {
+  echo "github.sh: usage: events <repo> <num> | events --kinds <repo> | comment-records <repo> <num> | whoami <repo>" >&2
+  return 1
+}
+
+# _gh_ev_args_ok <arg…>: no empty argument and none starting with '-'.
+_gh_ev_args_ok() {
+  local a
+  for a in "$@"; do
+    [ -n "$a" ] || return 1
+    [[ "$a" != -* ]] || return 1
+  done
+}
+
+cmd_events_kinds() {
+  _gh_repo_syntax "$1" || {
+    echo "github.sh: events --kinds: malformed repo '$1' (want [HOST/]OWNER/REPO)" >&2
+    return 1
+  }
+  printf '%s\t%s\n' created full edited-title full edited-body full \
+    edited-comment full deleted-comment detail-unknown labeled full \
+    unlabeled full transitioned full assigned full unassigned full commented full
+}
+
+# events <repo> <num> | events --kinds <repo>
+cmd_events() {
+  if [ "$#" -eq 2 ] && [ "$1" = --kinds ]; then
+    _gh_ev_args_ok "$2" || _gh_ev_usage || return
+    cmd_events_kinds "$2"
+    return
+  fi
+  if [ "$#" -ne 2 ] || ! _gh_ev_args_ok "$@" || ! [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]]; then
+    _gh_ev_usage
+    return
+  fi
+  _gh_target events "$1" || return 1
+  _need gh
+  _need jq
+  local out
+  out="$(_gh_ev_collect events "$2" "$_GH_EV_MAX_PAGES")" || return
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
 main() {
   local verb="${1:-}"
   if [ -z "$verb" ]; then
@@ -446,6 +727,7 @@ main() {
     state-list)    cmd_state_list   "$@" ;;
     state-class)   cmd_state_class  "$@" ;;
     issue-list)    cmd_issue_list   "$@" ;;
+    events)        cmd_events       "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2
@@ -453,4 +735,8 @@ main() {
   esac
 }
 
-main "$@"
+# Sourced (a test reaching a helper such as _gh_gql_walk's cap argument), only
+# the definitions load.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
