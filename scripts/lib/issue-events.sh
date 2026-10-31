@@ -89,9 +89,11 @@ bc_rec_parse() (
 # line that is not `<kind> TAB <coverage>` in table order: a broken install is
 # never read as unsupported.
 bc_events_coverage() {
-  local script="$1" repo="$2" kind="$3" out rc=0 line want_re k cov=""
+  local script="$1" repo="$2" kind="$3" out rc=0 line want_re k cov="" kinds
   local -a order=(created edited-title edited-body edited-comment deleted-comment labeled unlabeled transitioned assigned unassigned commented)
+  local -A rank=()
   local pos=-1 i
+  for i in "${!order[@]}"; do rank[${order[$i]}]=$i; done
   if [ ! -f "$script" ] || [ ! -x "$script" ]; then
     echo "bc_events_coverage: $script is missing or not executable" >&2
     return 1
@@ -102,14 +104,15 @@ bc_events_coverage() {
     2|78) echo unsupported; return 0 ;;
     *) echo "bc_events_coverage: $script events --kinds exited $rc" >&2; return 1 ;;
   esac
-  want_re=$'^(created|edited-title|edited-body|edited-comment|deleted-comment|labeled|unlabeled|transitioned|assigned|unassigned|commented)\t(full|last-edit-only|actor-unknown|detail-unknown)$'
+  printf -v kinds '%s|' "${order[@]}"
+  want_re="^(${kinds%|})"$'\t''(full|last-edit-only|actor-unknown|detail-unknown)$'
   while IFS= read -r line; do
     if [[ ! "$line" =~ $want_re ]]; then
       echo "bc_events_coverage: $script: malformed --kinds line: $line" >&2
       return 1
     fi
     k="${BASH_REMATCH[1]}"
-    for i in "${!order[@]}"; do [ "${order[$i]}" = "$k" ] && break; done
+    i="${rank[$k]}"
     if [ "$i" -le "$pos" ]; then
       echo "bc_events_coverage: $script: --kinds line out of order or repeated: $k" >&2
       return 1

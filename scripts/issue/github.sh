@@ -476,19 +476,8 @@ _gh_target() {
   GT_HOST="$host"
 }
 
-# _gh_ev_call <gh-args…>: gh with GH_HOST unset; stdout only, stderr shown
-# on failure (as _gh_json).
-_gh_ev_call() {
-  local out err
-  err="$(mktemp)"
-  if ! out="$(env -u GH_HOST gh "$@" 2>"$err")"; then
-    echo "github.sh: gh $1 $2 failed: $(cat "$err")" >&2
-    rm -f "$err"
-    return 1
-  fi
-  rm -f "$err"
-  printf '%s' "$out"
-}
+# _gh_ev_call <gh-args…>: _gh_json with GH_HOST unset.
+_gh_ev_call() ( unset GH_HOST; _gh_json "$@" )
 
 # _gh_ev_rest <path>: every page of a REST list, merged into one array.
 _gh_ev_rest() {
@@ -506,7 +495,7 @@ _gh_ev_rest() {
 # hasNextPage, a repeated cursor, or <cap> pages (the cap is an argument so a
 # test can lower it). The twin of _gh_issue_list_graphql's guards.
 _gh_gql_walk() {
-  local cap="$1" path="$2" cursor="$3" query="$4" pages=0 first="" acc="" resp meta more
+  local cap="$1" path="$2" cursor="$3" query="$4" pages=0 first="" acc="" resp page nodes more
   shift 4
   local -A seen=()
   [ -z "$cursor" ] || seen[$cursor]=1
@@ -519,17 +508,18 @@ _gh_gql_walk() {
     [ -z "$cursor" ] || args+=(-f "cursor=$cursor")
     resp="$(_gh_ev_call "${args[@]}")" || return 1
     pages=$((pages + 1))
-    meta="$(printf '%s' "$resp" | jq -r '
+    # One jq per page: the pageInfo line, then the nodes line.
+    page="$(printf '%s' "$resp" | jq -r '
       if has("errors") then error("GraphQL errors: \(.errors | tojson)") else . end
       | '"$path"'
       | if type != "object" or (.nodes | type) != "array" then error("page lacks the connection") else . end
-      | "\(.pageInfo.hasNextPage)\t\(.pageInfo.endCursor // "")"' | tr -d '\r')" || {
+      | "\(.pageInfo.hasNextPage)\t\(.pageInfo.endCursor // "")", (.nodes | tojson)' | tr -d '\r')" || {
         echo "github.sh: GraphQL page $pages of $path is malformed" >&2
         return 5
       }
-    [ -n "$first" ] || first="$resp"
-    acc+="$(printf '%s' "$resp" | jq -c "$path.nodes" | tr -d '\r')"$'\n' || return 5
-    IFS=$'\t' read -r more cursor <<<"$meta"
+    (( pages > 1 )) || first="$resp"
+    { IFS=$'\t' read -r more cursor; IFS= read -r nodes; } <<<"$page"
+    acc+="$nodes"$'\n'
     [ "$more" = true ] || break
     if [ -z "$cursor" ]; then
       echo "github.sh: GraphQL page of $path has a next page but no cursor" >&2
@@ -541,8 +531,8 @@ _gh_gql_walk() {
     fi
     seen[$cursor]=1
   done
-  { printf '%s\n' "$first"; printf '%s' "$acc" | jq -cs 'add // []'; } \
-    | jq -cs '{first: .[0], nodes: .[1]}' | tr -d '\r'
+  { printf '%s\n' "$first"; printf '%s' "$acc"; } \
+    | jq -cs '{first: .[0], nodes: (.[1:] | add // [])}' | tr -d '\r'
 }
 
 _GH_EV_ACTOR='__typename ... on User { databaseId } ... on Bot { databaseId } ... on Mannequin { databaseId } ... on Organization { databaseId }'
@@ -570,13 +560,12 @@ _GH_EV_Q_NODE="query(\$id: ID!, \$cursor: String) {
 # The collector: [REST events, REST comments, W1 walk, W2 walk, W3 walk,
 # nested walks] → {records, crecs}, both checked and sorted.
 _GH_EV_JQ='
+def atype_of($t): if $t == "User" then "user" elif $t == "Bot" then "bot" else "?" end;
 def g_actor: if . == null then {actor: "?", atype: "?"}
-  else {actor: ((.databaseId // "?") | tostring),
-        atype: (if .__typename == "User" then "user" elif .__typename == "Bot" then "bot" else "?" end)} end;
+  else {actor: ((.databaseId // "?") | tostring), atype: atype_of(.__typename)} end;
 def r_actor($who): if $who == null then {actor: "?", atype: "?"}
   else {actor: (($who.id // "?") | tostring),
-        atype: (if .performed_via_github_app != null then "app"
-                elif $who.type == "User" then "user" elif $who.type == "Bot" then "bot" else "?" end)} end;
+        atype: (if .performed_via_github_app != null then "app" else atype_of($who.type) end)} end;
 def edits($inc; $what):
   (if $inc == true then
      (if length == 0 then error("\($what): includesCreatedEdit with no edit nodes") else .[:-1] end)
@@ -701,32 +690,28 @@ cmd_events() {
     cmd_events_kinds "$2"
     return
   fi
-  if [ "$#" -ne 2 ] || ! _gh_ev_args_ok "$@" || ! [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]]; then
-    _gh_ev_usage
-    return
-  fi
-  _gh_target events "$1" || return 1
-  _need gh
-  _need jq
-  local out
-  out="$(_gh_ev_collect events "$2" "$_GH_EV_MAX_PAGES")" || return
-  [ -z "$out" ] || printf '%s\n' "$out"
+  _gh_ev_issue_verb events events "$@"
 }
 
 # comment-records <repo> <num>: one bc_crec line per comment, sorted by
 # created then id; last-edited is the GraphQL lastEditedAt (empty when never
 # edited). The same collector and calls as events, so the two cannot disagree;
 # an empty issue prints nothing.
-cmd_comment_records() {
+cmd_comment_records() { _gh_ev_issue_verb comment-records crecs "$@"; }
+
+# _gh_ev_issue_verb <verb> <mode> <repo> <num>: the shared body of events and
+# comment-records.
+_gh_ev_issue_verb() {
+  local verb="$1" mode="$2" out
+  shift 2
   if [ "$#" -ne 2 ] || ! _gh_ev_args_ok "$@" || ! [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]]; then
     _gh_ev_usage
     return
   fi
-  _gh_target comment-records "$1" || return 1
+  _gh_target "$verb" "$1" || return 1
   _need gh
   _need jq
-  local out
-  out="$(_gh_ev_collect crecs "$2" "$_GH_EV_MAX_PAGES")" || return
+  out="$(_gh_ev_collect "$mode" "$2" "$_GH_EV_MAX_PAGES")" || return
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 

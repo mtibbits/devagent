@@ -16,9 +16,9 @@
 # state-exists <repo> <state> (exit 0 present, 4 absent; an absent verb makes
 # doctor skip its tracker check, #710), and so MAY the read-only events
 # <repo> <num>, events --kinds <repo>, comment-records <repo> <num> and whoami
-# <repo> (exit 78 or 2 means unsupported, #712). Until a verb is implemented it exits
-# 78 (EX_CONFIG) with a documented message so callers can report "backend not
-# implemented" cleanly.
+# <repo> (exit 78 or 2 means unsupported, #712). Until a verb is implemented
+# it exits 78 (EX_CONFIG) with a documented message so callers can report
+# "backend not implemented" cleanly.
 #
 # #710: the callers always append `--project <name>` to transition, naming
 # the project they resolved. Accept it; a backend that keeps its own stage
@@ -52,7 +52,7 @@ EOF
 
 verb="${1:-}"; shift || true
 case "$verb" in
-  fetch|create|transition|state|comment-list|state-list|issue-list|state-exists|  events|comment-records|whoami)
+  fetch|create|transition|state|comment-list|state-list|issue-list|state-exists|events|comment-records|whoami)
     bc_die_not_implemented custom "$verb" ;;
   ""|-h|--help) usage ;;
   *) usage ;;

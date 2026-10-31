@@ -93,16 +93,14 @@ _argv_log() {
   [ -n "${GH_STUB_ARGV_LOG:-}" ] || return 0
   local line="" a
   for a in "$@"; do line+="[$a] "; done
-  printf '%s\n' "${line% }" >> "$GH_STUB_ARGV_LOG"
+  printf '%s%s\n' "${line% }" "${_ARGV_LOG_SUFFIX:-}" >> "$GH_STUB_ARGV_LOG"
 }
 
 _api_log() {
   # #712: _argv_log plus the GH_HOST the call ran under.
-  [ -n "${GH_STUB_ARGV_LOG:-}" ] || return 0
-  local line="" a host="<unset>"
-  for a in "$@"; do line+="[$a] "; done
+  local host="<unset>"
   [ -n "${GH_HOST+x}" ] && host="$GH_HOST"
-  printf '%s GH_HOST=%s\n' "${line% }" "$host" >> "$GH_STUB_ARGV_LOG"
+  _ARGV_LOG_SUFFIX=" GH_HOST=$host" _argv_log "$@"
 }
 
 _api_path() {
