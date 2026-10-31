@@ -751,3 +751,198 @@ _ci_count() { grep -c '^CI ' <<<"$output" || true; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"CI PENDING: "*$'\n'"PHASE BREAK before step 20 (updatewbs)"* ]]
 }
+
+# --- #885: the merge step (mergemr) in the chain ---------------------------------
+# mergemr.sh runs for real over a stub code backend (DEVAGENT_CODE_BACKEND_DIR):
+# mr-view serves $MM_VIEW, mr-checks (next.sh's own #782 read) its check lines,
+# merge-mr logs to $MM_MERGES; every verb is counted in $MM_CALLS. The fixture checklist has a
+# mergemr row (the templates gain it in a later commit).
+MM_URL=https://github.com/acme/volk/pull/9
+MM_HEAD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+# _mm_view <state> <checks: pass|pending|none> [mergestate]: the stub's mr-view reply.
+_mm_view() {
+  local mc=-
+  [ "$1" = merged ] && mc=cccccccccccccccccccccccccccccccccccccccc
+  {
+    printf 'state\t%s\nhead\t%s\n' "$1" "$MM_HEAD"
+    case "$2" in
+      pass)    printf 'pass\tci\t-\n' ;;
+      pending) printf 'pending\tci\t-\n' ;;
+    esac
+    printf 'draft\tfalse\nbase\tmain\nmergeable\tMERGEABLE\nmergestate\t%s\n' "${3:-CLEAN}"
+    printf 'automerge\toff\nqueue\tfalse\nnumber\t9\ntitle\tFix it\nmergecommit\t%s\ncommits\t1\t1\n' "$mc"
+  } > "$MM_VIEW"
+}
+
+# _mm_window [merge_mr] [ci_gate]: shipped (17-18 [x], 19 [-]), mr_url and
+# verified_head recorded, current step 20 mergemr, PR open with green CI.
+_mm_window() {
+  local mm="${1:-false}" gate="${2:-}"
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/volk"
+devdoc_dir = "$DEVDOC"
+default_baseline = "origin/main"
+${gate:+ci_gate = \"$gate\"}
+
+[project.volk.permissions]
+push_mr  = true
+merge_mr = $mm
+
+[project.volk.code_source]
+backend  = "github"
+upstream = "acme/volk"
+EOF
+  cat > "$DEVDOC/Issue-676/checklist.md" <<'EOC'
+- [x] 17. preship
+- [x] 18. ship
+- [-] 19. mergetoall
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
+
+## Log
+EOC
+  printf 'mr_url = "%s"\nverified_head = "%s"\n' "$MM_URL" "$MM_HEAD" >> "$DA_HOME/state/volk.toml"
+  export MM_CALLS="$BATS_TEST_TMPDIR/mm-calls" MM_VIEW="$BATS_TEST_TMPDIR/mm-view"
+  export MM_MERGES="$BATS_TEST_TMPDIR/mm-merges"
+  : > "$MM_CALLS"
+  mkdir -p "$BATS_TEST_TMPDIR/code"
+  cat > "$BATS_TEST_TMPDIR/code/github.sh" <<'EOS'
+#!/usr/bin/env bash
+v="$1"; shift
+printf '%s\n' "$v" >> "$MM_CALLS"
+case "$v" in
+  push-branch) exit 0 ;;
+  create-mr) echo "https://github.com/acme/volk/pull/9" ;;
+  branch-exists|merged-pr-head) exit 1 ;;
+  mr-view) cat "$MM_VIEW" ;;
+  mr-checks) grep -E $'^(state|head|pass|pending|fail)\t' "$MM_VIEW" ;;
+  merge-mr) printf '%s\n' "$*" >> "$MM_MERGES" ;;
+  *) exit 2 ;;
+esac
+EOS
+  chmod +x "$BATS_TEST_TMPDIR/code/github.sh"
+  export DEVAGENT_CODE_BACKEND_DIR="$BATS_TEST_TMPDIR/code"
+  _mm_view open pass
+}
+
+_mm_rows()  { grep '^- \[' "$DEVDOC/Issue-676/checklist.md"; }
+_mm_calls() { grep -cx "$1" "$MM_CALLS" || true; }
+_mm_row()   { grep -qxF -- "- [$1] $2. $3" "$DEVDOC/Issue-676/checklist.md"; }
+MM_WAIT="WAITING at step 20 (mergemr): the PR is not merged yet; state is on disk. Re-check later: /devagent:next volk"
+
+@test "#885 --auto from ship runs ship, mergetoall, mergemr, then PHASE BREAK before updatewbs" {
+  _mm_window false
+  # Precondition: ship not run yet, nothing recorded; the branch carries one commit
+  # past the baseline; mergetoall auto-skips (no all_prs_branch); the PR is merged,
+  # so mergemr's rule 3 gives [x] whatever merge_mr says.
+  sed -i -E 's/^- \[x\] 18\. ship/- [ ] 18. ship/; s/^- \[-\] 19\./- [ ] 19./' "$DEVDOC/Issue-676/checklist.md"
+  printf 'active_issue = "Issue-676"\nissue_dir    = "%s"\nbranch = "fix/676-x"\n' \
+    "$DEVDOC/Issue-676" > "$DA_HOME/state/volk.toml"
+  local src="$BATS_TEST_TMPDIR/volk"
+  git -c init.defaultBranch=main init -q "$src"
+  git -C "$src" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m base
+  printf 'baseline_sha = "%s"\n' "$(git -C "$src" rev-parse main)" >> "$DA_HOME/state/volk.toml"
+  git -C "$src" checkout -q -b fix/676-x
+  git -C "$src" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m work
+  echo "MR body" > "$DEVDOC/Issue-676/mr.md"
+  echo "Fix it" > "$DEVDOC/Issue-676/.devagent-title"
+  _mm_view merged pass
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -eq 0 ]
+  _mm_row x 18 ship
+  _mm_row - 19 mergetoall
+  _mm_row x 20 mergemr
+  _mm_row ' ' 21 updatewbs
+  [[ "$output" == *"step 18 (ship), script-backed"*"step 19 (mergetoall), script-backed"*"step 20 (mergemr), script-backed"*"PHASE BREAK before step 21 (updatewbs)"* ]]
+  [[ "$output" != *"→ Run /devagent:updatewbs"* ]]
+  grep -qE '^mr_url = "https://github.com/acme/volk/pull/9"' "$DA_HOME/state/volk.toml"
+  [ "$(_mm_calls mr-checks)" -eq 0 ]
+  [ ! -e "$MM_MERGES" ]
+}
+
+@test "#885 mergemr [?] stops --auto with exit 0 and the WAITING line" {
+  _mm_window false
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -eq 0 ]
+  _mm_row '?' 20 mergemr
+  grep -qxF "$MM_WAIT --auto" <<<"$output"
+  [[ "$output" == *"mergemr: waiting (8): waiting for merge ("* ]]
+  [[ "$output" != *"CHAIN:"* ]]
+  [[ "$output" != *"PHASE BREAK"* ]]
+  [[ "$output" != *"did not mark itself"* ]]
+  [[ "$output" != *"(updatewbs)"* ]]
+  [ ! -e "$DEVDOC/Issue-676/STUCK" ]
+  [ ! -e "$MM_MERGES" ]
+}
+
+@test "#885 rerunning next on [?] re-reads; [x] once merged" {
+  _mm_window false
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  _mm_row '?' 20 mergemr
+  grep -qxF "$MM_WAIT" <<<"$output"
+  _mm_view merged pass
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"blocked-on-external"* ]]
+  [[ "$output" == *"dispatch: volk/Issue-676 — step 20 (mergemr), script-backed"* ]]
+  _mm_row x 20 mergemr
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  [[ "$output" != *"WAITING"* ]]
+  [ "$(_mm_calls mr-view)" -eq 2 ]
+}
+
+@test "#885 no CI line on the mergemr iteration" {
+  _mm_window false
+  # Waiting: mergemr's own read prints the one CI line; next.sh reads nothing.
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^CI ' <<<"$output" || true)" -eq 1 ]
+  grep -qF "CI PASSED: 1 checks on $MM_URL" <<<"$output"
+  [ "$(_mm_calls mr-checks)" -eq 0 ]
+  # Merged, then the loop reaches updatewbs: mergemr's read counts for this
+  # invocation too, so next.sh makes no second read.
+  _mm_view merged pass
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  echo "$output"
+  [ "$status" -eq 0 ]
+  _mm_row x 20 mergemr
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  [ "$(_mm_calls mr-checks)" -eq 0 ]
+}
+
+@test "#885 ci_gate=block with pending CI still dispatches mergemr" {
+  _mm_window true block
+  _mm_view open pending BLOCKED
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"CI gate: holding"* ]]
+  [[ "$output" == *"step 20 (mergemr), script-backed"* ]]
+  _mm_row '?' 20 mergemr
+  [[ "$output" == *"mergemr: waiting (16): CI PENDING: 1 of 1 checks still running on $MM_URL"* ]]
+  grep -qxF "$MM_WAIT --auto" <<<"$output"
+  [ "$(_mm_calls mr-checks)" -eq 0 ]
+  [ ! -e "$MM_MERGES" ]
+}
+
+@test "#885 [?] on another step keeps the park hint" {
+  _mm_window false
+  sed -i -E 's/^- \[ \] 20\./- [x] 20./; s/^- \[ \] 21\./- [?] 21./' "$DEVDOC/Issue-676/checklist.md"
+  local before; before="$(_mm_rows)"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk --auto
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Step 21 (updatewbs) is [?] blocked-on-external. Consider /devagent:park."* ]]
+  [[ "$output" != *"dispatch:"* ]]
+  [[ "$output" != *"WAITING"* ]]
+  [ "$(_mm_rows)" = "$before" ]
+}

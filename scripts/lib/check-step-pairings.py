@@ -9,9 +9,9 @@ Exit 0 when every pairing agrees; 1 when any disagrees (offenders on stdout).
 WHAT IS CHECKED (decidable): forms where a step NAME sits directly beside a
 number. The pattern set is a CORPUS of every spelling ever observed on a live
 surface — `step 9 (implement)`, `implement (9)`, `implement(9)`, `9 implement`,
-`9. implement`, `commit step (12)`, `ship.sh (18)`, `` `cleanup` (23) ``,
-`improve 5, review 15` (list), `17 = preship`, `20 for updatewbs`,
-`23/cleanup`, `18 (ship)`, `` `draft` (step 2) `` (case-insensitive; r4
+`9. implement`, `commit step (12)`, `ship.sh (18)`, `` `cleanup` (24) ``,
+`improve 5, review 15` (list), `17 = preship`, `21 for updatewbs`,
+`24/cleanup`, `18 (ship)`, `` `draft` (step 2) `` (case-insensitive; r4
 MAJOR-2), and ONE cross-line form — `<key> = N` directly
 above `<key>_name = "<step>"` (r3 MAJOR-1, the state.toml shape). Each family
 has a wrong-numbered fixture line in tests/checklist-numbering.bats; when a
@@ -42,8 +42,8 @@ import sys
 NEW = {'pull': 0, 'research': 1, 'draft': 2, 'spike': 3, 'scope': 4, 'improve': 5,
        'prune': 6, 'tighten': 7, 'branch': 8, 'implement': 9, 'quality': 10,
        'document': 11, 'commit': 12, 'analyze': 13, 'draftmr': 14, 'review': 15,
-       'redmr': 16, 'preship': 17, 'ship': 18, 'mergetoall': 19, 'updatewbs': 20,
-       'impact': 21, 'lessonslearned': 22, 'cleanup': 23}
+       'redmr': 16, 'preship': 17, 'ship': 18, 'mergetoall': 19, 'mergemr': 20,
+       'updatewbs': 21, 'impact': 22, 'lessonslearned': 23, 'cleanup': 24}
 
 # Live surfaces only. Excluded by design: docs/plans (dated historical plans),
 # CHANGELOG (historical entries + the #558 upgrade note, which must quote the
@@ -64,11 +64,11 @@ PAIRED = [
     # outputs. One fixture line each in the corpus test; keep them in step.
     (re.compile(r'\b(%s) step \((\d+)\)' % _N), 1, 2),       # commit step (12)
     (re.compile(r'\b(%s)\.sh \((\d+)\)' % _N), 1, 2),        # ship.sh (18)
-    (re.compile(r'`(%s)` \((\d+)\)' % _N), 1, 2),            # `cleanup` (23)
+    (re.compile(r'`(%s)` \((\d+)\)' % _N), 1, 2),            # `cleanup` (24)
     (re.compile(r'\b(%s) (\d+)(?=[,;.)\]]|$)' % _N), 1, 2),  # improve 5, review 15
     (re.compile(r'\b(\d+) = (%s)\b' % _N), 2, 1),            # 17 = preship
-    (re.compile(r'\b(\d+) for `?(%s)`?\b' % _N), 2, 1),      # 20 for `updatewbs`
-    (re.compile(r'\b(\d+)/(%s)\b' % _N), 2, 1),              # 23/cleanup
+    (re.compile(r'\b(\d+) for `?(%s)`?\b' % _N), 2, 1),      # 21 for `updatewbs`
+    (re.compile(r'\b(\d+)/(%s)\b' % _N), 2, 1),              # 24/cleanup
     (re.compile(r'(?<![\w.#/-])(\d+) \(`?(%s)`?\)' % _N), 2, 1),  # 18 (ship)
     # r4 MAJOR-2: `name (step N)` — name-adjacent by this file's own remit,
     # found on nine live pairings while sitting untriaged in --list-bare.

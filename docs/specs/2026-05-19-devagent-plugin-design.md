@@ -66,10 +66,10 @@ devAgent/
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
-├── commands/                # one .md file per command-form slash command (55)
+├── commands/                # one .md file per command-form slash command (56)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 55 + 3 = the 58 slash commands
+│                            #   (SKILL.md + references/, #452) — 56 + 3 = the 59 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -88,7 +88,8 @@ devAgent/
 │   ├── docs-site/           # #465: pandoc template + link filter for build-docs-site.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, doctor.sh,
-│   │   migrate-checklist-numbering.sh (#558 in-flight upgrade), ...
+│   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
+│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -141,10 +142,13 @@ include_coauthor = false                 # strip Co-Authored-By from commit msg 
 default_baseline = "origin/main"
 all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
+# merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase
+# merge_checks   = "required"            # #885: or "if-present" for a repo without CI (§6.3 row 20)
 
 [project.volk.permissions]
 push_mr            = true
-merge_mr           = true
+merge_mr           = true                # #885: step 20 merges the PR at the verified head (§8)
+merge_to_all_prs   = true                # step 19 mergetoall
 commit_devdoc      = true
 transition_issue   = true
 cleanup_on_merge   = false
@@ -196,6 +200,13 @@ devAgent never adds a `Co-Authored-By` trailer, but the driving model may. When 
 body (case-insensitive); `Signed-off-by` (DCO) is always preserved. Per-project only — there is no
 `[defaults]` layer. Set `false` for AI-attribution-averse upstreams (e.g. `volk`).
 
+`merge_method` and `merge_checks` (#885) are `[project.<name>]` keys with a `[defaults]`
+fallback, read by `mergemr.sh` (step 20) and validated on every run whatever
+`permissions.merge_mr` says; any other value stops the step naming the key.
+`merge_method` is `squash` (default), `merge` or `rebase`. `merge_checks` is `required`
+(default: no CI checks on the head after #782's grace is a `[!]` stop) or `if-present` (a repo
+without CI merges without checks). `ci_gate` (§7.2) does not apply to step 20.
+
 ### 3.3 Per-project state (`~/.claude/devagent/state/<project>.toml`)
 
 Mutable. Out of git. One active issue per project.
@@ -230,7 +241,11 @@ ever need it. Order is not preserved; v1 does not depend on order.
 Per-issue context (#98, #240): the keys `branch`, `baseline_sha`,
 `worktree_path`, `spike_worktree_path`, `mr_url`, `revision`, `pending_comments_file`,
 `last_step`, `last_step_name`, `ci_seen_head`, `ci_seen_at` belong to the active issue, not the
-project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Since #240 the
+project (`STATE_ISSUE_KEYS`, `scripts/lib/state.sh:142`). Two #885 keys live only in
+`[context.<issue>]`, written by `scripts/preship-verified-head.sh`: `preship_pin_head` (the
+head preship's `pin` handed the verifier) and `verified_head` (that head, recorded by
+`record` after every verification passed; `mergemr.sh` merges only at it). `revise`
+clears both. Since #240 the
 **`[context.<issue>]` sub-table is the authoritative home** of these
 keys; the top-level copies are a compatibility **mirror**, maintained
 only while that issue is the shared `active_issue`. Per-key reads follow
@@ -270,8 +285,13 @@ these helpers without changing callers.
 
 **Renumbering support (#558).** `scripts/migrate-checklist-numbering.sh`
 migrates an in-flight checklist between numbering schemes, keyed by step NAME
-(`--all` walks configured projects, `--dry-run` previews, `--reverse` inverts for
-a rollback, `--include-completed` overrides the completed-record waiver).
+(`--all` walks configured projects, `--dry-run` previews, `--reverse` undoes the
+#885 renumber (back to the #558 scheme), `--reverse-558` undoes #558,
+`--include-completed` overrides the completed-record waiver).
+`scripts/rebaseline.sh` (#885) re-keys `baseline_sha` to the merge base after a
+merge-forward of the base branch into the issue branch, so the diff later steps
+read is the branch's own; it refuses off-branch, an ambiguous (criss-cross) base
+or a base that would move backwards.
 `scripts/lib/check-step-pairings.py` is its CI counterpart: it asserts every
 name-adjacent step/number pairing on live surfaces and, with `--list-bare`,
 emits the undecidable bare-`step N` sites for human triage. `checklist_mark`
@@ -484,10 +504,11 @@ Active revision: 1
 - [ ] 17. preship
 - [ ] 18. ship
 - [-] 19. mergetoall
-- [ ] 20. updatewbs
-- [ ] 21. impact
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
 
 ## Log
 - 2026-05-19 14:01  pull: fetched gnuradio/volk#676, scaffold created
@@ -575,7 +596,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:crrf [topic hint]` | alias | Orchestrates capture → (scaffold) → redissue → adjudicate → file under one bounded autonomy grant; honors `permissions.push_mr` (#559) |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
-### 6.3 Family B — Workflow (21 mandatory steps + the optional research, spike, and mergetoall steps)
+### 6.3 Family B — Workflow (22 mandatory steps + the optional research, spike, and mergetoall steps)
 
 | # | Command | Type | Implementation |
 |---|---|---|---|
@@ -598,17 +619,18 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 16 | `/devagent:redmr` | skill | `core-redmr` using `templates/redteam_mr.md`; also carries the always-run **spec-touch question** (#435) — a diff that adds/renames/removes a config key, command, hook, or top-level directory with no matching spec change is flagged `[MAJOR]` |
 | 17 | `/devagent:preship` | skill | `core-preship` — fresh-context AC/findings/push-preview verification + the **spec-touch verification** (#435; adds/renames/removes of a spec-relevant surface must carry a spec change or FAIL); ordering enforced by next.sh dispatch AND a ship.sh hard gate on non-terminal preship (absent step ⇒ no gate) (#149) |
 | 18 | `/devagent:ship` | script | `ship.sh` — honors `permissions.push_mr` and `ship_as_draft`; triggers `on_ship`; if `fork_first=true`, fork first then reference upstream |
-| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_mr`; squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
-| 20 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
-| 21 | `/devagent:impact` | skill | `core-impact` — quantify and record |
-| 22 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 23 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
+| 19 | `/devagent:mergetoall` | script | **OPTIONAL, off by default** — ships `[-]` in every plugin checklist template that carries the row (and revision blocks); a devdoc override template is the author's responsibility. Flipped to `[ ]` at scaffold when the project configures `all_prs_branch` (`checklist_filter_mergetoall` in checklist_init / revision_block_text / retier). `mergetoall.sh` — honors `permissions.merge_to_all_prs` only (#885 retired the `merge_mr` fallback; `doctor` warns on `merge_mr` without it); squash-on-merge; keeps its unconfigured/zero-diff runtime auto-skip as backstop; requires green CI (§7.2) |
+| 20 | `/devagent:mergemr` | script | `mergemr.sh` (#885) — reads the PR ship recorded (`mr_url`) and decides at once, never polling; merges only when `permissions.merge_mr = true` and only at the head the last passing preship recorded as `verified_head`; otherwise marks `[?]` until the PR is merged elsewhere (`/devagent:next` re-checks on its next run); a stop is `[!]` + `STUCK` (`mergemr rule <N>: …`); `[-]` when ship was skipped |
+| 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
+| 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
+| 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
 
-**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–23 top-to-bottom: 24 numbered step commands, 21 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
+**Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 
 #### Workflow tier profiles (#537)
 
-A tier is a named checklist template selecting WHICH of the 24 steps an issue
+A tier is a named checklist template selecting WHICH of the 25 steps an issue
 runs. Selection is per-issue: a `tier: <name>` key in the issue body's
 `## Workflow flags` block (grammar: one `key: value` per line, keys lowercase
 `[a-z-]+`, unknown keys ignored, value lines BARE — trailing inline prose is
@@ -701,11 +723,11 @@ blocks may carry rows the current tier omits.
 
 | Tier | Rows | For |
 |---|---|---|
-| oneshot | 0, 9, 11, 22, 23 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (23) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
-| standard | all 24 rows | Full rails: features, bugfixes (default). |
-| perf | standard minus 20 (updatewbs; impact stays) | Performance work. |
-| docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 23 | Documentation-only changes. |
-| research | 0, 2, 4, 5, 11, 22, 23 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| oneshot | 0, 9, 11, 23, 24 | An operational action, not a repo change ("run the release mechanism"). Document (11) is the verify beat: execution evidence required. Commit/ship rows absent by design — an action that produces a diff belongs in standard. ENFORCED, not prose: `scripts/oneshot-zerodiff.sh` checks the tree carries no unpublished change (on the base branch, no commits beyond `default_baseline`, no uncommitted paths) and cleanup (24) refuses on `violated`/`indeterminate`; it cannot attribute the change to the issue, since the tree is shared (#595). |
+| standard | all 25 rows | Full rails: features, bugfixes (default). |
+| perf | standard minus 21 (updatewbs; impact stays) | Performance work. |
+| docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 20, 24 | Documentation-only changes. |
+| research | 0, 2, 4, 5, 11, 23, 24 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 
@@ -804,7 +826,8 @@ After ship, the MR's CI status is reported, never waited for (#782):
   none, and so does a `--through` target that is already complete. Each
   change of `<result> <sha7>` also writes one `ci:` log line. The cost is one
   read (measured 0.7-2.75 s) per `next` from ship until cleanup, including
-  after merge.
+  after merge. The iteration that dispatches step 20 (mergemr) prints no
+  `next` CI line: mergemr reads the PR itself and prints its own (#885).
 - **Report mode never halts.** With the default `ci_gate = "report"` the
   line changes no row, no exit status and no dispatch. `CI PENDING` and `CI
   UNKNOWN` are information for the operator, never an instruction to re-run
@@ -822,11 +845,23 @@ After ship, the MR's CI status is reported, never waited for (#782):
   way: red marks the step about to run `[!]` (exit 1, the STUCK path);
   pending, unknown or `none` inside the grace prints `CI gate: holding step
   <N> (<name>) until CI finishes; nothing was marked` and a Resume line, and
-  exits 0 with no `CHAIN:`.
+  exits 0 with no `CHAIN:`. Step 20 (mergemr) is not held: it applies the CI
+  verdict itself (§6.3 row 20, `commands/mergemr.md` rules 15-17).
 - **`ci_gate`** is `report`, `block` or `off` (`[project.<name>] ci_gate`,
   else `[defaults] ci_gate`); any other value stops `next` at its first
   in-window read. `off` makes no read at all and is the reviewed de-scope
-  for a flaky or slow CI.
+  for a flaky or slow CI. `off` does not apply to step 20: merging is a
+  stronger act than reporting, so mergemr always reads CI.
+- **mergemr waits, never polls (#885).** `next` dispatches step 20 from its
+  `[?]` row on every invocation (any other `[?]` row keeps the park hint).
+  While the PR is open the row stays `[?]` and `next` prints `WAITING at step
+  20 (mergemr): the PR is not merged yet; state is on disk. Re-check later:
+  /devagent:next <project>` and exits 0 with no `CHAIN:`; re-running `next`
+  later re-reads the PR. mergetoall (19) holds on pending CI before mergemr
+  runs, so an `--auto` chain reaches mergemr only with mergetoall `[-]` or
+  CI green. Knobs: `DEVAGENT_MERGEMR_READ_SECS` (20 s, each PR or dependency
+  read) and `DEVAGENT_MERGEMR_MERGE_SECS` (30 s, the merge call);
+  `DEVAGENT_REBASELINE_FETCH_SECS` (20 s) bounds `rebaseline.sh`'s base fetch.
 
 ### 7.3 External chaining
 
@@ -842,8 +877,11 @@ the text: a `[!]` row plus a `STUCK` file whose reason starts `CI FAILED:`
 means red, and a human is needed. An unchanged row with no `STUCK` file
 means held; retry on the worker's own schedule. The hold has two shapes:
 at step 19 it is `mergetoall`'s exit 1 with row 19 still `[ ]`, which ends
-the chain and makes `next` exit non-zero; at steps 20-23 it is an exit-0
+the chain and makes `next` exit non-zero; at steps 21-24 it is an exit-0
 `CI gate: holding step …` line. The `CI …:` prefix says the same.
+Step 20 waiting for a merge is a `[?]` mergemr row with no `STUCK` file
+and next's `WAITING` line: retry on the worker's own schedule; a `[!]`
+mergemr row with `STUCK` reason `mergemr rule <N>: …` needs a human.
 
 ### 7.4 Step model tiers (`step_models`)
 
@@ -1450,6 +1488,11 @@ Defined per project in `[project.<name>.permissions]`. Each gate:
 - `false` → print plan + prompt `y/N` before each remote-visible action
 - unset → treat as `false`
 
+Exception — `merge_mr` (#885): not a prompt. `mergemr.sh` reads it
+directly and merges only when it is exactly `true`; `false` or unset marks
+step 20 `[?]` until the PR is merged elsewhere, so neither `DA_YES=1` nor
+an interactive terminal can open it.
+
 Exception — `transition_issue`: a `false` value does **not** prompt
 `y/N`. It gates every tracker transition — `on_draft_start`, `on_ship`
 and `on_merge` — and two of them fire in autonomous/batch contexts
@@ -1471,9 +1514,10 @@ Gate set:
 | Gate | Used by |
 |---|---|
 | `push_mr` | `ship.sh` |
-| `merge_mr` | `mergetoall.sh` |
+| `merge_mr` | `mergemr.sh` (#885; read directly, see above) |
+| `merge_to_all_prs` | `mergetoall.sh` (#885 retired its `merge_mr` fallback) |
 | `commit_devdoc` | `cleanup.sh`, `statusreport.sh` |
-| `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219). |
+| `transition_issue` | every tracker transition: `on_draft_start` (`transition-draft-start.sh`, #325), `on_ship` (`ship.sh`, #710) and `on_merge` (`sync.sh`, #219; `mergemr.sh`, #885, through the shared `lib/merge-marker.sh`). |
 | `cleanup_on_merge` | `sync.sh` (opt-in to auto-cleanup post-merge) |
 
 ### 8.1 Hooks surface (PreToolUse / SessionStart) — #453 scaffold
@@ -1584,6 +1628,7 @@ comment-list <repo> <num>                                  → markdown to stdou
 state-list   <repo>                                        → "<id>\t<class>" lines (MAY)
 issue-list   <repo>                                        → JSON Lines records (MAY)
 state-exists <repo> <state-name>                           → exit 0 present / 4 absent (MAY)
+state-class  <repo> <num>                                  → "<class>\t<reason>" (MAY)
 ```
 
 `<semantic-stage>` is a stage key of `[project.<name>.issue_workflow]`:
@@ -1695,6 +1740,18 @@ without those GraphQL fields (an older GHES) is not supported. GitLab sets
 Cloud only, as for `state-list`; a done issue with no `resolutiondate`
 takes its `closed` date from `statuscategorychangedate`.
 
+`state-class` MAY be implemented (#885; GitHub does). It prints one line
+for one issue: its `state-list` class (the shared rule with no in-progress
+label, so an open issue is `open`), a TAB, and the tracker's state reason
+lowercased with `_` as a space (`completed`, `not planned`), or `-` when
+there is none. GitHub makes one `gh issue view --json
+number,state,stateReason,labels` call. Exit `0` is success; `1` a CLI
+failure or bad arguments, never `2`; `5` an unrecognised state or
+unreadable JSON; `78` and `2` mean "no state lookup". The merge step
+(`mergemr.sh`, step 20) is its only caller: a dependency whose class is
+`done` is satisfied, `open`/`in_progress` waits `open, no PR`, anything else
+waits `closed: <reason>`.
+
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 
 ```
@@ -1704,12 +1761,19 @@ create-mr    <repo> <title> <body-file> <head> <base>       → MR URL to stdout
 mr-state     <mr-url>                                       → open|merged|closed|draft
 mr-comments  <mr-url>                                       → markdown to stdout (§9.3)
 merge-mr     <mr-url> [--method squash|merge|rebase]        → exit 0
+               [--match-head-commit <40-hex>] [--subject <s>] [--body <b>]
+merge-mr     <mr-url> --disable-auto                        → exit 0
 issue-mrs    <repo> <id>...                                 → issue/mr lines (MAY)
 mr-checks    <mr-url>                                       → state/head/check lines (MAY)
+mr-view      <mr-url>                                       → mr-checks lines + merge facts (MAY)
 ```
 
-The first five verbs MUST be implemented; `issue-mrs` (#704) and `mr-checks`
-(#782) MAY be. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
+The first five verbs MUST be implemented; `issue-mrs` (#704), `mr-checks`
+(#782) and `mr-view` (#885) MAY be. `merge-mr`'s `--match-head-commit`,
+`--subject` and `--body` (#885, GitHub) merge only if the PR head is still
+that SHA and set the squash commit's subject and body (`--body` is passed
+even when empty); `--disable-auto` alone turns off auto-merge. GitHub runs
+every form with `GH_PROMPT_DISABLED=1` and stdin from `/dev/null`. For each issue number `<id>` of `<repo>`, `issue-mrs` reports the MRs linked to the
 issue. An MR links an issue when its title or description carries a
 closing-keyword reference that resolves to it, whatever the MR's target
 branch: GitHub's keyword set (`close`, `closes`, `closed`, `fix`, `fixes`,
@@ -1783,6 +1847,33 @@ arguments (never `2`); `5` an unrecognised record or non-JSON; `78` and
 `2` mean "not checked". On a non-zero exit the last stderr line is a bare
 reason (`gh exited <rc>`, `jq not on PATH`, `unrecognised rollup: …`) that
 `scripts/lib/ci.sh` quotes in its `CI UNKNOWN:` line (§7.2).
+
+`mr-view` MAY be implemented (#885; GitHub does). It prints the `mr-checks`
+lines unchanged, then what the merge step decides on, one kind per line
+(TAB-separated, an empty field printed `-`):
+
+```
+draft        true|false
+base         <branch>
+mergeable    MERGEABLE|CONFLICTING|UNKNOWN
+mergestate   <mergeStateStatus>
+automerge    on|off
+queue        true|false
+number       <n>
+title        <text>
+mergecommit  <40-hex>|-
+closes       <owner/name>  <n>        one per closing-issue reference
+trailer      <line>                   distinct Signed-off-by:/Co-authored-by: lines
+commits      <totalCount>  <read>
+```
+
+GitHub makes two calls: `gh pr view --json` for the fields it offers, then
+one GraphQL query for `isInMergeQueue` and `commits{totalCount}`. Exit `0`
+is success; `1` bad arguments, a URL that is not a PR's, or a CLI failure
+(never `2`); `5` an unrecognised record or non-JSON; `78` and `2` mean "no
+verb". The merge step calls it on a GitHub project only; on any other code
+backend it reads `mr-state` and never merges. `scripts/lib/ci.sh`
+(`ci_read_view`) parses it with the same parser as `mr-checks`.
 
 ### 9.3 Markdown shapes: `fetch` and `mr-comments`
 
@@ -1952,7 +2043,7 @@ v1 artifact list:
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
-| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 22 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612); #613: the plugin seed is a curated public EXCERPT (≤ 100 bullets, ≤ 25 per section, line 1 `<!-- curated: ledger <devDoc sha> -->`, bare `(Issue-N)` devagent citations only; it keeps EVERY section heading, empty or not, because `--add` validates a section against the union of headings and the seed is the one file every project has), the private layers hold the full register, and `<devDoc>/templates/potholes-migration-ledger.tsv` records where every pre-#613 seed line went (`kept | merged-into F<n> | retired <mechanism>`; a retired line also carries `(devagent Issue-613)` as the retiring actor, the `_retire_result` shape); the seed changes only by PR — `--retire`/`--amend` refuse a seed line, naming its devdoc body-twin when one exists (a register distributed from this seed carries each seed line's twin in a private layer, differing only by citation form, and the union read shows the seed's spelling and hides it — the twin is the op target; an install with no private layers has no twins and gets the file-a-lesson remedy); the citation grammar `POTHOLES_ISSUE_RE` admits `Issue-N` and `Issue-Fork-N` only, so a tracker's `dir_prefix` must be `Issue-` or `Issue-Fork-`; `--apply` runs `potholes_file_check` over the whole temp copy, so a pre-existing contract violation in a layer file DEFERs the drain naming `<file>:<line>` |
+| `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 23 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612); #613: the plugin seed is a curated public EXCERPT (≤ 100 bullets, ≤ 25 per section, line 1 `<!-- curated: ledger <devDoc sha> -->`, bare `(Issue-N)` devagent citations only; it keeps EVERY section heading, empty or not, because `--add` validates a section against the union of headings and the seed is the one file every project has), the private layers hold the full register, and `<devDoc>/templates/potholes-migration-ledger.tsv` records where every pre-#613 seed line went (`kept | merged-into F<n> | retired <mechanism>`; a retired line also carries `(devagent Issue-613)` as the retiring actor, the `_retire_result` shape); the seed changes only by PR — `--retire`/`--amend` refuse a seed line, naming its devdoc body-twin when one exists (a register distributed from this seed carries each seed line's twin in a private layer, differing only by citation form, and the union read shows the seed's spelling and hides it — the twin is the op target; an install with no private layers has no twins and gets the file-a-lesson remedy); the citation grammar `POTHOLES_ISSUE_RE` admits `Issue-N` and `Issue-Fork-N` only, so a tracker's `dir_prefix` must be `Issue-` or `Issue-Fork-`; `--apply` runs `potholes_file_check` over the whole temp copy, so a pre-existing contract violation in a layer file DEFERs the drain naming `<file>:<line>` |
 | `potholes_workflow` | the shared workflow layer — `[project.<p>.paths]` then global `[paths]`; no devdoc or plugin rung, so not a registry key (its own `template list` row; #611) |
 
 Migration on first install: existing files at
@@ -2208,7 +2299,7 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   `--survey`), a range only the data can check, or a duplicate, malformed
   or nothing-naming `wbs-scope` line (no range flag); `10` no range flag
   and more than 50 issues in the default set.
-- `/devagent:wbs update [--offline]` — invoked by step 20 and by
+- `/devagent:wbs update [--offline]` — invoked by step 21 and by
   `planwbs` from capture family; sets each issue leaf's glyph from the
   tracker's issue state, else from its checklist, and adds the active
   issue; every other line is kept byte-for-byte. The tracker state comes
@@ -2337,14 +2428,14 @@ Pin: 2026-05-19T14:30 → 2026-05-26T09:00 (6d 18h)
   `blocking` with count > 0, and no subsequent passing `redmr` entry
 - **Poorly scoped** — `scope` step logged ≥3 recommendations, or the
   log contains the word "ambiguity"
-- **Idle** — `updated_at` > 7 days ago and step < 20
+- **Idle** — `updated_at` > 7 days ago and step < 24
 - **Dispatch-lint rejects** (#438) — count of `*.md` under the issue's
   `analysis/rejected/` archive (dispatched checker reports the linter rejected,
   #360). Issues with zero rejects are omitted from the list — no added noise.
 
 ### 14.5 Velocity & estimate
 
-- Velocity = issues completed (step 23) per calendar week, computed
+- Velocity = issues completed (step 24) per calendar week, computed
   over a configurable window (default 4 weeks)
 - Estimate = (remaining WBS leaves) / velocity, rendered with `± X
   weeks` band based on observed variance
@@ -2379,7 +2470,7 @@ Post-MR feedback often requires re-walking the pipeline. Pattern:
 1. `/devagent:comments` — fetch MR comments to
    `<issue-dir>/revisions/r<N>/comments.md`
 2. `/devagent:revise` — increment revision counter, append a new
-   `## Revision N` block to checklist with steps 2, 4–23 re-listed in file order as `[ ]` (the `revision_block`
+   `## Revision N` block to checklist with steps 2, 4–24 re-listed in file order as `[ ]` (the `revision_block`
    template, #76 — NOT a bare 1–15), log the revision start. Then
    `/devagent:next` resumes from `draft` with the comments in context.
    The by-name preship/closeout gates are revision-scoped to match, so

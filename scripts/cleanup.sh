@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cleanup.sh — step 23. Switch source tree back to default_baseline,
+# scripts/cleanup.sh — step 24. Switch source tree back to default_baseline,
 # commit/push devdoc if permissions.commit_devdoc=true, clear active_issue.
 set -euo pipefail
 
@@ -48,8 +48,9 @@ issue_arg="$cleanup_target"
 # Design A1+B1+C2 per the issue: block (die) on all three, naming every
 # offender at once; the per-step escape is marking [-] (skip), auditable in
 # the checklist. BY NAME (numbers vary by template), absent step => no gate.
+# #885: mergemr joins the list — a [?] there is a PR still waiting to merge.
 # Runs before any side effect (the tree restore below).
-offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" updatewbs impact lessonslearned)"
+offenders="$(checklist_nonterminal_by_names "$issue_dir/checklist.md" mergemr updatewbs impact lessonslearned)"
 if [ -n "$offenders" ]; then
     # Derive the remediation commands from the offender list itself — one
     # authoritative name list (the helper args above).
@@ -57,7 +58,7 @@ if [ -n "$offenders" ]; then
     die "closeout steps not terminal: ${offenders//$'\n'/ } — run ${fix_cmds}first, or mark a genuinely-empty step [-] via /devagent:checklist-mark, then re-run (#242)"
 fi
 
-# #594: the lessons lint is ENFORCED here. Step 22 writes lessonsLearned.md and
+# #594: the lessons lint is ENFORCED here. Step 23 writes lessonsLearned.md and
 # this step commits it, so this is the one scripted chokepoint every new corpus
 # file passes through. Pre-side-effect, the #242 placement: a die leaves the
 # tree on the issue branch and a re-run after the fix is safe; cleanup is the
@@ -205,7 +206,7 @@ else
     info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"
 fi
 
-checklist_mark "$issue_dir/checklist.md" 23 x cleanup
+checklist_mark_by_name "$issue_dir/checklist.md" cleanup x
 log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"
 
 # Reconcile the WBS against the now-completed checklist so the leaf for

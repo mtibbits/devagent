@@ -81,7 +81,7 @@
 # the code backend: discovery is from the issue side, so only MRs on the
 # issue's own host are seen, fork and cross-repo MRs included. Cost: GitHub
 # ceil(N/50) GraphQL calls plus one per further page of a truncated
-# timeline; GitLab one call per open leaf. cleanup.sh (step 23) runs this
+# timeline; GitLab one call per open leaf. cleanup.sh (step 24) runs this
 # too, so it makes these calls.
 #
 # Precedence on top of the tracker phase (wbs-tracker.py `mr_effect`):

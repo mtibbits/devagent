@@ -3,7 +3,7 @@
 devAgent is a Claude Code plugin that runs development work through a fixed,
 auditable issue workflow and keeps all of its state on disk — so you can switch
 between issues, or hand one to a fresh session, without losing context. It
-provides **58 slash commands** driving a **24-step workflow** (21 mandatory steps + 3 optional), works against
+provides **59 slash commands** driving a **25-step workflow** (22 mandatory steps + 3 optional), works against
 GitHub, GitLab, and JIRA issue trackers and GitHub and GitLab code forges (JIRA
 is tracker-only; pair it with either forge), and layers capture + issue red-team,
 revision, WBS, and status-report subsystems on top of the core loop.
@@ -85,12 +85,12 @@ occasionally retype a command in a form that misses the literal prefix match (e.
 different drive-letter case) — that falls back to a one-off prompt, never to a wider
 grant. Never widen to bare `Bash`.
 
-## The 24-step workflow
+## The 25-step workflow
 
 Every issue gets a `checklist.md` that tracks its progress through these steps.
 Run them one at a time with `/devagent:next` (which advances to the next
-unmarked step), or invoke any step command directly. Steps are numbered 0–23 in
-execution order — 24 numbered steps, 21 of them mandatory; the optional steps
+unmarked step), or invoke any step command directly. Steps are numbered 0–24 in
+execution order — 25 numbered steps, 22 of them mandatory; the optional steps
 are off by default: `1 research` and `3 spike` opt in per issue via the
 `## Workflow flags` block, and `19 mergetoall` opts in per project by
 configuring `all_prs_branch`. A normal issue's checklist reads top-to-bottom
@@ -99,7 +99,14 @@ with those rows pre-marked `[-]` (skipped):
 - **Plan** — `0 pull` · `1 research` _(optional, flagged)_ · `2 draft` · `3 spike` _(optional, flagged)_ · `4 scope` · `5 improve` · `6 prune` · `7 tighten`
 - **Implement** — `8 branch` · `9 implement` · `10 quality` · `11 document` · `12 commit` · `13 analyze`
 - **Ship** — `14 draftmr` · `15 review` · `16 redmr` · `17 preship` · `18 ship`
-- **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 updatewbs` · `21 impact` · `22 lessonslearned` · `23 cleanup`
+- **Integrate & close** — `19 mergetoall` _(optional, `all_prs_branch`)_ · `20 mergemr` · `21 updatewbs` · `22 impact` · `23 lessonslearned` · `24 cleanup`
+
+`20 mergemr` merges the PR only when the project sets `permissions.merge_mr =
+true`, and only at the head the last passing `preship` verified; otherwise it
+marks its row `[?]` until the PR is merged elsewhere. `/devagent:next`
+re-checks a `[?]` mergemr row on every run and, while the PR is open, prints a
+`WAITING` line and stops; nothing polls, and cleanup waits for the row
+(`/devagent:mergemr` lists the escapes).
 
 `/devagent:comments` fetches reviewer feedback, then `/devagent:revise` opens a
 new revision pass that re-runs from `draft` — the revision's first pending step
@@ -152,9 +159,9 @@ Low-level building blocks the workflow commands use; you rarely call them
 directly. `checklist-init`, `checklist-mark`, `checklist-advance`,
 `checklist-log`, `checklist-stuck`, `checklist-unstuck`.
 
-> The 24 numbered step commands above (21 mandatory + the optional `1 research`,
+> The 25 numbered step commands above (22 mandatory + the optional `1 research`,
 > `3 spike`, and `19 mergetoall` steps), plus `next` / `revise` / `comments`, together with the tables in this
-> section, are the full set of 58 slash commands (55 commands + 3 user-invocable
+> section, are the full set of 59 slash commands (56 commands + 3 user-invocable
 > skills — `next`, `capture`, `ship`; #452).
 
 ## Concurrent sessions
@@ -275,7 +282,7 @@ To add a new backend:
 ### Contract summary
 
 Every issue backend MUST implement five verbs and MAY implement `state-list`,
-`issue-list` and `state-exists` (spec §9.1):
+`issue-list`, `state-exists` and `state-class` (spec §9.1):
 
 | Verb           | Args                                            | Output / exit       |
 |----------------|-------------------------------------------------|---------------------|
@@ -287,9 +294,10 @@ Every issue backend MUST implement five verbs and MAY implement `state-list`,
 | `state-list`   | `<repo>`                                        | `<id>\t<class>` lines (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
 | `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker` and `--merge`; absent = exit 78, or 2) |
 | `state-exists` | `<repo> <state-name>`                           | exit 0 present, 4 absent, else undetermined (optional; read by `doctor`; absent = exit 78, or 2) |
+| `state-class`  | `<repo> <num>`                                  | one `<class>\t<reason>` line (optional; read by `mergemr` for a dependency; absent = exit 78, or 2) |
 
-Every code backend MUST implement five verbs and MAY implement `issue-mrs`
-(spec §9.2):
+Every code backend MUST implement five verbs and MAY implement `issue-mrs`,
+`mr-checks` and `mr-view` (spec §9.2):
 
 | Verb          | Args                                                          | Output / exit          |
 |---------------|---------------------------------------------------------------|------------------------|
@@ -297,8 +305,10 @@ Every code backend MUST implement five verbs and MAY implement `issue-mrs`
 | `create-mr`   | `<repo> <title> <body-file> <head> <base> [--draft]`          | MR URL to stdout       |
 | `mr-state`    | `<mr-url>`                                                    | `open|merged|closed|draft` |
 | `mr-comments` | `<mr-url>`                                                    | markdown to stdout     |
-| `merge-mr`    | `<mr-url> [--method squash|merge|rebase]`                     | exit 0                 |
+| `merge-mr`    | `<mr-url> [--method squash|merge|rebase] [--match-head-commit <sha>] [--subject <s>] [--body <b>]`, or `<mr-url> --disable-auto` | exit 0 |
 | `issue-mrs`   | `<repo> <id>...`                                              | `issue`/`mr` lines per id (optional; read by `wbs update`; absent = exit 78, or 2 for an unknown verb) |
+| `mr-checks`   | `<mr-url>`                                                    | `state`, `head` and one line per CI check (optional; read by `next` and `mergetoall`, #782) |
+| `mr-view`     | `<mr-url>`                                                    | the `mr-checks` lines plus the merge facts (optional; read by `mergemr`, #885) |
 
 Exit-code conventions across all backends:
 

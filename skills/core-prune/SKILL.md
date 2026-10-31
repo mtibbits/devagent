@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-prune
 
-Step 6 of the devAgent 24-step workflow. Walks the Improvements section
+Step 6 of the devAgent 25-step workflow. Walks the Improvements section
 of `<issue-dir>/imPlan.md`, the Out-of-scope section of the Scope
 evaluation, and any task whose value is not load-bearing for the
 issue, and migrates them to

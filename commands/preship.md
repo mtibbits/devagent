@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:preship
 
-Step 17 of the devAgent 24-step workflow (between redmr (16) and ship (18);
+Step 17 of the devAgent 25-step workflow (between redmr (16) and ship (18);
 since #558 the numbers agree with file order by construction).
 The verification runs in the `devagent:preship-verifier` agent, which cannot
 write files and carries the five verifications as its system prompt; this
@@ -25,6 +25,11 @@ Per `commands/draft.md`.
    prerequisite whose producing step is absent is **N/A**, and the review
    report alone is the findings input. Do not halt on the absent step;
    DO halt when the step is present but its artifact is missing.
+2a. **Pin the head (#885)**, as its own Bash call; halt on non-zero:
+   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-verified-head.sh" pin <project>`.
+   It persists HEAD as `preship_pin_head` and prints its SHA; paste that SHA
+   into the `<INPUTS>` diff spec as text (no shell variable survives the
+   verifier's turn, Issue-578).
 3. **Dispatch** per the contract below. The checker authors the artifact and
    returns it; it cannot write files.
 4. **Write the returned body to `<issue-dir>/preship.md` VERBATIM.** Do not
@@ -54,7 +59,7 @@ verbatim, substituting this step's per-step deltas:
 - **`<SKILL>`** (rc-2 fork-prompt skill) — `core-preship`.
 - **`<INPUTS>`** (rung-3 path packaging) — the absolute paths of `issue.md`,
   `mr.md`, and the latest-dated review/redmr artifacts, plus the diff spec
-  `<baseline_sha>..HEAD`.
+  `<baseline_sha>..<SHA>`, `<SHA>` being step 2a's printed SHA, literally.
 - **`<TEMPLATE-RES>`** (rung-3 self-resolution) — This step resolves no template.
 - **`<CLASS>`** (rung-6 dispatch-lint class) — `--class preship`.
 - **`<REJECT-SLUG>`** (rung-6 rejected-artifact slug) — `preship`.
@@ -66,10 +71,29 @@ verbatim, substituting this step's per-step deltas:
   and STOP. NB: without `--step`, checklist-stuck.sh marks the
   CURRENT step, which is preship when steps 0-16 are terminal (guaranteed under
   next.sh dispatch; on manual out-of-order invocation, verify the checklist's
-  current step is 21 first). The `[!]` plus STUCK file is the halt next.sh
+  current step is 17 first; a post-ship re-run is the exception, see
+  "Re-verifying after ship"). The `[!]` plus STUCK file is the halt next.sh
   honors (exit 1 + STUCK display); recovery is `/devagent:unstuck` after
   addressing the failures, then re-run preship.
-- All PASS ⇒ mark step 17 `[x]` per the Completion handoff below.
+- All PASS ⇒ run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preship-verified-head.sh" record <project>`
+  as its own Bash call, no SHA argument (it reads the pin back): it writes
+  `verified_head`, the head mergemr may merge at. Non-zero is a FAIL whose
+  stderr line is the `preship: …` reason above. Exit 0 ⇒ mark step 17 `[x]`
+  per the Completion handoff below.
+
+## Re-verifying after ship
+
+mergemr (step 20) merges only at `verified_head`; a head that moved after ship
+stops it `[!]` until a fresh preship passes. After a **fix push** (rule 15):
+re-run `scripts/run-suite.sh` and `scripts/evidence-stamp.sh` (`commands/review.md`
+6a), push, then preship. After a **merge-forward** (rule 14): run
+`scripts/rebaseline.sh` first, then the same pair, push, then preship.
+
+A passing `record` clears a mergemr stop of rule 10, 11, 14 or 15, or a
+`preship: …` stop on the mergemr row (row back to `[ ]`, STUCK removed, logged
+`preship: cleared mergemr stop (…)`). Nothing else: rule 9 and every other
+stop, and a failed post-ship preship that marked mergetoall `[!]`, need
+`/devagent:unstuck`.
 
 ## Zero-diff (artifact-only) issues
 

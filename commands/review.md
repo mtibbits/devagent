@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:review
 
-Step 15 of the 24-step devAgent workflow. Invokes the upstream
+Step 15 of the 25-step devAgent workflow. Invokes the upstream
 `superpowers:requesting-code-review` skill against the issue's
 branch diff. Produces a review report that the operator addresses
 before the red-team step (14).
@@ -111,9 +111,13 @@ Per `commands/draft.md`.
    commit made during this step (a fix, a merge-forward) moves HEAD past the
    suite-count artifact, so mr.md's `suite:` line names an old SHA. Re-measure,
    then re-stamp, in the environment the project's suite runs in (README
-   "Running the test suite"):
+   "Running the test suite"). After a merge-forward, run `rebaseline.sh` before
+   the re-stamp, so `baseline_sha` names the new merge base and the diff the
+   later steps read is the branch's own (#885; it refuses an ambiguous or
+   backwards base and says why):
 
    ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/rebaseline.sh" <project> <Issue-N>   # merge-forward only
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-suite.sh" <project> <Issue-N>
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/evidence-stamp.sh" <project> <Issue-N>
    ```

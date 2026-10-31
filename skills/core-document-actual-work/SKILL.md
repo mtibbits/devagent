@@ -8,7 +8,7 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE
 
 # devagent-document-actual-work
 
-Step 11 of the devAgent 24-step workflow. Writes
+Step 11 of the devAgent 25-step workflow. Writes
 `<issue-dir>/actualWork.md` recording what was actually built. The
 contract: **be terse when there is no deviation from `imPlan.md`**.
 Most of the time, the plan is the work; the actualWork file is short.

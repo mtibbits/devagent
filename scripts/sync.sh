@@ -13,6 +13,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
+. "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
 
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
@@ -20,7 +21,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 # #363: the checklist IS the closeout queue. Sync executes NO closeout steps —
 # on a merge it just makes the checklist truthful (unblock) and reminds the
 # operator (nudge). Both are local, gate-free, prompt-free (safe in a cron --all).
-_SYNC_CLOSEOUT_STEPS="mergetoall updatewbs impact lessonslearned cleanup"
+_SYNC_CLOSEOUT_STEPS="mergetoall mergemr updatewbs impact lessonslearned cleanup"
 
 # Flip any closeout step stuck at [?] (the impact "not merged" halt) → [ ], so
 # post-merge /devagent:next proceeds instead of "blocked-external, consider park".
@@ -71,21 +72,9 @@ sync_one_project() {
     # had not re-shipped; checklist_step_state_by_name scopes to the active
     # revision block (#76), file-wide only when there are no revision headings.
     [ "$(checklist_step_state_by_name "$issue_dir/checklist.md" ship 2>/dev/null || true)" = "x" ] || return 0
-    # Has on_merge already fired FOR THIS REVISION? (#318) — the idempotence marker
-    # is a `## Log` entry and revise.sh appends `## Revision N` AFTER `## Log`
-    # (log.sh #75), so the marker sits BEFORE the active revision block: a file-wide
-    # grep matched revision 1's stale marker (suppressing a re-shipped revision-2
-    # merge forever), and scoping to the active block would exclude the log and
-    # re-fire every run. Correct scope = the log's own revision boundary: a merge
-    # marker counts only at/after the last `revise:` entry.
-    if awk '
-        /^## Log/            { inlog=1; next }
-        /^## /               { inlog=0 }
-        !inlog               { next }
-        /  revise: /         { fired=0; next }
-        /  sync: .* merged/  { fired=1 }
-        END                  { exit (fired ? 0 : 1) }
-      ' "$issue_dir/checklist.md" 2>/dev/null; then
+    # Has on_merge already fired FOR THIS REVISION? (#318) — the marker counts
+    # only at/after the last `revise:` log entry; lib/merge-marker.sh (#885).
+    if merge_marker_present "$issue_dir/checklist.md"; then
         # #363: on_merge already fired for this revision — re-print the closeout
         # nudge (derived, ZERO network: this sits before the mr-state call) while
         # closeout is still pending; silent once cleanup lands.
@@ -99,16 +88,12 @@ sync_one_project() {
         return 0
     fi
 
-    local code_backend issue_backend issue_repo issue_arg issue_num
+    local code_backend issue_arg
     code_backend="$(config_get_project_field  "$project" code_source.backend)"
     issue_arg="$(state_get                    "$project" active_issue 2>/dev/null || true)"
     # cleanup.sh clears active_issue but leaves issue_dir/mr_url for a session
     # — without this guard, sync would fire on_merge with an empty issue number.
     [ -n "$issue_arg" ] || return 0
-
-    # Route to the right issue tracker based on origin.
-    transition_route "$project" "$issue_arg"
-    issue_backend="$TR_BACKEND" issue_repo="$TR_REPO" issue_num="$TR_NUM"
 
     local code_sh state
     code_sh="$DEVAGENT_CODE_BACKEND_DIR/$code_backend.sh"
@@ -135,30 +120,11 @@ sync_one_project() {
     # FAILS CLOSED (skip + warn) rather than calling permission_gate (which would
     # prompt or die and abort the loop). Every transition is behind the gate,
     # ship's on_ship included (#710 reopened #219/#344's ungated on_ship).
-    #
-    # The log line below is the idempotence marker (the awk above matches
-    # `  sync: .* merged`), so it is written only when nothing is left to retry
-    # (#710; pre-#710 `merged → on_merge fired` lines still match, and nothing
-    # is backfilled):
-    #   landed      <issue> merged → on_merge landed: "<state>" on <repo>
-    #               (… landed on <repo>: a custom backend that maps for itself)
-    #   no-tracker  <issue> merged → on_merge skipped: no issue tracker configured
-    #   fork-only   <issue> merged → on_merge skipped: fork_only (upstream tracker not targeted)
-    # gated, unmapped, no-backend and failed write NO marker, so the next sync
-    # retries: enabling the gate, adding the mapping or a recovered tracker still
-    # fires. A failure prints one warning (with the retry note) and no log line —
-    # a second spelling that must never match the marker would be a fragile
-    # machine-read field, repeated on every cron --all (register 586).
-    transition_fire sync "$project" "$issue_arg" on_merge "$issue_backend" "$issue_repo" "$issue_num" \
+    # merge_marker_fire routes the issue to its tracker by origin, fires, and
+    # writes the idempotence marker only when nothing is left to retry (#710);
+    # the outcome lines are documented in lib/merge-marker.sh (#885).
+    merge_marker_fire sync "$project" "$issue_arg" "$issue_dir" \
         " — no merge marker written; sync retries it next run"
-    case "$TRANSITION_OUTCOME" in
-        landed)
-            log_append "$issue_dir" sync "$issue_arg merged → on_merge landed${TRANSITION_TARGET:+: \"$TRANSITION_TARGET\"} on $issue_repo" ;;
-        no-tracker)
-            log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: no issue tracker configured" ;;
-        fork-only)
-            log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: fork_only (upstream tracker not targeted)" ;;
-    esac
 }
 
 if [ "${1:-}" = "--all" ]; then

@@ -34,7 +34,8 @@ is not detected), so the read-only rule above is the load-bearing layer.
 1. **Derive everything from the paths in your dispatch prompt.** It gives you the
    absolute paths of `issue.md`, `mr.md`, the latest-dated review/redmr
    artifacts, the repo directory, and the literal diff spec
-   `<baseline_sha>..HEAD`. Read them. Never verify against a description of the
+   `<baseline_sha>..<SHA>`: the head the wrapper pinned (#885). Where this prompt
+   says `..HEAD` below, read it at that SHA. Read them. Never verify against a description of the
    change — the description is exactly what a stranded fix hides behind.
 2. **You cannot write files.** Write/Edit are structurally unavailable to you.
    Your final message IS the artifact: return the complete `preship.md` body and

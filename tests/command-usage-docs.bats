@@ -78,3 +78,10 @@ C="$REPO/commands"
   grep -qF 'is information, not an instruction' "$F"
   grep -qF 'never re-run `/devagent:next`, `gh pr checks` or `gh pr view`' "$F"
 }
+
+# --- #885: next.sh's mergemr WAITING line is relayed, never polled -----------------
+@test "#885 next skill names the WAITING line in the no-polling rule" {
+  F="$REPO/skills/next/SKILL.md"
+  grep -qF '`CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction' "$F"
+  grep -qF 'to wait for CI or merge.' "$F"
+}

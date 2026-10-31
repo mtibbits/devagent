@@ -308,3 +308,25 @@ _set_baseline() {  # $1 = sha — REPLACE the existing (empty) key; sed-append
     run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
 }
+
+# ---- #885: self-marks by name -----------------------------------------------
+@test "#885 commit marks its row by name on a checklist whose row number differs" {
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" commit      # commit is now 13
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 x commit
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 14 ' ' analyze
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"13"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}
+
+@test "#885 commit's artifact-only skip marks its row by name on a checklist whose row number differs" {
+    ( cd "$SOURCE_DIR" && git rm -q --cached a.txt && rm a.txt )     # clean tree
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha \
+        "$( cd "$SOURCE_DIR" && git rev-parse HEAD )"                # no commits ahead
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" commit
+    run "$DEVAGENT_ROOT/scripts/commit.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 13 '-' commit
+}

@@ -63,10 +63,11 @@ run_revise() {
   grep -q '\[ \]  2\. draft' "$FIX_ISSUE_DIR/checklist.md"
   grep -q '\[ \] 18\. ship' "$FIX_ISSUE_DIR/checklist.md"
   # #76: the appended block carries preship + the full closeout, so a revised
-  # MR re-runs preship/mergetoall/updatewbs/impact/lessonslearned/cleanup.
+  # MR re-runs preship/mergetoall/mergemr/updatewbs/impact/lessonslearned/cleanup.
   grep -q '\[ \] 17\. preship' "$FIX_ISSUE_DIR/checklist.md"
   grep -q '\[ \] 19\. mergetoall' "$FIX_ISSUE_DIR/checklist.md"
-  grep -q '\[ \] 23\. cleanup' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 20\. mergemr' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q '\[ \] 24\. cleanup' "$FIX_ISSUE_DIR/checklist.md"
 }
 
 @test "revise preserves the original ## Revision 1 block" {
@@ -221,8 +222,8 @@ EOF
   grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
   awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[ \] +2\. draft'
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +0\. pull')" -eq 0 ]
-  # 20 pending + pre-skipped mergetoall (volk sets no all_prs_branch).
-  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 20 ]
+  # 21 pending + pre-skipped mergetoall (volk sets no all_prs_branch).
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[ \] +[0-9]+\.')" -eq 21 ]
   awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^\- \[-\] +19\. mergetoall'
   grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
 }
@@ -304,12 +305,21 @@ EOF
   [ "$status" -eq 0 ]
   # research is pre-draft: copying it would either re-point next.sh at research or
   # RESET an outstanding flagged row to [-]. It must not appear in the new block —
-  # and post-#558 rows 22/23 are lessonslearned/cleanup, which MUST appear.
+  # and post-#885 rows 23/24 are lessonslearned/cleanup, which MUST appear.
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +[0-9]+\. (research|spike)')" -eq 0 ]
-  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +22\. lessonslearned')" -eq 1 ]
-  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +23\. cleanup')" -eq 1 ]
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +23\. lessonslearned')" -eq 1 ]
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[.\] +24\. cleanup')" -eq 1 ]
   # sanity: the block IS non-empty (guards a vacuous zero-count)
   [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^\- \[')" -ge 20 ]
+}
+
+@test "#885 revise --retier block carries mergemr after mergetoall" {
+  retier_fixture
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  local blk; blk="$(awk '/^## Revision 2$/{f=1;next} f' "$FIX_ISSUE_DIR/checklist.md")"
+  [ "$(grep -cE '^- \[.\] +20\. mergemr$' <<<"$blk")" -eq 1 ]
+  [ "$(grep -A1 -E '^- \[.\] +19\. mergetoall' <<<"$blk" | tail -1)" = '- [ ] 20. mergemr' ]
 }
 
 @test "revise's chain continuation carries the resolved project (#578)" {
@@ -335,4 +345,49 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"CHAIN: /custom:resume"* ]]
   [[ "$output" != *"CHAIN: /custom:resume volk"* ]]
+}
+
+# --- #885: a new revision forgets the verified head --------------------------
+# verified_head names the head the last passing preship verified; a revision
+# pass changes the branch, so mergemr must report rule 10 (no verified head),
+# not a misleading rule 11 (head not verified). The pin goes with it.
+
+_revise_state() {
+  HOME="$HOME" bash -c '
+    set -euo pipefail
+    DEVAGENT_ROOT="$1"
+    . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/io.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/state.sh"
+    . "$DEVAGENT_ROOT/scripts/lib/active.sh"
+    shift
+    if [ "$1" = set ]; then
+      state_ctx_set_many volk Issue-676 str verified_head 1111111111111111111111111111111111111111 \
+        str preship_pin_head 2222222222222222222222222222222222222222
+    else
+      state_ctx_get volk "$2" Issue-676
+    fi
+  ' _ "$DEVAGENT_ROOT" "$@"
+}
+
+@test "#885 revise clears verified_head and preship_pin_head" {
+  _revise_state set
+  [ "$(_revise_state get verified_head)" = 1111111111111111111111111111111111111111 ]
+  run_revise volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  [ -z "$(_revise_state get verified_head)" ]
+  [ -z "$(_revise_state get preship_pin_head)" ]
+  run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  [ "$status" -eq 1 ]
+}
+
+@test "#885 revise --retier clears verified_head and preship_pin_head" {
+  _revise_state set
+  run_revise --retier standard volk Issue-676 --no-chain
+  [ "$status" -eq 0 ]
+  [ -z "$(_revise_state get verified_head)" ]
+  [ -z "$(_revise_state get preship_pin_head)" ]
+  run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
+  [ "$status" -eq 1 ]
 }

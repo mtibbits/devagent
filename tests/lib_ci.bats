@@ -27,10 +27,13 @@ active_issue = "Issue-676"
 issue_dir    = "$ISSUE_DIR"
 EOF
   printf '%s\n' '- [x] 18. ship' '- [ ] 20. updatewbs' '' '## Log' > "$ISSUE_DIR/checklist.md"
-  # The stub backend prints $CI_STUB_OUT, writes $CI_STUB_ERR to stderr, exits $CI_STUB_RC.
+  # The stub backend prints $CI_STUB_OUT, writes $CI_STUB_ERR to stderr, exits $CI_STUB_RC;
+  # with $CI_STUB_VERBS set it appends the verb it was asked for.
   cat > "$BATS_TEST_TMPDIR/code/stub.sh" <<'EOF'
 #!/usr/bin/env bash
-[ "$1" = mr-checks ] || exit 2
+case "$1" in mr-checks|mr-view) ;; *) exit 2 ;; esac   # #885: ci_read_view reads mr-view
+[ -z "${CI_STUB_VERBS:-}" ] || printf '%s
+' "$1" >> "$CI_STUB_VERBS"
 [ -z "${CI_STUB_SLEEP:-}" ] || exec sleep "$CI_STUB_SLEEP"
 printf '%s' "${CI_STUB_OUT:-}"
 [ -z "${CI_STUB_ERR:-}" ] || printf '%s\n' "$CI_STUB_ERR" >&2
@@ -272,4 +275,149 @@ _ci_lines() { grep -c '^- .*  ci: ' "$ISSUE_DIR/checklist.md" || true; }
   [ -z "$CI_SEEN_AT" ]
   DEVAGENT_CI_GRACE_SECS=600 ci_verdict
   [ "$CI_VERDICT" = hold ]
+}
+
+# --- ci_read_view (#885) -------------------------------------------------------
+# _view_out [extra-lines...]: an mr-view body: one pass check, every singleton kind,
+# two closes and two trailers, then the given lines.
+_view_out() {
+  _out $'pass\tlint\thttps://x/1' $'draft\tfalse' $'base\tmain' $'mergeable\tMERGEABLE' \
+       $'mergestate\tCLEAN' $'automerge\toff' $'queue\tfalse' $'number\t9' \
+       $'title\tFix the volk thing' $'mergecommit\t-' $'closes\tacme/volk\t676' \
+       $'closes\tOther-Org/tracker\t12' $'trailer\tSigned-off-by: A <a@x.org>' \
+       $'trailer\tCo-authored-by: B <b@x.org>' $'commits\t3\t3' "$@"
+}
+
+# _view_without <kind>: _view_out with the <kind> line dropped.
+_view_without() {
+  _view_out
+  CI_STUB_OUT="$(grep -v "^$1"$'\t' <<<"$CI_STUB_OUT")"$'\n'
+  export CI_STUB_OUT
+}
+
+@test "#885 ci_read still rejects a draft line" {
+  _out $'pass\tlint\thttps://x/1' $'draft\tfalse'
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = unknown ]
+  [ "$CI_LINE" = "CI UNKNOWN: $URL: unrecognised mr-checks output" ]
+  _out $'pass\tlint\thttps://x/1' $'trailer\tSigned-off-by: A <a@x.org>'
+  ci_read volk Issue-676 "$URL"
+  [ "$CI_RESULT" = unknown ]
+}
+
+@test "#885 ci_read_view sets MV_*" {
+  bounded_call() { printf '%s\n' "$1" > "$BATS_TEST_TMPDIR/secs"; shift; "$@"; }
+  export CI_STUB_VERBS="$BATS_TEST_TMPDIR/verbs"
+  _view_out
+  ci_read_view volk Issue-676 "$URL"
+  [ "$(cat "$CI_STUB_VERBS")" = mr-view ]
+  [ "$(cat "$BATS_TEST_TMPDIR/secs")" = 20 ]
+  [ "$MV_OK" = 1 ]
+  [ -z "$MV_ERR" ]
+  [ "$MV_DRAFT" = false ]
+  [ "$MV_BASE" = main ]
+  [ "$MV_MERGEABLE" = MERGEABLE ]
+  [ "$MV_MERGESTATE" = CLEAN ]
+  [ "$MV_AUTOMERGE" = off ]
+  [ "$MV_QUEUE" = false ]
+  [ "$MV_NUMBER" = 9 ]
+  [ "$MV_TITLE" = "Fix the volk thing" ]
+  [ "$MV_MERGECOMMIT" = - ]
+  [ "${#MV_CLOSES[@]}" -eq 2 ]
+  [ "${MV_CLOSES[0]}" = "acme/volk#676" ]
+  [ "${MV_CLOSES[1]}" = "Other-Org/tracker#12" ]
+  [ "${#MV_TRAILERS[@]}" -eq 2 ]
+  [ "${MV_TRAILERS[0]}" = "Signed-off-by: A <a@x.org>" ]
+  [ "${MV_TRAILERS[1]}" = "Co-authored-by: B <b@x.org>" ]
+  [ "$MV_COMMITS_TOTAL" = 3 ]
+  [ "$MV_COMMITS_READ" = 3 ]
+  # the CI globals are ci_read's, from the same lines
+  [ "$CI_RESULT" = green ]
+  [ "$CI_HEAD" = "$HEAD40" ]
+  [ "$CI_LINE" = "CI PASSED: 1 checks on $URL (head a1b2c3d)" ]
+  [ "$(state_issue_get volk Issue-676 ci_seen_head)" = "$HEAD40" ]
+  # its own knob bounds the read; ci_read keeps DEVAGENT_CI_READ_SECS and mr-checks
+  DEVAGENT_MERGEMR_READ_SECS=7 DEVAGENT_CI_READ_SECS=9 ci_read_view volk Issue-676 "$URL"
+  [ "$(cat "$BATS_TEST_TMPDIR/secs")" = 7 ]
+  DEVAGENT_MERGEMR_READ_SECS=7 DEVAGENT_CI_READ_SECS=9 ci_read volk Issue-676 "$URL"
+  [ "$(cat "$BATS_TEST_TMPDIR/secs")" = 9 ]
+  [ "$(tail -n 1 "$CI_STUB_VERBS")" = mr-checks ]
+  # a merged PR's merge commit
+  export CI_STUB_OUT="${CI_STUB_OUT//$'state\topen'/$'state\tmerged'}"
+  CI_STUB_OUT="${CI_STUB_OUT//$'mergecommit\t-'/$'mergecommit\t0123456789abcdef0123456789abcdef01234567'}"
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 1 ]
+  [ "$CI_RESULT" = merged ]
+  [ "$MV_MERGECOMMIT" = 0123456789abcdef0123456789abcdef01234567 ]
+}
+
+@test "#885 ci_read_view missing mergestate → MV_OK=0" {
+  _view_without mergestate
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "unrecognised mr-view output: mergestate missing" ]
+  local k
+  for k in draft base mergeable automerge queue number title mergecommit commits; do
+    _view_without "$k"
+    ci_read_view volk Issue-676 "$URL"
+    [ "$MV_OK" = 0 ] || { echo "no $k gave MV_OK=$MV_OK"; false; }
+    [ "$MV_ERR" = "unrecognised mr-view output: $k missing" ]
+  done
+  # an invalid value, and a repeated singleton, fail closed too
+  _view_out
+  CI_STUB_OUT="${CI_STUB_OUT//$'mergeable\tMERGEABLE'/$'mergeable\tMAYBE'}"
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "unrecognised mr-view output: mergeable invalid" ]
+  _view_out $'number\t10'
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "unrecognised mr-view output: number repeated" ]
+  _view_out $'commits\t1x\t1'
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 0 ]
+  # mr-view's `-` for a null owner or name is not a repo
+  for c in $'closes\t-/volk\t5' $'closes\tacme/-\t5'; do
+    _view_out "$c"
+    ci_read_view volk Issue-676 "$URL"
+    [ "$MV_OK" = 0 ] || { echo "$c gave MV_OK=$MV_OK"; false; }
+    [ "$MV_ERR" = "unrecognised mr-view output: closes invalid" ]
+  done
+}
+
+@test "#885 ci_read_view: a kind outside the named set is bad" {
+  _view_out $'labels\tbug'
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 0 ]
+  [ "$CI_RESULT" = unknown ]
+  [ "$CI_LINE" = "CI UNKNOWN: $URL: unrecognised mr-view output" ]
+  [ "$MV_ERR" = "unrecognised mr-view output" ]
+}
+
+@test "#885 ci_read_view timeout → unknown 'timed out after Ns'" {
+  local t0=$SECONDS
+  _view_out
+  DEVAGENT_MERGEMR_READ_SECS=1 CI_STUB_SLEEP=30 ci_read_view volk Issue-676 "$URL"
+  [ "$CI_RESULT" = unknown ]
+  [ "$CI_LINE" = "CI UNKNOWN: $URL: timed out after 1s" ]
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "timed out after 1s" ]
+  [ $((SECONDS - t0)) -lt 8 ]
+}
+
+@test "#885 ci_read_view: a failed read clears the last read's MV_*; no verb is notchecked" {
+  _view_out
+  ci_read_view volk Issue-676 "$URL"
+  [ "$MV_OK" = 1 ]
+  CI_STUB_RC=1 CI_STUB_ERR='gh: HTTP 502' ci_read_view volk Issue-676 "$URL" 2>/dev/null
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "gh: HTTP 502" ]
+  [ -z "$MV_MERGESTATE" ]
+  [ "${#MV_CLOSES[@]}" -eq 0 ]
+  [ "${#MV_TRAILERS[@]}" -eq 0 ]
+  CI_STUB_RC=2 ci_read_view volk Issue-676 "$URL"
+  [ "$CI_RESULT" = notchecked ]
+  [ "$CI_LINE" = "CI NOT CHECKED: stub has no mr-view" ]
+  [ "$MV_OK" = 0 ]
+  [ "$MV_ERR" = "stub has no mr-view" ]
 }

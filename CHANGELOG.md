@@ -16,9 +16,64 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: step 20, `/devagent:mergemr`, merges the PR after ship when `permissions.merge_mr = true` (#885).**
+  - A script step between mergetoall (19) and updatewbs; updatewbs, impact,
+    lessonslearned and cleanup move to 21-24 (25 numbered steps, 22 mandatory). It reads
+    the PR ship recorded (`mr_url`) and decides at once, never polling: `[x]` merged,
+    `[-]` ship was skipped, `[?]` waiting (`mergemr: waiting (<rule>): <reason>`, logged
+    once per change), or `[!]` with `STUCK` reason `mergemr rule <N>: <text>`. Each rule
+    and message is in `commands/mergemr.md`.
+  - It merges only when `merge_mr` is exactly `true` (read directly, never a prompt, so
+    `DA_YES=1` and a terminal cannot open it), only at the head the last passing preship
+    recorded as `verified_head` (`merge-mr --match-head-commit`), and only after the
+    issue's dependencies are merged or closed as completed, the PR is not a draft or
+    stacked, CI is green (or absent, under `if-present`) and the forge reports it
+    mergeable. A squash carries the PR's
+    `Closes` lines and the distinct `Signed-off-by:`/`Co-authored-by:` lines of its
+    commits. It fires `on_merge` once, sharing sync's merge marker
+    (`scripts/lib/merge-marker.sh`). GitHub only: on other forges it reads `mr-state`
+    and waits for a merge done by hand.
+  - `/devagent:next` dispatches mergemr from its `[?]` row on every run; while the PR is
+    open it prints `WAITING at step 20 (mergemr): the PR is not merged yet; state is on
+    disk. Re-check later: /devagent:next <project>` and exits 0. cleanup refuses while
+    mergemr is not `[x]` or `[-]`.
+  - New config keys `merge_method` (`squash` default, `merge`, `rebase`) and
+    `merge_checks` (`required` default, `if-present`), per project with a `[defaults]`
+    fallback, validated on every run. Knobs `DEVAGENT_MERGEMR_READ_SECS` (20) and
+    `DEVAGENT_MERGEMR_MERGE_SECS` (30).
+  - New: optional code verb `mr-view` and `merge-mr --match-head-commit`, `--subject`,
+    `--body` and `--disable-auto` (GitHub); optional issue verb `state-class` (GitHub);
+    `scripts/preship-verified-head.sh pin|record`, which preship runs to record
+    `preship_pin_head` and, on a pass, `verified_head` (a recorded pass also clears a
+    mergemr rule 10, 11, 14 or 15 stop; `revise` clears both keys);
+    `scripts/rebaseline.sh <project> <Issue-N>`, which moves `baseline_sha` forward after
+    a merge-forward (`DEVAGENT_REBASELINE_FETCH_SECS`, 20); `checklist-stuck.sh --name
+    <step-name>`. Every script that marks its own row now finds it by name.
+  - doctor warns when `merge_mr` is set without `merge_to_all_prs`, and on a devdoc
+    checklist or revision-block override that has a ship row but no mergemr row.
+  - Upgrade notes:
+    - `merge_mr = true` now merges PRs from `/devagent:next`. Check every project that
+      sets it before upgrading. Nothing merges on upgrade alone: an un-migrated
+      checklist has no mergemr row, and a migrated in-flight issue has no
+      `verified_head`, so it stops at rule 10 until a post-upgrade preship records one.
+    - A repo with no CI stops at `[!]` (rule 17) under the default `merge_checks =
+      "required"`; set `merge_checks = "if-present"` for it to merge without CI.
+    - `ci_gate = "off"` does not apply to mergemr: it always reads CI.
+    - cleanup now waits for the merge. For a PR that stays open, park the issue
+      (`/devagent:park`) or skip the row: `checklist-mark.sh --by-name <issue-dir>
+      mergemr -`.
+    - Renumber: run `scripts/migrate-checklist-numbering.sh --all` to add the mergemr
+      row to in-flight checklists (`--reverse` undoes it; the old `--reverse`, which
+      undid #558, is now `--reverse-558`). `step_models.<N>` overrides with N of 20 or
+      more must shift by one by hand; the step-class map is unaffected.
+    - `merge_mr` no longer gates mergetoall: set `merge_to_all_prs` to keep that gate.
+    - A devdoc checklist override without a mergemr row gets no merge step and no
+      closeout gate; add the row (doctor names the file).
+
 - **Added: after ship, `/devagent:next` prints the MR's CI status, and `mergetoall` requires green CI (#782).**
   - From the call after ship until cleanup, every `next` invocation makes one bounded
-    read (20 s) and prints one line before any `PHASE BREAK`: `CI PASSED`, `CI PENDING`,
+    read (20 s) and prints one line before any `PHASE BREAK` (except the call that
+    dispatches mergemr, #885, which prints its own `CI` line): `CI PASSED`, `CI PENDING`,
     `CI FAILED` (each failed check with its link, plus `[CONCLUSION]` when it is not a
     plain FAILURE), `CI NONE`, `CI UNKNOWN: <url>: <reason>` or `CI NOT CHECKED`. A
     merged MR prints nothing. Each new result writes one `ci:` log line. Nothing waits
@@ -29,8 +84,8 @@ the README's "Versioning & releases" section has the release procedure.
     holds when the local issue branch is not the MR head CI checked (an unpushed
     commit). `DA_YES=1` does not bypass it.
   - New config key `ci_gate`: `report` (default), `block` (a pending CI also holds every
-    post-ship step with exit 0 and nothing marked; red marks it `[!]`) or `off` (no
-    read). Any other value stops `next`.
+    post-ship step but mergemr with exit 0 and nothing marked; red marks it `[!]`) or
+    `off` (no read). Any other value stops `next`. mergemr ignores `ci_gate` (#885).
   - New optional code-backend verb `mr-checks` (GitHub: one `gh pr view --json
     headRefOid,state,statusCheckRollup`), the shared `bounded_call` in
     `scripts/lib/upstream.sh`, `scripts/lib/ci.sh`, per-issue state keys `ci_seen_head`
@@ -1296,8 +1351,8 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
   templates (standard, perf, docs-only) and revision blocks scaffold the row
   pre-marked `[-]` (skipped); configuring the per-project `all_prs_branch`
   flips it back to `[ ]` pending at scaffold time (pull, revise, and
-  `--retier` all apply the same filter). The workflow is now counted as
-  21 mandatory + 3 optional steps.
+  `--retier` all apply the same filter). mergetoall now counts among the
+  optional steps.
 
   **Upgrading:** if you rely on step 19 without `all_prs_branch` set (e.g.
   invoking `/devagent:mergetoall` manually), set `all_prs_branch` in
@@ -1376,7 +1431,7 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
 Current capabilities as of this release:
 
 ### Core
-- **58 slash commands** driving a fixed **24-step issue workflow** (21 mandatory,
+- **59 slash commands** driving a fixed **25-step issue workflow** (22 mandatory,
   plus the optional research step 1, spike step 3, and mergetoall step 19),
   with all state preserved on disk so you can switch issues — or hand one to a
   fresh session — without losing context.

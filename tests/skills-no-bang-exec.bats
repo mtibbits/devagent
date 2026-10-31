@@ -37,17 +37,17 @@
 # safe here.
 #
 # commands/*.md are NOT clean, and since #596 that is PINNED, not merely described:
-# analyze, branch, cleanup, commit, mergetoall and sync each carry exactly one
-# bang-exec line, at column 0 — that IS the command-side auto-exec path this
-# invariant exists to keep out of skills. @test 7 pins the exact six-name set (it
-# alone catches a stray seventh carrier), @test 8 the per-file count of one, @test 9
+# analyze, branch, cleanup, commit, mergemr, mergetoall and sync each carry exactly
+# one bang-exec line, at column 0 — that IS the command-side auto-exec path this
+# invariant exists to keep out of skills. @test 7 pins the exact seven-name set (it
+# alone catches a stray eighth carrier), @test 8 the per-file count of one, @test 9
 # the column-0 convention, and @test 10 is their anti-vacuity fixture. Still NOT
 # pinned here: the grammar itself (the STATED BLIND SPOT above applies equally to the
 # positive pin), and whether the harness would auto-execute a bang line that is
 # INDENTED or sits inside a ``` FENCE — @test 9 pins the shape this repo ships, and
-# wrapping one of the six lines in a fence leaves all four @tests green. Also NOT
+# wrapping one of the seven lines in a fence leaves all four @tests green. Also NOT
 # pinned: a command in a SUBDIRECTORY of commands/ — the scan is one level deep
-# (`commands/*.md`), so @test 7's "seventh carrier" means a top-level one.
+# (`commands/*.md`), so @test 7's "eighth carrier" means a top-level one.
 # agents/*.md carry zero, but are a different invocation surface and are not pinned.
 #
 # COST OF ADDING A SKILL, so the next person is not surprised: adding, removing or
@@ -193,7 +193,7 @@ _all_commands() {
 
 # #596: the ONE home of the expected auto-exec command set, sorted as the helpers
 # print — @test 7 (set), 8 (count) and 9 (column 0) all assert against it.
-_auto_exec_cmds=(analyze branch cleanup commit mergetoall sync)
+_auto_exec_cmds=(analyze branch cleanup commit mergemr mergetoall sync)
 
 # "<name>:1 ..." for every expected command: the value @test 8 and 9 expect.
 _each_once() {
@@ -304,7 +304,7 @@ _each_once() {
   [ "$output" = "core-bad" ]
 }
 
-@test "exactly six commands carry a bang-exec line (positive pin, #596)" {
+@test "exactly seven commands carry a bang-exec line (positive pin, #596, #885)" {
   run type -t _bang_carriers
   [ "$status" -eq 0 ]
   [ "$output" = "function" ]
@@ -316,13 +316,13 @@ _each_once() {
 
   run _bang_carriers "$REPO/commands" .md "${cmds[@]}"
   [ "$status" -eq 0 ]
-  # exact SET. Only this @test catches a stray SEVENTH carrier; a DROPPED carrier
-  # also reddens @test 8, which names the six (belt-and-braces, Issue-550).
+  # exact SET. Only this @test catches a stray EIGHTH carrier; a DROPPED carrier
+  # also reddens @test 8, which names the seven (belt-and-braces, Issue-550).
   [ "$output" = "${_auto_exec_cmds[*]}" ] || {
     echo "bang-exec carrier set drifted: got ($output)" >&2; return 1; }
 }
 
-@test "each of the six carries exactly ONE bang-exec line (#596)" {
+@test "each of the seven carries exactly ONE bang-exec line (#596)" {
   run type -t _bang_counts
   [ "$status" -eq 0 ]
   [ "$output" = "function" ]
@@ -333,7 +333,7 @@ _each_once() {
     echo "per-command bang-exec count drifted: $output" >&2; return 1; }
 }
 
-@test "all six bang-exec lines sit at column 0 (convention pin, #596)" {
+@test "all seven bang-exec lines sit at column 0 (convention pin, #596)" {
   # Separate @test, not a third assertion in @test 8: a multi-assertion guard
   # reddens only at its FIRST failing assert (Issue-123), and the mutation matrix
   # needs this leg to redden independently of the set and count legs.

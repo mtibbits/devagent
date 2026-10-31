@@ -1,5 +1,5 @@
 ---
-description: "Step 23: restore tree, commit devdoc, clear active_issue."
+description: "Step 24: restore tree, commit devdoc, clear active_issue."
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[project] [issue-dir]"
 ---
@@ -14,8 +14,8 @@ With `--auto`, the chaining layer suppresses the inter-step prompt but does
 
 ## Precondition (#242, generalizes #231)
 
-`cleanup.sh` refuses to complete while ANY closeout step — `updatewbs`,
-`impact`, or `lessonslearned` (each resolved by name) — is in a non-terminal
+`cleanup.sh` refuses to complete while ANY closeout step — `mergemr`,
+`updatewbs`, `impact`, or `lessonslearned` (each resolved by name) — is in a non-terminal
 glyph (`[ ]`, `[~]`, `[!]`, `[?]`, `[P]`). The die names every offender at once.
 Finish each step, or mark it `[-]` (skip) if genuinely empty — the per-step
 skip is the escape hatch and stays auditable in the checklist.
@@ -31,7 +31,7 @@ from the issue's checklist are not gated (research/docs-only templates).
 
 Right after the #242 check and BEFORE any side effect, `cleanup.sh` runs
 `lessons-lint-corpus.sh <issue-dir>/lessonsLearned.md` and refuses a
-file that does not lint clean, quoting the offenders. Step 22 writes that file
+file that does not lint clean, quoting the offenders. Step 23 writes that file
 and this step commits it, so this is the one scripted point every new lessons
 file passes through — the lint is enforced here, not merely available. The gate
 is keyed on the FILE, not on the step's glyph:
@@ -108,7 +108,7 @@ to `devdoc_dir`. The staging file flips to `status: applied <sha>[,<sha>]`
 rc 3 is a DEFERRAL: cleanup warns, completes, and the file stays
 `status: pending` — `promote-potholes.sh <project> --list-pending` lists the
 backlog and `--apply` can be re-run by hand once the cause is fixed. Any
-other non-zero rc dies AFTER the restore (tree on the base branch, step 23
+other non-zero rc dies AFTER the restore (tree on the base branch, step 24
 unmarked, no devdoc commit; the failing layer is restored — a bootstrapped
 file is removed outright — while an earlier layer's commit stands);
 re-running cleanup is safe — `--check` passes on a pending file and

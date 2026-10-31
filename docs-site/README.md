@@ -27,7 +27,7 @@ Counts and versions are restated minimally, with the sources' exact tokens:
 - the slash-command count phrase — `index.md` is an enrolled home of the sweep
   in `tests/cmd_wrappers.bats`, alongside README, both plugin manifests, the
   CHANGELOG, and the spec.
-- "24-step workflow" — the site-wide headline number; `workflow.md`'s
+- "25-step workflow" — the site-wide headline number; `workflow.md`'s
   Numbering section carries the reconciling sentence for the optional steps.
 - the mandatory/optional step split — spec §6.3 is the authority, but the
   number is restated wherever a reader needs it (README, `workflow.md`'s

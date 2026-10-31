@@ -273,7 +273,7 @@ main() {
   fi
 
   # Mark step 0 done; log
-  checklist_mark "$issue_dir/checklist.md" 0 x pull
+  checklist_mark_by_name "$issue_dir/checklist.md" pull x
   log_append "$issue_dir" "pull" "fetched ${repo}#${num}, scaffold created"
 
   # Promote to active issue. If this displaces a different in-flight issue,

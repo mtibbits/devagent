@@ -161,10 +161,10 @@ PY2
     done
 }
 
-@test "spec §6.3 carries row 23 and the 0–23 numbering (#536, #435 spec-touch)" {
+@test "spec §6.3 carries the spike row and the 0–24 numbering (#536, #885, #435 spec-touch)" {
     local f="$DEVAGENT_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
     grep -q '/devagent:spike' "$f"
-    grep -q 'Numbered 0–23' "$f"
+    grep -q 'Numbered 0–24' "$f"
     grep -q 'spike_worktree_path' "$f"
 }
 

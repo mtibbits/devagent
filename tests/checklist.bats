@@ -18,7 +18,7 @@ teardown() { teardown_tmp_devagent_home; }
   [ -f "$ISSUE_DIR/checklist.md" ]
   run grep -q '0. pull' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
-  run grep -q '23. cleanup' "$ISSUE_DIR/checklist.md"
+  run grep -q '24. cleanup' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
   run grep -q '## Log' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
@@ -58,7 +58,9 @@ teardown() { teardown_tmp_devagent_home; }
   [ "$output" = "pull" ]
   run checklist_step_name "$ISSUE_DIR/checklist.md" 9
   [ "$output" = "implement" ]
-  run checklist_step_name "$ISSUE_DIR/checklist.md" 23
+  run checklist_step_name "$ISSUE_DIR/checklist.md" 20
+  [ "$output" = "mergemr" ]
+  run checklist_step_name "$ISSUE_DIR/checklist.md" 24
   [ "$output" = "cleanup" ]
 }
 
@@ -111,8 +113,8 @@ EOF
 
 @test "checklist_current_step echoes 'done' when all done" {
   checklist_init "$ISSUE_DIR" docs-only
-  # docs-only has 11 steps; mark them all done
-  for s in 0 2 8 11 12 14 15 17 18 19 23; do
+  # docs-only has 12 steps; mark them all done
+  for s in 0 2 8 11 12 14 15 17 18 19 20 24; do
     checklist_mark "$ISSUE_DIR/checklist.md" "$s" x
   done
   run checklist_current_step "$ISSUE_DIR/checklist.md"
@@ -180,7 +182,7 @@ _shim_awk() {
 
 # --- #74: scope mark/read to the active `## Revision` block ---
 
-# Append a second revision block reusing step numbers 2,4..23 (#558).
+# Append a second revision block reusing step numbers 2,4..24 (#558).
 _append_rev2() {
   cat >> "$1" <<'EOF'
 
@@ -234,24 +236,24 @@ EOF
 @test "checklist_mark refuses the whole-file fallback for a name-less caller (#589)" {
   # Rewritten from the #74/#76 "falls back to whole file" test, which pinned the
   # fail-open shape #589 removes; same fixture, new contract.
-  checklist_init "$ISSUE_DIR" standard   # standard rev 1 carries all 24 rows (#558)
+  checklist_init "$ISSUE_DIR" standard   # standard rev 1 carries all 25 rows (#558, #885)
   local f="$ISSUE_DIR/checklist.md"
   _append_rev2 "$f"                       # rev 2 has only rows 2/4/9
-  run checklist_mark "$f" 23 x            # 23 lives only in revision 1
+  run checklist_mark "$f" 24 x            # 24 lives only in revision 1
   [ "$status" -ne 0 ]
   [[ "$output" == *"refusing a name-less mark"* ]]
-  run grep -cE '^- \[x\] 23\. cleanup' "$f"
+  run grep -cE '^- \[x\] 24\. cleanup' "$f"
   [ "$output" = "0" ]                     # exact count, not `-ne 0` (Issue-337)
   # The file-wide resolution itself is unchanged — only the name-less WRITE is
   # refused. With the name, the same row still marks (readers keep their contract).
-  checklist_mark "$f" 23 x cleanup
-  run checklist_step_state "$f" 23
+  checklist_mark "$f" 24 x cleanup
+  run checklist_step_state "$f" 24
   [ "$output" = "x" ]
 }
 
 @test "checklist_step_state_by_name returns the glyph for a named step" {
   checklist_init "$ISSUE_DIR" standard
-  checklist_mark "$ISSUE_DIR/checklist.md" 22 x
+  checklist_mark "$ISSUE_DIR/checklist.md" 23 x
   run checklist_step_state_by_name "$ISSUE_DIR/checklist.md" lessonslearned
   [ "$status" -eq 0 ]
   [ "$output" = "x" ]
@@ -265,7 +267,7 @@ EOF
 }
 
 # --- #76: by-name gate helpers scope to the ACTIVE revision block -----------
-# revision_block.md now reuses the closeout names 19-23 (#76/#558), so the #149/#242
+# revision_block.md now reuses the closeout names 19-24 (#76/#558/#885), so the #149/#242
 # gates must read the active revision's copy, not revision 1's stale glyph.
 
 _append_real_rev2() {   # append the SHIPPED revision_block.md (N=2) to $1
@@ -277,9 +279,9 @@ _append_real_rev2() {   # append the SHIPPED revision_block.md (N=2) to $1
   checklist_init "$ISSUE_DIR" standard          # rev1 closeout still [ ] (MR open — why we revise)
   local f="$ISSUE_DIR/checklist.md"
   _append_real_rev2 "$f"
-  checklist_mark "$f" 20 x                       # active=rev2 → rev2 closeout done
-  checklist_mark "$f" 21 x
+  checklist_mark "$f" 21 x                       # active=rev2 → rev2 closeout done
   checklist_mark "$f" 22 x
+  checklist_mark "$f" 23 x
   # Gate must see rev2 (terminal) → empty, NOT rev1's pending copies.
   run checklist_nonterminal_by_names "$f" updatewbs impact lessonslearned
   [ -z "$output" ]
@@ -288,9 +290,9 @@ _append_real_rev2() {   # append the SHIPPED revision_block.md (N=2) to $1
 @test "the #242 gate FIRES on the active revision's own pending closeout, ignoring a done rev1 (#76)" {
   checklist_init "$ISSUE_DIR" standard
   local f="$ISSUE_DIR/checklist.md"
-  checklist_mark "$f" 20 x                       # active=rev1 → rev1 closeout done
-  checklist_mark "$f" 21 x
+  checklist_mark "$f" 21 x                       # active=rev1 → rev1 closeout done
   checklist_mark "$f" 22 x
+  checklist_mark "$f" 23 x
   _append_real_rev2 "$f"                          # rev2 closeout pending
   # Gate must report rev2's pending steps (not read rev1's done copy first).
   run checklist_nonterminal_by_names "$f" updatewbs impact lessonslearned
@@ -317,8 +319,8 @@ _seed_242() {
 
 @test "checklist_nonterminal_by_names lists offenders with glyphs (#242)" {
   _seed_242
-  checklist_mark "$F" 21 '~'
-  checklist_mark "$F" 22 x
+  checklist_mark "$F" 22 '~'
+  checklist_mark "$F" 23 x
   run checklist_nonterminal_by_names "$F" updatewbs impact lessonslearned
   [ "$status" -eq 0 ]
   [[ "$output" == *"updatewbs:[ ]"* ]]
@@ -328,9 +330,9 @@ _seed_242() {
 
 @test "checklist_nonterminal_by_names: [-] is terminal, absent is no-gate (#242)" {
   _seed_242
-  sed -i '/20\. updatewbs/d' "$F"
-  checklist_mark "$F" 21 -
-  checklist_mark "$F" 22 x
+  sed -i '/21\. updatewbs/d' "$F"
+  checklist_mark "$F" 22 -
+  checklist_mark "$F" 23 x
   run checklist_nonterminal_by_names "$F" updatewbs impact lessonslearned
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -549,7 +551,7 @@ EOC
 }
 
 @test "checklist_mark_by_name still reaches a revision-1-only row by NAME (#589 G3b)" {
-  # Revision blocks reuse only 2 and 4..23 (templates/revision_block.md), so
+  # Revision blocks reuse only 2 and 4..24 (templates/revision_block.md), so
   # 0 pull / 1 research / 3 spike stay revision-1-only after a revise and must
   # remain reachable by name.
   checklist_init "$ISSUE_DIR" standard

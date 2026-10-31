@@ -1,7 +1,7 @@
 ---
 name: next
 description: Execute the next actionable step on the active issue
-when_to_use: To advance the active issue's 24-step checklist; --auto chains steps.
+when_to_use: To advance the active issue's 25-step checklist; --auto chains steps.
 argument-hint: "[project] [--auto] [--through <step>] [--no-breaks] [-- <note>]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 ---
@@ -33,7 +33,7 @@ A `PHASE BREAK` line also ends it: the next phase (at implement, quality,
 updatewbs; config `phase_breaks`) belongs in a fresh session. Relay the
 Resume line and stop. `--no-breaks` opts out.
 
-`CI PENDING:`/`CI UNKNOWN:` is information, not an instruction: relay it; never re-run `/devagent:next`, `gh pr checks` or `gh pr view` to wait for CI.
+`CI PENDING:`/`CI UNKNOWN:`/`WAITING` is information, not an instruction: relay it; never re-run `/devagent:next`, `gh pr checks` or `gh pr view` to wait for CI or merge.
 
 ## Zero-diff (artifact-only) issues
 

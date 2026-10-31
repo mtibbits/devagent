@@ -33,15 +33,15 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "checklist-unstuck clears the highest step in the template (#558 r2 BLOCKING-2)" {
-  # The pre-#558 loop bound (0..21) stranded steps 22/23 permanently and
+  # The pre-#558 loop bound (0..21) stranded the last steps permanently and
   # reported a FALSE "no step is currently [!]" while STUCK sat on disk.
   "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
-  sed -i -E '/23\. cleanup/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
+  sed -i -E '/24\. cleanup/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
   echo "cleanup: planted failure" > "$ISSUE_DIR/STUCK"
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [ ! -f "$ISSUE_DIR/STUCK" ]
-  grep -qE '^- \[ \] +23\. cleanup' "$ISSUE_DIR/checklist.md"
+  grep -qE '^- \[ \] +24\. cleanup' "$ISSUE_DIR/checklist.md"
 }
 
 @test "checklist-unstuck ignores a [!] left in an inactive revision block" {
@@ -50,20 +50,20 @@ teardown() { teardown_tmp_devagent_home; }
   # active block.
   "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR" >/dev/null
   # Freeze revision 1 with a stuck row, then append an active revision 2
-  # whose only stuck row is 23. The scan must clear 23, not rev-1's row.
+  # whose only stuck row is 24. The scan must clear 24, not rev-1's row.
   sed -i -E '/2\. draft/ s/\[.\]/[!]/' "$ISSUE_DIR/checklist.md"
   {
     echo ""
     echo "## Revision 2"
     echo ""
     echo "- [x] 19. mergetoall"
-    echo "- [!] 23. cleanup"
+    echo "- [!] 24. cleanup"
   } >> "$ISSUE_DIR/checklist.md"
   echo "cleanup: planted failure" > "$ISSUE_DIR/STUCK"
   run "$PLUGIN_ROOT/scripts/checklist-unstuck.sh" --pending "$ISSUE_DIR"
   [ "$status" -eq 0 ]
-  # rev-2's 23 cleared (rev-1's pending 23 makes the count 2, not 1)...
-  run grep -cE '^- \[ \] 23\. cleanup' "$ISSUE_DIR/checklist.md"
+  # rev-2's 24 cleared (rev-1's pending 24 makes the count 2, not 1)...
+  run grep -cE '^- \[ \] 24\. cleanup' "$ISSUE_DIR/checklist.md"
   [ "$output" = "2" ]
   # ...and rev-1's stale [!] draft row untouched.
   grep -qE '^- \[!\]  2\. draft' "$ISSUE_DIR/checklist.md"

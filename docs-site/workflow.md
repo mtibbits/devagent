@@ -3,11 +3,11 @@
 
 ## Numbering
 
-Steps are numbered 0–23 in execution order — 24 numbered step commands in
+Steps are numbered 0–24 in execution order — 25 numbered step commands in
 all, and the checklist reads top-to-bottom. Some are optional and off by
 default: `1 research` and `3 spike` opt in per issue via the
 `## Workflow flags` block, and `19 mergetoall` opts in per project by
-configuring `all_prs_branch`. A normal issue runs the 21 mandatory steps and
+configuring `all_prs_branch`. A normal issue runs the 22 mandatory steps and
 its checklist shows the optional rows pre-marked `[-]` (skipped). Reduced
 checklist tiers show a monotonic subset with larger gaps.
 
@@ -19,6 +19,17 @@ An `--auto` chain stops with a `PHASE BREAK` before `implement`, `quality` and
 `updatewbs`: run `/clear`, then the printed Resume command. Each phase then
 starts in a fresh session instead of re-reading the whole issue's history on
 every call (config `phase_breaks`; `--no-breaks` skips it for one chain).
+
+Step 20, `/devagent:mergemr`, merges the PR only when the project sets
+`permissions.merge_mr = true`, and only at the head the last passing preship
+verified (`verified_head`); otherwise it marks its row `[?]` until the PR is
+merged elsewhere. `/devagent:next` re-checks a `[?]` mergemr row on every run;
+while the PR is still open it prints `WAITING at step 20 (mergemr): the PR is
+not merged yet; …` and stops with exit 0. Nothing polls: run `/devagent:next`
+again later. mergetoall (19) holds on pending CI before mergemr runs, so an
+`--auto` chain reaches mergemr only with mergetoall `[-]` or CI green. Cleanup
+waits for the mergemr row; `/devagent:park` or marking the row `[-]` are the
+escapes for a PR that stays open (see `commands/mergemr.md`).
 
 ## Step table
 
@@ -46,10 +57,11 @@ Rows in execution order.
 | 17 | `preship` | Ship | Fresh-context verification that the committed branch satisfies the acceptance criteria |
 | 18 | `ship` | Ship | Push the branch and open the MR |
 | 19 | `mergetoall` | Integrate & close | _(optional, off by default; on when the project configures `all_prs_branch`)_ Squash-merge the branch into the local all-PRs branch; requires green CI on the MR |
-| 20 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
-| 21 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
-| 22 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |
-| 23 | `cleanup` | Integrate & close | Restore the tree, commit the devdoc, clear the active issue |
+| 20 | `mergemr` | Integrate & close | Merge the PR at the preship-verified head when `merge_mr = true`; otherwise wait `[?]` until it is merged |
+| 21 | `updatewbs` | Integrate & close | Update the work-breakdown structure |
+| 22 | `impact` | Integrate & close | Measure and record the real-world impact of the merged change |
+| 23 | `lessonslearned` | Integrate & close | Extract reusable lessons from the completed issue |
+| 24 | `cleanup` | Integrate & close | Restore the tree, commit the devdoc, clear the active issue |
 
 ## Checklist glyphs
 

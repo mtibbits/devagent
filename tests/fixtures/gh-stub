@@ -11,6 +11,9 @@
 #   GH_STUB_BODY_JSON     if set, issue-view body — a JSON-encoded STRING (#537)
 #   GH_STUB_COMMENTS_JSON if set, issue-view comments — a JSON array (#537)
 #   GH_STUB_LABELS_JSON   if set, issue-view labels — a JSON array (#561)
+#   GH_STUB_ISSUE_STATE   issue-view state (#885; default OPEN)
+#   GH_STUB_STATE_REASON  issue-view stateReason, e.g. COMPLETED (#885;
+#                         default null)
 #   GH_STUB_ISSUE_LIST_FILE  `gh issue list` payload file (#703; required —
 #                            this stub is copied out of the fixtures dir)
 #   GH_STUB_GRAPHQL_DIR   `gh api graphql` responses (#704): the k-th call
@@ -40,6 +43,16 @@
 #   GH_STUB_PR_CHECKS_SLEEP=<n>  that call execs `sleep <n>` (a hung forge)
 #   GH_STUB_PR_CHECKS_RC=<rc>    that call prints `stub: forced failure` to
 #                         stderr and exits <rc> (0/unset = serve the file)
+#   GH_STUB_PR_VIEW_FILE  `gh pr view` payload for code/github.sh mr-view's
+#                         selection (#885; required when that call is made).
+#                         Its GraphQL call is served by GH_STUB_GRAPHQL_DIR.
+#   GH_STUB_PR_MERGE_LOG  if set, `gh pr merge` appends its argv here, one
+#                         bracketed element per word as GH_STUB_ARGV_LOG does
+#                         (so `[--body] []` differs from no --body), then a
+#                         line `GH_PROMPT_DISABLED=<v> stdin=<tty|notty>`
+#   GH_STUB_PR_MERGE_RC=<rc>   `gh pr merge` exits <rc> (default 0); non-zero
+#                         prints $GH_STUB_PR_MERGE_ERR (default
+#                         `stub: forced merge failure`) to stderr
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -95,10 +108,16 @@ _issue_json() {
   # deliberately non-`tier:*`.
   labels='[{"name": "bug"}, {"name": "performance"}]'
   [ -n "${GH_STUB_LABELS_JSON:-}" ] && labels="$GH_STUB_LABELS_JSON"
+  # #885: issue/github.sh state-class reads state and stateReason.
+  local reason=null number=676
+  [ -n "${GH_STUB_STATE_REASON:-}" ] && reason="\"$GH_STUB_STATE_REASON\""
+  [[ "${1:-}" =~ ^[0-9]+$ ]] && number="$1"
   cat <<JSON
 {
+  "number": $number,
   "title": "Demo issue title",
-  "state": "OPEN",
+  "state": "${GH_STUB_ISSUE_STATE:-OPEN}",
+  "stateReason": $reason,
   "author": {"login": "alice"},
   "labels": $labels,
   "url": "https://github.com/gnuradio/volk/issues/676",
@@ -136,7 +155,7 @@ case "$sub $sub2" in
       fail)  echo "stub-gh: simulated failure" >&2; exit 1 ;;
       noisy) echo "stub-gh: A new release of gh is available: 2.40.0 → 2.50.0" >&2 ;;
     esac
-    _issue_json
+    _issue_json "$num"
     ;;
 
   "issue list")
@@ -227,6 +246,12 @@ case "$sub $sub2" in
       cat "$GH_STUB_PR_CHECKS_FILE"
       exit 0
     fi
+    # code/github.sh mr-view (#885): the raw body; the backend runs its own jq.
+    if _has_flag headRefOid,state,statusCheckRollup,isDraft,baseRefName,mergeable,mergeStateStatus,autoMergeRequest,closingIssuesReferences,commits,title,number,mergeCommit -- "$@"; then
+      [ -n "${GH_STUB_PR_VIEW_FILE:-}" ] || _assert_fail "pr view: GH_STUB_PR_VIEW_FILE unset"
+      cat "$GH_STUB_PR_VIEW_FILE"
+      exit 0
+    fi
     # gh runs --jq internally; the stub returns the already-filtered output.
     if _has_flag state -- "$@"; then
       echo "open"
@@ -240,7 +265,20 @@ case "$sub $sub2" in
     fi
     ;;
 
-  "pr merge") exit 0 ;;
+  "pr merge")
+    if [ -n "${GH_STUB_PR_MERGE_LOG:-}" ]; then
+      _line=""
+      for _a in "$@"; do _line+="[$_a] "; done
+      printf '%s\n' "${_line% }" >> "$GH_STUB_PR_MERGE_LOG"
+      if [ -t 0 ]; then _in=tty; else _in=notty; fi
+      printf 'GH_PROMPT_DISABLED=%s stdin=%s\n' "${GH_PROMPT_DISABLED:-}" "$_in" >> "$GH_STUB_PR_MERGE_LOG"
+    fi
+    if [ "${GH_STUB_PR_MERGE_RC:-0}" != 0 ]; then
+      printf '%s\n' "${GH_STUB_PR_MERGE_ERR:-stub: forced merge failure}" >&2
+      exit "$GH_STUB_PR_MERGE_RC"
+    fi
+    exit 0
+    ;;
 
   "pr create")
     printf '%s\n' "${GH_STUB_CREATE_URL:-https://github.com/foo/bar/pull/7}"

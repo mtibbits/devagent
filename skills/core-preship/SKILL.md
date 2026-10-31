@@ -10,7 +10,7 @@ agent: devagent:preship-verifier
 
 # devagent-preship
 
-Step 17 of the devAgent 24-step workflow (file-ordered between redmr and ship;
+Step 17 of the devAgent 25-step workflow (file-ordered between redmr and ship;
 the number is unique, not sequential — file order is execution authority).
 
 <!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already
@@ -40,7 +40,9 @@ disk and state:
 3. Read the latest-dated `<issue-dir>/analysis/*-review.md` and `*-redmr.md`
    (the findings input).
 4. Get the push content: `branch` and `baseline_sha` from state, then work the
-   literal diff spec `<baseline_sha>..HEAD` in the project's `source_dir`.
+   literal diff spec `<baseline_sha>..<SHA>` in the project's `source_dir`, where
+   `<SHA>` is the 40-hex head the invoking session pinned and wrote into your
+   prompt (#885). Not given one, use `<baseline_sha>..HEAD`.
 5. Write nothing. Run your system prompt's five verifications and RETURN the
    complete `preship.md` body as your final message. The invoking session writes
    it to disk verbatim — authorship stays with you.

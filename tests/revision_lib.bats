@@ -48,10 +48,11 @@ setup() {
   [[ "$output" == *"[ ] 18. ship"* ]]
   # mergetoall ships pre-skipped; only an all_prs_branch project re-opens it.
   [[ "$output" == *"[-] 19. mergetoall"* ]]
-  [[ "$output" == *"[ ] 20. updatewbs"* ]]
-  [[ "$output" == *"[ ] 21. impact"* ]]
-  [[ "$output" == *"[ ] 22. lessonslearned"* ]]
-  [[ "$output" == *"[ ] 23. cleanup"* ]]
+  [[ "$output" == *"[ ] 20. mergemr"* ]]
+  [[ "$output" == *"[ ] 21. updatewbs"* ]]
+  [[ "$output" == *"[ ] 22. impact"* ]]
+  [[ "$output" == *"[ ] 23. lessonslearned"* ]]
+  [[ "$output" == *"[ ] 24. cleanup"* ]]
   # A revision never re-pulls.
   [[ "$output" != *"0. pull"* ]]
 }

@@ -18,7 +18,8 @@
 - [ ] 17. preship
 - [ ] 18. ship
 - [-] 19. mergetoall
-- [ ] 20. updatewbs
-- [ ] 21. impact
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 20. mergemr
+- [ ] 21. updatewbs
+- [ ] 22. impact
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup

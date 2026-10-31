@@ -6,7 +6,7 @@ argument-hint: "[project] [issue-dir] [free-form note...]"
 
 # /devagent:improve
 
-Step 5 of the 24-step devAgent workflow. The check runs in the
+Step 5 of the 25-step devAgent workflow. The check runs in the
 `devagent:plan-improver` agent, which cannot write files and carries the
 checking procedure (three finding categories + the #286 pothole tripwire) as
 its system prompt; it reads the plan cold and resolves the pothole register

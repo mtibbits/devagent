@@ -31,3 +31,15 @@ StatusContext entries use the shape recorded from kubernetes/kubernetes#143547
 - `unmapped`: a COMPLETED CheckRun whose conclusion is `STALE`.
 - `nolink`: a FAILURE StatusContext and two CheckRuns (CANCELLED, SUCCESS), all
   with an empty link (emitted as `-`).
+
+## `mr-view` (#885)
+
+`mr-view-open.json` is a synthetic body of `gh pr view <url> --json
+headRefOid,state,statusCheckRollup,isDraft,baseRefName,mergeable,mergeStateStatus,autoMergeRequest,closingIssuesReferences,commits,title,number,mergeCommit`
+(`$GH_STUB_PR_VIEW_FILE`), keyed as the live body for mtibbits/devagent#898
+recorded 2026-10-30 with gh 2.95.0 (closingIssuesReferences items: `id number
+repository{id name owner{id login}} url`; commits items: `authoredDate authors
+committedDate messageBody messageHeadline oid`); its rollup is `green`'s.
+`mr-view-gql-open.json` is the GraphQL reply (`isInMergeQueue`,
+`commits{totalCount}`), served through `$GH_STUB_GRAPHQL_DIR`.
+`mr-view-open.golden` is the verb's expected output for the pair.

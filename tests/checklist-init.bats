@@ -10,7 +10,7 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-init.sh" "$ISSUE_DIR"
   [ "$status" -eq 0 ]
   [ -f "$ISSUE_DIR/checklist.md" ]
-  run grep -q '23. cleanup' "$ISSUE_DIR/checklist.md"
+  run grep -q '24. cleanup' "$ISSUE_DIR/checklist.md"
   [ "$status" -eq 0 ]
 }
 

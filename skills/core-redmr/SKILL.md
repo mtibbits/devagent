@@ -10,7 +10,7 @@ agent: devagent:redteam-reviewer
 
 # devagent-redmr
 
-Step 16 of the devAgent 24-step workflow.
+Step 16 of the devAgent 25-step workflow.
 
 <!-- #458: this body is the FORK PROMPT. `context: fork` + `agent:` have already
      taken effect by the time it is in context — the harness supplies the agent's

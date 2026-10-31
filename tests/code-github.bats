@@ -701,3 +701,191 @@ _bucket_of() {
     run "$DEVAGENT_ROOT/scripts/code/gitlab.sh" mr-checks "$CHK_URL"
     [ "$status" -eq 2 ]
 }
+
+# --- mr-view (#885) -----------------------------------------------------------
+# The gh-stub's `pr view` arm serves $GH_STUB_PR_VIEW_FILE for the mr-view
+# selection; its GraphQL call is the k-th file of $GH_STUB_GRAPHQL_DIR.
+MV_URL=https://github.com/acme/volk/pull/9
+
+# _mv [view-json] [gql-json]: run mr-view on MV_URL against the two replies.
+_mv() {
+    rm -rf "$DEVAGENT_TMP/gql"
+    _gql_stub
+    export GH_STUB_PR_VIEW_FILE="${1:-$GQL_FIX/mr-view-open.json}"
+    _gql_serve 1 "${2:-$GQL_FIX/mr-view-gql-open.json}"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-view "$MV_URL"
+}
+
+# _mv_edit [jq-args...] <jq-filter>: mr-view-open.json through the filter, as a file path.
+_mv_edit() {
+    jq "$@" "$GQL_FIX/mr-view-open.json" > "$DEVAGENT_TMP/mv-edit.json"
+    printf '%s' "$DEVAGENT_TMP/mv-edit.json"
+}
+
+@test "#885 mr-view prints the mr-checks lines then the extras" {
+    local f
+    _mv
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | cmp - "$GQL_FIX/mr-view-open.golden"
+    # the first lines are exactly what mr-checks prints for the same body
+    export GH_STUB_PR_CHECKS_FILE="$GQL_FIX/mr-view-open.json"
+    f="$("$DEVAGENT_ROOT/scripts/code/github.sh" mr-checks "$MV_URL")"
+    [ "$(head -n "$(wc -l <<<"$f")" <<<"$output")" = "$f" ]
+    # one GraphQL call; owner, name and number travel as variables
+    [ "$(_gql_calls)" -eq 1 ]
+    grep -qF '[-f] [owner=acme]' "$GH_STUB_ARGS_LOG"
+    grep -qF '[-f] [name=volk]' "$GH_STUB_ARGS_LOG"
+    grep -qF '[-F] [number=9]' "$GH_STUB_ARGS_LOG"
+    grep -qF 'isInMergeQueue' "$GH_STUB_ARGS_LOG"
+    grep -qF 'commits{totalCount}' "$GH_STUB_ARGS_LOG"
+}
+
+@test "#885 mr-view closes uses owner.login/name" {
+    _mv
+    [ "$status" -eq 0 ]
+    [ "$(grep $'^closes\t' <<<"$output")" = $'closes\tacme/volk\t676\ncloses\tOther-Org/tracker\t12' ]
+    _mv "$(_mv_edit '.closingIssuesReferences = []')"
+    [ "$status" -eq 0 ]
+    run grep -c $'^closes\t' <<<"$output"
+    [ "$output" = 0 ]
+}
+
+@test "#885 mr-view trailers distinct by exact line, in commit order" {
+    local body
+    # emails differing only in case stay two; a trailing-space copy is one
+    body=$'x\n\nSigned-off-by: A <a@x.org>\nCo-authored-by: B <B@x.org>  \nCo-authored-by: B <b@x.org>\nSigned-off-by: A <a@x.org> \nNot-a-trailer: Signed-off-by: C\n  Signed-off-by: indented <i@x.org>'
+    _mv "$(_mv_edit --arg b "$body" '.commits = [{messageBody: $b}, {messageBody: "co-authored-by: B <B@x.org>\nSIGNED-OFF-BY: D <d@x.org>"}]')"
+    [ "$status" -eq 0 ]
+    [ "$(grep $'^trailer\t' <<<"$output")" = $'trailer\tSigned-off-by: A <a@x.org>\ntrailer\tCo-authored-by: B <B@x.org>\ntrailer\tCo-authored-by: B <b@x.org>\ntrailer\tco-authored-by: B <B@x.org>\ntrailer\tSIGNED-OFF-BY: D <d@x.org>' ]
+    grep -qxF $'commits\t2\t2' <<<"$output"
+}
+
+@test "#885 mr-view null mergeCommit/autoMergeRequest print - / off; set ones print the oid / on" {
+    local oid=0123456789abcdef0123456789abcdef01234567
+    _mv
+    grep -qxF $'mergecommit\t-' <<<"$output"
+    grep -qxF $'automerge\toff' <<<"$output"
+    _mv "$(_mv_edit --arg o "$oid" '.state = "MERGED" | .mergeCommit = {oid: $o} | .autoMergeRequest = {mergeMethod: "SQUASH"} | .isDraft = true | .baseRefName = "" | .title = ""')"
+    [ "$status" -eq 0 ]
+    grep -qxF $'state\tmerged' <<<"$output"
+    grep -qxF $'mergecommit\t'"$oid" <<<"$output"
+    grep -qxF $'automerge\ton' <<<"$output"
+    grep -qxF $'draft\ttrue' <<<"$output"
+    grep -qxF $'base\t-' <<<"$output"          # empty is - (Issue-782)
+    grep -qxF $'title\t-' <<<"$output"
+}
+
+@test "#885 mr-view reads the queue and the commit total from GraphQL" {
+    jq -n '{data: {repository: {pullRequest: {isInMergeQueue: true, commits: {totalCount: 260}}}}}' > "$DEVAGENT_TMP/gql.json"
+    _mv "" "$DEVAGENT_TMP/gql.json"
+    [ "$status" -eq 0 ]
+    grep -qxF $'queue\ttrue' <<<"$output"
+    grep -qxF $'commits\t260\t2' <<<"$output"
+}
+
+@test "#885 mr-view GraphQL failure exits 1 with gh's last line" {
+    _gql_stub
+    export GH_STUB_PR_VIEW_FILE="$GQL_FIX/mr-view-open.json"
+    printf '{"errors":[{"message":"Field isInMergeQueue does not exist"}]}\n' > "$DEVAGENT_TMP/err.json"
+    _gql_serve 1 "$DEVAGENT_TMP/err.json" 1 "gh: Field 'isInMergeQueue' doesn't exist on type 'PullRequest'"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-view "$MV_URL"
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "gh: Field 'isInMergeQueue' doesn't exist on type 'PullRequest'" ]
+    [ -z "$output" ]
+}
+
+@test "#885 mr-view: a GraphQL reply without the fields exits 5; a pr view failure exits 1, never 2" {
+    printf '{"data":{"repository":{"pullRequest":null}}}\n' > "$DEVAGENT_TMP/null.json"
+    _mv "" "$DEVAGENT_TMP/null.json"
+    [ "$status" -eq 5 ]
+    [ -z "$output" ]
+    printf 'not json\n' > "$DEVAGENT_TMP/bad.json"
+    _mv "$DEVAGENT_TMP/bad.json"
+    [ "$status" -eq 5 ]
+    # gh's own exit 2 on the pr view call
+    _gql_stub
+    printf '#!/usr/bin/env bash\necho "gh: cancelled" >&2\nexit 2\n' > "$DEVAGENT_STUB_BIN/gh"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-view "$MV_URL"
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "gh: cancelled" ]
+}
+
+@test "#885 mr-view unparsable URL exits 1 with a bare reason and no gh call" {
+    _gql_stub
+    printf '#!/usr/bin/env bash\necho called >> "%s"\n' "$DEVAGENT_TMP/called" > "$DEVAGENT_STUB_BIN/gh"
+    run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" mr-view https://github.com/acme/volk/issues/9
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "mr-view: not a PR URL: https://github.com/acme/volk/issues/9" ]
+    [ ! -e "$DEVAGENT_TMP/called" ]
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" mr-view
+    [ "$status" -eq 1 ]
+}
+
+# --- merge-mr flags (#885) ----------------------------------------------------
+SHA40=a1b2c3d4e5f60718293a4b5c6d7e8f9012345678
+
+_merge_stub() {
+    cp "$BATS_TEST_DIRNAME/fixtures/gh-stub" "$DEVAGENT_STUB_BIN/gh"
+    chmod +x "$DEVAGENT_STUB_BIN/gh"
+    export GH_STUB_PR_MERGE_LOG="$DEVAGENT_TMP/merge.log"
+}
+
+@test "#885 merge-mr passes --match-head-commit --subject --body in order with GH_PROMPT_DISABLED=1, stdin notty" {
+    local cmd
+    _merge_stub
+    # flags given out of order; a TTY on stdin (script(1)) must not reach gh
+    printf -v cmd '%q ' "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" \
+        --body $'Closes #9\n\nSigned-off-by: A <a@x.org>' --subject 'T (#9)' \
+        --match-head-commit "$SHA40" --method squash
+    run script -qec "$cmd" /dev/null
+    [ "$status" -eq 0 ]
+    [ "$(sed -n 1p "$GH_STUB_PR_MERGE_LOG")" = "[pr] [merge] [$MV_URL] [--squash] [--match-head-commit] [$SHA40] [--subject] [T (#9)] [--body] [Closes #9" ]
+    [ "$(sed -n 2p "$GH_STUB_PR_MERGE_LOG")" = "" ]
+    [ "$(sed -n 3p "$GH_STUB_PR_MERGE_LOG")" = "Signed-off-by: A <a@x.org>]" ]
+    [ "$(sed -n 4p "$GH_STUB_PR_MERGE_LOG")" = "GH_PROMPT_DISABLED=1 stdin=notty" ]
+    # an empty --body is passed, not dropped
+    rm -f "$GH_STUB_PR_MERGE_LOG"
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --subject s --body ""
+    [ "$status" -eq 0 ]
+    [ "$(sed -n 1p "$GH_STUB_PR_MERGE_LOG")" = "[pr] [merge] [$MV_URL] [--squash] [--subject] [s] [--body] []" ]
+    # the --method-only form keeps its argv
+    rm -f "$GH_STUB_PR_MERGE_LOG"
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --method rebase
+    [ "$status" -eq 0 ]
+    [ "$(cat "$GH_STUB_PR_MERGE_LOG")" = "[pr] [merge] [$MV_URL] [--rebase]"$'\n'"GH_PROMPT_DISABLED=1 stdin=notty" ]
+}
+
+@test "#885 merge-mr passes gh's failure through with its stderr" {
+    _merge_stub
+    GH_STUB_PR_MERGE_RC=1 GH_STUB_PR_MERGE_ERR='Merge method squash merging is not allowed' \
+        run --separate-stderr "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --match-head-commit "$SHA40"
+    [ "$status" -eq 1 ]
+    [ "${stderr_lines[-1]}" = "Merge method squash merging is not allowed" ]
+}
+
+@test "#885 merge-mr --disable-auto" {
+    _merge_stub
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --disable-auto
+    [ "$status" -eq 0 ]
+    [ "$(sed -n 1p "$GH_STUB_PR_MERGE_LOG")" = "[pr] [merge] [$MV_URL] [--disable-auto]" ]
+    [ "$(sed -n 2p "$GH_STUB_PR_MERGE_LOG")" = "GH_PROMPT_DISABLED=1 stdin=notty" ]
+    # --disable-auto is its own form: combined with a merge flag it is usage
+    rm -f "$GH_STUB_PR_MERGE_LOG"
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --disable-auto --method squash
+    [ "$status" -eq 2 ]
+    [ ! -e "$GH_STUB_PR_MERGE_LOG" ]
+}
+
+@test "#885 merge-mr rejects a short SHA (exit 2)" {
+    _merge_stub
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --match-head-commit a1b2c3d
+    [ "$status" -eq 2 ]
+    [ "$output" = "code/github.sh: --match-head-commit needs a 40-hex SHA" ]
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --match-head-commit "${SHA40^^}"
+    [ "$status" -eq 2 ]
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --match-head-commit
+    [ "$status" -eq 2 ]
+    run "$DEVAGENT_ROOT/scripts/code/github.sh" merge-mr "$MV_URL" --subject
+    [ "$status" -eq 2 ]
+    [ ! -e "$GH_STUB_PR_MERGE_LOG" ]
+}

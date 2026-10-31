@@ -102,7 +102,7 @@ For a security problem, do not file a bug: see `SECURITY.md`.
 ## Proposing something larger
 
 Open an issue before writing code for anything beyond a fix. devAgent's
-workflow is deliberately fixed (24 numbered steps, on-disk state), and changes
+workflow is deliberately fixed (25 numbered steps, on-disk state), and changes
 to the step contract, the config schema, or the artifact formats have
 downstream effects on every project that uses the plugin. An issue lets that
 be worked out before the diff exists.
@@ -110,7 +110,7 @@ be worked out before the diff exists.
 ## How the maintainer works
 
 The maintainer runs devAgent on devAgent: every issue goes through the plugin's
-own 24-step workflow, and the per-issue artifacts (plans, reviews, red-team
+own 25-step workflow, and the per-issue artifacts (plans, reviews, red-team
 reports) live in a separate private devdoc repository. You do not need to use
 that workflow to contribute. A plain branch and PR with the conventions above
 is exactly what the workflow produces anyway.

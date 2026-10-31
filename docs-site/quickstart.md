@@ -74,7 +74,7 @@ in `skills/capture/SKILL.md`.
 
 Fetches issue #42 from the project's origin tracker and scaffolds its
 workflow directory, including the checklist that tracks it through the
-24-step loop.
+25-step loop.
 
 ## 6. Run the loop
 

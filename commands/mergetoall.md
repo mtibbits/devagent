@@ -37,8 +37,8 @@ research/spike semantics — re-mark after revising if still wanted.
   `all_prs_remote` defaults to `source_remote` (which defaults to
   `origin`).
 
-Honors `permissions.merge_to_all_prs` (falls back to the legacy
-`permissions.merge_mr` name for backward compat). With `--auto`, the
+Honors `permissions.merge_to_all_prs` only; `permissions.merge_mr` no
+longer gates this step (#885: it approves `/devagent:mergemr`). With `--auto`, the
 chaining layer suppresses the inter-step prompt but does **not**
 suppress permission gates (spec §7.2).
 

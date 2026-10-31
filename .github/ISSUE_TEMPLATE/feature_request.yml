@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        devAgent's workflow is deliberately fixed (24 numbered steps, on-disk state), so changes to the step contract, config schema or artifact formats affect every project using the plugin. Describing the problem before the solution helps that get worked out before any code exists.
+        devAgent's workflow is deliberately fixed (25 numbered steps, on-disk state), so changes to the step contract, config schema or artifact formats affect every project using the plugin. Describing the problem before the solution helps that get worked out before any code exists.
   - type: textarea
     id: problem
     attributes:
@@ -32,7 +32,7 @@ body:
       label: Which surface does this touch
       options:
         - A slash command's behaviour
-        - The 24-step workflow contract
+        - The 25-step workflow contract
         - Config schema (config.toml)
         - Templates or artifact formats
         - A tracker or forge backend

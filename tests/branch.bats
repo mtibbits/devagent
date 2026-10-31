@@ -276,3 +276,15 @@ PY
     [ -d "$SOURCE_DIR-wt/issue-1/.git" ] || [ -f "$SOURCE_DIR-wt/issue-1/.git" ]
     grep -q "worktree_path *= *\"$SOURCE_DIR-wt/issue-1\"" "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
 }
+
+@test "#885 branch marks its row by name on a checklist whose row number differs" {
+    echo "feature" > "$DEVDOC_DIR/Issue-1/.devagent-type"
+    echo "make widgets faster" > "$DEVDOC_DIR/Issue-1/.devagent-title"
+    shift_steps_from "$DEVDOC_DIR/Issue-1/checklist.md" branch      # branch is now 9
+    run "$DEVAGENT_ROOT/scripts/branch.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"refusing to mark"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 9 x branch
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 10 ' ' implement
+    grep -q '^last_step[[:space:]]*=[[:space:]]*"9"' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+}

@@ -49,8 +49,9 @@ registry key.
 Checklist templates (`checklist-<name>`) and `revision_block` resolve via
 the §12 registry, so a project may override its workflow. Authoring rules:
 gates resolve step NAMES with absent ⇒ no gate — keep
-`updatewbs`/`impact`/`lessonslearned`/`preship` named for the gates you
-want; `cleanup` (23) is required (hardcoded self-mark). Dispatch is
+`mergemr`/`updatewbs`/`impact`/`lessonslearned`/`preship` named for the gates you
+want; `cleanup` is required (cleanup.sh marks its own row by name and
+dies without one). Dispatch is
 checklist FILE ORDER; numbers are POSITIONS in that order, not permanent
 IDs (#558) — renumbering a template renumbers its steps, which is why
 load-bearing marks resolve by NAME. A custom step name needs

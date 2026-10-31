@@ -29,15 +29,15 @@ teardown() { teardown_tmp_devagent_home; }
 
 # --- Task 1: template fixture + §12 resolution -------------------------------
 
-@test "checklist-oneshot carries exactly rows 0/7/9/19/20 (#537)" {
+@test "checklist-oneshot carries exactly rows 0/9/11/23/24 (#537, #885)" {
   tpl="$PLUGIN_ROOT/templates/checklist-oneshot.md"
   [ -f "$tpl" ]
   [ "$(grep -cE '^\- \[ \] +[0-9]+\.' "$tpl")" -eq 5 ]
   grep -qE '^\- \[ \] +0\. pull' "$tpl"
   grep -qE '^\- \[ \] +9\. implement' "$tpl"
   grep -qE '^\- \[ \] +11\. document' "$tpl"
-  grep -qE '^\- \[ \] 22\. lessonslearned' "$tpl"
-  grep -qE '^\- \[ \] 23\. cleanup' "$tpl"
+  grep -qE '^\- \[ \] 23\. lessonslearned' "$tpl"
+  grep -qE '^\- \[ \] 24\. cleanup' "$tpl"
 }
 
 @test "checklist-oneshot carries the evidence note and the no-repo-change boundary (#537)" {
@@ -155,8 +155,8 @@ teardown() { teardown_tmp_devagent_home; }
   run grep -cE '^\| oneshot \|.*oneshot-zerodiff' "$spec"
   [ "$status" -eq 0 ]
   [ "$output" -eq 1 ]
-  # redmr M3: the per-issue directory inventory (§3.5) and the step-23 row
+  # redmr M3: the per-issue directory inventory (§3.5) and the step-24 row
   # both name what this diff added — the ack file and the refusal.
   grep -qE '^├── \.devagent-oneshot-ack .*#595' "$spec"
-  grep -qE '^\| 23 \| .*oneshot-zerodiff\.sh.*#595' "$spec"
+  grep -qE '^\| 24 \| .*oneshot-zerodiff\.sh.*#595' "$spec"
 }

@@ -13,7 +13,7 @@ Active revision: 1
 - [ ]  4. scope
 - [ ]  5. improve
 - [ ] 11. document
-- [ ] 22. lessonslearned
-- [ ] 23. cleanup
+- [ ] 23. lessonslearned
+- [ ] 24. cleanup
 
 ## Log

@@ -21,7 +21,7 @@ teardown() { teardown_tmp_devagent_home; }
 }
 
 @test "stuck refuses when checklist already done" {
-  for s in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23; do
+  for s in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
     "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" "$s" x >/dev/null
   done
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" "$ISSUE_DIR" "why"
@@ -56,4 +56,33 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --step 19
   [ "$status" -eq 2 ]
   [[ "$output" == *"--step needs a step number and name"* ]]
+}
+
+@test "#885 checklist-stuck --name marks the named row, not the current one" {
+  for s in 2 4 5 6 7 8 9 10 11 12 13; do "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" "$s" x >/dev/null; done
+  "$PLUGIN_ROOT/scripts/checklist-mark.sh" "$ISSUE_DIR" 19 ' ' >/dev/null
+  grep -qE '^- \[ \] 14\. draftmr' "$ISSUE_DIR/checklist.md"           # 14 is current
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --name mergetoall "$ISSUE_DIR" "CI FAILED: x"
+  [ "$status" -eq 0 ]
+  grep -qE '^- \[!\] 19\. mergetoall' "$ISSUE_DIR/checklist.md"
+  grep -qE '^- \[ \] 14\. draftmr' "$ISSUE_DIR/checklist.md"           # the current step is untouched
+  grep -q '^Step:        19 mergetoall' "$ISSUE_DIR/STUCK"
+  grep -q '^Reason:      CI FAILED: x' "$ISSUE_DIR/STUCK"
+}
+
+@test "#885 checklist-stuck --name dies on an absent row, checklist byte-identical" {
+  # A checklist scaffolded before #885 has no mergemr row.
+  sed -i -E '/^- \[.\] +20\. mergemr$/d' "$ISSUE_DIR/checklist.md"
+  cp "$ISSUE_DIR/checklist.md" "$BATS_TEST_TMPDIR/before.md"
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --name mergemr "$ISSUE_DIR" "why"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no step named 'mergemr' in $ISSUE_DIR/checklist.md"* ]]
+  cmp -s "$BATS_TEST_TMPDIR/before.md" "$ISSUE_DIR/checklist.md"
+  [ ! -e "$ISSUE_DIR/STUCK" ]
+}
+
+@test "#885 checklist-stuck --name without a name is a usage error" {
+  run "$PLUGIN_ROOT/scripts/checklist-stuck.sh" --name
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--name needs a step name"* ]]
 }

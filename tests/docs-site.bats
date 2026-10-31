@@ -7,7 +7,7 @@
 # a single page can satisfy), install commands and the verified Claude Code
 # version match README on BOTH sides, workflow.md's step table derives from
 # templates/checklist-standard.md (one row per template step, so a step
-# insertion or rename reddens the page; the 24 pin keeps the derived count
+# insertion or rename reddens the page; the 25 pin keeps the derived count
 # honest), configuration.md names every backend verb backtick-anchored
 # (substring-proof; `state` must not ride on `mr-state`), every shellcheck
 # version home names the CONTRIBUTING.md version (#678), and the audit §E
@@ -71,8 +71,8 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   done
   # The headline count token is shared by index.md and README the same way
   # (review minor 18: previously pinned only via workflow.md's derived table).
-  grep -qF '24-step workflow' "$SITE/index.md"
-  grep -qF '24-step workflow' "$PLUGIN_ROOT/README.md"
+  grep -qF '25-step workflow' "$SITE/index.md"
+  grep -qF '25-step workflow' "$PLUGIN_ROOT/README.md"
 }
 
 @test "docs-site: install page carries the #541 posture delta token" {
@@ -91,14 +91,14 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
     grep -qE "^\| ${num} *\| \`${cmd}\`" "$SITE/workflow.md"
     count=$((count + 1))
   done < <(sed -n 's/^- \[.\] *\([0-9]*\)\. \(.*\)$/\1 \2/p' "$PLUGIN_ROOT/templates/checklist-standard.md")
-  [ "$count" -eq 24 ]
+  [ "$count" -eq 25 ]
   run grep -c '^| [0-9]' "$SITE/workflow.md"
   [ "$output" -eq "$count" ]
 }
 
-@test "docs-site: configuration page names all fifteen backend verbs" {
-  for v in fetch create transition state comment-list state-list issue-list state-exists \
-           push-branch create-mr mr-state mr-comments merge-mr issue-mrs mr-checks; do
+@test "docs-site: configuration page names all seventeen backend verbs" {
+  for v in fetch create transition state comment-list state-list issue-list state-exists state-class \
+           push-branch create-mr mr-state mr-comments merge-mr issue-mrs mr-checks mr-view; do
     grep -qF "\`$v\`" "$SITE/configuration.md"
   done
 }
@@ -116,7 +116,7 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   [ "$status" -eq 1 ]
   # The live claim is byte-shared by its three homes.
   for f in "$SITE/index.md" "$SITE/workflow.md" "$PLUGIN_ROOT/README.md"; do
-    grep -qF 'numbered 0–23 in' "$f"
+    grep -qF 'numbered 0–24 in' "$f"
   done
 }
 
@@ -311,4 +311,21 @@ _mz_live() {
   # catch a deleted user statement; this bound is the only guard on the contributor
   # tokens (README, install.md, pre-push, shellcheck.yml).
   [ "$live" -ge 14 ]
+}
+
+# #885: the merge step's config keys are documented where a new project copies its
+# config from, and the no-CI escape (Task 8 operator ruling: the default stays
+# `required`) is named in the skeleton, the configuration page and the CHANGELOG.
+@test "docs-site: merge step keys are documented in the skeleton and the configuration page (#885)" {
+  local skel="$PLUGIN_ROOT/templates/config.toml.skel" f
+  grep -qE '^# merge_checks = "required"' "$skel"
+  grep -qE '^# merge_method = "squash"' "$skel"
+  for f in "$skel" "$SITE/configuration.md" "$PLUGIN_ROOT/CHANGELOG.md"; do
+    grep -qF 'merge_checks = "if-present"' "$f" || { echo "no if-present escape in $f" >&2; return 1; }
+  done
+  # the retired claim that no step merges the MR is gone
+  run grep -F 'no step merges the MR' "$SITE/configuration.md" "$skel"
+  [ "$status" -eq 1 ]
+  grep -qF '/devagent:mergemr' "$SITE/workflow.md"
+  grep -qF 'WAITING' "$SITE/workflow.md"
 }
