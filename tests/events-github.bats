@@ -308,6 +308,18 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [[ "$stderr" == *"repeated"* ]]
 }
 
+@test "[gh events] a GraphQL page without pageInfo exits 5" {
+  local g="$BATS_TEST_TMPDIR/gql"
+  mkdir -p "$g"
+  printf '%s\n' '{"data":{"node":{"userContentEdits":{"nodes":[]}}}}' > "$g/1.json"
+  export GH_STUB_GRAPHQL_DIR="$g"
+  rm -f "$GH_STUB_GRAPHQL_COUNT"
+  # shellcheck disable=SC2016
+  run --separate-stderr bash -c 'source "$1"; GT_HOST=github.com; _gh_gql_walk 100 .data.node.userContentEdits "" "q"' _ "$GHB"
+  [ "$status" -eq 5 ]
+  [ -z "$output" ]
+}
+
 @test "[gh events] bad arguments exit 1, never 2" {
   local args
   for args in "events" "events mtibbits/devagent" "events --kind mtibbits/devagent" \

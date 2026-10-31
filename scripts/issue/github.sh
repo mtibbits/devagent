@@ -512,7 +512,8 @@ _gh_gql_walk() {
     page="$(printf '%s' "$resp" | jq -r '
       if has("errors") then error("GraphQL errors: \(.errors | tojson)") else . end
       | '"$path"'
-      | if type != "object" or (.nodes | type) != "array" then error("page lacks the connection") else . end
+      | if type != "object" or (.nodes | type) != "array" or (.pageInfo.hasNextPage | type) != "boolean"
+        then error("page lacks the connection") else . end
       | "\(.pageInfo.hasNextPage)\t\(.pageInfo.endCursor // "")", (.nodes | tojson)' | tr -d '\r')" || {
         echo "github.sh: GraphQL page $pages of $path is malformed" >&2
         return 5
@@ -706,7 +707,7 @@ _gh_ev_issue_verb() {
   shift 2
   if [ "$#" -ne 2 ] || ! _gh_ev_args_ok "$@" || ! [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]]; then
     _gh_ev_usage
-    return
+    return 1
   fi
   _gh_target "$verb" "$1" || return 1
   _need gh
@@ -723,7 +724,7 @@ _gh_ev_issue_verb() {
 cmd_whoami() {
   if [ "$#" -ne 1 ] || ! _gh_ev_args_ok "$@"; then
     _gh_ev_usage
-    return
+    return 1
   fi
   _gh_target whoami "$1" || return 1
   _need gh

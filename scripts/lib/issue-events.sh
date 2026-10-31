@@ -24,8 +24,8 @@ BC_EVENTS_JQ='
 def bc_kinds: ["created","edited-title","edited-body","edited-comment","deleted-comment","labeled","unlabeled","transitioned","assigned","unassigned","commented"];
 def bc_atypes: ["user","bot","app","customer","?"];
 def bc_is_time: type == "string" and test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\z");
-def bc_is_id: tostring | test("\\A[^ \\t\\r\\n]+\\z");
-def bc_is_actor: tostring | test("\\A([A-Za-z0-9:._-]+|\\?)\\z");
+def bc_is_id: (type == "string" or type == "number") and (tostring | test("\\A[^ \\t\\r\\n]+\\z"));
+def bc_is_actor: (type == "string" or type == "number") and (tostring | test("\\A([A-Za-z0-9:._-]+|\\?)\\z"));
 def bc_is_seq: tostring | test("\\A([0-9]+|\\?)\\z");
 def bc_detail_ok($k):
   if ($k == "created" or $k == "edited-title" or $k == "edited-body") then length == 0
@@ -104,6 +104,7 @@ bc_events_coverage() {
     2|78) echo unsupported; return 0 ;;
     *) echo "bc_events_coverage: $script events --kinds exited $rc" >&2; return 1 ;;
   esac
+  [ -n "$out" ] || { echo unsupported; return 0; }
   printf -v kinds '%s|' "${order[@]}"
   want_re="^(${kinds%|})"$'\t''(full|last-edit-only|actor-unknown|detail-unknown)$'
   while IFS= read -r line; do

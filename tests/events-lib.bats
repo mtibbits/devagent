@@ -47,6 +47,15 @@ _rec() { _jq -nr --argjson r "$1" "$BC_EVENTS_JQ"' $r | bc_rec_check | bc_rec'; 
   [ -z "$output" ] || [[ "$output" == *"bc_rec_check"* ]]
 }
 
+@test "bc_rec_check fails closed on a null id or actor" {
+  run _rec '{"time":"2026-10-01T10:00:00Z","seq":1,"actor":"1","atype":"user","kind":"labeled","detail":[null,"x"]}'
+  [ "$status" -eq 5 ]
+  run _rec '{"time":"2026-10-01T10:00:00Z","seq":1,"actor":null,"atype":"user","kind":"edited-title","detail":[]}'
+  [ "$status" -eq 5 ]
+  run _jq -nr "$BC_EVENTS_JQ"' {id:null,author:"1",atype:"user",created:"2026-10-01T10:00:00Z",last_edited:null,body:""} | bc_crec_check | bc_crec'
+  [ "$status" -eq 5 ]
+}
+
 @test "bc_rec_check fails closed on a non-UTC time and on a fraction" {
   run _rec '{"time":"2026-10-01T10:00:00+01:00","seq":1,"actor":"1","atype":"user","kind":"edited-title","detail":[]}'
   [ "$status" -eq 5 ]
@@ -135,6 +144,14 @@ _rec() { _jq -nr --argjson r "$1" "$BC_EVENTS_JQ"' $r | bc_rec_check | bc_rec'; 
   printf '#!/usr/bin/env bash\nexit 2\n' > "$BATS_TEST_TMPDIR/two.sh"
   chmod +x "$BATS_TEST_TMPDIR/two.sh"
   run bc_events_coverage "$BATS_TEST_TMPDIR/two.sh" o/r created
+  [ "$status" -eq 0 ]
+  [ "$output" = "unsupported" ]
+}
+
+@test "bc_events_coverage: an empty --kinds answer reads as unsupported" {
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$BATS_TEST_TMPDIR/none.sh"
+  chmod +x "$BATS_TEST_TMPDIR/none.sh"
+  run bc_events_coverage "$BATS_TEST_TMPDIR/none.sh" o/r created
   [ "$status" -eq 0 ]
   [ "$output" = "unsupported" ]
 }
