@@ -710,6 +710,30 @@ cmd_events() {
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 
+# whoami <repo>: the credential's numeric account id on <repo>'s host, from
+# one `/user` call. A token that cannot name a user (an App installation
+# token or Actions GITHUB_TOKEN answer 403), an expired one or no network
+# exits 1; a 200 without a positive integer .id exits 5. Never falls back to
+# config, git identity or auth/github.sh.
+cmd_whoami() {
+  if [ "$#" -ne 1 ] || ! _gh_ev_args_ok "$@"; then
+    _gh_ev_usage
+    return
+  fi
+  _gh_target whoami "$1" || return 1
+  _need gh
+  _need jq
+  local out id
+  out="$(_gh_ev_call api --hostname "$GT_HOST" user)" || return 1
+  id="$(printf '%s' "$out" | jq -r 'if type == "object" and (.id | type) == "number" then .id else empty end' \
+    2>/dev/null | tr -d '\r')" || id=""
+  if ! [[ "$id" =~ ^[1-9][0-9]*$ ]]; then
+    echo "github.sh: whoami: /user on $GT_HOST names no numeric account id" >&2
+    return 5
+  fi
+  printf '%s\n' "$id"
+}
+
 main() {
   local verb="${1:-}"
   if [ -z "$verb" ]; then
@@ -728,6 +752,7 @@ main() {
     state-class)   cmd_state_class  "$@" ;;
     issue-list)    cmd_issue_list   "$@" ;;
     events)        cmd_events       "$@" ;;
+    whoami)        cmd_whoami       "$@" ;;
     *)
       echo "issue/github.sh: unknown verb '$verb'" >&2
       exit 2

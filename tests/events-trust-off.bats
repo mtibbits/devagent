@@ -142,3 +142,13 @@ _stub_setup() {
   [ "${lines[1]}" = "[api] [graphql] [--hostname] [x] [-f] [query=q] GH_HOST=ghe.example" ]
   [ "${#lines[@]}" -eq 2 ]
 }
+
+@test "trust-off tripwire fires through the backend" {
+  _stub_setup
+  export PATH="$STUB_BIN:$PATH"
+  bats_require_minimum_version 1.5.0
+  run --separate-stderr "$PLUGIN_ROOT/scripts/issue/github.sh" whoami foo/bar
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"stub-gh: new-verb call with GH_STUB_EVENTS_DIR unset: user"* ]]
+}

@@ -337,3 +337,56 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [ "$status" -eq 0 ]
   [ "$output" = "$_KINDS" ]
 }
+
+# --- whoami (#712 Task 6). ev/561/user.json is the live `gh api user` answer
+# of 2026-10-31, projected to {login,id,type}; u403 (an App token, U2), u401
+# and unoid (a 200 without a numeric id) are hand-built.
+
+@test "[gh whoami] prints 894144, the actor id #561 events report" {
+  _ev 561 events mtibbits/devagent 561
+  [ "$status" -eq 0 ]
+  source "$PLUGIN_ROOT/scripts/lib/issue-events.sh"
+  local title actor
+  title="$(printf '%s\n' "$output" | grep -F $'\tedited-title\t')"
+  actor="$(bc_rec_parse <<< "$title" | jq -r .actor | tr -d '\r')"
+  [ "$actor" = 894144 ]
+  _ev 561 whoami mtibbits/devagent
+  [ "$status" -eq 0 ]
+  [ "$output" = "$actor" ]
+}
+
+@test "[gh whoami] an App-token 403 exits 1 with empty stdout" {
+  _ev u403 whoami mtibbits/devagent
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"HTTP 403"* ]]
+}
+
+@test "[gh whoami] an expired-token 401 exits 1 with empty stdout" {
+  _ev u401 whoami mtibbits/devagent
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "[gh whoami] a 200 without a numeric id exits 5 with empty stdout" {
+  _ev unoid whoami mtibbits/devagent
+  [ "$status" -eq 5 ]
+  [ -z "$output" ]
+}
+
+@test "[gh whoami] ghe.example.com/o/r sends --hostname ghe.example.com with GH_HOST unset" {
+  export GH_STUB_ARGV_LOG="$BATS_TEST_TMPDIR/argv"
+  export GH_HOST=other.example
+  _ev 561 whoami ghe.example.com/o/r
+  [ "$status" -eq 0 ]
+  [ "$(cat "$GH_STUB_ARGV_LOG")" = "[api] [--hostname] [ghe.example.com] [user] GH_HOST=<unset>" ]
+}
+
+@test "[gh whoami] bad arguments exit 1, never 2" {
+  local args
+  for args in "whoami" "whoami o/r extra" "whoami --x" "whoami not-a-repo"; do
+    # shellcheck disable=SC2086  # word-split on purpose
+    run --separate-stderr "$GHB" $args
+    [ "$status" -eq 1 ] || { echo "args: $args → $status" >&2; return 1; }
+  done
+}
