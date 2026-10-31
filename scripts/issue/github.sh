@@ -609,7 +609,9 @@ def cross($last; $what):
     | {id: .databaseId,
        edits: ((.userContentEdits.nodes + ($more[$c.id] // []))
                | edits($c.includesCreatedEdit; "comment \($c.databaseId)")
-               | cross($c.lastEditedAt; "comment \($c.databaseId)"))})) as $cedits
+               # The events cross-check covers the body only; a comment
+               # last-edited past its newest edit fails comment-records.
+               | if $mode == "crecs" then cross($c.lastEditedAt; "comment \($c.databaseId)") else . end)})) as $cedits
 | {records: ([
     ({time: $iss.createdAt, seq: "?", kind: "created", detail: []} + ($iss.author | g_actor)),
     ($w1.nodes | edits($iss.includesCreatedEdit; "issue body") | cross($iss.lastEditedAt; "issue body")

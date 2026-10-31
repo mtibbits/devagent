@@ -18,7 +18,7 @@ load 'lib/bats-helpers'
 # comment naming the path and the reason (none today).
 _trust_off_hits() {
   local root="$1" verbs="${2:-events|comment-records|whoami}" re rc1=0 rc2=0
-  re='(["'"'"')}]|\.sh)[[:space:]]+('"$verbs"')[[:space:]]+["$]'
+  re='(["'"'"')}]|\.sh)[[:space:]]+('"$verbs"')[[:space:]]+(["$]|--kinds)'
   # cd, not git -C: MSYS_NO_PATHCONV would also stop a /c/… root translating.
   cd "$root" || return 2
   MSYS_NO_PATHCONV=1 git grep -nE "$re" \
@@ -65,6 +65,18 @@ _stub_setup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"scripts/x.sh:1:"* ]]
   [[ "$output" != *"scripts/issue/y.sh"* ]]
+}
+
+@test "trust-off: a planted events --kinds call reddens the census" {
+  local r="$BATS_TEST_TMPDIR/r"
+  mkdir -p "$r/scripts"
+  git -C "$r" init -q
+  # shellcheck disable=SC2016  # literal shell text planted in a scratch repo
+  printf '%s\n' '"$be" events --kinds "$repo"' > "$r/scripts/z.sh"
+  git -C "$r" add -A
+  run _trust_off_hits "$r"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"scripts/z.sh:1:"* ]]
 }
 
 @test "trust-off: each allow-listed home exists and carries a new-verb token" {

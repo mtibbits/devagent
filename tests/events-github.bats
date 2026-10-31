@@ -434,6 +434,12 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [ -z "$output" ]
 }
 
+@test "[gh events] a comment's late lastEditedAt does not fail events (body-only cross-check)" {
+  _ev ccross events mtibbits/devagent 725
+  [ "$status" -eq 0 ]
+  _line 2026-10-24T22:22:43Z "?" 894144 user edited-comment 6387235597
+}
+
 @test "[gh comment-records] a failing nested page exits 1 with empty stdout" {
   _ev fail-nested comment-records mtibbits/devagent 725
   [ "$status" -eq 1 ]
