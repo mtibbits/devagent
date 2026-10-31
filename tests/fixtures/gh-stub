@@ -53,6 +53,17 @@
 #   GH_STUB_PR_MERGE_RC=<rc>   `gh pr merge` exits <rc> (default 0); non-zero
 #                         prints $GH_STUB_PR_MERGE_ERR (default
 #                         `stub: forced merge failure`) to stderr
+#   GH_STUB_EVENTS_DIR    the #712 new-verb REST paths (repos/<o>/<r>/issues/<n>/
+#                         events and …/comments, and `user`): unset, each is a
+#                         stub assertion failure (exit 3, the trust-off
+#                         tripwire); set, serves <dir>/{events,comments,user}.json,
+#                         writes the sibling .err to stderr and exits the
+#                         sibling .rc (default 0) after printing. events and
+#                         comments must carry --paginate.
+#
+# `gh api` and `gh api graphql` append their argv to GH_STUB_ARGV_LOG as
+# `issue view` does, plus a trailing `GH_HOST=<value>` (`GH_HOST=<unset>` when
+# unset) (#712). Any other REST path is a stub assertion failure (exit 3).
 #
 # #561: the DEFAULT label set below (`bug`, `performance`) is deliberately
 # non-`tier:*`-shaped. pull.sh's label channel classifies only `tier:*` labels
@@ -82,7 +93,45 @@ _argv_log() {
   [ -n "${GH_STUB_ARGV_LOG:-}" ] || return 0
   local line="" a
   for a in "$@"; do line+="[$a] "; done
-  printf '%s\n' "${line% }" >> "$GH_STUB_ARGV_LOG"
+  printf '%s%s\n' "${line% }" "${_ARGV_LOG_SUFFIX:-}" >> "$GH_STUB_ARGV_LOG"
+}
+
+_api_log() {
+  # #712: _argv_log plus the GH_HOST the call ran under.
+  local host="<unset>"
+  [ -n "${GH_HOST+x}" ] && host="$GH_HOST"
+  _ARGV_LOG_SUFFIX=" GH_HOST=$host" _argv_log "$@"
+}
+
+_api_path() {
+  # _api_path "$@" → the REST path: the first word after `api` that is neither
+  # a flag nor a flag's value, with any ?query stripped.
+  local a skip=0 p=""
+  shift
+  for a in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$a" in
+      --hostname|--jq|-H|-f|-F|--method|-X) skip=1 ;;
+      -*) ;;
+      *) p="$a"; break ;;
+    esac
+  done
+  printf '%s' "${p%%\?*}"
+}
+
+_events_serve() {
+  # _events_serve <name> <path> "$@" → the GH_STUB_EVENTS_DIR answer (#712).
+  local name="$1" path="$2" d rc; shift 2
+  d="${GH_STUB_EVENTS_DIR:-}"
+  [ -n "$d" ] || _assert_fail "new-verb call with GH_STUB_EVENTS_DIR unset: $path"
+  if [ "$name" != user ] && ! _has_flag --paginate -- "$@"; then
+    _assert_fail "api: $path without --paginate"
+  fi
+  [ -f "$d/$name.json" ] || _assert_fail "api: no $name.json for $path"
+  cat "$d/$name.json"
+  [ -f "$d/$name.err" ] && cat "$d/$name.err" >&2
+  rc=$(cat "$d/$name.rc" 2>/dev/null || echo 0)
+  exit "$rc"
 }
 
 _run_jq() {
@@ -291,6 +340,7 @@ case "$sub $sub2" in
 
   "api graphql")
     # code/github.sh issue-mrs (#704): one recorded response per call.
+    _api_log "$@"
     _q=0
     for _a in "$@"; do case "$_a" in query=?*) _q=1 ;; esac; done
     [ "$_q" = 1 ] || _assert_fail "api graphql: missing -f query=...: $*"
@@ -313,10 +363,20 @@ case "$sub $sub2" in
     # code/github.sh mr-comments (#592): `gh api … repos/<r>/pulls/<n>/comments…`
     # → no inline comments, through the caller's --jq.
     # code/github.sh branch-exists: `gh api repos/<repo>/branches/<branch>`
-    case " $* " in
-      *" repos/"*"/pulls/"*"/comments"*) _run_jq '[]' "$@" ;;
-      *) echo "{}" ;;
-    esac
+    # and `gh api repos/<repo>` → {}. #712: any other path fails (exit 3).
+    _api_log "$@"
+    _path=$(_api_path "$@")
+    if [[ "$_path" =~ ^repos/[^/]+/[^/]+/pulls/[^/]+/comments$ ]]; then
+      _run_jq '[]' "$@"
+    elif [[ "$_path" =~ ^repos/[^/]+/[^/]+/branches/.+$ ]] || [[ "$_path" =~ ^repos/[^/]+/[^/]+$ ]]; then
+      echo "{}"
+    elif [[ "$_path" =~ ^repos/[^/]+/[^/]+/issues/[^/]+/(events|comments)$ ]]; then
+      _events_serve "${BASH_REMATCH[1]}" "$_path" "$@"
+    elif [ "$_path" = user ]; then
+      _events_serve user "$_path" "$@"
+    else
+      _assert_fail "api: unknown path $_path"
+    fi
     ;;
 
   *)

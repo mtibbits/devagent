@@ -281,8 +281,10 @@ To add a new backend:
 
 ### Contract summary
 
-Every issue backend MUST implement five verbs and MAY implement `state-list`,
-`issue-list`, `state-exists` and `state-class` (spec §9.1):
+Every issue backend MUST implement `fetch`, `create`, `transition`, `state`
+and `comment-list`, and MAY implement `state-list`, `issue-list`,
+`state-exists`, `state-class`, `events`, `comment-records` and `whoami`
+(spec §9.1):
 
 | Verb           | Args                                            | Output / exit       |
 |----------------|-------------------------------------------------|---------------------|
@@ -295,9 +297,13 @@ Every issue backend MUST implement five verbs and MAY implement `state-list`,
 | `issue-list`   | `<repo>`                                        | one JSON record per issue (optional; read by `wbs init --from-tracker` and `--merge`; absent = exit 78, or 2) |
 | `state-exists` | `<repo> <state-name>`                           | exit 0 present, 4 absent, else undetermined (optional; read by `doctor`; absent = exit 78, or 2) |
 | `state-class`  | `<repo> <num>`                                  | one `<class>\t<reason>` line (optional; read by `mergemr` for a dependency; absent = exit 78, or 2) |
+| `events`       | `<repo> <num>`, or `--kinds <repo>`             | one six-field record per change, or one `<kind>\t<coverage>` line per kind (optional; no caller yet; absent = exit 78, or 2; spec §9.3.1) |
+| `comment-records` | `<repo> <num>`                               | one six-field record per comment (optional; no caller yet; absent = exit 78, or 2) |
+| `whoami`       | `<repo>`                                        | the credential's account id on the repo's host (optional; no caller yet; absent = exit 78, or 2) |
 
-Every code backend MUST implement five verbs and MAY implement `issue-mrs`,
-`mr-checks` and `mr-view` (spec §9.2):
+Every code backend MUST implement `push-branch`, `create-mr`, `mr-state`,
+`mr-comments` and `merge-mr`, and MAY implement `issue-mrs`, `mr-checks` and
+`mr-view` (spec §9.2):
 
 | Verb          | Args                                                          | Output / exit          |
 |---------------|---------------------------------------------------------------|------------------------|

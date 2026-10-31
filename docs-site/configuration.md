@@ -124,8 +124,9 @@ MYPROJ_DATA_ROOT = "~/src/myprojData"
 Backends are plain scripts; four issue backends ship out of the box
 (`github`, `gitlab`, `jira`, and a `custom` stub), and code backends for
 GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
-**issue backend** implements five verbs and may implement four more,
-`state-list`, `issue-list`, `state-exists` and `state-class`:
+**issue backend** implements `fetch`, `create`, `transition`, `state` and
+`comment-list`, and may implement `state-list`, `issue-list`,
+`state-exists`, `state-class`, `events`, `comment-records` and `whoami`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
@@ -138,6 +139,9 @@ GitHub and GitLab plus a `custom` stub (JIRA hosts issues only). Every
 | `issue-list` | `<repo>` | one JSON record per issue (optional) |
 | `state-exists` | `<repo> <state-name>` | exit 0 present, 4 absent (optional) |
 | `state-class` | `<repo> <num>` | one `<class>` TAB `<reason>` line (optional) |
+| `events` | `<repo> <num>`, or `--kinds <repo>` | one six-field record per change, or one `<kind>` TAB `<coverage>` line per kind (optional) |
+| `comment-records` | `<repo> <num>` | one six-field record per comment (optional) |
+| `whoami` | `<repo>` | the credential's account id on the repo's host (optional) |
 
 `transition` writes the tracker state the stage maps to: the
 `issue_workflow` value, unless a `github_labels` / `gitlab_labels` table
@@ -170,10 +174,15 @@ its state reason (e.g. `completed` or `not planned`; `-` for none); the merge st
 to decide whether a dependency is done. `issue-list` is what `wbs init --from-tracker`
 reads to build a new `WBS.md` from the tracker history, and what
 `wbs init --merge` reads to add the issues an existing one lacks; without
-it those commands stop. See spec §9.1.
+it those commands stop. `events`, `comment-records` and `whoami` are
+read-only records of who changed an issue and when, its comments with
+stable ids, and the configured credential's own account; GitHub implements
+them, GitLab and JIRA answer exit 2 until #900, and nothing reads them yet.
+See spec §9.1 and §9.3.1.
 
-Every **code backend** implements five verbs and may implement three more,
-`issue-mrs`, `mr-checks` and `mr-view`:
+Every **code backend** implements `push-branch`, `create-mr`, `mr-state`,
+`mr-comments` and `merge-mr`, and may implement `issue-mrs`, `mr-checks`
+and `mr-view`:
 
 | Verb | Args | Output / exit |
 |------|------|---------------|
