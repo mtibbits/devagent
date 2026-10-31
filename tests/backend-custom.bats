@@ -60,6 +60,26 @@ assert_not_implemented() {
   assert_not_implemented "$status" "$output"
 }
 
+@test "issue/custom.sh events exits 78 (#712)" {
+  run "$ISSUE" events foo/bar 1
+  assert_not_implemented "$status" "$output"
+}
+
+@test "issue/custom.sh events --kinds exits 78 (#712)" {
+  run "$ISSUE" events --kinds foo/bar
+  assert_not_implemented "$status" "$output"
+}
+
+@test "issue/custom.sh comment-records exits 78 (#712)" {
+  run "$ISSUE" comment-records foo/bar 1
+  assert_not_implemented "$status" "$output"
+}
+
+@test "issue/custom.sh whoami exits 78 (#712)" {
+  run "$ISSUE" whoami foo/bar
+  assert_not_implemented "$status" "$output"
+}
+
 @test "code/custom.sh push-branch exits 78" {
   run "$CODE" push-branch origin feat/x
   assert_not_implemented "$status" "$output"
