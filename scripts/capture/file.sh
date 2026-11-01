@@ -10,6 +10,8 @@ source "${SCRIPT_DIR}/lib/paths.sh"
 source "${SCRIPT_DIR}/lib/draft.sh"
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/../lib/trust.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/permission.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -72,14 +74,40 @@ EOF
 fi
 trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
 
+# #713: under a trust policy in scope the policy decides. Its `file` gate
+# replaces push_mr (DEVAGENT_PERMISSION_PUSH_MR is ignored), --yes is refused,
+# and the backend and repos come from the project's config — the
+# DEVAGENT_ISSUE_BACKEND* / DEVAGENT_REPO_* env is overwritten, never read.
+gate_name=push_mr
+if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
+  [[ "${YES}" -ne 1 ]] || refuse yes-refused
+  gate_name="file"
+  DEVAGENT_PERMISSION_PUSH_MR="$(permission_value "${TRUST_PROJECT}" file)"
+  DEVAGENT_ISSUE_BACKEND_DIR="$(plugin_root)/scripts/issue"
+  _section=issue_source
+  [[ "${TARGET}" == fork ]] && _section=issue_source_fork
+  DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${TRUST_PROJECT}" "${_section}.backend" 2>/dev/null || true)"
+  DEVAGENT_REPO_ORIGIN="$(config_get_project_field "${TRUST_PROJECT}" issue_source.repo 2>/dev/null || true)"
+  DEVAGENT_REPO_FORK="$(config_get_project_field "${TRUST_PROJECT}" issue_source_fork.repo 2>/dev/null || true)"
+  [[ -n "${DEVAGENT_ISSUE_BACKEND}" ]] || { echo "${_section}.backend not configured for ${TRUST_PROJECT}" >&2; exit 2; }
+fi
+
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
 if [[ "${gate}" != "true" && "${YES}" -ne 1 ]]; then
   case "${TARGET}" in
     origin) _repo="${DEVAGENT_REPO_ORIGIN:-<not set>}" ;;
     fork)   _repo="${DEVAGENT_REPO_FORK:-<not set>}" ;;
   esac
+  if [[ "${gate_name}" == file ]]; then
+    _gate_line="Permission gate: file=${gate} (trust policy)"
+    _remedy="The trust policy's file gate is closed; only the policy (${TRUST_FILE}) can open it."
+  else
+    _gate_line="Permission gate: push_mr=${gate}"
+    _remedy="Re-run with --yes to proceed, or set
+[project.<name>.permissions].push_mr = true in config.toml."
+  fi
   cat >&2 <<EOF
-Permission gate: push_mr=${gate}
+${_gate_line}
 
 Plan:
   backend: ${DEVAGENT_ISSUE_BACKEND:-github}
@@ -87,8 +115,7 @@ Plan:
   title:   $(head -n1 "${draft}" | sed 's/^# *//')
   body:    ${draft}
 
-Re-run with --yes to proceed, or set
-[project.<name>.permissions].push_mr = true in config.toml.
+${_remedy}
 EOF
   exit 4
 fi

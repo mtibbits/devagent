@@ -88,3 +88,10 @@ _exit_rows() {
   [ "$status" -eq 9 ]
   [[ "$stderr" == *"trust: unknown refusal id 'no-such-id'"* ]]
 }
+
+@test "registry: every detail formats cleanly (a leading -- is not an option)" {
+  run --separate-stderr bash -c "source '$REFUSALS'; for id in \"\${!TRUST_REFUSAL_DETAIL[@]}\"; do _trust_detail \"\$id\" a b; echo; done"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "" ]
+  [[ "$output" == *"--yes is refused under a trust policy; the policy's file gate decides"* ]]
+}

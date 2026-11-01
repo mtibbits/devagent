@@ -287,7 +287,7 @@ trust_entry_check_devdoc() {
 # shellcheck disable=SC2034  # TRUST_IN_SCOPE is read by permission.sh (#713 task 7)
 trust_entry_check() {
   local caller="$1" project="${2:-}" source="${3:-}"
-  TRUST_IN_SCOPE=0 TRUST_WHOAMI=""
+  TRUST_IN_SCOPE=0 TRUST_WHOAMI="" TRUST_PROJECT="$project"
   trust_locate_host || refuse policy-defect "$TRUST_DIR" "$TRUST_DEFECT"
   [ "$TRUST_HOST" = 1 ] || return 0
   [ -n "$project" ] || refuse scope-unresolved "$caller"

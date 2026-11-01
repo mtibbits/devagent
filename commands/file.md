@@ -30,7 +30,9 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
    `2` usage/bad `--target` · `3` draft or state problem (e.g. missing
    `draft.md`, already filed, stale `.pending`, no H1 title, backend
-   failure) · `4` `push_mr` gate closed.
+   failure) · `4` `push_mr` gate closed · `9` refused by a trust policy
+   (#713: under a policy in scope the policy's `file` gate decides, `--yes`
+   is refused, and the backend and repo come from config; stop and report).
 
 4. On success, print the returned URL and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.

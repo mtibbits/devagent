@@ -127,7 +127,7 @@ _repo_of() {
 
 # _commit_devdoc_raw — the operator's flag, read RAW (no gate; DA_YES cannot
 # stand in for it).
-_commit_devdoc_raw() { config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false; }
+_commit_devdoc_raw() { permission_value "$project" commit_devdoc; }   # #713: the policy alone under trust
 
 # Citation-STRIPPED body of a line — the WHOLE multi-token suffix (a token may
 # legitimately carry the project; the body may not).

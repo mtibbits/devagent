@@ -24,6 +24,8 @@ source "$SCRIPT_DIR/lib/active.sh"
 source "$SCRIPT_DIR/lib/template_resolve.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/permission.sh"
 
 no_pin=0
 window_weeks=4
@@ -51,7 +53,7 @@ active_guard_scope statusreport
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "statusreport: devdoc_dir not configured for $project"
 trust_entry_check "statusreport" "$project"
-commit_devdoc="$(config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false)"
+commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
 # [project.<name>.paths].statusreport_template override (layer 1) is honored — not

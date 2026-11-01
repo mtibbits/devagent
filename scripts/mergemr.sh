@@ -35,6 +35,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 
 _die() { printf '%s\n' "$*" >&2; exit 1; }
 
@@ -47,7 +49,7 @@ config_is_project "$project" || die "unknown project '$project'"
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
 merge_ok=0
-_mm="$(config_get_project_field "$project" permissions.merge_mr 2>/dev/null || true)"
+_mm="$(permission_value "$project" merge_mr)"   # #713: the policy alone under trust; never merge_to_all_prs
 [ "${_mm//$'\r'/}" = true ] && merge_ok=1
 
 issue_arg="${2:-}"

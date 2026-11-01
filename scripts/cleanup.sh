@@ -220,7 +220,7 @@ log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ —
     warn "cleanup: wbs reconcile failed (non-fatal)"
 
 # Commit + push devdoc if permitted.
-commit_devdoc="$(config_get_project_field "$project" "permissions.commit_devdoc" 2>/dev/null || echo false)"
+commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
 if [ "$commit_devdoc" = "true" ]; then
     plan="cleanup plan: commit + push devdoc updates for $issue_arg"
     permission_gate "$project" commit_devdoc "$plan"

@@ -113,8 +113,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/capture/file.sh" --slug <slug> --target orig
 not retry, and report the draft as ready-to-file (gate-closed) in the
 manifest — noting that `file.sh` runs its post-gate validations (H1 title,
 repo config) only after the gate, so a gate-closed draft has not yet passed
-them. Exit 3 (draft or state problem) and exit 2 (usage) are errors, not
-gate closures — report them as such.
+them. Exit 9 (a trust policy refused — the host, identity or `--yes`, #713)
+and exit 10 (a trust check could not run) halt the same way: stop, do not
+retry, and report the refusal line verbatim. Exit 3 (draft or state problem)
+and exit 2 (usage) are errors, not gate closures — report them as such.
 
 Filing/processing order is your discretion, with one dependency: an epic
 must be filed before any promoted child's `Parent epic:` line can carry a

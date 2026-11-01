@@ -52,7 +52,7 @@ _trust_detail() {
     return 0
   fi
   # shellcheck disable=SC2059  # fmt is a registry entry, never caller text
-  printf "$fmt" "$@"
+  printf -- "$fmt" "$@"
 }
 
 # refuse <id> [args…]: a host-level refusal — stderr, exit 9.
