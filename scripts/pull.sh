@@ -278,6 +278,13 @@ trust_entry_check "pull" "$project" "$source"
   # Mark step 0 done; log
   checklist_mark_by_name "$issue_dir/checklist.md" pull x
   log_append "$issue_dir" "pull" "fetched ${repo}#${num}, scaffold created"
+  # #713: under a trust policy in scope, the run record names the policy.
+  if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
+    local trust_rec
+    trust_rec="$(trust_run_record "$backend" "$repo" "$num")"
+    log_append "$issue_dir" "pull" "$trust_rec"
+    info "$trust_rec"
+  fi
 
   # Promote to active issue. If this displaces a different in-flight issue,
   # snapshot its per-issue context first (it may not have been parked), then

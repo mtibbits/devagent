@@ -105,7 +105,7 @@ _snap() {
 _argv_for() {
   case "$1" in
     pull)                        ARGS=(wid origin 7) ;;
-    next|ship|cleanup|mergetoall|mergemr|comments|sync|transition-draft-start|park|unstuck|commit|branch|wbs-update|statusreport)
+    next|ship|cleanup|mergetoall|mergemr|comments|sync|transition-draft-start|park|unstuck|commit|branch|wbs-update|statusreport|doctor)
                                  ARGS=(wid) ;;
     capture/file)                ARGS=(--slug idea --target origin) ;;
     resume|switch)               ARGS=(wid Issue-8) ;;
@@ -138,13 +138,13 @@ _lib() {
   while IFS= read -r f; do
     f="${f#"$PLUGIN_ROOT/scripts/"}"
     found+=("${f%.sh}")
-  done < <(grep -rlE --include='*.sh' '^trust_entry_check(_devdoc)? "' "$PLUGIN_ROOT/scripts" | sort)
+  done < <(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts" | sort)
   want="$(printf '%s\n' "${TRUST_ENTRY_POINTS[@]}" | sort)"
   missing="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
   extra="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "${found[@]}" | sort))"
   [ -z "$missing" ] || { echo "in TRUST_ENTRY_POINTS but no call: $missing" >&2; return 1; }
   [ -z "$extra" ] || { echo "calls trust_entry_check but not in TRUST_ENTRY_POINTS: $extra" >&2; return 1; }
-  [ "${#found[@]}" -ge 29 ] || { echo "only ${#found[@]} callers" >&2; return 1; }
+  [ "${#found[@]}" -ge 30 ] || { echo "only ${#found[@]} callers" >&2; return 1; }
 }
 
 @test "entry-points: each refuses with 9 when whoami is a trusted id" {
@@ -166,6 +166,8 @@ _lib() {
     fi
     calls=""
     [ ! -f "$GH_STUB_ARGV_LOG" ] || calls="$(grep -vE -- "$WHOAMI_RE" "$GH_STUB_ARGV_LOG" || true)"
+    # doctor alone also asks `gh auth status` (its multi-account warning).
+    [ "$ep" != doctor ] || calls="$(grep -vE '^\[auth\] \[status\] \[--hostname\] \[github\.com\]' <<<"$calls" || true)"
     if [ -n "$calls" ]; then
       echo "$ep: calls beyond whoami: $calls" >&2
       fails=$((fails + 1))

@@ -31,14 +31,16 @@ TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 
 # Every script that calls trust_entry_check (or trust_entry_check_devdoc), by
 # its path under scripts/ minus .sh — the #713 Task 1 census (the issue's set
-# plus wbs-update and statusreport). tests/trust-entry.bats holds this list
+# plus wbs-update and statusreport; doctor, whose call is trust_doctor_block).
+# tests/trust-entry.bats holds this list
 # equal to the callers in both directions. #720 adds sign.
+# shellcheck disable=SC2034  # read by tests/trust-entry.bats
 TRUST_ENTRY_POINTS=(
   pull next ship cleanup mergetoall mergemr comments capture/file sync
   transition-draft-start park resume switch stuck unstuck revise
   checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
   checklist-unstuck commit branch spike promote-potholes
-  migrate-checklist-numbering wbs-update statusreport
+  migrate-checklist-numbering wbs-update statusreport doctor
 )
 
 _TRUST_KINDS=" digest file scope id val "
@@ -236,6 +238,136 @@ trust_hardening() {
   fi
   if _trust_signatures_met; then TRUST_HARD_MET+=(signatures); else TRUST_HARD_MISSING+=(signatures); fi
   if _trust_system_policy_met; then TRUST_HARD_MET+=(system_policy); else TRUST_HARD_MISSING+=(system_policy); fi
+}
+
+# _trust_hard_list <name>…: a comma list for humans, system_policy marked.
+_trust_hard_list() {
+  local out="" n
+  for n in "$@"; do
+    [ "$n" = system_policy ] && n="system_policy (unverified)"
+    out+="${out:+, }$n"
+  done
+  printf '%s' "${out:-none}"
+}
+
+# trust_run_record <backend> <repo> <num>: pull's run-record line (after
+# trust_entry_check and trust_hardening): the digest, the issue key, the
+# hardenings met and missing, and a shadowed user policy.
+trust_run_record() {
+  local key met missing
+  key="$(trust_issue_key "$1" "$2" "$3" 2>/dev/null || echo "?")"
+  met="$(IFS=,; echo "${TRUST_HARD_MET[*]}")"
+  missing="$(IFS=,; echo "${TRUST_HARD_MISSING[*]}")"
+  missing="${missing/system_policy/system_policy(unverified)}"
+  printf 'trust: policy %s key %s hardening met=%s missing=%s%s\n' "$TRUST_DIGEST" "$key" \
+    "${met:-none}" "${missing:-none}" "${TRUST_USER_IGNORED:+ user-ignored=$TRUST_USER_IGNORED}"
+}
+
+# trust_report: doctor's trust block, one `<ok|warn|fail>\t<label>\t<detail>`
+# line per finding. Call bare, only when trust_locate_host found a policy; it
+# never exits. SETTER-GLOBAL TRUST_REPORT_RC (0, 9 or 10) and
+# TRUST_REPORT_REFUSAL (the refuse/try_later call doctor makes after printing
+# the block). Unlike an entry point it checks every scope (whoami per scope
+# repo) and asks `gh auth status` per GitHub host — doctor only, never on the
+# entry-point path.
+# shellcheck disable=SC2034  # TRUST_REPORT_REFUSAL is run by doctor.sh
+trust_report() {
+  TRUST_REPORT_RC=0 TRUST_REPORT_REFUSAL=() TRUST_WHOAMI=""
+  local d
+  for d in "${TRUST_EMPTY_DIRS[@]}"; do printf 'warn\ttrust location\tempty %s\n' "$d"; done
+  if [ -n "$TRUST_DEFECT" ]; then
+    printf 'fail\ttrust policy\t%s\n' "$TRUST_DEFECT"
+    TRUST_REPORT_RC=9 TRUST_REPORT_REFUSAL=(refuse policy-defect "$TRUST_DIR" "$TRUST_DEFECT")
+    return 0
+  fi
+  [ -z "$TRUST_USER_IGNORED" ] || printf 'warn\ttrust location\t%s\n' "$(_trust_detail user-ignored "$TRUST_USER_IGNORED")"
+  local err rc=0 reason
+  err="$(mktemp)"
+  ( trust_load ) 2>"$err" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    reason="$(sed -n 's/^.*: trust: policy [^:]*: \(.*\) — host-level refusal.*$/\1/p' "$err" | head -n 1)"
+    rm -f "$err"
+    printf 'fail\ttrust policy\t%s\n' "${reason:-the policy did not load}"
+    TRUST_REPORT_RC=9 TRUST_REPORT_REFUSAL=(refuse policy-defect "$TRUST_DIR/policy.toml" "${reason:-the policy did not load}")
+    return 0
+  fi
+  rm -f "$err"
+  trust_load
+  printf 'ok\ttrust policy\t%s %s %s\n' "$TRUST_SOURCE" "$TRUST_FILE" "$TRUST_DIGEST"
+
+  local key backend target host out id set bad hosts=()
+  for key in "${TRUST_SCOPES[@]}"; do
+    backend="${key%%:*}" target="${key#*:}" host="${target%%/*}"
+    [ "$backend" = github ] && [[ " ${hosts[*]} " != *" $host "* ]] && hosts+=("$host")
+    rc=0
+    out="$("$(transition_backend_sh "$backend")" whoami "$target" 2>/dev/null)" || rc=$?
+    id="${out//$'\r'/}" bad=()
+    case "$rc" in
+      0) [[ "$id" =~ ^[^[:space:]]+$ ]] || bad=(refuse whoami-failed "$target" "$rc") ;;
+      2|78) bad=(refuse whoami-unsupported "$backend" "$rc") ;;
+      75) bad=(try_later whoami-unavailable "$host" "$rc") ;;
+      *) bad=(refuse whoami-failed "$target" "$rc") ;;
+    esac
+    if [ "${#bad[@]}" -eq 0 ]; then
+      id="$backend:$id"
+      if [ "${TRUST_VAL[single_identity]:-false}" != true ]; then
+        for set in "${_TRUST_TRUSTED_SETS[@]}"; do
+          if [ -n "${TRUST_ID["$set|$id"]:-}" ]; then bad=(refuse trusted-worker "$id" "$set"); break; fi
+        done
+      fi
+      [ "${#bad[@]}" -gt 0 ] || [ -n "${TRUST_ID["worker_identities|$id"]:-}" ] || bad=(refuse not-worker "$id")
+    else
+      id="?"
+    fi
+    if [ "${#bad[@]}" -eq 0 ]; then
+      TRUST_WHOAMI="$id"
+      printf 'ok\ttrust whoami %s on %s\tin worker_identities; single_identity=%s\n' "$id" "$key" "${TRUST_VAL[single_identity]:-false}"
+    else
+      printf 'fail\ttrust whoami %s on %s\t%s\n' "$id" "$key" "$(_trust_detail "${bad[@]:1}")"
+      if [ "$TRUST_REPORT_RC" -eq 0 ]; then
+        TRUST_REPORT_REFUSAL=("${bad[@]}")
+        TRUST_REPORT_RC=9
+        [ "${bad[0]}" = try_later ] && TRUST_REPORT_RC=10
+      fi
+    fi
+  done
+  # a failed identity check means separate_identity is not met.
+  [ "$TRUST_REPORT_RC" -eq 0 ] || TRUST_WHOAMI=""
+
+  trust_hardening
+  local m unmet=""
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    [[ " ${TRUST_HARD_MISSING[*]} " == *" $m "* ]] && unmet="$m"
+  done < <(_trust_list "${TRUST_VAL[required_hardening]:-[]}")
+  if [ -n "$unmet" ]; then
+    printf 'fail\ttrust hardening\t%s\n' "$(_trust_detail hardening-unmet "$unmet" "${TRUST_HARD_WHY[$unmet]}")"
+    if [ "$TRUST_REPORT_RC" -eq 0 ]; then
+      TRUST_REPORT_RC=9 TRUST_REPORT_REFUSAL=(refuse hardening-unmet "$unmet" "${TRUST_HARD_WHY[$unmet]}")
+    fi
+  elif [ "${#TRUST_HARD_MISSING[@]}" -gt 0 ]; then
+    printf 'warn\ttrust hardening\tmet: %s; not met: %s\n' \
+      "$(_trust_hard_list "${TRUST_HARD_MET[@]}")" "$(_trust_hard_list "${TRUST_HARD_MISSING[@]}")"
+  else
+    printf 'ok\ttrust hardening\tmet: %s\n' "$(_trust_hard_list "${TRUST_HARD_MET[@]}")"
+  fi
+
+  local v
+  for v in GH_TOKEN GITHUB_TOKEN; do
+    [ -z "${!v:-}" ] || printf 'warn\ttrust credentials\t%s is set: gh uses it ahead of the keyring account whoami checks\n' "$v"
+  done
+  local n
+  for host in "${hosts[@]}"; do
+    n="$(gh auth status --hostname "$host" 2>&1 | grep -c 'Logged in to' || true)"
+    [ "${n:-0}" -le 1 ] || printf 'warn\ttrust gh accounts\t%s accounts on %s: gh may switch the active one\n' "$n" "$host"
+  done
+  if [ -n "${GH_HOST:-}" ] && [ "$GH_HOST" != github.com ]; then
+    printf 'warn\ttrust host\tGH_HOST=%s (not github.com)\n' "$GH_HOST"
+  fi
+  if [ -n "${GITLAB_HOST:-}" ] && [ "$GITLAB_HOST" != gitlab.com ]; then
+    printf 'warn\ttrust host\tGITLAB_HOST=%s (not gitlab.com)\n' "$GITLAB_HOST"
+  fi
+  return 0
 }
 
 # trust_project_for_devdoc <dir>: the one config project whose devdoc_dir is

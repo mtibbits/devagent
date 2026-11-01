@@ -19,6 +19,8 @@ source "$PLUGIN_ROOT/scripts/lib/transition.sh"   # #710: the tracker stage mapp
 # source-set off DEVAGENT_ROOT — pinned to the plugin so an ambient/other-lib value cannot redirect it.
 DEVAGENT_ROOT="$PLUGIN_ROOT"
 source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"   # #713: the trust block
 
 declare -i ERRORS=0
 
@@ -319,11 +321,30 @@ check_one_project() {
   fi
 }
 
+# trust_doctor_block <caller> (#713): with a trust policy on the host, its
+# report as the first global block (ok lines carry their detail in the label,
+# since check prints no detail for ok); then any host-level refusal exits 9
+# (or 10) before the per-project checks. No policy: [ -e ] / [ -L ] only.
+trust_doctor_block() {
+  local f st label detail
+  trust_locate_host || true
+  [[ "$TRUST_HOST" == 1 ]] || return 0
+  f="$(mktemp)"
+  trust_report > "$f"
+  while IFS=$'\t' read -r st label detail; do
+    if [[ "$st" == ok ]]; then check "$label${detail:+ — $detail}" ok; else check "$label" "$st" "$detail"; fi
+  done < "$f"
+  rm -f "$f"
+  echo
+  if (( TRUST_REPORT_RC != 0 )); then "${TRUST_REPORT_REFUSAL[@]}"; fi
+}
+
 # ---- main ----------------------------------------------------------------
 
 echo "devagent doctor — $(date -Iseconds)"
 echo "home: $(devagent_home)"
 echo
+trust_doctor_block "doctor"
 
 # Global checks
 if [[ -f "$(config_path)" ]]; then
