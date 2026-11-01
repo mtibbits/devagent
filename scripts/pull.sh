@@ -24,6 +24,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"
 source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/flags.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -57,6 +59,7 @@ main() {
 
   local issue_id="${dir_prefix}${num}"
   local issue_dir="${devdoc%/}/${issue_id}"
+trust_entry_check "pull" "$project" "$source"
   mkdir -p "$issue_dir"
 
   # Fetch issue body
