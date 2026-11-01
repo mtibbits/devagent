@@ -74,15 +74,15 @@ EOF
 fi
 trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
 
-# #713: under a trust policy in scope the policy decides. Its `file` gate
-# replaces push_mr (DEVAGENT_PERMISSION_PUSH_MR is ignored), --yes is refused,
-# and the backend and repos come from the project's config — the
-# DEVAGENT_ISSUE_BACKEND* / DEVAGENT_REPO_* env is overwritten, never read.
+# #713: with a trust policy on the host, the backend and repos come from the
+# config of the project that owns DEVAGENT_DEVDOC_DIR — the one the scope was
+# decided for — whether or not it is in scope; the DEVAGENT_ISSUE_BACKEND* /
+# DEVAGENT_REPO_* env is overwritten, never read (an unscoped devdoc must not
+# file onto a scoped repo). In scope the policy also decides the gate: its
+# `file` gate replaces push_mr (DEVAGENT_PERMISSION_PUSH_MR is ignored) and
+# --yes is refused.
 gate_name=push_mr
-if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
-  [[ "${YES}" -ne 1 ]] || refuse yes-refused
-  gate_name="file"
-  DEVAGENT_PERMISSION_PUSH_MR="$(permission_value "${TRUST_PROJECT}" file)"
+if [[ "${TRUST_HOST:-0}" == 1 ]]; then
   DEVAGENT_ISSUE_BACKEND_DIR="$(plugin_root)/scripts/issue"
   _section=issue_source
   [[ "${TARGET}" == fork ]] && _section=issue_source_fork
@@ -90,6 +90,11 @@ if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
   DEVAGENT_REPO_ORIGIN="$(config_get_project_field "${TRUST_PROJECT}" issue_source.repo 2>/dev/null || true)"
   DEVAGENT_REPO_FORK="$(config_get_project_field "${TRUST_PROJECT}" issue_source_fork.repo 2>/dev/null || true)"
   [[ -n "${DEVAGENT_ISSUE_BACKEND}" ]] || { echo "${_section}.backend not configured for ${TRUST_PROJECT}" >&2; exit 2; }
+fi
+if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
+  [[ "${YES}" -ne 1 ]] || refuse yes-refused
+  gate_name="file"
+  DEVAGENT_PERMISSION_PUSH_MR="$(permission_value "${TRUST_PROJECT}" file)"
 fi
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"

@@ -265,6 +265,11 @@ def normalise(raw: dict) -> dict:
         raise Defect("worker_identities must be non-empty")
     if not pol.get("scopes"):
         raise Defect("scopes must be non-empty")
+    # a jira source is keyed on trackers.jira.base_url; without it no jira
+    # project could ever match, and the scope would silently mean "trust off".
+    if any(s.startswith("jira:") for s in pol["scopes"]) \
+            and not pol.get("trackers", {}).get("jira", {}).get("base_url"):
+        raise Defect("a jira scope needs trackers.jira.base_url")
     if not pol["single_identity"]:
         workers = set(pol["worker_identities"])
         for s in TRUSTED_SETS:

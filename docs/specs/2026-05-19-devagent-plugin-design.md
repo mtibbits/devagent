@@ -442,9 +442,17 @@ under `devagent_home`, the plugin root, or any project's `devdoc_dir`,
 
 **Scope.** `scopes` lists exact repo keys. A project is in scope when the
 canonical key of its `issue_source` or `issue_source_fork` equals one; an
-owner-level prefix is not legal. No config edit turns trust off: a fresh
-`DA_HOME`, an alias project naming the same repo, or trust-shaped config keys
-all leave it on. The canonical key is `<backend>:<host>/<path>`, lowercased
+owner-level prefix is not legal. A fresh `DA_HOME`, an alias project naming
+the same repo, trust-shaped config keys, a backend name in another case, or a
+non-built-in backend name on a scoped repo (refused, `scope-unkeyable`) all
+leave trust on; a built-in source that cannot be keyed refuses. A bare github
+`OWNER/REPO` is keyed on every host its calls can reach — `github.com`,
+`GH_HOST` and `trackers.github.host` — and is in scope if any key matches. A
+jira scope requires `trackers.jira.base_url`. Scope is keyed on the issue
+sources only: the code host a project pushes to (its `source_dir` remote) is
+not yet scoped, so editing `issue_source.repo` away from a scope still turns
+trust off for that project's pushes — `authorized_repos` (#718, outward writes) is
+where the code-host side is bound. The canonical key is `<backend>:<host>/<path>`, lowercased
 for github/gitlab (`.git` and a trailing `/` stripped; JIRA `KEY` uppercased),
 with an issue suffix `#<n>` (github/gitlab) or `-<n>` (jira): for example
 `github:github.com/mtibbits/devagent#705`, `jira:example.atlassian.net/PROJ-12`.

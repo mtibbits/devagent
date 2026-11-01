@@ -213,3 +213,16 @@ EOF
   [ ! -s "$GH_STUB_ARGV_LOG" ]
   [ ! -e "$DEVDOC/Captures/idea/.pending" ]
 }
+
+@test "entry-points: no gate is read before the entry check" {
+  # A gate read before trust_entry_check sees config, not the policy (the
+  # mergemr fail-open the #713 review found): in every entry point the column-0
+  # check comes before the first permission_value / permission_gate call.
+  local f check gate bad=""
+  for f in $(grep -rlE --include='*.sh' '^trust_(entry_check(_devdoc)?|doctor_block) "' "$PLUGIN_ROOT/scripts"); do
+    check="$(grep -nE '^trust_(entry_check(_devdoc)?|doctor_block) "' "$f" | head -n 1 | cut -d: -f1)"
+    gate="$(grep -nE '(permission_value|permission_gate) "' "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | head -n 1 | cut -d: -f1)"
+    if [ -n "$gate" ] && [ "$gate" -lt "$check" ]; then bad+=" ${f#"$PLUGIN_ROOT"/}:$gate<$check"; fi
+  done
+  [ -z "$bad" ] || { echo "gate read before the check:$bad" >&2; false; }
+}

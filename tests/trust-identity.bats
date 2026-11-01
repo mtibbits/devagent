@@ -365,3 +365,63 @@ EOF
   run bash -c "HOME='$BATS_TEST_TMPDIR/clean'; . '$PLUGIN_ROOT/tests/lib/hermetic-env.bash'"
   [ "$status" -eq 0 ]
 }
+
+# --- scope keying cannot fall open (the #713 review, items 3-5)
+
+# _scope_of <backend> <repo> [policy lines…]: trust_project_scope for a project
+# `p` with that issue_source, in a subshell (a refusal exits it).
+_scope_of() {
+  local backend="$1" repo="$2"
+  shift 2
+  _wid
+  printf '%s\n' '[project.p]' "source_dir = \"$BATS_TEST_TMPDIR/p\"" "devdoc_dir = \"$BATS_TEST_TMPDIR/pdoc\"" '' \
+    '[project.p.issue_source]' "backend = \"$backend\"" "repo = \"$repo\"" 'dir_prefix = "Issue-"' \
+    > "$DA_HOME/config.toml"
+  trust_fixture_policy "$POL" "$@"
+  run --separate-stderr bash -c "
+    source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'
+    source '$PLUGIN_ROOT/scripts/lib/config.sh'; source '$PLUGIN_ROOT/scripts/lib/trust.sh'
+    trust_locate --user '$POL'; trust_load
+    if trust_project_scope p; then echo \"IN \${TRUST_SCOPE_KEYS[*]}\"; else echo OUT; fi"
+}
+
+@test "scope: a backend name in another case still keys" {
+  _scope_of GitHub acme/widgets "$SCOPE" 'worker_identities = ["github:1001"]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "IN github:github.com/acme/widgets" ]
+}
+
+@test "scope: a non-built-in backend whose repo matches a scope refuses" {
+  _scope_of mygh acme/widgets "$SCOPE" 'worker_identities = ["github:1001"]'
+  [ "$status" -eq 9 ]
+  [[ "$stderr" == *"trust: the mygh source acme/widgets of project p cannot be keyed against the policy"* ]]
+  # positive control: a custom backend on an unscoped repo stays out of scope.
+  _scope_of custom someone/else "$SCOPE" 'worker_identities = ["github:1001"]'
+  [ "$status" -eq 0 ]
+  [ "$output" = OUT ]
+}
+
+@test "scope: a malformed github repo under a policy refuses" {
+  _scope_of github not-a-repo "$SCOPE" 'worker_identities = ["github:1001"]'
+  [ "$status" -eq 9 ]
+  [[ "$stderr" == *"the github source not-a-repo of project p cannot be keyed"* ]]
+}
+
+@test "scope: a bare repo is keyed on every host its calls can reach" {
+  # GH_HOST names the host the backend's bare-repo calls go to.
+  GH_HOST=ghe.corp _scope_of github acme/widgets 'scopes = ["github:ghe.corp/acme/widgets"]' 'worker_identities = ["github:1001"]'
+  [ "$status" -eq 0 ]
+  [ "$output" = "IN github:ghe.corp/acme/widgets" ]
+  # a tracker pin does not hide github.com, where calls go with GH_HOST unset.
+  _scope_of github acme/widgets "$SCOPE" 'worker_identities = ["github:1001"]' 'trackers = { github = { host = "ghe.corp" } }'
+  [ "$status" -eq 0 ]
+  [ "$output" = "IN github:github.com/acme/widgets" ]
+}
+
+@test "identity: GH_HOST naming a scoped host refuses a bare repo (gh-host-bare)" {
+  _wid
+  export GH_HOST=ghe.corp
+  trust_fixture_policy "$POL" 'scopes = ["github:ghe.corp/acme/widgets"]' 'worker_identities = ["github:1001"]'
+  _pull
+  _refused 9 "GH_HOST is set and acme/widgets is a bare OWNER/REPO"
+}

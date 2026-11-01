@@ -3,6 +3,8 @@
 # replay a golden (an empty location dir, an out-of-scope project). Load after
 # lib/bats-helpers, lib/doctor-harness and helpers/common.
 
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
+
 GOLDEN_DIR="$PLUGIN_ROOT/tests/fixtures/trust-golden"
 
 # _golden_norm: stdin → stdout with the run's tmp roots and timestamps tokenised.

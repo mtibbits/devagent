@@ -48,9 +48,6 @@ config_is_project "$project" || die "unknown project '$project'"
 # turns merging on (fail closed, Issue-780). Both are setter-globals: call bare.
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
-merge_ok=0
-_mm="$(permission_value "$project" merge_mr)"   # #713: the policy alone under trust; never merge_to_all_prs
-[ "${_mm//$'\r'/}" = true ] && merge_ok=1
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -64,6 +61,12 @@ fi
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
 trust_entry_check "mergemr" "$project"
+# Read only after the entry check: under a trust policy in scope the policy
+# alone decides (#713), and a read before the check would see config. Never
+# merge_to_all_prs.
+merge_ok=0
+_mm="$(permission_value "$project" merge_mr)"
+[ "${_mm//$'\r'/}" = true ] && merge_ok=1
 cl="$issue_dir/checklist.md"
 
 self_num="$(checklist_step_num_by_name "$cl" mergemr)" || _die "mergemr: no mergemr row in $cl"

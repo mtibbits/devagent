@@ -33,6 +33,7 @@ declare -gA TRUST_REFUSAL_DETAIL=(
   [gh-host-bare]='GH_HOST is set and %s is a bare OWNER/REPO; a trusted scope needs a host-qualified repo'
   [transition-off]='permissions.transition_issue is not true for project %s; trust needs the quarantine and claim writes'
   [scope-unresolved]='%s could not resolve a project, so its trust scope is unknown'
+  [scope-unkeyable]='the %s source %s of project %s cannot be keyed against the policy (%s)'
   [yes-refused]='--yes is refused under a trust policy; the policy'"'"'s file gate decides'
   [user-ignored]='a user-level policy at %s is ignored: a system policy exists'
 )

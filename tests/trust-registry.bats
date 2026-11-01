@@ -73,10 +73,10 @@ _exit_rows() {
   local id want
   for id in policy-defect whoami-failed whoami-unavailable whoami-unsupported not-worker \
             trusted-worker hardening-unmet gh-host-bare transition-off scope-unresolved \
-            yes-refused user-ignored; do
+            scope-unkeyable yes-refused user-ignored; do
     [ -n "${TRUST_REFUSAL_DETAIL[$id]:-}" ] || { echo "no detail for $id" >&2; false; }
   done
-  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 12 ]
+  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 13 ]
   for id in "${!TRUST_REFUSAL_DETAIL[@]}"; do
     want=9; [ "$id" = whoami-unavailable ] && want=10
     [ "$(trust_refusal_code "$id")" = "$want" ] || { echo "$id code" >&2; false; }

@@ -1,6 +1,8 @@
 # tests/lib/trust-fixture.bash — shared trust-policy fixtures (#713).
 # Load after lib/bats-helpers.
 
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
+
 TRUST_PY="$PLUGIN_ROOT/scripts/lib/trust_policy.py"
 
 # The smallest valid policy: one exact repo scope and one worker id.

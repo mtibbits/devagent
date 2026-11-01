@@ -78,7 +78,7 @@ _in_scope() {
   [ "$status" -eq 0 ]
   # every code line elsewhere; doctor's advisory merge_mr/merge_to_all_prs
   # migration hint (never a gate) is the one allow-listed reader.
-  run bash -c "grep -rnE '$re' '$PLUGIN_ROOT/scripts' | grep -v '/scripts/lib/permission.sh:' | grep -vE ':[0-9]+:[[:space:]]*#' | grep -v '/scripts/doctor.sh:'"
+  run bash -c "grep -rnE '$re' '$PLUGIN_ROOT/scripts' | grep -v '/scripts/lib/permission.sh:' | grep -vE ':[0-9]+:[[:space:]]*#' | grep -vE '/scripts/doctor[.]sh:'"
   [ "$output" = "" ] || { echo "direct gate reads: $output" >&2; false; }
 }
 
@@ -146,5 +146,32 @@ EOF2
   [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
   grep -q -- '--repo acme/widgets' "$GH_STUB_ARGS_LOG"
   run grep -c 'evil/repo' "$GH_STUB_ARGS_LOG"
+  [ "$output" = 0 ]
+}
+
+@test "gates: file.sh under a policy takes the repo from the devdoc's project, never the env" {
+  # the #713 review: scope decided from DEVAGENT_DEVDOC_DIR's project while the
+  # repo came from DEVAGENT_REPO_ORIGIN let an unscoped devdoc file onto a scoped
+  # repo with --yes.
+  _file_fixture false
+  local other="$BATS_TEST_TMPDIR/devDoc/other"
+  mkdir -p "$other/Captures/$SLUG"
+  cp "$DEVDOC/Captures/$SLUG/draft.md" "$other/Captures/$SLUG/"
+  cat >> "$DA_HOME/config.toml" <<EOF2
+
+[project.other]
+source_dir = "$BATS_TEST_TMPDIR/other"
+devdoc_dir = "$other"
+
+[project.other.issue_source]
+backend = "github"
+repo = "other/repo"
+dir_prefix = "Issue-"
+EOF2
+  export DEVAGENT_DEVDOC_DIR="$other" DEVAGENT_REPO_ORIGIN=acme/widgets DEVAGENT_ISSUE_BACKEND=github
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug "$SLUG" --target origin --yes
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  grep -q -- '--repo other/repo' "$GH_STUB_ARGS_LOG"
+  run grep -c 'acme/widgets' "$GH_STUB_ARGS_LOG"
   [ "$output" = 0 ]
 }

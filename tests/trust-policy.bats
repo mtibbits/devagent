@@ -215,3 +215,12 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *$'scope\t-\tgithub:github.com/mtibbits/devagent'* ]]
 }
+
+@test "scope: a jira scope without trackers.jira.base_url is a defect" {
+  trust_fixture_policy "$P" 'scopes = ["jira:corp.atlassian.net/PROJ"]' 'worker_identities = ["github:1001"]'
+  _refuses "a jira scope needs trackers.jira.base_url"
+  trust_fixture_policy "$P" 'scopes = ["jira:corp.atlassian.net/PROJ"]' 'worker_identities = ["github:1001"]' \
+    'trackers = { jira = { base_url = "https://corp.atlassian.net" } }'
+  run trust_py load "$P"
+  [ "$status" -eq 0 ]
+}

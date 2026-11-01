@@ -138,12 +138,29 @@ trust_issue_key() {
   _trust_py key "$1" "$2" "$3" ${h:+--host "$h"}
 }
 
+# _trust_candidate_keys <backend> <repo>: every repo key the source's calls can
+# reach, one per line; non-zero when it cannot be keyed. A bare github
+# OWNER/REPO is keyed on github.com, $GH_HOST and trackers.github.host: the
+# backend sends a bare repo's calls by GH_HOST, so a key on the pin alone could
+# put a project out of scope while its calls reach a scoped host.
+_trust_candidate_keys() {
+  local backend="$1" repo="$2" h
+  if [ "$backend" = github ] && [[ "$repo" =~ ^[^/:@]+/[^/:@]+$ ]]; then
+    _trust_py key github "$repo" --host github.com || return 1
+    if [ -n "${GH_HOST:-}" ]; then _trust_py key github "$repo" --host "$GH_HOST" || return 1; fi
+    h="$(_trust_tracker_host github)"
+    if [ -n "$h" ]; then _trust_py key github "$repo" --host "$h" || return 1; fi
+    return 0
+  fi
+  trust_repo_key "$backend" "$repo"
+}
+
 # trust_project_scope <project> [origin|fork]: 0 iff an issue_source or
 # issue_source_fork repo key equals a scope. SETTER-GLOBAL: TRUST_SCOPE_KEYS[]
 # and, parallel to it, TRUST_SCOPE_BACKENDS[] / TRUST_SCOPE_REPOS[] — the
 # in-scope sources to check, narrowed to <source> when it is in scope.
 trust_project_scope() {
-  local project="$1" only="${2:-}" section which backend repo key s
+  local project="$1" only="${2:-}" section which backend repo key s cands
   TRUST_SCOPE_KEYS=() TRUST_SCOPE_BACKENDS=() TRUST_SCOPE_REPOS=()
   local keys=() backends=() repos=() whichs=()
   for which in origin fork; do
@@ -153,11 +170,38 @@ trust_project_scope() {
     repo="$(config_get_project_field "$project" "$section.repo" 2>/dev/null || true)"
     backend="${backend//$'\r'/}" repo="${repo//$'\r'/}"
     if [ -z "$backend" ] || [ -z "$repo" ]; then continue; fi
-    key="$(trust_repo_key "$backend" "$repo" 2>/dev/null)" || continue
-    for s in "${TRUST_SCOPES[@]}"; do
-      if [ "$s" = "$key" ]; then
-        keys+=("$key") backends+=("$backend") repos+=("$repo") whichs+=("$which")
-      fi
+    # A config edit must not turn trust off (spec §3.8): the backend name is
+    # case-folded (a case-insensitive filesystem runs GitHub.sh as github.sh),
+    # a built-in source that cannot be keyed refuses, and a non-built-in
+    # backend whose repo keys onto a scope refuses rather than reading as
+    # out of scope.
+    backend="${backend,,}"
+    case "$backend" in
+      github|gitlab|jira)
+        # no jira scope exists without trackers.jira.base_url (the loader
+        # refuses one), so an unkeyable jira source is out of scope.
+        if [ "$backend" = jira ] && [ -z "$(_trust_tracker_host jira)" ]; then continue; fi
+        cands="$(_trust_candidate_keys "$backend" "$repo" 2>/dev/null)" \
+          || refuse scope-unkeyable "$backend" "$repo" "$project" "not a $backend repo"
+        ;;
+      *)
+        cands="$( { _trust_candidate_keys github "$repo"; trust_repo_key gitlab "$repo"; } 2>/dev/null || true)"
+        for key in $cands; do
+          for s in "${TRUST_SCOPES[@]}"; do
+            if [ "$s" = "$key" ]; then
+              refuse scope-unkeyable "$backend" "$repo" "$project" "not a built-in backend, yet its repo matches scope $s"
+            fi
+          done
+        done
+        continue ;;
+    esac
+    for key in $cands; do
+      for s in "${TRUST_SCOPES[@]}"; do
+        if [ "$s" = "$key" ]; then
+          keys+=("$key") backends+=("$backend") repos+=("$repo") whichs+=("$which")
+          continue 3
+        fi
+      done
     done
   done
   [ "${#keys[@]}" -gt 0 ] || return 1
