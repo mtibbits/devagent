@@ -7,6 +7,8 @@ Run as `python3 -I -X utf8 trust_policy.py <verb> …` (scripts/lib/trust.sh).
     get  <dir> <key>               one key's normalised value, as JSON
     key  <backend> <repo> [<num>] [--host <h>]
                                    the canonical repo key, or issue key with <num>
+    keys                           every legal key and its type (the spec §3.8
+                                   table is held equal to it)
 
 Exit 0 ok · 2 usage · 3 policy defect. A defect prints a one-line reason on
 stderr and nothing on stdout, so a caller can never read a half-validated
@@ -370,6 +372,9 @@ def main(argv: list[str]) -> int:
         if len(args) not in (2, 3):
             raise Usage("usage: trust_policy.py key <backend> <repo> [<num>] [--host <h>]")
         _emit([canonical_key(args[0], args[1], args[2] if len(args) == 3 else None, host)])
+        return 0
+    if verb == "keys":
+        _emit([f"{k}	{t}" for k, t in KEYS.items()])
         return 0
     raise Usage(f"unknown verb '{verb}'")
 

@@ -18,6 +18,15 @@ the auth doctor hook, auth-secret presence and reachability.
 
 Forward arguments verbatim.
 
+With a trust policy on the host (spec §3.8, #713), doctor's first global
+block reports it: the policy's location and digest, an empty or shadowed
+location, the worker account (`whoami`) per scope, the hardenings met and not
+met (`system_policy` reads unverified until #902), a set `GH_TOKEN` or
+`GITHUB_TOKEN`, a non-default `GH_HOST`/`GITLAB_HOST`, and more than one gh
+account (one `gh auth status --hostname <h>` call per GitHub host, doctor
+only). A host-level refusal there exits 9 (or 10) before the per-project
+checks. With no policy the block is absent.
+
 Per project, the tracker-mapping check (#710, warn-only) flags `github_labels`/`gitlab_labels` keys no transition reads, the retired keys and a nested `issue_workflow.<backend>_labels` table. With `transition_issue = true` it also asks the tracker (`state-exists`, up to three calls per tracker, so a network call) whether each mapped label or status exists, and skips when the tracker is unreachable or unauthenticated. One global check warns while a process-global per-stage override (`DEVAGENT_GITHUB_LABEL_<STAGE>` and its GitLab/JIRA kin) or a retired env name is set.
 
 Per project, two #885 checks (warn-only): `permissions.merge_mr` set without `permissions.merge_to_all_prs` (merge_mr now approves merging the PR at step 20, mergemr, and no longer gates mergetoall), and a devdoc override of a `checklist-*.md` or `revision_block.md` template that has a `ship` row but no `mergemr` row (the merge step would not run or gate closeout).
