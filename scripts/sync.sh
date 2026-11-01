@@ -14,6 +14,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
 . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
@@ -66,6 +68,7 @@ sync_one_project() {
     mr_url="$(state_get   "$project" mr_url    2>/dev/null || true)"
     [ -n "$issue_dir" ] && [ -d "$issue_dir" ] || return 0
     [ -n "$mr_url" ] || return 0
+trust_entry_check "sync" "$project"
 
     # Has the ACTIVE revision's ship step been marked done? (#318) — a file-wide
     # grep matched revision 1's [x] 15 after a revise and fired on a revision that

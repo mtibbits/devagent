@@ -13,6 +13,8 @@ source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/state.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -36,6 +38,7 @@ main() {
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   target_dir="${devdoc%/}/$target"
   [[ -d "$target_dir" ]] || die "issue dir missing: $target_dir"
+trust_entry_check "switch" "$project"
 
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"

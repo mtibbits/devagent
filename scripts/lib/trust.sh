@@ -29,6 +29,18 @@ declare -F transition_gate_open >/dev/null || source "$_TRUST_LIB_DIR/transition
 # tests/lib/hermetic-env.bash's copy in step.
 TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 
+# Every script that calls trust_entry_check (or trust_entry_check_devdoc), by
+# its path under scripts/ minus .sh — the #713 Task 1 census (the issue's set
+# plus wbs-update and statusreport). tests/trust-entry.bats holds this list
+# equal to the callers in both directions. #720 adds sign.
+TRUST_ENTRY_POINTS=(
+  pull next ship cleanup mergetoall mergemr comments capture/file sync
+  transition-draft-start park resume switch stuck unstuck revise
+  checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
+  checklist-unstuck commit branch spike promote-potholes
+  migrate-checklist-numbering wbs-update statusreport
+)
+
 _TRUST_KINDS=" digest file scope id val "
 _TRUST_TRUSTED_SETS=(trusted_approvers trusted_reporters trusted_reviewers)
 
@@ -224,6 +236,37 @@ trust_hardening() {
   fi
   if _trust_signatures_met; then TRUST_HARD_MET+=(signatures); else TRUST_HARD_MISSING+=(signatures); fi
   if _trust_system_policy_met; then TRUST_HARD_MET+=(system_policy); else TRUST_HARD_MISSING+=(system_policy); fi
+}
+
+# trust_project_for_devdoc <dir>: the one config project whose devdoc_dir is
+# <dir>, both sides resolved with realpath; empty for none or several, which
+# trust_entry_check reads as scope-unresolved. Never reads an ambient
+# DEVAGENT_PROJECT.
+trust_project_for_devdoc() {
+  local want p d hit="" n=0
+  [ -n "${1:-}" ] || return 0
+  want="$(realpath -m -- "$1" 2>/dev/null)" || return 0
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    d="$(config_get_project_field "$p" devdoc_dir 2>/dev/null || true)"
+    [ -n "$d" ] || continue
+    if [ "$(realpath -m -- "$d" 2>/dev/null)" = "$want" ]; then
+      hit="$p" n=$((n + 1))
+    fi
+  done < <(config_list_projects 2>/dev/null || true)
+  if [ "$n" -eq 1 ]; then printf '%s\n' "$hit"; fi
+  return 0
+}
+
+# trust_entry_check_devdoc <caller> <devdoc-dir>: trust_entry_check for an
+# entry point that is handed a devdoc dir (capture/file) or an issue dir (the
+# checklist-* family passes its parent), not a project. The project lookup
+# runs only when a policy exists, so a no-policy run stays [ -e ] / [ -L ].
+trust_entry_check_devdoc() {
+  local project=""
+  trust_locate_host || true   # a defect refuses inside trust_entry_check
+  if [ "$TRUST_HOST" = 1 ]; then project="$(trust_project_for_devdoc "${2:-}")"; fi
+  trust_entry_check "$1" "$project"
 }
 
 # trust_entry_check <caller> <project> [origin|fork]

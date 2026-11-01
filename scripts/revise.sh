@@ -26,6 +26,8 @@ source "$DEVAGENT_ROOT/scripts/lib/log.sh"
 source "$DEVAGENT_ROOT/scripts/lib/flags.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 # Private die() preserves the "revise:" message prefix; defined after the sources so
 # it shadows io.sh's die (state.sh's internal die calls then carry this prefix too).
@@ -82,6 +84,7 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+trust_entry_check "revise" "$PROJECT"
 
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 n_new=$((n_cur + 1))

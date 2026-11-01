@@ -49,6 +49,8 @@ set -euo pipefail
 DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # pulls paths/io/config + potholes.sh
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -67,6 +69,7 @@ shift
 # project_devdoc_dir, not a raw field read: it honours DEVAGENT_TEST_DEVDOC, the
 # same leg template_resolve walks.
 devdoc_dir="$(project_devdoc_dir "$project")"   # already tilde-expanded (config.sh whitelist)
+trust_entry_check "promote-potholes" "$project"
 
 # _op_count <staging-file> — its op blocks (one op per '## ' block; _parse_stage
 # enforces it). grep -c: rc 0 hits, rc 1 none (prints 0), rc >= 2 could not read —

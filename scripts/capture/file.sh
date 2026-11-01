@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/paths.sh"
 # shellcheck source=lib/draft.sh
 source "${SCRIPT_DIR}/lib/draft.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/trust.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -68,6 +70,7 @@ The remote issue may already exist. Verify the tracker, then re-run with
 EOF
   exit 3
 fi
+trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
 if [[ "${gate}" != "true" && "${YES}" -ne 1 ]]; then

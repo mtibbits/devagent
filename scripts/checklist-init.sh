@@ -8,6 +8,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
 source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 usage() {
   cat <<USAGE
@@ -44,5 +46,6 @@ issue_dir="$1"
 active_resolve_project_try "$project_arg" 2>/dev/null || true
 project="$ACTIVE_RESOLVED_PROJECT"
 active_guard_scope checklist-init
+trust_entry_check "checklist-init" "$project"
 checklist_init "$issue_dir" "$template" "$project"
 echo "wrote $issue_dir/checklist.md (template: $template)"

@@ -26,6 +26,8 @@ source "$DEVAGENT_ROOT/scripts/lib/active.sh"
 source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 # Private die() preserves the "comments:" prefix; defined after the sources so it
 # shadows io.sh's die.
@@ -84,6 +86,7 @@ main() {
     || die "no active_issue for project '$project' (state file missing or empty)"
   [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$project'"
   [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
+trust_entry_check "comments" "$project"
   # (#240 supersedes the #70 crosscheck: an explicit arg IS the issue —
   # mr_url now reads ITS [context] table.)
 

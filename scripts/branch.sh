@@ -21,6 +21,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/conn-diag.sh"
 # shellcheck source=lib/baseline.sh
 . "$DEVAGENT_ROOT/scripts/lib/baseline.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -47,6 +49,7 @@ issue_num="${issue_num#Fork-}"
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
+trust_entry_check "branch" "$project"
 # #885: this step's row, found by NAME (numbers are positions a renumber moves);
 # resolved before any work so a checklist without the row dies with nothing done.
 self_num="$(checklist_step_num_by_name "$issue_dir/checklist.md" branch)" || die "no step named 'branch' in $issue_dir/checklist.md"

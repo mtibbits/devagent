@@ -24,6 +24,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/transition.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
 
@@ -33,6 +35,7 @@ main() {
     project="$ACTIVE_RESOLVED_PROJECT"
     [ -n "$project" ] || { echo "draft: no project resolved; skipping on_draft_start transition" >&2; return 0; }
     active_guard_scope draft
+trust_entry_check "transition-draft-start" "$project"
 
     # #416: resolve the SESSION's issue (pin > state), NOT a raw shared-slot read.
     # A DEVAGENT_ACTIVE_ISSUE-pinned session drafting while the shared slot names

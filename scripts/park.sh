@@ -20,6 +20,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/active.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -49,6 +51,7 @@ main() {
   # checklist mark but still write a [parked] entry, stranding junk that resume
   # can never satisfy. Dir-existence is now a precondition, not an optional branch.
   [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir (typo in issue id?)"
+trust_entry_check "park" "$project"
   local checklist="$issue_dir/checklist.md"
   if [[ -f "$checklist" ]]; then
     local cur

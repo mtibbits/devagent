@@ -56,7 +56,8 @@ _stub_setup() {
 @test "trust-off: the census predicate sees a known caller verb" {
   run _trust_off_hits "$PLUGIN_ROOT" state-class
   [ "$status" -eq 0 ]
-  [[ "$output" == *"scripts/mergemr.sh:253:"* ]]
+  # line-free: the caller's file plus its call text (a line pin goes stale).
+  [[ "$output" == *"scripts/mergemr.sh:"*"state-class"* ]]
 }
 
 @test "trust-off: a planted backend call reddens the census" {

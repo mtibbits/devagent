@@ -22,6 +22,8 @@ source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/active.sh"
 # shellcheck source=lib/template_resolve.sh
 source "$SCRIPT_DIR/lib/template_resolve.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/trust.sh"
 
 no_pin=0
 window_weeks=4
@@ -48,6 +50,7 @@ config_is_project "$project" || die "statusreport: unknown project '$project'"
 active_guard_scope statusreport
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "statusreport: devdoc_dir not configured for $project"
+trust_entry_check "statusreport" "$project"
 commit_devdoc="$(config_get_project_field "$project" permissions.commit_devdoc 2>/dev/null || echo false)"
 
 # Resolve the template through the §12 registry (lib/template_resolve.sh) so a
