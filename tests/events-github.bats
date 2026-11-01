@@ -419,6 +419,14 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [[ "$stderr" == *"gh auth login"* ]]
 }
 
+@test "[gh whoami] a head larger than a pipe buffer still answers (no SIGPIPE)" {
+  # 1200 padded headers (~90 KB): a reader that stops early (head -n 1) under
+  # pipefail killed the writer with SIGPIPE, and whoami exited 141.
+  _ev ubighead whoami mtibbits/devagent
+  [ "$status" -eq 0 ]
+  [ "$output" = 894144 ]
+}
+
 @test "[gh whoami] a rate-limited 403 exits 75" {
   _ev u403rl whoami mtibbits/devagent
   [ "$status" -eq 75 ]

@@ -740,12 +740,16 @@ cmd_whoami() {
   _gh_target whoami "$1" || return 1
   _need gh
   _need jq
-  local out err rc=0 code body id
+  local out err rc=0 code="" first body id
   err="$(mktemp)"
   out="$(unset GH_HOST; gh api -i --hostname "$GT_HOST" user 2>"$err")" || rc=$?
   # #713: the status line of `gh api -i` separates a definitive answer (3: the
   # credential is refused) from a call that could not run (75: retry later).
-  code="$(printf '%s\n' "$out" | head -n 1 | tr -d '\r' | sed -nE 's#^HTTP/[0-9.]+ ([0-9]{3})( .*)?$#\1#p')"
+  # Parsed in-shell: an early-closing reader (head) under pipefail would kill
+  # the writer with SIGPIPE (141) once the head outgrows a pipe buffer.
+  first="${out%%$'\n'*}"
+  first="${first%$'\r'}"
+  if [[ "$first" =~ ^HTTP/[0-9.]+\ ([0-9]{3})(\ .*)?$ ]]; then code="${BASH_REMATCH[1]}"; fi
   if [ "$rc" -ne 0 ] || [ "$code" != 200 ]; then
     cat "$err" >&2
     rm -f "$err"
@@ -758,7 +762,7 @@ cmd_whoami() {
         echo "github.sh: whoami: /user on $GT_HOST could not run (${code:+HTTP $code}${code:-no HTTP status}); retry later" >&2
         return 75 ;;
       403)
-        if printf '%s\n' "$out" | tr -d '\r' | sed '/^$/q' | grep -qiE '^x-ratelimit-remaining: *0$'; then
+        if awk 'h == 0 && /^\r?$/ { h = 1 } h == 0 && tolower($0) ~ /^x-ratelimit-remaining: *0\r?$/ { f = 1 } END { exit !f }' <<<"$out"; then
           echo "github.sh: whoami: /user on $GT_HOST could not run (HTTP 403, rate limit exhausted); retry later" >&2
           return 75
         fi ;;
