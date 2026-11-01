@@ -441,7 +441,10 @@ cmd_issue_list() {
 # Exit: 0 ok; 1 bad arguments, the wrong-host refusal or a failed gh call
 # (incl. a GraphQL `errors` answer, which gh exits 1 on); 5 a malformed page
 # or record, a failed cross-check, a non-total REST/GraphQL join or a walk
-# that does not end. Never 2, which means "unknown verb".
+# that does not end. Never 2, which means "unknown verb". whoami splits a
+# failed call (#713): 3 definitive (gh not logged in, HTTP 401, any other 4xx
+# but a rate-limited 403); 75 could not run (no HTTP status line, 5xx, 429,
+# 403 with x-ratelimit-remaining: 0).
 
 _GH_REPO_RE='^(([A-Za-z0-9.-]+)/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
 _GH_EV_MAX_PAGES=100
@@ -737,9 +740,35 @@ cmd_whoami() {
   _gh_target whoami "$1" || return 1
   _need gh
   _need jq
-  local out id
-  out="$(_gh_ev_call api --hostname "$GT_HOST" user)" || return 1
-  id="$(printf '%s' "$out" | jq -r 'if type == "object" and (.id | type) == "number" then .id else empty end' \
+  local out err rc=0 code body id
+  err="$(mktemp)"
+  out="$(unset GH_HOST; gh api -i --hostname "$GT_HOST" user 2>"$err")" || rc=$?
+  # #713: the status line of `gh api -i` separates a definitive answer (3: the
+  # credential is refused) from a call that could not run (75: retry later).
+  code="$(printf '%s\n' "$out" | head -n 1 | tr -d '\r' | sed -nE 's#^HTTP/[0-9.]+ ([0-9]{3})( .*)?$#\1#p')"
+  if [ "$rc" -ne 0 ] || [ "$code" != 200 ]; then
+    cat "$err" >&2
+    rm -f "$err"
+    if [ "$rc" -eq 4 ]; then
+      echo "github.sh: whoami: gh is not logged in to $GT_HOST" >&2
+      return 3
+    fi
+    case "$code" in
+      '' | 5?? | 429)
+        echo "github.sh: whoami: /user on $GT_HOST could not run (${code:+HTTP $code}${code:-no HTTP status}); retry later" >&2
+        return 75 ;;
+      403)
+        if printf '%s\n' "$out" | tr -d '\r' | sed '/^$/q' | grep -qiE '^x-ratelimit-remaining: *0$'; then
+          echo "github.sh: whoami: /user on $GT_HOST could not run (HTTP 403, rate limit exhausted); retry later" >&2
+          return 75
+        fi ;;
+    esac
+    echo "github.sh: whoami: /user on $GT_HOST refused the credential (HTTP $code)" >&2
+    return 3
+  fi
+  rm -f "$err"
+  body="$(printf '%s\n' "$out" | tr -d '\r' | sed '1,/^$/d')"
+  id="$(printf '%s' "$body" | jq -r 'if type == "object" and (.id | type) == "number" then .id else empty end' \
     2>/dev/null | tr -d '\r')" || id=""
   if ! [[ "$id" =~ ^[1-9][0-9]*$ ]]; then
     echo "github.sh: whoami: /user on $GT_HOST names no numeric account id" >&2

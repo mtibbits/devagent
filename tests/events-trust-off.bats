@@ -162,7 +162,9 @@ _stub_setup() {
   export PATH="$STUB_BIN:$PATH"
   bats_require_minimum_version 1.5.0
   run --separate-stderr "$PLUGIN_ROOT/scripts/issue/github.sh" whoami foo/bar
-  [ "$status" -eq 1 ]
+  # #713: the stub's assertion exit prints no HTTP status line, which whoami
+  # reads as could-not-run (75); the tripwire is the stderr line below.
+  [ "$status" -eq 75 ]
   [ -z "$output" ]
   [[ "$stderr" == *"stub-gh: new-verb call with GH_STUB_EVENTS_DIR unset: user"* ]]
 }

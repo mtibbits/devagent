@@ -60,6 +60,11 @@
 #                         writes the sibling .err to stderr and exits the
 #                         sibling .rc (default 0) after printing. events and
 #                         comments must carry --paginate.
+#                         `user` with -i (#713) first prints the HTTP head:
+#                         `HTTP/2.0 <user.status>` (default `200 OK`), the
+#                         lines of user.headers, a blank line, then the body;
+#                         a user.status of `none` prints no head at all (a
+#                         transport failure: DNS, network, timeout).
 #
 # `gh api` and `gh api graphql` append their argv to GH_STUB_ARGV_LOG as
 # `issue view` does, plus a trailing `GH_HOST=<value>` (`GH_HOST=<unset>` when
@@ -128,6 +133,15 @@ _events_serve() {
     _assert_fail "api: $path without --paginate"
   fi
   [ -f "$d/$name.json" ] || _assert_fail "api: no $name.json for $path"
+  if [ "$name" = user ] && _has_flag -i -- "$@"; then
+    local st
+    st="$(cat "$d/user.status" 2>/dev/null || echo '200 OK')"
+    if [ "$st" != none ]; then
+      printf 'HTTP/2.0 %s\r\n' "$st"
+      [ -f "$d/user.headers" ] && sed 's/$/\r/' "$d/user.headers"
+      printf '\r\n'
+    fi
+  fi
   cat "$d/$name.json"
   [ -f "$d/$name.err" ] && cat "$d/$name.err" >&2
   rc=$(cat "$d/$name.rc" 2>/dev/null || echo 0)

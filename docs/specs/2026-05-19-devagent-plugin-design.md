@@ -1644,8 +1644,10 @@ a backend that implements them never answers 2, and exits:
 | exit | meaning |
 |---|---|
 | 0 | complete output |
-| 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
+| 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call of `events` or `comment-records` (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
+| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any other 4xx except a rate-limited 403 |
 | 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join, including one from an issue that changed while it was being read (re-run); a page walk that does not end; `whoami` naming no user |
+| 75 | `whoami` only (#713): the call could not run — no HTTP status (network, DNS, timeout), HTTP 5xx, 429, or 403 with `x-ratelimit-remaining: 0`; retry later |
 | 78 | not implemented (`custom.sh`) |
 
 Any non-zero exit leaves stdout empty: the output is printed only after
