@@ -1,0 +1,6 @@
+captured-at 891254c48e6bc9f6b32fb34fd6f826d3fb3c2331
+git -C <TMP>/src/testproj rev-parse --is-inside-work-tree
+git -C <TMP>/src/testproj status --porcelain --ignore-submodules=dirty
+git push --set-upstream origin feat/1-x
+gh pr create --repo acme/testproj --title kernels: add NEONv8 FMA tier --body-file <TMP>/devdoc/testproj/Issue-1/mr.md --head me:feat/1-x --base main
+issue/github transition acme/testproj 1 on_ship --project testproj

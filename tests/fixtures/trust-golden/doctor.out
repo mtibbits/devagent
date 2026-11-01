@@ -1,0 +1,26 @@
+captured-at 891254c48e6bc9f6b32fb34fd6f826d3fb3c2331
+devagent doctor — <TS>
+home: <TMP>
+
+  OK   config exists
+  OK   config is valid TOML
+  OK   git-reflex guard: off (opt-in; set [defaults] or [project.<name>] git_guard = true to enable)
+  OK   seed carries no private project name
+  OK   secrets dir clean
+
+[project: volk]
+  OK   project.volk.source_dir
+  OK   project.volk.devdoc_dir
+  OK   project.volk.issue_source.backend
+  OK   project.volk.issue_source.repo
+  OK   project.volk.code_source.backend
+  OK   source_dir exists (<TMP>/fake-src)
+  OK   devdoc_dir exists (<TMP>/fake-devdoc)
+  OK   state file (600)
+  OK   checklist template 'standard'
+  OK   potholes_workflow register: not configured ([paths] potholes_workflow — shared lessons cannot be staged)
+  OK   auth/secrets_dir
+  INFO auth/github — not configured (run /devagent:auth create volk github)
+  INFO auth/ssh — not configured (run /devagent:auth create volk ssh)
+
+OK (<TS>)
