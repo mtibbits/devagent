@@ -79,9 +79,14 @@ PY
 )
 fi
 [ "${#DIRS[@]}" -gt 0 ] || die "usage: migrate-checklist-numbering.sh [--dry-run] [--reverse | --reverse-558] <issue-dir>... | --all"
-# Every dir before any write: a refusal on a later dir must not follow a migrated earlier one.
+# Every devdoc before any write: a refusal on a later one must not follow a
+# migrated earlier dir. Checked once per devdoc, not per issue dir.
+declare -A _trust_seen=()
 for d in "${DIRS[@]}"; do
-trust_entry_check_devdoc "migrate-checklist-numbering" "$(dirname -- "$d")"
+  _trust_dd="$(dirname -- "$d")"
+  [ -z "${_trust_seen[$_trust_dd]:-}" ] || continue
+  _trust_seen[$_trust_dd]=1
+trust_entry_check_devdoc "migrate-checklist-numbering" "$_trust_dd"
 done
 
 migrated=0; skipped_done=0; already=0

@@ -33,7 +33,8 @@ TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 # its path under scripts/ minus .sh — the #713 Task 1 census (the issue's set
 # plus wbs-update and statusreport; doctor, whose call is trust_doctor_block).
 # tests/trust-entry.bats holds this list
-# equal to the callers in both directions. #720 adds sign.
+# equal to the callers in both directions. #720 adds sign. Each call sits at
+# column 0, even inside a function body: that census greps for it anchored.
 # shellcheck disable=SC2034  # read by tests/trust-entry.bats
 TRUST_ENTRY_POINTS=(
   pull next ship cleanup mergetoall mergemr comments capture/file sync
@@ -77,27 +78,36 @@ _trust_forbid_roots() {
 # loader (1 traceback, 2 usage, 3 defect), a CR anywhere in its output, a
 # kind outside the five or an empty field — so a CRLF host can never fall
 # open to "out of scope".
-# shellcheck disable=SC2034,SC2153  # setter-globals; TRUST_DIR is trust_locate's
+# shellcheck disable=SC2153  # TRUST_DIR is trust_locate's
 trust_load() {
-  local out rc=0 err line kind name value file="$TRUST_DIR/policy.toml" forbid=()
+  _trust_load_try || refuse policy-defect "$TRUST_DIR/policy.toml" "$TRUST_LOAD_ERR"
+}
+
+# _trust_load_try: trust_load without the refusal — 1 with the reason in
+# TRUST_LOAD_ERR, for doctor's report. SETTER-GLOBAL — call it bare.
+# shellcheck disable=SC2034,SC2153  # setter-globals; TRUST_DIR is trust_locate's
+_trust_load_try() {
+  local out rc=0 err line kind name value forbid=()
+  TRUST_LOAD_ERR=""
   mapfile -t forbid < <(_trust_forbid_roots)
   err="$(mktemp)"
   out="$(_trust_py load "$TRUST_DIR" "${forbid[@]}" 2>"$err")" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    local reason
-    reason="$(head -n 1 "$err" | tr -d '\r')"
+    TRUST_LOAD_ERR="$(head -n 1 "$err" | tr -d '\r')"
+    TRUST_LOAD_ERR="${TRUST_LOAD_ERR:-trust_policy.py exited $rc}"
     rm -f "$err"
-    refuse policy-defect "$file" "${reason:-trust_policy.py exited $rc}"
+    return 1
   fi
   rm -f "$err"
-  [[ "$out" != *$'\r'* ]] || refuse policy-defect "$file" "a carriage return in the loader's output"
+  if [[ "$out" == *$'\r'* ]]; then TRUST_LOAD_ERR="a carriage return in the loader's output"; return 1; fi
   unset TRUST_ID TRUST_VAL
   declare -gA TRUST_ID=() TRUST_VAL=()
   TRUST_SCOPES=() TRUST_DIGEST="" TRUST_FILE=""
   while IFS= read -r line; do
     IFS=$'\t' read -r kind name value <<<"$line"
     if [[ "$_TRUST_KINDS" != *" $kind "* ]] || [ -z "$name" ] || [ -z "$value" ]; then
-      refuse policy-defect "$file" "a malformed loader line '$line'"
+      TRUST_LOAD_ERR="a malformed loader line '$line'"
+      return 1
     fi
     case "$kind" in
       digest) TRUST_DIGEST="$value" ;;
@@ -108,7 +118,8 @@ trust_load() {
     esac
   done <<<"$out"
   if [ -z "$TRUST_DIGEST" ] || [ "${#TRUST_SCOPES[@]}" -eq 0 ]; then
-    refuse policy-defect "$file" "the loader printed no digest or no scope"
+    TRUST_LOAD_ERR="the loader printed no digest or no scope"
+    return 1
   fi
 }
 
@@ -125,18 +136,17 @@ _trust_tracker_host() {
   printf '%s' "${TRUST_VAL[trackers]}" | jq -r "$path // empty" 2>/dev/null | tr -d '\r'
 }
 
-# trust_repo_key <backend> <repo>, trust_issue_key <backend> <repo> <num>:
-# the canonical keys, the host taken from the policy's trackers.
-trust_repo_key() {
+# trust_key <backend> <repo> [<num>]: the canonical repo key, or issue key
+# with <num>, the host taken from the policy's trackers.
+trust_key() {
   local h
   h="$(_trust_tracker_host "$1")"
-  _trust_py key "$1" "$2" ${h:+--host "$h"}
+  _trust_py key "$1" "$2" ${3:+"$3"} ${h:+--host "$h"}
 }
-trust_issue_key() {
-  local h
-  h="$(_trust_tracker_host "$1")"
-  _trust_py key "$1" "$2" "$3" ${h:+--host "$h"}
-}
+
+# _trust_in_scopes <key>: 0 iff <key> is one of TRUST_SCOPES (keys hold no
+# space).
+_trust_in_scopes() { [[ " ${TRUST_SCOPES[*]} " == *" $1 "* ]]; }
 
 # _trust_candidate_keys <backend> <repo>: every repo key the source's calls can
 # reach, one per line; non-zero when it cannot be keyed. A bare github
@@ -152,7 +162,7 @@ _trust_candidate_keys() {
     if [ -n "$h" ]; then _trust_py key github "$repo" --host "$h" || return 1; fi
     return 0
   fi
-  trust_repo_key "$backend" "$repo"
+  trust_key "$backend" "$repo"
 }
 
 # trust_project_scope <project> [origin|fork]: 0 iff an issue_source or
@@ -160,7 +170,7 @@ _trust_candidate_keys() {
 # and, parallel to it, TRUST_SCOPE_BACKENDS[] / TRUST_SCOPE_REPOS[] — the
 # in-scope sources to check, narrowed to <source> when it is in scope.
 trust_project_scope() {
-  local project="$1" only="${2:-}" section which backend repo key s cands
+  local project="$1" only="${2:-}" section which backend repo key cands
   TRUST_SCOPE_KEYS=() TRUST_SCOPE_BACKENDS=() TRUST_SCOPE_REPOS=()
   local keys=() backends=() repos=() whichs=()
   for which in origin fork; do
@@ -185,23 +195,19 @@ trust_project_scope() {
           || refuse scope-unkeyable "$backend" "$repo" "$project" "not a $backend repo"
         ;;
       *)
-        cands="$( { _trust_candidate_keys github "$repo"; trust_repo_key gitlab "$repo"; } 2>/dev/null || true)"
+        cands="$( { _trust_candidate_keys github "$repo"; trust_key gitlab "$repo"; } 2>/dev/null || true)"
         for key in $cands; do
-          for s in "${TRUST_SCOPES[@]}"; do
-            if [ "$s" = "$key" ]; then
-              refuse scope-unkeyable "$backend" "$repo" "$project" "not a built-in backend, yet its repo matches scope $s"
-            fi
-          done
+          if _trust_in_scopes "$key"; then
+            refuse scope-unkeyable "$backend" "$repo" "$project" "not a built-in backend, yet its repo matches scope $key"
+          fi
         done
         continue ;;
     esac
     for key in $cands; do
-      for s in "${TRUST_SCOPES[@]}"; do
-        if [ "$s" = "$key" ]; then
-          keys+=("$key") backends+=("$backend") repos+=("$repo") whichs+=("$which")
-          continue 3
-        fi
-      done
+      if _trust_in_scopes "$key"; then
+        keys+=("$key") backends+=("$backend") repos+=("$repo") whichs+=("$which")
+        break
+      fi
     done
   done
   [ "${#keys[@]}" -gt 0 ] || return 1
@@ -264,17 +270,19 @@ _trust_system_policy_met() { return 1; }
 # keyring principal check).
 _trust_signatures_met() { return 1; }
 
-# trust_hardening: SETTER-GLOBAL TRUST_HARD_MET[] / TRUST_HARD_MISSING[] and
-# TRUST_HARD_WHY[<name>], in the order separate_identity, signatures,
-# system_policy. separate_identity is met iff single_identity = false and the
-# identity check passed (TRUST_WHOAMI set).
+# Why each hardening reads as not met, for hardening-unmet.
+declare -gA TRUST_HARD_WHY=(
+  [separate_identity]="single_identity = true, or no identity check passed"
+  [signatures]="no signature is verified until #720"
+  [system_policy]="unverified: not met until #902 verifies the system location"
+)
+
+# trust_hardening: SETTER-GLOBAL TRUST_HARD_MET[] / TRUST_HARD_MISSING[], in
+# the order separate_identity, signatures, system_policy. separate_identity is
+# met iff single_identity = false and the identity check passed (TRUST_WHOAMI
+# set).
 trust_hardening() {
   TRUST_HARD_MET=() TRUST_HARD_MISSING=()
-  declare -gA TRUST_HARD_WHY=(
-    [separate_identity]="single_identity = true, or no identity check passed"
-    [signatures]="no signature is verified until #720"
-    [system_policy]="unverified: not met until #902 verifies the system location"
-  )
   if [ "${TRUST_VAL[single_identity]:-false}" != true ] && [ -n "${TRUST_WHOAMI:-}" ]; then
     TRUST_HARD_MET+=(separate_identity)
   else
@@ -282,6 +290,42 @@ trust_hardening() {
   fi
   if _trust_signatures_met; then TRUST_HARD_MET+=(signatures); else TRUST_HARD_MISSING+=(signatures); fi
   if _trust_system_policy_met; then TRUST_HARD_MET+=(system_policy); else TRUST_HARD_MISSING+=(system_policy); fi
+}
+
+# _trust_first_unmet: the first required_hardening member trust_hardening left
+# missing, or nothing.
+_trust_first_unmet() {
+  local m
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    if [[ " ${TRUST_HARD_MISSING[*]} " == *" $m "* ]]; then printf '%s' "$m"; return 0; fi
+  done < <(_trust_list "${TRUST_VAL[required_hardening]:-[]}")
+}
+
+# _trust_whoami_verdict <backend> <rc> <out> <target> <host>: the identity
+# verdict on one whoami answer. SETTER-GLOBAL TRUST_VERDICT_ID (<backend>:<id>,
+# or ? when whoami gave none) and TRUST_VERDICT[] — the refuse/try_later argv,
+# empty when the account passes. Clauses in order: whoami 2|78 unsupported,
+# 75 could not run, other non-zero or a non-id answer failed; then the
+# account must not be in a trusted set (unless single_identity) and must be
+# in worker_identities.
+_trust_whoami_verdict() {
+  local backend="$1" rc="$2" id="${3//$'\r'/}" target="$4" host="$5" set
+  TRUST_VERDICT=() TRUST_VERDICT_ID="?"
+  case "$rc" in
+    0) [[ "$id" =~ ^[^[:space:]]+$ ]] || { TRUST_VERDICT=(refuse whoami-failed "$target" "$rc"); return 0; } ;;
+    2|78) TRUST_VERDICT=(refuse whoami-unsupported "$backend" "$rc"); return 0 ;;
+    75) TRUST_VERDICT=(try_later whoami-unavailable "$host" "$rc"); return 0 ;;
+    *) TRUST_VERDICT=(refuse whoami-failed "$target" "$rc"); return 0 ;;
+  esac
+  id="$backend:$id"
+  TRUST_VERDICT_ID="$id"
+  if [ "${TRUST_VAL[single_identity]:-false}" != true ]; then
+    for set in "${_TRUST_TRUSTED_SETS[@]}"; do
+      if [ -n "${TRUST_ID["$set|$id"]:-}" ]; then TRUST_VERDICT=(refuse trusted-worker "$id" "$set"); return 0; fi
+    done
+  fi
+  [ -n "${TRUST_ID["worker_identities|$id"]:-}" ] || TRUST_VERDICT=(refuse not-worker "$id")
 }
 
 # _trust_hard_list <name>…: a comma list for humans, system_policy marked.
@@ -299,7 +343,7 @@ _trust_hard_list() {
 # hardenings met and missing, and a shadowed user policy.
 trust_run_record() {
   local key met missing
-  key="$(trust_issue_key "$1" "$2" "$3" 2>/dev/null || echo "?")"
+  key="$(trust_key "$1" "$2" "$3" 2>/dev/null || echo "?")"
   met="$(IFS=,; echo "${TRUST_HARD_MET[*]}")"
   missing="$(IFS=,; echo "${TRUST_HARD_MISSING[*]}")"
   missing="${missing/system_policy/system_policy(unverified)}"
@@ -325,53 +369,30 @@ trust_report() {
     return 0
   fi
   [ -z "$TRUST_USER_IGNORED" ] || printf 'warn\ttrust location\t%s\n' "$(_trust_detail user-ignored "$TRUST_USER_IGNORED")"
-  local err rc=0 reason
-  err="$(mktemp)"
-  ( trust_load ) 2>"$err" || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    reason="$(sed -n 's/^.*: trust: policy [^:]*: \(.*\) — host-level refusal.*$/\1/p' "$err" | head -n 1)"
-    rm -f "$err"
-    printf 'fail\ttrust policy\t%s\n' "${reason:-the policy did not load}"
-    TRUST_REPORT_RC=9 TRUST_REPORT_REFUSAL=(refuse policy-defect "$TRUST_DIR/policy.toml" "${reason:-the policy did not load}")
+  if ! _trust_load_try; then
+    printf 'fail\ttrust policy\t%s\n' "$TRUST_LOAD_ERR"
+    TRUST_REPORT_RC=9 TRUST_REPORT_REFUSAL=(refuse policy-defect "$TRUST_DIR/policy.toml" "$TRUST_LOAD_ERR")
     return 0
   fi
-  rm -f "$err"
-  trust_load
+  local rc
   printf 'ok\ttrust policy\t%s %s %s\n' "$TRUST_SOURCE" "$TRUST_FILE" "$TRUST_DIGEST"
 
-  local key backend target host out id set bad hosts=()
+  local key backend target host out hosts=()
   for key in "${TRUST_SCOPES[@]}"; do
     backend="${key%%:*}" target="${key#*:}" host="${target%%/*}"
     [ "$backend" = github ] && [[ " ${hosts[*]} " != *" $host "* ]] && hosts+=("$host")
     rc=0
     out="$("$(transition_backend_sh "$backend")" whoami "$target" 2>/dev/null)" || rc=$?
-    id="${out//$'\r'/}" bad=()
-    case "$rc" in
-      0) [[ "$id" =~ ^[^[:space:]]+$ ]] || bad=(refuse whoami-failed "$target" "$rc") ;;
-      2|78) bad=(refuse whoami-unsupported "$backend" "$rc") ;;
-      75) bad=(try_later whoami-unavailable "$host" "$rc") ;;
-      *) bad=(refuse whoami-failed "$target" "$rc") ;;
-    esac
-    if [ "${#bad[@]}" -eq 0 ]; then
-      id="$backend:$id"
-      if [ "${TRUST_VAL[single_identity]:-false}" != true ]; then
-        for set in "${_TRUST_TRUSTED_SETS[@]}"; do
-          if [ -n "${TRUST_ID["$set|$id"]:-}" ]; then bad=(refuse trusted-worker "$id" "$set"); break; fi
-        done
-      fi
-      [ "${#bad[@]}" -gt 0 ] || [ -n "${TRUST_ID["worker_identities|$id"]:-}" ] || bad=(refuse not-worker "$id")
+    _trust_whoami_verdict "$backend" "$rc" "$out" "$target" "$host"
+    if [ "${#TRUST_VERDICT[@]}" -eq 0 ]; then
+      TRUST_WHOAMI="$TRUST_VERDICT_ID"
+      printf 'ok\ttrust whoami %s on %s\tin worker_identities; single_identity=%s\n' "$TRUST_VERDICT_ID" "$key" "${TRUST_VAL[single_identity]:-false}"
     else
-      id="?"
-    fi
-    if [ "${#bad[@]}" -eq 0 ]; then
-      TRUST_WHOAMI="$id"
-      printf 'ok\ttrust whoami %s on %s\tin worker_identities; single_identity=%s\n' "$id" "$key" "${TRUST_VAL[single_identity]:-false}"
-    else
-      printf 'fail\ttrust whoami %s on %s\t%s\n' "$id" "$key" "$(_trust_detail "${bad[@]:1}")"
+      printf 'fail\ttrust whoami %s on %s\t%s\n' "$TRUST_VERDICT_ID" "$key" "$(_trust_detail "${TRUST_VERDICT[@]:1}")"
       if [ "$TRUST_REPORT_RC" -eq 0 ]; then
-        TRUST_REPORT_REFUSAL=("${bad[@]}")
+        TRUST_REPORT_REFUSAL=("${TRUST_VERDICT[@]}")
         TRUST_REPORT_RC=9
-        [ "${bad[0]}" = try_later ] && TRUST_REPORT_RC=10
+        [ "${TRUST_VERDICT[0]}" = try_later ] && TRUST_REPORT_RC=10
       fi
     fi
   done
@@ -379,11 +400,8 @@ trust_report() {
   [ "$TRUST_REPORT_RC" -eq 0 ] || TRUST_WHOAMI=""
 
   trust_hardening
-  local m unmet=""
-  while IFS= read -r m; do
-    [ -n "$m" ] || continue
-    [[ " ${TRUST_HARD_MISSING[*]} " == *" $m "* ]] && unmet="$m"
-  done < <(_trust_list "${TRUST_VAL[required_hardening]:-[]}")
+  local unmet
+  unmet="$(_trust_first_unmet)"
   if [ -n "$unmet" ]; then
     printf 'fail\ttrust hardening\t%s\n' "$(_trust_detail hardening-unmet "$unmet" "${TRUST_HARD_WHY[$unmet]}")"
     if [ "$TRUST_REPORT_RC" -eq 0 ]; then
@@ -415,18 +433,18 @@ trust_report() {
 }
 
 # trust_project_for_devdoc <dir>: the one config project whose devdoc_dir is
-# <dir>, both sides resolved with realpath; empty for none or several, which
+# <dir> by file identity (-ef, as active_context_project: spelling and case
+# differences still match); empty for none or several, which
 # trust_entry_check reads as scope-unresolved. Never reads an ambient
 # DEVAGENT_PROJECT.
 trust_project_for_devdoc() {
-  local want p d hit="" n=0
+  local p d hit="" n=0
   [ -n "${1:-}" ] || return 0
-  want="$(realpath -m -- "$1" 2>/dev/null)" || return 0
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     d="$(config_get_project_field "$p" devdoc_dir 2>/dev/null || true)"
     [ -n "$d" ] || continue
-    if [ "$(realpath -m -- "$d" 2>/dev/null)" = "$want" ]; then
+    if [ "$d" -ef "$1" ]; then
       hit="$p" n=$((n + 1))
     fi
   done < <(config_list_projects 2>/dev/null || true)
@@ -481,7 +499,7 @@ trust_entry_check() {
     fi
   done
 
-  local target host out rc id set
+  local target host out rc
   for i in "${!TRUST_SCOPE_KEYS[@]}"; do
     backend="${TRUST_SCOPE_BACKENDS[$i]}" repo="${TRUST_SCOPE_REPOS[$i]}" key="${TRUST_SCOPE_KEYS[$i]}"
     target="$repo"
@@ -489,31 +507,14 @@ trust_entry_check() {
     host="${key#*:}" host="${host%%/*}"
     rc=0
     out="$("$(transition_backend_sh "$backend")" whoami "$target")" || rc=$?
-    case "$rc" in
-      0) ;;
-      2|78) refuse whoami-unsupported "$backend" "$rc" ;;
-      75) try_later whoami-unavailable "$host" "$rc" ;;
-      *) refuse whoami-failed "$target" "$rc" ;;
-    esac
-    id="${out//$'\r'/}"
-    [[ "$id" =~ ^[^[:space:]]+$ ]] || refuse whoami-failed "$target" "$rc"
-    id="$backend:$id"
-    if [ "${TRUST_VAL[single_identity]:-false}" != true ]; then
-      for set in "${_TRUST_TRUSTED_SETS[@]}"; do
-        [ -z "${TRUST_ID["$set|$id"]:-}" ] || refuse trusted-worker "$id" "$set"
-      done
-    fi
-    [ -n "${TRUST_ID["worker_identities|$id"]:-}" ] || refuse not-worker "$id"
-    TRUST_WHOAMI="$id"
+    _trust_whoami_verdict "$backend" "$rc" "$out" "$target" "$host"
+    [ "${#TRUST_VERDICT[@]}" -eq 0 ] || "${TRUST_VERDICT[@]}"
+    TRUST_WHOAMI="$TRUST_VERDICT_ID"
   done
 
   trust_hardening
   local m
-  while IFS= read -r m; do
-    [ -n "$m" ] || continue
-    if [[ " ${TRUST_HARD_MISSING[*]} " == *" $m "* ]]; then
-      refuse hardening-unmet "$m" "${TRUST_HARD_WHY[$m]}"
-    fi
-  done < <(_trust_list "${TRUST_VAL[required_hardening]:-[]}")
+  m="$(_trust_first_unmet)"
+  [ -z "$m" ] || refuse hardening-unmet "$m" "${TRUST_HARD_WHY[$m]}"
   return 0
 }

@@ -10,7 +10,8 @@ Run as `python3 -I -X utf8 trust_policy.py <verb> …` (scripts/lib/trust.sh).
     keys                           every legal key and its type (the spec §3.8
                                    table is held equal to it)
 
-Exit 0 ok · 2 usage · 3 policy defect. A defect prints a one-line reason on
+Exit 0 ok · 1 `get` of a key the policy does not set · 2 usage · 3 policy
+defect. A defect prints a one-line reason on
 stderr and nothing on stdout, so a caller can never read a half-validated
 policy. `load` prints `<kind>\\t<name>\\t<value>` lines, no field empty:
 
@@ -307,13 +308,12 @@ def load(d: str, forbid: list[str]) -> tuple[str, dict]:
     return f, normalise(parsed)
 
 
-def digest(pol: dict) -> str:
-    blob = json.dumps(pol, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
 def _json(v) -> str:
     return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def digest(pol: dict) -> str:
+    return "sha256:" + hashlib.sha256(_json(pol).encode("utf-8")).hexdigest()
 
 
 def _emit(lines: list[str]) -> None:
