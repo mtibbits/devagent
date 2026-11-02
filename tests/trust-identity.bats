@@ -206,23 +206,30 @@ _lib() {
 
 # --- defects
 
-@test "defect: an unreadable / dangling / invalid-TOML policy refuses pull with 9" {
+@test "defect: an invalid-TOML policy refuses pull with 9" {
   _wid
   trust_fixture_policy "$POL" 'scopes = [' 'worker'
   _pull
   _refused 9 "policy $POL/policy.toml: invalid TOML"
-  rm -f "$POL/policy.toml"
-  if ln -s "$BATS_TEST_TMPDIR/nowhere" "$POL/policy.toml" 2>/dev/null && [ -L "$POL/policy.toml" ]; then
-    _pull
-    _refused 9 "dangling link"
-  fi
-  rm -f "$POL/policy.toml"
+}
+
+@test "defect: a dangling policy link refuses pull with 9" {
+  _wid
+  mkdir -p "$POL"
+  ln -s "$BATS_TEST_TMPDIR/nowhere" "$POL/policy.toml" 2>/dev/null && [ -L "$POL/policy.toml" ] \
+    || skip "this filesystem cannot make a dangling symlink"
+  _pull
+  _refused 9 "dangling link"
+}
+
+@test "defect: an unreadable policy refuses pull with 9" {
+  _wid
+  [ "$(id -u)" -ne 0 ] || skip "euid 0 reads a mode-000 file"
   trust_fixture_policy "$POL"
   chmod 000 "$POL/policy.toml"
-  if [ ! -r "$POL/policy.toml" ]; then
-    _pull
-    _refused 9 "cannot read"
-  fi
+  [ ! -r "$POL/policy.toml" ] || skip "this filesystem cannot represent mode 000 (noacl)"
+  _pull
+  _refused 9 "cannot read"
 }
 
 @test "defect: a CR in load output refuses" {

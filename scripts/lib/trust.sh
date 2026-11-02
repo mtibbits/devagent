@@ -31,7 +31,8 @@ TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 
 # Every script that calls trust_entry_check (or trust_entry_check_devdoc), by
 # its path under scripts/ minus .sh — the #713 Task 1 census (the issue's set
-# plus wbs-update and statusreport; doctor, whose call is trust_doctor_block).
+# plus wbs-update, statusreport and wbs-init; doctor, whose call is
+# trust_doctor_block).
 # tests/trust-entry.bats holds this list
 # equal to the callers in both directions. #720 adds sign. Each call sits at
 # column 0, even inside a function body: that census greps for it anchored.
@@ -41,7 +42,7 @@ TRUST_ENTRY_POINTS=(
   transition-draft-start park resume switch stuck unstuck revise
   checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
   checklist-unstuck commit branch spike promote-potholes
-  migrate-checklist-numbering wbs-update statusreport doctor
+  migrate-checklist-numbering wbs-update statusreport wbs-init doctor
 )
 
 _TRUST_KINDS=" digest file scope id val "
@@ -484,8 +485,8 @@ trust_entry_check() {
   TRUST_IN_SCOPE=0 TRUST_WHOAMI="" TRUST_PROJECT="$project"
   trust_locate_host || refuse policy-defect "$TRUST_DIR" "$TRUST_DEFECT"
   [ "$TRUST_HOST" = 1 ] || return 0
-  [ -n "$project" ] || refuse scope-unresolved "$caller"
   trust_load
+  [ -n "$project" ] || refuse scope-unresolved "$caller"
   trust_project_scope "$project" "$source" || return 0
   TRUST_IN_SCOPE=1
 

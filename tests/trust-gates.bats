@@ -70,7 +70,7 @@ _in_scope() {
 }
 
 @test "gates: no direct permissions.<gate> config read outside permission.sh" {
-  local re='config_get_project_field[^|]*permissions\.(push_mr|commit_devdoc|merge_to_all_prs|merge_mr|file)'
+  local re='config_get[a-z_]*[^|]*permissions\.(push_mr|commit_devdoc|merge_to_all_prs|merge_mr|file)'
   # positive control: the predicate sees a planted direct read (the shape
   # cleanup.sh:220 had before #713).
   printf '%s\n' 'x="$(config_get_project_field "$project" "permissions.commit_devdoc" 2>/dev/null || echo false)"' \

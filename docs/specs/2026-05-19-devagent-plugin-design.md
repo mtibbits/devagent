@@ -456,8 +456,9 @@ where the code-host side is bound. The canonical key is `<backend>:<host>/<path>
 for github/gitlab (`.git` and a trailing `/` stripped; JIRA `KEY` uppercased),
 with an issue suffix `#<n>` (github/gitlab) or `-<n>` (jira): for example
 `github:github.com/mtibbits/devagent#705`, `jira:example.atlassian.net/PROJ-12`.
-A bare github repo takes `trackers.github.host`, else `github.com` — never
-`GH_HOST`.
+The key function itself gives a bare github repo `trackers.github.host`, else
+`github.com`, and never reads `GH_HOST`; scope matching (above) supplies
+`GH_HOST` as one more candidate host.
 
 **Validation.** Fail closed: an unknown key, a wrong type, an identity entry
 that is not an immutable id (`github:`/`gitlab:` numeric user ids, `jira:`
@@ -1812,7 +1813,7 @@ a backend that implements them never answers 2, and exits:
 |---|---|
 | 0 | complete output |
 | 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call of `events` or `comment-records` (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
-| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any other 4xx except a rate-limited 403 |
+| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any other status (another 4xx, a 1xx/3xx, a 2xx head with a non-zero `gh` exit) except a rate-limited 403 |
 | 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join, including one from an issue that changed while it was being read (re-run); a page walk that does not end; `whoami` naming no user |
 | 75 | `whoami` only (#713): the call could not run — no HTTP status (network, DNS, timeout), HTTP 5xx, 429, or 403 with `x-ratelimit-remaining: 0`; retry later |
 | 78 | not implemented (`custom.sh`) |
