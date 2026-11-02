@@ -437,8 +437,8 @@ _scope_of() {
   _lib
   TRUST_SCOPES=("github:github.com/acme/widgets")
   _trust_in_scopes "github:github.com/acme/widgets"
-  ! _trust_in_scopes 'github:github.com/*/*'
-  ! _trust_in_scopes 'github:github.com/acme/widget?'
+  run ! _trust_in_scopes 'github:github.com/*/*'
+  run ! _trust_in_scopes 'github:github.com/acme/widget?'
 }
 
 @test "locate: an unset HOME probes the system locations only, without an unbound-variable error" {
