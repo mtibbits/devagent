@@ -9,11 +9,12 @@ QF_LABEL="devagent:quarantine"
 #   single    1001 is also an approver; single_identity = true
 #   hardened  single plus required_hardening = ["signatures"] (refuses at
 #             entry: unit cases only)
-# Extra toml lines after the shape are appended.
+# Extra toml lines after the shape are appended; QF_WORKERS replaces the
+# worker_identities members.
 qf_policy() {
   local shape="$1" lines
   shift
-  lines=('scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]'
+  lines=('scopes = ["github:github.com/acme/widgets"]' "worker_identities = [${QF_WORKERS:-\"github:1001\"}]"
          "quarantine = \"$QF_LABEL\"")
   case "$shape" in
     separate) lines+=('trusted_approvers = ["github:2002"]') ;;
