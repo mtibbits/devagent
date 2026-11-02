@@ -50,7 +50,7 @@ _TRUST_TRUSTED_SETS=(trusted_approvers trusted_reporters trusted_reviewers)
 
 # trust_locate_host: trust_locate over the fixed candidates.
 trust_locate_host() {
-  trust_locate --system "${TRUST_SYSTEM_DIRS[@]}" --user "$HOME/.config/devagent/trust"
+  trust_locate --system "${TRUST_SYSTEM_DIRS[@]}" --user "${HOME:+$HOME/.config/devagent/trust}"
 }
 
 # _trust_py <verb> [args…]: trust_policy.py exactly as every caller runs it.
@@ -122,6 +122,12 @@ _trust_load_try() {
     TRUST_LOAD_ERR="the loader printed no digest or no scope"
     return 1
   fi
+  # _trust_tracker_host reads trackers through jq; without it a tracker host
+  # would read as unset and its scopes fall out of scope.
+  if [ -n "${TRUST_VAL[trackers]:-}" ] && ! command -v jq >/dev/null 2>&1; then
+    TRUST_LOAD_ERR="the policy sets trackers, which needs jq, and jq is not installed"
+    return 1
+  fi
 }
 
 # _trust_tracker_host <backend>: the policy's tracker host/URL for <backend>.
@@ -145,9 +151,13 @@ trust_key() {
   _trust_py key "$1" "$2" ${3:+"$3"} ${h:+--host "$h"}
 }
 
-# _trust_in_scopes <key>: 0 iff <key> is one of TRUST_SCOPES (keys hold no
-# space).
-_trust_in_scopes() { [[ " ${TRUST_SCOPES[*]} " == *" $1 "* ]]; }
+# _trust_in_scopes <key>: 0 iff <key> is one of TRUST_SCOPES — string
+# equality, never a pattern: <key> comes from agent-writable config.
+_trust_in_scopes() {
+  local s
+  for s in "${TRUST_SCOPES[@]}"; do [ "$s" = "$1" ] && return 0; done
+  return 1
+}
 
 # _trust_candidate_keys <backend> <repo>: every repo key the source's calls can
 # reach, one per line; non-zero when it cannot be keyed. A bare github
@@ -233,6 +243,8 @@ trust_project_scope() {
 #   - single_identity = true: a worker that is also in <set> (whoami included)
 #     grants only --signed or with an empty required_hardening; a worker not
 #     in <set> stays false.
+# No caller in #713: it is the shared predicate the #711 siblings (#714 on)
+# call for their reporter/approver/reviewer checks.
 trust_grants() {
   local set="$1" b="$2" actor="$3" signed=0 id worker=0
   [ "${5:-}" = --signed ] && signed=1

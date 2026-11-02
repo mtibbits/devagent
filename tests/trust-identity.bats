@@ -432,3 +432,20 @@ _scope_of() {
   _pull
   _refused 9 "GH_HOST is set and acme/widgets is a bare OWNER/REPO"
 }
+
+@test "scope: membership is string equality, never a pattern" {
+  _lib
+  TRUST_SCOPES=("github:github.com/acme/widgets")
+  _trust_in_scopes "github:github.com/acme/widgets"
+  ! _trust_in_scopes 'github:github.com/*/*'
+  ! _trust_in_scopes 'github:github.com/acme/widget?'
+}
+
+@test "locate: an unset HOME probes the system locations only, without an unbound-variable error" {
+  run --separate-stderr env -u HOME bash -c "set -u
+    source '$PLUGIN_ROOT/scripts/lib/paths.sh'; source '$PLUGIN_ROOT/scripts/lib/io.sh'
+    source '$PLUGIN_ROOT/scripts/lib/config.sh'; source '$PLUGIN_ROOT/scripts/lib/trust.sh'
+    TRUST_SYSTEM_DIRS=('$BATS_TEST_TMPDIR/none'); trust_locate_host; echo \"host=\$TRUST_HOST\""
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; false; }
+  [ "$output" = "host=0" ]
+}

@@ -522,7 +522,7 @@ and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
 and explicit defaults leave it unchanged and the location does not enter it.
 `doctor` and pull's run record print it.
 
-**Identity checks.** Every entry point (`TRUST_ENTRY_POINTS`, §8.2) calls
+**Identity checks.** Every entry point (`TRUST_ENTRY_POINTS` in `scripts/lib/trust.sh`) calls
 `trust_entry_check` after resolving its project and before any backend call,
 network call or devdoc write. In scope, in order: `permissions.transition_issue`
 must be `true` (the quarantine and claim writes); a bare github `OWNER/REPO`
@@ -1768,12 +1768,14 @@ the one gate reader. A gate the policy closes denies at once
 separate gates; neither stands in for the other. `transition_issue` stays in
 `config.toml`, and an in-scope project whose `transition_issue` is not `true`
 is refused at its entry point (exit 9). `capture/file.sh` takes the policy's
-`file` gate in place of `push_mr`, refuses `--yes` (exit 9), and files through
-the project's configured backend and repo, ignoring the
-`DEVAGENT_ISSUE_BACKEND*` and `DEVAGENT_REPO_*` environment.
+`file` gate in place of `push_mr` and refuses `--yes` (exit 9).
 
 Out of scope, or with no policy, the gates above behave exactly as described
-in the rest of §8.
+in the rest of §8. One exception: with any policy on the host, in scope or
+not, `capture/file.sh` files through the backend and repo configured for the
+project that owns `DEVAGENT_DEVDOC_DIR` (the project its scope was decided
+for), ignoring the `DEVAGENT_ISSUE_BACKEND*` and `DEVAGENT_REPO_*`
+environment, so an unscoped devdoc cannot file onto a scoped repo.
 
 ## 9. Backend abstraction
 
@@ -1813,7 +1815,7 @@ a backend that implements them never answers 2, and exits:
 |---|---|
 | 0 | complete output |
 | 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call of `events` or `comment-records` (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
-| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any other status (another 4xx, a 1xx/3xx, a 2xx head with a non-zero `gh` exit) except a rate-limited 403 |
+| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any status other than 200 (another 4xx, a 1xx/3xx, a non-200 2xx, or a 200 with a non-zero `gh` exit) except a rate-limited 403 |
 | 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join, including one from an issue that changed while it was being read (re-run); a page walk that does not end; `whoami` naming no user |
 | 75 | `whoami` only (#713): the call could not run — no HTTP status (network, DNS, timeout), HTTP 5xx, 429, or 403 with `x-ratelimit-remaining: 0`; retry later |
 | 78 | not implemented (`custom.sh`) |

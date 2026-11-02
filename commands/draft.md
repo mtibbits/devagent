@@ -37,15 +37,17 @@ that project.
    work started:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/transition-draft-start.sh" "$project" || true
+   rc=0; bash "${CLAUDE_PLUGIN_ROOT}/scripts/transition-draft-start.sh" "$project" || rc=$?
    ```
 
    Best-effort and gated: the helper fires the backend `transition`
    for `on_draft_start` only when `permissions.transition_issue = true`
    (fail-closed skip-warn otherwise, mirroring sync's `on_merge`, #219),
-   and a transition failure warns rather than dies. The `|| true` is
-   belt-and-suspenders — the helper never exits non-zero — so drafting
-   proceeds regardless of tracker state.
+   and a transition failure warns rather than dies, so drafting proceeds
+   regardless of tracker state. **Except exit 9 or 10** (a trust policy
+   refused the host or identity, or a trust check could not run, #713):
+   stop, do not draft, do not retry, and report the refusal line verbatim.
+   Any other non-zero exit is absorbed and drafting proceeds.
 
    **Pre-plan inputs — re-derive the issue's named inputs at HEAD (#361).**
    Then run the rederive prober and let its artifact inform the plan:

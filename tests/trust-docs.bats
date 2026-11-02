@@ -44,3 +44,17 @@ _key_rows() {
   grep -q '§3.8' "$PLUGIN_ROOT/commands/doctor.md"
   awk '/^## \[Unreleased\]/ { on = 1; next } /^## \[/ { on = 0 } on' "$PLUGIN_ROOT/CHANGELOG.md" | grep -q '#713'
 }
+
+@test "docs: the hermetic guard's system locations equal TRUST_SYSTEM_DIRS" {
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+  source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+  local guard
+  guard="$(sed -n 's/^for _trust_loc in \(.*\); do$/\1/p' "$PLUGIN_ROOT/tests/lib/hermetic-env.bash" \
+    | tr ' ' '\n' | grep -v HOME)"
+  # positive control: the parser found the guard's loop.
+  [ -n "$guard" ]
+  [ "$guard" = "$(printf '%s\n' "${TRUST_SYSTEM_DIRS[@]}")" ] \
+    || { echo "hermetic guard: $guard; TRUST_SYSTEM_DIRS: ${TRUST_SYSTEM_DIRS[*]}" >&2; false; }
+}

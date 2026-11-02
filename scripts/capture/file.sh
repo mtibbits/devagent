@@ -72,6 +72,10 @@ The remote issue may already exist. Verify the tracker, then re-run with
 EOF
   exit 3
 fi
+# #713: pinned before the check, so its whoami runs through the backend dir
+# the filing uses.
+trust_locate_host || true   # a defect refuses inside the check
+[[ "${TRUST_HOST}" != 1 ]] || DEVAGENT_ISSUE_BACKEND_DIR="$(plugin_root)/scripts/issue"
 trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
 
 # #713: with a trust policy on the host, the backend and repos come from the
@@ -83,7 +87,6 @@ trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
 # --yes is refused.
 gate_name=push_mr
 if [[ "${TRUST_HOST:-0}" == 1 ]]; then
-  DEVAGENT_ISSUE_BACKEND_DIR="$(plugin_root)/scripts/issue"
   _section=issue_source
   [[ "${TARGET}" == fork ]] && _section=issue_source_fork
   DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${TRUST_PROJECT}" "${_section}.backend" 2>/dev/null || true)"
