@@ -10,12 +10,12 @@ trust_exit_table() {
   cat <<'EOF'
 | Code | Id | Meaning | Owner |
 |---|---|---|---|
-| 6 | `quarantined-by-pull` | quarantined by this pull — reserved, not emitted until #714 | #714 |
-| 7 | `pull-quarantined` | pull refused: quarantined — reserved until #714 | #714 |
+| 6 | `quarantined-by-pull` | quarantined by this pull | #714 |
+| 7 | `pull-quarantined` | pull refused: quarantined and not released | #714 |
 | 8 | `held` | held elsewhere — reserved until #719 | #719 |
 | 9 | `host` | host-level refusal: identity, policy or environment | #713 |
-| 10 | `try-later` | a check could not run (emitted by `whoami` could-not-run) | #713 |
-| 11 | `quarantine-refused` | refused on quarantine, other entry points — reserved until #714 | #714 |
+| 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
+| 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
 EOF
 }
 
@@ -36,9 +36,14 @@ declare -gA TRUST_REFUSAL_DETAIL=(
   [scope-unkeyable]='the %s source %s of project %s cannot be keyed against the policy (%s)'
   [yes-refused]='--yes is refused under a trust policy; the policy'"'"'s file gate decides'
   [user-ignored]='a user-level policy at %s is ignored: a system policy exists'
+  [quarantine-unmapped]='the trust policy sets no quarantine label; a scope cannot run without one'
+  [quarantine-label-missing]='the quarantine label %s is not on %s; a deleted or renamed label stops the queue'
+  [events-unsupported]='the %s backend has no events verb (exit %s)'
+  [events-unavailable]='events for %s could not run (exit %s)'
 )
 declare -gA TRUST_REFUSAL_CODE=(
   [whoami-unavailable]=10
+  [events-unavailable]=10
 )
 
 trust_refusal_code() { echo "${TRUST_REFUSAL_CODE[$1]:-9}"; }
@@ -73,4 +78,18 @@ try_later() {
 # trust_warn <id> [args…]: a WARNING line; returns 0.
 trust_warn() {
   printf '%s: trust: WARNING: %s\n' "$(basename "$0")" "$(_trust_detail "$@")" >&2
+}
+
+# The quarantine reason tokens (#714): the one closed set a marker's `reason`
+# line may carry. The deciders (#715-#717) and the operator command (#906)
+# write them; `tracker` is a quarantine first seen on the tracker.
+# shellcheck disable=SC2034  # read by scripts/lib/quarantine.sh
+QUARANTINE_REASONS=(steering size chars provenance screen screen-failed operator tracker paths destination secrets drift actions diff-size signature)
+
+# quarantine_message <key>: the fixed quarantine message (#714), on stdout;
+# callers redirect it. Byte-identical at every entry point: no script name, no
+# reason line.
+quarantine_message() {
+  printf '%s
+'     "QUARANTINED: $1 is held for human review."     "This is not a stuck step. Nothing in this session can release it:"     "do not unstick, re-pull, edit, delete, park, resume, revise, switch to, ship or clean up this issue,"     "and do not change its labels on the tracker. A change made by any worker account does not count."     "Release is a tracker action by a trusted approver. Wait for the operator."
 }
