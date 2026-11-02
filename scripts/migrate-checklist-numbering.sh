@@ -39,6 +39,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 # shellcheck source=lib/io.sh
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 DRY=0; ALL=0; INCLUDE_DONE=0; REVERSE=0; REVERSE558=0
 declare -a DIRS=()
@@ -77,6 +79,15 @@ PY
 )
 fi
 [ "${#DIRS[@]}" -gt 0 ] || die "usage: migrate-checklist-numbering.sh [--dry-run] [--reverse | --reverse-558] <issue-dir>... | --all"
+# Every devdoc before any write: a refusal on a later one must not follow a
+# migrated earlier dir. Checked once per devdoc, not per issue dir.
+declare -A _trust_seen=()
+for d in "${DIRS[@]}"; do
+  _trust_dd="$(dirname -- "$d")"
+  [ -z "${_trust_seen[$_trust_dd]:-}" ] || continue
+  _trust_seen[$_trust_dd]=1
+trust_entry_check_devdoc "migrate-checklist-numbering" "$_trust_dd"
+done
 
 migrated=0; skipped_done=0; already=0
 for d in "${DIRS[@]}"; do

@@ -17,6 +17,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -36,6 +38,7 @@ main() {
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   issue_dir="${devdoc%/}/$issue"
   [[ -d "$issue_dir" ]] || die "issue dir missing: $issue_dir"
+trust_entry_check "resume" "$project"
 
   # Flip [P] back to [~]
   local checklist="$issue_dir/checklist.md"

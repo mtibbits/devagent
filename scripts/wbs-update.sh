@@ -164,6 +164,8 @@ source "$SCRIPT_DIR/lib/config.sh"
 source "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/trust.sh"
 
 if_exists=0
 offline=0
@@ -190,6 +192,7 @@ config_is_project "$project" || die "wbs update: unknown project '$project'"
 active_guard_scope "wbs update"
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "wbs update: devdoc_dir not configured for $project"
+trust_entry_check "wbs-update" "$project"
 
 wbs="$devdoc_dir/WBS.md"
 if [[ ! -f "$wbs" ]]; then

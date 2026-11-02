@@ -1270,3 +1270,29 @@ _preship() {
     # the bang line hands the script the command's arguments unchanged
     grep -qxF '!`bash "${CLAUDE_PLUGIN_ROOT}/scripts/mergemr.sh" $ARGUMENTS`' "$doc"
 }
+
+# #713: under a trust policy in scope the policy alone decides merge_mr, and the
+# decision is read only AFTER the entry check — a gate read before it saw config.
+@test "#713 trust: a policy-closed merge_mr is not opened by config merge_mr=true" {
+    cat > "$DEVAGENT_TMP/fake-issue/github.sh" <<'STUB'
+#!/usr/bin/env bash
+v="$1"; shift
+echo "issue/github $v $*" >> "$DEVAGENT_STUB_LOG"
+case "$v" in
+  whoami) echo 1001 ;;
+  state-class) cat "$STUB_DIR/sc.$2" 2>/dev/null || exit 1 ;;
+esac
+exit 0
+STUB
+    local pol="$HOME/.config/devagent/trust"
+    mkdir -p "$pol"
+    printf '%s\n' 'scopes = ["github:github.com/acme/testproj"]' 'worker_identities = ["github:1001"]' > "$pol/policy.toml"
+    run "$MM" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ] || { echo "$output" >&2; false; }
+    [ ! -s "$MERGE_LOG" ]
+    grep -q 'issue/github whoami' "$DEVAGENT_STUB_LOG"
+    # positive control: the policy opens it.
+    printf '%s\n' 'merge_mr = true' >> "$pol/policy.toml"
+    run "$MM" "$TEST_PROJECT" Issue-1
+    [ -s "$MERGE_LOG" ] || { echo "$output" >&2; false; }
+}

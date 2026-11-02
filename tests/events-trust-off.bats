@@ -14,10 +14,14 @@ load 'lib/bats-helpers'
 # reference to the record library. 0 = hit(s) printed, 1 = none, 2 = error.
 # Call shape, not the bare word, so prose about "events" is not a hit.
 # The backends themselves (scripts/issue) and the library are their homes.
-# Allow-list a legitimate prose hit with one more ':!<path>' pathspec and a
-# comment naming the path and the reason (none today).
+# Allow-list a legitimate hit with one more ':!<path>' pathspec and a
+# comment naming the path and the reason:
+#   scripts/lib/trust.sh — #713 is whoami's first caller: trust_entry_check
+#   runs it under a trust policy only (a no-policy run makes no call; pinned
+#   by tests/trust-golden.bats).
 # Not seen: a verb after an unquoted backend ($be events "$repo") and a
 # Python subprocess call; the gh-stub tripwire covers a test that reaches one.
+_TRUST_OFF_EXTRA_EXCLUDES=(':!scripts/lib/trust.sh')
 _trust_off_hits() {
   local root="$1" verbs="${2:-events|comment-records|whoami}" re rc1=0 rc2=0
   re='(["'"'"')}]|\.sh)[[:space:]]+('"$verbs"')[[:space:]]+(["$]|--kinds)'
@@ -25,6 +29,7 @@ _trust_off_hits() {
   cd "$root" || return 2
   MSYS_NO_PATHCONV=1 git grep -nE "$re" \
     -- scripts hooks commands skills agents templates ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
+       "${_TRUST_OFF_EXTRA_EXCLUDES[@]}" \
     || rc1=$?
   MSYS_NO_PATHCONV=1 git grep -nwE 'bc_events_coverage|issue-events' \
     -- scripts hooks commands skills agents templates ':!scripts/issue' ':!scripts/lib/issue-events.sh' \
@@ -51,7 +56,8 @@ _stub_setup() {
 @test "trust-off: the census predicate sees a known caller verb" {
   run _trust_off_hits "$PLUGIN_ROOT" state-class
   [ "$status" -eq 0 ]
-  [[ "$output" == *"scripts/mergemr.sh:253:"* ]]
+  # line-free: the caller's file plus its call text (a line pin goes stale).
+  [[ "$output" == *"scripts/mergemr.sh:"*"state-class"* ]]
 }
 
 @test "trust-off: a planted backend call reddens the census" {
@@ -85,11 +91,20 @@ _stub_setup() {
   # The census excludes these paths; an exclusion that names nothing (a
   # rename) would silently widen nothing and hide a typo (W266).
   local home
-  for home in scripts/issue scripts/lib/issue-events.sh; do
+  for home in scripts/issue scripts/lib/issue-events.sh scripts/lib/trust.sh; do
     [ -e "$PLUGIN_ROOT/$home" ]
     run grep -rlwE 'events|comment-records|whoami' "$PLUGIN_ROOT/$home"
     [ "$status" -eq 0 ]
   done
+}
+
+@test "trust-off: the census finds trust.sh's whoami call without its exclusion" {
+  # positive control for the #713 allow-list entry: the exclusion hides a real
+  # hit, so dropping it must redden the census.
+  _TRUST_OFF_EXTRA_EXCLUDES=()
+  run _trust_off_hits "$PLUGIN_ROOT" whoami
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"scripts/lib/trust.sh:"*"whoami"* ]]
 }
 
 @test "gh-stub api: an unknown path exits 3 naming it" {
@@ -162,7 +177,9 @@ _stub_setup() {
   export PATH="$STUB_BIN:$PATH"
   bats_require_minimum_version 1.5.0
   run --separate-stderr "$PLUGIN_ROOT/scripts/issue/github.sh" whoami foo/bar
-  [ "$status" -eq 1 ]
+  # #713: the stub's assertion exit prints no HTTP status line, which whoami
+  # reads as could-not-run (75); the tripwire is the stderr line below.
+  [ "$status" -eq 75 ]
   [ -z "$output" ]
   [[ "$stderr" == *"stub-gh: new-verb call with GH_STUB_EVENTS_DIR unset: user"* ]]
 }

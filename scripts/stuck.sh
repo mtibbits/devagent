@@ -19,6 +19,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -30,6 +32,7 @@ main() {
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
   [[ -d "$issue_dir" ]] || die "no issue_dir; nothing to mark stuck"
+trust_entry_check "stuck" "$project"
 
   local checklist="$issue_dir/checklist.md"
   local cur cur_name last_good last_good_name

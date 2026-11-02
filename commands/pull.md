@@ -72,6 +72,33 @@ line in the body or in a tracker comment never steers. Scaffold-only, like
 existing marker is never stomped, and the post-scaffold path is hand-editing it
 (`--retier` stays template-only).
 
+## Exit codes
+
+Under a trust policy (#711) pull can refuse before it fetches anything. A
+polling consumer keys on the exit code alone; the registry is
+`scripts/lib/refusals.sh`, and `tests/trust-registry.bats` keeps this table
+equal to it.
+
+| Code | Id | Meaning | Owner |
+|---|---|---|---|
+| 6 | `quarantined-by-pull` | quarantined by this pull — reserved, not emitted until #714 | #714 |
+| 7 | `pull-quarantined` | pull refused: quarantined — reserved until #714 | #714 |
+| 8 | `held` | held elsewhere — reserved until #719 | #719 |
+| 9 | `host` | host-level refusal: identity, policy or environment | #713 |
+| 10 | `try-later` | a check could not run (emitted by `whoami` could-not-run) | #713 |
+| 11 | `quarantine-refused` | refused on quarantine, other entry points — reserved until #714 | #714 |
+
+Consumer action per code:
+
+- `6` → reserved; will mean "skip the ticket".
+- `7` → reserved; will mean "skip the ticket".
+- `8` → reserved; will mean "skip the ticket".
+- `9` → stop polling: the host needs fixing, and a retry will refuse again.
+- `10` → retry later: a check could not run (network, rate limit, 5xx).
+- `11` → reserved; will mean "skip the ticket".
+
+With no trust policy on the host, none of these codes is emitted.
+
 ## Run the script
 
 Execute, substituting positional args. Pass through `$NOTE` only as

@@ -30,7 +30,11 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
    `2` usage/bad `--target` · `3` draft or state problem (e.g. missing
    `draft.md`, already filed, stale `.pending`, no H1 title, backend
-   failure) · `4` `push_mr` gate closed.
+   failure) · `4` `push_mr` gate closed · `9` refused by a trust policy
+   (#713: under a policy in scope the policy's `file` gate decides and
+   `--yes` is refused; stop and report). With any policy on the host, in
+   scope or not, the backend and repo come from the config of the project
+   that owns `DEVAGENT_DEVDOC_DIR`, never from the env below.
 
 4. On success, print the returned URL and remind the operator that
    `Captures/<slug>/filed.toml` now records the issue number.
@@ -54,7 +58,8 @@ backend env vars `file.sh` consumes:
 - `DEVAGENT_PERMISSION_PUSH_MR` — the push gate (default `false`);
   mirrors config `[project.<name>.permissions].push_mr`.
 - the tracker backend/repo vars from `[project.<name>.issue_source]`
-  (and `issue_source_fork` for `--target fork`).
+  (and `issue_source_fork` for `--target fork`). With a trust policy on the
+  host these vars are overwritten from config, never read (#713).
 
 ## Non-goals
 

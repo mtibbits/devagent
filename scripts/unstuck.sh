@@ -20,6 +20,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 
 main() {
   local project="${1:-}"
@@ -36,6 +38,7 @@ main() {
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
   [[ -d "$issue_dir" ]] || die "no issue_dir"
+trust_entry_check "unstuck" "$project"
 
   if [[ ! -f "$issue_dir/STUCK" ]]; then
     info "no STUCK file at $issue_dir/STUCK — nothing to clear"

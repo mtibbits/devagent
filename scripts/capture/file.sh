@@ -8,6 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/paths.sh"
 # shellcheck source=lib/draft.sh
 source "${SCRIPT_DIR}/lib/draft.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/trust.sh"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/../lib/permission.sh"
 
 usage() {
   cat <<'USAGE' >&2
@@ -68,6 +72,33 @@ The remote issue may already exist. Verify the tracker, then re-run with
 EOF
   exit 3
 fi
+# #713: pinned before the check, so its whoami runs through the backend dir
+# the filing uses.
+trust_locate_host || true   # a defect refuses inside the check
+[[ "${TRUST_HOST}" != 1 ]] || DEVAGENT_ISSUE_BACKEND_DIR="$(plugin_root)/scripts/issue"
+trust_entry_check_devdoc "capture/file" "${DEVAGENT_DEVDOC_DIR:-}"
+
+# #713: with a trust policy on the host, the backend and repos come from the
+# config of the project that owns DEVAGENT_DEVDOC_DIR — the one the scope was
+# decided for — whether or not it is in scope; the DEVAGENT_ISSUE_BACKEND* /
+# DEVAGENT_REPO_* env is overwritten, never read (an unscoped devdoc must not
+# file onto a scoped repo). In scope the policy also decides the gate: its
+# `file` gate replaces push_mr (DEVAGENT_PERMISSION_PUSH_MR is ignored) and
+# --yes is refused.
+gate_name=push_mr
+if [[ "${TRUST_HOST:-0}" == 1 ]]; then
+  _section=issue_source
+  [[ "${TARGET}" == fork ]] && _section=issue_source_fork
+  DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${TRUST_PROJECT}" "${_section}.backend" 2>/dev/null || true)"
+  DEVAGENT_REPO_ORIGIN="$(config_get_project_field "${TRUST_PROJECT}" issue_source.repo 2>/dev/null || true)"
+  DEVAGENT_REPO_FORK="$(config_get_project_field "${TRUST_PROJECT}" issue_source_fork.repo 2>/dev/null || true)"
+  [[ -n "${DEVAGENT_ISSUE_BACKEND}" ]] || { echo "${_section}.backend not configured for ${TRUST_PROJECT}" >&2; exit 2; }
+fi
+if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
+  [[ "${YES}" -ne 1 ]] || refuse yes-refused
+  gate_name="file"
+  DEVAGENT_PERMISSION_PUSH_MR="$(permission_value "${TRUST_PROJECT}" file)"
+fi
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
 if [[ "${gate}" != "true" && "${YES}" -ne 1 ]]; then
@@ -75,8 +106,16 @@ if [[ "${gate}" != "true" && "${YES}" -ne 1 ]]; then
     origin) _repo="${DEVAGENT_REPO_ORIGIN:-<not set>}" ;;
     fork)   _repo="${DEVAGENT_REPO_FORK:-<not set>}" ;;
   esac
+  if [[ "${gate_name}" == file ]]; then
+    _gate_line="Permission gate: file=${gate} (trust policy)"
+    _remedy="The trust policy's file gate is closed; only the policy (${TRUST_FILE}) can open it."
+  else
+    _gate_line="Permission gate: push_mr=${gate}"
+    _remedy="Re-run with --yes to proceed, or set
+[project.<name>.permissions].push_mr = true in config.toml."
+  fi
   cat >&2 <<EOF
-Permission gate: push_mr=${gate}
+${_gate_line}
 
 Plan:
   backend: ${DEVAGENT_ISSUE_BACKEND:-github}
@@ -84,8 +123,7 @@ Plan:
   title:   $(head -n1 "${draft}" | sed 's/^# *//')
   body:    ${draft}
 
-Re-run with --yes to proceed, or set
-[project.<name>.permissions].push_mr = true in config.toml.
+${_remedy}
 EOF
   exit 4
 fi

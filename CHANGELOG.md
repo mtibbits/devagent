@@ -16,6 +16,20 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the trust policy baseline (#713, epic #711).**
+  - `policy.toml` at a fixed system location (wins) or `$HOME/.config/devagent/trust/`
+    (baseline): exact repo-key scopes, immutable worker and trusted ids, and a digest.
+    Fail closed on any defect. Spec §3.8.
+  - In scope, every entry point checks the worker's identity before any fetch or write
+    (`whoami` not trusted and in `worker_identities`, `transition_issue` on, no bare repo
+    under `GH_HOST`, required hardenings met) and refuses with exit 9, or 10 when a check
+    could not run. The exit table is in `commands/pull.md`.
+  - Gates under trust read the policy alone; `DA_YES`, `--yes`, env and config never
+    open a policy-closed gate (§8.2). `capture/file.sh` gains exit 9.
+  - `github.sh whoami` now exits 3 (definitive) or 75 (could not run) instead of 1.
+  - `/devagent:doctor` reports the policy, `whoami` and the hardenings met.
+  - With no policy on the host nothing changes.
+
 - **Added: step 20, `/devagent:mergemr`, merges the PR after ship when `permissions.merge_mr = true` (#885).**
   - A script step between mergetoall (19) and updatewbs; updatewbs, impact,
     lessonslearned and cleanup move to 21-24 (25 numbered steps, 22 mandatory). It reads

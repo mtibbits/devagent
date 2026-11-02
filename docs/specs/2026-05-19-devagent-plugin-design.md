@@ -412,6 +412,155 @@ non-strict `claude plugin validate` PASS-with-userConfig is the recorded evidenc
 Disposed by #532: `--strict` exists by 2.1.211, is manifest-only (§ isolation
 binding below), and stays documented-red under the ratified no-version policy.)
 
+### 3.8 Trust policy (`policy.toml`) — #711, #713
+
+A trust policy lets devAgent work a shared queue safely: it names which repos
+are trusted scopes, which accounts the worker runs as, and which accounts may
+approve, report or review. It lives outside everything the agent can write and
+is read by `scripts/lib/trust.sh` (`trust_policy.py` validates it). With no
+policy on the host every script behaves exactly as it did before #713 and
+makes no new call (pinned by `tests/trust-golden.bats`).
+
+**Locations — exactly two, fixed.** Every candidate is probed on every
+platform; no environment variable names a location.
+
+| Location | Source | Notes |
+|---|---|---|
+| `/etc/devagent/trust/` | system | Git Bash's `/etc` is the Git install's; WSL's is the distro's |
+| `/c/ProgramData/devagent/trust/` | system | the Windows location; invisible to WSL |
+| `$HOME/.config/devagent/trust/` | user | the baseline; follows `HOME` |
+
+A system location holding a `policy.toml` (or a dangling or unreadable entry
+there) wins and is the only policy read; a user policy it shadows is reported
+by `doctor` and pull's run record, never read. One Windows host can therefore
+see different policies from Git Bash and from WSL. A location directory with
+no `policy.toml` is no policy there (doctor notes it). An unreadable directory,
+a dangling link or a non-directory is a defect. Each location holds exactly
+one file, `policy.toml`; any other `*.toml` beside it is a defect. A policy
+under `devagent_home`, the plugin root, or any project's `devdoc_dir`,
+`source_dir` or `worktree_root` is a defect: the agent writes there.
+
+**Scope.** `scopes` lists exact repo keys. A project is in scope when the
+canonical key of its `issue_source` or `issue_source_fork` equals one; an
+owner-level prefix is not legal. A fresh `DA_HOME`, an alias project naming
+the same repo, trust-shaped config keys, a backend name in another case, or a
+non-built-in backend name on a scoped repo (refused, `scope-unkeyable`) all
+leave trust on; a built-in source that cannot be keyed refuses. A bare github
+`OWNER/REPO` is keyed on every host its calls can reach — `github.com`,
+`GH_HOST` and `trackers.github.host` — and is in scope if any key matches. A
+jira scope requires `trackers.jira.base_url`. Scope is keyed on the issue
+sources only: the code host a project pushes to (its `source_dir` remote) is
+not yet scoped, so editing `issue_source.repo` away from a scope still turns
+trust off for that project's pushes — `authorized_repos` (#718, outward writes) is
+where the code-host side is bound. The canonical key is `<backend>:<host>/<path>`, lowercased
+for github/gitlab (`.git` and a trailing `/` stripped; JIRA `KEY` uppercased),
+with an issue suffix `#<n>` (github/gitlab) or `-<n>` (jira): for example
+`github:github.com/mtibbits/devagent#705`, `jira:example.atlassian.net/PROJ-12`.
+The key function itself gives a bare github repo `trackers.github.host`, else
+`github.com`, and never reads `GH_HOST`; scope matching (above) supplies
+`GH_HOST` as one more candidate host.
+
+**Validation.** Fail closed: an unknown key, a wrong type, an identity entry
+that is not an immutable id (`github:`/`gitlab:` numeric user ids, `jira:`
+account ids; never a login or display name), an empty `worker_identities` or
+`scopes`, or an id in both `worker_identities` and a trusted set (or in
+`code_host_workers` and `trusted_reviewers`) without `single_identity = true`
+refuses. `keyring` is checked as a string only; #720 owns its format. Types:
+`idlist` `["<backend>:<id>", …]`, `repolist` repo keys, `str`, `strlist`,
+`charlist` single code points, `bool`, `int` (non-negative), `provenance`
+`required`|`optional`, `approval` `{kind = "label"|"status", id}`,
+`size_classes` a table of non-negative ints, `trackers` `github.host`,
+`gitlab.api_url`, `jira.base_url`, `jira.project_key`, `hardening` a subset of
+`signatures`, `separate_identity`, `system_policy`. The key list is
+`KEYS` in `trust_policy.py`; siblings amend only it, and
+`tests/trust-docs.bats` holds this table equal to it.
+
+| Key | Type | Default |
+|---|---|---|
+| `trusted_approvers` | `idlist` | — |
+| `trusted_reporters` | `idlist` | — |
+| `trusted_reviewers` | `idlist` | — |
+| `worker_identities` | `idlist` | required, non-empty |
+| `code_host_workers` | `idlist` | — |
+| `scopes` | `repolist` | required, non-empty |
+| `authorized_repos` | `repolist` | — |
+| `trackers` | `trackers` | — |
+| `in_progress` | `str` | — |
+| `claim` | `str` | — |
+| `quarantine` | `str` | — |
+| `devdoc_remote` | `str` | — |
+| `screen_model` | `str` | — |
+| `keyring` | `str` | — (#720) |
+| `ssh_keygen` | `str` | — |
+| `provenance` | `provenance` | — |
+| `later_stages` | `strlist` | — |
+| `revoking` | `strlist` | `[]` |
+| `allowed_steering` | `strlist` | — |
+| `paths_deny` | `strlist` | — |
+| `paths_allow` | `strlist` | — |
+| `fixture_paths` | `strlist` | — |
+| `outward_actions` | `strlist` | — |
+| `attested_keys` | `strlist` | — |
+| `allowed_chars` | `charlist` | — |
+| `approval` | `approval` | — |
+| `size_classes` | `size_classes` | — |
+| `size_cap` | `int` | — |
+| `approver_not_author` | `bool` | — |
+| `require_trusted_reporter` | `bool` | — |
+| `require_user_verification` | `bool` | `true` |
+| `test_seams` | `bool` | `false` |
+| `single_identity` | `bool` | `false` |
+| `push_mr` | `bool` | `false` |
+| `commit_devdoc` | `bool` | `false` |
+| `merge_to_all_prs` | `bool` | `false` |
+| `merge_mr` | `bool` | `false` |
+| `file` | `bool` | `false` |
+| `required_hardening` | `hardening` | `[]` |
+
+**Digest.** `sha256:` of the normalised policy (defaults applied, lists sorted
+and de-duplicated, keys sorted, compact JSON, UTF-8), so key order, whitespace
+and explicit defaults leave it unchanged and the location does not enter it.
+`doctor` and pull's run record print it.
+
+**Identity checks.** Every entry point (`TRUST_ENTRY_POINTS` in `scripts/lib/trust.sh`) calls
+`trust_entry_check` after resolving its project and before any backend call,
+network call or devdoc write. In scope, in order: `permissions.transition_issue`
+must be `true` (the quarantine and claim writes); a bare github `OWNER/REPO`
+while `GH_HOST` is set refuses; then, per in-scope source, the backend's
+`whoami` (§9.1). The account must not be in a trusted set unless
+`single_identity = true`, and must be in `worker_identities`. Finally every
+`required_hardening` member must be met. A `whoami` that fails definitively
+(exit 3: not logged in, 401, other 4xx) refuses with exit 9; one that could not
+run (exit 75: no HTTP status, 5xx, 429, rate-limited 403) asks for a retry
+(exit 10); a backend
+with no `whoami` (2 or 78) refuses with 9 — #900 adds it for GitLab and JIRA.
+
+**Hardenings (D20).** `doctor` reports which are met:
+`separate_identity` (met when `single_identity = false` and the identity
+check passed), `signatures` (not verified until #720), and `system_policy`
+(read "unverified: not met" until #902 verifies the location's write access).
+A user-level `single_identity` policy is the baseline: trust is on, and
+doctor lists `separate_identity`, `signatures` and `system_policy
+(unverified)` as not met.
+
+**Exit codes.** 9 is a host-level refusal (stop and fix the host; never retry
+or work around it), 10 asks for a retry; 6, 7, 8 and 11 are reserved for
+#714/#719. The registry is `scripts/lib/refusals.sh`; `commands/pull.md`
+carries the table and each code's consumer action.
+
+**doctor.** With a policy on the host, doctor's first global block reports the
+policy and digest, empty or shadowed locations, `whoami` per scope, the
+hardenings, `GH_TOKEN`/`GITHUB_TOKEN`, a non-default `GH_HOST`/`GITLAB_HOST`,
+and — through one extra `gh auth status --hostname <h>` call per GitHub host,
+made by doctor only — more than one gh account. A refusal in the block exits
+9 (or 10) before the per-project checks.
+
+**Residuals (accepted).** A single identity without signatures (the baseline)
+cannot tell the worker from the approver; a queue worked only by
+single-identity hosts has no second pair of eyes; until #902 a `DEVAGENT_ROOT`
+copy, an env seam or a writable system location can bypass these checks;
+the user location follows `HOME`. PATH-resolved binaries are trusted as found.
+
 ## 4. Configuration vs artifacts
 
 Two distinct concerns, deliberately separated:
@@ -1607,6 +1756,27 @@ unset) — only the no-`config.toml` case is subprocess-free. Keep the stack sma
 and each hook's MATCH path allocation-light (short-circuit before any
 per-command subprocess like `git status`).
 
+### 8.2 Gates under trust — #713
+
+Under a trust policy (§3.8) with the project in scope, the policy alone
+decides every gate: `push_mr`, `commit_devdoc`, `merge_to_all_prs`,
+`merge_mr` and `file` are read from `policy.toml` through `permission_value`,
+the one gate reader. A gate the policy closes denies at once
+(`permission_gate: <gate> denied (trust policy)`) — nothing prompts, so
+`DA_YES=1`, an interactive terminal, `DEVAGENT_PERMISSION_PUSH_MR`, `--yes` and
+`config.toml` can never open it. `merge_mr` and `merge_to_all_prs` stay
+separate gates; neither stands in for the other. `transition_issue` stays in
+`config.toml`, and an in-scope project whose `transition_issue` is not `true`
+is refused at its entry point (exit 9). `capture/file.sh` takes the policy's
+`file` gate in place of `push_mr` and refuses `--yes` (exit 9).
+
+Out of scope, or with no policy, the gates above behave exactly as described
+in the rest of §8. One exception: with any policy on the host, in scope or
+not, `capture/file.sh` files through the backend and repo configured for the
+project that owns `DEVAGENT_DEVDOC_DIR` (the project its scope was decided
+for), ignoring the `DEVAGENT_ISSUE_BACKEND*` and `DEVAGENT_REPO_*`
+environment, so an unscoped devdoc cannot file onto a scoped repo.
+
 ## 9. Backend abstraction
 
 Two separate backend dimensions per project:
@@ -1644,8 +1814,10 @@ a backend that implements them never answers 2, and exits:
 | exit | meaning |
 |---|---|
 | 0 | complete output |
-| 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
+| 1 | bad arguments; a bare `OWNER/REPO` while `GH_HOST` names another host; a failed call of `events` or `comment-records` (network, HTTP 401/403, a GraphQL `errors` answer, which `gh` exits 1 on) |
+| 3 | `whoami` only (#713): a definitive refusal — not logged in, HTTP 401, or any status other than 200 (another 4xx, a 1xx/3xx, a non-200 2xx, or a 200 with a non-zero `gh` exit) except a rate-limited 403 |
 | 5 | a malformed page, record or timestamp; a failed cross-check; a non-total join, including one from an issue that changed while it was being read (re-run); a page walk that does not end; `whoami` naming no user |
+| 75 | `whoami` only (#713): the call could not run — no HTTP status (network, DNS, timeout), HTTP 5xx, 429, or 403 with `x-ratelimit-remaining: 0`; retry later |
 | 78 | not implemented (`custom.sh`) |
 
 Any non-zero exit leaves stdout empty: the output is printed only after

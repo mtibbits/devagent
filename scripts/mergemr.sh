@@ -33,6 +33,10 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
 . "$DEVAGENT_ROOT/scripts/lib/depends.sh"
 . "$DEVAGENT_ROOT/scripts/lib/ci.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 
 _die() { printf '%s\n' "$*" >&2; exit 1; }
 
@@ -44,9 +48,6 @@ config_is_project "$project" || die "unknown project '$project'"
 # turns merging on (fail closed, Issue-780). Both are setter-globals: call bare.
 merge_checks_resolve "$project"
 merge_method_resolve "$project"
-merge_ok=0
-_mm="$(config_get_project_field "$project" permissions.merge_mr 2>/dev/null || true)"
-[ "${_mm//$'\r'/}" = true ] && merge_ok=1
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
@@ -59,6 +60,12 @@ if [ -z "$issue_arg" ]; then
 fi
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
+trust_entry_check "mergemr" "$project"
+# Read only after the entry check: under a trust policy in scope the policy
+# alone decides (#713), and a read before the check would see config. Never
+# merge_to_all_prs.
+merge_ok=0
+[ "$(permission_value "$project" merge_mr)" = true ] && merge_ok=1
 cl="$issue_dir/checklist.md"
 
 self_num="$(checklist_step_num_by_name "$cl" mergemr)" || _die "mergemr: no mergemr row in $cl"

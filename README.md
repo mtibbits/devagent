@@ -179,6 +179,19 @@ pin), run `/devagent:use <project>` — the one arg-driven writer of the shared
 pointer; hand-editing `_active.toml` is the fallback.
 Details: `skills/next/references/concurrency.md`.
 
+## Trust policy
+
+On a shared queue, a trust policy (`policy.toml`, #711) names the trusted
+repo scopes, the accounts the worker runs as, and the accounts that may
+approve, report or review. It lives at a fixed location outside anything the
+agent writes — `/etc/devagent/trust/` or `/c/ProgramData/devagent/trust/`
+(system, wins) or `$HOME/.config/devagent/trust/` (user, the baseline). In
+scope, every entry point checks the worker's identity before it fetches or
+writes, and the policy alone decides the permission gates. A refusal exits 9
+(fix the host) or 10 (retry later). With no policy nothing changes.
+`/devagent:doctor` reports the policy, its digest and which hardenings are met.
+Spec §3.8 (policy) and §8.2 (gates under trust).
+
 ## Auth subsystem
 
 The auth subsystem manages personal access tokens (PATs) and SSH

@@ -17,6 +17,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 # shellcheck source=lib/zerodiff.sh
 . "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -38,6 +40,7 @@ fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
+trust_entry_check "mergetoall" "$project"
 
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — the branch to squash now reads ITS [context] table; an issue with

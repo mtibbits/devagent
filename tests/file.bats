@@ -61,8 +61,10 @@ teardown() {
 # #559 U1: the exit map is pinned rc-precise at the SOURCE (4 = gate, 3 =
 # draft/state, 2 = usage) because crrf branches on it — tightened into the
 # existing gate and missing-draft tests rather than duplicated (Issue-458:
-# a surviving `-ne 0` twin cannot see the codes drift). Only the bad-target
-# case is new:
+# a surviving `-ne 0` twin cannot see the codes drift). 9 = refused by a trust
+# policy (#713) needs a policy fixture, so it is pinned rc-precise in
+# tests/trust-gates.bats ("file.sh --yes under trust exits 9") and
+# tests/trust-entry.bats. Only the bad-target case is new:
 
 @test "file: bad --target exits 2, distinct from gate 4 and draft 3 (#559)" {
   run "${REPO_ROOT}/scripts/capture/file.sh" --slug "${SLUG}" --target bogus

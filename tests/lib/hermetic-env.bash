@@ -22,3 +22,15 @@ unset DEVAGENT_PROJECT \
   DEVAGENT_GITLAB_LABEL_NAMESPACE DEVAGENT_GITHUB_LABEL_IN_PROGRESS DEVAGENT_GITLAB_LABELS_IN_PROGRESS
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null # hostile ~/.gitconfig (e.g. commit.gpgsign)
 export TZ=UTC LC_ALL=C.UTF-8                                   # TZ / locale drift (C.UTF-8: deterministic + UTF-8-safe)
+# #713: a trust policy on the suite host turns trust on for any fixture whose
+# repo it covers, and its identity checks would call the real forge. The
+# candidates are scripts/lib/trust.sh's TRUST_SYSTEM_DIRS plus the user
+# location; keep the two lists in step.
+for _trust_loc in /etc/devagent/trust /c/ProgramData/devagent/trust "$HOME/.config/devagent/trust"; do
+  if [ -e "$_trust_loc/policy.toml" ] || [ -L "$_trust_loc/policy.toml" ]; then
+    echo "suite host carries a trust policy at $_trust_loc/policy.toml; run the suite where none exists" >&2
+    unset _trust_loc
+    return 1
+  fi
+done
+unset _trust_loc

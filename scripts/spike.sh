@@ -34,6 +34,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/conn-diag.sh"
 # shellcheck source=lib/baseline.sh
 . "$DEVAGENT_ROOT/scripts/lib/baseline.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -64,6 +66,7 @@ fi
 
 issue_dir="$(issue_dir_for "$project" "$issue_arg")"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
+trust_entry_check "spike" "$project"
 
 # #422/#332 derivation — strip ONLY "Issue-" and lowercase, so Issue-42 and
 # Issue-Fork-42 get DISTINCT names. The bare numeric form (which also strips

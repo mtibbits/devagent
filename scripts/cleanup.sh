@@ -12,6 +12,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -40,6 +42,7 @@ else
 fi
 issue_arg="$cleanup_target"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
+trust_entry_check "cleanup" "$project"
 
 # #242 (generalizes #231): refuse to close while ANY prior closeout step is
 # non-terminal — updatewbs/impact/lessonslearned are exactly the steps skipped
@@ -217,7 +220,7 @@ log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ —
     warn "cleanup: wbs reconcile failed (non-fatal)"
 
 # Commit + push devdoc if permitted.
-commit_devdoc="$(config_get_project_field "$project" "permissions.commit_devdoc" 2>/dev/null || echo false)"
+commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
 if [ "$commit_devdoc" = "true" ]; then
     plan="cleanup plan: commit + push devdoc updates for $issue_arg"
     permission_gate "$project" commit_devdoc "$plan"

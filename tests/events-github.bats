@@ -394,17 +394,57 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   [ "$output" = "$actor" ]
 }
 
-@test "[gh whoami] an App-token 403 exits 1 with empty stdout" {
+# #713 Task 4: whoami splits a failed call by the HTTP status line of
+# `gh api -i`: definitive (gh exit 4, 401, other 4xx) exits 3; could-not-run
+# (no status line, 5xx, 429, a rate-limited 403) exits 75.
+
+@test "[gh whoami] an App-token 403 exits 3 with empty stdout" {
   _ev u403 whoami mtibbits/devagent
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 3 ]
   [ -z "$output" ]
   [[ "$stderr" == *"HTTP 403"* ]]
 }
 
-@test "[gh whoami] an expired-token 401 exits 1 with empty stdout" {
+@test "[gh whoami] an expired-token 401 exits 3 with empty stdout" {
   _ev u401 whoami mtibbits/devagent
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 3 ]
   [ -z "$output" ]
+  [[ "$stderr" == *"HTTP 401"* ]]
+}
+
+@test "[gh whoami] gh not logged in (exit 4) exits 3" {
+  _ev unologin whoami mtibbits/devagent
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"gh auth login"* ]]
+}
+
+@test "[gh whoami] a head larger than a pipe buffer still answers (no SIGPIPE)" {
+  # 1200 padded headers (~90 KB): a reader that stops early (head -n 1) under
+  # pipefail killed the writer with SIGPIPE, and whoami exited 141.
+  _ev ubighead whoami mtibbits/devagent
+  [ "$status" -eq 0 ]
+  [ "$output" = 894144 ]
+}
+
+@test "[gh whoami] a rate-limited 403 exits 75" {
+  _ev u403rl whoami mtibbits/devagent
+  [ "$status" -eq 75 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"could not run"* ]]
+}
+
+@test "[gh whoami] a 502 exits 75" {
+  _ev u502 whoami mtibbits/devagent
+  [ "$status" -eq 75 ]
+  [ -z "$output" ]
+}
+
+@test "[gh whoami] no status line exits 75" {
+  _ev unostatus whoami mtibbits/devagent
+  [ "$status" -eq 75 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"error connecting"* ]]
 }
 
 @test "[gh whoami] a 200 without a numeric id exits 5 with empty stdout" {
@@ -418,7 +458,7 @@ _KINDS="$(printf '%s\t%s\n' created full edited-title full edited-body full \
   export GH_HOST=other.example
   _ev 561 whoami ghe.example.com/o/r
   [ "$status" -eq 0 ]
-  [ "$(cat "$GH_STUB_ARGV_LOG")" = "[api] [--hostname] [ghe.example.com] [user] GH_HOST=<unset>" ]
+  [ "$(cat "$GH_STUB_ARGV_LOG")" = "[api] [-i] [--hostname] [ghe.example.com] [user] GH_HOST=<unset>" ]
 }
 
 @test "[gh whoami] bad arguments exit 1, never 2" {

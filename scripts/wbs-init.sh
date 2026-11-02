@@ -52,6 +52,8 @@ source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/active.sh"
 # shellcheck source=lib/template_resolve.sh
 source "$SCRIPT_DIR/lib/template_resolve.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/trust.sh"
 
 usage_die() {
   echo "wbs init: $*" >&2
@@ -122,6 +124,7 @@ active_resolve_project_try "$project_arg"
 project="$ACTIVE_RESOLVED_PROJECT"
 config_is_project "$project" || die "wbs init: unknown project '$project'"
 active_guard_scope "wbs init"
+trust_entry_check "wbs-init" "$project"
 devdoc_dir="$(expand_tilde "$(config_get_project_field "$project" devdoc_dir)")"
 [[ -n "$devdoc_dir" ]] || die "wbs init: devdoc_dir not configured for $project"
 
