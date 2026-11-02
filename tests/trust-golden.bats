@@ -17,7 +17,12 @@
 # Re-capture only when a change is MEANT to alter no-policy output, and say so
 # in the commit; the first capture is 891254c (#713, before any trust code).
 #
-# Retirement: the four fixtures stay until #902 merges (#902's AC reuses them).
+# #714 adds park, unstuck, checklist-mark, revise, cleanup and analyze, each
+# captured at 5c08ea5 (before any #714 code) on its success path, so each run
+# crosses the line where quarantine_guard sits. Capture just those with
+# `TRUST_GOLDEN_CAPTURE_SHA=5c08ea5 bats -f '5c08ea5' tests/trust-golden.bats`.
+#
+# Retirement: the four #713 fixtures stay until #902 merges (#902's AC reuses them).
 # After that, only "no-policy runs make no whoami/events call" is the standing
 # guard and the fixture comparisons may be deleted.
 
@@ -50,6 +55,42 @@ teardown() {
 @test "trust-golden: doctor no-policy output is byte-identical to the 891254c golden" {
   _scenario_doctor
   _golden_check doctor "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: park no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_park
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check park "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: unstuck no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_unstuck
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check unstuck "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: checklist-mark no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_checklist_mark
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check checklist-mark "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: revise no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_revise
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check revise "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: cleanup no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_cleanup
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check cleanup "$GOLDEN_ARGV"
+}
+
+@test "trust-golden: analyze no-policy output is byte-identical to the 5c08ea5 golden" {
+  _scenario_analyze
+  [ "$status" -eq 0 ] || { echo "rc=$status stderr=$stderr" >&2; return 1; }
+  _golden_check analyze "$GOLDEN_ARGV"
 }
 
 @test "trust-golden: no-policy runs make no whoami/events call" {
