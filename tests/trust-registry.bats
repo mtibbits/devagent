@@ -23,6 +23,7 @@ _exit_rows() {
 }
 
 @test "registry: pull.md exit table equals refusals.sh" {
+  # shellcheck source=/dev/null
   type trust_exit_table 2>/dev/null || source "$REFUSALS"
   local doc lib
   doc="$(_exit_rows < "$PLUGIN_ROOT/commands/pull.md")"
@@ -33,6 +34,7 @@ _exit_rows() {
 }
 
 @test "registry: pull.md names a consumer action for every code" {
+  # shellcheck source=/dev/null
   source "$REFUSALS"
   local code
   for code in $(trust_exit_table | _exit_rows | cut -d'|' -f1); do
@@ -41,6 +43,7 @@ _exit_rows() {
 }
 
 @test "registry: codes are unique and in 6..11" {
+  # shellcheck source=/dev/null
   source "$REFUSALS"
   local codes
   codes="$(trust_exit_table | _exit_rows | cut -d'|' -f1)"
@@ -69,6 +72,7 @@ _exit_rows() {
 }
 
 @test "registry: every refusal id has a detail and only whoami-unavailable is a try-later" {
+  # shellcheck source=/dev/null
   source "$REFUSALS"
   local id want
   for id in policy-defect whoami-failed whoami-unavailable whoami-unsupported not-worker \

@@ -55,6 +55,7 @@ _in_scope() {
   [[ "$stderr" != *"Proceed with"* ]]
   # positive control: open when the policy says true.
   _in_scope push_mr=true
+  # shellcheck disable=SC1007  # DA_YES deliberately empty: no --yes bypass
   DA_YES= run --separate-stderr permission_gate wid push_mr "ship plan"
   [ "$status" -eq 0 ]
 }

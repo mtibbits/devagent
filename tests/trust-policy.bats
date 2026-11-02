@@ -172,7 +172,7 @@ _digest() { trust_py load "$1" | awk -F'\t' '$1 == "digest" { print $3 }'; }
 }
 
 @test "key: canonical repo and issue keys" {
-  local row backend repo num host want got
+  local backend repo num host want got
   while IFS='|' read -r backend repo num host want; do
     [ -n "$backend" ] || continue
     got="$(trust_py key "$backend" "$repo" ${num:+"$num"} ${host:+--host "$host"})"

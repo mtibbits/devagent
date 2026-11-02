@@ -20,6 +20,7 @@ _golden_norm() {
 
 # _golden_check <name> <argv-log>: compare (or, under TRUST_GOLDEN_CAPTURE_SHA,
 # write) the four fixture files from the last `run --separate-stderr`.
+# shellcheck disable=SC2154  # $output/$status are set by `run --separate-stderr` (bats idiom)
 _golden_check() {
   local name="$1" argv_log="$2" kind got
   local tmp="$BATS_TEST_TMPDIR/golden"
@@ -136,6 +137,7 @@ _scenario_doctor() {
   stub_claude_cli enabled
   _gh_stub_on_path
   GOLDEN_TMP_ROOTS=("$BATS_TEST_TMPDIR" "$DA_HOME")
+  # shellcheck disable=SC2034  # read by tests/trust-golden.bats
   GOLDEN_ARGV="$GH_STUB_ARGV_LOG"
   run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" volk
 }
