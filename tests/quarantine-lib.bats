@@ -33,7 +33,7 @@ _state() {
   trust_load
   TRUST_WHOAMI=github:1001
   touch "$QB_DIR/events.tsv"
-  run --separate-stderr quarantine_state "$QF_LABEL" trusted_approvers < "$QB_DIR/events.tsv"
+  run --separate-stderr quarantine_state "$QF_LABEL" trusted_approvers github < "$QB_DIR/events.tsv"
 }
 
 @test "marker: round-trip" {

@@ -77,7 +77,6 @@ quarantine_marker_write() {
   mv -f "$tmp" "$dir/QUARANTINE"
 }
 
-# shellcheck disable=SC2034  # setter-globals, read by the callers
 # _quarantine_now: the UTC time, in the marker's form.
 _quarantine_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -130,7 +129,8 @@ quarantine_print() {
 
 # ---- the tracker state (the authority) -------------------------------------
 
-# quarantine_state <label> <set>: bc_rec lines (an `events` read) on stdin →
+# quarantine_state <label> <set> <backend>: bc_rec lines (an `events` read
+# from <backend>) on stdin →
 # `<none|held|released> <label-present 0|1> <qtime> <qseq>` on stdout.
 # Q is the latest `labeled` record for <label> (name matched
 # case-insensitively). A removal counts only when it is strictly later than Q
@@ -139,7 +139,7 @@ quarantine_print() {
 # one removal after Q; there is no second predicate (D20). Needs a loaded
 # policy (TRUST_ID/TRUST_VAL). Never dies; a parse failure returns 1.
 quarantine_state() {
-  local label="$1" set="$2" recs line kind actor atype qt="?" qs="?" present=1 state=none
+  local label="$1" set="$2" backend="$3" recs line kind actor atype qt="?" qs="?" present=0 state=none
   recs="$(bc_rec_parse | jq -rs --arg l "$label" '
     [ .[] | select((.kind == "labeled" or .kind == "unlabeled")
                    and ((.rest // "") | ascii_downcase) == ($l | ascii_downcase)) ] as $r
@@ -154,17 +154,31 @@ quarantine_state() {
   while IFS= read -r line; do
     kind="${line%% *}"
     case "$kind" in
-      Q) line="${line#Q }"; qt="${line%% *}" qs="${line#* }"; state=held ;;
+      Q) line="${line#Q }"; qt="${line%% *}" qs="${line#* }"; state=held present=1 ;;
       U) line="${line#U }"; actor="${line%% *}" atype="${line#* }"
          present=0
-         if trust_grants "$set" github "$actor" "$atype"; then state=released; fi ;;
+         if trust_grants "$set" "$backend" "$actor" "$atype"; then state=released; fi ;;
     esac
   done <<<"$recs"
-  if [ "$state" = none ]; then
-    echo "none 0 ? ?"
-    return 0
-  fi
   printf '%s %s %s %s\n' "$state" "$present" "$qt" "$qs"
+}
+
+# _quarantine_source <project> <issue_id>: SETTER-GLOBAL QK_SOURCE (origin|fork,
+# empty when no source maps the id), QK_SECTION and QK_NUM — the source whose
+# dir_prefix is the longest one that <issue_id> carries followed by digits.
+_quarantine_source() {
+  local which section prefix best=-1
+  QK_SOURCE="" QK_SECTION="" QK_NUM=""
+  for which in origin fork; do
+    section=issue_source
+    [ "$which" = fork ] && section=issue_source_fork
+    prefix="$(config_get_project_field "$1" "$section.dir_prefix" 2>/dev/null || true)"
+    prefix="${prefix//$'\r'/}"
+    [ -n "$prefix" ] || continue
+    [[ "$2" == "$prefix"* ]] && [[ "${2#"$prefix"}" =~ ^[0-9]+$ ]] || continue
+    [ "${#prefix}" -gt "$best" ] || continue
+    best="${#prefix}" QK_SOURCE="$which" QK_SECTION="$section" QK_NUM="${2#"$prefix"}"
+  done
 }
 
 # shellcheck disable=SC2034  # setter-globals, read by the callers
@@ -174,22 +188,15 @@ quarantine_state() {
 # that <issue_id> carries followed by digits; `<project>/<issue_id>` when no
 # source maps it or the key cannot be built.
 quarantine_key() {
-  local project="$1" id="$2" which section prefix best=-1 k
-  QK_BACKEND="" QK_REPO="" QK_NUM="" QK_SOURCE=""
-  for which in origin fork; do
-    section=issue_source
-    [ "$which" = fork ] && section=issue_source_fork
-    prefix="$(config_get_project_field "$project" "$section.dir_prefix" 2>/dev/null || true)"
-    prefix="${prefix//$'\r'/}"
-    [ -n "$prefix" ] || continue
-    [[ "$id" == "$prefix"* ]] && [[ "${id#"$prefix"}" =~ ^[0-9]+$ ]] || continue
-    [ "${#prefix}" -gt "$best" ] || continue
-    best="${#prefix}" QK_SOURCE="$which" QK_NUM="${id#"$prefix"}"
-    QK_BACKEND="$(config_get_project_field "$project" "$section.backend" 2>/dev/null || true)"
-    QK_REPO="$(config_get_project_field "$project" "$section.repo" 2>/dev/null || true)"
+  local project="$1" id="$2" k
+  QK_BACKEND="" QK_REPO=""
+  _quarantine_source "$project" "$id"
+  if [ -n "$QK_SOURCE" ]; then
+    QK_BACKEND="$(config_get_project_field "$project" "$QK_SECTION.backend" 2>/dev/null || true)"
+    QK_REPO="$(config_get_project_field "$project" "$QK_SECTION.repo" 2>/dev/null || true)"
     QK_BACKEND="${QK_BACKEND//$'\r'/}" QK_REPO="${QK_REPO//$'\r'/}"
     QK_BACKEND="${QK_BACKEND,,}"
-  done
+  fi
   QK_KEY="$project/$id"
   if [ -n "$QK_SOURCE" ] && [ -n "$QK_BACKEND" ] && [ -n "$QK_REPO" ]; then
     declare -p TRUST_VAL >/dev/null 2>&1 || declare -gA TRUST_VAL=()
@@ -239,8 +246,28 @@ _quarantine_clear_slot() {
 # do not parse.
 _quarantine_read_state() {
   local out
-  out="$(printf '%s\n' "$QE_OUT" | quarantine_state "$1" trusted_approvers)" || return 1
+  out="$(printf '%s\n' "$QE_OUT" | quarantine_state "$1" trusted_approvers "$QK_BACKEND")" || return 1
   read -r QS_STATE QS_PRESENT QS_TIME QS_SEQ <<<"$out"
+}
+
+# _quarantine_apply <project> <label> <verb>: one quarantine label write on
+# the QK_* issue, then a fresh read-back into QS_* (QS_STATE `?` when there is
+# none). SETTER-GLOBAL QA_TIME, the write time; call bare or in a condition.
+# A failed write warns (`could not be <verb>`) and returns its exit.
+_quarantine_apply() {
+  local rc=0
+  QA_TIME="$(_quarantine_now)"
+  "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$1" >/dev/null 2>&1 || rc=$?
+  QE_FOR=""
+  QS_STATE="?" QS_PRESENT=0
+  if [ "$rc" -ne 0 ]; then
+    printf 'quarantine: the quarantine label could not be %s on %s#%s (exit %s); the next guarded call retries\n' \
+      "$3" "$QK_REPO" "$QK_NUM" "$rc" >&2
+    return "$rc"
+  fi
+  _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
+  if [ "$QE_RC" = 0 ] && [ -n "$2" ]; then _quarantine_read_state "$2" || QS_STATE="?"; fi
+  return 0
 }
 
 # _quarantine_decide <dir> <project> <id> <step|pull>: refuse (exit 11 in step
@@ -262,7 +289,7 @@ QUARANTINE_RELEASED=""
 # shellcheck disable=SC2034  # QUARANTINE_RELEASED is read by pull.sh
 _quarantine_decide() {
   local dir="$1" project="$2" id="$3" mode="$4" code=11 marked=0 label
-  local reason tt="?" ts="?" apply=0 confirmed=0 rc wt
+  local reason tt="?" ts="?" apply=0 confirmed=0
   [ "$mode" = pull ] && code=7
   QUARANTINE_RELEASED=""
   quarantine_marked "$dir" && marked=1
@@ -271,7 +298,7 @@ _quarantine_decide() {
     quarantine_key "$project" "$id"
     _quarantine_refuse "$code" "$QK_KEY"
   fi
-  label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
+  label="$(trust_quarantine_label)"
   [ -n "$label" ] || refuse quarantine-unmapped
   quarantine_key "$project" "$id"
   if [ -z "$QK_SOURCE" ] || [ -z "$QK_REPO" ]; then
@@ -309,21 +336,8 @@ _quarantine_decide() {
         apply=1
       fi ;;
   esac
-  if [ "$apply" = 1 ]; then
-    rc=0 wt="$(_quarantine_now)"
-    "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$project" >/dev/null 2>&1 || rc=$?
-    QE_FOR=""
-    QS_STATE="?" QS_PRESENT=0
-    if [ "$rc" -ne 0 ]; then
-      printf 'quarantine: the quarantine label could not be re-applied on %s#%s (exit %s); the next guarded call retries\n' \
-        "$QK_REPO" "$QK_NUM" "$rc" >&2
-    else
-      _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
-      if [ "$QE_RC" = 0 ]; then _quarantine_read_state "$label" || QS_STATE="?"; fi
-      # the write landed but the read-back may lag: keep the write time
-      tt="$wt"
-    fi
-  fi
+  # the write landed but the read-back may lag: keep the write time
+  if [ "$apply" = 1 ] && _quarantine_apply "$project" "$label" re-applied; then tt="$QA_TIME"; fi
   if [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then tt="$QS_TIME" ts="$QS_SEQ"; fi
   reason=tracker
   if [ "$marked" = 1 ]; then
@@ -339,20 +353,6 @@ _quarantine_decide() {
   _quarantine_refuse "$code" "$QK_KEY"
 }
 
-# _quarantine_issue_token <project> <token>: 0 iff <token> is a configured
-# dir_prefix followed by digits (an issue id this project's sources map).
-_quarantine_issue_token() {
-  local which prefix
-  [ -n "$2" ] || return 1
-  for which in issue_source issue_source_fork; do
-    prefix="$(config_get_project_field "$1" "$which.dir_prefix" 2>/dev/null || true)"
-    prefix="${prefix//$'\r'/}"
-    [ -n "$prefix" ] || continue
-    if [[ "$2" == "$prefix"* ]] && [[ "${2#"$prefix"}" =~ ^[0-9]+$ ]]; then return 0; fi
-  done
-  return 1
-}
-
 # _quarantine_resolve <project> [<issue-arg>]: SETTER-GLOBAL QG_ISSUE QG_DIR —
 # the issue a caller's resolver will act on, found without dying:
 # <issue-arg> when it is a mapped issue id, else a valid DEVAGENT_ACTIVE_ISSUE,
@@ -362,7 +362,8 @@ _quarantine_resolve() {
   local project="$1" arg="${2:-}" issue=""
   QG_ISSUE="" QG_DIR=""
   [ -n "$project" ] || return 1
-  if _quarantine_issue_token "$project" "$arg"; then
+  _quarantine_source "$project" "$arg"
+  if [ -n "$QK_SOURCE" ]; then
     issue="$arg"
   elif [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
     [[ "$DEVAGENT_ACTIVE_ISSUE" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
@@ -433,7 +434,7 @@ quarantine_guard_dir() {
 quarantine_pull_guard() {
   local project="$1" id="$2" dir="$3" label rc=0
   if [ "${TRUST_IN_SCOPE:-0}" = 1 ]; then
-    label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
+    label="$(trust_quarantine_label)"
     [ -n "$label" ] || refuse quarantine-unmapped
     quarantine_key "$project" "$id"
     if [ -n "$QK_REPO" ]; then
@@ -471,27 +472,16 @@ quarantine_verdict() {
 # quarantine's time and seq when the read-back shows it, else `? ?` (the next
 # guarded call re-applies). No state change and no log line pre-work.
 quarantine_pull_quarantine() {
-  local project="$1" id="$2" dir="$3" token="$4" label rc=0 tt="?" ts="?" wt
-  label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
+  local project="$1" id="$2" dir="$3" token="$4" tt="?" ts="?"
   quarantine_key "$project" "$id"
   if [ -f "$dir/checklist.md" ]; then
     _quarantine_clear_slot "$project" "$id" "$dir"
   else
     rm -f "$dir/issue.md"
   fi
-  wt="$(_quarantine_now)"
-  "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$project" >/dev/null 2>&1 || rc=$?
-  QE_FOR=""
-  if [ "$rc" -ne 0 ]; then
-    printf 'quarantine: the quarantine label could not be applied on %s#%s (exit %s); the next guarded call retries\n' \
-      "$QK_REPO" "$QK_NUM" "$rc" >&2
-  else
-    _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
-    tt="$wt"
-    if [ "$QE_RC" = 0 ] && [ -n "$label" ] && _quarantine_read_state "$label" \
-       && [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then
-      tt="$QS_TIME" ts="$QS_SEQ"
-    fi
+  if _quarantine_apply "$project" "$(trust_quarantine_label)" applied; then
+    tt="$QA_TIME"
+    if [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then tt="$QS_TIME" ts="$QS_SEQ"; fi
   fi
   quarantine_marker_write "$dir" "$QK_KEY" "$token" "$tt" "$ts"
   _quarantine_refuse 6 "$QK_KEY"

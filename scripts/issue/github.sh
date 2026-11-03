@@ -225,16 +225,25 @@ cmd_transition() {
   if [ -n "$(stage_map_carried github "$present" "$target")" ] && [ "${#remove[@]}" -eq 0 ]; then
     return 0
   fi
-  local rc=0
-  _gh_label_exists "$repo" "$target" || rc=$?
+  _gh_add_label "$repo" "$num" "$target" "$stage" "change the mapping" "${remove[@]+"${remove[@]}"}"
+}
+
+# _gh_add_label <repo> <num> <label> <what> <fix> [<remove>...]: a
+# transition's write — exit 4 naming <label> (<what>, and <fix> as the remedy)
+# when the repo lacks it, else one edit adding <label> and removing each
+# <remove>.
+_gh_add_label() {
+  local repo="$1" num="$2" label="$3" what="$4" fix="$5" rc=0 o
+  shift 5
+  _gh_label_exists "$repo" "$label" || rc=$?
   case "$rc" in
     0) ;;
-    4) echo "github.sh: label '$target' ($stage) not found on $repo; devagent does not create labels — create it or change the mapping" >&2
+    4) echo "github.sh: label '$label' ($what) not found on $repo; devagent does not create labels — create it or $fix" >&2
        return 4 ;;
     *) return 1 ;;
   esac
-  local args=(issue edit "$num" --repo "$repo" --add-label "$target")
-  for o in "${remove[@]+"${remove[@]}"}"; do args+=(--remove-label "$o"); done
+  local args=(issue edit "$num" --repo "$repo" --add-label "$label")
+  for o in "$@"; do args+=(--remove-label "$o"); done
   _gh_json "${args[@]}" >/dev/null || return 1
 }
 
@@ -246,14 +255,14 @@ cmd_transition() {
 # set stays 0/2/4/1 — the entry point reports 9 itself); 4 the label is not on
 # the repo; 0 written or already there.
 _gh_transition_quarantine() {
-  local repo="$1" num="$2" label json rc=0
+  local repo="$1" num="$2" label json
   # shellcheck source=../lib/trust.sh
   declare -F trust_locate_host >/dev/null || source "${SCRIPT_DIR}/../lib/trust.sh"
   trust_locate_host || { echo "github.sh: transition quarantine: trust policy location: $TRUST_DEFECT" >&2; return 1; }
   if [ "$TRUST_HOST" = 1 ]; then
     _trust_load_try || { echo "github.sh: transition quarantine: policy $TRUST_DIR: $TRUST_LOAD_ERR" >&2; return 1; }
     _need jq
-    label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' | tr -d '\r')" || return 1
+    label="$(trust_quarantine_label)" || return 1
   fi
   if [ -z "${label:-}" ]; then
     echo "github.sh: transition quarantine needs a trust policy with a quarantine label" >&2
@@ -265,18 +274,10 @@ _gh_transition_quarantine() {
   fi
   _need gh
   json="$(_gh_view "$repo" "$num" labels)" || return 1
-  if [ -n "$(printf '%s' "$json" | jq -r --arg n "$label" \
-      '.labels[]? | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .name' | tr -d '\r')" ]; then
+  if [ -n "$(stage_map_carried github "$(printf '%s' "$json" | jq -r '.labels[]?.name' | tr -d '\r')" "$label")" ]; then
     return 0
   fi
-  _gh_label_exists "$repo" "$label" || rc=$?
-  case "$rc" in
-    0) ;;
-    4) echo "github.sh: label '$label' (quarantine) not found on $repo; devagent does not create labels — create it or change the trust policy" >&2
-       return 4 ;;
-    *) return 1 ;;
-  esac
-  _gh_json issue edit "$num" --repo "$repo" --add-label "$label" >/dev/null || return 1
+  _gh_add_label "$repo" "$num" "$label" quarantine "change the trust policy"
 }
 
 # state-exists <repo> <label> (#710, spec §9.1 MAY): 0 the label exists on

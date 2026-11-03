@@ -144,6 +144,12 @@ _trust_tracker_host() {
   printf '%s' "${TRUST_VAL[trackers]}" | jq -r "$path // empty" 2>/dev/null | tr -d '\r'
 }
 
+# trust_quarantine_label: the policy's quarantine label (#714), or nothing
+# when the policy maps none.
+trust_quarantine_label() {
+  printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r'
+}
+
 # trust_key <backend> <repo> [<num>]: the canonical repo key, or issue key
 # with <num>, the host taken from the policy's trackers.
 trust_key() {
