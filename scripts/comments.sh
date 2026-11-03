@@ -28,6 +28,8 @@ source "$DEVAGENT_ROOT/scripts/lib/revision.sh"
 source "$DEVAGENT_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 # Private die() preserves the "comments:" prefix; defined after the sources so it
 # shadows io.sh's die.
@@ -77,6 +79,8 @@ main() {
   # failure still exits under set -e with the engine's message re-emitted.
   active_resolve_project_try "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
+trust_entry_check "comments" "$project"
+quarantine_guard "comments" "$project" "${2:-}"
   active_guard_scope comments
   [[ $# -ge 1 ]] && shift || true
   local issue_arg="${1:-}"
@@ -86,7 +90,6 @@ main() {
     || die "no active_issue for project '$project' (state file missing or empty)"
   [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$project'"
   [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
-trust_entry_check "comments" "$project"
   # (#240 supersedes the #70 crosscheck: an explicit arg IS the issue —
   # mr_url now reads ITS [context] table.)
 

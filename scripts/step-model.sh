@@ -29,10 +29,17 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 project="${1:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 step="${2:?usage: step-model.sh <project> <step-num> [issue-dir]}"
 issue_dir="${3:-}"
+if [[ -n "$issue_dir" ]]; then
+quarantine_guard_dir "step-model" "$issue_dir"
+else
+quarantine_guard_marker "step-model" "$project"
+fi
 if [[ -z "$issue_dir" ]]; then
   if [[ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]]; then
     # #240: pinned session — derive ITS dir, gated on the issue's TABLE

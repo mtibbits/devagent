@@ -12,6 +12,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
@@ -24,6 +26,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
+quarantine_guard_marker "analyze" "$project" "${2:-}"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then

@@ -46,6 +46,8 @@ silently flip `[-]`→`[x]`.
 
 ## Workflow
 
+First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
+
 1. Resolve `project`, `issue-dir`. Verify `issue.md` exists.
 2. Read the issue. Identify the questions the issue's own text cannot answer — external API
    behavior, toolchain quirks, upstream conventions, unverified premises.

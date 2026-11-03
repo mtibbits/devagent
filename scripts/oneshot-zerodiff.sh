@@ -89,6 +89,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
@@ -112,6 +114,7 @@ config_is_project "$project" || die "unknown project '$project'"
 # traversal (usage: the ONE rc-1 shape); a scan never names the target — a
 # boundary verdict is about the issue the operator meant, never one a scan
 # adopted — so bare-with-no-slot is `indeterminate` below, not a guess.
+quarantine_guard_marker "oneshot-zerodiff" "$project" "${2:-}"
 issue_arg="${2:-}"
 if [ -n "$issue_arg" ] || [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
     active_resolve_issue_src "$project" "$issue_arg"

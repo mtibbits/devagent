@@ -28,6 +28,8 @@ source "$DEVAGENT_ROOT/scripts/lib/flags.sh"
 source "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 # Private die() preserves the "revise:" message prefix; defined after the sources so
 # it shadows io.sh's die (state.sh's internal die calls then carry this prefix too).
@@ -74,6 +76,8 @@ done
 # engine's own message (re-emitted), byte-compatible with the old $() die-through.
 active_resolve_project_try "$PROJECT"
 PROJECT="$ACTIVE_RESOLVED_PROJECT"
+trust_entry_check "revise" "$PROJECT"
+quarantine_guard "revise" "$PROJECT" "$ISSUE"
 active_guard_scope revise
 
 # #240: the session's issue (arg → env pin → shared state); reads/writes are
@@ -84,7 +88,6 @@ issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"
 [[ -d "$issue_dir" ]] || die "issue dir not found: $issue_dir"
-trust_entry_check "revise" "$PROJECT"
 
 n_cur=$(revision_current "$PROJECT" "$ISSUE")
 n_new=$((n_cur + 1))

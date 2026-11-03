@@ -19,6 +19,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
@@ -46,6 +48,7 @@ active_guard_scope born-red
 # Opt-in: no-op unless born_red=true (the record-scope/commit_autostage precedent).
 born_red="$(config_get_project_field "$project" born_red 2>/dev/null || echo false)"
 [ "$born_red" = "true" ] || exit 0
+quarantine_guard_marker "born-red" "$project"
 
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "born-red: issue_dir not set or missing"

@@ -30,6 +30,8 @@ that project.
 
 ## Workflow
 
+First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
+
 1. Resolve `project`, `issue-dir`, and `$NOTE` per the rules above.
 2. Read `<issue-dir>/issue.md`. If absent, halt and tell the operator
    to run `/devagent:pull` first. Once the issue is confirmed, drafting
@@ -44,9 +46,10 @@ that project.
    for `on_draft_start` only when `permissions.transition_issue = true`
    (fail-closed skip-warn otherwise, mirroring sync's `on_merge`, #219),
    and a transition failure warns rather than dies, so drafting proceeds
-   regardless of tracker state. **Except exit 9 or 10** (a trust policy
-   refused the host or identity, or a trust check could not run, #713):
-   stop, do not draft, do not retry, and report the refusal line verbatim.
+   regardless of tracker state. **Except exit 9, 10 or 11** (a trust policy
+   refused the host or identity, or a trust check could not run, #713; the
+   issue is quarantined, #714): stop, do not draft, do not retry, and report
+   the refusal verbatim.
    Any other non-zero exit is absorbed and drafting proceeds.
 
    **Pre-plan inputs — re-derive the issue's named inputs at HEAD (#361).**

@@ -15,6 +15,8 @@ source "$PLUGIN_ROOT/scripts/lib/state.sh"
 source "$PLUGIN_ROOT/scripts/lib/config.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 main() {
   local project="${1:-}"
@@ -32,13 +34,15 @@ main() {
   [[ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]] \
     || die "session is issue-pinned (DEVAGENT_ACTIVE_ISSUE=${DEVAGENT_ACTIVE_ISSUE}) — switch manages the shared pointer; unset the pin or use pull/resume"
 
+trust_entry_check "switch" "$project"
+quarantine_guard "switch" "$project"
+quarantine_guard "switch" "$project" "$target"
   local parked devdoc target_dir
   parked="$(state_list_parked "$project")"
   grep -qxF "$target" <<<"$parked" || die "'$target' not parked for $project"
   devdoc="$(config_get_project_field "$project" devdoc_dir)"
   target_dir="${devdoc%/}/$target"
   [[ -d "$target_dir" ]] || die "issue dir missing: $target_dir"
-trust_entry_check "switch" "$project"
 
   local active
   active="$(state_get "$project" active_issue 2>/dev/null || true)"

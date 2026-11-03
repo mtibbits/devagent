@@ -3,7 +3,8 @@
 # issue, separate from STUCK and [!]. The tracker label is the authority; the
 # issue dir's QUARANTINE file is a cache of it. Source-only.
 #
-# Load after paths.sh, io.sh, config.sh, state.sh, active.sh and trust.sh.
+# Load after paths.sh, io.sh and config.sh; it sources state.sh, trust.sh,
+# refusals.sh and issue-events.sh when they are not loaded yet.
 # None of these functions dies inside $(…): the setter-globals are called bare.
 #
 # shellcheck shell=bash
@@ -13,6 +14,35 @@ _QUARANTINE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 declare -F quarantine_message >/dev/null || source "$_QUARANTINE_LIB_DIR/refusals.sh"
 # shellcheck source=/dev/null
 declare -F bc_rec_parse >/dev/null || source "$_QUARANTINE_LIB_DIR/issue-events.sh"
+# shellcheck source=/dev/null
+declare -F state_get >/dev/null || source "$_QUARANTINE_LIB_DIR/state.sh"
+# shellcheck source=/dev/null
+declare -F trust_key >/dev/null || source "$_QUARANTINE_LIB_DIR/trust.sh"
+
+# Every script that calls a quarantine guard, by its path under scripts/
+# minus .sh — the #714 census. tests/quarantine-entry.bats holds it equal to
+# the scripts carrying a column-0 guard call, both directions. Step-boundary
+# guards (tracker read in scope): pull and quarantine_guard callers; the rest
+# are marker-only (#714 operator answer, round 2).
+# shellcheck disable=SC2034  # read by tests/quarantine-entry.bats
+QUARANTINE_GUARD_POINTS=(
+  pull next park resume switch stuck unstuck revise branch commit ship
+  mergetoall mergemr comments cleanup spike sync transition-draft-start
+  checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
+  checklist-unstuck promote-potholes migrate-checklist-numbering depends step-model
+  analyze analyze-static analyze-shellcheck analyze-sanitizers born-red
+  oneshot-zerodiff preship-evidence preship-verified-head rebaseline rederive
+  record-scope run-suite evidence-stamp quarantine-check
+)
+
+# The scripts the census sweep reaches that act on no issue dir's work: they
+# read and report (#904 gives them the reader message) or touch no issue dir.
+# shellcheck disable=SC2034  # read by tests/quarantine-entry.bats
+declare -gA QUARANTINE_UNGUARDED=(
+  [where]=reader [catchup]=reader [history]=reader [grep]=reader [status]=reader
+  [statusreport]=reader [wbs-update]=reader [doctor]=reader [wbs-init]=reader
+  [capture/file]="captures, not issue dirs"
+)
 
 # ---- the marker (the local cache) ------------------------------------------
 #
@@ -303,42 +333,72 @@ _quarantine_issue_token() {
   return 1
 }
 
-# quarantine_guard <caller> <project> [<issue-arg>]: call BARE on the line after
-# trust_entry_check. Resolves the issue the way the caller's resolver will,
-# never dying: <issue-arg> when it is a mapped issue id, else a valid
-# DEVAGENT_ACTIVE_ISSUE, else the state's active_issue. With none it returns
-# 0 and the caller's own error path runs. Exits 11 on a quarantined issue.
-quarantine_guard() {
-  local project="$2" arg="${3:-}" issue="" dir
-  [ -n "$project" ] || return 0
+# _quarantine_resolve <project> [<issue-arg>]: SETTER-GLOBAL QG_ISSUE QG_DIR —
+# the issue a caller's resolver will act on, found without dying:
+# <issue-arg> when it is a mapped issue id, else a valid DEVAGENT_ACTIVE_ISSUE,
+# else the state's active_issue. Returns 1 when none resolves (the caller's
+# own error path then runs unchanged).
+_quarantine_resolve() {
+  local project="$1" arg="${2:-}" issue=""
+  QG_ISSUE="" QG_DIR=""
+  [ -n "$project" ] || return 1
   if _quarantine_issue_token "$project" "$arg"; then
     issue="$arg"
   elif [ -n "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
-    [[ "$DEVAGENT_ACTIVE_ISSUE" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+    [[ "$DEVAGENT_ACTIVE_ISSUE" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
     issue="$DEVAGENT_ACTIVE_ISSUE"
   else
     issue="$(state_get "$project" active_issue 2>/dev/null || true)"
-    [[ "$issue" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+    [[ "$issue" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
   fi
-  dir="$(issue_dir_for "$project" "$issue" 2>/dev/null)" || return 0
-  _quarantine_decide "$dir" "$project" "$issue" step
+  QG_DIR="$(issue_dir_for "$project" "$issue" 2>/dev/null)" || return 1
+  QG_ISSUE="$issue"
 }
 
-# quarantine_guard_dir <caller> <issue_dir>: quarantine_guard for an entry
-# point handed an issue dir. The project is the trust check's (in scope), else
-# the one config project owning the dir's parent — looked up only when the dir
-# is marked, so an unmarked run stays [ -e ] / [ -L ].
-quarantine_guard_dir() {
-  local dir="${2%/}" project=""
-  [ -n "$dir" ] || return 0
-  if [ "${TRUST_IN_SCOPE:-0}" = 1 ]; then
-    project="${TRUST_PROJECT:-}"
-  elif quarantine_marked "$dir"; then
-    project="$(trust_project_for_devdoc "$(dirname -- "$dir")")"
+# _quarantine_marker_refuse <dir> <project> <id>: the marker-only check —
+# exit 11 when <dir> is marked, with no network whatever the trust scope.
+# The key is the issue's (as every guard prints it), or the marker's own when
+# no project is known.
+_quarantine_marker_refuse() {
+  quarantine_marked "$1" || return 0
+  if [ -n "$2" ]; then
+    quarantine_key "$2" "$3"
   else
-    return 0
+    quarantine_marker_read "$1"
+    QK_KEY="$QM_KEY"
   fi
-  _quarantine_decide "$dir" "$project" "$(basename -- "$dir")" step
+  _quarantine_refuse 11 "$QK_KEY"
+}
+
+# quarantine_guard <caller> <project> [<issue-arg>]: the step-boundary guard
+# (#714 operator answer, round 2): call BARE on the line after
+# trust_entry_check. In scope it reads the tracker (_quarantine_decide); out of
+# scope only the marker counts. Exits 11 on a quarantined issue.
+quarantine_guard() {
+  _quarantine_resolve "$2" "${3:-}" || return 0
+  _quarantine_decide "$QG_DIR" "$2" "$QG_ISSUE" step
+}
+
+# quarantine_guard_marker <caller> <project> [<issue-arg>]: quarantine_guard's
+# resolution, marker only — for helpers that run inside a step (analyzers,
+# evidence, scope, depends): the step boundary already read the tracker.
+quarantine_guard_marker() {
+  _quarantine_resolve "$2" "${3:-}" || return 0
+  _quarantine_marker_refuse "$QG_DIR" "$2" "$QG_ISSUE"
+}
+
+# quarantine_guard_dir <caller> <issue_dir>: the marker-only check for an entry
+# point handed an issue dir (the checklist-* family, promote-potholes,
+# migrate-checklist-numbering). The project is the trust check's in scope,
+# else the one config project owning the dir's parent — looked up only when
+# the dir is marked, so an unmarked run stays [ -e ] / [ -L ].
+quarantine_guard_dir() {
+  local dir="${2%/}" project
+  [ -n "$dir" ] || return 0
+  quarantine_marked "$dir" || return 0
+  project="${TRUST_PROJECT:-}"
+  [ "${TRUST_IN_SCOPE:-0}" = 1 ] || project="$(trust_project_for_devdoc "$(dirname -- "$dir")")"
+  _quarantine_marker_refuse "$dir" "$project" "$(basename -- "$dir")"
 }
 
 # ---- pull --------------------------------------------------------------------

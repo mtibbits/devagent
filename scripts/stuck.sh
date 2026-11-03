@@ -21,6 +21,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 main() {
   local project="${1:-}"
@@ -29,10 +31,11 @@ main() {
   [[ -n "$reason"  ]] || die "reason required (quote it)"
   config_is_project "$project" || die "unknown project '$project'"
 
+trust_entry_check "stuck" "$project"
+quarantine_guard "stuck" "$project"
   local issue_dir
   issue_dir="$(issue_context_dir "$project")"
   [[ -d "$issue_dir" ]] || die "no issue_dir; nothing to mark stuck"
-trust_entry_check "stuck" "$project"
 
   local checklist="$issue_dir/checklist.md"
   local cur cur_name last_good last_good_name

@@ -108,7 +108,8 @@ EOF
 
 @test "pull: run record carries digest, hardenings and user-ignored" {
   trust_fixture_policy "$POL" 'scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]' \
-    'trusted_approvers = ["github:1001"]' 'single_identity = true'
+    'trusted_approvers = ["github:1001"]' 'single_identity = true' "$TRUST_FIXTURE_QUARANTINE"
+  trust_fixture_quarantine_shim
   _wid_pull
   [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
   local digest
@@ -132,7 +133,9 @@ EOF
 }
 
 @test "pull: argv log never holds auth status" {
-  trust_fixture_policy "$POL" 'scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]'
+  trust_fixture_policy "$POL" 'scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]' \
+    "$TRUST_FIXTURE_QUARANTINE"
+  trust_fixture_quarantine_shim
   echo 2 > "$GH_STUB_EVENTS_DIR/accounts"
   _wid_pull
   [ "$status" -eq 0 ]

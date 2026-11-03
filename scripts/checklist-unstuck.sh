@@ -7,6 +7,8 @@ source "$PLUGIN_ROOT/scripts/lib/log.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 usage() {
   echo "usage: checklist-unstuck.sh (--pending|--in-progress) <issue-dir>" >&2
@@ -20,10 +22,11 @@ case "$1" in
   *) usage ;;
 esac
 issue_dir="$2"
+trust_entry_check_devdoc "checklist-unstuck" "$(dirname -- "$issue_dir")"
+quarantine_guard_dir "checklist-unstuck" "$issue_dir"
 file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 [[ -f "$issue_dir/STUCK" ]] || die "no STUCK file at $issue_dir/STUCK"
-trust_entry_check_devdoc "checklist-unstuck" "$(dirname -- "$issue_dir")"
 
 # #587: the row-selection scan and the by-line mark live in
 # scripts/lib/checklist.sh (see checklist_find_glyph_line's header), shared with

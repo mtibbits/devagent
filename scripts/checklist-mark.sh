@@ -6,6 +6,8 @@ source "$PLUGIN_ROOT/scripts/lib/io.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 by_name=0
 if [[ "${1:-}" == "--by-name" ]]; then by_name=1; shift; fi
@@ -15,9 +17,10 @@ if [[ "${1:-}" == "--by-name" ]]; then by_name=1; shift; fi
   exit 2
 }
 issue_dir="$1"; step="$2"; glyph="$3"; expect_name="${4:-}"
+trust_entry_check_devdoc "checklist-mark" "$(dirname -- "$issue_dir")"
+quarantine_guard_dir "checklist-mark" "$issue_dir"
 file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
-trust_entry_check_devdoc "checklist-mark" "$(dirname -- "$issue_dir")"
 if (( by_name == 1 )); then
   # #558: name-keyed marking survives a checklist carrying two numbering schemes.
   # #589: the library now dies on an absent name too; this probe is kept for the

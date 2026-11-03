@@ -304,9 +304,10 @@ EOF
 @test "baseline: a user-level single_identity policy with the operator id as worker and approver turns trust on" {
   _wid
   trust_fixture_policy "$POL" "$SCOPE" 'worker_identities = ["github:1001"]' \
-    'trusted_approvers = ["github:1001"]' 'single_identity = true'
+    'trusted_approvers = ["github:1001"]' 'single_identity = true' "$TRUST_FIXTURE_QUARANTINE"
+  trust_fixture_quarantine_shim
   _pull
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
   [ -d "$DEVDOC/Issue-7" ]
   grep -q '^\[api\] \[-i\] \[--hostname\] \[github.com\] \[user\]' "$GH_STUB_ARGV_LOG"
   grep -q '^\[issue\] \[view\]' "$GH_STUB_ARGV_LOG"

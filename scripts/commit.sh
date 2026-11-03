@@ -25,6 +25,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -77,6 +79,8 @@ project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
 
+trust_entry_check "commit" "$project"
+quarantine_guard "commit" "$project" "${2:-}"
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
     # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
@@ -92,7 +96,6 @@ fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue dir not found: $issue_dir"
-trust_entry_check "commit" "$project"
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — branch/keys now come from ITS [context] table, so a mismatched arg
 # can no longer commit the active branch under the wrong {{issue}}; an issue

@@ -41,6 +41,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 DRY=0; ALL=0; INCLUDE_DONE=0; REVERSE=0; REVERSE558=0
 declare -a DIRS=()
@@ -88,6 +90,17 @@ for d in "${DIRS[@]}"; do
   _trust_seen[$_trust_dd]=1
 trust_entry_check_devdoc "migrate-checklist-numbering" "$_trust_dd"
 done
+# #714: --all leaves a quarantined dir alone; an explicit one refuses (exit 11)
+# before any dir is written.
+if [ "$ALL" -eq 1 ]; then
+  _kept=()
+  for d in "${DIRS[@]}"; do quarantine_marked "$d" || _kept+=("$d"); done
+  DIRS=(${_kept[@]+"${_kept[@]}"})
+else
+  for d in "${DIRS[@]}"; do
+quarantine_guard_dir "migrate-checklist-numbering" "$d"
+  done
+fi
 
 migrated=0; skipped_done=0; already=0
 for d in "${DIRS[@]}"; do

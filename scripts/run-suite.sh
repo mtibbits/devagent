@@ -104,6 +104,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
@@ -130,6 +132,7 @@ active_guard_scope run-suite
 # wrong-PROJECT run still dies SCOPE MISMATCH first; BEFORE the tree is resolved, any
 # suite runs, or analysis/ exists. The shared slot is read only to NAME it.
 issue_unstated="ISSUE UNSTATED"
+quarantine_guard_marker "run-suite" "$project" "${2:-}"
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ] && [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
   _slot=""; _slot_rc=0

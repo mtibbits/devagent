@@ -17,6 +17,8 @@ Per `commands/draft.md`.
 
 ## Workflow
 
+First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
+
 1. Resolve `project`, `issue-dir`, `$NOTE`.
 2. Verify `imPlan-potentialFutureEnhancements.md` exists (proves
    prune ran).
