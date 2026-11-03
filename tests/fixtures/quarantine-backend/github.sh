@@ -5,6 +5,7 @@
 #   calls        one line per call: the verb, then its args (appended)
 #   events.tsv   the bc_rec lines `events` prints; transition appends to it
 #   events.rc    `events` exit code (default 0)
+#   events.err   what a failing `events` prints on stderr
 #   transition.rc, label.rc   `transition` / `state-exists` exit codes (0)
 #   clock        the time a transition's labeled record carries
 #   seq          the last seq handed out (transition takes the next one)
@@ -20,7 +21,10 @@ case "${1:-}" in
     echo "${QB_WHOAMI:-1001}" ;;
   events)
     rc="$(_rc events.rc)"
-    [ "$rc" = 0 ] || exit "$rc"
+    if [ "$rc" != 0 ]; then
+      [ ! -f "$d/events.err" ] || cat "$d/events.err" >&2
+      exit "$rc"
+    fi
     [ ! -f "$d/events.tsv" ] || cat "$d/events.tsv" ;;
   transition)
     rc="$(_rc transition.rc)"

@@ -210,14 +210,20 @@ quarantine_key() {
 # ---- the refusing guard ------------------------------------------------------
 
 # _quarantine_events <backend> <repo> <num>: one `events` read through the
-# backend seam, memoised per process. SETTER-GLOBAL QE_RC QE_OUT; call bare.
-# A transition write clears the memo (QE_FOR=""), so a read-back is fresh.
+# backend seam, memoised per process. SETTER-GLOBAL QE_RC QE_OUT QE_ERR (the
+# first stderr line, reduced to a safe charset and 160 bytes: a failed read's
+# diagnostic, since a 404 and an outage share the backend's exit 1); call
+# bare. A transition write clears the memo (QE_FOR=""), so a read-back is
+# fresh.
 QE_FOR=""
 _quarantine_events() {
-  local want="$1 $2 $3"
+  local want="$1 $2 $3" err
   [ "$QE_FOR" != "$want" ] || return 0
   QE_RC=0
-  QE_OUT="$("$(transition_backend_sh "$1")" events "$2" "$3" 2>/dev/null)" || QE_RC=$?
+  err="$(mktemp)"
+  QE_OUT="$("$(transition_backend_sh "$1")" events "$2" "$3" 2>"$err")" || QE_RC=$?
+  QE_ERR="$(head -n 1 "$err" | LC_ALL=C tr -cd 'A-Za-z0-9 .:,()#/_-' | cut -c1-160)"
+  rm -f "$err"
   QE_FOR="$want"
 }
 
@@ -310,7 +316,7 @@ _quarantine_decide() {
     0) ;;
     2|78) refuse events-unsupported "$QK_BACKEND" "$QE_RC" ;;
     *) [ "$marked" = 1 ] && _quarantine_refuse "$code" "$QK_KEY"
-       try_later events-unavailable "$QK_REPO#$QK_NUM" "$QE_RC" ;;
+       try_later events-unavailable "$QK_REPO#$QK_NUM" "$QE_RC${QE_ERR:+; $QE_ERR}" ;;
   esac
   if ! _quarantine_read_state "$label"; then
     [ "$marked" = 1 ] && _quarantine_refuse "$code" "$QK_KEY"
@@ -370,7 +376,7 @@ _quarantine_resolve() {
     issue="$DEVAGENT_ACTIVE_ISSUE"
   else
     issue="$(state_get "$project" active_issue 2>/dev/null || true)"
-    [[ "$issue" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+    [ "$issue" != null ] && [[ "$issue" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
   fi
   QG_DIR="$(issue_dir_for "$project" "$issue" 2>/dev/null)" || return 1
   QG_ISSUE="$issue"

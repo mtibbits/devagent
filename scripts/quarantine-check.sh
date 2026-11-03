@@ -29,6 +29,7 @@ source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 project=""
 if [ -n "${1:-}" ] && config_is_project "$1" 2>/dev/null; then
+  active_resolve_project_try "$1" 2>/dev/null || true
   project="$1"
   shift
 elif active_resolve_project_try "" 2>/dev/null; then
@@ -36,6 +37,6 @@ elif active_resolve_project_try "" 2>/dev/null; then
 fi
 # no project: the command's own resolution reports it.
 [ -n "$project" ] || exit 0
-active_guard_scope quarantine-check
 trust_entry_check "quarantine-check" "$project"
 quarantine_guard "quarantine-check" "$project" "${1:-}"
+active_guard_scope quarantine-check

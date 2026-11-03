@@ -94,7 +94,7 @@ Consumer action per code:
 - `7` → skip the ticket.
 - `8` → reserved; will mean "skip the ticket".
 - `9` → stop polling: the host needs fixing, and a retry will refuse again.
-- `10` → retry later: a check could not run (network, rate limit, 5xx).
+- `10` → retry later: a check could not run (network, rate limit, 5xx). Under trust a missing or inaccessible issue also reads 10 (the `events` read cannot tell a 404 from an outage; its detail carries the backend's message), so bound the retries per ticket.
 - `11` → skip the ticket; a human must release it.
 
 With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.

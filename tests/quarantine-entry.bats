@@ -87,6 +87,8 @@ declare -gA EARLY_READ=(
     g="$(grep -nE "$GUARD_RE" "$f" | head -n 1 | cut -d: -f1)"
     te="$(grep -nE '^trust_entry_check(_devdoc)? "' "$f" | head -n 1 | cut -d: -f1)"
     r="$(grep -nE "$RESOLVER_RE" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vE "^[0-9]+:$GUARD_RE" | head -n 1 | cut -d: -f1)"
+    # a tracker-reading guard without a trust check would run marker-only.
+    if [ -z "$te" ] && grep -qE '^quarantine_(pull_)?guard "' "$f"; then bad+=" $s:tracker-guard-without-te"; fi
     if [ -n "$te" ] && [ "$g" -le "$te" ]; then bad+=" $s:guard@$g<=te@$te"; fi
     if [ -n "$te" ] && [ "$((g - te))" -gt 1 ] && ! sed -n "$((te + 1)),$((g - 1))p" "$f" | grep -qE '^\s*(done|fi|#|$)'; then
       bad+=" $s:guard@$g-not-next-to-te@$te"

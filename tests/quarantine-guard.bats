@@ -127,6 +127,16 @@ event 2026-11-02T10:00:00Z 5" ]
   [ "$stderr" = "$quarantine_message_text" ]
 }
 
+@test "guard: a failed events read carries the backend's first stderr line, charset-reduced (a 404 is not silent)" {
+  qf_policy separate
+  echo 1 > "$QB_DIR/events.rc"
+  printf 'gh: Not Found (HTTP 404) `$(x)` <b>\nsecond line\n' > "$QB_DIR/events.err"
+  _drive
+  [ "$status" -eq 10 ]
+  [[ "$stderr" == *"events for acme/widgets#7 could not run (exit 1; gh: Not Found (HTTP 404) (x) b)"* ]]
+  [[ "$stderr" != *"second line"* ]]
+}
+
 @test "guard: events rc 2 → rc 9" {
   qf_policy separate
   echo 2 > "$QB_DIR/events.rc"

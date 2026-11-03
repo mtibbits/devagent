@@ -90,6 +90,10 @@ QUARANTINE_REASONS=(steering size chars provenance screen screen-failed operator
 # callers redirect it. Byte-identical at every entry point: no script name, no
 # reason line.
 quarantine_message() {
-  printf '%s
-'     "QUARANTINED: $1 is held for human review."     "This is not a stuck step. Nothing in this session can release it:"     "do not unstick, re-pull, edit, delete, park, resume, revise, switch to, ship or clean up this issue,"     "and do not change its labels on the tracker. A change made by any worker account does not count."     "Release is a tracker action by a trusted approver. Wait for the operator."
+  printf '%s\n' \
+    "QUARANTINED: $1 is held for human review." \
+    "This is not a stuck step. Nothing in this session can release it:" \
+    "do not unstick, re-pull, edit, delete, park, resume, revise, switch to, ship or clean up this issue," \
+    "and do not change its labels on the tracker. A change made by any worker account does not count." \
+    "Release is a tracker action by a trusted approver. Wait for the operator."
 }
