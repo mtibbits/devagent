@@ -1,20 +1,20 @@
 # Resolver-scope triage (#572)
 
-The 20 scripts that resolve the active project — the 19 call sites of
+The 21 scripts that resolve the active project — the 20 call sites of
 `active_resolve_project` plus `next.sh`, which calls
 `active_resolve_project_src` directly — classified PROTECTED (a wrong scope
 writes, verifies, or transitions against the wrong project; the site calls
 `active_guard_scope`) or EXEMPT (read-only and self-identifying; no guard).
 Line anchors are at the pre-change baseline `86efe8c`, except the `rederive.sh`
-row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh` row, added by
-#894 at its own commit.
+row, re-anchored after #590 moved its guard, and the `evidence-stamp.sh` and
+`quarantine-check.sh` rows, added by #894 and #714 at their own commits.
 
 Derivation (the sweep test `tests/resolver-scope-triage.bats` re-runs this and
 diffs it against the rows below):
 
 ```bash
 grep -rln 'active_resolve_project' scripts/ \
-  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 20 files
+  | grep -v '^scripts/lib/active.sh$' | grep -v '^scripts/wbs.sh$'   # 21 files
 ```
 
 Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
@@ -32,6 +32,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `history.sh` | EXEMPT | read-only chronological print with the same self-identifying path prefix | no-validation |
 | `next.sh` | PROTECTED | dispatches and execs write-capable step scripts against the resolved project and refreshes the global pointer; largest blast radius of the set | validates (`:53`) |
 | `preship-evidence.sh` | PROTECTED | emits a PASS/FAIL verdict about another project's MR — the print-only PROTECTED site (#572's second observed misfire) | validates (`:36`) |
+| `quarantine-check.sh` | PROTECTED | the first action of every skill-backed step command (#714); in trust scope it re-applies the quarantine label on the tracker, writes the issue's `QUARANTINE` marker and clears the shared slot — a wrong scope does that to another project's issue, or stops the step on it | validates (`:31`) |
 | `record-scope.sh` | PROTECTED | writes `.devagent-scope` into another project's issue dir, driving `commit_autostage` | validates (`:29`) |
 | `rederive.sh` | PROTECTED | writes `analysis/<date>-rederive.txt` into another project's issue dir and runs a best-effort `git fetch` in its `source_dir` (#590) | validates (`:34`) |
 | `revise.sh` | PROTECTED | appends a revision block to another project's `checklist.md` and mutates its state | no-validation |
@@ -44,7 +45,7 @@ Excluded non-members: `scripts/lib/active.sh` (defines the resolver) and
 | `wbs-show.sh` | EXEMPT | read-only render of another project's WBS; no write, no verdict | validates (`:39`) |
 | `wbs-update.sh` | PROTECTED | rewrites another project's committed `WBS.md` (#572's first observed misfire) | validates (`:53`) |
 
-Counts: **16 PROTECTED, 4 EXEMPT; 12 validate, 8 no-validation.** The eight
+Counts: **17 PROTECTED, 4 EXEMPT; 13 validate, 8 no-validation.** The eight
 non-validating sites are `checklist-init`, `comments`, `depends`, `grep`,
 `history`, `revise`, `template`, `transition-draft-start`. Four of those eight
 are PROTECTED (`checklist-init`, `comments`, `revise`,

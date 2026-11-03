@@ -1,6 +1,8 @@
 # tests/lib/quarantine-fixture.bash — shared #714 quarantine fixtures. Load
 # after lib/bats-helpers and lib/trust-fixture.
 
+. "$(dirname "${BASH_SOURCE[0]}")/hermetic-env.bash"   # idempotent (#322)
+
 QF_LABEL="devagent:quarantine"
 
 # qf_policy <separate|single|hardened>: the user-level policy for project wid
