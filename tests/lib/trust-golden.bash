@@ -149,6 +149,7 @@ _scenario_t714_setup() {
   devagent_test_setup
   unset DA_HOME
   GOLDEN_TMP_ROOTS=("$DEVAGENT_TMP")
+  # shellcheck disable=SC2034  # read by tests/trust-golden.bats
   GOLDEN_ARGV="$DEVAGENT_STUB_LOG"
 }
 

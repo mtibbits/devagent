@@ -38,7 +38,7 @@ _state() {
 
 @test "marker: round-trip" {
   _lib
-  ! quarantine_marked "$D"
+  run ! quarantine_marked "$D"
   quarantine_marker_write "$D" "github:github.com/acme/widgets#7" screen 2026-11-02T10:00:00Z 41
   quarantine_marked "$D"
   [ "$(head -n 4 "$D/QUARANTINE")" = "devagent-quarantine 1

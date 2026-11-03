@@ -35,6 +35,7 @@ trust_py() {
 
 # The quarantine label line an in-scope success-path policy needs (#714: a
 # scope with no quarantine label refuses, exit 9).
+# shellcheck disable=SC2034  # read by trust-doctor.bats and trust-identity.bats
 TRUST_FIXTURE_QUARANTINE='quarantine = "devagent:quarantine"'
 
 # trust_fixture_quarantine_shim: a backend dir whose github.sh answers the
