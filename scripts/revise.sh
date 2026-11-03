@@ -84,6 +84,9 @@ active_guard_scope revise
 # keyed to it. (Supersedes the #70 arg-vs-state crosscheck: an explicit arg
 # IS the issue.)
 ISSUE="$(active_resolve_issue "$PROJECT" "$ISSUE" 2>/dev/null || true)"
+# #714: the resolver above can fall to the scan tier, which the guard does not
+# read; check the issue it picked (marker only: the boundary read is above).
+quarantine_guard_marker "revise" "$PROJECT" "$ISSUE"
 issue_dir=$(issue_context_dir "$PROJECT" "$ISSUE") \
   || die "no active_issue for project '$PROJECT'"
 [[ -n "$issue_dir" ]] || die "issue_dir empty in state for project '$PROJECT'"

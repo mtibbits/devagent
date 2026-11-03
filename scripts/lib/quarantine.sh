@@ -50,7 +50,9 @@ declare -gA QUARANTINE_UNGUARDED=(
 #   devagent-quarantine 1
 #   key <key>
 #   reason <token>
-#   event <time> <seq>          (`? ?`: the tracker record was not read back)
+#   event <time> <seq>          (the tracker record; `<time> ?`: a landed
+#                               write not yet read back, at this machine's
+#                               write time; `? ?`: no write is known to land)
 #   <blank>
 #   <the five quarantine_message lines>
 # Only lines 1-4 are ever read back, each field against its rule; the message
@@ -76,6 +78,24 @@ quarantine_marker_write() {
 }
 
 # shellcheck disable=SC2034  # setter-globals, read by the callers
+# _quarantine_now: the UTC time, in the marker's form.
+_quarantine_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# _quarantine_confirms <qtime>: 0 iff the tracker's latest quarantine at
+# <qtime> is the one the marker (just read) records. A marker event with a seq
+# is the tracker's own record: <qtime> must not be older. A seq of `?` with a
+# time is this machine's write time from a landed write whose read-back
+# missed: <qtime> may be up to 300 s older (clock skew). `? ?` never confirms.
+_quarantine_confirms() {
+  local floor="$QM_TIME"
+  [ "$QM_TIME" != "?" ] && [ "$1" != "?" ] || return 1
+  if [ "$QM_SEQ" = "?" ]; then
+    floor="$(jq -rn --arg t "$QM_TIME" '$t | fromdateiso8601 - 300 | todateiso8601' 2>/dev/null | tr -d '\r')"
+    [ -n "$floor" ] || return 1
+  fi
+  [[ ! "$1" < "$floor" ]]
+}
+
 # quarantine_marker_read <issue_dir>: SETTER-GLOBAL QM_KEY QM_REASON QM_TIME
 # QM_SEQ. A field that fails its rule reads `?`; a bad header, a symlink or an
 # unreadable file reads all four as `?` (and the dir still counts as marked).
@@ -242,7 +262,7 @@ QUARANTINE_RELEASED=""
 # shellcheck disable=SC2034  # QUARANTINE_RELEASED is read by pull.sh
 _quarantine_decide() {
   local dir="$1" project="$2" id="$3" mode="$4" code=11 marked=0 label
-  local reason tt="?" ts="?" apply=0 confirmed=0 rc
+  local reason tt="?" ts="?" apply=0 confirmed=0 rc wt
   [ "$mode" = pull ] && code=7
   QUARANTINE_RELEASED=""
   quarantine_marked "$dir" && marked=1
@@ -271,9 +291,7 @@ _quarantine_decide() {
   fi
   if [ "$marked" = 1 ]; then
     quarantine_marker_read "$dir"
-    # the marker's quarantine is the tracker's latest one when the marker read
-    # its record back and the tracker's latest is not older than it.
-    if [ "$QM_TIME" != "?" ] && [ "$QS_TIME" != "?" ] && [[ ! "$QS_TIME" < "$QM_TIME" ]]; then confirmed=1; fi
+    if _quarantine_confirms "$QS_TIME"; then confirmed=1; fi
   fi
   case "$QS_STATE" in
     held) [ "$QS_PRESENT" = 1 ] || apply=1 ;;
@@ -292,7 +310,7 @@ _quarantine_decide() {
       fi ;;
   esac
   if [ "$apply" = 1 ]; then
-    rc=0
+    rc=0 wt="$(_quarantine_now)"
     "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$project" >/dev/null 2>&1 || rc=$?
     QE_FOR=""
     QS_STATE="?" QS_PRESENT=0
@@ -302,6 +320,8 @@ _quarantine_decide() {
     else
       _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
       if [ "$QE_RC" = 0 ]; then _quarantine_read_state "$label" || QS_STATE="?"; fi
+      # the write landed but the read-back may lag: keep the write time
+      tt="$wt"
     fi
   fi
   if [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then tt="$QS_TIME" ts="$QS_SEQ"; fi
@@ -451,7 +471,7 @@ quarantine_verdict() {
 # quarantine's time and seq when the read-back shows it, else `? ?` (the next
 # guarded call re-applies). No state change and no log line pre-work.
 quarantine_pull_quarantine() {
-  local project="$1" id="$2" dir="$3" token="$4" label rc=0 tt="?" ts="?"
+  local project="$1" id="$2" dir="$3" token="$4" label rc=0 tt="?" ts="?" wt
   label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
   quarantine_key "$project" "$id"
   if [ -f "$dir/checklist.md" ]; then
@@ -459,6 +479,7 @@ quarantine_pull_quarantine() {
   else
     rm -f "$dir/issue.md"
   fi
+  wt="$(_quarantine_now)"
   "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$project" >/dev/null 2>&1 || rc=$?
   QE_FOR=""
   if [ "$rc" -ne 0 ]; then
@@ -466,6 +487,7 @@ quarantine_pull_quarantine() {
       "$QK_REPO" "$QK_NUM" "$rc" >&2
   else
     _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
+    tt="$wt"
     if [ "$QE_RC" = 0 ] && [ -n "$label" ] && _quarantine_read_state "$label" \
        && [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then
       tt="$QS_TIME" ts="$QS_SEQ"

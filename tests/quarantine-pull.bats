@@ -126,18 +126,50 @@ event 2026-11-02T10:00:00Z 5" ]
   [ "$(sed -n 4p "$DEVDOC/Issue-7/QUARANTINE")" = "event 2026-11-02T12:00:00Z 7" ]
 }
 
-@test "pull: read-back miss → event ? ?; next pull re-applies, rc 7" {
+@test "pull: read-back miss → event <write time> ?; next pull re-applies, rc 7" {
   qf_policy separate 'test_seams = true'
   touch "$QB_DIR/transition.silent"
   DEVAGENT_TEST_QUARANTINE=screen run --separate-stderr "$PULL" wid origin 9
   [ "$status" -eq 6 ]
-  [ "$(sed -n 4p "$DEVDOC/Issue-9/QUARANTINE")" = "event ? ?" ]
+  [[ "$(sed -n 4p "$DEVDOC/Issue-9/QUARANTINE")" =~ ^event\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\ \?$ ]]
   rm -f "$QB_DIR/transition.silent"
   run --separate-stderr "$PULL" wid origin 9
   [ "$status" -eq 7 ]
   [ "$(grep -c '^transition ' "$QB_DIR/calls")" -eq 2 ]
   [ "$(sed -n 3,4p "$DEVDOC/Issue-9/QUARANTINE")" = "reason screen
 event 2026-11-02T10:00:00Z 1" ]
+}
+
+@test "pull: a release after a missed read-back is honoured, not re-applied (final review #3)" {
+  qf_policy separate 'test_seams = true'
+  touch "$QB_DIR/transition.silent"
+  DEVAGENT_TEST_QUARANTINE=screen run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 6 ]
+  # the write landed; the tracker shows it only now, then the approver's removal
+  local now later
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  later="$(date -u -d '+1 minute' +%Y-%m-%dT%H:%M:%SZ)"
+  qf_ev "$now" 41 1001 user labeled
+  qf_ev "$later" 42 2002 user unlabeled
+  rm -f "$QB_DIR/transition.silent"
+  run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 0 ] || { echo "rc=$status err=$stderr" >&2; return 1; }
+  [ "$(grep -c '^transition ' "$QB_DIR/calls")" -eq 1 ]
+  [ ! -e "$DEVDOC/Issue-9/QUARANTINE" ]
+}
+
+@test "pull: a quarantine older than the write is not taken for it" {
+  qf_policy separate 'test_seams = true'
+  # an earlier quarantine, released long before this pull's write
+  qf_ev 2026-01-01T10:00:00Z 3 1001 user labeled
+  qf_ev 2026-01-01T11:00:00Z 4 2002 user unlabeled
+  touch "$QB_DIR/transition.silent"
+  DEVAGENT_TEST_QUARANTINE=screen run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 6 ]
+  rm -f "$QB_DIR/transition.silent"
+  run --separate-stderr "$PULL" wid origin 9
+  [ "$status" -eq 7 ]
+  [ "$(grep -c '^transition ' "$QB_DIR/calls")" -eq 2 ]
 }
 
 @test "pull: label missing → rc 9, nothing written" {

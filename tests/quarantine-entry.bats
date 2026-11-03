@@ -192,6 +192,32 @@ event 2026-11-02T10:00:00Z 5" ]
   [ "$status" -eq 11 ]
 }
 
+@test "entry: revise with an empty slot refuses the scan-picked marked issue (final review #1)" {
+  _mark "$D"
+  sed -i -E '/^(active_issue|issue_dir) *=/d' "$STATE"
+  # Issue-7's checklist is the most recently touched incomplete one: the scan
+  # tier of revise's resolver picks it.
+  touch -d '2020-01-01' "$DEVDOC/Issue-8/checklist.md"
+  local cl
+  cl="$(_sha "$D/checklist.md")"
+  run --separate-stderr "$S/revise.sh" wid --no-chain
+  [ "$status" -eq 11 ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
+  [ "$stderr" = "$(_msg)" ]
+  [ "$(_sha "$D/checklist.md")" = "$cl" ]
+}
+
+@test "entry: sync --all keeps errexit inside each project (final review #2)" {
+  # wid: shipped, an MR, no merge marker and no code_source.backend — the
+  # config read fails, and under errexit that ends the run as it did before
+  # #714 (a subshell on the left of || would run on past it).
+  sed -i '1i mr_url = "https://github.com/acme/widgets/pull/9"' "$STATE"
+  sed -i 's/^- \[ \] 18\. ship$/- [x] 18. ship/' "$D/checklist.md"
+  grep -q '^- \[x\] 18\. ship$' "$D/checklist.md"
+  run --separate-stderr "$S/sync.sh" --all
+  # config_get_project_field's failure exit, as before #714
+  [ "$status" -eq 1 ] || { echo "rc=$status out=$output err=$stderr" >&2; return 1; }
+}
+
 @test "entry: checklist-init on a marked dir that is not active → rc 11" {
   _mark "$DEVDOC/Issue-8"
   local cl

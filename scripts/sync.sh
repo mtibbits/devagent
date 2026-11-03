@@ -134,14 +134,15 @@ quarantine_guard "sync" "$project" "$(state_get "$project" active_issue 2>/dev/n
 }
 
 if [ "${1:-}" = "--all" ]; then
-    # #714: each project runs in a subshell, so a quarantine refusal (exit 11)
-    # is printed and the loop goes on; the run then exits 11. Any other
-    # failure still ends the run with its code.
+    # #714: each project runs as its own sync.sh process, so a quarantine
+    # refusal (exit 11) is printed and the loop goes on; the run then exits 11.
+    # Any other failure still ends the run with its code. A process, not a
+    # subshell: on the left of || a subshell runs with errexit off.
     sync_rc=0
     while read -r p; do
         [ -n "$p" ] || continue
         rc=0
-        ( sync_one_project "$p" ) || rc=$?
+        bash "$0" "$p" < /dev/null || rc=$?
         case "$rc" in
             0) ;;
             11) sync_rc=11 ;;
