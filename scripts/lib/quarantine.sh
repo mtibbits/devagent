@@ -340,3 +340,77 @@ quarantine_guard_dir() {
   fi
   _quarantine_decide "$dir" "$project" "$(basename -- "$dir")" step
 }
+
+# ---- pull --------------------------------------------------------------------
+
+# quarantine_pull_guard <project> <issue_id> <issue_dir>: pull's pre-fetch
+# guard, called bare on the line after trust_entry_check, before the issue dir
+# is created. In scope the policy's label must exist on the repo (4 refuses 9:
+# a deleted or renamed label stops the queue; any other failure asks for a
+# retry). Then the decision in pull mode: exit 7 while quarantined. On a
+# release by a trusted approver it removes the marker and leaves
+# QUARANTINE_RELEASED=prework|inwork for the promotion block.
+quarantine_pull_guard() {
+  local project="$1" id="$2" dir="$3" label rc=0
+  if [ "${TRUST_IN_SCOPE:-0}" = 1 ]; then
+    label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
+    [ -n "$label" ] || refuse quarantine-unmapped
+    quarantine_key "$project" "$id"
+    if [ -n "$QK_REPO" ]; then
+      "$(transition_backend_sh "$QK_BACKEND")" state-exists "$QK_REPO" "$label" >/dev/null 2>&1 || rc=$?
+      case "$rc" in
+        0) ;;
+        4) refuse quarantine-label-missing "$label" "$QK_REPO" ;;
+        *) try_later events-unavailable "$QK_REPO#$QK_NUM" "$rc" ;;
+      esac
+    fi
+  fi
+  _quarantine_decide "$dir" "$project" "$id" pull
+  if [ -n "$QUARANTINE_RELEASED" ]; then rm -f "$dir/QUARANTINE"; fi
+}
+
+# quarantine_verdict <project> <issue_dir>: `PASS` or `QUARANTINE <token>` on
+# stdout; never dies. #714 has one source, the policy-gated test seam:
+# DEVAGENT_TEST_QUARANTINE=<token>, honoured only in scope, with
+# test_seams = true, and a token in QUARANTINE_REASONS. The deciders (#715 on)
+# add sources here; none may turn another source's QUARANTINE into PASS.
+quarantine_verdict() {
+  local t="${DEVAGENT_TEST_QUARANTINE:-}" r
+  if [ -n "$t" ] && [ "${TRUST_IN_SCOPE:-0}" = 1 ] && [ "${TRUST_VAL[test_seams]:-false}" = true ]; then
+    for r in "${QUARANTINE_REASONS[@]}"; do
+      if [ "$r" = "$t" ]; then echo "QUARANTINE $t"; return 0; fi
+    done
+  fi
+  echo PASS
+}
+
+# quarantine_pull_quarantine <project> <issue_id> <issue_dir> <token>: pull's
+# quarantine of the ticket it just fetched; exits 6. Pre-work (no checklist)
+# the fetched issue.md is removed; in-work the files stay and the shared slot
+# is cleared. One label write, one fresh read-back; the marker carries the
+# quarantine's time and seq when the read-back shows it, else `? ?` (the next
+# guarded call re-applies). No state change and no log line pre-work.
+quarantine_pull_quarantine() {
+  local project="$1" id="$2" dir="$3" token="$4" label rc=0 tt="?" ts="?"
+  label="$(printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r')"
+  quarantine_key "$project" "$id"
+  if [ -f "$dir/checklist.md" ]; then
+    _quarantine_clear_slot "$project" "$id" "$dir"
+  else
+    rm -f "$dir/issue.md"
+  fi
+  "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$project" >/dev/null 2>&1 || rc=$?
+  QE_FOR=""
+  if [ "$rc" -ne 0 ]; then
+    printf 'quarantine: the quarantine label could not be applied on %s#%s (exit %s); the next guarded call retries\n' \
+      "$QK_REPO" "$QK_NUM" "$rc" >&2
+  else
+    _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"
+    if [ "$QE_RC" = 0 ] && [ -n "$label" ] && _quarantine_read_state "$label" \
+       && [ "$QS_STATE" = held ] && [ "$QS_PRESENT" = 1 ]; then
+      tt="$QS_TIME" ts="$QS_SEQ"
+    fi
+  fi
+  quarantine_marker_write "$dir" "$QK_KEY" "$token" "$tt" "$ts"
+  _quarantine_refuse 6 "$QK_KEY"
+}

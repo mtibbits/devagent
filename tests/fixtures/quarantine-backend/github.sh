@@ -8,6 +8,7 @@
 #   transition.rc, label.rc   `transition` / `state-exists` exit codes (0)
 #   clock        the time a transition's labeled record carries
 #   seq          the last seq handed out (transition takes the next one)
+#   transition.silent   if present, transition writes no record (a read-back miss)
 # QB_WHOAMI is the account id (default 1001); QB_LABEL the label name
 # `transition … quarantine` writes (default devagent:quarantine).
 set -u
@@ -24,7 +25,7 @@ case "${1:-}" in
   transition)
     rc="$(_rc transition.rc)"
     [ "$rc" = 0 ] || exit "$rc"
-    if [ "${4:-}" = quarantine ]; then
+    if [ "${4:-}" = quarantine ] && [ ! -e "$d/transition.silent" ]; then
       seq=$(( $(_rc seq) + 1 ))
       echo "$seq" > "$d/seq"
       clock="2026-11-02T10:00:00Z"

@@ -26,6 +26,8 @@ source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/flags.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 main() {
   local project="${1:-}"
@@ -60,6 +62,7 @@ main() {
   local issue_id="${dir_prefix}${num}"
   local issue_dir="${devdoc%/}/${issue_id}"
 trust_entry_check "pull" "$project" "$source"
+quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
   mkdir -p "$issue_dir"
 
   # Fetch issue body
@@ -70,6 +73,14 @@ trust_entry_check "pull" "$project" "$source"
     die "${backend}.sh fetch failed for ${repo}#${num}"
   fi
   mv "$issue_dir/issue.md.tmp" "$issue_dir/issue.md"
+
+  # #714: the quarantine verdict on the fetched ticket, before anything reads
+  # it. QUARANTINE exits 6 (pre-work: only the marker stays on disk).
+  local verdict
+  verdict="$(quarantine_verdict "$project" "$issue_dir")"
+  if [[ "$verdict" == "QUARANTINE "* ]]; then
+    quarantine_pull_quarantine "$project" "$issue_id" "$issue_dir" "${verdict#QUARANTINE }"
+  fi
 
   # #582: block-level flags diagnostics (the roster lives in flags_validate's
   # docblock). Runs on EVERY pull, as soon as the fetched body lands, not only at
@@ -303,7 +314,10 @@ trust_entry_check "pull" "$project" "$source"
       # context. (#96: one transaction; #282: no pointer write — pull's
       # project is always an explicit positional.)
       state_set_many "$project" str active_issue "$issue_id" str issue_dir "$issue_dir"
-    elif state_is_displaced "$project" "$issue_id" && state_context_has "$project" "$issue_id"; then
+    elif { [[ "$QUARANTINE_RELEASED" == inwork ]] || state_is_displaced "$project" "$issue_id"; } \
+         && state_context_has "$project" "$issue_id"; then
+      # #714: a release of an in-work quarantine is the same return as a
+      # displacement — the guard saved the context when it cleared the slot.
       # #415: re-pull of a DISPLACEMENT-parked issue = "bring my displaced work
       # back" → RESTORE its snapshot (resume semantics), not a fresh start. The
       # issue this pull now displaces is itself snapshotted + parked + marked so
