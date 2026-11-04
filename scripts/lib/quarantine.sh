@@ -222,9 +222,15 @@ _quarantine_events() {
   QE_RC=0
   err="$(mktemp)"
   QE_OUT="$("$(transition_backend_sh "$1")" events "$2" "$3" 2>"$err")" || QE_RC=$?
-  QE_ERR="$(head -n 1 "$err" | LC_ALL=C tr -cd 'A-Za-z0-9 .:,()#/_-' | cut -c1-160)"
-  rm -f "$err"
+  QE_ERR="$(_quarantine_errline "$err")"
   QE_FOR="$want"
+}
+
+# _quarantine_errline <file>: the file's first line in a safe charset, at most
+# 160 bytes, on stdout; removes the file. A backend's stderr is shown only so.
+_quarantine_errline() {
+  head -n 1 "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 .:,()#/_-' | cut -c1-160
+  rm -f "$1"
 }
 
 # _quarantine_refuse <code> <key>: the message on stderr, then exit <code>.
@@ -261,14 +267,16 @@ _quarantine_read_state() {
 # none). SETTER-GLOBAL QA_TIME, the write time; call bare or in a condition.
 # A failed write warns (`could not be <verb>`) and returns its exit.
 _quarantine_apply() {
-  local rc=0
+  local rc=0 err diag
   QA_TIME="$(_quarantine_now)"
-  "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$1" >/dev/null 2>&1 || rc=$?
+  err="$(mktemp)"
+  "$(transition_backend_sh "$QK_BACKEND")" transition "$QK_REPO" "$QK_NUM" quarantine --project "$1" >/dev/null 2>"$err" || rc=$?
+  diag="$(_quarantine_errline "$err")"
   QE_FOR=""
   QS_STATE="?" QS_PRESENT=0
   if [ "$rc" -ne 0 ]; then
-    printf 'quarantine: the quarantine label could not be %s on %s#%s (exit %s); the next guarded call retries\n' \
-      "$3" "$QK_REPO" "$QK_NUM" "$rc" >&2
+    printf 'quarantine: the quarantine label could not be %s on %s#%s (exit %s%s); the next guarded call retries\n' \
+      "$3" "$QK_REPO" "$QK_NUM" "$rc" "${diag:+; $diag}" >&2
     return "$rc"
   fi
   _quarantine_events "$QK_BACKEND" "$QK_REPO" "$QK_NUM"

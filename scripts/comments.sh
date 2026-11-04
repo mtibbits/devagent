@@ -79,9 +79,9 @@ main() {
   # failure still exits under set -e with the engine's message re-emitted.
   active_resolve_project_try "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
+  active_guard_scope comments
 trust_entry_check "comments" "$project"
 quarantine_guard "comments" "$project" "${2:-}"
-  active_guard_scope comments
   [[ $# -ge 1 ]] && shift || true
   local issue_arg="${1:-}"
 

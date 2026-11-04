@@ -7,6 +7,7 @@
 #   events.rc    `events` exit code (default 0)
 #   events.err   what a failing `events` prints on stderr
 #   transition.rc, label.rc   `transition` / `state-exists` exit codes (0)
+#   transition.err   what a failing `transition` prints on stderr
 #   clock        the time a transition's labeled record carries
 #   seq          the last seq handed out (transition takes the next one)
 #   transition.silent   if present, transition writes no record (a read-back miss)
@@ -28,7 +29,10 @@ case "${1:-}" in
     [ ! -f "$d/events.tsv" ] || cat "$d/events.tsv" ;;
   transition)
     rc="$(_rc transition.rc)"
-    [ "$rc" = 0 ] || exit "$rc"
+    if [ "$rc" != 0 ]; then
+      [ ! -f "$d/transition.err" ] || cat "$d/transition.err" >&2
+      exit "$rc"
+    fi
     if [ "${4:-}" = quarantine ] && [ ! -e "$d/transition.silent" ]; then
       seq=$(( $(_rc seq) + 1 ))
       echo "$seq" > "$d/seq"

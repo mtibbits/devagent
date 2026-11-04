@@ -104,11 +104,12 @@ event 2026-11-02T10:00:00Z 5" ]
   qf_policy separate
   qf_ev 2026-11-02T10:00:00Z 5 2002 user labeled
   qf_ev 2026-11-02T11:00:00Z 9 1001 user unlabeled
-  echo 1 > "$QB_DIR/transition.rc"
+  echo 4 > "$QB_DIR/transition.rc"
+  echo "github.sh: label devagent:quarantine (quarantine) not found on acme/widgets" > "$QB_DIR/transition.err"
   _msg
   _drive
   [ "$status" -eq 11 ]
-  [[ "$stderr" == *"quarantine label could not be re-applied"* ]]
+  [[ "$stderr" == *"quarantine label could not be re-applied on acme/widgets#7 (exit 4; github.sh: label devagent:quarantine (quarantine) not found on acme/widgets)"* ]]
   [[ "$stderr" == *"$quarantine_message_text" ]]
   [ "$(sed -n 4p "$D/QUARANTINE")" = "event ? ?" ]
 }

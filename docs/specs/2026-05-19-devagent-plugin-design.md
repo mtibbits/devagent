@@ -357,7 +357,8 @@ Issue-676/
 │   └── 2026-05-19-asan.txt
 ├── revisions/                           # populated by /devagent:revise
 │   └── r2/comments.md
-└── STUCK                                # sentinel; present iff a step is [!]
+├── STUCK                                # sentinel; present iff a step is [!]
+└── QUARANTINE                           # #714: cache of a tracker-anchored hold (scripts/lib/quarantine.sh)
 ```
 
 ### 3.6 Per-capture directory (pre-issue, `<devdoc>/Captures/<slug>/`)
@@ -544,8 +545,8 @@ doctor lists `separate_identity`, `signatures` and `system_policy
 (unverified)` as not met.
 
 **Exit codes.** 9 is a host-level refusal (stop and fix the host; never retry
-or work around it), 10 asks for a retry; 6, 7, 8 and 11 are reserved for
-#714/#719. The registry is `scripts/lib/refusals.sh`; `commands/pull.md`
+or work around it), 10 asks for a retry; 6, 7 and 11 are emitted by #714's
+quarantine, and 8 is reserved for #719. The registry is `scripts/lib/refusals.sh`; `commands/pull.md`
 carries the table and each code's consumer action.
 
 **doctor.** With a policy on the host, doctor's first global block reports the
