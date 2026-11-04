@@ -16,6 +16,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
@@ -34,6 +36,7 @@ active_guard_scope record-scope
 # pointless, and must change nothing, when autostage is off).
 autostage="$(config_get_project_field "$project" commit_autostage 2>/dev/null || echo false)"
 [ "$autostage" = "true" ] || exit 0
+quarantine_guard_marker "record-scope" "$project"
 
 issue_dir="$(issue_context_dir "$project" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"

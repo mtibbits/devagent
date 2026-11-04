@@ -32,7 +32,7 @@ TRUST_SYSTEM_DIRS=(/etc/devagent/trust /c/ProgramData/devagent/trust)
 # Every script that calls trust_entry_check (or trust_entry_check_devdoc), by
 # its path under scripts/ minus .sh — the #713 Task 1 census (the issue's set
 # plus wbs-update, statusreport and wbs-init; doctor, whose call is
-# trust_doctor_block).
+# trust_doctor_block); #714 adds quarantine-check.
 # tests/trust-entry.bats holds this list
 # equal to the callers in both directions. #720 adds sign. Each call sits at
 # column 0, even inside a function body: that census greps for it anchored.
@@ -43,6 +43,7 @@ TRUST_ENTRY_POINTS=(
   checklist-advance checklist-init checklist-log checklist-mark checklist-stuck
   checklist-unstuck commit branch spike promote-potholes
   migrate-checklist-numbering wbs-update statusreport wbs-init doctor
+  quarantine-check
 )
 
 _TRUST_KINDS=" digest file scope id val "
@@ -141,6 +142,12 @@ _trust_tracker_host() {
   esac
   [ -n "${TRUST_VAL[trackers]:-}" ] || return 0
   printf '%s' "${TRUST_VAL[trackers]}" | jq -r "$path // empty" 2>/dev/null | tr -d '\r'
+}
+
+# trust_quarantine_label: the policy's quarantine label (#714), or nothing
+# when the policy maps none.
+trust_quarantine_label() {
+  printf '%s' "${TRUST_VAL[quarantine]:-null}" | jq -r '. // empty' 2>/dev/null | tr -d '\r'
 }
 
 # trust_key <backend> <repo> [<num>]: the canonical repo key, or issue key

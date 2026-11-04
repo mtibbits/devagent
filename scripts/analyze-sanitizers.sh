@@ -16,6 +16,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 
@@ -36,6 +38,7 @@ trap '[ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp"; true' EXIT
 project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
+quarantine_guard_marker "analyze-sanitizers" "$project" "${2:-}"
 
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then

@@ -141,3 +141,66 @@ _scenario_doctor() {
   GOLDEN_ARGV="$GH_STUB_ARGV_LOG"
   run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" volk
 }
+
+# The #714 scenarios: each runs a guarded entry point down its success path,
+# across the line where #714 calls quarantine_guard, on devagent_test_setup's
+# testproj (active Issue-1, no policy, no marker).
+_scenario_t714_setup() {
+  devagent_test_setup
+  unset DA_HOME
+  GOLDEN_TMP_ROOTS=("$DEVAGENT_TMP")
+  # shellcheck disable=SC2034  # read by tests/trust-golden.bats
+  GOLDEN_ARGV="$DEVAGENT_STUB_LOG"
+}
+
+_scenario_park() {
+  _scenario_t714_setup
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/park.sh" "$TEST_PROJECT"
+}
+
+_scenario_unstuck() {
+  _scenario_t714_setup
+  mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 8 '!'
+  printf 'Step:        8 branch\nReason:      fixture\n' > "$DEVDOC_DIR/Issue-1/STUCK"
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/unstuck.sh" "$TEST_PROJECT"
+}
+
+_scenario_checklist_mark() {
+  _scenario_t714_setup
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/checklist-mark.sh" "$DEVDOC_DIR/Issue-1" 8 x
+}
+
+_scenario_revise() {
+  _scenario_t714_setup
+  mkdir -p "$DEVDOC_DIR/Issue-1/revisions/r1"
+  printf '# acme/testproj#1 — Comments\n\n## Comments (1)\n\n### @alice · 2026-05-20\nnit\n' \
+    > "$DEVDOC_DIR/Issue-1/revisions/r1/comments.md"
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/revise.sh" "$TEST_PROJECT" Issue-1 --no-chain
+}
+
+# cleanup.bats' setup with commit_devdoc = false (no devdoc commit hash).
+_scenario_cleanup() {
+  _scenario_t714_setup
+  devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+  mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 x
+  mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 21 x
+  mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 22 x
+  seed_lessons_learned "$DEVDOC_DIR/Issue-1"
+  ( cd "$SOURCE_DIR" && git checkout -q -b feat/1-x && git branch -f main )
+  devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" branch "feat/1-x"
+  mkdir -p "$DEVDOC_DIR/templates"
+  printf '%s\n' '# Pothole register' '' '## Bash exit-status & control flow' '- an existing line (Issue-7).' \
+    > "$DEVDOC_DIR/templates/potholes.md"
+  export TEMPLATE_PATHS_OVERRIDE_potholes="$DEVDOC_DIR/templates/potholes.md"
+  export DEVAGENT_PLUGIN_TEMPLATES="$DEVAGENT_TMP/plugin_templates"
+  cp -r "$DEVAGENT_ROOT/templates" "$DEVAGENT_PLUGIN_TEMPLATES"
+  cp "$DEVDOC_DIR/templates/potholes.md" "$DEVAGENT_PLUGIN_TEMPLATES/potholes.md"
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+}
+
+# analyze = "none": the family that marks the row without running a tool.
+_scenario_analyze() {
+  _scenario_t714_setup
+  devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.analyze" none
+  run --separate-stderr "$DEVAGENT_ROOT/scripts/analyze.sh" "$TEST_PROJECT"
+}

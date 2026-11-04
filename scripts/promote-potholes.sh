@@ -51,6 +51,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -86,6 +88,8 @@ if [ "${1:-}" = "--list-pending" ]; then
     found=0
     for f in "$devdoc_dir"/*/potholes-promotion.md; do
         [ -e "$f" ] || continue
+        # #714: a quarantined issue's staging is left alone.
+        ! quarantine_marked "$(dirname -- "$f")" || continue
         grep -q '^status: pending' "$f" || continue
         found=1
         n="$(_op_count "$f")" || die "--list-pending: unreadable staging file $f"
@@ -96,6 +100,7 @@ if [ "${1:-}" = "--list-pending" ]; then
 fi
 
 issue_dir="${1:-}"; [ -n "$issue_dir" ] || usage
+quarantine_guard_dir "promote-potholes" "$issue_dir"
 shift
 [ -d "$issue_dir" ] || die "no such issue dir: $issue_dir"
 issue_id="$(basename "$issue_dir")"          # e.g. Issue-586; Issue-Fork-132 stays whole

@@ -81,23 +81,23 @@ equal to it.
 
 | Code | Id | Meaning | Owner |
 |---|---|---|---|
-| 6 | `quarantined-by-pull` | quarantined by this pull — reserved, not emitted until #714 | #714 |
-| 7 | `pull-quarantined` | pull refused: quarantined — reserved until #714 | #714 |
+| 6 | `quarantined-by-pull` | quarantined by this pull | #714 |
+| 7 | `pull-quarantined` | pull refused: quarantined and not released | #714 |
 | 8 | `held` | held elsewhere — reserved until #719 | #719 |
 | 9 | `host` | host-level refusal: identity, policy or environment | #713 |
-| 10 | `try-later` | a check could not run (emitted by `whoami` could-not-run) | #713 |
-| 11 | `quarantine-refused` | refused on quarantine, other entry points — reserved until #714 | #714 |
+| 10 | `try-later` | a check could not run (`whoami` or `events` could-not-run) | #713 |
+| 11 | `quarantine-refused` | refused on quarantine, every entry point but pull | #714 |
 
 Consumer action per code:
 
-- `6` → reserved; will mean "skip the ticket".
-- `7` → reserved; will mean "skip the ticket".
+- `6` → skip the ticket.
+- `7` → skip the ticket.
 - `8` → reserved; will mean "skip the ticket".
 - `9` → stop polling: the host needs fixing, and a retry will refuse again.
-- `10` → retry later: a check could not run (network, rate limit, 5xx).
-- `11` → reserved; will mean "skip the ticket".
+- `10` → retry later: a check could not run (network, rate limit, 5xx). Under trust a missing or inaccessible issue also reads 10 (the `events` read cannot tell a 404 from an outage; its detail carries the backend's message), so bound the retries per ticket.
+- `11` → skip the ticket; a human must release it.
 
-With no trust policy on the host, none of these codes is emitted.
+With no trust policy on the host and no quarantine marker in the issue dir, none of these codes is emitted.
 
 ## Run the script
 

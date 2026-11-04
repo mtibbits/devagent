@@ -14,6 +14,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_GIT:=git}"
 
@@ -32,6 +34,8 @@ config_is_project "$project" || die "unknown project '$project'"
 cleanup_target="${2:-}"; cleanup_target="${cleanup_target##*/}"
 [ "$cleanup_target" != "--" ] || cleanup_target=""
 [ -n "$cleanup_target" ] || cleanup_target="${DEVAGENT_ACTIVE_ISSUE:-}"
+trust_entry_check "cleanup" "$project"
+quarantine_guard "cleanup" "$project" "$cleanup_target"
 if [ -n "$cleanup_target" ]; then
     _state_issue_id_ok "$cleanup_target" \
         || die "invalid issue id '$cleanup_target' (allowed: A-Za-z0-9 _ -)"
@@ -42,7 +46,6 @@ else
 fi
 issue_arg="$cleanup_target"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
-trust_entry_check "cleanup" "$project"
 
 # #242 (generalizes #231): refuse to close while ANY prior closeout step is
 # non-terminal — updatewbs/impact/lessonslearned are exactly the steps skipped

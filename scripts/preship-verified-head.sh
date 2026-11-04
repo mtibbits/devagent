@@ -38,6 +38,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/paths.sh"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 . "$DEVAGENT_ROOT/scripts/lib/active.sh"
 . "$DEVAGENT_ROOT/scripts/lib/checklist.sh"
@@ -56,6 +58,7 @@ case "$verb" in pin|record) : ;; *) usage ;; esac
 project="${2:-}"
 [ -n "$project" ] || die "preship-verified-head: project required"
 config_is_project "$project" || die "preship-verified-head: unknown project '$project'"
+quarantine_guard_marker "preship-verified-head" "$project" "${3:-}"
 
 issue_arg="${3:-}"
 if [ -z "$issue_arg" ]; then

@@ -47,6 +47,8 @@ source "$PLUGIN_ROOT/scripts/lib/active.sh"
 source "$PLUGIN_ROOT/scripts/lib/ci.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 # phase_breaks <project> — the step names a continued chain stops before, one
 # space-separated line. An empty value is a legal "no breaks".
@@ -101,10 +103,11 @@ main() {
   active_resolve_project_src "${1:-}"
   project="$ACTIVE_RESOLVED_PROJECT"
   config_is_project "$project" || die "unknown project '$project'"
+trust_entry_check "next" "$project"
+quarantine_guard "next" "$project"
   # #572: refuse a wrong-scope chain BEFORE the pointer refresh below — a
   # mismatched bare invocation must neither dispatch nor move the pointer.
   active_guard_scope next
-trust_entry_check "next" "$project"
   # #282: only pointer/fallback-resolved runs refresh the pointer (rationale
   # at active_resolve_project_src).
   case "$ACTIVE_RESOLVED_FROM" in pointer|fallback) active_set_project "$project" ;; esac

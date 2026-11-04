@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/lib/state.sh"
 # shellcheck source=lib/active.sh
 . "${SCRIPT_DIR}/lib/active.sh"
+# shellcheck source=/dev/null
+. "${SCRIPT_DIR}/lib/quarantine.sh"
 
 usage() {
   cat <<'EOF' >&2
@@ -69,6 +71,7 @@ fi
 
 A="${ARGS[0]}"
 B="${ARGS[2]}"
+quarantine_guard_dir "depends" "$(issue_dir_for "${PROJECT}" "${A}" 2>/dev/null || true)"
 if depends_add "${PROJECT}" "${A}" "${B}"; then
   printf 'recorded: %s depends on %s\n' "${A}" "${B}"
 else

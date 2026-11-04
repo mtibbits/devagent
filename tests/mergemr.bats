@@ -1286,7 +1286,10 @@ exit 0
 STUB
     local pol="$HOME/.config/devagent/trust"
     mkdir -p "$pol"
-    printf '%s\n' 'scopes = ["github:github.com/acme/testproj"]' 'worker_identities = ["github:1001"]' > "$pol/policy.toml"
+    # #714: an in-scope policy carries its quarantine label; the stub's events
+    # (exit 0, no records) reads as not quarantined.
+    printf '%s\n' 'scopes = ["github:github.com/acme/testproj"]' 'worker_identities = ["github:1001"]' \
+        'quarantine = "devagent:quarantine"' > "$pol/policy.toml"
     run "$MM" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ] || { echo "$output" >&2; false; }
     [ ! -s "$MERGE_LOG" ]

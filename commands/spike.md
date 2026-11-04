@@ -41,6 +41,8 @@ the worktree's destruction: `teardown` verifies the worktree and branch are gone
 
 ## Workflow
 
+First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
+
 1. Resolve `project` / `issue-dir`. Read the plan's `## Load-bearing unknowns`. If it is
    `(none)`, record "no declared unknowns" in spike.md and mark the step done — that is a
    legitimate outcome, not a finding.

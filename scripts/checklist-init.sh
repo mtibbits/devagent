@@ -10,6 +10,8 @@ source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 usage() {
   cat <<USAGE
@@ -47,5 +49,6 @@ active_resolve_project_try "$project_arg" 2>/dev/null || true
 project="$ACTIVE_RESOLVED_PROJECT"
 active_guard_scope checklist-init
 trust_entry_check "checklist-init" "$project"
+quarantine_guard_dir "checklist-init" "$issue_dir"
 checklist_init "$issue_dir" "$template" "$project"
 echo "wrote $issue_dir/checklist.md (template: $template)"

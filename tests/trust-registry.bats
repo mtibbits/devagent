@@ -71,18 +71,20 @@ _exit_rows() {
   [ "$stderr" = "bash: trust: WARNING: a user-level policy at /home/u/.config/devagent/trust is ignored: a system policy exists" ]
 }
 
-@test "registry: every refusal id has a detail and only whoami-unavailable is a try-later" {
+@test "registry: every refusal id has a detail and only the two -unavailable ids are try-laters" {
   # shellcheck source=/dev/null
   source "$REFUSALS"
   local id want
   for id in policy-defect whoami-failed whoami-unavailable whoami-unsupported not-worker \
             trusted-worker hardening-unmet gh-host-bare transition-off scope-unresolved \
-            scope-unkeyable yes-refused user-ignored; do
+            scope-unkeyable yes-refused user-ignored quarantine-unmapped \
+            quarantine-label-missing events-unsupported events-unavailable; do
     [ -n "${TRUST_REFUSAL_DETAIL[$id]:-}" ] || { echo "no detail for $id" >&2; false; }
   done
-  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 13 ]
+  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 17 ]
   for id in "${!TRUST_REFUSAL_DETAIL[@]}"; do
-    want=9; [ "$id" = whoami-unavailable ] && want=10
+    want=9
+    case "$id" in whoami-unavailable|events-unavailable) want=10 ;; esac
     [ "$(trust_refusal_code "$id")" = "$want" ] || { echo "$id code" >&2; false; }
   done
 }
@@ -98,4 +100,33 @@ _exit_rows() {
   [ "$status" -eq 0 ]
   [ "$stderr" = "" ]
   [[ "$output" == *"--yes is refused under a trust policy; the policy's file gate decides"* ]]
+}
+
+# #714: rows 6, 7 and 11 are emitted, and their exact text is the decision.
+@test "registry: rows 6, 7 and 11 are emitted by #714 (no \"reserved\")" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  local rows
+  rows="$(trust_exit_table | _exit_rows | grep -E '^(6|7|11)[|]')"
+  [ "$rows" = "6|quarantined-by-pull|quarantined by this pull|#714
+7|pull-quarantined|pull refused: quarantined and not released|#714
+11|quarantine-refused|refused on quarantine, every entry point but pull|#714" ] || { echo "$rows" >&2; false; }
+}
+
+@test "registry: quarantine_message renders the five fixed lines for a key" {
+  run --separate-stderr bash -c "source '$REFUSALS'; quarantine_message github:github.com/acme/widgets#7"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "" ]
+  [ "$output" = "QUARANTINED: github:github.com/acme/widgets#7 is held for human review.
+This is not a stuck step. Nothing in this session can release it:
+do not unstick, re-pull, edit, delete, park, resume, revise, switch to, ship or clean up this issue,
+and do not change its labels on the tracker. A change made by any worker account does not count.
+Release is a tracker action by a trusted approver. Wait for the operator." ]
+}
+
+@test "registry: QUARANTINE_REASONS is exactly the 15 issue tokens" {
+  # shellcheck source=/dev/null
+  source "$REFUSALS"
+  [ "${QUARANTINE_REASONS[*]}" = "steering size chars provenance screen screen-failed operator tracker paths destination secrets drift actions diff-size signature" ]
+  [ "${#QUARANTINE_REASONS[@]}" -eq 15 ]
 }

@@ -144,6 +144,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
@@ -189,6 +191,7 @@ project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "preship-evidence: project required (no arg and no active project)"
 config_is_project "$project" || die "preship-evidence: unknown project '$project'"
 active_guard_scope preship-evidence
+quarantine_guard_marker "preship-evidence" "$project" "${2:-}"
 issue_arg="${2:-}"
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "preship-evidence: issue_dir not set or missing"

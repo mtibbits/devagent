@@ -7,6 +7,8 @@ source "$PLUGIN_ROOT/scripts/lib/checklist.sh"
 source "$PLUGIN_ROOT/scripts/lib/log.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 
 # --step <N> <name> (#782): mark row N instead of the current step. Kept for operators;
 # scripts use --name (#885). <name> is checklist_mark's #558 row guard: a row N that is
@@ -34,6 +36,7 @@ reason="$*"
 file="$issue_dir/checklist.md"
 [[ -f "$file" ]] || die "no checklist at $file"
 trust_entry_check_devdoc "checklist-stuck" "$(dirname -- "$issue_dir")"
+quarantine_guard_dir "checklist-stuck" "$issue_dir"
 
 if [[ -n "$by_name" ]]; then
   cur="$(checklist_step_num_by_name "$file" "$by_name")" \

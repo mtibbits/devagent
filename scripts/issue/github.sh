@@ -189,6 +189,10 @@ cmd_transition() {
   transition_args github.sh "$@" || return
   local repo="$TA_REPO" num="$TA_NUM" stage="$TA_STAGE" project="$TA_PROJECT"
   local target others
+  if [ "$stage" = quarantine ]; then
+    _gh_transition_quarantine "$repo" "$num"
+    return
+  fi
   target="$(stage_map_target github "$project" "$stage")" || return 1
   if [ -z "$target" ]; then
     transition_unmapped github "$stage" "$project"
@@ -221,17 +225,59 @@ cmd_transition() {
   if [ -n "$(stage_map_carried github "$present" "$target")" ] && [ "${#remove[@]}" -eq 0 ]; then
     return 0
   fi
-  local rc=0
-  _gh_label_exists "$repo" "$target" || rc=$?
+  _gh_add_label "$repo" "$num" "$target" "$stage" "change the mapping" "${remove[@]+"${remove[@]}"}"
+}
+
+# _gh_add_label <repo> <num> <label> <what> <fix> [<remove>...]: a
+# transition's write — exit 4 naming <label> (<what>, and <fix> as the remedy)
+# when the repo lacks it, else one edit adding <label> and removing each
+# <remove>.
+_gh_add_label() {
+  local repo="$1" num="$2" label="$3" what="$4" fix="$5" rc=0 o
+  shift 5
+  _gh_label_exists "$repo" "$label" || rc=$?
   case "$rc" in
     0) ;;
-    4) echo "github.sh: label '$target' ($stage) not found on $repo; devagent does not create labels — create it or change the mapping" >&2
+    4) echo "github.sh: label '$label' ($what) not found on $repo; devagent does not create labels — create it or $fix" >&2
        return 4 ;;
     *) return 1 ;;
   esac
-  local args=(issue edit "$num" --repo "$repo" --add-label "$target")
-  for o in "${remove[@]+"${remove[@]}"}"; do args+=(--remove-label "$o"); done
+  local args=(issue edit "$num" --repo "$repo" --add-label "$label")
+  for o in "$@"; do args+=(--remove-label "$o"); done
   _gh_json "${args[@]}" >/dev/null || return 1
+}
+
+# _gh_transition_quarantine <repo> <num> (#714): add the trust policy's
+# quarantine label and nothing else — no stage label is removed, the claim is
+# untouched. The name comes from the policy alone: never an env override or
+# config, so a session cannot point the write at another label. Exit 2 with no
+# policy or no quarantine key; a policy that will not load is 1 (this verb's
+# set stays 0/2/4/1 — the entry point reports 9 itself); 4 the label is not on
+# the repo; 0 written or already there.
+_gh_transition_quarantine() {
+  local repo="$1" num="$2" label json
+  # shellcheck source=../lib/trust.sh
+  declare -F trust_locate_host >/dev/null || source "${SCRIPT_DIR}/../lib/trust.sh"
+  trust_locate_host || { echo "github.sh: transition quarantine: trust policy location: $TRUST_DEFECT" >&2; return 1; }
+  if [ "$TRUST_HOST" = 1 ]; then
+    _trust_load_try || { echo "github.sh: transition quarantine: policy $TRUST_DIR: $TRUST_LOAD_ERR" >&2; return 1; }
+    _need jq
+    label="$(trust_quarantine_label)" || return 1
+  fi
+  if [ -z "${label:-}" ]; then
+    echo "github.sh: transition quarantine needs a trust policy with a quarantine label" >&2
+    return 2
+  fi
+  if [[ "$label" == *,* ]]; then
+    echo "github.sh: label '$label' (quarantine) contains a comma, which gh splits into two labels; rename it in the trust policy" >&2
+    return 1
+  fi
+  _need gh
+  json="$(_gh_view "$repo" "$num" labels)" || return 1
+  if [ -n "$(stage_map_carried github "$(printf '%s' "$json" | jq -r '.labels[]?.name' | tr -d '\r')" "$label")" ]; then
+    return 0
+  fi
+  _gh_add_label "$repo" "$num" "$label" quarantine "change the trust policy"
 }
 
 # state-exists <repo> <label> (#710, spec §9.1 MAY): 0 the label exists on

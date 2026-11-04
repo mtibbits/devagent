@@ -105,7 +105,7 @@ _snap() {
 _argv_for() {
   case "$1" in
     pull)                        ARGS=(wid origin 7) ;;
-    next|ship|cleanup|mergetoall|mergemr|comments|sync|transition-draft-start|park|unstuck|commit|branch|wbs-update|statusreport|doctor)
+    next|ship|cleanup|mergetoall|mergemr|comments|sync|transition-draft-start|park|unstuck|commit|branch|wbs-update|statusreport|doctor|quarantine-check)
                                  ARGS=(wid) ;;
     capture/file)                ARGS=(--slug idea --target origin) ;;
     resume|switch)               ARGS=(wid Issue-8) ;;

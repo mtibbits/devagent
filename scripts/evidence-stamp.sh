@@ -57,6 +57,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/io.sh"
 # shellcheck source=lib/config.sh
 . "$DEVAGENT_ROOT/scripts/lib/config.sh"
+# shellcheck source=/dev/null
+. "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 # shellcheck source=lib/state.sh
 . "$DEVAGENT_ROOT/scripts/lib/state.sh"
 # shellcheck source=lib/active.sh
@@ -93,6 +95,7 @@ project="$ACTIVE_RESOLVED_PROJECT"
 [ -n "$project" ] || die "evidence-stamp: project required (no arg and no active project)"
 config_is_project "$project" || die "evidence-stamp: unknown project '$project'"
 active_guard_scope evidence-stamp
+quarantine_guard_marker "evidence-stamp" "$project" "${_pos[1]:-}"
 issue_arg="${_pos[1]:-}"
 if [ -z "$issue_arg" ] && [ -z "${DEVAGENT_ACTIVE_ISSUE:-}" ]; then
   die "evidence-stamp: ISSUE UNSTATED — no issue was passed and DEVAGENT_ACTIVE_ISSUE is not set; pass it: evidence-stamp.sh <project> <Issue-N> (#659: the shared issue_dir slot is never a source for a write)"

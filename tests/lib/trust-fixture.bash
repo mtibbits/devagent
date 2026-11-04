@@ -32,3 +32,22 @@ trust_fixture_home() {
 trust_py() {
   python3 -I -X utf8 "$TRUST_PY" "$@"
 }
+
+# The quarantine label line an in-scope success-path policy needs (#714: a
+# scope with no quarantine label refuses, exit 9).
+# shellcheck disable=SC2034  # read by trust-doctor.bats and trust-identity.bats
+TRUST_FIXTURE_QUARANTINE='quarantine = "devagent:quarantine"'
+
+# trust_fixture_quarantine_shim: a backend dir whose github.sh answers the
+# #714 quarantine reads itself (events: no records; state-exists: the label
+# is there) and hands every other verb to the real backend, so a success-path
+# test under a policy keeps its gh-stub argv log as it was.
+trust_fixture_quarantine_shim() {
+  local d="$BATS_TEST_TMPDIR/qshim"
+  mkdir -p "$d"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'case "${1:-}" in events|state-exists) exit 0 ;; esac' \
+    "exec \"$PLUGIN_ROOT/scripts/issue/github.sh\" \"\$@\"" > "$d/github.sh"
+  chmod +x "$d/github.sh"
+  export DEVAGENT_ISSUE_BACKEND_DIR="$d"
+}

@@ -21,6 +21,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/zerodiff.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_GIT:=git}"
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
@@ -41,6 +43,8 @@ project="${1:-}"
 [ -n "$project" ] || die "project required"
 config_is_project "$project" || die "unknown project '$project'"
 
+trust_entry_check "ship" "$project"
+quarantine_guard "ship" "$project" "${2:-}"
 issue_arg="${2:-}"
 if [ -z "$issue_arg" ]; then
     # #240: mutating steps never act on a scan-GUESSED issue (the scan tier
@@ -56,7 +60,6 @@ fi
 
 issue_dir="$(issue_context_dir "$project" "$issue_arg" 2>/dev/null || true)"
 [ -d "$issue_dir" ] || die "issue_dir not set or missing"
-trust_entry_check "ship" "$project"
 
 # (#240 supersedes the #70 arg-vs-state crosscheck: an explicit arg IS the
 # issue — branch/mr routing now read ITS [context] table; an issue with no

@@ -16,6 +16,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/merge-marker.sh"
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
+# shellcheck source=/dev/null
+source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_CODE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/code}"
 : "${DEVAGENT_ISSUE_BACKEND_DIR:=$DEVAGENT_ROOT/scripts/issue}"
@@ -69,6 +71,7 @@ sync_one_project() {
     [ -n "$issue_dir" ] && [ -d "$issue_dir" ] || return 0
     [ -n "$mr_url" ] || return 0
 trust_entry_check "sync" "$project"
+quarantine_guard "sync" "$project" "$(state_get "$project" active_issue 2>/dev/null || true)"
 
     # Has the ACTIVE revision's ship step been marked done? (#318) — a file-wide
     # grep matched revision 1's [x] 15 after a revise and fired on a revision that
@@ -131,9 +134,22 @@ trust_entry_check "sync" "$project"
 }
 
 if [ "${1:-}" = "--all" ]; then
+    # #714: each project runs as its own sync.sh process, so a quarantine
+    # refusal (exit 11) is printed and the loop goes on; the run then exits 11.
+    # Any other failure still ends the run with its code. A process, not a
+    # subshell: on the left of || a subshell runs with errexit off.
+    sync_rc=0
     while read -r p; do
-        [ -n "$p" ] && sync_one_project "$p"
+        [ -n "$p" ] || continue
+        rc=0
+        bash "$0" "$p" < /dev/null || rc=$?
+        case "$rc" in
+            0) ;;
+            11) sync_rc=11 ;;
+            *) exit "$rc" ;;
+        esac
     done < <(config_list_projects)
+    exit "$sync_rc"
 else
     project="${1:-}"
     [ -n "$project" ] || die "project or --all required"
