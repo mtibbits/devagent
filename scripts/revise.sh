@@ -76,9 +76,9 @@ done
 # engine's own message (re-emitted), byte-compatible with the old $() die-through.
 active_resolve_project_try "$PROJECT"
 PROJECT="$ACTIVE_RESOLVED_PROJECT"
-active_guard_scope revise
 trust_entry_check "revise" "$PROJECT"
 quarantine_guard "revise" "$PROJECT" "$ISSUE"
+active_guard_scope revise
 
 # #240: the session's issue (arg → env pin → shared state); reads/writes are
 # keyed to it. (Supersedes the #70 arg-vs-state crosscheck: an explicit arg

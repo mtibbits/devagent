@@ -37,6 +37,6 @@ elif active_resolve_project_try "" 2>/dev/null; then
 fi
 # no project: the command's own resolution reports it.
 [ -n "$project" ] || exit 0
-active_guard_scope quarantine-check
 trust_entry_check "quarantine-check" "$project"
 quarantine_guard "quarantine-check" "$project" "${1:-}"
+active_guard_scope quarantine-check

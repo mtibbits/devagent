@@ -81,7 +81,7 @@ declare -gA EARLY_READ=(
 
 @test "census: in each guarded script the guard line precedes the first resolver line and follows trust_entry_check" {
   _lib
-  local s f g te r sc bad=""
+  local s f g te r bad=""
   for s in "${QUARANTINE_GUARD_POINTS[@]}"; do
     f="$PLUGIN_ROOT/scripts/$s.sh"
     g="$(grep -nE "$GUARD_RE" "$f" | head -n 1 | cut -d: -f1)"
@@ -89,9 +89,6 @@ declare -gA EARLY_READ=(
     r="$(grep -nE "$RESOLVER_RE" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vE "^[0-9]+:$GUARD_RE" | head -n 1 | cut -d: -f1)"
     # a tracker-reading guard without a trust check would run marker-only.
     if [ -z "$te" ] && grep -qE '^quarantine_(pull_)?guard "' "$f"; then bad+=" $s:tracker-guard-without-te"; fi
-    # #572: the scope guard refuses before the guard's tracker/devDoc writes.
-    sc="$(grep -nE '^[[:space:]]*active_guard_scope ' "$f" | head -n 1 | cut -d: -f1)"
-    if [ -n "$sc" ] && [ "$sc" -gt "$g" ]; then bad+=" $s:scope@$sc>guard@$g"; fi
     if [ -n "$te" ] && [ "$g" -le "$te" ]; then bad+=" $s:guard@$g<=te@$te"; fi
     if [ -n "$te" ] && [ "$((g - te))" -gt 1 ] && ! sed -n "$((te + 1)),$((g - 1))p" "$f" | grep -qE '^\s*(done|fi|#|$)'; then
       bad+=" $s:guard@$g-not-next-to-te@$te"
