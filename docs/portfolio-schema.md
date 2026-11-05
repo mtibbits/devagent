@@ -9,9 +9,9 @@ and its consumers can build against the same text.
 | File | Role |
 |---|---|
 | `scripts/lib/portfolio-schema.json` | The machine schema. Its root `version` annotation is the schema's own version. |
-| `scripts/lib/portfolio-check.py` | The stdlib checker and CLI. It validates a document and runs the compatibility guard. |
+| `scripts/lib/portfolio-check.py` | The stdlib checker and CLI. It validates a document, and exposes the compatibility guard (`compat_violations`) that the tests run. |
 | `tests/fixtures/portfolio/example-1.0.json` | A hand-written example document that validates. |
-| `tests/fixtures/portfolio/schema-history/<version>.json` | One byte-exact snapshot per released schema version. The guard compares against these. |
+| `tests/fixtures/portfolio/schema-history/<version>.json` | One snapshot per released schema version, copied at the bump. The guard compares against these. |
 | `tests/test_portfolio_schema.py` | The tests that hold all of the above together. |
 
 **Consumers.** #726 produces the document and validates its real output
@@ -76,18 +76,20 @@ declaring its properties.
 
 - **Every change bumps the version.** That includes a new optional field. A
   bump also owes a new snapshot `tests/fixtures/portfolio/schema-history/<version>.json`
-  (a byte copy of the schema) and its line in `HISTORY_SHA256` in the tests.
+  (a copy of the schema at the bump; later description edits may make the
+  live file differ from it in bytes) and its line in `HISTORY_SHA256` in the tests.
   The guard fails until both exist.
 - **The guard** (`compat_violations` in the checker) compares the snapshots in
   version order and ends at the live schema. Within one major it reports each
   of these: a removed or renamed field; a change to a field's type,
   required-ness, enum, bounds, `additionalProperties` or `x-reserved`; a new
-  required field; a field declared under an **open object** (one whose
-  `additionalProperties` is `true` or a schema, such as `meta` or `non_time`,
-  that is not a reserved slot); and any change made without a version bump.
-  The open-object case needs a major bump because an older reader already checks
+  required field; a field declared under a **free-form object** (one whose
+  `additionalProperties` is a schema, such as `meta` or `non_time`, that is not
+  a reserved slot); and any change made without a version bump.
+  The free-form case needs a major bump because an older reader already checks
   every key of that object against its free-form rule, so a newer document
-  would fail it. Past snapshots are pinned by digest; editing one is a failure,
+  would fail it. Declaring a field under an object whose `additionalProperties`
+  is `true` is additive: an older reader accepts any key there. Past snapshots are pinned by digest; editing one is a failure,
   while adding one is not.
 - **Minor bumps are serialised by merge order: a branch that meets a newer
   minor on rebase re-bumps and adds its own snapshot.** Two branches cannot

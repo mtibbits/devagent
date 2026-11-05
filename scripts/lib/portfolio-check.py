@@ -58,7 +58,7 @@ COMPAT_REMOVED = 'removed or renamed without a major bump: {path}'
 COMPAT_CHANGED = '{attr} changed without a major bump: {path}'
 COMPAT_REQUIRED = 'new field is required: {path}'
 COMPAT_NO_BUMP = 'schema changed without a version bump: {path}'
-COMPAT_OPEN = 'field added under an open object needs a major bump: {path}'
+COMPAT_OPEN = 'field added under a free-form object needs a major bump: {path}'
 
 
 class SchemaError(Exception):
@@ -288,9 +288,10 @@ def compat_violations(old, new) -> list:
         if holder is not None and holder.reserved is None:
             if now.required:
                 out.append(COMPAT_REQUIRED.format(path=path))
-            # An older reader checks every key of an open object against its
-            # free-form schema (or not at all), so declaring one is not additive.
-            if holder.additional in (True, "schema"):
+            # An older reader checks every key of a free-form object against
+            # its schema, so declaring one there is not additive. Under
+            # `additionalProperties: true` the older reader accepts the key.
+            if holder.additional == "schema":
                 out.append(COMPAT_OPEN.format(path=path))
         if not bumped:
             out.append(COMPAT_NO_BUMP.format(path=path))
@@ -392,7 +393,8 @@ def _validate(value, node, path, ctx):
 
 def check(doc, schema=None) -> list:
     """Structural errors in `doc`, [] when valid. Raises UnsupportedVersion
-    when the document's MAJOR differs from the schema's."""
+    when the document's MAJOR differs from the schema's, and SchemaError when
+    `schema` is None and the default schema cannot be loaded."""
     schema = load_schema() if schema is None else schema
     if not isinstance(doc, dict):
         return [MSG_NOT_OBJECT]

@@ -345,6 +345,15 @@ def test_newer_minor_ignores_unknown_fields(tmp_path, capsys):
             document="1.7", reader="1.0") + "\n")
 
 
+def test_newer_minor_still_validates_known_fields():
+    doc = _minimal_doc("1.7")
+    _leaf(doc)["depth"] = "2"
+    del doc["projects"][0]["status"]
+    assert sorted(pc.check(doc)) == sorted([
+        f"{LEAF_PATH}.depth: expected integer, got string",
+        "$.projects[0]: missing required field status"])
+
+
 def test_same_minor_unknown_fields_are_errors():
     errors = pc.check(_plant_unknown_fields(_minimal_doc()))
     assert sorted(errors) == sorted(f"{p}: unknown field" for p in PLANTED_PATHS)
@@ -675,8 +684,24 @@ def test_guard_mutation(row):
     assert sorted(pc.compat_violations(baseline, mutated)) == sorted(expected)
 
 
+def test_guard_open_true_holder_addition_is_additive():
+    # A slot defined at 1.1 that keeps additionalProperties true; a field
+    # declared under it at 1.2 is accepted by a 1.1 reader, so no major bump.
+    old = _schema()
+    slot = _spec_at(old, "projects[].lanes")[0]["properties"]["lanes"]
+    del slot["x-reserved"]
+    old["version"] = "1.1"
+    new = copy.deepcopy(old)
+    _spec_at(new, "projects[].lanes")[0]["properties"]["lanes"]["properties"] = {
+        "b": {"type": "string"}}
+    new["version"] = "1.2"
+    assert pc.compat_violations(old, new) == []
+
+
 def test_guard_rows_target_real_paths():
     inv = pc.inventory(pc.load_schema())
+    # A floor, not a pin: an emptied parametrize list skips rather than fails.
+    assert len(GUARD_ROWS) >= 20
     for row_id, target, *_ in GUARD_ROWS:
         assert target in inv, row_id
 
