@@ -3,6 +3,7 @@ and its stdlib checker scripts/lib/portfolio-check.py."""
 import copy
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -153,3 +154,265 @@ def test_schema_file_is_lf_utf8_without_bom():
     assert not data.startswith(b"\xef\xbb\xbf")
     assert b"\r" not in data
     data.decode("utf-8")
+
+
+# ---------------------------------------------------------------- Task 2
+
+
+def _counts(leaves=0, estimated=0, derived=0, unestimated=0):
+    return {"leaves": leaves, "estimated": estimated,
+            "estimated_derived": derived, "unestimated": unestimated}
+
+
+def _est(raw=None, cls="absent", low=None, high=None, quantity=None, unit=None, src=None):
+    return {"raw": raw, "class": cls, "low_hours": low, "high_hours": high,
+            "quantity": quantity, "unit": unit, "src": src}
+
+
+def _node(id_, parent, depth, leaf, line, issue=None, meta=None, est=None, deps=()):
+    return {"id": id_, "parent": parent, "depth": depth, "leaf": leaf,
+            "text": f"node {id_}", "state": "pending", "glyph": " ",
+            "source_line": line, "issue": issue, "meta": meta or {},
+            "meta_unknown_keys": [], "est": est or _est(), "satisfies": [],
+            "h": None, "depends_on": list(deps), "ready": None}
+
+
+def _minimal_doc(version="1.0"):
+    """A valid one-project, two-node document (a parent and one leaf)."""
+    by_state = {s: _counts() for s in wbs_parser.STATE_GLYPHS.values()}
+    by_state["pending"] = _counts(leaves=1, estimated=1)
+    dep = {"raw": "Issue-2", "scope": "local", "project": "alpha",
+           "issue": "Issue-2", "resolved": None}
+    leaf = _node("n2", "n1", 2, True, 2, issue="Issue-1",
+                 meta={"issue": "Issue-1", "est": "2h", "depends_on": "Issue-2"},
+                 est=_est(raw="2h", cls="time", low=2, high=2), deps=[dep])
+    return {
+        "schema": "devagent-portfolio",
+        "schema_version": version,
+        "generated_at": "2026-11-04T00:00:00Z",
+        "projects": [{
+            "project": "alpha", "status": "read", "status_reason": None,
+            "wbs_title": "alpha WBS",
+            "nodes": [_node("n1", None, 1, False, 1), leaf],
+            "issues": [{"issue": "Issue-1", "nodes": ["n2"], "stuck": None,
+                        "checklist": "absent", "next_step": None,
+                        "next_step_number": None}],
+            "rollup": {"by_state": by_state, "remaining": {
+                **_counts(leaves=1, estimated=1), "low_hours": 2,
+                "high_hours": 2, "non_time": {}}},
+        }],
+        "parse_report": [],
+    }
+
+
+def _run_cli(*args, isolated=False):
+    flags = ["-I", "-S"] if isolated else []
+    return subprocess.run([sys.executable, *flags, str(CHECKER), *map(str, args)],
+                          capture_output=True, text=True)
+
+
+def _dump(tmp_path, doc, name="doc.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
+def test_minimal_doc_valid():
+    assert pc.check(_minimal_doc()) == []
+
+
+@pytest.mark.parametrize("version", ["2.0", "0.9"])
+def test_unknown_major_refused(version):
+    with pytest.raises(pc.UnsupportedVersion) as e:
+        pc.check(_minimal_doc(version))
+    assert version in str(e.value) and "1.0" in str(e.value)
+    assert str(e.value) == pc.MSG_UNSUPPORTED.format(
+        document=version, major=1, reader="1.0")
+    assert (e.value.document, e.value.reader) == (version, "1.0")
+
+
+def test_cli_unknown_major_exit_3(tmp_path):
+    r = _run_cli(_dump(tmp_path, _minimal_doc("2.0")))
+    assert r.returncode == 3
+    assert "2.0" in r.stderr and "1.0" in r.stderr
+    assert r.stdout == ""
+
+
+MISSING = object()
+
+
+@pytest.mark.parametrize("value", [MISSING, 1.0, "1", "1.0.0", "01.0", ""],
+                         ids=["missing", "1.0-number", "1", "1.0.0", "01.0", "empty"])
+def test_bad_version_forms(value):
+    doc = _minimal_doc()
+    if value is MISSING:
+        del doc["schema_version"]
+        expected = pc.MSG_NO_VERSION
+    else:
+        doc["schema_version"] = value
+        expected = pc.MSG_BAD_VERSION.format(value=value)
+    assert pc.check(doc) == [expected]
+
+
+@pytest.mark.parametrize("doc", [None, [], "x"], ids=["null", "list", "string"])
+def test_not_object(doc, tmp_path):
+    assert pc.check(doc) == [pc.MSG_NOT_OBJECT]
+    r = _run_cli(_dump(tmp_path, doc))
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert r.stderr == f"portfolio-check: {pc.MSG_NOT_OBJECT}\n"
+
+
+def test_not_portfolio_id():
+    doc = _minimal_doc()
+    doc["schema"] = "something-else"
+    assert pc.check(doc) == [pc.MSG_NOT_PORTFOLIO.format(value="something-else")]
+
+
+READ_REFUSALS = {
+    "nan": b'{"a": NaN}',
+    "infinity": b'{"a": Infinity}',
+    "dup-key": b'{"a": 1, "a": 2}',
+    "5000-digit-int": b'{"a": ' + b"9" * 5000 + b"}",
+    "latin1-bytes": '{"a": "café"}'.encode("latin-1"),
+    "bom": b'\xef\xbb\xbf{"a": 1}',
+    "truncated": b'{"a": ',
+}
+
+
+@pytest.mark.parametrize("name", list(READ_REFUSALS))
+def test_read_refusals(name, tmp_path):
+    path = tmp_path / "doc.json"
+    path.write_bytes(READ_REFUSALS[name])
+    with pytest.raises(pc.DocumentError):
+        pc.read_document(path)
+    r = _run_cli(path)
+    assert r.returncode == 2
+    assert "Traceback" not in r.stderr
+    assert r.stdout == ""
+
+
+def test_read_document_positive_control(tmp_path):
+    path = tmp_path / "doc.json"
+    path.write_bytes('{"a": "café", "b": -1.5e3}'.encode("utf-8"))
+    assert pc.read_document(path) == {"a": "café", "b": -1500.0}
+
+
+def test_cli_usage_exit_2(tmp_path):
+    good = _dump(tmp_path, _minimal_doc())
+    for args in ([], [good, good], [tmp_path / "missing.json"]):
+        r = _run_cli(*args)
+        assert r.returncode == 2, args
+        assert r.stdout == ""
+    assert pc.USAGE in _run_cli().stderr
+
+
+def test_cli_valid_exit_0_silent(tmp_path):
+    r = _run_cli(_dump(tmp_path, _minimal_doc()))
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+
+
+def _plant_unknown_fields(doc):
+    p = doc["projects"][0]
+    leaf = p["nodes"][1]
+    doc["x_top"] = 1
+    p["x_project"] = 1
+    leaf["x_node"] = 1
+    leaf["est"]["x_est"] = 1
+    leaf["depends_on"][0]["x_dep"] = 1
+    p["issues"][0]["x_issue"] = 1
+    p["rollup"]["x_rollup"] = 1
+    return doc
+
+
+PLANTED_PATHS = [
+    "$.x_top", "$.projects[0].x_project", "$.projects[0].nodes[1].x_node",
+    "$.projects[0].nodes[1].est.x_est",
+    "$.projects[0].nodes[1].depends_on[0].x_dep",
+    "$.projects[0].issues[0].x_issue", "$.projects[0].rollup.x_rollup",
+]
+
+
+def test_newer_minor_ignores_unknown_fields(tmp_path):
+    doc = _plant_unknown_fields(_minimal_doc("1.7"))
+    assert pc.check(doc) == []
+    r = _run_cli(_dump(tmp_path, doc))
+    assert r.returncode == 0
+    assert r.stdout == ""
+    assert r.stderr == "portfolio-check: " + pc.MSG_NEWER_MINOR.format(
+        document="1.7", reader="1.0") + "\n"
+
+
+def test_same_minor_unknown_fields_are_errors():
+    errors = pc.check(_plant_unknown_fields(_minimal_doc()))
+    assert sorted(errors) == sorted(f"{p}: unknown field" for p in PLANTED_PATHS)
+    assert len(errors) == 7
+
+
+def test_older_minor_document_reads():
+    schema = _schema()
+    schema["version"] = "1.1"
+    schema["$defs"]["Node"]["properties"]["note"] = {"type": "string"}
+    assert pc.check(_minimal_doc("1.0"), schema) == []
+
+
+def _leaf(doc):
+    return doc["projects"][0]["nodes"][1]
+
+
+LEAF_PATH = "$.projects[0].nodes[1]"
+
+
+def test_type_edges():
+    cases = [
+        ("source_line", True, f"{LEAF_PATH}.source_line: expected integer, got boolean"),
+        ("depth", 1.0, f"{LEAF_PATH}.depth: expected integer, got number"),
+        ("h", "3", f"{LEAF_PATH}.h: expected integer|null, got string"),
+    ]
+    for field, value, expected in cases:
+        doc = _minimal_doc()
+        _leaf(doc)[field] = value
+        assert pc.check(doc) == [expected], field
+    doc = _minimal_doc()
+    _leaf(doc)["est"]["low_hours"] = 1
+    _leaf(doc)["est"]["high_hours"] = 1.5
+    assert pc.check(doc) == []
+
+
+def test_enum_bounds_required():
+    doc = _minimal_doc()
+    _leaf(doc)["est"]["class"] = "quantity"
+    assert pc.check(doc) == [
+        f"{LEAF_PATH}.est.class: 'quantity' is not one of "
+        '"absent", "placeholder", "time", "non-time", "unparseable"']
+    doc = _minimal_doc()
+    _leaf(doc)["h"] = 5
+    assert pc.check(doc) == [f"{LEAF_PATH}.h: 5 is outside 0..4"]
+    doc = _minimal_doc()
+    del doc["projects"][0]["status"]
+    assert pc.check(doc) == ["$.projects[0]: missing required field status"]
+
+
+def test_reserved_slot_must_be_null():
+    doc = _minimal_doc()
+    doc["projects"][0]["lanes"] = {}
+    assert pc.check(doc) == [
+        "$.projects[0].lanes: reserved slot must be null in schema 1.0"]
+    doc = _minimal_doc("1.3")
+    doc["projects"][0]["lanes"] = {}
+    assert pc.check(doc) == []
+    doc = _minimal_doc()
+    doc["projects"][0]["lanes"] = None
+    assert pc.check(doc) == []
+
+
+def test_meta_values_shape():
+    for bad, expected in ((3, "meta.k: expected string|array, got integer"),
+                          ([1], "meta.k[0]: expected string, got integer")):
+        doc = _minimal_doc()
+        _leaf(doc)["meta"]["k"] = bad
+        assert pc.check(doc) == [f"{LEAF_PATH}.{expected}"]
+    for good in ([], "x"):
+        doc = _minimal_doc()
+        _leaf(doc)["meta"]["k"] = good
+        assert pc.check(doc) == []

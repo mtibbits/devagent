@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,11 +28,32 @@ JSON_TYPES = frozenset({"null", "boolean", "integer", "number", "string", "array
 REF_RE = re.compile(r"#/\$defs/([A-Za-z0-9_]+)")
 VERSION_RE = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
+PORTFOLIO_ID = "devagent-portfolio"
+USAGE = "usage: portfolio-check.py <document.json>"
+MSG_UNSUPPORTED = 'unsupported portfolio schema_version "{document}": this reader supports major {major} (schema {reader})'
+MSG_NEWER_MINOR = 'document is schema {document}, newer than this reader\'s {reader}; fields this reader does not know are ignored'
+MSG_NO_VERSION = 'portfolio document has no schema_version'
 MSG_BAD_VERSION = 'schema_version {value!r} is not MAJOR.MINOR'
+MSG_NOT_OBJECT = 'portfolio document is not a JSON object'
+MSG_NOT_PORTFOLIO = 'not a devagent portfolio document (schema is {value!r})'
 
 
 class SchemaError(Exception):
     """The schema file is unreadable or leaves the declared dialect."""
+
+
+class DocumentError(Exception):
+    """The document could not be read as strict JSON."""
+
+
+class UnsupportedVersion(Exception):
+    """The document's MAJOR differs from the reader's."""
+
+    def __init__(self, document, reader):
+        self.document = document
+        self.reader = reader
+        super().__init__(MSG_UNSUPPORTED.format(
+            document=document, major=parse_version(reader)[0], reader=reader))
 
 
 @dataclass(frozen=True)
@@ -183,3 +205,144 @@ def inventory(schema) -> dict:
 
     walk(schema, "")
     return out
+
+
+def _refuse_constant(name):
+    raise ValueError(f"{name} is not JSON")
+
+
+def _refuse_duplicates(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
+def read_document(path):
+    """Strict JSON: UTF-8 only (no BOM), no NaN/Infinity, no duplicate keys."""
+    try:
+        text = Path(path).read_bytes().decode("utf-8")
+        return json.loads(text, parse_constant=_refuse_constant,
+                          object_pairs_hook=_refuse_duplicates)
+    except (OSError, ValueError) as e:
+        raise DocumentError(f"cannot read {path}: {e}") from e
+
+
+def _json_type(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    return "object"
+
+
+def _bound(b):
+    return "" if b is None else b
+
+
+def _validate(value, node, path, ctx):
+    node = _resolve(node, ctx["defs"])
+    errors = ctx["errors"]
+    types = node["type"]
+    types = [types] if isinstance(types, str) else types
+    jtype = _json_type(value)
+    if jtype not in types and not (jtype == "integer" and "number" in types):
+        errors.append(f"{path}: expected {'|'.join(types)}, got {jtype}")
+        return
+    if "x-reserved" in node and value is not None:
+        if not ctx["newer"]:
+            errors.append(f"{path}: reserved slot must be null in schema {ctx['reader']}")
+        return
+    members = [node["const"]] if "const" in node else node.get("enum")
+    if members is not None and not any(
+            m == value and type(m) is type(value) for m in members):
+        listed = ", ".join(json.dumps(m) for m in members)
+        errors.append(f"{path}: {value!r} is not one of {listed}")
+        return
+    if jtype in ("integer", "number"):
+        lo, hi = node.get("minimum"), node.get("maximum")
+        if (lo is not None and value < lo) or (hi is not None and value > hi):
+            errors.append(f"{path}: {value} is outside {_bound(lo)}..{_bound(hi)}")
+            return
+    if jtype == "array" and "items" in node:
+        for i, item in enumerate(value):
+            _validate(item, node["items"], f"{path}[{i}]", ctx)
+    if jtype == "object":
+        props = node.get("properties", {})
+        for name in node.get("required", []):
+            if name not in value:
+                errors.append(f"{path}: missing required field {name}")
+        extra = node.get("additionalProperties", True)
+        for name, item in value.items():
+            if name in props:
+                _validate(item, props[name], f"{path}.{name}", ctx)
+            elif isinstance(extra, dict):
+                _validate(item, extra, f"{path}.{name}", ctx)
+            elif extra is False and not ctx["newer"]:
+                errors.append(f"{path}.{name}: unknown field")
+
+
+def check(doc, schema=None) -> list:
+    """Structural errors in `doc`, [] when valid. Raises UnsupportedVersion
+    when the document's MAJOR differs from the schema's."""
+    schema = load_schema() if schema is None else schema
+    if not isinstance(doc, dict):
+        return [MSG_NOT_OBJECT]
+    if doc.get("schema") != PORTFOLIO_ID:
+        return [MSG_NOT_PORTFOLIO.format(value=doc.get("schema"))]
+    if "schema_version" not in doc:
+        return [MSG_NO_VERSION]
+    try:
+        version = parse_version(doc["schema_version"])
+    except ValueError as e:
+        return [str(e)]
+    reader = schema["version"]
+    if version[0] != parse_version(reader)[0]:
+        raise UnsupportedVersion(doc["schema_version"], reader)
+    ctx = {"defs": schema.get("$defs", {}), "errors": [], "reader": reader,
+           "newer": version[1] > parse_version(reader)[1]}
+    _validate(doc, schema, "$", ctx)
+    return ctx["errors"]
+
+
+def _say(line):
+    sys.stderr.write(f"portfolio-check: {line}\n")
+
+
+def main(argv) -> int:
+    if len(argv) != 1:
+        sys.stderr.write(USAGE + "\n")
+        return 2
+    try:
+        doc = read_document(argv[0])
+        schema = load_schema()
+    except (DocumentError, SchemaError) as e:
+        _say(e)
+        return 2
+    try:
+        errors = check(doc, schema)
+    except UnsupportedVersion as e:
+        _say(e)
+        return 3
+    for line in errors:
+        _say(line)
+    if errors:
+        return 1
+    reader = schema["version"]
+    if parse_version(doc["schema_version"]) > parse_version(reader):
+        _say(MSG_NEWER_MINOR.format(document=doc["schema_version"], reader=reader))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
