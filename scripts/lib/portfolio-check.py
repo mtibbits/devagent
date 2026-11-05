@@ -177,6 +177,10 @@ def _lint(node, where, defs, root):
         _lint(sub, f"{where}/properties/{name}", defs, root=False)
     if "items" in node:
         _lint(node["items"], f"{where}/items", defs, root=False)
+    # An implicit `true` would let unknown keys pass at the document's own
+    # minor, so every object says what it does with them.
+    if "object" in types and "additionalProperties" not in node:
+        raise SchemaError(f"{where}: an object schema must declare additionalProperties")
     extra = node.get("additionalProperties", True)
     if not isinstance(extra, bool):
         _lint(extra, f"{where}/additionalProperties", defs, root=False)

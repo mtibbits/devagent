@@ -30,8 +30,9 @@ so a schema edit cannot lean on a rule the checker does not enforce.
 
 - `$ref` is local only (`#/$defs/<name>`), may stand only beside
   `description`/`title`, and may not form a cycle.
-- `additionalProperties` is a boolean or a schema. An object that is not a
-  slot and has no free-form keys says `false`.
+- `additionalProperties` is a boolean or a schema, and every object schema
+  declares it; the loader refuses an object without it. An object that is not
+  a slot and has no free-form keys says `false`.
 - Two semantics are **stricter than the standard**. `integer` means a JSON
   integer token, so `1.0` is refused (the standard accepts it). `enum` and
   `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.0
@@ -89,8 +90,11 @@ declaring its properties.
   The free-form case needs a major bump because an older reader already checks
   every key of that object against its free-form rule, so a newer document
   would fail it. Declaring a field under an object whose `additionalProperties`
-  is `true` is additive: an older reader accepts any key there. Past snapshots are pinned by digest; editing one is a failure,
-  while adding one is not.
+  is `true` is additive in one direction only: an older reader accepts any key
+  there, but a newer reader may reject an older document that used that key
+  with another type. A slot owner that means to type its keys later should
+  define the slot with `additionalProperties: false`. Past snapshots are pinned
+  by digest; editing one is a failure, while adding one is not.
 - **Minor bumps are serialised by merge order: a branch that meets a newer
   minor on rebase re-bumps and adds its own snapshot.** Two branches cannot
   both ship `1.1`.
@@ -143,7 +147,7 @@ present with `null`.
 | `projects[].nodes[].leaf` | boolean | req | The node has no children. |
 | `projects[].nodes[].text` | string | req | The parser's text. |
 | `projects[].nodes[].state` | `pending` `done` `skipped` `stuck` `in_progress` `blocked_external` `parked` | req | The parser's state. |
-| `projects[].nodes[].glyph` | `" "` `x` `-` `!` `~` `?` `P` | req | The parser's glyph. |
+| `projects[].nodes[].glyph` | `" "` `x` `-` `!` `~` `?` `P` | req | The parser's glyph. Both enums mirror `STATE_GLYPHS` in `scripts/lib/wbs-parser.py` (a test holds them equal), and enums are closed, so a new parser state is a portfolio MAJOR bump. |
 | `projects[].nodes[].source_line` | integer ≥ 1 | req | The node's line in `WBS.md`. |
 | `projects[].nodes[].issue` | string\|null | req | `meta.issue` as written (`Issue-N`, `Issue-Fork-N`; no prefix stripped); null when absent. |
 | `projects[].nodes[].meta` | object | req | The raw metadata, verbatim. |

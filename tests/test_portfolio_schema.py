@@ -74,6 +74,14 @@ def test_schema_refuses_nonlocal_and_cyclic_ref(tmp_path):
         pc.load_schema(_write_schema(tmp_path, schema))
 
 
+def test_schema_refuses_object_without_additional_properties(tmp_path):
+    schema = _schema()
+    schema["$defs"]["Node"]["properties"]["extra"] = {
+        "type": "object", "properties": {"a": {"type": "string"}}}
+    with pytest.raises(pc.SchemaError, match="Node/properties/extra.*additionalProperties"):
+        pc.load_schema(_write_schema(tmp_path, schema))
+
+
 def test_schema_refuses_version_key_off_root(tmp_path):
     schema = _schema()
     schema["$defs"]["Dep"]["version"] = "1.0"
