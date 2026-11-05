@@ -1,0 +1,541 @@
+{
+  "schema": "devagent-portfolio",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-04T18:00:00Z",
+  "projects": [
+    {
+      "project": "alpha",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "alpha WBS",
+      "nodes": [
+        {
+          "id": "n1",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Portfolio view",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": null,
+          "meta": {
+            "est": "10.5pr"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "10.5pr",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 10.5,
+            "unit": "pr",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        },
+        {
+          "id": "n2",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Schema contract",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "est": "6h",
+            "est_src": "confirmed"
+          },
+          "meta_unknown_keys": [
+            "est_src"
+          ],
+          "est": {
+            "raw": "6h",
+            "class": "time",
+            "low_hours": 6,
+            "high_hours": 6,
+            "quantity": null,
+            "unit": null,
+            "src": "confirmed"
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        },
+        {
+          "id": "n3",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Producer",
+          "state": "in_progress",
+          "glyph": "~",
+          "source_line": 5,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "est": "4h",
+            "est_src": "derived",
+            "satisfies": [
+              "gantry:FR-12",
+              "gantry:UC-3"
+            ],
+            "h": "3",
+            "depends_on": [
+              "Issue-8",
+              "gantry:Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [
+            "est_src",
+            "satisfies",
+            "h"
+          ],
+          "est": {
+            "raw": "4h",
+            "class": "time",
+            "low_hours": 4,
+            "high_hours": 4,
+            "quantity": null,
+            "unit": null,
+            "src": "derived"
+          },
+          "satisfies": [
+            "gantry:FR-12",
+            "gantry:UC-3"
+          ],
+          "h": 3,
+          "depends_on": [
+            {
+              "raw": "Issue-8",
+              "scope": "local",
+              "project": "alpha",
+              "issue": "Issue-8",
+              "resolved": null
+            },
+            {
+              "raw": "gantry:Issue-2",
+              "scope": "foreign",
+              "project": "gantry",
+              "issue": "Issue-2",
+              "resolved": null
+            }
+          ],
+          "ready": null
+        },
+        {
+          "id": "n4",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Readiness",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "est": "?w",
+            "depends_on": "alpha:Issue-9"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "alpha:Issue-9",
+              "scope": "local",
+              "project": "alpha",
+              "issue": "Issue-9",
+              "resolved": null
+            }
+          ],
+          "ready": null
+        },
+        {
+          "id": "n5",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Readiness, second listing",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "est": "48pr",
+            "h": "high"
+          },
+          "meta_unknown_keys": [
+            "h"
+          ],
+          "est": {
+            "raw": "48pr",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 48,
+            "unit": "pr",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        },
+        {
+          "id": "n6",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Spike the renderer",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": null,
+          "meta": {
+            "est": "1d (actual ~14h)",
+            "satisfies": "gantry:FR-1"
+          },
+          "meta_unknown_keys": [
+            "satisfies"
+          ],
+          "est": {
+            "raw": "1d (actual ~14h)",
+            "class": "unparseable",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "gantry:FR-1"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        },
+        {
+          "id": "n7",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Lanes",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        },
+        {
+          "id": "n8",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Forecast",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "est": "2h",
+            "est_src": "confirmed"
+          },
+          "meta_unknown_keys": [
+            "est_src"
+          ],
+          "est": {
+            "raw": "2h",
+            "class": "time",
+            "low_hours": 2,
+            "high_hours": 2,
+            "quantity": null,
+            "unit": null,
+            "src": "confirmed"
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n2"
+          ],
+          "stuck": null,
+          "checklist": "complete",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n3"
+          ],
+          "stuck": {
+            "step": "9 implement",
+            "reason": "waiting on the operator's call on the token key",
+            "since": "2026-11-04 08:47"
+          },
+          "checklist": "open",
+          "next_step": "implement",
+          "next_step_number": 9
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n4",
+            "n5"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n7"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null,
+          "actuals": null,
+          "estimates": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n8"
+          ],
+          "stuck": null,
+          "checklist": "complete",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 5,
+            "estimated": 1,
+            "estimated_derived": 0,
+            "unestimated": 4
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 1,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 1,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 1,
+          "estimated_derived": 1,
+          "unestimated": 4,
+          "low_hours": 6,
+          "high_hours": 6,
+          "non_time": {
+            "pr": 48
+          }
+        }
+      },
+      "lanes": null,
+      "forecast": null
+    },
+    {
+      "project": "beta",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "beta WBS",
+      "nodes": [
+        {
+          "id": "n9",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Adopt the schema",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "est": "3h"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3h",
+            "class": "time",
+            "low_hours": 3,
+            "high_hours": 3,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n9"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 1,
+            "estimated": 1,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 1,
+          "estimated": 1,
+          "estimated_derived": 0,
+          "unestimated": 0,
+          "low_hours": 3,
+          "high_hours": 3,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "gamma",
+      "status": "no_wbs",
+      "status_reason": "the devdoc dir has no WBS.md",
+      "wbs_title": null,
+      "nodes": [],
+      "issues": [],
+      "rollup": null
+    },
+    {
+      "project": "delta",
+      "status": "no_devdoc_dir",
+      "status_reason": "no devdoc dir is configured",
+      "wbs_title": null,
+      "nodes": [],
+      "issues": [],
+      "rollup": null
+    }
+  ],
+  "parse_report": [],
+  "forecast": null
+}

@@ -12,6 +12,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 LIB = REPO / "scripts" / "lib"
 CHECKER = LIB / "portfolio-check.py"
+EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 
 
 def _load(name, path):
@@ -416,3 +417,68 @@ def test_meta_values_shape():
         doc = _minimal_doc()
         _leaf(doc)["meta"]["k"] = good
         assert pc.check(doc) == []
+
+
+# ---------------------------------------------------------------- Task 4
+
+
+def _example():
+    return pc.read_document(EXAMPLE)
+
+
+def _project(doc, name):
+    return next(p for p in doc["projects"] if p["project"] == name)
+
+
+def test_example_valid():
+    assert pc.check(_example()) == []
+    r = _run_cli(EXAMPLE)
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+
+
+def test_example_covers_ac_shapes():
+    doc = _example()
+    read = [p for p in doc["projects"] if p["status"] == "read"]
+    issue_sets = [{i["issue"] for i in p["issues"]} for p in read]
+    assert len(read) >= 2 and set.intersection(*issue_sets[:2])
+    alpha = _project(doc, "alpha")
+    nodes = [n for p in read for n in p["nodes"]]
+    leaves = [n for n in nodes if n["leaf"]]
+    assert any(len(i["nodes"]) >= 2 for i in alpha["issues"])
+    assert any(n["issue"] is None for n in leaves)
+    assert {n["est"]["class"] for n in leaves} == {
+        "absent", "placeholder", "time", "non-time", "unparseable"}
+    assert any(p["status"] == "no_wbs" for p in doc["projects"])
+    assert doc["parse_report"] == []
+    deps = [d for n in nodes for d in n["depends_on"]]
+    assert any(d["scope"] == "foreign" for d in deps)
+    assert any(d["scope"] == "local" and ":" in d["raw"] for d in deps)
+    issues = [i for p in read for i in p["issues"]]
+    assert any(i["stuck"] is not None for i in issues)
+    assert any(i["next_step"] is not None for i in issues)
+    assert any(isinstance(n["meta"].get("satisfies"), str) and n["satisfies"]
+               for n in nodes)
+    assert any(isinstance(n["h"], int) for n in nodes)
+    assert any(n["h"] is None and "h" in n["meta"] for n in nodes)
+    assert any(n["est"]["class"] == "time" and n["est"]["src"] == "derived"
+               for n in leaves)
+    assert any(not n["leaf"] and n["est"]["raw"] is not None for n in nodes)
+
+
+def test_example_rollup_literals():
+    # Hand-worked from the example: only `time` counts as estimated, `pr`
+    # is unestimated, and the parent's 10.5pr is never summed.
+    rollup = _project(_example(), "alpha")["rollup"]
+    assert rollup["remaining"] == {
+        "leaves": 6, "estimated": 1, "estimated_derived": 1, "unestimated": 4,
+        "low_hours": 6, "high_hours": 6, "non_time": {"pr": 48}}
+    assert rollup["by_state"]["done"] == {
+        "leaves": 1, "estimated": 1, "estimated_derived": 0, "unestimated": 0}
+
+
+def test_example_validates_with_jsonschema_if_installed():
+    jsonschema = pytest.importorskip("jsonschema")
+    if not hasattr(jsonschema, "Draft202012Validator"):
+        pytest.skip(f"jsonschema {jsonschema.__version__} predates 2020-12")
+    validator = jsonschema.Draft202012Validator(pc.load_schema())
+    validator.validate(_example())
