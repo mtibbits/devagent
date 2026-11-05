@@ -1,5 +1,6 @@
 """Tests for the portfolio JSON schema (#725): scripts/lib/portfolio-schema.json
 and its stdlib checker scripts/lib/portfolio-check.py."""
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -665,3 +666,26 @@ def test_guard_rows_target_real_paths():
     assert len(GUARD_ROWS) == 16
     for row_id, target, *_ in GUARD_ROWS:
         assert target in inv, row_id
+
+
+# ---------------------------------------------------------------- Task 6
+
+
+def test_checker_imports_stdlib_only():
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    if stdlib is None:
+        pytest.skip("needs Python 3.10+ (sys.stdlib_module_names)")
+    tree = ast.parse(CHECKER.read_text(encoding="utf-8"))
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            modules.add(node.module.split(".")[0])
+    assert modules, "no imports found: the walk saw nothing"
+    assert modules <= set(stdlib) | {"__future__"}, modules - set(stdlib)
+
+
+def test_checker_runs_isolated():
+    r = _run_cli(EXAMPLE, isolated=True)
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
