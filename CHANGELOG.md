@@ -16,6 +16,16 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the versioned portfolio JSON schema (#725, epic #724).**
+  - `scripts/lib/portfolio-schema.json` (schema v1.0, a declared subset of JSON
+    Schema 2020-12), `scripts/lib/portfolio-check.py` (a stdlib-only checker) and
+    `docs/portfolio-schema.md` (the contract, version rules included). Spec §13.4.
+  - `portfolio-check.py <document.json>` exits 0 valid, 1 invalid, 2 could not
+    run, 3 unsupported major version.
+  - Adopts #737's five `est` classes; only `time` counts as estimated.
+  - A guard test fails a field removal, rename or type change without a major
+    bump, against digest-pinned history snapshots.
+  - No existing script or format changes.
 - **Added: the trust policy baseline (#713, epic #711).**
   - `policy.toml` at a fixed system location (wins) or `$HOME/.config/devagent/trust/`
     (baseline): exact repo-key scopes, immutable worker and trusted ids, and a digest.

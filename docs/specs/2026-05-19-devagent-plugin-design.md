@@ -62,6 +62,7 @@ devAgent/
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 │   ├── resolver-scope-triage.md     # #572: the 21 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
@@ -81,7 +82,8 @@ devAgent/
 ├── scripts/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
 │   │                        #   check-step-pairings.py — #558 pairing census,
-│   │                        #   ci.sh — #782 MR CI read/line/gate)
+│   │                        #   ci.sh — #782 MR CI read/line/gate,
+│   │                        #   portfolio-schema.json + portfolio-check.py — #725)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -2682,6 +2684,19 @@ These are deliberately deferred. The metadata schema is fixed in v1
 so deferred renderers do not require schema migration; additive keys
 such as `status_src` and `mr` may be added, and renderers ignore unknown
 keys.
+
+### 13.4 Portfolio document (#725)
+
+The portfolio document is one generated JSON file that describes every
+configured project's WBS nodes, issues and rollup; its versioned contract is
+`docs/portfolio-schema.md`. The machine schema is
+`scripts/lib/portfolio-schema.json`, and `scripts/lib/portfolio-check.py`
+validates a document against it using only the Python standard library. The
+producer (#726) and its consumers build against that contract, never against
+this section.
+
+<!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
+     requires this section to name docs/portfolio-schema.md. -->
 
 ## 14. Status reports
 
