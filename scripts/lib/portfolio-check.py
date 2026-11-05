@@ -37,6 +37,12 @@ MSG_BAD_VERSION = 'schema_version {value!r} is not MAJOR.MINOR'
 MSG_NOT_OBJECT = 'portfolio document is not a JSON object'
 MSG_NOT_PORTFOLIO = 'not a devagent portfolio document (schema is {value!r})'
 
+COMPAT_BACKWARDS = 'version went backwards: {old} -> {new}'
+COMPAT_REMOVED = 'removed or renamed without a major bump: {path}'
+COMPAT_CHANGED = '{attr} changed without a major bump: {path}'
+COMPAT_REQUIRED = 'new field is required: {path}'
+COMPAT_NO_BUMP = 'schema changed without a version bump: {path}'
+
 
 class SchemaError(Exception):
     """The schema file is unreadable or leaves the declared dialect."""
@@ -65,6 +71,9 @@ class FieldSpec:
     maximum: float | None
     additional: bool | str | None
     reserved: str | None
+
+
+ROOT_SPEC = FieldSpec(frozenset({"object"}), True, None, None, None, False, None)
 
 
 def parse_version(s) -> tuple[int, int]:
@@ -206,6 +215,53 @@ def inventory(schema) -> dict:
     walk(schema, "")
     return out
 
+
+
+def _parent(path):
+    """The inventory path that holds `path`'s last segment ('' at the root)."""
+    if path.endswith(("[]", "{}")):
+        return path[:-2]
+    return path.rpartition(".")[0]
+
+
+def compat_violations(old, new) -> list:
+    """Why `new` is not a compatible successor of `old` under the version
+    rules; [] when it is. Descriptions and titles are ignored."""
+    old_v, new_v = parse_version(old["version"]), parse_version(new["version"])
+    if new_v[0] > old_v[0]:
+        return []
+    if new_v < old_v:
+        return [COMPAT_BACKWARDS.format(old=old["version"], new=new["version"])]
+    bumped = new_v != old_v
+    before, after = inventory(old), inventory(new)
+    out = []
+    for path, was in before.items():
+        now = after.get(path)
+        if now is None:
+            out.append(COMPAT_REMOVED.format(path=path))
+            continue
+        slot = was.reserved is not None
+        attrs = [("types", was.types != now.types),
+                 ("required", was.required != now.required),
+                 ("enum", was.enum != now.enum),
+                 ("bounds", (was.minimum, was.maximum) != (now.minimum, now.maximum)),
+                 ("additional", was.additional != now.additional and not slot),
+                 ("reserved", was.reserved != now.reserved and now.reserved is not None)]
+        out.extend(COMPAT_CHANGED.format(attr=a, path=path) for a, hit in attrs if hit)
+        defined = slot and (now.reserved is None or was.additional != now.additional)
+        if defined and not bumped:
+            out.append(COMPAT_NO_BUMP.format(path=path))
+    for path, now in after.items():
+        if path in before:
+            continue
+        parent = _parent(path)
+        # The root is never in the inventory, and always exists.
+        holder = before.get(parent) if parent else ROOT_SPEC
+        if now.required and holder is not None and holder.reserved is None:
+            out.append(COMPAT_REQUIRED.format(path=path))
+        if not bumped:
+            out.append(COMPAT_NO_BUMP.format(path=path))
+    return out
 
 def _refuse_constant(name):
     raise ValueError(f"{name} is not JSON")

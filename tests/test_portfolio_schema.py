@@ -1,6 +1,7 @@
 """Tests for the portfolio JSON schema (#725): scripts/lib/portfolio-schema.json
 and its stdlib checker scripts/lib/portfolio-check.py."""
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -12,6 +13,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 LIB = REPO / "scripts" / "lib"
 CHECKER = LIB / "portfolio-check.py"
+HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 
 
@@ -482,3 +484,184 @@ def test_example_validates_with_jsonschema_if_installed():
         pytest.skip(f"jsonschema {jsonschema.__version__} predates 2020-12")
     validator = jsonschema.Draft202012Validator(pc.load_schema())
     validator.validate(_example())
+
+
+# ---------------------------------------------------------------- Task 5
+
+# Digest of every committed history snapshot. A past snapshot never changes;
+# a version bump adds a file and a line here.
+HISTORY_SHA256 = {
+    "1.0": "782fe9fab59ab9b01f41518a683e9eb0f0c97aa8ecba288d6789b3c20d11c9a0",
+}
+
+
+def _snapshots():
+    files = sorted(HISTORY.glob("*.json"), key=lambda f: pc.parse_version(f.stem))
+    return [(f.stem, f) for f in files]
+
+
+def test_history_current_version_snapshot():
+    live = pc.load_schema()
+    snapshot = HISTORY / f"{live['version']}.json"
+    remedy = ("the schema changed without a version bump: bump `version` in "
+              "scripts/lib/portfolio-schema.json and add its snapshot to "
+              "tests/fixtures/portfolio/schema-history/")
+    assert snapshot.is_file(), remedy
+    assert pc.inventory(pc.load_schema(snapshot)) == pc.inventory(live), remedy
+
+
+def test_history_digests_pinned():
+    present = {v: f for v, f in _snapshots()}
+    assert set(present) == set(HISTORY_SHA256)
+    for version, path in present.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == HISTORY_SHA256[version], version
+
+
+def test_history_consecutive_compatible():
+    chain = [pc.load_schema(f) for _, f in _snapshots()] + [pc.load_schema()]
+    pairs = 0
+    for old, new in zip(chain, chain[1:]):
+        if pc.parse_version(old["version"])[0] == pc.parse_version(new["version"])[0]:
+            assert pc.compat_violations(old, new) == [], (old["version"], new["version"])
+            pairs += 1
+    assert pairs >= 1
+
+
+def _segments(path):
+    out = []
+    for part in path.split("."):
+        name = part.rstrip("[]{}")
+        if name:
+            out.append(name)
+        out.extend(part[len(name):][i:i + 2] for i in range(0, len(part) - len(name), 2))
+    return out
+
+
+def _spec_at(schema, path):
+    """(container, name): the object schema holding `path`'s last segment,
+    following $ref into $defs."""
+    defs = schema["$defs"]
+    *walk, last = _segments(path)
+    node = schema
+    for seg in walk:
+        while "$ref" in node:
+            node = defs[node["$ref"].rsplit("/", 1)[1]]
+        node = {"[]": lambda n: n["items"], "{}": lambda n: n["additionalProperties"]
+                }.get(seg, lambda n: n["properties"][seg])(node)
+    while "$ref" in node:
+        node = defs[node["$ref"].rsplit("/", 1)[1]]
+    return node, last
+
+
+def _rename(path, new_name):
+    def edit(schema):
+        node, name = _spec_at(schema, path)
+        node["properties"][new_name] = node["properties"].pop(name)
+        if name in node.get("required", []):
+            node["required"] = [new_name if r == name else r for r in node["required"]]
+    return edit
+
+
+def _remove(path):
+    def edit(schema):
+        node, name = _spec_at(schema, path)
+        del node["properties"][name]
+        node["required"] = [r for r in node.get("required", []) if r != name]
+    return edit
+
+
+def _set(path, **changes):
+    def edit(schema):
+        node, name = _spec_at(schema, path)
+        field = node["properties"][name]
+        for key, value in changes.items():
+            if value is None:
+                field.pop(key, None)
+            else:
+                field[key] = value
+    return edit
+
+
+def _add(path, required=False):
+    def edit(schema):
+        node, name = _spec_at(schema, path)
+        node["properties"][name] = {"type": "string"}
+        if required:
+            node["required"].append(name)
+    return edit
+
+
+def _drop_required(path):
+    def edit(schema):
+        node, name = _spec_at(schema, path)
+        node["required"].remove(name)
+    return edit
+
+
+def _define_actuals(schema):
+    node, name = _spec_at(schema, "projects[].issues[].actuals")
+    slot = node["properties"][name]
+    del slot["x-reserved"]
+    slot["additionalProperties"] = False
+    slot["properties"] = {"agent_hours": {"type": "number"}}
+
+
+EST_CLASS = "projects[].nodes[].est.class"
+GUARD_ROWS = [
+    # (row id, target path, edit, version, expected violations)
+    ("M1", "projects[].nodes[].text", _rename("projects[].nodes[].text", "title"), "1.0", [
+        pc.COMPAT_REMOVED.format(path="projects[].nodes[].text"),
+        pc.COMPAT_REQUIRED.format(path="projects[].nodes[].title"),
+        pc.COMPAT_NO_BUMP.format(path="projects[].nodes[].title")]),
+    ("M1-major", "projects[].nodes[].text",
+     _rename("projects[].nodes[].text", "title"), "2.0", []),
+    ("M2", "projects[].issues[].next_step",
+     _remove("projects[].issues[].next_step"), "1.0", [
+         pc.COMPAT_REMOVED.format(path="projects[].issues[].next_step")]),
+    ("M2-major", "projects[].issues[].next_step",
+     _remove("projects[].issues[].next_step"), "2.0", []),
+    ("M3", "projects[].nodes[].source_line",
+     _set("projects[].nodes[].source_line", type="string", minimum=None), "1.0", [
+         pc.COMPAT_CHANGED.format(attr="types", path="projects[].nodes[].source_line"),
+         pc.COMPAT_CHANGED.format(attr="bounds", path="projects[].nodes[].source_line")]),
+    ("M3-major", "projects[].nodes[].source_line",
+     _set("projects[].nodes[].source_line", type="string", minimum=None), "2.0", []),
+    ("M4", "projects[].nodes[].text",
+     _set("projects[].nodes[].text", type=["string", "null"]), "1.1", [
+         pc.COMPAT_CHANGED.format(attr="types", path="projects[].nodes[].text")]),
+    ("M5", "projects[].status", _drop_required("projects[].status"), "1.1", [
+        pc.COMPAT_CHANGED.format(attr="required", path="projects[].status")]),
+    ("M6", EST_CLASS, _set(EST_CLASS, enum=["absent", "placeholder", "time", "non-time",
+                                            "unparseable", "guess"]), "1.1", [
+        pc.COMPAT_CHANGED.format(attr="enum", path=EST_CLASS)]),
+    ("M7", "projects[].nodes[].h", _set("projects[].nodes[].h", maximum=5), "1.1", [
+        pc.COMPAT_CHANGED.format(attr="bounds", path="projects[].nodes[].h")]),
+    ("M8", "projects[].nodes[]", _add("projects[].nodes[].note"), "1.1", []),
+    ("M9", "projects[].nodes[]", _add("projects[].nodes[].note"), "1.0", [
+        pc.COMPAT_NO_BUMP.format(path="projects[].nodes[].note")]),
+    ("M10", "projects[].nodes[]", _add("projects[].nodes[].note", required=True), "1.1", [
+        pc.COMPAT_REQUIRED.format(path="projects[].nodes[].note")]),
+    ("M11", "schema_version", _rename("schema_version", "schema_rev"), "1.1", [
+        pc.COMPAT_REMOVED.format(path="schema_version"),
+        pc.COMPAT_REQUIRED.format(path="schema_rev")]),
+    ("M12", "projects[].issues[].actuals", _define_actuals, "1.1", []),
+    ("M13", "schema_version", lambda schema: None, "0.9", [
+        pc.COMPAT_BACKWARDS.format(old="1.0", new="0.9")]),
+]
+
+
+@pytest.mark.parametrize("row", GUARD_ROWS, ids=[r[0] for r in GUARD_ROWS])
+def test_guard_mutation(row):
+    _, _, edit, version, expected = row
+    baseline = pc.load_schema(HISTORY / "1.0.json")
+    mutated = _schema()
+    edit(mutated)
+    mutated["version"] = version
+    assert sorted(pc.compat_violations(baseline, mutated)) == sorted(expected)
+
+
+def test_guard_rows_target_real_paths():
+    inv = pc.inventory(pc.load_schema())
+    assert len(GUARD_ROWS) == 16
+    for row_id, target, *_ in GUARD_ROWS:
+        assert target in inv, row_id
