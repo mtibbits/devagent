@@ -284,6 +284,8 @@ READ_REFUSALS = {
     "latin1-bytes": '{"a": "café"}'.encode("latin-1"),
     "bom": b'\xef\xbb\xbf{"a": 1}',
     "truncated": b'{"a": ',
+    "deep-nesting": b'{"a": ' + b"[" * 100000 + b"]" * 100000 + b"}",
+    "huge-exponent": b'{"a": 1e400}',
 }
 
 
@@ -610,6 +612,17 @@ def _define_actuals(schema):
     slot["properties"] = {"agent_hours": {"type": "number"}}
 
 
+def _declare_meta_issue(schema):
+    # A field under an open (additionalProperties-schema) object: a 1.0 reader
+    # checks every meta value against meta{}, so a 1.1 document breaks it.
+    node, name = _spec_at(schema, "projects[].nodes[].meta")
+    node["properties"][name]["properties"] = {"issue": {"type": "integer"}}
+
+
+def _open_dep(schema):
+    schema["$defs"]["Dep"]["additionalProperties"] = True
+
+
 EST_CLASS = "projects[].nodes[].est.class"
 GUARD_ROWS = [
     # (row id, target path, edit, version, expected violations)
@@ -651,6 +664,16 @@ GUARD_ROWS = [
     ("M12", "projects[].issues[].actuals", _define_actuals, "1.1", []),
     ("M13", "schema_version", lambda schema: None, "0.9", [
         pc.COMPAT_BACKWARDS.format(old="1.0", new="0.9")]),
+    ("M14", "projects[].nodes[].meta", _declare_meta_issue, "1.1", [
+        pc.COMPAT_OPEN.format(path="projects[].nodes[].meta.issue")]),
+    ("M15", "projects[].nodes[].depends_on[]", _open_dep, "1.1", [
+        pc.COMPAT_CHANGED.format(attr="additional", path="projects[].nodes[].depends_on[]")]),
+    ("M16", "projects[].nodes[].ready",
+     _set("projects[].nodes[].ready", **{"x-reserved": "#999"}), "1.1", [
+         pc.COMPAT_CHANGED.format(attr="reserved", path="projects[].nodes[].ready")]),
+    ("M17", "projects[].issues[].actuals", _define_actuals, "1.0", [
+        pc.COMPAT_NO_BUMP.format(path="projects[].issues[].actuals"),
+        pc.COMPAT_NO_BUMP.format(path="projects[].issues[].actuals.agent_hours")]),
 ]
 
 
@@ -666,7 +689,7 @@ def test_guard_mutation(row):
 
 def test_guard_rows_target_real_paths():
     inv = pc.inventory(pc.load_schema())
-    assert len(GUARD_ROWS) == 16
+    assert len(GUARD_ROWS) == 20
     for row_id, target, *_ in GUARD_ROWS:
         assert target in inv, row_id
 

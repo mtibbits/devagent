@@ -25,6 +25,7 @@ entries naming a real project.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ COMPAT_REMOVED = 'removed or renamed without a major bump: {path}'
 COMPAT_CHANGED = '{attr} changed without a major bump: {path}'
 COMPAT_REQUIRED = 'new field is required: {path}'
 COMPAT_NO_BUMP = 'schema changed without a version bump: {path}'
+COMPAT_OPEN = 'field added under an open object needs a major bump: {path}'
 
 
 class SchemaError(Exception):
@@ -274,12 +276,23 @@ def compat_violations(old, new) -> list:
         holder = before.get(parent) if parent else ROOT_SPEC
         if now.required and holder is not None and holder.reserved is None:
             out.append(COMPAT_REQUIRED.format(path=path))
+        # An older reader checks every key of an open object against its
+        # free-form schema (or not at all), so declaring one is not additive.
+        if holder is not None and holder.reserved is None and holder.additional in (True, "schema"):
+            out.append(COMPAT_OPEN.format(path=path))
         if not bumped:
             out.append(COMPAT_NO_BUMP.format(path=path))
     return out
 
 def _refuse_constant(name):
     raise ValueError(f"{name} is not JSON")
+
+
+def _finite_float(text):
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is not a finite number")
+    return value
 
 
 def _refuse_duplicates(pairs):
@@ -292,12 +305,14 @@ def _refuse_duplicates(pairs):
 
 
 def read_document(path):
-    """Strict JSON: UTF-8 only (no BOM), no NaN/Infinity, no duplicate keys."""
+    """Strict JSON: UTF-8 only (no BOM), no NaN/Infinity (nor a number that
+    overflows to it), no duplicate keys, no nesting deeper than the stack."""
     try:
         text = Path(path).read_bytes().decode("utf-8")
         return json.loads(text, parse_constant=_refuse_constant,
+                          parse_float=_finite_float,
                           object_pairs_hook=_refuse_duplicates)
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:
         raise DocumentError(f"cannot read {path}: {e}") from e
 
 

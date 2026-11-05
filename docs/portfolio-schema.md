@@ -33,11 +33,18 @@ so a schema edit cannot lean on a rule the checker does not enforce.
 - `additionalProperties` is a boolean or a schema. An object that is not a
   slot and has no free-form keys says `false`.
 - Two semantics are **stricter than the standard**. `integer` means a JSON
-  integer token, so `1.0` is refused and so is `true`. `number` excludes booleans.
+  integer token, so `1.0` is refused (the standard accepts it). `enum` and
+  `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.0
+  has no numeric enum members, so this second rule changes nothing yet.) As in
+  the standard, `true` is neither an `integer` nor a `number`.
 
 A stock 2020-12 validator accepts the schema and the example, because it
 treats `x-reserved` and `version` as annotations and the subset means the same
-there. CI does not install `jsonschema`. The suite runs the stock-validator
+there. A stock validator does **not** implement the version rules, though. It
+rejects the unknown fields of a newer-minor document (rule 5) under
+`additionalProperties: false`. It also accepts a non-null reserved slot. Use
+it for documents at your own version; use `portfolio-check.py` for the version
+behaviour. CI does not install `jsonschema`. The suite runs the stock-validator
 check only where `jsonschema` 4.x is installed, so the differential's evidence
 is a scratch-venv transcript kept with the issue, not the CI gate.
 
@@ -72,10 +79,16 @@ declaring its properties.
   (a byte copy of the schema) and its line in `HISTORY_SHA256` in the tests.
   The guard fails until both exist.
 - **The guard** (`compat_violations` in the checker) compares the snapshots in
-  version order and ends at the live schema. Within one major it reports a
-  removed or renamed field, a changed type, required-ness, enum or bound, a
-  new required field, and any change made without a version bump. Past
-  snapshots are pinned by digest; editing one is a failure, while adding one is not.
+  version order and ends at the live schema. Within one major it reports each
+  of these: a removed or renamed field; a change to a field's type,
+  required-ness, enum, bounds, `additionalProperties` or `x-reserved`; a new
+  required field; a field declared under an **open object** (one whose
+  `additionalProperties` is `true` or a schema, such as `meta` or `non_time`,
+  that is not a reserved slot); and any change made without a version bump.
+  The open-object case needs a major bump because an older reader already checks
+  every key of that object against its free-form rule, so a newer document
+  would fail it. Past snapshots are pinned by digest; editing one is a failure,
+  while adding one is not.
 - **Minor bumps are serialised by merge order: a branch that meets a newer
   minor on rebase re-bumps and adds its own snapshot.** Two branches cannot
   both ship `1.1`.
@@ -290,8 +303,9 @@ not a key list, and readers must not treat it as one.
 
     usage: portfolio-check.py <document.json>
 
-It reads the file as strict JSON: UTF-8 with no BOM, no `NaN`/`Infinity`,
-no duplicate keys. Then it runs the version preflight (object, `schema` id,
+It reads the file as strict JSON: UTF-8 with no BOM, no `NaN`/`Infinity`
+(nor a number such as `1e400` that overflows to it), no duplicate keys, and no
+nesting deeper than the interpreter's stack. Then it runs the version preflight (object, `schema` id,
 `schema_version` form, major) and validates the structure. Errors go to stderr,
 one per line, prefixed `portfolio-check: `. stdout stays silent.
 
