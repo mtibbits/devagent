@@ -93,6 +93,20 @@ class FieldSpec:
 ROOT_SPEC = FieldSpec(frozenset({"object"}), True, None, None, None, False, None)
 
 
+def _types(node):
+    types = node.get("type")
+    return [types] if isinstance(types, str) else types
+
+
+def _members(node):
+    """The allowed values (`const` is a one-member enum), or None."""
+    return [node["const"]] if "const" in node else node.get("enum")
+
+
+def _target(ref):
+    return ref.rpartition("/")[2]
+
+
 def parse_version(s) -> tuple[int, int]:
     """`MAJOR.MINOR` as an int pair; anything else raises ValueError."""
     m = VERSION_RE.fullmatch(s) if isinstance(s, str) else None
@@ -120,8 +134,9 @@ def load_schema(path=None) -> dict:
     _lint(schema, "#", defs, root=True)
     for name, sub in defs.items():
         _lint(sub, f"#/$defs/{name}", defs, root=False)
+    done = set()
     for name in defs:
-        _cycle_check(name, defs, ())
+        _cycle_check(name, defs, (), done)
     return schema
 
 
@@ -142,8 +157,7 @@ def _lint(node, where, defs, root):
         if extra:
             raise SchemaError(f"{where}: $ref may stand only beside description/title, not {sorted(extra)}")
         return
-    types = node.get("type")
-    types = [types] if isinstance(types, str) else types
+    types = _types(node)
     if not isinstance(types, list) or not types or not set(types) <= JSON_TYPES:
         raise SchemaError(f"{where}: type {node.get('type')!r} is not a JSON type or list of them")
     for key in ("minimum", "maximum"):
@@ -171,7 +185,7 @@ def _lint(node, where, defs, root):
 def _refs(node):
     """Every $defs name a schema node reaches without passing through a $ref."""
     if "$ref" in node:
-        yield REF_RE.fullmatch(node["$ref"]).group(1)
+        yield _target(node["$ref"])
         return
     for sub in node.get("properties", {}).values():
         yield from _refs(sub)
@@ -180,26 +194,26 @@ def _refs(node):
             yield from _refs(node[key])
 
 
-def _cycle_check(name, defs, trail):
+def _cycle_check(name, defs, trail, done):
     if name in trail:
         raise SchemaError(f"$ref cycle: {' -> '.join(trail + (name,))}")
+    if name in done:
+        return
     for ref in _refs(defs[name]):
-        _cycle_check(ref, defs, trail + (name,))
+        _cycle_check(ref, defs, trail + (name,), done)
+    done.add(name)
 
 
 def _resolve(node, defs):
     while "$ref" in node:
-        node = defs[REF_RE.fullmatch(node["$ref"]).group(1)]
+        node = defs[_target(node["$ref"])]
     return node
 
 
 def _spec(node, required):
-    types = node["type"]
-    types = frozenset([types] if isinstance(types, str) else types)
-    if "const" in node:
-        enum = (node["const"],)
-    else:
-        enum = tuple(node["enum"]) if "enum" in node else None
+    types = frozenset(_types(node))
+    members = _members(node)
+    enum = None if members is None else tuple(members)
     if "object" in types:
         extra = node.get("additionalProperties", True)
         additional = extra if isinstance(extra, bool) else "schema"
@@ -222,16 +236,13 @@ def inventory(schema) -> dict:
             path = f"{prefix}.{name}" if prefix else name
             out[path] = _spec(_resolve(sub, defs), name in required)
             walk(sub, path)
-        if isinstance(node.get("items"), dict):
-            out[prefix + "[]"] = _spec(_resolve(node["items"], defs), False)
-            walk(node["items"], prefix + "[]")
-        if isinstance(node.get("additionalProperties"), dict):
-            out[prefix + "{}"] = _spec(_resolve(node["additionalProperties"], defs), False)
-            walk(node["additionalProperties"], prefix + "{}")
+        for key, mark in (("items", "[]"), ("additionalProperties", "{}")):
+            if isinstance(node.get(key), dict):
+                out[prefix + mark] = _spec(_resolve(node[key], defs), False)
+                walk(node[key], prefix + mark)
 
     walk(schema, "")
     return out
-
 
 
 def _parent(path):
@@ -274,15 +285,17 @@ def compat_violations(old, new) -> list:
         parent = _parent(path)
         # The root is never in the inventory, and always exists.
         holder = before.get(parent) if parent else ROOT_SPEC
-        if now.required and holder is not None and holder.reserved is None:
-            out.append(COMPAT_REQUIRED.format(path=path))
-        # An older reader checks every key of an open object against its
-        # free-form schema (or not at all), so declaring one is not additive.
-        if holder is not None and holder.reserved is None and holder.additional in (True, "schema"):
-            out.append(COMPAT_OPEN.format(path=path))
+        if holder is not None and holder.reserved is None:
+            if now.required:
+                out.append(COMPAT_REQUIRED.format(path=path))
+            # An older reader checks every key of an open object against its
+            # free-form schema (or not at all), so declaring one is not additive.
+            if holder.additional in (True, "schema"):
+                out.append(COMPAT_OPEN.format(path=path))
         if not bumped:
             out.append(COMPAT_NO_BUMP.format(path=path))
     return out
+
 
 def _refuse_constant(name):
     raise ValueError(f"{name} is not JSON")
@@ -339,8 +352,7 @@ def _bound(b):
 def _validate(value, node, path, ctx):
     node = _resolve(node, ctx["defs"])
     errors = ctx["errors"]
-    types = node["type"]
-    types = [types] if isinstance(types, str) else types
+    types = _types(node)
     jtype = _json_type(value)
     if jtype not in types and not (jtype == "integer" and "number" in types):
         errors.append(f"{path}: expected {'|'.join(types)}, got {jtype}")
@@ -349,7 +361,7 @@ def _validate(value, node, path, ctx):
         if not ctx["newer"]:
             errors.append(f"{path}: reserved slot must be null in schema {ctx['reader']}")
         return
-    members = [node["const"]] if "const" in node else node.get("enum")
+    members = _members(node)
     if members is not None and not any(
             m == value and type(m) is type(value) for m in members):
         listed = ", ".join(json.dumps(m) for m in members)
@@ -393,10 +405,11 @@ def check(doc, schema=None) -> list:
     except ValueError as e:
         return [str(e)]
     reader = schema["version"]
-    if version[0] != parse_version(reader)[0]:
+    reader_v = parse_version(reader)
+    if version[0] != reader_v[0]:
         raise UnsupportedVersion(doc["schema_version"], reader)
     ctx = {"defs": schema.get("$defs", {}), "errors": [], "reader": reader,
-           "newer": version[1] > parse_version(reader)[1]}
+           "newer": version[1] > reader_v[1]}
     _validate(doc, schema, "$", ctx)
     return ctx["errors"]
 

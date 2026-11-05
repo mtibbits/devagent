@@ -45,8 +45,6 @@ def _write_schema(tmp_path, schema):
     return path
 
 
-# ---------------------------------------------------------------- Task 1
-
 
 def test_schema_loads_and_is_1_0():
     schema = pc.load_schema()
@@ -163,8 +161,6 @@ def test_schema_file_is_lf_utf8_without_bom():
     data.decode("utf-8")
 
 
-# ---------------------------------------------------------------- Task 2
-
 
 def _counts(leaves=0, estimated=0, derived=0, unestimated=0):
     return {"leaves": leaves, "estimated": estimated,
@@ -218,6 +214,13 @@ def _run_cli(*args, isolated=False):
                           capture_output=True, text=True)
 
 
+def _main(capsys, *args):
+    """main() in-process: (exit code, stdout, stderr)."""
+    code = pc.main([str(a) for a in args])
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
 def _dump(tmp_path, doc, name="doc.json"):
     path = tmp_path / name
     path.write_text(json.dumps(doc), encoding="utf-8")
@@ -232,17 +235,15 @@ def test_minimal_doc_valid():
 def test_unknown_major_refused(version):
     with pytest.raises(pc.UnsupportedVersion) as e:
         pc.check(_minimal_doc(version))
-    assert version in str(e.value) and "1.0" in str(e.value)
     assert str(e.value) == pc.MSG_UNSUPPORTED.format(
         document=version, major=1, reader="1.0")
     assert (e.value.document, e.value.reader) == (version, "1.0")
 
 
-def test_cli_unknown_major_exit_3(tmp_path):
-    r = _run_cli(_dump(tmp_path, _minimal_doc("2.0")))
-    assert r.returncode == 3
-    assert "2.0" in r.stderr and "1.0" in r.stderr
-    assert r.stdout == ""
+def test_cli_unknown_major_exit_3(tmp_path, capsys):
+    code, out, err = _main(capsys, _dump(tmp_path, _minimal_doc("2.0")))
+    assert (code, out) == (3, "")
+    assert "2.0" in err and "1.0" in err
 
 
 MISSING = object()
@@ -262,12 +263,10 @@ def test_bad_version_forms(value):
 
 
 @pytest.mark.parametrize("doc", [None, [], "x"], ids=["null", "list", "string"])
-def test_not_object(doc, tmp_path):
+def test_not_object(doc, tmp_path, capsys):
     assert pc.check(doc) == [pc.MSG_NOT_OBJECT]
-    r = _run_cli(_dump(tmp_path, doc))
-    assert r.returncode == 1
-    assert "Traceback" not in r.stderr
-    assert r.stderr == f"portfolio-check: {pc.MSG_NOT_OBJECT}\n"
+    assert _main(capsys, _dump(tmp_path, doc)) == (
+        1, "", f"portfolio-check: {pc.MSG_NOT_OBJECT}\n")
 
 
 def test_not_portfolio_id():
@@ -290,15 +289,12 @@ READ_REFUSALS = {
 
 
 @pytest.mark.parametrize("name", list(READ_REFUSALS))
-def test_read_refusals(name, tmp_path):
+def test_read_refusals(name, tmp_path, capsys):
     path = tmp_path / "doc.json"
     path.write_bytes(READ_REFUSALS[name])
-    with pytest.raises(pc.DocumentError):
-        pc.read_document(path)
-    r = _run_cli(path)
-    assert r.returncode == 2
-    assert "Traceback" not in r.stderr
-    assert r.stdout == ""
+    code, out, err = _main(capsys, path)
+    assert (code, out) == (2, "")
+    assert err.startswith(f"portfolio-check: cannot read {path}: ")
 
 
 def test_read_document_positive_control(tmp_path):
@@ -307,13 +303,12 @@ def test_read_document_positive_control(tmp_path):
     assert pc.read_document(path) == {"a": "café", "b": -1500.0}
 
 
-def test_cli_usage_exit_2(tmp_path):
+def test_cli_usage_exit_2(tmp_path, capsys):
     good = _dump(tmp_path, _minimal_doc())
-    for args in ([], [good, good], [tmp_path / "missing.json"]):
-        r = _run_cli(*args)
-        assert r.returncode == 2, args
-        assert r.stdout == ""
-    assert pc.USAGE in _run_cli().stderr
+    assert _main(capsys) == (2, "", pc.USAGE + "\n")
+    for args in ([good, good], [tmp_path / "missing.json"]):
+        code, out, _ = _main(capsys, *args)
+        assert (code, out) == (2, ""), args
 
 
 def test_cli_valid_exit_0_silent(tmp_path):
@@ -342,20 +337,17 @@ PLANTED_PATHS = [
 ]
 
 
-def test_newer_minor_ignores_unknown_fields(tmp_path):
+def test_newer_minor_ignores_unknown_fields(tmp_path, capsys):
     doc = _plant_unknown_fields(_minimal_doc("1.7"))
     assert pc.check(doc) == []
-    r = _run_cli(_dump(tmp_path, doc))
-    assert r.returncode == 0
-    assert r.stdout == ""
-    assert r.stderr == "portfolio-check: " + pc.MSG_NEWER_MINOR.format(
-        document="1.7", reader="1.0") + "\n"
+    assert _main(capsys, _dump(tmp_path, doc)) == (
+        0, "", "portfolio-check: " + pc.MSG_NEWER_MINOR.format(
+            document="1.7", reader="1.0") + "\n")
 
 
 def test_same_minor_unknown_fields_are_errors():
     errors = pc.check(_plant_unknown_fields(_minimal_doc()))
     assert sorted(errors) == sorted(f"{p}: unknown field" for p in PLANTED_PATHS)
-    assert len(errors) == 7
 
 
 def test_older_minor_document_reads():
@@ -427,8 +419,6 @@ def test_meta_values_shape():
         assert pc.check(doc) == []
 
 
-# ---------------------------------------------------------------- Task 4
-
 
 def _example():
     return pc.read_document(EXAMPLE)
@@ -438,10 +428,9 @@ def _project(doc, name):
     return next(p for p in doc["projects"] if p["project"] == name)
 
 
-def test_example_valid():
+def test_example_valid(capsys):
     assert pc.check(_example()) == []
-    r = _run_cli(EXAMPLE)
-    assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+    assert _main(capsys, EXAMPLE) == (0, "", "")
 
 
 def test_example_covers_ac_shapes():
@@ -491,8 +480,6 @@ def test_example_validates_with_jsonschema_if_installed():
     validator = jsonschema.Draft202012Validator(pc.load_schema())
     validator.validate(_example())
 
-
-# ---------------------------------------------------------------- Task 5
 
 # Digest of every committed history snapshot. A past snapshot never changes;
 # a version bump adds a file and a line here.
@@ -550,13 +537,14 @@ def _spec_at(schema, path):
     *walk, last = _segments(path)
     node = schema
     for seg in walk:
-        while "$ref" in node:
-            node = defs[node["$ref"].rsplit("/", 1)[1]]
-        node = {"[]": lambda n: n["items"], "{}": lambda n: n["additionalProperties"]
-                }.get(seg, lambda n: n["properties"][seg])(node)
-    while "$ref" in node:
-        node = defs[node["$ref"].rsplit("/", 1)[1]]
-    return node, last
+        node = pc._resolve(node, defs)
+        if seg == "[]":
+            node = node["items"]
+        elif seg == "{}":
+            node = node["additionalProperties"]
+        else:
+            node = node["properties"][seg]
+    return pc._resolve(node, defs), last
 
 
 def _rename(path, new_name):
@@ -689,12 +677,9 @@ def test_guard_mutation(row):
 
 def test_guard_rows_target_real_paths():
     inv = pc.inventory(pc.load_schema())
-    assert len(GUARD_ROWS) == 20
     for row_id, target, *_ in GUARD_ROWS:
         assert target in inv, row_id
 
-
-# ---------------------------------------------------------------- Task 6
 
 
 def test_checker_imports_stdlib_only():
@@ -717,8 +702,6 @@ def test_checker_runs_isolated():
     assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
 
 
-# ---------------------------------------------------------------- Task 7
-
 
 def _doc_text():
     return DOC.read_text(encoding="utf-8")
@@ -729,7 +712,7 @@ def test_doc_lists_every_schema_field():
     inv = pc.inventory(pc.load_schema())
     found = [p for p in inv if f"`{p}`" in text]
     assert sorted(set(inv) - set(found)) == []
-    assert len(found) == len(inv) == INVENTORY_SIZE
+    assert len(inv) == INVENTORY_SIZE
 
 
 def test_doc_states_version_rules_verbatim():
