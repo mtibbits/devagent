@@ -5,6 +5,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 LIB = REPO / "scripts" / "lib"
 CHECKER = LIB / "portfolio-check.py"
+DOC = REPO / "docs" / "portfolio-schema.md"
+SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
 HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 
@@ -689,3 +692,40 @@ def test_checker_imports_stdlib_only():
 def test_checker_runs_isolated():
     r = _run_cli(EXAMPLE, isolated=True)
     assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
+
+
+# ---------------------------------------------------------------- Task 7
+
+
+def _doc_text():
+    return DOC.read_text(encoding="utf-8")
+
+
+def test_doc_lists_every_schema_field():
+    text = _doc_text()
+    inv = pc.inventory(pc.load_schema())
+    found = [p for p in inv if f"`{p}`" in text]
+    assert sorted(set(inv) - set(found)) == []
+    assert len(found) == len(inv) == INVENTORY_SIZE
+
+
+def test_doc_states_version_rules_verbatim():
+    description = pc.load_schema()["description"]
+    rules = re.findall(r"\((\d)\) (.*?)(?= \(\d\) |$)", description)
+    assert [n for n, _ in rules] == ["1", "2", "3", "4", "5", "6"]
+    text = _doc_text()
+    for number, rule in rules:
+        assert f"{number}. {rule}" in text, number
+
+
+def test_doc_states_usage_and_exit_codes():
+    text = _doc_text()
+    assert pc.USAGE in text
+    for code in "0123":
+        assert re.search(rf"^\| `{code}` \|", text, re.M), code
+
+
+def test_spec_13_points_at_schema_doc():
+    spec = SPEC.read_text(encoding="utf-8")
+    section = spec[spec.index("\n## 13."):spec.index("\n## 14.")]
+    assert "docs/portfolio-schema.md" in section

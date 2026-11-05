@@ -6,6 +6,21 @@ The schema is written in a declared subset of JSON Schema 2020-12 (the
 keywords in SCHEMA_KEYWORDS); the loader refuses any other keyword, so a
 schema edit cannot silently rely on a rule this checker does not enforce.
 docs/portfolio-schema.md is the prose contract.
+
+    portfolio-check.py <document.json>
+
+Exit 0 valid (a newer minor also notes that unknown fields were ignored),
+1 invalid, 2 could not run (usage, unreadable file, not strict JSON, schema
+load error), 3 unsupported major version.
+
+What this checker does not decide (owned by #726): exit 0 is structural
+only. Node id uniqueness, source order and parent links; leaf versus parent
+links and `ready` on parents; agreement of issue/est/satisfies/h/depends_on
+with `meta`; an estimate class against its hour/quantity/unit fields; one
+IssueEntry per distinct issue; `meta_unknown_keys` against `meta`; unique
+project names and status against nodes/issues/rollup/wbs_title/status_reason;
+the rollup against a recomputation; checklist against next_step; report
+entries naming a real project.
 """
 from __future__ import annotations
 
