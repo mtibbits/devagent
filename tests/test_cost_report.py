@@ -467,6 +467,19 @@ REAL_SHAPES = [
     ("next", "beta Issue-8 --auto", ("alpha", "Issue-4")),
     ("unstuck", "beta", ("alpha", "Issue-4")),
     ("unstuck", "beta Issue-8", ("beta", "Issue-8")),
+    # Added from the 2026-11-07 laptop-dad census (analysis/2026-11-07-t4b-transcript-shape-run.txt).
+    ("pull", "gamma origin 7", ("gamma", "Issue-7")),      # a pull's project need not be known
+    ("pull", "beta", ("alpha", "Issue-4")),
+    ("next", "beta origin 7", ("alpha", "Issue-4")),
+    ("next", "beta 7 --auto", ("alpha", "Issue-4")),
+    ("where", "beta", ("alpha", "Issue-4")),
+    ("sync", "beta", ("alpha", "Issue-4")),
+    ("park", "beta Issue-8", ("beta", "Issue-8")),
+    ("park", "beta 8", ("alpha", "Issue-4")),             # a bare number is not ISSUE_TOKEN (deferred)
+    ("resume", "beta 8", ("alpha", "Issue-4")),
+    ("unstuck", "beta 8", ("alpha", "Issue-4")),
+    ("wbs", "update beta", ("alpha", "Issue-4")),         # a known project only as a later argument
+    ("ship", "", ("alpha", "Issue-4")),
 ]
 
 
