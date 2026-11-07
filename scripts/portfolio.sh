@@ -45,8 +45,7 @@ while (( $# > 0 )); do
       exit 0
       ;;
     --out)
-      (( $# >= 2 )) || usage_error "--out needs a path"
-      [[ -n "$2" ]] || usage_error "--out needs a path"
+      [[ -n "${2:-}" ]] || usage_error "--out needs a path"
       out="$2"
       shift 2
       ;;

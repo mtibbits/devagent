@@ -66,8 +66,8 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
-`NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726), and for
-the order pass
+`NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
+also reads `_dep_ids`), and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -395,12 +395,12 @@ def _parse_meta_walk(body: str) -> tuple[dict, list[tuple[str, str]]]:
         while i < n and body[i] not in ":":
             i += 1
         key = body[key_start:i].strip()
-        if i >= n or not key:
-            if i >= n:
-                problems.append((META_UNREADABLE, f"'{key}' has no ':' and is dropped"))
-            else:
-                problems.append(
-                    (META_UNREADABLE, "a ':' with no key; the rest of the block is dropped"))
+        if i >= n:
+            problems.append((META_UNREADABLE, f"'{key}' has no ':' and is dropped"))
+            break
+        if not key:
+            problems.append(
+                (META_UNREADABLE, "a ':' with no key; the rest of the block is dropped"))
             break
         if "," in key:
             problems.append(
@@ -481,10 +481,9 @@ def diagnose_text(text: str) -> dict:
                 problems.append((lineno, code, message))
         else:
             brace = rest.rfind("{")
-            if brace != -1 and "}" not in rest[brace:]:
-                problems.append((lineno, META_UNREADABLE, UNCLOSED_BRACE))
-            elif brace != -1:
-                problems.append((lineno, META_UNREADABLE, TRAILING_TEXT))
+            if brace != -1:
+                message = TRAILING_TEXT if "}" in rest[brace:] else UNCLOSED_BRACE
+                problems.append((lineno, META_UNREADABLE, message))
     return {"near_misses": near, "meta_problems": problems}
 
 

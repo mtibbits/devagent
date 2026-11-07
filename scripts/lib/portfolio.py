@@ -254,12 +254,12 @@ def rollup(nodes: list[dict]) -> dict:
             continue
         est = node["est"]
         bucket = _bucket(est)
-        for c in (by_state[node["state"]],) + (
-                (remaining,) if node["state"] not in NOT_REMAINING else ()):
-            c["leaves"] += 1
-            c[bucket] += 1
+        by_state[node["state"]]["leaves"] += 1
+        by_state[node["state"]][bucket] += 1
         if node["state"] in NOT_REMAINING:
             continue
+        remaining["leaves"] += 1
+        remaining[bucket] += 1
         if est["class"] == "time":
             low += _dec(est["low_hours"])
             high += _dec(est["high_hours"])
@@ -301,7 +301,7 @@ def _rollup_diffs(want, got, path: str) -> list[str]:
 
 def _node_violations(node: dict, project: str, add) -> None:
     nid, meta, est = node["id"], node["meta"], node["est"]
-    want_issue = meta.get("issue") if isinstance(meta.get("issue"), str) and meta.get("issue") else None
+    want_issue = node_issue(meta)[0]
     if node["issue"] != want_issue:
         add("I4", f"node {nid}: issue {node['issue']!r} != meta.issue {want_issue!r}")
     # I6
@@ -323,12 +323,14 @@ def _node_violations(node: dict, project: str, add) -> None:
             add("I6", f"node {nid}: non-time with hours set")
     elif (lo, hi, q, unit) != (None, None, None, None):
         add("I6", f"node {nid}: class {cls!r} with hours/quantity/unit set")
-    if est["src"] != est_src(meta)[0]:
-        add("I7", f"node {nid}: est.src {est['src']!r} != {est_src(meta)[0]!r}")
+    want_src = est_src(meta)[0]
+    if est["src"] != want_src:
+        add("I7", f"node {nid}: est.src {est['src']!r} != {want_src!r}")
     if node["satisfies"] != as_list(meta.get("satisfies")):
         add("I8", f"node {nid}: satisfies {node['satisfies']!r} != meta.satisfies as a list")
-    if node["h"] != read_h(meta)[0]:
-        add("I9", f"node {nid}: h {node['h']!r} != {read_h(meta)[0]!r}")
+    want_h = read_h(meta)[0]
+    if node["h"] != want_h:
+        add("I9", f"node {nid}: h {node['h']!r} != {want_h!r}")
     # I10 (D13: the non-empty-issue clause applies to a non-empty raw only)
     deps = node["depends_on"]
     if [d["raw"] for d in deps] != wbs_parser._dep_ids(meta):
@@ -604,8 +606,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
 
     nodes: list[dict] = []
     ids: dict[int, str] = {}
-    first_line: dict[str, int] = {}
-    carriers: dict[str, list[str]] = {}
+    carriers: dict[str, list[dict]] = {}
     for raw, parent in _preorder(tree):
         nid = next_id()
         ids[id(raw)] = nid
@@ -634,11 +635,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
             if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
                 report(ln, "issue_not_id",
                        f"issue '{issue}' is not an issue id; its issue dir is not read")
-            if issue in first_line:
+            if issue in carriers:
                 report(ln, "duplicate_issue",
-                       f"issue '{issue}' also appears at line {first_line[issue]}")
-            first_line.setdefault(issue, ln)
-            carriers.setdefault(issue, []).append(nid)
+                       f"issue '{issue}' also appears at line {carriers[issue][0]['source_line']}")
+            carriers.setdefault(issue, []).append(node)
         if est["class"] == "unparseable":
             report(ln, "est_unparseable",
                    f"est {_show(est['raw'])} is not a time, non-time or placeholder estimate")
@@ -651,7 +651,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
             if key not in PRODUCER_KEYS:
                 report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
 
-    issues = [_issue_entry(i, carriers[i], devdoc, report) for i in carriers]
+    issues = [_issue_entry(i, [n["id"] for n in carriers[i]], devdoc, report) for i in carriers]
     return {"project": name, "status": "read", "status_reason": None,
             "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
             "rollup": rollup(nodes)}
@@ -667,19 +667,19 @@ def _resolve_deps(projects: list[dict], report_for) -> None:
             for d in node["depends_on"]:
                 raw, target = d["raw"], d["project"]
                 if d["scope"] == "local":
-                    if d["issue"] not in carried[p["project"]]:
-                        report(node["source_line"], "dep_unresolved",
-                               f"depends_on '{raw}' matches no issue in this project")
+                    if d["issue"] in carried[p["project"]]:
+                        continue
+                    message = f"depends_on '{raw}' matches no issue in this project"
                 elif target not in by_name:
-                    report(node["source_line"], "dep_unresolved",
-                           f"depends_on '{raw}' names project '{target}', which is not configured")
+                    message = f"depends_on '{raw}' names project '{target}', which is not configured"
                 elif by_name[target]["status"] != "read":
-                    report(node["source_line"], "dep_unresolved",
-                           f"depends_on '{raw}' names project '{target}', whose WBS was not read "
-                           f"({by_name[target]['status']})")
+                    message = (f"depends_on '{raw}' names project '{target}', whose WBS was not "
+                               f"read ({by_name[target]['status']})")
                 elif d["issue"] not in carried[target]:
-                    report(node["source_line"], "dep_unresolved",
-                           f"depends_on '{raw}' matches no issue in project '{target}'")
+                    message = f"depends_on '{raw}' matches no issue in project '{target}'"
+                else:
+                    continue
+                report(node["source_line"], "dep_unresolved", message)
 
 
 def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
