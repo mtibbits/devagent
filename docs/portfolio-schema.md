@@ -382,7 +382,7 @@ they do not know. A project's status is not repeated in the report.
 | `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
 | `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
 | `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies` and `h` are consumed). |
-| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), or a `{` that never closes. |
+| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
 | `meta_duplicate_key` | node | A metadata key that appears twice; the last value is kept. |
 | `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
 | `parser_warning` | line or null | A warning the parser printed on stderr, at the line it names. |
