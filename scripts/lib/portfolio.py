@@ -17,10 +17,15 @@ is the contract; commands/portfolio.md is the user doc.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import math
+import os
 import re
 import sys
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -154,11 +159,20 @@ class StuckError(Exception):
     """A present STUCK file that cannot be read."""
 
 
+def _err_detail(e: Exception) -> str:
+    """`<ExceptionClass>: <detail>`, never naming a path (the document is shared)."""
+    if isinstance(e, UnicodeDecodeError):
+        return f"UnicodeDecodeError: {e.reason} at byte {e.start}"
+    if isinstance(e, OSError):
+        return f"{type(e).__name__}: {e.strerror or 'error'}"
+    return f"{type(e).__name__}: {e}"
+
+
 def _read_lines(path, error) -> list[str]:
     try:
         text = Path(path).read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        raise error(f"{path}: {type(e).__name__}: {e}") from e
+        raise error(_err_detail(e)) from e
     # Lines split on LF only, as bash `read` does; a CR stays on its line.
     return text.split("\n")
 
@@ -179,7 +193,7 @@ def checklist_next(path) -> tuple[str, int | None, str | None]:
             start = i
     rows = [m for m in (STEP_ROW_RE.match(line) for line in lines[start:]) if m]
     if not rows:
-        raise ChecklistError(f"{path}: no step rows in the active revision block")
+        raise ChecklistError("no step rows in the active revision block")
     for m in rows:
         if m.group(1) not in DONE_GLYPHS:
             num = m.group(2)
@@ -416,6 +430,244 @@ def invariant_violations(doc: dict) -> list[str]:
         if r["project"] not in known:
             add("I15", f"report entry names project {r['project']!r}, not in the document")
     return out
+
+
+# --- build the document --------------------------------------------------------
+
+@dataclass(frozen=True)
+class ProjectInput:
+    """One configured project, as config.sh resolves it (None: not configured)."""
+    name: str
+    devdoc: str | None
+    source: str | None = None
+    worktree: str | None = None
+
+
+SCHEMA_VERSION = "1.0"
+
+REASON_UNSET = "no devdoc dir is configured"
+REASON_EMPTY = "devdoc_dir is set but empty"
+REASON_ABSENT = "the devdoc dir does not exist"
+REASON_NO_WBS = "the devdoc dir has no WBS.md"
+REASON_NOT_FILE = "WBS.md is not a regular file"
+REASON_UNREADABLE = "WBS.md could not be read: {}"
+
+# The parse_report vocabulary (#725 leaves it open to #726), in report order.
+# docs/portfolio-schema.md "Report kinds (#726)" lists the same table.
+KINDS: tuple[str, ...] = (
+    "leaf_no_issue",
+    "issue_not_id",
+    "dep_unresolved",
+    "duplicate_issue",
+    "est_unparseable",
+    "est_src_invalid",
+    "h_malformed",
+    "issue_malformed",
+    "unknown_meta_key",
+    wbs_parser.META_UNREADABLE,
+    wbs_parser.META_DUPLICATE_KEY,
+    "near_miss_line",
+    "parser_warning",
+    "directive_warning",
+    "checklist_unreadable",
+    "stuck_unreadable",
+)
+_KIND_INDEX = {k: i for i, k in enumerate(KINDS)}
+_LINE_RE = re.compile(r"\bline ([0-9]+)\b")
+SCOPE_NEAR_MISS = ("line {}: not a scope line (want '<!-- " + wbs_parser.SCOPE_KEY
+                   + " <range> -->' on one line); ignored")
+
+
+def _show(v) -> str:
+    return json.dumps(v, ensure_ascii=False)
+
+
+def _empty_project(name: str, status: str, reason: str) -> dict:
+    return {"project": name, "status": status, "status_reason": reason,
+            "wbs_title": None, "nodes": [], "issues": [], "rollup": None}
+
+
+def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
+    """(status, reason, text): the project's WBS.md, or why it was not read."""
+    if devdoc is None:
+        return "no_devdoc_dir", REASON_UNSET, None
+    if devdoc == "":
+        return "no_devdoc_dir", REASON_EMPTY, None
+    root = Path(devdoc)
+    if not root.is_dir():
+        return "no_devdoc_dir", REASON_ABSENT, None
+    wbs = root / "WBS.md"
+    if not os.path.lexists(wbs):
+        return "no_wbs", REASON_NO_WBS, None
+    if not wbs.is_file():
+        return "unreadable", REASON_NOT_FILE, None
+    try:
+        # newline="" keeps CR bytes, as wbs_parser.parse_file reads.
+        with open(wbs, encoding="utf-8", newline="") as f:
+            return "read", None, f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        return "unreadable", REASON_UNREADABLE.format(_err_detail(e)), None
+
+
+def _preorder(tree: dict):
+    """(node, parent node or None), parents first, in source order."""
+    stack = [(n, None) for n in reversed(tree["children"])]
+    while stack:
+        node, parent = stack.pop()
+        yield node, parent
+        stack.extend((c, node) for c in reversed(node["children"]))
+
+
+def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
+    entry = {"issue": issue, "nodes": node_ids, "stuck": None, "checklist": "absent",
+             "next_step": None, "next_step_number": None}
+    issue_dir = devdoc / issue
+    # Only an id-shaped value names a dir, so nothing traverses out of devdoc.
+    if not (wbs_parser.ID_TOKEN_RE.fullmatch(issue) and issue_dir.is_dir()):
+        return entry
+    checklist = issue_dir / "checklist.md"
+    if os.path.lexists(checklist):
+        try:
+            state, number, name = checklist_next(checklist)
+        except ChecklistError as e:
+            report(None, "checklist_unreadable", f"{issue}/checklist.md could not be read: {e}")
+        else:
+            entry.update({"checklist": state, "next_step": name, "next_step_number": number})
+    stuck = issue_dir / "STUCK"
+    if os.path.lexists(stuck):
+        try:
+            entry["stuck"] = read_stuck(stuck)
+        except StuckError as e:
+            entry["stuck"] = {"step": None, "reason": None, "since": None}
+            report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {e}")
+    return entry
+
+
+def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> dict:
+    captured = io.StringIO()
+    with contextlib.redirect_stderr(captured):
+        tree = wbs_parser.parse_text(text)
+    for line in captured.getvalue().splitlines():
+        m = _LINE_RE.search(line)
+        report(int(m.group(1)) if m else None, "parser_warning", line)
+    for w in tree["exclusion_warnings"]:
+        report(wbs_parser.warning_line(w), "directive_warning", w)
+    for ln, value in tree["scopes"]:
+        if value is None:
+            report(ln, "directive_warning", SCOPE_NEAR_MISS.format(ln))
+    diag = wbs_parser.diagnose_text(text)
+    for ln, body in diag["near_misses"]:
+        report(ln, "near_miss_line", f"looks like a node but is not one: {body.strip()}")
+    for ln, code, message in diag["meta_problems"]:
+        report(ln, code, message)
+
+    nodes: list[dict] = []
+    ids: dict[int, str] = {}
+    first_line: dict[str, int] = {}
+    carriers: dict[str, list[str]] = {}
+    for raw, parent in _preorder(tree):
+        nid = next_id()
+        ids[id(raw)] = nid
+        meta, ln = raw["meta"], raw["source_line"]
+        issue, issue_bad = node_issue(meta)
+        src, src_bad = est_src(meta)
+        h, h_bad = read_h(meta)
+        est = classify_est(meta.get("est"))
+        est["src"] = src
+        leaf = not raw["children"]
+        node = {
+            "id": nid, "parent": None if parent is None else ids[id(parent)],
+            "depth": raw["depth"], "leaf": leaf, "text": raw["text"],
+            "state": raw["state"], "glyph": raw["glyph"], "source_line": ln,
+            "issue": issue, "meta": meta, "meta_unknown_keys": raw["meta_unknown_keys"],
+            "est": est, "satisfies": as_list(meta.get("satisfies")), "h": h,
+            "depends_on": node_deps(meta, name), "ready": None,
+        }
+        nodes.append(node)
+        if leaf and not issue_bad and issue is None:
+            report(ln, "leaf_no_issue", f"leaf '{raw['text']}' has no issue")
+        if issue_bad:
+            report(ln, "issue_malformed",
+                   f"issue {_show(meta['issue'])} is not a string; the node carries no issue")
+        if issue is not None:
+            if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
+                report(ln, "issue_not_id",
+                       f"issue '{issue}' is not an issue id; its issue dir is not read")
+            if issue in first_line:
+                report(ln, "duplicate_issue",
+                       f"issue '{issue}' also appears at line {first_line[issue]}")
+            first_line.setdefault(issue, ln)
+            carriers.setdefault(issue, []).append(nid)
+        if est["class"] == "unparseable":
+            report(ln, "est_unparseable",
+                   f"est {_show(est['raw'])} is not a time, non-time or placeholder estimate")
+        if src_bad:
+            report(ln, "est_src_invalid",
+                   f"est_src {_show(meta['est_src'])} is not confirmed or derived; est.src reads as null")
+        if h_bad:
+            report(ln, "h_malformed", f"h {_show(meta['h'])} is not one digit 0-4; h reads as null")
+        for key in raw["meta_unknown_keys"]:
+            if key not in PRODUCER_KEYS:
+                report(ln, "unknown_meta_key", f"unknown metadata key '{key}'")
+
+    issues = [_issue_entry(i, carriers[i], devdoc, report) for i in carriers]
+    return {"project": name, "status": "read", "status_reason": None,
+            "wbs_title": tree["title"], "nodes": nodes, "issues": issues,
+            "rollup": rollup(nodes)}
+
+
+def _resolve_deps(projects: list[dict], report_for) -> None:
+    """Report each depends_on entry that names no issue (resolved stays null, #727)."""
+    by_name = {p["project"]: p for p in projects}
+    carried = {p["project"]: {e["issue"] for e in p["issues"]} for p in projects}
+    for p in projects:
+        report = report_for(p["project"])
+        for node in p["nodes"]:
+            for d in node["depends_on"]:
+                raw, target = d["raw"], d["project"]
+                if d["scope"] == "local":
+                    if d["issue"] not in carried[p["project"]]:
+                        report(node["source_line"], "dep_unresolved",
+                               f"depends_on '{raw}' matches no issue in this project")
+                elif target not in by_name:
+                    report(node["source_line"], "dep_unresolved",
+                           f"depends_on '{raw}' names project '{target}', which is not configured")
+                elif by_name[target]["status"] != "read":
+                    report(node["source_line"], "dep_unresolved",
+                           f"depends_on '{raw}' names project '{target}', whose WBS was not read "
+                           f"({by_name[target]['status']})")
+                elif d["issue"] not in carried[target]:
+                    report(node["source_line"], "dep_unresolved",
+                           f"depends_on '{raw}' matches no issue in project '{target}'")
+
+
+def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
+    """The portfolio document over `projects`, in config order. Reads only."""
+    counter = iter(range(1, sys.maxsize))
+    next_id = lambda: f"n{next(counter)}"  # noqa: E731
+    entries: list[dict] = []
+
+    def report_for(project: str):
+        def report(line: int | None, kind: str, message: str) -> None:
+            entries.append({"project": project, "source_line": line, "kind": kind,
+                            "message": message})
+        return report
+
+    out: list[dict] = []
+    for p in projects:
+        status, reason, text = _read_wbs(p.devdoc)
+        if status != "read":
+            out.append(_empty_project(p.name, status, reason))
+            continue
+        out.append(_build_read_project(p.name, Path(p.devdoc), text, next_id,
+                                       report_for(p.name)))
+    _resolve_deps(out, report_for)
+    order = {p.name: i for i, p in enumerate(projects)}
+    entries.sort(key=lambda r: (order[r["project"]],
+                                -1 if r["source_line"] is None else r["source_line"],
+                                _KIND_INDEX[r["kind"]], r["message"]))
+    return {"schema": pc.PORTFOLIO_ID, "schema_version": SCHEMA_VERSION,
+            "generated_at": generated_at, "projects": out, "parse_report": entries}
 
 
 # --- CLI -----------------------------------------------------------------------

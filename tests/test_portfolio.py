@@ -1,8 +1,10 @@
 """Tests for the portfolio producer (#726): scripts/lib/portfolio.py."""
 import ast
 import copy
+import hashlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +56,12 @@ def test_portfolio_floor_runs_isolated():
 
 
 # --- per-node derivations ------------------------------------------------------
+
+def _line_of(text, marker):
+    hits = [n for n, line in enumerate(text.splitlines(), start=1) if marker in line]
+    assert len(hits) == 1, (marker, hits)
+    return hits[0]
+
 
 def _est(cls, low=None, high=None, quantity=None, unit=None):
     return {"class": cls, "low_hours": low, "high_hours": high,
@@ -507,3 +515,235 @@ def test_read_stuck_undecodable(tmp_path):
     p.write_bytes(b"Step: 9 implement\n\xff\n")
     with pytest.raises(pf.StuckError):
         pf.read_stuck(p)
+
+
+# --- build the document --------------------------------------------------------
+
+
+MULTI = FIXTURES / "multi"
+GENERATED_AT = "2026-11-06T00:00:00Z"
+CONFIG_ORDER = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota"]
+
+
+def _multi(tmp_path):
+    """The fixture devdocs in tmp, plus the binary/eol-unsafe parts generated."""
+    root = tmp_path / "multi"
+    shutil.copytree(MULTI, root)
+    (root / "epsilon").mkdir()
+    (root / "epsilon" / "WBS.md").write_bytes(b"# epsilon\n- [ ] bad \xff byte\n")
+    (root / "zeta" / "WBS.md").mkdir(parents=True)
+    (root / "alpha" / "Issue-5").mkdir()
+    (root / "alpha" / "Issue-5" / "STUCK").write_bytes(b"Step: 9 implement\n\xfe\xff\n")
+    devdoc = {"alpha": root / "alpha", "beta": root / "beta", "gamma": root / "gamma",
+              "delta": None, "epsilon": root / "epsilon", "zeta": root / "zeta",
+              "eta": root / "eta", "theta": root / "theta", "iota": ""}
+    projects = [pf.ProjectInput(name, None if devdoc[name] is None else str(devdoc[name]), None)
+                for name in CONFIG_ORDER]
+    return root, projects
+
+
+def _build(tmp_path):
+    root, projects = _multi(tmp_path)
+    return root, pf.build_document(projects, GENERATED_AT)
+
+
+def _wbs_text(project):
+    return (MULTI / project / "WBS.md").read_bytes().decode("utf-8")
+
+
+def _project(doc, name):
+    return next(p for p in doc["projects"] if p["project"] == name)
+
+
+def test_build_validates(tmp_path):
+    _, doc = _build(tmp_path)
+    assert pf.pc.check(doc) == []
+    assert pf.invariant_violations(doc) == []
+
+
+def test_build_statuses(tmp_path):
+    _, doc = _build(tmp_path)
+    got = [(p["project"], p["status"], p["status_reason"]) for p in doc["projects"]]
+    assert got[:4] == [
+        ("alpha", "read", None),
+        ("beta", "read", None),
+        ("gamma", "no_wbs", pf.REASON_NO_WBS),
+        ("delta", "no_devdoc_dir", pf.REASON_UNSET),
+    ]
+    assert got[4][:2] == ("epsilon", "unreadable")
+    assert got[4][2].startswith("WBS.md could not be read: UnicodeDecodeError: ")
+    assert got[5:] == [
+        ("zeta", "unreadable", pf.REASON_NOT_FILE),
+        ("eta", "no_devdoc_dir", pf.REASON_ABSENT),
+        ("theta", "read", None),
+        ("iota", "no_devdoc_dir", pf.REASON_EMPTY),
+    ]
+
+
+def test_reasons_pinned():
+    assert (pf.REASON_UNSET, pf.REASON_EMPTY, pf.REASON_ABSENT, pf.REASON_NO_WBS,
+            pf.REASON_NOT_FILE, pf.REASON_UNREADABLE) == (
+        "no devdoc dir is configured", "devdoc_dir is set but empty",
+        "the devdoc dir does not exist", "the devdoc dir has no WBS.md",
+        "WBS.md is not a regular file", "WBS.md could not be read: {}")
+
+
+# (project, marker or None, kind), in the report's documented order (D11).
+REPORT = [
+    ("alpha", None, "checklist_unreadable"),
+    ("alpha", None, "stuck_unreadable"),
+    ("alpha", "wbs-exclude", "directive_warning"),
+    ("alpha", "plant-dup3", "duplicate_issue"),
+    ("alpha", "plant-dup3", "h_malformed"),
+    ("alpha", "plant-noissue-est", "leaf_no_issue"),
+    ("alpha", "plant-noissue-est", "est_unparseable"),
+    ("alpha", "plant-outline", "leaf_no_issue"),
+    ("alpha", "plant-outline", "dep_unresolved"),
+    ("alpha", "plant-issue4", "dep_unresolved"),
+    ("alpha", "plant-issue4", "dep_unresolved"),
+    ("alpha", "plant-issue4", "dep_unresolved"),
+    ("alpha", "plant-est-src", "est_src_invalid"),
+    ("alpha", "plant-jira", "unknown_meta_key"),
+    ("alpha", "plant-merged", "unknown_meta_key"),
+    ("alpha", "plant-merged", "meta_unreadable"),
+    ("alpha", "plant-bracket", "dep_unresolved"),
+    ("alpha", "plant-bracket", "meta_unreadable"),
+    ("alpha", "plant-trailing", "meta_unreadable"),
+    ("alpha", "plant-dupkey", "meta_duplicate_key"),
+    ("alpha", "plant-swallowed", "issue_not_id"),
+    ("alpha", "plant-swallowed", "meta_unreadable"),
+    ("alpha", "plant-issue-list", "issue_malformed"),
+    ("alpha", "plant-not-id", "issue_not_id"),
+    ("alpha", "plant-near-x", "near_miss_line"),
+    ("alpha", "plant-near-star", "near_miss_line"),
+    ("beta", "plant-beta-fence", "parser_warning"),
+]
+
+
+def test_build_report_literal(tmp_path):
+    _, doc = _build(tmp_path)
+    want = [(p, None if m is None else _line_of(_wbs_text(p), m), k) for p, m, k in REPORT]
+    got = [(r["project"], r["source_line"], r["kind"]) for r in doc["parse_report"]]
+    assert got == want
+
+
+def test_kinds_all_planted(tmp_path):
+    _, doc = _build(tmp_path)
+    assert {r["kind"] for r in doc["parse_report"]} == set(pf.KINDS)
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 16
+
+
+def _walk_lines(tree):
+    out, stack = [], list(reversed(tree["children"]))
+    while stack:
+        n = stack.pop()
+        out.append(n["source_line"])
+        stack.extend(reversed(n["children"]))
+    return out
+
+
+def test_build_no_node_missing(tmp_path):
+    root, doc = _build(tmp_path)
+    counts = {}
+    for p in doc["projects"]:
+        if p["status"] != "read":
+            continue
+        tree = wbs_parser.parse_file(root / p["project"] / "WBS.md")
+        assert [n["source_line"] for n in p["nodes"]] == _walk_lines(tree)
+        counts[p["project"]] = len(p["nodes"])
+    assert counts == {"alpha": 18, "beta": 3, "theta": 0}
+
+
+def test_cross_project_same_issue(tmp_path):
+    _, doc = _build(tmp_path)
+    a = next(e for e in _project(doc, "alpha")["issues"] if e["issue"] == "Issue-1")
+    b = next(e for e in _project(doc, "beta")["issues"] if e["issue"] == "Issue-1")
+    assert (a["checklist"], b["checklist"]) == ("complete", "absent")
+    assert not any(r["kind"] == "duplicate_issue" and "Issue-1" in r["message"]
+                   for r in doc["parse_report"])
+
+
+def test_foreign_resolution(tmp_path):
+    _, doc = _build(tmp_path)
+    deps = [r for r in doc["parse_report"] if r["kind"] == "dep_unresolved"]
+    assert sorted(r["message"] for r in deps) == sorted([
+        "depends_on '4.1' matches no issue in this project",
+        "depends_on 'beta:Issue-99' matches no issue in project 'beta'",
+        "depends_on 'nosuch:Issue-1' names project 'nosuch', which is not configured",
+        "depends_on 'gamma:Issue-1' names project 'gamma', whose WBS was not read (no_wbs)",
+        "depends_on 'Issue-1, est: 1w' matches no issue in this project",
+    ])
+    all_deps = [d for p in doc["projects"] for n in p["nodes"] for d in n["depends_on"]]
+    assert {d["raw"] for d in all_deps} >= {"beta:Issue-1", "alpha:Issue-1", "alpha:Issue-2"}
+    assert all(d["resolved"] is None for d in all_deps)
+
+
+def test_producer_keys_not_reported_unknown(tmp_path):
+    _, doc = _build(tmp_path)
+    msgs = [r["message"] for r in doc["parse_report"] if r["kind"] == "unknown_meta_key"]
+    assert msgs == ["unknown metadata key 'jira'", "unknown metadata key 'foo, est'"]
+    issue2 = next(n for n in _project(doc, "alpha")["nodes"] if n["issue"] == "Issue-2")
+    assert set(issue2["meta_unknown_keys"]) >= pf.PRODUCER_KEYS
+
+
+def test_parser_stderr_captured(tmp_path, capsys):
+    _, doc = _build(tmp_path)
+    warn = [r for r in doc["parse_report"] if r["kind"] == "parser_warning"]
+    fence = _line_of(_wbs_text("beta"), "plant-beta-fence")
+    assert [(r["project"], r["source_line"]) for r in warn] == [("beta", fence)]
+    assert warn[0]["message"].startswith(f"wbs-parser: unclosed code fence at line {fence}")
+    assert capsys.readouterr().err == ""
+
+
+def test_issue_dir_fields(tmp_path):
+    _, doc = _build(tmp_path)
+    alpha = {e["issue"]: e for e in _project(doc, "alpha")["issues"]}
+    pick = lambda e: (e["checklist"], e["next_step_number"], e["next_step"], e["stuck"])  # noqa: E731
+    assert pick(alpha["Issue-1"]) == ("complete", None, None, None)
+    assert pick(alpha["Issue-2"]) == ("open", 5, "improve", {
+        "step": "16 redmr", "reason": "red-team found a blocker", "since": "2026-11-04 08:47"})
+    assert pick(alpha["Issue-3"]) == ("absent", None, None, None)
+    assert pick(alpha["Issue-4"]) == ("absent", None, None, None)
+    assert pick(alpha["Issue-5"]) == ("absent", None, None,
+                                      {"step": None, "reason": None, "since": None})
+    assert pick(alpha["GH-726!"]) == ("absent", None, None, None)
+    report = {r["kind"]: r["message"] for r in doc["parse_report"] if r["source_line"] is None}
+    assert report["checklist_unreadable"].startswith("Issue-4/checklist.md could not be read: ")
+    assert report["stuck_unreadable"].startswith("Issue-5/STUCK could not be read: ")
+    assert str(tmp_path) not in json.dumps(doc["parse_report"])
+    assert alpha["Issue-3"]["nodes"] == [n["id"] for n in _project(doc, "alpha")["nodes"]
+                                         if n["issue"] == "Issue-3"]
+
+
+def test_build_deterministic(tmp_path):
+    root, projects = _multi(tmp_path)
+    assert pf.build_document(projects, GENERATED_AT) == pf.build_document(projects, GENERATED_AT)
+
+
+def _tree_hashes(root):
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_build_writes_nothing_under_devdocs(tmp_path):
+    root, projects = _multi(tmp_path)
+    before = _tree_hashes(root)
+    assert before
+    pf.build_document(projects, GENERATED_AT)
+    assert _tree_hashes(root) == before
+    (root / "theta" / "WBS.md").write_bytes(b"# theta WBS changed\n")
+    assert _tree_hashes(root) != before
+
+
+def test_empty_wbs_rollup(tmp_path):
+    _, doc = _build(tmp_path)
+    theta = _project(doc, "theta")
+    assert (theta["status"], theta["wbs_title"], theta["nodes"], theta["issues"]) == (
+        "read", "theta WBS", [], [])
+    assert theta["rollup"] == pf.rollup([])
+
+
+def test_node_ids_config_then_source_order(tmp_path):
+    _, doc = _build(tmp_path)
+    ids = [n["id"] for p in doc["projects"] for n in p["nodes"]]
+    assert ids == [f"n{i}" for i in range(1, len(ids) + 1)]
