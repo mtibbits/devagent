@@ -23,7 +23,8 @@ numbers are not available or honest).
 
 ## Inputs
 
-- `$ISSUE_DIR`, `$NOTE`.
+- `$ISSUE_DIR`, `$NOTE`, and `<project>`: the project whose devdoc holds
+  `$ISSUE_DIR` (the one the `dispatch:` header names).
 - Reads:
   - `<issue-dir>/issue.md` (labels indicate the impact dimension to
     measure — `performance` → benchmarks; `bug` → reproducer fixed;

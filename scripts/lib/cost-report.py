@@ -109,13 +109,13 @@ def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
 def known_projects() -> set[str]:
     """The [project.<name>] tables of ${DA_HOME:-~/.claude/devagent}/config.toml (scripts/lib/paths.sh)."""
     path = Path(os.environ.get("DA_HOME") or Path.home() / ".claude" / "devagent") / "config.toml"
+    if not path.is_file():
+        return set()
     try:
         spec = importlib.util.spec_from_file_location("_devagent_toml", Path(__file__).with_name("_toml.py"))
         toml = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(toml)
         data = toml._load(path, retry=True)
-    except FileNotFoundError:
-        return set()
     except Exception as e:  # unreadable, invalid TOML, or no TOML parser on this Python
         print(f"cost-report: cannot read {path} ({e}); known projects come from dispatch headers only",
               file=sys.stderr)
@@ -207,6 +207,17 @@ def scan(records: Iterable[dict], stem: str) -> Tape:
     return tape
 
 
+def _skipped(path: Path, e: OSError):
+    print(f"cost-report: skipped {path} ({e})", file=sys.stderr)
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
 def scan_session(path: Path) -> Tape:
     """scan() one session file, then sum each of its subagent files (last usage per message id wins)."""
     tape = scan(load(path), path.stem)
@@ -216,10 +227,14 @@ def scan_session(path: Path) -> Tape:
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
-        for d in load(sub, SUB_MARKERS):
-            msg = d.get("message") or {}
-            if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and msg.get("usage"):
-                last[msg["id"]] = msg["usage"]
+        try:
+            for d in load(sub, SUB_MARKERS):
+                msg = d.get("message") or {}
+                if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and msg.get("usage"):
+                    last[msg["id"]] = msg["usage"]
+        except OSError as e:
+            _skipped(sub, e)
+            continue
         if last:
             tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
             tape.subs.append((tool_use_id, sum(map(call_cost, last.values()))))
@@ -231,7 +246,7 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
     if name in DRIVERS:
         return pair, step
     if name == "pull":
-        if len(args) == 3 and args[1] in ("origin", "fork") and args[2].isdigit():
+        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
             return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
         return pair, step                                 # any other shape, pull.sh rejects
     project, used = None, None
@@ -282,8 +297,13 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     Every session is scanned before any is replayed: a typed command names a
     known project if ANY scanned dispatch header names it, even in a later file.
     """
-    files = sorted((p for d in dirs for p in d.glob("*.jsonl")), key=os.path.getmtime)
-    tapes = [scan_session(p) for p in files]
+    # One unreadable file is skipped with a warning, not allowed to sink a report over every dir.
+    tapes = []
+    for p in sorted((p for d in dirs for p in d.glob("*.jsonl")), key=_mtime):
+        try:
+            tapes.append(scan_session(p))
+        except OSError as e:
+            _skipped(p, e)
     known = known_projects().union(*(t.dispatched for t in tapes))
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
@@ -309,13 +329,13 @@ def _m(x: float) -> str:
     return f"{x / 1e6:.2f}"
 
 
-def summary_line(label: str, steps: dict[str, Row], n_sessions: int) -> str:
+def summary_line(heading: str, steps: dict[str, Row], n_sessions: int) -> str:
     main = sum(r.main for r in steps.values())
     sub = sum(r.sub for r in steps.values())
     calls = sum(r.calls for r in steps.values())
     peak = max((r.peak for r in steps.values()), default=0)
     return (
-        f"{label}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
+        f"{heading}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
         f"{n_sessions} session(s), {calls} calls, peak context {peak // 1000}K "
         f"(main {main / 1e6:.1f}M, subagents {sub / 1e6:.1f}M)"
     )

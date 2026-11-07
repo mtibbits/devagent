@@ -382,6 +382,27 @@ def test_known_projects_come_from_config_or_dispatch_headers(tmp_path, capsys):
     rows, _ = cr.collect([d], None)
     assert _calls(rows, ("alpha", "Issue-4")) == 1
     assert (NP, "Issue-4") not in rows
+    # Leg 4: a malformed config warns once and falls back to dispatch headers.
+    Path(os.environ["DA_HOME"], "config.toml").write_text("[project.alpha\n", encoding="utf-8")
+    capsys.readouterr()
+    rows, _ = cr.collect([d], None)
+    assert _calls(rows, ("alpha", "Issue-4")) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("cost-report: cannot read ") and err.count("\n") == 1
+
+
+def test_unreadable_transcript_is_skipped_not_fatal(tmp_path):
+    """A *.jsonl that cannot be opened (here a directory) is skipped with a warning; the rest still report."""
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    _write(root / "X" / "A.jsonl", [*_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), _call("c1", _usage(inp=1))])
+    (root / "Y" / "broken.jsonl").mkdir(parents=True)
+    _write(root / "Y" / "B.jsonl", [_call("c2", _usage(inp=1))])
+    (root / "Y" / "B" / "subagents" / "bad.jsonl").mkdir(parents=True)
+    run = _cli("--project", "alpha", "--issue", "Issue-4", "--summary")
+    assert run.returncode == 0, run.stderr
+    assert _lines(run.stdout)[0].startswith("alpha/Issue-4: ")
+    skipped = [line for line in run.stderr.splitlines() if line.startswith("cost-report: skipped ")]
+    assert len(skipped) == 2 and any("broken.jsonl" in line for line in skipped)
 
 
 def test_pull_without_origin_or_fork_sets_nothing(tmp_path):

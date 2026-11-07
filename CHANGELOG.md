@@ -28,6 +28,8 @@ the README's "Versioning & releases" section has the release procedure.
     and keeps only `P`; `--all-dirs` reads every dir unfiltered; `--transcripts`
     still wins. With `--project P --issue N`, the `(no project)/N` line follows
     on stdout, or goes to stderr as a `hint:` (exit 1) when `P/N` has no calls.
+    A transcript file that cannot be read is skipped with a `cost-report:
+    skipped <path> (<error>)` warning on stderr; the rest still report.
   - Transcripts stream: memory no longer grows with file size (a 512 MB
     transcript peaks far under 200 MB), and the issue-number pre-filter is gone.
   - **Line shape change:** `Issue-N: …` becomes `<project>/Issue-N: …`, and
