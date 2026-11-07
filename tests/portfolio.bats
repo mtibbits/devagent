@@ -158,6 +158,15 @@ _hashes() {
     = "['alpha', 'beta', 'theta']" ]
 }
 
+@test "portfolio: an inherited PORTFOLIO_* var does not fill a manifest gap" {
+  # delta (index 3) has no devdoc_dir; a stale export must not give it beta's.
+  PORTFOLIO_DEVDOC_3="$D/beta" PORTFOLIO_PROJECT_COUNT=1 run bash "$PORTFOLIO"
+  [ "$status" -eq 0 ]
+  out="$DA_HOME/portfolio/portfolio.json"
+  [ "$(_q "$out" 'len(d["projects"])')" = "9" ]
+  [ "$(_q "$out" '[p["status"] for p in d["projects"] if p["project"] == "delta"]')"     = "['no_devdoc_dir']" ]
+}
+
 @test "portfolio: DEVAGENT_TEST_DEVDOC does not collapse projects" {
   run bash "$PORTFOLIO" --out "$T/plain.json"
   [ "$status" -eq 0 ]

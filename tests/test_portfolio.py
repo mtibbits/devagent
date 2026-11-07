@@ -970,7 +970,10 @@ def test_unstatable_issue_files_are_reported_not_absent(tmp_path, monkeypatch):
     assert "Issue-1/checklist.md could not be read: PermissionError: Permission denied" in msgs
     assert "Issue-2/ could not be read: PermissionError: Permission denied" in msgs
     alpha = {e["issue"]: e for e in _project(doc, "alpha")["issues"]}
-    assert alpha["Issue-1"]["checklist"] == "absent" and alpha["Issue-2"]["stuck"] is None
+    stuck = [r["message"] for r in doc["parse_report"] if r["kind"] == "stuck_unreadable"]
+    assert "Issue-2/ could not be read: PermissionError: Permission denied" in stuck
+    assert alpha["Issue-1"]["checklist"] == "absent"
+    assert alpha["Issue-2"]["stuck"] == {"step": None, "reason": None, "since": None}
     assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
 
 

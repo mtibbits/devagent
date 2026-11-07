@@ -560,7 +560,10 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
         return entry
     st = _probe(issue_dir)
     if isinstance(st, OSError):
+        # Neither file can be probed: both are unknown, not absent.
+        entry["stuck"] = dict.fromkeys(k for k, _ in STUCK_KEYS)
         report(None, "checklist_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
+        report(None, "stuck_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
         return entry
     if st is None or not stat.S_ISDIR(st.st_mode):
         return entry

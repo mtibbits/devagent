@@ -166,9 +166,9 @@ def test_bash_grant_is_the_canonical_pair(path):
 
 def test_canonical_pair_canary_is_not_vacuous():
     # The canary above returns early on grant-less files; prove the subject
-    # set is the full 69 Bash-grant carriers (55 commands + 3 user-invocable
-    # skills + the 10 call-bearing core-* skills, #584; #885 adds mergemr; #726 adds
-    # portfolio), so a glob/layout
+    # set is the full 69 Bash-grant carriers (56 commands, mergemr #885 and
+    # portfolio #726 included, + 3 user-invocable skills + the 10 call-bearing
+    # core-* skills, #584), so a glob/layout
     # change cannot silently empty it (#439). DELIBERATE EQUALITY PIN, not a
     # floor — update the count when adding/removing a grant carrier.
     n = 0

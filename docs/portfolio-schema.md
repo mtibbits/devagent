@@ -266,9 +266,9 @@ both "pending" and "remaining" views without guessing.
 ## Semantics
 
 **Project status.** `no_devdoc_dir`: the project has no devdoc dir configured,
-or the dir is absent. `no_wbs`: the dir exists but has no `WBS.md` file.
-`unreadable`: `WBS.md` is present but is not a readable regular file, or it
-failed to parse. `read`: parsed. `status_reason` is null exactly when `read`
+or the dir is absent or not a directory. `no_wbs`: the dir exists but has no
+`WBS.md` file. `unreadable`: the devdoc dir exists but could not be read, or
+`WBS.md` is present but is not a readable regular file, or it failed to parse. `read`: parsed. `status_reason` is null exactly when `read`
 and non-empty otherwise.
 
 **Duplicates.** An issue that appears on two nodes of one project has one
@@ -387,8 +387,8 @@ they do not know. A project's status is not repeated in the report.
 | `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
 | `parser_warning` | line or null | A warning the parser printed on stderr, at the line it names. |
 | `directive_warning` | line | A malformed `wbs-exclude` or `wbs-scope` directive line. |
-| `checklist_unreadable` | null | An issue dir's `checklist.md` is present but unreadable, or has no step rows in its active revision block (`checklist` reads `absent`). |
-| `stuck_unreadable` | null | An issue dir's `STUCK` is present but unreadable (`stuck` has all-null fields). |
+| `checklist_unreadable` | null | An issue dir, or its `checklist.md`, is present but unreadable, or `checklist.md` has no step rows in its active revision block (`checklist` reads `absent`). |
+| `stuck_unreadable` | null | An issue dir, or its `STUCK`, is present but unreadable (`stuck` has all-null fields). |
 <!-- report-kinds:end -->
 
 ## Deferred

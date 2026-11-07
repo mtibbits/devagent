@@ -64,6 +64,8 @@ while (( $# > 0 )); do
 done
 
 config_load
+# The manifest is this script's alone: an inherited PORTFOLIO_* var would fill a gap.
+unset "${!PORTFOLIO_@}"
 list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
 [[ -n "$out" ]] || out="$(devagent_home)/portfolio/portfolio.json"
 

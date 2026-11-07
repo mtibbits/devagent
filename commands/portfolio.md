@@ -21,7 +21,8 @@ nothing else: no `WBS.md`, no state, and no devdoc file.
 - **Each project's devdoc.** The project's own `devdoc_dir`. A project with no
   `devdoc_dir`, an empty one, or one that does not exist or is not a directory
   is reported with the status `no_devdoc_dir` and the run goes on; so does a
-  project with no `WBS.md` (`no_wbs`) or an unreadable one (`unreadable`).
+  project with no `WBS.md` (`no_wbs`), or with an unreadable devdoc dir or
+  `WBS.md` (`unreadable`).
 - **Each issue dir.** For an issue id on a node, `<devdoc>/<issue>/checklist.md`
   gives `checklist`, `next_step` and `next_step_number` (the rule `next.sh`
   uses), and `<devdoc>/<issue>/STUCK` gives `stuck`.
@@ -37,7 +38,8 @@ owner only (mode 0600); any directory the command creates is 0700. `--out PATH` 
 included. Keep it outside every devdoc: `cleanup` stages and pushes everything
 under a project's `devdoc_dir`. The command refuses an `--out` under any
 configured `devdoc_dir`, `source_dir` or `worktree_root` (both sides are
-canonicalised first).
+canonicalised first). The default worktree root, used when `worktree_root` is
+unset, is not checked yet; keep `--out` out of it too.
 
 Before writing, the command checks its own document. It runs the structural
 checker (`portfolio-check.py`) and the producer's cross-field invariants
