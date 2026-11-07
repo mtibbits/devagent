@@ -91,6 +91,11 @@ def _config(names):
     Path(os.environ["DA_HOME"], "config.toml").write_text(body, encoding="utf-8")
 
 
+def _cwd_slug():
+    """The cwd's transcript-dir name, built here for fixtures rather than taken from default_dirs under test."""
+    return re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
+
+
 def _cli(*args, cwd=None):
     return subprocess.run(
         [sys.executable, str(SCRIPT), *map(str, args)],
@@ -98,19 +103,14 @@ def _cli(*args, cwd=None):
     )
 
 
-def _pair(p, i):
-    return (p, i)
-
-
 def _calls(rows, key):
     return sum(r.calls for r in rows[key].values())
 
 
 def _per_issue(rows):
-    """{issue: (calls, main, sub)}, for either key shape: issue (846c19c) or (project, issue)."""
+    """{issue: (calls, main, sub)}, summed over projects."""
     out = {}
-    for k, steps in rows.items():
-        issue = k[1] if isinstance(k, tuple) else k
+    for (_, issue), steps in rows.items():
         c, m, s = out.get(issue, (0, 0.0, 0.0))
         out[issue] = (
             c + sum(r.calls for r in steps.values()),
@@ -137,8 +137,7 @@ def _session(tmp_path):
         _result("b2", "dispatch: devagent/Issue-42 — step 9 (implement), skill-backed"),
         _call("m7", _usage(w5=100, read=5000)),
     ])
-    _write(d / "s1" / "subagents" / "agent-x.jsonl", [_call("s1", _usage(out=10)), _call("s2", _usage(read=100))])
-    (d / "s1" / "subagents" / "agent-x.meta.json").write_text(json.dumps({"toolUseId": "a1"}), encoding="utf-8")
+    _subagent(d / "s1.jsonl", "agent-x", "a1", [_call("s1", _usage(out=10)), _call("s2", _usage(read=100))])
     return d
 
 
@@ -184,7 +183,7 @@ def test_issue_filter_skips_other_sessions(tmp_path):
 
 def test_summary_line_is_one_pasteable_line(tmp_path):
     rows, sessions = cr.collect([_session(tmp_path)], "Issue-42")
-    line = cr.report(rows, sessions, [tmp_path], summary=True)
+    line = cr.report(rows, sessions, str(tmp_path), summary=True)
     assert "\n" not in line
     assert line.startswith("devagent/Issue-42: 0.0M input-token equivalents over 1 session(s), 7 calls, peak context 5K")
 
@@ -254,10 +253,7 @@ def test_single_project_totals_match_846c19c(tmp_path):
 def _ac1_fixture(tmp_path):
     """Session A dispatches alpha/Issue-4; session B pulls beta 4 and launches one subagent."""
     d = tmp_path / "ac1"
-    _write(d / "A.jsonl", [
-        *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
-        _call("am1", _usage(inp=100)),
-    ], mtime=1_000_000)
+    _alpha_session(d)
     b = d / "B.jsonl"
     _write(b, [
         _typed("pull", "beta origin 4"),
@@ -418,8 +414,7 @@ def test_dispatch_call_is_charged_to_the_prior_pair(tmp_path):
         _call("m2", _usage(inp=2)),
     ])], None)
     assert _per_issue(rows) == {NI: (1, 1.0, 0.0), "Issue-4": (1, 2.0, 0.0)}
-    if all(isinstance(k, tuple) for k in rows):
-        assert set(rows) == {(NP, NI), ("alpha", "Issue-4")}
+    assert set(rows) == {(NP, NI), ("alpha", "Issue-4")}
 
 
 def test_pull_with_trailing_argument_sets_nothing(tmp_path):
@@ -589,7 +584,7 @@ def test_cli_project_without_issue_hides_unattributed_rows(tmp_path):
 
 def test_cli_project_scans_every_transcript_dir(tmp_path):
     root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
-    slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())   # fixture construction, not default_dirs under test
+    slug = _cwd_slug()
     for name, sess in ((slug, "A"), ("Y", "B")):
         _write(root / name / f"{sess}.jsonl", [
             *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
@@ -622,7 +617,7 @@ def test_cli_rejects_empty_project(tmp_path):
 def test_default_dirs_matches_the_cwd_slug_case_insensitively(tmp_path):
     """Preservation guard for the sibling lanes importer (inverse born-red)."""
     root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
-    slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
+    slug = _cwd_slug()
     (root / slug).mkdir(parents=True)
     result = cr.default_dirs()
     assert isinstance(result, list)

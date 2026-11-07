@@ -55,9 +55,13 @@ DRIVERS = {"next"}
 NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
 NO_STEP = "(no step)"
-# A line holding none of these cannot carry a call, a tool use or result, a
-# dispatch header or a typed command, so it is never parsed.
-MARKERS = ('"usage"', '"tool_use"', '"tool_result"', "dispatch: ", "<command-name>")
+START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
+# A line holding none of these cannot carry a call, a tool use, a dispatch
+# header or a typed command, so it is never parsed. A tool result matters only
+# when it holds a dispatch header, which "dispatch: " already matches.
+MARKERS = ('"usage"', '"tool_use"', "dispatch: ", "<command-name>")
+# A subagent file contributes only its calls.
+SUB_MARKERS = ('"usage"',)
 
 
 def call_cost(u: dict) -> float:
@@ -84,15 +88,15 @@ def context_size(u: dict) -> int:
     )
 
 
-def load(path: Path) -> Iterator[dict]:
+def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
     """Yield a transcript's records one at a time.
 
-    A line is parsed only if it holds one of MARKERS; a line that does not
+    A line is parsed only if it holds one of markers; a line that does not
     parse, or parses to anything but an object, is skipped.
     """
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            if not any(m in line for m in MARKERS):
+            if not any(m in line for m in markers):
                 continue
             try:
                 d = json.loads(line)
@@ -134,22 +138,27 @@ class Row:
     def __init__(self):
         self.calls, self.peak, self.main, self.sub = 0, 0, 0.0, 0.0
 
+    def add(self, calls: int, peak: int, main: float):
+        self.calls += calls
+        self.peak = max(self.peak, peak)
+        self.main += main
+
 
 class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
 
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
-            | ("launch", tool_use_id) | ["calls", n, peak, cost]
+            | ("launch", tool_use_id) | ("calls", Row)
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
     subs: [(toolUseId, cost)], one per subagent file with usage.
     """
     __slots__ = ("stem", "events", "dispatched", "subs")
 
-    def __init__(self, stem: str = ""):
+    def __init__(self, stem: str):
         self.stem, self.events, self.dispatched, self.subs = stem, [], set(), []
 
 
-def scan(records: Iterable[dict], stem: str = "") -> Tape:
+def scan(records: Iterable[dict], stem: str) -> Tape:
     """One forward pass over a session's records in file order; no record outlives its own turn."""
     tape = Tape(stem)
     ev = tape.events
@@ -192,14 +201,9 @@ def scan(records: Iterable[dict], stem: str = "") -> Tape:
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and usage and mid not in seen:
                 seen.add(mid)
-                size, cost = context_size(usage), call_cost(usage)
-                if ev and ev[-1][0] == "calls":
-                    bucket = ev[-1]
-                    bucket[1] += 1
-                    bucket[2] = max(bucket[2], size)
-                    bucket[3] += cost
-                else:
-                    ev.append(["calls", 1, size, cost])
+                if not (ev and ev[-1][0] == "calls"):
+                    ev.append(("calls", Row()))
+                ev[-1][1].add(1, context_size(usage), call_cost(usage))
     return tape
 
 
@@ -212,7 +216,7 @@ def scan_session(path: Path) -> Tape:
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
-        for d in load(sub):
+        for d in load(sub, SUB_MARKERS):
             msg = d.get("message") or {}
             if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and msg.get("usage"):
                 last[msg["id"]] = msg["usage"]
@@ -253,14 +257,14 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
 def replay(tape: Tape, known: set[str]):
     """Run the pair state machine over a tape.
 
-    Return ([(pair, step, calls, peak, cost)], {Agent tool_use id: (pair, step)}).
+    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}).
     """
-    pair, step = (NO_PROJECT, NO_ISSUE), NO_STEP
+    pair, step = START
     buckets, launches = [], {}
     for e in tape.events:
         kind = e[0]
         if kind == "calls":
-            buckets.append((pair, step, e[1], e[2], e[3]))
+            buckets.append((pair, step, e[1]))
         elif kind == "dispatch":
             pair, step = (e[1], e[2]), e[3]
         elif kind == "typed":
@@ -272,44 +276,29 @@ def replay(tape: Tape, known: set[str]):
     return buckets, launches
 
 
-def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None,
-            known: set[str] | None = None):
-    """Return ({(project, issue): {step: Row}}, {(project, issue): {session stem}}).
+def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None):
+    """Return ({(project, issue): {step: Row}}, {(project, issue): {session stem}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
     known project if ANY scanned dispatch header names it, even in a later file.
     """
     files = sorted((p for d in dirs for p in d.glob("*.jsonl")), key=os.path.getmtime)
     tapes = [scan_session(p) for p in files]
-    known = (known_projects() if known is None else set(known)).union(*(t.dispatched for t in tapes))
+    known = known_projects().union(*(t.dispatched for t in tapes))
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
     for tape in tapes:
         buckets, launches = replay(tape, known)
-        for pair, step, n, peak, cost in buckets:
-            r = rows[pair].setdefault(step, Row())
-            r.calls += n
-            r.peak = max(r.peak, peak)
-            r.main += cost
+        for pair, step, b in buckets:
+            rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
             sessions[pair].add(tape.stem)
         for tool_use_id, cost in tape.subs:
-            pair, step = launches.get(tool_use_id, ((NO_PROJECT, NO_ISSUE), NO_STEP))
+            pair, step = launches.get(tool_use_id, START)
             rows[pair].setdefault(step, Row()).sub += cost
-
-    def keep(pair):
-        project, issue = pair
-        if issue_filter and project_filter:
-            return issue == issue_filter and project in (project_filter, NO_PROJECT)
-        if issue_filter:
-            return issue == issue_filter
-        if project_filter:
-            return project == project_filter
-        return True
-
-    kept = [k for k in rows if keep(k)]
-    if issue_filter and project_filter:
-        kept.sort(key=lambda k: k[0] != project_filter)   # (P, N) first
-    return {k: rows[k] for k in kept}, sessions
+    return {
+        (p, i): v for (p, i), v in rows.items()
+        if (not issue_filter or i == issue_filter) and (not project_filter or p == project_filter)
+    }, sessions
 
 
 def label(pair: tuple) -> str:
@@ -332,10 +321,10 @@ def summary_line(label: str, steps: dict[str, Row], n_sessions: int) -> str:
     )
 
 
-def report(rows, sessions, dirs, summary: bool, source: str | None = None) -> str:
+def report(rows, sessions, source: str, summary: bool) -> str:
     out = []
     if not summary:
-        out.append(f"Token cost by step, from {source or ', '.join(map(str, dirs))}")
+        out.append(f"Token cost by step, from {source}")
         out.append(
             "input-token equivalents, weighted by price vs base input: cache read 0.1, "
             "cache write 1.25 (5m) / 2 (1h), output 5"
@@ -362,9 +351,8 @@ def transcripts_root() -> Path:
 
 def default_dirs() -> list[Path]:
     """The current directory's transcript dirs (the slug matched case-insensitively)."""
-    home = transcripts_root()
-    slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
-    return [p for p in home.glob("*") if p.is_dir() and p.name.lower() == slug.lower()]
+    slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()).lower()
+    return [p for p in all_dirs() if p.name.lower() == slug]
 
 
 def all_dirs() -> list[Path]:
@@ -391,22 +379,17 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
     a = ap.parse_args(argv)
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
-    source = None
-    if a.transcripts:
-        dirs = a.transcripts
-    elif a.project or a.all_dirs:
-        dirs = all_dirs()
-        if not dirs:
-            print(f"cost-report: no transcript dir under {transcripts_root()}", file=sys.stderr)
-            return 2
-        source = f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)"
-    else:
-        dirs = default_dirs()
+    every = (a.project or a.all_dirs) and not a.transcripts
+    dirs = a.transcripts or (all_dirs() if every else default_dirs())
     if not dirs or not all(d.is_dir() for d in dirs):
-        print("cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
+        where = f"under {transcripts_root()}" if every else "; pass --transcripts ~/.claude/projects/<slug>"
+        print(f"cost-report: no transcript dir {where}", file=sys.stderr)
         return 2
-    rows, sessions = collect(dirs, issue, a.project)
+    source = (f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)" if every
+              else ", ".join(map(str, dirs)))
     if a.project and issue:
+        # P/N first, then the (no project)/N calls that may be P's too.
+        rows, sessions = collect(dirs, issue)
         target, side = (a.project, issue), (NO_PROJECT, issue)
         if target not in rows:
             print(f"cost-report: no calls attributed to {label(target)}", file=sys.stderr)
@@ -414,11 +397,14 @@ def main(argv: list[str]) -> int:
                 hint = summary_line(label(side), rows[side], len(sessions.get(side, ())))
                 print(f"cost-report: hint: {hint}", file=sys.stderr)
             return 1
-    elif not rows:
-        what = f"project {a.project}" if a.project else issue or "any issue"
-        print(f"cost-report: no calls attributed to {what}", file=sys.stderr)
-        return 1
-    print(report(rows, sessions, dirs, a.summary, source))
+        rows = {k: rows[k] for k in (target, side) if k in rows}
+    else:
+        rows, sessions = collect(dirs, issue, a.project)
+        if not rows:
+            what = f"project {a.project}" if a.project else issue or "any issue"
+            print(f"cost-report: no calls attributed to {what}", file=sys.stderr)
+            return 1
+    print(report(rows, sessions, source, a.summary))
     return 0
 
 
