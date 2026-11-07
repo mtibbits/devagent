@@ -19,9 +19,9 @@ nothing else: no `WBS.md`, no state, and no devdoc file.
 - **Projects.** Every `[project.<name>]` table in `config.toml`, in file
   order, through `config_list_projects`. No directory glob is used.
 - **Each project's devdoc.** The project's own `devdoc_dir`. A project with no
-  `devdoc_dir`, an empty one, or one that does not exist is reported with the
-  status `no_devdoc_dir` and the run goes on; so does a project with no
-  `WBS.md` (`no_wbs`) or an unreadable one (`unreadable`).
+  `devdoc_dir`, an empty one, or one that does not exist or is not a directory
+  is reported with the status `no_devdoc_dir` and the run goes on; so does a
+  project with no `WBS.md` (`no_wbs`) or an unreadable one (`unreadable`).
 - **Each issue dir.** For an issue id on a node, `<devdoc>/<issue>/checklist.md`
   gives `checklist`, `next_step` and `next_step_number` (the rule `next.sh`
   uses), and `<devdoc>/<issue>/STUCK` gives `stuck`.
@@ -30,8 +30,8 @@ nothing else: no `WBS.md`, no state, and no devdoc file.
 
 By default the document is written to
 `~/.claude/devagent/portfolio/portfolio.json` (under `devagent_home`). It is
-written atomically, readable by its owner only (mode 0600), and any directory
-the command creates is 0700. `--out PATH` chooses another file.
+written atomically and, where the platform supports it, is readable by its
+owner only (mode 0600); any directory the command creates is 0700. `--out PATH` chooses another file.
 
 **Privacy.** The document names every configured project, private ones
 included. Keep it outside every devdoc: `cleanup` stages and pushes everything

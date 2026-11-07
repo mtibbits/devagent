@@ -4,6 +4,7 @@ Fixture for tests/test_portfolio.py and tests/portfolio.bats (#726). Every
 planted line carries a plant-<shape> marker; tests locate lines by marker.
 
 <!-- wbs-exclude: bad/token -->
+<!-- wbs-scope plant-scope -->
 
 - [ ] Portfolio view plant-parent {est: 10.5pr}
   - [x] Schema plant-issue1 {issue: Issue-1, est: 6h, est_src: confirmed}

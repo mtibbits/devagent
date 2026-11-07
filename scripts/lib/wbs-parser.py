@@ -450,8 +450,8 @@ def _parse_meta_walk(body: str) -> tuple[dict, list[tuple[str, str]]]:
             if ": " in out[key]:
                 problems.append((
                     META_UNREADABLE,
-                    f"'{key}' value holds ': '; a ',' is missing "
-                    "and the next pair was read as its value",
+                    f"'{key}' value holds ': '; a ',' may be missing "
+                    "and the next pair read as its value",
                 ))
     return out, problems
 

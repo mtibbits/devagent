@@ -583,10 +583,11 @@ def test_build_statuses(tmp_path):
 
 
 def test_reasons_pinned():
-    assert (pf.REASON_UNSET, pf.REASON_EMPTY, pf.REASON_ABSENT, pf.REASON_NO_WBS,
-            pf.REASON_NOT_FILE, pf.REASON_UNREADABLE) == (
+    assert (pf.REASON_UNSET, pf.REASON_EMPTY, pf.REASON_ABSENT, pf.REASON_NOT_DIR,
+            pf.REASON_NO_WBS, pf.REASON_NOT_FILE, pf.REASON_UNREADABLE) == (
         "no devdoc dir is configured", "devdoc_dir is set but empty",
-        "the devdoc dir does not exist", "the devdoc dir has no WBS.md",
+        "the devdoc dir does not exist", "the devdoc dir is not a directory",
+        "the devdoc dir has no WBS.md",
         "WBS.md is not a regular file", "WBS.md could not be read: {}")
 
 
@@ -595,6 +596,7 @@ REPORT = [
     ("alpha", None, "checklist_unreadable"),
     ("alpha", None, "stuck_unreadable"),
     ("alpha", "wbs-exclude", "directive_warning"),
+    ("alpha", "plant-scope", "directive_warning"),
     ("alpha", "plant-dup3", "duplicate_issue"),
     ("alpha", "plant-dup3", "h_malformed"),
     ("alpha", "plant-noissue-est", "leaf_no_issue"),
@@ -867,6 +869,32 @@ def test_write_document_removes_temp_on_failure(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         pf.write_document(b"x\n", out)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_write_document_missing_root_raises_not_loops(tmp_path, monkeypatch):
+    # An unmounted drive letter: Path("Z:/").parent is itself and never exists.
+    monkeypatch.setattr(pf.Path, "exists", lambda self: False)
+    with pytest.raises(FileNotFoundError):
+        pf.write_document(b"x\n", tmp_path / "a" / "p.json")
+
+
+def test_devdoc_that_is_a_file_is_not_a_directory(tmp_path):
+    f = tmp_path / "devdoc"
+    f.write_text("x")
+    assert pf._read_wbs(str(f)) == ("no_devdoc_dir", pf.REASON_NOT_DIR, None)
+
+
+def test_unknown_report_kind_sorts_last(tmp_path, monkeypatch):
+    real = pf.wbs_parser.diagnose_text
+    def extra(text):
+        d = real(text)
+        d["meta_problems"].append((1, "meta_future_code", "a future diagnosis"))
+        return d
+    monkeypatch.setattr(pf.wbs_parser, "diagnose_text", extra)
+    _, doc = _build(tmp_path)
+    at_one = [r["kind"] for r in doc["parse_report"]
+              if r["project"] == "alpha" and r["source_line"] == 1]
+    assert at_one[-1] == "meta_future_code"
 
 
 # --- docs ----------------------------------------------------------------------

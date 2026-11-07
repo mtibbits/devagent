@@ -18,6 +18,7 @@ is the contract; commands/portfolio.md is the user doc.
 from __future__ import annotations
 
 import contextlib
+import errno
 import importlib.util
 import io
 import json
@@ -453,6 +454,7 @@ SCHEMA_VERSION = "1.0"
 REASON_UNSET = "no devdoc dir is configured"
 REASON_EMPTY = "devdoc_dir is set but empty"
 REASON_ABSENT = "the devdoc dir does not exist"
+REASON_NOT_DIR = "the devdoc dir is not a directory"
 REASON_NO_WBS = "the devdoc dir has no WBS.md"
 REASON_NOT_FILE = "WBS.md is not a regular file"
 REASON_UNREADABLE = "WBS.md could not be read: {}"
@@ -517,8 +519,10 @@ def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     st = _probe(root)
     if isinstance(st, OSError):
         return "unreadable", REASON_DEVDOC_UNREADABLE.format(_err_detail(st)), None
-    if st is None or not stat.S_ISDIR(st.st_mode):
+    if st is None:
         return "no_devdoc_dir", REASON_ABSENT, None
+    if not stat.S_ISDIR(st.st_mode):
+        return "no_devdoc_dir", REASON_NOT_DIR, None
     wbs = root / "WBS.md"
     st = _probe(wbs, follow=False)
     if isinstance(st, OSError):
@@ -706,7 +710,7 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
     order = {p.name: i for i, p in enumerate(projects)}
     entries.sort(key=lambda r: (order[r["project"]],
                                 -1 if r["source_line"] is None else r["source_line"],
-                                _KIND_INDEX[r["kind"]], r["message"]))
+                                _KIND_INDEX.get(r["kind"], len(KINDS)), r["message"]))
     return {"schema": pc.PORTFOLIO_ID, "schema_version": SCHEMA_VERSION,
             "generated_at": generated_at, "projects": out, "parse_report": entries}
 
@@ -801,6 +805,9 @@ def write_document(data: bytes, out) -> None:
     missing = []
     parent = out.parent
     while not parent.exists():
+        if parent.parent == parent:
+            # A root that does not exist (an unmounted drive letter) is its own parent.
+            raise FileNotFoundError(errno.ENOENT, "no such root", str(parent))
         missing.append(parent)
         parent = parent.parent
     for d in reversed(missing):

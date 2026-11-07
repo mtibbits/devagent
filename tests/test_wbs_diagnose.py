@@ -98,7 +98,7 @@ META_ROWS = [
     ("duplicate-key", "{est: 1w, est: 2w}",
      "duplicate", "key 'est' appears more than once; the last value is kept"),
     ("swallowed-pair", "{issue: Issue-1 est: 1w}",
-     "unreadable", "'issue' value holds ': '; a ',' is missing and the next pair was read as its value"),
+     "unreadable", "'issue' value holds ': '; a ',' may be missing and the next pair read as its value"),
     ("unclosed-brace", "{issue: Issue-1, est: 1w",
      "unreadable", "'{' with no closing '}'; the text after it is item text, not metadata"),
 ]
@@ -189,6 +189,6 @@ def test_diagnose_fixture():
             (at("plant-unclosed-brace"), U,
              "'{' with no closing '}'; the text after it is item text, not metadata"),
             (at("plant-swallowed-pair"), U,
-             "'issue' value holds ': '; a ',' is missing and the next pair was read as its value"),
+             "'issue' value holds ': '; a ',' may be missing and the next pair read as its value"),
         ],
     }
