@@ -23,7 +23,8 @@ numbers are not available or honest).
 
 ## Inputs
 
-- `$ISSUE_DIR`, `$NOTE`.
+- `$ISSUE_DIR`, `$NOTE`, and `<project>`: the project whose devdoc holds
+  `$ISSUE_DIR` (the one the `dispatch:` header names).
 - Reads:
   - `<issue-dir>/issue.md` (labels indicate the impact dimension to
     measure — `performance` → benchmarks; `bug` → reproducer fixed;
@@ -63,15 +64,24 @@ numbers are not available or honest).
    the workflow can be judged against the bill:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cost-report.sh" --issue <Issue-N> --summary
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cost-report.sh" --project <project> --issue <Issue-N> --summary
    ```
 
-   Run it from the directory the issue's sessions ran in (it reads that
-   directory's Claude Code transcripts), and add its one line under
-   Quantifiable as `- Workflow cost: <line>`. It counts only sessions on
-   this machine; if the issue also ran elsewhere, say so. A nonzero exit
-   means nothing was measured: record `- Workflow cost: not measured
-   (<reason>)`.
+   It reads every Claude Code transcript directory on this machine, so run
+   it from any directory. Add its first line under Quantifiable as
+   `- Workflow cost: <line>`. When it prints a second line,
+   `(no project)/<Issue-N>: …`, also record that line as
+   `- Workflow cost (unattributed to a project, may include other projects' work): <line>`:
+   those calls named the issue but no project, so another project's
+   `<Issue-N>` may be in them. It counts only sessions on this machine; if
+   the issue also ran elsewhere, say so. If stderr has `cost-report: skipped`
+   lines, a transcript could not be read and the figure may be low: append
+   `(N transcript file(s) skipped; undercount)` to each recorded line and
+   quote the warnings. Exit 1 means no calls were
+   attributed to `<project>/<Issue-N>`: record `- Workflow cost: not
+   measured (<reason>)`, quoting the `cost-report: hint:` line from stderr
+   when there is one. Any other nonzero exit is also `not measured`, with
+   stderr as the reason.
 
 ## Output format
 
@@ -83,7 +93,7 @@ numbers are not available or honest).
   evidence: evidence-plot output at
   <issue-dir>/evidence/<date>-<host>.png
 - Build time: unchanged.
-- Workflow cost: Issue-NNNN: 12.4M input-token equivalents over 3 session(s),
+- Workflow cost: <project>/Issue-NNNN: 12.4M input-token equivalents over 3 session(s),
   214 calls, peak context 290K (main 8.1M, subagents 4.3M)
 
 ## Qualitative

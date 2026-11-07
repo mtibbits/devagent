@@ -23,7 +23,8 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
 2. Verify state file shows the issue is merged (mr_url present and
    mr-state is `merged`). If not, halt — measuring impact on
    un-merged code is meaningless.
-3. Invoke `core-impact` with `$ISSUE_DIR` and `$NOTE`.
+3. Invoke `core-impact` with `$ISSUE_DIR`, `$NOTE` and `project` (step 6's
+   `cost-report.sh --project <project>`).
 4. Skill writes impact.md and calls `scripts/checklist-log.sh`.
 
 ## Halt and ask if
