@@ -27,3 +27,12 @@ setup() {
   [ -s "$FIXT/actualWork.md" ]
   [ -s "$FIXT/checklist.md" ]
 }
+
+@test "core-impact step 6 runs cost-report with --project and --issue and records both line labels (#730)" {
+  cmd="$(awk '/^6\. \*\*Workflow cost\.\*\*/ { f = 1 } f && /cost-report\.sh/ { print; exit }' "$SKILL/SKILL.md")"
+  [ -n "$cmd" ]
+  printf '%s\n' "$cmd" | grep -qF -- '--project <project>'
+  printf '%s\n' "$cmd" | grep -qF -- '--issue <Issue-N>'
+  grep -qF -- '- Workflow cost: <line>' "$SKILL/SKILL.md"
+  grep -qF -- "- Workflow cost (unattributed to a project, may include other projects' work): <line>" "$SKILL/SKILL.md"
+}
