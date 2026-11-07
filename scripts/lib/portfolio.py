@@ -136,6 +136,71 @@ def node_deps(meta: dict, project: str) -> list[dict]:
     return [split_dep(raw, project) for raw in wbs_parser._dep_ids(meta)]
 
 
+# --- issue-directory readers ---------------------------------------------------
+
+# A checklist step row: _checklist_line_re (scripts/lib/checklist.sh) with the
+# name captured; twin of ROW_RE in scripts/lib/wbs-tracker.py, which drops the
+# name group (a test holds the two equal).
+STEP_ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+([A-Za-z][A-Za-z0-9_-]*)")
+REVISION_HEADING = "## Revision "
+DONE_GLYPHS = frozenset({"x", "-"})
+
+
+class ChecklistError(Exception):
+    """A present checklist.md that cannot be read, or has no step rows in scope."""
+
+
+class StuckError(Exception):
+    """A present STUCK file that cannot be read."""
+
+
+def _read_lines(path, error) -> list[str]:
+    try:
+        text = Path(path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise error(f"{path}: {type(e).__name__}: {e}") from e
+    # Lines split on LF only, as bash `read` does; a CR stays on its line.
+    return text.split("\n")
+
+
+def checklist_next(path) -> tuple[str, int | None, str | None]:
+    """("open", n, name) or ("complete", None, None), by next.sh's rule.
+
+    The port of checklist_current_step + checklist_step_name: scope is the
+    rows after the last `## Revision ` line (else the whole file); the first
+    row whose glyph is not x/- is the next step, and its name is the first
+    row in scope carrying that number. Raises ChecklistError on no rows in
+    scope or an unreadable file.
+    """
+    lines = _read_lines(path, ChecklistError)
+    start = 0
+    for i, line in enumerate(lines, start=1):
+        if line.startswith(REVISION_HEADING):
+            start = i
+    rows = [m for m in (STEP_ROW_RE.match(line) for line in lines[start:]) if m]
+    if not rows:
+        raise ChecklistError(f"{path}: no step rows in the active revision block")
+    for m in rows:
+        if m.group(1) not in DONE_GLYPHS:
+            num = m.group(2)
+            name = next(r.group(3) for r in rows if r.group(2) == num)
+            return "open", int(num), name
+    return "complete", None, None
+
+
+STUCK_KEYS = (("step", "Step:"), ("reason", "Reason:"), ("since", "Created:"))
+
+
+def read_stuck(path) -> dict:
+    """A STUCK file's Step:/Reason:/Created: values verbatim (first of each)."""
+    out: dict[str, str | None] = {k: None for k, _ in STUCK_KEYS}
+    for line in _read_lines(path, StuckError):
+        for key, prefix in STUCK_KEYS:
+            if out[key] is None and line.startswith(prefix):
+                out[key] = line[len(prefix):].strip()
+    return out
+
+
 # --- reference rollup ----------------------------------------------------------
 
 STATES: tuple[str, ...] = tuple(wbs_parser.STATE_GLYPHS.values())

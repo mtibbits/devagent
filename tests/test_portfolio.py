@@ -423,3 +423,87 @@ def test_checker_exit0_is_not_correctness():
     _bump(RU + ("by_state", "pending", "leaves"), 1)(d)
     assert pf.pc.check(d) == []
     assert pf.invariant_violations(d) != []
+
+
+# --- issue-directory readers ---------------------------------------------------
+
+CHECKLISTS = FIXTURES / "checklists"
+
+# The same subjects the bats differential checks against lib/checklist.sh
+# (checklist_current_step + checklist_step_name), pinned here as literals.
+CHECKLIST_CASES = [
+    ("legacy-open.md", ("open", 5, "improve")),
+    ("rev2-open.md", ("open", 5, "improve")),
+    ("all-done.md", ("complete", None, None)),
+    ("empty-active.md", "error"),
+    ("no-rows.md", "error"),
+    ("stuck-glyph.md", ("open", 9, "implement")),
+    ("parked.md", ("open", 4, "scope")),
+    ("blocked.md", ("open", 20, "mergemr")),
+]
+
+
+@pytest.mark.parametrize("name,want", CHECKLIST_CASES, ids=[c[0] for c in CHECKLIST_CASES])
+def test_checklist_next_cases(name, want):
+    path = CHECKLISTS / name
+    if want == "error":
+        with pytest.raises(pf.ChecklistError):
+            pf.checklist_next(path)
+    else:
+        assert pf.checklist_next(path) == want
+
+
+def test_checklist_next_crlf(tmp_path):
+    p = tmp_path / "checklist.md"
+    p.write_bytes((CHECKLISTS / "rev2-open.md").read_bytes().replace(b"\n", b"\r\n"))
+    assert pf.checklist_next(p) == ("open", 5, "improve")
+
+
+def test_checklist_next_undecodable(tmp_path):
+    p = tmp_path / "checklist.md"
+    p.write_bytes(b"- [ ]  2. draft\n\xff\xfe\n")
+    with pytest.raises(pf.ChecklistError):
+        pf.checklist_next(p)
+
+
+def test_step_row_re_twins_tracker():
+    # The name-less half must stay wbs-tracker.py's ROW_RE (checklist.sh:67).
+    tracker = _load("wbs_tracker_for_portfolio_tests", LIB / "wbs-tracker.py")
+    assert pf.STEP_ROW_RE.pattern.replace("([A-Za-z][A-Za-z0-9_-]*)", "[A-Za-z][A-Za-z0-9_-]*") \
+        == tracker.ROW_RE.pattern
+
+
+STUCK_SH = (
+    "Step:        9 implement\n"
+    "Reason:      waiting on the operator's call on the token key\n"
+    "Last good:   step 8 branch\n"
+    "Created:     2026-11-04 08:47\n"
+)
+CHECKLIST_STUCK_SH = (
+    "Step:        16 redmr\n"
+    "Reason:      red-team found a blocker\n"
+    "Last good:   (none)\n"
+    "Created:     2026-11-04T08:47:12-05:00\n"
+)
+
+
+def test_read_stuck_both_writers(tmp_path):
+    p = tmp_path / "STUCK"
+    p.write_text(STUCK_SH, encoding="utf-8", newline="")
+    assert pf.read_stuck(p) == {"step": "9 implement",
+                                "reason": "waiting on the operator's call on the token key",
+                                "since": "2026-11-04 08:47"}
+    p.write_bytes(CHECKLIST_STUCK_SH.replace("\n", "\r\n").encode("utf-8"))
+    assert pf.read_stuck(p) == {"step": "16 redmr", "reason": "red-team found a blocker",
+                                "since": "2026-11-04T08:47:12-05:00"}
+    p.write_text("Step:        9 implement\nCreated:     2026-11-04 08:47\n",
+                 encoding="utf-8", newline="")
+    assert pf.read_stuck(p) == {"step": "9 implement", "reason": None,
+                                "since": "2026-11-04 08:47"}
+
+
+def test_read_stuck_undecodable(tmp_path):
+    p = tmp_path / "STUCK"
+    p.write_bytes(b"Step: 9 implement\n\xff\n")
+    with pytest.raises(pf.StuckError):
+        pf.read_stuck(p)
