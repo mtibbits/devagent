@@ -405,6 +405,44 @@ def test_unreadable_transcript_is_skipped_not_fatal(tmp_path):
     assert len(skipped) == 2 and any("broken.jsonl" in line for line in skipped)
 
 
+def test_malformed_usage_or_input_is_skipped_not_fatal(tmp_path):
+    """A non-object usage or tool input is skipped like any bad record; the calls around it still count."""
+    bad_usage = _call("z1", _usage(inp=1))
+    bad_usage["message"]["usage"] = "oops"
+    bad_input = _call("z2", _usage(inp=1), {"type": "tool_use", "id": "t9", "name": "Bash", "input": ["x"]})
+    bad_input["message"]["usage"] = ["oops"]
+    d = _one(tmp_path, [
+        *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
+        _call("c1", _usage(inp=1)), bad_usage, bad_input, _call("c2", _usage(inp=1)),
+    ])
+    _subagent(d / "s.jsonl", "agent-x", "nobody", [bad_usage, _call("s1", _usage(inp=1))])
+    rows, _ = cr.collect([d], None)
+    assert _calls(rows, ("alpha", "Issue-4")) == 2
+    assert rows[(NP, NI)][cr.NO_STEP].sub == 1.0
+
+
+def test_known_project_shaped_like_an_issue_never_doubles_as_the_issue(tmp_path):
+    _config(["alpha", "beta", "ml-2"])
+    rows, _ = cr.collect([_one(tmp_path, [
+        *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
+        _call("c1", _usage(inp=1)),
+        _typed("impact", "ml-2 --project beta"),
+        _call("c2", _usage(inp=1)),
+    ])], None)
+    assert set(rows) == {("alpha", "Issue-4")}
+
+
+@pytest.mark.parametrize("args,message", [
+    ((), "cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>"),
+    (("--all-dirs",), "cost-report: no transcript dir under {root}"),
+])
+def test_cli_no_transcript_dir_messages(tmp_path, args, message):
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    run = _cli(*args)
+    assert run.returncode == 2
+    assert run.stderr.strip() == message.format(root=root)
+
+
 def test_pull_without_origin_or_fork_sets_nothing(tmp_path):
     rows, _ = cr.collect([_one(tmp_path, [
         *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),

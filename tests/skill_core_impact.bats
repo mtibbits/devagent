@@ -35,4 +35,5 @@ setup() {
   printf '%s\n' "$cmd" | grep -qF -- '--issue <Issue-N>'
   grep -qF -- '- Workflow cost: <line>' "$SKILL/SKILL.md"
   grep -qF -- "- Workflow cost (unattributed to a project, may include other projects' work): <line>" "$SKILL/SKILL.md"
+  grep -qF -- '(N transcript file(s) skipped; undercount)' "$SKILL/SKILL.md"
 }

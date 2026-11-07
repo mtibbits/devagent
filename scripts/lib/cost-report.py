@@ -116,7 +116,7 @@ def known_projects() -> set[str]:
         toml = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(toml)
         data = toml._load(path, retry=True)
-    except Exception as e:  # unreadable, invalid TOML, or no TOML parser on this Python
+    except (OSError, ValueError, ImportError) as e:  # unreadable, invalid TOML, or no TOML parser on this Python
         print(f"cost-report: cannot read {path} ({e}); known projects come from dispatch headers only",
               file=sys.stderr)
         return set()
@@ -187,7 +187,9 @@ def scan(records: Iterable[dict], stem: str) -> Tape:
             for b in msg.get("content") or []:
                 if not isinstance(b, dict) or b.get("type") != "tool_use":
                     continue
-                name, inp = b.get("name"), b.get("input") or {}
+                name, inp = b.get("name"), b.get("input")
+                if not isinstance(inp, dict):
+                    inp = {}
                 if name == "Bash" and "next.sh" in str(inp.get("command", "")):
                     next_calls.add(b.get("id"))
                 elif name == "Skill":
@@ -199,7 +201,7 @@ def scan(records: Iterable[dict], stem: str) -> Tape:
                 elif name in ("Agent", "Task"):
                     ev.append(("launch", b.get("id")))
             mid, usage = msg.get("id"), msg.get("usage")
-            if mid and usage and mid not in seen:
+            if mid and isinstance(usage, dict) and usage and mid not in seen:
                 seen.add(mid)
                 if not (ev and ev[-1][0] == "calls"):
                     ev.append(("calls", Row()))
@@ -230,7 +232,7 @@ def scan_session(path: Path) -> Tape:
         try:
             for d in load(sub, SUB_MARKERS):
                 msg = d.get("message") or {}
-                if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and msg.get("usage"):
+                if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and isinstance(msg.get("usage"), dict):
                     last[msg["id"]] = msg["usage"]
         except OSError as e:
             _skipped(sub, e)
@@ -258,7 +260,7 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
         project, used = args[0], 0
     issue = None
     for j, a in enumerate(args):
-        m = ISSUE_TOKEN.search(a) if j != used else None
+        m = ISSUE_TOKEN.search(a) if j != used and a not in known else None   # a project never doubles as the issue
         if m:
             issue = m.group(1)
     if issue is None:
@@ -402,8 +404,8 @@ def main(argv: list[str]) -> int:
     every = (a.project or a.all_dirs) and not a.transcripts
     dirs = a.transcripts or (all_dirs() if every else default_dirs())
     if not dirs or not all(d.is_dir() for d in dirs):
-        where = f"under {transcripts_root()}" if every else "; pass --transcripts ~/.claude/projects/<slug>"
-        print(f"cost-report: no transcript dir {where}", file=sys.stderr)
+        print(f"cost-report: no transcript dir under {transcripts_root()}" if every
+              else "cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
         return 2
     source = (f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)" if every
               else ", ".join(map(str, dirs)))

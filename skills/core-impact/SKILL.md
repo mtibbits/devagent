@@ -74,7 +74,10 @@ numbers are not available or honest).
    `- Workflow cost (unattributed to a project, may include other projects' work): <line>`:
    those calls named the issue but no project, so another project's
    `<Issue-N>` may be in them. It counts only sessions on this machine; if
-   the issue also ran elsewhere, say so. Exit 1 means no calls were
+   the issue also ran elsewhere, say so. If stderr has `cost-report: skipped`
+   lines, a transcript could not be read and the figure may be low: append
+   `(N transcript file(s) skipped; undercount)` to each recorded line and
+   quote the warnings. Exit 1 means no calls were
    attributed to `<project>/<Issue-N>`: record `- Workflow cost: not
    measured (<reason>)`, quoting the `cost-report: hint:` line from stderr
    when there is one. Any other nonzero exit is also `not measured`, with
