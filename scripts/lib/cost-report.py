@@ -322,10 +322,10 @@ def summary_line(label: str, steps: dict[str, Row], n_sessions: int) -> str:
     )
 
 
-def report(rows, sessions, dirs, summary: bool) -> str:
+def report(rows, sessions, dirs, summary: bool, source: str | None = None) -> str:
     out = []
     if not summary:
-        out.append(f"Token cost by step, from {', '.join(map(str, dirs))}")
+        out.append(f"Token cost by step, from {source or ', '.join(map(str, dirs))}")
         out.append(
             "input-token equivalents, weighted by price vs base input: cache read 0.1, "
             "cache write 1.25 (5m) / 2 (1h), output 5"
@@ -345,29 +345,70 @@ def report(rows, sessions, dirs, summary: bool) -> str:
     return "\n".join(out)
 
 
+def transcripts_root() -> Path:
+    """Where Claude Code keeps one transcript dir per working directory."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+
+
 def default_dirs() -> list[Path]:
-    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+    """The current directory's transcript dirs (the slug matched case-insensitively)."""
+    home = transcripts_root()
     slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
     return [p for p in home.glob("*") if p.is_dir() and p.name.lower() == slug.lower()]
+
+
+def all_dirs() -> list[Path]:
+    """Every transcript dir on this machine, sorted by name."""
+    return sorted((p for p in transcripts_root().glob("*") if p.is_dir()), key=lambda p: p.name)
+
+
+def _nonempty(value: str) -> str:
+    if not value:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return value
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--transcripts", action="append", type=Path,
-                    help="a Claude Code project transcript dir (repeatable); default: the one for the current directory")
+                    help="a Claude Code project transcript dir (repeatable); overrides --project and --all-dirs; "
+                         "default: the current directory's")
+    ap.add_argument("--project", type=_nonempty,
+                    help="report only this project (exact match); reads every transcript dir")
     ap.add_argument("--issue", help="report only this issue (Issue-N or N)")
-    ap.add_argument("--summary", action="store_true", help="one line per issue")
+    ap.add_argument("--all-dirs", action="store_true",
+                    help="read every transcript dir under <CLAUDE_CONFIG_DIR or ~/.claude>/projects")
+    ap.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
     a = ap.parse_args(argv)
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
-    dirs = a.transcripts or default_dirs()
+    source = None
+    if a.transcripts:
+        dirs = a.transcripts
+    elif a.project or a.all_dirs:
+        dirs = all_dirs()
+        if not dirs:
+            print(f"cost-report: no transcript dir under {transcripts_root()}", file=sys.stderr)
+            return 2
+        source = f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)"
+    else:
+        dirs = default_dirs()
     if not dirs or not all(d.is_dir() for d in dirs):
         print("cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
         return 2
-    rows, sessions = collect(dirs, issue)
-    if not rows:
-        print(f"cost-report: no calls attributed to {issue or 'any issue'}", file=sys.stderr)
+    rows, sessions = collect(dirs, issue, a.project)
+    if a.project and issue:
+        target, side = (a.project, issue), (NO_PROJECT, issue)
+        if target not in rows:
+            print(f"cost-report: no calls attributed to {label(target)}", file=sys.stderr)
+            if side in rows:
+                hint = summary_line(label(side), rows[side], len(sessions.get(side, ())))
+                print(f"cost-report: hint: {hint}", file=sys.stderr)
+            return 1
+    elif not rows:
+        what = f"project {a.project}" if a.project else issue or "any issue"
+        print(f"cost-report: no calls attributed to {what}", file=sys.stderr)
         return 1
-    print(report(rows, sessions, dirs, a.summary))
+    print(report(rows, sessions, dirs, a.summary, source))
     return 0
 
 
