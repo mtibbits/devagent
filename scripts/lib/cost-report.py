@@ -16,13 +16,14 @@ next.sh's phase breaks cut.
 from __future__ import annotations
 
 import argparse
-import glob
+import importlib.util
 import json
 import os
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Iterable, Iterator
 
 WEIGHTS = {
     "input": 1.0,
@@ -33,7 +34,7 @@ WEIGHTS = {
 }
 
 # The header next.sh prints before every step (see scripts/next.sh).
-DISPATCH = re.compile(r"dispatch: [\w.-]+/([\w.-]*\d) — step \d+ \(([\w-]+)\)")
+DISPATCH = re.compile(r"dispatch: ([\w.-]+)/([\w.-]*\d) — step \d+ \(([\w-]+)\)")
 COMMAND = re.compile(
     r"<command-name>/devagent:([\w-]+)</command-name>"
     r"(?:\s*<command-args>([^<]*)</command-args>)?"
@@ -41,8 +42,12 @@ COMMAND = re.compile(
 ISSUE_TOKEN = re.compile(r"(?:^|/)([A-Za-z]+-\d+)/?$")
 # Commands that drive steps rather than being one.
 DRIVERS = {"next"}
+NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
 NO_STEP = "(no step)"
+# A line holding none of these cannot carry a call, a tool use or result, a
+# dispatch header or a typed command, so it is never parsed.
+MARKERS = ('"usage"', '"tool_use"', '"tool_result"', "dispatch: ", "<command-name>")
 
 
 def call_cost(u: dict) -> float:
@@ -69,15 +74,40 @@ def context_size(u: dict) -> int:
     )
 
 
-def load(path: Path) -> list[dict]:
-    records = []
+def load(path: Path) -> Iterator[dict]:
+    """Yield a transcript's records one at a time.
+
+    A line is parsed only if it holds one of MARKERS; a line that does not
+    parse, or parses to anything but an object, is skipped.
+    """
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            try:
-                records.append(json.loads(line))
-            except ValueError:
+            if not any(m in line for m in MARKERS):
                 continue
-    return records
+            try:
+                d = json.loads(line)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(d, dict):
+                yield d
+
+
+def known_projects() -> set[str]:
+    """The [project.<name>] tables of ${DA_HOME:-~/.claude/devagent}/config.toml (scripts/lib/paths.sh)."""
+    path = Path(os.environ.get("DA_HOME") or Path.home() / ".claude" / "devagent") / "config.toml"
+    try:
+        spec = importlib.util.spec_from_file_location("_devagent_toml", Path(__file__).with_name("_toml.py"))
+        toml = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(toml)
+        data = toml._load(path, retry=True)
+    except FileNotFoundError:
+        return set()
+    except Exception as e:  # unreadable, invalid TOML, or no TOML parser on this Python
+        print(f"cost-report: cannot read {path} ({e}); known projects come from dispatch headers only",
+              file=sys.stderr)
+        return set()
+    tables = data.get("project")
+    return {k for k, v in tables.items() if isinstance(v, dict)} if isinstance(tables, dict) else set()
 
 
 def _text(content) -> str:
@@ -88,27 +118,37 @@ def _text(content) -> str:
     return ""
 
 
-def _command(match, issue: str, step: str) -> tuple[str, str]:
-    name, args = match.group(1), (match.group(2) or "").split()
-    if name in DRIVERS:
-        return issue, step
-    if name == "pull" and args and args[-1].isdigit():
-        return f"Issue-{args[-1]}", name       # the Issue- dir_prefix default
-    for a in args:
-        m = ISSUE_TOKEN.search(a)
-        if m:
-            issue = m.group(1)
-    return issue, name
+class Row:
+    __slots__ = ("calls", "peak", "main", "sub")
+
+    def __init__(self):
+        self.calls, self.peak, self.main, self.sub = 0, 0, 0.0, 0.0
 
 
-def attribute(records: list[dict]):
-    """Return ([(issue, step, usage)] per API call, {Agent tool_use id: (issue, step)})."""
-    issue, step = NO_ISSUE, NO_STEP
+class Tape:
+    """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
+
+    events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
+            | ("launch", tool_use_id) | ["calls", n, peak, cost]
+    dispatched: every project a next.sh dispatch header named (all hits, not only the last).
+    subs: [(toolUseId, cost)], one per subagent file with usage.
+    """
+    __slots__ = ("stem", "events", "dispatched", "subs")
+
+    def __init__(self, stem: str = ""):
+        self.stem, self.events, self.dispatched, self.subs = stem, [], set(), []
+
+
+def scan(records: Iterable[dict], stem: str = "") -> Tape:
+    """One forward pass over a session's records in file order; no record outlives its own turn."""
+    tape = Tape(stem)
+    ev = tape.events
     next_calls: set[str] = set()
     seen: set[str] = set()
-    calls, launches = [], {}
     for d in records:
         kind, msg = d.get("type"), d.get("message") or {}
+        if not isinstance(msg, dict):
+            continue
         if kind == "user":
             content = msg.get("content")
             blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
@@ -118,11 +158,12 @@ def attribute(records: list[dict]):
                 if b.get("type") == "text":
                     m = COMMAND.search(b.get("text", ""))
                     if m:
-                        issue, step = _command(m, issue, step)
+                        ev.append(("typed", m.group(1), tuple((m.group(2) or "").split())))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in next_calls:
                     hits = DISPATCH.findall(_text(b.get("content")))
                     if hits:
-                        issue, step = hits[-1]
+                        tape.dispatched.update(h[0] for h in hits)
+                        ev.append(("dispatch", *hits[-1]))
         elif kind == "assistant":
             for b in msg.get("content") or []:
                 if not isinstance(b, dict) or b.get("type") != "tool_use":
@@ -135,70 +176,147 @@ def attribute(records: list[dict]):
                     if s.startswith("devagent:"):
                         n = s.split(":", 1)[1]
                         if n not in DRIVERS and not n.startswith("core-"):
-                            step = n
+                            ev.append(("skill", n))
                 elif name in ("Agent", "Task"):
-                    launches[b.get("id")] = (issue, step)
+                    ev.append(("launch", b.get("id")))
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and usage and mid not in seen:
                 seen.add(mid)
-                calls.append((issue, step, usage))
-    return calls, launches
+                size, cost = context_size(usage), call_cost(usage)
+                if ev and ev[-1][0] == "calls":
+                    bucket = ev[-1]
+                    bucket[1] += 1
+                    bucket[2] = max(bucket[2], size)
+                    bucket[3] += cost
+                else:
+                    ev.append(["calls", 1, size, cost])
+    return tape
 
 
-class Row:
-    __slots__ = ("calls", "peak", "main", "sub")
+def scan_session(path: Path) -> Tape:
+    """scan() one session file, then sum each of its subagent files (last usage per message id wins)."""
+    tape = scan(load(path), path.stem)
+    for sub in sorted(path.with_suffix("").glob("subagents/*.jsonl")):
+        try:
+            meta = json.loads(sub.with_suffix(".meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, RecursionError):
+            meta = {}
+        last: dict[str, dict] = {}
+        for d in load(sub):
+            msg = d.get("message") or {}
+            if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and msg.get("usage"):
+                last[msg["id"]] = msg["usage"]
+        if last:
+            tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
+            tape.subs.append((tool_use_id, sum(map(call_cost, last.values()))))
+    return tape
 
-    def __init__(self):
-        self.calls, self.peak, self.main, self.sub = 0, 0, 0.0, 0.0
+
+def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
+    """The (pair, step) after a typed /devagent:<name> <args>."""
+    if name in DRIVERS:
+        return pair, step
+    if name == "pull":
+        if len(args) == 3 and args[1] in ("origin", "fork") and args[2].isdigit():
+            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
+        return pair, step                                 # any other shape, pull.sh rejects
+    project, used = None, None
+    if "--project" in args:
+        j = args.index("--project") + 1
+        if j < len(args) and args[j] in known:
+            project, used = args[j], j
+    if project is None and args and args[0] in known:
+        project, used = args[0], 0
+    issue = None
+    for j, a in enumerate(args):
+        m = ISSUE_TOKEN.search(a) if j != used else None
+        if m:
+            issue = m.group(1)
+    if issue is None:
+        return pair, name
+    if project is not None:
+        return (project, issue), name
+    # An issue with no project keeps the pair only when it is the same issue.
+    return (pair if issue == pair[1] else (NO_PROJECT, issue)), name
 
 
-def collect(dirs: list[Path], issue_filter: str | None):
-    rows: dict[str, dict[str, Row]] = defaultdict(dict)
-    sessions: dict[str, set[str]] = defaultdict(set)
+def replay(tape: Tape, known: set[str]):
+    """Run the pair state machine over a tape.
+
+    Return ([(pair, step, calls, peak, cost)], {Agent tool_use id: (pair, step)}).
+    """
+    pair, step = (NO_PROJECT, NO_ISSUE), NO_STEP
+    buckets, launches = [], {}
+    for e in tape.events:
+        kind = e[0]
+        if kind == "calls":
+            buckets.append((pair, step, e[1], e[2], e[3]))
+        elif kind == "dispatch":
+            pair, step = (e[1], e[2]), e[3]
+        elif kind == "typed":
+            pair, step = _typed_pair(e[1], e[2], pair, step, known)
+        elif kind == "skill":
+            step = e[1]
+        elif kind == "launch":
+            launches[e[1]] = (pair, step)
+    return buckets, launches
+
+
+def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None,
+            known: set[str] | None = None):
+    """Return ({(project, issue): {step: Row}}, {(project, issue): {session stem}}).
+
+    Every session is scanned before any is replayed: a typed command names a
+    known project if ANY scanned dispatch header names it, even in a later file.
+    """
     files = sorted((p for d in dirs for p in d.glob("*.jsonl")), key=os.path.getmtime)
-    # A cheap pre-filter on the issue NUMBER: a session begun with
-    # `/devagent:pull <project> origin 7` never spells "Issue-7".
-    key = re.sub(r"^.*?(\d+)$", r"\1", issue_filter) if issue_filter else None
-    for path in files:
-        if key and key not in path.read_text(encoding="utf-8", errors="replace"):
-            continue
-        calls, launches = attribute(load(path))
-        for issue, step, u in calls:
-            r = rows[issue].setdefault(step, Row())
-            r.calls += 1
-            r.peak = max(r.peak, context_size(u))
-            r.main += call_cost(u)
-            sessions[issue].add(path.stem)
-        for sub in sorted(path.with_suffix("").glob("subagents/*.jsonl")):
-            meta_path = sub.with_suffix(".meta.json")
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                meta = {}
-            issue, step = launches.get(meta.get("toolUseId"), (NO_ISSUE, NO_STEP))
-            seen: dict[str, dict] = {}
-            for d in load(sub):
-                msg = d.get("message") or {}
-                if d.get("type") == "assistant" and msg.get("id") and msg.get("usage"):
-                    seen[msg["id"]] = msg["usage"]
-            if seen:
-                rows[issue].setdefault(step, Row()).sub += sum(map(call_cost, seen.values()))
-    if issue_filter:
-        rows = {k: v for k, v in rows.items() if k == issue_filter}
-    return rows, sessions
+    tapes = [scan_session(p) for p in files]
+    known = (known_projects() if known is None else set(known)).union(*(t.dispatched for t in tapes))
+    rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
+    sessions: dict[tuple, set[str]] = defaultdict(set)
+    for tape in tapes:
+        buckets, launches = replay(tape, known)
+        for pair, step, n, peak, cost in buckets:
+            r = rows[pair].setdefault(step, Row())
+            r.calls += n
+            r.peak = max(r.peak, peak)
+            r.main += cost
+            sessions[pair].add(tape.stem)
+        for tool_use_id, cost in tape.subs:
+            pair, step = launches.get(tool_use_id, ((NO_PROJECT, NO_ISSUE), NO_STEP))
+            rows[pair].setdefault(step, Row()).sub += cost
+
+    def keep(pair):
+        project, issue = pair
+        if issue_filter and project_filter:
+            return issue == issue_filter and project in (project_filter, NO_PROJECT)
+        if issue_filter:
+            return issue == issue_filter
+        if project_filter:
+            return project == project_filter
+        return True
+
+    kept = [k for k in rows if keep(k)]
+    if issue_filter and project_filter:
+        kept.sort(key=lambda k: k[0] != project_filter)   # (P, N) first
+    return {k: rows[k] for k in kept}, sessions
+
+
+def label(pair: tuple) -> str:
+    return f"{pair[0]}/{pair[1]}"
 
 
 def _m(x: float) -> str:
     return f"{x / 1e6:.2f}"
 
 
-def summary_line(issue: str, steps: dict[str, Row], n_sessions: int) -> str:
+def summary_line(label: str, steps: dict[str, Row], n_sessions: int) -> str:
     main = sum(r.main for r in steps.values())
     sub = sum(r.sub for r in steps.values())
     calls = sum(r.calls for r in steps.values())
     peak = max((r.peak for r in steps.values()), default=0)
     return (
-        f"{issue}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
+        f"{label}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
         f"{n_sessions} session(s), {calls} calls, peak context {peak // 1000}K "
         f"(main {main / 1e6:.1f}M, subagents {sub / 1e6:.1f}M)"
     )
@@ -212,8 +330,8 @@ def report(rows, sessions, dirs, summary: bool) -> str:
             "input-token equivalents, weighted by price vs base input: cache read 0.1, "
             "cache write 1.25 (5m) / 2 (1h), output 5"
         )
-    for issue, steps in rows.items():
-        line = summary_line(issue, steps, len(sessions.get(issue, ())))
+    for pair, steps in rows.items():
+        line = summary_line(label(pair), steps, len(sessions.get(pair, ())))
         if summary:
             out.append(line)
             continue
