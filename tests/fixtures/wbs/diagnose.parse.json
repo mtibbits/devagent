@@ -1,0 +1,194 @@
+{
+  "title": "diagnose fixture",
+  "children": [
+    {
+      "text": "Root plant-root",
+      "state": "pending",
+      "glyph": " ",
+      "depth": 1,
+      "meta": {
+        "issue": "Issue-1",
+        "est": "1w",
+        "depends_on": "Issue-9"
+      },
+      "meta_unknown_keys": [],
+      "children": [
+        {
+          "text": "plant-trailing-key",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 8
+        },
+        {
+          "text": "plant-merged-key",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-3",
+            "foo, est": "1w"
+          },
+          "meta_unknown_keys": [
+            "foo, est"
+          ],
+          "children": [],
+          "source_line": 9
+        },
+        {
+          "text": "plant-unmatched-bracket",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "depends_on": "Issue-1, est: 1w"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 10
+        },
+        {
+          "text": "plant-unterminated-quote",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-4",
+            "owner": "bob, est: 1w"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 11
+        },
+        {
+          "text": "plant-empty-key",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-5"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 12
+        },
+        {
+          "text": "plant-duplicate-key",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-6",
+            "est": "2w"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 13
+        },
+        {
+          "text": "plant-unclosed-brace {issue: Issue-7, est: 1w",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 14
+        },
+        {
+          "text": "plant-swallowed-pair",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-8 est: 1w"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 15
+        },
+        {
+          "text": "plant-dep-no-issue",
+          "state": "done",
+          "glyph": "x",
+          "depth": 2,
+          "meta": {
+            "depends_on": [
+              "Issue-1",
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 16
+        },
+        {
+          "text": "plant-clean",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-10",
+            "est": "1w"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 17
+        },
+        {
+          "text": "plant-padded",
+          "state": "pending",
+          "glyph": " ",
+          "depth": 2,
+          "meta": {
+            "issue": "Issue-13",
+            "est": "3h",
+            "depends_on": [
+              "Issue-1",
+              "Issue-2"
+            ],
+            "owner": "ann",
+            "milestone": "M1"
+          },
+          "meta_unknown_keys": [],
+          "children": [],
+          "source_line": 18
+        }
+      ],
+      "source_line": 7
+    },
+    {
+      "text": "plant-comment-node",
+      "state": "pending",
+      "glyph": " ",
+      "depth": 1,
+      "meta": {
+        "issue": "Issue-11"
+      },
+      "meta_unknown_keys": [],
+      "children": [],
+      "source_line": 33
+    },
+    {
+      "text": "plant-after-unclosed",
+      "state": "pending",
+      "glyph": " ",
+      "depth": 1,
+      "meta": {
+        "issue": "Issue-12"
+      },
+      "meta_unknown_keys": [],
+      "children": [],
+      "source_line": 37
+    }
+  ],
+  "source_text": "# diagnose fixture\n\nCharacterization input for tests/test_wbs_diagnose.py (#726). Each planted\nline carries a plant-<shape> marker; tests locate lines by marker, never by\nnumber. The goldens beside this file are CLI output at the base commit.\n\n- [ ] Root plant-root {issue: Issue-1, est: 1w, depends_on: Issue-9}\n  - [ ] plant-trailing-key {issue: Issue-2, trailing}\n  - [ ] plant-merged-key {issue: Issue-3, foo, est: 1w}\n  - [ ] plant-unmatched-bracket {depends_on: [Issue-1, est: 1w }\n  - [ ] plant-unterminated-quote {issue: Issue-4, owner: \"bob, est: 1w}\n  - [ ] plant-empty-key {issue: Issue-5, : 1w, est: 2h}\n  - [ ] plant-duplicate-key {issue: Issue-6, est: 1w, est: 2w}\n  - [ ] plant-unclosed-brace {issue: Issue-7, est: 1w\n  - [ ] plant-swallowed-pair {issue: Issue-8 est: 1w}\n  - [x] plant-dep-no-issue {depends_on: [Issue-1, Issue-2]}\n  - [ ] plant-clean {issue: Issue-10, est: 1w}\n  - [ ] plant-padded {issue: Issue-13 , est:  3h , depends_on: [ Issue-1 , , 'Issue-2', ], owner: 'ann', milestone: M1 }\n\n- [X] plant-near-upper-x\n* [ ] plant-near-star\n+ [x] plant-near-plus\n- [ ]\n-[ ] a plant-near-nospace\n\n- plain plant-control-plain\n\n```text\n- [X] plant-control-fenced\n```\n\n<!--\n- [ ] plant-comment-node {issue: Issue-11}\n-->\n\n```text\n- [ ] plant-after-unclosed {issue: Issue-12}\n",
+  "exclusions": [],
+  "exclusion_warnings": [],
+  "scopes": []
+}
