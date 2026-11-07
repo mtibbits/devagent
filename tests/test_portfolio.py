@@ -4,6 +4,8 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -747,3 +749,121 @@ def test_node_ids_config_then_source_order(tmp_path):
     _, doc = _build(tmp_path)
     ids = [n["id"] for p in doc["projects"] for n in p["nodes"]]
     assert ids == [f"n{i}" for i in range(1, len(ids) + 1)]
+
+
+# --- write path and CLI --------------------------------------------------------
+
+def _manifest(monkeypatch, projects):
+    for k in [k for k in os.environ if k.startswith("PORTFOLIO_")]:
+        monkeypatch.delenv(k)
+    monkeypatch.setenv("PORTFOLIO_PROJECT_COUNT", str(len(projects)))
+    for i, (name, devdoc) in enumerate(projects):
+        monkeypatch.setenv(f"PORTFOLIO_NAME_{i}", name)
+        if devdoc is not None:
+            monkeypatch.setenv(f"PORTFOLIO_DEVDOC_{i}", devdoc)
+
+
+def test_manifest_from_env(monkeypatch):
+    _manifest(monkeypatch, [("alpha", "/d/a"), ("delta", None), ("iota", "")])
+    monkeypatch.setenv("PORTFOLIO_SOURCE_0", "/s/a")
+    monkeypatch.setenv("PORTFOLIO_WORKTREE_0", "/w")
+    assert pf.read_manifest() == [
+        pf.ProjectInput("alpha", "/d/a", "/s/a", "/w"),
+        pf.ProjectInput("delta", None, None, None),
+        pf.ProjectInput("iota", "", None, None),
+    ]
+
+
+@pytest.mark.parametrize("env", [{}, {"PORTFOLIO_PROJECT_COUNT": "x"},
+                                 {"PORTFOLIO_PROJECT_COUNT": "1"}])
+def test_manifest_malformed(monkeypatch, env):
+    _manifest(monkeypatch, [])
+    monkeypatch.delenv("PORTFOLIO_PROJECT_COUNT")
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(pf.ManifestError):
+        pf.read_manifest()
+
+
+def test_main_self_check_exit_3(tmp_path, monkeypatch, capsys):
+    _manifest(monkeypatch, [])
+    broken = _example()
+    _nset("n9", "id", "n1")(broken)
+    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at: broken)
+    out = tmp_path / "out" / "p.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_SELF_CHECK == 3
+    err = capsys.readouterr().err
+    assert "portfolio: self-check: I1: " in err
+    assert not out.exists()
+    assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
+
+
+def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):
+    root, _ = _multi(tmp_path)
+    _manifest(monkeypatch, [("alpha", str(root / "alpha")), ("delta", None)])
+    out = tmp_path / "home" / "portfolio" / "portfolio.json"
+    assert pf.main(["build", "--out", str(out)]) == pf.EXIT_OK
+    doc = json.loads(out.read_bytes().decode("utf-8"))
+    assert [p["project"] for p in doc["projects"]] == ["alpha", "delta"]
+    assert re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", doc["generated_at"])
+    n = len(doc["parse_report"])
+    assert capsys.readouterr().out == f"portfolio: wrote {out} (2 projects, {n} report entries)\n"
+    assert [p.name for p in out.parent.iterdir()] == ["portfolio.json"]
+
+
+@pytest.mark.parametrize("argv", [[], ["build"], ["build", "--out"], ["build", "--out", ""],
+                                  ["build", "--bogus", "x"], ["nope", "--out", "x"],
+                                  ["build", "--out", "a", "extra"]])
+def test_main_usage(argv, capsys):
+    assert pf.main(argv) == pf.EXIT_USAGE
+    assert pf.USAGE in capsys.readouterr().err
+
+
+def test_exit_constants_pinned():
+    assert (pf.EXIT_OK, pf.EXIT_CONFIG, pf.EXIT_USAGE, pf.EXIT_SELF_CHECK) == (0, 1, 2, 3)
+
+
+def test_dumps_is_lf_utf8_and_refuses_nan():
+    data = pf.dumps({"a": "café", "b": [1, 2.5]})
+    assert isinstance(data, bytes)
+    assert b"\r" not in data and data.endswith(b"}\n")
+    assert "café".encode("utf-8") in data
+    with pytest.raises(ValueError):
+        pf.dumps({"x": float("nan")})
+
+
+def test_rail_refuses_under_a_configured_dir(tmp_path):
+    projects = [pf.ProjectInput("alpha", str(tmp_path / "d"), str(tmp_path / "s"), "")]
+    assert pf.rail(projects, tmp_path / "d" / "x" / "p.json") == (
+        f"portfolio: refusing to write under the devdoc_dir of project 'alpha' "
+        f"({tmp_path / 'd'}); choose an --out outside every devdoc_dir, source_dir "
+        "and worktree_root")
+    assert "the source_dir of" in pf.rail(projects, tmp_path / "s" / "p.json")
+    assert pf.rail(projects, tmp_path / "elsewhere" / "p.json") is None
+    assert pf.rail(projects, tmp_path / "dd" / "p.json") is None   # a prefix is not a parent
+
+
+def test_rail_different_drive_is_not_under(tmp_path, monkeypatch):
+    def boom(paths):
+        raise ValueError("Paths don't have the same drive")
+    monkeypatch.setattr(pf.os.path, "commonpath", boom)
+    projects = [pf.ProjectInput("alpha", str(tmp_path / "d"), None, None)]
+    assert pf.rail(projects, tmp_path / "d" / "p.json") is None
+
+
+def test_write_document_replaces_atomically(tmp_path):
+    out = tmp_path / "a" / "b" / "p.json"
+    pf.write_document(b"one\n", out)
+    pf.write_document(b"two\n", out)
+    assert out.read_bytes() == b"two\n"
+    assert [p.name for p in out.parent.iterdir()] == ["p.json"]
+
+
+def test_write_document_removes_temp_on_failure(tmp_path, monkeypatch):
+    out = tmp_path / "p.json"
+    def fail(src, dst):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(pf.os, "replace", fail)
+    with pytest.raises(OSError):
+        pf.write_document(b"x\n", out)
+    assert list(tmp_path.iterdir()) == []

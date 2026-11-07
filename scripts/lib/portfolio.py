@@ -25,7 +25,9 @@ import math
 import os
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -670,14 +672,135 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
             "generated_at": generated_at, "projects": out, "parse_report": entries}
 
 
-# --- CLI -----------------------------------------------------------------------
+# --- write path and CLI --------------------------------------------------------
+
+# One exit map (commands/portfolio.md copies it; a test holds them equal).
+EXIT_OK = 0          # written
+EXIT_CONFIG = 1      # config missing or invalid (raised by portfolio.sh)
+EXIT_USAGE = 2       # usage error, refused path, or unwritable path
+EXIT_SELF_CHECK = 3  # self-check failed; nothing written
+
+RAIL_ROLES = ("devdoc_dir", "source_dir", "worktree_root")
+RAIL_MSG = ("portfolio: refusing to write under the {role} of project '{name}' ({path}); "
+            "choose an --out outside every devdoc_dir, source_dir and worktree_root")
+
+
+class ManifestError(Exception):
+    """The PORTFOLIO_* environment is missing or malformed."""
+
+
+def read_manifest(env=None) -> list[ProjectInput]:
+    """The projects portfolio.sh exported, in config order (D3)."""
+    env = os.environ if env is None else env
+    count = env.get("PORTFOLIO_PROJECT_COUNT", "")
+    if not count.isdigit():
+        raise ManifestError(f"PORTFOLIO_PROJECT_COUNT is {count!r}, not a count")
+    out = []
+    for i in range(int(count)):
+        name = env.get(f"PORTFOLIO_NAME_{i}")
+        if not name:
+            raise ManifestError(f"PORTFOLIO_NAME_{i} is not set")
+        out.append(ProjectInput(name, env.get(f"PORTFOLIO_DEVDOC_{i}"),
+                                env.get(f"PORTFOLIO_SOURCE_{i}"),
+                                env.get(f"PORTFOLIO_WORKTREE_{i}")))
+    return out
+
+
+def _canon(path) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _is_under(path, root) -> bool:
+    p, r = _canon(path), _canon(root)
+    try:
+        return os.path.commonpath([p, r]) == r
+    except ValueError:
+        # Different drives (Windows) cannot nest.
+        return False
+
+
+def rail(projects: list[ProjectInput], out) -> str | None:
+    """The refusal when `out` lies under a configured devdoc, source or worktree (D10).
+
+    cleanup stages and pushes everything under a devdoc_dir, and the document
+    names private projects, so it must never land in one. Non-strict realpath
+    on both sides: an absent configured dir is still railed by its path.
+    """
+    for p in projects:
+        for role, path in zip(RAIL_ROLES, (p.devdoc, p.source, p.worktree)):
+            if path and _is_under(out, path):
+                return RAIL_MSG.format(role=role, name=p.name, path=path)
+    return None
+
+
+def dumps(doc: dict) -> bytes:
+    """The document as UTF-8 with LF line ends; NaN and Infinity refused."""
+    text = json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    return text.encode("utf-8")
+
+
+def write_document(data: bytes, out) -> None:
+    """Write `data` to `out` owner-only: new dirs 0700, the file 0600, atomically."""
+    out = Path(out)
+    missing = []
+    parent = out.parent
+    while not parent.exists():
+        missing.append(parent)
+        parent = parent.parent
+    for d in reversed(missing):
+        # One level at a time: mkdir(parents=True) applies the mode to the leaf only.
+        d.mkdir(mode=0o700)
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, out)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _usage(problem: str | None = None) -> int:
+    if problem:
+        sys.stderr.write(f"portfolio: {problem}\n")
+    sys.stderr.write(USAGE + "\n")
+    return EXIT_USAGE
+
 
 def main(argv: list[str]) -> int:
     if argv[:1] in (["-h"], ["--help"]):
         sys.stdout.write(USAGE + "\n")
-        return 0
-    sys.stderr.write(USAGE + "\n")
-    return 2
+        return EXIT_OK
+    if len(argv) != 3 or argv[0] != "build" or argv[1] != "--out" or not argv[2]:
+        return _usage()
+    out = Path(argv[2])
+    try:
+        projects = read_manifest()
+    except ManifestError as e:
+        return _usage(str(e))
+    refusal = rail(projects, out)
+    if refusal:
+        sys.stderr.write(refusal + "\n")
+        return EXIT_USAGE
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    doc = build_document(projects, generated_at)
+    errors = pc.check(doc)
+    if not errors:
+        errors = invariant_violations(doc)
+    if errors:
+        for e in errors:
+            sys.stderr.write(f"portfolio: self-check: {e}\n")
+        return EXIT_SELF_CHECK
+    try:
+        write_document(dumps(doc), out)
+    except OSError as e:
+        sys.stderr.write(f"portfolio: cannot write {out}: {e}\n")
+        return EXIT_USAGE
+    sys.stdout.write(f"portfolio: wrote {out} ({len(doc['projects'])} projects, "
+                     f"{len(doc['parse_report'])} report entries)\n")
+    return EXIT_OK
 
 
 if __name__ == "__main__":
