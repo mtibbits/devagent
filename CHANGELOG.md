@@ -16,6 +16,24 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: `cost-report` charges cost to the `(project, issue)` pair and reads
+  every transcript dir (#730, epic #729).**
+  - Three sources set the pair, project and issue together: a `next.sh`
+    `dispatch:` header, a typed `/devagent:pull <project> origin|fork <N>`, and
+    a typed command naming a known project and an issue. A typed issue with no
+    project keeps the pair only for the same issue; otherwise it is
+    `(no project)/Issue-N`. A `pull` without `origin|fork` no longer moves the
+    pair. Known projects are the `config.toml` names plus every dispatched name.
+  - `--project P` reads every dir under `<CLAUDE_CONFIG_DIR or ~/.claude>/projects`
+    and keeps only `P`; `--all-dirs` reads every dir unfiltered; `--transcripts`
+    still wins. With `--project P --issue N`, the `(no project)/N` line follows
+    on stdout, or goes to stderr as a `hint:` (exit 1) when `P/N` has no calls.
+  - Transcripts stream: memory no longer grows with file size (a 512 MB
+    transcript peaks far under 200 MB), and the issue-number pre-filter is gone.
+  - **Line shape change:** `Issue-N: …` becomes `<project>/Issue-N: …`, and
+    core-impact step 6 now passes `--project`. Existing `impact.md` lines keep
+    the old shape; a reader must accept both, and an old-shape line's project
+    is the devdoc that holds the file.
 - **Added: `/devagent:portfolio`, one JSON document over every project's WBS
   (#726, epic #724).**
   - `scripts/portfolio.sh` and `scripts/lib/portfolio.py` write a schema v1.0

@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""Token cost per issue and per workflow step, from Claude Code transcripts.
+"""Token cost per (project, issue) and per workflow step, from Claude Code transcripts.
 
 Every API call in a session transcript records its token usage. This charges
-each call to the devAgent step running when it was made: the last `dispatch:`
-header a next.sh call printed, or a step invoked directly (a typed
-/devagent:<step>, or a Skill call to devagent:<step>). A subagent is charged
-to the step that launched it, through the toolUseId in its .meta.json.
+each call to the session's current (project, issue) pair and to the devAgent
+step running when it was made. The pair is set, project and issue together,
+by a next.sh `dispatch:` header, a typed `/devagent:pull <project>
+origin|fork <N>`, or a typed command naming a known project and an issue; a
+typed issue with no project keeps the pair only for the same issue, else it is
+`(no project)`. The step is the last header's, or a step invoked directly (a
+typed /devagent:<step>, or a Skill call to devagent:<step>). A subagent is
+charged to the pair and step that launched it, through the toolUseId in its
+.meta.json.
+
+Transcripts are read from the current directory's dir under
+<CLAUDE_CONFIG_DIR or ~/.claude>/projects, from every dir there with
+--project or --all-dirs, or from --transcripts, which overrides both. Records
+stream, so memory does not grow with transcript size.
 
 Cost is in input-token equivalents: each token class weighted by its price
 relative to the base input price (WEIGHTS). A session re-reads its whole
