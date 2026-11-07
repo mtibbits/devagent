@@ -16,6 +16,23 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: `/devagent:portfolio`, one JSON document over every project's WBS
+  (#726, epic #724).**
+  - `scripts/portfolio.sh` and `scripts/lib/portfolio.py` write a schema v1.0
+    document (#725) for every configured project, read from each project's own
+    `devdoc_dir`, to `~/.claude/devagent/portfolio/portfolio.json` (0600; `--out`
+    refused under any devdoc, source or worktree root).
+  - `parse_report` drops nothing silently: issue-less leaves, unresolved local
+    and cross-project `depends_on`, duplicate issues, unparseable estimates,
+    unknown or unreadable metadata, near-miss node lines and parser warnings.
+  - The document is written only when it passes the checker and the producer's
+    invariants I1–I15. Exit 0 written, 1 config, 2 usage or path, 3 self-check.
+  - Estimates use an interim classifier with provisional factors (h/d/w =
+    1/8/40 working hours) until #737 lands.
+  - `wbs-parser.py` gains an additive `diagnose_text`; its existing output is
+    unchanged (a characterization golden pins it).
+  - The command count is now 60; the `[1.0.0]` entry's count line was updated
+    with it, as the derived-count guard requires (#899 precedent).
 - **Added: the versioned portfolio JSON schema (#725, epic #724).**
   - `scripts/lib/portfolio-schema.json` (schema v1.0, a declared subset of JSON
     Schema 2020-12), `scripts/lib/portfolio-check.py` (a stdlib-only checker) and
@@ -1455,7 +1472,7 @@ had already shipped SHA-by-SHA to `master` before the tag existed.
 Current capabilities as of this release:
 
 ### Core
-- **59 slash commands** driving a fixed **25-step issue workflow** (22 mandatory,
+- **60 slash commands** driving a fixed **25-step issue workflow** (22 mandatory,
   plus the optional research step 1, spike step 3, and mergetoall step 19),
   with all state preserved on disk so you can switch issues — or hand one to a
   fresh session — without losing context.

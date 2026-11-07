@@ -1,0 +1,13 @@
+Issue-2	plant-trailing-key
+Issue-3	plant-merged-key
+	plant-unmatched-bracket
+Issue-4	plant-unterminated-quote
+Issue-5	plant-empty-key
+Issue-6	plant-duplicate-key
+	plant-unclosed-brace {issue: Issue-7, est: 1w
+Issue-8 est: 1w	plant-swallowed-pair
+	plant-dep-no-issue
+Issue-10	plant-clean
+Issue-13	plant-padded
+Issue-11	plant-comment-node
+Issue-12	plant-after-unclosed

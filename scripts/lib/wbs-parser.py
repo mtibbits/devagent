@@ -65,7 +65,9 @@ CLI:
 The Python API (used by tests and by sibling scripts via importlib) is
 `parse_file`, `parse_text`, `render_document`, `render_markdown`,
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
-`inserted_only`, `leaves`, `dependency_edges`, and for the order pass
+`inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
+`NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
+also reads `_dep_ids`), and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -359,8 +361,29 @@ def _split_text_and_meta(rest: str) -> tuple[str, dict]:
     return text_part, meta
 
 
+# Diagnostics (#726): additive, read-only, never printed. `diagnose_text`
+# reports what parse_text reads silently: a line shaped like a node that is
+# not one, and a metadata block the walk could not read as written.
+NEAR_MISS_RE = re.compile(r"^[ \t]*[-*+][ \t]*\[")
+META_UNREADABLE = "meta_unreadable"
+META_DUPLICATE_KEY = "meta_duplicate_key"
+UNCLOSED_BRACE = "'{' with no closing '}'; the text after it is item text, not metadata"
+TRAILING_TEXT = ("a '{...}' block that is not at the end of the line, or holds a brace, "
+                 "is item text, not metadata")
+
+
 def _parse_meta(body: str) -> dict:
+    return _parse_meta_walk(body)[0]
+
+
+def _parse_meta_walk(body: str) -> tuple[dict, list[tuple[str, str]]]:
+    """`_parse_meta`'s walk, plus the problems met on it as (code, message).
+
+    The one home of the metadata grammar: the problems ride along the same
+    control flow, so a diagnosis can never describe a different reading.
+    """
     out: dict[str, object] = {}
+    problems: list[tuple[str, str]] = []
     i = 0
     n = len(body)
     while i < n:
@@ -372,8 +395,19 @@ def _parse_meta(body: str) -> dict:
         while i < n and body[i] not in ":":
             i += 1
         key = body[key_start:i].strip()
-        if i >= n or not key:
+        if i >= n:
+            problems.append((META_UNREADABLE, f"'{key}' has no ':' and is dropped"))
             break
+        if not key:
+            problems.append(
+                (META_UNREADABLE, "a ':' with no key; the rest of the block is dropped"))
+            break
+        if "," in key:
+            problems.append(
+                (META_UNREADABLE, f"key '{key}' holds a ','; a ':' is missing before it"))
+        if key in out:
+            problems.append(
+                (META_DUPLICATE_KEY, f"key '{key}' appears more than once; the last value is kept"))
         i += 1  # consume ':'
         while i < n and body[i] in " \t":
             i += 1
@@ -381,6 +415,10 @@ def _parse_meta(body: str) -> dict:
             end = body.find("]", i)
             if end == -1:
                 out[key] = body[i + 1 :].strip()
+                problems.append((
+                    META_UNREADABLE,
+                    f"'{key}' opens '[' with no ']'; the rest of the block is read as its value",
+                ))
                 break
             items = [
                 _strip_quotes(x.strip())
@@ -398,12 +436,55 @@ def _parse_meta(body: str) -> dict:
             out[key] = body[val_start:i]
             if i < n:
                 i += 1
+            else:
+                problems.append((
+                    META_UNREADABLE,
+                    f"'{key}' opens a quote that never closes; "
+                    "the rest of the block is read as its value",
+                ))
         else:
             val_start = i
             while i < n and body[i] != ",":
                 i += 1
             out[key] = body[val_start:i].strip()
-    return out
+            if ": " in out[key]:
+                problems.append((
+                    META_UNREADABLE,
+                    f"'{key}' value holds ': '; a ',' may be missing "
+                    "and the next pair read as its value",
+                ))
+    return out, problems
+
+
+def diagnose_text(text: str) -> dict:
+    """What `parse_text` reads silently, by line; never prints.
+
+    `near_misses`: `(line, body)` for each line the parser classes `other`
+    (so never a fenced line) that `NEAR_MISS_RE` matches. `meta_problems`:
+    `(line, code, message)` for each node whose metadata block the walk could
+    not read as written, or whose `{` never closes.
+    """
+    kinds, bodies, _unclosed = _classify_lines(text.splitlines(keepends=True))
+    near: list[tuple[int, str]] = []
+    problems: list[tuple[int, str, str]] = []
+    for lineno, ((kind, m), body) in enumerate(zip(kinds, bodies), start=1):
+        if kind == "other":
+            if NEAR_MISS_RE.match(body):
+                near.append((lineno, body))
+            continue
+        if kind != "node":
+            continue
+        rest = m.group("rest").rstrip()
+        block = _META_BLOCK_RE.search(rest)
+        if block:
+            for code, message in _parse_meta_walk(block.group("body"))[1]:
+                problems.append((lineno, code, message))
+        else:
+            brace = rest.rfind("{")
+            if brace != -1:
+                message = TRAILING_TEXT if "}" in rest[brace:] else UNCLOSED_BRACE
+                problems.append((lineno, META_UNREADABLE, message))
+    return {"near_misses": near, "meta_problems": problems}
 
 
 def _strip_quotes(s: str) -> str:

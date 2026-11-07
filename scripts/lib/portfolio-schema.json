@@ -48,7 +48,7 @@
           "type": "string"
         },
         "status": {
-          "description": "read: the WBS was parsed. no_wbs: the devdoc dir has no WBS.md. no_devdoc_dir: no devdoc dir is configured, or it is absent. unreadable: WBS.md is present but not a readable regular file, or it failed to parse.",
+          "description": "read: the WBS was parsed. no_wbs: the devdoc dir has no WBS.md. no_devdoc_dir: no devdoc dir is configured, or it is absent or not a directory. unreadable: the devdoc dir exists but could not be read, or WBS.md is present but not a readable regular file, or it failed to parse.",
           "type": "string",
           "enum": ["read", "no_wbs", "no_devdoc_dir", "unreadable"]
         },

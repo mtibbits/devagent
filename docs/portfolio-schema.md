@@ -266,9 +266,9 @@ both "pending" and "remaining" views without guessing.
 ## Semantics
 
 **Project status.** `no_devdoc_dir`: the project has no devdoc dir configured,
-or the dir is absent. `no_wbs`: the dir exists but has no `WBS.md` file.
-`unreadable`: `WBS.md` is present but is not a readable regular file, or it
-failed to parse. `read`: parsed. `status_reason` is null exactly when `read`
+or the dir is absent or not a directory. `no_wbs`: the dir exists but has no
+`WBS.md` file. `unreadable`: the devdoc dir exists but could not be read, or
+`WBS.md` is present but is not a readable regular file, or it failed to parse. `read`: parsed. `status_reason` is null exactly when `read`
 and non-empty otherwise.
 
 **Duplicates.** An issue that appears on two nodes of one project has one
@@ -290,12 +290,16 @@ ids. A malformed prefixed entry is a local id that resolves to nothing.
 time of writing (`est_src`, `satisfies` and `h` were not yet known keys). It is
 not a key list, and readers must not treat it as one.
 
+**`parse_report` in the example** is illustrative too: it is `[]`, but the
+producer would report n5's `h` (`h_malformed`) and n6's `est`
+(`est_unparseable`). The example is not wrong; do not "fix" it to match.
+
 ### Who writes each field
 
 | Field or member | Writer |
 |---|---|
 | Every field, at generation time | #726 (the producer) |
-| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through #737's classifier and its hour factors |
+| `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through #737's classifier and its hour factors. Until #737 lands, #726 uses an interim classifier with provisional working-time factors (`h` = 1, `d` = 8, `w` = 40; exact units, ranges `unparseable`), which #737's helper replaces ([obligation on #737](https://github.com/mtibbits/devagent/issues/737#issuecomment-6670452997)) |
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
@@ -338,7 +342,9 @@ with an import walk and a `python -I -S` run), so no dependency manifest exists.
 
 Exit `0` means **structurally well-formed**, nothing more. Cross-field
 consistency belongs to the producer, whose own correctness check cannot rest on
-this exit code. The checker does not verify that:
+this exit code: `invariant_violations` in `scripts/lib/portfolio.py` checks the
+rules below (I1–I15), and the producer writes a document only when both pass.
+The checker does not verify that:
 
 - node ids are unique, nodes ascend by `source_line`, and `parent` names an
   earlier, shallower node of the same project;
@@ -354,11 +360,41 @@ this exit code. The checker does not verify that:
 - `checklist` is `open` exactly when the next-step fields are set;
 - a report entry names a project in the document.
 
+### Report kinds (#726)
+
+The producer's `parse_report[].kind` vocabulary, in report order. Entries are
+ordered by project (config order), then `source_line` (null first), then this
+table's order, then message. The vocabulary stays open: readers accept kinds
+they do not know. A project's status is not repeated in the report.
+
+<!-- editor: tests/test_portfolio.py::test_doc_lists_every_kind requires the
+     rows between these markers to equal KINDS in scripts/lib/portfolio.py,
+     in order. -->
+<!-- report-kinds:start -->
+| Kind | `source_line` | When |
+|---|---|---|
+| `leaf_no_issue` | node | A leaf has no `issue:` key, or it is `""`. A non-string `issue` gives only `issue_malformed`. |
+| `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`); its issue dir is not read. |
+| `dep_unresolved` | node | One per `depends_on` entry that names no issue: none in this project, a project that is not configured, a project whose WBS was not read, or no such issue in the named project. |
+| `duplicate_issue` | node | Each later node carrying an issue already seen in the project; the message names the first line. |
+| `est_unparseable` | node | The estimate class is `unparseable`. |
+| `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |
+| `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
+| `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
+| `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies` and `h` are consumed). |
+| `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
+| `meta_duplicate_key` | node | A metadata key that appears twice; the last value is kept. |
+| `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
+| `parser_warning` | line or null | A warning the parser printed on stderr, at the line it names. |
+| `directive_warning` | line | A malformed `wbs-exclude` or `wbs-scope` directive line. |
+| `checklist_unreadable` | null | An issue dir, or its `checklist.md`, is present but unreadable, or `checklist.md` has no step rows in its active revision block (`checklist` reads `absent`). |
+| `stuck_unreadable` | null | An issue dir, or its `STUCK`, is present but unreadable (`stuck` has all-null fields). |
+<!-- report-kinds:end -->
+
 ## Deferred
 
 - **Token estimates.** #737 has not settled its token key's name. Its
   classification and a `tokens_src` provenance key arrive in a later minor bump
   when #737 lands (owner #737).
-- **Report kinds.** #726 defines the `parse_report[].kind` vocabulary.
 - **Range syntax and unit factors** for `est` belong to #737; the schema
   carries the result and converts nothing.
