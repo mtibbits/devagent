@@ -614,7 +614,9 @@ def test_default_dirs_matches_the_cwd_slug_case_insensitively(tmp_path):
     result = cr.default_dirs()
     assert isinstance(result, list)
     assert set(result) == {root / slug}
-    flipped = slug[0].swapcase() + slug[1:]
+    # Flip the first LETTER: a POSIX slug starts with '-', which has no case.
+    i = next(n for n, ch in enumerate(slug) if ch.isalpha())
+    flipped = slug[:i] + slug[i].swapcase() + slug[i + 1:]
     if os.path.normcase(flipped) == os.path.normcase(slug):
         pytest.skip("case-insensitive filesystem: the case-flip leg cannot be built")
     try:
