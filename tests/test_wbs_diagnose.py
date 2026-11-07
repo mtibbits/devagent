@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 FIX = REPO / "tests" / "fixtures" / "wbs"
 PARSER = str(REPO / "scripts" / "lib" / "wbs-parser.py")
@@ -44,3 +46,149 @@ def test_diagnose_fixture_cli_unchanged(tmp_path):
                         ("leaves", "diagnose.leaves.txt")):
         assert _lf(_cli(cmd, str(DIAG))) == (FIX / golden).read_bytes(), cmd
     assert _cli("render", str(FIX / "diagnose.parse.json")) == DIAG.read_bytes()
+
+
+# --- additive diagnostics ---------------------------------------------------
+
+UNREADABLE = wbs_parser.META_UNREADABLE
+DUPLICATE = wbs_parser.META_DUPLICATE_KEY
+
+
+def _line_of(text, marker):
+    hits = [n for n, line in enumerate(text.splitlines(), start=1) if marker in line]
+    assert len(hits) == 1, (marker, hits)
+    return hits[0]
+
+
+WALK_BODIES = [
+    "",
+    "issue: Issue-1, est: 1w",
+    "issue: Issue-1, trailing",
+    "issue: Issue-1, foo, est: 1w",
+    "depends_on: [Issue-1, est: 1w",
+    'issue: Issue-1, owner: "bob, est: 1w',
+    "issue: Issue-1, : 1w, est: 2h",
+    "est: 1w, est: 2w",
+    "issue: Issue-1 est: 1w",
+    "depends_on: [ a , , 'b', ], owner: 'ann', milestone: M1 ",
+    " , ,\t",
+    "k: \"v\", j: [x], z: y",
+]
+
+
+def test_parse_meta_walk_dict_equals_parse_meta():
+    for body in WALK_BODIES:
+        meta, problems = wbs_parser._parse_meta_walk(body)
+        assert meta == wbs_parser._parse_meta(body), body
+        assert list(meta) == list(wbs_parser._parse_meta(body)), body
+        assert all(isinstance(p, tuple) and len(p) == 2 for p in problems)
+
+
+META_ROWS = [
+    ("trailing-key", "{issue: Issue-1, trailing}",
+     "unreadable", "'trailing' has no ':' and is dropped"),
+    ("empty-key", "{issue: Issue-1, : 1w, est: 2h}",
+     "unreadable", "a ':' with no key; the rest of the block is dropped"),
+    ("unmatched-bracket", "{depends_on: [Issue-1, est: 1w}",
+     "unreadable", "'depends_on' opens '[' with no ']'; the rest of the block is read as its value"),
+    ("unterminated-quote", '{issue: Issue-1, owner: "bob, est: 1w}',
+     "unreadable", "'owner' opens a quote that never closes; the rest of the block is read as its value"),
+    ("merged-key", "{issue: Issue-1, foo, est: 1w}",
+     "unreadable", "key 'foo, est' holds a ','; a ':' is missing before it"),
+    ("duplicate-key", "{est: 1w, est: 2w}",
+     "duplicate", "key 'est' appears more than once; the last value is kept"),
+    ("swallowed-pair", "{issue: Issue-1 est: 1w}",
+     "unreadable", "'issue' value holds ': '; a ',' is missing and the next pair was read as its value"),
+    ("unclosed-brace", "{issue: Issue-1, est: 1w",
+     "unreadable", "'{' with no closing '}'; the text after it is item text, not metadata"),
+]
+
+
+@pytest.mark.parametrize("name,meta,code,message", META_ROWS, ids=[r[0] for r in META_ROWS])
+def test_meta_problem(name, meta, code, message):
+    code = {"unreadable": UNREADABLE, "duplicate": DUPLICATE}[code]
+    text = f"# T\n- [ ] item {meta}\n"
+    assert wbs_parser.diagnose_text(text)["meta_problems"] == [(2, code, message)]
+
+
+def test_meta_problem_clean_block():
+    out = wbs_parser.diagnose_text("# T\n- [ ] item {issue: Issue-1, est: 1w}\n")
+    assert out == {"near_misses": [], "meta_problems": []}
+
+
+def test_meta_problem_codes_pinned():
+    assert (wbs_parser.META_UNREADABLE, wbs_parser.META_DUPLICATE_KEY) == (
+        "meta_unreadable", "meta_duplicate_key")
+
+
+def test_near_miss_shapes():
+    text = (
+        "# T plant-title\n"
+        "- [X] plant-a\n"
+        "* [ ] plant-b\n"
+        "+ [x] plant-c\n"
+        "- [ ]\n"
+        "-[ ] a plant-e\n"
+        "```\n- [X] plant-fenced\n```\n"
+        "- [ ] plant-node\n"
+        "- plain plant-plain\n"
+        "-- [x] plant-dashdash\n"
+    )
+    got = wbs_parser.diagnose_text(text)["near_misses"]
+    bare = _line_of(text, "plant-c") + 1
+    want_lines = [_line_of(text, "plant-a"), _line_of(text, "plant-b"),
+                  _line_of(text, "plant-c"), bare, _line_of(text, "plant-e")]
+    assert [ln for ln, _ in got] == want_lines
+    lines = text.splitlines()
+    assert got == [(ln, lines[ln - 1]) for ln in want_lines]
+    for control in ("plant-title", "plant-fenced", "plant-node", "plant-plain", "plant-dashdash"):
+        assert _line_of(text, control) not in {ln for ln, _ in got}, control
+
+
+def test_near_miss_comment_span_at_head():
+    # #775 / D4 (operator ruling 2026-11-05): comment-span lines are left out of
+    # the near-miss scan the way fenced lines are. At HEAD the parser does not
+    # yet classify comment spans, so a `- [X]` inside `<!-- -->` is still an
+    # `other` line (reported) and a `- [ ] x` there is a node. Once #775 makes
+    # those lines non-`other`, this expectation flips to "not reported", with no
+    # change to the producer.
+    text = "# T\n<!--\n- [X] plant-near\n- [ ] x plant-node\n-->\n"
+    got = wbs_parser.diagnose_text(text)
+    assert got["near_misses"] == [(_line_of(text, "plant-near"), "- [X] plant-near")]
+    tree = wbs_parser.parse_text(text)
+    assert [n["source_line"] for n in tree["children"]] == [_line_of(text, "plant-node")]
+
+
+def test_diagnose_never_prints(capsys):
+    text = "# T\n```text\n- [ ] after {issue: Issue-1, trailing}\n- [X] near\n"
+    out = wbs_parser.diagnose_text(text)
+    assert out["near_misses"] == [(4, "- [X] near")]
+    assert len(out["meta_problems"]) == 1
+    cap = capsys.readouterr()
+    assert (cap.out, cap.err) == ("", "")
+
+
+def test_diagnose_fixture():
+    text = DIAG.read_bytes().decode("utf-8")
+    at = lambda m: _line_of(text, m)  # noqa: E731
+    lines = text.splitlines()
+    near = [at("plant-near-upper-x"), at("plant-near-star"), at("plant-near-plus"),
+            at("plant-near-plus") + 1, at("plant-near-nospace")]
+    U, D = wbs_parser.META_UNREADABLE, wbs_parser.META_DUPLICATE_KEY
+    assert wbs_parser.diagnose_text(text) == {
+        "near_misses": [(ln, lines[ln - 1]) for ln in near],
+        "meta_problems": [
+            (at("plant-trailing-key"), U, "'trailing' has no ':' and is dropped"),
+            (at("plant-merged-key"), U, "key 'foo, est' holds a ','; a ':' is missing before it"),
+            (at("plant-unmatched-bracket"), U,
+             "'depends_on' opens '[' with no ']'; the rest of the block is read as its value"),
+            (at("plant-unterminated-quote"), U,
+             "'owner' opens a quote that never closes; the rest of the block is read as its value"),
+            (at("plant-empty-key"), U, "a ':' with no key; the rest of the block is dropped"),
+            (at("plant-duplicate-key"), D, "key 'est' appears more than once; the last value is kept"),
+            (at("plant-unclosed-brace"), U,
+             "'{' with no closing '}'; the text after it is item text, not metadata"),
+            (at("plant-swallowed-pair"), U,
+             "'issue' value holds ': '; a ',' is missing and the next pair was read as its value"),
+        ],
+    }
