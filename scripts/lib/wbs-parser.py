@@ -368,6 +368,8 @@ NEAR_MISS_RE = re.compile(r"^[ \t]*[-*+][ \t]*\[")
 META_UNREADABLE = "meta_unreadable"
 META_DUPLICATE_KEY = "meta_duplicate_key"
 UNCLOSED_BRACE = "'{' with no closing '}'; the text after it is item text, not metadata"
+TRAILING_TEXT = ("a '{...}' block that is not at the end of the line, or holds a brace, "
+                 "is item text, not metadata")
 
 
 def _parse_meta(body: str) -> dict:
@@ -481,6 +483,8 @@ def diagnose_text(text: str) -> dict:
             brace = rest.rfind("{")
             if brace != -1 and "}" not in rest[brace:]:
                 problems.append((lineno, META_UNREADABLE, UNCLOSED_BRACE))
+            elif brace != -1:
+                problems.append((lineno, META_UNREADABLE, TRAILING_TEXT))
     return {"near_misses": near, "meta_problems": problems}
 
 

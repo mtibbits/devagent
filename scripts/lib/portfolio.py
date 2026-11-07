@@ -24,6 +24,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -453,6 +454,7 @@ REASON_ABSENT = "the devdoc dir does not exist"
 REASON_NO_WBS = "the devdoc dir has no WBS.md"
 REASON_NOT_FILE = "WBS.md is not a regular file"
 REASON_UNREADABLE = "WBS.md could not be read: {}"
+REASON_DEVDOC_UNREADABLE = "the devdoc dir could not be read: {}"
 
 # The parse_report vocabulary (#725 leaves it open to #726), in report order.
 # docs/portfolio-schema.md "Report kinds (#726)" lists the same table.
@@ -489,6 +491,20 @@ def _empty_project(name: str, status: str, reason: str) -> dict:
             "wbs_title": None, "nodes": [], "issues": [], "rollup": None}
 
 
+def _probe(path, follow: bool = True):
+    """os.stat (or lstat) of `path`; None when it does not exist; the OSError otherwise.
+
+    pathlib's is_dir/is_file re-raise EACCES and os.path.lexists swallows it;
+    neither may decide a status, so a permission error stays visible here.
+    """
+    try:
+        return os.stat(path) if follow else os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        return e
+
+
 def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     """(status, reason, text): the project's WBS.md, or why it was not read."""
     if devdoc is None:
@@ -496,12 +512,21 @@ def _read_wbs(devdoc: str | None) -> tuple[str, str | None, str | None]:
     if devdoc == "":
         return "no_devdoc_dir", REASON_EMPTY, None
     root = Path(devdoc)
-    if not root.is_dir():
+    st = _probe(root)
+    if isinstance(st, OSError):
+        return "unreadable", REASON_DEVDOC_UNREADABLE.format(_err_detail(st)), None
+    if st is None or not stat.S_ISDIR(st.st_mode):
         return "no_devdoc_dir", REASON_ABSENT, None
     wbs = root / "WBS.md"
-    if not os.path.lexists(wbs):
+    st = _probe(wbs, follow=False)
+    if isinstance(st, OSError):
+        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
+    if st is None:
         return "no_wbs", REASON_NO_WBS, None
-    if not wbs.is_file():
+    st = _probe(wbs)
+    if isinstance(st, OSError):
+        return "unreadable", REASON_UNREADABLE.format(_err_detail(st)), None
+    if st is None or not stat.S_ISREG(st.st_mode):
         return "unreadable", REASON_NOT_FILE, None
     try:
         # newline="" keeps CR bytes, as wbs_parser.parse_file reads.
@@ -525,10 +550,20 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
              "next_step": None, "next_step_number": None}
     issue_dir = devdoc / issue
     # Only an id-shaped value names a dir, so nothing traverses out of devdoc.
-    if not (wbs_parser.ID_TOKEN_RE.fullmatch(issue) and issue_dir.is_dir()):
+    if not wbs_parser.ID_TOKEN_RE.fullmatch(issue):
+        return entry
+    st = _probe(issue_dir)
+    if isinstance(st, OSError):
+        report(None, "checklist_unreadable", f"{issue}/ could not be read: {_err_detail(st)}")
+        return entry
+    if st is None or not stat.S_ISDIR(st.st_mode):
         return entry
     checklist = issue_dir / "checklist.md"
-    if os.path.lexists(checklist):
+    st = _probe(checklist, follow=False)
+    if isinstance(st, OSError):
+        report(None, "checklist_unreadable",
+               f"{issue}/checklist.md could not be read: {_err_detail(st)}")
+    elif st is not None:
         try:
             state, number, name = checklist_next(checklist)
         except ChecklistError as e:
@@ -536,7 +571,11 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
         else:
             entry.update({"checklist": state, "next_step": name, "next_step_number": number})
     stuck = issue_dir / "STUCK"
-    if os.path.lexists(stuck):
+    st = _probe(stuck, follow=False)
+    if isinstance(st, OSError):
+        entry["stuck"] = {"step": None, "reason": None, "since": None}
+        report(None, "stuck_unreadable", f"{issue}/STUCK could not be read: {_err_detail(st)}")
+    elif st is not None:
         try:
             entry["stuck"] = read_stuck(stuck)
         except StuckError as e:
@@ -713,10 +752,27 @@ def _canon(path) -> str:
 def _is_under(path, root) -> bool:
     p, r = _canon(path), _canon(root)
     try:
-        return os.path.commonpath([p, r]) == r
+        if os.path.commonpath([p, r]) == r:
+            return True
     except ValueError:
-        # Different drives (Windows) cannot nest.
+        # Different drives (Windows) cannot nest by spelling.
+        pass
+    # By identity: a second spelling of an existing root (a case variant on a
+    # case-insensitive mount whose normcase is the identity, such as WSL /mnt/c
+    # or APFS; a bind mount) names the same directory as one of out's ancestors.
+    if not os.path.isdir(r):
         return False
+    a = os.path.realpath(path)
+    while True:
+        try:
+            if os.path.samefile(a, r):
+                return True
+        except OSError:
+            pass
+        parent = os.path.dirname(a)
+        if parent == a:
+            return False
+        a = parent
 
 
 def rail(projects: list[ProjectInput], out) -> str | None:

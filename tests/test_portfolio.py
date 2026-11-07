@@ -896,3 +896,84 @@ def test_command_doc_names_provisional_factors():
     for unit, hours in pf.HOUR_FACTORS.items():
         assert f"`{unit}` = {hours}" in text
     assert "provisional" in text
+
+
+# --- final-review fixes --------------------------------------------------------
+
+def _deny(monkeypatch, *targets):
+    """os.stat / os.lstat raise PermissionError for these paths (EACCES)."""
+    deny = {os.path.normcase(os.path.abspath(str(t))) for t in targets}
+    for name in ("stat", "lstat"):
+        real = getattr(os, name)
+
+        def fake(path, *a, _real=real, **kw):
+            if isinstance(path, (str, os.PathLike)) and \
+                    os.path.normcase(os.path.abspath(os.fspath(path))) in deny:
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+            return _real(path, *a, **kw)
+        monkeypatch.setattr(os, name, fake)
+
+
+def test_unsearchable_devdoc_is_that_projects_status(tmp_path, monkeypatch):
+    root, projects = _multi(tmp_path)
+    _deny(monkeypatch, root / "alpha")
+    doc = pf.build_document(projects, GENERATED_AT)
+    alpha = _project(doc, "alpha")
+    assert alpha["status"] == "unreadable"
+    assert alpha["status_reason"] == "the devdoc dir could not be read: PermissionError: Permission denied"
+    assert _project(doc, "beta")["status"] == "read"
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_unstatable_wbs_is_unreadable_not_no_wbs(tmp_path, monkeypatch):
+    root, projects = _multi(tmp_path)
+    _deny(monkeypatch, root / "beta" / "WBS.md")
+    doc = pf.build_document(projects, GENERATED_AT)
+    beta = _project(doc, "beta")
+    assert (beta["status"], beta["status_reason"]) == (
+        "unreadable", "WBS.md could not be read: PermissionError: Permission denied")
+
+
+def test_unstatable_issue_files_are_reported_not_absent(tmp_path, monkeypatch):
+    root, projects = _multi(tmp_path)
+    _deny(monkeypatch, root / "alpha" / "Issue-2", root / "alpha" / "Issue-1" / "checklist.md")
+    doc = pf.build_document(projects, GENERATED_AT)
+    msgs = [r["message"] for r in doc["parse_report"] if r["kind"] == "checklist_unreadable"]
+    assert "Issue-1/checklist.md could not be read: PermissionError: Permission denied" in msgs
+    assert "Issue-2/ could not be read: PermissionError: Permission denied" in msgs
+    alpha = {e["issue"]: e for e in _project(doc, "alpha")["issues"]}
+    assert alpha["Issue-1"]["checklist"] == "absent" and alpha["Issue-2"]["stuck"] is None
+    assert pf.pc.check(doc) == [] and pf.invariant_violations(doc) == []
+
+
+def test_rail_case_variant_on_case_insensitive_fs(tmp_path, monkeypatch):
+    root = tmp_path / "DevDoc"
+    root.mkdir()
+    if not (tmp_path / "devdoc").exists():
+        pytest.skip("tmp filesystem is case-sensitive")
+    # POSIX normcase is the identity even on a case-insensitive mount (WSL /mnt/c, APFS).
+    monkeypatch.setattr(pf.os.path, "normcase", lambda p: p)
+    projects = [pf.ProjectInput("alpha", str(root), None, None)]
+    assert pf.rail(projects, tmp_path / "DEVDOC" / "x" / "p.json") is not None
+
+
+def test_rail_same_directory_by_identity(tmp_path, monkeypatch):
+    # A second spelling of the devdoc (a case variant, a bind mount): the string
+    # test misses it, so containment is decided by identity.
+    root = tmp_path / "devdoc"
+    alias = tmp_path / "alias"
+    root.mkdir()
+    alias.mkdir()
+    real = os.path.samefile
+    monkeypatch.setattr(pf.os.path, "samefile",
+                        lambda a, b: real(a, b) or {os.path.basename(a), os.path.basename(b)} == {"devdoc", "alias"})
+    projects = [pf.ProjectInput("alpha", str(root), None, None)]
+    assert "the devdoc_dir of project 'alpha'" in pf.rail(projects, alias / "sub" / "p.json")
+    assert pf.rail(projects, tmp_path / "elsewhere" / "p.json") is None
+
+
+def test_meta_block_not_at_line_end_is_reported():
+    text = "# T\n- [ ] parent {est: 3w} (note after block)\n- [ ] plain text, no braces\n"
+    assert wbs_parser.diagnose_text(text)["meta_problems"] == [
+        (2, wbs_parser.META_UNREADABLE, wbs_parser.TRAILING_TEXT)]
+    assert wbs_parser.parse_text(text)["children"][0]["meta"] == {}
