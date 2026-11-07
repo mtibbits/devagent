@@ -867,3 +867,32 @@ def test_write_document_removes_temp_on_failure(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         pf.write_document(b"x\n", out)
     assert list(tmp_path.iterdir()) == []
+
+
+# --- docs ----------------------------------------------------------------------
+
+SCHEMA_DOC = REPO / "docs" / "portfolio-schema.md"
+COMMAND_DOC = REPO / "commands" / "portfolio.md"
+KINDS_START = "<!-- report-kinds:start -->"
+KINDS_END = "<!-- report-kinds:end -->"
+
+
+def test_doc_lists_every_kind():
+    text = SCHEMA_DOC.read_text(encoding="utf-8")
+    assert text.count(KINDS_START) == text.count(KINDS_END) == 1
+    table = text[text.index(KINDS_START):text.index(KINDS_END)]
+    rows = re.findall(r"^\| `([a-z_]+)` \|", table, re.MULTILINE)
+    assert tuple(rows) == pf.KINDS
+
+
+def test_command_doc_exit_map():
+    text = COMMAND_DOC.read_text(encoding="utf-8")
+    rows = [int(n) for n in re.findall(r"^\| `([0-9])` \|", text, re.MULTILINE)]
+    assert rows == [pf.EXIT_OK, pf.EXIT_CONFIG, pf.EXIT_USAGE, pf.EXIT_SELF_CHECK]
+
+
+def test_command_doc_names_provisional_factors():
+    text = COMMAND_DOC.read_text(encoding="utf-8")
+    for unit, hours in pf.HOUR_FACTORS.items():
+        assert f"`{unit}` = {hours}" in text
+    assert "provisional" in text

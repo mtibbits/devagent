@@ -67,10 +67,10 @@ devAgent/
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
-├── commands/                # one .md file per command-form slash command (56)
+├── commands/                # one .md file per command-form slash command (57)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
-│                            #   (SKILL.md + references/, #452) — 56 + 3 = the 59 slash commands
+│                            #   (SKILL.md + references/, #452) — 57 + 3 = the 60 slash commands
 ├── agents/                  # #458/#527: dedicated checker agents auto-discovered from this root
 │                            #   (preship-verifier, redteam-reviewer, plan-improver): pinned
 │                            #   effort (deliberately NO model pin — §7.4 rung 5) +
@@ -83,13 +83,14 @@ devAgent/
 │   ├── lib/                 # shared helpers (config-loader.sh, checklist.sh, log.sh,
 │   │                        #   check-step-pairings.py — #558 pairing census,
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
-│   │                        #   portfolio-schema.json + portfolio-check.py — #725)
+│   │                        #   portfolio-schema.json + portfolio-check.py — #725,
+│   │                        #   portfolio.py — #726 portfolio producer)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── docs-site/           # #465: pandoc template + link filter for build-docs-site.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
-│   │   cleanup.sh, sync.sh, statusreport.sh, doctor.sh,
+│   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
 │   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
@@ -914,6 +915,7 @@ blocks may carry rows the current tier omits.
 | `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session, unblocks `[?]` closeout steps, and prints a `CLOSEOUT:` nudge routing to `/devagent:next --auto` (#363; executes no closeout steps itself) |
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
 | `/devagent:wbs <init\|update\|show>` | WBS authoring/render (see §13) |
+| `/devagent:portfolio [--out PATH]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; read-only (see §13.4) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 ## 7. Chaining
@@ -2695,6 +2697,14 @@ validates a document against it using only the Python standard library. The
 producer (#726) and its consumers build against that contract, never against
 this section.
 
+`/devagent:portfolio` (`scripts/portfolio.sh`, core `scripts/lib/portfolio.py`,
+#726) is the producer. It reads every configured project's own `devdoc_dir`
+and `WBS.md`, writes the document owner-only under `devagent_home` (never
+under a devdoc, source checkout or worktree root), and lists everything the
+parser reads silently in `parse_report`. It writes only when the document
+passes both the structural checker and its own cross-field invariants
+I1–I15; the checker's exit 0 alone is not correctness.
+
 <!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
      requires this section to name docs/portfolio-schema.md. -->
 
@@ -2918,7 +2928,7 @@ phasing for the implementation plan:
 5. **Capture family:** `capture`, `scaffold`, `redissue`, `file`,
    `reap`
 6. **Revision family:** `comments`, `revise`
-7. **WBS + status:** `wbs`, `statusreport`, `updatewbs`
+7. **WBS + status:** `wbs`, `statusreport`, `updatewbs`, `portfolio`
 8. **Auth subsystem:** `auth create|store|rotate|destroy|status|exec`
 9. **Tooling:** `depends`, `grep`, `history`, `template`
 10. **Backends:** ship with `github` complete; `gitlab` + `jira` +
