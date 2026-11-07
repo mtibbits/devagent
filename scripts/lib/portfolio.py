@@ -18,6 +18,7 @@ is the contract; commands/portfolio.md is the user doc.
 from __future__ import annotations
 
 import importlib.util
+import math
 import re
 import sys
 from decimal import Decimal
@@ -133,6 +134,223 @@ def split_dep(raw: str, project: str) -> dict:
 def node_deps(meta: dict, project: str) -> list[dict]:
     """A node's `depends_on`, read exactly as the parser's `_dep_ids` reads it."""
     return [split_dep(raw, project) for raw in wbs_parser._dep_ids(meta)]
+
+
+# --- reference rollup ----------------------------------------------------------
+
+STATES: tuple[str, ...] = tuple(wbs_parser.STATE_GLYPHS.values())
+NOT_REMAINING = frozenset({"done", "skipped"})
+
+
+def _bucket(est: dict) -> str:
+    if est["class"] != "time":
+        return "unestimated"
+    return "estimated_derived" if est["src"] == "derived" else "estimated"
+
+
+def _dec(x) -> Decimal:
+    # str() of a float is its shortest repr, so 2.5 sums as exactly 2.5.
+    return Decimal(str(x))
+
+
+def rollup(nodes: list[dict]) -> dict:
+    """The schema's Rollup over `nodes`: leaves only, parents never summed.
+
+    `remaining` is every leaf not done or skipped (statusreport's rule);
+    its hours sum the remaining `time` leaves, derived included, and its
+    `non_time` totals each unit as written.
+    """
+    def counts() -> dict:
+        return {"leaves": 0, "estimated": 0, "estimated_derived": 0, "unestimated": 0}
+
+    by_state = {s: counts() for s in STATES}
+    remaining = counts()
+    low = high = Decimal(0)
+    non_time: dict[str, Decimal] = {}
+    for node in nodes:
+        if not node["leaf"]:
+            continue
+        est = node["est"]
+        bucket = _bucket(est)
+        for c in (by_state[node["state"]],) + (
+                (remaining,) if node["state"] not in NOT_REMAINING else ()):
+            c["leaves"] += 1
+            c[bucket] += 1
+        if node["state"] in NOT_REMAINING:
+            continue
+        if est["class"] == "time":
+            low += _dec(est["low_hours"])
+            high += _dec(est["high_hours"])
+        elif est["class"] == "non-time":
+            non_time[est["unit"]] = non_time.get(est["unit"], Decimal(0)) + _dec(est["quantity"])
+    remaining.update({
+        "low_hours": _num(low), "high_hours": _num(high),
+        "non_time": {u: _num(q) for u, q in non_time.items()},
+    })
+    return {"by_state": by_state, "remaining": remaining}
+
+
+# --- invariants I1–I15 ---------------------------------------------------------
+
+INVARIANTS: tuple[str, ...] = tuple(f"I{i}" for i in range(1, 16))
+
+
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _rollup_diffs(want, got, path: str) -> list[str]:
+    """Where `got` differs from `want`: ints exactly, floats by isclose."""
+    if isinstance(want, dict) and isinstance(got, dict):
+        if set(want) != set(got):
+            return [f"{path}: keys {sorted(got)} != {sorted(want)}"]
+        out: list[str] = []
+        for k in want:
+            out += _rollup_diffs(want[k], got[k], f"{path}.{k}")
+        return out
+    if _is_num(want) and _is_num(got):
+        if isinstance(want, int) and isinstance(got, int):
+            same = want == got
+        else:
+            same = math.isclose(want, got, rel_tol=1e-9, abs_tol=1e-9)
+        return [] if same else [f"{path}: {got!r} != recomputed {want!r}"]
+    return [] if want == got else [f"{path}: {got!r} != recomputed {want!r}"]
+
+
+def _node_violations(node: dict, project: str, add) -> None:
+    nid, meta, est = node["id"], node["meta"], node["est"]
+    want_issue = meta.get("issue") if isinstance(meta.get("issue"), str) and meta.get("issue") else None
+    if node["issue"] != want_issue:
+        add("I4", f"node {nid}: issue {node['issue']!r} != meta.issue {want_issue!r}")
+    # I6
+    raw, cls = est["raw"], est["class"]
+    if raw != meta.get("est"):
+        add("I6", f"node {nid}: est.raw {raw!r} != meta.est {meta.get('est')!r}")
+    if (cls == "absent") != (raw is None):
+        add("I6", f"node {nid}: class {cls!r} with raw {raw!r}")
+    lo, hi, q, unit = est["low_hours"], est["high_hours"], est["quantity"], est["unit"]
+    if cls == "time":
+        if not (_is_num(lo) and _is_num(hi) and 0 <= lo <= hi):
+            add("I6", f"node {nid}: time needs hours 0 <= low <= high, got {lo!r}, {hi!r}")
+        if q is not None or unit is not None:
+            add("I6", f"node {nid}: time with quantity/unit set")
+    elif cls == "non-time":
+        if not (_is_num(q) and isinstance(unit, str) and unit):
+            add("I6", f"node {nid}: non-time needs a quantity and a unit, got {q!r}, {unit!r}")
+        if lo is not None or hi is not None:
+            add("I6", f"node {nid}: non-time with hours set")
+    elif (lo, hi, q, unit) != (None, None, None, None):
+        add("I6", f"node {nid}: class {cls!r} with hours/quantity/unit set")
+    if est["src"] != est_src(meta)[0]:
+        add("I7", f"node {nid}: est.src {est['src']!r} != {est_src(meta)[0]!r}")
+    if node["satisfies"] != as_list(meta.get("satisfies")):
+        add("I8", f"node {nid}: satisfies {node['satisfies']!r} != meta.satisfies as a list")
+    if node["h"] != read_h(meta)[0]:
+        add("I9", f"node {nid}: h {node['h']!r} != {read_h(meta)[0]!r}")
+    # I10 (D13: the non-empty-issue clause applies to a non-empty raw only)
+    deps = node["depends_on"]
+    if [d["raw"] for d in deps] != wbs_parser._dep_ids(meta):
+        add("I10", f"node {nid}: depends_on raws != meta.depends_on in order")
+    for d in deps:
+        if d["scope"] == "local" and d["project"] != project:
+            add("I10", f"node {nid}: local dep {d['raw']!r} names project {d['project']!r}")
+        if d["scope"] == "foreign":
+            if d["project"] == project:
+                add("I10", f"node {nid}: foreign dep {d['raw']!r} names its own project")
+            if d["raw"] != f"{d['project']}:{d['issue']}":
+                add("I10", f"node {nid}: foreign dep {d['raw']!r} != project:issue")
+        if d["raw"] and not d["issue"]:
+            add("I10", f"node {nid}: dep {d['raw']!r} has an empty issue")
+    unknown = node["meta_unknown_keys"]
+    if len(set(unknown)) != len(unknown) or not set(unknown) <= set(meta):
+        add("I11", f"node {nid}: meta_unknown_keys {unknown!r} not a duplicate-free subset of meta")
+
+
+def invariant_violations(doc: dict) -> list[str]:
+    """The cross-field rules the structural checker does not decide (#725).
+
+    Each entry is `"I<n>: <message>"`. Reads known v1.0 fields only, so a
+    document at a newer minor is checked on what this producer knows.
+    Assumes `portfolio-check.check(doc)` already passed.
+    """
+    out: list[str] = []
+
+    def add(tag: str, message: str) -> None:
+        out.append(f"{tag}: {message}")
+
+    projects = doc["projects"]
+    names = [p["project"] for p in projects]
+    if len(set(names)) != len(names):
+        add("I12", f"project names are not unique: {names!r}")
+    all_ids = [n["id"] for p in projects for n in p["nodes"]]
+    parents = {n["parent"] for p in projects for n in p["nodes"] if n["parent"] is not None}
+    if len(set(all_ids)) != len(all_ids):
+        add("I1", "node ids are not unique across the document")
+    for p in projects:
+        name, nodes = p["project"], p["nodes"]
+        # I12
+        if p["status"] == "read":
+            if p["rollup"] is None or p["wbs_title"] is None:
+                add("I12", f"project {name!r}: read with a null rollup or wbs_title")
+            if p["status_reason"] is not None:
+                add("I12", f"project {name!r}: read with a status_reason")
+        else:
+            if nodes or p["issues"] or p["rollup"] is not None or p["wbs_title"] is not None:
+                add("I12", f"project {name!r}: {p['status']} with nodes, issues, rollup or title")
+            if not (isinstance(p["status_reason"], str) and p["status_reason"]):
+                add("I12", f"project {name!r}: {p['status']} needs a non-empty status_reason")
+        # I2, I3
+        index = {n["id"]: i for i, n in enumerate(nodes)}
+        for i, n in enumerate(nodes):
+            if i and n["source_line"] <= nodes[i - 1]["source_line"]:
+                add("I2", f"node {n['id']}: source_line does not ascend")
+            parent = n["parent"]
+            if parent is not None:
+                j = index.get(parent)
+                if j is None:
+                    add("I2", f"node {n['id']}: parent {parent!r} is not an earlier node of {name!r}")
+                elif j >= i:
+                    add("I2", f"node {n['id']}: parent {parent!r} is not earlier")
+                elif nodes[j]["depth"] >= n["depth"]:
+                    add("I2", f"node {n['id']}: parent {parent!r} is not shallower")
+        for n in nodes:
+            if n["leaf"] == (n["id"] in parents):
+                add("I3", f"node {n['id']}: leaf is {n['leaf']} but children say otherwise")
+            if not n["leaf"] and n["ready"] is not None:
+                add("I3", f"node {n['id']}: ready is set on a parent")
+            _node_violations(n, name, add)
+        # I5
+        want: dict[str, list[str]] = {}
+        for n in nodes:
+            if n["issue"] is not None:
+                want.setdefault(n["issue"], []).append(n["id"])
+        got = [e["issue"] for e in p["issues"]]
+        if sorted(got) != sorted(want) or len(set(got)) != len(got):
+            add("I5", f"project {name!r}: issues {got!r} != node issues {sorted(want)!r}")
+        for e in p["issues"]:
+            if e["issue"] in want and e["nodes"] != want[e["issue"]]:
+                add("I5", f"project {name!r}: issue {e['issue']!r} nodes {e['nodes']!r} "
+                          f"!= {want[e['issue']]!r}")
+            # I14: open exactly when both next-step fields are set; each is
+            # null unless open (schema doc, IssueEntry).
+            fields = (e["next_step"], e["next_step_number"])
+            if e["checklist"] == "open":
+                bad = None in fields
+            else:
+                bad = fields != (None, None)
+            if bad:
+                add("I14", f"project {name!r}: issue {e['issue']!r} checklist {e['checklist']!r} "
+                           "disagrees with next_step")
+        # I13
+        if p["rollup"] is not None:
+            for diff in _rollup_diffs(rollup(nodes), p["rollup"], f"{name}.rollup"):
+                add("I13", diff)
+    # I15
+    known = set(names)
+    for r in doc["parse_report"]:
+        if r["project"] not in known:
+            add("I15", f"report entry names project {r['project']!r}, not in the document")
+    return out
 
 
 # --- CLI -----------------------------------------------------------------------
