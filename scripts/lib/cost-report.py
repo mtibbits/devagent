@@ -23,12 +23,39 @@ read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
 every file read, so a session archived on two hosts and still live counts
 once; a session is its sessionId. --json prints one JSON object per (project,
 issue) with the transcript files it came from. Records stream, so memory does
-not grow with transcript size.
+not grow with transcript size; under --time it grows by one 16-byte uuid key
+per user/assistant record (about 150 bytes with set overhead) and one span
+per busy run.
 
 Cost is in input-token equivalents: each token class weighted by its price
 relative to the base input price (WEIGHTS). A session re-reads its whole
 context on every call, so cache reads dominate a long session; that is what
 next.sh's phase breaks cut.
+
+--time adds agent and operator time per pair (#733), from the timestamps of
+user and assistant records only: attachments, queue operations and other
+record types are invisible, and so are client-injected user records (isMeta,
+isCompactSummary, isVisibleInTranscriptOnly, <local-command…> text). Each
+interval between consecutive records of one transcript is a wait when the
+later record answers a still-pending tool_use (any unanswered one, not only
+the previous record's) or is a task-notification hand-back; a wait counts as
+agent time when it is at most tool_gap, any other interval when it is at
+most idle_gap, all or nothing (a peer message is not a wait). An interval
+ending in an operator event is never agent time. A wait on an agent launch
+whose subagent transcript was read and charged to a pair is not main time:
+the subagent's own records carry the work. Agent busy time sums every transcript's busy
+intervals (parallel subagents add); agent wall time, the headline, is the
+length of their union. Operator events come from main sessions only: a
+message with origin human, a user_temporary permission decision, the answer
+to an AskUserQuestion or ExitPlanMode prompt, or, by fallback, a no-origin typed user message (not a notification, an
+Another Claude session message or local-command output). An event adds its
+latency since the previous record when that is at most attention_cap, else
+counts a return after absence and adds 0; a typed message whose previous
+record is not an end_turn was queued while the agent worked and adds 0.
+Time is charged to the pair in force before the record's own events (a
+typed /devagent:pull's latency is the prior pair's), and subagent time to
+the pair that launched it, as cost is. A record whose uuid was already read
+in any file adds nothing, so a live session and its archived copy count once.
 """
 
 from __future__ import annotations
@@ -37,11 +64,14 @@ import argparse
 import gzip
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
+import uuid
 import zlib
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -76,6 +106,17 @@ START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
 MARKERS = ('"usage"', '"tool_use"', "dispatch: ", "<command-name>", "Run ID: ")
 # A subagent file contributes only its calls.
 SUB_MARKERS = ('"usage"',)
+# Under --time every user/assistant record is read: operator and idle records carry no cost marker.
+# Both separator styles: Claude Code writes compact JSON, Python's json.dumps does not.
+TIME_MARKERS = ('"type":"user"', '"type":"assistant"', '"type": "user"', '"type": "assistant"')
+# A hand-back notification names the background task it closes.
+TASK_TOOL_USE_ID = re.compile(r"<tool-use-id>([^<]+)</tool-use-id>")
+# Tool calls whose work a subagent transcript records.
+LAUNCH_TOOLS = ("Agent", "Task", "Workflow")
+# Tool calls whose result is the operator's answer: the wait is the operator's, not the agent's.
+ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
+# No-origin user text that is not the operator typing.
+NOT_TYPED = ("<task-notification>", "Another Claude session", "<local-command")
 
 
 def call_cost(u: dict) -> float:
@@ -161,6 +202,224 @@ def _text(content) -> str:
     return ""
 
 
+def parse_ts(s) -> float | None:
+    """A record's ISO-8601 timestamp as epoch seconds; None when missing, unparseable or naive."""
+    if not isinstance(s, str):
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt.timestamp() if dt.tzinfo is not None else None
+
+
+class TimeRules:
+    """The three time-rule parameters, in seconds."""
+    __slots__ = ("idle_gap", "tool_gap", "attention_cap")
+
+    def __init__(self, idle_gap: float = 300.0, tool_gap: float = 3600.0, attention_cap: float = 900.0):
+        self.idle_gap, self.tool_gap, self.attention_cap = float(idle_gap), float(tool_gap), float(attention_cap)
+
+    def rule_line(self) -> str:
+        return (f"time rule: idle_gap {self.idle_gap / 60:g}m, tool_gap {self.tool_gap / 60:g}m, "
+                f"attention_cap {self.attention_cap / 60:g}m")
+
+    def as_json(self) -> dict:
+        return {"attention_cap_s": round(self.attention_cap, 2), "idle_gap_s": round(self.idle_gap, 2),
+                "tool_gap_s": round(self.tool_gap, 2)}
+
+
+class TimeAcc:
+    """Agent and operator time charged to one pair (or one bucket of a transcript).
+
+    spans: busy intervals as (start, end), a contiguous busy run kept as one span.
+    linked_waits: [(closing tool_use id, start, end)], busy waits on a launched
+    agent; collect() adds one only when no subagent file under that id was read.
+    """
+    __slots__ = ("spans", "busy", "operator", "events", "returns", "fallback", "linked_waits")
+
+    def __init__(self):
+        self.spans, self.linked_waits = [], []
+        self.busy = self.operator = 0.0
+        self.events = self.returns = self.fallback = 0
+
+    def add_busy(self, start: float, end: float):
+        if end <= start:
+            return
+        self.busy += end - start
+        if self.spans and self.spans[-1][1] == start:
+            self.spans[-1] = (self.spans[-1][0], end)
+        else:
+            self.spans.append((start, end))
+
+    def merge(self, other: TimeAcc):
+        self.spans.extend(other.spans)
+        self.busy += other.busy
+        self.operator += other.operator
+        self.events += other.events
+        self.returns += other.returns
+        self.fallback += other.fallback
+
+    def wall(self) -> float:
+        """The length of the union of the busy spans."""
+        total, end = 0.0, None
+        for s, e in sorted(self.spans):
+            if end is None or s > end:
+                total, end = total + e - s, e
+            elif e > end:
+                total, end = total + e - end, e
+        return total
+
+
+def _typed_text(content) -> str | None:
+    """A user record's text when it holds no tool_result: the string, or the first text block."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    text = None
+    for b in content:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "tool_result":
+            return None
+        if text is None and b.get("type") == "text":
+            text = b.get("text") if isinstance(b.get("text"), str) else ""
+    return text
+
+
+def _content(d: dict):
+    msg = d.get("message")
+    return msg.get("content") if isinstance(msg, dict) else None
+
+
+def injected(d: dict) -> bool:
+    """A user record the client wrote (meta, compaction, local-command output): invisible to the time rules."""
+    if d.get("type") != "user":
+        return False
+    if d.get("isMeta") or d.get("isCompactSummary") or d.get("isVisibleInTranscriptOnly"):
+        return True
+    text = _typed_text(_content(d))
+    return text is not None and text.startswith("<local-command")
+
+
+def operator_kind(d: dict) -> str | None:
+    """For a main-session user record: "human", "permission", "fallback" (a no-origin typed message) or None."""
+    origin = d.get("origin")
+    if isinstance(origin, dict) and origin.get("kind") == "human":
+        return "human"
+    decision = d.get("permissionDecision")
+    if isinstance(decision, dict) and decision.get("source") == "user_temporary":
+        return "permission"
+    if "origin" in d:
+        return None
+    text = _typed_text(_content(d))
+    return "fallback" if text is not None and not text.startswith(NOT_TYPED) else None
+
+
+class Clock:
+    """The time rules over one transcript's records, in file order: the one place they live.
+
+    tick() takes each user/assistant record with a parsed time t (the caller
+    drops injected() records and any without a time). The interval from the
+    previous record P to this one is agent time when it is a wait (this record
+    answers a pending tool_use, or is a hand-back notification) no longer than
+    tool_gap, or otherwise no longer than idle_gap, all or nothing; an interval
+    ending in an operator event is never agent time. Operator events (main
+    sessions only; operator_kind(), or the answer to an ASK_TOOLS prompt) add their latency when it is at most attention_cap, else
+    count a return after absence; a typed message whose P is not an end_turn
+    was queued while the agent worked and adds 0. A record whose uuid was
+    already seen in any file adds nothing but still becomes P.
+    """
+    __slots__ = ("rules", "main", "uuids", "added", "pending", "launched", "asks", "prev")
+
+    def __init__(self, rules: TimeRules, main: bool, uuids: set, added: set | None = None):
+        # uuids: those read in other files; added: where this file's new ones go (default: uuids itself).
+        self.rules, self.main, self.uuids = rules, main, uuids
+        self.added = uuids if added is None else added
+        self.pending: set = set()     # tool_use ids not yet answered
+        self.launched: set = set()    # tool_use ids of agent launches
+        self.asks: set = set()        # tool_use ids of ASK_TOOLS prompts
+        self.prev = None              # (t, P is an end_turn assistant record)
+
+    def tick(self, d: dict, t: float, acc: TimeAcc):
+        kind = d.get("type")
+        msg = d.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        blocks = content if isinstance(content, list) else ()
+        dup = False
+        u = d.get("uuid")
+        if isinstance(u, str) and u:
+            try:
+                key = uuid.UUID(u).bytes
+            except ValueError:
+                key = u
+            dup = key in self.uuids or key in self.added
+            if not dup:
+                self.added.add(key)
+        results = [b.get("tool_use_id") for b in blocks
+                   if isinstance(b, dict) and b.get("type") == "tool_result"] if kind == "user" else []
+        closing = next((r for r in results if r in self.pending), None)
+        wait = closing is not None
+        origin = d.get("origin")
+        if not wait and isinstance(origin, dict) and origin.get("kind") == "task-notification":
+            wait = True
+            m = TASK_TOOL_USE_ID.search(_text(content))
+            closing = m.group(1) if m else None
+        op = operator_kind(d) if self.main and kind == "user" else None
+        if op is None and self.main and closing in self.asks:
+            op = "permission"
+        p = self.prev
+        if not dup and p is not None:
+            gap = t - p[0]
+            if not op and 0 <= gap <= (self.rules.tool_gap if wait else self.rules.idle_gap):
+                if wait and closing in self.launched:
+                    acc.linked_waits.append((closing, p[0], t))
+                else:
+                    acc.add_busy(p[0], t)
+        if not dup and op:
+            acc.events += 1
+            if op == "fallback":
+                acc.fallback += 1
+            if p is not None and (op == "permission" or p[1]):
+                gap = max(0.0, t - p[0])
+                if gap <= self.rules.attention_cap:
+                    acc.operator += gap
+                else:
+                    acc.returns += 1
+        if kind == "assistant":
+            for b in blocks:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    self.pending.add(b.get("id"))
+                    if b.get("name") in LAUNCH_TOOLS:
+                        self.launched.add(b.get("id"))
+                    elif b.get("name") in ASK_TOOLS:
+                        self.asks.add(b.get("id"))
+        else:
+            self.pending.difference_update(results)
+        self.prev = (t, kind == "assistant" and isinstance(msg, dict) and msg.get("stop_reason") == "end_turn")
+
+
+class Timing:
+    """The rules plus the record uuids seen across every file collect() reads."""
+    __slots__ = ("rules", "uuids")
+
+    def __init__(self, rules: TimeRules):
+        self.rules, self.uuids = rules, set()
+
+    def clock(self, main: bool, added: set | None = None) -> Clock:
+        return Clock(self.rules, main, self.uuids, added)
+
+
+def _timed(d: dict) -> float | None:
+    """A record's time when the time rules see it: a non-injected user/assistant record with a parsed timestamp."""
+    if d.get("type") not in ("user", "assistant") or injected(d):
+        return None
+    return parse_ts(d.get("timestamp"))
+
+
 class Row:
     __slots__ = ("calls", "peak", "main", "sub")
 
@@ -177,35 +436,56 @@ class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
 
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
-            | ("launch", tool_use_id) | ("calls", Row)
+            | ("launch", tool_use_id) | ("calls", Row) | ("time", TimeAcc)
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
     subs: [(toolUseId, cost, fresh)], one per subagent file with usage; fresh is
           False when every one of its message ids was already counted elsewhere.
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
+    A "time" event (under --time) holds the time of the records ticked before the
+    next pair-moving event: each record's time goes to the pair in force BEFORE
+    the record's own events.
+    sub_time: [(toolUseId, TimeAcc)], one per subagent file read, under --time.
     """
-    __slots__ = ("events", "dispatched", "subs", "session", "runs")
+    __slots__ = ("events", "dispatched", "subs", "session", "runs", "sub_time")
 
     def __init__(self):
         self.events, self.dispatched, self.subs = [], set(), []
         self.session, self.runs = None, {}
+        self.sub_time = []
 
 
-def scan(records: Iterable[dict], seen: set[str]) -> Tape:
+def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) -> Tape:
     """One forward pass over a session's records in file order; no record outlives its own turn.
 
     seen holds the message ids counted in files read before this one: such a
     call adds nothing, but still opens a calls bucket so the pair records the
-    session. A repeat within this file is skipped outright, as before.
+    session. A repeat within this file is skipped outright, as before. With
+    timing, each timed record ticks the session's Clock before its own events.
     """
     tape = Tape()
     ev = tape.events
     next_calls: set[str] = set()
     workflow_calls: set[str] = set()
     local: set[str] = set()
+    clock = timing.clock(main=True) if timing else None
+    row = tacc = None   # the open calls and time buckets; a pair-moving event closes both
+
+    def move(e):
+        nonlocal row, tacc
+        ev.append(e)
+        row = tacc = None
+
     for d in records:
         if tape.session is None and isinstance(d.get("sessionId"), str) and d["sessionId"]:
             tape.session = d["sessionId"]
+        if clock is not None:
+            t = _timed(d)
+            if t is not None:
+                if tacc is None:
+                    tacc = TimeAcc()
+                    ev.append(("time", tacc))
+                clock.tick(d, t, tacc)
         kind, msg = d.get("type"), d.get("message") or {}
         if not isinstance(msg, dict):
             continue
@@ -218,12 +498,12 @@ def scan(records: Iterable[dict], seen: set[str]) -> Tape:
                 if b.get("type") == "text":
                     m = COMMAND.search(b.get("text", ""))
                     if m:
-                        ev.append(("typed", m.group(1), tuple((m.group(2) or "").split())))
+                        move(("typed", m.group(1), tuple((m.group(2) or "").split())))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in next_calls:
                     hits = DISPATCH.findall(_text(b.get("content")))
                     if hits:
                         tape.dispatched.update(h[0] for h in hits)
-                        ev.append(("dispatch", *hits[-1]))
+                        move(("dispatch", *hits[-1]))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in workflow_calls:
                     for run in RUN_ID.findall(_text(b.get("content"))):
                         tape.runs.setdefault(run, b.get("tool_use_id"))
@@ -241,19 +521,20 @@ def scan(records: Iterable[dict], seen: set[str]) -> Tape:
                     if s.startswith("devagent:"):
                         n = s.split(":", 1)[1]
                         if n not in DRIVERS and not n.startswith("core-"):
-                            ev.append(("skill", n))
-                elif name in ("Agent", "Task", "Workflow"):
-                    ev.append(("launch", b.get("id")))
+                            move(("skill", n))
+                elif name in LAUNCH_TOOLS:
+                    move(("launch", b.get("id")))
                     if name == "Workflow":
                         workflow_calls.add(b.get("id"))
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and isinstance(usage, dict) and usage and mid not in local:
                 local.add(mid)
-                if not (ev and ev[-1][0] == "calls"):
-                    ev.append(("calls", Row()))
+                if row is None:
+                    row = Row()
+                    ev.append(("calls", row))
                 if mid not in seen:
                     seen.add(mid)
-                    ev[-1][1].add(1, context_size(usage), call_cost(usage))
+                    row.add(1, context_size(usage), call_cost(usage))
     return tape
 
 
@@ -273,15 +554,16 @@ def _transcripts(paths: Iterable[Path]) -> list[Path]:
     return sorted(p for p in paths if p.name.endswith((".jsonl", ".jsonl.gz")))
 
 
-def scan_session(path: Path, seen: set[str]) -> Tape:
+def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Tape:
     """scan() one session file, then sum each of its subagent files (last usage per message id wins).
 
     Subagent files are every agent-*.jsonl[.gz] under <dir>/<session>/subagents/,
     workflow agents included (journal.jsonl never matches). seen is shared
     across every file collect() reads: an id counted anywhere else adds nothing.
+    With timing, each subagent file also runs its own Clock (no operator events).
     """
     key = session_key(path)
-    tape = scan(load(path), seen)
+    tape = scan(load(path, MARKERS + TIME_MARKERS if timing else MARKERS), seen, timing)
     tape.session = tape.session or key
     base = path.parent / key / "subagents"
     for sub in _transcripts(base.rglob("agent-*.jsonl*")):
@@ -290,18 +572,28 @@ def scan_session(path: Path, seen: set[str]) -> Tape:
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
+        # Like last for cost, a subagent file's uuids join the shared set only once it reads whole.
+        added: set = set()
+        clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
-            for d in load(sub, SUB_MARKERS):
+            for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
                 msg = d.get("message") or {}
                 if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and isinstance(msg.get("usage"), dict):
                     last[msg["id"]] = msg["usage"]
+                if clock is not None:
+                    t = _timed(d)
+                    if t is not None:
+                        clock.tick(d, t, acc)
         except OSError as e:
             _skipped(sub, e)
             continue
+        tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
+        if tool_use_id is None and sub.parent.parent.name == "workflows":
+            tool_use_id = tape.runs.get(sub.parent.name)
+        if acc is not None:
+            timing.uuids |= added
+            tape.sub_time.append((tool_use_id, acc))
         if last:
-            tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
-            if tool_use_id is None and sub.parent.parent.name == "workflows":
-                tool_use_id = tape.runs.get(sub.parent.name)
             fresh = [u for mid, u in last.items() if mid not in seen]
             seen.update(last)
             tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh)))
@@ -339,14 +631,16 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
 def replay(tape: Tape, known: set[str]):
     """Run the pair state machine over a tape.
 
-    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}).
+    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}, [(pair, TimeAcc)]).
     """
     pair, step = START
-    buckets, launches = [], {}
+    buckets, launches, timed = [], {}, []
     for e in tape.events:
         kind = e[0]
         if kind == "calls":
             buckets.append((pair, step, e[1]))
+        elif kind == "time":
+            timed.append((pair, e[1]))
         elif kind == "dispatch":
             pair, step = (e[1], e[2]), e[3]
         elif kind == "typed":
@@ -355,11 +649,12 @@ def replay(tape: Tape, known: set[str]):
             step = e[1]
         elif kind == "launch":
             launches[e[1]] = (pair, step)
-    return buckets, launches
+    return buckets, launches, timed
 
 
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
-            hosts: dict | None = None, sources: dict | None = None):
+            hosts: dict | None = None, sources: dict | None = None,
+            timing: TimeRules | None = None, times: dict | None = None):
     """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
@@ -367,10 +662,13 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     One set of message ids spans every file, so a call is counted once however
     many copies of its transcript are read. hosts maps a dir to its archive
     partition (absent: "local"); a dict passed as sources is filled
-    {pair: {(host, cwd_slug, sessionId)}}.
+    {pair: {(host, cwd_slug, sessionId)}}. With timing, a dict passed as times
+    is filled {pair: TimeAcc} under the same filters; one set of record uuids
+    spans every file, as message ids do.
     """
     hosts = hosts or {}
     sources = {} if sources is None else sources
+    clocks = Timing(timing) if timing is not None else None
     files = sorted(((p, d) for d in dirs for p in _transcripts(d.glob("*.jsonl*"))),
                    key=lambda t: (_mtime(t[0]), session_key(t[0]), str(t[0])))
     # One unreadable file is skipped with a warning, not allowed to sink a report over every dir.
@@ -378,14 +676,25 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     seen: set[str] = set()
     for p, d in files:
         try:
-            tapes.append((scan_session(p, seen), (hosts.get(d, "local"), d.name)))
+            tapes.append((scan_session(p, seen, clocks), (hosts.get(d, "local"), d.name)))
         except OSError as e:
             _skipped(p, e)
     known = known_projects().union(*(t.dispatched for t, _ in tapes))
+    # A wait on a launched agent is not main busy when a subagent file under its id was read and is charged
+    # through this tape's launches (its records carry the work); a nested agent's file is charged elsewhere.
+    sub_ids = {i for t, _ in tapes for i, _ in t.sub_time if i is not None}
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
+    acc: dict[tuple, TimeAcc] = defaultdict(TimeAcc)
+
+    def charge(pair, a: TimeAcc, launches):
+        acc[pair].merge(a)
+        for i, start, end in a.linked_waits:
+            if i not in sub_ids or i not in launches:
+                acc[pair].add_busy(start, end)
+
     for tape, where in tapes:
-        buckets, launches = replay(tape, known)
+        buckets, launches, timed = replay(tape, known)
         origin = (*where, tape.session)
         for pair, step, b in buckets:
             if b.calls:
@@ -397,10 +706,17 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
             sources.setdefault(pair, set()).add(origin)
-    return {
-        (p, i): v for (p, i), v in rows.items()
-        if (not issue_filter or i == issue_filter) and (not project_filter or p == project_filter)
-    }, sessions
+        for pair, a in timed:
+            charge(pair, a, launches)
+        for tool_use_id, a in tape.sub_time:
+            charge(launches.get(tool_use_id, START)[0], a, launches)
+
+    def wanted(pair):
+        return (not issue_filter or pair[1] == issue_filter) and (not project_filter or pair[0] == project_filter)
+
+    if times is not None:
+        times.update((k, v) for k, v in acc.items() if wanted(k))
+    return {k: v for k, v in rows.items() if wanted(k)}, sessions
 
 
 def label(pair: tuple) -> str:
@@ -423,7 +739,17 @@ def summary_line(heading: str, steps: dict[str, Row], n_sessions: int) -> str:
     )
 
 
-def report(rows, sessions, source: str, summary: bool) -> str:
+def time_line(pair: tuple, a: TimeAcc) -> str:
+    return (
+        f"{label(pair)} time: agent wall {a.wall() / 3600:.2f}h, agent busy {a.busy / 3600:.2f}h, "
+        f"operator {a.operator / 3600:.2f}h ({a.events} operator events, {a.returns} returns after absence, "
+        f"{a.fallback} by fallback)"
+    )
+
+
+def report(rows, sessions, source: str, summary: bool, times: dict | None = None,
+           rules: TimeRules | None = None) -> str:
+    """The text report; with rules (--time), the rule line heads it and each pair's time line follows its cost line."""
     out = []
     if not summary:
         out.append(f"Token cost by step, from {source}")
@@ -431,13 +757,16 @@ def report(rows, sessions, source: str, summary: bool) -> str:
             "input-token equivalents, weighted by price vs base input: cache read 0.1, "
             "cache write 1.25 (5m) / 2 (1h), output 5"
         )
+    if rules is not None:
+        out.append(rules.rule_line())
     for pair, steps in rows.items():
         line = summary_line(label(pair), steps, len(sessions.get(pair, ())))
+        lines = [line] if rules is None else [line, time_line(pair, (times or {}).get(pair) or TimeAcc())]
         if summary:
-            out.append(line)
+            out += lines
             continue
         total = sum(r.main + r.sub for r in steps.values()) or 1.0
-        out += ["", line, f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
+        out += ["", *lines, f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
         for step, r in steps.items():
             out.append(
                 f"  {step:<22}{r.calls:>6}{r.peak // 1000:>9}K{_m(r.main):>9}{_m(r.sub):>8}"
@@ -446,13 +775,29 @@ def report(rows, sessions, source: str, summary: bool) -> str:
     return "\n".join(out)
 
 
-def report_json(rows, sessions, sources) -> str:
-    """One JSON object per pair, in report() order, keys sorted, figures rounded to 2 decimals."""
+def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeRules | None = None) -> str:
+    """One JSON object per pair, in report() order, keys sorted, figures rounded to 2 decimals.
+
+    With rules (--time), each object also carries the pair's time figures (seconds) and the rules as time_rule.
+    """
     out = []
     for pair, steps in rows.items():
         main = sum(r.main for r in steps.values())
         sub = sum(r.sub for r in steps.values())
+        extra = {}
+        if rules is not None:
+            a = (times or {}).get(pair) or TimeAcc()
+            extra = {
+                "agent_busy_s": round(a.busy, 2),
+                "agent_wall_s": round(a.wall(), 2),
+                "fallback_events": a.fallback,
+                "operator_events": a.events,
+                "operator_s": round(a.operator, 2),
+                "returns_after_absence": a.returns,
+                "time_rule": rules.as_json(),
+            }
         out.append(json.dumps({
+            **extra,
             "calls": sum(r.calls for r in steps.values()),
             "issue": pair[1],
             "main": round(main, 2),
@@ -495,6 +840,20 @@ def _nonempty(value: str) -> str:
     return value
 
 
+def _minutes(value: str) -> float:
+    try:
+        x = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of minutes: {value!r}") from None
+    if not math.isfinite(x) or x <= 0:
+        raise argparse.ArgumentTypeError(f"must be a finite number of minutes > 0: {value!r}")
+    return x
+
+
+# --time parameters: flag, TimeRules attribute (the defaults live in TimeRules).
+TIME_FLAGS = (("--idle-gap", "idle_gap"), ("--tool-gap", "tool_gap"), ("--attention-cap", "attention_cap"))
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--transcripts", action="append", type=Path,
@@ -512,7 +871,17 @@ def main(argv: list[str]) -> int:
     out.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
     out.add_argument("--json", action="store_true",
                      help="one JSON object per (project, issue) pair, with the transcript files it came from")
+    ap.add_argument("--time", action="store_true", help="add agent and operator time per pair")
+    defaults = TimeRules()
+    for flag, attr in TIME_FLAGS:
+        ap.add_argument(flag, type=_minutes, metavar="MIN",
+                        help=f"a --time rule parameter, in minutes; default {getattr(defaults, attr) / 60:g}")
     a = ap.parse_args(argv)
+    given = {attr: 60 * getattr(a, attr) for _, attr in TIME_FLAGS if getattr(a, attr) is not None}
+    if given and not a.time:
+        ap.error(f"{next(f for f, attr in TIME_FLAGS if attr in given)} needs --time")
+    rules = TimeRules(**given) if a.time else None
+    times: dict = {}
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
     every = (a.project or a.all_dirs) and not a.transcripts
     adirs: list[Path] = []
@@ -540,7 +909,7 @@ def main(argv: list[str]) -> int:
     sources: dict = {}
     if a.project and issue:
         # P/N first, then the (no project)/N calls that may be P's too.
-        rows, sessions = collect(dirs, issue, hosts=hosts, sources=sources)
+        rows, sessions = collect(dirs, issue, hosts=hosts, sources=sources, timing=rules, times=times)
         target, side = (a.project, issue), (NO_PROJECT, issue)
         if target not in rows:
             print(f"cost-report: no calls attributed to {label(target)}", file=sys.stderr)
@@ -550,12 +919,13 @@ def main(argv: list[str]) -> int:
             return 1
         rows = {k: rows[k] for k in (target, side) if k in rows}
     else:
-        rows, sessions = collect(dirs, issue, a.project, hosts=hosts, sources=sources)
+        rows, sessions = collect(dirs, issue, a.project, hosts=hosts, sources=sources, timing=rules, times=times)
         if not rows:
             what = f"project {a.project}" if a.project else issue or "any issue"
             print(f"cost-report: no calls attributed to {what}", file=sys.stderr)
             return 1
-    print(report_json(rows, sessions, sources) if a.json else report(rows, sessions, source, a.summary))
+    print(report_json(rows, sessions, sources, times, rules) if a.json
+          else report(rows, sessions, source, a.summary, times, rules))
     return 0
 
 

@@ -16,6 +16,32 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: `cost-report --time`, agent time and operator time per issue
+  (#733, epic #729).**
+  - Each `(project, issue)` pair gains a time line after its cost line:
+    `<project>/<issue> time: agent wall 2.41h, agent busy 3.87h, operator
+    0.62h (41 operator events, 3 returns after absence, 2 by fallback)`.
+    Agent wall time is the headline (the union of busy intervals); busy
+    time sums them across parallel subagents; operator time is the latency
+    of human messages, permission decisions and answers to AskUserQuestion
+    or ExitPlanMode prompts in main sessions.
+  - The rules: a tool wait counts as agent time up to `--tool-gap` (default
+    60 min), any other interval up to `--idle-gap` (5), all or nothing; an
+    interval ending in an operator event is operator time only; an
+    operator event adds its latency up to `--attention-cap` (15), else
+    counts a return after absence. The parameter flags need `--time`, and
+    the output echoes them as `time rule: idle_gap 5m, tool_gap 60m,
+    attention_cap 15m` (first line of `--summary`, third of the full
+    report).
+  - `--json --time` adds `agent_wall_s`, `agent_busy_s`, `operator_s`,
+    `operator_events`, `returns_after_absence`, `fallback_events` and
+    `time_rule` (`attention_cap_s`, `idle_gap_s`, `tool_gap_s`) to every
+    pair object. Without `--time` the output is unchanged.
+  - Time is read from the same records as cost (live dirs and
+    `--archive`), and a record copied into several files counts once.
+  - The impact step (22) now runs `--summary --time` and records
+    `- Workflow time: <time line> (<rule line>)` beside the workflow cost.
+
 - **Added: a durable transcript archive, and `cost-report --archive` (#731,
   epic #729).**
   - `scripts/archive-transcripts.sh` copies this machine's Claude Code

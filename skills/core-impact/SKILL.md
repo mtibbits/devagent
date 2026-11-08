@@ -64,24 +64,34 @@ numbers are not available or honest).
    the workflow can be judged against the bill:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cost-report.sh" --project <project> --issue <Issue-N> --summary
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/cost-report.sh" --project <project> --issue <Issue-N> --summary --time
    ```
 
    It reads every Claude Code transcript directory on this machine, so run
-   it from any directory. Add its first line under Quantifiable as
-   `- Workflow cost: <line>`. When it prints a second line,
-   `(no project)/<Issue-N>: …`, also record that line as
-   `- Workflow cost (unattributed to a project, may include other projects' work): <line>`:
+   it from any directory. Pick its lines by label, not position: the rule
+   line starts `time rule: `; `<project>/<Issue-N>: …` is the
+   cost line and `<project>/<Issue-N> time: …` the time line;
+   `(no project)/<Issue-N>: …` and `(no project)/<Issue-N> time: …` are the
+   unattributed pair's. Add the cost line under Quantifiable as
+   `- Workflow cost: <line>`, and the time line, with the rule line in
+   parentheses, as `- Workflow time: <time line> (<rule line>)`. When the
+   unattributed pair is printed, also record its lines as
+   `- Workflow cost (unattributed to a project, may include other projects' work): <line>`
+   and
+   `- Workflow time (unattributed to a project, may include other projects' work): <time line> (<rule line>)`:
    those calls named the issue but no project, so another project's
-   `<Issue-N>` may be in them. It counts only sessions on this machine; if
+   `<Issue-N>` may be in them. Agent wall time is the headline: busy time
+   adds parallel subagents, operator time is your attention, and the counts
+   say how many events it rests on. It counts only sessions on this machine; if
    the issue also ran elsewhere, say so. If stderr has `cost-report: skipped`
    lines, a transcript could not be read and the figure may be low: append
    `(N transcript file(s) skipped; undercount)` to each recorded line and
    quote the warnings. Exit 1 means no calls were
    attributed to `<project>/<Issue-N>`: record `- Workflow cost: not
-   measured (<reason>)`, quoting the `cost-report: hint:` line from stderr
-   when there is one. Any other nonzero exit is also `not measured`, with
-   stderr as the reason.
+   measured (<reason>)` and `- Workflow time: not measured (<reason>)`,
+   quoting the `cost-report: hint:` line from stderr when there is one. Any
+   other nonzero exit is also `not measured` for both, with stderr as the
+   reason.
 
 ## Output format
 
@@ -95,6 +105,9 @@ numbers are not available or honest).
 - Build time: unchanged.
 - Workflow cost: <project>/Issue-NNNN: 12.4M input-token equivalents over 3 session(s),
   214 calls, peak context 290K (main 8.1M, subagents 4.3M)
+- Workflow time: <project>/Issue-NNNN time: agent wall 2.41h, agent busy 3.87h,
+  operator 0.62h (41 operator events, 3 returns after absence, 2 by fallback)
+  (time rule: idle_gap 5m, tool_gap 60m, attention_cap 15m)
 
 ## Qualitative
 - Unblocks fusion of post-processing stages (separate issue).
