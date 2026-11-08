@@ -1139,10 +1139,111 @@ def test_main_writes_and_reports(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv", [[], ["build"], ["build", "--out"], ["build", "--out", ""],
                                   ["build", "--bogus", "x"], ["nope", "--out", "x"],
-                                  ["build", "--out", "a", "extra"]])
+                                  ["build", "--out", "a", "extra"], ["ready", "x"],
+                                  ["ready", "--out", "x"], ["Ready"]])
 def test_main_usage(argv, capsys):
     assert pf.main(argv) == pf.EXIT_USAGE
     assert pf.USAGE in capsys.readouterr().err
+
+
+def _ready_manifest(tmp_path, monkeypatch, others=None):
+    """rho then `others` (default: sigma) as the manifest, over a tmp copy."""
+    root = tmp_path / "ready"
+    shutil.copytree(READY, root)
+    if others is None:
+        others = [("sigma", str(root / "sigma"))]
+    _manifest(monkeypatch, [("rho", str(root / "rho")), *others])
+    return root
+
+
+def test_main_ready_prints_lines(tmp_path, monkeypatch, capsysbinary):
+    _ready_manifest(tmp_path, monkeypatch)
+    assert pf.main(["ready"]) == pf.EXIT_OK
+    out, err = capsysbinary.readouterr()
+    assert out == READY_EXPECTED.read_bytes()
+    assert err == b""
+
+
+def test_main_ready_self_check_exit_3(monkeypatch, capsys):
+    _manifest(monkeypatch, [])
+    broken = _example()
+    _nset("n9", "id", "n1")(broken)
+    monkeypatch.setattr(pf, "build_document", lambda projects, generated_at: broken)
+    assert pf.main(["ready"]) == pf.EXIT_SELF_CHECK == 3
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert "portfolio: self-check: I1: " in err
+
+
+def _subprocess_env(root):
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("PORTFOLIO_") and k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    env.update({"PORTFOLIO_PROJECT_COUNT": "2",
+                "PORTFOLIO_NAME_0": "rho", "PORTFOLIO_DEVDOC_0": str(root / "rho"),
+                "PORTFOLIO_NAME_1": "sigma", "PORTFOLIO_DEVDOC_1": str(root / "sigma")})
+    return env
+
+
+def test_ready_stdout_is_utf8_lf_bytes(tmp_path):
+    root = tmp_path / "ready"
+    shutil.copytree(READY, root)
+    r = subprocess.run([sys.executable, str(PRODUCER), "ready"], capture_output=True,
+                       env=_subprocess_env(root))
+    assert (r.returncode, r.stderr) == (0, b"")
+    assert r.stdout == READY_EXPECTED.read_bytes()
+    assert b"\r\n" not in r.stdout
+    assert "Café naïve rdy-utf8" in r.stdout.decode("utf-8")
+
+
+def test_ready_broken_pipe_exits_quietly(tmp_path):
+    # Enough ready leaves to overrun any pipe buffer, so the write meets the
+    # closed pipe rather than finishing first.
+    root = tmp_path / "many"
+    (root / "rho").mkdir(parents=True)
+    (root / "sigma").mkdir()
+    rows = "".join(f"- [ ] leaf {i} {'x' * 80} {{issue: Issue-{i}}}\n" for i in range(1, 4001))
+    (root / "rho" / "WBS.md").write_bytes(("# rho\n\n" + rows).encode("utf-8"))
+    (root / "sigma" / "WBS.md").write_bytes(b"# sigma\n")
+    proc = subprocess.Popen([sys.executable, str(PRODUCER), "ready"], stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=_subprocess_env(root))
+    assert proc.stdout.readline().startswith(b"rho\tIssue-1\t")
+    proc.stdout.close()
+    err = proc.stderr.read()
+    proc.stderr.close()
+    assert proc.wait() == 0
+    assert b"Traceback" not in err, err
+    assert err == b""
+
+
+def test_main_ready_reports_unread_projects(tmp_path, monkeypatch, capsysbinary):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    dir_wbs = tmp_path / "dirwbs"
+    (dir_wbs / "WBS.md").mkdir(parents=True)
+    _ready_manifest(tmp_path, monkeypatch, [("nowbs", str(empty)), ("broken", str(dir_wbs))])
+    assert pf.main(["ready"]) == pf.EXIT_OK
+    out, err = capsysbinary.readouterr()
+    # Hand-derived: sigma is not configured here, so rho's sigma:Issue-90
+    # entry does not resolve and rdy-foreign-done drops out.
+    want = [line for line in _expected_lines()
+            if line.startswith("rho\t") and "rdy-foreign-done" not in line]
+    assert out.decode("utf-8").splitlines() == want
+    assert err.decode("utf-8").splitlines() == [
+        "portfolio: nowbs: not read (no_wbs); its leaves are not listed",
+        "portfolio: broken: not read (unreadable); its leaves are not listed",
+    ]
+
+
+def test_ready_lines_sanitizes_and_renders_est():
+    def leaf(issue, raw, text):
+        return {"leaf": True, "ready": True, "issue": issue, "est": {"raw": raw}, "text": text}
+    doc = {"projects": [{"project": "p", "nodes": [
+        leaf(None, ["1h", "2h"], "a\tb\rc"),
+        leaf("Issue-1", None, "t\nu"),
+        {"leaf": False, "ready": None, "issue": "Issue-2", "est": {"raw": "3h"}, "text": "parent"},
+        {"leaf": True, "ready": False, "issue": "Issue-3", "est": {"raw": "1h"}, "text": "no"},
+    ]}]}
+    assert pf.ready_lines(doc) == ["p\t\t1h, 2h\ta b c", "p\tIssue-1\t\tt u"]
 
 
 def test_exit_constants_pinned():

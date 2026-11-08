@@ -5,6 +5,10 @@ silently, and write it only when it passes both the structural checker
 (portfolio-check.py) and this module's own cross-field invariants I1–I16.
 
     portfolio.py build --out PATH
+    portfolio.py ready
+
+`ready` builds the same document in memory, runs the same self-check, and
+prints one TSV line per ready leaf (ready_lines); it writes nothing.
 
 The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
@@ -49,7 +53,7 @@ def _load(name: str, path: Path):
 wbs_parser = _load("_portfolio_wbs_parser", LIB / "wbs-parser.py")
 pc = _load("_portfolio_check", LIB / "portfolio-check.py")
 
-USAGE = "usage: portfolio.py build --out PATH"
+USAGE = "usage: portfolio.py build --out PATH | portfolio.py ready"
 
 # --- per-node derivations ------------------------------------------------------
 
@@ -998,7 +1002,7 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
 # --- write path and CLI --------------------------------------------------------
 
 # One exit map (commands/portfolio.md copies it; a test holds them equal).
-EXIT_OK = 0          # written
+EXIT_OK = 0          # written (or printed, under `ready`)
 EXIT_CONFIG = 1      # config missing or invalid (raised by portfolio.sh)
 EXIT_USAGE = 2       # usage error, refused path, or unwritable path
 EXIT_SELF_CHECK = 3  # self-check failed; nothing written
@@ -1112,10 +1116,56 @@ def _usage(problem: str | None = None) -> int:
     return EXIT_USAGE
 
 
+def _self_check(doc: dict) -> int | None:
+    """EXIT_SELF_CHECK after printing why, or None when the document passes."""
+    errors = pc.check(doc)
+    if not errors:
+        errors = invariant_violations(doc)
+    if not errors:
+        return None
+    for e in errors:
+        sys.stderr.write(f"portfolio: self-check: {e}\n")
+    return EXIT_SELF_CHECK
+
+
+NOT_READ_MSG = "portfolio: {project}: not read ({status}); its leaves are not listed"
+
+
+def _ready_view() -> int:
+    """`portfolio.py ready`: print the ready leaves; write nothing."""
+    try:
+        projects = read_manifest()
+    except ManifestError as e:
+        return _usage(str(e))
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    doc = build_document(projects, generated_at)
+    failed = _self_check(doc)
+    if failed is not None:
+        return failed
+    for p in doc["projects"]:
+        if p["status"] != "read":
+            sys.stderr.write(NOT_READ_MSG.format(project=p["project"], status=p["status"]) + "\n")
+    sys.stderr.flush()
+    # Bytes, not text mode: Windows text-mode stdout would end lines CRLF and
+    # encode with the console code page (mr-link.py's emit does the same).
+    data = "".join(line + "\n" for line in ready_lines(doc)).encode("utf-8")
+    try:
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        # The reader stopped early (`| head -1`): not an error. Point stdout at
+        # devnull so the interpreter's exit flush cannot raise again.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    return EXIT_OK
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] in (["-h"], ["--help"]):
         sys.stdout.write(USAGE + "\n")
         return EXIT_OK
+    if argv == ["ready"]:
+        return _ready_view()
     if len(argv) != 3 or argv[0] != "build" or argv[1] != "--out" or not argv[2]:
         return _usage()
     out = Path(argv[2])
@@ -1129,13 +1179,9 @@ def main(argv: list[str]) -> int:
         return EXIT_USAGE
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     doc = build_document(projects, generated_at)
-    errors = pc.check(doc)
-    if not errors:
-        errors = invariant_violations(doc)
-    if errors:
-        for e in errors:
-            sys.stderr.write(f"portfolio: self-check: {e}\n")
-        return EXIT_SELF_CHECK
+    failed = _self_check(doc)
+    if failed is not None:
+        return failed
     try:
         write_document(dumps(doc), out)
     except OSError as e:
