@@ -135,11 +135,9 @@ def _git_check(resolved: str):
     git = shutil.which("git")
     if not git:
         raise Refusal(f"cannot tell whether {resolved} is inside a git work tree (git not found); refusing")
-    # An inherited GIT_DIR/GIT_WORK_TREE would answer for another repository, and a
-    # ceiling or a filesystem boundary would stop discovery short of the repository
-    # the path is in: either would let a path inside a work tree pass.
-    drop = ("GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES")
-    env = {k: v for k, v in os.environ.items() if k not in drop}
+    # Any inherited GIT_* variable (GIT_DIR, GIT_WORK_TREE, a ceiling, ...) could answer
+    # for another repository or stop discovery short of the one the path is in.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["LC_ALL"] = "C"
     env["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "1"
     try:
@@ -156,11 +154,9 @@ def _git_check(resolved: str):
     raise Refusal(f"cannot tell whether {resolved} is inside a git work tree ({why}); refusing")
 
 
-def resolve(table: dict, config: Path):
-    """(transcripts_dir as given, its Path, host_id, exclude) or Refusal; checks run in a fixed order, before any write."""
+def resolve(table: dict):
+    """(transcripts_dir, host_id, exclude) of a configured() table, or Refusal; checks run in a fixed order, before any write."""
     raw = table.get("transcripts_dir")
-    if raw in (None, ""):
-        raise Refusal(f"[archive].transcripts_dir is not set in {config}")
     for k in table:
         if k not in KEYS:
             raise Refusal(f"[archive].{k} is not a known key (transcripts_dir, host_id, exclude)")
@@ -178,7 +174,7 @@ def resolve(table: dict, config: Path):
     if _lib("_archive_portfolio", "portfolio.py")._is_under(tdir, root):
         raise Refusal(f"[archive].transcripts_dir is inside {root}, where Claude Code deletes old transcripts")
     _git_check(os.path.realpath(tdir))
-    return tdir, Path(tdir), host, exclude
+    return tdir, host, exclude
 
 
 def _mkdirs(path: Path):
@@ -243,20 +239,19 @@ def _read_exact(src, n: int, hasher, sink=None) -> int:
     return done
 
 
+def _read_all(src, n: int, hasher, sink=None) -> int:
+    """_read_exact, raising OSError when src shrank."""
+    got = _read_exact(src, n, hasher, sink)
+    if got != n:
+        raise OSError(f"source shrank while reading ({got} of {n} bytes)")
+    return got
+
+
 def _compress_member(out, src, start: int, end: int, hasher) -> int:
     """The one compression seam: bytes [start, end) of src (positioned at start) as ONE gzip member on out."""
     z = zlib.compressobj(6, zlib.DEFLATED, 31)   # gzip framing: mtime 0, no file name
-    n = _read_exact(src, end - start, hasher, lambda b: out.write(z.compress(b)))
+    n = _read_all(src, end - start, hasher, lambda b: out.write(z.compress(b)))
     out.write(z.flush())
-    if n != end - start:
-        raise OSError(f"source shrank while reading ({n} of {end - start} bytes)")
-    return n
-
-
-def _copy(out, src, size: int, hasher) -> int:
-    n = _read_exact(src, size, hasher, out.write)
-    if n != size:
-        raise OSError(f"source shrank while reading ({n} of {size} bytes)")
     return n
 
 
@@ -301,16 +296,15 @@ def _signals_exit():
 def _sha256(src: Path, size: int) -> str:
     h = hashlib.sha256()
     with open(src, "rb") as f:
-        if _read_exact(f, size, h) != size:
-            raise OSError(f"source shrank while reading {src}")
+        _read_all(f, size, h)
     return h.hexdigest()
 
 
 class Archive:
     """One run over one host partition, under its lock."""
 
-    def __init__(self, store: Path, host: str):
-        self.hostdir = store / host
+    def __init__(self, hostdir: Path):
+        self.hostdir = hostdir
         self.manifest = self.hostdir / "manifest.jsonl"
         self.by_source: dict[str, dict] = {}
         self.by_archive: dict[str, dict] = {}
@@ -338,11 +332,11 @@ class Archive:
                 self.by_source[rec["source"]] = rec
                 self.by_archive[rec["archive"]] = rec
 
-    def _record(self, source: str, archive: str, session: str, st, size: int, sha: str):
+    def _record(self, source: str, archive: str, session: str, st, sha: str):
         target = self.hostdir / archive
         os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns))
         self._append({"archive": archive, "archive_size": target.stat().st_size, "mtime_ns": st.st_mtime_ns,
-                      "session": session, "sha256": sha, "size": size, "source": source})
+                      "session": session, "sha256": sha, "size": st.st_size, "source": source})
 
     def _append(self, rec: dict):
         """One manifest line per archived file, flushed before the next file (a crash loses at most this one)."""
@@ -374,7 +368,7 @@ class Archive:
                 if gz:
                     _compress_member(out, f, 0, st.st_size, h)
                 else:
-                    _copy(out, f, st.st_size, h)
+                    _read_all(f, st.st_size, h, out.write)
                 out.flush()
                 os.fsync(out.fileno())
             os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
@@ -406,9 +400,10 @@ class Archive:
                 raise
         return h.hexdigest()
 
-    def _beside(self, arel: str, src: Path, st, gz: bool, source: str, session: str, kept: str) -> str:
+    def _beside(self, arel: str, src: Path, st, gz: bool, source: str, session: str, kept: str,
+                sha: str | None = None) -> str:
         """Write src beside its archived name as <key>.<sha6>[-n].<rest>; an existing equal copy is reused."""
-        sha = _sha256(src, st.st_size)
+        sha = sha or _sha256(src, st.st_size)
         folder, name = arel.rsplit("/", 1)
         key, _, rest = name.partition(".")
         n = 0
@@ -427,7 +422,7 @@ class Archive:
         if got != sha:
             os.unlink(self.hostdir / cand)   # this run created the name; never leave an untracked copy
             raise OSError(f"source changed while reading (sha256 {got[:6]}, expected {sha[:6]})")
-        self._record(source, cand, session, st, st.st_size, sha)
+        self._record(source, cand, session, st, sha)
         print(f"{PROG}: diverged {kept} kept; source written as {cand}")
         return "diverged"
 
@@ -436,14 +431,14 @@ class Archive:
         gz = src.name.endswith(".jsonl")
         source = f"{slug}/{rel}"
         arel = source + (".gz" if gz else "")
-        session = rel.split("/", 1)[0].split(".", 1)[0]
+        session = _cost_report().session_key(Path(rel.split("/", 1)[0]))
         rec = self.by_source.get(source)
         if rec is None:
             target = self.hostdir / arel
             if os.path.lexists(target):
                 return self._beside(arel, src, st, gz, source, session, kept=arel)
             sha = self._write_new(target, src, st, gz)
-            self._record(source, arel, session, st, st.st_size, sha)
+            self._record(source, arel, session, st, sha)
             return "new"
         if st.st_size == rec["size"] and st.st_mtime_ns == rec["mtime_ns"]:
             return "unchanged"   # stat only: the source is not opened
@@ -452,16 +447,19 @@ class Archive:
             asize = os.stat(target).st_size
         except FileNotFoundError:
             asize = None
+        sha = None
         if asize == rec["archive_size"]:   # never append to a torn or foreign file
             if gz and st.st_size > rec["size"]:
-                sha = self._grow(target, src, st, rec)
-                if sha is not None:
-                    self._record(source, rec["archive"], session, st, st.st_size, sha)
+                grown = self._grow(target, src, st, rec)
+                if grown is not None:
+                    self._record(source, rec["archive"], session, st, grown)
                     return "grown"
-            elif st.st_size == rec["size"] and _sha256(src, st.st_size) == rec["sha256"]:
-                self._record(source, rec["archive"], session, st, st.st_size, rec["sha256"])
-                return "unchanged"   # content unchanged: only the mtime moved
-        return self._beside(arel, src, st, gz, source, session, kept=rec["archive"])
+            elif st.st_size == rec["size"]:
+                sha = _sha256(src, st.st_size)
+                if sha == rec["sha256"]:
+                    self._record(source, rec["archive"], session, st, sha)
+                    return "unchanged"   # content unchanged: only the mtime moved
+        return self._beside(arel, src, st, gz, source, session, kept=rec["archive"], sha=sha)
 
 
 def _sources(slug_dir: Path) -> list[Path]:
@@ -473,8 +471,8 @@ def _sources(slug_dir: Path) -> list[Path]:
     return sorted(files)
 
 
-def run(tdir: str, store: Path, host: str, exclude: list[str]) -> int:
-    hostdir = store / host
+def run(tdir: str, host: str, exclude: list[str]) -> int:
+    hostdir = Path(tdir) / host
     try:
         _mkdirs(hostdir)
     except OSError as e:
@@ -485,7 +483,7 @@ def run(tdir: str, store: Path, host: str, exclude: list[str]) -> int:
         if not got:
             _err(f"another run holds {lock}; nothing archived")
             return 1
-        arc = Archive(store, host)
+        arc = Archive(hostdir)
         root = _cost_report().transcripts_root()
         try:
             slugs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
@@ -508,11 +506,8 @@ def run(tdir: str, store: Path, host: str, exclude: list[str]) -> int:
               f"diverged {c['diverged']}, excluded {c['excluded']} ({os.path.join(tdir, host)})")
         if arc.failed:
             return 1
-        tmp = hostdir / ".last-run.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | O_BINARY, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ\n").encode())
-        os.replace(tmp, hostdir / "last-run")
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ\n").encode()
+        _lib("_archive_portfolio", "portfolio.py").write_document(stamp, hostdir / "last-run")
         return 0
 
 
@@ -541,33 +536,30 @@ def doctor_lines() -> list[tuple[str, str]]:
         out.append(("claude transcript retention",
                     f"cleanupPeriodDays is {value} in {settings}; Claude Code deletes transcripts older than "
                     "this (default 30). Set it above 30, e.g. 99999"))
-    config = config_path()
     try:
-        table = load_table(config)
+        table = load_table(config_path())
         if not configured(table):
             return out
-        _, store, host, _ = resolve(table, config)
+        tdir, host, _ = resolve(table)
     except Refusal as e:
         out.append(("transcript archive", str(e)))
         return out
-    stamp = store / host / "last-run"
+    stamp = Path(tdir) / host / "last-run"
+    problem = None
     try:
         text = stamp.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        out.append(("transcript archive", f"no last-run stamp at {stamp}; run scripts/archive-transcripts.sh"))
-        return out
-    except OSError as e:
-        out.append(("transcript archive", f"cannot read {stamp} ({e}); run scripts/archive-transcripts.sh"))
-        return out
-    try:
         when = datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - when).total_seconds()
+        if age > STALE_DAYS * 86400:
+            problem = f"last run {int(age // 86400)} days ago ({stamp})"
+    except FileNotFoundError:
+        problem = f"no last-run stamp at {stamp}"
+    except OSError as e:
+        problem = f"cannot read {stamp} ({e})"
     except ValueError:
-        out.append(("transcript archive", f"unreadable last-run stamp at {stamp}; run scripts/archive-transcripts.sh"))
-        return out
-    age = (datetime.now(timezone.utc) - when).total_seconds()
-    if age > STALE_DAYS * 86400:
-        out.append(("transcript archive",
-                    f"last run {int(age // 86400)} days ago ({stamp}); run scripts/archive-transcripts.sh"))
+        problem = f"unreadable last-run stamp at {stamp}"
+    if problem:
+        out.append(("transcript archive", f"{problem}; run scripts/archive-transcripts.sh"))
     return out
 
 
@@ -588,11 +580,11 @@ def main(argv: list[str]) -> int:
             if a.if_configured:
                 return 0
             raise Refusal(f"[archive].transcripts_dir is not set in {config}")
-        tdir, store, host, exclude = resolve(table, config)
+        tdir, host, exclude = resolve(table)
     except Refusal as e:
         _err(str(e))
         return 2
-    return run(tdir, store, host, exclude)
+    return run(tdir, host, exclude)
 
 
 if __name__ == "__main__":

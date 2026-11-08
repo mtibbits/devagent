@@ -226,10 +226,9 @@ log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ —
 # [archive].transcripts_dir is set (scripts/lib/archive-transcripts.py owns
 # every rule). The bash-side table test keeps an unconfigured close spawn-free
 # and its output byte-identical. Non-fatal like the WBS reconcile: a refusal or
-# a failed file warns and the close completes. DA_HOME is passed explicitly so
-# the helper reads the config this script resolved.
+# a failed file warns and the close completes.
 if grep -Eq '^[[:space:]]*\[[[:space:]]*archive[[:space:]]*[].]' "$(config_path)" 2>/dev/null; then
-    DA_HOME="$(devagent_home)" "$DEVAGENT_ROOT/scripts/archive-transcripts.sh" --if-configured || \
+    "$DEVAGENT_ROOT/scripts/archive-transcripts.sh" --if-configured || \
         warn "cleanup: transcript archive failed (non-fatal)"
 fi
 

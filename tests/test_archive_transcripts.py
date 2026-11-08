@@ -21,11 +21,10 @@ from pathlib import Path
 
 import pytest
 
-from test_cost_report import _call, _dispatch, _result, _tool, _usage, _write
+from test_cost_report import _call, _cli, _dispatch, _result, _tool, _usage, _write
 
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "scripts" / "lib" / "archive-transcripts.py"
-COST = REPO / "scripts" / "lib" / "cost-report.py"
 
 spec = importlib.util.spec_from_file_location("archive_transcripts", HELPER)
 ar = importlib.util.module_from_spec(spec)
@@ -750,7 +749,7 @@ def test_failed_file_exits_1_without_stamp(tmp_path):
 
 
 def _cost(*args):
-    run = subprocess.run([sys.executable, str(COST), *map(str, args)], capture_output=True, encoding="utf-8")
+    run = _cli(*args)
     assert run.returncode == 0, run.stderr
     return run.stdout
 

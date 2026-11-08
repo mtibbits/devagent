@@ -184,26 +184,25 @@ class Tape:
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
     """
-    __slots__ = ("stem", "events", "dispatched", "subs", "session", "runs")
+    __slots__ = ("events", "dispatched", "subs", "session", "runs")
 
-    def __init__(self, stem: str):
-        self.stem, self.events, self.dispatched, self.subs = stem, [], set(), []
+    def __init__(self):
+        self.events, self.dispatched, self.subs = [], set(), []
         self.session, self.runs = None, {}
 
 
-def scan(records: Iterable[dict], stem: str, seen: set[str] | None = None) -> Tape:
+def scan(records: Iterable[dict], seen: set[str]) -> Tape:
     """One forward pass over a session's records in file order; no record outlives its own turn.
 
     seen holds the message ids counted in files read before this one: such a
     call adds nothing, but still opens a calls bucket so the pair records the
     session. A repeat within this file is skipped outright, as before.
     """
-    tape = Tape(stem)
+    tape = Tape()
     ev = tape.events
     next_calls: set[str] = set()
     workflow_calls: set[str] = set()
     local: set[str] = set()
-    seen = set() if seen is None else seen
     for d in records:
         if tape.session is None and isinstance(d.get("sessionId"), str) and d["sessionId"]:
             tape.session = d["sessionId"]
@@ -269,7 +268,12 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
-def scan_session(path: Path, seen: set[str] | None = None) -> Tape:
+def _transcripts(paths: Iterable[Path]) -> list[Path]:
+    """The .jsonl and .jsonl.gz files among paths (one glob of <pattern>.jsonl* feeds this), sorted."""
+    return sorted(p for p in paths if p.name.endswith((".jsonl", ".jsonl.gz")))
+
+
+def scan_session(path: Path, seen: set[str]) -> Tape:
     """scan() one session file, then sum each of its subagent files (last usage per message id wins).
 
     Subagent files are every agent-*.jsonl[.gz] under <dir>/<session>/subagents/,
@@ -277,11 +281,10 @@ def scan_session(path: Path, seen: set[str] | None = None) -> Tape:
     across every file collect() reads: an id counted anywhere else adds nothing.
     """
     key = session_key(path)
-    seen = set() if seen is None else seen
-    tape = scan(load(path), key, seen)
+    tape = scan(load(path), seen)
     tape.session = tape.session or key
     base = path.parent / key / "subagents"
-    for sub in sorted(p for pat in ("agent-*.jsonl", "agent-*.jsonl.gz") for p in base.rglob(pat)):
+    for sub in _transcripts(base.rglob("agent-*.jsonl*")):
         try:
             meta = json.loads((sub.parent / f"{session_key(sub)}.meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError, RecursionError):
@@ -367,7 +370,8 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     {pair: {(host, cwd_slug, sessionId)}}.
     """
     hosts = hosts or {}
-    files = sorted(((p, d) for d in dirs for pat in ("*.jsonl", "*.jsonl.gz") for p in d.glob(pat)),
+    sources = {} if sources is None else sources
+    files = sorted(((p, d) for d in dirs for p in _transcripts(d.glob("*.jsonl*"))),
                    key=lambda t: (_mtime(t[0]), session_key(t[0]), str(t[0])))
     # One unreadable file is skipped with a warning, not allowed to sink a report over every dir.
     tapes = []
@@ -380,23 +384,19 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     known = known_projects().union(*(t.dispatched for t, _ in tapes))
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
-
-    def source(pair, tape, where):
-        if sources is not None:
-            sources.setdefault(pair, set()).add((*where, tape.session))
-
     for tape, where in tapes:
         buckets, launches = replay(tape, known)
+        origin = (*where, tape.session)
         for pair, step, b in buckets:
             if b.calls:
                 rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
             sessions[pair].add(tape.session)
-            source(pair, tape, where)
+            sources.setdefault(pair, set()).add(origin)
         for tool_use_id, cost, fresh in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
-            source(pair, tape, where)
+            sources.setdefault(pair, set()).add(origin)
     return {
         (p, i): v for (p, i), v in rows.items()
         if (not issue_filter or i == issue_filter) and (not project_filter or p == project_filter)
@@ -515,35 +515,28 @@ def main(argv: list[str]) -> int:
     a = ap.parse_args(argv)
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
     every = (a.project or a.all_dirs) and not a.transcripts
-    hosts: dict[Path, str] = {}
+    adirs: list[Path] = []
     if a.archive is not None:
         if not a.archive.is_dir():
             print(f"cost-report: no archive dir {a.archive}", file=sys.stderr)
             return 2
         adirs = archive_dirs(a.archive)
-        hosts = {d: d.parent.name for d in adirs}
-        live = a.transcripts or (all_dirs() if every else [])
-        if a.transcripts and not all(d.is_dir() for d in a.transcripts):
-            print("cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
-            return 2
-        if not live and not adirs:
-            print(f"cost-report: no transcript dir under {transcripts_root()} or archive {a.archive}", file=sys.stderr)
-            return 2
-        dirs = live + adirs
-        parts = []
-        if live:
-            parts.append(f"every transcript dir under {transcripts_root()} ({len(live)} dirs)" if every
-                         else ", ".join(map(str, live)))
+    # --archive alone reads no live dir; otherwise the current directory's is the default.
+    live = a.transcripts or (all_dirs() if every else [] if a.archive is not None else default_dirs())
+    if not (live or adirs) or not all(d.is_dir() for d in live):
+        under = f"no transcript dir under {transcripts_root()}" + (f" or archive {a.archive}" if a.archive else "")
+        print(f"cost-report: {under}" if every or (a.archive and not a.transcripts)
+              else "cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
+        return 2
+    dirs = live + adirs
+    hosts = {d: d.parent.name for d in adirs}
+    parts = []
+    if live:
+        parts.append(f"every transcript dir under {transcripts_root()} ({len(live)} dirs)" if every
+                     else ", ".join(map(str, live)))
+    if a.archive is not None:
         parts.append(f"archive {a.archive} ({len(adirs)} dirs)")
-        source = "; ".join(parts)
-    else:
-        dirs = a.transcripts or (all_dirs() if every else default_dirs())
-        if not dirs or not all(d.is_dir() for d in dirs):
-            print(f"cost-report: no transcript dir under {transcripts_root()}" if every
-                  else "cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
-            return 2
-        source = (f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)" if every
-                  else ", ".join(map(str, dirs)))
+    source = "; ".join(parts)
     sources: dict = {}
     if a.project and issue:
         # P/N first, then the (no project)/N calls that may be P's too.
