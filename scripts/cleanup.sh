@@ -228,8 +228,9 @@ log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ —
 # and its output byte-identical. Non-fatal like the WBS reconcile: a refusal or
 # a failed file warns and the close completes. DA_HOME is passed explicitly so
 # the helper reads the config this script resolved.
-# The table test admits every TOML spelling: [archive], [archive.x], a dotted
-# archive.<key> and an inline archive = {...}. A false match only costs a spawn.
+# The table test admits the table ([archive], [archive.x]), dotted-key
+# (archive.<key>) and inline-table (archive = {...}) forms; quoted keys are not
+# matched. A false match only costs a spawn.
 if grep -Eq '^[[:space:]]*(\[[[:space:]]*archive[[:space:]]*[].]|archive[[:space:]]*[.=])' "$(config_path)" 2>/dev/null; then
     DA_HOME="$(devagent_home)" "$DEVAGENT_ROOT/scripts/archive-transcripts.sh" --if-configured || \
         warn "cleanup: transcript archive failed (non-fatal)"

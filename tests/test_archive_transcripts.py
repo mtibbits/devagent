@@ -52,6 +52,8 @@ def _hermetic(tmp_path, monkeypatch):
         (tmp_path / sub).mkdir()
     monkeypatch.setenv("DA_HOME", str(tmp_path / "da-home"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.chdir(tmp_path / "cwd")
 
 
@@ -307,6 +309,19 @@ def test_git_undetermined_refuses(tmp_path, stub):
     assert run.stderr.splitlines() == [
         P + f"cannot tell whether {resolved} is inside a git work tree ({why}); refusing"]
     assert _snapshot(tmp_path) == before
+
+
+def test_git_probe_ignores_a_broken_global_gitconfig(tmp_path):
+    """The work-tree probe reads no git config, so an unparseable one cannot turn "outside" into "cannot tell"."""
+    _corpus()
+    _cfg(_store(tmp_path))
+    home = tmp_path / "home"                       # git's global config is $HOME/.gitconfig
+    home.mkdir()
+    (home / ".gitconfig").write_text("[[[ not a config\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(HOME=str(home), USERPROFILE=str(home))
+    run = _run(env=env)
+    assert run.returncode == 0, run.stderr
 
 
 def test_git_timeout_refuses(tmp_path, monkeypatch, capsys):

@@ -462,3 +462,12 @@ STUB
   [[ "$output" != *"transcript archive"* ]]
   [ "$(ls -A "$a/h1")" = last-run ]               # still nothing but the stamp
 }
+
+@test "doctor WARNs with the refusal when [archive] would be refused (#731)" {
+  local t="$PLUGIN_ROOT/.archive-731-probe"       # inside the plugin's git work tree; never created
+  printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$t" >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN transcript archive — [archive].transcripts_dir is inside a git work tree ("* ]]
+  [ ! -e "$t" ]
+}

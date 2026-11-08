@@ -139,6 +139,8 @@ def _git_check(resolved: str):
     # Any inherited GIT_* variable (GIT_DIR, GIT_WORK_TREE, a ceiling, ...) could answer
     # for another repository or stop discovery short of the one the path is in.
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull   # the probe needs no config; a hostile one must not
+    env["GIT_CONFIG_NOSYSTEM"] = "1"         # change its answer
     env["LC_ALL"] = "C"
     env["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "1"
     try:
