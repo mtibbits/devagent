@@ -2709,7 +2709,7 @@ and `WBS.md`, writes the document owner-only under `devagent_home` (never
 under a devdoc, source checkout or worktree root), and lists everything the
 parser reads silently in `parse_report`. It writes only when the document
 passes both the structural checker and its own cross-field invariants
-I1–I15; the checker's exit 0 alone is not correctness.
+I1–I16; the checker's exit 0 alone is not correctness.
 
 <!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
      requires this section to name docs/portfolio-schema.md. -->

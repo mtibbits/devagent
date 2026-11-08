@@ -349,7 +349,7 @@ with an import walk and a `python -I -S` run), so no dependency manifest exists.
 Exit `0` means **structurally well-formed**, nothing more. Cross-field
 consistency belongs to the producer, whose own correctness check cannot rest on
 this exit code: `invariant_violations` in `scripts/lib/portfolio.py` checks the
-rules below (I1–I15), and the producer writes a document only when both pass.
+rules below (I1–I16), and the producer writes a document only when both pass.
 The checker does not verify that:
 
 - node ids are unique, nodes ascend by `source_line`, and `parent` names an
@@ -364,7 +364,9 @@ The checker does not verify that:
   `rollup`, `wbs_title` and `status_reason`;
 - `rollup` equals a recomputation from the nodes;
 - `checklist` is `open` exactly when the next-step fields are set;
-- a report entry names a project in the document.
+- a report entry names a project in the document;
+- `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
+  null or all equal to a recomputation by the readiness rule (I16).
 
 ### Report kinds (#726)
 

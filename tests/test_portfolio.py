@@ -276,7 +276,7 @@ def test_rollup_matches_example():
         assert pf.rollup(p["nodes"]) == p["rollup"], p["project"]
 
 
-# --- invariants I1–I15 ---------------------------------------------------------
+# --- invariants I1–I16 ---------------------------------------------------------
 
 def test_example_satisfies_invariants():
     assert pf.invariant_violations(_example()) == []
@@ -351,6 +351,28 @@ def _call(fn):
 
 RU = ("projects", 0, "rollup")
 
+
+def _computed(*fs):
+    """A row that first fills the example's readiness fields, then mutates."""
+    def f(d):
+        pf.apply_readiness(d["projects"], lambda p: lambda *a: None)
+        for g in fs:
+            g(d)
+    return f
+
+
+def _flip(nid, key):
+    def f(d):
+        _node(d, nid)[key] = not _node(d, nid)[key]
+    return f
+
+
+def _dflip(nid, i, key):
+    def f(d):
+        dep = _node(d, nid)["depends_on"][i]
+        dep[key] = not dep[key]
+    return f
+
 # (tag, row id, mutation). The unmutated example is the control (it returns []).
 MUTATION_ROWS = [
     ("I1", "duplicate-id", _nset("n9", "id", "n1")),
@@ -409,11 +431,20 @@ MUTATION_ROWS = [
     ("I14", "complete-with-next-step", _iset("Issue-8", "next_step", "draft")),
     ("I15", "report-unknown-project", _call(lambda d: d["parse_report"].append(
         {"project": "nosuch", "source_line": None, "kind": "x", "message": "m"}))),
+    ("I16", "ready-flipped", _computed(_flip("n6", "ready"))),
+    ("I16", "resolved-flipped", _computed(_dflip("n3", 0, "resolved"))),
+    ("I16", "via-parent-row-on-parent", _computed(_nset("n1", "ready_via_parent_row", False))),
+    ("I16", "partial-null", _computed(_nset("n7", "ready", None))),
+    ("I16", "leaf-via-parent-row-flipped", _computed(_flip("n6", "ready_via_parent_row"))),
+    ("I16", "resolved-only-on-uncomputed", _dset("n3", 0, "resolved", True)),
+    ("I16", "via-parent-row-only-on-uncomputed", _nset("n6", "ready_via_parent_row", False)),
+    ("I16", "computed-with-duplicate-id", _computed(_nset("n9", "id", "n1"))),
 ]
 
 # Rows that must NOT fire.
 SURVIVE_ROWS = [
     ("I13", "hours-off-1e-12", _bump(RU + ("remaining", "low_hours"), 1e-12)),
+    ("I16", "computed-clean", _computed()),
 ]
 
 
@@ -437,9 +468,28 @@ def test_invariant_must_not_fire(tag, row, mutate):
 def test_invariant_rows_total():
     tags = {t for t, _, _ in MUTATION_ROWS}
     assert tags == set(pf.INVARIANTS)
-    assert pf.INVARIANTS == tuple(f"I{i}" for i in range(1, 16))
-    assert len(MUTATION_ROWS) >= 40
+    assert pf.INVARIANTS == tuple(f"I{i}" for i in range(1, 17))
+    assert len(MUTATION_ROWS) == 58
     assert len({(t, r) for t, r, _ in MUTATION_ROWS}) == len(MUTATION_ROWS)
+
+
+def test_i16_duplicate_id_reports_without_raising():
+    d = _example()
+    _computed(_nset("n9", "id", "n1"))(d)
+    got = pf.invariant_violations(d)
+    assert any(v.startswith("I1: ") for v in got), got
+    assert any(v.startswith("I16: ") for v in got), got
+
+
+def test_i16_messages():
+    d = _example()
+    _computed(_flip("n6", "ready"), _dflip("n3", 0, "resolved"),
+              _nset("n1", "ready_via_parent_row", False))(d)
+    assert sorted(pf.invariant_violations(d)) == sorted([
+        "I16: node n6: ready False != recomputed True",
+        "I16: node n3: depends_on[0].resolved False != recomputed True",
+        "I16: node n1: ready_via_parent_row False != recomputed None",
+    ])
 
 
 def test_newer_minor_known_fields_only():

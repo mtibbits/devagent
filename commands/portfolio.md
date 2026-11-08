@@ -43,7 +43,7 @@ unset, is not checked yet; keep `--out` out of it too.
 
 Before writing, the command checks its own document. It runs the structural
 checker (`portfolio-check.py`) and the producer's cross-field invariants
-I1–I15 (`invariant_violations` in `scripts/lib/portfolio.py`). If either
+I1–I16 (`invariant_violations` in `scripts/lib/portfolio.py`). If either
 fails, nothing is written.
 
 ## Parse report

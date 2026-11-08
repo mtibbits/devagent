@@ -2,7 +2,7 @@
 """portfolio.py — #726. Build the portfolio document (schema v1.1, #725) over
 every configured project's WBS.md, with a parse report that drops nothing
 silently, and write it only when it passes both the structural checker
-(portfolio-check.py) and this module's own cross-field invariants I1–I15.
+(portfolio-check.py) and this module's own cross-field invariants I1–I16.
 
     portfolio.py build --out PATH
 
@@ -273,9 +273,9 @@ def rollup(nodes: list[dict]) -> dict:
     return {"by_state": by_state, "remaining": remaining}
 
 
-# --- invariants I1–I15 ---------------------------------------------------------
+# --- invariants I1–I16 ---------------------------------------------------------
 
-INVARIANTS: tuple[str, ...] = tuple(f"I{i}" for i in range(1, 16))
+INVARIANTS: tuple[str, ...] = tuple(f"I{i}" for i in range(1, 17))
 
 
 def _is_num(v) -> bool:
@@ -435,7 +435,28 @@ def invariant_violations(doc: dict) -> list[str]:
     for r in doc["parse_report"]:
         if r["project"] not in known:
             add("I15", f"report entry names project {r['project']!r}, not in the document")
+    _readiness_violations(projects, add)
     return out
+
+
+def _readiness_violations(projects: list[dict], add) -> None:
+    """I16: the readiness fields are all null, or all equal a recomputation."""
+    nodes = [n for p in projects for n in p["nodes"]]
+    if not any(n["ready"] is not None or n.get("ready_via_parent_row") is not None
+               or any(d["resolved"] is not None for d in n["depends_on"]) for n in nodes):
+        return
+    r = compute_readiness(projects)
+    for n in nodes:
+        nid = n["id"]
+        for i, d in enumerate(n["depends_on"]):
+            got, want = d["resolved"], r.resolved.get((nid, i))
+            if got is not want:
+                add("I16", f"node {nid}: depends_on[{i}].resolved {got!r} != recomputed {want!r}")
+        for key, table in (("ready", r.ready), ("ready_via_parent_row", r.via_parent_row)):
+            got = n.get(key)
+            want = table.get(nid) if n["leaf"] else None
+            if got is not want:
+                add("I16", f"node {nid}: {key} {got!r} != recomputed {want!r}")
 
 
 # --- readiness (#727) ----------------------------------------------------------
