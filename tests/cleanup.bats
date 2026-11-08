@@ -629,3 +629,46 @@ make_oneshot_issue() {
     assert_step "$cl" 24 x cleanup
     assert_step "$cl" 21 x updatewbs
 }
+
+# --- #731: the transcript archive runs at cleanup when [archive] is configured ---
+
+# _seed_transcript: one Claude Code session under a fixture CLAUDE_CONFIG_DIR.
+_seed_transcript() {
+    export CLAUDE_CONFIG_DIR="$DEVAGENT_TMP/claude"
+    mkdir -p "$CLAUDE_CONFIG_DIR/projects/c--src-x"
+    printf '%s\n' '{"type":"assistant","sessionId":"S","message":{"id":"m1","usage":{"input_tokens":1},"content":[]}}' \
+        > "$CLAUDE_CONFIG_DIR/projects/c--src-x/S.jsonl"
+}
+
+@test "cleanup.sh archives transcripts when [archive] is configured (#731)" {
+    _seed_transcript
+    printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$DEVAGENT_TMP/archive" \
+        >> "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -f "$DEVAGENT_TMP/archive/h1/c--src-x/S.jsonl.gz" ]
+    [ -f "$DEVAGENT_TMP/archive/h1/last-run" ]
+    [[ "$output" == *"h1: new 1, grown 0, unchanged 0, diverged 0, excluded 0"* ]]
+}
+
+@test "cleanup.sh warns once and completes when the archive fails (#731)" {
+    _seed_transcript
+    printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$DEVDOC_DIR/archive" \
+        >> "$HOME/.claude/devagent/config.toml"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "$output" | grep -c 'cleanup: transcript archive failed (non-fatal)')" -eq 1 ]
+    [[ "$output" == *"is inside a git work tree"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    grep -q '^active_issue *= *""' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    [ ! -e "$DEVDOC_DIR/archive" ]
+}
+
+@test "cleanup.sh does not archive without [archive] (#731)" {
+    _seed_transcript
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"archive-transcripts"* ]]
+    [[ "$output" != *"transcript archive"* ]]
+    [ -z "$(find "$DEVAGENT_TMP" -name last-run)" ]
+}

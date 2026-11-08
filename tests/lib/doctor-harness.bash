@@ -49,6 +49,13 @@ TOML
   SCRIPTS="$PLUGIN_ROOT/scripts"
   STUBBIN="$DA_HOME/stubbin"
   mkdir -p "$STUBBIN"
+  # #731: doctor reads ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json for the
+  # transcript-retention WARN. Seed the quiet state (retention above 30), so no
+  # test reads the operator's settings and none sees that WARN unless it asks.
+  export CLAUDE_CONFIG_DIR="$DA_HOME/claude"
+  mkdir -p "$CLAUDE_CONFIG_DIR"
+  printf '{"cleanupPeriodDays": 99999}
+' > "$CLAUDE_CONFIG_DIR/settings.json"
 }
 
 # PATH-shim a `claude` whose `plugin list` output copies the REAL measured shapes
