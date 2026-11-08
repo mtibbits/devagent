@@ -633,6 +633,87 @@ def test_modes_are_owner_only(tmp_path):
             assert stat.S_IMODE(os.stat(os.path.join(dirpath, n)).st_mode) == 0o600, n
 
 
+# --- final review fixes: a killed run, a sha mismatch, git discovery limits ---
+
+def _run_patched(patch):
+    """Run the helper in a child whose _compress_member is replaced by `patch` (source text defining kill())."""
+    code = (
+        "import importlib.util, os, signal, sys\n"
+        f"spec = importlib.util.spec_from_file_location('ar', {str(HELPER)!r})\n"
+        "ar = importlib.util.module_from_spec(spec); spec.loader.exec_module(ar)\n"
+        "real = ar._compress_member\n"
+        + patch +
+        "ar._compress_member = kill\n"
+        "sys.exit(ar.main([]))\n"
+    )
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, encoding="utf-8")
+
+
+def test_killed_first_write_leaves_no_archive_name(tmp_path):
+    """SIGKILL mid-write (no Python cleanup runs): the target name is never published torn."""
+    files = _corpus()
+    _cfg(_store(tmp_path))
+    run = _run_patched(
+        "def kill(out, src, start, end, hasher):\n"
+        "    out.write(b'\\x1f\\x8b\\x08\\x00partial'); out.flush(); os._exit(9)\n")
+    assert run.returncode == 9
+    assert not _arch(tmp_path, files[0]).exists()
+    again = _archive()
+    assert _counts(again.stdout) == (len(files), 0, 0, 0, 0)
+    assert gzip.decompress(_arch(tmp_path, files[0]).read_bytes()) == files[0].read_bytes()
+
+
+def test_terminated_append_restores_the_archive(tmp_path):
+    """SIGTERM mid-append: the appended bytes are cut back, and the next run grows instead of diverging."""
+    _corpus()
+    _cfg(_store(tmp_path))
+    _archive()
+    s = _src("S1.jsonl")
+    a = _arch(tmp_path, s)
+    kept = a.read_bytes()
+    with open(s, "ab") as f:
+        f.write(b'{"more": 1}\n')
+    run = _run_patched(
+        "def kill(out, src, start, end, hasher):\n"
+        "    out.write(b'\\x1f\\x8b\\x08\\x00torn'); out.flush(); signal.raise_signal(signal.SIGTERM)\n"
+        "    return real(out, src, start, end, hasher)\n")
+    assert run.returncode != 0
+    assert a.read_bytes() == kept
+    again = _archive()
+    assert _counts(again.stdout) == (0, 1, 6, 0, 0)
+    assert gzip.decompress(a.read_bytes()) == s.read_bytes()
+
+
+def test_sha_mismatch_leaves_no_untracked_copy(tmp_path, monkeypatch, capsys):
+    _corpus()
+    _cfg(_store(tmp_path))
+    assert ar.main([]) == 0
+    s = _src("S1.jsonl")
+    s.write_bytes(s.read_bytes()[:50])                  # diverged: written beside
+    monkeypatch.setattr(ar, "_sha256", lambda src, size: "0" * 64)
+    capsys.readouterr()
+    assert ar.main([]) == 1
+    assert "failed c--src-a/S1.jsonl (source changed while reading" in capsys.readouterr().err
+    assert sorted(p.name for p in _arch(tmp_path, s).parent.glob("S1.*")) == ["S1.jsonl.gz"]
+
+
+@pytest.mark.parametrize("env_name", ["GIT_CEILING_DIRECTORIES"])
+def test_refusal_ignores_inherited_git_discovery_limits(tmp_path, env_name):
+    _corpus()
+    repo = tmp_path / "repo"
+    _git_init(repo)
+    (repo / "a").mkdir()
+    t = repo / "a" / "b"
+    _cfg(t)
+    env = dict(os.environ)
+    env[env_name] = str(repo)
+    before = _snapshot(tmp_path)
+    run = _run(env=env)
+    assert run.returncode == 2
+    assert run.stderr.splitlines() == [P + WT_MSG.format(os.path.realpath(t))]
+    assert _snapshot(tmp_path) == before
+
+
 def test_held_lock_exits_1_and_writes_nothing(tmp_path):
     _corpus()
     _cfg(_store(tmp_path))

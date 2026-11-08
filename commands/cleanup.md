@@ -146,7 +146,7 @@ the gate does not run — fail-open by decision, for backward compatibility.
 ## Transcript archive (#731)
 
 When the global `[archive].transcripts_dir` is set, cleanup runs
-`scripts/archive-transcripts.sh --if-configured` beside the WBS reconcile: it
+`archive-transcripts.sh --if-configured` (in `scripts/`) beside the WBS reconcile: it
 copies this machine's Claude Code transcripts (every session and everything
 under its `subagents/`, workflow agents included) into
 `<transcripts_dir>/<host_id>/<cwd-slug>/`, append-only, and prints one count

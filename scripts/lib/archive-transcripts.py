@@ -135,8 +135,13 @@ def _git_check(resolved: str):
     git = shutil.which("git")
     if not git:
         raise Refusal(f"cannot tell whether {resolved} is inside a git work tree (git not found); refusing")
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+    # An inherited GIT_DIR/GIT_WORK_TREE would answer for another repository, and a
+    # ceiling or a filesystem boundary would stop discovery short of the repository
+    # the path is in: either would let a path inside a work tree pass.
+    drop = ("GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES")
+    env = {k: v for k, v in os.environ.items() if k not in drop}
     env["LC_ALL"] = "C"
+    env["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "1"
     try:
         r = subprocess.run([git, "-C", anc, "rev-parse", "--is-inside-work-tree"], capture_output=True,
                            text=True, errors="replace", env=env, stdin=subprocess.DEVNULL)
@@ -255,6 +260,44 @@ def _copy(out, src, size: int, hasher) -> int:
     return n
 
 
+def _publish(tmp: Path, target: Path):
+    """Give tmp the name target, failing (FileExistsError) rather than replacing an existing target."""
+    if os.name == "nt":
+        os.rename(tmp, target)   # Windows rename refuses an existing target
+        return
+    try:
+        os.link(tmp, target)     # POSIX: link refuses an existing target; rename would replace it
+    except FileExistsError:
+        raise
+    except OSError:              # no hard links here (some FAT/network mounts): the lock is held, so check-then-rename
+        if os.path.lexists(target):
+            raise FileExistsError(errno.EEXIST, "archive name exists", str(target))
+        os.rename(tmp, target)
+        return
+    os.unlink(tmp)
+
+
+@contextlib.contextmanager
+def _signals_exit():
+    """Turn SIGTERM/SIGHUP into SystemExit for the run, so an interrupted append is cut back (restored after)."""
+    import signal
+    import threading
+    names = [n for n in ("SIGTERM", "SIGHUP") if hasattr(signal, n)]
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _exit(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    prior = {n: signal.signal(getattr(signal, n), _exit) for n in names}
+    try:
+        yield
+    finally:
+        for n, h in prior.items():
+            signal.signal(getattr(signal, n), h)
+
+
 def _sha256(src: Path, size: int) -> str:
     h = hashlib.sha256()
     with open(src, "rb") as f:
@@ -316,9 +359,15 @@ class Archive:
             self._mf.close()
 
     def _write_new(self, target: Path, src: Path, st, gz: bool) -> str:
-        """Create target (never overwriting a name) from all of src; return the sha256."""
+        """Create target (never overwriting a name) from all of src; return the sha256.
+
+        The bytes go to a hidden .<name>.partial beside it and are published by
+        a no-overwrite link/rename only after fsync, so a run killed outright
+        (no Python cleanup) never leaves a torn file under an archive name.
+        """
         _mkdirs(target.parent)
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY, 0o600)
+        tmp = target.with_name(f".{target.name}.partial")   # one writer: the partition lock is held
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | O_BINARY, 0o600)
         try:
             with os.fdopen(fd, "wb") as out, open(src, "rb") as f:
                 h = hashlib.sha256()
@@ -328,22 +377,33 @@ class Archive:
                     _copy(out, f, st.st_size, h)
                 out.flush()
                 os.fsync(out.fileno())
+            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+            _publish(tmp, target)
         except BaseException:
             with contextlib.suppress(OSError):
-                os.unlink(target)
+                os.unlink(tmp)
             raise
         return h.hexdigest()
 
     def _grow(self, target: Path, src: Path, st, rec) -> str | None:
-        """Append [size, now) as one member when the archived prefix still matches; else None."""
+        """Append [size, now) as one member when the archived prefix still matches; else None.
+
+        An append cut short (an error, or SIGTERM/SIGHUP turned into SystemExit)
+        is truncated back to the recorded size, so the file is never left torn.
+        """
         with open(src, "rb") as f:
             h = hashlib.sha256()
             if _read_exact(f, rec["size"], h) != rec["size"] or h.copy().hexdigest() != rec["sha256"]:
                 return None
-            with open(target, "ab") as out:
-                _compress_member(out, f, rec["size"], st.st_size, h)
-                out.flush()
-                os.fsync(out.fileno())
+            try:
+                with open(target, "ab") as out:
+                    _compress_member(out, f, rec["size"], st.st_size, h)
+                    out.flush()
+                    os.fsync(out.fileno())
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.truncate(target, rec["archive_size"])
+                raise
         return h.hexdigest()
 
     def _beside(self, arel: str, src: Path, st, gz: bool, source: str, session: str, kept: str) -> str:
@@ -365,6 +425,7 @@ class Archive:
             n += 1
         got = self._write_new(self.hostdir / cand, src, st, gz)
         if got != sha:
+            os.unlink(self.hostdir / cand)   # this run created the name; never leave an untracked copy
             raise OSError(f"source changed while reading (sha256 {got[:6]}, expected {sha[:6]})")
         self._record(source, cand, session, st, st.st_size, sha)
         print(f"{PROG}: diverged {kept} kept; source written as {cand}")
@@ -420,7 +481,7 @@ def run(tdir: str, store: Path, host: str, exclude: list[str]) -> int:
         _err(f"cannot create {hostdir} ({e})")
         return 1
     lock = hostdir / ".lock"
-    with held_lock(lock) as got:
+    with _signals_exit(), held_lock(lock) as got:
         if not got:
             _err(f"another run holds {lock}; nothing archived")
             return 1

@@ -14,8 +14,13 @@ unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE DEVAGENT_SUITE_JOBS DEVAGENT
 # #731: cleanup runs the transcript archiver, which reads ${CLAUDE_CONFIG_DIR:-~/.claude}
 # and ${DA_HOME}/config.toml. An inherited DA_HOME would archive fixture transcripts
 # into the operator's real archive, an inherited CLAUDE_CONFIG_DIR the operator's
-# real transcripts. Every load site sources this file before any setup exports DA_HOME.
-unset CLAUDE_CONFIG_DIR DA_HOME
+# real transcripts. Cleared ONCE per test shell (the file-scope source, before setup):
+# a test body that loads a harness re-sources this guard after setup exported its own
+# tmp DA_HOME / CLAUDE_CONFIG_DIR, and those must survive (next.bats #782 leg).
+if [ -z "${_DEVAGENT_HERMETIC_HOMES:-}" ]; then
+  unset CLAUDE_CONFIG_DIR DA_HOME
+  _DEVAGENT_HERMETIC_HOMES=1   # not exported: each test shell clears its own inherited values
+fi
 # #710: the per-stage tracker overrides are process-global (every project's
 # transition writes them), so an operator shell must not leak one into a test;
 # the three retired names too, and the ambient DEVAGENT_PROJECT the backends no
