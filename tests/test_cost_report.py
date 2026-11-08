@@ -1,12 +1,15 @@
 """Tests for scripts/lib/cost-report.py (per-(project, issue), per-step token cost)."""
 import gzip
 import importlib.util
+import itertools
 import json
 import os
 import re
 import subprocess
 import sys
 import tracemalloc
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -45,8 +48,12 @@ def _usage(inp=0, read=0, w5=0, w1=0, out=0):
     }
 
 
-def _call(mid, usage, *tool_uses):
-    return {"type": "assistant", "message": {"id": mid, "usage": usage, "content": list(tool_uses)}}
+def _call(mid, usage, *tool_uses, stop_reason=None):
+    """An assistant record; stop_reason defaults to "tool_use" when it carries a tool_use (#733)."""
+    msg = {"id": mid, "usage": usage, "content": list(tool_uses)}
+    if stop_reason is not None or tool_uses:
+        msg["stop_reason"] = stop_reason or "tool_use"
+    return {"type": "assistant", "message": msg}
 
 
 def _tool(tid, name, **inp):
@@ -716,17 +723,27 @@ def test_cli_every_line_names_its_pair(tmp_path):
 FILLER = "x" * 65536
 
 
-def _big_session(path, mb):
-    """Stream a transcript of about `mb` MB to `path`; return the number of counted calls."""
+def _big_session(path, mb, filler=FILLER, stamp=False):
+    """Stream a transcript of about `mb` MB to `path`; return the number of counted calls.
+
+    stamp=True gives every record a timestamp (+1 s per record) and a uuid (#733).
+    """
     target = mb * 2**20
     blocks = 0
+    n = itertools.count()
+
+    def put(f, r):
+        if stamp:
+            r = _at(r, next(n) / 60)
+        f.write(json.dumps(r) + "\n")
+
     with open(path, "w", encoding="utf-8") as f:
         for r in _dispatch("b0", "alpha", "Issue-4", 9, "implement", "d0"):
-            f.write(json.dumps(r) + "\n")
+            put(f, r)
         while f.tell() < target:
             tools = [_tool(f"k{blocks}", "Skill", skill="devagent:quality")] if blocks % 16 == 0 else []
-            f.write(json.dumps(_call(f"m{blocks}", _usage(read=1), *tools)) + "\n")
-            f.write(json.dumps(_result(f"r{blocks}", FILLER)) + "\n")
+            put(f, _call(f"m{blocks}", _usage(read=1), *tools))
+            put(f, _result(f"r{blocks}", filler))
             blocks += 1
     return blocks
 
@@ -849,7 +866,8 @@ def test_sessions_counted_by_session_id(tmp_path):
 WF = "wf_1a2b3c4d-5e6"
 
 
-def _workflow_session(d, gz, run_id=WF):
+def _workflow_session(d, gz, run_id=WF, stamp=False):
+    """stamp=True (#733): main records at minutes 0-5, the agent's two calls at 4 and 5."""
     main = _sid([
         *_pair_records("alpha", "Issue-4", "m1"),
         _call("m2", _usage(inp=1), _tool("w1", "Workflow", script="x")),
@@ -858,6 +876,9 @@ def _workflow_session(d, gz, run_id=WF):
     ], "S")
     wdir = d / "S" / "subagents" / "workflows" / WF
     agent = [_call("w-1", _usage(out=20)), _call("w-2", _usage(out=2))]
+    if stamp:
+        main = [_at(r, i) for i, r in enumerate(main)]
+        agent = [_at(r, 4 + i) for i, r in enumerate(agent)]
     journal = [{"type": "assistant", "message": {"id": "j1", "usage": _usage(out=1000)}}]
     if gz:
         _gz(d / "S.jsonl.gz", main)
@@ -994,3 +1015,167 @@ def test_cli_json_lists_sources_once_per_host(tmp_path):
     (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
     assert o["calls"] == 1 and o["main"] == 3 and o["sessions"] == 1
     assert o["sources"] == [{"cwd_slug": "c--src-x", "host": h, "session": "S"} for h in ("h1", "h2", "local")]
+
+
+# --- Issue-733: agent time and operator time (--time) ------------------------
+# Every expected figure below is hand-computed from the fixture's minute offsets
+# (pothole L199): none is derived by calling cr.
+
+T0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
+_UIDS = itertools.count(1)
+
+
+def _at(rec, minutes, uid=None):
+    """A copy of rec stamped T0 + minutes (millisecond Z form) with a uuid (default: the next counter value)."""
+    ts = (T0 + timedelta(seconds=round(minutes * 60, 3))).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return {**rec, "timestamp": ts, "uuid": uid or str(uuid.UUID(int=next(_UIDS)))}
+
+
+def _str(text, **extra):
+    """A user record whose content is a plain string and which has no origin."""
+    return {"type": "user", "message": {"role": "user", "content": text}, **extra}
+
+
+def _human(text):
+    return _str(text, origin={"kind": "human"})
+
+
+def _notify(tid=None):
+    body = "<task-notification>\n" + (f"<tool-use-id>{tid}</tool-use-id>\n" if tid else "") + "<status>completed</status>\n</task-notification>"
+    return _str(body, origin={"kind": "task-notification"})
+
+
+def _peer():
+    return _str("a message from another session", origin={"kind": "peer"})
+
+
+def _perm(tid, source):
+    return {**_result(tid, "ok"), "permissionDecision": {"decision": "accept", "source": source}}
+
+
+def _end(mid, usage=None):
+    return {"type": "assistant", "message": {"id": mid, "usage": usage, "stop_reason": "end_turn",
+                                             "content": [{"type": "text", "text": "done"}]}}
+
+
+def _attach():
+    return {"type": "attachment", "attachment": {"type": "edited_text_file"}}
+
+
+def _queue(op):
+    return {"type": "queue-operation", "operation": op}
+
+
+def _times(dirs, **rules):
+    """{pair: TimeAcc} for dirs under the given rules (seconds; defaults 300 / 3600 / 900)."""
+    out = {}
+    cr.collect(list(dirs), None, timing=cr.TimeRules(**rules), times=out)
+    return out
+
+
+def _tv(acc):
+    """A TimeAcc's figures: (wall, busy, operator, events, returns, fallback)."""
+    return (acc.wall(), acc.busy, acc.operator, acc.events, acc.returns, acc.fallback)
+
+
+def _timed(tmp_path, records, name="t", **rules):
+    """Write one stamped session and return the (no project)/(no issue) TimeAcc."""
+    d = _one(tmp_path, records, name=name)
+    return _times([d], **rules)[(NP, NI)]
+
+
+def _time_records():
+    """The main session and its one subagent for _time_fixture, stamped at these minutes:
+
+    main  0 next.sh call (no usage)   1 dispatch alpha/Issue-4 (charged to START)
+          2 m1 end_turn               5 human (operator 180)
+          6 m2 calls Bash t1          8 user_temporary permission for t1 (operator 120)
+          9 m3 launches Agent a1     10 a1's result (linked: a subagent file exists)
+         11 m4                       14 m5 end_turn (a 3-min non-tool interval: busy at idle_gap 5, not 2)
+         15 task-notification        16 peer
+         17 m6 end_turn              18 attachment, queue-operation (skipped)
+         19 no-origin string (fallback; operator 120)   20 m7 end_turn
+         23 typed pull beta origin 5 (operator 180, still alpha)
+         24 m8 end_turn (beta)      100 human (beta: a return after absence)   101 m9 end_turn
+    agent 9 plain-string prompt     10 s1 end_turn
+
+    Default rules: alpha busy 720 (main 660 + agent 60), wall 720, operator 600,
+    4 events, 0 returns, 1 fallback; beta busy 120, wall 120, operator 0, 1 event,
+    1 return, 0 fallback. At idle_gap 2 min alpha's wall and busy are 540.
+    """
+    main = [
+        _at(_call("d1", None, _tool("b1", "Bash", command='bash "x/scripts/next.sh" alpha --auto')), 0),
+        _at(_result("b1", "dispatch: alpha/Issue-4 — step 9 (implement), skill-backed"), 1),
+        _at(_end("m1", _usage(inp=100)), 2),
+        _at(_human("please continue"), 5),
+        _at(_call("m2", _usage(inp=10), _tool("t1", "Bash", command="ls")), 6),
+        _at(_perm("t1", "user_temporary"), 8),
+        _at(_call("m3", _usage(inp=10), _tool("a1", "Agent", description="x")), 9),
+        _at(_result("a1", "agent finished"), 10),
+        _at(_call("m4", _usage(inp=10)), 11),
+        _at(_end("m5", _usage(inp=1)), 14),
+        _at(_notify(), 15),
+        _at(_peer(), 16),
+        _at(_end("m6", _usage(inp=1)), 17),
+        _at(_attach(), 18),
+        _at(_queue("enqueue"), 18),
+        _at(_str("fix the typo"), 19),
+        _at(_end("m7", _usage(inp=1)), 20),
+        _at({**_typed("pull", "beta origin 5"), "origin": {"kind": "human"}}, 23),
+        _at(_end("m8", _usage(inp=7)), 24),
+        _at(_human("back again"), 100),
+        _at(_end("m9", _usage(inp=3)), 101),
+    ]
+    agent = [_at(_str("do the thing"), 9), _at(_end("s1", _usage(out=10)), 10)]
+    return main, agent
+
+
+def _time_fixture(d, gz=False):
+    """Write _time_records() to d/S.jsonl (or .jsonl.gz) with agent-x linked to a1; return d."""
+    main, agent = _time_records()
+    sub = d / "S" / "subagents" / "agent-x.jsonl"
+    if gz:
+        _gz(d / "S.jsonl.gz", main)
+        _gz(sub.with_name("agent-x.jsonl.gz"), agent, members=1)
+    else:
+        _write(d / "S.jsonl", main)
+        _write(sub, agent)
+    sub.with_name("agent-x.meta.json").write_text(json.dumps({"toolUseId": "a1"}), encoding="utf-8")
+    return d
+
+
+# Task 2: captured on the unfixed tree (b9475f8's cost-report.py) by
+# analysis/2026-11-08-t1-golden-green-at-head.txt; never from new code.
+GOLDEN_FULL = (
+    "Token cost by step, from <DIR>\n"
+    "input-token equivalents, weighted by price vs base input: cache read 0.1, cache write 1.25 (5m) / 2 (1h), output 5\n"
+    "\n"
+    "alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 7 calls, peak context 0K (main 0.0M, subagents 0.0M)\n"
+    "  step                   calls  peak ctx   main M   sub M  total M  share\n"
+    "  implement                  7        0K     0.00    0.00     0.00   100%\n"
+    "\n"
+    "beta/Issue-5: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n"
+    "  step                   calls  peak ctx   main M   sub M  total M  share\n"
+    "  pull                       2        0K     0.00    0.00     0.00   100%\n"
+)
+GOLDEN_SUMMARY = (
+    "alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 7 calls, peak context 0K (main 0.0M, subagents 0.0M)\n"
+    "beta/Issue-5: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n"
+)
+GOLDEN_JSON = (
+    '{"calls": 7, "issue": "Issue-4", "main": 133.0, "peak_context": 100, "project": "alpha", "sessions": 1, '
+    '"sources": [{"cwd_slug": "timefix", "host": "local", "session": "S"}], "subagents": 50.0, "total": 183.0}\n'
+    '{"calls": 2, "issue": "Issue-5", "main": 10.0, "peak_context": 7, "project": "beta", "sessions": 1, '
+    '"sources": [{"cwd_slug": "timefix", "host": "local", "session": "S"}], "subagents": 0.0, "total": 10.0}\n'
+)
+
+
+def test_cli_output_without_time_is_unchanged(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    full = _cli("--transcripts", d)
+    summary = _cli("--transcripts", d, "--summary")
+    js = _cli("--transcripts", d, "--json")
+    assert (full.returncode, summary.returncode, js.returncode) == (0, 0, 0)
+    assert full.stdout.replace(str(d), "<DIR>") == GOLDEN_FULL
+    assert summary.stdout == GOLDEN_SUMMARY
+    assert js.stdout == GOLDEN_JSON
