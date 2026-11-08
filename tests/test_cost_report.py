@@ -398,7 +398,7 @@ def test_unreadable_transcript_is_skipped_not_fatal(tmp_path):
     _write(root / "X" / "A.jsonl", [*_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), _call("c1", _usage(inp=1))])
     (root / "Y" / "broken.jsonl").mkdir(parents=True)
     _write(root / "Y" / "B.jsonl", [_call("c2", _usage(inp=1))])
-    (root / "Y" / "B" / "subagents" / "bad.jsonl").mkdir(parents=True)
+    (root / "Y" / "B" / "subagents" / "agent-bad.jsonl").mkdir(parents=True)   # #731: subagents are agent-*
     run = _cli("--project", "alpha", "--issue", "Issue-4", "--summary")
     assert run.returncode == 0, run.stderr
     assert _lines(run.stdout)[0].startswith("alpha/Issue-4: ")
