@@ -65,6 +65,7 @@ OSRELEASE = "/proc/sys/kernel/osrelease"
 KEYS = ("transcripts_dir", "host_id", "exclude")
 HOST_ID = re.compile(r"(?!\.$)(?!.*\.\.)[A-Za-z0-9._-]+")
 STALE_DAYS = 7
+GIT_TIMEOUT = 30   # an unreachable mount must not hang a close
 CHUNK = 1 << 20
 O_BINARY = getattr(os, "O_BINARY", 0)   # Windows: no newline translation on os.open fds
 
@@ -142,7 +143,10 @@ def _git_check(resolved: str):
     env["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "1"
     try:
         r = subprocess.run([git, "-C", anc, "rev-parse", "--is-inside-work-tree"], capture_output=True,
-                           text=True, errors="replace", env=env, stdin=subprocess.DEVNULL)
+                           text=True, errors="replace", env=env, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise Refusal(f"cannot tell whether {resolved} is inside a git work tree (git timed out after "
+                      f"{GIT_TIMEOUT}s); refusing")
     except OSError as e:
         raise Refusal(f"cannot tell whether {resolved} is inside a git work tree ({e}); refusing")
     if r.returncode == 0:   # "true" in a work tree, "false" inside a .git dir: a repository either way
@@ -414,7 +418,9 @@ class Archive:
                 break
             prior = self.by_archive.get(cand)
             if prior and prior["sha256"] == sha and prior["size"] == st.st_size:
-                # The same content is already archived under this name: write nothing but the pointer.
+                # The same content is already archived under this name: write nothing but the
+                # pointer, and give the copy its source's mtime (archived files keep it).
+                os.utime(self.hostdir / cand, ns=(st.st_atime_ns, st.st_mtime_ns))
                 self._append({**prior, "mtime_ns": st.st_mtime_ns, "source": source, "session": session})
                 return "unchanged"
             n += 1

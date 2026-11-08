@@ -309,6 +309,25 @@ def test_git_undetermined_refuses(tmp_path, stub):
     assert _snapshot(tmp_path) == before
 
 
+def test_git_timeout_refuses(tmp_path, monkeypatch, capsys):
+    """A git that never answers (an unreachable mount) is "cannot tell", not a hung close."""
+    _corpus()
+    _cfg(_store(tmp_path) / "x")
+
+    def hang(cmd, **kw):
+        assert kw["timeout"] == ar.GIT_TIMEOUT
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+
+    monkeypatch.setattr(ar.subprocess, "run", hang)
+    before = _snapshot(tmp_path)
+    assert ar.main([]) == 2
+    resolved = os.path.realpath(_store(tmp_path) / "x")
+    assert capsys.readouterr().err.splitlines() == [
+        P + f"cannot tell whether {resolved} is inside a git work tree "
+        f"(git timed out after {ar.GIT_TIMEOUT}s); refusing"]
+    assert _snapshot(tmp_path) == before
+
+
 def test_if_configured_without_archive_is_silent(tmp_path):
     _corpus()
     before = _snapshot(tmp_path)
@@ -556,7 +575,11 @@ def test_diverged_name_collision_never_overwrites(tmp_path):
     run = _archive()
     assert _counts(run.stdout) == (0, 0, 7, 0, 0)
     assert b_name.read_bytes() == b_bytes
-    assert _snapshot(_store(tmp_path) / "h1" / "c--src-a") == before
+    assert b_name.stat().st_mtime_ns == s.stat().st_mtime_ns      # the pointed-at copy keeps the source mtime
+    after = _snapshot(_store(tmp_path) / "h1" / "c--src-a")
+    moved = os.path.relpath(b_name, _store(tmp_path) / "h1" / "c--src-a")
+    assert after[moved][0] == before[moved][0]
+    assert {k: v for k, v in after.items() if k != moved} == {k: v for k, v in before.items() if k != moved}
     # A name taken by OTHER content: the next free -<n> is used.
     other = b'{"other": 1}\n'
     s.write_bytes(other)

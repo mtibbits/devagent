@@ -651,6 +651,31 @@ _seed_transcript() {
     [[ "$output" == *"h1: new 1, grown 0, unchanged 0, diverged 0, excluded 0"* ]]
 }
 
+# _prepend_config: put top-level keys before every table header of config.toml.
+_prepend_config() {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    { printf '%s\n' "$1"; cat "$cfg"; } > "$cfg.new" && mv "$cfg.new" "$cfg"
+}
+
+@test "cleanup.sh archives when [archive] is written as dotted keys (#731)" {
+    _seed_transcript
+    _prepend_config "archive.transcripts_dir = \"$DEVAGENT_TMP/archive\"
+archive.host_id = \"h1\""
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -f "$DEVAGENT_TMP/archive/h1/c--src-x/S.jsonl.gz" ]
+    [[ "$output" == *"h1: new 1, grown 0, unchanged 0, diverged 0, excluded 0"* ]]
+}
+
+@test "cleanup.sh archives when [archive] is written as an inline table (#731)" {
+    _seed_transcript
+    _prepend_config "archive = { transcripts_dir = \"$DEVAGENT_TMP/archive\", host_id = \"h1\" }"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -f "$DEVAGENT_TMP/archive/h1/c--src-x/S.jsonl.gz" ]
+    [[ "$output" == *"h1: new 1, grown 0, unchanged 0, diverged 0, excluded 0"* ]]
+}
+
 @test "cleanup.sh warns once and completes when the archive fails (#731)" {
     _seed_transcript
     printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$DEVDOC_DIR/archive" \
