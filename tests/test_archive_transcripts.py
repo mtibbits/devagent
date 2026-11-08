@@ -432,6 +432,7 @@ def test_second_run_is_a_no_op(tmp_path, capsys):
     after = _snapshot(_store(tmp_path))
     lr = os.path.join("h1", "last-run")
     assert after.pop(lr)[1] != before.pop(lr)[1]     # the stamp is rewritten (intent Answers 1)
+    after.pop("h1"), before.pop("h1")                 # ...which moves its own dir's mtime
     assert after == before
 
 
@@ -548,7 +549,7 @@ def test_diverged_name_collision_never_overwrites(tmp_path):
     _archive()                                   # S1.<sha6(short)> written
     b_name = a.with_name(f"S1.{_sha6(s)}.jsonl.gz")
     b_bytes = b_name.read_bytes()
-    s.write_bytes(full + b'{"x": 1}\n')          # diverges from short again
+    s.write_bytes(b'{"x": 1}\n' + full)          # diverges from short (its prefix differs)
     _archive()
     s.write_bytes(short)                          # back to short: its name exists with that sha
     os.utime(s, ns=(0, 1_800_000_000 * 10**9))
@@ -613,7 +614,8 @@ def test_archived_files_keep_source_mtimes(tmp_path):
     t = _src("S1/subagents/agent-a.jsonl")
     t.write_bytes(b'{"d": 1}\n')                       # diverged
     _archive()
-    for m in _manifest(tmp_path):
+    last = {m["source"]: m for m in _manifest(tmp_path)}   # the last line for a source wins
+    for m in last.values():
         src = _projects() / m["source"]
         assert (_store(tmp_path) / "h1" / m["archive"]).stat().st_mtime_ns == src.stat().st_mtime_ns, m
     assert len(files) == 7
