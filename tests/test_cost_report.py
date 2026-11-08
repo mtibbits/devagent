@@ -1191,13 +1191,13 @@ def _agent(mid, tid):
     return _call(mid, None, _tool(tid, "Agent", description="x"))
 
 
-@pytest.mark.parametrize("gap,busy", [(4, 240), (6, 0)])
+@pytest.mark.parametrize("gap,busy", [(4, 240), (5, 300), (6, 0)])   # a gap equal to the cap counts
 def test_time_idle_gap_is_all_or_nothing(tmp_path, gap, busy):
     acc = _timed(tmp_path, [_at(_call("c1", None), 0), _at(_call("c2", None), gap)])
     assert acc.busy == busy and acc.wall() == busy
 
 
-@pytest.mark.parametrize("gap,busy", [(50, 3000), (70, 0)])
+@pytest.mark.parametrize("gap,busy", [(50, 3000), (60, 3600), (70, 0)])
 def test_time_tool_wait_bounded_by_tool_gap(tmp_path, gap, busy):
     acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(_result("t1", "ok"), gap)])
     assert acc.busy == busy and acc.wall() == busy
@@ -1250,8 +1250,11 @@ def test_time_operator_latency_charged_to_prior_pair(tmp_path):
 
 
 def test_time_return_after_absence_adds_zero(tmp_path):
-    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_human("back"), 120)])
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_human("back"), 120)], name="a")
     assert (acc.operator, acc.events, acc.returns) == (0, 1, 1)
+    # At exactly attention_cap the latency still counts.
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_human("back"), 15)], name="b")
+    assert (acc.operator, acc.events, acc.returns) == (900, 1, 0)
 
 
 def test_time_task_notification_and_peer_are_not_operator_events(tmp_path):
