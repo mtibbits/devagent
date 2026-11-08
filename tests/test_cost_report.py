@@ -1179,3 +1179,391 @@ def test_cli_output_without_time_is_unchanged(tmp_path):
     assert full.stdout.replace(str(d), "<DIR>") == GOLDEN_FULL
     assert summary.stdout == GOLDEN_SUMMARY
     assert js.stdout == GOLDEN_JSON
+
+
+# Task 3: one test per rule AC (defaults 5 / 60 / 15 min).
+
+def _bash(mid, tid):
+    return _call(mid, None, _tool(tid, "Bash", command="x"))
+
+
+def _agent(mid, tid):
+    return _call(mid, None, _tool(tid, "Agent", description="x"))
+
+
+@pytest.mark.parametrize("gap,busy", [(4, 240), (6, 0)])
+def test_time_idle_gap_is_all_or_nothing(tmp_path, gap, busy):
+    acc = _timed(tmp_path, [_at(_call("c1", None), 0), _at(_call("c2", None), gap)])
+    assert acc.busy == busy and acc.wall() == busy
+
+
+@pytest.mark.parametrize("gap,busy", [(50, 3000), (70, 0)])
+def test_time_tool_wait_bounded_by_tool_gap(tmp_path, gap, busy):
+    acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(_result("t1", "ok"), gap)])
+    assert acc.busy == busy and acc.wall() == busy
+
+
+def test_time_task_notification_wait_is_busy(tmp_path):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_notify(), 40)])
+    assert acc.busy == 2400 and acc.events == 0
+
+
+def test_time_gap_ending_in_human_message_is_not_agent_time(tmp_path):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_human("go on"), 3)])
+    assert acc.busy == 0 and acc.wall() == 0
+    assert (acc.operator, acc.events, acc.returns) == (180, 1, 0)
+
+
+def test_time_attachment_does_not_split_interval(tmp_path):
+    acc = _timed(tmp_path, [
+        _at(_bash("c1", "t1"), 0), _at(_attach(), 4), _at(_queue("enqueue"), 5), _at(_result("t1", "ok"), 50),
+    ])
+    assert acc.busy == 3000
+
+
+def test_time_parallel_subagents_wall_10_busy_20(tmp_path):
+    d = _one(tmp_path, [
+        _at(_agent("c1", "a1"), 0), _at(_agent("c2", "a2"), 0),
+        _at(_result("a1", "done"), 10), _at(_result("a2", "done"), 10),
+    ])
+    for name, tid in (("agent-a", "a1"), ("agent-b", "a2")):
+        _subagent(d / "s.jsonl", name, tid,
+                  [_at(_str("go"), 0)] + [_at(_call(f"{name}-{m}", None), m) for m in (2, 4, 6, 8, 10)])
+    acc = _times([d])[(NP, NI)]
+    assert acc.wall() == 600
+    assert acc.busy == 1200
+
+
+def test_time_operator_latency_charged_to_prior_pair(tmp_path):
+    d = _one(tmp_path, [
+        *(_at(r, m) for r, m in zip(_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), (0, 1))),
+        _at(_end("e1", _usage(inp=1)), 10),
+        _at(_human("<command-name>/devagent:pull</command-name>\n<command-args>beta origin 5</command-args>"), 13),
+        _at(_end("e2", _usage(inp=1)), 14),
+    ])
+    times = {}
+    rows, _ = cr.collect([d], None, timing=cr.TimeRules(), times=times)
+    alpha, beta = times[("alpha", "Issue-4")], times[("beta", "Issue-5")]
+    assert (alpha.operator, alpha.events) == (180, 1)
+    assert (beta.operator, beta.events, beta.busy) == (0, 0, 60)
+    assert ("beta", "Issue-5") in rows
+
+
+def test_time_return_after_absence_adds_zero(tmp_path):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_human("back"), 120)])
+    assert (acc.operator, acc.events, acc.returns) == (0, 1, 1)
+
+
+def test_time_task_notification_and_peer_are_not_operator_events(tmp_path):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_notify(), 3), _at(_peer(), 4)])
+    assert (acc.events, acc.operator, acc.returns, acc.fallback) == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("gap,busy", [(20, 0), (4, 240)])
+def test_time_peer_after_end_turn_is_idle_rule(tmp_path, gap, busy):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_peer(), gap)])
+    assert acc.busy == busy and acc.events == 0
+
+
+@pytest.mark.parametrize("source,events,operator,busy", [("user_temporary", 1, 120, 0), ("config", 0, 0, 120)])
+def test_time_user_temporary_permission_is_operator_event(tmp_path, source, events, operator, busy):
+    acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(_perm("t1", source), 2)])
+    assert (acc.events, acc.operator, acc.busy) == (events, operator, busy)
+
+
+INTERRUPT = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}}
+
+
+def test_time_fallback_classifies_no_origin_main_record(tmp_path):
+    # Must trip: a typed plain string after an end_turn counts its latency.
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_str("fix the typo"), 2)], name="a")
+    assert (acc.events, acc.fallback, acc.operator) == (1, 1, 120)
+    # Must trip: an interrupt mid-turn (after a tool_use record) is an event with 0 latency.
+    acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(INTERRUPT, 1)], name="b")
+    assert (acc.events, acc.fallback, acc.operator) == (1, 1, 0)
+    # Must trip: a no-origin typed command.
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_typed("where", "alpha"), 2)], name="c")
+    assert (acc.events, acc.fallback, acc.operator) == (1, 1, 120)
+    # Must not trip (pothole L135): client-injected and agent-to-agent strings.
+    acc = _timed(tmp_path, [
+        _at(_end("e1"), 0),
+        _at(_str("<task-notification>\n<status>completed</status>\n</task-notification>"), 1),
+        _at(_str("Another Claude session sent a message"), 2),
+        _at(_str("<local-command-caveat>Caveat: the messages below were generated locally</local-command-caveat>"), 3),
+        _at(_str("<local-command-stdout>ok</local-command-stdout>"), 4),
+        _at(_str("This session is being continued from a previous conversation.", isCompactSummary=True), 5),
+        _at(_str("shown in the transcript only", isVisibleInTranscriptOnly=True), 6),
+        _at(_str("Caveat: meta", isMeta=True), 7),
+    ], name="d")
+    assert (acc.events, acc.fallback, acc.operator) == (0, 0, 0)
+
+
+def test_time_subagent_prompt_is_no_operator_event(tmp_path):
+    d = _one(tmp_path, [_at(_agent("c1", "a1"), 0), _at(_result("a1", "done"), 1)])
+    _subagent(d / "s.jsonl", "agent-a", "a1", [_at(_str("do x"), 0), _at(_end("s1"), 2)])
+    acc = _times([d])[(NP, NI)]
+    assert (acc.events, acc.fallback) == (0, 0)
+    assert acc.busy == 120
+
+
+def test_time_queued_human_message_adds_zero(tmp_path):
+    acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(_human("also check X"), 3)])
+    assert (acc.operator, acc.events, acc.returns) == (0, 1, 0)
+
+
+# Task 4: engine and edge tests.
+
+def test_time_pending_set_pairs_parallel_tool_results(tmp_path):
+    acc = _timed(tmp_path, [
+        _at(_bash("c1", "t1"), 0), _at(_bash("c1", "t2"), 0),
+        _at(_result("t1", "ok"), 20), _at(_result("t2", "ok"), 30),
+    ], name="a")
+    assert acc.busy == 1800 and acc.wall() == 1800
+    # Control: a result already answered, or never issued, is no wait (a 20-min gap: idle, 0).
+    acc = _timed(tmp_path, [
+        _at(_bash("c1", "t1"), 0), _at(_result("t1", "ok"), 1),
+        _at(_result("t1", "ok again"), 21), _at(_result("zz", "stray"), 41),
+    ], name="b")
+    assert acc.busy == 60
+
+
+def test_time_permission_prompt_is_operator_not_agent_time(tmp_path):
+    recs = [_at(_bash("c1", "t1"), 0), _at(_perm("t1", "user_temporary"), 50)]
+    acc = _timed(tmp_path, recs, name="a")
+    assert (acc.busy, acc.wall()) == (0, 0)
+    assert (acc.events, acc.operator, acc.returns) == (1, 0, 1)
+    acc = _timed(tmp_path, recs, name="b", attention_cap=3600)
+    assert (acc.busy, acc.operator, acc.events, acc.returns) == (0, 3000, 1, 0)
+    acc = _timed(tmp_path, [_at(_bash("c1", "t1"), 0), _at(_perm("t1", "config"), 50)], name="c")
+    assert (acc.busy, acc.events) == (3000, 0)
+
+
+def test_time_does_not_change_cost_rows(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    a, sa = cr.collect([d], None)
+    b, sb = cr.collect([d], None, timing=cr.TimeRules(), times={})
+    assert a and _rows_equal(a, b)
+    assert sa == sb
+
+
+@pytest.mark.parametrize("x_first", [True, False])
+def test_time_session_copies_count_once(tmp_path, x_first):
+    recs = [_at(_end("e1"), 0), _at(_human("hi"), 2), _at(_bash("c1", "t1"), 3), _at(_result("t1", "ok"), 5)]
+    tail = [_at(_end("e2"), 6), _at(_human("again"), 8)]
+    x, y = tmp_path / "x", tmp_path / "y"
+    _write(x / "S.jsonl", recs, mtime=1_000_000 if x_first else 3_000_000)
+    _gz(y / "S.jsonl.gz", recs + tail, mtime=2_000_000)
+    both = _times([x, y])[(NP, NI)]
+    alone = _times([y])[(NP, NI)]
+    assert (both.busy, both.operator, both.events) == (240, 240, 2)
+    assert _tv(both) == _tv(alone)
+
+
+def test_time_gz_reads_like_jsonl(tmp_path):
+    plain = _times([_time_fixture(tmp_path / "plain")])
+    gz = _times([_time_fixture(tmp_path / "gz", gz=True)])
+    assert plain and {k: _tv(v) for k, v in plain.items()} == {k: _tv(v) for k, v in gz.items()}
+
+
+def test_time_workflow_agent_charged_through_run_id(tmp_path):
+    d = tmp_path / "d"
+    _workflow_session(d, gz=False, stamp=True)
+    t = _times([d])
+    # Main 180 (m1, m2, m3) + the agent's 60; the Workflow wait is linked, so not main busy.
+    assert t[("alpha", "Issue-4")].busy == 240
+    assert t[(NP, NI)].busy == 60                     # the dispatch wait, before the pair is set
+    d2 = tmp_path / "d2"
+    _workflow_session(d2, gz=False, run_id="wf_00000000-000", stamp=True)
+    t = _times([d2])
+    # Unmatched: the agent's 60 falls to (no project)/(no issue); the unlinked wait is main busy.
+    assert t[("alpha", "Issue-4")].busy == 240
+    assert t[(NP, NI)].busy == 120
+
+
+def test_time_bad_or_backward_timestamp(tmp_path):
+    acc = _timed(tmp_path, [
+        _at(_call("c1", None), 0),
+        {**_call("c2", None), "timestamp": "garbage", "uuid": str(uuid.UUID(int=10**9))},
+        {**_call("c3", None), "timestamp": "2026-10-01T00:02:00.000", "uuid": str(uuid.UUID(int=10**9 + 1))},
+        _at(_call("c4", None), 3),
+    ], name="a")
+    assert acc.busy == 180
+    acc = _timed(tmp_path, [_at(_call("c1", None), 10), _at(_call("c2", None), 8)], name="b")
+    assert (acc.busy, acc.wall()) == (0, 0)
+
+
+ZERO_TIME = "time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)"
+
+
+@pytest.mark.parametrize("records", [
+    [_at(_call("c1", _usage(inp=1)), 0)],
+    [_at(_call("c1", _usage(inp=1)), 0), _at(_call("c2", _usage(inp=1)), 10)],
+], ids=["one-record", "over-cap"])
+def test_time_extremes(tmp_path, records):
+    d = _one(tmp_path, records)
+    assert _tv(_times([d])[(NP, NI)]) == (0, 0, 0, 0, 0, 0)
+    run = _cli("--transcripts", d, "--summary", "--time")
+    assert run.returncode == 0, run.stderr
+    assert _lines(run.stdout)[2] == f"(no project)/(no issue) {ZERO_TIME}"
+
+
+def test_time_unlinked_background_wait_is_busy(tmp_path):
+    acc = _timed(tmp_path, [_at(_end("e1"), 0), _at(_notify("bg1"), 40)], name="a")
+    assert acc.busy == 2400
+    d = _one(tmp_path, [
+        _at(_agent("c1", "a1"), 0), _at(_result("a1", "launched in the background"), 1),
+        _at(_end("e1"), 2), _at(_notify("a1"), 42),
+    ], name="b")
+    _subagent(d / "s.jsonl", "agent-a", "a1", [_at(_str("go"), 0), _at(_end("s1"), 1)])
+    # The agent's 60 plus main's idle 1-2; the 40-min notification wait names a read agent: 0 from main.
+    assert _times([d])[(NP, NI)].busy == 120
+
+
+def test_time_command_after_local_caveat_counts_latency(tmp_path):
+    acc = _timed(tmp_path, [
+        _at(_end("e1"), 0),
+        _at(_str("<local-command-caveat>Caveat: generated locally</local-command-caveat>"), 1 / 60),
+        _at(_typed("draft", "Issue-4"), 3),
+    ])
+    assert (acc.operator, acc.events, acc.returns) == (180, 1, 0)
+
+
+def _peak(fn):
+    tracemalloc.start()
+    try:
+        result = fn()
+        return result, tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_time_memory_small_records(tmp_path):
+    mb = int(os.environ.get("DEVAGENT_COST_REPORT_MEMORY_MB", "32"))
+    d = tmp_path / "small"
+    d.mkdir()
+    path = d / "small.jsonl"
+    try:
+        blocks = _big_session(path, mb, filler="x" * 2048, stamp=True)
+        records = 2 * blocks + 2
+        _, base = _peak(lambda: cr.collect([d], None))
+        times = {}
+        _, peak = _peak(lambda: cr.collect([d], None, timing=cr.TimeRules(), times=times))
+        print(f"memory: {records} records, peak {base} without --time, {peak} with")
+        assert peak <= 2 * base + 16 * records + 8 * 2**20
+        assert times[("alpha", "Issue-4")].busy > 0
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_time_memory_does_not_grow_with_transcript_size(tmp_path):
+    mb = int(os.environ.get("DEVAGENT_COST_REPORT_MEMORY_MB", "32"))
+    d = tmp_path / "big"
+    d.mkdir()
+    path = d / "big.jsonl"
+    try:
+        _big_session(path, mb, stamp=True)
+        size = path.stat().st_size
+        times = {}
+        _, peak = _peak(lambda: cr.collect([d], None, timing=cr.TimeRules(), times=times))
+        print(f"memory: {size} bytes, peak {peak} bytes with --time")
+        assert peak < 200 * 2**20
+        assert peak < size / 4
+        assert times[("alpha", "Issue-4")].busy > 0     # the time path ran (pothole L190)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+# Task 5: CLI.
+
+RULE_LINE = "time rule: idle_gap 5m, tool_gap 60m, attention_cap 15m"
+ALPHA_COST, BETA_COST = GOLDEN_SUMMARY.splitlines()
+ALPHA_TIME = ("alpha/Issue-4 time: agent wall 0.20h, agent busy 0.20h, operator 0.17h "
+              "(4 operator events, 0 returns after absence, 1 by fallback)")
+BETA_TIME = ("beta/Issue-5 time: agent wall 0.03h, agent busy 0.03h, operator 0.00h "
+             "(1 operator events, 1 returns after absence, 0 by fallback)")
+
+
+def test_cli_time_line_follows_each_cost_line(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    run = _cli("--transcripts", d, "--time")
+    assert run.returncode == 0, run.stderr
+    out = run.stdout.splitlines()
+    assert out[2] == RULE_LINE
+    for cost, time in ((ALPHA_COST, ALPHA_TIME), (BETA_COST, BETA_TIME)):
+        assert out[out.index(cost) + 1] == time
+
+
+def test_cli_time_summary_lines(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    run = _cli("--transcripts", d, "--summary", "--time")
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.splitlines() == [RULE_LINE, ALPHA_COST, ALPHA_TIME, BETA_COST, BETA_TIME]
+
+
+def test_cli_time_project_issue_prints_side_pair(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    _draft_session(d)
+    run = _cli("--transcripts", d, "--project", "alpha", "--issue", "4", "--summary", "--time")
+    assert run.returncode == 0, run.stderr
+    out = run.stdout.splitlines()
+    assert len(out) == 5
+    assert out[0] == RULE_LINE
+    assert out[1] == ALPHA_COST and out[2] == ALPHA_TIME
+    assert out[3].startswith("(no project)/Issue-4: ")
+    assert out[4] == f"(no project)/Issue-4 {ZERO_TIME}"
+
+
+@pytest.mark.parametrize("flag", ["--idle-gap", "--tool-gap", "--attention-cap"])
+def test_cli_time_param_flags(tmp_path, flag):
+    d = _time_fixture(tmp_path / "timefix")
+    run = _cli("--transcripts", d, "--summary", "--time", "--idle-gap", "2")
+    assert run.returncode == 0, run.stderr
+    out = run.stdout.splitlines()
+    assert out[0] == "time rule: idle_gap 2m, tool_gap 60m, attention_cap 15m"
+    assert out[2].startswith("alpha/Issue-4 time: agent wall 0.15h, agent busy 0.15h, ")
+    run = _cli("--transcripts", d, "--summary", "--time", "--tool-gap", "0.5")
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.splitlines()[0] == "time rule: idle_gap 5m, tool_gap 0.5m, attention_cap 15m"
+    for bad in ("0", "-1", "nan", "inf", "abc"):
+        run = _cli("--transcripts", d, "--summary", "--time", flag, bad)
+        assert run.returncode == 2, (flag, bad, run.stdout)
+        assert run.stdout == ""
+    run = _cli("--transcripts", d, "--summary", flag, "5")
+    assert run.returncode == 2
+    assert f"{flag} needs --time" in run.stderr
+
+
+TIME_KEYS = {"agent_wall_s", "agent_busy_s", "operator_s", "operator_events", "returns_after_absence", "fallback_events"}
+
+
+def test_cli_time_json(tmp_path):
+    d = _time_fixture(tmp_path / "timefix")
+    run = _cli("--transcripts", d, "--json", "--time")
+    assert run.returncode == 0, run.stderr
+    lines = _lines(run.stdout)
+    objs = [json.loads(ln) for ln in lines]
+    assert [(o["project"], o["issue"]) for o in objs] == [("alpha", "Issue-4"), ("beta", "Issue-5")]
+    rule = '"time_rule": {"attention_cap_s": 900.0, "idle_gap_s": 300.0, "tool_gap_s": 3600.0}'
+    for ln, o in zip(lines, objs):
+        assert set(o) == JSON_KEYS | TIME_KEYS | {"time_rule"}
+        assert rule in ln
+    assert {k: objs[0][k] for k in TIME_KEYS} == {
+        "agent_wall_s": 720.0, "agent_busy_s": 720.0, "operator_s": 600.0,
+        "operator_events": 4, "returns_after_absence": 0, "fallback_events": 1}
+    assert {k: objs[1][k] for k in TIME_KEYS} == {
+        "agent_wall_s": 120.0, "agent_busy_s": 120.0, "operator_s": 0.0,
+        "operator_events": 1, "returns_after_absence": 1, "fallback_events": 0}
+    assert _cli("--transcripts", d, "--json", "--time").stdout == run.stdout   # byte-identical reruns
+    two = _cli("--transcripts", d, "--json", "--time", "--idle-gap", "2")
+    assert all('"idle_gap_s": 120.0' in ln for ln in _lines(two.stdout))
+
+
+def test_cli_time_archive(tmp_path):
+    store = tmp_path / "store"
+    _time_fixture(store / "h1" / "timefix", gz=True)
+    live = _time_fixture(tmp_path / "timefix")
+    arc = _cli("--archive", store, "--time", "--summary")
+    liv = _cli("--transcripts", live, "--time", "--summary")
+    assert arc.returncode == 0 and liv.returncode == 0, (arc.stderr, liv.stderr)
+    assert arc.stdout == liv.stdout
+    assert ALPHA_TIME in arc.stdout.splitlines()

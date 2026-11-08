@@ -37,3 +37,16 @@ setup() {
   grep -qF -- "- Workflow cost (unattributed to a project, may include other projects' work): <line>" "$SKILL/SKILL.md"
   grep -qF -- '(N transcript file(s) skipped; undercount)' "$SKILL/SKILL.md"
 }
+
+@test "core-impact step 6 passes --time and records the Workflow time line (#733)" {
+  cmd="$(awk '/^6\. \*\*Workflow cost\.\*\*/ { f = 1 } f && /cost-report\.sh/ { print; exit }' "$SKILL/SKILL.md")"
+  [ -n "$cmd" ]
+  printf '%s\n' "$cmd" | grep -qF -- '--time'
+  printf '%s\n' "$cmd" | grep -qF -- '--project <project>'
+  printf '%s\n' "$cmd" | grep -qF -- '--issue <Issue-N>'
+  grep -qF -- '- Workflow time: <time line> (<rule line>)' "$SKILL/SKILL.md"
+  grep -qF -- '<project>/<Issue-N> time:' "$SKILL/SKILL.md"
+  grep -qF -- 'time rule:' "$SKILL/SKILL.md"
+  grep -qF -- "- Workflow time (unattributed to a project, may include other projects' work): <time line> (<rule line>)" "$SKILL/SKILL.md"
+  grep -qF -- '- Workflow time: not measured' "$SKILL/SKILL.md"
+}
