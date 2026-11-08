@@ -23,12 +23,39 @@ read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
 every file read, so a session archived on two hosts and still live counts
 once; a session is its sessionId. --json prints one JSON object per (project,
 issue) with the transcript files it came from. Records stream, so memory does
-not grow with transcript size.
+not grow with transcript size; under --time it grows by one 16-byte uuid key
+per user/assistant record (about 150 bytes with set overhead) and one span
+per busy run.
 
 Cost is in input-token equivalents: each token class weighted by its price
 relative to the base input price (WEIGHTS). A session re-reads its whole
 context on every call, so cache reads dominate a long session; that is what
 next.sh's phase breaks cut.
+
+--time adds agent and operator time per pair (#733), from the timestamps of
+user and assistant records only: attachments, queue operations and other
+record types are invisible, and so are client-injected user records (isMeta,
+isCompactSummary, isVisibleInTranscriptOnly, <local-command…> text). Each
+interval between consecutive records of one transcript is a wait when the
+later record answers a still-pending tool_use (any unanswered one, not only
+the previous record's) or is a task-notification hand-back; a wait counts as
+agent time when it is at most tool_gap, any other interval when it is at
+most idle_gap, all or nothing (a peer message is not a wait). An interval
+ending in an operator event is never agent time. A wait on an agent launch
+whose subagent transcript was read is not main time: the subagent's own
+records carry the work. Agent busy time sums every transcript's busy
+intervals (parallel subagents add); agent wall time, the headline, is the
+length of their union. Operator events come from main sessions only: a
+message with origin human, a user_temporary permission decision, or, by
+fallback, a no-origin typed user message (not a notification, an
+Another Claude session message or local-command output). An event adds its
+latency since the previous record when that is at most attention_cap, else
+counts a return after absence and adds 0; a typed message whose previous
+record is not an end_turn was queued while the agent worked and adds 0.
+Time is charged to the pair in force before the record's own events (a
+typed /devagent:pull's latency is the prior pair's), and subagent time to
+the pair that launched it, as cost is. A record whose uuid was already read
+in any file adds nothing, so a live session and its archived copy count once.
 """
 
 from __future__ import annotations
