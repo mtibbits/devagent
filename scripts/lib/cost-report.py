@@ -106,8 +106,9 @@ START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
 MARKERS = ('"usage"', '"tool_use"', "dispatch: ", "<command-name>", "Run ID: ")
 # A subagent file contributes only its calls.
 SUB_MARKERS = ('"usage"',)
-# Under --time every timestamped record is read: operator and idle records carry no cost marker.
-TIME_MARKERS = ('"timestamp"',)
+# Under --time every user/assistant record is read: operator and idle records carry no cost marker.
+# Both separator styles: Claude Code writes compact JSON, Python's json.dumps does not.
+TIME_MARKERS = ('"type":"user"', '"type":"assistant"', '"type": "user"', '"type": "assistant"')
 # A hand-back notification names the background task it closes.
 TASK_TOOL_USE_ID = re.compile(r"<tool-use-id>([^<]+)</tool-use-id>")
 # Tool calls whose work a subagent transcript records.
@@ -310,7 +311,7 @@ def operator_kind(d: dict) -> str | None:
     decision = d.get("permissionDecision")
     if isinstance(decision, dict) and decision.get("source") == "user_temporary":
         return "permission"
-    if "origin" in d or d.get("type") != "user" or d.get("isMeta"):
+    if "origin" in d:
         return None
     text = _typed_text(_content(d))
     return "fallback" if text is not None and not text.startswith(NOT_TYPED) else None
@@ -340,7 +341,8 @@ class Clock:
 
     def tick(self, d: dict, t: float, acc: TimeAcc):
         kind = d.get("type")
-        content = _content(d)
+        msg = d.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
         blocks = content if isinstance(content, list) else ()
         dup = False
         u = d.get("uuid")
@@ -388,7 +390,6 @@ class Clock:
                         self.launched.add(b.get("id"))
         else:
             self.pending.difference_update(results)
-        msg = d.get("message")
         self.prev = (t, kind == "assistant" and isinstance(msg, dict) and msg.get("stop_reason") == "end_turn")
 
 
@@ -426,23 +427,23 @@ class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
 
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
-            | ("launch", tool_use_id) | ("calls", Row)
+            | ("launch", tool_use_id) | ("calls", Row) | ("time", TimeAcc)
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
     subs: [(toolUseId, cost, fresh)], one per subagent file with usage; fresh is
           False when every one of its message ids was already counted elsewhere.
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
-    moves: how many events other than "calls" have been appended.
-    time: [(moves when opened, TimeAcc)], under --time: each record's time is
-          charged to the bucket of the pair in force BEFORE the record's own events.
+    A "time" event (under --time) holds the time of the records ticked before the
+    next pair-moving event: each record's time goes to the pair in force BEFORE
+    the record's own events.
     sub_time: [(toolUseId, TimeAcc)], one per subagent file read, under --time.
     """
-    __slots__ = ("events", "dispatched", "subs", "session", "runs", "moves", "time", "sub_time")
+    __slots__ = ("events", "dispatched", "subs", "session", "runs", "sub_time")
 
     def __init__(self):
         self.events, self.dispatched, self.subs = [], set(), []
         self.session, self.runs = None, {}
-        self.moves, self.time, self.sub_time = 0, [], []
+        self.sub_time = []
 
 
 def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) -> Tape:
@@ -459,10 +460,12 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
     workflow_calls: set[str] = set()
     local: set[str] = set()
     clock = timing.clock(main=True) if timing else None
+    row = tacc = None   # the open calls and time buckets; a pair-moving event closes both
 
     def move(e):
+        nonlocal row, tacc
         ev.append(e)
-        tape.moves += 1
+        row = tacc = None
 
     for d in records:
         if tape.session is None and isinstance(d.get("sessionId"), str) and d["sessionId"]:
@@ -470,9 +473,10 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
         if clock is not None:
             t = _timed(d)
             if t is not None:
-                if not tape.time or tape.time[-1][0] != tape.moves:
-                    tape.time.append((tape.moves, TimeAcc()))
-                clock.tick(d, t, tape.time[-1][1])
+                if tacc is None:
+                    tacc = TimeAcc()
+                    ev.append(("time", tacc))
+                clock.tick(d, t, tacc)
         kind, msg = d.get("type"), d.get("message") or {}
         if not isinstance(msg, dict):
             continue
@@ -516,11 +520,12 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and isinstance(usage, dict) and usage and mid not in local:
                 local.add(mid)
-                if not (ev and ev[-1][0] == "calls"):
-                    ev.append(("calls", Row()))
+                if row is None:
+                    row = Row()
+                    ev.append(("calls", row))
                 if mid not in seen:
                     seen.add(mid)
-                    ev[-1][1].add(1, context_size(usage), call_cost(usage))
+                    row.add(1, context_size(usage), call_cost(usage))
     return tape
 
 
@@ -614,23 +619,17 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
 def replay(tape: Tape, known: set[str]):
     """Run the pair state machine over a tape.
 
-    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}, [(pair, TimeAcc)]):
-    a time bucket opened after k pair-moving events goes to the pair in force after the k-th.
+    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}, [(pair, TimeAcc)]).
     """
     pair, step = START
     buckets, launches, timed = [], {}, []
-    time = iter(tape.time)
-    nxt = next(time, None)
-    moves = 0
-    while nxt is not None and nxt[0] == moves:
-        timed.append((pair, nxt[1]))
-        nxt = next(time, None)
     for e in tape.events:
         kind = e[0]
         if kind == "calls":
             buckets.append((pair, step, e[1]))
-            continue
-        if kind == "dispatch":
+        elif kind == "time":
+            timed.append((pair, e[1]))
+        elif kind == "dispatch":
             pair, step = (e[1], e[2]), e[3]
         elif kind == "typed":
             pair, step = _typed_pair(e[1], e[2], pair, step, known)
@@ -638,10 +637,6 @@ def replay(tape: Tape, known: set[str]):
             step = e[1]
         elif kind == "launch":
             launches[e[1]] = (pair, step)
-        moves += 1
-        while nxt is not None and nxt[0] == moves:
-            timed.append((pair, nxt[1]))
-            nxt = next(time, None)
     return buckets, launches, timed
 
 
@@ -842,8 +837,8 @@ def _minutes(value: str) -> float:
     return x
 
 
-# --time parameters: flag, attribute, default minutes.
-TIME_FLAGS = (("--idle-gap", "idle_gap", 5.0), ("--tool-gap", "tool_gap", 60.0), ("--attention-cap", "attention_cap", 15.0))
+# --time parameters: flag, TimeRules attribute (the defaults live in TimeRules).
+TIME_FLAGS = (("--idle-gap", "idle_gap"), ("--tool-gap", "tool_gap"), ("--attention-cap", "attention_cap"))
 
 
 def main(argv: list[str]) -> int:
@@ -864,13 +859,15 @@ def main(argv: list[str]) -> int:
     out.add_argument("--json", action="store_true",
                      help="one JSON object per (project, issue) pair, with the transcript files it came from")
     ap.add_argument("--time", action="store_true", help="add agent and operator time per pair")
-    for flag, _, default in TIME_FLAGS:
-        ap.add_argument(flag, type=_minutes, metavar="MIN", help=f"a --time rule parameter, in minutes; default {default:g}")
+    defaults = TimeRules()
+    for flag, attr in TIME_FLAGS:
+        ap.add_argument(flag, type=_minutes, metavar="MIN",
+                        help=f"a --time rule parameter, in minutes; default {getattr(defaults, attr) / 60:g}")
     a = ap.parse_args(argv)
-    for flag, attr, _ in TIME_FLAGS:
-        if getattr(a, attr) is not None and not a.time:
-            ap.error(f"{flag} needs --time")
-    rules = TimeRules(*(60 * (getattr(a, attr) or default) for _, attr, default in TIME_FLAGS)) if a.time else None
+    given = {attr: 60 * getattr(a, attr) for _, attr in TIME_FLAGS if getattr(a, attr) is not None}
+    if given and not a.time:
+        ap.error(f"{next(f for f, attr in TIME_FLAGS if attr in given)} needs --time")
+    rules = TimeRules(**given) if a.time else None
     times: dict = {}
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
     every = (a.project or a.all_dirs) and not a.transcripts
