@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # tests/portfolio.bats — #726: the portfolio command (scripts/portfolio.sh)
-# and the bash/Python agreement of its checklist reader.
+# and the bash/Python agreement of its checklist reader; #727: --ready.
+bats_require_minimum_version 1.5.0   # #727: run --separate-stderr for --ready's stderr lines
 
 load 'lib/bats-helpers'
 
@@ -250,10 +251,100 @@ _hashes() {
     run bash "$PORTFOLIO" "${argv[@]}"
     echo "[$args] -> $status: $output"
     [ "$status" -eq 2 ]
-    [[ "$output" == *"usage: portfolio.sh [--out PATH]"* ]]
+    [[ "$output" == *"usage: portfolio.sh [--out PATH | --ready]"* ]]
   done
   run bash "$PORTFOLIO" --help
   [ "$status" -eq 0 ]
-  [[ "$output" == "usage: portfolio.sh [--out PATH]"* ]]
+  [[ "$output" == "usage: portfolio.sh [--out PATH | --ready]"* ]]
   [ ! -e "$DA_HOME/portfolio" ]
+}
+
+# --- --ready (#727) --------------------------------------------------------------
+
+# _ready_config: config.toml naming rho then sigma over a tmp copy of the
+# readiness fixture, in $R.
+_ready_config() {
+  R="$T/ready"
+  cp -R "$FIX/ready" "$R"
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.rho]
+devdoc_dir = "$R/rho"
+
+[project.sigma]
+devdoc_dir = "$R/sigma"
+EOF
+}
+
+@test "portfolio: --ready prints ready leaves in config then source order" {
+  _ready_config
+  run bash "$PORTFOLIO" --ready
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ "$output" == "$(cat "$FIX/ready-expected.tsv")" ]
+}
+
+@test "portfolio: --ready twice gives identical output" {
+  _ready_config
+  run bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  first="$output"
+  [ -n "$first" ]
+  run bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  [ "$output" == "$first" ]
+}
+
+@test "portfolio: --ready writes nothing" {
+  _ready_config
+  before="$(_hashes "$R")"
+  [ -n "$before" ]
+  run bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  [ ! -e "$DA_HOME/portfolio" ]
+  [ "$(_hashes "$R")" = "$before" ]
+}
+
+@test "portfolio: --ready with --out is a usage error" {
+  _ready_config
+  run bash "$PORTFOLIO" --ready --out "$T/x.json"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--ready writes no document; drop --out"* ]]
+  run bash "$PORTFOLIO" --out "$T/x.json" --ready
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--ready writes no document; drop --out"* ]]
+  [ ! -e "$T/x.json" ]
+  [ ! -e "$DA_HOME/portfolio" ]
+}
+
+@test "portfolio: --ready=1 is an unknown flag" {
+  run bash "$PORTFOLIO" --ready=1
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"unknown flag '--ready=1'"* ]]
+}
+
+@test "portfolio: --ready over the multi fixture lists its ready leaves" {
+  local p
+  run --separate-stderr bash "$PORTFOLIO" --ready
+  echo "$output"
+  echo "stderr: $stderr"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | wc -l)" -eq 14 ]
+  [[ "$output" == *$'\n'"beta"$'\t'"Issue-1"$'\t'"3h"$'\t'"Adopt the schema plant-beta-issue1"* ]]
+  [[ "$output" != *"rdy-"* ]]
+  for p in gamma delta epsilon zeta eta iota; do
+    [[ "$stderr" == *"portfolio: $p: not read ("* ]]
+  done
+  [[ "$stderr" != *"portfolio: alpha:"* ]]
+}
+
+@test "portfolio: --ready empty fields split with cut" {
+  _ready_config
+  run bash "$PORTFOLIO" --ready
+  [ "$status" -eq 0 ]
+  line="$(printf '%s\n' "$output" | grep 'rdy-noissue')"
+  [ -n "$line" ]
+  [ "$(printf '%s\n' "$line" | cut -f1)" = "rho" ]
+  [ -z "$(printf '%s\n' "$line" | cut -f2)" ]
+  [ "$(printf '%s\n' "$line" | cut -f3)" = "?w" ]
+  [ "$(printf '%s\n' "$line" | cut -f4)" = "No issue rdy-noissue" ]
 }

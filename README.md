@@ -153,7 +153,7 @@ All commands live under the `/devagent:` namespace.
 |---------|---------|
 | `wbs` | Work-breakdown-structure authoring and rendering (`init` / `update` / `order` / `show`) |
 | `statusreport` | Generate a per-project status report and advance the report pin |
-| `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report (read-only) |
+| `portfolio` | Write one portfolio JSON document over every configured project's WBS, with a parse report, or list every project's ready leaves with `--ready` (read-only) |
 
 ### Checklist primitives
 Low-level building blocks the workflow commands use; you rarely call them

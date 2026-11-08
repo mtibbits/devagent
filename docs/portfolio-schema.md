@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.0)
+# Portfolio document schema (v1.1)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -35,7 +35,7 @@ so a schema edit cannot lean on a rule the checker does not enforce.
   a slot and has no free-form keys says `false`.
 - Two semantics are **stricter than the standard**. `integer` means a JSON
   integer token, so `1.0` is refused (the standard accepts it). `enum` and
-  `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.0
+  `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.1
   has no numeric enum members, so this second rule changes nothing yet.) As in
   the standard, `true` is neither an `integer` nor a `number`.
 
@@ -100,6 +100,11 @@ declaring its properties.
   both ship `1.1`.
 - Descriptions and titles are not part of the contract; editing them needs no bump.
 
+### Version history
+
+- `1.0` (#725): initial.
+- `1.1` (#727): adds optional `projects[].nodes[].ready_via_parent_row`.
+
 ## Field reference
 
 Paths use the inventory syntax that the checker and guard use. Fields are
@@ -160,7 +165,8 @@ present with `null`.
 | `projects[].nodes[].satisfies[]` | string | — | One entry. |
 | `projects[].nodes[].h` | integer\|null, 0..4 | req | `meta.h` when it is one digit 0–4 (quotes already stripped by the parser); null when absent or malformed. |
 | `projects[].nodes[].depends_on` | array of Dep | req | `meta.depends_on`, one entry per id. |
-| `projects[].nodes[].ready` | boolean\|null | req | Readiness; null when not computed, and always null on a parent. |
+| `projects[].nodes[].ready` | boolean\|null | req | True when the leaf is ready by the rule in [`commands/portfolio.md`](../commands/portfolio.md) ("Ready leaves"); false otherwise; null on a parent, and throughout a document whose readiness was not computed. |
+| `projects[].nodes[].ready_via_parent_row` | boolean\|null | opt | On a leaf: true when at least one of its effective dependencies (its own plus every ancestor's) resolves to a row with children, false otherwise. Null on a parent and wherever `ready` is null. Such a row's state is hand-set today; once #788 lands, a `status_src: rollup` parent's state is derived, and this field's meaning does not change. Added in 1.1 (#727). |
 
 ### Est — `projects[].nodes[].est`
 
@@ -187,7 +193,7 @@ carried as written and never summed.
 | `projects[].nodes[].depends_on[].scope` | `local` \| `foreign` | req | See "Dependency split" below. |
 | `projects[].nodes[].depends_on[].project` | string | req | The named project; this project when local. |
 | `projects[].nodes[].depends_on[].issue` | string | req | The issue id. |
-| `projects[].nodes[].depends_on[].resolved` | boolean\|null | req | Whether the reference resolves; null when not computed. |
+| `projects[].nodes[].depends_on[].resolved` | boolean\|null | req | True when the entry resolves: a `local` entry to a node of this project whose `issue` equals the entry's `issue`; a `foreign` entry to such a node in the named project, which must be configured and read. A bare `Issue-N` resolves only locally. False otherwise: exactly the entries the parse report lists as `dep_unresolved`. Null only in a document whose readiness was not computed. |
 
 ### IssueEntry — `projects[].issues[]`
 
@@ -303,7 +309,7 @@ producer would report n5's `h` (`h_malformed`) and n6's `est`
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
-| `ready`, `depends_on[].resolved` | #727; null until it lands |
+| `ready`, `ready_via_parent_row`, `depends_on[].resolved` | #727, by the readiness rule in `commands/portfolio.md` |
 | `stuck` | #726, from the issue dir's `STUCK` file |
 | `checklist`, `next_step`, `next_step_number` | #726, from the issue dir's `checklist.md` |
 | `parse_report[].kind` | #726 (open vocabulary) |
@@ -327,7 +333,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.0)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.1)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,
@@ -343,7 +349,7 @@ with an import walk and a `python -I -S` run), so no dependency manifest exists.
 Exit `0` means **structurally well-formed**, nothing more. Cross-field
 consistency belongs to the producer, whose own correctness check cannot rest on
 this exit code: `invariant_violations` in `scripts/lib/portfolio.py` checks the
-rules below (I1–I15), and the producer writes a document only when both pass.
+rules below (I1–I16), and the producer writes a document only when both pass.
 The checker does not verify that:
 
 - node ids are unique, nodes ascend by `source_line`, and `parent` names an
@@ -358,9 +364,11 @@ The checker does not verify that:
   `rollup`, `wbs_title` and `status_reason`;
 - `rollup` equals a recomputation from the nodes;
 - `checklist` is `open` exactly when the next-step fields are set;
-- a report entry names a project in the document.
+- a report entry names a project in the document;
+- `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
+  null or all equal to a recomputation by the readiness rule (I16).
 
-### Report kinds (#726)
+### Report kinds (#726, #727)
 
 The producer's `parse_report[].kind` vocabulary, in report order. Entries are
 ordered by project (config order), then `source_line` (null first), then this
@@ -376,6 +384,9 @@ they do not know. A project's status is not repeated in the report.
 | `leaf_no_issue` | node | A leaf has no `issue:` key, or it is `""`. A non-string `issue` gives only `issue_malformed`. |
 | `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`); its issue dir is not read. |
 | `dep_unresolved` | node | One per `depends_on` entry that names no issue: none in this project, a project that is not configured, a project whose WBS was not read, or no such issue in the named project. |
+| `dep_skipped` | node | One per `depends_on` entry that resolves to a skipped row; leaves that depend on it are not ready. |
+| `dep_cycle` | node | One per dependency cycle (effective dependencies, ancestors' included), at its first member; the message names every member; its leaves are not ready. |
+| `parent_done_leaf_pending` | node | A node marked done with pending leaves under it; those leaves can still be ready. |
 | `duplicate_issue` | node | Each later node carrying an issue already seen in the project; the message names the first line. |
 | `est_unparseable` | node | The estimate class is `unparseable`. |
 | `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |

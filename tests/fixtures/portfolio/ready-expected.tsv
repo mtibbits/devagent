@@ -1,0 +1,15 @@
+rho	Issue-2		Target pending rdy-t-pending
+rho	Issue-4		Twin pending rdy-t-twin-b
+rho	Issue-10	3h	No dependencies rdy-nodeps
+rho	Issue-12	1h, 2h	On a done row rdy-on-done
+rho	Issue-17		On both twins done rdy-on-both
+rho		?w	No issue rdy-noissue
+rho	Issue-18		Tab in text rdy-tab
+rho	Issue-19		Own prefix rdy-own-prefix
+rho	Issue-21		Foreign done rdy-foreign-done
+rho	Issue-35		Child under it rdy-c-inprogress
+rho	Issue-36		Child under it rdy-c-done
+rho	Issue-38		On a parent row rdy-on-handset
+rho	Issue-43		Café naïve rdy-utf8
+rho	Issue-39		Child under it rdy-c-inherit
+sigma	Issue-91		Sigma pending rdy-s-pending

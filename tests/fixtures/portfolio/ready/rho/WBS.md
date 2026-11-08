@@ -1,0 +1,55 @@
+# rho WBS
+
+Readiness fixture for tests/test_portfolio.py and tests/portfolio.bats (#727). Tests locate rows by marker.
+
+- [x] Target done rdy-t-done {issue: Issue-1}
+- [ ] Target pending rdy-t-pending {issue: Issue-2}
+- [-] Target skipped rdy-t-skipped {issue: Issue-3}
+- [x] Twin done rdy-t-twin-a {issue: Issue-4}
+- [ ] Twin pending rdy-t-twin-b {issue: Issue-4}
+- [x] Both done rdy-t-both-a {issue: Issue-5}
+- [x] Both done again rdy-t-both-b {issue: Issue-5}
+- [ ] No dependencies rdy-nodeps {issue: Issue-10, est: 3h}
+- [~] In progress rdy-inprogress {issue: Issue-11}
+- [ ] On a done row rdy-on-done {issue: Issue-12, depends_on: Issue-1, est: [1h, 2h]}
+- [ ] On a pending row rdy-on-pending {issue: Issue-13, depends_on: Issue-2}
+- [ ] On an outline number rdy-outline {issue: Issue-14, depends_on: 4.1}
+- [ ] On a skipped row rdy-on-skipped {issue: Issue-15, depends_on: Issue-3}
+- [ ] On a twin rdy-on-twin {issue: Issue-16, depends_on: Issue-4}
+- [ ] On both twins done rdy-on-both {issue: Issue-17, depends_on: Issue-5}
+- [ ] No issue rdy-noissue {est: ?w}
+- [ ] Tab	in text rdy-tab {issue: Issue-18}
+- [ ] Own prefix rdy-own-prefix {issue: Issue-19, depends_on: rho:Issue-1}
+- [ ] Bare id of another project rdy-bare-foreign {issue: Issue-20, depends_on: Issue-90}
+- [ ] Foreign done rdy-foreign-done {issue: Issue-21, depends_on: sigma:Issue-90}
+- [ ] Foreign pending rdy-foreign-pending {issue: Issue-22, depends_on: sigma:Issue-91}
+- [ ] Foreign no such issue rdy-foreign-noissue {issue: Issue-23, depends_on: sigma:Issue-99}
+- [ ] Foreign no such project rdy-foreign-noproject {issue: Issue-24, depends_on: nosuch:Issue-1}
+- [ ] Cycle one rdy-cycle-a {issue: Issue-25, depends_on: Issue-26}
+- [ ] Cycle two rdy-cycle-b {issue: Issue-26, depends_on: Issue-25}
+- [ ] Cross-project cycle rdy-xcycle {issue: Issue-27, depends_on: sigma:Issue-92}
+- [ ] Parent with a dependency rdy-p-dep {depends_on: Issue-2}
+  - [ ] Child under it rdy-c-dep {issue: Issue-30}
+- [P] Parent parked rdy-p-parked
+  - [ ] Child under it rdy-c-parked {issue: Issue-31}
+- [!] Parent stuck rdy-p-stuck
+  - [ ] Child under it rdy-c-stuck {issue: Issue-32}
+- [?] Parent blocked rdy-p-blocked
+  - [ ] Child under it rdy-c-blocked {issue: Issue-33}
+- [-] Parent skipped rdy-p-skipped
+  - [ ] Child under it rdy-c-skipped {issue: Issue-34}
+- [~] Parent in progress rdy-p-inprogress
+  - [ ] Child under it rdy-c-inprogress {issue: Issue-35}
+- [x] Parent done rdy-p-done
+  - [ ] Child under it rdy-c-done {issue: Issue-36}
+- [x] Parent hand-set rdy-p-handset {issue: Issue-6}
+  - [x] Child under it rdy-c-handset {issue: Issue-37}
+- [ ] On a parent row rdy-on-handset {issue: Issue-38, depends_on: Issue-6}
+- [-] Mixed skipped rdy-t-mix-a {issue: Issue-7}
+- [x] Mixed done rdy-t-mix-b {issue: Issue-7}
+- [ ] On the mixed pair rdy-on-mix {issue: Issue-40, depends_on: Issue-7}
+- [x] Done cycle one rdy-dcycle-a {issue: Issue-41, depends_on: Issue-42}
+- [x] Done cycle two rdy-dcycle-b {issue: Issue-42, depends_on: Issue-41}
+- [ ] Café naïve rdy-utf8 {issue: Issue-43}
+- [ ] Parent inheriting rdy-p-inherit {depends_on: Issue-6}
+  - [ ] Child under it rdy-c-inherit {issue: Issue-39}

@@ -19,6 +19,9 @@ DOC = REPO / "docs" / "portfolio-schema.md"
 SPEC = REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
 HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
+# The reader's own version: the live schema's. A "1.0" elsewhere names a
+# document or a snapshot, not the reader.
+READER = "1.1"
 
 
 def _load(name, path):
@@ -46,11 +49,17 @@ def _write_schema(tmp_path, schema):
 
 
 
-def test_schema_loads_and_is_1_0():
+def test_schema_loads_and_is_reader_version():
     schema = pc.load_schema()
     assert "schema_version" in schema["properties"]
-    assert schema["version"] == "1.0"
-    assert pc.parse_version(schema["version"]) == (1, 0)
+    assert schema["version"] == READER
+    assert pc.parse_version(schema["version"]) == (1, 1)
+
+
+def test_ready_via_parent_row_is_optional_boolean_or_null():
+    node = pc.load_schema()["$defs"]["Node"]
+    assert node["properties"]["ready_via_parent_row"]["type"] == ["boolean", "null"]
+    assert "ready_via_parent_row" not in node["required"]
 
 
 def test_schema_refuses_unsupported_keyword(tmp_path):
@@ -144,12 +153,12 @@ def test_inventory_pins_reserved_slots():
 
 
 # Hand count of the field tables in docs/portfolio-schema.md: document 6,
-# project 9 + `projects[]`, node 16 + `nodes[]` + `meta{}` + `meta{}[]`
+# project 9 + `projects[]`, node 17 + `nodes[]` + `meta{}` + `meta{}[]`
 # + `meta_unknown_keys[]` + `satisfies[]` + `depends_on[]`, est 7 + `raw[]`,
 # dep 5, issue entry 8 + `issues[]` + `nodes[]`, stuck 3, rollup 2
 # (`by_state`, `remaining`) + 7 states x (1 + 4 counts) + remaining 7
 # + `non_time{}`, report entry 4 + `parse_report[]`.
-INVENTORY_SIZE = 6 + 10 + 22 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5
+INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5
 
 
 def test_inventory_path_count():
@@ -244,14 +253,14 @@ def test_unknown_major_refused(version):
     with pytest.raises(pc.UnsupportedVersion) as e:
         pc.check(_minimal_doc(version))
     assert str(e.value) == pc.MSG_UNSUPPORTED.format(
-        document=version, major=1, reader="1.0")
-    assert (e.value.document, e.value.reader) == (version, "1.0")
+        document=version, major=1, reader=READER)
+    assert (e.value.document, e.value.reader) == (version, READER)
 
 
 def test_cli_unknown_major_exit_3(tmp_path, capsys):
     code, out, err = _main(capsys, _dump(tmp_path, _minimal_doc("2.0")))
     assert (code, out) == (3, "")
-    assert "2.0" in err and "1.0" in err
+    assert "2.0" in err and READER in err
 
 
 MISSING = object()
@@ -320,7 +329,7 @@ def test_cli_usage_exit_2(tmp_path, capsys):
 
 
 def test_cli_valid_exit_0_silent(tmp_path):
-    r = _run_cli(_dump(tmp_path, _minimal_doc()))
+    r = _run_cli(_dump(tmp_path, _minimal_doc(READER)))
     assert (r.returncode, r.stdout, r.stderr) == (0, "", "")
 
 
@@ -350,7 +359,7 @@ def test_newer_minor_ignores_unknown_fields(tmp_path, capsys):
     assert pc.check(doc) == []
     assert _main(capsys, _dump(tmp_path, doc)) == (
         0, "", "portfolio-check: " + pc.MSG_NEWER_MINOR.format(
-            document="1.7", reader="1.0") + "\n")
+            document="1.7", reader=READER) + "\n")
 
 
 def test_newer_minor_still_validates_known_fields():
@@ -363,13 +372,13 @@ def test_newer_minor_still_validates_known_fields():
 
 
 def test_same_minor_unknown_fields_are_errors():
-    errors = pc.check(_plant_unknown_fields(_minimal_doc()))
+    errors = pc.check(_plant_unknown_fields(_minimal_doc(READER)))
     assert sorted(errors) == sorted(f"{p}: unknown field" for p in PLANTED_PATHS)
 
 
 def test_older_minor_document_reads():
     schema = _schema()
-    schema["version"] = "1.1"
+    schema["version"] = "1.2"
     schema["$defs"]["Node"]["properties"]["note"] = {"type": "string"}
     assert pc.check(_minimal_doc("1.0"), schema) == []
 
@@ -412,10 +421,10 @@ def test_enum_bounds_required():
 
 
 def test_reserved_slot_must_be_null():
-    doc = _minimal_doc()
+    doc = _minimal_doc(READER)
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == [
-        "$.projects[0].lanes: reserved slot must be null in schema 1.0"]
+        f"$.projects[0].lanes: reserved slot must be null in schema {READER}"]
     doc = _minimal_doc("1.3")
     doc["projects"][0]["lanes"] = {}
     assert pc.check(doc) == []
@@ -502,6 +511,7 @@ def test_example_validates_with_jsonschema_if_installed():
 # a version bump adds a file and a line here.
 HISTORY_SHA256 = {
     "1.0": "782fe9fab59ab9b01f41518a683e9eb0f0c97aa8ecba288d6789b3c20d11c9a0",
+    "1.1": "ef429e036cfb62e218e62a8e37d1a50a7297f40edf6c93c0c9958660ce58e30d",
 }
 
 
@@ -686,7 +696,9 @@ GUARD_ROWS = [
 def test_guard_mutation(row):
     _, _, edit, version, expected = row
     baseline = pc.load_schema(HISTORY / "1.0.json")
-    mutated = _schema()
+    # Each row edits the baseline snapshot itself, so a later minor's own
+    # additions to the live schema never leak into a row's expected list.
+    mutated = copy.deepcopy(baseline)
     edit(mutated)
     mutated["version"] = version
     assert sorted(pc.compat_violations(baseline, mutated)) == sorted(expected)
