@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -622,8 +623,9 @@ def _build(tmp_path):
     return root, pf.build_document(projects, GENERATED_AT)
 
 
-def _wbs_text(project):
-    return (MULTI / project / "WBS.md").read_bytes().decode("utf-8")
+@lru_cache(maxsize=None)
+def _wbs_text(project, root=MULTI):
+    return (root / project / "WBS.md").read_bytes().decode("utf-8")
 
 
 def _project(doc, name):
@@ -838,13 +840,18 @@ READY_EXPECTED = FIXTURES / "ready-expected.tsv"
 
 
 def _ready_text(project):
-    return (READY / project / "WBS.md").read_bytes().decode("utf-8")
+    return _wbs_text(project, READY)
+
+
+def _ready_copy(tmp_path):
+    root = tmp_path / "ready"
+    shutil.copytree(READY, root)
+    return root
 
 
 def _ready_build(tmp_path):
     """The rho/sigma readiness fixture, copied to tmp and built in that order."""
-    root = tmp_path / "ready"
-    shutil.copytree(READY, root)
+    root = _ready_copy(tmp_path)
     projects = [pf.ProjectInput("rho", str(root / "rho")),
                 pf.ProjectInput("sigma", str(root / "sigma"))]
     return pf.build_document(projects, GENERATED_AT)
@@ -1148,8 +1155,7 @@ def test_main_usage(argv, capsys):
 
 def _ready_manifest(tmp_path, monkeypatch, others=None):
     """rho then `others` (default: sigma) as the manifest, over a tmp copy."""
-    root = tmp_path / "ready"
-    shutil.copytree(READY, root)
+    root = _ready_copy(tmp_path)
     if others is None:
         others = [("sigma", str(root / "sigma"))]
     _manifest(monkeypatch, [("rho", str(root / "rho")), *others])
@@ -1185,8 +1191,7 @@ def _subprocess_env(root):
 
 
 def test_ready_stdout_is_utf8_lf_bytes(tmp_path):
-    root = tmp_path / "ready"
-    shutil.copytree(READY, root)
+    root = _ready_copy(tmp_path)
     r = subprocess.run([sys.executable, str(PRODUCER), "ready"], capture_output=True,
                        env=_subprocess_env(root))
     assert (r.returncode, r.stderr) == (0, b"")

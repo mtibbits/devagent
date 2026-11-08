@@ -7,9 +7,9 @@
 # per ready leaf (project, issue, est, text) instead of writing it.
 #
 # Read-only over every devdoc: it writes the one document and nothing else (no
-# WBS.md, no state, no devdoc file); under --ready it writes nothing at all. It acts on no single issue and calls no
-# tracker or code host, so it is not a trust or resolver entry point, like
-# status.sh. The default output sits under devagent's home, outside every
+# WBS.md, no state, no devdoc file); under --ready it writes nothing at all.
+# It acts on no single issue and calls no tracker or code host, so it is not a
+# trust or resolver entry point, like status.sh. The default output sits under devagent's home, outside every
 # devdoc and checkout: the document names private projects, and cleanup
 # publishes whatever lies under a devdoc_dir.
 #
@@ -77,8 +77,10 @@ config_load
 # The manifest is this script's alone: an inherited PORTFOLIO_* var would fill a gap.
 unset "${!PORTFOLIO_@}"
 list="$(config_list_projects)" || die "cannot list the projects in $(config_path)"
-if [[ -z "$ready" ]]; then
-  [[ -n "$out" ]] || out="$(devagent_home)/portfolio/portfolio.json"
+if [[ -n "$ready" ]]; then
+  args=(ready)
+else
+  args=(build --out "${out:-$(devagent_home)/portfolio/portfolio.json}")
 fi
 
 i=0
@@ -99,7 +101,4 @@ while IFS= read -r p; do
 done <<< "$list"
 export PORTFOLIO_PROJECT_COUNT="$i"
 
-if [[ -n "$ready" ]]; then
-  exec python3 "$PLUGIN_ROOT/scripts/lib/portfolio.py" ready
-fi
-exec python3 "$PLUGIN_ROOT/scripts/lib/portfolio.py" build --out "$out"
+exec python3 "$PLUGIN_ROOT/scripts/lib/portfolio.py" "${args[@]}"
