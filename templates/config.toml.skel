@@ -47,6 +47,20 @@ ship_as_draft = false
 # [paths]                       # TOP-LEVEL table: keep it above the first [project.*] header
 # potholes_workflow = "~/src/devDoc/templates/potholes.md"
 
+# Durable transcript archive (#731): scripts/archive-transcripts.sh copies this
+# machine's Claude Code transcripts (~/.claude/projects) into
+# <transcripts_dir>/<host_id>/, append-only, and cleanup (step 24) runs it when
+# transcripts_dir is set. cost-report --archive <transcripts_dir> reads it.
+# The archive is as sensitive as ~/.claude: a transcript holds everything a
+# session read. Keep it on private storage, never in a pushed repository (a
+# transcripts_dir inside a git work tree, or inside ~/.claude/projects, is
+# refused). On Windows POSIX modes do not apply; the archive inherits its
+# parent's ACL, so pick a private parent.
+# [archive]                     # TOP-LEVEL table: keep it above the first [project.*] header
+# transcripts_dir = "/home/me/private/claude-transcripts"   # absolute (~ expands); required
+# host_id = "laptop"            # [A-Za-z0-9._-]+, no "..", not "."; default the hostname (+ "-wsl" under WSL)
+# exclude = ["*scratch*"]       # cwd-slug globs never archived (case-insensitive)
+
 [project.{{PROJECT}}]
 source_dir       = "{{SOURCE_DIR}}"
 devdoc_dir       = "{{DEVDOC_DIR}}"

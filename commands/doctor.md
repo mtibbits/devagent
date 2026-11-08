@@ -27,6 +27,14 @@ account (one `gh auth status --hostname <h>` call per GitHub host, doctor
 only). A host-level refusal there exits 9 (or 10) before the per-project
 checks. With no policy the block is absent.
 
+Two global #731 checks, both warn-only: `claude transcript retention` when
+`cleanupPeriodDays` in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` is not
+set, 30 or less, or not a number (Claude Code deletes transcripts older than
+that; set it above 30, e.g. 99999), and `transcript archive` when
+`[archive].transcripts_dir` is set but `<transcripts_dir>/<host_id>/last-run`
+is missing or more than 7 days old, or the `[archive]` table is refused. Both
+read only; neither writes the archive.
+
 Per project, the tracker-mapping check (#710, warn-only) flags `github_labels`/`gitlab_labels` keys no transition reads, the retired keys and a nested `issue_workflow.<backend>_labels` table. With `transition_issue = true` it also asks the tracker (`state-exists`, up to three calls per tracker, so a network call) whether each mapped label or status exists, and skips when the tracker is unreachable or unauthenticated. One global check warns while a process-global per-stage override (`DEVAGENT_GITHUB_LABEL_<STAGE>` and its GitLab/JIRA kin) or a retired env name is set.
 
 Per project, two #885 checks (warn-only): `permissions.merge_mr` set without `permissions.merge_to_all_prs` (merge_mr now approves merging the PR at step 20, mergemr, and no longer gates mergetoall), and a devdoc override of a `checklist-*.md` or `revision_block.md` template that has a `ship` row but no `mergemr` row (the merge step would not run or gate closeout).
