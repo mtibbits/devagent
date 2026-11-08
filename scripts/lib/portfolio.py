@@ -438,6 +438,283 @@ def invariant_violations(doc: dict) -> list[str]:
     return out
 
 
+# --- readiness (#727) ----------------------------------------------------------
+
+# An ancestor in one of these states keeps every leaf under it from being ready
+# (rule 5). A done or in-progress ancestor does not.
+BLOCKING_ANCESTOR = frozenset({"parked", "stuck", "blocked_external", "skipped"})
+
+
+@dataclass(frozen=True)
+class Readiness:
+    """compute_readiness's result: field values and report findings.
+
+    `resolved` is keyed (node id, dep index); `ready` and `via_parent_row`
+    by leaf id. A node id that appears more than once in the document is
+    ambiguous and is left out of all three. Each finding is
+    (project, source_line, kind, message).
+    """
+    resolved: dict[tuple[str, int], bool]
+    ready: dict[str, bool]
+    via_parent_row: dict[str, bool]
+    findings: list[tuple[str, int | None, str, str]]
+
+
+def _line_list(lines) -> str:
+    """`line N` or `lines N, M`, ascending."""
+    lines = sorted(set(lines))
+    if len(lines) == 1:
+        return f"line {lines[0]}"
+    return "lines " + ", ".join(str(n) for n in lines)
+
+
+def _strong_components(adj: list[list[int]]) -> list[list[int]]:
+    """Tarjan's strongly connected components, iteratively, roots in vertex order."""
+    count = len(adj)
+    index: list[int | None] = [None] * count
+    low = [0] * count
+    on_stack = [False] * count
+    stack: list[int] = []
+    out: list[list[int]] = []
+    counter = 0
+    for root in range(count):
+        if index[root] is not None:
+            continue
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack[root] = True
+        work = [(root, 0)]
+        while work:
+            v, i = work[-1]
+            if i < len(adj[v]):
+                work[-1] = (v, i + 1)
+                w = adj[v][i]
+                if index[w] is None:
+                    index[w] = low[w] = counter
+                    counter += 1
+                    stack.append(w)
+                    on_stack[w] = True
+                    work.append((w, 0))
+                elif on_stack[w]:
+                    low[v] = min(low[v], index[w])
+                continue
+            work.pop()
+            if work:
+                u = work[-1][0]
+                low[u] = min(low[u], low[v])
+            if low[v] == index[v]:
+                component = []
+                while True:
+                    w = stack.pop()
+                    on_stack[w] = False
+                    component.append(w)
+                    if w == v:
+                        break
+                out.append(component)
+    return out
+
+
+def compute_readiness(projects: list[dict]) -> Readiness:
+    """Readiness over the document's own project and node dicts (pure).
+
+    Reads only project `project`/`status` and node `id`, `parent`, `leaf`,
+    `state`, `issue`, `source_line` and `depends_on[].raw/scope/project/issue`.
+    The rule is commands/portfolio.md's "Ready leaves": a leaf is ready when
+    it is pending, no ancestor is parked, stuck, blocked externally or
+    skipped, every effective dependency (its own plus every ancestor's)
+    resolves, every node it resolves to is done, and the leaf is in no
+    dependency cycle. The ancestor walk stops at an unknown parent id and at
+    a revisit, so a malformed document cannot loop or raise.
+    """
+    by_name: dict[str, dict] = {}
+    for p in projects:
+        by_name.setdefault(p["project"], p)
+    # {project: {issue: [nodes]}} over the nodes of read projects.
+    index: dict[str, dict[str, list[dict]]] = {}
+    for p in projects:
+        if p["status"] == "read":
+            issues = index.setdefault(p["project"], {})
+            for n in p["nodes"]:
+                if n["issue"] is not None:
+                    issues.setdefault(n["issue"], []).append(n)
+    seen_ids: set[str] = set()
+    ambiguous: set[str] = set()
+    for p in projects:
+        for n in p["nodes"]:
+            (ambiguous if n["id"] in seen_ids else seen_ids).add(n["id"])
+
+    # Every node in document order; a vertex is its position here.
+    order: list[tuple[str, dict]] = [(p["project"], n) for p in projects for n in p["nodes"]]
+    vertex = {id(n): k for k, (_, n) in enumerate(order)}
+    findings: list[tuple[str, int | None, str, str]] = []
+    resolved: dict[tuple[str, int], bool] = {}
+    # id(node) -> [(entry, target project, [target nodes] or None)] in entry order.
+    entries: dict[int, list[tuple[dict, str, list[dict] | None]]] = {}
+
+    # 1. Resolve each entry (#726's messages and branch order, verbatim).
+    for name, n in order:
+        rows = entries.setdefault(id(n), [])
+        for i, d in enumerate(n["depends_on"]):
+            raw, target = d["raw"], d["project"]
+            hits = None
+            if d["scope"] == "local":
+                target = name
+                hits = index.get(name, {}).get(d["issue"])
+                message = f"depends_on '{raw}' matches no issue in this project"
+            elif target not in by_name:
+                message = f"depends_on '{raw}' names project '{target}', which is not configured"
+            elif by_name[target]["status"] != "read":
+                message = (f"depends_on '{raw}' names project '{target}', whose WBS was not "
+                           f"read ({by_name[target]['status']})")
+            else:
+                hits = index.get(target, {}).get(d["issue"])
+                message = f"depends_on '{raw}' matches no issue in project '{target}'"
+            if n["id"] not in ambiguous:
+                resolved[(n["id"], i)] = bool(hits)
+            if not hits:
+                findings.append((name, n["source_line"], "dep_unresolved", message))
+                hits = None
+            rows.append((d, target, hits))
+
+    # 2. A dependency on a skipped row is not satisfied: one finding per entry.
+    for name, n in order:
+        for d, target, hits in entries[id(n)]:
+            skipped = [t["source_line"] for t in hits or () if t["state"] == "skipped"]
+            if skipped:
+                where = _line_list(skipped)
+                if d["scope"] == "foreign":
+                    where += f" of project '{target}'"
+                findings.append((name, n["source_line"], "dep_skipped",
+                                 f"depends_on '{d['raw']}' resolves to a skipped row at {where}; "
+                                 "leaves that depend on it are not ready"))
+
+    # Ancestors within the node's own project, nearest first.
+    by_id: dict[str, dict[str, dict]] = {}
+    for p in projects:
+        ids = by_id.setdefault(p["project"], {})
+        for n in p["nodes"]:
+            ids.setdefault(n["id"], n)
+
+    def ancestors(name: str, n: dict) -> list[dict]:
+        ids = by_id.get(name, {})
+        out, seen, parent = [], {n["id"]}, n["parent"]
+        while parent is not None and parent in ids and parent not in seen:
+            seen.add(parent)
+            node = ids[parent]
+            out.append(node)
+            parent = node["parent"]
+        return out
+
+    def effective(name: str, n: dict) -> list[tuple[dict, str, list[dict] | None]]:
+        rows = list(entries[id(n)])
+        for a in ancestors(name, n):
+            rows += entries.get(id(a), [])
+        return rows
+
+    # 3. The cycle graph: an edge to every target of a node's effective entries.
+    adj: list[list[int]] = []
+    for name, n in order:
+        targets: list[int] = []
+        for _, _, hits in effective(name, n):
+            for t in hits or ():
+                k = vertex.get(id(t))
+                if k is not None and k not in targets:
+                    targets.append(k)
+        adj.append(targets)
+    in_cycle: set[int] = set()
+    cycles = []
+    for component in _strong_components(adj):
+        if len(component) > 1 or component[0] in adj[component[0]]:
+            members = sorted(component)
+            in_cycle.update(members)
+            cycles.append(members)
+    for members in sorted(cycles):
+        home = order[members[0]][0]
+        labels = []
+        for k in members:
+            name, n = order[k]
+            prefix = "" if name == home else f"{name}:"
+            labels.append(f"{prefix}{n['issue']} (line {n['source_line']})")
+        findings.append((home, order[members[0]][1]["source_line"], "dep_cycle",
+                         "dependency cycle: " + ", ".join(labels)))
+
+    # 4. Each leaf's readiness and whether it leans on a parent row.
+    ready: dict[str, bool] = {}
+    via_parent_row: dict[str, bool] = {}
+    pending_under: dict[int, list[int]] = {}
+    for k, (name, n) in enumerate(order):
+        if not n["leaf"]:
+            continue
+        lineage = ancestors(name, n)
+        rows = effective(name, n)
+        ok = (n["state"] == "pending"
+              and not any(a["state"] in BLOCKING_ANCESTOR for a in lineage)
+              and all(hits and all(t["state"] == "done" for t in hits) for _, _, hits in rows)
+              and k not in in_cycle)
+        if n["id"] not in ambiguous:
+            ready[n["id"]] = bool(ok)
+            via_parent_row[n["id"]] = any(not t["leaf"] for _, _, hits in rows
+                                          for t in hits or ())
+        if n["state"] == "pending":
+            for a in lineage:
+                if a["state"] == "done":
+                    pending_under.setdefault(id(a), []).append(n["source_line"])
+
+    # 5. A node marked done with pending leaves under it.
+    for name, n in order:
+        lines = pending_under.get(id(n))
+        if lines:
+            findings.append((name, n["source_line"], "parent_done_leaf_pending",
+                             "parent is marked done but leaves under it are pending: "
+                             + _line_list(lines)))
+    return Readiness(resolved, ready, via_parent_row, findings)
+
+
+def apply_readiness(projects: list[dict], report_for) -> None:
+    """Fill `resolved`, `ready` and `ready_via_parent_row`, and report the findings."""
+    r = compute_readiness(projects)
+    for p in projects:
+        for n in p["nodes"]:
+            for i, d in enumerate(n["depends_on"]):
+                d["resolved"] = r.resolved.get((n["id"], i))
+            if n["leaf"]:
+                n["ready"] = r.ready.get(n["id"])
+                n["ready_via_parent_row"] = r.via_parent_row.get(n["id"])
+            else:
+                n["ready"] = None
+                n["ready_via_parent_row"] = None
+    for project, line, kind, message in r.findings:
+        report_for(project)(line, kind, message)
+
+
+_FIELD_BREAK_RE = re.compile(r"[\t\r\n]")
+
+
+def _field(value: str) -> str:
+    """A TSV field: a TAB, CR or LF inside it becomes one space."""
+    return _FIELD_BREAK_RE.sub(" ", value)
+
+
+def ready_lines(doc: dict) -> list[str]:
+    """One `project<TAB>issue<TAB>est<TAB>text` line per ready leaf.
+
+    Projects in document (config) order, then nodes by source_line. `issue`
+    is empty when the leaf has none; `est` is `est.raw` as written (a list
+    joined with `, `), empty when absent, never 0.
+    """
+    out = []
+    for p in doc["projects"]:
+        for n in p["nodes"]:
+            if not (n["leaf"] and n["ready"] is True):
+                continue
+            raw = n["est"]["raw"]
+            est = ", ".join(raw) if isinstance(raw, list) else (raw or "")
+            out.append("\t".join(_field(f) for f in (p["project"], n["issue"] or "", est,
+                                                    n["text"])))
+    return out
+
+
 # --- build the document --------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -466,6 +743,9 @@ KINDS: tuple[str, ...] = (
     "leaf_no_issue",
     "issue_not_id",
     "dep_unresolved",
+    "dep_skipped",
+    "dep_cycle",
+    "parent_done_leaf_pending",
     "duplicate_issue",
     "est_unparseable",
     "est_src_invalid",
@@ -631,6 +911,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
             "issue": issue, "meta": meta, "meta_unknown_keys": raw["meta_unknown_keys"],
             "est": est, "satisfies": as_list(meta.get("satisfies")), "h": h,
             "depends_on": node_deps(meta, name), "ready": None,
+            "ready_via_parent_row": None,
         }
         nodes.append(node)
         if leaf and not issue_bad and issue is None:
@@ -664,31 +945,6 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
             "rollup": rollup(nodes)}
 
 
-def _resolve_deps(projects: list[dict], report_for) -> None:
-    """Report each depends_on entry that names no issue (resolved stays null, #727)."""
-    by_name = {p["project"]: p for p in projects}
-    carried = {p["project"]: {e["issue"] for e in p["issues"]} for p in projects}
-    for p in projects:
-        report = report_for(p["project"])
-        for node in p["nodes"]:
-            for d in node["depends_on"]:
-                raw, target = d["raw"], d["project"]
-                if d["scope"] == "local":
-                    if d["issue"] in carried[p["project"]]:
-                        continue
-                    message = f"depends_on '{raw}' matches no issue in this project"
-                elif target not in by_name:
-                    message = f"depends_on '{raw}' names project '{target}', which is not configured"
-                elif by_name[target]["status"] != "read":
-                    message = (f"depends_on '{raw}' names project '{target}', whose WBS was not "
-                               f"read ({by_name[target]['status']})")
-                elif d["issue"] not in carried[target]:
-                    message = f"depends_on '{raw}' matches no issue in project '{target}'"
-                else:
-                    continue
-                report(node["source_line"], "dep_unresolved", message)
-
-
 def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
     """The portfolio document over `projects`, in config order. Reads only."""
     counter = iter(range(1, sys.maxsize))
@@ -709,7 +965,7 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
             continue
         out.append(_build_read_project(p.name, Path(p.devdoc), text, next_id,
                                        report_for(p.name)))
-    _resolve_deps(out, report_for)
+    apply_readiness(out, report_for)
     order = {p.name: i for i, p in enumerate(projects)}
     entries.sort(key=lambda r: (order[r["project"]],
                                 -1 if r["source_line"] is None else r["source_line"],

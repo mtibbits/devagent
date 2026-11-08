@@ -382,6 +382,9 @@ they do not know. A project's status is not repeated in the report.
 | `leaf_no_issue` | node | A leaf has no `issue:` key, or it is `""`. A non-string `issue` gives only `issue_malformed`. |
 | `issue_not_id` | node | `issue` is a string that is not an issue id (`ID_TOKEN_RE`); its issue dir is not read. |
 | `dep_unresolved` | node | One per `depends_on` entry that names no issue: none in this project, a project that is not configured, a project whose WBS was not read, or no such issue in the named project. |
+| `dep_skipped` | node | One per `depends_on` entry that resolves to a skipped row; leaves that depend on it are not ready. |
+| `dep_cycle` | node | One per dependency cycle (effective dependencies, ancestors' included), at its first member; the message names every member; its leaves are not ready. |
+| `parent_done_leaf_pending` | node | A node marked done with pending leaves under it; those leaves can still be ready. |
 | `duplicate_issue` | node | Each later node carrying an issue already seen in the project; the message names the first line. |
 | `est_unparseable` | node | The estimate class is `unparseable`. |
 | `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |
