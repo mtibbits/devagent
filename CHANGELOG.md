@@ -30,7 +30,7 @@ the README's "Versioning & releases" section has the release procedure.
     line per ready leaf, in config then source order, as UTF-8 with LF line
     ends. It writes nothing, refuses `--out`, and names each project it could
     not read on stderr. A project filter for the view is a follow-up
-    (#TBD-filter).
+    (#919).
   - Three report kinds: `dep_skipped`, `dep_cycle` and
     `parent_done_leaf_pending`.
   - Portfolio schema 1.1 adds the optional `projects[].nodes[].ready_via_parent_row`:
