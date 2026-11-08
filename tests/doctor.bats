@@ -414,3 +414,60 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" != *"has no mergemr row"* ]]
 }
+
+# --- #731: transcript retention and the archive's last-run stamp (warn-only) ---
+
+@test "doctor WARNs when cleanupPeriodDays is absent, 30 or not a number (#731)" {
+  local s="$CLAUDE_CONFIG_DIR/settings.json" tail="; Claude Code deletes transcripts older than this (default 30). Set it above 30, e.g. 99999"
+  rm -f "$s"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN claude transcript retention — cleanupPeriodDays is not set in $s$tail"* ]]
+  printf '{"cleanupPeriodDays": 30}\n' > "$s"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN claude transcript retention — cleanupPeriodDays is 30 in $s$tail"* ]]
+  printf '{"cleanupPeriodDays": "x"}\n' > "$s"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN claude transcript retention — cleanupPeriodDays is not a number in $s$tail"* ]]
+  local v
+  for v in 31 99999; do
+    printf '{"cleanupPeriodDays": %s}\n' "$v" > "$s"
+    run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"transcript retention"* ]]
+  done
+}
+
+@test "doctor WARNs when the archive's last-run is missing or older than 7 days (#731)" {
+  local a="$BATS_TEST_TMPDIR/archive" stamp="$BATS_TEST_TMPDIR/archive/h1/last-run"
+  # No [archive]: no line.
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"transcript archive"* ]]
+  printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$a" >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN transcript archive — no last-run stamp at $stamp; run scripts/archive-transcripts.sh"* ]]
+  [ ! -e "$a" ]                                   # doctor is a pure read: nothing created
+  mkdir -p "$a/h1"
+  date -u -d '8 days ago' +%Y-%m-%dT%H:%M:%SZ > "$stamp"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN transcript archive — last run 8 days ago ($stamp); run scripts/archive-transcripts.sh"* ]]
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$stamp"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"transcript archive"* ]]
+  [ "$(ls -A "$a/h1")" = last-run ]               # still nothing but the stamp
+}
+
+@test "doctor WARNs with the refusal when [archive] would be refused (#731)" {
+  local t="$PLUGIN_ROOT/.archive-731-probe"       # inside the plugin's git work tree; never created
+  printf '\n[archive]\ntranscripts_dir = "%s"\nhost_id = "h1"\n' "$t" >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN transcript archive — [archive].transcripts_dir is inside a git work tree ("* ]]
+  [ ! -e "$t" ]
+}

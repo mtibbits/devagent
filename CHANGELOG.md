@@ -16,6 +16,38 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: a durable transcript archive, and `cost-report --archive` (#731,
+  epic #729).**
+  - `scripts/archive-transcripts.sh` copies this machine's Claude Code
+    transcripts (every session and everything under its `subagents/`,
+    workflow agents included; never `tool-results/`) into
+    `<transcripts_dir>/<host_id>/<cwd-slug>/<session>.jsonl.gz`, set by a new
+    global `[archive]` table (`transcripts_dir`, `host_id`, `exclude`). It
+    never deletes or rewrites: a grown transcript gets one more gzip member
+    holding only the new bytes, and a truncated or rewritten one is kept and
+    the source written beside it as `<session>.<sha6>.jsonl.gz`. A
+    `manifest.jsonl` per host makes an unchanged file cost one stat. Archived
+    files keep their source's mtime. `host_id` defaults to the hostname, with
+    `-wsl` under WSL. It refuses (exit 2, nothing written) a missing or
+    relative `transcripts_dir`, one inside a git work tree or inside
+    `~/.claude/projects` (symlinks and junctions resolved), a bad `host_id`,
+    and any unknown `[archive]` key.
+  - Cleanup (step 24) runs it when `[archive].transcripts_dir` is set,
+    non-fatal; with no `[archive]` table it spawns nothing.
+  - doctor warns (warn-only) when `cleanupPeriodDays` is not set, 30 or less,
+    or not a number, and when the archive's `last-run` stamp is missing or
+    more than 7 days old.
+  - `cost-report.sh --archive <dir>` reads every host and cwd partition
+    (`.jsonl.gz`; a torn tail keeps the lines before it and warns); alone it
+    reads no live dir. `--json` prints one object per (project, issue), with
+    the `(host, cwd_slug, session)` sources it came from.
+  - **Count changes, with or without `--archive`:** workflow agent transcripts
+    (`subagents/workflows/<run>/agent-*.jsonl`) now count, charged to the
+    `Workflow` call that launched them (on one developer machine, 162 transcripts and
+    9,537 usage records were previously omitted); a message id found in two
+    files counts once (one call on that machine was counted twice); and a
+    session is counted by its `sessionId`, not its file name.
+
 - **Fixed: `cost-report` charges cost to the `(project, issue)` pair and reads
   every transcript dir (#730, epic #729).**
   - Three sources set the pair, project and issue together: a `next.sh`

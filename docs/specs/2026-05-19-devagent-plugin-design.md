@@ -92,7 +92,8 @@ devAgent/
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
-│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885), ...
+│   │   mergemr.sh, rebaseline.sh, preship-verified-head.sh (#885),
+│   │   cost-report.sh (#730), archive-transcripts.sh (#731; lib/archive-transcripts.py), ...
 │   ├── analyze-static.sh    # wraps existing static_analysis_diff.py
 │   ├── analyze-sanitizers.sh
 │   └── checklist-{init,advance,mark,log,stuck,unstuck}.sh
@@ -132,6 +133,11 @@ ship_as_draft      = false               # default; overridable per-project and 
 potholes_workflow = "~/src/devDoc/templates/potholes.md"   # shared WORKFLOW pothole register; absolute after ~ expansion; default none
 # [project.<name>.paths] may override potholes_workflow, and may add
 # potholes_domain_nouns = ["matter", "docket"]   # words that mark a line as domain content (the workflow layer refuses them)
+
+[archive]                                # #731: GLOBAL top-level table — the durable transcript archive; absent = off
+transcripts_dir = "~/private/claude-transcripts"   # absolute after ~ expansion; required; refused inside a git work tree or inside <CLAUDE_CONFIG_DIR>/projects
+host_id         = "laptop"               # partition name [A-Za-z0-9._-]+, no "..", not "."; default hostname (+ "-wsl" under WSL)
+exclude         = ["*scratch*"]          # cwd-slug globs never archived; any other key is refused
 
 [project.volk]
 source_dir       = "~/src/volk"
@@ -777,7 +783,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | 21 | `/devagent:updatewbs` | skill | alias to `/devagent:wbs update` |
 | 22 | `/devagent:impact` | skill | `core-impact` — quantify and record |
 | 23 | `/devagent:lessonslearned` | skill | `core-lessons-learned` |
-| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595) |
+| 24 | `/devagent:cleanup` | script | `cleanup.sh` — restore tree, commit/push devdoc, clear `active_issue`; drains pending pothole promotions (#586); on a oneshot-tier issue refuses before any side effect when `oneshot-zerodiff.sh` reports the tree carries unpublished change or cannot classify it (#595); runs `archive-transcripts.sh --if-configured` when `[archive].transcripts_dir` is set, non-fatal (#731) |
 
 **Numbering & naming.** Step numbers are POSITIONS, not permanent IDs — assigned once, in the standard template's execution order, so the checklist's FILE order and its numbers agree by construction (#558). Numbered 0–24 top-to-bottom: 25 numbered step commands, 22 of them mandatory, with research (1), spike (3), and mergetoall (19) optional and off by default. Reduced tiers show a monotonic SUBSET with gaps — numbering is global, never per-tier, so step identity survives across templates. Inserting a future step renumbers the templates, the number-keyed logic sites, and the doc surface (~200 files); that cost is accepted deliberately (#558 D2) in exchange for a checklist a new reader can follow top-to-bottom. The research STEP (the `research: required` flag, this row) is DISTINCT from the research checklist TEMPLATE (`checklist_template = research`, a research-shaped issue type) — the flag flips a row; the template selects a whole checklist.
 

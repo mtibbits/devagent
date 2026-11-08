@@ -454,6 +454,21 @@ fi
 
 check_transition_env
 
+# #731 (global, warn-only): transcript retention (cleanupPeriodDays) and the
+# archive's last-run stamp. The helper is a pure read that prints
+# "<label>TAB<detail>" lines; capture then test (Issue-314), never pipe, and a
+# helper that did not run says so rather than passing silently.
+_ta_rc=0
+_ta_out="$(DA_HOME="$(devagent_home)" "$PLUGIN_ROOT/scripts/archive-transcripts.sh" --doctor 2>&1)" || _ta_rc=$?
+if (( _ta_rc != 0 )); then
+  check "transcript archive" warn "check did not run (rc $_ta_rc)"
+else
+  while IFS=$'\t' read -r _ta_label _ta_detail; do
+    if [[ -n "$_ta_label" ]]; then check "$_ta_label" warn "$_ta_detail"; fi
+  done <<< "${_ta_out//$'\r'/}"
+fi
+unset _ta_rc _ta_out _ta_label _ta_detail
+
 # #541: recommended-plugin check — WARN only, never touches ERRORS.
 # Tri-state (Issue-314/243): capture the CLI output, never pipe-under-`!`;
 # a CLI failure or empty output is "undetermined", NOT "absent" — no WARN.

@@ -143,4 +143,23 @@ remedy that names the tier, since the base branch cannot be checked out there;
 and a checklist with no `Template:` header (pre-#537) reads as not-oneshot, so
 the gate does not run — fail-open by decision, for backward compatibility.
 
+## Transcript archive (#731)
+
+When the global `[archive].transcripts_dir` is set, cleanup runs
+`archive-transcripts.sh --if-configured` (in `scripts/`) beside the WBS reconcile: it
+copies this machine's Claude Code transcripts (every session and everything
+under its `subagents/`, workflow agents included) into
+`<transcripts_dir>/<host_id>/<cwd-slug>/`, append-only, and prints one count
+line (`new`, `grown`, `unchanged`, `diverged`, `excluded`; `unchanged` means the
+content is unchanged, an mtime-only change included). It is non-fatal: a
+refusal or a failed file prints `cleanup: transcript archive failed (non-fatal)`
+and the close completes. With no `[archive]` table cleanup spawns nothing for
+it. The first run over a large `~/.claude/projects` copies everything, so run
+`scripts/archive-transcripts.sh` by hand once before relying on cleanup; later
+runs cost one stat per unchanged file. The archive is as sensitive as
+`~/.claude` (a transcript holds everything a session read): keep it on private
+storage; a `transcripts_dir` inside a git work tree or inside
+`~/.claude/projects` is refused. `cost-report --archive <transcripts_dir>` reads
+it, every host partition at once, counting each API call once.
+
 !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup.sh" $ARGUMENTS`

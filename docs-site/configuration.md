@@ -262,6 +262,16 @@ one key that reads the global table, and it has no plugin fallback, so
 `[project.<name>.paths] potholes_domain_nouns = [...]` lists words the shared
 layer refuses at staging time.
 
+A global `[archive]` table (#731) turns on the durable transcript archive:
+`transcripts_dir` (absolute, required), `host_id` (the machine's partition,
+default the hostname with `-wsl` under WSL) and `exclude` (cwd-slug globs).
+`scripts/archive-transcripts.sh` copies `~/.claude/projects` into
+`<transcripts_dir>/<host_id>/` append-only, cleanup runs it when
+`transcripts_dir` is set, and `cost-report.sh --archive <transcripts_dir>`
+reads it. The archive holds everything a session read, so a `transcripts_dir`
+inside a git work tree or inside `~/.claude/projects` is refused; keep it on
+private storage.
+
 The plugin's own `templates/potholes.md` is a curated public excerpt (#613): at
 most 100 entries, 25 per section, citing devagent issues only. Its line-1
 marker names a commit in the plugin author's private devDoc — the migration

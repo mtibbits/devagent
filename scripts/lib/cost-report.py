@@ -10,12 +10,20 @@ typed issue with no project keeps the pair only for the same issue, else it is
 `(no project)`. The step is the last header's, or a step invoked directly (a
 typed /devagent:<step>, or a Skill call to devagent:<step>). A subagent is
 charged to the pair and step that launched it, through the toolUseId in its
-.meta.json.
+.meta.json; a workflow agent (subagents/workflows/<run>/agent-*.jsonl, whose
+meta has none) through the Workflow tool call whose result names its run id.
 
 Transcripts are read from the current directory's dir under
 <CLAUDE_CONFIG_DIR or ~/.claude>/projects, from every dir there with
---project or --all-dirs, or from --transcripts, which overrides both. Records
-stream, so memory does not grow with transcript size.
+--project or --all-dirs, or from --transcripts, which overrides both.
+--archive <dir> reads a scripts/archive-transcripts.sh archive
+(<dir>/<host>/<cwd-slug>/<session>.jsonl.gz) and, alone, nothing live; the
+live dirs are added by --all-dirs, --project or --transcripts. A transcript is
+read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
+every file read, so a session archived on two hosts and still live counts
+once; a session is its sessionId. --json prints one JSON object per (project,
+issue) with the transcript files it came from. Records stream, so memory does
+not grow with transcript size.
 
 Cost is in input-token equivalents: each token class weighted by its price
 relative to the base input price (WEIGHTS). A session re-reads its whole
@@ -26,11 +34,13 @@ next.sh's phase breaks cut.
 from __future__ import annotations
 
 import argparse
+import gzip
 import importlib.util
 import json
 import os
 import re
 import sys
+import zlib
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -50,6 +60,9 @@ COMMAND = re.compile(
     r"(?:\s*<command-args>([^<]*)</command-args>)?"
 )
 ISSUE_TOKEN = re.compile(r"(?:^|/)([A-Za-z]+-\d+)/?$")
+# A Workflow tool call's result names the run whose agents write
+# subagents/workflows/<run>/ (their .meta.json carries no toolUseId).
+RUN_ID = re.compile(r"Run ID: (wf_[0-9a-f]{8}-[0-9a-f]{3})")
 # Commands that drive steps rather than being one.
 DRIVERS = {"next"}
 NO_PROJECT = "(no project)"
@@ -57,9 +70,10 @@ NO_ISSUE = "(no issue)"
 NO_STEP = "(no step)"
 START = ((NO_PROJECT, NO_ISSUE), NO_STEP)
 # A line holding none of these cannot carry a call, a tool use, a dispatch
-# header or a typed command, so it is never parsed. A tool result matters only
-# when it holds a dispatch header, which "dispatch: " already matches.
-MARKERS = ('"usage"', '"tool_use"', "dispatch: ", "<command-name>")
+# header, a workflow run id or a typed command, so it is never parsed. A tool
+# result matters only when it holds a dispatch header or a run id, which
+# "dispatch: " and "Run ID: " already match.
+MARKERS = ('"usage"', '"tool_use"', "dispatch: ", "<command-name>", "Run ID: ")
 # A subagent file contributes only its calls.
 SUB_MARKERS = ('"usage"',)
 
@@ -88,22 +102,37 @@ def context_size(u: dict) -> int:
     )
 
 
+def session_key(path: Path) -> str:
+    """A transcript file's session: the name before the first '.' (S.jsonl, S.jsonl.gz, S.ab12cd.jsonl.gz)."""
+    return path.name.split(".", 1)[0]
+
+
+def _open(path: Path):
+    if path.name.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, encoding="utf-8", errors="replace")
+
+
 def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
     """Yield a transcript's records one at a time.
 
     A line is parsed only if it holds one of markers; a line that does not
-    parse, or parses to anything but an object, is skipped.
+    parse, or parses to anything but an object, is skipped. A .gz whose tail
+    is torn (a crash mid-append) yields the records before the tear and warns.
     """
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if not any(m in line for m in markers):
-                continue
-            try:
-                d = json.loads(line)
-            except (ValueError, RecursionError):
-                continue
-            if isinstance(d, dict):
-                yield d
+    with _open(path) as f:
+        try:
+            for line in f:
+                if not any(m in line for m in markers):
+                    continue
+                try:
+                    d = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                if isinstance(d, dict):
+                    yield d
+        except (EOFError, zlib.error, gzip.BadGzipFile) as e:
+            print(f"cost-report: truncated {path} ({e})", file=sys.stderr)
 
 
 def known_projects() -> set[str]:
@@ -150,21 +179,33 @@ class Tape:
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
             | ("launch", tool_use_id) | ("calls", Row)
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
-    subs: [(toolUseId, cost)], one per subagent file with usage.
+    subs: [(toolUseId, cost, fresh)], one per subagent file with usage; fresh is
+          False when every one of its message ids was already counted elsewhere.
+    session: the first sessionId in the file, else its session key.
+    runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
     """
-    __slots__ = ("stem", "events", "dispatched", "subs")
+    __slots__ = ("events", "dispatched", "subs", "session", "runs")
 
-    def __init__(self, stem: str):
-        self.stem, self.events, self.dispatched, self.subs = stem, [], set(), []
+    def __init__(self):
+        self.events, self.dispatched, self.subs = [], set(), []
+        self.session, self.runs = None, {}
 
 
-def scan(records: Iterable[dict], stem: str) -> Tape:
-    """One forward pass over a session's records in file order; no record outlives its own turn."""
-    tape = Tape(stem)
+def scan(records: Iterable[dict], seen: set[str]) -> Tape:
+    """One forward pass over a session's records in file order; no record outlives its own turn.
+
+    seen holds the message ids counted in files read before this one: such a
+    call adds nothing, but still opens a calls bucket so the pair records the
+    session. A repeat within this file is skipped outright, as before.
+    """
+    tape = Tape()
     ev = tape.events
     next_calls: set[str] = set()
-    seen: set[str] = set()
+    workflow_calls: set[str] = set()
+    local: set[str] = set()
     for d in records:
+        if tape.session is None and isinstance(d.get("sessionId"), str) and d["sessionId"]:
+            tape.session = d["sessionId"]
         kind, msg = d.get("type"), d.get("message") or {}
         if not isinstance(msg, dict):
             continue
@@ -183,6 +224,9 @@ def scan(records: Iterable[dict], stem: str) -> Tape:
                     if hits:
                         tape.dispatched.update(h[0] for h in hits)
                         ev.append(("dispatch", *hits[-1]))
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") in workflow_calls:
+                    for run in RUN_ID.findall(_text(b.get("content"))):
+                        tape.runs.setdefault(run, b.get("tool_use_id"))
         elif kind == "assistant":
             for b in msg.get("content") or []:
                 if not isinstance(b, dict) or b.get("type") != "tool_use":
@@ -198,14 +242,18 @@ def scan(records: Iterable[dict], stem: str) -> Tape:
                         n = s.split(":", 1)[1]
                         if n not in DRIVERS and not n.startswith("core-"):
                             ev.append(("skill", n))
-                elif name in ("Agent", "Task"):
+                elif name in ("Agent", "Task", "Workflow"):
                     ev.append(("launch", b.get("id")))
+                    if name == "Workflow":
+                        workflow_calls.add(b.get("id"))
             mid, usage = msg.get("id"), msg.get("usage")
-            if mid and isinstance(usage, dict) and usage and mid not in seen:
-                seen.add(mid)
+            if mid and isinstance(usage, dict) and usage and mid not in local:
+                local.add(mid)
                 if not (ev and ev[-1][0] == "calls"):
                     ev.append(("calls", Row()))
-                ev[-1][1].add(1, context_size(usage), call_cost(usage))
+                if mid not in seen:
+                    seen.add(mid)
+                    ev[-1][1].add(1, context_size(usage), call_cost(usage))
     return tape
 
 
@@ -220,12 +268,25 @@ def _mtime(path: Path) -> float:
         return 0.0
 
 
-def scan_session(path: Path) -> Tape:
-    """scan() one session file, then sum each of its subagent files (last usage per message id wins)."""
-    tape = scan(load(path), path.stem)
-    for sub in sorted(path.with_suffix("").glob("subagents/*.jsonl")):
+def _transcripts(paths: Iterable[Path]) -> list[Path]:
+    """The .jsonl and .jsonl.gz files among paths (one glob of <pattern>.jsonl* feeds this), sorted."""
+    return sorted(p for p in paths if p.name.endswith((".jsonl", ".jsonl.gz")))
+
+
+def scan_session(path: Path, seen: set[str]) -> Tape:
+    """scan() one session file, then sum each of its subagent files (last usage per message id wins).
+
+    Subagent files are every agent-*.jsonl[.gz] under <dir>/<session>/subagents/,
+    workflow agents included (journal.jsonl never matches). seen is shared
+    across every file collect() reads: an id counted anywhere else adds nothing.
+    """
+    key = session_key(path)
+    tape = scan(load(path), seen)
+    tape.session = tape.session or key
+    base = path.parent / key / "subagents"
+    for sub in _transcripts(base.rglob("agent-*.jsonl*")):
         try:
-            meta = json.loads(sub.with_suffix(".meta.json").read_text(encoding="utf-8"))
+            meta = json.loads((sub.parent / f"{session_key(sub)}.meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
@@ -239,7 +300,11 @@ def scan_session(path: Path) -> Tape:
             continue
         if last:
             tool_use_id = meta.get("toolUseId") if isinstance(meta, dict) else None
-            tape.subs.append((tool_use_id, sum(map(call_cost, last.values()))))
+            if tool_use_id is None and sub.parent.parent.name == "workflows":
+                tool_use_id = tape.runs.get(sub.parent.name)
+            fresh = [u for mid, u in last.items() if mid not in seen]
+            seen.update(last)
+            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh)))
     return tape
 
 
@@ -293,30 +358,45 @@ def replay(tape: Tape, known: set[str]):
     return buckets, launches
 
 
-def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None):
-    """Return ({(project, issue): {step: Row}}, {(project, issue): {session stem}}), each filter an exact match.
+def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
+            hosts: dict | None = None, sources: dict | None = None):
+    """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
     known project if ANY scanned dispatch header names it, even in a later file.
+    One set of message ids spans every file, so a call is counted once however
+    many copies of its transcript are read. hosts maps a dir to its archive
+    partition (absent: "local"); a dict passed as sources is filled
+    {pair: {(host, cwd_slug, sessionId)}}.
     """
+    hosts = hosts or {}
+    sources = {} if sources is None else sources
+    files = sorted(((p, d) for d in dirs for p in _transcripts(d.glob("*.jsonl*"))),
+                   key=lambda t: (_mtime(t[0]), session_key(t[0]), str(t[0])))
     # One unreadable file is skipped with a warning, not allowed to sink a report over every dir.
     tapes = []
-    for p in sorted((p for d in dirs for p in d.glob("*.jsonl")), key=_mtime):
+    seen: set[str] = set()
+    for p, d in files:
         try:
-            tapes.append(scan_session(p))
+            tapes.append((scan_session(p, seen), (hosts.get(d, "local"), d.name)))
         except OSError as e:
             _skipped(p, e)
-    known = known_projects().union(*(t.dispatched for t in tapes))
+    known = known_projects().union(*(t.dispatched for t, _ in tapes))
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
-    for tape in tapes:
+    for tape, where in tapes:
         buckets, launches = replay(tape, known)
+        origin = (*where, tape.session)
         for pair, step, b in buckets:
-            rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
-            sessions[pair].add(tape.stem)
-        for tool_use_id, cost in tape.subs:
+            if b.calls:
+                rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
+            sessions[pair].add(tape.session)
+            sources.setdefault(pair, set()).add(origin)
+        for tool_use_id, cost, fresh in tape.subs:
             pair, step = launches.get(tool_use_id, START)
-            rows[pair].setdefault(step, Row()).sub += cost
+            if fresh:
+                rows[pair].setdefault(step, Row()).sub += cost
+            sources.setdefault(pair, set()).add(origin)
     return {
         (p, i): v for (p, i), v in rows.items()
         if (not issue_filter or i == issue_filter) and (not project_filter or p == project_filter)
@@ -366,6 +446,33 @@ def report(rows, sessions, source: str, summary: bool) -> str:
     return "\n".join(out)
 
 
+def report_json(rows, sessions, sources) -> str:
+    """One JSON object per pair, in report() order, keys sorted, figures rounded to 2 decimals."""
+    out = []
+    for pair, steps in rows.items():
+        main = sum(r.main for r in steps.values())
+        sub = sum(r.sub for r in steps.values())
+        out.append(json.dumps({
+            "calls": sum(r.calls for r in steps.values()),
+            "issue": pair[1],
+            "main": round(main, 2),
+            "peak_context": max((r.peak for r in steps.values()), default=0),
+            "project": pair[0],
+            "sessions": len(sessions.get(pair, ())),
+            "sources": [{"cwd_slug": c, "host": h, "session": s}
+                        for c, h, s in sorted((c, h, s) for h, c, s in sources.get(pair, ()))],
+            "subagents": round(sub, 2),
+            "total": round(main + sub, 2),
+        }, sort_keys=True))
+    return "\n".join(out)
+
+
+def archive_dirs(archive: Path) -> list[Path]:
+    """Every <archive>/<host>/<cwd-slug> dir, sorted by host then slug (manifest.jsonl, last-run skipped)."""
+    return [c for h in sorted((p for p in archive.iterdir() if p.is_dir()), key=lambda p: p.name)
+            for c in sorted((p for p in h.iterdir() if p.is_dir()), key=lambda p: p.name)]
+
+
 def transcripts_root() -> Path:
     """Where Claude Code keeps one transcript dir per working directory."""
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
@@ -398,20 +505,42 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--issue", help="report only this issue (Issue-N or N)")
     ap.add_argument("--all-dirs", action="store_true",
                     help="read every transcript dir under <CLAUDE_CONFIG_DIR or ~/.claude>/projects")
-    ap.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
+    ap.add_argument("--archive", type=Path,
+                    help="read a scripts/archive-transcripts.sh archive (every host and cwd partition, "
+                         ".jsonl.gz); alone it reads no live dir, --all-dirs/--project/--transcripts add them")
+    out = ap.add_mutually_exclusive_group()
+    out.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
+    out.add_argument("--json", action="store_true",
+                     help="one JSON object per (project, issue) pair, with the transcript files it came from")
     a = ap.parse_args(argv)
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
     every = (a.project or a.all_dirs) and not a.transcripts
-    dirs = a.transcripts or (all_dirs() if every else default_dirs())
-    if not dirs or not all(d.is_dir() for d in dirs):
-        print(f"cost-report: no transcript dir under {transcripts_root()}" if every
+    adirs: list[Path] = []
+    if a.archive is not None:
+        if not a.archive.is_dir():
+            print(f"cost-report: no archive dir {a.archive}", file=sys.stderr)
+            return 2
+        adirs = archive_dirs(a.archive)
+    # --archive alone reads no live dir; otherwise the current directory's is the default.
+    live = a.transcripts or (all_dirs() if every else [] if a.archive is not None else default_dirs())
+    if not (live or adirs) or not all(d.is_dir() for d in live):
+        under = f"no transcript dir under {transcripts_root()}" + (f" or archive {a.archive}" if a.archive else "")
+        print(f"cost-report: {under}" if every or (a.archive and not a.transcripts)
               else "cost-report: no transcript dir; pass --transcripts ~/.claude/projects/<slug>", file=sys.stderr)
         return 2
-    source = (f"every transcript dir under {transcripts_root()} ({len(dirs)} dirs)" if every
-              else ", ".join(map(str, dirs)))
+    dirs = live + adirs
+    hosts = {d: d.parent.name for d in adirs}
+    parts = []
+    if live:
+        parts.append(f"every transcript dir under {transcripts_root()} ({len(live)} dirs)" if every
+                     else ", ".join(map(str, live)))
+    if a.archive is not None:
+        parts.append(f"archive {a.archive} ({len(adirs)} dirs)")
+    source = "; ".join(parts)
+    sources: dict = {}
     if a.project and issue:
         # P/N first, then the (no project)/N calls that may be P's too.
-        rows, sessions = collect(dirs, issue)
+        rows, sessions = collect(dirs, issue, hosts=hosts, sources=sources)
         target, side = (a.project, issue), (NO_PROJECT, issue)
         if target not in rows:
             print(f"cost-report: no calls attributed to {label(target)}", file=sys.stderr)
@@ -421,12 +550,12 @@ def main(argv: list[str]) -> int:
             return 1
         rows = {k: rows[k] for k in (target, side) if k in rows}
     else:
-        rows, sessions = collect(dirs, issue, a.project)
+        rows, sessions = collect(dirs, issue, a.project, hosts=hosts, sources=sources)
         if not rows:
             what = f"project {a.project}" if a.project else issue or "any issue"
             print(f"cost-report: no calls attributed to {what}", file=sys.stderr)
             return 1
-    print(report(rows, sessions, source, a.summary))
+    print(report_json(rows, sessions, sources) if a.json else report(rows, sessions, source, a.summary))
     return 0
 
 

@@ -1,4 +1,5 @@
 """Tests for scripts/lib/cost-report.py (per-(project, issue), per-step token cost)."""
+import gzip
 import importlib.util
 import json
 import os
@@ -397,7 +398,7 @@ def test_unreadable_transcript_is_skipped_not_fatal(tmp_path):
     _write(root / "X" / "A.jsonl", [*_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), _call("c1", _usage(inp=1))])
     (root / "Y" / "broken.jsonl").mkdir(parents=True)
     _write(root / "Y" / "B.jsonl", [_call("c2", _usage(inp=1))])
-    (root / "Y" / "B" / "subagents" / "bad.jsonl").mkdir(parents=True)
+    (root / "Y" / "B" / "subagents" / "agent-bad.jsonl").mkdir(parents=True)   # #731: subagents are agent-*
     run = _cli("--project", "alpha", "--issue", "Issue-4", "--summary")
     assert run.returncode == 0, run.stderr
     assert _lines(run.stdout)[0].startswith("alpha/Issue-4: ")
@@ -750,3 +751,246 @@ def test_memory_does_not_grow_with_transcript_size(tmp_path):
         assert _calls(rows, ("alpha", "Issue-4")) == blocks
     finally:
         path.unlink(missing_ok=True)
+
+
+# --- Issue-731: archive reader, global dedupe, sessions, workflow agents, --json --
+
+def _gz(path, records, members=2, mtime=None):
+    """Write records as a .jsonl.gz of `members` gzip members (the archiver's append shape)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(r) + "\n" for r in records]
+    cut = max(1, len(lines) // members) if members > 1 else len(lines)
+    chunks = [lines[:cut], lines[cut:]] if members > 1 else [lines]
+    with open(path, "wb") as f:
+        for chunk in chunks:
+            f.write(gzip.compress("".join(chunk).encode("utf-8"), mtime=0))
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+
+
+def _sid(records, sid):
+    """Stamp every record with Claude Code's sessionId field."""
+    return [{**r, "sessionId": sid} for r in records]
+
+
+def _pair_records(project, issue, mid, inp=10, tid="b1"):
+    return [*_dispatch(tid, project, issue, 9, "implement", "d" + mid), _call(mid, _usage(inp=inp))]
+
+
+def _rows_equal(a, b):
+    def flat(rows):
+        return {k: {s: (r.calls, r.peak, r.main, r.sub) for s, r in v.items()} for k, v in rows.items()}
+    return flat(a) == flat(b)
+
+
+def test_gz_session_reads_like_jsonl(tmp_path):
+    recs = [*_pair_records("alpha", "Issue-4", "m1"), _call("m2", _usage(read=50)), _call("m3", _usage(out=2))]
+    _write(tmp_path / "plain" / "S.jsonl", recs)
+    _gz(tmp_path / "gz" / "S.jsonl.gz", recs)
+    a, sa = cr.collect([tmp_path / "plain"], None)
+    b, sb = cr.collect([tmp_path / "gz"], None)
+    assert a and _rows_equal(a, b)
+    assert sa == sb
+
+
+def _gz_session_with_agent(d, name):
+    _gz(d / name, [*_pair_records("alpha", "Issue-4", "m1"),
+                   _call("m2", _usage(inp=1), _tool("a1", "Agent", description="x"))])
+    _gz(d / "S" / "subagents" / "agent-a.jsonl.gz", [_call("s1", _usage(out=10))], members=1)
+    (d / "S" / "subagents" / "agent-a.meta.json").write_text(json.dumps({"toolUseId": "a1"}), encoding="utf-8")
+
+
+def test_gz_subagent_is_found_beside_gz_session(tmp_path):
+    _gz_session_with_agent(tmp_path / "gz", "S.jsonl.gz")
+    rows, _ = cr.collect([tmp_path / "gz"], None)
+    assert rows[("alpha", "Issue-4")]["implement"].sub == 50
+
+
+def test_diverged_copy_reads_the_session_subagents(tmp_path):
+    _gz_session_with_agent(tmp_path / "gz", "S.ab12cd.jsonl.gz")
+    rows, _ = cr.collect([tmp_path / "gz"], None)
+    assert rows[("alpha", "Issue-4")]["implement"].sub == 50
+
+
+def test_message_id_counted_once_across_files(tmp_path):
+    recs = _pair_records("alpha", "Issue-4", "m1", inp=7)
+    _write(tmp_path / "x" / "S1.jsonl", recs, mtime=1_000_000)
+    _write(tmp_path / "y" / "S2.jsonl", recs, mtime=2_000_000)
+    rows, _ = cr.collect([tmp_path / "x", tmp_path / "y"], None)
+    assert _calls(rows, ("alpha", "Issue-4")) == 1
+    assert sum(r.main for r in rows[("alpha", "Issue-4")].values()) == 7
+
+
+def test_subagent_message_id_counted_once_across_files(tmp_path):
+    for name, mt in (("x", 1_000_000), ("y", 2_000_000)):
+        s = tmp_path / name / "S.jsonl"
+        _write(s, [*_pair_records("alpha", "Issue-4", "m1"),
+                   _call("m2", _usage(inp=1), _tool("a1", "Agent", description="x"))], mtime=mt)
+        # Two usages for one id within the file: the LAST wins (out=10 -> 50).
+        _subagent(s, "agent-a", "a1", [_call("s1", _usage(out=1)), _call("s1", _usage(out=10))])
+    rows, _ = cr.collect([tmp_path / "x", tmp_path / "y"], None)
+    assert sum(r.sub for r in rows[("alpha", "Issue-4")].values()) == 50
+
+
+def test_sessions_counted_by_session_id(tmp_path):
+    recs = _sid(_pair_records("alpha", "Issue-4", "m1"), "S")
+    _write(tmp_path / "x" / "S.jsonl", recs, mtime=1_000_000)
+    _gz(tmp_path / "y" / "S.ab12cd.jsonl.gz", recs + _sid([_call("m9", _usage(inp=1))], "S"), mtime=2_000_000)
+    # A copy under another file name (a stem that is not the session) is the same session.
+    _write(tmp_path / "w" / "S-copy.jsonl", recs + _sid([_call("m8", _usage(inp=1))], "S"), mtime=3_000_000)
+    _, sessions = cr.collect([tmp_path / "x", tmp_path / "y", tmp_path / "w"], None)
+    assert sessions[("alpha", "Issue-4")] == {"S"}
+    # No sessionId: the session key (the name before the first '.').
+    _write(tmp_path / "z" / "T.jsonl", _pair_records("beta", "Issue-5", "n1"))
+    _, sessions = cr.collect([tmp_path / "z"], None)
+    assert sessions[("beta", "Issue-5")] == {"T"}
+
+
+WF = "wf_1a2b3c4d-5e6"
+
+
+def _workflow_session(d, gz, run_id=WF):
+    main = _sid([
+        *_pair_records("alpha", "Issue-4", "m1"),
+        _call("m2", _usage(inp=1), _tool("w1", "Workflow", script="x")),
+        _result("w1", f"Workflow started.\nRun ID: {run_id}\nTask: t1"),
+        _call("m3", _usage(inp=1)),
+    ], "S")
+    wdir = d / "S" / "subagents" / "workflows" / WF
+    agent = [_call("w-1", _usage(out=20)), _call("w-2", _usage(out=2))]
+    journal = [{"type": "assistant", "message": {"id": "j1", "usage": _usage(out=1000)}}]
+    if gz:
+        _gz(d / "S.jsonl.gz", main)
+        _gz(wdir / "agent-w.jsonl.gz", agent, members=1)
+        _gz(wdir / "journal.jsonl.gz", journal, members=1)
+    else:
+        _write(d / "S.jsonl", main)
+        _write(wdir / "agent-w.jsonl", agent)
+        _write(wdir / "journal.jsonl", journal)
+    (wdir / "agent-w.meta.json").write_text(json.dumps({"agentType": "general-purpose"}), encoding="utf-8")
+
+
+@pytest.mark.parametrize("gz", [False, True], ids=["live", "gz"])
+def test_workflow_agent_counted_under_its_session(tmp_path, gz):
+    d = tmp_path / "d"
+    _workflow_session(d, gz)
+    rows, sessions = cr.collect([d], None)
+    p = ("alpha", "Issue-4")
+    assert rows[p]["implement"].sub == 110
+    assert sum(r.sub for steps in rows.values() for r in steps.values()) == 110
+    assert sessions[p] == {"S"}
+    # No matching Run ID: the agent falls to (no project)/(no issue).
+    d2 = tmp_path / "d2"
+    _workflow_session(d2, gz, run_id="wf_00000000-000")
+    rows, _ = cr.collect([d2], None)
+    assert rows[(NP, NI)][cr.NO_STEP].sub == 110
+    assert sum(r.sub for r in rows[("alpha", "Issue-4")].values()) == 0
+
+
+def test_journal_jsonl_is_not_counted(tmp_path):
+    d = tmp_path / "d"
+    _workflow_session(d, gz=False)
+    rows, _ = cr.collect([d], None)
+    assert sum(r.sub for steps in rows.values() for r in steps.values()) == 110   # not 110 + 5000
+
+
+def test_torn_gz_keeps_the_lines_before_the_tear(tmp_path):
+    d = tmp_path / "gz"
+    recs = [*_pair_records("alpha", "Issue-4", "m1")] + [_call(f"c{i}", _usage(inp=1)) for i in range(40)]
+    p = d / "S.jsonl.gz"
+    _gz(p, recs)
+    p.write_bytes(p.read_bytes()[:-10])
+    run = _cli("--transcripts", d, "--summary")
+    assert run.returncode == 0, run.stderr
+    m = re.search(r"(\d+) calls", run.stdout)
+    assert m and 20 <= int(m.group(1)) < 41
+    err = run.stderr.splitlines()
+    assert len(err) == 1 and err[0].startswith(f"cost-report: truncated {p} (")
+
+
+def test_equal_mtimes_order_by_session_key(tmp_path):
+    _write(tmp_path / "x" / "B.jsonl", _pair_records("beta", "Issue-2", "b1"), mtime=1_000_000)
+    _write(tmp_path / "y" / "A.jsonl", _pair_records("alpha", "Issue-1", "a1"), mtime=1_000_000)
+    rows, _ = cr.collect([tmp_path / "x", tmp_path / "y"], None)
+    assert list(rows) == [("alpha", "Issue-1"), ("beta", "Issue-2")]
+
+
+def test_cli_archive_reads_every_host_and_cwd_partition(tmp_path):
+    a = tmp_path / "store"
+    _gz(a / "h1" / "x" / "S1.jsonl.gz", _pair_records("alpha", "Issue-1", "a1"))
+    _gz(a / "h2" / "y" / "S2.jsonl.gz", _pair_records("beta", "Issue-2", "b1"))
+    (a / "h1" / "manifest.jsonl").write_text("{}\n", encoding="utf-8")
+    (a / "h1" / "last-run").write_text("2026-11-07T00:00:00Z\n", encoding="utf-8")
+    run = _cli("--archive", a, "--summary")
+    assert run.returncode == 0, run.stderr
+    assert {ln.split(": ", 1)[0] for ln in _lines(run.stdout)} == {"alpha/Issue-1", "beta/Issue-2"}
+
+
+@pytest.mark.parametrize("extra,live_seen", [
+    ((), False), (("--all-dirs",), True), (("--project", "live"), True), (("--transcripts", "LIVE"), True),
+], ids=["alone", "all-dirs", "project", "transcripts"])
+def test_cli_archive_flag_grammar(tmp_path, extra, live_seen):
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    _write(root / _cwd_slug() / "L.jsonl", _pair_records("live", "Issue-9", "l1"))
+    a = tmp_path / "store"
+    _gz(a / "h1" / "x" / "S1.jsonl.gz", _pair_records("live", "Issue-1", "a1"))
+    args = [str(root / _cwd_slug()) if x == "LIVE" else x for x in extra]
+    run = _cli("--archive", a, *args, "--summary")
+    assert run.returncode == 0, run.stderr
+    heads = {ln.split(": ", 1)[0] for ln in _lines(run.stdout)}
+    assert "live/Issue-1" in heads
+    assert ("live/Issue-9" in heads) is live_seen
+
+
+def test_cli_archive_missing_or_empty(tmp_path):
+    missing = tmp_path / "nope"
+    run = _cli("--archive", missing, "--summary")
+    assert run.returncode == 2
+    assert run.stderr.strip() == f"cost-report: no archive dir {missing}"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    run = _cli("--archive", empty, "--summary")
+    assert run.returncode == 2
+    assert run.stderr.strip() == f"cost-report: no transcript dir under {root} or archive {empty}"
+
+
+JSON_KEYS = {"calls", "issue", "main", "peak_context", "project", "sessions", "sources", "subagents", "total"}
+
+
+def test_cli_json_shape(tmp_path):
+    d = _ac1_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--json")
+    assert run.returncode == 0, run.stderr
+    objs = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert len(objs) == 2
+    rows, sessions = cr.collect([d], None)
+    for o in objs:
+        assert set(o) == JSON_KEYS
+        steps = rows[(o["project"], o["issue"])]
+        main = sum(r.main for r in steps.values())
+        sub = sum(r.sub for r in steps.values())
+        assert o["calls"] == sum(r.calls for r in steps.values())
+        assert o["main"] == round(main, 2) and o["subagents"] == round(sub, 2)
+        assert o["total"] == round(main + sub, 2)
+        assert o["peak_context"] == max(r.peak for r in steps.values())
+        assert o["sessions"] == len(sessions[(o["project"], o["issue"])])
+        assert all(set(s) == {"cwd_slug", "host", "session"} and s["host"] == "local" for s in o["sources"])
+    assert list(json.loads(_lines(run.stdout)[0])) == sorted(JSON_KEYS)
+    assert _cli("--transcripts", d, "--json").stdout == run.stdout   # byte-identical reruns
+    bad = _cli("--transcripts", d, "--json", "--summary")
+    assert bad.returncode == 2
+
+
+def test_cli_json_lists_sources_once_per_host(tmp_path):
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    recs = _sid(_pair_records("alpha", "Issue-4", "m1", inp=3), "S")
+    _write(root / "c--src-x" / "S.jsonl", recs, mtime=1_000_000)
+    a = tmp_path / "store"
+    for h in ("h1", "h2"):
+        _gz(a / h / "c--src-x" / "S.jsonl.gz", recs, mtime=1_000_000)
+    run = _cli("--archive", a, "--all-dirs", "--json")
+    assert run.returncode == 0, run.stderr
+    (o,) = [json.loads(ln) for ln in _lines(run.stdout)]
+    assert o["calls"] == 1 and o["main"] == 3 and o["sessions"] == 1
+    assert o["sources"] == [{"cwd_slug": "c--src-x", "host": h, "session": "S"} for h in ("h1", "h2", "local")]
