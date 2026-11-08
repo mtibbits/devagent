@@ -23,7 +23,8 @@ the README's "Versioning & releases" section has the release procedure.
     0.62h (41 operator events, 3 returns after absence, 2 by fallback)`.
     Agent wall time is the headline (the union of busy intervals); busy
     time sums them across parallel subagents; operator time is the latency
-    of human messages and permission decisions in main sessions.
+    of human messages, permission decisions and answers to AskUserQuestion
+    or ExitPlanMode prompts in main sessions.
   - The rules: a tool wait counts as agent time up to `--tool-gap` (default
     60 min), any other interval up to `--idle-gap` (5), all or nothing; an
     interval ending in an operator event is operator time only; an

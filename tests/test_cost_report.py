@@ -1341,6 +1341,16 @@ def test_time_permission_prompt_is_operator_not_agent_time(tmp_path):
     assert (acc.busy, acc.events) == (3000, 0)
 
 
+@pytest.mark.parametrize("tool", ["AskUserQuestion", "ExitPlanMode"])
+def test_time_ask_answer_is_operator_not_agent_time(tmp_path, tool):
+    ask = _call("c1", None, _tool("q1", tool))
+    acc = _timed(tmp_path, [_at(ask, 0), _at(_result("q1", "answer"), 10)], name="a")
+    assert (acc.busy, acc.wall()) == (0, 0)
+    assert (acc.events, acc.operator, acc.returns, acc.fallback) == (1, 600, 0, 0)
+    acc = _timed(tmp_path, [_at(ask, 0), _at(_result("q1", "answer"), 20)], name="b")   # over attention_cap
+    assert (acc.busy, acc.events, acc.operator, acc.returns) == (0, 1, 0, 1)
+
+
 def test_time_does_not_change_cost_rows(tmp_path):
     d = _time_fixture(tmp_path / "timefix")
     a, sa = cr.collect([d], None)
@@ -1420,6 +1430,23 @@ def test_time_unlinked_background_wait_is_busy(tmp_path):
     _subagent(d / "s.jsonl", "agent-a", "a1", [_at(_str("go"), 0), _at(_end("s1"), 1)])
     # The agent's 60 plus main's idle 1-2; the 40-min notification wait names a read agent: 0 from main.
     assert _times([d])[(NP, NI)].busy == 120
+
+
+def test_time_wait_on_nested_agent_counts_for_the_parent_pair(tmp_path):
+    d = _one(tmp_path, [
+        *(_at(r, m) for r, m in zip(_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"), (0, 1))),
+        _at(_agent("c1", "a1"), 2), _at(_result("a1", "done"), 32),
+    ])
+    _subagent(d / "s.jsonl", "agent-a", "a1", [
+        _at(_str("go"), 2), _at(_agent("s1", "a2"), 3), _at(_result("a2", "done"), 31), _at(_end("s2"), 32),
+    ])
+    _subagent(d / "s.jsonl", "agent-n", "a2",
+              [_at(_str("go"), 3)] + [_at(_call(f"n{m}", None), m) for m in (7, 11, 15, 19, 23, 27, 31)])
+    t = _times([d])
+    # alpha: main 1-2 (60) + a1's 2-3, 3-31 (its wait on a2, which no launch here charges) and 31-32: 1860.
+    assert (t[("alpha", "Issue-4")].busy, t[("alpha", "Issue-4")].wall()) == (1860, 1860)
+    # The dispatch wait 0-1 (60) and the nested agent's own 3-31 (1680) have no pair.
+    assert t[(NP, NI)].busy == 1740
 
 
 def test_time_command_after_local_caveat_counts_latency(tmp_path):

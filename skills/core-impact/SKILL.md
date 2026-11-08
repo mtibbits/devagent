@@ -68,8 +68,8 @@ numbers are not available or honest).
    ```
 
    It reads every Claude Code transcript directory on this machine, so run
-   it from any directory. Pick its lines by label, not position: the first
-   line is the rule line, `time rule: …`; `<project>/<Issue-N>: …` is the
+   it from any directory. Pick its lines by label, not position: the rule
+   line starts `time rule: `; `<project>/<Issue-N>: …` is the
    cost line and `<project>/<Issue-N> time: …` the time line;
    `(no project)/<Issue-N>: …` and `(no project)/<Issue-N> time: …` are the
    unattributed pair's. Add the cost line under Quantifiable as

@@ -42,12 +42,12 @@ the previous record's) or is a task-notification hand-back; a wait counts as
 agent time when it is at most tool_gap, any other interval when it is at
 most idle_gap, all or nothing (a peer message is not a wait). An interval
 ending in an operator event is never agent time. A wait on an agent launch
-whose subagent transcript was read is not main time: the subagent's own
-records carry the work. Agent busy time sums every transcript's busy
+whose subagent transcript was read and charged to a pair is not main time:
+the subagent's own records carry the work. Agent busy time sums every transcript's busy
 intervals (parallel subagents add); agent wall time, the headline, is the
 length of their union. Operator events come from main sessions only: a
-message with origin human, a user_temporary permission decision, or, by
-fallback, a no-origin typed user message (not a notification, an
+message with origin human, a user_temporary permission decision, the answer
+to an AskUserQuestion or ExitPlanMode prompt, or, by fallback, a no-origin typed user message (not a notification, an
 Another Claude session message or local-command output). An event adds its
 latency since the previous record when that is at most attention_cap, else
 counts a return after absence and adds 0; a typed message whose previous
@@ -113,6 +113,8 @@ TIME_MARKERS = ('"type":"user"', '"type":"assistant"', '"type": "user"', '"type"
 TASK_TOOL_USE_ID = re.compile(r"<tool-use-id>([^<]+)</tool-use-id>")
 # Tool calls whose work a subagent transcript records.
 LAUNCH_TOOLS = ("Agent", "Task", "Workflow")
+# Tool calls whose result is the operator's answer: the wait is the operator's, not the agent's.
+ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
 # No-origin user text that is not the operator typing.
 NOT_TYPED = ("<task-notification>", "Another Claude session", "<local-command")
 
@@ -304,7 +306,7 @@ def injected(d: dict) -> bool:
 
 
 def operator_kind(d: dict) -> str | None:
-    """"human", "permission", "fallback" (a no-origin typed message) or None, for a main-session user record."""
+    """For a main-session user record: "human", "permission", "fallback" (a no-origin typed message) or None."""
     origin = d.get("origin")
     if isinstance(origin, dict) and origin.get("kind") == "human":
         return "human"
@@ -326,17 +328,18 @@ class Clock:
     answers a pending tool_use, or is a hand-back notification) no longer than
     tool_gap, or otherwise no longer than idle_gap, all or nothing; an interval
     ending in an operator event is never agent time. Operator events (main
-    sessions only) add their latency when it is at most attention_cap, else
+    sessions only; operator_kind(), or the answer to an ASK_TOOLS prompt) add their latency when it is at most attention_cap, else
     count a return after absence; a typed message whose P is not an end_turn
     was queued while the agent worked and adds 0. A record whose uuid was
     already seen in any file adds nothing but still becomes P.
     """
-    __slots__ = ("rules", "main", "uuids", "pending", "launched", "prev")
+    __slots__ = ("rules", "main", "uuids", "pending", "launched", "asks", "prev")
 
     def __init__(self, rules: TimeRules, main: bool, uuids: set):
         self.rules, self.main, self.uuids = rules, main, uuids
         self.pending: set = set()     # tool_use ids not yet answered
         self.launched: set = set()    # tool_use ids of agent launches
+        self.asks: set = set()        # tool_use ids of ASK_TOOLS prompts
         self.prev = None              # (t, P is an end_turn assistant record)
 
     def tick(self, d: dict, t: float, acc: TimeAcc):
@@ -364,6 +367,8 @@ class Clock:
             m = TASK_TOOL_USE_ID.search(_text(content))
             closing = m.group(1) if m else None
         op = operator_kind(d) if self.main and kind == "user" else None
+        if op is None and self.main and closing in self.asks:
+            op = "permission"
         p = self.prev
         if not dup and p is not None:
             gap = t - p[0]
@@ -388,6 +393,8 @@ class Clock:
                     self.pending.add(b.get("id"))
                     if b.get("name") in LAUNCH_TOOLS:
                         self.launched.add(b.get("id"))
+                    elif b.get("name") in ASK_TOOLS:
+                        self.asks.add(b.get("id"))
         else:
             self.pending.difference_update(results)
         self.prev = (t, kind == "assistant" and isinstance(msg, dict) and msg.get("stop_reason") == "end_turn")
@@ -668,16 +675,17 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
         except OSError as e:
             _skipped(p, e)
     known = known_projects().union(*(t.dispatched for t, _ in tapes))
-    # A wait on a launched agent is not main busy when a subagent file under its id was read (its records carry the work).
+    # A wait on a launched agent is not main busy when a subagent file under its id was read and is charged
+    # through this tape's launches (its records carry the work); a nested agent's file is charged elsewhere.
     sub_ids = {i for t, _ in tapes for i, _ in t.sub_time if i is not None}
     rows: dict[tuple, dict[str, Row]] = defaultdict(dict)
     sessions: dict[tuple, set[str]] = defaultdict(set)
     acc: dict[tuple, TimeAcc] = defaultdict(TimeAcc)
 
-    def charge(pair, a: TimeAcc):
+    def charge(pair, a: TimeAcc, launches):
         acc[pair].merge(a)
         for i, start, end in a.linked_waits:
-            if i not in sub_ids:
+            if i not in sub_ids or i not in launches:
                 acc[pair].add_busy(start, end)
 
     for tape, where in tapes:
@@ -694,9 +702,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
                 rows[pair].setdefault(step, Row()).sub += cost
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
-            charge(pair, a)
+            charge(pair, a, launches)
         for tool_use_id, a in tape.sub_time:
-            charge(launches.get(tool_use_id, START)[0], a)
+            charge(launches.get(tool_use_id, START)[0], a, launches)
 
     def wanted(pair):
         return (not issue_filter or pair[1] == issue_filter) and (not project_filter or pair[0] == project_filter)
