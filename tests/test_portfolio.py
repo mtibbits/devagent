@@ -655,9 +655,11 @@ def test_build_report_literal(tmp_path):
 
 
 def test_kinds_all_planted(tmp_path):
-    _, doc = _build(tmp_path)
-    assert {r["kind"] for r in doc["parse_report"]} == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 16
+    _, doc = _build(tmp_path / "multi-build")
+    ready = _ready_build(tmp_path / "ready-build")
+    kinds = {r["kind"] for d in (doc, ready) for r in d["parse_report"]}
+    assert kinds == set(pf.KINDS)
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 19
 
 
 def _walk_lines(tree):
@@ -702,7 +704,10 @@ def test_foreign_resolution(tmp_path):
     ])
     all_deps = [d for p in doc["projects"] for n in p["nodes"] for d in n["depends_on"]]
     assert {d["raw"] for d in all_deps} >= {"beta:Issue-1", "alpha:Issue-1", "alpha:Issue-2"}
-    assert all(d["resolved"] is None for d in all_deps)
+    # Every resolved is a bool: False for exactly the 5 raws named above.
+    assert all(isinstance(d["resolved"], bool) for d in all_deps)
+    assert sorted(d["raw"] for d in all_deps if not d["resolved"]) == sorted([
+        "4.1", "beta:Issue-99", "nosuch:Issue-1", "gamma:Issue-1", "Issue-1, est: 1w"])
 
 
 def test_producer_keys_not_reported_unknown(tmp_path):
@@ -774,6 +779,252 @@ def test_node_ids_config_then_source_order(tmp_path):
     _, doc = _build(tmp_path)
     ids = [n["id"] for p in doc["projects"] for n in p["nodes"]]
     assert ids == [f"n{i}" for i in range(1, len(ids) + 1)]
+
+
+# --- readiness (#727) ----------------------------------------------------------
+
+READY = FIXTURES / "ready"
+READY_EXPECTED = FIXTURES / "ready-expected.tsv"
+
+
+def _ready_text(project):
+    return (READY / project / "WBS.md").read_bytes().decode("utf-8")
+
+
+def _ready_build(tmp_path):
+    """The rho/sigma readiness fixture, copied to tmp and built in that order."""
+    root = tmp_path / "ready"
+    shutil.copytree(READY, root)
+    projects = [pf.ProjectInput("rho", str(root / "rho")),
+                pf.ProjectInput("sigma", str(root / "sigma"))]
+    return pf.build_document(projects, GENERATED_AT)
+
+
+def _by_marker(doc, project, marker):
+    line = _line_of(_ready_text(project), marker)
+    return next(n for n in _project(doc, project)["nodes"] if n["source_line"] == line)
+
+
+# (project, marker, ready): every leaf of the fixture, derived by hand from
+# the rule in commands/portfolio.md.
+READY_ROWS = [
+    ("rho", "rdy-t-done", False),
+    ("rho", "rdy-t-pending", True),
+    ("rho", "rdy-t-skipped", False),
+    ("rho", "rdy-t-twin-a", False),
+    ("rho", "rdy-t-twin-b", True),
+    ("rho", "rdy-t-both-a", False),
+    ("rho", "rdy-t-both-b", False),
+    ("rho", "rdy-nodeps", True),
+    ("rho", "rdy-inprogress", False),
+    ("rho", "rdy-on-done", True),
+    ("rho", "rdy-on-pending", False),
+    ("rho", "rdy-outline", False),
+    ("rho", "rdy-on-skipped", False),
+    ("rho", "rdy-on-twin", False),
+    ("rho", "rdy-on-both", True),
+    ("rho", "rdy-noissue", True),
+    ("rho", "rdy-tab", True),
+    ("rho", "rdy-own-prefix", True),
+    ("rho", "rdy-bare-foreign", False),
+    ("rho", "rdy-foreign-done", True),
+    ("rho", "rdy-foreign-pending", False),
+    ("rho", "rdy-foreign-noissue", False),
+    ("rho", "rdy-foreign-noproject", False),
+    ("rho", "rdy-cycle-a", False),
+    ("rho", "rdy-cycle-b", False),
+    ("rho", "rdy-xcycle", False),
+    ("rho", "rdy-c-dep", False),
+    ("rho", "rdy-c-parked", False),
+    ("rho", "rdy-c-stuck", False),
+    ("rho", "rdy-c-blocked", False),
+    ("rho", "rdy-c-skipped", False),
+    ("rho", "rdy-c-inprogress", True),
+    ("rho", "rdy-c-done", True),
+    ("rho", "rdy-c-handset", False),
+    ("rho", "rdy-on-handset", True),
+    ("rho", "rdy-t-mix-a", False),
+    ("rho", "rdy-t-mix-b", False),
+    ("rho", "rdy-on-mix", False),
+    ("rho", "rdy-dcycle-a", False),
+    ("rho", "rdy-dcycle-b", False),
+    ("rho", "rdy-utf8", True),
+    ("rho", "rdy-c-inherit", True),
+    ("sigma", "rdy-s-done", False),
+    ("sigma", "rdy-s-pending", True),
+    ("sigma", "rdy-s-xcycle", False),
+]
+
+
+@pytest.fixture(scope="module")
+def ready_doc(tmp_path_factory):
+    return _ready_build(tmp_path_factory.mktemp("ready-doc"))
+
+
+@pytest.mark.parametrize("project,marker,want", READY_ROWS, ids=[r[1] for r in READY_ROWS])
+def test_ready_rules(ready_doc, project, marker, want):
+    node = _by_marker(ready_doc, project, marker)
+    assert node["leaf"] is True
+    assert node["ready"] is want
+
+
+def test_ready_rows_cover_every_leaf(ready_doc):
+    got = {(p["project"], n["source_line"]) for p in ready_doc["projects"]
+           for n in p["nodes"] if n["leaf"]}
+    want = {(p, _line_of(_ready_text(p), m)) for p, m, _ in READY_ROWS}
+    assert got == want
+
+
+def test_bare_issue_in_other_project_does_not_resolve(ready_doc):
+    node = _by_marker(ready_doc, "rho", "rdy-bare-foreign")
+    assert node["depends_on"][0]["resolved"] is False
+    assert node["ready"] is False
+    assert {"project": "rho", "source_line": node["source_line"], "kind": "dep_unresolved",
+            "message": "depends_on 'Issue-90' matches no issue in this project"} \
+        in ready_doc["parse_report"]
+
+
+def _one_leaf_doc(tmp_path, glyph):
+    devdoc = tmp_path / "solo"
+    devdoc.mkdir()
+    (devdoc / "WBS.md").write_bytes(f"# solo\n\n- [{glyph}] leaf {{issue: Issue-1}}\n".encode())
+    return pf.build_document([pf.ProjectInput("solo", str(devdoc))], GENERATED_AT)
+
+
+@pytest.mark.parametrize("glyph,want", [("x", False), ("-", False), ("!", False),
+                                        ("~", False), ("?", False), ("P", False),
+                                        (" ", True)],
+                         ids=["x", "-", "!", "~", "?", "P", "control"])
+def test_ready_non_pending_leaf_states(tmp_path, glyph, want):
+    doc = _one_leaf_doc(tmp_path, glyph)
+    (leaf,) = doc["projects"][0]["nodes"]
+    assert leaf["glyph"] == glyph
+    assert leaf["ready"] is want
+
+
+def test_ready_null_exactly_on_parents(tmp_path, ready_doc):
+    _, multi = _build(tmp_path)
+    seen = {"parent": 0, "leaf": 0}
+    for doc in (ready_doc, multi):
+        for p in doc["projects"]:
+            for n in p["nodes"]:
+                if n["leaf"]:
+                    seen["leaf"] += 1
+                    assert isinstance(n["ready"], bool), n["id"]
+                    assert isinstance(n["ready_via_parent_row"], bool), n["id"]
+                else:
+                    seen["parent"] += 1
+                    assert n["ready"] is None, n["id"]
+                    assert n["ready_via_parent_row"] is None, n["id"]
+    assert seen["parent"] and seen["leaf"]
+
+
+def test_resolved_values(ready_doc):
+    def resolved(marker):
+        return _by_marker(ready_doc, "rho", marker)["depends_on"][0]["resolved"]
+    for marker in ("rdy-on-done", "rdy-own-prefix", "rdy-foreign-done",
+                   "rdy-foreign-pending", "rdy-on-twin"):
+        assert resolved(marker) is True, marker
+    for marker in ("rdy-outline", "rdy-bare-foreign", "rdy-foreign-noissue",
+                   "rdy-foreign-noproject"):
+        assert resolved(marker) is False, marker
+    all_deps = [d for p in ready_doc["projects"] for n in p["nodes"] for d in n["depends_on"]]
+    unresolved = [r for r in ready_doc["parse_report"] if r["kind"] == "dep_unresolved"]
+    assert sum(d["resolved"] is False for d in all_deps) == len(unresolved)
+
+
+def test_ready_via_parent_row_values(ready_doc):
+    for marker, want in (("rdy-on-handset", True), ("rdy-c-inherit", True),
+                         ("rdy-on-done", False), ("rdy-nodeps", False)):
+        assert _by_marker(ready_doc, "rho", marker)["ready_via_parent_row"] is want, marker
+
+
+def test_ready_report_literal(ready_doc):
+    rho, sigma = _ready_text("rho"), _ready_text("sigma")
+    L = lambda m: _line_of(rho, m)  # noqa: E731
+    skipped = "resolves to a skipped row at line {}; leaves that depend on it are not ready"
+    # Hand-written from portfolio.py's dep_unresolved templates and the plan's
+    # D3, in the producer's report order (project, line, kind).
+    want = [
+        ("rho", "rdy-outline", "dep_unresolved",
+         "depends_on '4.1' matches no issue in this project"),
+        ("rho", "rdy-on-skipped", "dep_skipped",
+         "depends_on 'Issue-3' " + skipped.format(L("rdy-t-skipped"))),
+        ("rho", "rdy-bare-foreign", "dep_unresolved",
+         "depends_on 'Issue-90' matches no issue in this project"),
+        ("rho", "rdy-foreign-noissue", "dep_unresolved",
+         "depends_on 'sigma:Issue-99' matches no issue in project 'sigma'"),
+        ("rho", "rdy-foreign-noproject", "dep_unresolved",
+         "depends_on 'nosuch:Issue-1' names project 'nosuch', which is not configured"),
+        ("rho", "rdy-cycle-a", "dep_cycle",
+         f"dependency cycle: Issue-25 (line {L('rdy-cycle-a')}), "
+         f"Issue-26 (line {L('rdy-cycle-b')})"),
+        ("rho", "rdy-xcycle", "dep_cycle",
+         f"dependency cycle: Issue-27 (line {L('rdy-xcycle')}), "
+         f"sigma:Issue-92 (line {_line_of(sigma, 'rdy-s-xcycle')})"),
+        ("rho", "rdy-p-done", "parent_done_leaf_pending",
+         f"parent is marked done but leaves under it are pending: line {L('rdy-c-done')}"),
+        ("rho", "rdy-on-mix", "dep_skipped",
+         "depends_on 'Issue-7' " + skipped.format(L("rdy-t-mix-a"))),
+        ("rho", "rdy-dcycle-a", "dep_cycle",
+         f"dependency cycle: Issue-41 (line {L('rdy-dcycle-a')}), "
+         f"Issue-42 (line {L('rdy-dcycle-b')})"),
+    ]
+    want = [(p, L(m), k, msg) for p, m, k, msg in want]
+    kinds = {"dep_unresolved", "dep_skipped", "dep_cycle", "parent_done_leaf_pending"}
+    got = [(r["project"], r["source_line"], r["kind"], r["message"])
+           for r in ready_doc["parse_report"] if r["kind"] in kinds]
+    assert got == want
+
+
+def _expected_lines():
+    return READY_EXPECTED.read_bytes().decode("utf-8").removesuffix("\n").split("\n")
+
+
+def test_ready_lines_literal(ready_doc):
+    assert pf.ready_lines(ready_doc) == _expected_lines()
+
+
+def test_ready_lines_deterministic(tmp_path):
+    a = pf.ready_lines(_ready_build(tmp_path / "a"))
+    b = pf.ready_lines(_ready_build(tmp_path / "b"))
+    assert a == b
+    assert len(a) == 15
+
+
+def test_ready_lines_empty_extreme(tmp_path):
+    _, projects = _multi(tmp_path)
+    keep = [p for p in projects if p.name in ("theta", "delta")]
+    assert [p.name for p in keep] == ["delta", "theta"]
+    assert pf.ready_lines(pf.build_document(keep, GENERATED_AT)) == []
+
+
+# The multi fixture's ready leaves, derived by hand from the rule: alpha's
+# leaves that are pending and have no or only resolved-and-done dependencies
+# (plant-outline, plant-issue4 and plant-bracket hold unresolved entries;
+# plant-issue1 is done, plant-issue2 in progress), and beta's two pending
+# leaves without a dependency (plant-beta-dep waits on alpha's in-progress
+# Issue-2).
+MULTI_READY = [
+    ("alpha", m) for m in ("plant-issue3", "plant-dup3", "plant-noissue-est", "plant-est-src",
+                           "plant-jira", "plant-merged", "plant-trailing", "plant-dupkey",
+                           "plant-swallowed", "plant-issue-list", "plant-not-id",
+                           "plant-issue5")
+] + [("beta", "plant-beta-issue1"), ("beta", "plant-beta-after")]
+
+
+def test_multi_ready_pinned(tmp_path):
+    _, doc = _build(tmp_path)
+    got = {(p["project"], n["source_line"]) for p in doc["projects"]
+           for n in p["nodes"] if n["ready"] is True}
+    want = {(p, _line_of(_wbs_text(p), m)) for p, m in MULTI_READY}
+    assert len(want) == 14
+    assert got == want
+
+
+def test_build_validates_ready_fixture(ready_doc):
+    assert pf.pc.check(ready_doc) == []
+    assert pf.invariant_violations(ready_doc) == []
 
 
 # --- write path and CLI --------------------------------------------------------
