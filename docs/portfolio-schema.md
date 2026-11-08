@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.0)
+# Portfolio document schema (v1.1)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -100,6 +100,11 @@ declaring its properties.
   both ship `1.1`.
 - Descriptions and titles are not part of the contract; editing them needs no bump.
 
+### Version history
+
+- `1.0` (#725): initial.
+- `1.1` (#727): adds optional `projects[].nodes[].ready_via_parent_row`.
+
 ## Field reference
 
 Paths use the inventory syntax that the checker and guard use. Fields are
@@ -161,6 +166,7 @@ present with `null`.
 | `projects[].nodes[].h` | integer\|null, 0..4 | req | `meta.h` when it is one digit 0–4 (quotes already stripped by the parser); null when absent or malformed. |
 | `projects[].nodes[].depends_on` | array of Dep | req | `meta.depends_on`, one entry per id. |
 | `projects[].nodes[].ready` | boolean\|null | req | Readiness; null when not computed, and always null on a parent. |
+| `projects[].nodes[].ready_via_parent_row` | boolean\|null | opt | On a leaf: true when at least one of its effective dependencies resolves to a row with children, false otherwise. Null on a parent and wherever `ready` is null. Added in 1.1 (#727). |
 
 ### Est — `projects[].nodes[].est`
 
@@ -327,7 +333,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.0)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.1)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,

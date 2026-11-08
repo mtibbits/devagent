@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""portfolio.py — #726. Build the portfolio document (schema v1.0, #725) over
+"""portfolio.py — #726. Build the portfolio document (schema v1.1, #725) over
 every configured project's WBS.md, with a parse report that drops nothing
 silently, and write it only when it passes both the structural checker
 (portfolio-check.py) and this module's own cross-field invariants I1–I15.
@@ -354,7 +354,7 @@ def _node_violations(node: dict, project: str, add) -> None:
 def invariant_violations(doc: dict) -> list[str]:
     """The cross-field rules the structural checker does not decide (#725).
 
-    Each entry is `"I<n>: <message>"`. Reads known v1.0 fields only, so a
+    Each entry is `"I<n>: <message>"`. Reads known v1.1 fields only, so a
     document at a newer minor is checked on what this producer knows.
     Assumes `portfolio-check.check(doc)` already passed.
     """
@@ -449,7 +449,7 @@ class ProjectInput:
     worktree: str | None = None
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 REASON_UNSET = "no devdoc dir is configured"
 REASON_EMPTY = "devdoc_dir is set but empty"

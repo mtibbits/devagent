@@ -245,6 +245,29 @@ def _example():
     return json.loads(EXAMPLE.read_text(encoding="utf-8"))
 
 
+def test_schema_version_matches_live_schema():
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.1"
+
+
+def test_compat_both_directions():
+    old_schema = pf.pc.load_schema(FIXTURES / "schema-history" / "1.0.json")
+    new_doc = _example()
+    new_doc["schema_version"] = "1.1"
+    for p in new_doc["projects"]:
+        for n in p["nodes"]:
+            n["ready_via_parent_row"] = None
+    # The old reader reads a new document: an unknown field at a newer minor.
+    assert pf.pc.check(new_doc, old_schema) == []
+    # The new reader reads an old one.
+    assert pf.pc.check(_example()) == []
+    # Negative control: the same new field under the old label is an error.
+    mislabelled = copy.deepcopy(new_doc)
+    mislabelled["schema_version"] = "1.0"
+    errors = pf.pc.check(mislabelled, old_schema)
+    assert errors
+    assert all(e.endswith(".ready_via_parent_row: unknown field") for e in errors), errors
+
+
 def test_rollup_matches_example():
     # #725 worked these figures independently of this producer.
     read = [p for p in _example()["projects"] if p["status"] == "read"]
