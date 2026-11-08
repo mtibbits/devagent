@@ -459,7 +459,7 @@ check_transition_env
 # "<label>TAB<detail>" lines; capture then test (Issue-314), never pipe, and a
 # helper that did not run says so rather than passing silently.
 _ta_rc=0
-_ta_out="$("$PLUGIN_ROOT/scripts/archive-transcripts.sh" --doctor 2>&1)" || _ta_rc=$?
+_ta_out="$(DA_HOME="$(devagent_home)" "$PLUGIN_ROOT/scripts/archive-transcripts.sh" --doctor 2>&1)" || _ta_rc=$?
 if (( _ta_rc != 0 )); then
   check "transcript archive" warn "check did not run (rc $_ta_rc)"
 else
