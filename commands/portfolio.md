@@ -1,5 +1,5 @@
 ---
-description: Write one portfolio JSON document over every configured project's WBS
+description: Write one portfolio JSON document over every configured project's WBS, or list ready leaves (--ready)
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*" *)
 argument-hint: "[--out PATH | --ready]"
 ---

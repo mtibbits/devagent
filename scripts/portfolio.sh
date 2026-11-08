@@ -9,9 +9,9 @@
 # Read-only over every devdoc: it writes the one document and nothing else (no
 # WBS.md, no state, no devdoc file); under --ready it writes nothing at all.
 # It acts on no single issue and calls no tracker or code host, so it is not a
-# trust or resolver entry point, like status.sh. The default output sits under devagent's home, outside every
-# devdoc and checkout: the document names private projects, and cleanup
-# publishes whatever lies under a devdoc_dir.
+# trust or resolver entry point, like status.sh. The default output sits under
+# devagent's home, outside every devdoc and checkout: the document names
+# private projects, and cleanup publishes whatever lies under a devdoc_dir.
 #
 # The projects reach scripts/lib/portfolio.py as indexed environment variables
 # (PORTFOLIO_PROJECT_COUNT, PORTFOLIO_NAME_<i>, and PORTFOLIO_DEVDOC_<i>,
