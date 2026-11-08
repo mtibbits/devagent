@@ -80,9 +80,11 @@ def _dispatch(tid, project, issue, n, step, mid):
     ]
 
 
-def _write(path, records, mtime=None):
+def _write(path, records, mtime=None, compact=False):
+    """compact: Claude Code's own separators (no spaces), the shape real transcripts have."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    sep = (",", ":") if compact else None
+    path.write_text("\n".join(json.dumps(r, separators=sep) for r in records) + "\n", encoding="utf-8")
     if mtime is not None:
         os.utime(path, (mtime, mtime))
 
@@ -1130,16 +1132,16 @@ def _time_records():
     return main, agent
 
 
-def _time_fixture(d, gz=False):
-    """Write _time_records() to d/S.jsonl (or .jsonl.gz) with agent-x linked to a1; return d."""
+def _time_fixture(d, gz=False, compact=False):
+    """Write _time_records() to d/S.jsonl (or .jsonl.gz, or compact JSON) with agent-x linked to a1; return d."""
     main, agent = _time_records()
     sub = d / "S" / "subagents" / "agent-x.jsonl"
     if gz:
         _gz(d / "S.jsonl.gz", main)
         _gz(sub.with_name("agent-x.jsonl.gz"), agent, members=1)
     else:
-        _write(d / "S.jsonl", main)
-        _write(sub, agent)
+        _write(d / "S.jsonl", main, compact=compact)
+        _write(sub, agent, compact=compact)
     sub.with_name("agent-x.meta.json").write_text(json.dumps({"toolUseId": "a1"}), encoding="utf-8")
     return d
 
@@ -1376,6 +1378,39 @@ def test_time_gz_reads_like_jsonl(tmp_path):
     plain = _times([_time_fixture(tmp_path / "plain")])
     gz = _times([_time_fixture(tmp_path / "gz", gz=True)])
     assert plain and {k: _tv(v) for k, v in plain.items()} == {k: _tv(v) for k, v in gz.items()}
+
+
+def test_time_reads_compact_json(tmp_path):
+    compact = _times([_time_fixture(tmp_path / "compact", compact=True)])
+    spaced = _times([_time_fixture(tmp_path / "spaced")])
+    assert compact and {k: _tv(v) for k, v in compact.items()} == {k: _tv(v) for k, v in spaced.items()}
+    assert compact[("alpha", "Issue-4")].events == 4          # operator records carry no cost marker
+    run = _cli("--transcripts", tmp_path / "compact", "--summary", "--time")
+    assert run.returncode == 0, run.stderr
+    assert ALPHA_TIME in run.stdout and BETA_TIME in run.stdout
+
+
+def test_time_subagent_copy_torn_mid_read_does_not_hide_a_good_copy(tmp_path, monkeypatch):
+    main = [_at(_agent("c1", "a1"), 0), _at(_result("a1", "done"), 10)]
+    sub = [_at(_str("go"), 0), _at(_call("s1", None), 2), _at(_call("s2", None), 4), _at(_end("s3"), 6)]
+    x, y = tmp_path / "x", tmp_path / "y"
+    for d, mtime in ((x, 1_000_000), (y, 2_000_000)):
+        _write(d / "S.jsonl", main, mtime=mtime)
+        _subagent(d / "S.jsonl", "agent-a", "a1", sub)
+    alone = _times([y])[(NP, NI)]
+    real = cr.load
+
+    def torn(path, markers=cr.MARKERS):
+        """x's subagent file fails after two records (an I/O error mid-read)."""
+        for i, d in enumerate(real(path, markers)):
+            if i == 2 and path.name.startswith("agent-") and path.parent.parent.parent.name == "x":
+                raise OSError("torn")
+            yield d
+
+    monkeypatch.setattr(cr, "load", torn)
+    both = _times([x, y])[(NP, NI)]
+    assert alone.busy == 360
+    assert _tv(both) == _tv(alone)
 
 
 def test_time_workflow_agent_charged_through_run_id(tmp_path):

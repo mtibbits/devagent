@@ -333,10 +333,12 @@ class Clock:
     was queued while the agent worked and adds 0. A record whose uuid was
     already seen in any file adds nothing but still becomes P.
     """
-    __slots__ = ("rules", "main", "uuids", "pending", "launched", "asks", "prev")
+    __slots__ = ("rules", "main", "uuids", "added", "pending", "launched", "asks", "prev")
 
-    def __init__(self, rules: TimeRules, main: bool, uuids: set):
+    def __init__(self, rules: TimeRules, main: bool, uuids: set, added: set | None = None):
+        # uuids: those read in other files; added: where this file's new ones go (default: uuids itself).
         self.rules, self.main, self.uuids = rules, main, uuids
+        self.added = uuids if added is None else added
         self.pending: set = set()     # tool_use ids not yet answered
         self.launched: set = set()    # tool_use ids of agent launches
         self.asks: set = set()        # tool_use ids of ASK_TOOLS prompts
@@ -354,9 +356,9 @@ class Clock:
                 key = uuid.UUID(u).bytes
             except ValueError:
                 key = u
-            dup = key in self.uuids
+            dup = key in self.uuids or key in self.added
             if not dup:
-                self.uuids.add(key)
+                self.added.add(key)
         results = [b.get("tool_use_id") for b in blocks
                    if isinstance(b, dict) and b.get("type") == "tool_result"] if kind == "user" else []
         closing = next((r for r in results if r in self.pending), None)
@@ -407,8 +409,8 @@ class Timing:
     def __init__(self, rules: TimeRules):
         self.rules, self.uuids = rules, set()
 
-    def clock(self, main: bool) -> Clock:
-        return Clock(self.rules, main, self.uuids)
+    def clock(self, main: bool, added: set | None = None) -> Clock:
+        return Clock(self.rules, main, self.uuids, added)
 
 
 def _timed(d: dict) -> float | None:
@@ -570,7 +572,9 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
-        clock, acc = (timing.clock(main=False), TimeAcc()) if timing else (None, None)
+        # Like last for cost, a subagent file's uuids join the shared set only once it reads whole.
+        added: set = set()
+        clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
             for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
                 msg = d.get("message") or {}
@@ -587,6 +591,7 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         if tool_use_id is None and sub.parent.parent.name == "workflows":
             tool_use_id = tape.runs.get(sub.parent.name)
         if acc is not None:
+            timing.uuids |= added
             tape.sub_time.append((tool_use_id, acc))
         if last:
             fresh = [u for mid, u in last.items() if mid not in seen]
