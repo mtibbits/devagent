@@ -1344,6 +1344,26 @@ def test_command_doc_exit_map():
     assert rows == [pf.EXIT_OK, pf.EXIT_CONFIG, pf.EXIT_USAGE, pf.EXIT_SELF_CHECK]
 
 
+READY_START = "<!-- ready-rule:start -->"
+READY_END = "<!-- ready-rule:end -->"
+
+
+def test_command_doc_defines_ready():
+    # Pins the claim's elements (AC5), not its prose.
+    text = COMMAND_DOC.read_text(encoding="utf-8")
+    assert text.count(READY_START) == text.count(READY_END) == 1
+    block = text[text.index(READY_START):text.index(READY_END)]
+    assert re.findall(r"^([0-9])\. ", block, re.MULTILINE) == ["1", "2", "3", "4", "5"]
+    for term in ("dep_unresolved", "dep_skipped", "dep_cycle", "parent_done_leaf_pending",
+                 "ready_via_parent_row", "<project>:<issue>"):
+        assert term in block, term
+    paragraphs = re.split(r"\n\s*\n", block)
+    assert any("TAB" in para and all(f"`{f}`" in para for f in ("project", "issue", "est", "text"))
+               for para in paragraphs), "line-format sentence"
+    assert any("config order" in para and "`source_line`" in para
+               for para in paragraphs), "order sentence"
+
+
 def test_command_doc_names_provisional_factors():
     text = COMMAND_DOC.read_text(encoding="utf-8")
     for unit, hours in pf.HOUR_FACTORS.items():

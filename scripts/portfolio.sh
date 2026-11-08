@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.0,
+# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.1,
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #
@@ -7,7 +7,7 @@
 # per ready leaf (project, issue, est, text) instead of writing it.
 #
 # Read-only over every devdoc: it writes the one document and nothing else (no
-# WBS.md, no state, no devdoc file). It acts on no single issue and calls no
+# WBS.md, no state, no devdoc file); under --ready it writes nothing at all. It acts on no single issue and calls no
 # tracker or code host, so it is not a trust or resolver entry point, like
 # status.sh. The default output sits under devagent's home, outside every
 # devdoc and checkout: the document names private projects, and cleanup
@@ -19,8 +19,9 @@
 # collide with a delimiter. Each project's own devdoc_dir is read: never the
 # test-only override that maps every project to one devdoc.
 #
-# Exit: 0 written; 1 config missing or invalid; 2 usage error, refused path,
-# or unwritable path; 3 self-check failed, nothing written.
+# Exit: 0 written (or printed, under --ready); 1 config missing or invalid;
+# 2 usage error (--ready with --out included), refused path, or unwritable
+# path; 3 self-check failed, nothing written or printed.
 
 set -euo pipefail
 

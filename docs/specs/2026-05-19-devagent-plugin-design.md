@@ -921,7 +921,7 @@ blocks may carry rows the current tier omits.
 | `/devagent:sync [project\|--all]` | Async merge detection; transitions issues whose MRs were merged outside our session, unblocks `[?]` closeout steps, and prints a `CLOSEOUT:` nudge routing to `/devagent:next --auto` (#363; executes no closeout steps itself) |
 | `/devagent:statusreport [project]` | Generates status report, advances pin, commits to devdoc |
 | `/devagent:wbs <init\|update\|show>` | WBS authoring/render (see §13) |
-| `/devagent:portfolio [--out PATH]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; read-only (see §13.4) |
+| `/devagent:portfolio [--out PATH \| --ready]` | Writes one portfolio JSON document over every configured project's WBS, with a parse report; `--ready` prints the ready leaves of every project instead; read-only (see §13.4) |
 | `/devagent:auth <create\|store\|rotate\|destroy\|status> [project] [backend]` | Auth subsystem entry points |
 
 ## 7. Chaining
@@ -2707,9 +2707,14 @@ this section.
 #726) is the producer. It reads every configured project's own `devdoc_dir`
 and `WBS.md`, writes the document owner-only under `devagent_home` (never
 under a devdoc, source checkout or worktree root), and lists everything the
-parser reads silently in `parse_report`. It writes only when the document
-passes both the structural checker and its own cross-field invariants
-I1–I16; the checker's exit 0 alone is not correctness.
+parser reads silently in `parse_report`. It writes (or, under `--ready`,
+prints) only when the document passes both the structural checker and its own
+cross-field invariants I1–I16; the checker's exit 0 alone is not correctness.
+
+#727 fills the readiness fields (`ready`, `ready_via_parent_row`,
+`depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
+`/devagent:portfolio --ready` prints every project's ready leaves as TSV lines
+instead of writing the document; the view writes nothing.
 
 <!-- editor: tests/test_portfolio_schema.py::test_spec_13_points_at_schema_doc
      requires this section to name docs/portfolio-schema.md. -->

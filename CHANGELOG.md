@@ -16,6 +16,29 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: ready WBS leaves across projects (#727, epic #724).**
+  - A leaf is ready when it is pending, no ancestor is parked, stuck, blocked
+    externally or skipped, and every effective dependency (its own
+    `depends_on` plus every ancestor's) resolves to rows that are all done.
+    A `<project>:<issue>` entry resolves in the named project; a bare
+    `Issue-N` only in its own. An unresolved reference, a skipped target and
+    a dependency cycle each block. A pending leaf under a done parent is
+    still ready. `commands/portfolio.md` ("Ready leaves") is the rule.
+  - The portfolio document now fills `nodes[].ready` and
+    `depends_on[].resolved` (#725 left them null).
+  - `/devagent:portfolio --ready` prints one `project<TAB>issue<TAB>est<TAB>text`
+    line per ready leaf, in config then source order, as UTF-8 with LF line
+    ends. It writes nothing, refuses `--out`, and names each project it could
+    not read on stderr. A project filter for the view is a follow-up
+    (#TBD-filter).
+  - Three report kinds: `dep_skipped`, `dep_cycle` and
+    `parent_done_leaf_pending`.
+  - Portfolio schema 1.1 adds the optional `projects[].nodes[].ready_via_parent_row`:
+    true when a leaf's effective dependency resolves to a row with children,
+    whose state is hand-set today. A 1.0 reader still reads a 1.1 document.
+  - Invariant I16: the readiness fields are all null, or all equal a
+    recomputation; the producer checks it before writing or printing.
+
 - **Added: `cost-report --time`, agent time and operator time per issue
   (#733, epic #729).**
   - Each `(project, issue)` pair gains a time line after its cost line:

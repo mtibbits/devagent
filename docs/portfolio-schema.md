@@ -35,7 +35,7 @@ so a schema edit cannot lean on a rule the checker does not enforce.
   a slot and has no free-form keys says `false`.
 - Two semantics are **stricter than the standard**. `integer` means a JSON
   integer token, so `1.0` is refused (the standard accepts it). `enum` and
-  `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.0
+  `const` compare type-strictly, so `1.0` does not match a member `1`. (v1.1
   has no numeric enum members, so this second rule changes nothing yet.) As in
   the standard, `true` is neither an `integer` nor a `number`.
 
@@ -165,8 +165,8 @@ present with `null`.
 | `projects[].nodes[].satisfies[]` | string | — | One entry. |
 | `projects[].nodes[].h` | integer\|null, 0..4 | req | `meta.h` when it is one digit 0–4 (quotes already stripped by the parser); null when absent or malformed. |
 | `projects[].nodes[].depends_on` | array of Dep | req | `meta.depends_on`, one entry per id. |
-| `projects[].nodes[].ready` | boolean\|null | req | Readiness; null when not computed, and always null on a parent. |
-| `projects[].nodes[].ready_via_parent_row` | boolean\|null | opt | On a leaf: true when at least one of its effective dependencies resolves to a row with children, false otherwise. Null on a parent and wherever `ready` is null. Added in 1.1 (#727). |
+| `projects[].nodes[].ready` | boolean\|null | req | True when the leaf is ready by the rule in [`commands/portfolio.md`](../commands/portfolio.md) ("Ready leaves"); false otherwise; null on a parent, and throughout a document whose readiness was not computed. |
+| `projects[].nodes[].ready_via_parent_row` | boolean\|null | opt | On a leaf: true when at least one of its effective dependencies (its own plus every ancestor's) resolves to a row with children, false otherwise. Null on a parent and wherever `ready` is null. Such a row's state is hand-set today; once #788 lands, a `status_src: rollup` parent's state is derived, and this field's meaning does not change. Added in 1.1 (#727). |
 
 ### Est — `projects[].nodes[].est`
 
@@ -193,7 +193,7 @@ carried as written and never summed.
 | `projects[].nodes[].depends_on[].scope` | `local` \| `foreign` | req | See "Dependency split" below. |
 | `projects[].nodes[].depends_on[].project` | string | req | The named project; this project when local. |
 | `projects[].nodes[].depends_on[].issue` | string | req | The issue id. |
-| `projects[].nodes[].depends_on[].resolved` | boolean\|null | req | Whether the reference resolves; null when not computed. |
+| `projects[].nodes[].depends_on[].resolved` | boolean\|null | req | True when the entry resolves: a `local` entry to a node of this project whose `issue` equals the entry's `issue`; a `foreign` entry to such a node in the named project, which must be configured and read. A bare `Issue-N` resolves only locally. False otherwise: exactly the entries the parse report lists as `dep_unresolved`. Null only in a document whose readiness was not computed. |
 
 ### IssueEntry — `projects[].issues[]`
 
@@ -309,7 +309,7 @@ producer would report n5's `h` (`h_malformed`) and n6's `est`
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
-| `ready`, `depends_on[].resolved` | #727; null until it lands |
+| `ready`, `ready_via_parent_row`, `depends_on[].resolved` | #727, by the readiness rule in `commands/portfolio.md` |
 | `stuck` | #726, from the issue dir's `STUCK` file |
 | `checklist`, `next_step`, `next_step_number` | #726, from the issue dir's `checklist.md` |
 | `parse_report[].kind` | #726 (open vocabulary) |
@@ -368,7 +368,7 @@ The checker does not verify that:
 - `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
   null or all equal to a recomputation by the readiness rule (I16).
 
-### Report kinds (#726)
+### Report kinds (#726, #727)
 
 The producer's `parse_report[].kind` vocabulary, in report order. Entries are
 ordered by project (config order), then `source_line` (null first), then this
