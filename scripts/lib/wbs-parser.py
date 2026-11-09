@@ -1058,14 +1058,9 @@ def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
         m = kinds[i][1]
         is_open[i] = m.group("glyph") not in FINISHED_GLYPHS
         texts[i], metas[i] = _split_text_and_meta(m.group("rest").rstrip())
-        v = metas[i].get("priority")
-        prio[i] = None
-        if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
-            prio[i] = int(v[1])
-        elif "priority" in metas[i]:
-            shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
-            warns.append((i, lambda L, i=i, shown=shown:
-                          f"line {L(i)}: priority '{shown}' is not P1, P2, P3 or P4; ignored"))
+        prio[i], problem = priority_rank(metas[i])
+        if problem is not None:
+            warns.append((i, lambda L, i=i, problem=problem: f"line {L(i)}: {problem}"))
 
     # Each node's subtree, built once bottom-up: a child's line follows its
     # parent's, so reverse line order sees every child first.

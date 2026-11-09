@@ -1,5 +1,6 @@
 """Tests for the WBS order pass (#803): order_text, permuted_only, writers."""
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -622,6 +623,19 @@ def test_inner_set_sorted_under_left_alone_outer():
     assert warnings == ["line 1: children of 'E' left in order: line 5 separates two of them"]
 
 
+# #865: one priority rule, read by the order pass and by parse_text.
+PRIORITY_PARITY = _case(
+    "priority_parity",
+    "- [ ] E",
+    "  - [ ] S {depends_on: T}",
+    "  - [ ] T {issue: T, priority: high}",
+    "  - [x] F {priority: P9}",
+    "  - [ ] L {priority: [P1, P2]}",
+)
+# Built after the last _case: the parity leg runs over every case.
+PARITY = sorted(CASES)
+
+
 # --- Task 4: permuted_only -------------------------------------------------------
 
 ACCEPT = [(name, kind) for name in sorted(CASES) for kind in wbs_bytes.KINDS]
@@ -938,3 +952,42 @@ def test_demo_at_p2_moves_one_set():
     ids = [c["meta"]["issue"] for c in _epic(out, "Issue-705")["children"]]
     assert ids.index("Issue-791") == 7
     assert wbs_parser.permuted_only(p2, out) == (True, "")
+
+
+# --- #865: the order pass and parse_text share one priority rule ------------------
+
+PRIO = re.compile(r"line \d+: priority '")
+
+
+def _prio_order_warnings(name):
+    text, cl = CASES[name]
+    out, warns = wbs_parser.order_text(text, completed_last=cl)
+    return out, [w for w in warns if PRIO.match(w)]
+
+
+def test_parity_subjects_cover_every_case():
+    assert PARITY == sorted(CASES)
+
+
+@pytest.mark.parametrize("name", PARITY)
+def test_order_and_parse_share_the_priority_warning(name):
+    # Parse the order pass's OUTPUT: its warnings number the returned text.
+    out, order_prio = _prio_order_warnings(name)
+    parsed = wbs_parser.collect_parse_warnings(wbs_parser.parse_text(out))
+    assert order_prio == [w for w in parsed if PRIO.match(w)]
+
+
+def test_priority_parity_subjects_are_not_empty():
+    warned = {name for name in CASES if _prio_order_warnings(name)[1]}
+    assert warned >= {"malformed_after_p3", "malformed_before_p3",
+                      "warning_moves", "priority_parity"}
+
+
+def test_parity_is_on_the_written_text():
+    want = "priority 'high' is not P1, P2, P3 or P4; ignored"
+    assert wbs_parser.collect_parse_warnings(
+        wbs_parser.parse_text(WARNING_MOVES)) == [f"line 3: {want}"]
+    out, warns = wbs_parser.order_text(WARNING_MOVES)
+    assert warns == [f"line 2: {want}"]
+    assert wbs_parser.collect_parse_warnings(
+        wbs_parser.parse_text(out)) == [f"line 2: {want}"]
