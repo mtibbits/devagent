@@ -3,7 +3,9 @@
 # and matching nodes only (#701). Optional --depth N keeps nodes through N
 # levels below root (depth 1-based in parser, so --depth 1 means
 # "root + first level"). Optional --milestone X filters to subtrees
-# containing a node with meta.milestone == X.
+# containing a node with meta.milestone == X. Each node parse warning
+# (today a malformed `priority`, #865) prints once on stderr as
+# `wbs show: line N: ...`, whatever the filter; stdout is unchanged.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +68,13 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 tree = mod.parse_file(src)
+
+# #865: each node parse warning once on stderr, before any filter (the
+# warnings describe the file, not the view). ASCII-replaced so a host
+# stderr encoding cannot fail the run.
+for w in mod.collect_parse_warnings(tree):
+    line = f"wbs show: {w}".encode("ascii", "replace").decode("ascii")
+    print(line, file=sys.stderr)
 
 # Bytes: text-mode stdout turns `\n` into `\r\n` on Windows.
 if depth is None and not milestone:

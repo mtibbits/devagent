@@ -942,6 +942,36 @@ _wbs701_progress() {
   [[ "$output" != *"## Notes"* ]]
 }
 
+# #865: wbs show prints each node parse warning once on stderr.
+_wbs865_show() {
+  printf '%s\n' '# T' '' '- [ ] Root' '  - [ ] Sub' \
+    "    - [ ] deep {issue: Issue-1, priority: $1}" > "$TMPDEV/WBS.md"
+}
+
+@test "wbs show prints a malformed priority warning once on stderr, stdout unchanged (#865)" {
+  _wbs865_show high
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs show: line 5: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+}
+
+@test "wbs show --depth 1 still prints the warning once (#865)" {
+  _wbs865_show high
+  bash "$REPO/scripts/wbs.sh" show testproj --depth 1 > "$TMPROOT/out" 2> "$TMPROOT/err"
+  grep -q 'Sub' "$TMPROOT/out"
+  [ "$(grep -c 'deep' "$TMPROOT/out")" -eq 0 ]
+  [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs show: line 5: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+}
+
+@test "wbs show prints no warning for a valid priority (#865)" {
+  _wbs865_show P1
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ ! -s "$TMPROOT/err" ]
+}
+
 @test "wbs update is idempotent on a WBS with prose (#701)" {
   _wbs701 crlf
   _wbs701_progress
