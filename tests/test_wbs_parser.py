@@ -517,6 +517,169 @@ def test_priority_parse_warning_edge_values():
         "line 4: priority '[P1, P2]' is not P1, P2, P3 or P4; ignored"]
 
 
+@pytest.mark.parametrize("meta,want", [
+    ({}, (None, None)),
+    ({"h": "0"}, (0, None)),
+    ({"h": "4"}, (4, None)),
+    ({"h": "5"}, (None, "h '5' is not an integer from 0 to 4")),
+    ({"h": "03"}, (None, "h '03' is not an integer from 0 to 4")),
+    ({"h": "-1"}, (None, "h '-1' is not an integer from 0 to 4")),
+    ({"h": "2.5"}, (None, "h '2.5' is not an integer from 0 to 4")),
+    ({"h": "high"}, (None, "h 'high' is not an integer from 0 to 4")),
+    ({"h": ""}, (None, "h '' is not an integer from 0 to 4")),
+    ({"h": ["3"]}, (None, "h '[3]' is not an integer from 0 to 4")),
+])
+def test_h_value(meta, want):
+    # #888: the one `h` rule; portfolio.py's read_h calls it.
+    assert wbs_parser.h_value(meta) == want
+
+
+@pytest.mark.parametrize("entry,want", [
+    ("gantry:FR-12", ("gantry", "FR-12")),
+    ("FR-12", None),
+    ("a:b:c", None),
+    (":FR-1", None),
+    ("gantry:", None),
+    ("gantry:FR 12", None),
+    ("-x:FR-1", None),
+])
+def test_split_namespaced(entry, want):
+    # #888: the one `<namespace>:<id>` predicate; portfolio.py's split_dep calls it.
+    assert wbs_parser.split_namespaced(entry) == want
+
+
+def _assigns_named(source, name):
+    return sum(1 for n in ast.parse(source).body if isinstance(n, ast.Assign)
+               for t in n.targets if isinstance(t, ast.Name) and t.id == name)
+
+
+def test_h_rule_has_one_home():
+    # Belt-and-braces (#888): portfolio's monkeypatch delegation tests are the
+    # real proof; this goes blind on a rename. Planted control first.
+    assert _assigns_named("H" + "_RE = 1\n", "H_RE") == 1
+    hits = {p.name: _assigns_named(p.read_text(encoding="utf-8"), "H_RE")
+            for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
+    assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
+def test_satisfies_objective_h_are_known_meta_keys():
+    # #888: known keys, values as written, byte-for-byte round trip.
+    text = (
+        "- [ ] Traced A {issue: I-1, satisfies: [gantry:FR-1, gantry:QA-2], "
+        "objective: gantry:FR-1, h: 3}\n"
+        "- [ ] Traced B {issue: I-2, satisfies: gantry:QA-2, "
+        "objective: [gantry:QA-2], h: \"0\"}\n"
+    )
+    tree = wbs_parser.parse_text(text)
+    a, b = tree["children"]
+    assert a["meta"] == {"issue": "I-1", "satisfies": ["gantry:FR-1", "gantry:QA-2"],
+                         "objective": "gantry:FR-1", "h": "3"}
+    assert b["meta"] == {"issue": "I-2", "satisfies": "gantry:QA-2",
+                         "objective": ["gantry:QA-2"], "h": "0"}
+    for node in (a, b):
+        assert node["meta_unknown_keys"] == []
+        assert node["parse_warnings"] == []
+    assert wbs_parser.render_markdown(tree) == text
+
+
+def _entry_warning(key, entry):
+    return f"line 1: {key} entry '{entry}' is not <namespace>:<id>"
+
+
+@pytest.mark.parametrize("body,key,value,want", [
+    ("satisfies: FR-12", "satisfies", "FR-12", [_entry_warning("satisfies", "FR-12")]),
+    ("satisfies: a:b:c", "satisfies", "a:b:c", [_entry_warning("satisfies", "a:b:c")]),
+    ("satisfies: :FR-1", "satisfies", ":FR-1", [_entry_warning("satisfies", ":FR-1")]),
+    ("satisfies: [gantry:FR 12]", "satisfies", ["gantry:FR 12"],
+     [_entry_warning("satisfies", "gantry:FR 12")]),
+    ("objective: FR 12", "objective", "FR 12", [_entry_warning("objective", "FR 12")]),
+    ("satisfies: [gantry:FR-1, bad]", "satisfies", ["gantry:FR-1", "bad"],
+     [_entry_warning("satisfies", "bad")]),
+    ("objective: [gantry:FR-1, bad]", "objective", ["gantry:FR-1", "bad"],
+     [_entry_warning("objective", "bad")]),
+    # dedupe per (key, entry) within a node, first-occurrence order
+    ("satisfies: [bad, bad]", "satisfies", ["bad", "bad"],
+     [_entry_warning("satisfies", "bad")]),
+    # an empty value has no entries (as_list), so no warning
+    ("satisfies: ", "satisfies", "", []),
+    ("objective: ", "objective", "", []),
+    # green controls
+    ("satisfies: []", "satisfies", [], []),
+    ("objective: gantry:FR-1", "objective", "gantry:FR-1", []),
+    ("satisfies: [gantry:FR-1, gantry:QA-2]", "satisfies",
+     ["gantry:FR-1", "gantry:QA-2"], []),
+])
+def test_namespaced_entry_warnings(body, key, value, want):
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n")["children"][0]
+    assert node["parse_warnings"] == want
+    assert node["meta_unknown_keys"] == []
+    assert node["meta"][key] == value
+
+
+@pytest.mark.parametrize("body,value,want", [
+    ("h: 5", "5", ["line 1: h '5' is not an integer from 0 to 4"]),
+    ("h: -1", "-1", ["line 1: h '-1' is not an integer from 0 to 4"]),
+    ("h: 2.5", "2.5", ["line 1: h '2.5' is not an integer from 0 to 4"]),
+    ("h: high", "high", ["line 1: h 'high' is not an integer from 0 to 4"]),
+    ("h: [3]", ["3"], ["line 1: h '[3]' is not an integer from 0 to 4"]),
+    ("h: ", "", ["line 1: h '' is not an integer from 0 to 4"]),
+    ("h: 0", "0", []),
+    ("h: 4", "4", []),
+    ('h: "3"', "3", []),
+])
+def test_h_parse_warnings(body, value, want):
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n")["children"][0]
+    assert node["parse_warnings"] == want
+    assert node["meta"]["h"] == value
+    assert node["meta_unknown_keys"] == []
+
+
+def test_parse_warning_check_order(capsys):
+    # The check order is fixed (priority, satisfies, objective, h) whatever
+    # the key order on the line.
+    node = wbs_parser.parse_text(
+        "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], priority: high}\n"
+    )["children"][0]
+    assert node["parse_warnings"] == [
+        "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
+        _entry_warning("satisfies", "y"),
+        _entry_warning("satisfies", "z"),
+        _entry_warning("objective", "x"),
+        "line 1: h '9' is not an integer from 0 to 4",
+    ]
+    assert capsys.readouterr() == ("", "")
+
+
+def _template_keys(text):
+    """The key set a template's `> Recognized keys (v1): ` line claims."""
+    prefix = "> Recognized keys (v1): "
+    line = next(ln for ln in text.splitlines() if ln.startswith(prefix))
+    return set(line[len(prefix):].strip().split(", "))
+
+
+def _spec_keys(text):
+    """The backticked key set spec §13.1 claims, between `Recognized keys
+    (v1):` and `Unrecognized keys`."""
+    s131 = text[text.index("### 13.1 "):text.index("### 13.2 ")]
+    claim = s131[s131.index("Recognized keys (v1):"):s131.index("Unrecognized keys")]
+    return set(re.findall(r"`([^`]+)`", claim))
+
+
+def test_documented_key_lists_match_known_meta_keys():
+    # #888: derived from the claim, not hand-copied.
+    template = (REPO / "templates" / "wbs_template.md").read_text(encoding="utf-8")
+    spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+            ).read_text(encoding="utf-8")
+    t_keys, s_keys = _template_keys(template), _spec_keys(spec)
+    assert len(t_keys) == len(s_keys) == 14
+    assert t_keys == wbs_parser.KNOWN_META_KEYS
+    assert s_keys == wbs_parser.KNOWN_META_KEYS
+    # planted control: the same extractor sees a missing key
+    planted = "> Recognized keys (v1): " + ", ".join(
+        sorted(wbs_parser.KNOWN_META_KEYS - {"h"})) + "\n"
+    assert _template_keys(planted) != wbs_parser.KNOWN_META_KEYS
+
+
 def test_collect_parse_warnings_in_line_order():
     tree = wbs_parser.parse_text(
         "- [ ] r\n"

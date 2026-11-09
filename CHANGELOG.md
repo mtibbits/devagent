@@ -16,6 +16,14 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `satisfies`, `objective` and `h` are known WBS keys (#888, epic #724).**
+  They no longer appear in `meta_unknown_keys`, so the portfolio export stops
+  reporting `objective` as `unknown_meta_key`; `meta` keeps every value as
+  written. `wbs show` warns `line N: satisfies entry '<e>' is not
+  <namespace>:<id>`, the same for `objective`, and `line N: h '<v>' is not an
+  integer from 0 to 4`. Only newly initialized WBS files get the new template
+  preamble; existing `WBS.md` preambles and L1/L2 `wbs_template` overrides are
+  not rewritten.
 - **Changed: `wbs show` warns about a malformed `priority` (#865).**
   `parse_text` records `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`
   in each node's new `parse_warnings` list (also in `wbs-parser.py parse`

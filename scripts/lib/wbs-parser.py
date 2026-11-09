@@ -48,8 +48,10 @@ and None for a near-miss line that does not parse; whether the value names
 a range is the caller's check.
 
 Each parsed node also carries `parse_warnings` (additive, #865): its value
-problems, each `line N: ...` (N of the parsed text), today only a malformed
-`priority` (`priority_rank`, the one rule the order pass also ranks by).
+problems, each `line N: ...` (N of the parsed text), in a fixed order: a
+malformed `priority` (`priority_rank`, the one rule the order pass also
+ranks by), each `satisfies` then `objective` entry that is not
+`<namespace>:<id>` (once per distinct entry), and a malformed `h` (`h_value`; #888).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
@@ -73,8 +75,9 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`), `priority_rank` and `collect_parse_warnings`
-(#865), and for the order pass
+also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888),
+`priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
+the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -106,13 +109,29 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
         "issue", "est", "cost", "owner", "milestone", "start", "due",
         "depends_on", "status_src", "mr", "priority",
+        "satisfies", "objective", "h",
     }
 )
+
+# #888: keys whose every entry must be `<namespace>:<id>` (`split_namespaced`).
+NAMESPACED_KEYS: tuple[str, ...] = ("satisfies", "objective")
+NAMESPACED_WARNING = "{} entry '{}' is not <namespace>:<id>"
 
 # The one priority rule (#865): `parse_text` records it per node and the
 # order pass (`_order`) ranks by it; neither spells it again.
 PRIORITY_RE = re.compile(r"P[1-4]")
 PRIORITY_WARNING = "priority '{}' is not P1, P2, P3 or P4; ignored"
+
+
+# The one `h` rule (#888): one digit 0-4 as written. portfolio.py's `read_h`
+# calls `h_value`; neither spells the rule again.
+H_RE = re.compile(r"[0-4]")
+H_WARNING = "h '{}' is not an integer from 0 to 4"
+
+
+def _shown(v) -> str:
+    """A meta value as a warning shows it: `[a, b]` for a list, else as written."""
+    return f"[{', '.join(v)}]" if isinstance(v, list) else v
 
 
 def priority_rank(meta: dict) -> tuple[int | None, str | None]:
@@ -124,8 +143,36 @@ def priority_rank(meta: dict) -> tuple[int | None, str | None]:
     v = meta["priority"]
     if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
         return int(v[1]), None
-    shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
-    return None, PRIORITY_WARNING.format(shown)
+    return None, PRIORITY_WARNING.format(_shown(v))
+
+
+def h_value(meta: dict) -> tuple[int | None, str | None]:
+    """(h 0-4, None) for a valid `h`; (None, None) when absent;
+    (None, H_WARNING.format(shown)) when malformed, shown as `priority_rank` does."""
+    if "h" not in meta:
+        return None, None
+    v = meta["h"]
+    if isinstance(v, str) and H_RE.fullmatch(v):
+        return int(v), None
+    return None, H_WARNING.format(_shown(v))
+
+
+def as_list(v) -> list:
+    """Falsy gives [], a list stays a list, a scalar gives [v]."""
+    if not v:
+        return []
+    return v if isinstance(v, list) else [v]
+
+
+def split_namespaced(entry: str) -> tuple[str, str] | None:
+    """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
+    halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
+    portfolio.py's `split_dep` and the satisfies/objective check call it."""
+    left, sep, right = entry.partition(":")
+    if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
+            and ID_TOKEN_RE.fullmatch(right)):
+        return left, right
+    return None
 
 
 def _node_warnings(meta: dict) -> list[str]:
@@ -133,13 +180,22 @@ def _node_warnings(meta: dict) -> list[str]:
 
     The one producer: #888 (satisfies/objective/h) and #887
     (<project>:<issue>) add their checks here (and any parameters they
-    need). The `h` rule already lives in portfolio.py (`read_h`, `H_RE`):
-    #888 shares or moves it, never re-spells it here. The order pass calls
-    `priority_rank` alone, so a check added here reaches `wbs show`, not
-    `wbs order` or `wbs update`.
+    need). The `h` rule (`h_value`), the `<namespace>:<id>` predicate
+    (`split_namespaced`) and the list-or-scalar reader (`as_list`) live in
+    this module, and portfolio.py calls them; neither file re-spells them.
+    The order pass calls `priority_rank` alone, so a check added here
+    reaches `wbs show`, not `wbs order` or `wbs update`.
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
+    if problem is not None:
+        out.append(problem)
+    for key in NAMESPACED_KEYS:
+        # Parsed entries are strings; a repeated bad entry warns once.
+        for entry in dict.fromkeys(as_list(meta.get(key))):
+            if split_namespaced(entry) is None:
+                out.append(NAMESPACED_WARNING.format(key, entry))
+    _h, problem = h_value(meta)
     if problem is not None:
         out.append(problem)
     return out
@@ -569,10 +625,7 @@ def leaves(tree: dict) -> list[dict]:
 
 def _dep_ids(meta: dict) -> list[str]:
     """A node's `depends_on` entries as a list (a scalar is one entry)."""
-    dep = meta.get("depends_on")
-    if not dep:
-        return []
-    return dep if isinstance(dep, list) else [dep]
+    return as_list(meta.get("depends_on"))
 
 
 def dependency_edges(tree: dict) -> list[tuple[str, str]]:

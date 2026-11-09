@@ -171,6 +171,22 @@ def test_split_dep_rule(raw, want):
     assert pf.split_dep(raw, "alpha") == want
 
 
+def test_read_h_reads_the_parser_rule(monkeypatch):
+    # #888: read_h looks the parser's H_RE up at call time; no second rule.
+    monkeypatch.setattr(pf.wbs_parser, "H_RE", re.compile(r"[0-9]"))
+    assert pf.read_h({"h": "7"}) == (7, False)
+
+
+def test_split_dep_reads_the_parser_rule(monkeypatch):
+    monkeypatch.setattr(pf.wbs_parser, "split_namespaced", lambda raw: None)
+    assert pf.split_dep("beta:Issue-2", "alpha")["scope"] == "local"
+
+
+def test_as_list_reads_the_parser_rule(monkeypatch):
+    monkeypatch.setattr(pf.wbs_parser, "as_list", lambda v: ["sentinel"])
+    assert pf.as_list("x") == ["sentinel"]
+
+
 @pytest.mark.parametrize("meta", [
     {}, {"depends_on": ""}, {"depends_on": "Issue-1"},
     {"depends_on": ["Issue-1", "beta:Issue-2"]}, {"depends_on": []},
@@ -776,8 +792,23 @@ def test_producer_keys_not_reported_unknown(tmp_path):
     _, doc = _build(tmp_path)
     msgs = [r["message"] for r in doc["parse_report"] if r["kind"] == "unknown_meta_key"]
     assert msgs == ["unknown metadata key 'jira'", "unknown metadata key 'foo, est'"]
+    for project in doc["projects"]:
+        for node in project.get("nodes") or []:
+            assert not {"satisfies", "objective", "h"} & set(node["meta_unknown_keys"])
+    # est_src stays parser-unknown: PRODUCER_KEYS' skip path still runs (#888).
     issue2 = next(n for n in _project(doc, "alpha")["nodes"] if n["issue"] == "Issue-2")
-    assert set(issue2["meta_unknown_keys"]) >= pf.PRODUCER_KEYS
+    assert issue2["meta_unknown_keys"] == ["est_src"]
+
+
+def test_objective_exported_as_written(tmp_path):
+    # #888: objective is a known key; meta keeps it as written.
+    _, doc = _build(tmp_path)
+    nodes = _project(doc, "alpha")["nodes"]
+    issue2 = next(n for n in nodes if n["issue"] == "Issue-2")
+    assert issue2["meta"]["objective"] == ["gantry:UC-3"]
+    est = next(n for n in nodes if "plant-noissue-est" in n["text"])
+    assert est["meta"]["objective"] == "gantry:FR-1"
+    assert not [r for r in doc["parse_report"] if "'objective'" in r["message"]]
 
 
 def test_parser_stderr_captured(tmp_path, capsys):

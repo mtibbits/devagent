@@ -2395,9 +2395,27 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`. Unrecognized keys are
-preserved verbatim for forward compatibility. `priority` (`P1` to `P4`, P1
-the most urgent) ranks a node among its siblings (#803; see Ordering below). `wbs update` writes
+`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`.
+Unrecognized keys are preserved verbatim for forward compatibility.
+`priority` (`P1` to `P4`, P1 the most urgent) ranks a node among its siblings (#803; see Ordering below).
+`satisfies` traces a leaf to the requirements it serves, and `objective`
+names the `satisfies` entries the leaf serves at objective only (#888). Each
+is a scalar or a `[list]` of `<namespace>:<id>` entries: one `:`, both halves
+matching the parser's `ID_TOKEN_RE`, so a project name is a valid namespace.
+`h` (0 to 4, one digit) is how much operator attention the leaf needs.
+devagent never acts on these values: `meta` keeps them as written, and
+Gantry interprets them, including whether `objective` is a subset of
+`satisfies`. A malformed entry or value is a node parse warning that
+`wbs show` prints (`wbs update` and `wbs order` neither check nor print it);
+each distinct failing entry warns once:
+
+- `line N: satisfies entry '<e>' is not <namespace>:<id>`
+- `line N: objective entry '<e>' is not <namespace>:<id>`
+- `line N: h '<v>' is not an integer from 0 to 4`
+
+The `h` rule (`h_value`) is also the portfolio's (#726).
+
+`wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
 from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
 MRs linked to the leaf's open issue (#704). `wbs update` owns both keys: a

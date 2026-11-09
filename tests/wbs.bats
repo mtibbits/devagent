@@ -972,6 +972,64 @@ _wbs865_show() {
   [ ! -s "$TMPROOT/err" ]
 }
 
+@test "wbs show prints malformed satisfies, objective and h warnings once each (#888)" {
+  printf '%s\n' '# T' '' '- [ ] Root' \
+    '  - [ ] a {issue: Issue-1, h: high}' \
+    '  - [ ] b {issue: Issue-2, objective: FR 12}' \
+    '  - [ ] c {issue: Issue-3, satisfies: [gantry:FR-1, bad]}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 3 ]
+  grep -Fxq "wbs show: line 4: h 'high' is not an integer from 0 to 4" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: objective entry 'FR 12' is not <namespace>:<id>" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 6: satisfies entry 'bad' is not <namespace>:<id>" "$TMPROOT/err"
+}
+
+# #888 writer pins (green at HEAD by design): wbs update and wbs order keep
+# satisfies, objective and h bytes; each pin asserts its path really ran.
+@test "wbs update keeps satisfies, objective and h bytes on a reconciled and an untouched leaf (#888)" {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] Traced A {issue: Issue-1, satisfies: [gantry:FR-1, gantry:QA-2], objective: gantry:FR-1, h: 3}' \
+    '  - [ ] Traced B {issue: Issue-2, satisfies: gantry:QA-2, objective: [gantry:QA-2], h: "0"}' \
+    > "$TMPDEV/WBS.md"
+  _wbs701_progress
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "Traced A" "~" checklist
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  # the reconcile really happened (not a vacuous byte-identical pass)
+  run cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "wbs order moves a leaf carrying satisfies, objective and h with its bytes kept (#888)" {
+  local s t
+  s='  - [ ] S {issue: Issue-1, satisfies: [gantry:FR-1, gantry:QA-2], objective: gantry:FR-1, h: 3}'
+  t='  - [ ] T {issue: Issue-2, priority: P1, objective: [gantry:QA-2], h: 4}'
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$s" "$t" > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$t" "$s" > "$TMPDEV/expected"
+  run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs order and wbs update print only the priority warning beside malformed satisfies, objective and h (#888)" {
+  local cmd
+  for cmd in order "update --offline"; do
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] S {issue: Issue-1, priority: high, h: high, objective: FR 12, satisfies: [bad]}' \
+      '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cE "satisfies entry|objective entry|h '" "$TMPROOT/err")" -eq 0 ]
+  done
+}
+
 # #865 guards (green at HEAD): the order pass is the only printer for
 # wbs order and wbs update; neither reads node parse_warnings.
 _wbs865_order() {
@@ -1013,8 +1071,12 @@ _wbs865_order() {
   spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
   [[ "$spec131" == *byte-for-byte* ]]
   # #803: priority joins each recognized-keys list, and the order pass is documented
-  grep -qF 'depends_on, status_src, mr, priority' "$REPO/templates/wbs_template.md"
-  [[ "$spec131" == *'`status_src`, `mr`, `priority`'* ]]
+  # #888: satisfies, objective and h join them, with their warning texts
+  grep -qF 'depends_on, status_src, mr, priority, satisfies, objective, h' "$REPO/templates/wbs_template.md"
+  [[ "$spec131" == *'`priority`, `satisfies`, `objective`, `h`'* ]]
+  [[ "$spec131" == *"is not <namespace>:<id>"* ]]
+  [[ "$spec131" == *"is not an integer from 0 to 4"* ]]
+  grep -qF '`objective`' "$REPO/commands/wbs.md"
   [[ "$spec131" == *'**Ordering (#803).**'* ]]
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }

@@ -64,10 +64,10 @@ HOUR_FACTORS: dict[str, int] = {"h": 1, "d": 8, "w": 40}
 PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
 # Digit caps keep every number finite and small: no inf or huge-int path.
 QUANTITY_RE = re.compile(r"(?P<q>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?P<u>[A-Za-z]+)")
-H_RE = re.compile(r"[0-4]")
 EST_SRC_VALUES = ("confirmed", "derived")
-# Keys this producer consumes. The parser does not know them yet (#888), so
-# they sit in `meta_unknown_keys`; the unknown-key report skips them.
+# Keys this producer consumes. `satisfies` and `h` are parser-known keys
+# (#888), so they never reach `meta_unknown_keys`; `est_src` is not, and the
+# unknown-key report skips it.
 PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h"})
 
 
@@ -107,12 +107,8 @@ def est_src(meta: dict) -> tuple[str | None, bool]:
 
 def read_h(meta: dict) -> tuple[int | None, bool]:
     """(`h`, malformed): one digit 0–4 as written, else null."""
-    if "h" not in meta:
-        return None, False
-    v = meta["h"]
-    if isinstance(v, str) and H_RE.fullmatch(v):
-        return int(v), False
-    return None, True
+    h, problem = wbs_parser.h_value(meta)
+    return h, problem is not None
 
 
 def node_issue(meta: dict) -> tuple[str | None, bool]:
@@ -127,16 +123,14 @@ def node_issue(meta: dict) -> tuple[str | None, bool]:
 
 def as_list(v) -> list:
     """Falsy gives [], a list stays a list, a scalar gives [v]."""
-    if not v:
-        return []
-    return v if isinstance(v, list) else [v]
+    return wbs_parser.as_list(v)
 
 
 def split_dep(raw: str, project: str) -> dict:
     """One `depends_on` entry by #887's split rule (schema doc, Dependency split)."""
-    left, sep, right = raw.partition(":")
-    if (sep and ":" not in right and wbs_parser.ID_TOKEN_RE.fullmatch(left)
-            and wbs_parser.ID_TOKEN_RE.fullmatch(right)):
+    pair = wbs_parser.split_namespaced(raw)
+    if pair is not None:
+        left, right = pair
         scope = "local" if left == project else "foreign"
         return {"raw": raw, "scope": scope, "project": left, "issue": right,
                 "resolved": None}
