@@ -972,6 +972,19 @@ _wbs865_show() {
   [ ! -s "$TMPROOT/err" ]
 }
 
+@test "wbs show prints malformed satisfies, objective and h warnings once each (#888)" {
+  printf '%s\n' '# T' '' '- [ ] Root' \
+    '  - [ ] a {issue: Issue-1, h: high}' \
+    '  - [ ] b {issue: Issue-2, objective: FR 12}' \
+    '  - [ ] c {issue: Issue-3, satisfies: [gantry:FR-1, bad]}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 3 ]
+  grep -Fxq "wbs show: line 4: h 'high' is not an integer from 0 to 4" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: objective entry 'FR 12' is not <namespace>:<id>" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 6: satisfies entry 'bad' is not <namespace>:<id>" "$TMPROOT/err"
+}
+
 # #865 guards (green at HEAD): the order pass is the only printer for
 # wbs order and wbs update; neither reads node parse_warnings.
 _wbs865_order() {

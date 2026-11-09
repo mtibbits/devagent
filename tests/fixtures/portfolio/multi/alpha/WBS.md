@@ -8,10 +8,10 @@ planted line carries a plant-<shape> marker; tests locate lines by marker.
 
 - [ ] Portfolio view plant-parent {est: 10.5pr}
   - [x] Schema plant-issue1 {issue: Issue-1, est: 6h, est_src: confirmed}
-  - [~] Producer plant-issue2 {issue: Issue-2, est: 4h, est_src: derived, satisfies: [gantry:FR-12, gantry:UC-3], h: 3, depends_on: [Issue-1, alpha:Issue-1, beta:Issue-1]}
+  - [~] Producer plant-issue2 {issue: Issue-2, est: 4h, est_src: derived, satisfies: [gantry:FR-12, gantry:UC-3], h: 3, objective: [gantry:UC-3], depends_on: [Issue-1, alpha:Issue-1, beta:Issue-1]}
   - [ ] Readiness plant-issue3 {issue: Issue-3, est: ?w}
   - [ ] Readiness again plant-dup3 {issue: Issue-3, est: 48pr, h: high}
-  - [ ] Spike plant-noissue-est {est: 1d (actual ~14h), satisfies: gantry:FR-1}
+  - [ ] Spike plant-noissue-est {est: 1d (actual ~14h), satisfies: gantry:FR-1, objective: gantry:FR-1}
   - [ ] Outline plant-outline {depends_on: [4.1]}
   - [ ] Cross plant-issue4 {issue: Issue-4, depends_on: [beta:Issue-99, nosuch:Issue-1, gamma:Issue-1]}
   - [ ] Guessed plant-est-src {issue: Issue-6, est: 2h, est_src: guessed}

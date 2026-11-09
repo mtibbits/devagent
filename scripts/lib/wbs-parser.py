@@ -48,8 +48,10 @@ and None for a near-miss line that does not parse; whether the value names
 a range is the caller's check.
 
 Each parsed node also carries `parse_warnings` (additive, #865): its value
-problems, each `line N: ...` (N of the parsed text), today only a malformed
-`priority` (`priority_rank`, the one rule the order pass also ranks by).
+problems, each `line N: ...` (N of the parsed text), in a fixed order: a
+malformed `priority` (`priority_rank`, the one rule the order pass also
+ranks by), each `satisfies` then `objective` entry that is not
+`<namespace>:<id>` (once per entry), and a malformed `h` (`h_value`; #888).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
@@ -107,8 +109,13 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
         "issue", "est", "cost", "owner", "milestone", "start", "due",
         "depends_on", "status_src", "mr", "priority",
+        "satisfies", "objective", "h",
     }
 )
+
+# #888: keys whose every entry must be `<namespace>:<id>` (`split_namespaced`).
+NAMESPACED_KEYS: tuple[str, ...] = ("satisfies", "objective")
+NAMESPACED_WARNING = "{} entry '{}' is not <namespace>:<id>"
 
 # The one priority rule (#865): `parse_text` records it per node and the
 # order pass (`_order`) ranks by it; neither spells it again.
@@ -170,6 +177,18 @@ def _node_warnings(meta: dict) -> list[str]:
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
+    if problem is not None:
+        out.append(problem)
+    for key in NAMESPACED_KEYS:
+        seen: set[str] = set()
+        for entry in as_list(meta.get(key)):
+            shown = _shown(entry)
+            if shown in seen:
+                continue
+            seen.add(shown)
+            if not isinstance(entry, str) or split_namespaced(entry) is None:
+                out.append(NAMESPACED_WARNING.format(key, shown))
+    _h, problem = h_value(meta)
     if problem is not None:
         out.append(problem)
     return out

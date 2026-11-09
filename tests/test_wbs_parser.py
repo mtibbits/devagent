@@ -562,6 +562,94 @@ def test_h_rule_has_one_home():
     assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
 
 
+def test_satisfies_objective_h_are_known_meta_keys():
+    # #888: known keys, values as written, byte-for-byte round trip.
+    text = (
+        "- [ ] Traced A {issue: I-1, satisfies: [gantry:FR-1, gantry:QA-2], "
+        "objective: gantry:FR-1, h: 3}\n"
+        "- [ ] Traced B {issue: I-2, satisfies: gantry:QA-2, "
+        "objective: [gantry:QA-2], h: \"0\"}\n"
+    )
+    tree = wbs_parser.parse_text(text)
+    a, b = tree["children"]
+    assert a["meta"] == {"issue": "I-1", "satisfies": ["gantry:FR-1", "gantry:QA-2"],
+                         "objective": "gantry:FR-1", "h": "3"}
+    assert b["meta"] == {"issue": "I-2", "satisfies": "gantry:QA-2",
+                         "objective": ["gantry:QA-2"], "h": "0"}
+    for node in (a, b):
+        assert node["meta_unknown_keys"] == []
+        assert node["parse_warnings"] == []
+    assert wbs_parser.render_markdown(tree) == text
+
+
+def _entry_warning(key, entry):
+    return f"line 1: {key} entry '{entry}' is not <namespace>:<id>"
+
+
+@pytest.mark.parametrize("body,key,value,want", [
+    ("satisfies: FR-12", "satisfies", "FR-12", [_entry_warning("satisfies", "FR-12")]),
+    ("satisfies: a:b:c", "satisfies", "a:b:c", [_entry_warning("satisfies", "a:b:c")]),
+    ("satisfies: :FR-1", "satisfies", ":FR-1", [_entry_warning("satisfies", ":FR-1")]),
+    ("satisfies: [gantry:FR 12]", "satisfies", ["gantry:FR 12"],
+     [_entry_warning("satisfies", "gantry:FR 12")]),
+    ("objective: FR 12", "objective", "FR 12", [_entry_warning("objective", "FR 12")]),
+    ("satisfies: [gantry:FR-1, bad]", "satisfies", ["gantry:FR-1", "bad"],
+     [_entry_warning("satisfies", "bad")]),
+    ("objective: [gantry:FR-1, bad]", "objective", ["gantry:FR-1", "bad"],
+     [_entry_warning("objective", "bad")]),
+    # dedupe per (key, entry) within a node, first-occurrence order
+    ("satisfies: [bad, bad]", "satisfies", ["bad", "bad"],
+     [_entry_warning("satisfies", "bad")]),
+    # an empty value has no entries (as_list), so no warning
+    ("satisfies: ", "satisfies", "", []),
+    ("objective: ", "objective", "", []),
+    # green controls
+    ("satisfies: []", "satisfies", [], []),
+    ("objective: gantry:FR-1", "objective", "gantry:FR-1", []),
+    ("satisfies: [gantry:FR-1, gantry:QA-2]", "satisfies",
+     ["gantry:FR-1", "gantry:QA-2"], []),
+])
+def test_namespaced_entry_warnings(body, key, value, want):
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n")["children"][0]
+    assert node["parse_warnings"] == want
+    assert node["meta_unknown_keys"] == []
+    assert node["meta"][key] == value
+
+
+@pytest.mark.parametrize("body,value,want", [
+    ("h: 5", "5", ["line 1: h '5' is not an integer from 0 to 4"]),
+    ("h: -1", "-1", ["line 1: h '-1' is not an integer from 0 to 4"]),
+    ("h: 2.5", "2.5", ["line 1: h '2.5' is not an integer from 0 to 4"]),
+    ("h: high", "high", ["line 1: h 'high' is not an integer from 0 to 4"]),
+    ("h: [3]", ["3"], ["line 1: h '[3]' is not an integer from 0 to 4"]),
+    ("h: ", "", ["line 1: h '' is not an integer from 0 to 4"]),
+    ("h: 0", "0", []),
+    ("h: 4", "4", []),
+    ('h: "3"', "3", []),
+])
+def test_h_parse_warnings(body, value, want):
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n")["children"][0]
+    assert node["parse_warnings"] == want
+    assert node["meta"]["h"] == value
+    assert node["meta_unknown_keys"] == []
+
+
+def test_parse_warning_check_order(capsys):
+    # The check order is fixed (priority, satisfies, objective, h) whatever
+    # the key order on the line.
+    node = wbs_parser.parse_text(
+        "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], priority: high}\n"
+    )["children"][0]
+    assert node["parse_warnings"] == [
+        "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
+        _entry_warning("satisfies", "y"),
+        _entry_warning("satisfies", "z"),
+        _entry_warning("objective", "x"),
+        "line 1: h '9' is not an integer from 0 to 4",
+    ]
+    assert capsys.readouterr() == ("", "")
+
+
 def test_collect_parse_warnings_in_line_order():
     tree = wbs_parser.parse_text(
         "- [ ] r\n"

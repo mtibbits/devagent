@@ -65,8 +65,9 @@ PLACEHOLDER_RE = re.compile(r"\?[A-Za-z]*")
 # Digit caps keep every number finite and small: no inf or huge-int path.
 QUANTITY_RE = re.compile(r"(?P<q>[0-9]{1,9}(?:\.[0-9]{1,6})?)(?P<u>[A-Za-z]+)")
 EST_SRC_VALUES = ("confirmed", "derived")
-# Keys this producer consumes. The parser does not know them yet (#888), so
-# they sit in `meta_unknown_keys`; the unknown-key report skips them.
+# Keys this producer consumes. `satisfies` and `h` are parser-known keys
+# (#888), so they never reach `meta_unknown_keys`; `est_src` is not, and the
+# unknown-key report skips it.
 PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h"})
 
 
