@@ -972,6 +972,28 @@ _wbs865_show() {
   [ ! -s "$TMPROOT/err" ]
 }
 
+# #865 guards (green at HEAD): the order pass is the only printer for
+# wbs order and wbs update; neither reads node parse_warnings.
+_wbs865_order() {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] S {issue: Issue-1, priority: high}' '  - [ ] T {issue: Issue-2}' \
+    > "$TMPDEV/WBS.md"
+}
+
+@test "wbs order prints a malformed priority warning once (#865)" {
+  _wbs865_order
+  bash "$REPO/scripts/wbs.sh" order testproj 2> "$TMPROOT/err"
+  [ "$(grep -cF "priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs order: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+}
+
+@test "wbs update prints a malformed priority warning once (#865)" {
+  _wbs865_order
+  bash "$REPO/scripts/wbs.sh" update testproj --offline 2> "$TMPROOT/err"
+  [ "$(grep -cF "priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs update: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+}
+
 @test "wbs update is idempotent on a WBS with prose (#701)" {
   _wbs701 crlf
   _wbs701_progress
