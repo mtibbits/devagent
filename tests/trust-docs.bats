@@ -42,7 +42,9 @@ _key_rows() {
   grep -q '§3.8' "$PLUGIN_ROOT/README.md"
   grep -q '§3.8' "$PLUGIN_ROOT/templates/config.toml.skel"
   grep -q '§3.8' "$PLUGIN_ROOT/commands/doctor.md"
-  awk '/^## \[Unreleased\]/ { on = 1; next } /^## \[/ { on = 0 } on' "$PLUGIN_ROOT/CHANGELOG.md" | grep -q '#713'
+  # From [Unreleased] to the end, so a release cut that moves the entry under
+  # a dated heading keeps this green.
+  awk '/^## \[Unreleased\]/ { on = 1; next } on' "$PLUGIN_ROOT/CHANGELOG.md" | grep -q '#713'
 }
 
 @test "docs: the hermetic guard's system locations equal TRUST_SYSTEM_DIRS" {

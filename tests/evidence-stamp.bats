@@ -553,9 +553,11 @@ _region() {
     done
 }
 
-@test "#894 W3 CHANGELOG Unreleased carries the Added and Changed entries" {
+@test "#894 W3 CHANGELOG (Unreleased or a released section) carries the Added and Changed entries" {
     local u
-    u="$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{exit} f' "$DEVAGENT_ROOT/CHANGELOG.md")"
+    # From [Unreleased] to the end: a release cut moves the entries under a
+    # dated heading, and that must not redden this pin.
+    u="$(awk '/^## \[Unreleased\]/{f=1; next} f' "$DEVAGENT_ROOT/CHANGELOG.md")"
     [ -n "$u" ]
     grep -E '^- \*\*Added:' <<<"$u" | grep -F 'evidence-stamp.sh' | grep -qF '(#894)' \
         || { echo "no Added entry"; return 1; }
