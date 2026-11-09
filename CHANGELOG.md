@@ -16,6 +16,15 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-11-09
+
+A major release because `wbs update` can now move lines (#803). Spec §13.1
+promised that it changes only glyphs and the `status_src` and `mr` meta. Now
+it sorts each parent's children by dependency, then priority, so the first
+`wbs update` after upgrading can reorder a tracker-imported `WBS.md`. The entry
+is marked `Changed (breaking)` below, with the preview command
+(`/devagent:wbs order --dry-run`) and the opt-out (`order_on_update = false`).
+
 - **Changed: `satisfies`, `objective` and `h` are known WBS keys (#888, epic #724).**
   They no longer appear in `meta_unknown_keys`, so the portfolio export stops
   reporting `objective` as `unknown_meta_key`; `meta` keeps every value as
@@ -356,7 +365,6 @@ the README's "Versioning & releases" section has the release procedure.
     invalid config value, 1 on an unreadable file or a failed check).
   - An existing `WBS.md` keeps its old preamble text (the recognized-keys line and the
     "changes only that glyph" sentence); edit it by hand if you want it current.
-  - The next release is a major one.
 
 - **Fixed: `wbs init` reuses a milestone node whose title starts with a quote, and imports a checkbox-only title as `(no title)` (#789).**
   - The WBS meta writer now quotes a value that starts with `"` or `'`. Any quoted value
