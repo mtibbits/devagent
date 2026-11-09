@@ -51,7 +51,7 @@ Each parsed node also carries `parse_warnings` (additive, #865): its value
 problems, each `line N: ...` (N of the parsed text), in a fixed order: a
 malformed `priority` (`priority_rank`, the one rule the order pass also
 ranks by), each `satisfies` then `objective` entry that is not
-`<namespace>:<id>` (once per entry), and a malformed `h` (`h_value`; #888).
+`<namespace>:<id>` (once per distinct entry), and a malformed `h` (`h_value`; #888).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 

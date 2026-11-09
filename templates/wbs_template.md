@@ -5,7 +5,7 @@
 > WBS node; inline `{key: value, ...}` block carries metadata.
 >
 > Recognized keys (v1): issue, est, cost, owner, milestone, start, due, depends_on, status_src, mr, priority, satisfies, objective, h
-> satisfies, objective: <namespace>:<id> or a [list] of them; h: 0-4 (operator attention); wbs show warns on other shapes.
+> satisfies, objective: `<namespace>:<id>` or a [list] of them; h: 0-4 (operator attention); wbs show warns on other shapes.
 > Unrecognized keys are preserved verbatim.
 > `wbs update` sets a leaf's glyph from its issue's tracker state, linked MRs, else its
 > checklist, records which in `status_src`, and writes `mr` (open, draft or merged) for an

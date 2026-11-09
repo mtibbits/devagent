@@ -2407,7 +2407,7 @@ devagent never acts on these values: `meta` keeps them as written, and
 Gantry interprets them, including whether `objective` is a subset of
 `satisfies`. A malformed entry or value is a node parse warning that
 `wbs show` prints (`wbs update` and `wbs order` neither check nor print it);
-each failing entry warns once:
+each distinct failing entry warns once:
 
 - `line N: satisfies entry '<e>' is not <namespace>:<id>`
 - `line N: objective entry '<e>' is not <namespace>:<id>`
