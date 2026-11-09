@@ -83,7 +83,10 @@ so there is no list to maintain.
   `commands/*.md` bodies are the user-facing homes; `docs/specs/` is the
   design record. If a change alters what a command does, its body and the
   README's command table change in the same PR. Some documented totals are
-  guarded by tests (`tests/cmd_wrappers.bats`) and will tell you.
+  guarded by tests (`tests/cmd_wrappers.bats`) and will tell you. A change
+  that alters what a requirement states updates `docs/requirements.md` in the
+  same PR. Its IDs are never renumbered or reused: a withdrawn requirement is
+  deleted and its withdrawal noted in a prose line.
 - **Never widen a tool grant.** Command and skill bodies grant
   `Bash(bash "${CLAUDE_PLUGIN_ROOT}/scripts/*")` in the quoted form and
   nothing broader. A change that needs more should be discussed in an issue

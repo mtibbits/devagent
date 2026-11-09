@@ -63,6 +63,7 @@ devAgent/
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 │   ├── resolver-scope-triage.md     # #572: the 21 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
+│   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
