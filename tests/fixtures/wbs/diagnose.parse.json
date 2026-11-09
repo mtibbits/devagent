@@ -23,7 +23,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 8
+          "source_line": 8,
+          "parse_warnings": []
         },
         {
           "text": "plant-merged-key",
@@ -38,7 +39,8 @@
             "foo, est"
           ],
           "children": [],
-          "source_line": 9
+          "source_line": 9,
+          "parse_warnings": []
         },
         {
           "text": "plant-unmatched-bracket",
@@ -50,7 +52,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 10
+          "source_line": 10,
+          "parse_warnings": []
         },
         {
           "text": "plant-unterminated-quote",
@@ -63,7 +66,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 11
+          "source_line": 11,
+          "parse_warnings": []
         },
         {
           "text": "plant-empty-key",
@@ -75,7 +79,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 12
+          "source_line": 12,
+          "parse_warnings": []
         },
         {
           "text": "plant-duplicate-key",
@@ -88,7 +93,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 13
+          "source_line": 13,
+          "parse_warnings": []
         },
         {
           "text": "plant-unclosed-brace {issue: Issue-7, est: 1w",
@@ -98,7 +104,8 @@
           "meta": {},
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 14
+          "source_line": 14,
+          "parse_warnings": []
         },
         {
           "text": "plant-swallowed-pair",
@@ -110,7 +117,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 15
+          "source_line": 15,
+          "parse_warnings": []
         },
         {
           "text": "plant-dep-no-issue",
@@ -125,7 +133,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 16
+          "source_line": 16,
+          "parse_warnings": []
         },
         {
           "text": "plant-clean",
@@ -138,7 +147,8 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 17
+          "source_line": 17,
+          "parse_warnings": []
         },
         {
           "text": "plant-padded",
@@ -157,10 +167,12 @@
           },
           "meta_unknown_keys": [],
           "children": [],
-          "source_line": 18
+          "source_line": 18,
+          "parse_warnings": []
         }
       ],
-      "source_line": 7
+      "source_line": 7,
+      "parse_warnings": []
     },
     {
       "text": "plant-comment-node",
@@ -172,7 +184,8 @@
       },
       "meta_unknown_keys": [],
       "children": [],
-      "source_line": 33
+      "source_line": 33,
+      "parse_warnings": []
     },
     {
       "text": "plant-after-unclosed",
@@ -184,7 +197,8 @@
       },
       "meta_unknown_keys": [],
       "children": [],
-      "source_line": 37
+      "source_line": 37,
+      "parse_warnings": []
     }
   ],
   "source_text": "# diagnose fixture\n\nCharacterization input for tests/test_wbs_diagnose.py (#726). Each planted\nline carries a plant-<shape> marker; tests locate lines by marker, never by\nnumber. The goldens beside this file are CLI output at the base commit.\n\n- [ ] Root plant-root {issue: Issue-1, est: 1w, depends_on: Issue-9}\n  - [ ] plant-trailing-key {issue: Issue-2, trailing}\n  - [ ] plant-merged-key {issue: Issue-3, foo, est: 1w}\n  - [ ] plant-unmatched-bracket {depends_on: [Issue-1, est: 1w }\n  - [ ] plant-unterminated-quote {issue: Issue-4, owner: \"bob, est: 1w}\n  - [ ] plant-empty-key {issue: Issue-5, : 1w, est: 2h}\n  - [ ] plant-duplicate-key {issue: Issue-6, est: 1w, est: 2w}\n  - [ ] plant-unclosed-brace {issue: Issue-7, est: 1w\n  - [ ] plant-swallowed-pair {issue: Issue-8 est: 1w}\n  - [x] plant-dep-no-issue {depends_on: [Issue-1, Issue-2]}\n  - [ ] plant-clean {issue: Issue-10, est: 1w}\n  - [ ] plant-padded {issue: Issue-13 , est:  3h , depends_on: [ Issue-1 , , 'Issue-2', ], owner: 'ann', milestone: M1 }\n\n- [X] plant-near-upper-x\n* [ ] plant-near-star\n+ [x] plant-near-plus\n- [ ]\n-[ ] a plant-near-nospace\n\n- plain plant-control-plain\n\n```text\n- [X] plant-control-fenced\n```\n\n<!--\n- [ ] plant-comment-node {issue: Issue-11}\n-->\n\n```text\n- [ ] plant-after-unclosed {issue: Issue-12}\n",
