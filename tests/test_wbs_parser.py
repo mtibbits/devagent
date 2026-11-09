@@ -650,6 +650,36 @@ def test_parse_warning_check_order(capsys):
     assert capsys.readouterr() == ("", "")
 
 
+def _template_keys(text):
+    """The key set a template's `> Recognized keys (v1): ` line claims."""
+    prefix = "> Recognized keys (v1): "
+    line = next(ln for ln in text.splitlines() if ln.startswith(prefix))
+    return set(line[len(prefix):].strip().split(", "))
+
+
+def _spec_keys(text):
+    """The backticked key set spec §13.1 claims, between `Recognized keys
+    (v1):` and `Unrecognized keys`."""
+    s131 = text[text.index("### 13.1 "):text.index("### 13.2 ")]
+    claim = s131[s131.index("Recognized keys (v1):"):s131.index("Unrecognized keys")]
+    return set(re.findall(r"`([^`]+)`", claim))
+
+
+def test_documented_key_lists_match_known_meta_keys():
+    # #888: derived from the claim, not hand-copied.
+    template = (REPO / "templates" / "wbs_template.md").read_text(encoding="utf-8")
+    spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
+            ).read_text(encoding="utf-8")
+    t_keys, s_keys = _template_keys(template), _spec_keys(spec)
+    assert len(t_keys) == len(s_keys) == 14
+    assert t_keys == wbs_parser.KNOWN_META_KEYS
+    assert s_keys == wbs_parser.KNOWN_META_KEYS
+    # planted control: the same extractor sees a missing key
+    planted = "> Recognized keys (v1): " + ", ".join(
+        sorted(wbs_parser.KNOWN_META_KEYS - {"h"})) + "\n"
+    assert _template_keys(planted) != wbs_parser.KNOWN_META_KEYS
+
+
 def test_collect_parse_warnings_in_line_order():
     tree = wbs_parser.parse_text(
         "- [ ] r\n"

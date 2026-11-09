@@ -1069,8 +1069,12 @@ _wbs865_order() {
   spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
   [[ "$spec131" == *byte-for-byte* ]]
   # #803: priority joins each recognized-keys list, and the order pass is documented
-  grep -qF 'depends_on, status_src, mr, priority' "$REPO/templates/wbs_template.md"
-  [[ "$spec131" == *'`status_src`, `mr`, `priority`'* ]]
+  # #888: satisfies, objective and h join them, with their warning texts
+  grep -qF 'depends_on, status_src, mr, priority, satisfies, objective, h' "$REPO/templates/wbs_template.md"
+  [[ "$spec131" == *'`priority`, `satisfies`, `objective`, `h`'* ]]
+  [[ "$spec131" == *"is not <namespace>:<id>"* ]]
+  [[ "$spec131" == *"is not an integer from 0 to 4"* ]]
+  grep -qF '`objective`' "$REPO/commands/wbs.md"
   [[ "$spec131" == *'**Ordering (#803).**'* ]]
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }

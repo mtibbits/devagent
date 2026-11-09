@@ -4,7 +4,8 @@
 # levels below root (depth 1-based in parser, so --depth 1 means
 # "root + first level"). Optional --milestone X filters to subtrees
 # containing a node with meta.milestone == X. Each node parse warning
-# (today a malformed `priority`, #865) prints once on stderr as
+# (a malformed `priority` or `h`, or a `satisfies`/`objective` entry that
+# is not `<namespace>:<id>`; #865, #888) prints once on stderr as
 # `wbs show: line N: ...`, whatever the filter; stdout is unchanged.
 set -euo pipefail
 
