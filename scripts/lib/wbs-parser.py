@@ -1009,6 +1009,14 @@ def inserted_only(old: str, new: str) -> bool:
 # inherited priority, then fan-out. Text in, text out, after any render.
 # The priority rule itself is `priority_rank` (#865).
 DEFAULT_PRIORITY = 3
+# A finished WBS node: no work left, done or skipped (`STATE_GLYPHS`). It
+# agrees on purpose with DONE_GLYPHS in wbs-tracker.py and portfolio.py,
+# which answer the same question about checklist step rows, a different
+# grammar; no import ties them (a checklist rule must not depend on the WBS
+# state table), so tests/test_portfolio.py::test_finished_glyph_sets_agree
+# pins the three equal. Boundary: these are the Python copies; the shell
+# spellings at checklist.sh:234, mergemr.sh:77, next.sh:176, doctor.sh:241
+# and migrate-checklist-numbering.sh:135 are not pinned (#784).
 FINISHED_GLYPHS = frozenset("x-")
 
 

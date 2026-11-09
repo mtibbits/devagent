@@ -138,6 +138,13 @@ def parse_leaf(
 # Step row `- [<glyph>] <num>. <name>`: _checklist_line_re
 # (scripts/lib/checklist.sh); the full rule is in wbs-update.sh's header.
 ROW_RE = re.compile(r"^- \[(.)\][ \t\n\r\f\v]+([0-9]+)\.[ \t\n\r\f\v]+[A-Za-z][A-Za-z0-9_-]*")
+# A done checklist step row: no work left, done or skipped. It agrees on
+# purpose with wbs-parser.py FINISHED_GLYPHS (WBS node glyphs, another
+# grammar) and portfolio.py DONE_GLYPHS; no import ties them, so
+# tests/test_portfolio.py::test_finished_glyph_sets_agree pins the three
+# equal. Boundary: these are the Python copies; the shell spellings at
+# checklist.sh:234, mergemr.sh:77, next.sh:176, doctor.sh:241 and
+# migrate-checklist-numbering.sh:135 are not pinned (#784).
 DONE_GLYPHS = {"x", "-"}
 PROGRESS_GLYPHS = {"x", "~"}
 
