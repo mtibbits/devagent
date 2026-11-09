@@ -164,6 +164,17 @@ def as_list(v) -> list:
     return v if isinstance(v, list) else [v]
 
 
+def split_namespaced(entry: str) -> tuple[str, str] | None:
+    """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
+    halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
+    portfolio.py's `split_dep` and the satisfies/objective check call it."""
+    left, sep, right = entry.partition(":")
+    if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
+            and ID_TOKEN_RE.fullmatch(right)):
+        return left, right
+    return None
+
+
 def _node_warnings(meta: dict) -> list[str]:
     """A node's parse warnings, unprefixed, in a fixed check order.
 
@@ -180,14 +191,10 @@ def _node_warnings(meta: dict) -> list[str]:
     if problem is not None:
         out.append(problem)
     for key in NAMESPACED_KEYS:
-        seen: set[str] = set()
-        for entry in as_list(meta.get(key)):
-            shown = _shown(entry)
-            if shown in seen:
-                continue
-            seen.add(shown)
-            if not isinstance(entry, str) or split_namespaced(entry) is None:
-                out.append(NAMESPACED_WARNING.format(key, shown))
+        # Parsed entries are strings; a repeated bad entry warns once.
+        for entry in dict.fromkeys(as_list(meta.get(key))):
+            if split_namespaced(entry) is None:
+                out.append(NAMESPACED_WARNING.format(key, entry))
     _h, problem = h_value(meta)
     if problem is not None:
         out.append(problem)
@@ -319,17 +326,6 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
 # `wbs-exclude` ids split on commas and whitespace; several lines form a union.
 ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 ID_SPLIT_RE = re.compile(r"[,\s]+")
-
-
-def split_namespaced(entry: str) -> tuple[str, str] | None:
-    """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
-    halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
-    portfolio.py's `split_dep` and the satisfies/objective check call it."""
-    left, sep, right = entry.partition(":")
-    if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
-            and ID_TOKEN_RE.fullmatch(right)):
-        return left, right
-    return None
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 # An exclusion warning is `line N: <text>`; wbs-import.py adds its own
 # source-check warnings in the same shape and orders by `warning_line`.
