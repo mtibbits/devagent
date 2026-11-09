@@ -2478,9 +2478,10 @@ warning in the node's `parse_warnings` (N of the parsed text), and
 it from the order pass (N of the text written) when the pass runs and its
 result is accepted: `wbs update` prints none when `order_on_update =
 false`, when that value is invalid, or when `permuted_only` rejects the
-result (the report is then the skip line alone). Its effective priority is the most urgent of its own and
-that of every open sibling depending on it, directly or through other
-siblings, and its fan-out is the number of those siblings. The open
+result (the report is then the skip line alone). A sibling's effective
+priority is the most urgent of its own and that of every open sibling
+depending on it, directly or through other siblings, and its fan-out
+is the number of those siblings. The open
 siblings are sorted topologically: among those whose dependencies are
 placed, the next is the one with the most urgent effective priority, then
 the larger fan-out, then the earlier position. So a set with no `priority`

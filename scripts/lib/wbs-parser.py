@@ -158,6 +158,7 @@ def collect_parse_warnings(tree: dict) -> list[str]:
         stack.extend(reversed(node.get("children", [])))
     return found
 
+
 _BULLET_RE = re.compile(
     r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$"
 )
