@@ -984,10 +984,9 @@ def test_priority_parity_subjects_are_not_empty():
 
 
 def test_parity_is_on_the_written_text():
-    want = "priority 'high' is not P1, P2, P3 or P4; ignored"
     assert wbs_parser.collect_parse_warnings(
-        wbs_parser.parse_text(WARNING_MOVES)) == [f"line 3: {want}"]
+        wbs_parser.parse_text(WARNING_MOVES)) == [PRIORITY_WARN.format(3, "high")]
     out, warns = wbs_parser.order_text(WARNING_MOVES)
-    assert warns == [f"line 2: {want}"]
+    assert warns == [PRIORITY_WARN.format(2, "high")]
     assert wbs_parser.collect_parse_warnings(
-        wbs_parser.parse_text(out)) == [f"line 2: {want}"]
+        wbs_parser.parse_text(out)) == [PRIORITY_WARN.format(2, "high")]

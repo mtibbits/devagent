@@ -134,7 +134,9 @@ def _node_warnings(meta: dict) -> list[str]:
     The one producer: #888 (satisfies/objective/h) and #887
     (<project>:<issue>) add their checks here (and any parameters they
     need). The `h` rule already lives in portfolio.py (`read_h`, `H_RE`):
-    #888 shares or moves it, never re-spells it here.
+    #888 shares or moves it, never re-spells it here. The order pass calls
+    `priority_rank` alone, so a check added here reaches `wbs show`, not
+    `wbs order` or `wbs update`.
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
@@ -145,17 +147,16 @@ def _node_warnings(meta: dict) -> list[str]:
 
 def collect_parse_warnings(tree: dict) -> list[str]:
     """Every node's `parse_warnings` in document (line) order; a node without
-    the field (hand-built by wbs update / wbs import) contributes nothing."""
-    found: list[tuple[int, int, str]] = []
+    the field (hand-built by wbs update / wbs import) contributes nothing.
+    A pre-order walk is line order: `parse_text` appends children in line
+    order and each subtree is contiguous."""
+    found: list[str] = []
     stack = list(reversed(tree.get("children", [])))
-    seq = 0
     while stack:
         node = stack.pop()
-        for w in node.get("parse_warnings", []):
-            found.append((warning_line(w), seq, w))
-            seq += 1
+        found.extend(node.get("parse_warnings", []))
         stack.extend(reversed(node.get("children", [])))
-    return [w for _ln, _seq, w in sorted(found)]
+    return found
 
 _BULLET_RE = re.compile(
     r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$"
