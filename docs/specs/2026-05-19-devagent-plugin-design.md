@@ -2471,8 +2471,14 @@ string, a node with `depends_on` and no `issue` still counts, and an id
 that names nothing in another sibling's subtree constrains nothing. A
 sibling's own priority is the most urgent `priority` among the open nodes
 under it, P3 when there is none. A value other than `P1` to `P4` counts as
-missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`
-on every run. Its effective priority is the most urgent of its own and
+missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`.
+One rule decides it, `priority_rank` (#865): `parse_text` records the
+warning in the node's `parse_warnings` (N of the parsed text), and
+`wbs show` prints each once on stderr. `wbs update` and `wbs order` print
+it from the order pass (N of the text written) when the pass runs and its
+result is accepted: `wbs update` prints none when `order_on_update =
+false`, when that value is invalid, or when `permuted_only` rejects the
+result (the report is then the skip line alone). Its effective priority is the most urgent of its own and
 that of every open sibling depending on it, directly or through other
 siblings, and its fan-out is the number of those siblings. The open
 siblings are sorted topologically: among those whose dependencies are
@@ -2510,7 +2516,8 @@ outside a fence (#780). `wbs-<key>:` is case-sensitive, and a line
 starting `<!--` that names a known key but does not parse is malformed
 (for `wbs-scope`, only when the comment's text starts with the key; see
 below). `wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
-(`[[line, id], ...]`) and `exclusion_warnings`. Like any comment a
+(`[[line, id], ...]`) and `exclusion_warnings`; each node also carries
+`parse_warnings` (#865). Like any comment a
 directive line is kept byte-for-byte; the commands read it and never
 write one, except `--from-tracker`, which writes the scope line once.
 There are two keys. `wbs-exclude`: the line
@@ -2680,7 +2687,8 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   takes no lock yet: the WBS lock is #749's, whose caller list gains
   `wbs order`.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
-  written; `--depth`/`--milestone` print the title and matching nodes only
+  written; `--depth`/`--milestone` print the title and matching nodes only;
+  parse warnings on stderr, each once, whatever the filter (#865)
 
 ### 13.3 Future renderers (out of scope for v1)
 
