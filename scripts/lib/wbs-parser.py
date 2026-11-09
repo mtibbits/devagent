@@ -47,6 +47,12 @@ directives outside a fence, as `(line, value)` pairs, the value stripped
 and None for a near-miss line that does not parse; whether the value names
 a range is the caller's check.
 
+Each parsed node also carries `parse_warnings` (additive, #865): its value
+problems, each `line N: ...` (N of the parsed text), today only a malformed
+`priority` (`priority_rank`, the one rule the order pass also ranks by).
+The parser never prints them; `wbs show` does, once each. Nodes built by
+hand (wbs update, wbs import) lack the field, so readers use `.get`.
+
 Every WBS.md write goes through `write_document`: `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
 nothing) followed by `write_document`. `write_update` (`wbs update`) and
@@ -67,7 +73,8 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`), and for the order pass
+also reads `_dep_ids`), `priority_rank` and `collect_parse_warnings`
+(#865), and for the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -101,6 +108,56 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
         "depends_on", "status_src", "mr", "priority",
     }
 )
+
+# The one priority rule (#865): `parse_text` records it per node and the
+# order pass (`_order`) ranks by it; neither spells it again.
+PRIORITY_RE = re.compile(r"P[1-4]")
+PRIORITY_WARNING = "priority '{}' is not P1, P2, P3 or P4; ignored"
+
+
+def priority_rank(meta: dict) -> tuple[int | None, str | None]:
+    """(rank 1-4, None) for a valid `priority`; (None, None) when absent;
+    (None, PRIORITY_WARNING.format(shown)) when malformed, where `shown` is
+    `[a, b]` for a list value and the value as written otherwise ('' included)."""
+    if "priority" not in meta:
+        return None, None
+    v = meta["priority"]
+    if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
+        return int(v[1]), None
+    shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
+    return None, PRIORITY_WARNING.format(shown)
+
+
+def _node_warnings(meta: dict) -> list[str]:
+    """A node's parse warnings, unprefixed, in a fixed check order.
+
+    The one producer: #888 (satisfies/objective/h) and #887
+    (<project>:<issue>) add their checks here (and any parameters they
+    need). The `h` rule already lives in portfolio.py (`read_h`, `H_RE`):
+    #888 shares or moves it, never re-spells it here. The order pass calls
+    `priority_rank` alone, so a check added here reaches `wbs show`, not
+    `wbs order` or `wbs update`.
+    """
+    out: list[str] = []
+    _rank, problem = priority_rank(meta)
+    if problem is not None:
+        out.append(problem)
+    return out
+
+
+def collect_parse_warnings(tree: dict) -> list[str]:
+    """Every node's `parse_warnings` in document (line) order; a node without
+    the field (hand-built by wbs update / wbs import) contributes nothing.
+    A pre-order walk is line order: `parse_text` appends children in line
+    order and each subtree is contiguous."""
+    found: list[str] = []
+    stack = list(reversed(tree.get("children", [])))
+    while stack:
+        node = stack.pop()
+        found.extend(node.get("parse_warnings", []))
+        stack.extend(reversed(node.get("children", [])))
+    return found
+
 
 _BULLET_RE = re.compile(
     r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$"
@@ -346,6 +403,7 @@ def parse_text(text: str) -> dict:
             "meta_unknown_keys": unknown,
             "children": [],
             "source_line": lineno,
+            "parse_warnings": [f"line {lineno}: {w}" for w in _node_warnings(meta)],
         }
         by_line[parents[lineno - 1]]["children"].append(node)
         by_line[lineno - 1] = node
@@ -951,8 +1009,16 @@ def inserted_only(old: str, new: str) -> bool:
 
 # The order pass (#803): each non-root node's children, by dependency, then
 # inherited priority, then fan-out. Text in, text out, after any render.
-PRIORITY_RE = re.compile(r"P[1-4]")
+# The priority rule itself is `priority_rank` (#865).
 DEFAULT_PRIORITY = 3
+# A finished WBS node: no work left, done or skipped (`STATE_GLYPHS`). It
+# agrees on purpose with DONE_GLYPHS in wbs-tracker.py and portfolio.py,
+# which answer the same question about checklist step rows, a different
+# grammar; no import ties them (a checklist rule must not depend on the WBS
+# state table), so tests/test_portfolio.py::test_finished_glyph_sets_agree
+# pins the three equal. Boundary: these are the Python copies; the shell
+# spellings at checklist.sh:234, mergemr.sh:77, next.sh:176, doctor.sh:241
+# and migrate-checklist-numbering.sh:135 are not pinned (#784).
 FINISHED_GLYPHS = frozenset("x-")
 
 
@@ -1002,14 +1068,9 @@ def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
         m = kinds[i][1]
         is_open[i] = m.group("glyph") not in FINISHED_GLYPHS
         texts[i], metas[i] = _split_text_and_meta(m.group("rest").rstrip())
-        v = metas[i].get("priority")
-        prio[i] = None
-        if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
-            prio[i] = int(v[1])
-        elif "priority" in metas[i]:
-            shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
-            warns.append((i, lambda L, i=i, shown=shown:
-                          f"line {L(i)}: priority '{shown}' is not P1, P2, P3 or P4; ignored"))
+        prio[i], problem = priority_rank(metas[i])
+        if problem is not None:
+            warns.append((i, lambda L, i=i, problem=problem: f"line {L(i)}: {problem}"))
 
     # Each node's subtree, built once bottom-up: a child's line follows its
     # parent's, so reverse line order sees every child first.

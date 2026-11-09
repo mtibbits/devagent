@@ -471,6 +471,70 @@ def test_priority_is_a_known_meta_key():
     assert tree["children"][0]["meta_unknown_keys"] == ["x"]
 
 
+def test_malformed_priority_records_a_parse_warning(capsys):
+    # #865: the one priority rule runs at parse too; parse records, never prints.
+    tree = wbs_parser.parse_text(
+        "# T\n"
+        "- [ ] E\n"
+        "  - [ ] a {issue: A, priority: high}\n"
+        "  - [ ] b {issue: B, priority: P9}\n"
+        "  - [ ] c {issue: C, priority: P1}\n"
+    )
+    e = tree["children"][0]
+    a, b, c = e["children"]
+    assert a["parse_warnings"] == [
+        "line 3: priority 'high' is not P1, P2, P3 or P4; ignored"]
+    assert b["parse_warnings"] == [
+        "line 4: priority 'P9' is not P1, P2, P3 or P4; ignored"]
+    assert c["parse_warnings"] == []
+    assert e["parse_warnings"] == []
+    assert a["meta"] == {"issue": "A", "priority": "high"}
+    assert b["meta"] == {"issue": "B", "priority": "P9"}
+    assert c["meta"] == {"issue": "C", "priority": "P1"}
+    for node in (e, a, b, c):
+        assert node["meta_unknown_keys"] == []
+    assert capsys.readouterr() == ("", "")
+
+
+def test_priority_parse_warning_edge_values():
+    # Finished and top-level nodes warn too (as `_order` does); an empty value
+    # shows as '' and a list value as `[a, b]`.
+    tree = wbs_parser.parse_text(
+        "- [x] top {priority: P9}\n"
+        "  - [-] done {priority: high}\n"
+        "  - [ ] empty {priority: }\n"
+        "  - [ ] listed {priority: [P1, P2]}\n"
+    )
+    top = tree["children"][0]
+    done, empty, listed = top["children"]
+    assert top["parse_warnings"] == [
+        "line 1: priority 'P9' is not P1, P2, P3 or P4; ignored"]
+    assert done["parse_warnings"] == [
+        "line 2: priority 'high' is not P1, P2, P3 or P4; ignored"]
+    assert empty["parse_warnings"] == [
+        "line 3: priority '' is not P1, P2, P3 or P4; ignored"]
+    assert listed["parse_warnings"] == [
+        "line 4: priority '[P1, P2]' is not P1, P2, P3 or P4; ignored"]
+
+
+def test_collect_parse_warnings_in_line_order():
+    tree = wbs_parser.parse_text(
+        "- [ ] r\n"
+        "  - [ ] s\n"
+        "    - [ ] deep {priority: d3}\n"
+        "- [ ] top {priority: d1}\n"
+        "  - [ ] mid {priority: d2}\n"
+    )
+    # A hand-built node (wbs update / wbs import) has no field: it adds nothing.
+    tree["children"][0]["children"].append(
+        {"text": "hand", "children": [], "meta": {"priority": "zz"}})
+    assert wbs_parser.collect_parse_warnings(tree) == [
+        "line 3: priority 'd3' is not P1, P2, P3 or P4; ignored",
+        "line 4: priority 'd1' is not P1, P2, P3 or P4; ignored",
+        "line 5: priority 'd2' is not P1, P2, P3 or P4; ignored",
+    ]
+
+
 def test_mr_splice_add_with_status_src(variants):
     for kind, p in variants.items():
         src = p.read_bytes()
@@ -557,7 +621,7 @@ def test_tree_without_source_text_renders_v1():
 
 NODE_KEYS = {
     "text", "state", "glyph", "depth", "meta", "meta_unknown_keys",
-    "children", "source_line",
+    "children", "source_line", "parse_warnings",
 }
 
 

@@ -32,7 +32,8 @@ usage: /devagent:wbs <init|update|order|show> [project] [args]
                                         unless a wbs-exclude line lists it, then sort each parent's children
                                         (order_on_update = false turns the sort off)
   order [--dry-run]                     sort each parent's children by dependency, then priority
-  show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes)
+  show [--depth N] [--milestone X]      print WBS.md as written (--depth/--milestone: matching nodes);
+                                        node parse warnings on stderr
 EOF
   exit 2
 }

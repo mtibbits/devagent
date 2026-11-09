@@ -16,6 +16,11 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `wbs show` warns about a malformed `priority` (#865).**
+  `parse_text` records `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`
+  in each node's new `parse_warnings` list (also in `wbs-parser.py parse`
+  JSON), and `wbs show` prints each once on stderr as `wbs show: line N: ...`;
+  stdout is unchanged. `wbs update` and `wbs order` warn as before, once.
 - **Added: ready WBS leaves across projects (#727, epic #724).**
   - A leaf is ready when it is pending, no ancestor is parked, stuck, blocked
     externally or skipped, and every effective dependency (its own

@@ -557,6 +557,16 @@ def test_step_row_re_twins_tracker():
         == tracker.ROW_RE.pattern
 
 
+def test_finished_glyph_sets_agree():
+    # #865: three literal copies of "no work left" (done or skipped), on
+    # purpose: WBS node glyphs (wbs-parser.py FINISHED_GLYPHS) and checklist
+    # step rows (wbs-tracker.py and portfolio.py DONE_GLYPHS). No production
+    # module imports another for it; this leg ties them.
+    tracker = _load("wbs_tracker_for_portfolio_tests", LIB / "wbs-tracker.py")
+    assert set(tracker.DONE_GLYPHS) == set(pf.DONE_GLYPHS) == set(wbs_parser.FINISHED_GLYPHS) \
+        == {g for g, s in wbs_parser.STATE_GLYPHS.items() if s in ("done", "skipped")}
+
+
 STUCK_SH = (
     "Step:        9 implement\n"
     "Reason:      waiting on the operator's call on the token key\n"
