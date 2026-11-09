@@ -1000,7 +1000,8 @@ _wbs865_show() {
     "$TMPDEV/WBS.input" "$TMPDEV/expected" "Traced A" "~" checklist
   cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
   # the reconcile really happened (not a vacuous byte-identical pass)
-  ! cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  run cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
 }
 
 @test "wbs order moves a leaf carrying satisfies, objective and h with its bytes kept (#888)" {
@@ -1009,7 +1010,8 @@ _wbs865_show() {
   t='  - [ ] T {issue: Issue-2, priority: P1, objective: [gantry:QA-2], h: 4}'
   printf '%s\n' '# testproj WBS' '' '- [ ] E' "$s" "$t" > "$TMPDEV/WBS.md"
   printf '%s\n' '# testproj WBS' '' '- [ ] E' "$t" "$s" > "$TMPDEV/expected"
-  ! cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
   run bash "$REPO/scripts/wbs.sh" order testproj
   [ "$status" -eq 0 ]
   cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
