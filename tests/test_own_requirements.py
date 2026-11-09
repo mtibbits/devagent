@@ -235,6 +235,87 @@ def needs_problems(text):
     return problems
 
 
+OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
+LINK_RE = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*:)?(?:BRule|CON|UC|SR|FR|QA|EI|BR)-[1-9][0-9]{0,8}")
+
+
+def _block_problems(code, block):
+    """Why the meta block a requirement's reader reads is not clean, as Gantry's
+    reader reports it (malformed_meta, misplaced, malformed_link)."""
+    parts = _split(block[1:-1], ",")
+    if parts is None:
+        return ["an unclosed [ or quote in the meta block"]
+    why, seen = [], set()
+    for entry in parts:
+        key, colon, value = entry.partition(":")
+        key, value = key.strip(), value.strip()
+        if not colon or not KEY_RE.fullmatch(key):
+            return ["an entry with no key in the meta block"]
+        if key not in META_KEYS:
+            why.append(f"unknown key {key!r} in the meta block")
+            continue
+        if key in seen:
+            why.append(f"key {key!r} is repeated in the meta block")
+            continue
+        seen.add(key)
+        is_list = value.startswith("[") and value.endswith("]")
+        targets = ([_unquote(v) for v in _split(value[1:-1], ",") or []] if is_list
+                   else [_unquote(value)])
+        targets = [t for t in targets if t]
+        if key == "refines" and is_list:
+            why.append("refines: takes one target, not a list")
+        elif key == "needs" and code != "UC":
+            why.append("needs: on a requirement that is not a use case")
+        elif key == "needs" and not targets:
+            why.append("needs: [] names no target")
+        else:
+            why += [f"{key}: {t!r} is not a requirement ID" for t in targets if not LINK_RE.fullmatch(t)]
+    return why
+
+
+def meta_problems(text):
+    """One 'line N: <reason>' per requirement whose meta blocks Gantry's reader
+    would report: a block it does not read (inside the text, or a second one),
+    an unclosed brace, or a read block it cannot use."""
+    lines = split_lines(text)
+    problems, seen = [], set()
+    for n, m, c in _items(text):
+        rid = c["code"] + "-" + c["digits"]
+        if _reason(m, c) is not None or rid in seen:
+            continue
+        seen.add(rid)
+        continuation = []
+        k = n
+        while k < len(lines) and lines[k].strip() and lines[k][0] in " \t":
+            continuation.append(lines[k])
+            k += 1
+        has_nested = any(ITEM_RE.fullmatch(t) for t in continuation)
+        head = m["rest"][c.end():].strip()
+        block = _ending_block(head)
+        if block is not None:
+            head = head[: block.start()].rstrip()
+        body = " ".join(p for p in [head] + [t.strip() for t in continuation] if p)
+        second = None
+        if block is None:
+            block = None if has_nested else _ending_block(body)
+            if block is not None:
+                body = body[: block.start()].rstrip()
+        else:
+            second = _ending_block(body)
+        why = []
+        starts = set()
+        for other in BLOCK_RE.finditer(body):
+            starts.add(other.start())
+            why.append("a second meta block on one item" if second is not None
+                       and other.start() == second.start() else "a meta block inside the text")
+        if any(o.start() not in starts for o in OPENER_RE.finditer(body)):
+            why.append("a meta block with an unclosed or nested brace")
+        if block is not None:
+            why += _block_problems(c["code"], block.group(0))
+        problems += [f"line {n}: {rid}: {w}" for w in why]
+    return problems
+
+
 def br_tokens(text):
     return BR_TOKEN_RE.findall(text)
 
@@ -297,6 +378,11 @@ def test_every_use_case_needs_defined_ids():
     assert problems == [], "\n".join(problems)
 
 
+def test_meta_blocks_are_readable():
+    problems = meta_problems(own_text())
+    assert problems == [], "\n".join(problems)
+
+
 def test_no_html_comments():
     # The reader reads an ID item inside a comment as live, so the rendered
     # page and the read set would disagree.
@@ -331,6 +417,24 @@ def test_planted_scanners():
     assert foreign_namespaces(planted) == {"life", "harbor"}
     assert header("# T\nhead\n## S\nbody\n## U\n") == "# T\nhead\n"
     assert "derived once" in normalised("It was derived\n  once from notes.")
+
+
+@pytest.mark.parametrize("planted", [
+    "- FR-1: see {key: value} here", "- FR-1: a {foo: x}", "- FR-1: a {needs: [FR-2]}",
+    "- FR-1: a {refines: SR-1} {refines: SR-2}", "- FR-1: a {refines: SR-1",
+    "- FR-1: a {refines: [SR-1]}", "- FR-1: a {refines: SR-1, refines: SR-2}",
+])
+def test_planted_bad_meta_is_flagged(planted):
+    assert len(meta_problems(planted)) == 1, meta_problems(planted)
+
+
+@pytest.mark.parametrize("planted", [
+    "- FR-1: a {refines: SR-1}", "- UC-1: a {needs: [FR-1]}\n  more text",
+    "- UC-1: a\n  b {needs: FR-1}", "- UC-1: a { needs : [FR-1], refines: FR-1 }",
+    "- FR-1: braces in code `x` are prose", "Prose {key: value} outside an item.",
+])
+def test_planted_good_meta_is_clean(planted):
+    assert meta_problems(planted) == []
 
 
 PLANTED_USE_CASES = """\
