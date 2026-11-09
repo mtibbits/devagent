@@ -73,8 +73,9 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`), `priority_rank` and `collect_parse_warnings`
-(#865), and for the order pass
+also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888),
+`priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
+the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
 `unified_diff`; wbs-import.py also reads the
 exclusion grammar's `ID_TOKEN_RE`, `NOT_AN_ID` and `warning_line`, and the
@@ -115,6 +116,17 @@ PRIORITY_RE = re.compile(r"P[1-4]")
 PRIORITY_WARNING = "priority '{}' is not P1, P2, P3 or P4; ignored"
 
 
+# The one `h` rule (#888): one digit 0-4 as written. portfolio.py's `read_h`
+# calls `h_value`; neither spells the rule again.
+H_RE = re.compile(r"[0-4]")
+H_WARNING = "h '{}' is not an integer from 0 to 4"
+
+
+def _shown(v) -> str:
+    """A meta value as a warning shows it: `[a, b]` for a list, else as written."""
+    return f"[{', '.join(v)}]" if isinstance(v, list) else v
+
+
 def priority_rank(meta: dict) -> tuple[int | None, str | None]:
     """(rank 1-4, None) for a valid `priority`; (None, None) when absent;
     (None, PRIORITY_WARNING.format(shown)) when malformed, where `shown` is
@@ -124,8 +136,25 @@ def priority_rank(meta: dict) -> tuple[int | None, str | None]:
     v = meta["priority"]
     if isinstance(v, str) and PRIORITY_RE.fullmatch(v):
         return int(v[1]), None
-    shown = f"[{', '.join(v)}]" if isinstance(v, list) else v
-    return None, PRIORITY_WARNING.format(shown)
+    return None, PRIORITY_WARNING.format(_shown(v))
+
+
+def h_value(meta: dict) -> tuple[int | None, str | None]:
+    """(h 0-4, None) for a valid `h`; (None, None) when absent;
+    (None, H_WARNING.format(shown)) when malformed, shown as `priority_rank` does."""
+    if "h" not in meta:
+        return None, None
+    v = meta["h"]
+    if isinstance(v, str) and H_RE.fullmatch(v):
+        return int(v), None
+    return None, H_WARNING.format(_shown(v))
+
+
+def as_list(v) -> list:
+    """Falsy gives [], a list stays a list, a scalar gives [v]."""
+    if not v:
+        return []
+    return v if isinstance(v, list) else [v]
 
 
 def _node_warnings(meta: dict) -> list[str]:
@@ -133,10 +162,11 @@ def _node_warnings(meta: dict) -> list[str]:
 
     The one producer: #888 (satisfies/objective/h) and #887
     (<project>:<issue>) add their checks here (and any parameters they
-    need). The `h` rule already lives in portfolio.py (`read_h`, `H_RE`):
-    #888 shares or moves it, never re-spells it here. The order pass calls
-    `priority_rank` alone, so a check added here reaches `wbs show`, not
-    `wbs order` or `wbs update`.
+    need). The `h` rule (`h_value`), the `<namespace>:<id>` predicate
+    (`split_namespaced`) and the list-or-scalar reader (`as_list`) live in
+    this module, and portfolio.py calls them; neither file re-spells them.
+    The order pass calls `priority_rank` alone, so a check added here
+    reaches `wbs show`, not `wbs order` or `wbs update`.
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
@@ -270,6 +300,17 @@ def _parse_parents(kinds: list[tuple[str, re.Match | None]]) -> dict[int, int]:
 # `wbs-exclude` ids split on commas and whitespace; several lines form a union.
 ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 ID_SPLIT_RE = re.compile(r"[,\s]+")
+
+
+def split_namespaced(entry: str) -> tuple[str, str] | None:
+    """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
+    halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
+    portfolio.py's `split_dep` and the satisfies/objective check call it."""
+    left, sep, right = entry.partition(":")
+    if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
+            and ID_TOKEN_RE.fullmatch(right)):
+        return left, right
+    return None
 EXCLUDE_WANT = "want '<!-- wbs-exclude: <id>, ... -->' on one line"
 # An exclusion warning is `line N: <text>`; wbs-import.py adds its own
 # source-check warnings in the same shape and orders by `warning_line`.
@@ -569,10 +610,7 @@ def leaves(tree: dict) -> list[dict]:
 
 def _dep_ids(meta: dict) -> list[str]:
     """A node's `depends_on` entries as a list (a scalar is one entry)."""
-    dep = meta.get("depends_on")
-    if not dep:
-        return []
-    return dep if isinstance(dep, list) else [dep]
+    return as_list(meta.get("depends_on"))
 
 
 def dependency_edges(tree: dict) -> list[tuple[str, str]]:

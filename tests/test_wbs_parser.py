@@ -517,6 +517,51 @@ def test_priority_parse_warning_edge_values():
         "line 4: priority '[P1, P2]' is not P1, P2, P3 or P4; ignored"]
 
 
+@pytest.mark.parametrize("meta,want", [
+    ({}, (None, None)),
+    ({"h": "0"}, (0, None)),
+    ({"h": "4"}, (4, None)),
+    ({"h": "5"}, (None, "h '5' is not an integer from 0 to 4")),
+    ({"h": "03"}, (None, "h '03' is not an integer from 0 to 4")),
+    ({"h": "-1"}, (None, "h '-1' is not an integer from 0 to 4")),
+    ({"h": "2.5"}, (None, "h '2.5' is not an integer from 0 to 4")),
+    ({"h": "high"}, (None, "h 'high' is not an integer from 0 to 4")),
+    ({"h": ""}, (None, "h '' is not an integer from 0 to 4")),
+    ({"h": ["3"]}, (None, "h '[3]' is not an integer from 0 to 4")),
+])
+def test_h_value(meta, want):
+    # #888: the one `h` rule; portfolio.py's read_h calls it.
+    assert wbs_parser.h_value(meta) == want
+
+
+@pytest.mark.parametrize("entry,want", [
+    ("gantry:FR-12", ("gantry", "FR-12")),
+    ("FR-12", None),
+    ("a:b:c", None),
+    (":FR-1", None),
+    ("gantry:", None),
+    ("gantry:FR 12", None),
+    ("-x:FR-1", None),
+])
+def test_split_namespaced(entry, want):
+    # #888: the one `<namespace>:<id>` predicate; portfolio.py's split_dep calls it.
+    assert wbs_parser.split_namespaced(entry) == want
+
+
+def _assigns_named(source, name):
+    return sum(1 for n in ast.parse(source).body if isinstance(n, ast.Assign)
+               for t in n.targets if isinstance(t, ast.Name) and t.id == name)
+
+
+def test_h_rule_has_one_home():
+    # Belt-and-braces (#888): portfolio's monkeypatch delegation tests are the
+    # real proof; this goes blind on a rename. Planted control first.
+    assert _assigns_named("H" + "_RE = 1\n", "H_RE") == 1
+    hits = {p.name: _assigns_named(p.read_text(encoding="utf-8"), "H_RE")
+            for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
+    assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
 def test_collect_parse_warnings_in_line_order():
     tree = wbs_parser.parse_text(
         "- [ ] r\n"

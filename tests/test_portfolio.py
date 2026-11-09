@@ -171,6 +171,22 @@ def test_split_dep_rule(raw, want):
     assert pf.split_dep(raw, "alpha") == want
 
 
+def test_read_h_reads_the_parser_rule(monkeypatch):
+    # #888: read_h looks the parser's H_RE up at call time; no second rule.
+    monkeypatch.setattr(pf.wbs_parser, "H_RE", re.compile(r"[0-9]"))
+    assert pf.read_h({"h": "7"}) == (7, False)
+
+
+def test_split_dep_reads_the_parser_rule(monkeypatch):
+    monkeypatch.setattr(pf.wbs_parser, "split_namespaced", lambda raw: None)
+    assert pf.split_dep("beta:Issue-2", "alpha")["scope"] == "local"
+
+
+def test_as_list_reads_the_parser_rule(monkeypatch):
+    monkeypatch.setattr(pf.wbs_parser, "as_list", lambda v: ["sentinel"])
+    assert pf.as_list("x") == ["sentinel"]
+
+
 @pytest.mark.parametrize("meta", [
     {}, {"depends_on": ""}, {"depends_on": "Issue-1"},
     {"depends_on": ["Issue-1", "beta:Issue-2"]}, {"depends_on": []},
