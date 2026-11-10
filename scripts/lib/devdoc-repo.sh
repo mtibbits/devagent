@@ -60,6 +60,79 @@ devdoc_owned_pathspecs() {
     fi
 }
 
+# DEVDOC_UNOWNED_WARN_DAYS — a unit with no file newer than this many days,
+# and not in flight, turns the unowned report into a warning.
+DEVDOC_UNOWNED_WARN_DAYS=7
+
+# _devdoc_unit_in_flight <project> <devdoc_dir> <unit> — rc 0 when <unit> is
+# work some session still owns: a capture not yet filed (no filed.toml), or an
+# issue dir with a [context] table, a parked entry, or the shared active_issue.
+# Top-level files are never in flight. Needs state.sh.
+_devdoc_unit_in_flight() {
+    local project="$1" devdoc_dir="$2" unit="$3" name
+    case "$unit" in
+        Captures/*/) [ ! -e "$devdoc_dir/${unit}filed.toml" ]; return ;;
+        */) name="${unit%/}" ;;
+        *) return 1 ;;
+    esac
+    state_context_has "$project" "$name" && return 0
+    state_list_parked "$project" | grep -qxF -- "$name" && return 0
+    [ "$(state_get "$project" active_issue 2>/dev/null || true)" = "$name" ]
+}
+
+# devdoc_unowned_report <project> <devdoc_dir> <issue> [<exclude pathspec>…]
+# — report (never commit) the changed paths under <devdoc_dir> this cleanup
+# does not own: DEVDOC_OWNED (from devdoc_owned_pathspecs) and the exclude
+# pathspecs (the register layer files, the drain's to commit) are left out, as
+# are devagent's own WBS lock/temp files. Paths are grouped into units —
+# `Captures/<slug>/`, `<first component>/`, or a top-level file — and counted
+# on ONE line: info, or warn when a unit is older than
+# DEVDOC_UNOWNED_WARN_DAYS and not in flight. Prints nothing when there are
+# none. Runs from <devdoc_dir>.
+devdoc_unowned_report() {
+    local project="$1" devdoc_dir="$2" issue="$3"
+    shift 3
+    local prefix entry xy p skip_next=0 o orel unit u stale=() units=() n shown more msg
+    local -A seen=()
+    prefix="$(cd "$devdoc_dir" && devdoc_git_ro rev-parse --show-prefix 2>/dev/null)" || return 0
+    while IFS= read -r -d '' entry; do
+        if [ "$skip_next" -eq 1 ]; then skip_next=0; continue; fi   # a rename's source path
+        xy="${entry:0:2}"; p="${entry:3}"
+        case "$xy" in R*|C*|?R|?C) skip_next=1 ;; esac
+        p="${p#"$prefix"}"
+        for o in "${DEVDOC_OWNED[@]}"; do
+            orel="${o#:(top,literal)}"; orel="${orel#"$prefix"}"
+            case "$p" in "$orel"|"$orel"/*) continue 2 ;; esac
+        done
+        case "/$p" in */.devagent-wbs[-.]*) continue ;; esac
+        case "$p" in
+            Captures/*/*) unit="${p#Captures/}"; unit="Captures/${unit%%/*}/" ;;
+            */*) unit="${p%%/*}/" ;;
+            *) unit="$p" ;;
+        esac
+        [ -n "${seen[$unit]:-}" ] && continue
+        seen[$unit]=1; units+=("$unit")
+    done < <(cd "$devdoc_dir" && devdoc_git_ro status --porcelain -z --untracked-files=all -- . "$@")
+    n="${#units[@]}"
+    [ "$n" -gt 0 ] || return 0
+    for u in "${units[@]}"; do
+        # OLD: has a file, and none newer than the bound; nothing on disk is never old.
+        [ -n "$(find "$devdoc_dir/$u" -type f -print -quit 2>/dev/null)" ] || continue
+        [ -z "$(find "$devdoc_dir/$u" -type f -mtime "-$DEVDOC_UNOWNED_WARN_DAYS" -print -quit 2>/dev/null)" ] || continue
+        _devdoc_unit_in_flight "$project" "$devdoc_dir" "$u" && continue
+        stale+=("$u")
+    done
+    shown="$(printf '%s, ' "${units[@]:0:5}")"; shown="${shown%, }"
+    more=""; [ "$n" -le 5 ] || more=" (+$((n - 5)) more)"
+    msg="cleanup: $n unowned path(s) under $devdoc_dir left uncommitted (not $issue's): $shown$more"
+    if [ "${#stale[@]}" -gt 0 ]; then
+        u="$(printf '%s, ' "${stale[@]}")"; u="${u%, }"
+        warn "$msg - older than $DEVDOC_UNOWNED_WARN_DAYS days and not in flight: $u; commit or remove them by hand"
+    else
+        info "$msg"
+    fi
+}
+
 # devdoc_mid_merge <dir> — rc 0 when the repository holding <dir> is mid-merge
 # (MERGE_HEAD present): a pathspec commit is refused there (exit 128), and a
 # plain commit would conclude someone else's merge.

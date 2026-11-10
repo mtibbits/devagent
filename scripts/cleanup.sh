@@ -273,7 +273,11 @@ if [ "$commit_devdoc" = "true" ]; then
     # pathspec-scoped: a pathspec-less commit would also take whatever another
     # session had staged. devdoc_owned_pathspecs is the one definition of the set.
     _own_rc=0
-    [ "$_lk" -eq 1 ] && { devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?; }
+    devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?
+    # #749 item 5: what this cleanup does NOT own is reported, never swept —
+    # one line, a warning only for stale work no session is carrying. Printed
+    # even when the layer lookup refused the commit.
+    [ "$_own_rc" -eq 1 ] || devdoc_unowned_report "$project" "$devdoc_dir" "$issue_arg" "${excl[@]}"
     if [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 2 ]; then
         warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped"
     elif [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 0 ] \

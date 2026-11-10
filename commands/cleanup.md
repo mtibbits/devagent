@@ -156,6 +156,19 @@ another session's commit. A devDoc repository that is mid-merge
 (`MERGE_HEAD` present) is refused by name: finish or abort the merge, then
 re-run `/devagent:cleanup <project> <issue>`.
 
+What cleanup does not own is REPORTED, never committed: before the commit it
+prints one line counting the changed paths under `devdoc_dir` it left alone,
+grouped into units (`Captures/<slug>/`, `<first directory>/`, or a top-level
+file), naming the first five:
+`cleanup: <N> unowned path(s) under <devdoc_dir> left uncommitted (not <issue>'s): …`.
+Register layer files (the drain's to commit) and devagent's own `WBS.md`
+lock and temp files are never listed, and with nothing unowned no line is
+printed. The line is information unless a unit is stale: no file in it changed
+in the last 7 days and it is not in flight (a capture without `filed.toml`, or
+an issue dir with a `[context]` table, a parked entry, or the shared
+`active_issue`). Then it is a warning that names the stale units — commit or
+remove them by hand. Captures are no longer committed by any cleanup.
+
 ## Transcript archive (#731)
 
 When the global `[archive].transcripts_dir` is set, cleanup runs

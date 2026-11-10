@@ -23,6 +23,10 @@ the README's "Versioning & releases" section has the release procedure.
   under `devdoc_dir` and the commit took anything already staged). Read-only
   `git status` calls on the devDoc repository run with `GIT_OPTIONAL_LOCKS=0`,
   and a mid-merge devDoc repository is refused by name.
+- **Changed: cleanup reports what it does not own (#749).** Captures and
+  other issues' dirs are no longer committed by a cleanup. Instead one line
+  counts the unowned changed paths under `devdoc_dir`; it becomes a warning
+  when a unit is older than 7 days and no session has it in flight.
 
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`

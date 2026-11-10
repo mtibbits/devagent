@@ -778,3 +778,65 @@ archive.host_id = \"h1\""
     [[ "$output" == *"mid-merge"* ]]
     git -C "$DEVDOC_DIR" rev-parse -q --verify MERGE_HEAD
 }
+
+# --- #749: unowned paths are reported, not swept ------------------------------
+
+# _age15 <path>… — every file under each path 15 days old.
+_age15() { find "$@" -exec touch -d '15 days ago' {} +; }
+
+@test "#749: unowned paths are counted on one info line" {
+    mkdir -p "$DEVDOC_DIR/Issue-2" "$DEVDOC_DIR/Captures/c1"
+    printf 'x\n' > "$DEVDOC_DIR/Issue-2/checklist.md"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c1/draft.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "$output" | grep -c 'unowned path(s)')" -eq 1 ]
+    [[ "$output" == *"cleanup: 2 unowned path(s) under $DEVDOC_DIR left uncommitted (not Issue-1's): "* ]]
+    [[ "$output" == *"Captures/c1/"* ]] && [[ "$output" == *"Issue-2/"* ]]
+    [[ "$output" != *"WARNING:"* ]]
+}
+
+@test "#749: an in-flight issue dir 15 days old keeps the line info" {
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    printf 'x\n' > "$DEVDOC_DIR/Issue-2/checklist.md"
+    _age15 "$DEVDOC_DIR/Issue-2"
+    printf '\n[context.Issue-2]\nbranch = "feat/2-x"\n' >> "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cleanup: 1 unowned path(s)"*"Issue-2/"* ]]
+    [[ "$output" != *"WARNING:"* ]]
+}
+
+@test "#749: a filed capture 15 days old makes the line a warn (subdirectory fixture)" {
+    devdoc_parent_repo_fixture
+    mkdir -p "$DEVDOC_DIR/Captures/c-old" "$DEVDOC_DIR/Captures/c-new" "$DEVDOC_DIR/Issue-3"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c-old/draft.md"
+    printf 'issue = 5\n' > "$DEVDOC_DIR/Captures/c-old/filed.toml"
+    _age15 "$DEVDOC_DIR/Captures/c-old"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c-new/draft.md"
+    printf 'a\n' > "$DEVDOC_DIR/Issue-3/a.md"
+    ( cd "$DEVDOC_REPO" && git add -A testproj/Issue-3 && git commit -q -m i3 && git mv testproj/Issue-3/a.md testproj/Issue-3/b.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    line="$(printf '%s\n' "$output" | grep 'unowned path(s)')"
+    [[ "$line" == *"WARNING: cleanup: 3 unowned path(s)"* ]]
+    [[ "$line" == *" - older than 7 days and not in flight: Captures/c-old/; commit or remove them by hand"* ]]
+    [[ "$line" == *"Captures/c-new/"* ]] && [[ "$line" == *"Issue-3/"* ]]
+    [[ "$line" != *"testproj/"* ]]
+    [[ "$line" != *"Captures/,"* ]] && [[ "$line" != *"Captures/ "* ]]
+}
+
+@test "#749: no unowned paths prints no line" {
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"unowned"* ]]
+}
+
+@test "#749: a register layer the drain deferred on is not listed" {
+    stage_in_project_layer
+    printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *pending* ]]                                 # the drain did defer
+    [[ "$output" != *"unowned"* ]]
+}
