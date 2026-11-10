@@ -16,6 +16,11 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: devagent's own requirements file, docs/requirements.md (#915).**
+  It states devagent's requirements in Gantry's format, in the `devagent`
+  namespace, so planning tools can trace work to requirement IDs; it is
+  guarded by `tests/test_own_requirements.py`.
+
 ## [3.0.0] — 2026-11-09
 
 A major release because `wbs update` can now move lines (#803). Spec §13.1
