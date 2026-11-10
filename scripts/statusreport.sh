@@ -132,7 +132,8 @@ for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
     if not entries:
         continue
-    last_step = 24 if detect.is_completed(d) else 7   # #749: a cleanup_open line undoes it
+    done = detect._completing_cleanup(entries)   # #749: a cleanup_open line undoes it
+    last_step = 24 if done else 7
 
     # #438: aggregate dispatch-lint rejects archived under analysis/rejected/
     # (#360). Zero-reject issues are omitted entirely — no added noise.
@@ -148,11 +149,9 @@ for d in issue_dirs:
         poorly.append(d.name)
     if detect.is_idle(d, last_step=last_step):
         idle_list.append(d.name)
-    if detect.is_completed(d):
+    if done:
         completed.append(d.name)
-        ts = detect.completion_timestamp(d)
-        if ts:
-            completion_ts.append(ts)
+        completion_ts.append(done["ts"])
     ia = detect.inline_artifacts(d)
     if ia:
         inline_arts.append(f"{d.name}: " + ", ".join(ia))

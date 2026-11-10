@@ -840,11 +840,9 @@ def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> N
         raise FileExistsError(errno.EEXIST, "File exists", str(path))
     Path(tmp).write_bytes(data)
     try:
-        mode = stat.S_IMODE(os.stat(target).st_mode)
+        os.chmod(tmp, stat.S_IMODE(os.stat(target).st_mode))
     except FileNotFoundError:
-        mode = None
-    if mode is not None:
-        os.chmod(tmp, mode)
+        pass
     seam = os.environ.get("DEVAGENT_TEST_WBS_REPLACE_FAILS", "")
     injected = int(seam) if re.fullmatch(r"[0-9]{1,3}", seam) else 0
     delay = 0.05

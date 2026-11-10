@@ -165,7 +165,7 @@ _cleanup_exit() {
         [ -n "$_cleanup_reason" ] || _cleanup_reason="aborted (exit $rc)"
         ( checklist_mark_by_name "$issue_dir/checklist.md" cleanup '~' ) || true
         ( log_append "$issue_dir" cleanup_open "NOT closed - $_cleanup_reason; step left [~], state kept; re-run /devagent:cleanup" ) || true
-        echo "$(_io_progname): cleanup: $_cleanup_reason - the cleanup step is left [~] and the issue's state is kept; fix the cause above and re-run /devagent:cleanup $project $issue_arg" >&2 || true
+        info "cleanup: $_cleanup_reason - the cleanup step is left [~] and the issue's state is kept; fix the cause above and re-run /devagent:cleanup $project $issue_arg" || true
         exit 1
     fi
 }
@@ -201,15 +201,13 @@ fi
 # cleanup as the holder. Otherwise it runs unheld and defers or no-ops as
 # before. A drain failure (the die below) is not armed: the row stays as it was.
 if [ -f "$issue_dir/potholes-promotion.md" ]; then
-    _hold1=0
     if grep -q '^status: pending' "$issue_dir/potholes-promotion.md" \
         && [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 0 ]; then
         _cleanup_hold
-        _hold1=1
     fi
     pp_rc=0
     "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || pp_rc=$?
-    [ "$_hold1" -eq 0 ] || devdoc_lock_release
+    devdoc_lock_release   # a no-op unless hold 1 was taken
     if [ "$pp_rc" -eq 3 ]; then
         warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; see the reason above. Environment causes (commit_devdoc flag, dirty/untracked register, mid-merge, containment, held lock): fix and re-run promote-potholes.sh $project $issue_dir --apply. A pre-existing register-contract violation in the layer file (#613: '<file>:<line>: <reason>' is quoted — fix that line by hand, then re-run --apply). An op-validation cause (#612: STALE, multi-hit, old+new both present, a failed rail — the op and line are quoted): close the op with promote-potholes.sh $project $issue_dir --drop <op> (then reword the lessonslearned: log line if it counted that op), or land it by hand and set 'status: applied by-hand <sha>'; re-running --apply alone re-DEFERs"
     elif [ "$pp_rc" -ne 0 ]; then

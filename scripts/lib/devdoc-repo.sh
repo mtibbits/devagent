@@ -97,16 +97,18 @@ _devdoc_unit_in_flight() {
 devdoc_unowned_report() {
     local project="$1" devdoc_dir="$2" issue="$3"
     shift 3
-    local prefix entry xy p skip_next=0 o orel unit u stale=() units=() n shown more msg
+    local prefix entry xy p skip_next=0 o orel unit u stale=() units=() owned=() n shown more msg
     local -A seen=()
     prefix="$(cd "$devdoc_dir" && devdoc_git_ro rev-parse --show-prefix 2>/dev/null)" || return 0
+    for o in "${DEVDOC_OWNED[@]}"; do
+        orel="${o#:(top,literal)}"; owned+=("${orel#"$prefix"}")
+    done
     while IFS= read -r -d '' entry; do
         if [ "$skip_next" -eq 1 ]; then skip_next=0; continue; fi   # a rename's source path
         xy="${entry:0:2}"; p="${entry:3}"
         case "$xy" in R*|C*|?R|?C) skip_next=1 ;; esac
         p="${p#"$prefix"}"
-        for o in "${DEVDOC_OWNED[@]}"; do
-            orel="${o#:(top,literal)}"; orel="${orel#"$prefix"}"
+        for orel in "${owned[@]}"; do
             case "$p" in "$orel"|"$orel"/*) continue 2 ;; esac
         done
         case "/$p" in */.devagent-wbs[-.]*) continue ;; esac
@@ -213,11 +215,23 @@ _devdoc_lock_field() {
 }
 
 # _devdoc_lock_holder <lock path> — set _H_PID _H_HOST _H_ISSUE _H_START
-# _H_CMD; rc 1 when the record is absent or unreadable.
+# _H_CMD (first value per key, read in one pass); rc 1 when the record is
+# absent or unreadable.
 _devdoc_lock_holder() {
-    _H_PID="$(_devdoc_lock_field "$1" pid)"; _H_HOST="$(_devdoc_lock_field "$1" host)"
-    _H_ISSUE="$(_devdoc_lock_field "$1" issue)"; _H_START="$(_devdoc_lock_field "$1" start)"
-    _H_CMD="$(_devdoc_lock_field "$1" cmd)"
+    local line k v
+    _H_PID=; _H_HOST=; _H_ISSUE=; _H_START=; _H_CMD=
+    [ -r "$1/holder" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in *=*) ;; *) continue ;; esac
+        k="${line%%=*}"; v="${line#*=}"
+        case "$k" in
+            pid) [ -n "$_H_PID" ] || _H_PID="$v" ;;
+            host) [ -n "$_H_HOST" ] || _H_HOST="$v" ;;
+            issue) [ -n "$_H_ISSUE" ] || _H_ISSUE="$v" ;;
+            start) [ -n "$_H_START" ] || _H_START="$v" ;;
+            cmd) [ -n "$_H_CMD" ] || _H_CMD="$v" ;;
+        esac
+    done < "$1/holder" 2>/dev/null
     [ -n "$_H_PID" ] && [ -n "$_H_START" ]
 }
 
@@ -228,10 +242,9 @@ _devdoc_lock_holder() {
 # die — the caller decides what a refusal means.
 devdoc_lock_acquire() {
     local devdoc_dir="$1" issue="${2:--}" rerun="$3" path rc=0 tok polls i=0 waited=0
-    local prog; prog="$(_io_progname)"
     path="$(devdoc_lock_path "$devdoc_dir")" || rc=$?
     if [ "$rc" -ne 0 ]; then
-        echo "$prog: cannot determine the devdoc lock for $devdoc_dir: a .git entry exists but git rev-parse failed there - fix git (PATH, safe.directory) and re-run $rerun" >&2
+        info "cannot determine the devdoc lock for $devdoc_dir: a .git entry exists but git rev-parse failed there - fix git (PATH, safe.directory) and re-run $rerun"
         return 2
     fi
     tok="${DEVAGENT_DEVDOC_LOCK_TOKEN:-}"
@@ -244,17 +257,17 @@ devdoc_lock_acquire() {
     until mkdir "$path" 2>/dev/null; do
         if [ "$i" -ge "$polls" ]; then
             if _devdoc_lock_holder "$path"; then
-                echo "$prog: devdoc lock $path is held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START ($_H_CMD) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held. Only if no devagent run started at $_H_START is still running on $_H_HOST (check on that host, in that environment: the pid is that shell's own, not a Windows pid), remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun" >&2
+                info "devdoc lock $path is held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START ($_H_CMD) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held. Only if no devagent run started at $_H_START is still running on $_H_HOST (check on that host, in that environment: the pid is that shell's own, not a Windows pid), remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
             else
-                echo "$prog: devdoc lock $path is held (holder unknown: no readable record) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held, and a run that is just taking it has not written its record yet. Only if no devagent run is still running against this repository, remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun" >&2
+                info "devdoc lock $path is held (holder unknown: no readable record) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held, and a run that is just taking it has not written its record yet. Only if no devagent run is still running against this repository, remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
             fi
             return 1
         fi
         if [ "$waited" -eq 0 ]; then
             if _devdoc_lock_holder "$path"; then
-                echo "$prog: waiting for devdoc lock $path (held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START, $_H_CMD)" >&2
+                info "waiting for devdoc lock $path (held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START, $_H_CMD)"
             else
-                echo "$prog: waiting for devdoc lock $path (holder unknown)" >&2
+                info "waiting for devdoc lock $path (holder unknown)"
             fi
             waited=1
         fi
@@ -264,7 +277,7 @@ devdoc_lock_acquire() {
     tok="$$.$(date +%s).$RANDOM"
     printf 'token=%s\npid=%s\nhost=%s\nissue=%s\nstart=%s\ncmd=%s\n' \
         "$tok" "$$" "$(hostname 2>/dev/null || echo "${HOSTNAME:-unknown}")" "$issue" \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$prog" > "$path/holder"
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(_io_progname)" > "$path/holder"
     DEVDOC_LOCK_OWNED=1; DEVDOC_LOCK_PATH="$path"
     export DEVAGENT_DEVDOC_LOCK_TOKEN="$tok"
     return 0
