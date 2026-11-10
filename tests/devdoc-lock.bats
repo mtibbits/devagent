@@ -144,7 +144,7 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/io.sh"; . "$DEVAGENT_ROOT/scripts/lib/dev
         DEVAGENT_DEVDOC_LOCK_TIMEOUT="$bad" run bash -c "$LIBS; for i in 1 2; do devdoc_lock_acquire '$DEVDOC_DIR' - /x || exit 9; devdoc_lock_release; done; echo t=\$DEVDOC_LOCK_TIMEOUT_S"
         [ "$status" -eq 0 ]
         [ "$(printf '%s\n' "$output" | grep -c 'DEVAGENT_DEVDOC_LOCK_TIMEOUT')" -eq 1 ]
-        [[ "$output" == *"t=120"* ]]
+        [[ "$output" == *"t=60"* ]]
     done
 }
 
@@ -156,4 +156,43 @@ _lib() { . "$DEVAGENT_ROOT/scripts/lib/io.sh"; . "$DEVAGENT_ROOT/scripts/lib/dev
     DEVDOC_LOCK_OWNED=1 DEVAGENT_DEVDOC_LOCK_TOKEN=9.9.9 devdoc_lock_release
     [ -f "$LP/holder" ]
     grep -qx 'pid=4242' "$LP/holder"
+}
+
+@test "#749 red-team: a shared deadline earlier than the bound ends the wait, and says so" {
+    devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2
+    export DEVAGENT_DEVDOC_LOCK_TIMEOUT=30
+    run bash -c "$LIBS; export DEVAGENT_DEVDOC_LOCK_DEADLINE=\$(( \$(date +%s) + 1 )); s=\$SECONDS; devdoc_lock_acquire '$DEVDOC_DIR' Issue-1 /x; rc=\$?; echo rc=\$rc el=\$((SECONDS - s))"
+    [[ "$output" == *"rc=1 "* ]]
+    [[ "$output" == *"gave up after this run's shared lock deadline"* ]]
+    el="${output##*el=}"
+    [ "$el" -le 4 ]
+}
+
+@test "#749 red-team: a deadline already past still makes exactly one attempt" {
+    _lib
+    DEVAGENT_DEVDOC_LOCK_DEADLINE=1 DEVAGENT_DEVDOC_LOCK_TIMEOUT=30 devdoc_lock_acquire "$DEVDOC_DIR" Issue-1 /x
+    [ -d "$LP" ]
+    devdoc_lock_release
+    [ ! -e "$LP" ]
+}
+
+@test "#749 red-team: devdoc_lock_deadline_start sets now+bound and keeps an earlier deadline" {
+    _lib
+    unset DEVAGENT_DEVDOC_LOCK_DEADLINE
+    now="$(date +%s)"
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=60 devdoc_lock_deadline_start
+    [ "$DEVAGENT_DEVDOC_LOCK_DEADLINE" -ge $((now + 60)) ]
+    [ "$DEVAGENT_DEVDOC_LOCK_DEADLINE" -le $((now + 62)) ]
+    export DEVAGENT_DEVDOC_LOCK_DEADLINE=$((now + 5))
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=60 devdoc_lock_deadline_start
+    [ "$DEVAGENT_DEVDOC_LOCK_DEADLINE" -eq $((now + 5)) ]
+}
+
+@test "#749 red-team: a missing devdoc_dir outside git is named as missing, not as broken git" {
+    d="$DEVAGENT_TMP/nogit/absent"
+    mkdir -p "$DEVAGENT_TMP/nogit"
+    run bash -c "$LIBS; devdoc_lock_acquire '$d' - /x"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"it is outside git and does not exist"* ]]
+    [[ "$output" != *".git entry exists"* ]] || false
 }

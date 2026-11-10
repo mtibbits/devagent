@@ -32,8 +32,10 @@ the README's "Versioning & releases" section has the release procedure.
   `wbs update`/`order`/`init` take a lock in the devDoc repository's git
   common dir (outside git, `<devdoc_dir>/.devagent-wbs.lock`) around their
   writes, never around a tracker call. A lock held past
-  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 120 s) names its holder and the
-  stale-lock remedy; `wbs` then exits 1 and `/devagent:updatewbs` marks its
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 60 s of elapsed time) names its
+  holder and the stale-lock remedy; cleanup's three waits share one deadline
+  (`DEVAGENT_DEVDOC_LOCK_DEADLINE`), so one close waits at most that long in
+  total; `wbs` then exits 1 and `/devagent:updatewbs` marks its
   step stuck, and a standalone drain defers (rc 3). `statusreport` now exits
   non-zero when its commit fails and moves the pin only after a commit (or
   when none was needed).
@@ -45,7 +47,8 @@ the README's "Versioning & releases" section has the release procedure.
   a failing `git add`/`git commit` after the row is marked returns the cleanup
   row to `[~]`, logs `cleanup_open: NOT closed - <reason>`, keeps the issue's
   state and exits 1 with the re-run command; statusreport does not count such
-  a close as completed. `wbs-update.sh --skip-state-slot` (cleanup's call)
+  a close as completed. A failed register-layer lookup no longer refuses the
+  devdoc commit: it warns, and the commit still takes only the owned paths. `wbs-update.sh --skip-state-slot` (cleanup's call)
   keeps the close-time auto-add resolution unchanged.
 - **Changed: `WBS.md` is replaced atomically (#749).** Every `WBS.md` write
   goes to a temp file beside it and then replaces it, so a killed write never

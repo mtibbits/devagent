@@ -132,7 +132,7 @@ for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
     if not entries:
         continue
-    done = detect._completing_cleanup(entries)   # #749: a cleanup_open line undoes it
+    done = detect.completing_cleanup(entries)   # #749: a cleanup_open line undoes it
     last_step = 24 if done else 7
 
     # #438: aggregate dispatch-lint rejects archived under analysis/rejected/

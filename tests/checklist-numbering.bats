@@ -78,7 +78,7 @@ CFG
 
 @test "numbering: the idle threshold tracks cleanup's new number (#558, #885)" {
     grep -qF 'if last_step >= 24:' "$PLUGIN_ROOT/scripts/lib/statusreport-detect.py"
-    grep -qF 'done = detect._completing_cleanup(entries)' "$PLUGIN_ROOT/scripts/statusreport.sh"   # #749: via the detector
+    grep -qF 'done = detect.completing_cleanup(entries)' "$PLUGIN_ROOT/scripts/statusreport.sh"   # #749: via the detector
     grep -qF 'last_step = 24 if done else 7' "$PLUGIN_ROOT/scripts/statusreport.sh"
 }
 

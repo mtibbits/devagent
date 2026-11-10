@@ -186,6 +186,9 @@ _cleanup_hold() {
 }
 devdoc_git=0
 devdoc_in_git "$devdoc_dir" >/dev/null || devdoc_git=$?
+# #749 red-team: hold 1, the reconcile's own write and hold 2 share ONE
+# deadline (spec §3.3), so this close's lock waits total at most the bound.
+devdoc_lock_deadline_start
 if [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 2 ]; then
     warn "cleanup: cannot determine the devdoc lock for $devdoc_dir: a .git entry exists but git rev-parse failed there - fix git (PATH, safe.directory)"
     _cleanup_leave_open "devdoc lock location cannot be determined"
@@ -247,16 +250,16 @@ if [ "$commit_devdoc" = "true" ]; then
     # commit's: a layer the drain DEFERred on (dirty/untracked — another
     # session's edit) must not be committed here under devagent@local (#611
     # review). Since #749 the commit takes only its owned paths, so it cannot
-    # carry a layer file; the layer paths under devdoc_dir are still looked up
-    # as exclude pathspecs.
-    # FAIL CLOSED: a lookup that dies inside $( ) would leave excl empty, so
-    # each rc is read in THIS shell and a failure refuses the whole devdoc
-    # commit (red-team #611).
+    # carry a layer file; the layer paths under devdoc_dir are looked up only as
+    # the unowned report's exclude pathspecs. A failed lookup therefore no
+    # longer refuses the commit (#749 red-team: refusing left the closed issue's
+    # dir uncommitted for good, with nothing to protect): it warns, and the
+    # report may then list a layer file.
     _dc="$(pwd -P)"; excl=(); _lk=1
     _lp_pr="$(potholes_project_path "$project")"  || _lk=0
     _lp_wf="$(potholes_workflow_path "$project")" || _lk=0
     if [ "$_lk" -ne 1 ]; then
-        warn "cleanup: register layer lookup failed (see above) — devdoc commit REFUSED so no layer file can be swept; fix [paths] potholes_workflow / the config and commit devdoc by hand"
+        warn "cleanup: register layer lookup failed (see above) - the devdoc commit still takes only $issue_arg's owned paths, but the unowned report may list a register layer file; fix [paths] potholes_workflow / the config"
     fi
     for _lp in "$_lp_pr" "$_lp_wf"; do
         [ -n "$_lp" ] && [ -d "$(dirname "$_lp")" ] || continue
@@ -272,13 +275,13 @@ if [ "$commit_devdoc" = "true" ]; then
     _own_rc=0
     devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?
     # #749 item 5: what this cleanup does NOT own is reported, never swept —
-    # one line, a warning only for stale work no session is carrying. Printed
-    # even when the layer lookup refused the commit; not when there is no
-    # owned set (rc 1/2), where it would list the issue's own dir.
+    # one line, a warning only for stale work no session is carrying. Not
+    # printed when there is no owned set (rc 1/2), where it would list the
+    # issue's own dir.
     [ "$_own_rc" -ne 0 ] || devdoc_unowned_report "$project" "$devdoc_dir" "$issue_arg" "${excl[@]}"
-    if [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 2 ]; then
+    if [ "$_own_rc" -eq 2 ]; then
         warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped; commit it by hand"
-    elif [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 0 ] \
+    elif [ "$_own_rc" -eq 0 ] \
         && [ -n "$(devdoc_git_ro status --porcelain -- "${DEVDOC_OWNED[@]}")" ]; then
         if devdoc_mid_merge .; then
             warn "cleanup: devdoc repository $(devdoc_repo_top .) is mid-merge (MERGE_HEAD present) - finish or abort the merge"

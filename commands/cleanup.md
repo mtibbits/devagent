@@ -204,14 +204,17 @@ is kept (the GC runs only after the commit), and cleanup exits 1 with
 re-run /devagent:cleanup <project> <issue>`. Under `--auto` that ends the
 chain with the message last; the re-run picks the `[~]` row up. A failed close
 is also not counted as completed by `/devagent:statusreport`. A failed
-register drain is not such a close: it dies before the mark, as before, and a
-layer lookup that refuses the commit still completes the close.
+register drain is not such a close: it dies before the mark, as before. A
+failed register-layer lookup no longer refuses the commit: it warns, the
+commit still takes only the owned paths, and the unowned report may then list
+a layer file.
 
-Run cleanup with the longest Bash tool timeout (600000 ms). One close can wait
-on the lock up to three times (hold 1, the reconcile's write, hold 2), each up
-to the bound in spec §3.3. A tool timeout that kills the run during the second
-or third wait lands after the mark, and a forced kill skips the EXIT trap: the
-row stays `[x]` with nothing committed. If that happens, re-run cleanup.
+One close can wait on the lock up to three times (hold 1, the reconcile's
+write, hold 2). All three share one deadline (spec §3.3), so together they
+wait at most the bound and finish inside a 120 s command timeout. A command
+timeout that still kills a close after the mark (a forced kill skips the EXIT
+trap) leaves the row `[x]` with nothing committed; re-run cleanup. When you
+run it yourself, give the Bash call a long timeout (600000 ms).
 
 ## Transcript archive (#731)
 

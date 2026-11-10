@@ -133,7 +133,8 @@ devdoc_unowned_report() {
     more=""; [ "$n" -le 5 ] || more=" (+$((n - 5)) more)"
     msg="cleanup: $n unowned path(s) under $devdoc_dir left uncommitted (not $issue's): $shown$more"
     if [ "${#stale[@]}" -gt 0 ]; then
-        u="$(printf '%s, ' "${stale[@]}")"; u="${u%, }"
+        u="$(printf '%s, ' "${stale[@]:0:5}")"; u="${u%, }"
+        [ "${#stale[@]}" -le 5 ] || u="$u (+$((${#stale[@]} - 5)) more)"
         warn "$msg - older than $DEVDOC_UNOWNED_WARN_DAYS days and not in flight: $u; commit or remove them by hand"
     else
         info "$msg"
@@ -179,34 +180,61 @@ devdoc_in_git() {
 }
 
 # devdoc_lock_path <devdoc_dir> — the lock directory for <devdoc_dir>.
-# rc 2 (no output) when the location cannot be determined.
+# rc 2 (no output) when a .git entry exists but rev-parse fails; rc 3 when
+# <devdoc_dir> is outside git and does not exist (the side lock needs it).
 devdoc_lock_path() {
     local c rc=0
     c="$(devdoc_in_git "$1")" || rc=$?
     case "$rc" in
         0) printf '%s/devagent-devdoc.lock\n' "$c" ;;
-        1) c="$(cd "$1" 2>/dev/null && pwd -P)" && [ -n "$c" ] || return 2   # the side lock needs the dir
+        1) c="$(cd "$1" 2>/dev/null && pwd -P)" && [ -n "$c" ] || return 3   # the side lock needs the dir
            printf '%s/.devagent-wbs.lock\n' "$c" ;;
         *) return 2 ;;
     esac
 }
 
 # _devdoc_lock_timeout — resolve DEVAGENT_DEVDOC_LOCK_TIMEOUT (seconds,
-# ^[0-9]{1,5}$, default 120, 0 = one attempt) into DEVDOC_LOCK_TIMEOUT_S; an
+# ^[0-9]{1,5}$, default 60, 0 = one attempt) into DEVDOC_LOCK_TIMEOUT_S; an
 # invalid value warns once per process and uses the default.
 _devdoc_lock_timeout() {
     local v="${DEVAGENT_DEVDOC_LOCK_TIMEOUT:-}"
     if [ -z "$v" ]; then
-        DEVDOC_LOCK_TIMEOUT_S=120
+        DEVDOC_LOCK_TIMEOUT_S=60
     elif [[ "$v" =~ ^[0-9]{1,5}$ ]]; then
         DEVDOC_LOCK_TIMEOUT_S=$((10#$v))
     else
-        DEVDOC_LOCK_TIMEOUT_S=120
+        DEVDOC_LOCK_TIMEOUT_S=60
         if [ "$_DEVDOC_TIMEOUT_WARNED" -eq 0 ]; then
-            warn "DEVAGENT_DEVDOC_LOCK_TIMEOUT='$v' is not a whole number of seconds (0-99999) - using 120"
+            warn "DEVAGENT_DEVDOC_LOCK_TIMEOUT='$v' is not a whole number of seconds (0-99999) - using 60"
             _DEVDOC_TIMEOUT_WARNED=1
         fi
     fi
+}
+
+# _devdoc_now_us — set _DEVDOC_NOW_US to the wall clock in microseconds
+# (EPOCHREALTIME on bash 5, else whole seconds from date).
+_devdoc_now_us() {
+    if [ -n "${EPOCHREALTIME:-}" ]; then
+        _DEVDOC_NOW_US="${EPOCHREALTIME//[.,]/}"
+    else
+        _DEVDOC_NOW_US=$(( $(date +%s) * 1000000 ))
+    fi
+}
+
+# devdoc_lock_deadline_start — export DEVAGENT_DEVDOC_LOCK_DEADLINE (epoch
+# seconds) as now + the bound, unless an earlier valid deadline is already
+# set. A run that waits on the lock more than once (cleanup) calls this once,
+# before its first lock section: every acquire in it and in its children then
+# gives up by that one deadline, so the run's waits total at most the bound.
+devdoc_lock_deadline_start() {
+    local d="${DEVAGENT_DEVDOC_LOCK_DEADLINE:-}" mine
+    _devdoc_lock_timeout
+    _devdoc_now_us
+    mine=$(( _DEVDOC_NOW_US / 1000000 + DEVDOC_LOCK_TIMEOUT_S ))
+    if [[ "$d" =~ ^[0-9]{1,12}$ ]] && [ "$((10#$d))" -lt "$mine" ]; then
+        mine=$((10#$d))
+    fi
+    export DEVAGENT_DEVDOC_LOCK_DEADLINE="$mine"
 }
 
 # _devdoc_lock_field <lock path> <key> — one value from the holder record.
@@ -241,9 +269,12 @@ _devdoc_lock_holder() {
 # rc 1 timed out; rc 2 no lock location. rc 1/2 print their message and never
 # die — the caller decides what a refusal means.
 devdoc_lock_acquire() {
-    local devdoc_dir="$1" issue="${2:--}" rerun="$3" path rc=0 tok polls i=0 waited=0
+    local devdoc_dir="$1" issue="${2:--}" rerun="$3" path rc=0 tok end dl bound waited=0
     path="$(devdoc_lock_path "$devdoc_dir")" || rc=$?
-    if [ "$rc" -ne 0 ]; then
+    if [ "$rc" -eq 3 ]; then
+        info "cannot determine the devdoc lock for $devdoc_dir: it is outside git and does not exist - create it or fix the configured devdoc_dir, then re-run $rerun"
+        return 2
+    elif [ "$rc" -ne 0 ]; then
         info "cannot determine the devdoc lock for $devdoc_dir: a .git entry exists but git rev-parse failed there - fix git (PATH, safe.directory) and re-run $rerun"
         return 2
     fi
@@ -252,14 +283,24 @@ devdoc_lock_acquire() {
         DEVDOC_LOCK_OWNED=0; DEVDOC_LOCK_PATH="$path"
         return 0
     fi
+    # The bound is ELAPSED time (#749 red-team: counting 0.2 s polls overshot
+    # by about a quarter), capped by the run's shared deadline when one is set.
     _devdoc_lock_timeout
-    polls=$((DEVDOC_LOCK_TIMEOUT_S * 5))
+    _devdoc_now_us
+    end=$(( _DEVDOC_NOW_US + DEVDOC_LOCK_TIMEOUT_S * 1000000 ))
+    bound="${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT)"
+    dl="${DEVAGENT_DEVDOC_LOCK_DEADLINE:-}"
+    if [[ "$dl" =~ ^[0-9]{1,12}$ ]] && [ "$((10#$dl * 1000000))" -lt "$end" ]; then
+        end=$((10#$dl * 1000000))
+        bound="this run's shared lock deadline (DEVAGENT_DEVDOC_LOCK_TIMEOUT across all of its waits)"
+    fi
     until mkdir "$path" 2>/dev/null; do
-        if [ "$i" -ge "$polls" ]; then
+        _devdoc_now_us
+        if [ "$_DEVDOC_NOW_US" -ge "$end" ]; then
             if _devdoc_lock_holder "$path"; then
-                info "devdoc lock $path is held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START ($_H_CMD) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held. Only if no devagent run started at $_H_START is still running on $_H_HOST (check on that host, in that environment: the pid is that shell's own, not a Windows pid), remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
+                info "devdoc lock $path is held by pid $_H_PID on $_H_HOST for $_H_ISSUE since $_H_START ($_H_CMD) - gave up after $bound. A killed run can leave it held. Only if no devagent run started at $_H_START is still running on $_H_HOST (check on that host, in that environment: the pid is that shell's own, not a Windows pid), remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
             else
-                info "devdoc lock $path is held (holder unknown: no readable record) - gave up after ${DEVDOC_LOCK_TIMEOUT_S}s (DEVAGENT_DEVDOC_LOCK_TIMEOUT). A killed run can leave it held, and a run that is just taking it has not written its record yet. Only if no devagent run is still running against this repository, remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
+                info "devdoc lock $path is held (holder unknown: no readable record) - gave up after $bound. A killed run can leave it held, and a run that is just taking it has not written its record yet. Only if no devagent run is still running against this repository, remove it with: rm -f '$path/holder' && rmdir '$path' - then re-run $rerun"
             fi
             return 1
         fi
@@ -272,7 +313,6 @@ devdoc_lock_acquire() {
             waited=1
         fi
         sleep 0.2
-        i=$((i + 1))
     done
     tok="$$.$(date +%s).$RANDOM"
     printf 'token=%s\npid=%s\nhost=%s\nissue=%s\nstart=%s\ncmd=%s\n' \

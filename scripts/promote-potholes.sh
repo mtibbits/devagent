@@ -533,14 +533,15 @@ case "${1:-}" in
 
     # Every rail for EVERY staged layer BEFORE any write, so a DEFER on the
     # second layer never strands a half-drained run. Locks are taken here and
-    # released by the ONE EXIT trap — a die can never leak one. The devDoc
-    # repository lock (#749) is released first; under cleanup's hold this run
-    # is a reentrant child that neither took nor releases it.
+    # released by the ONE EXIT trap — a die can never leak one. The register
+    # locks nest inside the devDoc repository lock (#749), so they go first and
+    # the repository lock last; under cleanup's hold this run is a reentrant
+    # child that neither took nor releases it.
     LOCKS=(); tmp=""
     _release() {
         local L
-        devdoc_lock_release
         for L in "${LOCKS[@]+"${LOCKS[@]}"}"; do rmdir "$L" 2>/dev/null || true; done
+        devdoc_lock_release
         [ -z "$tmp" ] || rm -rf "$tmp"
     }
     trap _release EXIT

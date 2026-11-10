@@ -256,9 +256,12 @@ _seed_devdoc_repo() {
   ( cd "$TMPDEV" && git checkout -q -b side && printf 's\n' > side.txt && git add side.txt \
     && git commit -q -m side && git checkout -q main && git merge -q --no-commit --no-ff side )
   before="$(git -C "$TMPDEV" rev-parse HEAD)"
+  _seed_pin
   run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -ne 0 ]
   [[ "$output" == *"mid-merge"* ]]
   [ "$(git -C "$TMPDEV" rev-parse HEAD)" = "$before" ]
+  [ "$(_pin)" = "2026-05-01T00:00:00+00:00" ]
   git -C "$TMPDEV" rev-parse -q --verify MERGE_HEAD
 }
 

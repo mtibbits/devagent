@@ -351,14 +351,18 @@ SH
     [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
 }
 
-@test "#611 red-team: a FAILED layer lookup refuses the devdoc commit instead of re-arming the sweep" {
+@test "#611/#749: a FAILED layer lookup warns but still commits only the owned paths, never the layer" {
     devagent_config_set "$HOME/.claude/devagent/config.toml" paths.potholes_workflow "relative/wf.md"   # relative global key → resolver dies
     printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
     before="$(cd "$DEVDOC_DIR" && git rev-parse HEAD)"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"devdoc commit REFUSED"* ]]
-    [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
+    [[ "$output" == *"register layer lookup failed"*"still takes only Issue-1's owned paths"* ]]
+    [[ "$output" != *"REFUSED"* ]] || false
+    [ "$(cd "$DEVDOC_DIR" && git rev-list --count "$before"..HEAD)" -eq 1 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"Issue-1/checklist.md"* ]]
+    [[ "$output" != *"potholes.md"* ]] || false
     run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
     [[ "$output" == " M templates/potholes.md" ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
@@ -777,6 +781,8 @@ archive.host_id = \"h1\""
     [ "$status" -ne 0 ]
     [[ "$output" == *"mid-merge"* ]]
     git -C "$DEVDOC_DIR" rev-parse -q --verify MERGE_HEAD
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q 'cleanup_open: NOT closed - devdoc repository mid-merge' "$DEVDOC_DIR/Issue-1/checklist.md"
 }
 
 # --- #749: unowned paths are reported, not swept ------------------------------
@@ -929,6 +935,9 @@ _all_rows_done() {
     unset DEVAGENT_DEVDOC_LOCK_TOKEN
     _seed_context
     g="$DEVAGENT_TMP/gate"; w="$(devdoc_git_gate_wrapper "$g")"; : > "$g/ro-state"
+    p="$DEVAGENT_TMP/ro-probe"; mkdir -p "$p"; chmod a-w "$p"
+    if ( : > "$p/x" ) 2>/dev/null; then chmod u+w "$p"; skip "a dir stays writable after chmod a-w (root or noacl)"; fi
+    chmod u+w "$p"
     DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     chmod u+w "$HOME/.claude/devagent/state"                  # restore before any assertion can fail
     [ "$status" -ne 0 ]
@@ -1058,4 +1067,15 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"is not inside the git repository holding"*"devdoc commit skipped; commit it by hand"* ]]
     [[ "$output" != *"unowned"* ]] || false
+}
+
+@test "#749 red-team: one close's lock waits share one deadline (the reconcile's wait shortens hold 2's)" {
+    _all_rows_done
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2
+    DEVAGENT_WBS_OFFLINE=1 DEVAGENT_DEVDOC_LOCK_TIMEOUT=2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"gave up after this run's shared lock deadline"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
 }

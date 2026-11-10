@@ -350,10 +350,17 @@ per repository (`scripts/lib/devdoc-repo.sh`):
   `token=` neither acquires nor releases. Any other token is ignored and the
   child acquires on its own.
 - **Bound.** A contended acquire prints one `waiting for devdoc lock` line naming
-  the holder, polls every 0.2 s, and gives up after
-  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds (`^[0-9]{1,5}$`, default 120, `0` = one
-  attempt; any other value warns once and uses 120). This variable is defined
-  here only.
+  the holder, polls every 0.2 s, and gives up once
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds of wall-clock time have elapsed
+  (`^[0-9]{1,5}$`, default 60, `0` = one attempt; any other value warns once
+  and uses 60). This variable is defined here only.
+- **Shared deadline.** A run that waits on the lock more than once (cleanup:
+  hold 1, the reconcile's write, hold 2) exports
+  `DEVAGENT_DEVDOC_LOCK_DEADLINE` (epoch seconds, now + the bound, or an
+  earlier one already set) before its first lock section. Every acquire in
+  that run and its children gives up at the earlier of its own bound and that
+  deadline, always after at least one attempt, so the run's waits total at
+  most the bound and stay under a caller's 120 s command timeout.
 - **Remedy.** The give-up message names the path and the holder and prints the
   stale-lock removal `rm -f '<path>/holder' && rmdir '<path>'`, to run only when
   no devagent run started at the recorded time is still running on that host,
