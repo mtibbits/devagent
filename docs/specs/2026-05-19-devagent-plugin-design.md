@@ -85,7 +85,8 @@ devAgent/
 │   │                        #   check-step-pairings.py — #558 pairing census,
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
-│   │                        #   portfolio.py — #726 portfolio producer)
+│   │                        #   portfolio.py — #726 portfolio producer,
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh

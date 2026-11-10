@@ -16,6 +16,14 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: cleanup commits only the devDoc paths it owns (#749).** The
+  devdoc commit carries the issue dir, plus `WBS.md` when it changed, and
+  nothing else: another issue's dir, a capture, or a path another session
+  staged is left exactly as it was (before, `git add -A` swept everything
+  under `devdoc_dir` and the commit took anything already staged). Read-only
+  `git status` calls on the devDoc repository run with `GIT_OPTIONAL_LOCKS=0`,
+  and a mid-merge devDoc repository is refused by name.
+
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`
   namespace, so planning tools can trace work to requirement IDs; it is

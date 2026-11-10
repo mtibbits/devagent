@@ -3,6 +3,7 @@
 # per-layer drain (--apply), and the claim-vs-union check (--check).
 load 'helpers/common'
 load 'helpers/potholes-fixture'
+load 'helpers/devdoc-repo'
 setup()    { potholes_fixture_setup; }
 teardown() { devagent_test_teardown; }
 
@@ -505,4 +506,16 @@ teardown() { devagent_test_teardown; }
     run bash "$PP" "$TEST_PROJECT" --list-pending
     [ "$status" -eq 0 ]
     [[ "$output" == *Issue-1* ]]
+}
+
+# --- #749: read-only git takes no optional lock --------------------------------
+
+@test "#749: devdoc status calls run with GIT_OPTIONAL_LOCKS=0 and leave the index untouched" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    touch -d '2001-01-01 00:00:00' "$PROJ_REG"                  # stat-dirty, content unchanged
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    devdoc_assert_status_rows_readonly "$DEVAGENT_TMP/git.log" "$DEVDOC_REPO"
 }

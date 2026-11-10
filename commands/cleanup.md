@@ -101,8 +101,8 @@ closes, `promote-potholes.sh … --drop <op>` or `status: applied by-hand
 <sha>`. The file is `git add`ed if new and committed with the operator's
 identity (`-s`) as
 `chore: promote pothole-register entries from #N`, scoped to that ONE path —
-never through cleanup's own `git add -A` devdoc commit, which is itself scoped
-to `devdoc_dir`. The staging file flips to `status: applied <sha>[,<sha>]`
+never through cleanup's own devdoc commit, which carries only the paths the
+cleanup owns (#749, below). The staging file flips to `status: applied <sha>[,<sha>]`
 (one sha per layer file committed). Nothing is pushed.
 
 rc 3 is a DEFERRAL: cleanup warns, completes, and the file stays
@@ -142,6 +142,19 @@ step shares), else `source_dir` — a linked worktree is `indeterminate` with a
 remedy that names the tier, since the base branch cannot be checked out there;
 and a checklist with no `Template:` header (pre-#537) reads as not-oneshot, so
 the gate does not run — fail-open by decision, for backward compatibility.
+
+## The devdoc commit (#749)
+
+With `permissions.commit_devdoc = true`, cleanup commits ONLY the paths it
+owns: the issue dir, plus `<devdoc_dir>/WBS.md` when it has changes (the WBS
+reconcile's output, and a hand edit made since the last commit rides with
+it). Both the `git add` and the `git commit` are pathspec-scoped, so another
+issue's dir, a capture, a register layer file, or a path another session
+staged is never carried — it stays exactly as it was. Read-only `git status`
+calls run with `GIT_OPTIONAL_LOCKS=0`, so they never rewrite the index under
+another session's commit. A devDoc repository that is mid-merge
+(`MERGE_HEAD` present) is refused by name: finish or abort the merge, then
+re-run `/devagent:cleanup <project> <issue>`.
 
 ## Transcript archive (#731)
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 load 'helpers/common'
+load 'helpers/devdoc-repo'
 
 setup() {
     devagent_test_setup
@@ -696,4 +697,84 @@ archive.host_id = \"h1\""
     [[ "$output" != *"archive-transcripts"* ]]
     [[ "$output" != *"transcript archive"* ]]
     [ -z "$(find "$DEVAGENT_TMP" -name last-run)" ]
+}
+
+# --- #749: cleanup commits only the paths it owns -----------------------------
+
+@test "#749: cleanup's commit holds only the issue dir (subdirectory fixture)" {
+    devdoc_parent_repo_fixture
+    printf 'edit
+' >> "$DEVDOC_DIR/Issue-2/checklist.md"                     # another issue's dirt
+    mkdir -p "$DEVDOC_DIR/Captures/c1"; printf 'draft
+' > "$DEVDOC_DIR/Captures/c1/draft.md"   # a fresh capture
+    printf 'staged
+' >> "$DEVDOC_REPO/proj2/Issue-9/checklist.md"           # another project's STAGED edit
+    ( cd "$DEVDOC_REPO" && git add proj2/Issue-9/checklist.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_REPO" show --name-only --format= HEAD
+    [ -n "$output" ]
+    [ -z "$(printf '%s
+' "$output" | grep -v '^testproj/Issue-1/')" ]
+    run git -C "$DEVDOC_REPO" status --porcelain --untracked-files=all
+    [[ "$output" == *" M testproj/Issue-2/checklist.md"* ]]
+    [[ "$output" == *"?? testproj/Captures/c1/draft.md"* ]]
+    [[ "$output" == *"M  proj2/Issue-9/checklist.md"* ]]
+}
+
+@test "#749: cleanup's commit carries WBS.md when it changed, and a hand edit with it" {
+    sed -i 's/^- \[ \]\([ ]*\([0-9]*\)\.\)/- [x]\1/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
+    printf '%s
+' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    printf '%s
+' '- [ ] Hand-added {est: 1d}' >> "$DEVDOC_DIR/WBS.md"      # the operator's own edit
+    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    printf '1	done
+' > "$DEVAGENT_TMP/state-list.github"
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    PATH="$DEVAGENT_TMP/shims:$PATH" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"WBS.md"* ]]
+    run git -C "$DEVDOC_DIR" show HEAD:WBS.md
+    [[ "$output" == *"Hand-added"* ]]
+    [[ "$output" == *"[x] Working leaf"* ]]
+    [ -z "$(git -C "$DEVDOC_DIR" status --porcelain -- WBS.md)" ]
+}
+
+@test "#749: cleanup commits a deletion inside the issue dir" {
+    printf 'old
+' > "$DEVDOC_DIR/Issue-1/old.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "old" )
+    rm "$DEVDOC_DIR/Issue-1/old.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_DIR" show --name-status --format= HEAD
+    [[ "$output" == *"D	Issue-1/old.md"* ]]
+    [ -z "$(git -C "$DEVDOC_DIR" status --porcelain -- Issue-1)" ]
+}
+
+@test "#749: devdoc status calls run with GIT_OPTIONAL_LOCKS=0 and leave the index untouched" {
+    printf 'notes
+' > "$DEVDOC_DIR/Issue-1/notes.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "notes" )
+    touch -d '2001-01-01 00:00:00' "$DEVDOC_DIR/Issue-1/notes.md"   # stat-dirty, content unchanged
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devdoc_assert_status_rows_readonly "$DEVAGENT_TMP/git.log" "$DEVDOC_DIR"
+}
+
+@test "#749: cleanup names a mid-merge devdoc repository" {
+    ( cd "$DEVDOC_DIR" && git checkout -q -b side && printf 's
+' > side.txt && git add side.txt       && git commit -q -m side && git checkout -q main && git merge -q --no-commit --no-ff side )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mid-merge"* ]]
+    git -C "$DEVDOC_DIR" rev-parse -q --verify MERGE_HEAD
 }

@@ -55,6 +55,7 @@ source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 source "$DEVAGENT_ROOT/scripts/lib/quarantine.sh"
 
 : "${DEVAGENT_GIT:=git}"
+. "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"   # #749: repo toplevel, read-only git
 
 usage() {
     echo "usage: promote-potholes.sh <project> <issue-dir> --add    --layer project|workflow <section> <line>
@@ -123,12 +124,8 @@ _canon() { [ -n "${1:-}" ] && ( cd "$1" 2>/dev/null && pwd -P ); }
 
 # _repo_of <path> — canonical git toplevel of the nearest EXISTING ancestor of
 # <path> (the path itself may not exist yet). rc 1 / "" when not in a repo.
-_repo_of() {
-    local d="$1"
-    while [ -n "$d" ] && [ ! -d "$d" ] && [ "$d" != / ]; do d="$(dirname "$d")"; done
-    [ -d "$d" ] || return 1
-    _canon "$("$DEVAGENT_GIT" -C "$d" rev-parse --show-toplevel 2>/dev/null || true)"
-}
+# One home for the rule: lib/devdoc-repo.sh (#749, register Issue-565).
+_repo_of() { devdoc_repo_top "$1"; }
 
 # _commit_devdoc_raw — the operator's flag, read RAW (no gate; DA_YES cannot
 # stand in for it).
@@ -565,7 +562,7 @@ case "${1:-}" in
         fi
         mkdir -p "$(dirname "$target")"                     # empty dir: invisible to git
         rel="$(_canon "$(dirname "$target")")/$(basename "$target")"; rel="${rel#"$repo"/}"
-        st="$("$DEVAGENT_GIT" -C "$repo" status --porcelain -- "$rel")"
+        st="$(devdoc_git_ro -C "$repo" status --porcelain -- "$rel")"   # #749: no optional index lock
         if [ -n "$st" ]; then
             case "$st" in
                 '??'*) warn "promote-potholes: $rel is untracked in $repo (a stray skeleton?) — commit or remove it; $issue_id stays pending" ;;
@@ -696,8 +693,10 @@ case "${1:-}" in
     # Commit scoped to the ONE path, with the operator's identity (-s), like a
     # source-tree chore; cleanup's own devdoc commit (devagent@local) never
     # carries these files. On failure a bootstrapped file is REMOVED (rm --cached
-    # + rm -f + the empty dir) so cleanup's `git add -A` cannot sweep the
-    # skeleton; an existing one gets its original bytes.
+    # + rm -f + the empty dir) so no stray skeleton is left behind: cleanup
+    # commits only its owned paths (#749) and would only report it, and a later
+    # --apply would DEFER on it as untracked; an existing one gets its original
+    # bytes.
     shas=""
     for i in "${!L_NAME[@]}"; do
         ly="${L_NAME[i]}"; target="${L_TARGET[i]}"; repo="${L_REPO[i]}"; rel="${L_REL[i]}"; t="$tmp/$ly"

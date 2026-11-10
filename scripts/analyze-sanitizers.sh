@@ -30,7 +30,8 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # #676: the line-2 rewrite goes through a dot-named temp file beside the artifact
 # (no analysis/*.txt consumer glob matches it); the EXIT trap removes one left by
-# an interrupted run, since cleanup commits the devdoc tree with `git add -A`.
+# an interrupted run, since cleanup commits the issue dir (cleanup commits only
+# its owned paths, #749 — the issue dir is one of them).
 # It is the only EXIT trap here and in the sourced libs: a later one would replace it.
 _san_stamp_tmp=""
 trap '[ -n "$_san_stamp_tmp" ] && rm -f "$_san_stamp_tmp"; true' EXIT

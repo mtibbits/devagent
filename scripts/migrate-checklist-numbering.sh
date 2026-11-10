@@ -180,7 +180,8 @@ if changed == 0 and not inserted and not dropped:
     print("ALREADY"); sys.exit(0)
 if os.environ.get("DRY") != "1":
     # Same-dir mkstemp (not a fixed ".tmp"): concurrent runs cannot collide, and
-    # a crash cannot strand a predictable file that cleanup.sh would then commit.
+    # a crash cannot strand a predictable file that cleanup.sh would then commit
+    # (cleanup commits only its owned paths, #749 — the issue dir is one of them).
     import tempfile
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or '.', prefix='.checklist-', suffix='.tmp')
     try:

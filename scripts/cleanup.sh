@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
+. "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"        # #749: owned-path commit, read-only git, mid-merge
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
@@ -245,16 +246,15 @@ if [ "$commit_devdoc" = "true" ]; then
     # #140: --porcelain reports untracked files too. A fresh Issue-NNN/ dir from
     # pull.sh this cycle is entirely untracked; the old `git diff` guard saw only
     # tracked modifications and silently skipped the commit.
-    # #611: scoped to devdoc_dir (`-- .`): from a subdirectory of the devDoc
-    # repo an unscoped -A stages the WHOLE worktree, including a workflow
-    # register at the repo root left dirty by a concurrent session. The
-    # register LAYER FILES are the drain's to commit, never this commit's: a
-    # layer the drain DEFERred on (dirty/untracked — another session's edit)
-    # must not be swept here under devagent@local (#611 review). Exclude
-    # every layer path that lives under devdoc_dir.
-    # FAIL CLOSED: a lookup that dies inside $( ) would leave excl empty and
-    # re-arm the sweep, so each rc is read in THIS shell and a failure refuses
-    # the whole devdoc commit (red-team #611).
+    # #611: the register LAYER FILES are the drain's to commit, never this
+    # commit's: a layer the drain DEFERred on (dirty/untracked — another
+    # session's edit) must not be committed here under devagent@local (#611
+    # review). Since #749 the commit takes only its owned paths, so it cannot
+    # carry a layer file; the layer paths under devdoc_dir are still looked up
+    # as exclude pathspecs.
+    # FAIL CLOSED: a lookup that dies inside $( ) would leave excl empty, so
+    # each rc is read in THIS shell and a failure refuses the whole devdoc
+    # commit (red-team #611).
     _dc="$(pwd -P)"; excl=(); _lk=1
     _lp_pr="$(potholes_project_path "$project")"  || _lk=0
     _lp_wf="$(potholes_workflow_path "$project")" || _lk=0
@@ -267,10 +267,23 @@ if [ "$commit_devdoc" = "true" ]; then
         case "$_lpc" in "$_dc"/*) excl+=(":(exclude)${_lpc#"$_dc"/}") ;; esac
     done
     unset _dc _lp _lpc _lp_pr _lp_wf
-    if [ "$_lk" -eq 1 ] && [ -n "$("$DEVAGENT_GIT" status --porcelain -- . "${excl[@]}")" ]; then
-        "$DEVAGENT_GIT" add -A -- . "${excl[@]}"
+    # #749: the commit carries ONLY the paths this cleanup owns (the issue dir,
+    # plus WBS.md when it changed) — never another issue's dir, a capture, or
+    # another project's staged edit. Both the add and the commit are
+    # pathspec-scoped: a pathspec-less commit would also take whatever another
+    # session had staged. devdoc_owned_pathspecs is the one definition of the set.
+    _own_rc=0
+    [ "$_lk" -eq 1 ] && { devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?; }
+    if [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 2 ]; then
+        warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped"
+    elif [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 0 ] \
+        && [ -n "$(devdoc_git_ro status --porcelain -- "${DEVDOC_OWNED[@]}")" ]; then
+        if devdoc_mid_merge .; then
+            die "cleanup: devdoc repository $(devdoc_repo_top .) is mid-merge (MERGE_HEAD present) - finish or abort the merge, then re-run /devagent:cleanup $project $issue_arg"
+        fi
+        "$DEVAGENT_GIT" add -A -- "${DEVDOC_OWNED[@]}"
         "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
-            commit -m "devdoc: $issue_arg cleanup"
+            commit -m "devdoc: $issue_arg cleanup" -- "${DEVDOC_OWNED[@]}"
         if "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then
             "$DEVAGENT_GIT" push origin HEAD 2>/dev/null || \
                 echo "warning: devdoc push failed; commit retained locally" >&2
