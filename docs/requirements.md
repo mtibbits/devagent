@@ -177,8 +177,8 @@ tracker.
 - SR-4: devagent leaves each issue's progress as an auditable trail in one
   per-issue directory.
 - SR-5: devagent serves several projects from one installation, with at
-  most one active issue per project, and always acts on the project the
-  operator or the chain meant.
+  most one active issue per project, and (planned) always acts on the
+  project the operator or the chain meant.
 - SR-6: devagent works against more than one issue tracker and code forge
   through one backend contract, and chooses a project's tracker and forge
   separately.
@@ -197,8 +197,8 @@ tracker.
   installation's health from one global config.
 - SR-13: devagent lets an autonomous caller work a shared issue queue with
   every outward action behind a permission gate and, when the host has one,
-  a trust policy, and no ticket text it has not screened steers the
-  workflow.
+  a trust policy, and (planned) no ticket text it has not screened steers
+  the workflow.
 - SR-14: devagent keeps configuration apart from artifact templates, and
   resolves each template from layered overrides so a new project needs none
   of its own.
@@ -208,8 +208,9 @@ tracker.
 - SR-16: devagent learns from finished issues: it records tagged lessons and
   a layered pothole register that later plans and checks read.
 - SR-17: devagent backs some workflow rules with opt-in Claude Code hooks.
-- SR-18: devagent's evidence can be taken at face value: each artifact names
-  the issue, tree, head and environment it measured.
+- SR-18: devagent's evidence can be taken at face value: a suite artifact
+  records the tree, head, branch and environment it measured in the issue's
+  own directory, and (planned) every other evidence artifact does too.
 - SR-19: devagent measures what each issue actually cost in tokens and
   time, and (planned) calibrates estimates against those actuals and
   forecasts completion from them.
@@ -647,16 +648,16 @@ tracker.
   session except through use, and report untracked files left after ship.
   {refines: SR-17}
 
-### Planned: screening tickets from a shared queue
+### Screening tickets from a shared queue
 
-Not yet fully delivered. Each requirement states a capability an open epic
-is building.
+Partly delivered. A requirement here that is not built yet starts with
+"(Planned.)", and a part not built yet is marked "(planned)".
 
-- FR-98: At pull, devagent acts on no ticket text, workflow flag or label
+- FR-98: (Planned.) At pull, devagent acts on no ticket text, workflow flag or label
   until the ticket has passed a deterministic floor, a provenance check from
   tracker history, and a screen by an isolated model session that holds no
   tools; missing history counts as unknown and quarantines. {refines: SR-13}
-- FR-99: The deterministic floor quarantines a ticket that is over the size
+- FR-99: (Planned.) The deterministic floor quarantines a ticket that is over the size
   limit, holds invisible or bidirectional control characters, or carries a
   steering key or label outside the policy's allowlist; the model screen can
   add a quarantine but never remove one. {refines: SR-13}
@@ -664,23 +665,23 @@ is building.
   refuses it on every machine, every entry point refuses it with one fixed
   message, and devagent re-reads quarantine state at every step and before
   every outward write. {refines: SR-13}
-- FR-101: devagent counts a release, an approval or a widening of bounds only
-  from a trusted approver who is not a worker identity, or from a
-  countersignature made with a security key that needs a human touch.
-  {refines: SR-13}
-- FR-102: devagent builds the statement of work only from the title, the body
+- FR-101: devagent counts a release only from a trusted approver who is not
+  a worker identity, and (planned) counts an approval or a widening of bounds
+  the same way, or from a countersignature made with a security key that
+  needs a human touch. {refines: SR-13}
+- FR-102: (Planned.) devagent builds the statement of work only from the title, the body
   and trusted comments, and no session that holds tools reads an untrusted
   comment. {refines: SR-13}
-- FR-103: devagent checks its own outward writes (pushes, MRs, claims,
+- FR-103: (Planned.) devagent checks its own outward writes (pushes, MRs, claims,
   comments, devdoc pushes, local merges) against the ticket's bounds for
   paths, destination, secrets and size before they leave the machine.
   {refines: SR-13}
-- FR-104: devagent claims an issue on the tracker at pull and verifies the
+- FR-104: (Planned.) devagent claims an issue on the tracker at pull and verifies the
   claim, so two workers never both proceed on one ticket. {refines: SR-13}
-- FR-105: With trust on, devagent records each issue's trust evaluation
-  (validated, approved or quarantined, with the text hash and the policy
-  digest) in its checklist, and every entry point refuses when a hardening
-  the policy requires is missing. {refines: SR-13}
+- FR-105: With trust on, every entry point refuses when a hardening the
+  policy requires is missing, and (planned) devagent records each issue's
+  trust evaluation (validated, approved or quarantined, with the text hash
+  and the policy digest) in its checklist. {refines: SR-13}
 
 ### Work breakdown from the shared tracker
 
