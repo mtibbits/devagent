@@ -8,6 +8,7 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 # own hermetic setup(); `load` only defines the helper functions (and re-sources
 # the idempotent hermetic-env guard).
 load 'helpers/common'
+load 'helpers/devdoc-repo'
 
 setup() {
   TMPROOT="$(mktemp -d)"
@@ -259,4 +260,54 @@ _seed_devdoc_repo() {
   [[ "$output" == *"mid-merge"* ]]
   [ "$(git -C "$TMPDEV" rev-parse HEAD)" = "$before" ]
   git -C "$TMPDEV" rev-parse -q --verify MERGE_HEAD
+}
+
+# --- #749: a failed devdoc commit is a failure, and the pin waits for it -------
+
+_seed_pin() {
+  bash -c "source $REPO/scripts/lib/paths.sh; source $REPO/scripts/lib/io.sh; \
+           source $REPO/scripts/lib/state.sh; state_init testproj; \
+           state_set testproj statusreport_last_pin '2026-05-01T00:00:00+00:00'"
+}
+_pin() {
+  python3 "$REPO/scripts/lib/_toml.py" get "$HOME/.claude/devagent/state/testproj.toml" statusreport_last_pin
+}
+
+@test "#749: a failed commit exits non-zero and leaves the pin" {
+  _seed_devdoc_repo
+  _flip_commit_devdoc_true
+  _seed_pin
+  printf '#!/bin/sh\nexit 1\n' > "$TMPDEV/.git/hooks/pre-commit"; chmod +x "$TMPDEV/.git/hooks/pre-commit"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"devdoc commit failed for $TMPDEV/StatusReports/"* ]]
+  [[ "$output" == *"git commit failed"* ]]
+  [[ "$output" == *"the pin is unchanged"* ]]
+  [ "$(_pin)" = "2026-05-01T00:00:00+00:00" ]
+}
+
+@test "#749: nothing to commit exits 0 and advances the pin" {
+  _seed_devdoc_repo
+  _flip_commit_devdoc_true
+  printf '# %s pin-free\nStuck: {{STUCK_COUNT}}\n' '{{PROJECT}}' > "$TMPROOT/pinfree.md"
+  _set_statusreport_template_override "$TMPROOT/pinfree.md"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  _seed_pin
+  run bash "$REPO/scripts/statusreport.sh" testproj          # same day, same bytes
+  [ "$status" -eq 0 ]
+  [ "$(_pin)" != "2026-05-01T00:00:00+00:00" ]
+}
+
+@test "#749: a held lock past the bound exits non-zero and leaves the pin" {
+  _seed_devdoc_repo
+  _flip_commit_devdoc_true
+  _seed_pin
+  lp="$(devdoc_lock_stub_holder "$TMPDEV" Issue-5)"
+  DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"$lp"* ]]
+  [[ "$output" == *"devdoc lock timeout"* ]]
+  [[ "$output" == *"re-run /devagent:statusreport testproj"* ]]
+  [ "$(_pin)" = "2026-05-01T00:00:00+00:00" ]
 }

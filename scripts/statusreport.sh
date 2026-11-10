@@ -239,24 +239,43 @@ filled = (
 print(filled, end="")
 PY
 
-if [[ $no_pin -eq 0 ]]; then
-  state_set_many "$project" str statusreport_last_pin "$now_iso" str statusreport_last_pin_by "${USER:-unknown}"
+# #749: report -> commit -> pin. The pin moves only once the report is
+# committed (or needed no commit, or commit_devdoc is false, or devdoc is not a
+# git repository); a failed commit is a non-zero exit that leaves it.
+_sr_commit_failed() {
+  die "statusreport: devdoc commit failed for $report_path - $1 - the report file is written but NOT committed and the pin is unchanged; fix the cause above and re-run /devagent:statusreport $project"
+}
+if [[ "$commit_devdoc" == "true" ]]; then
+  sr_git=0
+  devdoc_in_git "$devdoc_dir" >/dev/null || sr_git=$?
+  case "$sr_git" in
+    0)
+      trap devdoc_lock_release EXIT
+      sr_lk=0
+      devdoc_lock_acquire "$devdoc_dir" - "/devagent:statusreport $project" || sr_lk=$?
+      case "$sr_lk" in
+        0) ;;
+        1) _sr_commit_failed "devdoc lock timeout" ;;
+        *) _sr_commit_failed "lock location unknown" ;;
+      esac
+      devdoc_mid_merge "$devdoc_dir" && _sr_commit_failed "mid-merge (MERGE_HEAD present)"
+      # add AND commit name the report only — a pathspec-less commit would also
+      # take whatever another session had staged in the shared devDoc repo.
+      if [[ -n "$(devdoc_git_ro -C "$devdoc_dir" status --porcelain -- "StatusReports/${report_date}.md")" ]]; then
+        "$DEVAGENT_GIT" -C "$devdoc_dir" add -- "StatusReports/${report_date}.md" \
+          || _sr_commit_failed "git add failed"
+        "$DEVAGENT_GIT" -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" \
+          -- "StatusReports/${report_date}.md" || _sr_commit_failed "git commit failed"
+      fi
+      devdoc_lock_release
+      ;;
+    1) warn "statusreport: commit requested but devdoc is not a git repo" ;;
+    *) _sr_commit_failed "lock location unknown" ;;
+  esac
 fi
 
-if [[ "$commit_devdoc" == "true" ]]; then
-  if command -v "$DEVAGENT_GIT" >/dev/null && "$DEVAGENT_GIT" -C "$devdoc_dir" rev-parse >/dev/null 2>&1; then
-    # #749: add AND commit name the report only — a pathspec-less commit would
-    # also take whatever another session had staged in the shared devDoc repo.
-    if devdoc_mid_merge "$devdoc_dir"; then
-      warn "statusreport: devdoc repository is mid-merge (MERGE_HEAD present) - report not committed"
-    else
-      "$DEVAGENT_GIT" -C "$devdoc_dir" add -- "StatusReports/${report_date}.md" || true
-      "$DEVAGENT_GIT" -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" \
-        -- "StatusReports/${report_date}.md" || true
-    fi
-  else
-    warn "statusreport: commit requested but devdoc is not a git repo"
-  fi
+if [[ $no_pin -eq 0 ]]; then
+  state_set_many "$project" str statusreport_last_pin "$now_iso" str statusreport_last_pin_by "${USER:-unknown}"
 fi
 
 echo "Status Report — $project — $report_date"

@@ -13,4 +13,9 @@ Flags:
 Positional arguments follow the standard devAgent invocation grammar
 (§6.1). The report is written to
 `<devdoc>/StatusReports/YYYY-MM-DD.md` and committed to the devdoc
-repo iff `permissions.commit_devdoc=true`.
+repo iff `permissions.commit_devdoc=true`. The commit carries the report file
+only, under the devDoc repository lock (#749, spec §3.3). The pin advances
+only after the report is committed or needed no commit; a failed commit (lock
+held past its bound, a mid-merge repository, a failing `git add`/`git commit`)
+exits non-zero with the report file written but uncommitted and the pin
+unchanged — fix the named cause and re-run.

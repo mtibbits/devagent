@@ -4,6 +4,8 @@
 # tests/statusreport.bats, tests/devdoc-lock.bats and
 # tests/cleanup-concurrency.bats, after helpers/common.
 # shellcheck disable=SC2034  # variables are read by the bats files that load this helper
+# #338: every loaded setup layer sources the hermetic-env guard (pins / git config / TZ / locale).
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/hermetic-env.bash"
 
 # devdoc_parent_repo_fixture — re-init the devDoc repository one level ABOVE
 # devdoc_dir ($DEVAGENT_TMP/devdoc), the production shape where every project's
@@ -50,8 +52,11 @@ devdoc_lock_stub_holder() {
 # to $DEVAGENT_TMP/git-logging and print its path. Every call runs the real git
 # and appends one TAB-separated row to <log>:
 #   <subcommand> <GIT_OPTIONAL_LOCKS or -> <index mtime_ns before> <after> <repo toplevel or ->
+#   <holder pid> <holder issue> <holder cmd>
 # The toplevel is the repository the call ran in (cwd, or the -C target), so a
-# test can keep only the devDoc repository's rows.
+# test can keep only the devDoc repository's rows. The holder columns are the
+# #749 lock record of that repository at the time of the call (via the real
+# git), `-` when the lock is free.
 devdoc_git_logging_wrapper() {
     local log="$1" w="$DEVAGENT_TMP/git-logging"
     cat > "$w" <<EOF
@@ -71,15 +76,20 @@ while [ "$i" -le "$#" ]; do
     i=$((i + 1))
 done
 top="$(GIT_OPTIONAL_LOCKS=0 git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top=""
-idx=""
+idx="" holder=""
 if [ -n "$top" ]; then
     idx="$(GIT_OPTIONAL_LOCKS=0 git -C "$dir" rev-parse --absolute-git-dir 2>/dev/null)/index"
+    common="$(cd "$dir" && c="$(GIT_OPTIONAL_LOCKS=0 git rev-parse --git-common-dir 2>/dev/null)" && cd "$c" && pwd -P)"
+    holder="$common/devagent-devdoc.lock/holder"
 fi
 _mt() { [ -n "$1" ] && python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$1" 2>/dev/null || echo none; }
+_hf() { local v=""; [ -n "$holder" ] && v="$(sed -n "s/^$1=//p" "$holder" 2>/dev/null)"; printf '%s' "${v:--}"; }
 before="$(_mt "$idx")"
+h_pid="$(_hf pid)" h_issue="$(_hf issue)" h_cmd="$(_hf cmd)"
 git "$@"; rc=$?
 after="$(_mt "$idx")"
-printf '%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" >> "$log"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
+    "$h_pid" "$h_issue" "$h_cmd" >> "$log"
 exit "$rc"
 EOF
     chmod +x "$w"
@@ -90,9 +100,9 @@ EOF
 # wrapper logged for <repo> ran with GIT_OPTIONAL_LOCKS=0 and left the index
 # mtime unchanged; at least one such row exists (an absent call is not a pass).
 devdoc_assert_status_rows_readonly() {
-    local log="$1" repo n=0 sub ol b a top
+    local log="$1" repo n=0 sub ol b a top _rest
     repo="$(cd "$2" && pwd -P)"
-    while IFS=$'\t' read -r sub ol b a top; do
+    while IFS=$'\t' read -r sub ol b a top _rest; do
         [ "$sub" = status ] || continue
         [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$repo" ] || continue
         n=$((n + 1))

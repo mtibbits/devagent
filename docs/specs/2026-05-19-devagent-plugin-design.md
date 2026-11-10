@@ -2632,7 +2632,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   combined with it, and any unknown flag is a usage error. Exit `2` is a usage
   error, raised before any tracker call, or a value only the data can check
   (an `--epic` that names no epic, a calendar-invalid date), raised after
-  the read-only `issue-list` calls; `1` is any other failure. #706 also
+  the read-only `issue-list` calls; `1` is any other failure, a devDoc
+  lock held past its bound included (every `init` write, not `--survey`,
+  runs under the §3.3 lock, taken after the tracker calls; #749). #706 also
   hardened the JIRA search both verbs share: any `nextPageToken` seen
   before (a cycle, not only a repeat) or a 1000th page fails the call
   with `5`, which aborts the `wbs update` tracker phase (and cleanup's run).
@@ -2731,7 +2733,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   Last, it sorts each non-root node's children by the §13.1 ordering rule
   (#803) on every run, `--offline` and an aborted lookup included, unless
   `[project.<p>.wbs] order_on_update = false`. One write carries the
-  glyphs, the MR phase's values and the moves.
+  glyphs, the MR phase's values and the moves. That write alone runs under
+  the devDoc repository lock (§3.3, #749), after every tracker and MR call;
+  a lock held past its bound exits `1` with nothing written.
 - `/devagent:wbs order [--dry-run]` (#803) — sort each non-root node's
   children by the §13.1 ordering rule and write the result; `wbs update`
   runs the same pass by default. It honours `completed_last`, and ignores
@@ -2743,9 +2747,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   run; `1` a missing, unreadable or non-UTF-8 `WBS.md`, a failed
   `permuted_only` check (nothing written, and no diff) or a failed write;
   `2` an unknown flag or extra argument, an unknown project, an unset
-  `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. It
-  takes no lock yet: the WBS lock is #749's, whose caller list gains
-  `wbs order`.
+  `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. The
+  write runs under the devDoc repository lock (§3.3, #749); a lock held
+  past its bound exits `1`, and `--dry-run` takes none.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only;
   parse warnings on stderr, each once, whatever the filter (#865)
@@ -2793,7 +2797,9 @@ instead of writing the document; the view writes nothing.
 
 `~/.claude/devagent/state/<project>.statusreport.toml` holds the last
 pin timestamp. `/devagent:statusreport` rolls it forward to now;
-`--no-pin` runs read-only.
+`--no-pin` runs read-only. The pin moves only after the report is committed
+to devdoc (under the §3.3 repository lock, the report file alone) or needed
+no commit; a failed commit exits non-zero and leaves the pin (#749).
 
 ### 14.2 Data sources
 

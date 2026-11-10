@@ -152,6 +152,10 @@ devdoc_unowned_report() {
 # different states, register Issue-243 — never guessed as "outside git").
 devdoc_in_git() {
     local dir="$1" d c up
+    # resolve from the nearest EXISTING ancestor (a devdoc_dir not created yet)
+    while [ -n "$dir" ] && [ ! -d "$dir" ]; do
+        up="$(dirname "$dir")"; [ "$up" != "$dir" ] || break; dir="$up"
+    done
     if c="$(cd "$dir" 2>/dev/null && c="$(devdoc_git_ro rev-parse --git-common-dir 2>/dev/null)" \
             && [ -n "$c" ] && cd "$c" && pwd -P)" && [ -n "$c" ]; then
         printf '%s\n' "$c"
@@ -174,7 +178,8 @@ devdoc_lock_path() {
     c="$(devdoc_in_git "$1")" || rc=$?
     case "$rc" in
         0) printf '%s/devagent-devdoc.lock\n' "$c" ;;
-        1) printf '%s/.devagent-wbs.lock\n' "$(cd "$1" && pwd -P)" ;;
+        1) c="$(cd "$1" 2>/dev/null && pwd -P)" && [ -n "$c" ] || return 2   # the side lock needs the dir
+           printf '%s/.devagent-wbs.lock\n' "$c" ;;
         *) return 2 ;;
     esac
 }

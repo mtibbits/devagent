@@ -531,15 +531,31 @@ case "${1:-}" in
     doc_repo="$(_repo_of "$devdoc_dir" || true)"
     [ -n "$doc_repo" ] || { warn "promote-potholes: devdoc_dir $devdoc_dir is not inside a git repo — $issue_id stays pending"; exit 3; }
 
-    _parse_stage
-
     # Every rail for EVERY staged layer BEFORE any write, so a DEFER on the
     # second layer never strands a half-drained run. Locks are taken here and
-    # released by the EXIT trap — a die can never leak one.
-    LOCKS=()
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/potholes.XXXXXX")"    # one temp copy per layer lives here
-    _release() { local L; for L in "${LOCKS[@]}"; do rmdir "$L" 2>/dev/null || true; done; rm -rf "$tmp"; }
+    # released by the ONE EXIT trap — a die can never leak one. The devDoc
+    # repository lock (#749) is released first; under cleanup's hold this run
+    # is a reentrant child that neither took nor releases it.
+    LOCKS=(); tmp=""
+    _release() {
+        local L
+        devdoc_lock_release
+        for L in "${LOCKS[@]+"${LOCKS[@]}"}"; do rmdir "$L" 2>/dev/null || true; done
+        [ -z "$tmp" ] || rm -rf "$tmp"
+    }
     trap _release EXIT
+    # #749: the whole drain — rails, writes, layer commits — under the
+    # repository lock. A held lock DEFERs (rc 3) like every other rail.
+    pp_lk=0
+    devdoc_lock_acquire "$devdoc_dir" "$issue_id" "promote-potholes.sh $project $issue_dir --apply" || pp_lk=$?
+    if [ "$pp_lk" -ne 0 ]; then
+        warn "promote-potholes: the devdoc repository lock was not taken (see above) — $issue_id stays pending"
+        exit 3
+    fi
+
+    _parse_stage
+
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/potholes.XXXXXX")"    # one temp copy per layer lives here
     L_NAME=(); L_TARGET=(); L_REPO=(); L_REL=()
     for ly in workflow project; do
         case " ${OP_LAYER[*]} " in *" $ly "*) ;; *) continue ;; esac   # no op names this layer

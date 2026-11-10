@@ -27,6 +27,16 @@ the README's "Versioning & releases" section has the release procedure.
   other issues' dirs are no longer committed by a cleanup. Instead one line
   counts the unowned changed paths under `devdoc_dir`; it becomes a warning
   when a unit is older than 7 days and no session has it in flight.
+- **Changed: devDoc writers serialise on one repository lock (#749).** The
+  pothole drain (`promote-potholes.sh --apply`), `statusreport`, and
+  `wbs update`/`order`/`init` take a lock in the devDoc repository's git
+  common dir (outside git, `<devdoc_dir>/.devagent-wbs.lock`) around their
+  writes, never around a tracker call. A lock held past
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 120 s) names its holder and the
+  stale-lock remedy; `wbs` then exits 1 and `/devagent:updatewbs` marks its
+  step stuck, and a standalone drain defers (rc 3). `statusreport` now exits
+  non-zero when its commit fails and moves the pin only after a commit (or
+  when none was needed).
 
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`

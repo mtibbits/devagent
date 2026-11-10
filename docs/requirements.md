@@ -504,7 +504,9 @@ tracker.
   the tracker's issue state and the linked MRs, using the issue's checklist
   only to fill gaps, records which source it used, and adds the active issue
   unless a leaf names it or an exclusion line lists it. A failed lookup
-  changes nothing in its phase, warns once and exits zero. {refines: SR-9}
+  changes nothing in its phase, warns once and exits zero. It writes under
+  the devDoc repository lock, after every lookup, and exits non-zero when
+  the lock is held past its bound. {refines: SR-9}
 - FR-67: devagent sorts each parent's children by dependency, then
   inherited priority, then fan-out, moving whole blocks and never top-level
   nodes; it writes only a pure permutation, otherwise leaves the order and
@@ -519,8 +521,10 @@ tracker.
   dated file under the devdoc's `StatusReports/`, lists work done, stuck,
   idle and poorly scoped issues, failed red-teams, dispatch-lint rejects, a
   work-breakdown roll-up and velocity with an estimate labelled as noisy,
-  moves the pin unless told not to, and commits the report only when the
-  devdoc commit is permitted. {refines: SR-9}
+  commits the report file alone only when the devdoc commit is permitted,
+  and moves the pin, unless told not to, only after the report is committed
+  or needed no commit; a failed commit exits non-zero and leaves the pin.
+  {refines: SR-9}
 
 ### The portfolio
 

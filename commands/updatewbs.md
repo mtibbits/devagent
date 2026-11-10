@@ -16,6 +16,16 @@ workflow chaining (`--auto`, `--through`) and skill mapping can
 reference a single verb. Like `/devagent:wbs update`, this step also sorts
 each parent's children by dependency, then priority (#803).
 
+**A non-zero exit is not done (#749).** `wbs.sh update` exits 1 when it could
+not write `WBS.md` — for example the devDoc repository lock was held past
+its bound (spec §3.3). Then print its stderr verbatim and STOP: do not mark
+the step `x` and do not run the completion handoff. Mark it stuck instead,
+which ends an `--auto` chain:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" --name updatewbs "$ISSUE_DIR" "<first stderr line>"
+```
+
 ## Completion handoff
 
 First, **mark this step done** — `next.sh` keys off the checklist mark

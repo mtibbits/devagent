@@ -166,6 +166,8 @@ source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/active.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/trust.sh"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
 
 if_exists=0
 offline=0
@@ -230,7 +232,9 @@ fi
 # source table still reaches the shared codec (#792).
 backend_dir="${DEVAGENT_ISSUE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/issue}"
 trk_tmp="$(mktemp -d)"
-trap 'rm -rf "$trk_tmp"' EXIT
+# ONE EXIT trap: the #749 lock (held only around the write below) and the
+# fetch temp dir.
+trap 'devdoc_lock_release; rm -rf "$trk_tmp"' EXIT
 trk_env=()
 
 _trk_fetch() {
@@ -688,6 +692,11 @@ if [[ "$mr_status" == ready ]]; then
   fi
 fi
 
+# #749: only the write is held — every tracker and MR call above ran unheld
+# (no network under the devDoc lock). The reconcile re-reads WBS.md inside the
+# hold, so it decides from the file as it is now.
+devdoc_lock_acquire "$devdoc_dir" "${active_issue:--}" "/devagent:wbs update $project" || exit 1
 _reconcile apply
+devdoc_lock_release
 
 info "wbs update: reconciled $wbs against the tracker, linked MRs and issue checklists"
