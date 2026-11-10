@@ -26,6 +26,9 @@ source "$SCRIPT_DIR/lib/template_resolve.sh"
 source "$SCRIPT_DIR/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/permission.sh"
+: "${DEVAGENT_GIT:=git}"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: report-only commit, mid-merge check
 
 no_pin=0
 window_weeks=4
@@ -241,9 +244,16 @@ if [[ $no_pin -eq 0 ]]; then
 fi
 
 if [[ "$commit_devdoc" == "true" ]]; then
-  if command -v git >/dev/null && git -C "$devdoc_dir" rev-parse >/dev/null 2>&1; then
-    git -C "$devdoc_dir" add "StatusReports/${report_date}.md" || true
-    git -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" || true
+  if command -v "$DEVAGENT_GIT" >/dev/null && "$DEVAGENT_GIT" -C "$devdoc_dir" rev-parse >/dev/null 2>&1; then
+    # #749: add AND commit name the report only — a pathspec-less commit would
+    # also take whatever another session had staged in the shared devDoc repo.
+    if devdoc_mid_merge "$devdoc_dir"; then
+      warn "statusreport: devdoc repository is mid-merge (MERGE_HEAD present) - report not committed"
+    else
+      "$DEVAGENT_GIT" -C "$devdoc_dir" add -- "StatusReports/${report_date}.md" || true
+      "$DEVAGENT_GIT" -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" \
+        -- "StatusReports/${report_date}.md" || true
+    fi
   else
     warn "statusreport: commit requested but devdoc is not a git repo"
   fi

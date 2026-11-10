@@ -227,3 +227,36 @@ _rollup_of() {
   cmp "$TMPROOT/a.txt" "$TMPROOT/b.txt"
   grep -qxF -- '- Remaining WBS leaves: 3' "$TMPROOT/a.txt"
 }
+
+# --- #749: the devdoc commit holds only the report -----------------------------
+
+# A devdoc repo with one seed commit (so a merge can be in progress).
+_seed_devdoc_repo() {
+  ( cd "$TMPDEV" && git -c init.defaultBranch=main init -q && git config user.email "t@x" \
+    && git config user.name "t" && git add -A && git commit -q -m seed )
+}
+
+@test "#749: statusreport's commit holds only its report" {
+  _seed_devdoc_repo
+  _flip_commit_devdoc_true
+  printf 'foreign\n' > "$TMPDEV/other.txt"
+  git -C "$TMPDEV" add other.txt                       # another session's staged file
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [ "$status" -eq 0 ]
+  run git -C "$TMPDEV" show --name-only --format= HEAD
+  [ "$output" = "StatusReports/$(date -u +'%Y-%m-%d').md" ]
+  run git -C "$TMPDEV" status --porcelain -- other.txt
+  [ "$output" = "A  other.txt" ]
+}
+
+@test "#749: statusreport names a mid-merge devdoc repository" {
+  _seed_devdoc_repo
+  _flip_commit_devdoc_true
+  ( cd "$TMPDEV" && git checkout -q -b side && printf 's\n' > side.txt && git add side.txt \
+    && git commit -q -m side && git checkout -q main && git merge -q --no-commit --no-ff side )
+  before="$(git -C "$TMPDEV" rev-parse HEAD)"
+  run bash "$REPO/scripts/statusreport.sh" testproj
+  [[ "$output" == *"mid-merge"* ]]
+  [ "$(git -C "$TMPDEV" rev-parse HEAD)" = "$before" ]
+  git -C "$TMPDEV" rev-parse -q --verify MERGE_HEAD
+}
