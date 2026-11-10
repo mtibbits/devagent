@@ -6,9 +6,11 @@ once by hand when the file was written. Its format is
 https://github.com/mtibbits/gantry/blob/main/docs/requirements-format.md.
 
 The guard transcribes the reader's candidate rule (an ID-shaped list item that
-is not a requirement) and its meta-block rule, with exactly two deliberate,
-stricter deltas: it scans fenced lines too, and a requirement must start at
-column 0 (the reader reports a nested item only under another item).
+is not a requirement) and its meta-block rule, with exactly three deliberate,
+stricter deltas: it scans fenced lines too, a requirement must start at
+column 0 (the reader reports a nested item only under another item), and a
+`needs:` target in another namespace reads as undefined (the reader resolves
+it in that namespace's file).
 
 Standard library only: no gantry import, so the devagent suite stays
 self-contained.
@@ -447,6 +449,7 @@ def test_planted_scanners():
     "- FR-1: see {key: value} here", "- FR-1: a {foo: x}", "- FR-1: a {needs: [FR-2]}",
     "- FR-1: a {refines: SR-1} {refines: SR-2}", "- FR-1: a {refines: SR-1",
     "- FR-1: a {refines: [SR-1]}", "- FR-1: a {refines: SR-1, refines: SR-2}",
+    "- FR-1: a {refines: }",
 ])
 def test_planted_bad_meta_is_flagged(planted):
     assert len(meta_problems(planted)) == 1, meta_problems(planted)
@@ -492,9 +495,12 @@ PLANTED_USE_CASES = """\
 - UC-6: a scalar. {needs: FR-1}
 - UC-7: spaced. { needs : [FR-1] }
 - UC-8: combined. {needs: [devagent:FR-1], refines: FR-1}
+- UC-9: the block follows a nested item, so the reader reads none.
+  - a sub-item
+  more text. {needs: [FR-1]}
 """
 
 
 def test_planted_use_case_needs():
     problems = needs_problems(PLANTED_USE_CASES)
-    assert sorted(p.split(":")[0] for p in problems) == ["UC-1", "UC-2", "UC-3"], problems
+    assert sorted(p.split(":")[0] for p in problems) == ["UC-1", "UC-2", "UC-3", "UC-9"], problems

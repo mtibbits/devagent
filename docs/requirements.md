@@ -210,9 +210,9 @@ tracker.
 - SR-17: devagent backs some workflow rules with opt-in Claude Code hooks.
 - SR-18: devagent's evidence can be taken at face value: each artifact names
   the issue, tree, head and environment it measured.
-- SR-19: (Planned.) devagent measures what each issue actually cost in tokens and
-  time, calibrates estimates against those actuals, and forecasts
-  completion from them.
+- SR-19: devagent measures what each issue actually cost in tokens and
+  time, and (planned) calibrates estimates against those actuals and
+  forecasts completion from them.
 - SR-20: (Planned.) devagent runs two or more issues of one project at once, each in
   its own worktree and session, and no issue measures or commits another's
   work.
@@ -397,9 +397,10 @@ tracker.
   reports, blocks every later step on CI that is not green, or is off.
   {refines: SR-1}
 - FR-43: The mergetoall step squash-merges the issue branch into the
-  project's local all-PRs branch. When an MR is recorded it proceeds only on
-  green CI, or on no checks after a grace period, and only when the local
-  branch is the head CI checked; red CI marks it stuck with the failing line.
+  project's local all-PRs branch. When an MR is recorded and the project's
+  CI gate is not off, it proceeds only on green CI, or on no checks after a
+  grace period, and only when the local branch is the head CI checked; red
+  CI marks it stuck with the failing line.
   It does not close the PR. {refines: SR-1}
 - FR-44: The mergemr step merges the PR only when the project's merge gate
   is exactly `true` and only at the head preship verified. Otherwise it marks
@@ -511,7 +512,8 @@ tracker.
   or milestone on request, and reports each parse warning once on stderr.
   {refines: SR-9}
 - FR-69: devagent keeps the `satisfies`, `objective` and `h` keys of a
-  `WBS.md` node as written and never acts on them. {refines: SR-9}
+  `WBS.md` node as written, validates and publishes them, and makes no
+  workflow decision from them. {refines: SR-9}
 - FR-70: devagent's status report covers the time since the last pin in a
   dated file under the devdoc's `StatusReports/`, lists work done, stuck,
   idle and poorly scoped issues, failed red-teams, dispatch-lint rejects, a
@@ -598,7 +600,8 @@ tracker.
 - FR-86: A permission gate that is not `true` makes the script that would
   act ask first when a terminal can answer, and refuse with a non-zero exit
   when none can, unless the operator set `DA_YES=1` for that run. The
-  `merge_mr` and `transition_issue` gates never ask, and a closed
+  `merge_mr` and `transition_issue` gates never ask, filing never asks and
+  proceeds past a closed gate only with `--yes`, and a closed
   `commit_devdoc` gate skips the devdoc commit. devagent never changes a
   permission in its config itself.
   {refines: SR-13}
@@ -679,7 +682,7 @@ is building.
   digest) in its checklist, and every entry point refuses when a hardening
   the policy requires is missing. {refines: SR-13}
 
-### Planned: work breakdown from the shared tracker
+### Work breakdown from the shared tracker
 
 - FR-106: When the tracker closes an issue, devagent marks its leaf done, or
   skipped when it was closed as not planned. {refines: SR-9}
@@ -688,7 +691,10 @@ is building.
 - FR-108: devagent counts a leaf with no usable time estimate as unestimated,
   never as zero. {refines: SR-10}
 
-### Planned: actuals, estimates and forecasts
+### Actuals, estimates and forecasts
+
+Partly delivered. A requirement here that is not built yet starts with
+"(Planned.)", and a part not built yet is marked "(planned)".
 
 - FR-109: devagent attributes token cost to a project and issue, and to each
   workflow step, across worktrees, and places cost that belongs to no issue
@@ -697,33 +703,33 @@ is building.
   store partitioned by host, so its actuals outlive the transcripts' own
   retention. {refines: SR-19}
 - FR-111: devagent reports agent time and operator time per issue, apart from
-  calendar time, and records each issue's milestones from checklists, the
-  tracker and MRs. {refines: SR-19}
-- FR-112: devagent publishes per-issue actuals as a source the portfolio
+  calendar time, and (planned) records each issue's milestones from
+  checklists, the tracker and MRs. {refines: SR-19}
+- FR-112: (Planned.) devagent publishes per-issue actuals as a source the portfolio
   document reads. {refines: SR-19}
-- FR-113: devagent's work-breakdown key contract defines an agent-time
-  estimate, a token estimate and a range form, and classifies every estimate
-  value as absent, placeholder, time, non-time or unparseable.
+- FR-113: devagent's work-breakdown key contract classifies every estimate
+  value as absent, placeholder, time, non-time or unparseable, and (planned)
+  defines an agent-time estimate, a token estimate and a range form.
   {refines: SR-19}
-- FR-114: devagent records a structured estimate at the scope step, confirms
+- FR-114: (Planned.) devagent records a structured estimate at the scope step, confirms
   it at the tighten step, copies it onto the issue's leaf, and compares it
   with the actuals at the impact step. {refines: SR-19}
-- FR-115: devagent publishes each project's calibration pairs (actual over
+- FR-115: (Planned.) devagent publishes each project's calibration pairs (actual over
   estimate, for agent time and tokens) with their sample count, and reports
   open leaves without a usable estimate. {refines: SR-19}
-- FR-116: devagent proposes a derived estimate for an unestimated leaf from
+- FR-116: (Planned.) devagent proposes a derived estimate for an unestimated leaf from
   closed work and writes it only after the operator approves; it records
   provenance per estimate key and never rewrites an estimate the operator
   wrote. {refines: SR-19}
-- FR-117: devagent reads the operator's declared capacity (operator hours, a
+- FR-117: (Planned.) devagent reads the operator's declared capacity (operator hours, a
   token budget, a shared lane pool, and each project's priority, lane cap,
   paused flag, deadline and reservations), and doctor fails on an invalid
   declaration, naming the key. {refines: SR-19}
-- FR-118: devagent forecasts each project's completion by simulation over
+- FR-118: (Planned.) devagent forecasts each project's completion by simulation over
   dependencies and declared capacity, reports a median and a conservative
   date or the reason it cannot, and names the resource that binds the
   forecast, operator attention included. {refines: SR-19}
-- FR-119: devagent records each forecast with its inputs, scores it later
+- FR-119: (Planned.) devagent records each forecast with its inputs, scores it later
   against outcomes, and ships its forecast engine in a form a browser page can
   re-run with an edited capacity. {refines: SR-19}
 
@@ -779,15 +785,18 @@ is building.
   structured number that the scope log, the status report and the portfolio
   read. {refines: SR-21}
 
-### Planned: evidence integrity and scope resolution
+### Evidence integrity and scope resolution
+
+Partly delivered. A requirement here that is not built yet starts with
+"(Planned.)".
 
 - FR-133: devagent marks or refuses evidence made in an environment that
   cannot give authoritative results, and from a clone behind its remote
   branch; preship refuses, rather than warns, when it cannot verify the
   checkout a record measured. {refines: SR-18}
-- FR-134: The analyzers, the born-red check and the scope record measure the
+- FR-134: (Planned.) The analyzers, the born-red check and the scope record measure the
   issue's own worktree and stamp its head and branch. {refines: SR-18}
-- FR-135: Every project-resolving entry point rejects a project name that is
+- FR-135: (Planned.) Every project-resolving entry point rejects a project name that is
   not configured before it writes any state, refuses a stale project value
   left in the session environment, and resolves the right project from a
   linked git worktree; capture, reap and file take their project and paths
@@ -824,7 +833,9 @@ is building.
 - QA-6: Portability across backends: the same workflow runs against GitHub,
   GitLab and JIRA trackers and GitHub and GitLab forges, every backend gives
   the same Markdown shape for an issue and its comments and the same exit
-  codes, and one shared contract suite checks them.
+  codes, and one shared contract suite checks them. Two parts are GitHub
+  only so far: the merge step, and the account and change-event reads the
+  trust policy needs.
 - QA-7: Portability across hosts: devagent runs on Linux and WSL, and its
   scripts behave the same under any POSIX awk and normalise CRLF output and
   backslash paths before matching; native Git Bash runs the plugin but not
@@ -835,8 +846,10 @@ is building.
   file.
 - QA-9: Session isolation: sessions pinned to different projects, or to
   different issues of one project, never read or write each other's
-  per-issue state, never move the shared pointer, and never commit or
-  overwrite each other's files.
+  per-issue state and never move the shared pointer. Sessions pinned to
+  different projects also never commit or overwrite each other's source
+  files; sessions on one project share its checkout until lanes (SR-20)
+  separate them.
 - QA-10: Analyzer build directories are keyed by project and issue, so
   concurrent chains on one source tree never share one.
 - QA-11: Fail closed: an ambiguous setting, an undecidable state or a check
@@ -916,7 +929,7 @@ is building.
 - EI-4: Claude Code plugin host: devagent exposes slash commands and skills,
   dispatches its bound checker agents and a planner as subagents and reads
   their reports back as text, registers opt-in hooks, declares enable-time
-  config options, and grants itself only its own script calls.
+  config options, and grants itself no Bash call but its own scripts.
 - EI-5: The global config `config.toml`: devagent reads defaults, global
   paths, the transcript archive and one table per project (source and devdoc
   locations, permission gates, issue and code sources, tracker stage
@@ -978,8 +991,8 @@ is building.
 - EI-24: Actuals, calibration and forecast documents (planned): devagent
   writes per-issue cost, time and milestones, per-project calibration pairs,
   and forecasts with their inputs, for the portfolio and other tools to read.
-- EI-25: The operator's private name list: devagent reads it by path only, to
-  scan tracker posts for private names before they are sent.
+- EI-25: The operator's private name list (planned): devagent reads it by
+  path only, to scan tracker posts for private names before they are sent.
 - EI-26: The public documentation site: devagent's onboarding pages,
   published from the repository.
 
@@ -1007,7 +1020,7 @@ From the design spec's permission gates and gates under trust:
   chaining layer.
 - CON-8: Neither `--auto` nor the operator's note can suppress or override a
   gate; only an edit to the config changes one.
-- CON-9: The gates are `push_mr` (ship), `merge_mr` (mergemr),
+- CON-9: The gates are `push_mr` (ship and file), `merge_mr` (mergemr),
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
   cleanup and the status report) and `transition_issue` (every tracker
   transition). The spec also lists `cleanup_on_merge`, for a cleanup after
@@ -1057,8 +1070,8 @@ From CONTRIBUTING and the commit conventions (devagent's own repository):
 - CON-25: Docs travel with the change: a change to what a command does
   updates its command body and the README's command table in the same PR,
   and a change to what a requirement states updates this file.
-- CON-26: Command and skill bodies grant only the quoted plugin-scripts Bash
-  form; a wider tool grant is never added.
+- CON-26: The only Bash grant in a command or skill body is the quoted
+  plugin-scripts form, and that grant is never widened.
 
 From SECURITY:
 
