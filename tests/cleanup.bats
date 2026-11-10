@@ -1030,6 +1030,20 @@ EOF
     grep -qxF -- '  - [~] Working leaf {issue: Issue-1, est: 1w}' "$DEVDOC_DIR/WBS.md"
 }
 
+@test "#749: a devdoc_dir configured in another letter case still commits (case-insensitive filesystems)" {
+    alt="$(dirname "$DEVDOC_DIR")/TESTPROJ"
+    [ -d "$alt" ] || skip "case-sensitive filesystem: $alt is not $DEVDOC_DIR"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.devdoc_dir" "$alt"
+    before="$(git -C "$DEVDOC_DIR" rev-parse HEAD)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"devdoc commit skipped"* ]]
+    [[ "$output" != *"unowned"* ]]
+    [ "$(git -C "$DEVDOC_DIR" rev-list --count "$before"..HEAD)" -eq 1 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"Issue-1/checklist.md"* ]]
+}
+
 @test "#749: commit_devdoc=false closes with no lock taken" {
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
     devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2

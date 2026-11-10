@@ -9,7 +9,7 @@ Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" $ARGUMENTS` with the user's arg
 Lock (#749): `init`, `update` and `order` write `WBS.md` under the devDoc
 repository lock (spec §3.3), taken after any tracker call; each exits `1`
 naming the lock, its holder and the stale-lock remedy when it is held past
-`DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 120 s). `order --dry-run` and
+its bound (`DEVAGENT_DEVDOC_LOCK_TIMEOUT`, spec §3.3). `order --dry-run` and
 `init --survey` write nothing and take no lock. Every write replaces
 `WBS.md` atomically; when another program keeps it open for more than about
 8 s the write is abandoned with nothing changed, and `update`/`init` exit `1`

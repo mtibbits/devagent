@@ -25,17 +25,22 @@ devdoc_repo_top() {
     ( cd "$top" 2>/dev/null && pwd -P )
 }
 
-# _devdoc_rel <repo_top> <path> — <path> relative to <repo_top>, both
-# canonicalised; rc 1 when <path> is outside it. <path>'s parent must exist.
+# _devdoc_rel <repo_top> <path> — <path> relative to <repo_top> (from
+# devdoc_repo_top); rc 1 when <path> is outside it. <path>'s parent must exist.
+# Git derives both the prefix and the toplevel, never a string compare of a
+# typed path: on a case-insensitive filesystem a config path in another
+# letter case (or a junction / 8.3 form) names the same directory, and
+# `pwd -P` keeps the typed form while git reports the on-disk one.
 _devdoc_rel() {
-    local top="$1" p="$2" c
-    if [ -d "$p" ]; then
-        c="$(cd "$p" && pwd -P)" || return 1
-    else
-        c="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$(basename "$p")" || return 1
-    fi
-    [ "$c" = "$top" ] && { printf '.\n'; return 0; }
-    case "$c" in "$top"/*) printf '%s\n' "${c#"$top"/}" ;; *) return 1 ;; esac
+    local top="$1" p="$2" d leaf="" pre t
+    if [ -d "$p" ]; then d="$p"; else d="$(dirname "$p")"; leaf="$(basename "$p")"; fi
+    [ -d "$d" ] || return 1
+    t="$(devdoc_repo_top "$d")" || return 1
+    [ "$t" = "$top" ] || return 1
+    pre="$(devdoc_git_ro -C "$d" rev-parse --show-prefix 2>/dev/null)" || return 1
+    pre="${pre%/}"
+    if [ -n "$leaf" ]; then pre="${pre:+$pre/}$leaf"; fi
+    printf '%s\n' "${pre:-.}"
 }
 
 # devdoc_owned_pathspecs <devdoc_dir> <issue_dir> — fill DEVDOC_OWNED=() with
