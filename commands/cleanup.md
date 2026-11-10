@@ -169,6 +169,44 @@ an issue dir with a `[context]` table, a parked entry, or the shared
 `active_issue`). Then it is a warning that names the stale units — commit or
 remove them by hand. Captures are no longer committed by any cleanup.
 
+## Order, the repository lock, and a failed close (#749)
+
+After the gates and the source-tree restore, cleanup runs in this order:
+
+- **The register drain** — under the devDoc repository lock (spec §3.3) when
+  the staging file is pending, `commit_devdoc` is true and the devDoc is a git
+  repository; the drain runs as a child that reuses cleanup's hold, so cleanup
+  is the recorded holder of its layer commits. The lock is released after it.
+- **The mark and the log line** — the cleanup row is marked done and logged
+  (`tree restored; devdoc commit and state GC follow`) BEFORE the commit, so
+  the commit carries them.
+- **The WBS reconcile** — unheld; `wbs update` takes the lock for its own
+  write, after its tracker calls. The closing issue is still in the shared
+  slot at this point, so cleanup passes `--skip-state-slot`: the auto-add
+  candidate resolves as it always has at close (a pin still wins).
+- **The devdoc commit and the state GC** — under the lock again: the
+  register-layer lookup, the unowned report, the owned-path commit, then the
+  state GC (the issue's `[context]` table, the shared slot it owns). The lock
+  is released before the push; the transcript archive runs last, unheld.
+
+No network call ever runs under the lock. With `commit_devdoc = false`, or a
+devDoc outside git, cleanup takes no lock (the drain defers as before) and
+runs the GC unheld.
+
+A close that fails after the row is marked never reads as closed. A lock held
+past `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (its holder and the stale-lock remedy are
+printed), a devDoc lock location that cannot be determined, a mid-merge
+repository, a failing `git add`/`git commit` (another writer's `index.lock`, a
+failing hook), or any other abort after the mark: the row goes back to `[~]`,
+a `cleanup_open: NOT closed - <reason>` log line is appended, the issue's state
+is kept (the GC runs only after the commit), and cleanup exits 1 with
+`cleanup: <reason> - the cleanup step is left [~] …; fix the cause above and
+re-run /devagent:cleanup <project> <issue>`. Under `--auto` that ends the
+chain with the message last; the re-run picks the `[~]` row up. A failed close
+is also not counted as completed by `/devagent:statusreport`. A failed
+register drain is not such a close: it dies before the mark, as before, and a
+layer lookup that refuses the commit still completes the close.
+
 ## Transcript archive (#731)
 
 When the global `[archive].transcripts_dir` is set, cleanup runs

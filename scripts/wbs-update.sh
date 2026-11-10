@@ -150,6 +150,13 @@
 #   --offline     no tracker or MR lookup; reconcile from local checklists
 #                 only, holding MR-set glyphs. DEVAGENT_WBS_OFFLINE=1 does
 #                 the same (cleanup.sh's call cannot take a flag).
+#   --skip-state-slot
+#                 cleanup's call (#749); the closing issue is still in the
+#                 shared slot. The auto-add candidate resolves as before but
+#                 skips ONLY the state-slot rung: an explicit arg or env pin
+#                 still wins, and otherwise the most recent incomplete
+#                 checklist is scanned, exactly the close-time resolution
+#                 from before #749 (when the slot was already blank).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -171,12 +178,14 @@ source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
 
 if_exists=0
 offline=0
+skip_state_slot=0
 [[ "${DEVAGENT_WBS_OFFLINE:-}" == 1 ]] && offline=1
 project_arg=""
 for arg in "$@"; do
   case "$arg" in
     --if-exists) if_exists=1 ;;
     --offline) offline=1 ;;
+    --skip-state-slot) skip_state_slot=1 ;;
     --*) warn "wbs update: ignoring unknown flag '$arg'" ;;
     *)
       if [[ -z "$project_arg" ]]; then
@@ -218,7 +227,21 @@ parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
 tracker_lib="$PLUGIN_ROOT/scripts/lib/wbs-tracker.py"
 [[ -f "$tracker_lib" ]] || die "wbs-tracker.py not found at $tracker_lib"
 
-active_issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+if (( skip_state_slot == 1 )); then
+  # #749: the resolver in a subshell (an invalid pin dies there, as the
+  # unflagged call's $(...) swallows it); a state-slot answer falls through to
+  # the scan rung.
+  active_issue="$(
+    active_resolve_issue_src "$project" || exit 0
+    if [[ "$ACTIVE_ISSUE_RESOLVED_FROM" == state ]]; then
+      active_scan_recent_incomplete "$project" || true
+    else
+      printf '%s\n' "$ACTIVE_RESOLVED_ISSUE"
+    fi
+  )" 2>/dev/null || active_issue=""
+else
+  active_issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+fi
 if [[ "$active_issue" == "null" || "$active_issue" == '""' ]]; then
   active_issue=""
 fi

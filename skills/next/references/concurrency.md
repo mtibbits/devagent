@@ -49,6 +49,16 @@ sessions can no longer launder one issue's keys into another. The sole
 residual is the last-writer-wins PICK of the `active_issue` scalar itself —
 avoided entirely by a per-session issue pin.
 
+Sessions also share the devDoc REPOSITORY. Since #749 every devagent write
+into it — cleanup's devdoc commit and state GC, the register drain,
+`statusreport`'s commit, and `wbs update`/`order`/`init` — serialises on one
+lock in the repository's git common dir, and each commit carries only the
+paths its writer owns. A second session waits (one `waiting for devdoc lock`
+line naming the holder) up to `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds, then
+stops naming the holder and the stale-lock remedy; a cleanup stopped that way
+leaves its row `[~]` and its state kept, ready to re-run. The lock, the
+holder record and the remedy are specified in spec §3.3.
+
 ## The per-session issue pin
 
 The per-session ISSUE pin is the sibling of the project pin above:

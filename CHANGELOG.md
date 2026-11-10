@@ -37,6 +37,16 @@ the README's "Versioning & releases" section has the release procedure.
   step stuck, and a standalone drain defers (rc 3). `statusreport` now exits
   non-zero when its commit fails and moves the pin only after a commit (or
   when none was needed).
+- **Changed: cleanup holds the devDoc lock and never reads closed on a failed
+  close (#749).** Cleanup takes the repository lock around the register drain
+  and again around its devdoc commit and the state GC, which now runs AFTER
+  the commit; the WBS reconcile and every tracker call run unheld, and the
+  lock is released before the push. A lock timeout, a mid-merge repository or
+  a failing `git add`/`git commit` after the row is marked returns the cleanup
+  row to `[~]`, logs `cleanup_open: NOT closed - <reason>`, keeps the issue's
+  state and exits 1 with the re-run command; statusreport does not count such
+  a close as completed. `wbs-update.sh --skip-state-slot` (cleanup's call)
+  keeps the close-time auto-add resolution unchanged.
 
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`

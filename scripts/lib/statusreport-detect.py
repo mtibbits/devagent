@@ -99,17 +99,29 @@ def is_idle(issue_dir: Path | str, last_step: int, threshold_days: int = 7) -> b
     return (_now() - most_recent) > timedelta(days=threshold_days)
 
 
+def _completing_cleanup(entries: list[dict]) -> Optional[dict]:
+    """The LAST `cleanup` entry with no later `cleanup_open` entry, or None.
+    #749: cleanup logs its line before the devdoc commit; a failed close then
+    logs `cleanup_open` and returns the row to [~], so an earlier `cleanup`
+    line alone does not mean the issue closed."""
+    done = None
+    for e in entries:
+        if e["step"] == "cleanup":
+            done = e
+        elif e["step"] == "cleanup_open":
+            done = None
+    return done
+
+
 def is_completed(issue_dir: Path | str) -> bool:
     entries = _parse_log_entries(Path(issue_dir) / "checklist.md")
-    return any(e["step"] == "cleanup" for e in entries)
+    return _completing_cleanup(entries) is not None
 
 
 def completion_timestamp(issue_dir: Path | str) -> Optional[datetime]:
     entries = _parse_log_entries(Path(issue_dir) / "checklist.md")
-    for e in entries:
-        if e["step"] == "cleanup":
-            return e["ts"]
-    return None
+    done = _completing_cleanup(entries)
+    return done["ts"] if done else None
 
 
 def inline_artifacts(issue_dir: Path | str) -> list[str]:

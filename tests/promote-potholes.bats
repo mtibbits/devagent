@@ -533,7 +533,7 @@ teardown() { devagent_test_teardown; }
     [[ "$output" == *"Issue-1 stays pending"* ]]
     grep -q '^status: pending' "$ID/potholes-promotion.md"
     [ "$(git -C "$DEVDOC_REPO" rev-parse HEAD)" = "$before" ]
-    ! grep -qF -- '- a neutral line (Issue-1).' "$PROJ_REG"
+    ! grep -qF -- '- a neutral line (Issue-1).' "$PROJ_REG" || false
 }
 
 @test "#749: standalone --apply records itself as holder during its layer commit" {

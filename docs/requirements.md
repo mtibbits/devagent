@@ -435,7 +435,10 @@ tracker.
   changes with one path-scoped commit per register file, commits the devdoc
   when permitted (or defers with a stated reason), archives session
   transcripts when an archive is configured, and clears the active issue; an
-  archive failure does not stop it. {refines: SR-1}
+  archive failure does not stop it. Its devdoc commit carries only the paths
+  the cleanup owns, reports the rest, and is serialised with every other
+  session's devdoc writes; a close whose lock or commit fails leaves the step
+  in progress with the issue's state kept, ready to re-run. {refines: SR-1}
 
 ### Parking, switching and resuming
 

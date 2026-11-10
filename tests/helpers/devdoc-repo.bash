@@ -52,16 +52,35 @@ devdoc_lock_stub_holder() {
 # to $DEVAGENT_TMP/git-logging and print its path. Every call runs the real git
 # and appends one TAB-separated row to <log>:
 #   <subcommand> <GIT_OPTIONAL_LOCKS or -> <index mtime_ns before> <after> <repo toplevel or ->
-#   <holder pid> <holder issue> <holder cmd>
+#   <holder pid> <holder issue> <holder cmd> <DEVAGENT_DEVDOC_LOCK_TOKEN or ->
 # The toplevel is the repository the call ran in (cwd, or the -C target), so a
 # test can keep only the devDoc repository's rows. The holder columns are the
 # #749 lock record of that repository at the time of the call (via the real
 # git), `-` when the lock is free.
 devdoc_git_logging_wrapper() {
-    local log="$1" w="$DEVAGENT_TMP/git-logging"
+    _devdoc_git_wrapper "$1" "" "$DEVAGENT_TMP/git-logging"
+}
+
+# devdoc_git_gate_wrapper <dir> — the logging wrapper (log: <dir>/git.log,
+# script: <dir>/git; prints the script path) that also OBEYS control files in
+# <dir> at every `commit` inside a repository — one <dir> per cleanup run:
+#   pause       touch <dir>/in-commit, then wait (<= 60 s) for <dir>/gate
+#   index-lock  create .git/index.lock before the first commit (a foreign
+#               writer's lock: the commit fails)
+#   ro-state    after the real commit, chmod a-w the devagent state dir (the
+#               test restores it)
+#   snap-state  copy the state dir to <dir>/state-snap before the commit
+devdoc_git_gate_wrapper() {
+    mkdir -p "$1"
+    _devdoc_git_wrapper "$1/git.log" "$1" "$1/git"
+}
+
+_devdoc_git_wrapper() {
+    local log="$1" ctl="$2" w="$3"
     cat > "$w" <<EOF
 #!/usr/bin/env bash
 log='$log'
+ctl='$ctl'
 EOF
     cat >> "$w" <<'EOF'
 dir="$PWD"; sub=""; i=1
@@ -86,10 +105,25 @@ _mt() { [ -n "$1" ] && python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_
 _hf() { local v=""; [ -n "$holder" ] && v="$(sed -n "s/^$1=//p" "$holder" 2>/dev/null)"; printf '%s' "${v:--}"; }
 before="$(_mt "$idx")"
 h_pid="$(_hf pid)" h_issue="$(_hf issue)" h_cmd="$(_hf cmd)"
+if [ -n "$ctl" ] && [ "$sub" = commit ] && [ -n "$top" ]; then
+    if [ -e "$ctl/index-lock" ] && [ ! -e "$ctl/index-lock.done" ]; then
+        : > "${idx}.lock"; : > "$ctl/index-lock.done"
+    fi
+    if [ -e "$ctl/snap-state" ]; then
+        rm -rf "$ctl/state-snap"; cp -r "$HOME/.claude/devagent/state" "$ctl/state-snap"
+    fi
+    if [ -e "$ctl/pause" ]; then
+        : > "$ctl/in-commit"
+        n=0; until [ -e "$ctl/gate" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done
+    fi
+fi
 git "$@"; rc=$?
+if [ -n "$ctl" ] && [ "$sub" = commit ] && [ -n "$top" ] && [ "$rc" -eq 0 ] && [ -e "$ctl/ro-state" ]; then
+    chmod a-w "$HOME/.claude/devagent/state"
+fi
 after="$(_mt "$idx")"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
-    "$h_pid" "$h_issue" "$h_cmd" >> "$log"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sub" "${GIT_OPTIONAL_LOCKS:--}" "$before" "$after" "${top:--}" \
+    "$h_pid" "$h_issue" "$h_cmd" "${DEVAGENT_DEVDOC_LOCK_TOKEN:--}" >> "$log"
 exit "$rc"
 EOF
     chmod +x "$w"
@@ -112,4 +146,58 @@ devdoc_assert_status_rows_readonly() {
         fi
     done < "$log"
     [ "$n" -ge 1 ] || { echo "no status row logged for $repo" >&2; return 1; }
+}
+
+# two_project_devdoc_fixture — after devagent_test_setup: two projects, projA
+# and projB, each with its own source repo (on feat/1-x, a local main to
+# restore to) and a closable Issue-1 (every row [x] but cleanup, a clean
+# lessons file) under ONE devDoc repository at $DEVAGENT_TMP/devdoc. Each
+# devdoc_dir holds a WBS.md whose Issue-1 leaf is [~]; a stub tracker reports
+# issue 1 done, so each cleanup's reconcile flips its own leaf. Replaces the
+# testproj config.
+two_project_devdoc_fixture() {
+    DEVDOC_REPO="$DEVAGENT_TMP/devdoc"
+    local cfg="$HOME/.claude/devagent/config.toml" p src doc
+    printf '[defaults]\nchecklist_template = "standard"\n' > "$cfg"
+    for p in projA projB; do
+        src="$DEVAGENT_TMP/src/$p"; doc="$DEVDOC_REPO/$p"
+        mkdir -p "$src" "$doc/Issue-1"
+        ( cd "$src" && git -c init.defaultBranch=main init -q && git config user.email t@example.com \
+          && git config user.name Tester && touch README.md && git add README.md && git commit -q -m init \
+          && git checkout -q -b feat/1-x )
+        cat >> "$cfg" <<EOF
+
+[project.$p]
+source_dir       = "$src"
+devdoc_dir       = "$doc"
+default_baseline = "origin/main"
+
+[project.$p.permissions]
+commit_devdoc = true
+
+[project.$p.issue_source]
+backend    = "github"
+repo       = "acme/$p"
+dir_prefix = "Issue-"
+EOF
+        printf 'active_issue = "Issue-1"\nissue_dir = "%s"\nbranch = "feat/1-x"\n\n[parked]\n' "$doc/Issue-1" \
+            > "$HOME/.claude/devagent/state/$p.toml"
+        sed -e 's/^- \[ \]/- [x]/' -e 's/^- \[x\]\( *23\. cleanup\)/- [ ]\1/' \
+            "$DEVDOC_DIR/Issue-1/checklist.md" > "$doc/Issue-1/checklist.md"
+        seed_lessons_learned "$doc/Issue-1"
+        printf '%s\n' "# $p WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$doc/WBS.md"
+    done
+    rm -rf "$DEVDOC_DIR"
+    ( cd "$DEVDOC_REPO" && git -c init.defaultBranch=main init -q && git config user.email t@example.com \
+      && git config user.name Test && git add -A && git commit -q -m seed )
+    . "$(dirname "${BASH_SOURCE[0]}")/wbs-tracker.bash"
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    printf '1\tdone\n' > "$DEVAGENT_TMP/state-list.github"
+    # a github source is looked up only with `gh` on PATH; the shim logs and
+    # fails, so a real backend call is caught instead of reaching the network
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    export PATH="$DEVAGENT_TMP/shims:$PATH"
+    unset DEVAGENT_ACTIVE_PROJECT DEVAGENT_ACTIVE_ISSUE
 }
