@@ -273,12 +273,11 @@ def _block_problems(code, block):
     return why
 
 
-def meta_problems(text):
-    """One 'line N: <reason>' per requirement whose meta blocks Gantry's reader
-    would report: a block it does not read (inside the text, or a second one),
-    an unclosed brace, or a read block it cannot use."""
+def _read_blocks(text):
+    """(line, bare ID, layer code, the meta block the reader reads or None,
+    [why the item's blocks are not clean]) for each requirement, in order."""
     lines = split_lines(text)
-    problems, seen = [], set()
+    seen = set()
     for n, m, c in _items(text):
         rid = c["code"] + "-" + c["digits"]
         if _reason(m, c) is not None or rid in seen:
@@ -312,7 +311,53 @@ def meta_problems(text):
             why.append("a meta block with an unclosed or nested brace")
         if block is not None:
             why += _block_problems(c["code"], block.group(0))
-        problems += [f"line {n}: {rid}: {w}" for w in why]
+        yield n, rid, c["code"], block, why
+
+
+def meta_problems(text):
+    """One 'line N: <reason>' per requirement whose meta blocks Gantry's reader
+    would report: a block it does not read (inside the text, or a second one),
+    an unclosed brace, or a read block it cannot use."""
+    return [f"line {n}: {rid}: {w}" for n, rid, _, _, why in _read_blocks(text) for w in why]
+
+
+def _refines_target(block):
+    """The bare own-namespace ID a block's scalar refines names, or None."""
+    for entry in _split(block[1:-1], ",") or []:
+        key, colon, value = entry.partition(":")
+        value = value.strip()
+        if colon and key.strip() == "refines" and not value.startswith("["):
+            value = _unquote(value)
+            if ":" not in value or value.startswith(NAMESPACE + ":"):
+                return value.removeprefix(NAMESPACE + ":")
+            return None  # another site's target: Gantry resolves it across files
+    return None
+
+
+def refines_problems(text):
+    """One 'line N: <reason>' per refines: link to an ID this file does not
+    define, and one per refines: cycle, as Gantry's reader reports them
+    (undefined_link, refines_cycle)."""
+    lines, targets = {}, {}
+    for n, rid, _, block, _ in _read_blocks(text):
+        lines[rid] = n
+        if block is not None:
+            targets[rid] = _refines_target(block.group(0))
+    problems = [f"line {lines[rid]}: {rid} refines {t}, which is not defined"
+                for rid, t in targets.items() if t is not None and t not in lines]
+    state = {}
+    for start in lines:
+        path, node = [], start
+        while node is not None and node not in state:
+            state[node] = "path"
+            path.append(node)
+            nxt = targets.get(node)
+            node = nxt if nxt in lines else None
+        if node is not None and state[node] == "path":
+            cycle = path[path.index(node):]
+            problems.append(f"line {min(lines[k] for k in cycle)}: refines cycle: {' -> '.join(cycle)}")
+        for key in path:
+            state[key] = "done"
     return problems
 
 
@@ -383,6 +428,11 @@ def test_meta_blocks_are_readable():
     assert problems == [], "\n".join(problems)
 
 
+def test_refines_resolve_without_cycles():
+    problems = refines_problems(own_text())
+    assert problems == [], "\n".join(problems)
+
+
 def test_no_html_comments():
     # The reader reads an ID item inside a comment as live, so the rendered
     # page and the read set would disagree.
@@ -435,6 +485,25 @@ def test_planted_bad_meta_is_flagged(planted):
 ])
 def test_planted_good_meta_is_clean(planted):
     assert meta_problems(planted) == []
+
+
+@pytest.mark.parametrize("planted", [
+    "- SR-1: s\n- FR-1: a {refines: SR-9}",
+    "- FR-1: a {refines: FR-1}",
+    "- FR-1: a {refines: FR-2}\n- FR-2: b {refines: FR-1}",
+    "- FR-1: a {refines: devagent:SR-9}",
+])
+def test_planted_bad_refines_is_flagged(planted):
+    assert len(refines_problems(planted)) == 1, refines_problems(planted)
+
+
+@pytest.mark.parametrize("planted", [
+    "- SR-1: s\n- FR-1: a {refines: SR-1}",
+    "- SR-1: s\n- FR-1: a {refines: devagent:SR-1}\n- FR-2: b {refines: FR-1}",
+    "- FR-1: a {refines: other:SR-9}",
+])
+def test_planted_good_refines_is_clean(planted):
+    assert refines_problems(planted) == []
 
 
 PLANTED_USE_CASES = """\
