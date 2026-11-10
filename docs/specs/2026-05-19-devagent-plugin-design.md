@@ -326,6 +326,45 @@ transient sharing violation), so the racing sites bounded-retry that
 transient error on Windows only (`_retry_windows_share`, #293); on POSIX
 the retry is a passthrough.
 
+#### devDoc repository lock (#749)
+
+The devDoc repository is shared by every project's `devdoc_dir` and by every
+concurrent session, so devagent's writes into it are serialised by ONE lock
+per repository (`scripts/lib/devdoc-repo.sh`):
+
+- **Location.** `<git common dir>/devagent-devdoc.lock/`, the common dir taken
+  from `git rev-parse --git-common-dir` and canonicalised (`pwd -P`), so every
+  linked worktree and every environment sharing the checkout (Git Bash, WSL
+  under `/mnt/c`) resolves the same directory. `mkdir` is the acquire (no
+  `flock` in Git Bash).
+- **Outside git.** With no `.git` entry at `devdoc_dir` or any ancestor, the
+  side lock `<devdoc_dir>/.devagent-wbs.lock/` is used (it still guards
+  `WBS.md` writes). A `.git` entry whose `rev-parse` fails is NOT treated as
+  outside git: the caller refuses with "cannot determine the devdoc lock",
+  naming the fix (git on PATH, `safe.directory`).
+- **Holder record.** `holder` inside the lock dir, six lines: `token=<pid>.<epoch
+  seconds>.<RANDOM>`, `pid=`, `host=`, `issue=` (or `-`), `start=` (UTC,
+  `%Y-%m-%dT%H:%M:%SZ`), `cmd=` (the script's basename).
+- **Reentrancy.** The holder exports `DEVAGENT_DEVDOC_LOCK_TOKEN`; a child whose
+  token is well-formed (`^[0-9]+\.[0-9]+\.[0-9]+$`) and equal to the record's
+  `token=` neither acquires nor releases. Any other token is ignored and the
+  child acquires on its own.
+- **Bound.** A contended acquire prints one `waiting for devdoc lock` line naming
+  the holder, polls every 0.2 s, and gives up after
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds (`^[0-9]{1,5}$`, default 120, `0` = one
+  attempt; any other value warns once and uses 120). This variable is defined
+  here only.
+- **Remedy.** The give-up message names the path and the holder and prints the
+  stale-lock removal `rm -f '<path>/holder' && rmdir '<path>'`, to run only when
+  no devagent run started at the recorded time is still running on that host,
+  in that environment (the pid is that shell's own, not a Windows pid). It
+  frees an empty lock dir and nothing else. Stale locks are never removed
+  automatically.
+- **No network under the lock.** A holder runs only local git and file writes;
+  tracker and forge calls happen before the acquire.
+- Release is the holder's EXIT trap; the pothole register's per-file
+  `<register>.lock` (the drain, #611) is unchanged and nests inside.
+
 Adjacent state files:
 
 - `~/.claude/devagent/state/<project>.statusreport.toml` — `last_pin`, `last_pin_by`

@@ -22,6 +22,30 @@ devdoc_parent_repo_fixture() {
       && git add -A && git commit -q -m seed )
 }
 
+# devdoc_lock_test_path <devdoc_dir> — where the #749 repository lock for
+# <devdoc_dir> lives, computed independently of the library under test: the
+# git common dir's devagent-devdoc.lock, or the side lock outside git.
+devdoc_lock_test_path() {
+    local d="$1" c
+    if c="$(cd "$d" && git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$c" ]; then
+        printf '%s/devagent-devdoc.lock\n' "$(cd "$d" && cd "$c" && pwd -P)"
+    else
+        printf '%s/.devagent-wbs.lock\n' "$(cd "$d" && pwd -P)"
+    fi
+}
+
+# devdoc_lock_stub_holder <devdoc_dir> <issue> — take the lock as a FOREIGN
+# holder (another session): the lock dir plus a holder record whose pid/host
+# are not ours. Prints the lock path.
+devdoc_lock_stub_holder() {
+    local p
+    p="$(devdoc_lock_test_path "$1")"
+    mkdir "$p"
+    printf '%s\n' 'token=4242.1700000000.7' 'pid=4242' 'host=otherhost' "issue=$2" \
+        'start=2026-11-01T10:00:00Z' 'cmd=cleanup.sh' > "$p/holder"
+    printf '%s\n' "$p"
+}
+
 # devdoc_git_logging_wrapper <log> — write an executable DEVAGENT_GIT stand-in
 # to $DEVAGENT_TMP/git-logging and print its path. Every call runs the real git
 # and appends one TAB-separated row to <log>:
