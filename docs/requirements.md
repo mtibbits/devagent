@@ -24,7 +24,9 @@ file. Links to other projects' requirements are left to Gantry's
 cross-project trace ([mtibbits/gantry#21](https://github.com/mtibbits/gantry/issues/21)).
 
 Workflow steps are named here by name, never by their position in the
-checklist: positions change when steps are added.
+checklist: positions change when steps are added. A requirement that is not
+yet delivered says so: it sits under a "Planned" heading, starts with
+"(Planned.)", or is marked "(planned)".
 
 ## Terms
 
@@ -96,10 +98,10 @@ tracker.
   {needs: [FR-1, FR-4, FR-6, FR-17, FR-20, FR-25, FR-28, FR-31, FR-33, FR-35, FR-38, FR-40, FR-44, FR-46, FR-51, EI-1, EI-2, EI-3, EI-7]}
 - UC-4: Run an issue unattended from pull to cleanup. The operator has pulled
   an issue and wants no questions between steps. They run the next step with
-  `--auto`. The chain runs every step it can, starts each phase in a fresh
-  session, and ends either at cleanup with the issue closed out, or at a step
-  that is stuck, waiting or gated, with the reason on screen and in the
-  checklist.
+  `--auto`. The chain runs every step it can without asking, and ends at
+  cleanup with the issue closed out; at a configured phase break, printing
+  the command that resumes it in a fresh session; or at a step that is
+  stuck, waiting or gated, with the reason on screen and in the checklist.
   {needs: [FR-5, FR-42, FR-44, FR-93, FR-86, QA-2, QA-3]}
 - UC-5: Recover a stuck step. A step failed and the checklist marks it stuck,
   with a STUCK file giving the reason. The operator reads the reason, fixes
@@ -156,8 +158,9 @@ tracker.
 - UC-13: Run sessions on two projects at once. The operator has two
   projects with active issues. They pin one session to each project and work
   both at the same time. Each session reads and writes only its own project's
-  state and issue, a command run against the wrong project is refused and
-  names both projects, and neither session moves the other's pointer.
+  state and issue, a command that names no project and runs from the other
+  project's tree is refused and names both projects, and neither session
+  moves the other's pointer.
   {needs: [FR-58, FR-94, QA-8, QA-9, EI-19]}
 
 ## System requirements
@@ -199,20 +202,21 @@ tracker.
 - SR-14: devagent keeps configuration apart from artifact templates, and
   resolves each template from layered overrides so a new project needs none
   of its own.
-- SR-15: devagent runs its checking steps in a fresh context that cannot
-  write files, so no check approves its own edits.
+- SR-15: devagent runs its checking steps (improve, review, redmr and
+  preship) in a fresh context that reads the issue's artifacts from disk, not
+  the author's conversation.
 - SR-16: devagent learns from finished issues: it records tagged lessons and
   a layered pothole register that later plans and checks read.
 - SR-17: devagent backs some workflow rules with opt-in Claude Code hooks.
 - SR-18: devagent's evidence can be taken at face value: each artifact names
   the issue, tree, head and environment it measured.
-- SR-19: devagent measures what each issue actually cost in tokens and
+- SR-19: (Planned.) devagent measures what each issue actually cost in tokens and
   time, calibrates estimates against those actuals, and forecasts
   completion from them.
-- SR-20: devagent runs two or more issues of one project at once, each in
+- SR-20: (Planned.) devagent runs two or more issues of one project at once, each in
   its own worktree and session, and no issue measures or commits another's
   work.
-- SR-21: devagent asks the operator only questions whose answer is not
+- SR-21: (Planned.) devagent asks the operator only questions whose answer is not
   already settled, and asks them without blocking the rest of the work.
 - SR-22: devagent gives a project in each supported language machine-checked
   lint and test-suite evidence.
@@ -361,10 +365,11 @@ tracker.
 - FR-36: Fixes made for review or red-team findings are new signed-off
   commits, and the evidence block is stamped again after any such commit.
   {refines: SR-18}
-- FR-37: devagent runs each checking step in a fresh context that reads the
-  issue's artifacts from disk and cannot write files, heads each report with
-  its provenance (subagent or inline, and the model), rejects a garbled
-  report, re-dispatches once, and then marks the step stuck.
+- FR-37: devagent runs the improve, redmr and preship checks as bound agents
+  that cannot write files and return their report for devagent to save. It
+  heads each checking step's report with its provenance (subagent or inline,
+  and the model), rejects a garbled report, re-dispatches once, and then
+  marks the step stuck.
   {refines: SR-15}
 - FR-38: The preship step pins the branch head and checks in a fresh
   context that the committed branch meets every acceptance criterion,
@@ -392,9 +397,10 @@ tracker.
   reports, blocks every later step on CI that is not green, or is off.
   {refines: SR-1}
 - FR-43: The mergetoall step squash-merges the issue branch into the
-  project's local all-PRs branch only on green CI and only when the local
-  branch is the head CI checked; it does not close the PR, and red CI marks
-  it stuck with the failing line. {refines: SR-1}
+  project's local all-PRs branch. When an MR is recorded it proceeds only on
+  green CI, or on no checks after a grace period, and only when the local
+  branch is the head CI checked; red CI marks it stuck with the failing line.
+  It does not close the PR. {refines: SR-1}
 - FR-44: The mergemr step merges the PR only when the project's merge gate
   is exactly `true` and only at the head preship verified. Otherwise it marks
   its row waiting until the PR is merged elsewhere, decides from one read,
@@ -529,8 +535,9 @@ tracker.
   root. {refines: SR-10}
 - FR-74: devagent lists every ready leaf across projects, one tab-separated
   line each, writes nothing, and names each project it could not read on
-  stderr. A leaf is ready only when it is pending, every dependency resolves
-  to a done leaf, and no ancestor is parked, stuck, waiting or skipped.
+  stderr. A leaf is ready only when it is pending, every dependency of the
+  leaf and of its ancestors resolves to a done row, and no ancestor is
+  parked, stuck, waiting or skipped.
   {refines: SR-10}
 
 ### Harvesting follow-ups
@@ -588,9 +595,12 @@ tracker.
 
 ### Gates, trust and unattended callers
 
-- FR-86: A permission gate set to anything but `true` makes devagent ask
-  before the gated action in a session and skip it on an unattended path;
-  devagent never changes a permission in its config itself.
+- FR-86: A permission gate that is not `true` makes the script that would
+  act ask first when a terminal can answer, and refuse with a non-zero exit
+  when none can, unless the operator set `DA_YES=1` for that run. The
+  `merge_mr` and `transition_issue` gates never ask, and a closed
+  `commit_devdoc` gate skips the devdoc commit. devagent never changes a
+  permission in its config itself.
   {refines: SR-13}
 - FR-87: With no trust policy on the host, devagent behaves exactly as
   without the feature and makes no extra call. {refines: SR-13}
@@ -617,10 +627,10 @@ tracker.
   stuck row with a STUCK file needs a person, a waiting step exits zero and
   prints its reason, and an unchanged row without a STUCK file means retry
   later. devagent never polls for CI or for a merge. {refines: SR-13}
-- FR-94: A command that writes, verifies or moves tracker state refuses when
-  its resolved project differs from the project of the working directory,
-  naming both, and warns once, naming its choice, when the working directory
-  decides nothing. {refines: SR-5}
+- FR-94: A command that writes, verifies or moves tracker state, and was not
+  given its project explicitly, refuses when its resolved project differs
+  from the project of the working directory, naming both, and warns once,
+  naming its choice, when the working directory decides nothing. {refines: SR-5}
 - FR-95: devagent's suite runner takes its issue only from its argument or
   the session pin, and refuses a detached head, a branch that lacks its
   remote's tip, and a checkout that is not the issue's recorded tree. Its
@@ -876,13 +886,13 @@ is building.
 - QA-28: Missing data shows as missing, never as a default: an unreadable
   work breakdown, an unestimated leaf and a sample count of zero are all
   reported as such.
-- QA-29: Every halt in a session a launcher started is asynchronous: nothing
+- QA-29: (Planned.) Every halt in a session a launcher started is asynchronous: nothing
   waits on a reply, and a stalled step is detected within a configurable
   window and leaves a STUCK file naming the reason.
 - QA-30: A failed web request is reported with its method, URL, status and
   response, and an auth failure, a network failure and an absent resource are
   told apart.
-- QA-31: Every actuals figure traces to its sources: cost and time to the
+- QA-31: (Planned.) Every actuals figure traces to its sources: cost and time to the
   session and host they came from, and milestones to a tracker or MR address
   or a checklist line.
 - QA-32: devagent's spec keeps in step with its behaviour: the MR red-team
@@ -999,8 +1009,9 @@ From the design spec's permission gates and gates under trust:
   gate; only an edit to the config changes one.
 - CON-9: The gates are `push_mr` (ship), `merge_mr` (mergemr),
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
-  cleanup and the status report), `transition_issue` (every tracker
-  transition) and `cleanup_on_merge` (sync's automatic cleanup).
+  cleanup and the status report) and `transition_issue` (every tracker
+  transition). The spec also lists `cleanup_on_merge`, for a cleanup after
+  sync, which no step performs.
 - CON-10: `merge_mr` never prompts: devagent merges only when it is exactly
   `true`, so no answer at a terminal and no yes-flag can open it.
 - CON-11: `transition_issue = false` never prompts: devagent skips the
