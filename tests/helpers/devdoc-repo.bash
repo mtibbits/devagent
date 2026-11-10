@@ -114,7 +114,7 @@ if [ -n "$ctl" ] && [ "$sub" = commit ] && [ -n "$top" ]; then
     fi
     if [ -e "$ctl/pause" ]; then
         : > "$ctl/in-commit"
-        n=0; until [ -e "$ctl/gate" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done
+        n=0; until [ -e "$ctl/gate" ] || [ "$n" -ge 1800 ]; do sleep 0.1; n=$((n + 1)); done   # > the test's 60 s observer cap
     fi
 fi
 git "$@"; rc=$?

@@ -57,7 +57,10 @@ paths its writer owns. A second session waits (one `waiting for devdoc lock`
 line naming the holder) up to `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds, then
 stops naming the holder and the stale-lock remedy; a cleanup stopped that way
 leaves its row `[~]` and its state kept, ready to re-run. The lock, the
-holder record and the remedy are specified in spec §3.3.
+holder record and the remedy are specified in spec §3.3. Run `next.sh` (and
+any of those writers) with the longest Bash tool timeout (600000 ms): one
+cleanup can wait up to three times, and a tool timeout that kills it first
+can leave the row `[x]` with nothing committed.
 
 ## The per-session issue pin
 

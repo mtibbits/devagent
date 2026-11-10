@@ -273,10 +273,11 @@ if [ "$commit_devdoc" = "true" ]; then
     devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?
     # #749 item 5: what this cleanup does NOT own is reported, never swept —
     # one line, a warning only for stale work no session is carrying. Printed
-    # even when the layer lookup refused the commit.
-    [ "$_own_rc" -eq 1 ] || devdoc_unowned_report "$project" "$devdoc_dir" "$issue_arg" "${excl[@]}"
+    # even when the layer lookup refused the commit; not when there is no
+    # owned set (rc 1/2), where it would list the issue's own dir.
+    [ "$_own_rc" -ne 0 ] || devdoc_unowned_report "$project" "$devdoc_dir" "$issue_arg" "${excl[@]}"
     if [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 2 ]; then
-        warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped"
+        warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped; commit it by hand"
     elif [ "$_lk" -eq 1 ] && [ "$_own_rc" -eq 0 ] \
         && [ -n "$(devdoc_git_ro status --porcelain -- "${DEVDOC_OWNED[@]}")" ]; then
         if devdoc_mid_merge .; then
@@ -314,16 +315,6 @@ shared_active="$(state_get "$project" active_issue 2>/dev/null || true)"
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
     state_remove_displaced "$project" "$gc_issue"   # #415: don't leak the marker
-    # #351: remove this issue's keyed analyze build dirs from the shared source
-    # tree. Per-issue keying isolates concurrent chains but would grow unbounded
-    # otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash
-    # after the key, so cleaning Issue-1 cannot wipe Issue-10's dirs (prefix).
-    _bk="$(printf '%s-%s' "$project" "$gc_issue" | tr -c 'A-Za-z0-9' '-')"
-    rm -rf -- "$source_dir/build-$_bk" 2>/dev/null || true
-    for _d in "$source_dir/build-$_bk"-*; do
-        [ -e "$_d" ] && rm -rf -- "$_d"
-    done
-    unset _bk _d
 fi
 # #417: touch the shared slot ONLY when the issue being cleaned actually OWNS it
 # (shared_active == gc_issue). The old guard keyed on pin-ABSENCE (a session
@@ -348,6 +339,20 @@ else
 fi
 _cleanup_closed=1
 devdoc_lock_release
+
+# #351: remove this issue's keyed analyze build dirs from the shared source
+# tree. Per-issue keying isolates concurrent chains but would grow unbounded
+# otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash
+# after the key, so cleaning Issue-1 cannot wipe Issue-10's dirs (prefix).
+# After the release (#749 review): a source-tree removal, not a devDoc write.
+if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
+    _bk="$(printf '%s-%s' "$project" "$gc_issue" | tr -c 'A-Za-z0-9' '-')"
+    rm -rf -- "$source_dir/build-$_bk" 2>/dev/null || true
+    for _d in "$source_dir/build-$_bk"-*; do
+        [ -e "$_d" ] && rm -rf -- "$_d"
+    done
+    unset _bk _d
+fi
 
 # Push only a commit this run made, never under the lock (#718 text unchanged).
 if [ "$_devdoc_committed" = 1 ] && "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then

@@ -207,6 +207,12 @@ is also not counted as completed by `/devagent:statusreport`. A failed
 register drain is not such a close: it dies before the mark, as before, and a
 layer lookup that refuses the commit still completes the close.
 
+Run cleanup with the longest Bash tool timeout (600000 ms). One close can wait
+on the lock up to three times (hold 1, the reconcile's write, hold 2), each up
+to the bound in spec §3.3. A tool timeout that kills the run during the second
+or third wait lands after the mark, and a forced kill skips the EXIT trap: the
+row stays `[x]` with nothing committed. If that happens, re-run cleanup.
+
 ## Transcript archive (#731)
 
 When the global `[archive].transcripts_dir` is set, cleanup runs

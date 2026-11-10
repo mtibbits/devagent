@@ -8,7 +8,9 @@ argument-hint: "[project] [args]"
 
 First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
 
-Then run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments.
+Then run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments,
+with the longest Bash tool timeout (600000 ms): its write waits on the devDoc
+repository lock up to the bound in spec §3.3 (#749).
 
 This is the workflow step-21 entrypoint. Identical behavior to
 `/devagent:wbs update`; exists as a separate command so the 25-step

@@ -5,6 +5,9 @@ argument-hint: "[--no-pin] [--window-weeks N]"
 ---
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/statusreport.sh" $ARGUMENTS` with the user's arguments.
+With `commit_devdoc = true` it commits under the devDoc repository lock (#749),
+which can wait its full bound (spec §3.3): give the Bash call the longest tool
+timeout (600000 ms).
 
 Flags:
 - `--no-pin` — do not advance the pin (read-only report)

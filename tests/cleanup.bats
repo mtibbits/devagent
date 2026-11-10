@@ -1051,3 +1051,11 @@ EOF
     [ "$status" -eq 0 ]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
 }
+
+@test "#749 review: an issue dir outside the devdoc repo warns to commit by hand and lists no unowned dir" {
+    git -C "$DEVDOC_DIR/Issue-1" init -q
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"is not inside the git repository holding"*"devdoc commit skipped; commit it by hand"* ]]
+    [[ "$output" != *"unowned"* ]] || false
+}
