@@ -1076,6 +1076,9 @@ def run(env) -> int:
     except FileExistsError:
         _say(f"wbs init: {dest} exists")
         return 1
+    except OSError as e:          # #749: e.g. a replace still refused after the bounded retry
+        _say(f"wbs init: cannot write {dest}: {e}")
+        return 1
     picked = [n for n in model.nodes if n.leaf in selected]
     epics = sum(1 for n in picked if n.group)
     loose = sum(1 for n in picked if n.parent is None and not n.group)

@@ -2,7 +2,9 @@
 import ast
 import importlib.util
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -963,6 +965,82 @@ def test_write_document_exclusive(tmp_path):
     with pytest.raises(FileExistsError):
         wbs_parser.write_document(p, "y\n", exclusive=True)
     assert p.read_bytes() == b"x\n"
+
+
+def test_write_document_replace_is_atomic_under_kill(tmp_path, monkeypatch):
+    # #749: temp + os.replace — a write killed at the replace leaves the old
+    # bytes whole and the temp behind; the next write removes it and lands.
+    p = tmp_path / "WBS.md"
+    p.write_bytes(b"old\n")
+    tmp = tmp_path / ".devagent-wbs-tmp.WBS.md"
+
+    def killed(_src, _dst):
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as m:
+        m.setattr(os, "replace", killed)
+        with pytest.raises(KeyboardInterrupt):
+            wbs_parser.write_document(p, "new\n")
+    assert p.read_bytes() == b"old\n"
+    assert tmp.exists()
+    wbs_parser.write_document(p, "newer\n")
+    assert p.read_bytes() == b"newer\n"
+    assert not tmp.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink and mode semantics")
+def test_write_document_keeps_symlink(tmp_path):
+    real = tmp_path / "real" / "WBS.md"
+    real.parent.mkdir()
+    real.write_bytes(b"old\n")
+    link = tmp_path / "WBS.md"
+    link.symlink_to(real)
+    wbs_parser.write_document(link, "new\n")
+    assert link.is_symlink()
+    assert real.read_bytes() == b"new\n"
+    assert not (real.parent / ".devagent-wbs-tmp.WBS.md").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink and mode semantics")
+def test_write_document_preserves_mode(tmp_path):
+    p = tmp_path / "WBS.md"
+    p.write_bytes(b"old\n")
+    p.chmod(0o640)
+    wbs_parser.write_document(p, "new\n")
+    assert stat.S_IMODE(p.stat().st_mode) == 0o640
+    old = os.umask(0o022)
+    try:
+        q = tmp_path / "fresh.md"
+        wbs_parser.write_document(q, "x\n", exclusive=True)
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(q.stat().st_mode) == 0o644      # umask mode, never a 0600 temp's
+
+
+def test_parse_file_retries_a_windows_sharing_violation(tmp_path, monkeypatch):
+    # #749 P2 (measured on Windows): an open landing inside write_document's
+    # replace raises a transient PermissionError; parse_file retries it
+    # through _toml.py's _retry_windows_share. Deterministic: the first two
+    # opens fail, and both os.name reads are pinned to "nt".
+    import types
+    p = tmp_path / "WBS.md"
+    p.write_bytes(b"# W\n\n- [ ] A\n")
+    calls = []
+    real_open = open
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(13, "sharing violation")
+        return real_open(*a, **k)
+
+    wbs_parser._retry_windows_share(lambda: None)          # load _toml.py once
+    monkeypatch.setattr(wbs_parser, "open", flaky, raising=False)
+    monkeypatch.setattr(wbs_parser, "os", types.SimpleNamespace(name="nt"))
+    monkeypatch.setattr(wbs_parser._TOML_LIB, "os", types.SimpleNamespace(name="nt"))
+    tree = wbs_parser.parse_file(p)
+    assert len(calls) == 3
+    assert tree["children"][0]["text"] == "A"
 
 
 def test_prepare_write_returns_the_text_and_writes_nothing(tmp_path):

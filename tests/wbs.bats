@@ -1253,6 +1253,47 @@ EOF
   cmp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
 }
 
+# --- #749: the WBS.md replace is atomic, retried, and fails loudly ------------
+
+_wbs_progress_leaf() {
+  _wbs_one_leaf
+  mkdir -p "$TMPDEV/Issue-9"
+  printf '%s\n' '- [x]  0. pull' '- [ ]  2. draft' > "$TMPDEV/Issue-9/checklist.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+}
+
+@test "#749: an injected sharing violation below the bound still writes" {
+  _wbs_progress_leaf
+  DEVAGENT_TEST_WBS_REPLACE_FAILS=3 run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  grep -q '^- \[~\] Leaf {issue: Issue-9, est: 1w, status_src: checklist}$' "$TMPDEV/WBS.md"
+  [ ! -e "$TMPDEV/.devagent-wbs-tmp.WBS.md" ]
+}
+
+@test "#749: an injected sharing violation past the bound exits non-zero naming the file" {
+  _wbs_progress_leaf
+  DEVAGENT_TEST_WBS_REPLACE_FAILS=99 run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"wbs update: cannot write "*"WBS.md: "* ]]   # path form differs under Git Bash (MSYS-converted)
+  [[ "$output" == *" - WBS.md was NOT updated (is it open in another program?); re-run /devagent:wbs update testproj"* ]]
+  [[ "$output" != *Traceback* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+  [ ! -e "$TMPDEV/.devagent-wbs-tmp.WBS.md" ]
+}
+
+@test "#749: no script sets the replace seam" {
+  run git -C "$REPO" grep -l DEVAGENT_TEST_WBS_REPLACE_FAILS -- scripts commands skills
+  [ "$status" -eq 0 ]
+  [ "$output" = "scripts/lib/wbs-parser.py" ]
+  # positive control: the same grep finds a planted setter
+  ctl="$TMPROOT/ctl"; mkdir -p "$ctl/scripts"
+  git -C "$ctl" init -q
+  printf 'export DEVAGENT_TEST_WBS_REPLACE_FAILS=1\n' > "$ctl/scripts/planted.sh"
+  git -C "$ctl" add -A
+  run git -C "$ctl" grep -l DEVAGENT_TEST_WBS_REPLACE_FAILS -- scripts commands skills
+  [ "$output" = "scripts/planted.sh" ]
+}
+
 @test "#749: wbs init template mode leaves no lock behind" {
   run bash "$REPO/scripts/wbs.sh" init testproj
   [ "$status" -eq 0 ]

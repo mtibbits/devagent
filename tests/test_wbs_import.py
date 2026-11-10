@@ -1343,6 +1343,24 @@ def test_run_derives_jira_keyprefix_from_env(tmp_path, capsys):
         assert sv["epics"][0]["issue"] == want
 
 
+def test_run_import_replace_exhausted_exits_1(tmp_path, monkeypatch, capsys):
+    # #749: a sharing violation that outlasts write_document's bounded retry
+    # (the test seam) is a clean rc 1 naming the file: no traceback, no file,
+    # no temp left.
+    monkeypatch.setenv("DEVAGENT_TEST_WBS_REPLACE_FAILS", "99")
+    epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")
+    (tmp_path / "t.md").write_text("# {project} WBS\n\n", encoding="utf-8")
+    dest = tmp_path / "out" / "WBS.md"
+    env = _jira_env(tmp_path, [epic], "import", DEVAGENT_JIRA_PROJECT_KEY="ALT",
+                    WBS_IMP_TEMPLATE=str(tmp_path / "t.md"), WBS_IMP_DEST=str(dest))
+    assert wbs_import.run(env) == 1
+    err = capsys.readouterr().err
+    assert f"wbs init: cannot write {dest}" in err
+    assert "Traceback" not in err
+    assert not dest.exists()
+    assert not (dest.parent / ".devagent-wbs-tmp.WBS.md").exists()
+
+
 def test_run_derived_jira_keyprefix_resolves_a_parent_line(tmp_path):
     # wbs-import.py's _resolve_line -> _node_for reads `#1` as <keyprefix>-1
     epic = rec("ALT-1", title="Epic", labels=["epic"], url=J + "ALT-1")

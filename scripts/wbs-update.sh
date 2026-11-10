@@ -346,6 +346,7 @@ PARSER_PATH="$parser" \
 WBS_TRACKER_LIB="$tracker_lib" \
 DEVDOC_DIR="$devdoc_dir" \
 ACTIVE_ISSUE="$active_issue" \
+WBS_PROJECT="$project" \
 python3 <<'PY'
 import functools
 import importlib.util
@@ -680,8 +681,17 @@ if not aborted and mr_status != "offline":
                 else:
                     node["meta"][k] = v
 
-for line in mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
-                             completed_last=os.environ["WBS_COMPLETED_LAST"] == "1"):
+try:
+    report = mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
+                              completed_last=os.environ["WBS_COMPLETED_LAST"] == "1")
+except OSError as e:
+    # #749: write_document's replace still refused after its bounded retry
+    # (a reader holding WBS.md), or any other write failure: nothing written.
+    say(f"wbs update: cannot write {wbs_path}: {e} - WBS.md was NOT updated "
+        "(is it open in another program?); re-run /devagent:wbs update "
+        f"{os.environ['WBS_PROJECT']}")
+    sys.exit(1)
+for line in report:
     say(f"wbs update: {line}")
 PY
 }

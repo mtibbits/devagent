@@ -47,6 +47,13 @@ the README's "Versioning & releases" section has the release procedure.
   state and exits 1 with the re-run command; statusreport does not count such
   a close as completed. `wbs-update.sh --skip-state-slot` (cleanup's call)
   keeps the close-time auto-add resolution unchanged.
+- **Changed: `WBS.md` is replaced atomically (#749).** Every `WBS.md` write
+  goes to a temp file beside it and then replaces it, so a killed write never
+  leaves a half-written file; a symlink is written through and the file's
+  mode kept. A replace refused because another program holds the file is
+  retried for about 8 s; after that `wbs update`/`wbs init` exit 1 naming the
+  file (nothing written), and cleanup warns that the leaf was not updated and
+  still completes.
 
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`

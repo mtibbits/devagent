@@ -233,7 +233,7 @@ log_append "$issue_dir" cleanup "tree restored; devdoc commit and state GC follo
 # still wins, the slot rung is skipped (#749). Unheld: wbs-update.sh takes
 # the lock for its own write, after its tracker calls.
 "$DEVAGENT_ROOT/scripts/wbs-update.sh" --if-exists --skip-state-slot "$project" || \
-    warn "cleanup: wbs reconcile failed (non-fatal)"
+    warn "cleanup: wbs reconcile failed (non-fatal) - the WBS leaf for $issue_arg was NOT updated; after the close, re-run /devagent:wbs update $project"
 
 # Commit devdoc if permitted (#749 hold 2: lookup, report, commit and GC).
 if [ "$commit_devdoc" = "true" ]; then

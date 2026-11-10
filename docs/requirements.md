@@ -508,8 +508,9 @@ tracker.
   only to fill gaps, records which source it used, and adds the active issue
   unless a leaf names it or an exclusion line lists it. A failed lookup
   changes nothing in its phase, warns once and exits zero. It writes under
-  the devDoc repository lock, after every lookup, and exits non-zero when
-  the lock is held past its bound. {refines: SR-9}
+  the devDoc repository lock, after every lookup, replaces the file
+  atomically, and exits non-zero when the lock is held past its bound or the
+  write fails. {refines: SR-9}
 - FR-67: devagent sorts each parent's children by dependency, then
   inherited priority, then fan-out, moving whole blocks and never top-level
   nodes; it writes only a pure permutation, otherwise leaves the order and
@@ -749,8 +750,7 @@ Partly delivered. A requirement here that is not built yet starts with
   refuses to close an unfinished issue unless told to abandon it.
   {refines: SR-20}
 - FR-121: Every step a lane runs measures, commits and records against the
-  lane's tree, never the project's main checkout, and devdoc commits and
-  work-breakdown writes are serialized across sessions. {refines: SR-20}
+  lane's tree, never the project's main checkout. {refines: SR-20}
 - FR-122: devagent's status shows each project's open lanes with the issue,
   worktree, branch, step and last activity. {refines: SR-20}
 

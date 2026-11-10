@@ -1019,6 +1019,17 @@ EOF
     grep -q '{issue: Issue-2' "$DEVDOC_DIR/WBS.md"
 }
 
+@test "#749: cleanup warns and completes when the WBS replace fails" {
+    _all_rows_done
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    DEVAGENT_WBS_OFFLINE=1 DEVAGENT_TEST_WBS_REPLACE_FAILS=99 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cleanup: wbs reconcile failed (non-fatal) - the WBS leaf for Issue-1 was NOT updated; after the close, re-run /devagent:wbs update $TEST_PROJECT"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    grep -qxF -- '  - [~] Working leaf {issue: Issue-1, est: 1w}' "$DEVDOC_DIR/WBS.md"
+}
+
 @test "#749: commit_devdoc=false closes with no lock taken" {
     devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
     devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2

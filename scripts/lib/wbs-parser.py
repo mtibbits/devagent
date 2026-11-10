@@ -55,7 +55,8 @@ ranks by), each `satisfies` then `objective` entry that is not
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
-Every WBS.md write goes through `write_document`: `write_markdown` is
+Every WBS.md write goes through `write_document` (an atomic temp + replace
+with a bounded retry on a sharing violation, #749): `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
 nothing) followed by `write_document`. `write_update` (`wbs update`) and
 `order_file` (`wbs order`) are the order pass's two writers (#803): each
@@ -87,10 +88,14 @@ scope directive's `SCOPE_KEY` and `SCOPE_TAG`.
 from __future__ import annotations
 
 import difflib
+import errno
 import heapq
 import json
+import os
 import re
+import stat
 import sys
+import time
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -418,11 +423,31 @@ def _scopes(
     return out
 
 
+_TOML_LIB = None
+
+
+def _retry_windows_share(fn):
+    """`_toml.py`'s `_retry_windows_share`, loaded by path (one home for the
+    rule, register Issue-565): on Windows an open that lands inside
+    `write_document`'s replace raises a transient sharing violation (#749,
+    measured); elsewhere fn() runs once."""
+    global _TOML_LIB
+    if _TOML_LIB is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_wbs_parser_toml", Path(__file__).resolve().with_name("_toml.py"))
+        _TOML_LIB = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_TOML_LIB)
+    return _TOML_LIB._retry_windows_share(fn)
+
+
 def parse_file(path: Path | str) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
-    with open(path, encoding="utf-8", newline="") as f:
-        return parse_text(f.read())
+    def _read() -> str:
+        with open(path, encoding="utf-8", newline="") as f:
+            return f.read()
+    return parse_text(_retry_windows_share(_read) if os.name == "nt" else _read())
 
 
 def parse_text(text: str) -> dict:
@@ -775,18 +800,68 @@ def unified_diff(old: str, new: str) -> str:
     return "".join(out)
 
 
+_REPLACE_ATTEMPTS = 20
+
+
 def write_document(path: Path | str, text: str, *, exclusive: bool = False) -> None:
     """Write `text` to `path` as UTF-8 bytes: the one writer of WBS.md bytes.
 
-    `exclusive` refuses an existing file (`FileExistsError`). Bytes, not
+    Atomic (#749): the bytes go to `.devagent-wbs-tmp.<name>` beside the
+    target, which then replaces it (`os.replace`), so a killed write leaves the
+    old file whole; a leftover temp is removed first. The target is
+    `os.path.realpath(path)`, so a symlinked WBS.md is written through and the
+    link kept. An existing target's mode is copied to the temp; a new file
+    gets the umask mode. No fsync: the contract is kill-atomicity, not
+    power-loss durability.
+
+    The replace is retried on `PermissionError` on every OS — a Windows reader
+    (an editor, a `parse_file` under WSL's /mnt/c) holding the file makes it
+    fail transiently: `_REPLACE_ATTEMPTS` tries, 0.05 s doubling to 0.5 s
+    (about 8 s). Exhausted, the temp is removed and
+    `PermissionError(13, "cannot replace <target>: still in use after 20
+    attempts")` is raised. Any other exception propagates; a BaseException
+    (an interrupt) leaves the temp for the next write to remove.
+
+    `exclusive` refuses an existing file (`FileExistsError`), checked before
+    the temp is written; the gap between that check and the replace is closed
+    by the devDoc repository lock every writer holds (wbs init). Bytes, not
     text mode: text mode would turn `\\n` into `\\r\\n` on Windows.
+
+    Test seam, read here only: `DEVAGENT_TEST_WBS_REPLACE_FAILS=<N>`
+    (1-3 digits; anything else is ignored) makes the first N replace attempts
+    raise a sharing violation, with no sleep between them.
     """
     data = text.encode("utf-8")
-    if exclusive:
-        with open(path, "xb") as f:
-            f.write(data)
-    else:
-        Path(path).write_bytes(data)
+    target = os.path.realpath(path)
+    tmp = os.path.join(os.path.dirname(target), ".devagent-wbs-tmp." + os.path.basename(target))
+    if os.path.lexists(tmp):
+        os.unlink(tmp)
+    if exclusive and os.path.lexists(target):
+        raise FileExistsError(errno.EEXIST, "File exists", str(path))
+    Path(tmp).write_bytes(data)
+    try:
+        mode = stat.S_IMODE(os.stat(target).st_mode)
+    except FileNotFoundError:
+        mode = None
+    if mode is not None:
+        os.chmod(tmp, mode)
+    seam = os.environ.get("DEVAGENT_TEST_WBS_REPLACE_FAILS", "")
+    injected = int(seam) if re.fullmatch(r"[0-9]{1,3}", seam) else 0
+    delay = 0.05
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            if attempt <= injected:
+                raise PermissionError(13, "sharing violation (injected)")
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS:
+                os.unlink(tmp)
+                raise PermissionError(
+                    13, f"cannot replace {target}: still in use after {_REPLACE_ATTEMPTS} attempts")
+            if attempt > injected:
+                time.sleep(delay)
+                delay = min(delay * 2, 0.5)
 
 
 _GLYPH_FOR_STATE = {v: k for k, v in STATE_GLYPHS.items()}

@@ -365,6 +365,18 @@ per repository (`scripts/lib/devdoc-repo.sh`):
 - Release is the holder's EXIT trap; the pothole register's per-file
   `<register>.lock` (the drain, #611) is unchanged and nests inside.
 
+`WBS.md` itself is replaced atomically under the lock (`write_document`,
+§13.2), and its replace retries a `PermissionError` for about 8 s (20
+attempts, 0.05 s doubling to 0.5 s) on EVERY OS, unlike the state files'
+Windows-only `_retry_windows_share` (Issue-565: one rule per surface, each
+bound stated once). Its readers are editors that hold `WBS.md` open for
+seconds, not millisecond state reads, and WSL hits the same violation
+(`EACCES`) replacing a `/mnt/c` file a Windows program holds (measured). A
+`parse_file` read that lands inside a Windows replace is retried through
+`_retry_windows_share` (measured: 8 failures in 125 replaces without it).
+The test seam `DEVAGENT_TEST_WBS_REPLACE_FAILS=<N>` is read only by
+`write_document`; no script sets it.
+
 Adjacent state files:
 
 - `~/.claude/devagent/state/<project>.statusreport.toml` — `last_pin`, `last_pin_by`
@@ -2510,7 +2522,14 @@ and `check(old, new)` can veto it (`wbs init --merge` passes
 wbs-parser.py's `inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
 `wbs order`, `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
-plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
+plain `wbs init` (`exclusive=True`) and `--force` all call it. It writes
+atomically (#749): the bytes go to `.devagent-wbs-tmp.<name>` beside the
+target (a leftover is removed first), the temp takes an existing target's
+mode, and `os.replace` puts it in place, so a killed write leaves the old
+file whole; a symlinked `WBS.md` is written through (`os.path.realpath`) and
+the link kept. The replace retries a sharing violation for about 8 s (§3.3);
+exhausted, nothing is written and `wbs update`/`wbs init` exit `1` naming the
+file. Any new
 `WBS.md` writer must write through `write_markdown` or `write_document`.
 A test guards this over `wbs-import.py`, `wbs-init.sh`, `wbs-update.sh`
 and `wbs-order.sh`, and over `wbs-parser.py`'s own writers (`write_update`

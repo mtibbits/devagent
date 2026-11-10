@@ -10,7 +10,10 @@ Lock (#749): `init`, `update` and `order` write `WBS.md` under the devDoc
 repository lock (spec §3.3), taken after any tracker call; each exits `1`
 naming the lock, its holder and the stale-lock remedy when it is held past
 `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 120 s). `order --dry-run` and
-`init --survey` write nothing and take no lock.
+`init --survey` write nothing and take no lock. Every write replaces
+`WBS.md` atomically; when another program keeps it open for more than about
+8 s the write is abandoned with nothing changed, and `update`/`init` exit `1`
+naming the file — close it and re-run.
 
 Subcommands:
 - `init [--force]` — scaffold `<devdoc>/WBS.md` from the resolved `wbs_template.md` (§12 registry: project paths → devdoc → plugin default); `--force` overwrites an existing `WBS.md`
