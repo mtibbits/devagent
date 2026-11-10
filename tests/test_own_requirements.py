@@ -31,20 +31,22 @@ SOT_PHRASES = ("derived once", "changes with the code", "not re-derived",
 META_KEYS = {"needs", "refines"}
 LAYER_CODES = ("BRule", "UC", "SR", "FR", "QA", "EI", "CON")  # Gantry's PROJECT_LAYERS
 
-# Gantry's line grammar (gantry/requirements.py), with its ID_TOKEN_RE inlined.
+# Gantry's line grammar (gantry/requirements.py), with its ID_TOKEN_RE inlined as NS.
+NS = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
+CODES = "|".join(LAYER_CODES)
 ITEM_RE = re.compile(r"(?P<indent>[ \t]*)(?P<marker>[-*+]|[0-9]{1,9}[.)])(?:[ \t]+(?P<rest>.*)|)")  # fullmatch
 CANDIDATE_RE = re.compile(  # .match on an item's rest
     r"(?P<open>[*_`~]*)"
-    r"(?:(?P<namespace>[A-Za-z0-9][A-Za-z0-9_.-]*):)?"
+    rf"(?:(?P<namespace>{NS}):)?"
     r"(?P<code>[A-Za-z]+)(?P<dash>-?)(?P<digits>[0-9]+)(?P<suffix>[A-Za-z]*)"
     r"(?P<close>[*_`~ \t]*):")
-VALID_ID_RE = re.compile(r"(?:BRule|CON|UC|SR|FR|QA|EI)-[1-9][0-9]{0,8}")  # fullmatch
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
+OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+LINK_RE = re.compile(rf"(?:{NS}:)?(?:{CODES}|BR)-[1-9][0-9]{{0,8}}")  # fullmatch
 # A business-requirement ID, bare or qualified, anywhere in the text (fences included).
 BR_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])BR-[0-9]")
-QUALIFIED_RE = re.compile(
-    r"(?P<namespace>[A-Za-z0-9][A-Za-z0-9_.-]*):(?:BRule|CON|UC|SR|FR|QA|EI|BR)-[0-9]")
+QUALIFIED_RE = re.compile(rf"(?P<namespace>{NS}):(?:{CODES}|BR)-[0-9]")
 
 UC_FLOOR = 9  # one use case per capability area in #915
 
@@ -65,9 +67,9 @@ def split_lines(text):
             for line in text.removeprefix("\N{BYTE ORDER MARK}").split("\n")]
 
 
-def _items(text):
+def _items(lines):
     """(line number, ITEM_RE match, candidate match) for each ID-shaped item."""
-    for n, line in enumerate(split_lines(text), start=1):
+    for n, line in enumerate(lines, start=1):
         m = ITEM_RE.fullmatch(line)
         if m is None or m["rest"] is None:
             continue
@@ -96,8 +98,6 @@ def _reason(m, c):
         return "number"
     if c["suffix"]:
         return "suffix"
-    if not VALID_ID_RE.fullmatch(c["code"] + c["dash"] + c["digits"] + c["suffix"]):
-        return "not an ID"
     return None
 
 
@@ -105,7 +105,7 @@ def id_problems(text):
     """One 'line N: <reason>' per ID-shaped item that is not a requirement,
     and per ID defined twice."""
     problems, first = [], {}
-    for n, m, c in _items(text):
+    for n, m, c in _items(split_lines(text)):
         why = _reason(m, c)
         if why is not None:
             problems.append(f"line {n}: {why}: {m['rest'][: c.end()]!r}")
@@ -118,25 +118,31 @@ def id_problems(text):
     return problems
 
 
-def requirements(text):
-    """{bare ID: (line, joined text after the ID)} for the valid items. The
-    joined text is the first line plus each following non-blank line that
-    starts with a space or tab, joined with single spaces."""
+@functools.cache
+def _requirements(text):
+    """(line, bare ID, layer code, first-line text after the ID, continuation
+    lines) per requirement, in order, the first definition of an ID winning. A
+    continuation line is each following non-blank line that starts with a
+    space or tab."""
     lines = split_lines(text)
-    found = {}
-    for n, m, c in _items(text):
-        if _reason(m, c) is not None:
-            continue
+    out, seen = [], set()
+    for n, m, c in _items(lines):
         rid = c["code"] + "-" + c["digits"]
-        if rid in found:
+        if _reason(m, c) is not None or rid in seen:
             continue
-        parts = [m["rest"][c.end():].strip()]
+        seen.add(rid)
         k = n  # lines[k] is the line after line n
         while k < len(lines) and lines[k].strip() and lines[k][0] in " \t":
-            parts.append(lines[k].strip())
             k += 1
-        found[rid] = (n, parts)
-    return {rid: (n, " ".join(p for p in parts if p)) for rid, (n, parts) in found.items()}
+        out.append((n, rid, c["code"], m["rest"][c.end():].strip(), tuple(lines[n:k])))
+    return tuple(out)
+
+
+def requirements(text):
+    """{bare ID: (line, joined text after the ID)} for the valid items: the
+    first line plus each continuation line, joined with single spaces."""
+    return {rid: (n, " ".join(p for p in [head, *(t.strip() for t in cont)] if p))
+            for n, rid, _, head, cont in _requirements(text)}
 
 
 def _ending_block(text):
@@ -179,78 +185,38 @@ def _unquote(item):
     return item
 
 
-def _block_needs(block):
-    """The needs list in a meta block: a list, or None with no readable needs key."""
+def _parse_block(block):
+    """([(key, is_list, non-empty targets)], None) for a meta block, or
+    ([], why) when the reader cannot read it at all."""
     parts = _split(block[1:-1], ",")
     if parts is None:
-        return None
+        return [], "an unclosed [ or quote in the meta block"
+    entries = []
     for entry in parts:
         key, colon, value = entry.partition(":")
-        if not colon or not KEY_RE.fullmatch(key.strip()):
-            return None
-        if key.strip() != "needs":
-            continue
-        value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            items = [_unquote(item) for item in _split(value[1:-1], ",") or []]
-            return [item for item in items if item]
-        return [_unquote(value)]
-    return None
+        key, value = key.strip(), value.strip()
+        if not colon or not KEY_RE.fullmatch(key):
+            return [], "an entry with no key in the meta block"
+        is_list = value.startswith("[") and value.endswith("]")
+        raw = (_split(value[1:-1], ",") or []) if is_list else [value]
+        entries.append((key, is_list, [t for t in map(_unquote, raw) if t]))
+    return entries, None
 
 
-def _first_line_rest(text, line):
-    m = ITEM_RE.fullmatch(split_lines(text)[line - 1])
-    c = CANDIDATE_RE.match(m["rest"])
-    return m["rest"][c.end():].strip()
-
-
-def use_case_needs(text):
-    """{UC ID: needs list, or None when no meta block holds a needs key}. The
-    block is the one ending the first line, else the one ending the joined
-    text, as Gantry's reader reads it."""
-    out = {}
-    for rid, (line, joined) in requirements(text).items():
-        if not rid.startswith("UC-"):
-            continue
-        block = _ending_block(_first_line_rest(text, line)) or _ending_block(joined)
-        needs = None if block is None else _block_needs(block.group(0))
-        if needs is not None:
-            needs = [n.removeprefix(NAMESPACE + ":") for n in needs]
-        out[rid] = needs
-    return out
-
-
-def needs_problems(text):
-    """One 'UC-n: <reason>' per use case whose needs are missing, empty, or
-    name an ID this file does not define."""
-    defined = requirements(text)
-    problems = []
-    for uc, needs in use_case_needs(text).items():
-        if needs is None:
-            problems.append(f"{uc}: no needs block")
-        elif not needs:
-            problems.append(f"{uc}: needs names no target")
-        else:
-            problems += [f"{uc}: needs {n}, which is not defined" for n in needs if n not in defined]
-    return problems
-
-
-OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
-LINK_RE = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*:)?(?:BRule|CON|UC|SR|FR|QA|EI|BR)-[1-9][0-9]{0,8}")
+def _entry(block, key):
+    """(is_list, targets) of the first `key` entry in a readable block, or None."""
+    entries, _ = _parse_block(block) if block is not None else ([], None)
+    return next(((is_list, t) for k, is_list, t in entries if k == key), None)
 
 
 def _block_problems(code, block):
     """Why the meta block a requirement's reader reads is not clean, as Gantry's
     reader reports it (malformed_meta, misplaced, malformed_link)."""
-    parts = _split(block[1:-1], ",")
-    if parts is None:
-        return ["an unclosed [ or quote in the meta block"]
+    entries, error = _parse_block(block)
+    if error:
+        return [error]
     why, seen = [], set()
-    for entry in parts:
-        key, colon, value = entry.partition(":")
-        key, value = key.strip(), value.strip()
-        if not colon or not KEY_RE.fullmatch(key):
-            return ["an entry with no key in the meta block"]
+    for key, is_list, targets in entries:
         if key not in META_KEYS:
             why.append(f"unknown key {key!r} in the meta block")
             continue
@@ -258,38 +224,24 @@ def _block_problems(code, block):
             why.append(f"key {key!r} is repeated in the meta block")
             continue
         seen.add(key)
-        is_list = value.startswith("[") and value.endswith("]")
-        targets = ([_unquote(v) for v in _split(value[1:-1], ",") or []] if is_list
-                   else [_unquote(value)])
-        targets = [t for t in targets if t]
         if key == "refines" and is_list:
             why.append("refines: takes one target, not a list")
         elif key == "needs" and code != "UC":
             why.append("needs: on a requirement that is not a use case")
-        elif key == "needs" and not targets:
-            why.append("needs: [] names no target")
+        elif not targets:
+            why.append(f"{key}: names no target")
         else:
             why += [f"{key}: {t!r} is not a requirement ID" for t in targets if not LINK_RE.fullmatch(t)]
     return why
 
 
+@functools.cache
 def _read_blocks(text):
-    """(line, bare ID, layer code, the meta block the reader reads or None,
-    [why the item's blocks are not clean]) for each requirement, in order."""
-    lines = split_lines(text)
-    seen = set()
-    for n, m, c in _items(text):
-        rid = c["code"] + "-" + c["digits"]
-        if _reason(m, c) is not None or rid in seen:
-            continue
-        seen.add(rid)
-        continuation = []
-        k = n
-        while k < len(lines) and lines[k].strip() and lines[k][0] in " \t":
-            continuation.append(lines[k])
-            k += 1
+    """(line, bare ID, the meta block the reader reads or None, (why the item's
+    blocks are not clean)) per requirement, in order."""
+    out = []
+    for n, rid, code, head, continuation in _requirements(text):
         has_nested = any(ITEM_RE.fullmatch(t) for t in continuation)
-        head = m["rest"][c.end():].strip()
         block = _ending_block(head)
         if block is not None:
             head = head[: block.start()].rstrip()
@@ -309,40 +261,63 @@ def _read_blocks(text):
                        and other.start() == second.start() else "a meta block inside the text")
         if any(o.start() not in starts for o in OPENER_RE.finditer(body)):
             why.append("a meta block with an unclosed or nested brace")
+        block = None if block is None else block.group(0)
         if block is not None:
-            why += _block_problems(c["code"], block.group(0))
-        yield n, rid, c["code"], block, why
+            why += _block_problems(code, block)
+        out.append((n, rid, block, tuple(why)))
+    return tuple(out)
+
+
+def use_case_needs(text):
+    """{UC ID: needs list, or None when the block the reader reads holds no
+    readable needs key}."""
+    out = {}
+    for _, rid, block, _ in _read_blocks(text):
+        if rid.startswith("UC-"):
+            needs = _entry(block, "needs")
+            out[rid] = None if needs is None else [t.removeprefix(NAMESPACE + ":") for t in needs[1]]
+    return out
+
+
+def needs_problems(text):
+    """One 'UC-n: <reason>' per use case whose needs are missing, empty, or
+    name an ID this file does not define."""
+    defined = requirements(text)
+    problems = []
+    for uc, needs in use_case_needs(text).items():
+        if needs is None:
+            problems.append(f"{uc}: no needs block")
+        elif not needs:
+            problems.append(f"{uc}: needs names no target")
+        else:
+            problems += [f"{uc}: needs {n}, which is not defined" for n in needs if n not in defined]
+    return problems
 
 
 def meta_problems(text):
     """One 'line N: <reason>' per requirement whose meta blocks Gantry's reader
     would report: a block it does not read (inside the text, or a second one),
     an unclosed brace, or a read block it cannot use."""
-    return [f"line {n}: {rid}: {w}" for n, rid, _, _, why in _read_blocks(text) for w in why]
+    return [f"line {n}: {rid}: {w}" for n, rid, _, why in _read_blocks(text) for w in why]
 
 
 def _refines_target(block):
     """The bare own-namespace ID a block's scalar refines names, or None."""
-    for entry in _split(block[1:-1], ",") or []:
-        key, colon, value = entry.partition(":")
-        value = value.strip()
-        if colon and key.strip() == "refines" and not value.startswith("["):
-            value = _unquote(value)
-            if ":" not in value or value.startswith(NAMESPACE + ":"):
-                return value.removeprefix(NAMESPACE + ":")
-            return None  # another site's target: Gantry resolves it across files
-    return None
+    refines = _entry(block, "refines")
+    if refines is None or refines[0] or not refines[1]:
+        return None
+    value = refines[1][0]
+    if ":" not in value or value.startswith(NAMESPACE + ":"):
+        return value.removeprefix(NAMESPACE + ":")
+    return None  # another site's target: Gantry resolves it across files
 
 
 def refines_problems(text):
     """One 'line N: <reason>' per refines: link to an ID this file does not
     define, and one per refines: cycle, as Gantry's reader reports them
     (undefined_link, refines_cycle)."""
-    lines, targets = {}, {}
-    for n, rid, _, block, _ in _read_blocks(text):
-        lines[rid] = n
-        if block is not None:
-            targets[rid] = _refines_target(block.group(0))
+    lines = {rid: n for n, rid, _, _ in _read_blocks(text)}
+    targets = {rid: _refines_target(block) for _, rid, block, _ in _read_blocks(text)}
     problems = [f"line {lines[rid]}: {rid} refines {t}, which is not defined"
                 for rid, t in targets.items() if t is not None and t not in lines]
     state = {}
@@ -417,7 +392,6 @@ def test_layer_floors():
 def test_every_use_case_needs_defined_ids():
     text = own_text()
     ucs = [rid for rid in requirements(text) if rid.startswith("UC-")]
-    assert len(use_case_needs(text)) == len(ucs)
     assert len(ucs) >= UC_FLOOR, f"UC: {len(ucs)}"
     problems = needs_problems(text)
     assert problems == [], "\n".join(problems)
