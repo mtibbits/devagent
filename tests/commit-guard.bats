@@ -9,6 +9,9 @@
 REPO="${BATS_TEST_DIRNAME}/.."
 HOOK="$REPO/hooks/commit-guard.sh"
 
+# #950: the six cwd spellings the issue's AC names, against source_dir c:/x/proj.
+WIN_SPELLINGS=('C:\x\proj' 'c:\x\proj' '/c/x/proj' '/C/x/proj' 'C:/x/proj/sub/' 'c:\x\proj\sub')
+
 setup() {
   DA="$BATS_TEST_TMPDIR/da"; mkdir -p "$DA/state"
   export DA_HOME="$DA"
@@ -18,8 +21,11 @@ setup() {
   export DEVAGENT_ACTIVE_PROJECT=acme
   unset DEVAGENT_COMMIT_GUARD_OVERRIDE
 }
-_j() { printf '{"tool_input":{"command":%s},"cwd":"%s"}' \
-         "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" "${2:-$SRC}"; }
+# _js <string> - the string's JSON literal (quotes included), no trailing newline.
+# The string reaches python3 on stdin only: Git Bash rewrites a /c/... ARGUMENT to a
+# native program, which would falsify the fixture (#950).
+_js() { printf '%s' "$1" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))'; }
+_j()  { printf '{"tool_input":{"command":%s},"cwd":%s}' "$(_js "$1")" "$(_js "${2:-$SRC}")"; }
 _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
 
 @test "active tree: signed 'git commit -s' PASSES (#455)" {
@@ -82,4 +88,17 @@ _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
 
 @test "-C global option: 'git -C <dir> commit' unsigned is DENIED (#455)" {
   _feed "$(_j "git -C $SRC commit -m fix")"; [ "$status" -eq 2 ]
+}
+
+@test "fixture: _j escapes cwd and the hook reads each Windows spelling back (#950)" {
+  # shellcheck source=/dev/null
+  source "$REPO/hooks/lib/hook-common.sh"
+  local sp got n=0 bad=""
+  for sp in "${WIN_SPELLINGS[@]}"; do
+    got="$(hook_json_field "$(_j 'git commit -m x' "$sp")" cwd 2>/dev/null || true)"
+    [ "$got" = "$sp" ] || bad+="[$sp read back as '$got'] "
+    n=$((n + 1))
+  done
+  [ -z "$bad" ] || { echo "cwd did not round-trip: $bad" >&2; false; }
+  [ "$n" -eq 6 ]
 }
