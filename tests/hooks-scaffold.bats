@@ -134,3 +134,77 @@ _active() { printf 'active_project = "%s"\n' "$1" > "$DA/state/_active.toml"; }
     [ "$he" -eq "$gg" ] || { echo "gate divergence for fixture <<<$fixture>>>: hook_enabled=$he git-guard=$gg" >&2; return 1; }
   done
 }
+
+# --- #950: path containment (spec 8.1 "Path containment") ---
+
+# _norm_is <input> <expected> - one pin of the string normalizer's output.
+_norm_is() {
+  local got
+  got="$(hook_path_norm "$1" 2>/dev/null || true)"
+  [ "$got" = "$2" ] || { echo "hook_path_norm '$1' gave '$got', want '$2'" >&2; return 1; }
+}
+
+@test "hook_path_norm: pinned output for each spelling (#950)" {
+  type hook_path_norm
+  _norm_is 'C:\x\proj' c:/x/proj
+  _norm_is 'c:\x\proj' c:/x/proj
+  _norm_is /c/x/proj c:/x/proj
+  _norm_is /C/x/proj c:/x/proj
+  _norm_is C:/x/proj c:/x/proj
+  _norm_is c:/x/proj/ c:/x/proj
+  _norm_is 'C:\x\proj\' c:/x/proj
+  _norm_is C:/x/proj/sub/ c:/x/proj/sub
+  _norm_is 'c:\x\proj\sub' c:/x/proj/sub
+  _norm_is c:/x/Proj c:/x/Proj
+  _norm_is c:/x/proj2 c:/x/proj2
+  _norm_is /d/x/proj d:/x/proj
+  _norm_is /home/u/proj /home/u/proj
+  _norm_is /home/u/proj/ /home/u/proj
+  _norm_is /c c:/
+  _norm_is /c/ c:/
+  _norm_is c: c:/
+  _norm_is c:/ c:/
+  _norm_is C:/ c:/
+  _norm_is 'C:\' c:/
+  _norm_is / /
+  _norm_is // /
+  _norm_is '' ''
+}
+
+@test "hook_path_under: empty or absent arguments are under nothing (#950)" {
+  type hook_path_under
+  run hook_path_under c:/x/proj/sub c:/x/proj
+  [ "$status" -eq 0 ]
+  run hook_path_under '' /home/u/proj
+  [ "$status" -eq 1 ]
+  run hook_path_under /home/u/proj ''
+  [ "$status" -eq 1 ]
+  run hook_path_under /home/u/proj
+  [ "$status" -eq 1 ]
+}
+
+@test "hook_path_under: a drive or POSIX root covers everything under it (#950)" {
+  type hook_path_under
+  if [ -e q:/ ] || [ -e /q ]; then skip "drive q exists"; fi
+  run hook_path_under q:/nx950/a q:/
+  [ "$status" -eq 0 ]
+  run hook_path_under /q/nx950/a /q
+  [ "$status" -eq 0 ]
+  run hook_path_under 'Q:\nx950' q:
+  [ "$status" -eq 0 ]
+  run hook_path_under r:/nx950 q:/
+  [ "$status" -eq 1 ]
+}
+
+@test "hook_path_under: a /c/ spelling does not walk into the MSYS root (#950)" {
+  type hook_path_under
+  command -v cygpath >/dev/null 2>&1 || skip "not Git Bash (no cygpath)"
+  [ /c/.. -ef / ] || skip "not Git Bash (/c/.. is not the MSYS root)"
+  local G
+  G="$(cygpath -m / 2>/dev/null || true)"
+  [ -n "$G" ]
+  run hook_path_under /c/Users c:/
+  [ "$status" -eq 0 ]
+  run hook_path_under /c/Users "$G"
+  [ "$status" -eq 1 ]
+}
