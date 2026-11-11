@@ -3,7 +3,8 @@
 # `git commit` that lacks a DCO sign-off (`-s`/`--signoff`), INCLUDING
 # `git commit --amend` without `-s` (the recorded sign-off-drop failure). Fires ONLY
 # when a devAgent issue is active for the resolved project AND the command's cwd is
-# inside that project's source_dir — DCO is this operator's PER-PROJECT policy, not
+# under that project's source_dir (hook_path_under; spec 8.1 'Path containment',
+# #950) — DCO is this operator's PER-PROJECT policy, not
 # universal, so commits in unrelated repos pass. A signed `git commit -s` outside
 # scripts/commit.sh is ALLOWED (ship.sh's #148 review/redmr-fix recovery path).
 #
@@ -22,6 +23,13 @@ input="$(hook_read_input)"
 cmd="$(hook_json_field "$input" 'tool_input.command')"
 [ -n "$cmd" ] || exit 0
 
+# Per-call override carried in the command itself, as git-guard.sh honours it: the
+# hook's own environment is the session's, so a command prefix never reaches
+# hook_overridden above (#950 redmr).
+case "$cmd" in
+  *DEVAGENT_COMMIT_GUARD_OVERRIDE=1*) exit 0 ;;
+esac
+
 # Is `commit` the git SUBCOMMAND? `commit` must follow `git` and (optionally) git's
 # global options only — so `git commit`, `git -C <dir> commit`, `git -c k=v commit`
 # match, but `git log commit` (a ref named commit), `git commit-tree`, and a bare
@@ -37,7 +45,9 @@ if printf '%s' "$cmd" | grep -qE '(--signoff|(^|[[:space:]])-[A-Za-z]*s[A-Za-z]*
            # `-sS`/`-Ss` (DCO sign-off + gpg-sign) are correctly SIGNED (#455 redmr).
 fi
 
-# Firing scope (per-project): active project + non-empty active_issue + cwd ⊂ source_dir.
+# Firing scope (per-project): active project + non-empty active_issue + cwd ⊂ source_dir
+# (hook_path_under).
+# The cheap active_issue read runs before the cwd parse and the path walk.
 proj="$(hook_active_project)"
 [ -n "$proj" ] || exit 0
 cfg="$(hook_home)/config.toml"
@@ -48,15 +58,12 @@ src="$(awk -F'"' -v p="$proj" '
 ' "$cfg" 2>/dev/null || true)"
 [ -n "$src" ] || exit 0
 
-cwd="$(hook_json_field "$input" 'cwd')"
-case "$cwd" in
-  "$src"|"$src"/*) : ;;   # inside the active project's tree
-  *) exit 0 ;;             # unrelated repo / no cwd → allow (per-project policy)
-esac
-
 active_issue="$(awk -F'"' '/^active_issue[[:space:]]*=/{print $2; exit}' \
   "$(hook_home)/state/${proj}.toml" 2>/dev/null || true)"
 [ -n "$active_issue" ] || exit 0   # no active issue → not enforcing
+
+cwd="$(hook_json_field "$input" 'cwd')"
+hook_path_under "$cwd" "$src" || exit 0   # unrelated repo / no cwd -> allow (per-project policy)
 
 # In scope, git commit, unsigned → deny.
 printf 'devAgent commit-guard: this `git commit` in %s (active issue %s) has no DCO sign-off.\n' "$src" "$active_issue" >&2
