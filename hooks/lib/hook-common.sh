@@ -121,3 +121,76 @@ except Exception:
     pass
 ' "$path" 2>/dev/null || true
 }
+
+# --- Path containment (#950) -------------------------------------------------------
+# The rule lives in the spec, section 8.1 "Path containment"; these two functions are
+# its implementation for HOOKS. Scripts under scripts/ must NOT source this file: the
+# scripts-side helper (#944) implements the same spec paragraph on its own.
+
+# _hook_path_norm_set <path> — the string normalizer. Leaves the normalized spelling
+# in HOOK_PATH_NORM (no output, no fork, so hook_path_under stays builtin-only).
+# Rules, in order: (1) every \ becomes /; (2) a leading /<letter> or /<letter>/...
+# becomes <letter>:/...; (3) a leading drive letter is folded to lower case;
+# (4) trailing / are dropped, except that a drive root is <letter>:/ and / stays /.
+# Only the drive letter ignores case. Lexical only: no . / .. / symlink resolution.
+_hook_path_norm_set() {
+  local p="${1:-}" re d
+  p=${p//\\//}                                                       # 1  every \ becomes /
+  re='^/([A-Za-z])(/.*)?$'
+  [[ $p =~ $re ]] && p="${BASH_REMATCH[1]}:${BASH_REMATCH[2]:-/}"    # 2  /c, /c/... -> c:/...
+  re='^([A-Za-z]):(.*)$'
+  [[ $p =~ $re ]] && { d=${BASH_REMATCH[1]}; p="${d,,}:${BASH_REMATCH[2]}"; }  # 3  fold the drive letter
+  re='^[a-z]:/*$'
+  if [[ $p =~ $re ]]; then p="${p:0:2}/"                             # 4a a drive root is c:/
+  else while [[ $p == */ && $p != / ]]; do p=${p%/}; done; fi        # 4b drop trailing /
+  HOOK_PATH_NORM="$p"
+}
+
+# hook_path_norm <path> — print the normalized spelling plus a newline; rc 0 always.
+hook_path_norm() {
+  _hook_path_norm_set "${1:-}"
+  printf '%s\n' "$HOOK_PATH_NORM"
+}
+
+# hook_path_under <path> <root> — rc 0 when <path> is under <root> (the same
+# directory or a descendant), rc 1 otherwise. No output.
+#   - An empty or missing argument is under nothing (rc 1): the fail-open answer.
+#   - IDENTITY FIRST. When both are directories, <path> is under <root> exactly when
+#     <path> or one of its parents is the same directory as <root> (`-ef`), walking
+#     P, P/.., P/../.. through the filesystem until a root (where P/.. is P). That
+#     verdict is final in both directions; the string rule is not consulted. The walk
+#     starts from the normalized spelling when that spelling is a directory, because
+#     in Git Bash /c/.. is the MSYS root, not c:/. The 64-candidate cap is a loop
+#     guard only, never a lexical bound.
+#   - STRING FALLBACK, only when either one is not a directory: normalize both;
+#     under = equal, or <root> followed by / (the component boundary); a root
+#     (<letter>:/ or /) covers everything that starts with it.
+# Builtins only: no subshell, no external command, no cd (this runs on every Bash
+# tool call a hook inspects).
+# KNOWN LIMIT: for a UNC path (\\host\share\...) whose host is unreachable, the
+# existence test can outlast the 5s hook timeout (measured 5.4 s); the hook then
+# fails open. Recorded as a limit; there is no string-only arm for UNC paths.
+hook_path_under() {
+  local path="${1:-}" root="${2:-}" c n P R
+  [ -n "$path" ] || return 1
+  [ -n "$root" ] || return 1
+  if [ -d "$path" ] && [ -d "$root" ]; then
+    _hook_path_norm_set "$path"
+    c="$HOOK_PATH_NORM"
+    [ -d "$c" ] || c="$path"
+    for ((n = 0; n < 64; n++)); do
+      [ "$c" -ef "$root" ] && return 0
+      [ "$c/.." -ef "$c" ] && return 1
+      c="$c/.."
+    done
+    return 1
+  fi
+  _hook_path_norm_set "$path"; P="$HOOK_PATH_NORM"
+  _hook_path_norm_set "$root"; R="$HOOK_PATH_NORM"
+  [[ $P == "$R" ]] && return 0
+  if [[ $R == */ ]]; then
+    [[ $P == "$R"* ]]
+  else
+    [[ $P == "$R"/* ]]
+  fi
+}
