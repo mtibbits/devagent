@@ -41,6 +41,8 @@ _deny() {
   [ "$status" -eq 2 ] || { echo "cwd '$1': want DENY (status 2), got status $status" >&2; return 1; }
   [[ "$output" == *DCO* ]] || { echo "cwd '$1': deny output lacks DCO: $output" >&2; return 1; }
   [[ "$output" == *Issue-7* ]] || { echo "cwd '$1': deny output lacks Issue-7: $output" >&2; return 1; }
+  [[ "$output" == *"Override this single call: DEVAGENT_COMMIT_GUARD_OVERRIDE=1"* ]] ||
+    { echo "cwd '$1': deny output lacks the override line: $output" >&2; return 1; }
 }
 _allow() {
   _feed "$(_j 'git commit -m fix' "$1")"
@@ -128,6 +130,11 @@ _case_insensitive_or_skip() {
   _feed 'not json'; [ "$status" -eq 0 ]
 }
 
+@test "per-call override as a command prefix PASSES, as the deny message says (#950 redmr)" {
+  _feed "$(_j 'DEVAGENT_COMMIT_GUARD_OVERRIDE=1 git commit -m fix')"; [ "$status" -eq 0 ]
+  _feed "$(_j 'DEVAGENT_COMMIT_GUARD_OVERRIDE=0 git commit -m fix')"; [ "$status" -eq 2 ]
+}
+
 @test "-C global option: 'git -C <dir> commit' unsigned is DENIED (#455)" {
   _feed "$(_j "git -C $SRC commit -m fix")"; [ "$status" -eq 2 ]
 }
@@ -154,12 +161,12 @@ _case_insensitive_or_skip() {
 }
 
 @test "string fallback: source_dir spelled C:/, /c/ or with a trailing slash still DENIES (#950)" {
-  _src C:/x/proj
-  _deny c:/x/proj
-  _src c:/x/proj/
-  _deny c:/x/proj/sub
-  _src /c/x/proj
-  _deny 'C:\x\proj'
+  [ ! -e c:/x ] || skip "c:/x exists on this host"
+  local r
+  for r in C:/x/proj c:/x/proj/ /c/x/proj; do
+    _src "$r"
+    _expect_each deny 6 "${WIN_SPELLINGS[@]}" || { echo "source_dir '$r'" >&2; return 1; }
+  done
 }
 
 @test "string fallback: proj2, another drive and a later-component case are ALLOWED (#950)" {

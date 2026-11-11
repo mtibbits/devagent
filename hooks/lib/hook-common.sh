@@ -165,8 +165,8 @@ hook_path_norm() {
 #   - STRING FALLBACK, only when either one is not a directory: normalize both;
 #     under = equal, or <root> followed by / (the component boundary); a root
 #     (<letter>:/ or /) covers everything that starts with it.
-# Builtins only: no subshell, no external command, no cd (this runs on every Bash
-# tool call a hook inspects).
+# Builtins only: no subshell, no external command, no cd. commit-guard calls it only
+# on its deny path today; it stays fork-free for hot-path callers to come (#943).
 # KNOWN LIMIT: for a UNC path (\\host\share\...) whose host is unreachable, the
 # existence test can outlast the 5s hook timeout (measured 5.4 s); the hook then
 # fails open. Recorded as a limit; there is no string-only arm for UNC paths.

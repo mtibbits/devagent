@@ -67,12 +67,14 @@ the README's "Versioning & releases" section has the release procedure.
   written `c:/...` it never matched the cwd spellings a Windows session reports
   (`C:\...`, `c:\...`, `/c/...`) and unsigned commits passed. It now compares by
   directory identity and falls back to a normalized string compare when a path
-  does not exist (spec 8.1, "Path containment"). **Behaviour change on
-  Windows:** with `commit_guard` on and an issue active, an unsigned
-  `git commit` in a `source_dir` session that passed before is now denied.
-  Re-run with `-s`. To bypass the guard, set `DEVAGENT_COMMIT_GUARD_OVERRIDE=1`
-  in the Claude Code session's environment (for example settings `env`); a
-  prefix on the `git commit` command line does not reach the hook. When the
+  does not exist (spec 8.1, "Path containment"). **Behaviour change:** with
+  `commit_guard` on and an issue active, an unsigned `git commit` in a
+  `source_dir` session that passed before is now denied. That is every Windows
+  session, and on any platform a `source_dir` written with a trailing slash, or
+  in another letter case on a case-insensitive filesystem. Re-run with `-s`. To
+  bypass the guard for one call, prefix the command with
+  `DEVAGENT_COMMIT_GUARD_OVERRIDE=1`, as the deny message says; the prefix is
+  now honoured, as `git_guard` already honours its own. When the
   directories exist, a cwd that reaches `source_dir` through a symbolic link is
   now in scope, and a cwd whose `..` segment leaves `source_dir`, or (on Linux)
   that sits under a symlinked subdirectory pointing outside it, no longer is.

@@ -1768,12 +1768,14 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
 The rule a hook uses to decide whether its session cwd lies inside a project's
 `source_dir`. The hooks implement it as `hook_path_under` in
 `hooks/lib/hook-common.sh`; the scripts-side helper (#944) and the worktree scope
-(#943) conform to this paragraph and test the spellings below. It is separate from
-the active-pointer identity rule above (identity by `-ef`, never string
-comparison), which is unchanged.
-- **Identity first.** When P and R are both existing directories, P is under R exactly when P or one
-  of its parent directories is the same directory as R (`test -ef`, walking up
-  from P to the root). Spelling and letter case do not matter, so a later
+(#943) will conform to this paragraph and test the spellings below. It is separate
+from section 7.5's `active_guard_scope` rule (`$PWD` inside `source_dir` by `-ef`
+identity, never string comparison), which is unchanged and governs scripts until
+#944 brings them onto this paragraph.
+- **Identity first.** When P and R are both existing directories, P is under R
+  exactly when P or one of its parent directories is the same directory as R
+  (`test -ef`, walking up from P to the root, at most 64 candidates). Spelling and
+  letter case do not matter, so a later
   component typed in another case matches on a case-insensitive filesystem and
   not on a case-sensitive one. The string rule is not consulted. Identity can
   differ from a literal compare of the two spellings on any filesystem: a P
@@ -1782,8 +1784,8 @@ comparison), which is unchanged.
   inside R through a symlinked subdirectory that points outside R is not. The
   walk starts from P's normalized spelling when that spelling exists, so
   `/c/..` never reaches the MSYS root.
-- **String fallback**, only when P or R is not an existing directory. Normalize both: (1) every
-  `\` becomes `/`; (2) a leading `/<letter>/` becomes `<letter>:/`; (3) a leading
+- **String fallback**, only when P or R is not an existing directory. Normalize
+  both: (1) every `\` becomes `/`; (2) a leading `/<letter>/` becomes `<letter>:/`; (3) a leading
   drive letter is folded to lower case; (4) trailing `/` are dropped, except that
   a drive root is `<letter>:/` and `/` stays `/`. P is under R when normalized P
   equals normalized R or starts with it followed by `/` (the component
@@ -1807,7 +1809,9 @@ comparison), which is unchanged.
   mount spelling (`/tmp`, `/usr`, `/home`) is not rewritten, so its walk follows
   the MSYS tree rather than the drive; a session cwd is reported in Windows
   spellings, so the guard does not meet this. Runs of `/` are not collapsed:
-  `c://x` is not under `c:/x` in the fallback.
+  `c://x` is not under `c:/x` in the fallback. The walk stops after 64
+  candidates and answers not under. On a POSIX host rule (1) also rewrites a `\`
+  inside a directory name, so the walk can start from a different directory.
 
 **Registered hooks (opt-in, default-off):**
 - `git-guard.sh` (`git_guard`, #352) — PreToolUse/Bash; denies reflexive destructive
@@ -1823,9 +1827,9 @@ comparison), which is unchanged.
   lacking a DCO sign-off (`-s`/`--signoff`), INCLUDING `git commit --amend` without
   `-s`. Fires ONLY when a devAgent issue is active for the resolved project AND the
   command's cwd is under that project's `source_dir` by the path-containment rule
-  above, so every Windows spelling of the cwd is in scope (#950) (DCO is this
-  operator's per-project policy, not universal). A signed `git commit -s` outside commit.sh is
-  ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
+  above, so the Windows spellings listed there are in scope (#950); DCO is this
+  operator's per-project policy, not universal. A signed `git commit -s` outside
+  commit.sh is ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
 - `session-rehydrate.sh` (`session_rehydrate`, #456) — **SessionStart** (matchers
   `startup|resume|clear`; `compact` EXCLUDED — compaction already carries a summary).
   A NON-guard hook: prints where.sh's one-screen "active issue + last/next step" as
