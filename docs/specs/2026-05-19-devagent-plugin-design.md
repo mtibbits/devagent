@@ -1771,7 +1771,7 @@ The rule a hook uses to decide whether its session cwd lies inside a project's
 (#943) conform to this paragraph and test the spellings below. It is separate from
 the active-pointer identity rule above (identity by `-ef`, never string
 comparison), which is unchanged.
-- **Identity first.** When P and R both exist, P is under R exactly when P or one
+- **Identity first.** When P and R are both existing directories, P is under R exactly when P or one
   of its parent directories is the same directory as R (`test -ef`, walking up
   from P to the root). Spelling and letter case do not matter, so a later
   component typed in another case matches on a case-insensitive filesystem and
@@ -1782,7 +1782,7 @@ comparison), which is unchanged.
   inside R through a symlinked subdirectory that points outside R is not. The
   walk starts from P's normalized spelling when that spelling exists, so
   `/c/..` never reaches the MSYS root.
-- **String fallback**, only when P or R does not exist. Normalize both: (1) every
+- **String fallback**, only when P or R is not an existing directory. Normalize both: (1) every
   `\` becomes `/`; (2) a leading `/<letter>/` becomes `<letter>:/`; (3) a leading
   drive letter is folded to lower case; (4) trailing `/` are dropped, except that
   a drive root is `<letter>:/` and `/` stays `/`. P is under R when normalized P
@@ -1803,7 +1803,11 @@ comparison), which is unchanged.
   (`\\host\share\...`) gets no special handling: when its host is unreachable
   the existence test can outlast the hook timeout, and the hook then fails
   open. In Git Bash `..` is lexical, so a junction to a subdirectory of R reads
-  as not under and a junction inside R pointing out reads as under.
+  as not under and a junction inside R pointing out reads as under. An MSYS
+  mount spelling (`/tmp`, `/usr`, `/home`) is not rewritten, so its walk follows
+  the MSYS tree rather than the drive; a session cwd is reported in Windows
+  spellings, so the guard does not meet this. Runs of `/` are not collapsed:
+  `c://x` is not under `c:/x` in the fallback.
 
 **Registered hooks (opt-in, default-off):**
 - `git-guard.sh` (`git_guard`, #352) — PreToolUse/Bash; denies reflexive destructive

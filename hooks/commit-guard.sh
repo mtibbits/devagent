@@ -60,5 +60,5 @@ hook_path_under "$cwd" "$src" || exit 0   # unrelated repo / no cwd -> allow (pe
 # In scope, git commit, unsigned → deny.
 printf 'devAgent commit-guard: this `git commit` in %s (active issue %s) has no DCO sign-off.\n' "$src" "$active_issue" >&2
 printf 'Re-run with `-s` — devAgent requires `git commit -s` (a `--amend` must also carry -s; amending drops the trailer otherwise).\n' >&2
-printf 'Override this single call: DEVAGENT_COMMIT_GUARD_OVERRIDE=1\n' >&2
+printf 'Override: set DEVAGENT_COMMIT_GUARD_OVERRIDE=1 in the Claude Code session environment (e.g. settings env); a prefix on the git commit command line does not reach this hook.\n' >&2
 exit 2

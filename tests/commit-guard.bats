@@ -153,11 +153,13 @@ _case_insensitive_or_skip() {
   _expect_each deny 6 "${WIN_SPELLINGS[@]}"
 }
 
-@test "string fallback: source_dir spelled C:/ or with a trailing slash still DENIES (#950)" {
+@test "string fallback: source_dir spelled C:/, /c/ or with a trailing slash still DENIES (#950)" {
   _src C:/x/proj
   _deny c:/x/proj
   _src c:/x/proj/
   _deny c:/x/proj/sub
+  _src /c/x/proj
+  _deny 'C:\x\proj'
 }
 
 @test "string fallback: proj2, another drive and a later-component case are ALLOWED (#950)" {
@@ -183,6 +185,9 @@ _case_insensitive_or_skip() {
 # --- #950: cwd under source_dir, identity (real directories) ---
 
 @test "identity: real directories, each Windows spelling is DENIED (#950)" {
+  # The string fallback gives these same answers, so this test pins the real-directory
+  # spellings end to end, not the identity limb; the later-component-case and `..`
+  # identity tests below pin the limb.
   local M d l U rest bs
   M="$(cygpath -m "$BATS_TEST_TMPDIR" 2>/dev/null || true)"
   [[ "$M" =~ ^[A-Za-z]:/ ]] || skip "the temp dir has no <letter>:/ spelling here (not Git Bash)"
