@@ -16,7 +16,7 @@ setup() {
   DA="$BATS_TEST_TMPDIR/da"; mkdir -p "$DA/state"
   export DA_HOME="$DA"
   SRC="$BATS_TEST_TMPDIR/proj"; mkdir -p "$SRC"
-  printf '[defaults]\ncommit_guard = true\n[project.acme]\nsource_dir = "%s"\n' "$SRC" > "$DA/config.toml"
+  _src "$SRC"
   printf 'active_issue = "Issue-7"\n' > "$DA/state/acme.toml"
   export DEVAGENT_ACTIVE_PROJECT=acme
   unset DEVAGENT_COMMIT_GUARD_OVERRIDE
@@ -28,10 +28,14 @@ _js() { printf '%s' "$1" | python3 -c 'import json,sys; sys.stdout.write(json.du
 _j()  { printf '{"tool_input":{"command":%s},"cwd":%s}' "$(_js "$1")" "$(_js "${2:-$SRC}")"; }
 _feed() { run bash -c 'printf "%s" "$1" | bash "$2"' _ "$1" "$HOOK"; }
 
-# #950 helpers. _src <value> rewrites the config with commit_guard on and that
-# source_dir. _deny / _allow <cwd> feed an unsigned commit from that cwd and return
-# non-zero with a named reason, so a loop can collect every failing leg.
-_src() { printf '[defaults]\ncommit_guard = true\n[project.acme]\nsource_dir = "%s"\n' "$1" > "$DA/config.toml"; }
+# _src <source_dir> [off] rewrites the config with that source_dir and commit_guard on;
+# "off" leaves the commit_guard line out (the default-off gate).
+# _deny / _allow <cwd> feed an unsigned commit from that cwd and return non-zero with
+# a named reason, so a loop can collect every failing leg (#950).
+_src() {
+  { [ "${2:-}" = off ] || printf '[defaults]\ncommit_guard = true\n'
+    printf '[project.acme]\nsource_dir = "%s"\n' "$1"; } > "$DA/config.toml"
+}
 _deny() {
   _feed "$(_j 'git commit -m fix' "$1")"
   [ "$status" -eq 2 ] || { echo "cwd '$1': want DENY (status 2), got status $status" >&2; return 1; }
@@ -43,25 +47,27 @@ _allow() {
   [ "$status" -eq 0 ] || { echo "cwd '$1': want ALLOW (status 0), got status $status" >&2; return 1; }
   [ -z "$output" ] || { echo "cwd '$1': allow printed output: $output" >&2; return 1; }
 }
-# _deny_each <expected-count> <cwd>... - every cwd must be denied; all failing legs
-# are named in one message, and the count guards against a silently empty list.
-_deny_each() {
-  local want="$1" sp n=0 bad=""; shift
+# _expect_each <deny|allow> <expected-count> <cwd>... - every cwd must get that verdict;
+# all failing cwds are named in one message (each leg already printed its reason), and
+# the count guards against a silently empty list.
+_expect_each() {
+  local verb="$1" want="$2" sp n=0 bad=""; shift 2
   for sp in "$@"; do
-    _deny "$sp" || bad+="[$sp status=$status] "
+    "_$verb" "$sp" || bad+="[$sp] "
     n=$((n + 1))
   done
-  [ -z "$bad" ] || { echo "NOT denied: $bad" >&2; return 1; }
+  [ -z "$bad" ] || { echo "want $verb, did not get it: $bad" >&2; return 1; }
   [ "$n" -eq "$want" ] || { echo "ran $n legs, want $want" >&2; return 1; }
 }
-_allow_each() {
-  local want="$1" sp n=0 bad=""; shift
-  for sp in "$@"; do
-    _allow "$sp" || bad+="[$sp status=$status] "
-    n=$((n + 1))
-  done
-  [ -z "$bad" ] || { echo "NOT allowed: $bad" >&2; return 1; }
-  [ "$n" -eq "$want" ] || { echo "ran $n legs, want $want" >&2; return 1; }
+# _symlink_or_skip <target> <link> - make the link, or skip where ln -s copies.
+_symlink_or_skip() {
+  ln -s "$1" "$2" 2>/dev/null || true
+  [ -L "$2" ] || skip "no real symlinks here (ln -s copies)"
+}
+# _case_insensitive_or_skip <dir> - skip unless <dir> is on a case-insensitive filesystem.
+_case_insensitive_or_skip() {
+  mkdir "$1/CaseProbe"
+  [ -d "$1/caseprobe" ] || skip "the temp dir is on a case-sensitive filesystem"
 }
 
 @test "active tree: signed 'git commit -s' PASSES (#455)" {
@@ -111,7 +117,7 @@ _allow_each() {
 }
 
 @test "opt-in default-off: gate off ⇒ unsigned commit PASSES (#455)" {
-  printf '[project.acme]\nsource_dir = "%s"\n' "$SRC" > "$DA/config.toml"   # commit_guard absent
+  _src "$SRC" off
   _feed "$(_j 'git commit -m fix')"; [ "$status" -eq 0 ]
 }
 
@@ -144,7 +150,7 @@ _allow_each() {
 @test "string fallback: each Windows spelling of cwd is DENIED (#950)" {
   [ ! -e c:/x ] || skip "c:/x exists on this host"
   _src c:/x/proj
-  _deny_each 6 "${WIN_SPELLINGS[@]}"
+  _expect_each deny 6 "${WIN_SPELLINGS[@]}"
 }
 
 @test "string fallback: source_dir spelled C:/ or with a trailing slash still DENIES (#950)" {
@@ -158,7 +164,7 @@ _allow_each() {
   [ ! -e c:/x ] || skip "c:/x exists on this host"
   _src c:/x/proj
   _deny c:/x/proj
-  _allow_each 5 c:/x/proj2 'C:\x\proj2' /d/x/proj c:/x/Proj /some/other/repo
+  _expect_each allow 5 c:/x/proj2 'C:\x\proj2' /d/x/proj c:/x/Proj /some/other/repo
 }
 
 @test "POSIX source_dir keeps its answers (#950)" {
@@ -170,7 +176,7 @@ _allow_each() {
 }
 
 @test "gate off: a Windows-spelled cwd gives exit 0 and no output (#950)" {
-  printf '[project.acme]\nsource_dir = "c:/x/proj"\n' > "$DA/config.toml"   # commit_guard absent
+  _src c:/x/proj off
   _allow 'C:\x\proj'
 }
 
@@ -180,14 +186,13 @@ _allow_each() {
   local M d l U rest bs
   M="$(cygpath -m "$BATS_TEST_TMPDIR" 2>/dev/null || true)"
   [[ "$M" =~ ^[A-Za-z]:/ ]] || skip "the temp dir has no <letter>:/ spelling here (not Git Bash)"
-  mkdir "$M/CaseProbe"
-  [ -d "$M/caseprobe" ] || skip "the temp dir is on a case-sensitive filesystem"
+  _case_insensitive_or_skip "$M"
   mkdir -p "$M/x/proj/sub"
   d="${M:0:1}"; l="${d,,}"; U="${d^^}"
   rest="${M:2}"; rest="${rest%/}"      # /Users/.../N  (leading /, no trailing /)
   bs="${rest//\//\\}"                  # the same with \ separators
   _src "$l:$rest/x/proj"
-  _deny_each 6 \
+  _expect_each deny 6 \
     "$U:$bs\\x\\proj" \
     "$l:$bs\\x\\proj" \
     "/$l$rest/x/proj" \
@@ -198,8 +203,7 @@ _allow_each() {
 
 @test "identity: a later component in another case is DENIED on a case-insensitive filesystem (#950)" {
   local T="$BATS_TEST_TMPDIR"
-  mkdir "$T/CaseProbe"
-  [ -d "$T/caseprobe" ] || skip "the temp dir is on a case-sensitive filesystem"
+  _case_insensitive_or_skip "$T"
   mkdir -p "$T/x/proj/sub"
   _src "$T/x/proj"
   _deny "$T/x/Proj/sub"
@@ -208,8 +212,7 @@ _allow_each() {
 @test "identity: a cwd through a symlink to source_dir is DENIED (#950)" {
   local T="$BATS_TEST_TMPDIR"
   mkdir -p "$T/x/proj/sub"
-  ln -s "$T/x/proj" "$T/link" 2>/dev/null || true
-  [ -L "$T/link" ] || skip "no real symlinks here (ln -s copies)"
+  _symlink_or_skip "$T/x/proj" "$T/link"
   _src "$T/x/proj"
   _deny "$T/link"
   _deny "$T/link/sub"
@@ -226,8 +229,7 @@ _allow_each() {
 @test "identity: a symlinked subdir of source_dir pointing outside is ALLOWED (#950)" {
   local T="$BATS_TEST_TMPDIR"
   mkdir -p "$T/x/proj" "$T/x/out"
-  ln -s ../out "$T/x/proj/lnk" 2>/dev/null || true
-  [ -L "$T/x/proj/lnk" ] || skip "no real symlinks here (ln -s copies)"
+  _symlink_or_skip ../out "$T/x/proj/lnk"
   [ "$T/x/proj/lnk/.." -ef "$T/x" ] || skip ".. is lexical here, not the physical parent"
   _src "$T/x/proj"
   _deny "$T/x/proj"
@@ -237,8 +239,7 @@ _allow_each() {
 @test "identity: the walk reaches a deep source_dir through a symlinked cwd (#950)" {
   local T="$BATS_TEST_TMPDIR"
   mkdir -p "$T/x/proj/a/b/c/d/e"
-  ln -s "$T/x/proj/a/b/c/d/e" "$T/w" 2>/dev/null || true
-  [ -L "$T/w" ] || skip "no real symlinks here (ln -s copies)"
+  _symlink_or_skip "$T/x/proj/a/b/c/d/e" "$T/w"
   _src "$T/x/proj"
   _deny "$T/w"
 }
@@ -246,8 +247,7 @@ _allow_each() {
 @test "identity: source_dir configured through a symlink, physical cwd is DENIED (#950)" {
   local T="$BATS_TEST_TMPDIR"
   mkdir -p "$T/x/proj/sub"
-  ln -s "$T/x/proj" "$T/plink" 2>/dev/null || true
-  [ -L "$T/plink" ] || skip "no real symlinks here (ln -s copies)"
+  _symlink_or_skip "$T/x/proj" "$T/plink"
   _src "$T/plink"
   _deny "$T/x/proj/sub"
 }

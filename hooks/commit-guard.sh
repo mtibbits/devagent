@@ -3,9 +3,8 @@
 # `git commit` that lacks a DCO sign-off (`-s`/`--signoff`), INCLUDING
 # `git commit --amend` without `-s` (the recorded sign-off-drop failure). Fires ONLY
 # when a devAgent issue is active for the resolved project AND the command's cwd is
-# under that project's source_dir (hook_path_under: the same directory by identity,
-# else by normalized spelling, so `C:\...`, `c:\...` and `/c/...` all match; spec 8.1
-# 'Path containment', #950) — DCO is this operator's PER-PROJECT policy, not
+# under that project's source_dir (hook_path_under; spec 8.1 'Path containment',
+# #950) — DCO is this operator's PER-PROJECT policy, not
 # universal, so commits in unrelated repos pass. A signed `git commit -s` outside
 # scripts/commit.sh is ALLOWED (ship.sh's #148 review/redmr-fix recovery path).
 #
@@ -39,8 +38,8 @@ if printf '%s' "$cmd" | grep -qE '(--signoff|(^|[[:space:]])-[A-Za-z]*s[A-Za-z]*
            # `-sS`/`-Ss` (DCO sign-off + gpg-sign) are correctly SIGNED (#455 redmr).
 fi
 
-# Firing scope (per-project): active project + non-empty active_issue + cwd ⊂ source_dir
-# (hook_path_under).
+# Firing scope (per-project): active project + non-empty active_issue + cwd ⊂ source_dir.
+# The cheap active_issue read runs before the cwd parse and the path walk.
 proj="$(hook_active_project)"
 [ -n "$proj" ] || exit 0
 cfg="$(hook_home)/config.toml"
@@ -51,12 +50,12 @@ src="$(awk -F'"' -v p="$proj" '
 ' "$cfg" 2>/dev/null || true)"
 [ -n "$src" ] || exit 0
 
-cwd="$(hook_json_field "$input" 'cwd')"
-hook_path_under "$cwd" "$src" || exit 0   # unrelated repo / no cwd -> allow (per-project policy)
-
 active_issue="$(awk -F'"' '/^active_issue[[:space:]]*=/{print $2; exit}' \
   "$(hook_home)/state/${proj}.toml" 2>/dev/null || true)"
 [ -n "$active_issue" ] || exit 0   # no active issue → not enforcing
+
+cwd="$(hook_json_field "$input" 'cwd')"
+hook_path_under "$cwd" "$src" || exit 0   # unrelated repo / no cwd -> allow (per-project policy)
 
 # In scope, git commit, unsigned → deny.
 printf 'devAgent commit-guard: this `git commit` in %s (active issue %s) has no DCO sign-off.\n' "$src" "$active_issue" >&2

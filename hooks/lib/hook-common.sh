@@ -134,12 +134,12 @@ except Exception:
 # (4) trailing / are dropped, except that a drive root is <letter>:/ and / stays /.
 # Only the drive letter ignores case. Lexical only: no . / .. / symlink resolution.
 _hook_path_norm_set() {
-  local p="${1:-}" re d
+  local p="${1:-}" re
   p=${p//\\//}                                                       # 1  every \ becomes /
   re='^/([A-Za-z])(/.*)?$'
   [[ $p =~ $re ]] && p="${BASH_REMATCH[1]}:${BASH_REMATCH[2]:-/}"    # 2  /c, /c/... -> c:/...
   re='^([A-Za-z]):(.*)$'
-  [[ $p =~ $re ]] && { d=${BASH_REMATCH[1]}; p="${d,,}:${BASH_REMATCH[2]}"; }  # 3  fold the drive letter
+  [[ $p =~ $re ]] && p="${BASH_REMATCH[1],,}:${BASH_REMATCH[2]}"     # 3  fold the drive letter
   re='^[a-z]:/*$'
   if [[ $p =~ $re ]]; then p="${p:0:2}/"                             # 4a a drive root is c:/
   else while [[ $p == */ && $p != / ]]; do p=${p%/}; done; fi        # 4b drop trailing /
@@ -172,12 +172,11 @@ hook_path_norm() {
 # fails open. Recorded as a limit; there is no string-only arm for UNC paths.
 hook_path_under() {
   local path="${1:-}" root="${2:-}" c n P R
-  [ -n "$path" ] || return 1
-  [ -n "$root" ] || return 1
+  [ -n "$path" ] && [ -n "$root" ] || return 1
   if [ -d "$path" ] && [ -d "$root" ]; then
     _hook_path_norm_set "$path"
     c="$HOOK_PATH_NORM"
-    [ -d "$c" ] || c="$path"
+    [ "$c" = "$path" ] || [ -d "$c" ] || c="$path"
     for ((n = 0; n < 64; n++)); do
       [ "$c" -ef "$root" ] && return 0
       [ "$c/.." -ef "$c" ] && return 1
@@ -187,10 +186,5 @@ hook_path_under() {
   fi
   _hook_path_norm_set "$path"; P="$HOOK_PATH_NORM"
   _hook_path_norm_set "$root"; R="$HOOK_PATH_NORM"
-  [[ $P == "$R" ]] && return 0
-  if [[ $R == */ ]]; then
-    [[ $P == "$R"* ]]
-  else
-    [[ $P == "$R"/* ]]
-  fi
+  [[ $P == "$R" || $P == "${R%/}"/* ]]   # a root (c:/ or /) strips to c: or "", then /
 }
