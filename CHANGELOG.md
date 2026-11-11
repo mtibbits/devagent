@@ -16,6 +16,48 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: cleanup commits only the devDoc paths it owns (#749).** The
+  devdoc commit carries the issue dir, plus `WBS.md` when it changed, and
+  nothing else: another issue's dir, a capture, or a path another session
+  staged is left exactly as it was (before, `git add -A` swept everything
+  under `devdoc_dir` and the commit took anything already staged). Read-only
+  `git status` calls on the devDoc repository run with `GIT_OPTIONAL_LOCKS=0`,
+  and a mid-merge devDoc repository is refused by name.
+- **Changed: cleanup reports what it does not own (#749).** Captures and
+  other issues' dirs are no longer committed by a cleanup. Instead one line
+  counts the unowned changed paths under `devdoc_dir`; it becomes a warning
+  when a unit is older than 7 days and no session has it in flight.
+- **Changed: devDoc writers serialise on one repository lock (#749).** The
+  pothole drain (`promote-potholes.sh --apply`), `statusreport`, and
+  `wbs update`/`order`/`init` take a lock in the devDoc repository's git
+  common dir (outside git, `<devdoc_dir>/.devagent-wbs.lock`) around their
+  writes, never around a tracker call. A lock held past
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (default 60 s of elapsed time) names its
+  holder and the stale-lock remedy; cleanup's three waits share one deadline
+  (`DEVAGENT_DEVDOC_LOCK_DEADLINE`), so one close waits at most that long in
+  total; `wbs` then exits 1 and `/devagent:updatewbs` marks its
+  step stuck, and a standalone drain defers (rc 3). `statusreport` now exits
+  non-zero when its commit fails and moves the pin only after a commit (or
+  when none was needed).
+- **Changed: cleanup holds the devDoc lock and never reads closed on a failed
+  close (#749).** Cleanup takes the repository lock around the register drain
+  and again around its devdoc commit and the state GC, which now runs AFTER
+  the commit; the WBS reconcile and every tracker call run unheld, and the
+  lock is released before the push. A lock timeout, a mid-merge repository or
+  a failing `git add`/`git commit` after the row is marked returns the cleanup
+  row to `[~]`, logs `cleanup_open: NOT closed - <reason>`, keeps the issue's
+  state and exits 1 with the re-run command; statusreport does not count such
+  a close as completed. A failed register-layer lookup no longer refuses the
+  devdoc commit: it warns, and the commit still takes only the owned paths. `wbs-update.sh --skip-state-slot` (cleanup's call)
+  keeps the close-time auto-add resolution unchanged.
+- **Changed: `WBS.md` is replaced atomically (#749).** Every `WBS.md` write
+  goes to a temp file beside it and then replaces it, so a killed write never
+  leaves a half-written file; a symlink is written through and the file's
+  mode kept. A replace refused because another program holds the file is
+  retried for about 8 s; after that `wbs update`/`wbs init` exit 1 naming the
+  file (nothing written), and cleanup warns that the leaf was not updated and
+  still completes.
+
 - **Added: devagent's own requirements file, docs/requirements.md (#915).**
   It states devagent's requirements in Gantry's format, in the `devagent`
   namespace, so planning tools can trace work to requirement IDs; it is

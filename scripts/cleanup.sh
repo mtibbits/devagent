@@ -12,6 +12,7 @@ DEVAGENT_ROOT="${DEVAGENT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 . "$DEVAGENT_ROOT/scripts/lib/log.sh"
 . "$DEVAGENT_ROOT/scripts/lib/permission.sh"
 . "$DEVAGENT_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh layer paths (the exclude pathspecs below)
+. "$DEVAGENT_ROOT/scripts/lib/devdoc-repo.sh"        # #749: owned-path commit, read-only git, mid-merge
 # shellcheck source=/dev/null
 source "$DEVAGENT_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
@@ -142,14 +143,74 @@ fi
 # Restore source tree to base branch.
 ( cd "$source_dir" && "$DEVAGENT_GIT" checkout "$base_branch" )
 
+# #749: the close, in order — the devDoc repository lock in TWO holds, never
+# across a network call (spec §3.3; commands/cleanup.md has the narrative):
+#   hold 1 (only for a pending promotion that will apply): the register drain,
+#     run as a reentrant child; released before anything else.
+#   then, unheld: the cleanup row marked done and its log line, and the WBS
+#     reconcile (wbs-update.sh takes the lock for its own write, after its
+#     tracker calls).
+#   hold 2 (commit_devdoc = true, devdoc in git): the #611 layer lookup, the
+#     unowned report, the owned-path commit, and the state GC; released before
+#     the push. The transcript archive runs last, unheld.
+# A close that fails after the row is marked never reads as closed: the EXIT
+# trap returns the row to [~], logs a cleanup_open line, keeps the issue's
+# state (the GC runs only after the commit) and exits 1 with a re-run remedy.
+commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
+_cleanup_armed=0; _cleanup_closed=0; _cleanup_reason=""; _devdoc_committed=0
+_cleanup_exit() {
+    local rc=$?
+    devdoc_lock_release || true
+    if [ "$_cleanup_armed" = 1 ] && [ "$_cleanup_closed" != 1 ]; then
+        [ -n "$_cleanup_reason" ] || _cleanup_reason="aborted (exit $rc)"
+        ( checklist_mark_by_name "$issue_dir/checklist.md" cleanup '~' ) || true
+        ( log_append "$issue_dir" cleanup_open "NOT closed - $_cleanup_reason; step left [~], state kept; re-run /devagent:cleanup" ) || true
+        info "cleanup: $_cleanup_reason - the cleanup step is left [~] and the issue's state is kept; fix the cause above and re-run /devagent:cleanup $project $issue_arg" || true
+        exit 1
+    fi
+}
+# _cleanup_leave_open <reason> — end the close as NOT closed (the EXIT trap
+# does the rest).
+_cleanup_leave_open() { _cleanup_reason="$1"; _cleanup_armed=1; exit 1; }
+trap _cleanup_exit EXIT
+trap '_cleanup_reason=interrupted; exit 130' INT TERM
+# _cleanup_hold — take the devDoc repository lock or leave the close open.
+_cleanup_hold() {
+    local rc=0
+    devdoc_lock_acquire "$devdoc_dir" "$issue_arg" "/devagent:cleanup $project $issue_arg" || rc=$?
+    case "$rc" in
+        0) ;;
+        1) _cleanup_leave_open "devdoc lock timeout" ;;
+        *) _cleanup_leave_open "devdoc lock location cannot be determined" ;;
+    esac
+}
+devdoc_git=0
+devdoc_in_git "$devdoc_dir" >/dev/null || devdoc_git=$?
+# #749 red-team: hold 1, the reconcile's own write and hold 2 share ONE
+# deadline (spec §3.3), so this close's lock waits total at most the bound.
+devdoc_lock_deadline_start
+if [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 2 ]; then
+    warn "cleanup: cannot determine the devdoc lock for $devdoc_dir: a .git entry exists but git rev-parse failed there - fix git (PATH, safe.directory)"
+    _cleanup_leave_open "devdoc lock location cannot be determined"
+fi
+
 # #586/#611: drain the pending register promotion NOW, after the source-tree
 # restore. The drain commits each devdoc-resident layer file ITSELF (one
 # path-scoped commit per layer, operator identity) — the devdoc commit below
 # never carries them. rc 3 = deferred (stays pending, stays loud). Re-running
 # cleanup after a die here is safe (--apply is idempotent).
+# #749 hold 1: only a drain that will apply (pending, commit_devdoc, in git)
+# runs under cleanup's lock; the drain is then a reentrant child that records
+# cleanup as the holder. Otherwise it runs unheld and defers or no-ops as
+# before. A drain failure (the die below) is not armed: the row stays as it was.
 if [ -f "$issue_dir/potholes-promotion.md" ]; then
+    if grep -q '^status: pending' "$issue_dir/potholes-promotion.md" \
+        && [ "$commit_devdoc" = true ] && [ "$devdoc_git" -eq 0 ]; then
+        _cleanup_hold
+    fi
     pp_rc=0
     "$DEVAGENT_ROOT/scripts/promote-potholes.sh" "$project" "$issue_dir" --apply || pp_rc=$?
+    devdoc_lock_release   # a no-op unless hold 1 was taken
     if [ "$pp_rc" -eq 3 ]; then
         warn "cleanup: pothole promotion DEFERRED — $issue_dir/potholes-promotion.md stays pending; see the reason above. Environment causes (commit_devdoc flag, dirty/untracked register, mid-merge, containment, held lock): fix and re-run promote-potholes.sh $project $issue_dir --apply. A pre-existing register-contract violation in the layer file (#613: '<file>:<line>: <reason>' is quoted — fix that line by hand, then re-run --apply). An op-validation cause (#612: STALE, multi-hit, old+new both present, a failed rail — the op and line are quoted): close the op with promote-potholes.sh $project $issue_dir --drop <op> (then reword the lessonslearned: log line if it counted that op), or land it by hand and set 'status: applied by-hand <sha>'; re-running --apply alone re-DEFERs"
     elif [ "$pp_rc" -ne 0 ]; then
@@ -157,9 +218,87 @@ if [ -f "$issue_dir/potholes-promotion.md" ]; then
     fi
 fi
 
-# Bookkeeping first — updates checklist.md so devdoc has something to commit.
-# Clear the per-issue context and GC any leftover snapshot for this issue
-# (#98), then record cleanup as the last step.
+# Record cleanup as done BEFORE the devdoc commit, so the commit carries the
+# row and its log line. From here a failed close is armed: the EXIT trap puts
+# the row back to [~] (a later cleanup_open line tells statusreport the close
+# did not complete).
+_cleanup_armed=1
+checklist_mark_by_name "$issue_dir/checklist.md" cleanup x
+log_append "$issue_dir" cleanup "tree restored; devdoc commit and state GC follow${NOTE:+ - $NOTE}"
+
+# Reconcile the WBS against the now-completed checklist so the leaf for
+# this issue flips to [x]. --if-exists silently no-ops if the project
+# has no WBS.md (it's an optional artifact). The closing issue is still in
+# the shared slot (the state GC runs after the commit), so --skip-state-slot
+# resolves the auto-add candidate as the close always has: an explicit pin
+# still wins, the slot rung is skipped (#749). Unheld: wbs-update.sh takes
+# the lock for its own write, after its tracker calls.
+"$DEVAGENT_ROOT/scripts/wbs-update.sh" --if-exists --skip-state-slot "$project" || \
+    warn "cleanup: wbs reconcile failed (non-fatal) - the WBS leaf for $issue_arg was NOT updated; after the close, re-run /devagent:wbs update $project"
+
+# Commit devdoc if permitted (#749 hold 2: lookup, report, commit and GC).
+if [ "$commit_devdoc" = "true" ]; then
+    plan="cleanup plan: commit + push devdoc updates for $issue_arg"
+    permission_gate "$project" commit_devdoc "$plan"
+    [ "$devdoc_git" -ne 0 ] || _cleanup_hold
+    cd "$devdoc_dir"
+
+    # #140: --porcelain reports untracked files too. A fresh Issue-NNN/ dir from
+    # pull.sh this cycle is entirely untracked; the old `git diff` guard saw only
+    # tracked modifications and silently skipped the commit.
+    # #611: the register LAYER FILES are the drain's to commit, never this
+    # commit's: a layer the drain DEFERred on (dirty/untracked — another
+    # session's edit) must not be committed here under devagent@local (#611
+    # review). Since #749 the commit takes only its owned paths, so it cannot
+    # carry a layer file; the layer paths under devdoc_dir are looked up only as
+    # the unowned report's exclude pathspecs. A failed lookup therefore no
+    # longer refuses the commit (#749 red-team: refusing left the closed issue's
+    # dir uncommitted for good, with nothing to protect): it warns, and the
+    # report may then list a layer file.
+    _dc="$(pwd -P)"; excl=(); _lk=1
+    _lp_pr="$(potholes_project_path "$project")"  || _lk=0
+    _lp_wf="$(potholes_workflow_path "$project")" || _lk=0
+    if [ "$_lk" -ne 1 ]; then
+        warn "cleanup: register layer lookup failed (see above) - the devdoc commit still takes only $issue_arg's owned paths, but the unowned report may list a register layer file; fix [paths] potholes_workflow / the config"
+    fi
+    for _lp in "$_lp_pr" "$_lp_wf"; do
+        [ -n "$_lp" ] && [ -d "$(dirname "$_lp")" ] || continue
+        _lpc="$(cd "$(dirname "$_lp")" && pwd -P)/$(basename "$_lp")"
+        case "$_lpc" in "$_dc"/*) excl+=(":(exclude)${_lpc#"$_dc"/}") ;; esac
+    done
+    unset _dc _lp _lpc _lp_pr _lp_wf
+    # #749: the commit carries ONLY the paths this cleanup owns (the issue dir,
+    # plus WBS.md when it changed) — never another issue's dir, a capture, or
+    # another project's staged edit. Both the add and the commit are
+    # pathspec-scoped: a pathspec-less commit would also take whatever another
+    # session had staged. devdoc_owned_pathspecs is the one definition of the set.
+    _own_rc=0
+    devdoc_owned_pathspecs "$devdoc_dir" "$issue_dir" || _own_rc=$?
+    # #749 item 5: what this cleanup does NOT own is reported, never swept —
+    # one line, a warning only for stale work no session is carrying. Not
+    # printed when there is no owned set (rc 1/2), where it would list the
+    # issue's own dir.
+    [ "$_own_rc" -ne 0 ] || devdoc_unowned_report "$project" "$devdoc_dir" "$issue_arg" "${excl[@]}"
+    if [ "$_own_rc" -eq 2 ]; then
+        warn "cleanup: issue dir $issue_dir is not inside the git repository holding $devdoc_dir - devdoc commit skipped; commit it by hand"
+    elif [ "$_own_rc" -eq 0 ] \
+        && [ -n "$(devdoc_git_ro status --porcelain -- "${DEVDOC_OWNED[@]}")" ]; then
+        if devdoc_mid_merge .; then
+            warn "cleanup: devdoc repository $(devdoc_repo_top .) is mid-merge (MERGE_HEAD present) - finish or abort the merge"
+            _cleanup_leave_open "devdoc repository mid-merge (MERGE_HEAD present)"
+        fi
+        "$DEVAGENT_GIT" add -A -- "${DEVDOC_OWNED[@]}" || _cleanup_leave_open "devdoc commit failed"
+        "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
+            commit -m "devdoc: $issue_arg cleanup" -- "${DEVDOC_OWNED[@]}" \
+            || _cleanup_leave_open "devdoc commit failed"
+        _devdoc_committed=1
+    fi
+fi
+
+# State GC — AFTER the devdoc commit (#749): a close whose commit failed keeps
+# the issue's context so the re-run has it. Clear the per-issue context and GC
+# any leftover snapshot for this issue (#98).
+
 # #240: GC the ISSUE BEING CLEANED, and touch the shared slot only when that
 # issue owns it. A pinned session finishing Issue-2 while the shared pointer
 # says Issue-1 must GC context.Issue-2 — not Issue-1's live table — and must
@@ -179,16 +318,6 @@ shared_active="$(state_get "$project" active_issue 2>/dev/null || true)"
 if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
     state_unset "$project" "context.${gc_issue}"
     state_remove_displaced "$project" "$gc_issue"   # #415: don't leak the marker
-    # #351: remove this issue's keyed analyze build dirs from the shared source
-    # tree. Per-issue keying isolates concurrent chains but would grow unbounded
-    # otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash
-    # after the key, so cleaning Issue-1 cannot wipe Issue-10's dirs (prefix).
-    _bk="$(printf '%s-%s' "$project" "$gc_issue" | tr -c 'A-Za-z0-9' '-')"
-    rm -rf -- "$source_dir/build-$_bk" 2>/dev/null || true
-    for _d in "$source_dir/build-$_bk"-*; do
-        [ -e "$_d" ] && rm -rf -- "$_d"
-    done
-    unset _bk _d
 fi
 # #417: touch the shared slot ONLY when the issue being cleaned actually OWNS it
 # (shared_active == gc_issue). The old guard keyed on pin-ABSENCE (a session
@@ -211,16 +340,29 @@ if [ "$shared_active" = "$gc_issue" ]; then
 else
     info "cleanup: ${gc_issue} does not own the shared active_issue (${shared_active:-<none>}) — shared slot left untouched"
 fi
+_cleanup_closed=1
+devdoc_lock_release
 
-checklist_mark_by_name "$issue_dir/checklist.md" cleanup x
-log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ — $NOTE}"
+# #351: remove this issue's keyed analyze build dirs from the shared source
+# tree. Per-issue keying isolates concurrent chains but would grow unbounded
+# otherwise; cleanup bounds it to in-flight issues. The `-*` requires a dash
+# after the key, so cleaning Issue-1 cannot wipe Issue-10's dirs (prefix).
+# After the release (#749 review): a source-tree removal, not a devDoc write.
+if [ -n "$gc_issue" ] && [ "$gc_issue" != "--" ]; then
+    _bk="$(printf '%s-%s' "$project" "$gc_issue" | tr -c 'A-Za-z0-9' '-')"
+    rm -rf -- "$source_dir/build-$_bk" 2>/dev/null || true
+    for _d in "$source_dir/build-$_bk"-*; do
+        [ -e "$_d" ] && rm -rf -- "$_d"
+    done
+    unset _bk _d
+fi
 
-# Reconcile the WBS against the now-completed checklist so the leaf for
-# this issue flips to [x]. --if-exists silently no-ops if the project
-# has no WBS.md (it's an optional artifact). We pass project explicitly
-# because active_issue was just cleared above.
-"$DEVAGENT_ROOT/scripts/wbs-update.sh" --if-exists "$project" || \
-    warn "cleanup: wbs reconcile failed (non-fatal)"
+# Push only a commit this run made, never under the lock (#718 text unchanged).
+if [ "$_devdoc_committed" = 1 ] && "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then
+    "$DEVAGENT_GIT" push origin HEAD 2>/dev/null || \
+        echo "warning: devdoc push failed; commit retained locally" >&2
+fi
+
 
 # #731: copy this machine's transcripts into the durable archive when
 # [archive].transcripts_dir is set (scripts/lib/archive-transcripts.py owns
@@ -234,46 +376,4 @@ log_append "$issue_dir" cleanup "tree restored, active_issue cleared${NOTE:+ —
 if grep -Eq '^[[:space:]]*(\[[[:space:]]*archive[[:space:]]*[].]|archive[[:space:]]*[.=])' "$(config_path)" 2>/dev/null; then
     DA_HOME="$(devagent_home)" "$DEVAGENT_ROOT/scripts/archive-transcripts.sh" --if-configured || \
         warn "cleanup: transcript archive failed (non-fatal)"
-fi
-
-# Commit + push devdoc if permitted.
-commit_devdoc="$(permission_value "$project" commit_devdoc)"   # #713: the policy alone under trust
-if [ "$commit_devdoc" = "true" ]; then
-    plan="cleanup plan: commit + push devdoc updates for $issue_arg"
-    permission_gate "$project" commit_devdoc "$plan"
-    cd "$devdoc_dir"
-    # #140: --porcelain reports untracked files too. A fresh Issue-NNN/ dir from
-    # pull.sh this cycle is entirely untracked; the old `git diff` guard saw only
-    # tracked modifications and silently skipped the commit.
-    # #611: scoped to devdoc_dir (`-- .`): from a subdirectory of the devDoc
-    # repo an unscoped -A stages the WHOLE worktree, including a workflow
-    # register at the repo root left dirty by a concurrent session. The
-    # register LAYER FILES are the drain's to commit, never this commit's: a
-    # layer the drain DEFERred on (dirty/untracked — another session's edit)
-    # must not be swept here under devagent@local (#611 review). Exclude
-    # every layer path that lives under devdoc_dir.
-    # FAIL CLOSED: a lookup that dies inside $( ) would leave excl empty and
-    # re-arm the sweep, so each rc is read in THIS shell and a failure refuses
-    # the whole devdoc commit (red-team #611).
-    _dc="$(pwd -P)"; excl=(); _lk=1
-    _lp_pr="$(potholes_project_path "$project")"  || _lk=0
-    _lp_wf="$(potholes_workflow_path "$project")" || _lk=0
-    if [ "$_lk" -ne 1 ]; then
-        warn "cleanup: register layer lookup failed (see above) — devdoc commit REFUSED so no layer file can be swept; fix [paths] potholes_workflow / the config and commit devdoc by hand"
-    fi
-    for _lp in "$_lp_pr" "$_lp_wf"; do
-        [ -n "$_lp" ] && [ -d "$(dirname "$_lp")" ] || continue
-        _lpc="$(cd "$(dirname "$_lp")" && pwd -P)/$(basename "$_lp")"
-        case "$_lpc" in "$_dc"/*) excl+=(":(exclude)${_lpc#"$_dc"/}") ;; esac
-    done
-    unset _dc _lp _lpc _lp_pr _lp_wf
-    if [ "$_lk" -eq 1 ] && [ -n "$("$DEVAGENT_GIT" status --porcelain -- . "${excl[@]}")" ]; then
-        "$DEVAGENT_GIT" add -A -- . "${excl[@]}"
-        "$DEVAGENT_GIT" -c user.email=devagent@local -c user.name=devagent \
-            commit -m "devdoc: $issue_arg cleanup"
-        if "$DEVAGENT_GIT" remote get-url origin >/dev/null 2>&1; then
-            "$DEVAGENT_GIT" push origin HEAD 2>/dev/null || \
-                echo "warning: devdoc push failed; commit retained locally" >&2
-        fi
-    fi
 fi

@@ -150,6 +150,13 @@
 #   --offline     no tracker or MR lookup; reconcile from local checklists
 #                 only, holding MR-set glyphs. DEVAGENT_WBS_OFFLINE=1 does
 #                 the same (cleanup.sh's call cannot take a flag).
+#   --skip-state-slot
+#                 cleanup's call (#749); the closing issue is still in the
+#                 shared slot. The auto-add candidate resolves as before but
+#                 skips ONLY the state-slot rung: an explicit arg or env pin
+#                 still wins, and otherwise the most recent incomplete
+#                 checklist is scanned, exactly the close-time resolution
+#                 from before #749 (when the slot was already blank).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -166,15 +173,19 @@ source "$SCRIPT_DIR/lib/state.sh"
 source "$SCRIPT_DIR/lib/active.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/trust.sh"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
 
 if_exists=0
 offline=0
+skip_state_slot=0
 [[ "${DEVAGENT_WBS_OFFLINE:-}" == 1 ]] && offline=1
 project_arg=""
 for arg in "$@"; do
   case "$arg" in
     --if-exists) if_exists=1 ;;
     --offline) offline=1 ;;
+    --skip-state-slot) skip_state_slot=1 ;;
     --*) warn "wbs update: ignoring unknown flag '$arg'" ;;
     *)
       if [[ -z "$project_arg" ]]; then
@@ -216,7 +227,21 @@ parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
 tracker_lib="$PLUGIN_ROOT/scripts/lib/wbs-tracker.py"
 [[ -f "$tracker_lib" ]] || die "wbs-tracker.py not found at $tracker_lib"
 
-active_issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+if (( skip_state_slot == 1 )); then
+  # #749: the resolver in a subshell (an invalid pin dies there, as the
+  # unflagged call's $(...) swallows it); a state-slot answer falls through to
+  # the scan rung.
+  active_issue="$(
+    active_resolve_issue_src "$project" || exit 0
+    if [[ "$ACTIVE_ISSUE_RESOLVED_FROM" == state ]]; then
+      active_scan_recent_incomplete "$project" || true
+    else
+      printf '%s\n' "$ACTIVE_RESOLVED_ISSUE"
+    fi
+  )" 2>/dev/null || active_issue=""
+else
+  active_issue="$(active_resolve_issue "$project" 2>/dev/null || true)"
+fi
 if [[ "$active_issue" == "null" || "$active_issue" == '""' ]]; then
   active_issue=""
 fi
@@ -230,7 +255,9 @@ fi
 # source table still reaches the shared codec (#792).
 backend_dir="${DEVAGENT_ISSUE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/issue}"
 trk_tmp="$(mktemp -d)"
-trap 'rm -rf "$trk_tmp"' EXIT
+# ONE EXIT trap: the #749 lock (held only around the write below) and the
+# fetch temp dir.
+trap 'devdoc_lock_release; rm -rf "$trk_tmp"' EXIT
 trk_env=()
 
 _trk_fetch() {
@@ -319,6 +346,7 @@ PARSER_PATH="$parser" \
 WBS_TRACKER_LIB="$tracker_lib" \
 DEVDOC_DIR="$devdoc_dir" \
 ACTIVE_ISSUE="$active_issue" \
+WBS_PROJECT="$project" \
 python3 <<'PY'
 import functools
 import importlib.util
@@ -653,8 +681,17 @@ if not aborted and mr_status != "offline":
                 else:
                     node["meta"][k] = v
 
-for line in mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
-                             completed_last=os.environ["WBS_COMPLETED_LAST"] == "1"):
+try:
+    report = mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
+                              completed_last=os.environ["WBS_COMPLETED_LAST"] == "1")
+except OSError as e:
+    # #749: write_document's replace still refused after its bounded retry
+    # (a reader holding WBS.md), or any other write failure: nothing written.
+    say(f"wbs update: cannot write {wbs_path}: {e} - WBS.md was NOT updated "
+        "(is it open in another program?); re-run /devagent:wbs update "
+        f"{os.environ['WBS_PROJECT']}")
+    sys.exit(1)
+for line in report:
     say(f"wbs update: {line}")
 PY
 }
@@ -688,6 +725,11 @@ if [[ "$mr_status" == ready ]]; then
   fi
 fi
 
+# #749: only the write is held — every tracker and MR call above ran unheld
+# (no network under the devDoc lock). The reconcile re-reads WBS.md inside the
+# hold, so it decides from the file as it is now.
+devdoc_lock_acquire "$devdoc_dir" "${active_issue:--}" "/devagent:wbs update $project" || exit 1
 _reconcile apply
+devdoc_lock_release
 
 info "wbs update: reconciled $wbs against the tracker, linked MRs and issue checklists"

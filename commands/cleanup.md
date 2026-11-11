@@ -101,8 +101,8 @@ closes, `promote-potholes.sh … --drop <op>` or `status: applied by-hand
 <sha>`. The file is `git add`ed if new and committed with the operator's
 identity (`-s`) as
 `chore: promote pothole-register entries from #N`, scoped to that ONE path —
-never through cleanup's own `git add -A` devdoc commit, which is itself scoped
-to `devdoc_dir`. The staging file flips to `status: applied <sha>[,<sha>]`
+never through cleanup's own devdoc commit, which carries only the paths the
+cleanup owns (#749, below). The staging file flips to `status: applied <sha>[,<sha>]`
 (one sha per layer file committed). Nothing is pushed.
 
 rc 3 is a DEFERRAL: cleanup warns, completes, and the file stays
@@ -142,6 +142,79 @@ step shares), else `source_dir` — a linked worktree is `indeterminate` with a
 remedy that names the tier, since the base branch cannot be checked out there;
 and a checklist with no `Template:` header (pre-#537) reads as not-oneshot, so
 the gate does not run — fail-open by decision, for backward compatibility.
+
+## The devdoc commit (#749)
+
+With `permissions.commit_devdoc = true`, cleanup commits ONLY the paths it
+owns: the issue dir, plus `<devdoc_dir>/WBS.md` when it has changes (the WBS
+reconcile's output, and a hand edit made since the last commit rides with
+it). Both the `git add` and the `git commit` are pathspec-scoped, so another
+issue's dir, a capture, a register layer file, or a path another session
+staged is never carried — it stays exactly as it was. Read-only `git status`
+calls run with `GIT_OPTIONAL_LOCKS=0`, so they never rewrite the index under
+another session's commit. A devDoc repository that is mid-merge
+(`MERGE_HEAD` present) is refused by name: finish or abort the merge, then
+re-run `/devagent:cleanup <project> <issue>`.
+
+What cleanup does not own is REPORTED, never committed: before the commit it
+prints one line counting the changed paths under `devdoc_dir` it left alone,
+grouped into units (`Captures/<slug>/`, `<first directory>/`, or a top-level
+file), naming the first five:
+`cleanup: <N> unowned path(s) under <devdoc_dir> left uncommitted (not <issue>'s): …`.
+Register layer files (the drain's to commit) and devagent's own `WBS.md`
+lock and temp files are never listed, and with nothing unowned no line is
+printed. The line is information unless a unit is stale: no file in it changed
+in the last 7 days and it is not in flight (a capture without `filed.toml`, or
+an issue dir with a `[context]` table, a parked entry, or the shared
+`active_issue`). Then it is a warning that names the stale units — commit or
+remove them by hand. Captures are no longer committed by any cleanup.
+
+## Order, the repository lock, and a failed close (#749)
+
+After the gates and the source-tree restore, cleanup runs in this order:
+
+- **The register drain** — under the devDoc repository lock (spec §3.3) when
+  the staging file is pending, `commit_devdoc` is true and the devDoc is a git
+  repository; the drain runs as a child that reuses cleanup's hold, so cleanup
+  is the recorded holder of its layer commits. The lock is released after it.
+- **The mark and the log line** — the cleanup row is marked done and logged
+  (`tree restored; devdoc commit and state GC follow`) BEFORE the commit, so
+  the commit carries them.
+- **The WBS reconcile** — unheld; `wbs update` takes the lock for its own
+  write, after its tracker calls. The closing issue is still in the shared
+  slot at this point, so cleanup passes `--skip-state-slot`: the auto-add
+  candidate resolves as it always has at close (a pin still wins).
+- **The devdoc commit and the state GC** — under the lock again: the
+  register-layer lookup, the unowned report, the owned-path commit, then the
+  state GC (the issue's `[context]` table, the shared slot it owns). The lock
+  is released before the push; the transcript archive runs last, unheld.
+
+No network call ever runs under the lock. With `commit_devdoc = false`, or a
+devDoc outside git, cleanup takes no lock (the drain defers as before) and
+runs the GC unheld.
+
+A close that fails after the row is marked never reads as closed. A lock held
+past `DEVAGENT_DEVDOC_LOCK_TIMEOUT` (its holder and the stale-lock remedy are
+printed), a devDoc lock location that cannot be determined, a mid-merge
+repository, a failing `git add`/`git commit` (another writer's `index.lock`, a
+failing hook), or any other abort after the mark: the row goes back to `[~]`,
+a `cleanup_open: NOT closed - <reason>` log line is appended, the issue's state
+is kept (the GC runs only after the commit), and cleanup exits 1 with
+`cleanup: <reason> - the cleanup step is left [~] …; fix the cause above and
+re-run /devagent:cleanup <project> <issue>`. Under `--auto` that ends the
+chain with the message last; the re-run picks the `[~]` row up. A failed close
+is also not counted as completed by `/devagent:statusreport`. A failed
+register drain is not such a close: it dies before the mark, as before. A
+failed register-layer lookup no longer refuses the commit: it warns, the
+commit still takes only the owned paths, and the unowned report may then list
+a layer file.
+
+One close can wait on the lock up to three times (hold 1, the reconcile's
+write, hold 2). All three share one deadline (spec §3.3), so together they
+wait at most the bound and finish inside a 120 s command timeout. A command
+timeout that still kills a close after the mark (a forced kill skips the EXIT
+trap) leaves the row `[x]` with nothing committed; re-run cleanup. When you
+run it yourself, give the Bash call a long timeout (600000 ms).
 
 ## Transcript archive (#731)
 

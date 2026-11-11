@@ -3,6 +3,7 @@
 # per-layer drain (--apply), and the claim-vs-union check (--check).
 load 'helpers/common'
 load 'helpers/potholes-fixture'
+load 'helpers/devdoc-repo'
 setup()    { potholes_fixture_setup; }
 teardown() { devagent_test_teardown; }
 
@@ -505,4 +506,44 @@ teardown() { devagent_test_teardown; }
     run bash "$PP" "$TEST_PROJECT" --list-pending
     [ "$status" -eq 0 ]
     [[ "$output" == *Issue-1* ]]
+}
+
+# --- #749: read-only git takes no optional lock --------------------------------
+
+@test "#749: devdoc status calls run with GIT_OPTIONAL_LOCKS=0 and leave the index untouched" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    touch -d '2001-01-01 00:00:00' "$PROJ_REG"                  # stat-dirty, content unchanged
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    devdoc_assert_status_rows_readonly "$DEVAGENT_TMP/git.log" "$DEVDOC_REPO"
+}
+
+# --- #749: the standalone drain holds the repository lock ----------------------
+
+@test "#749: standalone --apply defers (rc 3) on a held repo lock, staging file still pending" {
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    before="$(git -C "$DEVDOC_REPO" rev-parse HEAD)"
+    lp="$(devdoc_lock_stub_holder "$DEVDOC_REPO" Issue-5)"
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 3 ]
+    [[ "$output" == *"$lp"* ]]
+    [[ "$output" == *"Issue-1 stays pending"* ]]
+    grep -q '^status: pending' "$ID/potholes-promotion.md"
+    [ "$(git -C "$DEVDOC_REPO" rev-parse HEAD)" = "$before" ]
+    ! grep -qF -- '- a neutral line (Issue-1).' "$PROJ_REG" || false
+}
+
+@test "#749: standalone --apply records itself as holder during its layer commit" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    seed_project_layer
+    bash "$PP" "$TEST_PROJECT" "$ID" --add --layer project "Docs / edit-neighborhood hygiene" "- a neutral line (Issue-1)."
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run bash "$PP" "$TEST_PROJECT" "$ID" --apply
+    [ "$status" -eq 0 ]
+    run awk -F'\t' '$1 == "commit" { print $7 " " $8 }' "$DEVAGENT_TMP/git.log"
+    [ "$output" = "Issue-1 promote-potholes.sh" ]
+    [ ! -e "$(devdoc_lock_test_path "$DEVDOC_REPO")" ]
 }

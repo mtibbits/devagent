@@ -158,3 +158,22 @@ def test_inline_artifacts_scans_root_and_analysis(tmp_path):
 def test_inline_artifacts_empty_when_none(tmp_path):
     (tmp_path / "mr.md").write_text("## Summary\nx\n", encoding="utf-8")
     assert sr.inline_artifacts(tmp_path) == []
+
+
+def test_failed_close_is_not_completed(tmp_path):
+    # #749: cleanup logs its line BEFORE the devdoc commit; a later
+    # cleanup_open line means that close failed and the step went back to [~].
+    cl = tmp_path / "checklist.md"
+    cl.write_text(
+        "# Issue-1\n\n## Log\n"
+        "- 2026-11-01 10:00  cleanup: tree restored; devdoc commit and state GC follow\n"
+        "- 2026-11-01 10:01  cleanup_open: NOT closed - devdoc lock timeout; step left [~], "
+        "state kept; re-run /devagent:cleanup\n",
+        encoding="utf-8",
+    )
+    assert sr.is_completed(tmp_path) is False
+    assert sr.completion_timestamp(tmp_path) is None
+    with cl.open("a", encoding="utf-8") as f:
+        f.write("- 2026-11-01 11:30  cleanup: tree restored; devdoc commit and state GC follow\n")
+    assert sr.is_completed(tmp_path) is True
+    assert sr.completion_timestamp(tmp_path).strftime("%Y-%m-%d %H:%M") == "2026-11-01 11:30"

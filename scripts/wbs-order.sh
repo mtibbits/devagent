@@ -20,12 +20,14 @@
 #
 # Exit: 0 written, nothing to do, or a dry run; 1 a missing, unreadable or
 # non-UTF-8 WBS.md, a failed permutation check or an error in the order
-# pass (nothing written; under --dry-run no diff either) or a failed write; 2 a usage error (an unknown
+# pass (nothing written; under --dry-run no diff either), a failed write, or
+# the devDoc lock not taken (held past DEVAGENT_DEVDOC_LOCK_TIMEOUT, or its
+# location undeterminable; spec §3.3); 2 a usage error (an unknown
 # flag, an extra argument), an unknown project, an unset devdoc_dir, or an
 # invalid `[project.<p>.wbs]` order_on_update or completed_last value.
 #
-# No lock: the WBS lock is #749's, and its caller list gains this writer
-# (https://github.com/mtibbits/devagent/issues/749#issuecomment-6207411035).
+# Lock (#749): the write runs under the devDoc repository lock, released by
+# the EXIT trap; --dry-run writes nothing and takes no lock.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +42,8 @@ source "$SCRIPT_DIR/lib/config.sh"
 source "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/active.sh
 source "$SCRIPT_DIR/lib/active.sh"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
 
 usage() {
   echo "usage: /devagent:wbs order [project] [--dry-run]" >&2
@@ -82,6 +86,11 @@ read -r -a order_env <<<"$order_cfg"
 
 parser="$PLUGIN_ROOT/scripts/lib/wbs-parser.py"
 [[ -f "$parser" ]] || die "wbs-parser.py not found at $parser"
+
+if (( dry == 0 )); then
+  trap devdoc_lock_release EXIT
+  devdoc_lock_acquire "$devdoc_dir" - "/devagent:wbs order $project" || exit 1
+fi
 
 env "${order_env[@]}" \
 WBS_PATH="$wbs" \

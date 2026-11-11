@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 load 'helpers/common'
+load 'helpers/devdoc-repo'
 
 setup() {
     devagent_test_setup
@@ -350,14 +351,18 @@ SH
     [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
 }
 
-@test "#611 red-team: a FAILED layer lookup refuses the devdoc commit instead of re-arming the sweep" {
+@test "#611/#749: a FAILED layer lookup warns but still commits only the owned paths, never the layer" {
     devagent_config_set "$HOME/.claude/devagent/config.toml" paths.potholes_workflow "relative/wf.md"   # relative global key → resolver dies
     printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
     before="$(cd "$DEVDOC_DIR" && git rev-parse HEAD)"
     run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
     [ "$status" -eq 0 ]
-    [[ "$output" == *"devdoc commit REFUSED"* ]]
-    [ "$(cd "$DEVDOC_DIR" && git rev-parse HEAD)" = "$before" ]
+    [[ "$output" == *"register layer lookup failed"*"still takes only Issue-1's owned paths"* ]]
+    [[ "$output" != *"REFUSED"* ]] || false
+    [ "$(cd "$DEVDOC_DIR" && git rev-list --count "$before"..HEAD)" -eq 1 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"Issue-1/checklist.md"* ]]
+    [[ "$output" != *"potholes.md"* ]] || false
     run bash -c "cd '$DEVDOC_DIR' && git status --porcelain -- templates/potholes.md"
     [[ "$output" == " M templates/potholes.md" ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
@@ -696,4 +701,381 @@ archive.host_id = \"h1\""
     [[ "$output" != *"archive-transcripts"* ]]
     [[ "$output" != *"transcript archive"* ]]
     [ -z "$(find "$DEVAGENT_TMP" -name last-run)" ]
+}
+
+# --- #749: cleanup commits only the paths it owns -----------------------------
+
+@test "#749: cleanup's commit holds only the issue dir (subdirectory fixture)" {
+    devdoc_parent_repo_fixture
+    printf 'edit
+' >> "$DEVDOC_DIR/Issue-2/checklist.md"                     # another issue's dirt
+    mkdir -p "$DEVDOC_DIR/Captures/c1"; printf 'draft
+' > "$DEVDOC_DIR/Captures/c1/draft.md"   # a fresh capture
+    printf 'staged
+' >> "$DEVDOC_REPO/proj2/Issue-9/checklist.md"           # another project's STAGED edit
+    ( cd "$DEVDOC_REPO" && git add proj2/Issue-9/checklist.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_REPO" show --name-only --format= HEAD
+    [ -n "$output" ]
+    [ -z "$(printf '%s
+' "$output" | grep -v '^testproj/Issue-1/')" ]
+    run git -C "$DEVDOC_REPO" status --porcelain --untracked-files=all
+    [[ "$output" == *" M testproj/Issue-2/checklist.md"* ]]
+    [[ "$output" == *"?? testproj/Captures/c1/draft.md"* ]]
+    [[ "$output" == *"M  proj2/Issue-9/checklist.md"* ]]
+}
+
+@test "#749: cleanup's commit carries WBS.md when it changed, and a hand edit with it" {
+    sed -i 's/^- \[ \]\([ ]*\([0-9]*\)\.\)/- [x]\1/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
+    printf '%s
+' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    printf '%s
+' '- [ ] Hand-added {est: 1d}' >> "$DEVDOC_DIR/WBS.md"      # the operator's own edit
+    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
+    export WBS_STUB_ROOT="$DEVAGENT_TMP"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/backends"
+    wbs_tracker_install_stub "$DEVAGENT_ISSUE_BACKEND_DIR"
+    printf '1	done
+' > "$DEVAGENT_TMP/state-list.github"
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    PATH="$DEVAGENT_TMP/shims:$PATH" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"WBS.md"* ]]
+    run git -C "$DEVDOC_DIR" show HEAD:WBS.md
+    [[ "$output" == *"Hand-added"* ]]
+    [[ "$output" == *"[x] Working leaf"* ]]
+    [ -z "$(git -C "$DEVDOC_DIR" status --porcelain -- WBS.md)" ]
+}
+
+@test "#749: cleanup commits a deletion inside the issue dir" {
+    printf 'old
+' > "$DEVDOC_DIR/Issue-1/old.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "old" )
+    rm "$DEVDOC_DIR/Issue-1/old.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run git -C "$DEVDOC_DIR" show --name-status --format= HEAD
+    [[ "$output" == *"D	Issue-1/old.md"* ]]
+    [ -z "$(git -C "$DEVDOC_DIR" status --porcelain -- Issue-1)" ]
+}
+
+@test "#749: devdoc status calls run with GIT_OPTIONAL_LOCKS=0 and leave the index untouched" {
+    printf 'notes
+' > "$DEVDOC_DIR/Issue-1/notes.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "notes" )
+    touch -d '2001-01-01 00:00:00' "$DEVDOC_DIR/Issue-1/notes.md"   # stat-dirty, content unchanged
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devdoc_assert_status_rows_readonly "$DEVAGENT_TMP/git.log" "$DEVDOC_DIR"
+}
+
+@test "#749: cleanup names a mid-merge devdoc repository" {
+    ( cd "$DEVDOC_DIR" && git checkout -q -b side && printf 's
+' > side.txt && git add side.txt       && git commit -q -m side && git checkout -q main && git merge -q --no-commit --no-ff side )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"mid-merge"* ]]
+    git -C "$DEVDOC_DIR" rev-parse -q --verify MERGE_HEAD
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q 'cleanup_open: NOT closed - devdoc repository mid-merge' "$DEVDOC_DIR/Issue-1/checklist.md"
+}
+
+# --- #749: unowned paths are reported, not swept ------------------------------
+
+# _age15 <path>… — every file under each path 15 days old.
+_age15() { find "$@" -exec touch -d '15 days ago' {} +; }
+
+@test "#749: unowned paths are counted on one info line" {
+    mkdir -p "$DEVDOC_DIR/Issue-2" "$DEVDOC_DIR/Captures/c1"
+    printf 'x\n' > "$DEVDOC_DIR/Issue-2/checklist.md"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c1/draft.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ "$(printf '%s\n' "$output" | grep -c 'unowned path(s)')" -eq 1 ]
+    [[ "$output" == *"cleanup: 2 unowned path(s) under $DEVDOC_DIR left uncommitted (not Issue-1's): "* ]]
+    [[ "$output" == *"Captures/c1/"* ]]
+    [[ "$output" == *"Issue-2/"* ]]
+    [[ "$output" != *"WARNING:"* ]]
+}
+
+@test "#749: an in-flight issue dir 15 days old keeps the line info" {
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    printf 'x\n' > "$DEVDOC_DIR/Issue-2/checklist.md"
+    _age15 "$DEVDOC_DIR/Issue-2"
+    printf '\n[context.Issue-2]\nbranch = "feat/2-x"\n' >> "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cleanup: 1 unowned path(s)"*"Issue-2/"* ]]
+    [[ "$output" != *"WARNING:"* ]]
+}
+
+@test "#749: a filed capture 15 days old makes the line a warn (subdirectory fixture)" {
+    devdoc_parent_repo_fixture
+    mkdir -p "$DEVDOC_DIR/Captures/c-old" "$DEVDOC_DIR/Captures/c-new" "$DEVDOC_DIR/Issue-3"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c-old/draft.md"
+    printf 'issue = 5\n' > "$DEVDOC_DIR/Captures/c-old/filed.toml"
+    _age15 "$DEVDOC_DIR/Captures/c-old"
+    printf 'draft\n' > "$DEVDOC_DIR/Captures/c-new/draft.md"
+    printf 'a\n' > "$DEVDOC_DIR/Issue-3/a.md"
+    ( cd "$DEVDOC_REPO" && git add -A testproj/Issue-3 && git commit -q -m i3 && git mv testproj/Issue-3/a.md testproj/Issue-3/b.md )
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    line="$(printf '%s\n' "$output" | grep 'unowned path(s)')"
+    [[ "$line" == *"WARNING: cleanup: 3 unowned path(s)"* ]]
+    [[ "$line" == *" - older than 7 days and not in flight: Captures/c-old/; commit or remove them by hand"* ]]
+    [[ "$line" == *"Captures/c-new/"* ]]
+    [[ "$line" == *"Issue-3/"* ]]
+    [[ "$line" != *"testproj/"* ]]
+    [[ "$line" != *"Captures/,"* ]]
+    [[ "$line" != *"Captures/ "* ]]
+}
+
+@test "#749: no unowned paths prints no line" {
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"unowned"* ]]
+}
+
+@test "#749: a register layer the drain deferred on is not listed" {
+    stage_in_project_layer
+    printf '%s\n' '- foreign (Issue-3).' >> "$DEVDOC_DIR/templates/potholes.md"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *pending* ]]                                 # the drain did defer
+    [[ "$output" != *"unowned"* ]]
+}
+
+# --- #749: cleanup holds the repository lock; a failed close is never closed ---
+
+_state_file() { printf '%s\n' "$HOME/.claude/devagent/state/$TEST_PROJECT.toml"; }
+_seed_context() { printf '\n[context.Issue-1]\nbranch = "feat/1-x"\n' >> "$(_state_file)"; }
+_all_rows_done() {
+    sed -i 's/^- \[ \]/- [x]/' "$DEVDOC_DIR/Issue-1/checklist.md"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 ' '
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "rows done" )
+}
+
+@test "#749: a lock timeout at hold 2 returns the row to [~], keeps state, and a re-run closes" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _seed_context
+    cp "$(_state_file)" "$DEVAGENT_TMP/state.before"
+    before="$(git -C "$DEVDOC_DIR" rev-parse HEAD)"
+    lp="$(devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2)"
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"$lp"* ]]
+    [[ "$output" == *"pid 4242"* ]]
+    [[ "$output" == *"for Issue-2"* ]]
+    [[ "$output" == *"cleanup: devdoc lock timeout - the cleanup step is left [~] and the issue's state is kept"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q 'cleanup_open: NOT closed - devdoc lock timeout' "$DEVDOC_DIR/Issue-1/checklist.md"
+    cmp "$(_state_file)" "$DEVAGENT_TMP/state.before"
+    [ "$(git -C "$DEVDOC_DIR" rev-parse HEAD)" = "$before" ]
+    rm -f "$lp/holder" && rmdir "$lp"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    [ "$(git -C "$DEVDOC_DIR" rev-list --count "$before"..HEAD)" -eq 1 ]
+    grep -q '^active_issue *= *""' "$(_state_file)"
+}
+
+@test "#749: a lock timeout at hold 1 leaves [~] and the promotion pending" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    stage_in_project_layer
+    before="$(git -C "$DEVDOC_DIR" rev-parse HEAD)"
+    devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q '^status: pending' "$DEVDOC_DIR/Issue-1/potholes-promotion.md"
+    [ "$(git -C "$DEVDOC_DIR" rev-parse HEAD)" = "$before" ]
+}
+
+@test "#749: an index.lock at commit time leaves [~] and state; a re-run completes" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _seed_context
+    g="$DEVAGENT_TMP/gate"; w="$(devdoc_git_gate_wrapper "$g")"; : > "$g/index-lock"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"cleanup: devdoc commit failed - the cleanup step is left [~]"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q '^\[context\.Issue-1\]' "$(_state_file)"
+    grep -q '^active_issue *= *"Issue-1"' "$(_state_file)"
+    [ ! -e "$(devdoc_lock_test_path "$DEVDOC_DIR")" ]
+    rm -f "$DEVDOC_DIR/.git/index.lock"                       # the other writer finished
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    ! grep -q '^\[context\.Issue-1\]' "$(_state_file)" || false
+    [ -z "$(git -C "$DEVDOC_DIR" status --porcelain -- Issue-1)" ]
+}
+
+@test "#749: a failing pre-commit hook leaves [~] and state; a re-run completes" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _seed_context
+    printf '#!/bin/sh\nexit 1\n' > "$DEVDOC_DIR/.git/hooks/pre-commit"; chmod +x "$DEVDOC_DIR/.git/hooks/pre-commit"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q 'cleanup_open: NOT closed - devdoc commit failed' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q '^\[context\.Issue-1\]' "$(_state_file)"
+    rm -f "$DEVDOC_DIR/.git/hooks/pre-commit"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    ! grep -q '^\[context\.Issue-1\]' "$(_state_file)" || false
+}
+
+@test "#749: a GC failure after the commit leaves [~] and the context" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _seed_context
+    g="$DEVAGENT_TMP/gate"; w="$(devdoc_git_gate_wrapper "$g")"; : > "$g/ro-state"
+    p="$DEVAGENT_TMP/ro-probe"; mkdir -p "$p"; chmod a-w "$p"
+    if ( : > "$p/x" ) 2>/dev/null; then chmod u+w "$p"; skip "a dir stays writable after chmod a-w (root or noacl)"; fi
+    chmod u+w "$p"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    chmod u+w "$HOME/.claude/devagent/state"                  # restore before any assertion can fail
+    [ "$status" -ne 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
+    grep -q 'cleanup_open: NOT closed' "$DEVDOC_DIR/Issue-1/checklist.md"
+    grep -q '^\[context\.Issue-1\]' "$(_state_file)"
+    [ ! -e "$(devdoc_lock_test_path "$DEVDOC_DIR")" ]
+}
+
+@test "#749: cleanup is the recorded holder at each devdoc commit" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    stage_in_project_layer
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run awk -F'\t' '$1 == "commit" { print $6 " " $7 " " $8 }' "$DEVAGENT_TMP/git.log"
+    [ "$(printf '%s\n' "$output" | wc -l)" -ge 2 ]                          # the drain's commit and cleanup's
+    [ "$(printf '%s\n' "$output" | sort -u | wc -l)" -eq 1 ]                # one holder throughout
+    [[ "$output" == [0-9]*" Issue-1 cleanup.sh"* ]]
+}
+
+@test "#749: GC runs after the commit" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _seed_context
+    g="$DEVAGENT_TMP/gate"; w="$(devdoc_git_gate_wrapper "$g")"; : > "$g/snap-state"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    grep -q '^\[context\.Issue-1\]' "$g/state-snap/$TEST_PROJECT.toml"     # still there at commit time
+    ! grep -q '^\[context\.Issue-1\]' "$(_state_file)" || false                      # gone at exit
+}
+
+@test "#749: the lock is released before the push" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    git init -q --bare "$DEVAGENT_TMP/remote.git"
+    git -C "$DEVDOC_DIR" remote add origin "$DEVAGENT_TMP/remote.git"
+    w="$(devdoc_git_logging_wrapper "$DEVAGENT_TMP/git.log")"
+    DEVAGENT_GIT="$w" run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    run awk -F'\t' '$1 == "push" { print $6 " " $9 }' "$DEVAGENT_TMP/git.log"
+    [ "$output" = "- -" ]                                                    # no holder record, no token
+    git -C "$DEVAGENT_TMP/remote.git" rev-parse -q --verify refs/heads/main
+}
+
+@test "#749: no backend call runs while cleanup holds the lock" {
+    unset DEVAGENT_DEVDOC_LOCK_TOKEN
+    _all_rows_done
+    stage_in_project_layer
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    lp="$(devdoc_lock_test_path "$DEVDOC_DIR")"
+    mkdir -p "$DEVAGENT_TMP/lockcheck"
+    cat > "$DEVAGENT_TMP/lockcheck/github.sh" <<EOF
+#!/usr/bin/env bash
+if [ -e "$lp" ]; then echo held >> "$DEVAGENT_TMP/lock-seen"; else echo free >> "$DEVAGENT_TMP/lock-seen"; fi
+[ "\$1" = state-list ] && { printf '1\tdone\n'; exit 0; }
+exit 78
+EOF
+    chmod +x "$DEVAGENT_TMP/lockcheck/github.sh"
+    . "$BATS_TEST_DIRNAME/helpers/wbs-tracker.bash"
+    wbs_tracker_install_shims "$DEVAGENT_TMP/shims" "$DEVAGENT_TMP/network.log"
+    DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_TMP/lockcheck" PATH="$DEVAGENT_TMP/shims:$PATH" \
+        run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [ -s "$DEVAGENT_TMP/lock-seen" ]
+    ! grep -q held "$DEVAGENT_TMP/lock-seen" || false
+    grep -qxF -- '  - [x] Working leaf {issue: Issue-1, est: 1w, status_src: tracker}' "$DEVDOC_DIR/WBS.md"
+}
+
+@test "#749: closing an unpinned issue with no WBS leaf leaves WBS.md unchanged" {
+    _all_rows_done
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Other {issue: Issue-7, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    cp "$DEVDOC_DIR/WBS.md" "$DEVAGENT_TMP/wbs.before"
+    DEVAGENT_WBS_OFFLINE=1 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    cmp "$DEVDOC_DIR/WBS.md" "$DEVAGENT_TMP/wbs.before"
+}
+
+@test "#749: a pinned close still auto-adds the pinned issue as today" {
+    mkdir -p "$DEVDOC_DIR/Issue-2"
+    sed 's/Issue-1/Issue-2/' "$DEVDOC_DIR/Issue-1/checklist.md" > "$DEVDOC_DIR/Issue-2/checklist.md"
+    seed_lessons_learned "$DEVDOC_DIR/Issue-2"
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Other {issue: Issue-7, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    DEVAGENT_WBS_OFFLINE=1 DEVAGENT_ACTIVE_ISSUE=Issue-2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -q 'Unassigned' "$DEVDOC_DIR/WBS.md"
+    grep -q '{issue: Issue-2' "$DEVDOC_DIR/WBS.md"
+}
+
+@test "#749: cleanup warns and completes when the WBS replace fails" {
+    _all_rows_done
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    DEVAGENT_WBS_OFFLINE=1 DEVAGENT_TEST_WBS_REPLACE_FAILS=99 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"cleanup: wbs reconcile failed (non-fatal) - the WBS leaf for Issue-1 was NOT updated; after the close, re-run /devagent:wbs update $TEST_PROJECT"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+    grep -qxF -- '  - [~] Working leaf {issue: Issue-1, est: 1w}' "$DEVDOC_DIR/WBS.md"
+}
+
+@test "#749: a devdoc_dir configured in another letter case still commits (case-insensitive filesystems)" {
+    alt="$(dirname "$DEVDOC_DIR")/TESTPROJ"
+    [ -d "$alt" ] || skip "case-sensitive filesystem: $alt is not $DEVDOC_DIR"
+    devagent_config_set "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.devdoc_dir" "$alt"
+    before="$(git -C "$DEVDOC_DIR" rev-parse HEAD)"
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"devdoc commit skipped"* ]]
+    [[ "$output" != *"unowned"* ]]
+    [ "$(git -C "$DEVDOC_DIR" rev-list --count "$before"..HEAD)" -eq 1 ]
+    run git -C "$DEVDOC_DIR" show --name-only --format= HEAD
+    [[ "$output" == *"Issue-1/checklist.md"* ]]
+}
+
+@test "#749: commit_devdoc=false closes with no lock taken" {
+    devagent_config_set_bool "$HOME/.claude/devagent/config.toml" "project.$TEST_PROJECT.permissions.commit_devdoc" false
+    devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2
+    DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 x cleanup
+}
+
+@test "#749 review: an issue dir outside the devdoc repo warns to commit by hand and lists no unowned dir" {
+    git -C "$DEVDOC_DIR/Issue-1" init -q
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"is not inside the git repository holding"*"devdoc commit skipped; commit it by hand"* ]]
+    [[ "$output" != *"unowned"* ]] || false
+}
+
+@test "#749 red-team: one close's lock waits share one deadline (the reconcile's wait shortens hold 2's)" {
+    _all_rows_done
+    printf '%s\n' "# $TEST_PROJECT WBS" '' '- [ ] Plan {est: 1w}' '  - [~] Working leaf {issue: Issue-1, est: 1w}' > "$DEVDOC_DIR/WBS.md"
+    ( cd "$DEVDOC_DIR" && git add -A && git commit -q -m "seed wbs" )
+    devdoc_lock_stub_holder "$DEVDOC_DIR" Issue-2
+    DEVAGENT_WBS_OFFLINE=1 DEVAGENT_DEVDOC_LOCK_TIMEOUT=2 run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"gave up after this run's shared lock deadline"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
 }

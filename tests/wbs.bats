@@ -7,6 +7,8 @@ REPO="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 . "$(dirname "$BATS_TEST_FILENAME")/lib/hermetic-env.bash"
 # #703: stub issue backends + network shims (no real tracker call)
 . "$(dirname "$BATS_TEST_FILENAME")/helpers/wbs-tracker.bash"
+# #749: lock stubs (devdoc_lock_stub_holder)
+. "$(dirname "$BATS_TEST_FILENAME")/helpers/devdoc-repo.bash"
 
 setup() {
   TMPROOT="$(mktemp -d)"
@@ -1187,4 +1189,114 @@ _wbs_order_fixture() {
   [ "$status" -eq 2 ]
   [[ "$output" == *"pass project explicitly"* ]]
   cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+# --- #749: WBS.md writers take the devDoc lock (the side lock outside git) ----
+
+_wbs_one_leaf() {
+  printf '%s\n' '# testproj WBS' '' '- [ ] Leaf {issue: Issue-9, est: 1w}' > "$TMPDEV/WBS.md"
+}
+
+@test "#749: wbs update outside git takes the side lock and succeeds" {
+  _wbs_one_leaf
+  lp="$(devdoc_lock_stub_holder "$TMPDEV" Issue-5)"
+  [ "$lp" = "$(cd "$TMPDEV" && pwd -P)/.devagent-wbs.lock" ]
+  DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"devdoc lock $lp is held"* ]]
+  [[ "$output" == *"re-run /devagent:wbs update testproj"* ]]
+  rm -f "$lp/holder" && rmdir "$lp"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  [ ! -e "$lp" ]
+}
+
+@test "#749: wbs update makes its tracker call before taking the lock" {
+  _with_dir_prefix
+  _wbs_one_leaf
+  mkdir -p "$TMPROOT/lockcheck"
+  cat > "$TMPROOT/lockcheck/github.sh" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = state-list ]; then
+  if [ -e "$TMPDEV/.devagent-wbs.lock" ]; then echo held > "$TMPROOT/lock-seen"; else echo free > "$TMPROOT/lock-seen"; fi
+  printf '9\tdone\n'
+  exit 0
+fi
+exit 78
+EOF
+  chmod +x "$TMPROOT/lockcheck/github.sh"
+  DEVAGENT_ISSUE_BACKEND_DIR="$TMPROOT/lockcheck" run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TMPROOT/lock-seen")" = free ]
+  grep -q '^- \[x\] Leaf {issue: Issue-9' "$TMPDEV/WBS.md"
+}
+
+@test "#749: wbs order holds the lock around its write; --dry-run takes none" {
+  _wbs_order_fixture
+  lp="$(devdoc_lock_stub_holder "$TMPDEV" Issue-5)"
+  DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"devdoc lock $lp is held"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$REPO/scripts/wbs.sh" order testproj --dry-run
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+}
+
+@test "#749: wbs init --force exits 1 on a held lock" {
+  _wbs_one_leaf
+  cp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+  lp="$(devdoc_lock_stub_holder "$TMPDEV" Issue-5)"
+  DEVAGENT_DEVDOC_LOCK_TIMEOUT=1 run bash "$REPO/scripts/wbs.sh" init testproj --force
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"devdoc lock $lp is held"* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+}
+
+# --- #749: the WBS.md replace is atomic, retried, and fails loudly ------------
+
+_wbs_progress_leaf() {
+  _wbs_one_leaf
+  mkdir -p "$TMPDEV/Issue-9"
+  printf '%s\n' '- [x]  0. pull' '- [ ]  2. draft' > "$TMPDEV/Issue-9/checklist.md"
+  cp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+}
+
+@test "#749: an injected sharing violation below the bound still writes" {
+  _wbs_progress_leaf
+  DEVAGENT_TEST_WBS_REPLACE_FAILS=3 run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  grep -q '^- \[~\] Leaf {issue: Issue-9, est: 1w, status_src: checklist}$' "$TMPDEV/WBS.md"
+  [ ! -e "$TMPDEV/.devagent-wbs-tmp.WBS.md" ]
+}
+
+@test "#749: an injected sharing violation past the bound exits non-zero naming the file" {
+  _wbs_progress_leaf
+  DEVAGENT_TEST_WBS_REPLACE_FAILS=99 run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"wbs update: cannot write "*"WBS.md: "* ]]   # path form differs under Git Bash (MSYS-converted)
+  [[ "$output" == *" - WBS.md was NOT updated (is it open in another program?); re-run /devagent:wbs update testproj"* ]]
+  [[ "$output" != *Traceback* ]]
+  cmp "$TMPDEV/WBS.md" "$TMPROOT/before.md"
+  [ ! -e "$TMPDEV/.devagent-wbs-tmp.WBS.md" ]
+}
+
+@test "#749: no script sets the replace seam" {
+  run git -C "$REPO" grep -l DEVAGENT_TEST_WBS_REPLACE_FAILS -- scripts commands skills
+  [ "$status" -eq 0 ]
+  [ "$output" = "scripts/lib/wbs-parser.py" ]
+  # positive control: the same grep finds a planted setter
+  ctl="$TMPROOT/ctl"; mkdir -p "$ctl/scripts"
+  git -C "$ctl" init -q
+  printf 'export DEVAGENT_TEST_WBS_REPLACE_FAILS=1\n' > "$ctl/scripts/planted.sh"
+  git -C "$ctl" add -A
+  run git -C "$ctl" grep -l DEVAGENT_TEST_WBS_REPLACE_FAILS -- scripts commands skills
+  [ "$output" = "scripts/planted.sh" ]
+}
+
+@test "#749: wbs init template mode leaves no lock behind" {
+  run bash "$REPO/scripts/wbs.sh" init testproj
+  [ "$status" -eq 0 ]
+  [ -f "$TMPDEV/WBS.md" ]
+  [ ! -e "$TMPDEV/.devagent-wbs.lock" ]
 }

@@ -26,6 +26,9 @@ source "$SCRIPT_DIR/lib/template_resolve.sh"
 source "$SCRIPT_DIR/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/permission.sh"
+: "${DEVAGENT_GIT:=git}"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: report-only commit, mid-merge check
 
 no_pin=0
 window_weeks=4
@@ -129,7 +132,8 @@ for d in issue_dirs:
     entries = detect._parse_log_entries(d / "checklist.md")
     if not entries:
         continue
-    last_step = 24 if any(e["step"] == "cleanup" for e in entries) else 7
+    done = detect.completing_cleanup(entries)   # #749: a cleanup_open line undoes it
+    last_step = 24 if done else 7
 
     # #438: aggregate dispatch-lint rejects archived under analysis/rejected/
     # (#360). Zero-reject issues are omitted entirely — no added noise.
@@ -145,11 +149,9 @@ for d in issue_dirs:
         poorly.append(d.name)
     if detect.is_idle(d, last_step=last_step):
         idle_list.append(d.name)
-    if detect.is_completed(d):
+    if done:
         completed.append(d.name)
-        ts = detect.completion_timestamp(d)
-        if ts:
-            completion_ts.append(ts)
+        completion_ts.append(done["ts"])
     ia = detect.inline_artifacts(d)
     if ia:
         inline_arts.append(f"{d.name}: " + ", ".join(ia))
@@ -236,17 +238,43 @@ filled = (
 print(filled, end="")
 PY
 
-if [[ $no_pin -eq 0 ]]; then
-  state_set_many "$project" str statusreport_last_pin "$now_iso" str statusreport_last_pin_by "${USER:-unknown}"
+# #749: report -> commit -> pin. The pin moves only once the report is
+# committed (or needed no commit, or commit_devdoc is false, or devdoc is not a
+# git repository); a failed commit is a non-zero exit that leaves it.
+_sr_commit_failed() {
+  die "statusreport: devdoc commit failed for $report_path - $1 - the report file is written but NOT committed and the pin is unchanged; fix the cause above and re-run /devagent:statusreport $project"
+}
+if [[ "$commit_devdoc" == "true" ]]; then
+  sr_git=0
+  devdoc_in_git "$devdoc_dir" >/dev/null || sr_git=$?
+  case "$sr_git" in
+    0)
+      trap devdoc_lock_release EXIT
+      sr_lk=0
+      devdoc_lock_acquire "$devdoc_dir" - "/devagent:statusreport $project" || sr_lk=$?
+      case "$sr_lk" in
+        0) ;;
+        1) _sr_commit_failed "devdoc lock timeout" ;;
+        *) _sr_commit_failed "lock location unknown" ;;
+      esac
+      devdoc_mid_merge "$devdoc_dir" && _sr_commit_failed "mid-merge (MERGE_HEAD present)"
+      # add AND commit name the report only — a pathspec-less commit would also
+      # take whatever another session had staged in the shared devDoc repo.
+      if [[ -n "$(devdoc_git_ro -C "$devdoc_dir" status --porcelain -- "StatusReports/${report_date}.md")" ]]; then
+        "$DEVAGENT_GIT" -C "$devdoc_dir" add -- "StatusReports/${report_date}.md" \
+          || _sr_commit_failed "git add failed"
+        "$DEVAGENT_GIT" -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" \
+          -- "StatusReports/${report_date}.md" || _sr_commit_failed "git commit failed"
+      fi
+      devdoc_lock_release
+      ;;
+    1) warn "statusreport: commit requested but devdoc is not a git repo" ;;
+    *) _sr_commit_failed "lock location unknown" ;;
+  esac
 fi
 
-if [[ "$commit_devdoc" == "true" ]]; then
-  if command -v git >/dev/null && git -C "$devdoc_dir" rev-parse >/dev/null 2>&1; then
-    git -C "$devdoc_dir" add "StatusReports/${report_date}.md" || true
-    git -C "$devdoc_dir" commit -s -m "statusreport(${project}): ${report_date}" || true
-  else
-    warn "statusreport: commit requested but devdoc is not a git repo"
-  fi
+if [[ $no_pin -eq 0 ]]; then
+  state_set_many "$project" str statusreport_last_pin "$now_iso" str statusreport_last_pin_by "${USER:-unknown}"
 fi
 
 echo "Status Report — $project — $report_date"

@@ -8,13 +8,25 @@ argument-hint: "[project] [args]"
 
 First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`. On any non-zero exit, print its stderr verbatim and STOP: no further step, no checklist write, no log line, no completion handoff. Exit 11 is a quarantine (wait for the operator); 9 and 10 are trust refusals.
 
-Then run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments.
+Then run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wbs.sh" update $ARGUMENTS` with the user's arguments,
+with the longest Bash tool timeout (600000 ms): its write waits on the devDoc
+repository lock up to the bound in spec §3.3 (#749).
 
 This is the workflow step-21 entrypoint. Identical behavior to
 `/devagent:wbs update`; exists as a separate command so the 25-step
 workflow chaining (`--auto`, `--through`) and skill mapping can
 reference a single verb. Like `/devagent:wbs update`, this step also sorts
 each parent's children by dependency, then priority (#803).
+
+**A non-zero exit is not done (#749).** `wbs.sh update` exits 1 when it could
+not write `WBS.md` — for example the devDoc repository lock was held past
+its bound (spec §3.3). Then print its stderr verbatim and STOP: do not mark
+the step `x` and do not run the completion handoff. Mark it stuck instead,
+which ends an `--auto` chain:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-stuck.sh" --name updatewbs "$ISSUE_DIR" "<first stderr line>"
+```
 
 ## Completion handoff
 

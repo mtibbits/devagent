@@ -435,7 +435,10 @@ tracker.
   changes with one path-scoped commit per register file, commits the devdoc
   when permitted (or defers with a stated reason), archives session
   transcripts when an archive is configured, and clears the active issue; an
-  archive failure does not stop it. {refines: SR-1}
+  archive failure does not stop it. Its devdoc commit carries only the paths
+  the cleanup owns, reports the rest, and is serialised with every other
+  session's devdoc writes; a close whose lock or commit fails leaves the step
+  in progress with the issue's state kept, ready to re-run. {refines: SR-1}
 
 ### Parking, switching and resuming
 
@@ -504,7 +507,10 @@ tracker.
   the tracker's issue state and the linked MRs, using the issue's checklist
   only to fill gaps, records which source it used, and adds the active issue
   unless a leaf names it or an exclusion line lists it. A failed lookup
-  changes nothing in its phase, warns once and exits zero. {refines: SR-9}
+  changes nothing in its phase, warns once and exits zero. It writes under
+  the devDoc repository lock, after every lookup, replaces the file
+  atomically, and exits non-zero when the lock is held past its bound or the
+  write fails. {refines: SR-9}
 - FR-67: devagent sorts each parent's children by dependency, then
   inherited priority, then fan-out, moving whole blocks and never top-level
   nodes; it writes only a pure permutation, otherwise leaves the order and
@@ -519,8 +525,10 @@ tracker.
   dated file under the devdoc's `StatusReports/`, lists work done, stuck,
   idle and poorly scoped issues, failed red-teams, dispatch-lint rejects, a
   work-breakdown roll-up and velocity with an estimate labelled as noisy,
-  moves the pin unless told not to, and commits the report only when the
-  devdoc commit is permitted. {refines: SR-9}
+  commits the report file alone only when the devdoc commit is permitted,
+  and moves the pin, unless told not to, only after the report is committed
+  or needed no commit; a failed commit exits non-zero and leaves the pin.
+  {refines: SR-9}
 
 ### The portfolio
 
@@ -742,8 +750,7 @@ Partly delivered. A requirement here that is not built yet starts with
   refuses to close an unfinished issue unless told to abandon it.
   {refines: SR-20}
 - FR-121: Every step a lane runs measures, commits and records against the
-  lane's tree, never the project's main checkout, and devdoc commits and
-  work-breakdown writes are serialized across sessions. {refines: SR-20}
+  lane's tree, never the project's main checkout. {refines: SR-20}
 - FR-122: devagent's status shows each project's open lanes with the issue,
   worktree, branch, step and last activity. {refines: SR-20}
 

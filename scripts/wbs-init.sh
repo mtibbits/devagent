@@ -25,7 +25,7 @@
 # existing WBS.md without --merge, a missing or unreadable one with it, a
 # bad config value, a backend without issue-list or failing, malformed
 # backend output, a merge that would change an existing line or whose
-# write fails);
+# write fails, or the devDoc lock not taken — #749, spec §3.3);
 # 2 a usage error, raised before any tracker call, or a range value only the
 # data can check (an --epic that names no epic, a calendar-invalid date), or
 # (--merge, no range flag) a duplicate, malformed or nothing-naming
@@ -54,6 +54,8 @@ source "$SCRIPT_DIR/lib/active.sh"
 source "$SCRIPT_DIR/lib/template_resolve.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/trust.sh"
+# shellcheck source=lib/devdoc-repo.sh
+source "$SCRIPT_DIR/lib/devdoc-repo.sh"   # #749: the devDoc repository lock
 
 usage_die() {
   echo "wbs init: $*" >&2
@@ -150,8 +152,23 @@ if [[ $mode == template || $mode == import ]]; then
   [[ -n "$template" ]] || die "no wbs_template.md found for '$project' (checked project paths, devdoc, plugin)"
 fi
 
+# #749: every WBS.md write (template, import, merge — not --survey) runs
+# under the devDoc repository lock, taken after the tracker fetch (no network
+# under the lock). ONE EXIT trap releases it and removes the fetch temp dir.
+imp_tmp=""
+_wbs_init_exit() {
+  devdoc_lock_release
+  [[ -z "$imp_tmp" ]] || rm -rf "$imp_tmp"
+}
+trap _wbs_init_exit EXIT
+_wbs_init_lock() {
+  mkdir -p "$devdoc_dir"     # the side lock (outside git) lives in it
+  devdoc_lock_acquire "$devdoc_dir" - "/devagent:wbs init $project" || exit 1
+}
+
 if [[ $mode == template ]]; then
   mkdir -p "$(dirname "$dest")"
+  _wbs_init_lock
   WBS_IMP_TEMPLATE="$template" WBS_IMP_PROJECT="$project" WBS_IMP_DEST="$dest" \
     WBS_IMP_FORCE="$force" python3 "$SCRIPT_DIR/lib/wbs-import.py" template
   info "wbs init: wrote $dest from $template"
@@ -171,7 +188,6 @@ fi
 
 backend_dir="${DEVAGENT_ISSUE_BACKEND_DIR:-$PLUGIN_ROOT/scripts/issue}"
 imp_tmp="$(mktemp -d)"
-trap 'rm -rf "$imp_tmp"' EXIT
 imp_env=()
 
 # _imp_fetch <ORIGIN|FORK> <table>: one issue-list call; dies on any failure.
@@ -205,6 +221,8 @@ _imp_fetch() {
 
 _imp_fetch ORIGIN issue_source
 _imp_fetch FORK issue_source_fork
+
+[[ $mode == survey ]] || _wbs_init_lock
 
 env "${imp_env[@]}" \
   WBS_IMP_MODE="$mode" WBS_IMP_RANGE="$range" WBS_IMP_PCT="$pct" \

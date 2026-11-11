@@ -85,7 +85,8 @@ devAgent/
 │   │                        #   check-step-pairings.py — #558 pairing census,
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
-│   │                        #   portfolio.py — #726 portfolio producer)
+│   │                        #   portfolio.py — #726 portfolio producer,
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -324,6 +325,64 @@ holding the file open makes the replace, or its own open, raise a
 transient sharing violation), so the racing sites bounded-retry that
 transient error on Windows only (`_retry_windows_share`, #293); on POSIX
 the retry is a passthrough.
+
+#### devDoc repository lock (#749)
+
+The devDoc repository is shared by every project's `devdoc_dir` and by every
+concurrent session, so devagent's writes into it are serialised by ONE lock
+per repository (`scripts/lib/devdoc-repo.sh`):
+
+- **Location.** `<git common dir>/devagent-devdoc.lock/`, the common dir taken
+  from `git rev-parse --git-common-dir` and canonicalised (`pwd -P`), so every
+  linked worktree and every environment sharing the checkout (Git Bash, WSL
+  under `/mnt/c`) resolves the same directory. `mkdir` is the acquire (no
+  `flock` in Git Bash).
+- **Outside git.** With no `.git` entry at `devdoc_dir` or any ancestor, the
+  side lock `<devdoc_dir>/.devagent-wbs.lock/` is used (it still guards
+  `WBS.md` writes). A `.git` entry whose `rev-parse` fails is NOT treated as
+  outside git: the caller refuses with "cannot determine the devdoc lock",
+  naming the fix (git on PATH, `safe.directory`).
+- **Holder record.** `holder` inside the lock dir, six lines: `token=<pid>.<epoch
+  seconds>.<RANDOM>`, `pid=`, `host=`, `issue=` (or `-`), `start=` (UTC,
+  `%Y-%m-%dT%H:%M:%SZ`), `cmd=` (the script's basename).
+- **Reentrancy.** The holder exports `DEVAGENT_DEVDOC_LOCK_TOKEN`; a child whose
+  token is well-formed (`^[0-9]+\.[0-9]+\.[0-9]+$`) and equal to the record's
+  `token=` neither acquires nor releases. Any other token is ignored and the
+  child acquires on its own.
+- **Bound.** A contended acquire prints one `waiting for devdoc lock` line naming
+  the holder, polls every 0.2 s, and gives up once
+  `DEVAGENT_DEVDOC_LOCK_TIMEOUT` seconds of wall-clock time have elapsed
+  (`^[0-9]{1,5}$`, default 60, `0` = one attempt; any other value warns once
+  and uses 60). This variable is defined here only.
+- **Shared deadline.** A run that waits on the lock more than once (cleanup:
+  hold 1, the reconcile's write, hold 2) exports
+  `DEVAGENT_DEVDOC_LOCK_DEADLINE` (epoch seconds, now + the bound, or an
+  earlier one already set) before its first lock section. Every acquire in
+  that run and its children gives up at the earlier of its own bound and that
+  deadline, always after at least one attempt, so the run's waits total at
+  most the bound and stay under a caller's 120 s command timeout.
+- **Remedy.** The give-up message names the path and the holder and prints the
+  stale-lock removal `rm -f '<path>/holder' && rmdir '<path>'`, to run only when
+  no devagent run started at the recorded time is still running on that host,
+  in that environment (the pid is that shell's own, not a Windows pid). It
+  frees an empty lock dir and nothing else. Stale locks are never removed
+  automatically.
+- **No network under the lock.** A holder runs only local git and file writes;
+  tracker and forge calls happen before the acquire.
+- Release is the holder's EXIT trap; the pothole register's per-file
+  `<register>.lock` (the drain, #611) is unchanged and nests inside.
+
+`WBS.md` itself is replaced atomically under the lock (`write_document`,
+§13.2), and its replace retries a `PermissionError` for about 8 s (20
+attempts, 0.05 s doubling to 0.5 s) on EVERY OS, unlike the state files'
+Windows-only `_retry_windows_share` (Issue-565: one rule per surface, each
+bound stated once). Its readers are editors that hold `WBS.md` open for
+seconds, not millisecond state reads, and WSL hits the same violation
+(`EACCES`) replacing a `/mnt/c` file a Windows program holds (measured). A
+`parse_file` read that lands inside a Windows replace is retried through
+`_retry_windows_share` (measured: 8 failures in 125 replaces without it).
+The test seam `DEVAGENT_TEST_WBS_REPLACE_FAILS=<N>` is read only by
+`write_document`; no script sets it.
 
 Adjacent state files:
 
@@ -2470,7 +2529,14 @@ and `check(old, new)` can veto it (`wbs init --merge` passes
 wbs-parser.py's `inserted_only`). The bytes go through `write_document(path, text, *,
 exclusive=False)`, the one function that writes `WBS.md`: `wbs update`,
 `wbs order`, `wbs init --merge`, the fresh `--from-tracker` import (`exclusive=True`),
-plain `wbs init` (`exclusive=True`) and `--force` all call it. Any new
+plain `wbs init` (`exclusive=True`) and `--force` all call it. It writes
+atomically (#749): the bytes go to `.devagent-wbs-tmp.<name>` beside the
+target (a leftover is removed first), the temp takes an existing target's
+mode, and `os.replace` puts it in place, so a killed write leaves the old
+file whole; a symlinked `WBS.md` is written through (`os.path.realpath`) and
+the link kept. The replace retries a sharing violation for about 8 s (§3.3);
+exhausted, nothing is written and `wbs update`/`wbs init` exit `1` naming the
+file. Any new
 `WBS.md` writer must write through `write_markdown` or `write_document`.
 A test guards this over `wbs-import.py`, `wbs-init.sh`, `wbs-update.sh`
 and `wbs-order.sh`, and over `wbs-parser.py`'s own writers (`write_update`
@@ -2592,7 +2658,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   combined with it, and any unknown flag is a usage error. Exit `2` is a usage
   error, raised before any tracker call, or a value only the data can check
   (an `--epic` that names no epic, a calendar-invalid date), raised after
-  the read-only `issue-list` calls; `1` is any other failure. #706 also
+  the read-only `issue-list` calls; `1` is any other failure, a devDoc
+  lock held past its bound included (every `init` write, not `--survey`,
+  runs under the §3.3 lock, taken after the tracker calls; #749). #706 also
   hardened the JIRA search both verbs share: any `nextPageToken` seen
   before (a cycle, not only a repeat) or a 1000th page fails the call
   with `5`, which aborts the `wbs update` tracker phase (and cleanup's run).
@@ -2691,7 +2759,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   Last, it sorts each non-root node's children by the §13.1 ordering rule
   (#803) on every run, `--offline` and an aborted lookup included, unless
   `[project.<p>.wbs] order_on_update = false`. One write carries the
-  glyphs, the MR phase's values and the moves.
+  glyphs, the MR phase's values and the moves. That write alone runs under
+  the devDoc repository lock (§3.3, #749), after every tracker and MR call;
+  a lock held past its bound exits `1` with nothing written.
 - `/devagent:wbs order [--dry-run]` (#803) — sort each non-root node's
   children by the §13.1 ordering rule and write the result; `wbs update`
   runs the same pass by default. It honours `completed_last`, and ignores
@@ -2703,9 +2773,9 @@ exposes `scopes` (`[[line, value-or-null], ...]`).
   run; `1` a missing, unreadable or non-UTF-8 `WBS.md`, a failed
   `permuted_only` check (nothing written, and no diff) or a failed write;
   `2` an unknown flag or extra argument, an unknown project, an unset
-  `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. It
-  takes no lock yet: the WBS lock is #749's, whose caller list gains
-  `wbs order`.
+  `devdoc_dir`, or an invalid `order_on_update` or `completed_last`. The
+  write runs under the devDoc repository lock (§3.3, #749); a lock held
+  past its bound exits `1`, and `--dry-run` takes none.
 - `/devagent:wbs show [--depth N] [--milestone X]` — the file as
   written; `--depth`/`--milestone` print the title and matching nodes only;
   parse warnings on stderr, each once, whatever the filter (#865)
@@ -2753,7 +2823,9 @@ instead of writing the document; the view writes nothing.
 
 `~/.claude/devagent/state/<project>.statusreport.toml` holds the last
 pin timestamp. `/devagent:statusreport` rolls it forward to now;
-`--no-pin` runs read-only.
+`--no-pin` runs read-only. The pin moves only after the report is committed
+to devdoc (under the §3.3 repository lock, the report file alone) or needed
+no commit; a failed commit exits non-zero and leaves the pin (#749).
 
 ### 14.2 Data sources
 
