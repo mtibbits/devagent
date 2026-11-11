@@ -2,7 +2,7 @@
 # #455: the commit-discipline PreToolUse guard. Drives hooks/commit-guard.sh with
 # PreToolUse JSON on stdin (exit 2 = deny, exit 0 = allow). Opt-in default-off; fires
 # only for a `git commit` missing -s when an issue is active for the resolved project
-# AND cwd is inside that project's source_dir.
+# AND cwd is under that project's source_dir.
 
 . "${BATS_TEST_DIRNAME}/lib/hermetic-env.bash"
 

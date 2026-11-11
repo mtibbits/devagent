@@ -1764,6 +1764,47 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
   over-match. This obfuscation gap is ACCEPTED and DOCUMENTED (the #352 KNOWN GAPS
   class) — a hook is a reflex backstop, not a sandbox.
 
+**Path containment: "is a session's cwd P under a project's `source_dir` R" (#950).**
+The rule a hook uses to decide whether its session cwd lies inside a project's
+`source_dir`. The hooks implement it as `hook_path_under` in
+`hooks/lib/hook-common.sh`; the scripts-side helper (#944) and the worktree scope
+(#943) conform to this paragraph and test the spellings below. It is separate from
+the active-pointer identity rule above (identity by `-ef`, never string
+comparison), which is unchanged.
+- **Identity first.** When P and R both exist, P is under R exactly when P or one
+  of its parent directories is the same directory as R (`test -ef`, walking up
+  from P to the root). Spelling and letter case do not matter, so a later
+  component typed in another case matches on a case-insensitive filesystem and
+  not on a case-sensitive one. The string rule is not consulted. Identity can
+  differ from a literal compare of the two spellings on any filesystem: a P
+  that reaches R through a symbolic link is under R, a P whose `..` segment
+  leaves R is not, and (where `..` is the physical parent, as on Linux) a P
+  inside R through a symlinked subdirectory that points outside R is not. The
+  walk starts from P's normalized spelling when that spelling exists, so
+  `/c/..` never reaches the MSYS root.
+- **String fallback**, only when P or R does not exist. Normalize both: (1) every
+  `\` becomes `/`; (2) a leading `/<letter>/` becomes `<letter>:/`; (3) a leading
+  drive letter is folded to lower case; (4) trailing `/` are dropped, except that
+  a drive root is `<letter>:/` and `/` stays `/`. P is under R when normalized P
+  equals normalized R or starts with it followed by `/` (the component
+  boundary); a root R covers every P that starts with it. Only the drive letter
+  ignores case. `/<letter>` alone is read as a drive root; any other path that
+  starts with `/` is not rewritten.
+- **Spellings every implementation tests**, against R = `c:/x/proj`. Under:
+  `C:\x\proj`, `c:\x\proj`, `/c/x/proj`, `/C/x/proj`, `C:/x/proj/sub/`,
+  `c:\x\proj\sub`; the same answers with R spelled `C:/x/proj` or `c:/x/proj/`;
+  `c:/x/Proj/sub` by identity on a case-insensitive filesystem. Not under:
+  `c:/x/proj2`, `/d/x/proj`, and `c:/x/Proj` in the fallback. Roots: `/c`, `/c/`,
+  `c:`, `c:/` all normalize to `c:/`, which covers `c:/x/proj`; `/` normalizes to
+  `/`. Empty: an empty P or R is under nothing.
+- **Limits.** The fallback is lexical: it resolves no `.`/`..` segment and no
+  symbolic link, and on a POSIX host it reads a top-level one-letter directory
+  (`/c/...`) as a drive. An empty P or R is under nothing. A UNC P
+  (`\\host\share\...`) gets no special handling: when its host is unreachable
+  the existence test can outlast the hook timeout, and the hook then fails
+  open. In Git Bash `..` is lexical, so a junction to a subdirectory of R reads
+  as not under and a junction inside R pointing out reads as under.
+
 **Registered hooks (opt-in, default-off):**
 - `git-guard.sh` (`git_guard`, #352) — PreToolUse/Bash; denies reflexive destructive
   git on a dirty tree.
@@ -1777,8 +1818,9 @@ behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never repla
 - `commit-guard.sh` (`commit_guard`, #455) — PreToolUse/Bash; denies a `git commit`
   lacking a DCO sign-off (`-s`/`--signoff`), INCLUDING `git commit --amend` without
   `-s`. Fires ONLY when a devAgent issue is active for the resolved project AND the
-  command's cwd is inside that project's `source_dir` (DCO is this operator's
-  per-project policy, not universal). A signed `git commit -s` outside commit.sh is
+  command's cwd is under that project's `source_dir` by the path-containment rule
+  above, so every Windows spelling of the cwd is in scope (#950) (DCO is this
+  operator's per-project policy, not universal). A signed `git commit -s` outside commit.sh is
   ALLOWED (ship.sh's #148 recovery path); `-S` gpg-sign is NOT a DCO sign-off.
 - `session-rehydrate.sh` (`session_rehydrate`, #456) — **SessionStart** (matchers
   `startup|resume|clear`; `compact` EXCLUDED — compaction already carries a summary).

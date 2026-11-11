@@ -62,6 +62,21 @@ the README's "Versioning & releases" section has the release procedure.
   It states devagent's requirements in Gantry's format, in the `devagent`
   namespace, so planning tools can trace work to requirement IDs; it is
   guarded by `tests/test_own_requirements.py`.
+- **Fixed: `commit_guard` fires in Windows sessions (#950).** The guard decided
+  "cwd is inside `source_dir`" by a literal prefix test, so with `source_dir`
+  written `c:/...` it never matched the cwd spellings a Windows session reports
+  (`C:\...`, `c:\...`, `/c/...`) and unsigned commits passed. It now compares by
+  directory identity and falls back to a normalized string compare when a path
+  does not exist (spec 8.1, "Path containment"). **Behaviour change on
+  Windows:** with `commit_guard` on and an issue active, an unsigned
+  `git commit` in a `source_dir` session that passed before is now denied.
+  Re-run with `-s`. To bypass the guard, set `DEVAGENT_COMMIT_GUARD_OVERRIDE=1`
+  in the Claude Code session's environment (for example settings `env`); a
+  prefix on the `git commit` command line does not reach the hook. When the
+  directories exist, a cwd that reaches `source_dir` through a symbolic link is
+  now in scope, and a cwd whose `..` segment leaves `source_dir`, or (on Linux)
+  that sits under a symlinked subdirectory pointing outside it, no longer is.
+  `commit_guard` off is unchanged.
 
 ## [3.0.0] — 2026-11-09
 
