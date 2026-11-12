@@ -1157,3 +1157,51 @@ print(" ".join(sorted(names)))' < <(di parse "$W/2.md"; di parse "$W/3.md" || tr
   di parse "$W/2.md" > "$W/json"
   cmp "$W/doc-json" "$W/json"
 }
+
+# ---------------------------------------------------------------- final review fixes
+
+@test "di: arguments that are not valid UTF-8 are refused with exit 2" {
+  cp "$FIX/full.md" "$W/1.md"
+  printf 'x\n' > "$W/p"
+  run --separate-stderr di set "$W/1.md" "status=$(printf 'a\xffb')"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'"status" value is not valid UTF-8'* ]]
+  run --separate-stderr di set "$W/1.md" --comment "$(printf 'x\xff')"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"comment is not valid UTF-8"* ]]
+  run --separate-stderr di create "$W" 5 "$(printf 'T\xff')" "$W/p"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"title is not valid UTF-8"* ]]
+  cmp "$W/1.md" "$FIX/full.md"
+  [ ! -e "$W/5.md" ]
+}
+
+@test "di: check prints a path that is not valid UTF-8" {
+  local d
+  d="$W/$(printf 'd\xff')"
+  mkdir "$d"
+  printf '# T\nstate: maybe\n' > "$d/1.md"
+  run --separate-stderr di check "$d/1.md"
+  [ "$status" -eq 4 ]
+  [[ "$output" == "$d/1.md:2: state must be"* ]]
+}
+
+@test "di: a CRLF file that lacks its final LF keeps its trailing CR tolerated" {
+  printf '# T\r\n\r\n## Prompt\r\nx\r\n## Comments\r' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" '[o["prompt"], o["comments"]]')" = '["x", []]' ]
+  DEVAGENT_DATE_OVERRIDE=2026-11-12 run --separate-stderr di set "$W/1.md" --comment b
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\r\n\r\n## Prompt\r\nx\r\n## Comments\r\n- 2026-11-12 b\r\n")' "$W/1.md"
+  [ "$output" = "True" ]
+  printf '# T\r\n\r\n## Prompt\r\nx\r' > "$W/2.md"
+  DEVAGENT_DATE_OVERRIDE=2026-11-12 run --separate-stderr di set "$W/2.md" --comment b
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\r\n\r\n## Prompt\r\nx\r\n\r\n## Comments\r\n- 2026-11-12 b\r\n")' "$W/2.md"
+  [ "$output" = "True" ]
+  printf 'T\r' > "$W/3.md"
+  run --separate-stderr di set "$W/3.md" state=closed
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$(di parse "$W/3.md")" '[o["title"], o["keys"]]')" = '["T", {"state": "closed"}]' ]
+}

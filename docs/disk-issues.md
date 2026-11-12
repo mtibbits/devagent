@@ -111,8 +111,10 @@ same character, at least as long, with nothing after it. A backtick opener
 whose info text contains a backtick is not an opener.
 
 - An opener with no closer is not a fence, as in `wbs-parser.py` (#701).
-- A closer indented two or more spaces never closes a fence opened above a
-  `## Comments` line that starts in the first column. Every comment line the
+- A closer indented two or more spaces never closes a fence when a
+  `## Comments` line that starts in the first column lies between the opener
+  and that closer. (An indented fence inside a list item in the prompt pairs
+  as usual.) Every comment line the
   writer adds is indented two spaces, so a fence inside an added comment can
   never turn earlier text into code. A fence above the comments section may
   still contain `## Comments` and entry-shaped lines, and pairs with a closer
@@ -174,7 +176,8 @@ a faulty file is left untouched and the write fails with exit code 4.
 - **Safe writes.** Every write is atomic: the writer writes a dot-named temp
   file in the same folder, flushes it to disk, and then puts it in place, so a
   crash never leaves half a file. `set` calls in one folder take turns on
-  `.disk-issue.lock`. Before the replace, the writer re-reads the file; if it
+  `.disk-issue.lock` (when the lock file cannot be opened or locked, for
+  example for lack of permission, the write goes ahead unlocked). Before the replace, the writer re-reads the file; if it
   changed (another session, or an editor saving), the write starts over once,
   then fails rather than overwrite the other change. A replace refused because
   another program holds the file open (an indexer or antivirus on Windows) is

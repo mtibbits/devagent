@@ -65,6 +65,15 @@ class Fail(Exception):
         self.usage = usage
 
 
+def _utf8_arg(value: str, what: str) -> str:
+    """An argument decoded with surrogateescape must still be valid UTF-8."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise Fail(EXIT_USAGE, f"{what} is not valid UTF-8")
+    return value
+
+
 def _usage_error(msg: str) -> Fail:
     return Fail(EXIT_USAGE, msg, usage=True)
 
@@ -75,7 +84,8 @@ def _err(text: str) -> None:
 
 
 def _out(text: str) -> None:
-    sys.stdout.buffer.write(text.encode("utf-8"))
+    # surrogateescape: a path argument that is not valid UTF-8 prints as its bytes
+    sys.stdout.buffer.write(text.encode("utf-8", errors="surrogateescape"))
     sys.stdout.buffer.flush()
 
 
@@ -117,8 +127,8 @@ def _body(raw: bytes) -> str:
     s = raw.decode("utf-8")
     if s.endswith("\n"):
         s = s[:-1]
-        if s.endswith("\r"):
-            s = s[:-1]
+    if s.endswith("\r"):   # also a CRLF file's last line that lacks its LF
+        s = s[:-1]
     return s
 
 
@@ -601,7 +611,7 @@ def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
         want_comments = want_comments + [(date, "\n".join(text_lines))]
     for k in range(len(out) - 1):   # only an original last line can lack one
         if not out[k].endswith(b"\n"):
-            out[k] += eol
+            out[k] += b"\n" if out[k].endswith(b"\r") else eol
     new = (_BOM if iss.bom else b"") + b"".join(out)
 
     back = read_issue(new)
@@ -755,6 +765,7 @@ def _parse_kv(tokens: list, seen: dict) -> None:
             raise _usage_error(f'"{key}" given twice')
         if "\r" in value or "\n" in value:
             raise _usage_error(f'"{key}" value contains a line break')
+        _utf8_arg(value, f'"{key}" value')
         value = value.strip(" \t")
         if not value:
             raise _usage_error(f'empty value for "{key}"')
@@ -907,7 +918,7 @@ def cmd_set(args: list) -> int:
             raise Fail(EXIT_USAGE, str(e))
     entry = None
     if comment is not None:
-        text_lines = _comment_lines(comment)
+        text_lines = _comment_lines(_utf8_arg(comment, "comment"))
         if date is not None:
             if not _real_date(date):
                 raise Fail(EXIT_USAGE, "--date must be a real YYYY-MM-DD date")
@@ -1005,6 +1016,7 @@ def cmd_create(args: list) -> int:
         raise Fail(EXIT_USAGE, f'N must be an issue number of at most 18 digits, got "{n}"')
     if "\r" in title or "\n" in title:
         raise Fail(EXIT_USAGE, "title contains a line break")
+    _utf8_arg(title, "title")
     title = title.strip(" \t")
     if not title:
         raise Fail(EXIT_USAGE, "empty title")
