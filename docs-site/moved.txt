@@ -1,0 +1,7 @@
+# moved.txt: old page names and their new homes (#995). One pair per line:
+#   <old-name> <new-home>
+# old-name: a former page's base name, [A-Za-z0-9_-]+, without .html.
+# new-home: <page>.html[#fragment] for a content page this build produces, or
+#   an absolute https:// URL (for example a GitHub blob URL).
+# The build writes <old-name>.html, a stub linking to new-home. Blank lines
+# and lines starting with # are ignored.
