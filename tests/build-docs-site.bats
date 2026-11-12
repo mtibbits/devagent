@@ -7,7 +7,8 @@
 #   REAL  — the tracked docs-site/ built once per file (setup_file); pins the
 #           page set by COUNT against the source globs and moved.txt, link
 #           closure over href, src and srcset (the builder's tag-scoped reader
-#           restated, so its floor proves the real build was scanned), the one
+#           restated as a superset, so its floor proves the real build was
+#           scanned), the one
 #           link that leaves docs-site/,
 #           per-page code-block and table-row counts against the markdown,
 #           titles, nav, and that the output fetches nothing. That last test
@@ -49,7 +50,7 @@ SITE="$PLUGIN_ROOT/docs-site"
 
 need_pandoc() {
   command -v pandoc >/dev/null 2>&1 \
-    || skip "pandoc not installed — this file runs in publish-docs-site.yml's lane"
+    || skip "pandoc not installed — CI runs this file un-skipped (test suite and publish docs site); install pandoc 3.x locally"
 }
 
 setup_file() {
@@ -174,17 +175,19 @@ real_stubs() {
   for p in "${content[@]}"; do
     if [ -f "$SITE/$p.md" ]; then nmd=$((nmd + 1)); fi
   done
-  # The builder's reader, restated: attributes only inside tags (a tag may
-  # span lines); names case-blind after whitespace; values double-quoted,
-  # single-quoted or bare; each srcset candidate's URL.
+  # The builder's reader, restated without its comment and raw-text skipping
+  # (so it reads a superset): attributes only inside tags (a tag may span
+  # lines); names case-blind after whitespace, spaces allowed around "=";
+  # values double-quoted, single-quoted or bare; each srcset candidate's URL.
   local tag_re='<[A-Za-z][^<>"'"'"']*("[^"]*"[^<>"'"'"']*|'"'"'[^'"'"']*'"'"'[^<>"'"'"']*)*>'
-  local re='[[:space:]](href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
+  local re='[[:space:]](href|src|srcset)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
   local html a name v t checked=0 cands
   for html in "$REAL_OUT"/*.html; do
     while IFS= read -r a; do
       a="${a#"${a%%[![:space:]]*}"}"
-      name="${a%%=*}"
+      name="${a%%[=[:space:]]*}"
       v="${a#*=}"
+      v="${v#"${v%%[![:space:]]*}"}"
       v="${v#[\"\']}"
       v="${v%[\"\']}"
       cands=("$v")
@@ -636,6 +639,7 @@ t3h_row() {
   t3h_row 3 "$probe" '<LI><A HREF="other.html">O</A></LI>'
   t3h_row 4 'put <li> and its <a href> on one line' '<li>' '<a href="other.html">O</a></li>'
   t3h_row 3 "$probe" "$e" '<li>' '<a href="https://x.test/">X</a></li>'
+  t3h_row 4 "$none" '<pre' ' class="ex">' "$e" '</pre >'
 }
 
 # t3i_row <title> <index body line...> — one fixture dir per row, a lone
@@ -660,6 +664,8 @@ t3i_row() {
   t3i_row Upper '<H1 class="x">Upper</H1>'
   t3i_row 'The next loop' '<h1>The <code>next</code> loop</h1>'
   t3i_row 'Plan it. Ship it.' '<h1>Plan it.<br>Ship it.</h1>'
+  t3i_row 'Big &amp; Bold' '<h1' '  class="hero">Big &amp; Bold</h1>' '<h1>Second</h1>'
+  t3i_row Real '<pre' '>' '<h1>Fake</h1>' '</pre >' '<h1>Real</h1>'
 }
 
 @test "build-docs-site: README.html in --src -> exit 4, nothing written" {
@@ -796,6 +802,8 @@ t4i_row() {
   t4i_row assets/n2.png '<IMG SRC="assets/n2.png">'
   t4i_row n3.html "<a href='n3.html'>n3</a>"
   t4i_row assets/n4.png $'<img\n  src="assets/n4.png" alt="">'
+  t4i_row n5.html '<a href = "n5.html">n5</a>'
+  t4i_row n6.js '<script src="n6.js"></script>'
 }
 
 @test "build-docs-site: href= and src= written in code are text, not links" {
@@ -805,7 +813,9 @@ t4i_row() {
     '```' '  export src=docs-site' '<img src="logo.png" alt="">' '```'
   fx_html hand '<h1>Hand</h1>' \
     '<p><code>&lt;img src=&quot;missing.png&quot;&gt;</code></p>' \
-    '<pre>srcset=a.png href=b.html</pre>'
+    '<pre>srcset=a.png href=b.html</pre>' \
+    '<!-- <img src="old.png"> -->' \
+    '<script>var h = "<img src=\"" + u + "\">";</script>'
   run fx_build
   [ "$status" -eq 0 ]
   [[ "$output" == *"built 2 pages -> $FX/out"* ]]
@@ -852,6 +862,17 @@ fx_two_pages() {
   run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"moved.txt:2: old-a is listed twice"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved.txt naming README as an old page -> exit 4" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'README other.html'
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"moved.txt:1: README is reserved"* ]]
   [ ! -e "$FX/out" ]
 }
 

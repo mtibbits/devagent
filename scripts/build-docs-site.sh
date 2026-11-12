@@ -47,9 +47,9 @@
 #   4  bad input: --src or --static dir missing, no pages, no index page,
 #      <x>.md and <x>.html both present, a README.html in --src, a hand-written
 #      page without its derived-from header (or with a byte-order mark), a
-#      malformed moved.txt line or one
-#      naming a live page, the index's page list names no page or splits an
-#      <li> from its <a href>, --out not a directory, or --out not empty
+#      malformed moved.txt line or one naming a live page or README, the
+#      index's page list names no page or splits an <li> from its <a href>,
+#      --out not a directory, or --out not empty
 #   5  a page failed to render (includes a link or image the filter cannot
 #      classify, and a hand-written page with no <h1> or with an entity in it
 #      other than &amp; &lt; &gt; &quot; &#39;)
@@ -140,30 +140,35 @@ fence_awk='/^(```|~~~)/ { fence = !fence; next }'
 # Non-content regions of a hand-written page, one rule for the HTML nav reader
 # and the H1 reader: <!-- ... -->, and <pre>, <code>, <script>, <style>,
 # <template>, <textarea> from the opening tag through its closer. Tag names
-# compare case-blind; an opening tag is the name then ">", a space or a tab, so
-# <pre never matches <preview. A region may span lines and ends at its closer;
-# text after the closer is content. nc(line) returns the line minus region text.
-# The H1 reader keeps inline <code> text (a heading may name a command), so it
-# sets nc_re to the list without code.
+# compare case-blind; an opening tag is the name then ">", a space, a tab or the
+# end of the line (a formatter may put the attributes on the lines below), so
+# <pre never matches <preview. A closer may carry spaces before its ">". A
+# region may span lines and ends at its closer; text after the closer is
+# content. nc(line) returns the line minus region text. The H1 reader keeps
+# inline <code> text (a heading may name a command), so it sets nc_re to the
+# list without code.
 nc_awk='
-BEGIN { if (nc_re == "") nc_re = "<(pre|code|script|style|template|textarea)[> \t]" }
-function nc(line,    out, l, i, t) {
+BEGIN { if (nc_re == "") nc_re = "<(pre|code|script|style|template|textarea)([> \t]|$)" }
+function nc(line,    out, l, i, n, t) {
   out = ""
   while (line != "") {
     l = tolower(line)
     if (nc_close != "") {
-      i = index(l, nc_close)
+      i = 0
+      if (nc_close == "-->") { i = index(l, "-->"); n = 3 }
+      else if (match(l, "</" nc_close "[ \t]*>")) { i = RSTART; n = RLENGTH }
       if (!i) return out
-      line = substr(line, i + length(nc_close))
+      line = substr(line, i + n)
       nc_close = ""
       continue
     }
     i = index(l, "<!--")
     if (match(l, nc_re) && (!i || RSTART < i)) {
-      t = substr(l, RSTART + 1, RLENGTH - 2)
+      t = substr(l, RSTART + 1, RLENGTH - 1)
+      sub(/[> \t]$/, "", t)
       out = out substr(line, 1, RSTART - 1)
-      line = substr(line, RSTART + RLENGTH - 1)
-      nc_close = "</" t ">"
+      line = substr(line, RSTART + 1)
+      nc_close = t
       continue
     }
     if (i) {
@@ -190,11 +195,11 @@ page_title() {
 # stripped, whitespace collapsed and trimmed. Entities are left for
 # html_unescape. Exits 1 when there is none or it is empty.
 html_h1() {
-  awk -v nc_re='<(pre|script|style|template|textarea)[> \t]' "$nc_awk"'
+  awk -v nc_re='<(pre|script|style|template|textarea)([> \t]|$)' "$nc_awk"'
        { buf = buf nc($0) "\n" }
        END {
          l = tolower(buf)
-         if (!match(l, /<h1[> \t]/)) exit 1
+         if (!match(l, /<h1[> \t\n]/)) exit 1
          st = RSTART
          e = index(substr(l, st), "</h1>")
          if (!e) exit 1
@@ -301,6 +306,7 @@ if [ -f "$src/moved.txt" ]; then
     old="${BASH_REMATCH[1]}" home="${BASH_REMATCH[2]}"
     [ -z "${kind[$old]:-}" ] || die 4 "moved.txt:$n: $old is still a content page (remove the line or the page)"
     [ -z "${moved[$old]:-}" ] || die 4 "moved.txt:$n: $old is listed twice"
+    [ "$old" != README ] || die 4 "moved.txt:$n: README is reserved for docs-site's policy file and is never published"
     case "$home" in
       https://*) ;;
       *) hp="${home%%#*}"
@@ -445,24 +451,55 @@ built=("$out"/*.html)
 # page (which the Lua filter never sees) is checked too. Attributes are read
 # only inside tags (a tag may span lines): text, including code, reaches the
 # output escaped, so an "href=" or "src=" written in a snippet has no literal <
-# before it and is never read as a link. In a tag, every href, src and srcset
-# is read: the attribute name case-blind, after whitespace (so data-src= is not
-# read), its value double-quoted, single-quoted or bare; each srcset
-# candidate's URL counts. A target with a scheme, or a pure
-# #fragment, is skipped; ?query and #fragment are dropped from the rest. A
-# root-absolute path (/x) and a path with a .. segment are refused even when
-# they resolve on disk: under Pages' /devagent/ subpath both point elsewhere.
+# before it and is never read as a link. What a hand-written page carries raw
+# is skipped first: <!-- ... --> comments, and the bodies of <script>, <style>,
+# <template> and <textarea> (their opening tags are kept, so <script src> is
+# still read). In a tag, every href, src and srcset is read: the attribute name
+# case-blind, after whitespace (so data-src= is not read), spaces allowed
+# around "=", its value double-quoted, single-quoted or bare; each srcset
+# candidate's URL counts. A target with a scheme, or a pure #fragment, is
+# skipped; ?query and #fragment are dropped from the rest. A root-absolute path
+# (/x) and a path with a .. segment are refused even when they resolve on disk:
+# under Pages' /devagent/ subpath both point elsewhere.
+# shellcheck disable=SC2016  # $0 is awk's, not the shell's
+markup_awk='
+{ buf = buf $0 " " }
+END {
+  s = buf; out = ""
+  while (s != "") {
+    l = tolower(s)
+    c = index(l, "<!--")
+    r = match(l, /<(script|style|template|textarea)[> \t]/) ? RSTART : 0
+    if (!c && !r) { out = out s; break }
+    if (c && (!r || c < r)) {
+      out = out substr(s, 1, c - 1)
+      e = index(substr(l, c + 4), "-->")
+      if (!e) break
+      s = substr(s, c + e + 6)
+      continue
+    }
+    t = substr(l, r + 1, RLENGTH - 2)
+    g = index(substr(l, r), ">")
+    if (!g) { out = out s; break }
+    out = out substr(s, 1, r + g - 1)
+    e = index(substr(l, r + g), "</" t)
+    if (!e) break
+    s = substr(s, r + g + e - 1)
+  }
+  print out
+}'
 tag_re='<[A-Za-z][^<>"'"'"']*("[^"]*"[^<>"'"'"']*|'"'"'[^'"'"']*'"'"'[^<>"'"'"']*)*>'
-attr_re='[[:space:]](href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
+attr_re='[[:space:]](href|src|srcset)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
 bad=0
 for html in "${built[@]}"; do
   page="${html##*/}"
-  attrs="$(tr '\n' ' ' < "$html" | grep -oE "$tag_re" | grep -oiE "$attr_re" || true)"
+  attrs="$(awk "$markup_awk" "$html" | grep -oE "$tag_re" | grep -oiE "$attr_re" || true)"
   while IFS= read -r a; do
     [ -n "$a" ] || continue
     a="${a#"${a%%[![:space:]]*}"}"
-    name="${a%%=*}"
+    name="${a%%[=[:space:]]*}"
     v="${a#*=}"
+    v="${v#"${v%%[![:space:]]*}"}"
     case "$v" in
       \"*\") v="${v#\"}"; v="${v%\"}" ;;
       \'*\') v="${v#\'}"; v="${v%\'}" ;;

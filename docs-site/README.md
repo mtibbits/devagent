@@ -112,7 +112,9 @@ byte; either may be absent. A Markdown page may show an image from
 `./assets/<path>`; any other image target fails the build (exit 5). Every
 `href`, `src` and `srcset` attribute of a tag in the rendered output must name
 a file the build produced (exit 6); the same words written in code or prose
-are text, not links. A root-absolute path (`/x`) and a path with a `..` segment
+are text, not links, and so is a tag inside an HTML comment or inside the body
+of a `<script>`, `<style>`, `<template>` or `<textarea>` (a `<script src>`
+itself is still checked). A root-absolute path (`/x`) and a path with a `..` segment
 are refused too, because the site is served under a subpath (`/devagent/`)
 where both point somewhere else.
 
@@ -122,9 +124,9 @@ each line the build writes `<old-name>.html`, a static stub that says the page
 moved and links to the new home: a content page of this site
 (`<page>.html[#fragment]`) or an absolute `https://` URL. Stubs load nothing,
 ask not to be indexed, appear in no nav and are not counted as pages. A line
-whose old name is still a content page, or that repeats an old name, exits 4;
-a new home that is not a content page this build produces (a missing page, the
-stub itself, or another stub) exits 6.
+whose old name is still a content page, is `README`, or repeats an old name,
+exits 4; a new home that is not a content page this build produces (a missing
+page, the stub itself, or another stub) exits 6.
 
 **The fetch ban is still in force.** On the real build,
 `tests/build-docs-site.bats` fails if any rendered file, assets included,
