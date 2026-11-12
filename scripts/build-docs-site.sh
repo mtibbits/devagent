@@ -57,6 +57,9 @@ case "$blob_base" in
   *[\"\'\<\>\ ]*) die 2 "--blob-base must not contain quotes, angle brackets or spaces: $blob_base" ;;
 esac
 [ -d "$src" ] || die 4 "source dir not found: $src"
+# The nav derivation and the title readers are awk programs. Without awk they
+# would read as "no list" and exit 4 blaming the page; name the tool instead.
+command -v awk >/dev/null 2>&1 || die 3 "awk is not installed (the nav derivation needs it)"
 
 shopt -s nullglob
 pages=()
@@ -67,11 +70,27 @@ done
 [ "${#pages[@]}" -gt 0 ] || die 4 "no content pages (*.md other than README.md) in $src"
 [ -f "$src/index.md" ]   || die 4 "no index.md in $src — the site would have no root page"
 
+# A ``` or ~~~ line opens or closes a code fence. One rule, shared by the
+# Markdown title reader and the Markdown nav reader (#840).
+fence_awk='/^(```|~~~)/ { fence = !fence; next }'
+
 # First ATX H1 outside a code fence. Exits 1 when there is none.
 page_title() {
-  awk '/^(```|~~~)/ { fence = !fence; next }
+  awk "$fence_awk"'
        !fence && /^# / { sub(/^# +/, ""); print; found = 1; exit }
        END { if (!found) exit 1 }' "$1"
+}
+
+# nav_entries <index> — the page names the index's own top-level list links,
+# in order, one per line. Bullets inside a code fence are examples, not the
+# list. POSIX awk only (gawk and mawk agree).
+nav_entries() {
+  awk "$fence_awk"'
+       !fence && match($0, /^- \[[^]]*\]\(\.\/[A-Za-z0-9_-]+\.(md|html)\)/) {
+         s = substr($0, RSTART, RLENGTH)
+         sub(/^.*\]\(\.\//, "", s); sub(/\.(md|html)\)$/, "", s)
+         print s
+       }' "$1"
 }
 
 html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
@@ -86,12 +105,15 @@ html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/
 # testable in a lane that has none.
 order=(index)
 contains() { local n="$1" x; shift; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
+# A command substitution, not < <( ... ): a failing reader must stop the build
+# here, not read as an empty list.
+listed="$(nav_entries "$src/index.md")" || die 4 "could not read the page list in $src/index.md"
 while IFS= read -r linked; do
   if contains "$linked" "${pages[@]}" && ! contains "$linked" "${order[@]}"; then order+=("$linked"); fi
-done < <(grep -oE '^- \[[^]]*\]\(\./[A-Za-z0-9_-]+\.md\)' "$src/index.md" | sed -E 's/^.*\]\(\.\///; s/\.md\)$//')
+done <<< "$listed"
 # A site with pages beyond index.md whose list matched NONE of them means the
 # list changed shape ("* " bullets, a nested list, a moved section) and the
-# grep above saw nothing. Falling through to alphabetical would publish a
+# reader above saw nothing. Falling through to alphabetical would publish a
 # reordered nav with exit 0; refuse instead. (A page the list merely omits is
 # fine and is appended below.)
 if [ "${#pages[@]}" -gt 1 ] && [ "${#order[@]}" -eq 1 ]; then

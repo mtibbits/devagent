@@ -48,6 +48,7 @@ setup_file() {
 
 setup() {
   FX="$BATS_TEST_TMPDIR"
+  FX_BASH="$(command -v bash)"
   mkdir -p "$FX/src"
 }
 
@@ -56,7 +57,7 @@ setup() {
 fx_bin() {
   local t
   mkdir -p "$FX/bin"
-  for t in dirname basename grep sed; do
+  for t in dirname basename grep sed awk sort; do
     ln -s "$(command -v "$t")" "$FX/bin/$t"
   done
 }
@@ -70,6 +71,19 @@ fx_page() {
 # nav_of <html> — the <nav> block only. The theme CSS names aria-current and
 # page bodies link sibling pages, so nav assertions must not see the whole file.
 nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
+
+# fx_build [args...] — build the fixture source dir into $FX/out. FX_PATH, when
+# set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. Later
+# flags win: the script's parse loop keeps the last value.
+fx_build() { env PATH="${FX_PATH:-$PATH}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" "$@"; }
+
+# fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
+# real list, which names only zeta.
+fx_fixture_b() {
+  fx_page index '```' '- [Alpha](./alpha.md)' '```' '' '## Where to go next' '' '- [Zeta](./zeta.md)'
+  fx_page alpha "a"
+  fx_page zeta "z"
+}
 
 # ---------------------------------------------------------------- REAL site
 
@@ -254,6 +268,39 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
   [ ! -e "$FX/out" ]
 }
 
+@test "build-docs-site: index.md whose only list bullets are fenced -> exit 4, not a nav" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index '```' '- [Other](./other.md)' '```' '' '~~~' '- [Other](./other.md)' '~~~'
+  fx_page other "hello"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"page list names no page"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: fenced decoy above one real bullet gets past the guard" {
+  # positive control for the leg above: #840's Fixture B reaches the pandoc probe
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_fixture_b
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"pandoc is not installed"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: awk absent -> exit 3 naming awk, not \"names no page\"" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  rm "$FX/bin/awk"
+  fx_fixture_b
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"awk is not installed"* ]]
+  [ ! -e "$FX/out" ]
+}
+
 @test "build-docs-site: --out is an existing regular file -> exit 4, file untouched" {
   need_pandoc
   fx_page index "hello"
@@ -341,4 +388,14 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
   local navorder
   navorder="$(nav_of "$FX/out/mid.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
   [ "$navorder" = 'href="index.html" href="zeta.html" href="alpha.html" href="mid.html" ' ]
+}
+
+@test "build-docs-site: fixture nav order — a fenced example of the list does not order the nav" {
+  need_pandoc
+  fx_fixture_b
+  run fx_build
+  [ "$status" -eq 0 ]
+  local navorder
+  navorder="$(nav_of "$FX/out/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  [ "$navorder" = 'href="index.html" href="zeta.html" href="alpha.html" ' ]
 }
