@@ -2505,7 +2505,7 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`.
+`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
 `priority` (`P1` to `P4`, P1 the most urgent) ranks a node among its siblings (#803; see Ordering below).
 `satisfies` traces a leaf to the requirements it serves, and `objective`

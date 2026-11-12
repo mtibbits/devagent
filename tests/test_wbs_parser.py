@@ -551,8 +551,13 @@ def test_split_namespaced(entry, want):
 
 
 def _assigns_named(source, name):
-    return sum(1 for n in ast.parse(source).body if isinstance(n, ast.Assign)
-               for t in n.targets if isinstance(t, ast.Name) and t.id == name)
+    """Module-level assignments to `name`, plain or annotated (#890)."""
+    n_found = 0
+    for n in ast.parse(source).body:
+        targets = (n.targets if isinstance(n, ast.Assign)
+                   else [n.target] if isinstance(n, ast.AnnAssign) else [])
+        n_found += sum(1 for t in targets if isinstance(t, ast.Name) and t.id == name)
+    return n_found
 
 
 def test_h_rule_has_one_home():
@@ -562,6 +567,115 @@ def test_h_rule_has_one_home():
     hits = {p.name: _assigns_named(p.read_text(encoding="utf-8"), "H_RE")
             for p in sorted((REPO / "scripts" / "lib").glob("*.py"))}
     assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+
+
+def _token_literals(source, tokens):
+    """str constants in `source` equal to a model token (#890 one-home scan)."""
+    return [n.value for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and n.value in tokens]
+
+
+def test_model_tokens_have_one_home():
+    # #890: MODEL_TOKENS is assigned once, in wbs-parser.py, and no
+    # scripts/lib/*.py holds a token literal (the list lives in flags.sh).
+    # Planted controls first: an annotated copy counts, a literal is flagged.
+    assert _assigns_named("MODEL" + "_TOKENS: tuple = ('x',)\n", "MODEL_TOKENS") == 1
+    assert _token_literals('X = "hai' + 'ku"\n', wbs_parser.MODEL_TOKENS) == ["haiku"]
+    libs = sorted((REPO / "scripts" / "lib").glob("*.py"))
+    hits = {p.name: _assigns_named(p.read_text(encoding="utf-8"), "MODEL_TOKENS")
+            for p in libs}
+    assert {k: v for k, v in hits.items() if v} == {"wbs-parser.py": 1}
+    lits = {p.name: _token_literals(p.read_text(encoding="utf-8"), wbs_parser.MODEL_TOKENS)
+            for p in libs}
+    assert {k: v for k, v in lits.items() if v} == {}
+
+
+_ALLOW = "model_token_allowlist() {{ printf '{}'; }}"
+
+
+def test_read_model_tokens_planted():
+    # #890: the real reader on planted flags.sh texts (D1, Improve B7).
+    one = "x=1\n" + _ALLOW.format("aa bb") + "\n"
+    assert wbs_parser.read_model_tokens(one) == ("aa", "bb")
+    with pytest.raises(ValueError, match="found 0"):
+        wbs_parser.read_model_tokens("x=1\n")
+    with pytest.raises(ValueError, match="found 2"):
+        wbs_parser.read_model_tokens(one + one)
+    # the column-0 anchor: an indented definition does not count
+    with pytest.raises(ValueError, match="found 0"):
+        wbs_parser.read_model_tokens("  " + _ALLOW.format("aa") + "\n")
+    with pytest.raises(ValueError, match="is empty"):
+        wbs_parser.read_model_tokens(_ALLOW.format(" ") + "\n")
+    assert wbs_parser.MODEL_TOKENS == wbs_parser.read_model_tokens(
+        wbs_parser.FLAGS_SH.read_text(encoding="utf-8"))
+    assert len(wbs_parser.MODEL_TOKENS) >= 1
+
+
+def test_thinking_checking_are_known_meta_keys():
+    # #890 AC1: known keys, values as written, byte-for-byte round trip;
+    # either key may appear alone.
+    text = ("- [ ] a {issue: I-1, thinking: opus, checking: fable}\n"
+            "- [ ] b {thinking: inherit}\n")
+    tree = wbs_parser.parse_text(text)
+    a, b = tree["children"]
+    assert a["meta"] == {"issue": "I-1", "thinking": "opus", "checking": "fable"}
+    assert b["meta"] == {"thinking": "inherit"}
+    for node in (a, b):
+        assert node["meta_unknown_keys"] == []
+        assert node["parse_warnings"] == []
+    assert wbs_parser.render_markdown(tree) == text
+
+
+def _model_warning(key, shown):
+    return (f"line 1: {key} '{shown}' is not one of: "
+            "sonnet opus haiku fable inherit")
+
+
+@pytest.mark.parametrize("body,key,value,want", [
+    # AC rows (the literal lines of the issue)
+    ("thinking: gpt", "thinking", "gpt",
+     ["line 1: thinking 'gpt' is not one of: sonnet opus haiku fable inherit"]),
+    ("checking: [opus, fable]", "checking", ["opus", "fable"],
+     ["line 1: checking '[opus, fable]' is not one of: sonnet opus haiku fable inherit"]),
+    ("thinking: opus/fable", "thinking", "opus/fable",
+     ["line 1: thinking 'opus/fable' is not one of: sonnet opus haiku fable inherit"]),
+    # extra malformed rows (D7: case-sensitive, as written)
+    ("thinking: ", "thinking", "", [_model_warning("thinking", "")]),
+    ("thinking: Opus", "thinking", "Opus", [_model_warning("thinking", "Opus")]),
+    ("checking: [opus]", "checking", ["opus"], [_model_warning("checking", "[opus]")]),
+    # controls: every token, and a quoted token
+    ("thinking: sonnet", "thinking", "sonnet", []),
+    ("checking: opus", "checking", "opus", []),
+    ("thinking: haiku", "thinking", "haiku", []),
+    ("checking: fable", "checking", "fable", []),
+    ("thinking: inherit", "thinking", "inherit", []),
+    ('thinking: "opus"', "thinking", "opus", []),
+])
+def test_model_key_parse_warnings(body, key, value, want):
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n")["children"][0]
+    assert node["parse_warnings"] == want
+    assert node["meta"][key] == value
+    assert node["meta_unknown_keys"] == []
+
+
+_TOKS = "sonnet opus haiku fable inherit"
+
+
+@pytest.mark.parametrize("meta,key,want", [
+    ({}, "thinking", (None, None)),
+    ({"checking": "opus"}, "thinking", (None, None)),
+    ({"thinking": "opus"}, "thinking", ("opus", None)),
+    ({"checking": "inherit"}, "checking", ("inherit", None)),
+    ({"thinking": "gpt"}, "thinking", (None, f"thinking 'gpt' is not one of: {_TOKS}")),
+    ({"thinking": "Opus"}, "thinking", (None, f"thinking 'Opus' is not one of: {_TOKS}")),
+    ({"checking": ""}, "checking", (None, f"checking '' is not one of: {_TOKS}")),
+    ({"checking": ["opus"]}, "checking",
+     (None, f"checking '[opus]' is not one of: {_TOKS}")),
+])
+def test_model_value(meta, key, want):
+    # #890: the one model-key rule; portfolio.py calls it.
+    assert wbs_parser.model_value(meta, key) == want
 
 
 def test_satisfies_objective_h_are_known_meta_keys():
@@ -637,10 +751,12 @@ def test_h_parse_warnings(body, value, want):
 
 
 def test_parse_warning_check_order(capsys):
-    # The check order is fixed (priority, satisfies, objective, h) whatever
+    # The check order is fixed (priority, satisfies, objective, h,
+    # thinking, checking; #890) whatever
     # the key order on the line.
     node = wbs_parser.parse_text(
-        "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], priority: high}\n"
+        "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], "
+        "checking: y, thinking: x, priority: high}\n"
     )["children"][0]
     assert node["parse_warnings"] == [
         "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
@@ -648,6 +764,8 @@ def test_parse_warning_check_order(capsys):
         _entry_warning("satisfies", "z"),
         _entry_warning("objective", "x"),
         "line 1: h '9' is not an integer from 0 to 4",
+        _model_warning("thinking", "x"),
+        _model_warning("checking", "y"),
     ]
     assert capsys.readouterr() == ("", "")
 
@@ -673,12 +791,12 @@ def test_documented_key_lists_match_known_meta_keys():
     spec = (REPO / "docs" / "specs" / "2026-05-19-devagent-plugin-design.md"
             ).read_text(encoding="utf-8")
     t_keys, s_keys = _template_keys(template), _spec_keys(spec)
-    assert len(t_keys) == len(s_keys) == 14
+    assert len(t_keys) == len(s_keys) == 16
     assert t_keys == wbs_parser.KNOWN_META_KEYS
     assert s_keys == wbs_parser.KNOWN_META_KEYS
     # planted control: the same extractor sees a missing key
     planted = "> Recognized keys (v1): " + ", ".join(
-        sorted(wbs_parser.KNOWN_META_KEYS - {"h"})) + "\n"
+        sorted(wbs_parser.KNOWN_META_KEYS - {"thinking"})) + "\n"
     assert _template_keys(planted) != wbs_parser.KNOWN_META_KEYS
 
 

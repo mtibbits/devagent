@@ -155,6 +155,7 @@ flags_known_keys() { printf 'tier research spike implementation-model checking-m
 # model_token_allowlist — single source of the legal model tokens, shared by
 # both keys, the `tier: <model>-checking` shim, and the label channel. The
 # Agent tool's closed model enum plus #291's reserved `inherit`.
+# Parsed by wbs-parser.py MODEL_TOKENS_RE (#890): keep it one single-line literal printf; pinned by tests/lib_flags.bats.
 model_token_allowlist() { printf 'sonnet opus haiku fable inherit'; }
 
 # model_token_is_legal <value> — legal values are space-free by construction,

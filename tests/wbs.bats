@@ -987,6 +987,32 @@ _wbs865_show() {
   grep -Fxq "wbs show: line 6: satisfies entry 'bad' is not <namespace>:<id>" "$TMPROOT/err"
 }
 
+@test "wbs show prints malformed thinking and checking warnings once each (#890)" {
+  printf '%s\n' '# T' '' '- [ ] Root' \
+    '  - [ ] a {issue: Issue-1, thinking: gpt}' \
+    '  - [ ] b {issue: Issue-2, checking: [opus, fable]}' \
+    '  - [ ] c {issue: Issue-3, thinking: opus/fable}' \
+    '  - [ ] d {issue: Issue-4, thinking: opus, checking: inherit}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 3 ]
+  grep -Fxq "wbs show: line 4: thinking 'gpt' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: checking '[opus, fable]' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 6: thinking 'opus/fable' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  run grep -c 'line 7:' "$TMPROOT/err"
+  [ "$output" = 0 ]
+}
+
+@test "wbs show --depth 1 still prints the model warning once (#890)" {
+  printf '%s\n' '# T' '' '- [ ] Root' '  - [ ] Sub' \
+    '    - [ ] deep {issue: Issue-1, checking: gpt}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj --depth 1 > "$TMPROOT/out" 2> "$TMPROOT/err"
+  grep -q 'Sub' "$TMPROOT/out"
+  [ "$(grep -c 'deep' "$TMPROOT/out")" -eq 0 ]
+  [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs show: line 5: checking 'gpt' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+}
+
 # #888 writer pins (green at HEAD by design): wbs update and wbs order keep
 # satisfies, objective and h bytes; each pin asserts its path really ran.
 @test "wbs update keeps satisfies, objective and h bytes on a reconciled and an untouched leaf (#888)" {

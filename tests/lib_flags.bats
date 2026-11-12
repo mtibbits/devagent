@@ -878,3 +878,12 @@ FIXTURE
   [ "$status" -eq 0 ]
   [ "$output" = "oneshot" ]
 }
+
+@test "wbs-parser MODEL_TOKENS equals model_token_allowlist (#890)" {
+  local py
+  # shellcheck disable=SC2016
+  py="$(python3 -c 'import importlib.util as u, sys
+s = u.spec_from_file_location("wp", sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m)
+print(" ".join(m.MODEL_TOKENS))' "$PLUGIN_ROOT/scripts/lib/wbs-parser.py" | tr -d '\r')"
+  [ "$py" = "$(model_token_allowlist)" ]
+}
