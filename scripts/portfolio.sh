@@ -91,7 +91,7 @@ i=0
 while IFS= read -r p; do
   [[ -n "$p" ]] || continue
   export "PORTFOLIO_NAME_$i=$p"
-  model_keys=""
+  model_table="" model_keys=""
   for pair in devdoc_dir:DEVDOC source_dir:SOURCE worktree_root:WORKTREE \
       step_models.thinking:MODEL_THINKING step_models.checking:MODEL_CHECKING \
       step_models.default:MODEL_DEFAULT; do
@@ -107,12 +107,16 @@ while IFS= read -r p; do
       else
         rc=$?
         [[ $rc -eq 1 ]] || die "cannot read $field of project '$p' (rc $rc)"
-        if [[ -z "$model_keys" ]]; then
-          model_keys="$(_config_toml list-keys "$(config_path)" "project.$p.step_models" 2>/dev/null)" \
-            || model_keys=$'\n'
+        # The table itself is probed once per project; with no table, no key exists.
+        if [[ -z "$model_table" ]]; then
+          if model_keys="$(_config_toml list-keys "$(config_path)" "project.$p.step_models" 2>/dev/null)"; then
+            model_table=present
+          else
+            model_table=absent
+          fi
         fi
-        if grep -Fxq -- "${field#step_models.}" <<< "$model_keys" \
-            || _config_toml list-keys "$(config_path)" "project.$p.$field" > /dev/null 2>&1; then
+        if [[ "$model_table" == present ]] && { grep -Fxq -- "${field#step_models.}" <<< "$model_keys" \
+            || _config_toml list-keys "$(config_path)" "project.$p.$field" > /dev/null 2>&1; }; then
           export "$var=<unreadable>"
         fi
       fi
