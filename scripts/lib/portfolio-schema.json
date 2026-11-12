@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "devagent portfolio document",
-  "version": "1.1",
+  "version": "1.2",
   "description": "One generated JSON document describing every configured project's WBS, issues and rollup (#725). Written in a declared subset of JSON Schema 2020-12; docs/portfolio-schema.md is the prose contract. Version rules: (1) schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros. (2) A MINOR bump adds optional fields, or defines the contents of a reserved slot. Nothing else. (3) A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change. (4) A reader refuses a document whose MAJOR differs from its own, with a message naming both versions. (5) A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error. (6) The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump.",
   "type": "object",
   "required": ["schema", "schema_version", "generated_at", "projects", "parse_report"],
@@ -173,6 +173,33 @@
         "ready_via_parent_row": {
           "description": "Optional (#727, schema 1.1): on a leaf, true when at least one of its effective dependencies resolves to a row with children (a parent row's state is hand-set today), false otherwise; null on a parent and wherever ready is null.",
           "type": ["boolean", "null"]
+        },
+        "models": {
+          "description": "Optional (#890, schema 1.2), on leaves only: the leaf's planned thinking and checking models.",
+          "type": "object",
+          "required": ["thinking", "checking"],
+          "additionalProperties": false,
+          "properties": {
+            "thinking": {"$ref": "#/$defs/ModelChoice"},
+            "checking": {"$ref": "#/$defs/ModelChoice"}
+          }
+        }
+      }
+    },
+    "ModelChoice": {
+      "description": "One class's planned model: a legal leaf key (source wbs), else the project's step_models class-then-default value (source project); null when neither applies or the config value is not a model token.",
+      "type": ["object", "null"],
+      "required": ["value", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "description": "A model_token_allowlist token at generation time; inherit means the session model.",
+          "type": "string"
+        },
+        "source": {
+          "description": "wbs: the leaf's own key; project: the project's step_models table.",
+          "type": "string",
+          "enum": ["wbs", "project"]
         }
       }
     },

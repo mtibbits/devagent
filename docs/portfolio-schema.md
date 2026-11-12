@@ -104,6 +104,7 @@ declaring its properties.
 
 - `1.0` (#725): initial.
 - `1.1` (#727): adds optional `projects[].nodes[].ready_via_parent_row`.
+- `1.2` (#890): adds optional `projects[].nodes[].models`.
 
 ## Field reference
 
@@ -167,6 +168,18 @@ present with `null`.
 | `projects[].nodes[].depends_on` | array of Dep | req | `meta.depends_on`, one entry per id. |
 | `projects[].nodes[].ready` | boolean\|null | req | True when the leaf is ready by the rule in [`commands/portfolio.md`](../commands/portfolio.md) ("Ready leaves"); false otherwise; null on a parent, and throughout a document whose readiness was not computed. |
 | `projects[].nodes[].ready_via_parent_row` | boolean\|null | opt | On a leaf: true when at least one of its effective dependencies (its own plus every ancestor's) resolves to a row with children, false otherwise. Null on a parent and wherever `ready` is null. Such a row's state is hand-set today; once #788 lands, a `status_src: rollup` parent's state is derived, and this field's meaning does not change. Added in 1.1 (#727). |
+
+### Models — `projects[].nodes[].models`
+
+| Path | Type | Req | Meaning |
+|---|---|---|---|
+| `projects[].nodes[].models` | object | opt | On a leaf only: the leaf's planned model per class. Absent on a parent. Added in 1.2 (#890). |
+| `projects[].nodes[].models.thinking` | ModelChoice\|null | req | The thinking-class choice; null when no leaf key and no `step_models` value applies, or the config value is not a model token. |
+| `projects[].nodes[].models.thinking.value` | string | req | One `model_token_allowlist` token at generation time; `inherit` means the session model. |
+| `projects[].nodes[].models.thinking.source` | `wbs` `project` | req | `wbs`: the leaf's own `thinking` key; `project`: the project's `step_models` table. |
+| `projects[].nodes[].models.checking` | ModelChoice\|null | req | The checking-class choice, as `thinking`. |
+| `projects[].nodes[].models.checking.value` | string | req | As `models.thinking.value`. |
+| `projects[].nodes[].models.checking.source` | `wbs` `project` | req | As `models.thinking.source`, for the `checking` key. |
 
 ### Est — `projects[].nodes[].est`
 

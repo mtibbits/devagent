@@ -263,7 +263,7 @@ def _example():
 
 
 def test_schema_version_matches_live_schema():
-    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.1"
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.2"
 
 
 def test_compat_both_directions():
@@ -283,6 +283,38 @@ def test_compat_both_directions():
     errors = pf.pc.check(mislabelled, old_schema)
     assert errors
     assert all(e.endswith(".ready_via_parent_row: unknown field") for e in errors), errors
+
+
+def test_compat_models_both_directions():
+    # #890: schema 1.2 adds optional projects[].nodes[].models (Issue-725's
+    # both-directions rule, with a mislabelled negative control).
+    old_schema = pf.pc.load_schema(FIXTURES / "schema-history" / "1.1.json")
+    new_doc = _example()
+    new_doc["schema_version"] = "1.2"
+    for p in new_doc["projects"]:
+        for n in p["nodes"]:
+            n["ready_via_parent_row"] = None
+            if n["leaf"]:
+                n["models"] = {"thinking": {"value": "opus", "source": "wbs"},
+                               "checking": None}
+    assert pf.pc.check(new_doc, old_schema) == []
+    assert pf.pc.check(new_doc) == []
+    assert pf.pc.check(_example()) == []
+    mislabelled = copy.deepcopy(new_doc)
+    mislabelled["schema_version"] = "1.1"
+    errors = pf.pc.check(mislabelled, old_schema)
+    assert errors
+    assert all(e.endswith(".models: unknown field") for e in errors), errors
+    # bad shapes on the live reader, each naming its path
+    for bad in ({"value": "opus", "source": "x"},
+                {"value": "opus", "source": "wbs", "why": "?"},
+                {"value": 3, "source": "wbs"}):
+        doc = copy.deepcopy(new_doc)
+        leaf = next(n for p in doc["projects"] for n in p["nodes"] if n["leaf"])
+        leaf["models"]["checking"] = bad
+        errors = pf.pc.check(doc)
+        assert errors, bad
+        assert any(".models.checking" in e for e in errors), (bad, errors)
 
 
 def test_rollup_matches_example():
