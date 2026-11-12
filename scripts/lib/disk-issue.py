@@ -24,7 +24,9 @@ import datetime
 import json
 import os
 import re
+import stat
 import sys
+import tempfile
 
 KEYS = ("state", "status", "parent", "labels", "github")
 MAX_UNCLOSED = 1000
@@ -488,6 +490,126 @@ def _strerror(e: OSError) -> str:
     return e.strerror or str(e)
 
 
+# ------------------------------------------------------------------ renderer
+
+def _texts(comments: list) -> list:
+    """Comments without their line numbers, which a header edit shifts."""
+    return [(c["date"], c["text"]) for c in comments]
+
+
+def _rank(key: str) -> int:
+    return KEYS.index(key)
+
+
+def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
+    """New bytes for a fault-free `iss` read from `data`, or None when nothing
+    changes. `sets` holds trimmed values, written as given; `comment` is the
+    already-rendered entry text lines (Task 7) or None. Untouched lines are
+    copied byte for byte."""
+    eol = iss.eol
+    t = iss.title_idx
+    header = [[iss.bodies[i].split(":", 1)[0], iss.lines[i]] for i in range(t + 1, iss.header_end)]
+    keyed = {k: entry for k, entry in ((e[0], e) for e in header)}
+    intended = dict(iss.keys)
+    changed = False
+    removals = set(unsets)
+    for key in sorted(sets, key=_rank):
+        value = sets[key]
+        norm = _validate(key, value)
+        if key == "state" and norm == "open":
+            removals.add("state")
+            continue
+        intended[key] = norm
+        line = f"{key}: {value}".encode("utf-8")
+        if key in keyed:
+            if iss.keys[key] == norm:
+                continue
+            keyed[key][1] = line + _term(keyed[key][1])
+        else:
+            pos = 0
+            for idx, entry in enumerate(header):
+                if _rank(entry[0]) < _rank(key):
+                    pos = idx + 1
+            entry = [key, line + eol]
+            header.insert(pos, entry)
+            keyed[key] = entry
+        changed = True
+    for key in removals:
+        if key in keyed:
+            header.remove(keyed.pop(key))
+            changed = True
+        if key == "state":
+            intended["state"] = "open"
+        else:
+            intended.pop(key, None)
+    if not changed and comment is None:
+        return None
+
+    lines = iss.lines
+    n = len(lines)
+    title_line = lines[t]
+    if not iss.title_hashed:   # first write: the title gets "# "
+        title_line = b"# " + iss.title.encode("utf-8") + _term(lines[t])
+    out = list(lines[:t]) + [title_line] + [e[1] for e in header]
+    end = iss.comments_idx if iss.comments_idx is not None else n
+    first_prose = next((i for i in range(iss.header_end, end) if not _blank(iss.bodies[i])), None)
+    if iss.prompt_idx is None and first_prose is not None:
+        # first write: the existing prose goes under ## Prompt, byte for byte
+        out += [eol, PROMPT_H.encode() + eol] + list(lines[first_prose:])
+    else:
+        out += list(lines[iss.header_end:])
+    for k in range(len(out) - 1):   # only an original last line can lack one
+        if not out[k].endswith(b"\n"):
+            out[k] += eol
+    new = (_BOM if iss.bom else b"") + b"".join(out)
+
+    back = read_issue(new)
+    if (back.faults or back.title != iss.title or back.prompt != iss.prompt
+            or back.keys != intended or _texts(back.comments)[:len(iss.comments)] != _texts(iss.comments)):
+        raise Fail(EXIT_IO, "internal error: result does not read back; file left unchanged")
+    return new
+
+
+# ------------------------------------------------------------------ safe writes
+
+def _write_temp(folder: str, base: str, data: bytes, mode: int) -> str:
+    """`.<N>.md.tmp-<random>` in `folder`, written, flushed, fsynced, chmod-ed
+    (mkstemp creates at 0600)."""
+    fd, tmp = tempfile.mkstemp(prefix="." + base + ".tmp-", dir=folder)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, mode)
+    except BaseException:
+        _unlink_quiet(tmp)
+        raise
+    return tmp
+
+
+def _unlink_quiet(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _replace(tmp: str, path: str) -> None:
+    os.replace(tmp, path)
+
+
+def _write_atomic(path: str, new: bytes) -> None:
+    folder = os.path.dirname(path) or "."
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    tmp = _write_temp(folder, os.path.basename(path), new, mode)
+    try:
+        _replace(tmp, path)
+    except BaseException:
+        _unlink_quiet(tmp)
+        raise
+
+
 # ------------------------------------------------------------------ CLI grammar
 
 def _parse_kv(tokens: list, seen: dict) -> None:
@@ -625,8 +747,29 @@ def cmd_list(args: list) -> int:
 
 
 def cmd_set(args: list) -> int:
-    _parse_set_args(args)
-    raise Fail(EXIT_IO, "set: not implemented")
+    path, sets, unsets, comment, date = _parse_set_args(args)
+    for key, value in sets.items():
+        try:
+            _validate(key, value)
+        except ValueError as e:
+            raise Fail(EXIT_USAGE, str(e))
+    try:
+        iss = _load(path)
+    except OSError as e:
+        raise Fail(EXIT_IO, f"{path}: cannot read: {_strerror(e)}")
+    if iss.faults:
+        for text in _check_lines(path, iss):
+            _err(text + "\n")
+        return EXIT_FAULTY
+    data = (_BOM if iss.bom else b"") + b"".join(iss.lines)
+    new = render_set(data, iss, sets, unsets, None)
+    if new is None:
+        return EXIT_OK
+    try:
+        _write_atomic(path, new)
+    except OSError as e:
+        raise Fail(EXIT_IO, f"{path}: cannot write: {_strerror(e)}")
+    return EXIT_OK
 
 
 def cmd_create(args: list) -> int:

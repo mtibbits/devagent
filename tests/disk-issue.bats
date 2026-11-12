@@ -541,3 +541,151 @@ TITLE_JSON='"Add a dark-mode toggle to the settings page"'
   [ "$(grep -c 'Café — 日本' "$W/out")" -eq 2 ]
   [ "$(grep -c '"prompt":"lé"' "$W/out")" -eq 2 ]
 }
+
+# ---------------------------------------------------------------- Task 6: set and the first write
+
+no_temp_left() { ! compgen -G "$1/.*.tmp-*" > /dev/null; }
+
+@test "di: setting a key to its current value leaves bytes identical" {
+  cp "$FIX/full.md" "$W/1.md"
+  crlf "$FIX/full.md" "$W/2.md"
+  bom "$FIX/full.md" "$W/3.md"
+  for f in 1 2 3; do
+    cp "$W/$f.md" "$W/$f.orig"
+    run --separate-stderr di set "$W/$f.md" status=Done parent=#3
+    [ "$status" -eq 0 ]
+    cmp "$W/$f.md" "$W/$f.orig"
+  done
+  no_temp_left "$W"
+}
+
+@test "di: set on the CRLF minimal file ends every line in CRLF" {
+  crlf "$FIX/minimal.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" state=closed
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); print(d.count(b"\n"), d.count(b"\r\n"), d.endswith(b"\r\n"))' "$W/1.md"
+  [ "$output" = "6 6 True" ]
+}
+
+@test "di: three sets turn minimal.md into full.md's header and prompt" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  di set "$W/1.md" state=closed
+  di set "$W/1.md" status=Done
+  di set "$W/1.md" parent=3
+  head -n 8 "$FIX/full.md" > "$W/want"
+  cmp "$W/1.md" "$W/want"
+}
+
+@test "di: the first write moves the prose byte for byte" {
+  printf 'T\n\n\nline one  \nhas\rcr\nff\x0cx\n' > "$W/1.md"
+  run --separate-stderr di set "$W/1.md" state=closed
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); print(d == b"# T\nstate: closed\n\n## Prompt\nline one  \nhas\rcr\nff\x0cx\n")' "$W/1.md"
+  [ "$output" = "True" ]
+}
+
+@test "di: a full-form set changes only the named line" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" status=Blocked
+  [ "$status" -eq 0 ]
+  run python3 -c '
+import sys
+a = open(sys.argv[1], "rb").read().split(b"\n"); b = open(sys.argv[2], "rb").read().split(b"\n")
+print(len(a) == len(b), [i for i, (x, y) in enumerate(zip(a, b)) if x != y], b[2])' "$FIX/full.md" "$W/1.md"
+  [ "$output" = "True [2] b'status: Blocked'" ]
+}
+
+@test "di: a new key goes in canonical order" {
+  printf '# T\nstate: closed\nlabels: a\n\n## Prompt\nx\n' > "$W/1.md"
+  run --separate-stderr di set "$W/1.md" parent=3 github=o/n#4 status=Open
+  [ "$status" -eq 0 ]
+  [ "$(cat "$W/1.md")" = "$(printf '# T\nstate: closed\nstatus: Open\nparent: 3\nlabels: a\ngithub: o/n#4\n\n## Prompt\nx')" ]
+}
+
+@test "di: state=open removes the line; --unset removes a key; unsetting an absent key writes nothing" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" state=open --unset parent
+  [ "$status" -eq 0 ]
+  [ "$(head -n 3 "$W/1.md")" = "$(printf '# Add a dark-mode toggle to the settings page\nstatus: Done\n')" ]
+  cp "$W/1.md" "$W/1.orig"
+  run --separate-stderr di set "$W/1.md" --unset labels --unset parent
+  [ "$status" -eq 0 ]
+  cmp "$W/1.md" "$W/1.orig"
+}
+
+@test "di: a value with a line break exits 2 and leaves the file unchanged" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" "status=a
+b"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'"status" value contains a line break'* ]]
+  cmp "$W/1.md" "$FIX/full.md"
+}
+
+@test "di: set refuses a bad value with exit 2" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" state=Closed
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'disk-issue: state must be "open" or "closed", got "Closed"' ]]
+  cmp "$W/1.md" "$FIX/full.md"
+}
+
+@test "di: any write to a file with two status: lines exits 4 and leaves it unchanged" {
+  printf '# T\nstatus: a\nstatus: b\n' > "$W/1.md"
+  cp "$W/1.md" "$W/1.orig"
+  run --separate-stderr di set "$W/1.md" status=Done
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"$W/1.md:3: duplicate key \"status\" (first at line 2)"* ]]
+  cmp "$W/1.md" "$W/1.orig"
+  run --separate-stderr di set "$W/1.md" --comment x
+  [ "$status" -eq 4 ]
+  cmp "$W/1.md" "$W/1.orig"
+  no_temp_left "$W"
+}
+
+@test "di: set keeps the permission bits" {
+  skip_on_git_bash "file modes"
+  cp "$FIX/full.md" "$W/1.md"
+  chmod 640 "$W/1.md"
+  run --separate-stderr di set "$W/1.md" status=Blocked
+  [ "$status" -eq 0 ]
+  assert_file_mode "$W/1.md" 640
+}
+
+@test "di: set on a missing file exits 1" {
+  run --separate-stderr di set "$W/1.md" status=x
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"$W/1.md: cannot read: "* ]]
+  [ ! -e "$W/1.md" ]
+}
+
+@test "di: a title-only file with no final newline" {
+  printf 'T' > "$W/1.md"
+  run --separate-stderr di set "$W/1.md" state=closed
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\nstate: closed\n")' "$W/1.md"
+  [ "$output" = "True" ]
+}
+
+@test "di: values are written as given, after trimming" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" "parent=  #3 "
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 2p "$W/1.md")" = "parent: #3" ]
+  [ "$(json_get "$(di parse "$W/1.md")" 'o["keys"]["parent"]')" = "3" ]
+}
+
+@test "di: set keeps a BOM and every-line CRLF on both example files" {
+  for src in minimal full; do
+    bom "$FIX/$src.md" "$W/1.md"
+    crlf "$W/1.md" "$W/2.md"
+    for f in 1 2; do
+      run --separate-stderr di set "$W/$f.md" status=X
+      [ "$status" -eq 0 ]
+      [ "$(head -c 3 "$W/$f.md" | od -An -tx1 | tr -d ' ')" = "efbbbf" ]
+      [ "$(json_get "$(di parse "$W/$f.md")" '[o["title"], o["keys"]["status"]]')" = '["Add a dark-mode toggle to the settings page", "X"]' ]
+    done
+    run python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); print(d.count(b"\n") == d.count(b"\r\n"))' "$W/2.md"
+    [ "$output" = "True" ]
+  done
+}
