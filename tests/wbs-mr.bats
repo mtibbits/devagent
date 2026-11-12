@@ -419,7 +419,6 @@ EOF
 }
 
 @test "a code backend without issue-mrs, or without its CLI, is no lookup: one note, closed leaves still drop mr: (#704)" {
-  local stripped
   cat > "$TMPDEV/WBS.md" <<'EOF'
 # testproj WBS
 
@@ -457,10 +456,10 @@ EOF
   [ "$output" = 1 ]
   # no gh: the code backend's CLI probe fails (the tracker's too)
   wbs_mr_install_stub "$DEVAGENT_CODE_BACKEND_DIR"
-  stripped="$(_path_without gh)"
-  (PATH="$stripped"; command -v python3 >/dev/null) || skip "gh shares a PATH dir with python3 here"
-  PATH="$stripped"
-  export PATH
+  # Hide gh alone, keeping its dir's neighbours (rm, python3): see #703's test.
+  load 'lib/doctor-harness'
+  curated_path_without gh >/dev/null
+  if command -v gh; then false; fi
   _update
   [ "$status" -eq 0 ]
   run grep -c 'wbs update: github has no issue-mrs (gh not on PATH); MR state not read' <<< "$output"
