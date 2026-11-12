@@ -1032,6 +1032,51 @@ _wbs865_show() {
   done
 }
 
+# #890 writer pins (green at HEAD by design): wbs update and wbs order keep
+# thinking and checking bytes; each pin asserts its path really ran.
+@test "wbs update keeps thinking and checking bytes on a reconciled and an untouched leaf (#890)" {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] Leaf A {issue: Issue-1, thinking: opus, checking: fable}' \
+    '  - [ ] Leaf B {issue: Issue-2, checking: "inherit", thinking: sonnet}' \
+    > "$TMPDEV/WBS.md"
+  _wbs701_progress
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "Leaf A" "~" checklist
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  # the reconcile really happened (not a vacuous byte-identical pass)
+  run cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "wbs order moves a leaf carrying thinking and checking with its bytes kept (#890)" {
+  local s t
+  s='  - [ ] S {issue: Issue-1, thinking: opus, checking: fable}'
+  t='  - [ ] T {issue: Issue-2, priority: P1, checking: haiku}'
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$s" "$t" > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$t" "$s" > "$TMPDEV/expected"
+  run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs order and wbs update print no model warning (#890)" {
+  local cmd
+  for cmd in order "update --offline"; do
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] S {issue: Issue-1, priority: high, thinking: gpt, checking: [opus, fable]}' \
+      '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cE "thinking '|checking '" "$TMPROOT/err")" -eq 0 ]
+  done
+}
+
 # #865 guards (green at HEAD): the order pass is the only printer for
 # wbs order and wbs update; neither reads node parse_warnings.
 _wbs865_order() {
