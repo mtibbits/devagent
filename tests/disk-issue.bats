@@ -299,3 +299,84 @@ print("ok", len(cases))'
   [ "$status" -eq 4 ]
   [ "$output" = '{"n":1,"faults":[{"line":3,"message":"duplicate key \"status\" (first at line 2)"}],"warnings":[]}' ]
 }
+
+# ---------------------------------------------------------------- Task 3: code fences
+
+@test "di: a ## Workflow flags block is prompt text, unchanged" {
+  printf '# T\n\n## Prompt\nIntro\n\n## Workflow flags\n- skip: research\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"Intro\n\n## Workflow flags\n- skip: research"' ]
+}
+
+@test "di: ## Comments inside a backtick fence is prompt text" {
+  printf '# T\n\n## Prompt\n```text\n## Comments\n- 2026-11-10 x\n```\nafter\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[]' ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"```text\n## Comments\n- 2026-11-10 x\n```\nafter"' ]
+}
+
+@test "di: ## Comments inside a tilde fence is prompt text" {
+  printf '# T\n\n## Prompt\n~~~\n## Comments\n~~~\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[]' ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"~~~\n## Comments\n~~~"' ]
+}
+
+@test "di: ## Comments after an unclosed opener starts the comments section" {
+  printf '# T\n\n## Prompt\n```\nx\n\n## Comments\n- 2026-11-10 entry\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"```\nx"' ]
+}
+
+@test "di: ## Prompt inside a fence is not a second ## Prompt" {
+  printf '# T\n\n## Prompt\n````\n## Prompt\n````\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "di: fence predicate edges" {
+  run py_mod '
+def code(text):
+    b = text.split("\n")
+    return [i for i, c in enumerate(di.classify_fences(b, 0)[0]) if c]
+assert code("```a`b\nx\n```") == [], code("```a`b\nx\n```")        # backtick in info: not an opener
+assert code("```\nx\n~~~\ny") == []                                  # ~~~ does not close ```
+assert code("````\nx\n```\ny") == []                                 # shorter run does not close
+assert code("````\nx\n`````\ny") == [0, 1, 2]                        # a longer run closes
+assert code("  ```\nx\n\t```  \ny") == [0, 1, 2]                     # indented opener and closer
+assert code("```\nx\n```py\n```") == [0, 1, 2, 3]                    # a closer has no info
+print("ok")'
+  [ "$status" -eq 0 ]
+  [ "$output" = "ok" ]
+}
+
+@test "di: 1000 unclosed openers pass, 1001 fail" {
+  { printf '# T\n'; for i in $(seq 1000); do printf '```py\n'; done; } > "$W/1.md"
+  { cat "$W/1.md"; printf '```py\n'; } > "$W/2.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run --separate-stderr di check "$W/2.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/2.md:1002: more than 1000 unclosed code fence openers (1001 found)" ]
+}
+
+@test "di: a closer indented under ## Comments does not close a prompt fence" {
+  printf '# T\n\n## Prompt\n```\nx\n\n## Comments\n- 2026-11-10 see\n  ```\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"```\nx"' ]
+}
+
+@test "di: a column-0 closer after a fenced ## Comments still pairs" {
+  printf '# T\n\n## Prompt\n```text\n## Comments\n- 2026-11-10 x\n```\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[]' ]
+  [ "$(json_get "$output" 'o["prompt"]')" = '"```text\n## Comments\n- 2026-11-10 x\n```"' ]
+}

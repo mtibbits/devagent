@@ -155,8 +155,85 @@ def _validate(key: str, raw: str):
     return raw   # status: free text
 
 
+# Copied verbatim from wbs-parser.py's _FENCE_RE: the same fence predicate.
+_FENCE_RE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)$")
+
+
+def _is_continuation(body: str) -> bool:
+    """A comment entry's continuation line: it starts with two spaces. Also the
+    shape of every continuation line the writer emits (the fence barrier)."""
+    return body.startswith("  ")
+
+
 def classify_fences(bodies: list, start: int) -> tuple:
-    return [False] * len(bodies), 0, None
+    """Pair code fences in bodies[start:] in linear time.
+
+    Pairs exactly as wbs-parser.py's `_classify_lines` does (an opener takes
+    the first later closer of its character with a run at least its own and no
+    info; an opener with no closer is not a fence, #701; scanning resumes after
+    a closer), without its quadratic rescans. Barrier (#1008 Q1, option a): a
+    pairing i→j is rejected, leaving i unclosed, when a column-0 `## Comments`
+    lies between them and line j is indented two spaces, so a fence in an
+    added comment can never turn earlier text into code.
+
+    Returns (in_code per line, unclosed-opener count, index of opener number
+    MAX_UNCLOSED+1 or None).
+    """
+    n = len(bodies)
+    is_opener = [False] * n
+    next_closer: list = [None] * n
+    next_comments: list = [None] * n
+    # One stack per fence character of (run, index) closer candidates, nearest
+    # on top, runs strictly increasing downward: a farther candidate whose run
+    # is no longer than a nearer one's can never be the first match.
+    stacks: dict = {"`": [], "~": []}
+    comments_after = None
+    for i in range(n - 1, start - 1, -1):
+        body = bodies[i]
+        next_comments[i] = comments_after
+        m = _FENCE_RE.match(body)
+        if m:
+            run = m.group("run")
+            char, length, info = run[0], len(run), m.group("info")
+            st = stacks[char]
+            if not (char == "`" and "`" in info):
+                is_opener[i] = True
+                # Scan down from the top for the first run >= length. The
+                # entries passed have runs < length, strictly increasing from
+                # 3, so at most length-3 of them: linear in the input's bytes.
+                k = len(st) - 1
+                while k >= 0 and st[k][0] < length:
+                    k -= 1
+                next_closer[i] = st[k][1] if k >= 0 else None
+            if not info.strip():
+                while st and st[-1][0] <= length:
+                    st.pop()
+                st.append((length, i))
+        if _heading(body) == COMMENTS_H:
+            comments_after = i
+
+    in_code = [False] * n
+    unclosed = 0
+    over = None
+    i = start
+    while i < n:
+        if not is_opener[i]:
+            i += 1
+            continue
+        j = next_closer[i]
+        if (j is not None and next_comments[i] is not None and next_comments[i] < j
+                and _is_continuation(bodies[j])):
+            j = None
+        if j is None:
+            unclosed += 1
+            if unclosed == MAX_UNCLOSED + 1:
+                over = i
+            i += 1
+            continue
+        for k in range(i, j + 1):
+            in_code[k] = True
+        i = j + 1
+    return in_code, unclosed, over
 
 
 class Issue:
