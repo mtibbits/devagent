@@ -836,13 +836,48 @@ def test_h_parse_warnings(body, value, want):
     assert node["meta_unknown_keys"] == []
 
 
+def _dep_warning(entry):
+    return (f"line 1: depends_on entry '{entry}' holds ':' but is not "
+            "<project>:<issue>; read as a local id")
+
+
+@pytest.mark.parametrize("body,warned", [
+    ("depends_on: [devagent: Issue-726]", ["devagent: Issue-726"]),
+    ("depends_on: devagent: Issue-726", ["devagent: Issue-726"]),
+    ("depends_on: https://x", ["https://x"]),
+    ("depends_on: a:b:c", ["a:b:c"]),
+    ("depends_on: :Issue-1", [":Issue-1"]),
+    # Grammar errors, not prefixes: the warning asserts no cause.
+    ("depends_on: [Issue-1, est: 1w", ["Issue-1, est: 1w"]),
+    ("depends_on: Issue-1 est: 1w", ["Issue-1 est: 1w"]),
+    ("depends_on: [a:b:c, a:b:c]", ["a:b:c"]),
+    ("depends_on: [Issue-1, a:b:c, devagent:Issue-725]", ["a:b:c"]),
+    ("depends_on: devagent:Issue-726", []),
+    ("depends_on: Issue-1", []),
+    ("depends_on: Issue-Fork-134", []),
+    ("depends_on: 4.1", []),
+    ("depends_on: [Issue-1, devagent:Issue-725]", []),
+])
+@pytest.mark.parametrize("project", [None, "devagent"])
+def test_dep_prefix_warnings(body, warned, project):
+    # #887; the project argument changes no warning
+    # (test_dep_prefix_warning_ignores_project's leg).
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n",
+                                 project=project)["children"][0]
+    assert node["parse_warnings"] == [_dep_warning(e) for e in warned]
+    assert not any("prefix" in w for w in node["parse_warnings"])
+    for e in warned:
+        dep = next(d for d in node["depends_on"] if d["raw"] == e)
+        assert (dep["scope"], dep["issue"]) == ("local", e)
+
+
 def test_parse_warning_check_order(capsys):
     # The check order is fixed (priority, satisfies, objective, h,
-    # thinking, checking; #890) whatever
+    # thinking, checking; #890; depends_on, #887) whatever
     # the key order on the line.
     node = wbs_parser.parse_text(
         "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], "
-        "checking: y, thinking: x, priority: high}\n"
+        "depends_on: [x:y:z], checking: y, thinking: x, priority: high}\n"
     )["children"][0]
     assert node["parse_warnings"] == [
         "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
@@ -852,6 +887,7 @@ def test_parse_warning_check_order(capsys):
         "line 1: h '9' is not an integer from 0 to 4",
         _model_warning("thinking", "x"),
         _model_warning("checking", "y"),
+        _dep_warning("x:y:z"),
     ]
     assert capsys.readouterr() == ("", "")
 

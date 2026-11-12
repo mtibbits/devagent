@@ -53,7 +53,8 @@ malformed `priority` (`priority_rank`, the one rule the order pass also
 ranks by), each `satisfies` then `objective` entry that is not
 `<namespace>:<id>` (once per distinct entry), a malformed `h` (`h_value`; #888),
 then a `thinking` then `checking` value that is not one `MODEL_TOKENS` token
-(`model_value`; #890).
+(`model_value`; #890), then each `depends_on` entry holding `:` that is not
+`<project>:<issue>` (once per distinct entry; #887).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
@@ -131,6 +132,10 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
 # #888: keys whose every entry must be `<namespace>:<id>` (`split_namespaced`).
 NAMESPACED_KEYS: tuple[str, ...] = ("satisfies", "objective")
 NAMESPACED_WARNING = "{} entry '{}' is not <namespace>:<id>"
+# #887: a `depends_on` entry holding ':' that `split_namespaced` refuses. It
+# names no cause: an unclosed '[' or a missing ',' trips it too.
+DEP_PREFIX_WARNING = ("depends_on entry '{}' holds ':' but is not "
+                      "<project>:<issue>; read as a local id")
 
 # The one priority rule (#865): `parse_text` records it per node and the
 # order pass (`_order`) ranks by it; neither spells it again.
@@ -253,7 +258,9 @@ def _node_warnings(meta: dict) -> list[str]:
     (`split_dep`) and the list-or-scalar reader (`as_list`) live in
     this module, and portfolio.py calls them; neither file re-spells them.
     The order pass calls `priority_rank` alone, so a check added here
-    reaches `wbs show`, not `wbs order` or `wbs update`.
+    reaches `wbs show`, not `wbs order` or `wbs update`. Check order:
+    priority, satisfies, objective, h, thinking, checking, then each
+    `depends_on` entry holding `:` that is not `<project>:<issue>` (#887).
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
@@ -271,6 +278,9 @@ def _node_warnings(meta: dict) -> list[str]:
         _model, problem = model_value(meta, key)
         if problem is not None:
             out.append(problem)
+    for entry in dict.fromkeys(_dep_ids(meta)):
+        if ":" in entry and split_namespaced(entry) is None:
+            out.append(DEP_PREFIX_WARNING.format(entry))
     return out
 
 

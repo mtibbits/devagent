@@ -55,7 +55,9 @@
           "meta_unknown_keys": [],
           "children": [],
           "source_line": 10,
-          "parse_warnings": [],
+          "parse_warnings": [
+            "line 10: depends_on entry 'Issue-1, est: 1w' holds ':' but is not <project>:<issue>; read as a local id"
+          ],
           "depends_on": [
             {
               "raw": "Issue-1, est: 1w",
