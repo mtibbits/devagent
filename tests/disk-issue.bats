@@ -1086,3 +1086,74 @@ print("agree", len(cases))'
   [ "$status" -eq 0 ]
   [ "$output" = "agree 315" ]
 }
+
+# ---------------------------------------------------------------- Task 11: the reference page
+
+DOC_PY='
+import sys
+doc = open(sys.argv[1], encoding="utf-8").read().split("\n")
+fences, cur, lang = [], None, None
+for line in doc:
+    if cur is None and line.startswith("```") and line.strip("`"):
+        cur, lang = [], line[3:]
+    elif cur is not None and line == "```":
+        fences.append((lang, "\n".join(cur) + "\n")); cur = None
+    elif cur is not None:
+        cur.append(line)
+'
+
+# doc_fence <lang> <k> — the k-th (1-based) fence of that language in docs/disk-issues.md
+doc_fence() {
+  python3 -c "$DOC_PY"'
+sys.stdout.write([b for l, b in fences if l == sys.argv[2]][int(sys.argv[3]) - 1])' "$PLUGIN_ROOT/docs/disk-issues.md" "$1" "$2"
+}
+
+@test "di: the doc shows both example files byte for byte" {
+  doc_fence text 1 > "$W/a"
+  doc_fence text 2 > "$W/b"
+  cmp "$W/a" "$FIX/minimal.md"
+  cmp "$W/b" "$FIX/full.md"
+}
+
+@test "di: the doc lists the five keys, the exit codes and the JSON field names" {
+  cp "$FIX/full.md" "$W/2.md"
+  printf '# T\nstate: x\n' > "$W/3.md"
+  local fields
+  fields="$(python3 -c '
+import json, sys
+names = set()
+def walk(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k != "keys": names.add(k); walk(v)
+            else: names.add(k)
+    elif isinstance(o, list):
+        for v in o: walk(v)
+for line in sys.stdin: walk(json.loads(line))
+print(" ".join(sorted(names)))' < <(di parse "$W/2.md"; di parse "$W/3.md" || true))"
+  [ "$fields" = "comments date faults keys line message n prompt text title warnings" ]
+  local tokens=() t found=0
+  for t in state status parent labels github; do tokens+=("| \`$t\` |"); done
+  for t in 0 1 2 3 4; do tokens+=("| $t |"); done
+  for t in $fields; do tokens+=("\`$t\`"); done
+  [ "${#tokens[@]}" -eq 21 ]
+  for t in "${tokens[@]}"; do
+    if grep -qF -- "$t" "$PLUGIN_ROOT/docs/disk-issues.md"; then found=$((found + 1)); else echo "missing: $t"; fi
+  done
+  [ "$found" -eq 21 ]
+}
+
+@test "di: the doc's CLI block equals the module usage" {
+  doc_fence text 3 > "$W/doc-usage"
+  run python3 "$DI"
+  [ "$status" -eq 2 ]
+  printf '%s\n' "$output" > "$W/usage"
+  diff "$W/doc-usage" "$W/usage"
+}
+
+@test "di: the doc's example JSON line is what parse prints" {
+  cp "$FIX/full.md" "$W/2.md"
+  doc_fence json 1 > "$W/doc-json"
+  di parse "$W/2.md" > "$W/json"
+  cmp "$W/doc-json" "$W/json"
+}

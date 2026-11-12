@@ -63,6 +63,7 @@ devAgent/
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 │   ├── resolver-scope-triage.md     # #572: the 21 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
+│   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
@@ -86,7 +87,8 @@ devAgent/
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
-│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock)
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
+│   │                        #   disk-issue.py — #1008 disk issue file reader/writer)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh

@@ -16,6 +16,13 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: disk issue file format reader and writer (#1008, epic #1007).**
+  `scripts/lib/disk-issue.py` is the one parser and writer for `<folder>/<N>.md`
+  issue files: `parse`, `list`, `check`, `set` and `create`, with pinned JSON
+  fields and exit codes. Writes are atomic, keep each file's line endings, BOM
+  and mode, never edit a faulty file, and never overwrite on `create`.
+  `docs/disk-issues.md` documents the format. No caller uses it yet.
+
 - **Changed: cleanup commits only the devDoc paths it owns (#749).** The
   devdoc commit carries the issue dir, plus `WBS.md` when it changed, and
   nothing else: another issue's dir, a capture, or a path another session
