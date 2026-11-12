@@ -791,3 +791,101 @@ b"
     [ "$output" = "True True" ]
   done
 }
+
+# ---------------------------------------------------------------- Task 8: safe writes
+
+teardown() {
+  if [ -n "${HOLDER:-}" ]; then kill "$HOLDER" 2>/dev/null || true; wait "$HOLDER" 2>/dev/null || true; fi
+}
+
+inj() { python3 "$INJ" "$@"; }
+safe_fixture() { printf '# T\n\n## Prompt\nbody\n' > "$W/1.md"; cp "$W/1.md" "$W/orig"; }
+
+@test "di: a writer killed before the replace leaves the original intact" {
+  safe_fixture
+  run --separate-stderr inj kill-before-replace -- set "$W/1.md" status=Done
+  [ "$status" -eq 137 ]
+  cmp "$W/1.md" "$W/orig"
+  run compgen -G "$W/.1.md.tmp-*"
+  [ "${#lines[@]}" -eq 1 ]
+  run --separate-stderr di list "$W"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 1 ]
+  [[ "${lines[0]}" == '{"n":1,'* ]]
+}
+
+@test "di: a change between read and replace is merged by one restart" {
+  safe_fixture
+  run --separate-stderr inj change-once -- set "$W/1.md" status=Done
+  [ "$status" -eq 0 ]
+  [ "$(cat "$W/1.md")" = "$(printf '# T\nstatus: Done\n\n## Prompt\nbody\nother session')" ]
+  no_temp_left "$W"
+}
+
+@test "di: a file that keeps changing is not overwritten" {
+  safe_fixture
+  run --separate-stderr inj change-always -- set "$W/1.md" status=Done
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"$W/1.md: changed while being written; not overwritten"* ]]
+  ! grep -q 'status: Done' "$W/1.md"
+  [ "$(tail -n 2 "$W/1.md")" = "$(printf 'other session\nother session')" ]
+  no_temp_left "$W"
+}
+
+@test "di: three changes are one write" {
+  safe_fixture
+  DEVAGENT_DATE_OVERRIDE=2026-11-11 run --separate-stderr inj count-replace -- set "$W/1.md" status=Done state=closed --comment "on_merge: status Done, closed"
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "replaces=1" ]
+  [ "$(cat "$W/1.md")" = "$(printf '# T\nstate: closed\nstatus: Done\n\n## Prompt\nbody\n\n## Comments\n- 2026-11-11 on_merge: status Done, closed')" ]
+}
+
+@test "di: a no-op set never replaces" {
+  safe_fixture
+  run --separate-stderr inj count-replace -- set "$W/1.md" state=open --unset status
+  [ "$status" -eq 0 ]
+  [ "$stderr" = "replaces=0" ]
+  cmp "$W/1.md" "$W/orig"
+  no_temp_left "$W"
+}
+
+@test "di: a Windows sharing violation is retried" {
+  safe_fixture
+  run --separate-stderr inj win-share 3 -- set "$W/1.md" status=Done
+  [ "$status" -eq 0 ]
+  grep -q '^status: Done$' "$W/1.md"
+  no_temp_left "$W"
+}
+
+@test "di: a held file fails after about one second" {
+  safe_fixture
+  local t0 t1 ms
+  t0="$(date +%s%N)"
+  run --separate-stderr inj win-share always -- set "$W/1.md" status=Done
+  t1="$(date +%s%N)"
+  ms=$(( (t1 - t0) / 1000000 ))
+  [ "$status" -eq 1 ]
+  [ "$ms" -ge 900 ]
+  [ "$ms" -le 3000 ]
+  cmp "$W/1.md" "$W/orig"
+  no_temp_left "$W"
+}
+
+@test "di: a writer waits for the folder lock, then gives up" {
+  skip_on_git_bash "flock"
+  safe_fixture
+  python3 -c '
+import fcntl, sys, time
+fh = open(sys.argv[1], "a"); fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+open(sys.argv[2], "w").close(); time.sleep(3)' "$W/.disk-issue.lock" "$BATS_TEST_TMPDIR/holding" 3>&- &
+  HOLDER=$!
+  local n=0
+  until [ -e "$BATS_TEST_TMPDIR/holding" ]; do
+    n=$((n + 1)); [ "$n" -lt 100 ] || false
+    sleep 0.05
+  done
+  run --separate-stderr inj lock-wait 0.3 -- set "$W/1.md" status=Done
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"$W: another writer holds the lock"* ]]
+  cmp "$W/1.md" "$W/orig"
+}

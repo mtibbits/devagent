@@ -20,13 +20,21 @@ Python 3.8 floor, stdlib only.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
+import errno
 import json
 import os
 import re
 import stat
 import sys
 import tempfile
+import time
+
+try:
+    import fcntl
+except ImportError:   # Windows: _folder_lock uses msvcrt
+    fcntl = None
 
 KEYS = ("state", "status", "parent", "labels", "github")
 MAX_UNCLOSED = 1000
@@ -450,17 +458,34 @@ def _issue_number(path: str) -> int:
     return int(os.path.basename(path)[:-3])
 
 
+_READ_RETRY_S = 0.2
+
+
 def _read_bytes(path: str) -> bytes:
-    with open(path, "rb") as fh:
-        return fh.read()
+    """Read a file, retrying briefly a PermissionError that a concurrent
+    replace can raise on Windows or WSL /mnt/c (keyed on the error)."""
+    deadline = time.monotonic() + _READ_RETRY_S
+    delay = 0.005
+    while True:
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
+
+
+def _with_name_faults(path: str, iss: Issue) -> Issue:
+    if len(os.path.basename(path)) - 3 > 18:
+        iss.faults.insert(0, (1, "issue number has more than 18 digits"))
+    return iss
 
 
 def _load(path: str) -> Issue:
     """Read and parse `path`; OSError propagates."""
-    iss = read_issue(_read_bytes(path))
-    if len(os.path.basename(path)) - 3 > 18:
-        iss.faults.insert(0, (1, "issue number has more than 18 digits"))
-    return iss
+    return _with_name_faults(path, read_issue(_read_bytes(path)))
 
 
 def _sorted(entries: list) -> list:
@@ -612,18 +637,108 @@ def _unlink_quiet(path: str) -> None:
 
 
 def _replace(tmp: str, path: str) -> None:
+    """Exactly one replace; `_replace_retrying` owns the retry."""
     os.replace(tmp, path)
 
 
-def _write_atomic(path: str, new: bytes) -> None:
-    folder = os.path.dirname(path) or "."
-    mode = stat.S_IMODE(os.stat(path).st_mode)
-    tmp = _write_temp(folder, os.path.basename(path), new, mode)
+def _replace_retrying(tmp: str, path: str) -> None:
+    """Retry a replace that another program's open handle refuses (an indexer,
+    antivirus; Windows, and WSL /mnt/c, report it as PermissionError) for
+    about one second by monotonic time. Keyed on the error, not on os.name."""
+    deadline = time.monotonic() + _REPLACE_RETRY_S
+    delay = 0.01
+    while True:
+        try:
+            _replace(tmp, path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.1)
+
+
+def _fsync_dir(folder: str) -> None:
+    if _IS_WINDOWS:
+        return
     try:
-        _replace(tmp, path)
-    except BaseException:
-        _unlink_quiet(tmp)
+        fd = os.open(folder, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+LOCK_NAME = ".disk-issue.lock"
+
+
+def _try_lock(fh) -> bool:
+    """True when acquired, False when another writer holds it; any other
+    OSError propagates."""
+    if fcntl is not None:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError as e:
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES):
+                return False
+            raise
+    import msvcrt
+    try:
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        return True
+    except OSError as e:
+        if e.errno in (errno.EACCES, errno.EDEADLOCK):
+            return False
         raise
+
+
+def _unlock(fh) -> None:
+    try:
+        if fcntl is not None:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        else:
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass   # the OS drops the lock when the handle closes
+
+
+@contextlib.contextmanager
+def _folder_lock(folder: str):
+    """Serialise cooperating writers in one folder on the dot-named sidecar
+    `.disk-issue.lock` (ignored by list). Waits up to _LOCK_WAIT_S, then exit 1.
+    A lock that cannot be taken for any reason other than contention means
+    proceed unlocked: the byte re-read before the replace still guards."""
+    try:
+        fh = open(os.path.join(folder, LOCK_NAME), "ab")
+    except OSError:
+        yield
+        return
+    locked = False
+    try:
+        deadline = time.monotonic() + _LOCK_WAIT_S
+        while True:
+            try:
+                locked = _try_lock(fh)
+            except OSError:
+                break
+            if locked:
+                break
+            if time.monotonic() >= deadline:
+                raise Fail(EXIT_IO, f"{folder}: another writer holds the lock")
+            time.sleep(0.05)
+        yield
+    finally:
+        if locked:
+            _unlock(fh)
+        fh.close()
 
 
 # ------------------------------------------------------------------ CLI grammar
@@ -799,23 +914,43 @@ def cmd_set(args: list) -> int:
         else:
             date = _today()
         entry = (date, text_lines)
-    try:
-        iss = _load(path)
-    except OSError as e:
-        raise Fail(EXIT_IO, f"{path}: cannot read: {_strerror(e)}")
-    if iss.faults:
-        for text in _check_lines(path, iss):
-            _err(text + "\n")
-        return EXIT_FAULTY
-    data = (_BOM if iss.bom else b"") + b"".join(iss.lines)
-    new = render_set(data, iss, sets, unsets, entry)
-    if new is None:
-        return EXIT_OK
-    try:
-        _write_atomic(path, new)
-    except OSError as e:
-        raise Fail(EXIT_IO, f"{path}: cannot write: {_strerror(e)}")
-    return EXIT_OK
+    folder = os.path.dirname(path) or "."
+    base = os.path.basename(path)
+    with _folder_lock(folder):
+        for attempt in (1, 2):
+            try:
+                data = _read_bytes(path)
+                mode = stat.S_IMODE(os.stat(path).st_mode)
+            except OSError as e:
+                raise Fail(EXIT_IO, f"{path}: cannot read: {_strerror(e)}")
+            iss = _with_name_faults(path, read_issue(data))
+            if iss.faults:   # the writer never edits a faulty file
+                for text in _check_lines(path, iss):
+                    _err(text + "\n")
+                return EXIT_FAULTY
+            new = render_set(data, iss, sets, unsets, entry)
+            if new is None:
+                return EXIT_OK
+            tmp = None
+            try:
+                tmp = _write_temp(folder, base, new, mode)
+                if _read_bytes(path) != data:
+                    # another session or an editor saved since the read
+                    _unlink_quiet(tmp)
+                    tmp = None
+                    if attempt == 2:
+                        raise Fail(EXIT_IO, f"{path}: changed while being written; not overwritten")
+                    continue
+                _replace_retrying(tmp, path)
+                tmp = None
+            except OSError as e:
+                raise Fail(EXIT_IO, f"{path}: cannot write: {_strerror(e)}")
+            finally:
+                if tmp is not None:
+                    _unlink_quiet(tmp)
+            _fsync_dir(folder)
+            return EXIT_OK
+    return EXIT_IO   # not reached
 
 
 def cmd_create(args: list) -> int:
