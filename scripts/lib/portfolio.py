@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""portfolio.py — #726. Build the portfolio document (schema v1.1, #725) over
+"""portfolio.py — #726. Build the portfolio document (schema v1.2, #725) over
 every configured project's WBS.md, with a parse report that drops nothing
 silently, and write it only when it passes both the structural checker
-(portfolio-check.py) and this module's own cross-field invariants I1–I16.
+(portfolio-check.py) and this module's own cross-field invariants I1–I17.
 
     portfolio.py build --out PATH
     portfolio.py ready
@@ -14,7 +14,10 @@ The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
 PORTFOLIO_PROJECT_COUNT, and per project i (0-based) PORTFOLIO_NAME_<i>,
 PORTFOLIO_DEVDOC_<i>, PORTFOLIO_SOURCE_<i> and PORTFOLIO_WORKTREE_<i>, each
-path variable set only when configured (it may be empty).
+path variable set only when configured (it may be empty), and (#890)
+PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
+PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
+the key exists.
 
 Standard library only (3.10+), like portfolio-check.py. docs/portfolio-schema.md
 is the contract; commands/portfolio.md is the user doc.
@@ -32,7 +35,8 @@ import re
 import stat
 import sys
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -68,7 +72,7 @@ EST_SRC_VALUES = ("confirmed", "derived")
 # Keys this producer consumes. `satisfies` and `h` are parser-known keys
 # (#888), so they never reach `meta_unknown_keys`; `est_src` is not, and the
 # unknown-key report skips it.
-PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h"})
+PRODUCER_KEYS: frozenset[str] = frozenset({"est_src", "satisfies", "h", "thinking", "checking"})
 
 
 def _num(d: Decimal) -> int | float:
@@ -278,9 +282,56 @@ def rollup(nodes: list[dict]) -> dict:
     return {"by_state": by_state, "remaining": remaining}
 
 
-# --- invariants I1–I16 ---------------------------------------------------------
+# --- models (#890) ------------------------------------------------------------
 
-INVARIANTS: tuple[str, ...] = tuple(f"I{i}" for i in range(1, 17))
+# A leaf's planned model per class: its own `thinking`/`checking` key
+# (wbs_parser.model_value), else the project's step_models class, then
+# `default`, as step_models_tier's config rungs resolve them (config.sh; the
+# tests/portfolio.bats agreement test). An empty value is unset; a bad value
+# gives null and never falls through. Tokens: wbs_parser.MODEL_TOKENS.
+STEP_MODEL_KEYS: tuple[str, ...] = (*wbs_parser.MODEL_KEYS, "default")
+LEAF_BAD = "{cls} {shown} is not one of: {tokens}; the key counts as absent"
+CONFIG_BAD = "step_models.{key} {shown} is not one of: {tokens}; models.{cls} is null"
+
+
+def project_models(step_models) -> dict[str, tuple[dict | None, str | None]]:
+    """Per class in wbs_parser.MODEL_KEYS, (choice, report message) from the
+    project's step_models: the class key when non-empty, else `default` when
+    non-empty, else (None, None). A value outside MODEL_TOKENS gives
+    (None, CONFIG_BAD...) and does not fall through. Other keys are ignored."""
+    out: dict[str, tuple[dict | None, str | None]] = {}
+    for cls in wbs_parser.MODEL_KEYS:
+        key = cls if step_models.get(cls) else "default" if step_models.get("default") else None
+        if key is None:
+            out[cls] = (None, None)
+            continue
+        v = step_models[key]
+        if v in wbs_parser.MODEL_TOKENS:
+            out[cls] = ({"value": v, "source": "project"}, None)
+        else:
+            out[cls] = (None, CONFIG_BAD.format(key=key, shown=_show(v), cls=cls,
+                                                tokens=wbs_parser.MODEL_TOKEN_TEXT))
+    return out
+
+
+def leaf_models(meta: dict, rung: dict) -> tuple[dict, list[str]]:
+    """A leaf's `models` object and its leaf-key report messages. `rung` is the
+    per-class project choice (project_models' choices only); a legal leaf key
+    wins, a malformed one counts as absent and is reported."""
+    models: dict = {}
+    messages: list[str] = []
+    for cls in wbs_parser.MODEL_KEYS:
+        v, problem = wbs_parser.model_value(meta, cls)
+        models[cls] = {"value": v, "source": "wbs"} if v is not None else rung[cls]
+        if problem is not None:
+            messages.append(LEAF_BAD.format(cls=cls, shown=_show(meta[cls]),
+                                            tokens=wbs_parser.MODEL_TOKEN_TEXT))
+    return models, messages
+
+
+# --- invariants I1–I17 ---------------------------------------------------------
+
+INVARIANTS: tuple[str, ...] = tuple(f"I{i}" for i in range(1, 18))
 
 
 def _is_num(v) -> bool:
@@ -356,10 +407,34 @@ def _node_violations(node: dict, project: str, add) -> None:
         add("I11", f"node {nid}: meta_unknown_keys {unknown!r} not a duplicate-free subset of meta")
 
 
+def _models_violations(node: dict, minor: int, add) -> None:
+    """I17 (#890): `models` sits on leaves only, on every leaf from minor 2, and
+    agrees with the leaf's keys: a legal key gives {key, wbs}; otherwise the
+    class is null or a project token. The project rung itself (step_models)
+    is not in the document, so it cannot be re-derived here."""
+    nid = node["id"]
+    if "models" not in node:
+        if node["leaf"] and minor >= 2:
+            add("I17", f"node {nid}: a leaf without models at schema minor {minor}")
+        return
+    if not node["leaf"]:
+        add("I17", f"node {nid}: models is set on a parent")
+        return
+    for cls in wbs_parser.MODEL_KEYS:
+        got = node["models"][cls]
+        v = wbs_parser.model_value(node["meta"], cls)[0]
+        if v is not None:
+            if got != {"value": v, "source": "wbs"}:
+                add("I17", f"node {nid}: models.{cls} {got!r} != the leaf key {v!r} (wbs)")
+        elif got is not None and (got["source"] != "project"
+                                  or got["value"] not in wbs_parser.MODEL_TOKENS):
+            add("I17", f"node {nid}: models.{cls} {got!r} is neither null nor a project token")
+
+
 def invariant_violations(doc: dict) -> list[str]:
     """The cross-field rules the structural checker does not decide (#725).
 
-    Each entry is `"I<n>: <message>"`. Reads known v1.1 fields only, so a
+    Each entry is `"I<n>: <message>"`. Reads known v1.2 fields only, so a
     document at a newer minor is checked on what this producer knows.
     Assumes `portfolio-check.check(doc)` already passed.
     """
@@ -369,6 +444,7 @@ def invariant_violations(doc: dict) -> list[str]:
         out.append(f"{tag}: {message}")
 
     projects = doc["projects"]
+    minor = pc.parse_version(doc["schema_version"])[1]
     names = [p["project"] for p in projects]
     if len(set(names)) != len(names):
         add("I12", f"project names are not unique: {names!r}")
@@ -409,6 +485,7 @@ def invariant_violations(doc: dict) -> list[str]:
             if not n["leaf"] and n["ready"] is not None:
                 add("I3", f"node {n['id']}: ready is set on a parent")
             _node_violations(n, name, add)
+            _models_violations(n, minor, add)
         # I5
         want: dict[str, list[str]] = {}
         for n in nodes:
@@ -739,9 +816,12 @@ class ProjectInput:
     devdoc: str | None
     source: str | None = None
     worktree: str | None = None
+    # #890: the step_models values portfolio.sh exports (thinking, checking,
+    # default; descriptive, not enforced: project_models reads those three).
+    step_models: Mapping[str, str] = field(default_factory=dict, hash=False)
 
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 REASON_UNSET = "no devdoc dir is configured"
 REASON_EMPTY = "devdoc_dir is set but empty"
@@ -765,6 +845,7 @@ KINDS: tuple[str, ...] = (
     "est_unparseable",
     "est_src_invalid",
     "h_malformed",
+    "bad_model",
     "issue_malformed",
     "unknown_meta_key",
     wbs_parser.META_UNREADABLE,
@@ -888,7 +969,13 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
     return entry
 
 
-def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> dict:
+def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
+                        step_models) -> dict:
+    rung: dict = {}
+    for cls, (choice, message) in project_models(step_models).items():
+        rung[cls] = choice
+        if message is not None:
+            report(None, "bad_model", message)
     captured = io.StringIO()
     with contextlib.redirect_stderr(captured):
         tree = wbs_parser.parse_text(text)
@@ -928,6 +1015,10 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report) -> 
             "depends_on": node_deps(meta, name), "ready": None,
             "ready_via_parent_row": None,
         }
+        if leaf:
+            node["models"], model_messages = leaf_models(meta, rung)
+            for message in model_messages:
+                report(ln, "bad_model", message)
         nodes.append(node)
         if leaf and not issue_bad and issue is None:
             report(ln, "leaf_no_issue", f"leaf '{raw['text']}' has no issue")
@@ -979,7 +1070,7 @@ def build_document(projects: list[ProjectInput], generated_at: str) -> dict:
             out.append(_empty_project(p.name, status, reason))
             continue
         out.append(_build_read_project(p.name, Path(p.devdoc), text, next_id,
-                                       report_for(p.name)))
+                                       report_for(p.name), p.step_models))
     apply_readiness(out, report_for)
     order = {p.name: i for i, p in enumerate(projects)}
     entries.sort(key=lambda r: (order[r["project"]],
@@ -1017,9 +1108,14 @@ def read_manifest(env=None) -> list[ProjectInput]:
         name = env.get(f"PORTFOLIO_NAME_{i}")
         if not name:
             raise ManifestError(f"PORTFOLIO_NAME_{i} is not set")
+        step_models = {}
+        for key in STEP_MODEL_KEYS:
+            v = env.get(f"PORTFOLIO_MODEL_{key.upper()}_{i}")
+            if v is not None:
+                step_models[key] = v
         out.append(ProjectInput(name, env.get(f"PORTFOLIO_DEVDOC_{i}"),
                                 env.get(f"PORTFOLIO_SOURCE_{i}"),
-                                env.get(f"PORTFOLIO_WORKTREE_{i}")))
+                                env.get(f"PORTFOLIO_WORKTREE_{i}"), step_models))
     return out
 
 

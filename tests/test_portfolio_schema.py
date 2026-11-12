@@ -21,7 +21,7 @@ HISTORY = REPO / "tests" / "fixtures" / "portfolio" / "schema-history"
 EXAMPLE = REPO / "tests" / "fixtures" / "portfolio" / "example-1.0.json"
 # The reader's own version: the live schema's. A "1.0" elsewhere names a
 # document or a snapshot, not the reader.
-READER = "1.1"
+READER = "1.2"
 
 
 def _load(name, path):
@@ -53,7 +53,7 @@ def test_schema_loads_and_is_reader_version():
     schema = pc.load_schema()
     assert "schema_version" in schema["properties"]
     assert schema["version"] == READER
-    assert pc.parse_version(schema["version"]) == (1, 1)
+    assert pc.parse_version(schema["version"]) == (1, 2)
 
 
 def test_ready_via_parent_row_is_optional_boolean_or_null():
@@ -157,8 +157,9 @@ def test_inventory_pins_reserved_slots():
 # + `meta_unknown_keys[]` + `satisfies[]` + `depends_on[]`, est 7 + `raw[]`,
 # dep 5, issue entry 8 + `issues[]` + `nodes[]`, stuck 3, rollup 2
 # (`by_state`, `remaining`) + 7 states x (1 + 4 counts) + remaining 7
-# + `non_time{}`, report entry 4 + `parse_report[]`.
-INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5
+# + `non_time{}`, report entry 4 + `parse_report[]`, models 7 (`models`,
+# 2 classes x (the class + `value` + `source`); #890).
+INVENTORY_SIZE = 6 + 10 + 23 + 8 + 5 + 10 + 3 + 2 + 35 + 8 + 5 + 7
 
 
 def test_inventory_path_count():
@@ -512,6 +513,7 @@ def test_example_validates_with_jsonschema_if_installed():
 HISTORY_SHA256 = {
     "1.0": "782fe9fab59ab9b01f41518a683e9eb0f0c97aa8ecba288d6789b3c20d11c9a0",
     "1.1": "ef429e036cfb62e218e62a8e37d1a50a7297f40edf6c93c0c9958660ce58e30d",
+    "1.2": "e5cf0848e8973acbe7fb99d2a95c3046a9066ec5ce73104b805d7a0bdb6fdb0a",
 }
 
 

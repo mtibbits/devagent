@@ -51,7 +51,9 @@ Each parsed node also carries `parse_warnings` (additive, #865): its value
 problems, each `line N: ...` (N of the parsed text), in a fixed order: a
 malformed `priority` (`priority_rank`, the one rule the order pass also
 ranks by), each `satisfies` then `objective` entry that is not
-`<namespace>:<id>` (once per distinct entry), and a malformed `h` (`h_value`; #888).
+`<namespace>:<id>` (once per distinct entry), a malformed `h` (`h_value`; #888),
+then a `thinking` then `checking` value that is not one `MODEL_TOKENS` token
+(`model_value`; #890).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
@@ -76,7 +78,8 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888),
+also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888, and
+`model_value`, `MODEL_TOKENS` and `MODEL_KEYS`, #890), `read_model_tokens` (#890),
 `priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
 the order pass
 (#803) `order_text`, `permuted_only`, `write_update`, `order_file` and
@@ -114,7 +117,7 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
     {
         "issue", "est", "cost", "owner", "milestone", "start", "due",
         "depends_on", "status_src", "mr", "priority",
-        "satisfies", "objective", "h",
+        "satisfies", "objective", "h", "thinking", "checking",
     }
 )
 
@@ -132,6 +135,34 @@ PRIORITY_WARNING = "priority '{}' is not P1, P2, P3 or P4; ignored"
 # calls `h_value`; neither spells the rule again.
 H_RE = re.compile(r"[0-4]")
 H_WARNING = "h '{}' is not an integer from 0 to 4"
+
+
+# The one model-key rule (#890): `thinking` and `checking` each hold one token
+# of flags.sh's `model_token_allowlist`, read here (never copied) from the file
+# shipped beside this one. portfolio.py's `leaf_models`/`project_models` call
+# `model_value` and read `MODEL_TOKENS`; neither spells the list again.
+FLAGS_SH = Path(__file__).resolve().with_name("flags.sh")
+MODEL_TOKENS_RE = re.compile(
+    r"^model_token_allowlist\(\) \{ printf '([A-Za-z0-9._ -]+)'; \}$", re.M)
+MODEL_KEYS: tuple[str, ...] = ("thinking", "checking")
+MODEL_WARNING = "{} '{}' is not one of: {}"
+
+
+def read_model_tokens(text: str) -> tuple[str, ...]:
+    """The tokens of the one column-0 `model_token_allowlist` line in a flags.sh
+    text; ValueError unless exactly one line matches and it names a token."""
+    found = MODEL_TOKENS_RE.findall(text)
+    if len(found) != 1:
+        raise ValueError(
+            f"flags.sh: expected one model_token_allowlist line, found {len(found)}")
+    tokens = tuple(found[0].split())
+    if not tokens:
+        raise ValueError("flags.sh: model_token_allowlist is empty")
+    return tokens
+
+
+MODEL_TOKENS = read_model_tokens(FLAGS_SH.read_text(encoding="utf-8"))
+MODEL_TOKEN_TEXT = " ".join(MODEL_TOKENS)
 
 
 def _shown(v) -> str:
@@ -162,6 +193,18 @@ def h_value(meta: dict) -> tuple[int | None, str | None]:
     return None, H_WARNING.format(_shown(v))
 
 
+def model_value(meta: dict, key: str) -> tuple[str | None, str | None]:
+    """(token, None) for a legal `key` (`thinking`/`checking`); (None, None)
+    when absent; (None, MODEL_WARNING.format(key, shown, tokens)) otherwise,
+    shown as `priority_rank` does. Case-sensitive, as written (#890)."""
+    if key not in meta:
+        return None, None
+    v = meta[key]
+    if isinstance(v, str) and v in MODEL_TOKENS:
+        return v, None
+    return None, MODEL_WARNING.format(key, _shown(v), MODEL_TOKEN_TEXT)
+
+
 def as_list(v) -> list:
     """Falsy gives [], a list stays a list, a scalar gives [v]."""
     if not v:
@@ -183,7 +226,7 @@ def split_namespaced(entry: str) -> tuple[str, str] | None:
 def _node_warnings(meta: dict) -> list[str]:
     """A node's parse warnings, unprefixed, in a fixed check order.
 
-    The one producer: #888 (satisfies/objective/h) and #887
+    The one producer: #888 (satisfies/objective/h), #890 (thinking/checking) and #887
     (<project>:<issue>) add their checks here (and any parameters they
     need). The `h` rule (`h_value`), the `<namespace>:<id>` predicate
     (`split_namespaced`) and the list-or-scalar reader (`as_list`) live in
@@ -203,6 +246,10 @@ def _node_warnings(meta: dict) -> list[str]:
     _h, problem = h_value(meta)
     if problem is not None:
         out.append(problem)
+    for key in MODEL_KEYS:
+        _model, problem = model_value(meta, key)
+        if problem is not None:
+            out.append(problem)
     return out
 
 

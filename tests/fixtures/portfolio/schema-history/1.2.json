@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "devagent portfolio document",
+  "version": "1.2",
+  "description": "One generated JSON document describing every configured project's WBS, issues and rollup (#725). Written in a declared subset of JSON Schema 2020-12; docs/portfolio-schema.md is the prose contract. Version rules: (1) schema_version is MAJOR.MINOR: two non-negative integers, no leading zeros. (2) A MINOR bump adds optional fields, or defines the contents of a reserved slot. Nothing else. (3) A MAJOR bump is needed to remove or rename a field, or to change its type, nullability, required-ness, enum values, bounds or meaning. MINOR resets to 0. Enums are closed, so adding a value is a MAJOR change. (4) A reader refuses a document whose MAJOR differs from its own, with a message naming both versions. (5) A reader that meets its own MAJOR with a newer MINOR reads the document and ignores fields it does not know. At its own or an older MINOR, an unknown field is an error. (6) The document is regenerated on every run. A slot is filled at generation time from a source its owning epic defines, never by editing the output. A defined slot stays optional and object-or-null; making a slot required or non-nullable is a MAJOR bump.",
+  "type": "object",
+  "required": ["schema", "schema_version", "generated_at", "projects", "parse_report"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "description": "Identifies the document kind.",
+      "type": "string",
+      "const": "devagent-portfolio"
+    },
+    "schema_version": {
+      "description": "MAJOR.MINOR. The form is checked by portfolio-check.py, not by the schema.",
+      "type": "string"
+    },
+    "generated_at": {
+      "description": "RFC 3339 UTC timestamp; the only field that may differ between two runs over unchanged inputs. Documented, not checked.",
+      "type": "string"
+    },
+    "projects": {
+      "description": "One entry per configured project, in config order.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/Project"}
+    },
+    "parse_report": {
+      "description": "Problems met while reading the inputs; empty when clean.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/ReportEntry"}
+    },
+    "forecast": {
+      "description": "Reserved slot for the portfolio forecast (#742).",
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "x-reserved": "#742"
+    }
+  },
+  "$defs": {
+    "Project": {
+      "type": "object",
+      "required": ["project", "status", "status_reason", "wbs_title", "nodes", "issues", "rollup"],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "The [project.<name>] table name in config.toml; may differ from the devdoc dir name.",
+          "type": "string"
+        },
+        "status": {
+          "description": "read: the WBS was parsed. no_wbs: the devdoc dir has no WBS.md. no_devdoc_dir: no devdoc dir is configured, or it is absent or not a directory. unreadable: the devdoc dir exists but could not be read, or WBS.md is present but not a readable regular file, or it failed to parse.",
+          "type": "string",
+          "enum": ["read", "no_wbs", "no_devdoc_dir", "unreadable"]
+        },
+        "status_reason": {
+          "description": "Null exactly when status is read; a non-empty reason otherwise.",
+          "type": ["string", "null"]
+        },
+        "wbs_title": {
+          "description": "The parser's root title (empty string when none) when status is read; null otherwise.",
+          "type": ["string", "null"]
+        },
+        "nodes": {
+          "description": "Every WBS node, leaf and parent, in source order.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/Node"}
+        },
+        "issues": {
+          "description": "One entry per distinct issue named by a node of this project.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/IssueEntry"}
+        },
+        "rollup": {
+          "description": "Leaf counts and remaining work; null unless status is read.",
+          "$ref": "#/$defs/Rollup"
+        },
+        "lanes": {
+          "description": "Reserved slot for parallel lanes (#748).",
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "x-reserved": "#748"
+        },
+        "forecast": {
+          "description": "Reserved slot for the per-project forecast (#742).",
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "x-reserved": "#742"
+        }
+      }
+    },
+    "Node": {
+      "type": "object",
+      "required": ["id", "parent", "depth", "leaf", "text", "state", "glyph", "source_line", "issue", "meta", "meta_unknown_keys", "est", "satisfies", "h", "depends_on", "ready"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Opaque; unique within one document; deterministic over unchanged inputs but not stable across edits to WBS.md. Join on (project, issue), never on id.",
+          "type": "string"
+        },
+        "parent": {
+          "description": "The parent node's id; null at top level.",
+          "type": ["string", "null"]
+        },
+        "depth": {
+          "description": "The parser's depth.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "leaf": {
+          "description": "True when the node has no children.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "The parser's text.",
+          "type": "string"
+        },
+        "state": {
+          "description": "The parser's state.",
+          "type": "string",
+          "enum": ["pending", "done", "skipped", "stuck", "in_progress", "blocked_external", "parked"]
+        },
+        "glyph": {
+          "description": "The parser's glyph.",
+          "type": "string",
+          "enum": [" ", "x", "-", "!", "~", "?", "P"]
+        },
+        "source_line": {
+          "description": "1-based line of the node in WBS.md.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "issue": {
+          "description": "meta.issue as written (no prefix stripped); null when absent.",
+          "type": ["string", "null"]
+        },
+        "meta": {
+          "description": "The node's raw metadata, verbatim.",
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "array"],
+            "items": {"type": "string"}
+          }
+        },
+        "meta_unknown_keys": {
+          "description": "Metadata keys the parser did not know at generation time.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "est": {
+          "description": "The classified estimate. Carried on parents too, never summed.",
+          "$ref": "#/$defs/Est"
+        },
+        "satisfies": {
+          "description": "meta.satisfies as a list: absent gives [], a scalar gives one entry; entries as written.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "h": {
+          "description": "meta.h when it is one digit 0-4; null when absent or malformed.",
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4
+        },
+        "depends_on": {
+          "description": "meta.depends_on split into entries.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/Dep"}
+        },
+        "ready": {
+          "description": "Readiness (#727): true when the leaf is ready by the rule in commands/portfolio.md, false otherwise; null on a parent, and throughout a document whose readiness was not computed.",
+          "type": ["boolean", "null"]
+        },
+        "ready_via_parent_row": {
+          "description": "Optional (#727, schema 1.1): on a leaf, true when at least one of its effective dependencies resolves to a row with children (a parent row's state is hand-set today), false otherwise; null on a parent and wherever ready is null.",
+          "type": ["boolean", "null"]
+        },
+        "models": {
+          "description": "Optional (#890, schema 1.2), on leaves only: the leaf's planned thinking and checking models.",
+          "type": "object",
+          "required": ["thinking", "checking"],
+          "additionalProperties": false,
+          "properties": {
+            "thinking": {"$ref": "#/$defs/ModelChoice"},
+            "checking": {"$ref": "#/$defs/ModelChoice"}
+          }
+        }
+      }
+    },
+    "ModelChoice": {
+      "description": "One class's planned model: a legal leaf key (source wbs), else the project's step_models class-then-default value (source project); null when neither applies or the config value is not a model token.",
+      "type": ["object", "null"],
+      "required": ["value", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "description": "A model_token_allowlist token at generation time; inherit means the session model.",
+          "type": "string"
+        },
+        "source": {
+          "description": "wbs: the leaf's own key; project: the project's step_models table.",
+          "type": "string",
+          "enum": ["wbs", "project"]
+        }
+      }
+    },
+    "Est": {
+      "type": "object",
+      "required": ["raw", "class", "low_hours", "high_hours", "quantity", "unit", "src"],
+      "additionalProperties": false,
+      "properties": {
+        "raw": {
+          "description": "Equals meta.est; null when absent.",
+          "type": ["string", "array", "null"],
+          "items": {"type": "string"}
+        },
+        "class": {
+          "description": "The estimate class (#737). Only time counts as estimated.",
+          "type": "string",
+          "enum": ["absent", "placeholder", "time", "non-time", "unparseable"]
+        },
+        "low_hours": {
+          "description": "Time class only: the low bound in hours; equal to high_hours for a single value.",
+          "type": ["number", "null"]
+        },
+        "high_hours": {
+          "description": "Time class only: the high bound in hours.",
+          "type": ["number", "null"]
+        },
+        "quantity": {
+          "description": "Non-time class only: the number as written, e.g. 48.",
+          "type": ["number", "null"]
+        },
+        "unit": {
+          "description": "Non-time class only: the unit as written, e.g. pr.",
+          "type": ["string", "null"]
+        },
+        "src": {
+          "description": "Provenance of est alone (#754). Null means operator-owned: est_src absent or any other value.",
+          "type": ["string", "null"],
+          "enum": ["confirmed", "derived", null]
+        }
+      }
+    },
+    "Dep": {
+      "type": "object",
+      "required": ["raw", "scope", "project", "issue", "resolved"],
+      "additionalProperties": false,
+      "properties": {
+        "raw": {
+          "description": "The entry as written.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "foreign when the entry names another project; local otherwise, an own-project prefix included.",
+          "type": "string",
+          "enum": ["local", "foreign"]
+        },
+        "project": {
+          "description": "The named project; this project when local.",
+          "type": "string"
+        },
+        "issue": {
+          "description": "The issue id, prefix removed.",
+          "type": "string"
+        },
+        "resolved": {
+          "description": "Whether the reference resolves (#727): to a node with this issue in the same project, or for a foreign entry in the named project, which must be configured and read; null when not computed.",
+          "type": ["boolean", "null"]
+        }
+      }
+    },
+    "IssueEntry": {
+      "type": "object",
+      "required": ["issue", "nodes", "stuck", "checklist", "next_step", "next_step_number"],
+      "additionalProperties": false,
+      "properties": {
+        "issue": {
+          "description": "The issue id as written on its nodes.",
+          "type": "string"
+        },
+        "nodes": {
+          "description": "Ids of every node carrying the issue, in order; two or more means a duplicate within the project.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "stuck": {
+          "description": "Non-null exactly when the issue dir has a STUCK file.",
+          "$ref": "#/$defs/Stuck"
+        },
+        "checklist": {
+          "description": "absent: no issue dir or no checklist.md. open: a step is still to do. complete: every step is done or skipped.",
+          "type": "string",
+          "enum": ["absent", "open", "complete"]
+        },
+        "next_step": {
+          "description": "Name of the first step not done or skipped in the active revision block; null unless checklist is open.",
+          "type": ["string", "null"]
+        },
+        "next_step_number": {
+          "description": "That step's number; null unless checklist is open.",
+          "type": ["integer", "null"]
+        },
+        "actuals": {
+          "description": "Reserved slot for actuals (#729).",
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "x-reserved": "#729"
+        },
+        "estimates": {
+          "description": "Reserved slot for derived estimates (#736).",
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "x-reserved": "#736"
+        }
+      }
+    },
+    "Stuck": {
+      "type": ["object", "null"],
+      "required": ["step", "reason", "since"],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "description": "The STUCK file's Step: value as written; null when the line is missing.",
+          "type": ["string", "null"]
+        },
+        "reason": {
+          "description": "The Reason: value as written; null when missing.",
+          "type": ["string", "null"]
+        },
+        "since": {
+          "description": "The Created: value as written; no format is promised (it varies by writer); null when missing.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "Rollup": {
+      "type": ["object", "null"],
+      "required": ["by_state", "remaining"],
+      "additionalProperties": false,
+      "properties": {
+        "by_state": {
+          "description": "Leaf counts per state.",
+          "type": "object",
+          "required": ["pending", "done", "skipped", "stuck", "in_progress", "blocked_external", "parked"],
+          "additionalProperties": false,
+          "properties": {
+            "pending": {"$ref": "#/$defs/Counts"},
+            "done": {"$ref": "#/$defs/Counts"},
+            "skipped": {"$ref": "#/$defs/Counts"},
+            "stuck": {"$ref": "#/$defs/Counts"},
+            "in_progress": {"$ref": "#/$defs/Counts"},
+            "blocked_external": {"$ref": "#/$defs/Counts"},
+            "parked": {"$ref": "#/$defs/Counts"}
+          }
+        },
+        "remaining": {
+          "description": "Leaves whose state is not done or skipped.",
+          "type": "object",
+          "required": ["leaves", "estimated", "estimated_derived", "unestimated", "low_hours", "high_hours", "non_time"],
+          "additionalProperties": false,
+          "properties": {
+            "leaves": {"type": "integer"},
+            "estimated": {"description": "Time class, est.src not derived.", "type": "integer"},
+            "estimated_derived": {"description": "Time class, est.src derived.", "type": "integer"},
+            "unestimated": {"description": "Every other class.", "type": "integer"},
+            "low_hours": {"description": "Sum of time-class low bounds.", "type": "number"},
+            "high_hours": {"description": "Sum of time-class high bounds.", "type": "number"},
+            "non_time": {
+              "description": "Non-time totals per unit as written.",
+              "type": "object",
+              "additionalProperties": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "Counts": {
+      "type": "object",
+      "required": ["leaves", "estimated", "estimated_derived", "unestimated"],
+      "additionalProperties": false,
+      "properties": {
+        "leaves": {"type": "integer"},
+        "estimated": {"type": "integer"},
+        "estimated_derived": {"type": "integer"},
+        "unestimated": {"type": "integer"}
+      }
+    },
+    "ReportEntry": {
+      "type": "object",
+      "required": ["project", "source_line", "kind", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "project": {"type": "string"},
+        "source_line": {
+          "description": "1-based WBS.md line; null when the entry is not tied to a line.",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "kind": {
+          "description": "Open vocabulary defined by the producer (#726); readers accept unknown kinds.",
+          "type": "string"
+        },
+        "message": {"type": "string"}
+      }
+    }
+  }
+}

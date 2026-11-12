@@ -987,6 +987,32 @@ _wbs865_show() {
   grep -Fxq "wbs show: line 6: satisfies entry 'bad' is not <namespace>:<id>" "$TMPROOT/err"
 }
 
+@test "wbs show prints malformed thinking and checking warnings once each (#890)" {
+  printf '%s\n' '# T' '' '- [ ] Root' \
+    '  - [ ] a {issue: Issue-1, thinking: gpt}' \
+    '  - [ ] b {issue: Issue-2, checking: [opus, fable]}' \
+    '  - [ ] c {issue: Issue-3, thinking: opus/fable}' \
+    '  - [ ] d {issue: Issue-4, thinking: opus, checking: inherit}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 3 ]
+  grep -Fxq "wbs show: line 4: thinking 'gpt' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: checking '[opus, fable]' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 6: thinking 'opus/fable' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+  run grep -c 'line 7:' "$TMPROOT/err"
+  [ "$output" = 0 ]
+}
+
+@test "wbs show --depth 1 still prints the model warning once (#890)" {
+  printf '%s\n' '# T' '' '- [ ] Root' '  - [ ] Sub' \
+    '    - [ ] deep {issue: Issue-1, checking: gpt}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj --depth 1 > "$TMPROOT/out" 2> "$TMPROOT/err"
+  grep -q 'Sub' "$TMPROOT/out"
+  [ "$(grep -c 'deep' "$TMPROOT/out")" -eq 0 ]
+  [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs show: line 5: checking 'gpt' is not one of: sonnet opus haiku fable inherit" "$TMPROOT/err"
+}
+
 # #888 writer pins (green at HEAD by design): wbs update and wbs order keep
 # satisfies, objective and h bytes; each pin asserts its path really ran.
 @test "wbs update keeps satisfies, objective and h bytes on a reconciled and an untouched leaf (#888)" {
@@ -1029,6 +1055,51 @@ _wbs865_show() {
     bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
     [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
     [ "$(grep -cE "satisfies entry|objective entry|h '" "$TMPROOT/err")" -eq 0 ]
+  done
+}
+
+# #890 writer pins (green at HEAD by design): wbs update and wbs order keep
+# thinking and checking bytes; each pin asserts its path really ran.
+@test "wbs update keeps thinking and checking bytes on a reconciled and an untouched leaf (#890)" {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] Leaf A {issue: Issue-1, thinking: opus, checking: fable}' \
+    '  - [ ] Leaf B {issue: Issue-2, checking: "inherit", thinking: sonnet}' \
+    > "$TMPDEV/WBS.md"
+  _wbs701_progress
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "Leaf A" "~" checklist
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  # the reconcile really happened (not a vacuous byte-identical pass)
+  run cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "wbs order moves a leaf carrying thinking and checking with its bytes kept (#890)" {
+  local s t
+  s='  - [ ] S {issue: Issue-1, thinking: opus, checking: fable}'
+  t='  - [ ] T {issue: Issue-2, priority: P1, checking: haiku}'
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$s" "$t" > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$t" "$s" > "$TMPDEV/expected"
+  run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  [ "$status" -eq 1 ]
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs order and wbs update print no model warning (#890)" {
+  local cmd
+  for cmd in order "update --offline"; do
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] S {issue: Issue-1, priority: high, thinking: gpt, checking: [opus, fable]}' \
+      '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cE "thinking '|checking '" "$TMPROOT/err")" -eq 0 ]
   done
 }
 
@@ -1079,6 +1150,11 @@ _wbs865_order() {
   [[ "$spec131" == *"is not <namespace>:<id>"* ]]
   [[ "$spec131" == *"is not an integer from 0 to 4"* ]]
   grep -qF '`objective`' "$REPO/commands/wbs.md"
+  # #890: thinking and checking join them, with their warning text
+  grep -qF 'objective, h, thinking, checking' "$REPO/templates/wbs_template.md"
+  [[ "$spec131" == *'`h`, `thinking`, `checking`'* ]]
+  [[ "$spec131" == *"is not one of: "* ]]
+  grep -qF '`thinking`' "$REPO/commands/wbs.md"
   [[ "$spec131" == *'**Ordering (#803).**'* ]]
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }

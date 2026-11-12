@@ -9,7 +9,7 @@ argument-hint: "[--out PATH | --ready]"
 **Usage:** `/devagent:portfolio [--out PATH | --ready]`
 
 Writes one document that describes every configured project's `WBS.md`
-(#726). The document conforms to the portfolio schema v1.1; its contract is
+(#726). The document conforms to the portfolio schema v1.2; its contract is
 [`docs/portfolio-schema.md`](../docs/portfolio-schema.md), and spec §13.4
 introduces it. The command is read-only. It writes the one document and
 nothing else: no `WBS.md`, no state, and no devdoc file. With `--ready` it
@@ -45,7 +45,7 @@ unset, is not checked yet; keep `--out` out of it too.
 
 Before writing, the command checks its own document. It runs the structural
 checker (`portfolio-check.py`) and the producer's cross-field invariants
-I1–I16 (`invariant_violations` in `scripts/lib/portfolio.py`). If either
+I1–I17 (`invariant_violations` in `scripts/lib/portfolio.py`). If either
 fails, nothing is written. Under `--ready` the same check runs before anything
 is printed, and if it fails, nothing is printed.
 
