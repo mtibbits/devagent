@@ -1,10 +1,12 @@
 # docs-site — content-drift policy
 
-This directory holds the devAgent onboarding site: six content pages, plain
-markdown, nothing generated is committed. `scripts/build-docs-site.sh` renders
-them with pandoc at publish time. This file is the site's maintenance policy,
-not one of the pages. (`scripts/build-docs-site.sh` leaves it out of the
-published site; its content is public-safe either way.)
+This directory holds the devAgent onboarding site: its content pages
+(Markdown `*.md` pages, and hand-written `*.html` pages, which the build also
+accepts), `moved.txt` (old page names and their new homes) and, when one
+exists, an `assets/` folder. Nothing generated is committed.
+`scripts/build-docs-site.sh` renders the pages at publish time. This file is
+the site's maintenance policy, not one of the pages: the build leaves
+`README.*` out of the published site (its content is public-safe either way).
 
 ## Derivation rule
 
@@ -61,6 +63,77 @@ page silently moves to the end of the nav and the nav-order assertion in
 `test suite` workflow installs it and runs the file un-skipped, and the
 `publish docs site` workflow additionally refuses any skip in it. If it
 reddens after a deliberate page edit, the expectation moves with the page.
+
+## How the build reads this directory
+
+`scripts/build-docs-site.sh`'s header is the reference (inputs, nav order,
+exit codes); this section is the editor's view of it.
+
+**Hand-written pages.** A `<name>.html` file here is a page body. The build
+wraps it in the same template as a Markdown page, so it gets the same head,
+nav and footer, and inserts its bytes unchanged between `<article>` and
+`</article>`: neither of pandoc's readers touches it. (A build-time
+placeholder hook runs over every page; it changes nothing until a later
+child of #994 defines the placeholders.)
+
+- Line 1 is the same `<!-- derived-from: ... -->` header a Markdown page
+  carries. Without it the build exits 4.
+- The `<title>` and nav label come from the first `<h1>` that is not inside a
+  comment or a `<pre>`, `<code>`, `<script>`, `<style>`, `<template>` or
+  `<textarea>`, with tags stripped and entities decoded once. A page with no
+  `<h1>` exits 5.
+- A `<!-- nav-label: Short name -->` line in the header block (the run of
+  `<!-- ... -->` lines from line 1) sets the nav label instead; the title still
+  comes from the `<h1>`.
+- `<name>.md` and `<name>.html` together exit 4: keep one. `README.*` is
+  reserved for this file, so a `README.html` exits 4.
+
+**Nav source.** The nav is the index page first, then the pages the index's
+own top-level list names, in its order, then every page the list omits, in
+alphabetical (`LC_ALL=C`) order of base name across both kinds.
+
+- In `index.md` the list is `- [Title](./page.md)` bullets, or
+  `- [Title](./page.html)` for a hand-written page. Bullets inside a backtick
+  or tilde code fence are examples and are ignored.
+- In an `index.html` each entry is one line holding `<li>` and then
+  `<a ... href="page.html">`, with the `href` double-quoted (other attributes
+  may come first). A `<li>` alone on a line followed by its `<a href>` on the
+  next exits 4. Entries inside a comment or a `<pre>`, `<code>`, `<script>`,
+  `<style>`, `<template>` or `<textarea>` are ignored.
+- A list that names no page exits 4, rather than publish an alphabetical nav.
+
+**Asset folders.** `docs-site/assets/` is copied to `assets/` and
+`scripts/docs-site/static/` (the template's own files) to `static/`, byte for
+byte; either may be absent. A Markdown page may show an image from
+`./assets/<path>`; any other image target fails the build (exit 5). Every
+`href`, `src` and `srcset` in the rendered output must name a file the build
+produced (exit 6). A root-absolute path (`/x`) and a path with a `..` segment
+are refused too, because the site is served under a subpath (`/devagent/`)
+where both point somewhere else.
+
+**Moved pages.** `moved.txt` lists old page names and their new homes, one
+`<old-name> <new-home>` pair per line; its header documents the format. For
+each line the build writes `<old-name>.html`, a static stub that says the page
+moved and links to the new home: a content page of this site
+(`<page>.html[#fragment]`) or an absolute `https://` URL. Stubs load nothing,
+ask not to be indexed, appear in no nav and are not counted as pages. A line
+whose old name is still a content page, or that repeats an old name, exits 4;
+a new home that is not a content page this build produces (a missing page, the
+stub itself, or another stub) exits 6.
+
+**The fetch ban is still in force.** On the real build,
+`tests/build-docs-site.bats` fails if any rendered file, assets included,
+contains `<script`, `<link `, `<img `, `<iframe`, ` src=`, `@import` or
+`url(`, or the words "private preview". So no tracked page or asset may carry
+those strings until #1030 replaces the ban with an allowlist. Fixture builds
+in that suite are not subject to it.
+
+**Deploy hold.** The website 2.0 epic (#994) holds publishing:
+`DOCS_SITE_DEPLOY` is `false` until child 10 of that epic sets it back to
+`true`, after the operator approves a full private preview. While it is off,
+GitHub Pages keeps serving the last 1.0 deploy, and every push still builds
+the site and uploads it as the `docs-site` review artifact
+(`docs/pages-deployment.md` has the mechanism).
 
 ## Pending mechanism
 

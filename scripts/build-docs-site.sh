@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
-# scripts/build-docs-site.sh — #465.
+# scripts/build-docs-site.sh — #465, #995.
 #
 # Renders the onboarding pages in docs-site/ to a static site for GitHub Pages.
-# It publishes FROM the tracked markdown: there is no second, committed copy of
+# It publishes FROM the tracked sources: there is no second, committed copy of
 # the content that could drift from it (docs-site/README.md is the drift policy).
 #
-# What it builds: one <page>.html per docs-site/*.md EXCEPT README.md, which is
-# the directory's maintenance policy and not a page. The page set is derived
-# from the directory, never listed here.
+# What it builds, all derived from the directory and never listed here:
+#   - one <page>.html per content page: docs-site/*.md (Markdown, rendered by
+#     pandoc) and docs-site/*.html (hand-written: wrapped in the same template,
+#     its body spliced in byte for byte), EXCEPT README.*, the directory's
+#     maintenance policy and not a page;
+#   - one moved-page stub <old>.html per data line of docs-site/moved.txt;
+#   - the asset folders: docs-site/assets/ -> assets/ and
+#     scripts/docs-site/static/ (or --static) -> static/, copied unchanged.
+#
+# Nav order: index first, then the pages the index's own top-level list names,
+# in its order (index.md: "- [T](./p.md)" or "(./p.html)" bullets outside code
+# fences; index.html: '<li><a href="p.html">' lines outside comments and
+# <pre>/<code>/<script>/<style>/<template>/<textarea>), then the pages it omits
+# in LC_ALL=C order of their base names, across both kinds.
 #
 # Usage: build-docs-site.sh [--src <dir>] [--out <dir>] [--blob-base <url>]
 #                            [--static <dir>]
@@ -23,18 +34,26 @@
 #                (default: <repo>/scripts/docs-site/static, skipped when
 #                absent; a dir given here must exist)
 #
-# Requires pandoc 3.x (CI installs the ubuntu-24.04 package). An older pandoc
-# is refused up front: its failures would otherwise be reported against a page.
+# Requires pandoc 3.x (CI installs the ubuntu-24.04 package) and awk (the nav
+# and title readers; gawk and mawk both work). An older pandoc is refused up
+# front: its failures would otherwise be reported against a page.
 #
 # Exit codes, distinct at the source so no caller parses prose:
 #   0  built; last stdout line is  build-docs-site: built <N> pages -> <out>
+#      (<N> counts content pages; moved-page stubs are not pages)
 #   2  usage
-#   3  pandoc is not installed, or is older than 3.x (the message says which;
-#      the remedy is the same, so the code is shared)
-#   4  bad input: --src missing, no pages, no index.md, index.md's page list
-#      names no page, --out not a directory, or --out not empty
-#   5  a page failed to render (includes a link the filter cannot classify)
-#   6  a rendered page links to a local file the build did not produce
+#   3  a required tool is missing or unusable: pandoc (absent, or older than
+#      3.x) or awk (the message names which)
+#   4  bad input: --src or --static dir missing, no pages, no index page,
+#      <x>.md and <x>.html both present, a README.html in --src, a hand-written
+#      page without its derived-from header, a malformed moved.txt line or one
+#      naming a live page, the index's page list names no page or splits an
+#      <li> from its <a href>, --out not a directory, or --out not empty
+#   5  a page failed to render (includes a link or image the filter cannot
+#      classify, and a hand-written page with no <h1>)
+#   6  a rendered page links to a local file the build did not produce (by
+#      href, src or srcset; stubs included), to a root-absolute path, or out of
+#      the site with ..; or a moved.txt home is not a content page
 # (--help prints this header: everything above the first non-comment line.)
 set -euo pipefail
 

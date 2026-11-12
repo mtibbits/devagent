@@ -1,9 +1,12 @@
--- scripts/docs-site/links.lua — pandoc Lua filter for build-docs-site.sh (#465).
+-- scripts/docs-site/links.lua — pandoc Lua filter for build-docs-site.sh (#465, #995).
 --
--- docs-site/*.md link to each other as ./<page>.md so they read correctly on the
--- forge. On the published site those targets must be <page>.html, and a link
--- that climbs out of docs-site/ (../README.md#...) has no published twin, so it
--- goes to the forge's rendered copy instead.
+-- docs-site/*.md link to each other as ./<page>.md, or ./<page>.html for a
+-- hand-written page, so they read correctly on the forge. On the published
+-- site those targets must be <page>.html; a link or image into the content
+-- asset folder (./assets/<path>) must be assets/<path>; and a link that climbs
+-- out of docs-site/ (../README.md#...) has no published twin, so it goes to the
+-- forge's rendered copy instead. Hand-written pages never pass through this
+-- filter: the build splices their bodies in after pandoc runs.
 --
 -- Every link is CLASSIFIED; a target that fits no class is a build error, not
 -- a pass-through. A silently-preserved ./foo/bar.md would publish a 404.
