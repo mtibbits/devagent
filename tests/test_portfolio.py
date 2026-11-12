@@ -422,6 +422,7 @@ def _dflip(nid, i, key):
         dep[key] = not dep[key]
     return f
 
+
 def _meta(nid, key, value):
     return _call(lambda d: _node(d, nid)["meta"].__setitem__(key, value))
 
