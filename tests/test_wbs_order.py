@@ -441,6 +441,70 @@ def test_cycle_left_alone():
     ]
 
 
+# #887: a foreign `<project>:<issue>` entry constrains nothing; an
+# own-project prefix orders as the bare id.
+FOREIGN_DEP = _case(
+    "foreign_dep",
+    "- [ ] E",
+    "  - [ ] T {issue: T, depends_on: gantry:S}",
+    "  - [ ] S {issue: S}",
+    "  - [ ] U {issue: U, priority: P1}",
+)
+FOREIGN_DEP_ABSENT = _case(
+    "foreign_dep_absent",
+    "- [ ] E",
+    "  - [ ] T {issue: T}",
+    "  - [ ] S {issue: S}",
+    "  - [ ] U {issue: U, priority: P1}",
+)
+FOREIGN_DEP_BARE = _case(
+    "foreign_dep_bare",
+    "- [ ] E",
+    "  - [ ] T {issue: T, depends_on: S}",
+    "  - [ ] S {issue: S}",
+    "  - [ ] U {issue: U, priority: P1}",
+)
+
+
+def _names(text):
+    return [re.match(r"\s*- \[.\] (\S+)", ln).group(1) for ln in text.splitlines()]
+
+
+@pytest.mark.parametrize("project", [None, "devagent"])
+def test_foreign_dep_orders_as_absent(project):
+    out, warnings = wbs_parser.order_text(FOREIGN_DEP, project=project)
+    absent, absent_warnings = wbs_parser.order_text(FOREIGN_DEP_ABSENT)
+    # U first proves the pass ran; S last proves the prefix was not stripped.
+    assert _names(out) == ["E", "U", "T", "S"]
+    assert _names(absent) == _names(out)
+    assert warnings == absent_warnings == []
+
+
+def test_own_project_prefix_orders_as_bare_id():
+    out, warnings = wbs_parser.order_text(FOREIGN_DEP, project="gantry")
+    bare, _w = wbs_parser.order_text(FOREIGN_DEP_BARE)
+    assert _names(out) == ["E", "U", "S", "T"]
+    assert _names(bare) == _names(out)
+    assert warnings == []
+
+
+def test_order_writers_pass_project(tmp_path):
+    # The helper-level caller pin: both writers thread project= down.
+    p = tmp_path / "WBS.md"
+    p.write_text(FOREIGN_DEP, encoding="utf-8")
+    rc, _report, _diff = wbs_parser.order_file(p)
+    assert rc == 0
+    assert _names(p.read_text(encoding="utf-8")) == ["E", "U", "T", "S"]
+    rc, _report, _diff = wbs_parser.order_file(p, project="gantry")
+    assert rc == 0
+    assert _names(p.read_text(encoding="utf-8")) == ["E", "U", "S", "T"]
+    p.write_text(FOREIGN_DEP, encoding="utf-8")
+    wbs_parser.write_update(p, wbs_parser.parse_file(p), order=True)
+    assert _names(p.read_text(encoding="utf-8")) == ["E", "U", "T", "S"]
+    wbs_parser.write_update(p, wbs_parser.parse_file(p), order=True, project="gantry")
+    assert _names(p.read_text(encoding="utf-8")) == ["E", "U", "S", "T"]
+
+
 # --- Task 3: sets left alone, and blocks ----------------------------------------
 
 BLANK_SEP = _case(

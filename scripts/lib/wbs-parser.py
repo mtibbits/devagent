@@ -797,7 +797,8 @@ def write_markdown(
 
 
 def write_update(
-    path: Path | str, tree: dict, *, order: bool, completed_last: bool = False
+    path: Path | str, tree: dict, *, order: bool, completed_last: bool = False,
+    project: str | None = None,
 ) -> list[str]:
     """`wbs update`'s one write (#803): render, then order, then write.
 
@@ -815,7 +816,7 @@ def write_update(
         # A sort bug never blocks a status change: an exception skips the
         # order pass like a failed check does.
         try:
-            ordered, warnings, _n, _m = _order(final, completed_last)
+            ordered, warnings, _n, _m = _order(final, completed_last, project)
             ok, reason = (True, "") if ordered == final else permuted_only(final, ordered)
         except Exception as e:
             ok, reason = False, f"{type(e).__name__}: {e}"
@@ -829,7 +830,8 @@ def write_update(
 
 
 def order_file(
-    path: Path | str, *, completed_last: bool = False, dry_run: bool = False
+    path: Path | str, *, completed_last: bool = False, dry_run: bool = False,
+    project: str | None = None,
 ) -> tuple[int, list[str], str]:
     """`wbs order`'s run (#803): `(rc, report lines unprefixed, diff)`.
 
@@ -843,7 +845,7 @@ def order_file(
     except (OSError, UnicodeDecodeError) as e:
         return 1, [f"cannot read {dest}: {e}"], ""
     try:
-        ordered, report, n, m = _order(text, completed_last)
+        ordered, report, n, m = _order(text, completed_last, project)
         ok, reason = (True, "") if ordered == text else permuted_only(text, ordered)
     except Exception as e:
         return 1, [f"ordering skipped: {type(e).__name__}: {e}; nothing written"], ""
@@ -1228,13 +1230,18 @@ DEFAULT_PRIORITY = 3
 FINISHED_GLYPHS = frozenset("x-")
 
 
-def order_text(text: str, *, completed_last: bool = False) -> tuple[str, list[str]]:
+def order_text(
+    text: str, *, completed_last: bool = False, project: str | None = None
+) -> tuple[str, list[str]]:
     """`text` with each non-root node's children in order, and the warnings.
 
     The rule (spec §13.1): a node is finished when its own glyph is `[x]` or
     `[-]`. Within one set of siblings, open sibling S follows open sibling T
     when an open node under S (S included) has a `depends_on` entry naming
-    the `issue` of an open node under T; ids match by exact string. Among the
+    the `issue` of an open node under T. A local entry's id matches by exact
+    string, and an own-project `<project>:` prefix (`project=`, the
+    configured name; `split_dep`) counts as its bare id; a foreign
+    `<project>:<issue>` entry constrains nothing (#887). Among the
     siblings whose dependencies are placed, the next is the one with the
     most urgent effective priority (the most urgent `priority: P1`-`P4` of
     the open nodes under it or under any sibling depending on it,
@@ -1249,11 +1256,13 @@ def order_text(text: str, *, completed_last: bool = False) -> tuple[str, list[st
     form a dependency cycle. Each malformed `priority` warns once and counts
     as missing. Warning line numbers are those of the returned text.
     """
-    new, warnings, _n, _m = _order(text, completed_last)
+    new, warnings, _n, _m = _order(text, completed_last, project)
     return new, warnings
 
 
-def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
+def _order(
+    text: str, completed_last: bool, project: str | None = None
+) -> tuple[str, list[str], int, int]:
     """`order_text`, plus N (sets reordered) and M (sets of two or more
     siblings under a non-root parent, the ones left alone included)."""
     lines = text.splitlines(keepends=True)
@@ -1298,7 +1307,8 @@ def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
         why = _left_alone(cs, kinds, ends, subtree)
         new = None
         if why is None:
-            new, cycle = _rank(cs, is_open, metas, prio, subtree, completed_last)
+            new, cycle = _rank(cs, is_open, metas, prio, subtree, completed_last,
+                               project)
             if new is None:
                 names = ", ".join(name(c) for c in cycle)
                 why = lambda L, names=names: f"dependency cycle among {names}"
@@ -1339,7 +1349,7 @@ def _left_alone(cs, kinds, ends, subtree):
     return None
 
 
-def _rank(cs, is_open, metas, prio, subtree, completed_last):
+def _rank(cs, is_open, metas, prio, subtree, completed_last, project):
     """The new order of the sibling set `cs`, or `(None, cycle)` where
     `cycle` is the siblings in any dependency cycle, in current order."""
     opens = [c for c in cs if is_open[c]]
@@ -1362,7 +1372,9 @@ def _rank(cs, is_open, metas, prio, subtree, completed_last):
         for d in subtree(c):
             if is_open[d]:
                 for dep in _dep_ids(metas[d]):
-                    needs[c] |= holders.get(dep, set()) - {c}
+                    e = split_dep(dep, project)
+                    if e["scope"] == "local":
+                        needs[c] |= holders.get(e["issue"], set()) - {c}
     dependents: dict[int, set[int]] = {c: set() for c in opens}
     for c in opens:
         for t in needs[c]:
