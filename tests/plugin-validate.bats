@@ -17,10 +17,30 @@
 
 # The strict gate: warnings are errors. Measured rc=0 on 2.1.223 once
 # plugin.json carried `version` (the only warning --strict raised before).
+# By 2.1.321 it also warns on a hook command with ${CLAUDE_PLUGIN_ROOT}
+# unquoted; the pin below holds that half in CI, which has no claude CLI.
 @test "claude plugin validate --strict passes at repo root (#532 re-take)" {
     command -v claude >/dev/null 2>&1 || skip "claude CLI not installed (CI)"
     run claude plugin validate --strict "$BATS_TEST_DIRNAME/.."
     [ "$status" -eq 0 ]
+}
+
+# CI-visible half of the strict rung: every ${CLAUDE_PLUGIN_ROOT} in a hook
+# command sits inside double quotes, so a path with a space stays one word.
+@test "every hook command quotes \${CLAUDE_PLUGIN_ROOT} (#532 strict, CI pin)" {
+    run python3 -c '
+import json, re, sys
+bad = []
+for event, matchers in json.load(open(sys.argv[1], encoding="utf-8"))["hooks"].items():
+    for m in matchers:
+        for h in m["hooks"]:
+            c = h.get("command", "")
+            if re.search(r"(?<!\")\$\{CLAUDE_PLUGIN_ROOT\}", c):
+                bad.append(event + ": " + c)
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+' "$BATS_TEST_DIRNAME/../hooks/hooks.json"
+    [ "$status" -eq 0 ] || { echo "unquoted: $output"; false; }
 }
 
 # The release tag's own preflight: plugin.json and the marketplace entry must

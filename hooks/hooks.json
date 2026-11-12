@@ -6,17 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/git-guard.sh\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/active-pointer-guard.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/active-pointer-guard.sh\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/commit-guard.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/commit-guard.sh\"",
             "timeout": 5
           }
         ]
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/active-pointer-guard.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/active-pointer-guard.sh\"",
             "timeout": 5
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-rehydrate.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-rehydrate.sh\"",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/preship-dirty-tree.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/preship-dirty-tree.sh\"",
             "timeout": 5
           }
         ]
