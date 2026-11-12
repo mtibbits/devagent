@@ -330,6 +330,7 @@ print("ok", len(cases))'
   run --separate-stderr di parse "$W/1.md"
   [ "$status" -eq 0 ]
   [ "$(json_get "$output" 'o["prompt"]')" = '"```\nx"' ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[{"date": "2026-11-10", "text": "entry", "line": 8}]' ]
 }
 
 @test "di: ## Prompt inside a fence is not a second ## Prompt" {
@@ -371,6 +372,7 @@ print("ok")'
   run --separate-stderr di parse "$W/1.md"
   [ "$status" -eq 0 ]
   [ "$(json_get "$output" 'o["prompt"]')" = '"```\nx"' ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[{"date": "2026-11-10", "text": "see\n```", "line": 8}]' ]
 }
 
 @test "di: a column-0 closer after a fenced ## Comments still pairs" {
@@ -379,4 +381,88 @@ print("ok")'
   [ "$status" -eq 0 ]
   [ "$(json_get "$output" 'o["comments"]')" = '[]' ]
   [ "$(json_get "$output" 'o["prompt"]')" = '"```text\n## Comments\n- 2026-11-10 x\n```"' ]
+}
+
+# ---------------------------------------------------------------- Task 4: comments section
+
+@test "di: the two example files parse to the same title and prompt" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  cp "$FIX/full.md" "$W/2.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  local min="$output"
+  run --separate-stderr di parse "$W/2.md"
+  [ "$status" -eq 0 ]
+  local full="$output"
+  [ "$(json_get "$min" 'o["title"]')" = "$(json_get "$full" 'o["title"]')" ]
+  [ "$(json_get "$min" 'o["prompt"]')" = "$(json_get "$full" 'o["prompt"]')" ]
+  [ "$(json_get "$min" 'o["prompt"]')" = '"The settings page should have a switch that flips the site between light and dark.\nDone when the choice survives a page reload."' ]
+  [ "$(json_get "$min" 'o["keys"]')" = '{"state": "open"}' ]
+  [ "$(json_get "$min" 'o["comments"]')" = '[]' ]
+  [ "$(json_get "$full" 'o["keys"]')" = '{"state": "closed", "status": "Done", "parent": 3}' ]
+  [ "$(json_get "$full" 'o["comments"]')" = '[{"date": "2026-11-10", "text": "on_draft_start: status In Progress", "line": 11}, {"date": "2026-11-10", "text": "on_ship: status In Review", "line": 12}, {"date": "2026-11-11", "text": "on_merge: status Done, closed", "line": 13}]' ]
+}
+
+@test "di: check passes both example files" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  cp "$FIX/full.md" "$W/2.md"
+  run --separate-stderr di check "$W/1.md" "$W/2.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "di: blank lines between entries are allowed" {
+  printf '# T\n\n## Comments\n- 2026-11-10 a\n\n\n- 2026-11-11 b\n  more\n\n  para\n\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" 'o["comments"]')" = '[{"date": "2026-11-10", "text": "a", "line": 4}, {"date": "2026-11-11", "text": "b\nmore\n\npara", "line": 7}]' ]
+}
+
+@test "di: a second ## Comments fails check" {
+  printf '# T\n\n## Comments\n- 2026-11-10 a\n## Comments\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:5: second ## Comments (first at line 3)" ]
+}
+
+@test "di: ## Prompt after ## Comments fails check" {
+  printf '# T\n\n## Comments\n- 2026-11-10 a\n## Prompt\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:5: ## Prompt after ## Comments" ]
+}
+
+@test "di: text between ## Comments and the first entry fails check" {
+  printf '# T\n\n## Comments\nstray\n- 2026-11-10 a\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:4: text between ## Comments and the first entry" ]
+}
+
+@test "di: a comment date that is not a real date fails check" {
+  printf '# T\n\n## Comments\n- 2026-02-30 a\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:4: comment date 2026-02-30 is not a real date" ]
+}
+
+@test "di: a heading inside ## Comments fails check" {
+  printf '# T\n\n## Comments\n- 2026-11-10 a\n## Notes\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:5: heading inside ## Comments" ]
+}
+
+@test "di: an unexpected line inside ## Comments fails check" {
+  printf '# T\n\n## Comments\n- 2026-11-10 a\n one space\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:5: unexpected line in ## Comments: an entry starts with \"- YYYY-MM-DD \" and continues on lines indented two spaces" ]
+}
+
+@test "di: a comment entry with no text fails check" {
+  printf '# T\n\n## Comments\n- 2026-11-10 \n- 2026-11-11 b\n' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:4: comment entry has no text" ]
 }

@@ -20,6 +20,7 @@ Python 3.8 floor, stdlib only.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -355,7 +356,83 @@ def read_issue(data: bytes) -> Issue:
     end = iss.comments_idx if iss.comments_idx is not None else n
     ps = iss.prompt_idx + 1 if iss.prompt_idx is not None else start
     iss.prompt = "\n".join(_trim_blank(bodies[ps:end]))
+    if iss.comments_idx is not None:
+        _read_comments(iss)
     return iss
+
+
+_ENTRY_RE = re.compile(r"^- ([0-9]{4}-[0-9]{2}-[0-9]{2}) (.*)$")
+_DATE_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
+
+
+def _real_date(s: str) -> bool:
+    """YYYY-MM-DD and a real calendar date (not fromisoformat: wider on 3.11+)."""
+    m = _DATE_RE.match(s)
+    if not m:
+        return False
+    try:
+        datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return False
+    return True
+
+
+def _read_comments(iss: Issue) -> None:
+    """Entries under `## Comments`. Fences here have no structural effect."""
+    bodies = iss.bodies
+    ci = iss.comments_idx
+    cur = None
+    seen_entry = False
+    stray_reported = False
+
+    def finish(entry) -> None:
+        if entry is None:
+            return
+        text = "\n".join(_trim_blank(entry["parts"]))
+        if not text:
+            iss.faults.append((entry["line"], "comment entry has no text"))
+        else:
+            iss.comments.append({"date": entry["date"], "text": text, "line": entry["line"]})
+
+    for i in range(ci + 1, len(bodies)):
+        b = bodies[i]
+        if _blank(b):
+            if cur is not None:
+                cur["blanks"] += 1   # kept only when an indented line follows
+            continue
+        h = _heading(b)
+        fault = None
+        if h == COMMENTS_H:
+            fault = f"second ## Comments (first at line {ci + 1})"
+        elif h == PROMPT_H:
+            fault = "## Prompt after ## Comments"
+        elif b.startswith("## "):
+            fault = "heading inside ## Comments"
+        else:
+            m = _ENTRY_RE.match(b)
+            if m:
+                finish(cur)
+                seen_entry = True
+                if not _real_date(m.group(1)):
+                    iss.faults.append((i + 1, f"comment date {m.group(1)} is not a real date"))
+                cur = {"date": m.group(1), "line": i + 1, "parts": [m.group(2).rstrip()], "blanks": 0}
+                continue
+            if _is_continuation(b) and cur is not None:
+                cur["parts"].extend([""] * cur["blanks"])
+                cur["blanks"] = 0
+                cur["parts"].append(b[2:].rstrip())
+                continue
+            if not seen_entry:
+                if not stray_reported:
+                    iss.faults.append((i + 1, "text between ## Comments and the first entry"))
+                    stray_reported = True
+                continue
+            fault = ('unexpected line in ## Comments: an entry starts with "- YYYY-MM-DD " '
+                     "and continues on lines indented two spaces")
+        iss.faults.append((i + 1, fault))
+        finish(cur)
+        cur = None
+    finish(cur)
 
 
 def _trim_blank(seq: list) -> list:
