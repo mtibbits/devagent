@@ -704,3 +704,119 @@ t4i_row() {
   t4i_row assets/n2.png '<IMG SRC="assets/n2.png">'
   t4i_row n3.html "<a href='n3.html'>n3</a>"
 }
+
+# ------------------------------------------------------- FIXTURE: moved-page stubs
+
+# fx_moved <line...> — the fixture's moved.txt, one argument per line.
+fx_moved() { printf '%s\n' "$@" > "$FX/src/moved.txt"; }
+
+# fx_two_pages — index.md listing other.md, the base of the moved.txt legs.
+fx_two_pages() {
+  fx_page index "- [Other](./other.md)"
+  fx_page other "o"
+}
+
+@test "build-docs-site: moved.txt malformed line -> exit 4 naming the line" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved '# old names' '' 'old'
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"moved.txt:3: expected"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved.txt naming a live page -> exit 4" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'other index.html'
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"moved.txt:1: other is still a content page"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved.txt listing an old name twice -> exit 4" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'old-a index.html' 'old-a other.html'
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"moved.txt:2: old-a is listed twice"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fx_stub_site — T5d's fixture: two pages and two stubs, one home on the site
+# and one on the forge.
+fx_stub_site() {
+  fx_two_pages
+  fx_moved '# moved pages' 'old-a other.html' 'old-b https://github.com/mtibbits/devagent/blob/master/docs/x.md'
+}
+
+@test "build-docs-site: moved.txt builds stubs that link home, sit in no nav, and are not pages" {
+  need_pandoc
+  fx_stub_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  grep -qF '<a href="other.html">' "$FX/out/old-a.html"
+  grep -qF 'href="https://github.com/mtibbits/devagent/blob/master/docs/x.md"' "$FX/out/old-b.html"
+  [ "$(grep -c '<nav' "$FX/out/old-a.html")" -eq 0 ]
+  [ "$(grep -c '<nav' "$FX/out/old-b.html")" -eq 0 ]
+  local p
+  for p in index other; do
+    [ "$(nav_of "$FX/out/$p.html" | grep -c 'old-')" -eq 0 ]
+  done
+  [[ "$output" == *"build-docs-site: wrote 2 moved-page stubs"* ]]
+  [ "${lines[${#lines[@]}-1]}" = "build-docs-site: built 2 pages -> $FX/out" ]
+}
+
+@test "build-docs-site: moved.txt home that is not a page -> exit 6" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'old ghost.html'
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"moved.txt:1: ghost.html is not a content page this build produces"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved.txt self-loop -> exit 6" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'old-a old-a.html'
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"moved.txt:1: old-a.html is not a content page"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved.txt stub-to-stub -> exit 6" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_two_pages
+  fx_moved 'old-a old-b.html' 'old-b other.html'
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"moved.txt:1: old-b.html is not a content page"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: moved-page stubs pass the 1.0 fetch ban" {
+  # The ban regex is read from the ban test's own source, so this leg moves
+  # with it. #1030 must replace this leg when it rewrites the ban.
+  need_pandoc
+  local re
+  re="$(sed -n "s/^  run grep -rlE '\(.*\)' \"\$REAL_OUT\"$/\1/p" "$BATS_TEST_FILENAME")"
+  [ -n "$re" ]
+  printf '<script>' | grep -qE "$re"
+  fx_stub_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  run grep -lE "$re" "$FX/out/old-a.html" "$FX/out/old-b.html"
+  [ "$status" -eq 1 ]
+}

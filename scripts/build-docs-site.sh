@@ -259,6 +259,34 @@ if [ "${#pages[@]}" -gt 1 ] && [ "${#order[@]}" -eq 1 ]; then
 fi
 for p in "${pages[@]}"; do contains "$p" "${order[@]}" || order+=("$p"); done
 
+# Moved-page stubs: <src>/moved.txt lists "<old-name> <new-home>" pairs (its
+# own header documents the format). Each line becomes <old-name>.html, a stub
+# linking to new-home. Read here, before the pandoc probe, so every refusal
+# writes nothing. A <page>.html home must be a CONTENT page: not a missing page,
+# not its own old name, not another line's old name (a stub to a stub).
+moved_re='^([A-Za-z0-9_-]+)[[:blank:]]+([A-Za-z0-9_-]+\.html(#[A-Za-z0-9_-]*)?|https://[^[:space:]"'"'"'<>]+)[[:blank:]]*$'
+declare -A moved=()
+stubs=()
+if [ -f "$src/moved.txt" ]; then
+  n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    case "$line" in '#'*) continue ;; esac
+    [ -n "${line//[[:space:]]/}" ] || continue
+    [[ $line =~ $moved_re ]] || die 4 "moved.txt:$n: expected '<old-name> <new-home>'"
+    old="${BASH_REMATCH[1]}" home="${BASH_REMATCH[2]}"
+    [ -z "${kind[$old]:-}" ] || die 4 "moved.txt:$n: $old is still a content page (remove the line or the page)"
+    [ -z "${moved[$old]:-}" ] || die 4 "moved.txt:$n: $old is listed twice"
+    case "$home" in
+      https://*) ;;
+      *) hp="${home%%#*}"
+         [ "${kind[${hp%.html}]:-}" ] || die 6 "moved.txt:$n: $hp is not a content page this build produces" ;;
+    esac
+    moved[$old]="$home"
+    stubs+=("$old")
+  done < "$src/moved.txt"
+fi
+
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"
 # sed, not head: head closing the pipe early can SIGPIPE pandoc under pipefail.
@@ -346,6 +374,26 @@ for p in "${pages[@]}"; do
   [ "${kind[$p]}" = md ] || splice "$p"
 done
 
+# Stubs: static HTML that loads nothing and asks not to be indexed. They are in
+# no nav and are not counted as pages.
+for old in "${stubs[@]}"; do
+  new="$(printf '%s' "${moved[$old]}" | html_escape)"
+  printf '%s\n' \
+    '<!DOCTYPE html>' \
+    '<html lang="en">' \
+    '<head>' \
+    '<meta charset="utf-8">' \
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' \
+    '<meta name="robots" content="noindex">' \
+    '<title>Page moved | devAgent</title>' \
+    '</head>' \
+    '<body>' \
+    "<p>This page has moved to <a href=\"$new\">$new</a>.</p>" \
+    '</body>' \
+    '</html>' > "$out/$old.html"
+done
+[ "${#stubs[@]}" -eq 0 ] || printf 'build-docs-site: wrote %d moved-page stubs\n' "${#stubs[@]}"
+
 # The two asset folders, copied unchanged: the content side (<src>/assets/)
 # and the template side (--static). Either may be absent.
 if [ -d "$content_assets" ]; then cp -R "$content_assets" "$out/assets"; fi
@@ -356,10 +404,11 @@ if [ -d "$static_dir" ]; then cp -R "$static_dir" "$out/static"; fi
 expand_placeholders() { :; }
 for p in "${pages[@]}"; do expand_placeholders "$out/$p.html"; done
 
-# Independent count: what landed on disk, not what the loop believes it wrote.
+# Independent count: what landed on disk, not what the loops believe they
+# wrote. Every top-level .html is a content page or a stub.
 built=("$out"/*.html)
-[ "${#built[@]}" -eq "${#pages[@]}" ] \
-  || die 5 "expected ${#pages[@]} pages in $out, found ${#built[@]}"
+[ "${#built[@]}" -eq "$(( ${#pages[@]} + ${#stubs[@]} ))" ] \
+  || die 5 "expected ${#pages[@]} pages and ${#stubs[@]} stubs in $out, found ${#built[@]} .html files"
 
 # Link closure over the RENDERED output, so a raw <a href> or <img src> in a
 # page (which the Lua filter never sees) is checked too. Every href, src and
@@ -421,4 +470,4 @@ for html in "${built[@]}"; do
 done
 [ "$bad" -eq 0 ] || exit 6
 
-printf 'build-docs-site: built %d pages -> %s\n' "${#built[@]}" "$out"
+printf 'build-docs-site: built %d pages -> %s\n' "${#pages[@]}" "$out"
