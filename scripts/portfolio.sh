@@ -17,11 +17,12 @@
 # (PORTFOLIO_PROJECT_COUNT, PORTFOLIO_NAME_<i>, and PORTFOLIO_DEVDOC_<i>,
 # PORTFOLIO_SOURCE_<i>, PORTFOLIO_WORKTREE_<i> when configured), so no path can
 # collide with a delimiter. #890 adds PORTFOLIO_MODEL_THINKING_<i>,
-# PORTFOLIO_MODEL_CHECKING_<i> and PORTFOLIO_MODEL_DEFAULT_<i>, the project's raw
-# step_models.thinking/.checking/.default (set when the key exists, even empty;
-# a key whose value is not a string, e.g. a table, is exported as <unreadable>),
-# which the per-leaf `models` field falls back to. Each project's own devdoc_dir is read: never the
-# test-only override that maps every project to one devdoc.
+# PORTFOLIO_MODEL_CHECKING_<i> and PORTFOLIO_MODEL_DEFAULT_<i>, the project's
+# raw step_models.thinking/.checking/.default (set when the key exists, even
+# empty; a key whose value is not a string, e.g. a table, is exported as
+# <unreadable>), which the per-leaf `models` field falls back to. Each
+# project's own devdoc_dir is read: never the test-only override that maps
+# every project to one devdoc.
 #
 # Exit: 0 written (or printed, under --ready); 1 config missing or invalid;
 # 2 usage error (--ready with --out included), refused path, or unwritable
@@ -103,23 +104,24 @@ while IFS= read -r p; do
     fi
   done
   # Stderr-quiet, as step_models_tier reads them. With no step_models table no
-  # key exists, so the table is probed first. _toml.py get also exits 1 on a
-  # table or an array of tables, so a present key is told from an absent one:
-  # list-keys of the table names scalar and array keys, and list-keys of the
-  # key itself succeeds only on a table.
+  # key exists, so the table is probed first. list-keys of the table names its
+  # scalar and array keys; _toml.py get exits 1 on an array of tables, and a
+  # sub-table is not listed but list-keys of it succeeds. Either is exported
+  # as <unreadable>.
   if model_keys="$(_config_toml list-keys "$cfg" "project.$p.step_models" 2>/dev/null)"; then
     for pair in thinking:THINKING checking:CHECKING default:DEFAULT; do
       key="${pair%%:*}"
       var="PORTFOLIO_MODEL_${pair##*:}_$i"
-      if v="$(config_get_project_field "$p" "step_models.$key" 2>/dev/null)"; then
-        export "$var=$v"
-      else
-        rc=$?
-        [[ $rc -eq 1 ]] || die "cannot read step_models.$key of project '$p' (rc $rc)"
-        if grep -Fxq -- "$key" <<< "$model_keys" \
-            || _config_toml list-keys "$cfg" "project.$p.step_models.$key" > /dev/null 2>&1; then
+      if grep -Fxq -- "$key" <<< "$model_keys"; then
+        if v="$(config_get_project_field "$p" "step_models.$key" 2>/dev/null)"; then
+          export "$var=$v"
+        else
+          rc=$?
+          [[ $rc -eq 1 ]] || die "cannot read step_models.$key of project '$p' (rc $rc)"
           export "$var=<unreadable>"
         fi
+      elif _config_toml list-keys "$cfg" "project.$p.step_models.$key" > /dev/null 2>&1; then
+        export "$var=<unreadable>"
       fi
     done
   fi
