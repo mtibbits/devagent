@@ -85,6 +85,23 @@ fx_fixture_b() {
   fx_page zeta "z"
 }
 
+# fx_html <name> <line...> — a hand-written page: the derived-from header, then
+# the lines.
+fx_html() {
+  local name="$1"; shift
+  { printf '<!-- derived-from: fixture -->\n'; printf '%s\n' "$@"; } > "$FX/src/$name.html"
+}
+
+# article_of <html> — the lines strictly between <article> and </article>.
+article_of() { awk '/^<\/article>$/ { f = 0 } f { print } /^<article>$/ { f = 1 }' "$1"; }
+
+# frame_of <html> — every other line, with the per-page parts normalised: the
+# current-page mark, the <title>, and the footer's source name.
+frame_of() {
+  awk '/^<\/article>$/ { f = 0 } !f { print } /^<article>$/ { f = 1 }' "$1" \
+    | sed 's/ aria-current="page"//; s#<title>.*</title>#<title/>#; s#docs-site/[A-Za-z0-9_-]*\.\(md\|html\)#docs-site/SRC#g'
+}
+
 # ---------------------------------------------------------------- REAL site
 
 @test "build-docs-site: real site — one html per content page, README not published" {
@@ -398,4 +415,177 @@ fx_fixture_b() {
   local navorder
   navorder="$(nav_of "$FX/out/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
   [ "$navorder" = 'href="index.html" href="zeta.html" href="alpha.html" ' ]
+}
+
+# ------------------------------------------------------- FIXTURE: hand-written pages
+
+@test "build-docs-site: x.md and x.html both present -> exit 4, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "- [X](./x.md)"
+  fx_page x "markdown"
+  fx_html x '<h1>X</h1>'
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"both x.md and x.html exist"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: hand-written page without a derived-from header -> exit 4, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "- [X](./x.html)"
+  printf '<h1>X</h1>\n<!-- derived-from: too late -->\n' > "$FX/src/x.html"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"x.html: line 1 must be a"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: HTML index: list links inside <pre>, <code> and comments are not a nav -> exit 4" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_html index '<h1>Home</h1>' \
+    '<pre>' '<li><a href="other.html">O</a></li>' '</pre>' \
+    '<p>Example: <code>' '<li><a href="other.html">O</a></li></code></p>' \
+    '<!--' '<li><a href="other.html">O</a></li>' '-->'
+  fx_page other "o"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"page list names no page"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: hand-written index.html — body byte-identical; head, nav and footer equal a Markdown page's" {
+  need_pandoc
+  fx_html index '<h1>Home &amp; away</h1>' \
+    '<ul>' '<li><a href="other.html">Other</a></li>' '<li><a href="ent.html">Ent</a></li>' '</ul>' \
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>' \
+    '<script>document.createElementNS("http://www.w3.org/2000/svg","rect")</script>'
+  fx_page other "hello"
+  fx_html ent '<h1>a &amp;lt; b</h1>'
+  run fx_build
+  [ "$status" -eq 0 ]
+  # the body, byte for byte: neither pandoc reader touched it
+  cmp <(article_of "$FX/out/index.html") "$FX/src/index.html"
+  # the frame (head, nav, footer) equals the Markdown page's
+  diff <(frame_of "$FX/out/index.html") <(frame_of "$FX/out/other.html")
+  grep -qF '<title>Home &amp; away | devAgent</title>' "$FX/out/index.html"
+  nav_of "$FX/out/index.html" | grep -qF '>Home &amp; away</a>'
+  # entities decode once: &amp;lt; shows as the literal text "&lt;"
+  grep -qF '<title>a &amp;lt; b | devAgent</title>' "$FX/out/ent.html"
+  nav_of "$FX/out/ent.html" | grep -qF '>a &amp;lt; b</a>'
+}
+
+@test "build-docs-site: nav-label header sets the nav label; the H1 still sets the title" {
+  need_pandoc
+  fx_page index "- [Q](./q.html)"
+  printf '%s\n' '<!-- derived-from: fixture -->' '<!-- nav-label: Q & A -->' '<h1>A long hero heading</h1>' > "$FX/src/q.html"
+  run fx_build
+  [ "$status" -eq 0 ]
+  nav_of "$FX/out/index.html" | grep -qF '>Q &amp; A</a>'
+  grep -qF '<title>A long hero heading | devAgent</title>' "$FX/out/q.html"
+}
+
+@test "build-docs-site: hand-written page with no <h1> -> exit 5 naming it" {
+  need_pandoc
+  fx_page index "- [Bare](./bare.html)"
+  fx_html bare '<p>no heading here</p>'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"no <h1> in"*"bare.html"* ]]
+}
+
+@test "build-docs-site: HTML index nav order — a <pre> decoy, then the real list after </pre>" {
+  need_pandoc
+  fx_html index '<h1>Home</h1>' \
+    '<pre>' '<li><a href="alpha.html">Alpha</a></li>' '</pre>' \
+    '<ul>' '<li><a href="zeta.html">Zeta</a></li>' '</ul>'
+  fx_page alpha "a"
+  fx_page zeta "z"
+  run fx_build
+  [ "$status" -eq 0 ]
+  local navorder
+  navorder="$(nav_of "$FX/out/index.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  [ "$navorder" = 'href="index.html" href="zeta.html" href="alpha.html" ' ]
+}
+
+# t3h_row <status> <token> <index body line...> — one fixture dir per row:
+# index.html (the lines) + other.md, built pandoc-free.
+t3h_row() {
+  local want="$1" token="$2"; shift 2
+  t3h_n=$((t3h_n + 1))
+  FX="$BATS_TEST_TMPDIR/row$t3h_n"
+  mkdir -p "$FX/src"
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_html index '<h1>Home</h1>' "$@"
+  fx_page other "o"
+  run fx_build
+  [ "$status" -eq "$want" ] || { echo "row $t3h_n: status $status, want $want: $output" >&2; return 1; }
+  [[ "$output" == *"$token"* ]] || { echo "row $t3h_n: no '$token' in: $output" >&2; return 1; }
+  [ ! -e "$FX/out" ] || { echo "row $t3h_n: wrote $FX/out" >&2; return 1; }
+}
+
+@test "build-docs-site: HTML index parse-model edges (nav)" {
+  local e='<li><a href="other.html">O</a></li>' none='page list names no page' probe='pandoc is not installed'
+  t3h_n=0
+  t3h_row 4 "$none" '<script>' "$e" '</script>'
+  t3h_row 4 "$none" '<style>' "$e" '</style>'
+  t3h_row 4 "$none" '<template>' "$e" '</template>'
+  t3h_row 4 "$none" '<textarea>' "$e" '</textarea>'
+  t3h_row 4 "$none" '<PRE>' "$e" '</PRE>'
+  t3h_row 3 "$probe" '<preview>' "$e" '</preview>'
+  t3h_row 3 "$probe" '<li><a class="card" href="other.html">O</a></li>'
+  t3h_row 3 "$probe" '<LI><A HREF="other.html">O</A></LI>'
+  t3h_row 4 'put <li> and its <a href> on one line' '<li>' '<a href="other.html">O</a></li>'
+}
+
+# t3i_row <title> <index body line...> — one fixture dir per row, a lone
+# hand-written index.html, rendered; its <title> must come from <title>.
+t3i_row() {
+  local want="$1"; shift
+  t3i_n=$((t3i_n + 1))
+  FX="$BATS_TEST_TMPDIR/row$t3i_n"
+  mkdir -p "$FX/src"
+  fx_html index '<p>intro</p>' "$@"
+  run fx_build
+  [ "$status" -eq 0 ] || { echo "row $t3i_n: status $status: $output" >&2; return 1; }
+  grep -qF "<title>$want | devAgent</title>" "$FX/out/index.html" \
+    || { echo "row $t3i_n: $(grep -F '<title>' "$FX/out/index.html")" >&2; return 1; }
+}
+
+@test "build-docs-site: hand-written H1 parse-model edges" {
+  need_pandoc
+  t3i_n=0
+  t3i_row Real '<!-- <h1>Fake</h1> -->' '<h1>Real</h1>'
+  t3i_row Real '<pre>' '<h1>Fake</h1>' '</pre>' '<h1>Real</h1>'
+  t3i_row Real '<script>var s = "<h1>Fake</h1>";</script>' '<h1>Real</h1>'
+  t3i_row Upper '<H1 class="x">Upper</H1>'
+}
+
+@test "build-docs-site: README.html in --src -> exit 4, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  printf '%s\n' '<!-- derived-from: fixture -->' '<h1>Readme</h1>' > "$FX/src/README.html"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"README is reserved"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: Markdown index may name a hand-written page; omitted pages sort across kinds" {
+  need_pandoc
+  fx_page index "- [Hand](./hand.html)" "- [Alpha](./alpha.md)"
+  fx_html hand '<h1>Hand</h1>'
+  fx_page alpha "a"
+  fx_html beta '<h1>Beta</h1>'
+  fx_page mid "m"
+  run fx_build
+  [ "$status" -eq 0 ]
+  local navorder
+  navorder="$(nav_of "$FX/out/mid.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
+  [ "$navorder" = 'href="index.html" href="hand.html" href="alpha.html" href="beta.html" href="mid.html" ' ]
+  article_of "$FX/out/index.html" | grep -qF 'href="hand.html"'
 }

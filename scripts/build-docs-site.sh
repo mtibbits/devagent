@@ -62,17 +62,84 @@ esac
 command -v awk >/dev/null 2>&1 || die 3 "awk is not installed (the nav derivation needs it)"
 
 shopt -s nullglob
-pages=()
-for f in "$src"/*.md; do
-  [ "$(basename "$f")" = "README.md" ] && continue
-  pages+=("$(basename "$f" .md)")
+# Discovery: every *.md and *.html in --src is a content page except README.*,
+# which is docs-site's policy file (README.md is skipped, a README.html is
+# refused). Base names sort with LC_ALL=C across both kinds, so a page the
+# index's list omits lands alphabetically whatever its kind.
+declare -A kind=()
+names=()
+for f in "$src"/*.md "$src"/*.html; do
+  b="${f##*/}"
+  case "$b" in
+    README.md)   continue ;;
+    README.html) die 4 "README.html: README is reserved for docs-site's policy file" ;;
+  esac
+  p="${b%.*}"
+  [ -z "${kind[$p]:-}" ] || die 4 "both $p.md and $p.html exist in $src; keep one"
+  kind[$p]="${b##*.}"
+  names+=("$p")
 done
-[ "${#pages[@]}" -gt 0 ] || die 4 "no content pages (*.md other than README.md) in $src"
-[ -f "$src/index.md" ]   || die 4 "no index.md in $src — the site would have no root page"
+pages=()
+if [ "${#names[@]}" -gt 0 ]; then
+  sorted="$(printf '%s\n' "${names[@]}" | LC_ALL=C sort)" \
+    || die 3 "sort failed on the page names (the page order needs a working sort)"
+  while IFS= read -r p; do pages+=("$p"); done <<< "$sorted"
+fi
+[ "${#pages[@]}" -gt 0 ] || die 4 "no content pages (*.md or *.html other than README.*) in $src"
+[ -n "${kind[index]:-}" ] || die 4 "no index.md or index.html in $src; the site would have no root page"
+index_file="index.${kind[index]}"
+
+# A hand-written page's line 1 is the same provenance header a Markdown page
+# carries. (In a variable: an unquoted < inside [[ ]] is an operator.)
+derived_re='^<!-- derived-from: [^ ].* -->$'
+for p in "${pages[@]}"; do
+  [ "${kind[$p]}" = html ] || continue
+  l=''
+  IFS= read -r l < "$src/$p.html" || true
+  [[ $l =~ $derived_re ]] || die 4 "$p.html: line 1 must be a '<!-- derived-from: ... -->' header"
+done
 
 # A ``` or ~~~ line opens or closes a code fence. One rule, shared by the
 # Markdown title reader and the Markdown nav reader (#840).
 fence_awk='/^(```|~~~)/ { fence = !fence; next }'
+
+# Non-content regions of a hand-written page, one rule for the HTML nav reader
+# and the H1 reader: <!-- ... -->, and <pre>, <code>, <script>, <style>,
+# <template>, <textarea> from the opening tag through its closer. Tag names
+# compare case-blind; an opening tag is the name then ">", a space or a tab, so
+# <pre never matches <preview. A region may span lines and ends at its closer;
+# text after the closer is content. nc(line) returns the line minus region text.
+nc_awk='
+function nc(line,    out, l, i, t) {
+  out = ""
+  while (line != "") {
+    l = tolower(line)
+    if (nc_close != "") {
+      i = index(l, nc_close)
+      if (!i) return out
+      line = substr(line, i + length(nc_close))
+      nc_close = ""
+      continue
+    }
+    i = index(l, "<!--")
+    if (match(l, /<(pre|code|script|style|template|textarea)[> \t]/) && (!i || RSTART < i)) {
+      t = substr(l, RSTART + 1, RLENGTH - 2)
+      out = out substr(line, 1, RSTART - 1)
+      line = substr(line, RSTART + RLENGTH - 1)
+      nc_close = "</" t ">"
+      continue
+    }
+    if (i) {
+      out = out substr(line, 1, i - 1)
+      line = substr(line, i + 4)
+      nc_close = "-->"
+      continue
+    }
+    return out line
+  }
+  return out
+}
+'
 
 # First ATX H1 outside a code fence. Exits 1 when there is none.
 page_title() {
@@ -81,25 +148,77 @@ page_title() {
        END { if (!found) exit 1 }' "$1"
 }
 
-# nav_entries <index> — the page names the index's own top-level list links,
-# in order, one per line. Bullets inside a code fence are examples, not the
-# list. POSIX awk only (gawk and mawk agree).
-nav_entries() {
-  awk "$fence_awk"'
-       !fence && match($0, /^- \[[^]]*\]\(\.\/[A-Za-z0-9_-]+\.(md|html)\)/) {
-         s = substr($0, RSTART, RLENGTH)
-         sub(/^.*\]\(\.\//, "", s); sub(/\.(md|html)\)$/, "", s)
-         print s
+# html_h1 <file> — the first <h1>...</h1> outside non-content regions (it may
+# span lines), tags stripped, whitespace collapsed and trimmed. Entities are
+# left for html_unescape. Exits 1 when there is none or it is empty.
+html_h1() {
+  awk "$nc_awk"'
+       { buf = buf nc($0) "\n" }
+       END {
+         l = tolower(buf)
+         if (!match(l, /<h1[> \t]/)) exit 1
+         st = RSTART
+         e = index(substr(l, st), "</h1>")
+         if (!e) exit 1
+         t = substr(buf, st, e + 4)
+         gsub(/<[^>]*>/, "", t); gsub(/[ \t\r\n]+/, " ", t)
+         sub(/^ /, "", t); sub(/ $/, "", t)
+         if (t == "") exit 1
+         print t
        }' "$1"
 }
 
-html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
+# nav_label <file> — the value of a <!-- nav-label: ... --> line in the header
+# block (the run of <!-- ... --> lines from line 1), if any.
+nav_label() {
+  awk '!/^<!--.*-->$/ { exit }
+       /^<!-- nav-label: .+ -->$/ { v = $0; sub(/^<!-- nav-label: /, "", v); sub(/ -->$/, "", v); print v; exit }' "$1"
+}
 
-# Nav order: index first, then pages in the order index.md's own bullet list
-# ("- [Install](./install.md) ...") names them, then any page that list omits
-# (alphabetical, the glob's order). Prose links are ignored: the bullet list is
-# the page's table of contents. The order is read from the content, so there is
-# no second list to maintain.
+# nav_entries <index> — the page names the index's own top-level list links,
+# in order, one per line. POSIX awk only (gawk and mawk agree).
+#   index.md:   "- [Title](./page.md)" or "(./page.html)" bullets outside code
+#               fences.
+#   index.html: '<li><a ... href="page.html">' lines outside non-content
+#               regions (href double-quoted, <li> and <a> on one line). A lone
+#               <li> whose next non-blank line opens an <a> prints
+#               "!split <line>" and stops.
+nav_entries() {
+  case "$1" in
+    *.html)
+      awk "$nc_awk"'
+           { s = nc($0); l = tolower(s) }
+           lone {
+             if (l ~ /^[ \t]*$/) next
+             if (l ~ /^[ \t]*<a[ \t]/) { print "!split " lone; exit }
+             lone = 0
+           }
+           match(l, /^[ \t]*<li([ \t][^>]*)?>[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
+             m = substr(s, RSTART, RLENGTH)
+             sub(/\.[Hh][Tt][Mm][Ll]"$/, "", m); sub(/^.*"/, "", m); sub(/^\.\//, "", m)
+             print m
+             next
+           }
+           l ~ /^[ \t]*<li([ \t][^>]*)?>[ \t]*$/ { lone = NR }' "$1" ;;
+    *)
+      awk "$fence_awk"'
+           !fence && match($0, /^- \[[^]]*\]\(\.\/[A-Za-z0-9_-]+\.(md|html)\)/) {
+             s = substr($0, RSTART, RLENGTH)
+             sub(/^.*\]\(\.\//, "", s); sub(/\.(md|html)\)$/, "", s)
+             print s
+           }' "$1" ;;
+  esac
+}
+
+html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
+# &amp; last, so "&amp;lt;" decodes once, to the literal text "&lt;".
+html_unescape() { sed -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&quot;/"/g' -e "s/&#39;/'/g" -e 's/&amp;/\&/g'; }
+
+# Nav order: index first, then pages in the order the index's own list names
+# them, then any page that list omits (LC_ALL=C order of base names, across
+# both kinds). Prose links are ignored: the list is the page's table of
+# contents. The order is read from the content, so there is no second list to
+# maintain.
 #
 # Everything down to the pandoc probe needs no pandoc, so its refusals are
 # testable in a lane that has none.
@@ -107,17 +226,25 @@ order=(index)
 contains() { local n="$1" x; shift; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
 # A command substitution, not < <( ... ): a failing reader must stop the build
 # here, not read as an empty list.
-listed="$(nav_entries "$src/index.md")" || die 4 "could not read the page list in $src/index.md"
+listed="$(nav_entries "$src/$index_file")" || die 4 "could not read the page list in $src/$index_file"
 while IFS= read -r linked; do
+  case "$linked" in
+    '!split '*) die 4 "$index_file:${linked#!split }: put <li> and its <a href> on one line" ;;
+  esac
   if contains "$linked" "${pages[@]}" && ! contains "$linked" "${order[@]}"; then order+=("$linked"); fi
 done <<< "$listed"
-# A site with pages beyond index.md whose list matched NONE of them means the
+# A site with pages beyond the index whose list matched NONE of them means the
 # list changed shape ("* " bullets, a nested list, a moved section) and the
 # reader above saw nothing. Falling through to alphabetical would publish a
 # reordered nav with exit 0; refuse instead. (A page the list merely omits is
 # fine and is appended below.)
 if [ "${#pages[@]}" -gt 1 ] && [ "${#order[@]}" -eq 1 ]; then
-  die 4 "index.md's page list names no page: expected top-level bullets like '- [Title](./page.md)' in $src/index.md"
+  if [ "${kind[index]}" = md ]; then
+    shape="top-level bullets like '- [Title](./page.md)'"
+  else
+    shape="lines like '<li><a href=\"page.html\">Title</a></li>' outside <pre>, <code> and comments"
+  fi
+  die 4 "$index_file's page list names no page: expected $shape in $src/$index_file"
 fi
 for p in "${pages[@]}"; do contains "$p" "${order[@]}" || order+=("$p"); done
 
@@ -138,15 +265,46 @@ if [ -e "$out" ]; then
 fi
 mkdir -p "$out"
 
+# Titles and nav labels. A Markdown page's come from its first '# ' heading. A
+# hand-written page's title comes from its first <h1> (entities decoded once);
+# its label is a nav-label header's value when it has one, else the title.
+# Either way the label is escaped here, the <title> by pandoc.
 declare -A title=() label=()
 for p in "${pages[@]}"; do
-  t="$(page_title "$src/$p.md")" || die 5 "no top-level '# ' heading in $src/$p.md"
+  if [ "${kind[$p]}" = md ]; then
+    t="$(page_title "$src/$p.md")" || die 5 "no top-level '# ' heading in $src/$p.md"
+    lbl="$t"
+  else
+    t="$(html_h1 "$src/$p.html")" || die 5 "no <h1> in $src/$p.html"
+    t="$(printf '%s\n' "$t" | html_unescape)"
+    lbl="$(nav_label "$src/$p.html")"
+    lbl="${lbl:-$t}"
+  fi
   title[$p]="$t"
-  label[$p]="$(printf '%s' "$t" | html_escape)"
+  label[$p]="$(printf '%s' "$lbl" | html_escape)"
 done
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+# A hand-written page renders through the same pandoc call as a Markdown page,
+# with a one-line marker as its input; the marker's line in the output is then
+# replaced by the page's own bytes, so the frame is equal by construction and
+# neither pandoc reader touches the body.
+marker='<!--docs-site-body-->'
+printf '%s\n' "$marker" > "$work/marker.md"
+splice() {
+  local frame="$work/$1.frame.html" page="$src/$1.html" n at
+  n="$(grep -cxF -- "$marker" "$frame" || true)"
+  [ "$n" = 1 ] || die 5 "pandoc did not keep the body marker in $1.html"
+  at="$(grep -nxF -- "$marker" "$frame" | cut -d: -f1)"
+  {
+    head -n "$((at - 1))" "$frame"
+    cat "$page"
+    [ -z "$(tail -c 1 "$page")" ] || printf '\n'
+    tail -n "+$((at + 1))" "$frame"
+  } > "$out/$1.html"
+}
 
 for p in "${pages[@]}"; do
   nav="$work/$p.nav.html"
@@ -160,16 +318,27 @@ for p in "${pages[@]}"; do
     printf '</nav>\n'
   } > "$nav"
 
+  if [ "${kind[$p]}" = md ]; then
+    input="$src/$p.md" dest="$out/$p.html"
+  else
+    input="$work/marker.md" dest="$work/$p.frame.html"
+  fi
   pandoc --from=gfm --to=html5 --standalone --no-highlight \
     --template="$assets/page.html" \
     --lua-filter="$assets/links.lua" \
     --include-before-body="$nav" \
     --metadata pagetitle="${title[$p]} | devAgent" \
     --metadata blob_base="$blob_base" \
-    --metadata srcname="$p.md" \
-    --output="$out/$p.html" "$src/$p.md" \
-    || die 5 "pandoc failed on $src/$p.md"
+    --metadata srcname="$p.${kind[$p]}" \
+    --output="$dest" "$input" \
+    || die 5 "pandoc failed on $src/$p.${kind[$p]}"
+  [ "${kind[$p]}" = md ] || splice "$p"
 done
+
+# Placeholder seam: child 2 defines the build-time tokens. It runs once per
+# content page, after rendering and before the closure check. Identity today.
+expand_placeholders() { :; }
+for p in "${pages[@]}"; do expand_placeholders "$out/$p.html"; done
 
 # Independent count: what landed on disk, not what the loop believes it wrote.
 built=("$out"/*.html)

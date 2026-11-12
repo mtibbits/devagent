@@ -11,6 +11,7 @@
 --   scheme:...   (https:, mailto:)   unchanged
 --   #fragment                        unchanged
 --   ./<page>.md[#frag]               <page>.html[#frag]
+--   ./<page>.html[#frag]             <page>.html[#frag]   (a hand-written page)
 --   ../<path>[#frag]                 <blob_base><path>[#frag]
 --   anything else                    error
 
@@ -39,6 +40,12 @@ local function rewrite(el)
   local page, frag = t:match("^%./([%w_-]+)%.md(.*)$")
   if page and (frag == "" or frag:match("^#")) then
     el.target = page .. ".html" .. frag
+    return el
+  end
+  -- a hand-written sibling page (#995)
+  local hpage, hfrag = t:match("^%./([%w_-]+)%.html(.*)$")
+  if hpage and (hfrag == "" or hfrag:match("^#")) then
+    el.target = hpage .. ".html" .. hfrag
     return el
   end
   error("build-docs-site: unclassified link target: " .. t)
