@@ -466,3 +466,78 @@ print("ok")'
   [ "$status" -eq 4 ]
   [ "$output" = "$W/1.md:4: comment entry has no text" ]
 }
+
+# ---------------------------------------------------------------- Task 5: list and the JSON shape
+
+PROMPT_JSON='"The settings page should have a switch that flips the site between light and dark.\nDone when the choice survives a page reload."'
+TITLE_JSON='"Add a dark-mode toggle to the settings page"'
+
+@test "di: parse prints the pinned JSON line for both example files" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  cp "$FIX/full.md" "$W/2.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"n":1,"title":'"$TITLE_JSON"',"keys":{"state":"open"},"prompt":'"$PROMPT_JSON"',"comments":[],"warnings":[]}' ]
+  run --separate-stderr di parse "$W/2.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"n":2,"title":'"$TITLE_JSON"',"keys":{"state":"closed","status":"Done","parent":3},"prompt":'"$PROMPT_JSON"',"comments":[{"date":"2026-11-10","text":"on_draft_start: status In Progress","line":11},{"date":"2026-11-10","text":"on_ship: status In Review","line":12},{"date":"2026-11-11","text":"on_merge: status Done, closed","line":13}],"warnings":[]}' ]
+}
+
+@test "di: list of an empty folder prints nothing and exits 0" {
+  run --separate-stderr di list "$W"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "di: list sorts by N and ignores non-issue names" {
+  for f in 10.md 2.md 1.md .1.md.tmp-x 0.md 01.md README.md; do printf '# T %s\n' "$f" > "$W/$f"; done
+  mkdir "$W/sub" "$W/4.md"
+  printf '# T\n' > "$W/sub/3.md"
+  run --separate-stderr di list "$W"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+  [ "$(json_get "${lines[0]}" '[o["n"], o["title"]]')" = '[1, "T 1.md"]' ]
+  [ "$(json_get "${lines[1]}" '[o["n"], o["title"]]')" = '[2, "T 2.md"]' ]
+  [ "$(json_get "${lines[2]}" '[o["n"], o["title"]]')" = '[10, "T 10.md"]' ]
+}
+
+@test "di: list prints every line, then exits 4 when one file is faulty" {
+  printf '# A\n' > "$W/1.md"
+  printf '# B\nstate: maybe\n' > "$W/2.md"
+  printf '# C\n' > "$W/3.md"
+  run --separate-stderr di list "$W"
+  [ "$status" -eq 4 ]
+  [ "${#lines[@]}" -eq 3 ]
+  [ "${lines[1]}" = '{"n":2,"faults":[{"line":2,"message":"state must be \"open\" or \"closed\", got \"maybe\"; if this line is prose, put a blank line above it"}],"warnings":[]}' ]
+  [ "$(json_get "${lines[2]}" 'o["title"]')" = '"C"' ]
+}
+
+@test "di: list on a missing folder exits 1" {
+  run --separate-stderr di list "$W/nope"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"$W/nope: cannot read folder"* ]]
+}
+
+@test "di: an unreadable file gives exit 1 and a cannot-read fault" {
+  skip_on_git_bash "chmod 000"
+  [ "$(id -u)" -ne 0 ] || skip "root reads a mode-000 file"
+  printf '# A\n' > "$W/1.md"
+  printf '# B\nstate: maybe\n' > "$W/2.md"
+  printf '# C\n' > "$W/3.md"
+  chmod 000 "$W/3.md"
+  run --separate-stderr di list "$W"
+  chmod 600 "$W/3.md"
+  [ "$status" -eq 1 ]
+  [ "${#lines[@]}" -eq 3 ]
+  [ "${lines[2]}" = '{"n":3,"faults":[{"line":1,"message":"cannot read: Permission denied"}],"warnings":[]}' ]
+}
+
+@test "di: JSON output is UTF-8 with LF only" {
+  printf '# Caf\xc3\xa9 \xe2\x80\x94 \xe6\x97\xa5\xe6\x9c\xac\r\n\r\nl\xc3\xa9\r\n' > "$W/1.md"
+  di parse "$W/1.md" > "$W/out"
+  di list "$W" >> "$W/out"
+  ! grep -q $'\r' "$W/out"
+  [ "$(grep -c 'Café — 日本' "$W/out")" -eq 2 ]
+  [ "$(grep -c '"prompt":"lé"' "$W/out")" -eq 2 ]
+}

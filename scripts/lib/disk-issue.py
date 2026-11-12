@@ -597,7 +597,31 @@ def cmd_check(args: list) -> int:
 def cmd_list(args: list) -> int:
     if len(args) != 1:
         raise _usage_error("list takes one folder")
-    raise Fail(EXIT_IO, "list: not implemented")
+    folder = args[0]
+    try:
+        names = os.listdir(folder)
+    except OSError as e:
+        _err(f"disk-issue: {folder}: cannot read folder: {_strerror(e)}\n")
+        return EXIT_IO
+    found = []
+    for name in names:
+        if not _ISSUE_NAME_RE.match(name):   # dot-named temp files, 0.md, 01.md, README.md
+            continue
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+        found.append((int(name[:-3]), path))
+    unreadable = faulty = False
+    for n, path in sorted(found):
+        try:
+            iss = _load(path)
+        except OSError as e:
+            iss = Issue()
+            iss.faults.append((1, f"cannot read: {_strerror(e)}"))
+            unreadable = True
+        faulty = faulty or bool(iss.faults)
+        _out(_json_line(issue_json(n, iss)))
+    return EXIT_IO if unreadable else EXIT_FAULTY if faulty else EXIT_OK
 
 
 def cmd_set(args: list) -> int:
