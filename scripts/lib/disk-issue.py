@@ -4,17 +4,8 @@
 One issue per file, `<folder>/<N>.md`. This module is the one parser and the
 one writer that the disk issue backend, doctor, `wbs init --from-tracker` and
 the publish/import converters share, so they can never disagree about what a
-file means. The format is documented in docs/disk-issues.md.
-
-    disk-issue.py parse <file>
-    disk-issue.py list <folder>
-    disk-issue.py check <file>...
-    disk-issue.py set <file> key=value... [--unset key]... [--comment <text>] [--date <YYYY-MM-DD>]
-    disk-issue.py create <folder> <N> <title> <prompt-file> [key=value...]
-
-Exit codes: 0 ok; 1 an I/O failure, or the file changed underneath; 2 usage, or
-a refused value or prompt; 3 `create` found the file already there; 4 the file
-fails the check (and was not written).
+file means. The format, the verbs and the exit codes are documented in
+docs/disk-issues.md.
 
 Python 3.8 floor, stdlib only.
 """
@@ -98,9 +89,10 @@ def _issue_file_arg(arg: str) -> str:
 # ------------------------------------------------------------------ reader
 
 _BOM = b"\xef\xbb\xbf"
-_KEY_RE = re.compile(r"^(state|status|parent|labels|github):(.*)$")
-_PARENT_RE = re.compile(r"^#?([1-9][0-9]{0,17})$")
-_GITHUB_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]{0,17}$")
+_NUM = r"[1-9][0-9]{0,17}"   # an issue number: at most 18 digits, no leading zero
+_KEY_RE = re.compile(r"^(" + "|".join(KEYS) + r"):(.*)$")
+_PARENT_RE = re.compile(r"^#?(" + _NUM + r")$")
+_GITHUB_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#" + _NUM + r"$")
 PROMPT_H, COMMENTS_H = "## Prompt", "## Comments"
 HINT = "; if this line is prose, put a blank line above it"
 
@@ -267,7 +259,6 @@ class Issue:
         self.comments: list = []
         self.faults: list = []
         self.warnings: list = []
-        # layout
         self.bom = False
         self.eol = b"\n"
         self.lines: list = []
@@ -302,7 +293,6 @@ def read_issue(data: bytes) -> Issue:
     iss.bodies = bodies
     n = len(lines)
 
-    # Title: the first non-blank line.
     t = next((i for i, b in enumerate(bodies) if not _blank(b)), None)
     if t is None:
         iss.faults.append((1, "no title line"))
@@ -316,7 +306,6 @@ def read_issue(data: bytes) -> Issue:
     iss.title = title
     iss.title_idx = t
 
-    # Header: known-key lines directly under the title.
     i = t + 1
     while i < n:
         m = _KEY_RE.match(bodies[i])
@@ -334,10 +323,10 @@ def read_issue(data: bytes) -> Issue:
         i += 1
     start = iss.header_end = i
 
-    in_code, _unclosed, over = classify_fences(bodies, start)
+    in_code, unclosed, over = classify_fences(bodies, start)
     iss.in_code = in_code
     if over is not None:
-        iss.faults.append((over + 1, f"more than {MAX_UNCLOSED} unclosed code fence openers ({_unclosed} found)"))
+        iss.faults.append((over + 1, f"more than {MAX_UNCLOSED} unclosed code fence openers ({unclosed} found)"))
 
     # W1: a valid header line just after the blank line that ends the header block.
     j = start
@@ -355,7 +344,6 @@ def read_issue(data: bytes) -> Issue:
                 iss.warnings.append((j + 1, f'"{shown}" is read as prose because a blank line is above it; '
                                             "delete the blank line if it is a header line"))
 
-    # Sections.
     first_text = None
     for i in range(start, n):
         b = bodies[i]
@@ -536,15 +524,14 @@ def _rank(key: str) -> int:
     return KEYS.index(key)
 
 
-def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
-    """New bytes for a fault-free `iss` read from `data`, or None when nothing
-    changes. `sets` holds trimmed values, written as given; `comment` is the
+def render_set(iss: Issue, sets: dict, unsets: set, comment=None):
+    """New bytes for a fault-free `iss`, or None when nothing changes. `sets` holds trimmed values, written as given; `comment` is the
     already-rendered entry text lines (Task 7) or None. Untouched lines are
     copied byte for byte."""
     eol = iss.eol
     t = iss.title_idx
     header = [[iss.bodies[i].split(":", 1)[0], iss.lines[i]] for i in range(t + 1, iss.header_end)]
-    keyed = {k: entry for k, entry in ((e[0], e) for e in header)}
+    keyed = {e[0]: e for e in header}
     intended = dict(iss.keys)
     changed = False
     removals = set(unsets)
@@ -602,7 +589,7 @@ def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
             # after the last non-blank line of the comments section; `out`
             # ends with lines[comments_idx:] copied unchanged
             heading = len(out) - (n - iss.comments_idx)
-            last = max(k for k in range(heading, len(out)) if not _blank(_body(out[k])))
+            last = next(k for k in range(len(out) - 1, heading - 1, -1) if not _blank(_body(out[k])))
             out[last + 1:last + 1] = entry
         else:
             if not _blank(_body(out[-1])):
@@ -909,13 +896,21 @@ def _comment_lines(text: str) -> list:
     return lines
 
 
-def cmd_set(args: list) -> int:
-    path, sets, unsets, comment, date = _parse_set_args(args)
-    for key, value in sets.items():
+def _validated(values: dict) -> dict:
+    """`values` normalised by `_validate`, starting from state=open; a refused
+    value is a usage failure."""
+    normalised = {"state": "open"}
+    for key, value in values.items():
         try:
-            _validate(key, value)
+            normalised[key] = _validate(key, value)
         except ValueError as e:
             raise Fail(EXIT_USAGE, str(e))
+    return normalised
+
+
+def cmd_set(args: list) -> int:
+    path, sets, unsets, comment, date = _parse_set_args(args)
+    _validated(sets)
     entry = None
     if comment is not None:
         text_lines = _comment_lines(_utf8_arg(comment, "comment"))
@@ -939,16 +934,15 @@ def cmd_set(args: list) -> int:
                 for text in _check_lines(path, iss):
                     _err(text + "\n")
                 return EXIT_FAULTY
-            new = render_set(data, iss, sets, unsets, entry)
+            new = render_set(iss, sets, unsets, entry)
             if new is None:
                 return EXIT_OK
             tmp = None
             try:
                 tmp = _write_temp(folder, base, new, mode)
                 if _read_bytes(path) != data:
-                    # another session or an editor saved since the read
-                    _unlink_quiet(tmp)
-                    tmp = None
+                    # another session or an editor saved since the read;
+                    # `finally` removes the temp file
                     if attempt == 2:
                         raise Fail(EXIT_IO, f"{path}: changed while being written; not overwritten")
                     continue
@@ -964,7 +958,7 @@ def cmd_set(args: list) -> int:
     return EXIT_IO   # not reached
 
 
-_N_RE = re.compile(r"^[1-9][0-9]{0,17}$")
+_N_RE = re.compile(r"^" + _NUM + r"$")
 
 
 def render_new(title: str, prompt: str, keys: dict) -> bytes:
@@ -1022,12 +1016,7 @@ def cmd_create(args: list) -> int:
         raise Fail(EXIT_USAGE, "empty title")
     keys: dict = {}
     _parse_kv(args[4:], keys)
-    normalised = {"state": "open"}
-    for key, value in keys.items():
-        try:
-            normalised[key] = _validate(key, value)
-        except ValueError as e:
-            raise Fail(EXIT_USAGE, str(e))
+    normalised = _validated(keys)
     prompt = _read_prompt(prompt_file)
 
     new = render_new(title, prompt, keys)

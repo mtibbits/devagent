@@ -28,17 +28,20 @@ py_mod() {
   local code="$1"; shift
   python3 - "$DI" "$@" <<PY
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("disk_issue", sys.argv[1])
-di = importlib.util.module_from_spec(spec); sys.modules["disk_issue"] = di
-spec.loader.exec_module(di)
+sys.path.insert(0, "$PLUGIN_ROOT/tests/helpers")
+from disk_issue_inject import load
+di = load()
 args = sys.argv[2:]
 $code
 PY
 }
 
 # crlf <src> <dst> — an every-line-CRLF copy; bom <src> <dst> — a BOM-prefixed copy.
-crlf() { python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); open(sys.argv[2],"wb").write(d.replace(b"\r\n",b"\n").replace(b"\n",b"\r\n"))' "$1" "$2"; }
+crlf() { python3 "$PLUGIN_ROOT/tests/helpers/wbs_bytes.py" variant "$1" crlf "$2"; }
 bom() { { printf '\xef\xbb\xbf'; cat "$1"; } > "$2"; }
+
+# file_bytes eq|endswith <file> <python bytes literal> — exact-bytes check on <file>.
+file_bytes() { python3 -c 'import ast,sys; d=open(sys.argv[2],"rb").read(); w=ast.literal_eval(sys.argv[3]); sys.exit(0 if (d == w if sys.argv[1] == "eq" else d.endswith(w)) else 1)' "$@"; }
 
 # jq-free JSON field read: json_get <json> <python-expression over `o`>
 json_get() { python3 -c 'import json,sys; o=json.loads(sys.argv[1]); print(json.dumps(eval(sys.argv[2]), ensure_ascii=False))' "$1" "$2"; }
@@ -580,8 +583,7 @@ no_temp_left() { ! compgen -G "$1/.*.tmp-*" > /dev/null; }
   printf 'T\n\n\nline one  \nhas\rcr\nff\x0cx\n' > "$W/1.md"
   run --separate-stderr di set "$W/1.md" state=closed
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); print(d == b"# T\nstate: closed\n\n## Prompt\nline one  \nhas\rcr\nff\x0cx\n")' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes eq "$W/1.md" 'b"# T\nstate: closed\n\n## Prompt\nline one  \nhas\rcr\nff\x0cx\n"'
 }
 
 @test "di: a full-form set changes only the named line" {
@@ -663,8 +665,7 @@ b"
   printf 'T' > "$W/1.md"
   run --separate-stderr di set "$W/1.md" state=closed
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\nstate: closed\n")' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes eq "$W/1.md" 'b"# T\nstate: closed\n"'
 }
 
 @test "di: values are written as given, after trimming" {
@@ -697,8 +698,7 @@ b"
   before="$(json_get "$(di parse "$W/1.md")" 'o["prompt"]')"
   DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment hello
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"reload.\n\n## Comments\n- 2026-11-10 hello\n"))' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes endswith "$W/1.md" 'b"reload.\n\n## Comments\n- 2026-11-10 hello\n"'
   [ "$(json_get "$(di parse "$W/1.md")" 'o["prompt"]')" = "$before" ]
 }
 
@@ -706,8 +706,7 @@ b"
   head -n 8 "$FIX/full.md" > "$W/1.md"
   DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment $'first\nline two\n\nsecond'
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"- 2026-11-10 first\n  line two\n\n  second\n"))' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes endswith "$W/1.md" 'b"- 2026-11-10 first\n  line two\n\n  second\n"'
   [ "$(json_get "$(di parse "$W/1.md")" '[(c["date"], c["text"]) for c in o["comments"]]')" = '[["2026-11-10", "first\nline two\n\nsecond"]]' ]
 }
 
@@ -772,8 +771,7 @@ b"
   printf '# T\n\n## Prompt\n```\nopen\n' > "$W/1.md"
   DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment $'see\n```\ncode'
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"\n## Comments\n- 2026-11-10 see\n  ```\n  code\n"))' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes endswith "$W/1.md" 'b"\n## Comments\n- 2026-11-10 see\n  ```\n  code\n"'
   run --separate-stderr di parse "$W/1.md"
   [ "$(json_get "$output" '[o["prompt"], [c["text"] for c in o["comments"]]]')" = '["```\nopen", ["see\n```\ncode"]]' ]
   run --separate-stderr di check "$W/1.md"
@@ -1193,13 +1191,11 @@ print(" ".join(sorted(names)))' < <(di parse "$W/2.md"; di parse "$W/3.md" || tr
   [ "$(json_get "$output" '[o["prompt"], o["comments"]]')" = '["x", []]' ]
   DEVAGENT_DATE_OVERRIDE=2026-11-12 run --separate-stderr di set "$W/1.md" --comment b
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\r\n\r\n## Prompt\r\nx\r\n## Comments\r\n- 2026-11-12 b\r\n")' "$W/1.md"
-  [ "$output" = "True" ]
+  file_bytes eq "$W/1.md" 'b"# T\r\n\r\n## Prompt\r\nx\r\n## Comments\r\n- 2026-11-12 b\r\n"'
   printf '# T\r\n\r\n## Prompt\r\nx\r' > "$W/2.md"
   DEVAGENT_DATE_OVERRIDE=2026-11-12 run --separate-stderr di set "$W/2.md" --comment b
   [ "$status" -eq 0 ]
-  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read() == b"# T\r\n\r\n## Prompt\r\nx\r\n\r\n## Comments\r\n- 2026-11-12 b\r\n")' "$W/2.md"
-  [ "$output" = "True" ]
+  file_bytes eq "$W/2.md" 'b"# T\r\n\r\n## Prompt\r\nx\r\n\r\n## Comments\r\n- 2026-11-12 b\r\n"'
   printf 'T\r' > "$W/3.md"
   run --separate-stderr di set "$W/3.md" state=closed
   [ "$status" -eq 0 ]

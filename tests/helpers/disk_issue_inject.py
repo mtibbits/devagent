@@ -58,12 +58,13 @@ def _kill_before_replace(mod):
 def _change(times):
     def patch(mod):
         real = mod._write_temp
-        state = {"left": times}
+        left = times
 
         def write_temp(folder, base, data, mode):
+            nonlocal left
             tmp = real(folder, base, data, mode)
-            if state["left"]:
-                state["left"] -= 1
+            if left:
+                left -= 1
                 with open(os.path.join(folder, base), "ab") as fh:
                     fh.write(b"other session\n")
             return tmp
@@ -73,23 +74,24 @@ def _change(times):
 
 def _count_replace(mod):
     real = mod._replace
-    count = {"n": 0}
+    count = 0
 
     def replace(tmp, path):
-        count["n"] += 1
+        nonlocal count
+        count += 1
         real(tmp, path)
     mod._replace = replace
-    return lambda: print(f"replaces={count['n']}", file=sys.stderr)
+    return lambda: print(f"replaces={count}", file=sys.stderr)
 
 
 def _win_share(mod, k):
-    mod._IS_WINDOWS = True
     real = mod._replace
-    left = {"n": -1 if k == "always" else int(k)}
+    left = -1 if k == "always" else int(k)
 
     def replace(tmp, path):
-        if left["n"] != 0:
-            left["n"] -= 1
+        nonlocal left
+        if left != 0:
+            left -= 1
             raise PermissionError(13, "The process cannot access the file")
         real(tmp, path)
     mod._replace = replace
@@ -117,7 +119,6 @@ def _no_subprocess(mod):
 
 
 MODES: dict = {
-    "none": lambda mod: None,
     "kill-before-replace": _kill_before_replace,
     "change-once": _change(1),
     "change-always": _change(-1),
