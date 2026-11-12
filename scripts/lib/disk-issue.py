@@ -290,6 +290,10 @@ def read_issue(data: bytes) -> Issue:
         except UnicodeDecodeError:
             iss.faults.append((i + 1, "not valid UTF-8"))
             return iss
+        if bodies[-1].endswith("\r"):
+            # `\r\r\n`: headings and the title would silently stop matching
+            iss.faults.append((i + 1, "line ends in a stray CR; save the file with LF or CRLF line endings"))
+            return iss
     iss.bodies = bodies
     n = len(lines)
 

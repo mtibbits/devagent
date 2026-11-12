@@ -94,7 +94,9 @@ read as prose, and `check` warns about it. Later prose such as
 
 The body has two optional sections. Each starts with a line that reads
 exactly `## Prompt` or `## Comments`. Trailing spaces and a CR are tolerated;
-the heading is case-sensitive, and it must sit outside a code fence.
+the heading is case-sensitive, and it must sit outside a code fence. A line
+that ends in a second CR (`\r\r\n`) fails the check, so a mangled file is
+never edited.
 
 - **The prompt** is the text under `## Prompt`, up to `## Comments` or the end
   of the file. Leading and trailing blank lines are removed, and line endings
@@ -227,7 +229,7 @@ The full-form example, saved as `2.md`, parses to:
 | Code | Meaning |
 |---|---|
 | 0 | OK. |
-| 1 | An I/O failure, or the file changed underneath the write. |
+| 1 | An I/O failure; the file changed underneath the write; another writer held the folder lock for too long; or an internal error where the result did not read back (the file is left unchanged). |
 | 2 | Usage, or a refused value or prompt. |
 | 3 | `create` found the file already there. |
 | 4 | The file fails the check (and was not written). |

@@ -249,6 +249,27 @@ print("ok", len(cases))'
   [ ! -s "$BATS_TEST_TMPDIR/err" ]
 }
 
+@test "di: a stray CR (CR CR LF) fails check, and set leaves the file alone" {
+  printf '# T\r\r\n\r\r\n## Prompt\r\r\nx\r\r\n\r\r\n## Comments\r\r\n- 2026-11-10 hi\r\r\n' > "$W/1.md"
+  cp "$W/1.md" "$W/orig"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/1.md:1: line ends in a stray CR; save the file with LF or CRLF line endings" ]
+  run --separate-stderr di set "$W/1.md" --comment again
+  [ "$status" -eq 4 ]
+  cmp "$W/1.md" "$W/orig"
+}
+
+@test "di: one CR on an unterminated last line is still tolerated, two are not" {
+  printf '# T\r\n\r\n## Prompt\r\nx\r' > "$W/1.md"
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 0 ]
+  printf '# T\r\n\r\n## Prompt\r\nx\r\r' > "$W/2.md"
+  run --separate-stderr di check "$W/2.md"
+  [ "$status" -eq 4 ]
+  [ "$output" = "$W/2.md:4: line ends in a stray CR; save the file with LF or CRLF line endings" ]
+}
+
 @test "di: later status: green on CI never warns" {
   printf '# T\n\nThe build.\nstatus: green on CI\n' > "$W/1.md"
   run --separate-stderr di check "$W/1.md"
