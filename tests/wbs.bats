@@ -1150,6 +1150,11 @@ _wbs865_order() {
   [[ "$spec131" == *"is not <namespace>:<id>"* ]]
   [[ "$spec131" == *"is not an integer from 0 to 4"* ]]
   grep -qF '`objective`' "$REPO/commands/wbs.md"
+  # #890: thinking and checking join them, with their warning text
+  grep -qF 'objective, h, thinking, checking' "$REPO/templates/wbs_template.md"
+  [[ "$spec131" == *'`h`, `thinking`, `checking`'* ]]
+  [[ "$spec131" == *"is not one of: "* ]]
+  grep -qF '`thinking`' "$REPO/commands/wbs.md"
   [[ "$spec131" == *'**Ordering (#803).**'* ]]
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }

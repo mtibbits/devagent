@@ -1110,7 +1110,9 @@ runs each step (surfacing #150; dispatch #151; per-issue override #291).
 Implemented in `scripts/lib/config.sh` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
-step runs at the session model).
+step runs at the session model). The portfolio's per-leaf `models` field
+(#890) reads the `thinking`, `checking` and `default` keys only; numeric
+per-step keys are ignored there.
 
 Steps map to three fixed classes by canonical step number:
 
@@ -2525,6 +2527,19 @@ each distinct failing entry warns once:
 
 The `h` rule (`h_value`) is also the portfolio's (#726).
 
+`thinking` and `checking` (#890) name the model a leaf's thinking-class and
+checking-class steps are planned to run on: each is one token of
+`model_token_allowlist` (`scripts/lib/flags.sh`), `inherit` meaning the
+session model, and either key may appear alone. They record a plan:
+devagent never acts on them, and `meta` keeps them as written. A value that
+is not one token (matched case-sensitively, as written) is a node parse
+warning that `wbs show` prints once:
+
+- `line N: thinking '<v>' is not one of: <tokens>` (and likewise for `checking`)
+
+The rule (`model_value`) is also the portfolio's, which publishes each leaf's
+planned `models` (§13.4).
+
 `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
 from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
@@ -2857,7 +2872,10 @@ and `WBS.md`, writes the document owner-only under `devagent_home` (never
 under a devdoc, source checkout or worktree root), and lists everything the
 parser reads silently in `parse_report`. It writes (or, under `--ready`,
 prints) only when the document passes both the structural checker and its own
-cross-field invariants I1–I16; the checker's exit 0 alone is not correctness.
+cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
+Since schema 1.2 (#890) the document also publishes each leaf's planned
+`models`, from its `thinking`/`checking` keys, else the project's
+`step_models`; it records the plan, not the model a step ran on.
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and

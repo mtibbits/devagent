@@ -182,6 +182,8 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 # dispatch), while of the thinking class only step 2 (draft) dispatches — for
 # 9/10/11/14 the tier is an ADVISORY next/catchup hint, since a session cannot
 # swap its own model.
+# The portfolio's per-leaf `models` field reads thinking/checking/default only;
+# numeric per-step keys are ignored there (#890).
 # [project.{{PROJECT}}.step_models]
 # default  = "sonnet"
 # thinking = "opus"     # draft, implement, quality, document, draftmr

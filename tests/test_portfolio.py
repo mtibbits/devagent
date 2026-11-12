@@ -325,7 +325,7 @@ def test_rollup_matches_example():
         assert pf.rollup(p["nodes"]) == p["rollup"], p["project"]
 
 
-# --- invariants I1–I16 ---------------------------------------------------------
+# --- invariants I1–I17 ---------------------------------------------------------
 
 def test_example_satisfies_invariants():
     assert pf.invariant_violations(_example()) == []

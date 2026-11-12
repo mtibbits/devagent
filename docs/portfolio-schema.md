@@ -1,4 +1,4 @@
-# Portfolio document schema (v1.1)
+# Portfolio document schema (v1.2)
 
 The portfolio document is one generated JSON file that describes every
 configured project: its WBS nodes, the issues those nodes name, and a
@@ -313,6 +313,16 @@ not a key list, and readers must not treat it as one.
 producer would report n5's `h` (`h_malformed`) and n6's `est`
 (`est_unparseable`). The example is not wrong; do not "fix" it to match.
 
+**Models** (#890). On each leaf, `models.thinking` and `models.checking` are
+the leaf's own key when it is one `model_token_allowlist` token (`source:
+wbs`); else the project's `step_models` class key, then `default` (`source:
+project`; an empty value is unset); else null. A malformed leaf key counts as
+absent and falls through to the project; a project value that is not a token
+gives null, with no fall-through to `default`. Each bad value is a `bad_model`
+report entry. `inherit` means the session model, not a choice. Parents carry
+no `models`. The field shows the plan, not the run: no issue body, marker or
+dispatch is read.
+
 ### Who writes each field
 
 | Field or member | Writer |
@@ -321,6 +331,7 @@ producer would report n5's `h` (`h_malformed`) and n6's `est`
 | `est.class`, `est.low_hours`, `est.high_hours`, `est.quantity`, `est.unit` | #726, through #737's classifier and its hour factors. Until #737 lands, #726 uses an interim classifier with provisional working-time factors (`h` = 1, `d` = 8, `w` = 40; exact units, ranges `unparseable`), which #737's helper replaces ([obligation on #737](https://github.com/mtibbits/devagent/issues/737#issuecomment-6670452997)) |
 | `est.src` (`confirmed`, `derived`, null) | #726, from `meta.est_src` (#754). A value other than `confirmed`/`derived` reads as null; #726 also reports it in `parse_report` under a kind it names. |
 | `satisfies`, `h` | #726, from the known keys #888 adds |
+| `models` | #890, from the leaf's `thinking`/`checking` keys, else the project's `step_models` class then `default`, read by `portfolio.sh` through `config_get_project_field` |
 | `depends_on[].scope`, `.project`, `.issue` | #726, by the split rule above (#887) |
 | `ready`, `ready_via_parent_row`, `depends_on[].resolved` | #727, by the readiness rule in `commands/portfolio.md` |
 | `stuck` | #726, from the issue dir's `STUCK` file |
@@ -346,7 +357,7 @@ one per line, prefixed `portfolio-check: `. stdout stays silent.
 | `0` | Valid. At a newer minor, also prints "document is schema X, newer than this reader's Y; fields this reader does not know are ignored". |
 | `1` | Invalid: not a JSON object, not a portfolio document, a malformed `schema_version`, or structural errors. |
 | `2` | Could not run: a usage error, an unreadable file, input that is not strict JSON, or a schema load error. |
-| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.1)`. |
+| `3` | Unsupported major version. The message names both versions: `unsupported portfolio schema_version "2.0": this reader supports major 1 (schema 1.2)`. |
 
 Structural errors name a JSONPath-like location, such as
 `$.projects[0].nodes[2].est.class: 'quantity' is not one of ...`,
@@ -362,7 +373,7 @@ with an import walk and a `python -I -S` run), so no dependency manifest exists.
 Exit `0` means **structurally well-formed**, nothing more. Cross-field
 consistency belongs to the producer, whose own correctness check cannot rest on
 this exit code: `invariant_violations` in `scripts/lib/portfolio.py` checks the
-rules below (I1–I16), and the producer writes a document only when both pass.
+rules below (I1–I17), and the producer writes a document only when both pass.
 The checker does not verify that:
 
 - node ids are unique, nodes ascend by `source_line`, and `parent` names an
@@ -379,7 +390,10 @@ The checker does not verify that:
 - `checklist` is `open` exactly when the next-step fields are set;
 - a report entry names a project in the document;
 - `ready`, `ready_via_parent_row` and `depends_on[].resolved` are either all
-  null or all equal to a recomputation by the readiness rule (I16).
+  null or all equal to a recomputation by the readiness rule (I16);
+- `models` sits on leaves only (on every leaf from minor 2) and agrees with
+  the leaf's `thinking`/`checking` keys (I17). The project rung is not
+  re-derivable from the document, since `step_models` is not in it.
 
 ### Report kinds (#726, #727)
 
@@ -406,7 +420,7 @@ they do not know. A project's status is not repeated in the report.
 | `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
 | `bad_model` | node or null | A model value that is not one `model_token_allowlist` token (#890). At a leaf's line: its `thinking` or `checking` key, once per class (the key counts as absent and the project rung applies); a parent's key is not reported. With a null line: a project `step_models` value a class resolves to, once per (project, class); that class is null, with no fall-through to `default`, and a bad `default` no class reaches is not reported. |
 | `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
-| `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies` and `h` are consumed). |
+| `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies`, `h`, `thinking` and `checking` are consumed). |
 | `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
 | `meta_duplicate_key` | node | A metadata key that appears twice; the last value is kept. |
 | `near_miss_line` | line | A line outside a fence shaped like a node (a list marker, then `[`) that is not one. |
