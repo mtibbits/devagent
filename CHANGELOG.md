@@ -16,6 +16,12 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: hook commands quote `${CLAUDE_PLUGIN_ROOT}` (#532).** An install
+  path with a space no longer splits a hook command into several words, and
+  `claude plugin validate --strict` passes again on Claude Code 2.1.321 and
+  later, which warn on the unquoted form. (Also: the #703 and #704 "missing
+  gh" tests now hide `gh` alone, so they run on Ubuntu.)
+
 - **Added: WBS `thinking`/`checking` keys and the portfolio `models` field
   (#890).** A `WBS.md` node may carry `thinking` and `checking`, each one
   `model_token_allowlist` token, as the model its steps are planned to run
@@ -25,6 +31,7 @@ the README's "Versioning & releases" section has the release procedure.
   class then `default`, and reports each bad value under the new `bad_model`
   kind. A 1.1 reader still reads a 1.2 document. devagent makes no workflow
   decision from the keys.
+
 - **Changed: cleanup commits only the devDoc paths it owns (#749).** The
   devdoc commit carries the issue dir, plus `WBS.md` when it changed, and
   nothing else: another issue's dir, a capture, or a path another session

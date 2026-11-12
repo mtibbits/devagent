@@ -1746,7 +1746,8 @@ Gate set:
 
 Deterministic enforcement lives in `hooks/`: `hooks/hooks.json` registers the
 plugin's hooks (each `command` handler is a bash script under `hooks/`, invoked as
-`"${CLAUDE_PLUGIN_ROOT}"/hooks/<name>.sh` with a per-hook `timeout: 5`). The layout
+`"${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh"`, quoted so a path with a space stays one
+word, with a per-hook `timeout: 5`). The layout
 is settled by #352/#396; `hooks/lib/hook-common.sh` single-sources the shared
 conventions every guard child inherits (the guidance: *when a skill stops steering
 behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never replaces it.
