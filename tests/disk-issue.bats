@@ -994,3 +994,95 @@ print(json.dumps("\n".join(ls), ensure_ascii=False))' "$1"
   cmp "$W/2.md" "$FIX/full.md"
   no_temp_left "$W"
 }
+
+# ---------------------------------------------------------------- Task 10: cost, one process, agreement
+
+@test "di: list on 100 generated issues prints 100 lines sorted by N from a single process" {
+  mkdir -p "$W/issues" "$W/bin"
+  for i in $(seq 100); do printf '# Issue %s\n\nbody %s\n' "$i" "$i" > "$W/issues/$i.md"; done
+  local real
+  real="$(command -v python3)"
+  printf '#!/bin/bash\necho run >> "%s"\nexec "%s" "$@"\n' "$W/count" "$real" > "$W/bin/python3"
+  chmod +x "$W/bin/python3"
+  run --separate-stderr env PATH="$W/bin:$PATH" python3 "$DI" list "$W/issues"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 100 ]
+  [ "$(wc -l < "$W/count")" -eq 1 ]
+  local i
+  for i in $(seq 0 99); do
+    [[ "${lines[$i]}" == "{\"n\":$((i + 1)),"* ]]
+  done
+  # falsifiable in-process: list starts no process at all
+  run --separate-stderr inj no-subprocess -- list "$W/issues"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 100 ]
+}
+
+@test "di: 5,000 unclosed openers are checked in under a second" {
+  python3 - "$W" <<'PY'
+import sys
+w = sys.argv[1]
+shapes = {
+    "1": ["```py"] * 5000,
+    "2": ["`" * k for k in range(5002, 2, -1)],
+    "3": ["````" if i % 2 == 0 else "~~~x" for i in range(5000)],
+    "4": ["`" * k for k in range(3, 5003)],           # control: every run pairs
+}
+for n, body in shapes.items():
+    open(f"{w}/{n}.md", "w").write("# T\n" + "\n".join(body) + "\n")
+PY
+  local n t0 t1 ms
+  for n in 1 2 3 4; do
+    t0="$(date +%s%N)"
+    run --separate-stderr di check "$W/$n.md"
+    t1="$(date +%s%N)"
+    ms=$(( (t1 - t0) / 1000000 ))
+    echo "shape $n: status $status, ${ms} ms" >&3
+    if [ "$n" -eq 4 ]; then
+      [ "$status" -eq 0 ]
+    else
+      [ "$status" -eq 4 ]
+      [[ "$output" == *"more than 1000 unclosed code fence openers"* ]]
+    fi
+    [ "$ms" -lt 1000 ]
+  done
+}
+
+@test "di: fence classification agrees with _classify_lines" {
+  run py_mod '
+import random
+spec = importlib.util.spec_from_file_location("wbs_parser", sys.argv[1].replace("disk-issue.py", "wbs-parser.py"))
+wp = importlib.util.module_from_spec(spec); sys.modules["wbs_parser"] = wp; spec.loader.exec_module(wp)
+
+def ours(bodies):
+    in_code, _u, _o = di.classify_fences(bodies, 0)
+    saved = di.MAX_UNCLOSED
+    di.MAX_UNCLOSED = 0                      # the 3rd return is then opener #1
+    try:
+        first = di.classify_fences(bodies, 0)[2]
+    finally:
+        di.MAX_UNCLOSED = saved
+    return in_code, None if first is None else first + 1
+
+def theirs(bodies):
+    kinds, _b, unclosed_at = wp._classify_lines([b + "\n" for b in bodies])
+    return [k[0] in ("fence", "code") for k in kinds], unclosed_at
+
+hand = [
+    ["```", "x", "```"], ["```", "x"], ["~~~", "```", "~~~"], ["````", "```", "````"],
+    ["```py", "```py", "```"], ["```a`b", "```"], ["~~~a`b", "x", "~~~"], ["  ```", "\t```"],
+    ["```", "x", "```  ", "```"], ["````", "x", "```", "`````"], ["```", "~~~", "~~~", "```"],
+    ["text", "```", "", "```", "```"], ["~~~~", "~~~", "~~~~~"], ["```", "```x", "```"], [],
+]
+rng = random.Random(1008)
+alpha = (["`" * k for k in range(3, 9)] + ["~" * k for k in range(3, 9)]
+         + ["`" * k + "py" for k in range(3, 6)] + ["~" * k + "x" for k in range(3, 6)]
+         + [" ```", "\t~~~", "  ````", "```  ", "~~~\t", "```a`b", "~~~a`b", "text", ""])
+cases = hand + [[rng.choice(alpha) for _ in range(rng.randint(0, 40))] for _ in range(300)]
+for idx, bodies in enumerate(cases):
+    if ours(bodies) != theirs(bodies):
+        print("mismatch at case", idx, bodies); sys.exit(1)
+print("agree", len(cases))'
+  [ "$status" -eq 0 ]
+  [ "$output" = "agree 315" ]
+}

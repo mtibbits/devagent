@@ -105,6 +105,17 @@ def _no_link(mod):
     mod._link = link
 
 
+def _no_subprocess(mod):
+    import subprocess
+
+    def refuse(*a, **k):
+        raise AssertionError("disk-issue started a process")
+    subprocess.Popen = refuse
+    for name in ("fork", "posix_spawn", "posix_spawnp", "system", "execv", "execvp"):
+        if hasattr(os, name):
+            setattr(os, name, refuse)
+
+
 MODES: dict = {
     "none": lambda mod: None,
     "kill-before-replace": _kill_before_replace,
@@ -114,6 +125,7 @@ MODES: dict = {
     "win-share": _win_share,
     "lock-wait": _lock_wait,
     "no-link": _no_link,
+    "no-subprocess": _no_subprocess,
 }
 
 
