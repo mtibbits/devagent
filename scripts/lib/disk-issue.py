@@ -558,6 +558,22 @@ def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
         out += [eol, PROMPT_H.encode() + eol] + list(lines[first_prose:])
     else:
         out += list(lines[iss.header_end:])
+    want_comments = _texts(iss.comments)
+    if comment is not None:
+        date, text_lines = comment
+        entry = [f"- {date} {text_lines[0]}".encode("utf-8") + eol]
+        entry += [(f"  {ln}".encode("utf-8") if ln else b"") + eol for ln in text_lines[1:]]
+        if iss.comments_idx is not None:
+            # after the last non-blank line of the comments section; `out`
+            # ends with lines[comments_idx:] copied unchanged
+            heading = len(out) - (n - iss.comments_idx)
+            last = max(k for k in range(heading, len(out)) if not _blank(_body(out[k])))
+            out[last + 1:last + 1] = entry
+        else:
+            if not _blank(_body(out[-1])):
+                out.append(eol)
+            out += [COMMENTS_H.encode() + eol] + entry
+        want_comments = want_comments + [(date, "\n".join(text_lines))]
     for k in range(len(out) - 1):   # only an original last line can lack one
         if not out[k].endswith(b"\n"):
             out[k] += eol
@@ -565,7 +581,7 @@ def render_set(data: bytes, iss: Issue, sets: dict, unsets: set, comment=None):
 
     back = read_issue(new)
     if (back.faults or back.title != iss.title or back.prompt != iss.prompt
-            or back.keys != intended or _texts(back.comments)[:len(iss.comments)] != _texts(iss.comments)):
+            or back.keys != intended or _texts(back.comments) != want_comments):
         raise Fail(EXIT_IO, "internal error: result does not read back; file left unchanged")
     return new
 
@@ -746,6 +762,27 @@ def cmd_list(args: list) -> int:
     return EXIT_IO if unreadable else EXIT_FAULTY if faulty else EXIT_OK
 
 
+def _today() -> str:
+    """Today's local date, as `date_tag` in scripts/lib/io.sh gives it,
+    honouring DEVAGENT_DATE_OVERRIDE (#338)."""
+    override = os.environ.get("DEVAGENT_DATE_OVERRIDE", "")
+    if override:
+        if not _real_date(override):
+            raise Fail(EXIT_USAGE, "DEVAGENT_DATE_OVERRIDE is not a YYYY-MM-DD date")
+        return override
+    return datetime.date.today().isoformat()
+
+
+def _comment_lines(text: str) -> list:
+    """Comment text as entry lines: LF line endings, each line right-stripped,
+    no leading or trailing blank lines."""
+    lines = [ln.rstrip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    lines = _trim_blank(lines)
+    if not lines:
+        raise Fail(EXIT_USAGE, "empty comment")
+    return lines
+
+
 def cmd_set(args: list) -> int:
     path, sets, unsets, comment, date = _parse_set_args(args)
     for key, value in sets.items():
@@ -753,6 +790,15 @@ def cmd_set(args: list) -> int:
             _validate(key, value)
         except ValueError as e:
             raise Fail(EXIT_USAGE, str(e))
+    entry = None
+    if comment is not None:
+        text_lines = _comment_lines(comment)
+        if date is not None:
+            if not _real_date(date):
+                raise Fail(EXIT_USAGE, "--date must be a real YYYY-MM-DD date")
+        else:
+            date = _today()
+        entry = (date, text_lines)
     try:
         iss = _load(path)
     except OSError as e:
@@ -762,7 +808,7 @@ def cmd_set(args: list) -> int:
             _err(text + "\n")
         return EXIT_FAULTY
     data = (_BOM if iss.bom else b"") + b"".join(iss.lines)
-    new = render_set(data, iss, sets, unsets, None)
+    new = render_set(data, iss, sets, unsets, entry)
     if new is None:
         return EXIT_OK
     try:

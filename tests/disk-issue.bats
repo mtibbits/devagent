@@ -689,3 +689,105 @@ b"
     [ "$output" = "True" ]
   done
 }
+
+# ---------------------------------------------------------------- Task 7: --comment and --date
+
+@test "di: --comment adds ## Comments and one entry dated by DEVAGENT_DATE_OVERRIDE" {
+  head -n 8 "$FIX/full.md" > "$W/1.md"
+  before="$(json_get "$(di parse "$W/1.md")" 'o["prompt"]')"
+  DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment hello
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"reload.\n\n## Comments\n- 2026-11-10 hello\n"))' "$W/1.md"
+  [ "$output" = "True" ]
+  [ "$(json_get "$(di parse "$W/1.md")" 'o["prompt"]')" = "$before" ]
+}
+
+@test "di: a two-paragraph comment reads back as one entry" {
+  head -n 8 "$FIX/full.md" > "$W/1.md"
+  DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment $'first\nline two\n\nsecond'
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"- 2026-11-10 first\n  line two\n\n  second\n"))' "$W/1.md"
+  [ "$output" = "True" ]
+  [ "$(json_get "$(di parse "$W/1.md")" '[(c["date"], c["text"]) for c in o["comments"]]')" = '[["2026-11-10", "first\nline two\n\nsecond"]]' ]
+}
+
+@test "di: set status=Done state=closed --comment \"on_merge: status Done, closed\" makes all three changes" {
+  printf '# T\nstatus: In Review\n\n## Prompt\nbody\n' > "$W/1.md"
+  DEVAGENT_DATE_OVERRIDE=2026-11-11 run --separate-stderr di set "$W/1.md" status=Done state=closed --comment "on_merge: status Done, closed"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$W/1.md")" = "$(printf '# T\nstate: closed\nstatus: Done\n\n## Prompt\nbody\n\n## Comments\n- 2026-11-11 on_merge: status Done, closed')" ]
+}
+
+@test "di: comments replay full.md" {
+  cp "$FIX/minimal.md" "$W/1.md"
+  di set "$W/1.md" state=closed
+  di set "$W/1.md" status=Done
+  di set "$W/1.md" parent=3
+  di set "$W/1.md" --comment "on_draft_start: status In Progress" --date 2026-11-10
+  di set "$W/1.md" --comment "on_ship: status In Review" --date 2026-11-10
+  di set "$W/1.md" --comment "on_merge: status Done, closed" --date 2026-11-11
+  cmp "$W/1.md" "$FIX/full.md"
+}
+
+@test "di: --date 2026-02-30 exits 2" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" --comment x --date 2026-02-30
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"--date must be a real YYYY-MM-DD date"* ]]
+  cmp "$W/1.md" "$FIX/full.md"
+}
+
+@test "di: an empty --comment exits 2" {
+  cp "$FIX/full.md" "$W/1.md"
+  run --separate-stderr di set "$W/1.md" --comment $' \n\t\n'
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"empty comment"* ]]
+  cmp "$W/1.md" "$FIX/full.md"
+}
+
+@test "di: a bad DEVAGENT_DATE_OVERRIDE exits 2, and is not read when --date is given" {
+  cp "$FIX/full.md" "$W/1.md"
+  DEVAGENT_DATE_OVERRIDE=2026-13-01 run --separate-stderr di set "$W/1.md" --comment x
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"DEVAGENT_DATE_OVERRIDE is not a YYYY-MM-DD date"* ]]
+  cmp "$W/1.md" "$FIX/full.md"
+  DEVAGENT_DATE_OVERRIDE=2026-13-01 run --separate-stderr di set "$W/1.md" --comment x --date 2026-11-12
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$W/1.md")" = "- 2026-11-12 x" ]
+}
+
+@test "di: without the override the date equals date_tag" {
+  local tz before after got
+  for tz in Pacific/Kiritimati Pacific/Pago_Pago; do
+    cp "$FIX/full.md" "$W/1.md"
+    before="$(env -u DEVAGENT_DATE_OVERRIDE TZ="$tz" bash -c "source '$PLUGIN_ROOT/scripts/lib/io.sh'; date_tag")"
+    env -u DEVAGENT_DATE_OVERRIDE TZ="$tz" python3 "$DI" set "$W/1.md" --comment x
+    after="$(env -u DEVAGENT_DATE_OVERRIDE TZ="$tz" bash -c "source '$PLUGIN_ROOT/scripts/lib/io.sh'; date_tag")"
+    got="$(tail -n 1 "$W/1.md")"
+    [ "$got" = "- $before x" ] || [ "$got" = "- $after x" ]
+  done
+}
+
+@test "di: a fence in an added comment cannot turn earlier text into code" {
+  printf '# T\n\n## Prompt\n```\nopen\n' > "$W/1.md"
+  DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr di set "$W/1.md" --comment $'see\n```\ncode'
+  [ "$status" -eq 0 ]
+  run python3 -c 'import sys; print(open(sys.argv[1],"rb").read().endswith(b"\n## Comments\n- 2026-11-10 see\n  ```\n  code\n"))' "$W/1.md"
+  [ "$output" = "True" ]
+  run --separate-stderr di parse "$W/1.md"
+  [ "$(json_get "$output" '[o["prompt"], [c["text"] for c in o["comments"]]]')" = '["```\nopen", ["see\n```\ncode"]]' ]
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "di: a comment keeps a BOM and every-line CRLF" {
+  for src in minimal full; do
+    bom "$FIX/$src.md" "$W/0"
+    crlf "$W/0" "$W/1.md"
+    DEVAGENT_DATE_OVERRIDE=2026-11-12 run --separate-stderr di set "$W/1.md" status=X --comment $'one\n\ntwo'
+    [ "$status" -eq 0 ]
+    [ "$(head -c 3 "$W/1.md" | od -An -tx1 | tr -d ' ')" = "efbbbf" ]
+    run python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); print(d.count(b"\n") == d.count(b"\r\n"), d.endswith(b"- 2026-11-12 one\r\n\r\n  two\r\n"))' "$W/1.md"
+    [ "$output" = "True True" ]
+  done
+}
