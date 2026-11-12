@@ -1,33 +1,45 @@
 #!/usr/bin/env bats
-# #465: scripts/build-docs-site.sh renders docs-site/*.md (minus README.md) to
-# the static site the Pages workflow publishes.
+# #465, #995: scripts/build-docs-site.sh renders docs-site/ (Markdown *.md and
+# hand-written *.html pages, minus README.*) to the static site the Pages
+# workflow publishes, with its two asset folders and its moved-page stubs.
 #
 # Two subject families:
 #   REAL  — the tracked docs-site/ built once per file (setup_file); pins the
-#           page set by COUNT against the source glob, link closure computed
-#           here independently of the script's own check, the one link that
-#           leaves docs-site/, per-page code-block and table-row counts against
-#           the markdown, titles, nav, and that the output fetches nothing.
-#   FIXTURE — throwaway source dirs that drive each refusal BRANCH (exit 2-6);
-#           every negative pins the exact code AND a message token, so a
+#           page set by COUNT against the source globs and moved.txt, link
+#           closure over href, src and srcset computed here independently of
+#           the script's own check, the one link that leaves docs-site/,
+#           per-page code-block and table-row counts against the markdown,
+#           titles, nav, and that the output fetches nothing. That last test
+#           is the 1.0 fetch ban; #1030 replaces it with an allowlist, and
+#           with it the stub leg that reads the ban's regex.
+#   FIXTURE — throwaway source dirs that drive each refusal BRANCH (exit 2-6)
+#           and each input kind: hand-written pages (derived-from header, H1
+#           and nav-label, marker splice, HTML-index nav), the asset folders
+#           (<src>/assets/ and --static), and moved-page stubs (moved.txt).
+#           Every negative pins the exact code AND a message token, so a
 #           different failure cannot satisfy it. The one refusal with no
-#           fixture is the post-render page count (exit 5 "expected N pages"):
-#           nothing outside the script can make it fire, so it is pinned by a
-#           mutation row in the plan instead, and says so here.
+#           fixture is the post-render count (exit 5 "expected N pages and M
+#           stubs"): nothing outside the script can make it fire, so it is
+#           pinned by a mutation row in the plan instead, and says so here.
+#           fx_build passes an empty --static, so a fixture build never copies
+#           the repo's own scripts/docs-site/static/.
 #
-# pandoc: the builder validates its input and derives the nav BEFORE it probes
-# for pandoc, so every refusal up to and including the probe is tested without
-# it (a stub stands in where a version is needed). Tests that render call
+# awk and pandoc: the builder probes for awk right after its argument checks
+# (exit 3 naming awk), then validates its input and derives the nav BEFORE it
+# probes for pandoc, so every refusal up to and including the probe is tested
+# without it (fx_bin links only the tools that run before the probe; a stub
+# stands in where a version is needed). Tests that render call
 # need_pandoc, which skips only where pandoc is absent (a local run). In CI the
 # file runs un-skipped: test.yml's bats job installs pandoc (#841), and
 # publish-docs-site.yml installs pandoc, asserts it, and additionally runs this
 # file with skips forbidden. Locally, install pandoc 3.x.
 #
-# COUPLING: the REAL tests derive their expectations from docs-site/*.md (fence
-# and table-row counts, the install command lines, two H1s, and nav order from
-# index.md's "Where to go next" list). docs-site/README.md announces this to
-# page editors; a failure here after a page edit usually means the expectation
-# moves with the page, not that the page is wrong.
+# COUPLING: the REAL tests derive their expectations from docs-site/ (fence
+# and table-row counts, the install command lines, two H1s, the page set and
+# moved.txt, and nav order from index.md's "Where to go next" list).
+# docs-site/README.md announces this to page editors; a failure here after a
+# page edit usually means the expectation moves with the page, not that the
+# page is wrong.
 
 load 'lib/bats-helpers'
 
@@ -106,39 +118,91 @@ frame_of() {
 
 # ---------------------------------------------------------------- REAL site
 
-@test "build-docs-site: real site — one html per content page, README not published" {
-  need_pandoc
-  shopt -s nullglob
-  local md=("$SITE"/*.md) html=("$REAL_OUT"/*.html) all=("$REAL_OUT"/*)
-  [ "${#md[@]}" -ge 2 ]
-  [ "${#html[@]}" -eq "$(( ${#md[@]} - 1 ))" ]
-  [ "${#all[@]}" -eq "${#html[@]}" ]
-  [ ! -e "$REAL_OUT/README.html" ]
-  local f
-  for f in "${md[@]}"; do
-    [ "$(basename "$f")" = "README.md" ] && continue
-    [ -s "$REAL_OUT/$(basename "$f" .md).html" ]
+# real_content — the tracked site's content pages, one base name per line:
+# docs-site/*.md and *.html, minus README.*.
+real_content() {
+  local f b
+  for f in "$SITE"/*.md "$SITE"/*.html; do
+    [ -e "$f" ] || continue
+    b="${f##*/}"
+    b="${b%.*}"
+    [ "$b" = README ] || printf '%s\n' "$b"
   done
-  grep -qx "build-docs-site: built ${#html[@]} pages -> $REAL_OUT" "$BATS_FILE_TMPDIR/real.stdout"
 }
 
-@test "build-docs-site: real site — every local href resolves to a built file" {
+# real_stubs — the old names docs-site/moved.txt lists (its data lines).
+real_stubs() {
+  [ -f "$SITE/moved.txt" ] || return 0
+  awk '!/^[ \t]*(#|$)/ { print $1 }' "$SITE/moved.txt"
+}
+
+@test "build-docs-site: real site — one html per content page and stub, README not published" {
   need_pandoc
-  local html href checked=0
-  for html in "$REAL_OUT"/*.html; do
-    while IFS= read -r href; do
-      case "$href" in [A-Za-z]*:*|'#'*) continue ;; esac
-      [ -f "$REAL_OUT/${href%%#*}" ] || { echo "$html -> $href" >&2; return 1; }
-      checked=$((checked + 1))
-    done < <(grep -oE 'href="[^"]*"' "$html" | sed -E 's/^href="//; s/"$//')
+  shopt -s nullglob
+  local content=() stubs=() p
+  mapfile -t content < <(real_content)
+  mapfile -t stubs < <(real_stubs)
+  [ "${#content[@]}" -ge 2 ]
+  local html=("$REAL_OUT"/*.html) all=("$REAL_OUT"/*) extra=0
+  [ "${#html[@]}" -eq "$(( ${#content[@]} + ${#stubs[@]} ))" ]
+  # the asset folders appear exactly when their sources exist
+  if [ -d "$SITE/assets" ]; then extra=$((extra + 1)); [ -d "$REAL_OUT/assets" ]; else [ ! -e "$REAL_OUT/assets" ]; fi
+  if [ -d "$PLUGIN_ROOT/scripts/docs-site/static" ]; then
+    extra=$((extra + 1)); [ -d "$REAL_OUT/static" ]
+  else
+    [ ! -e "$REAL_OUT/static" ]
+  fi
+  [ "${#all[@]}" -eq "$(( ${#html[@]} + extra ))" ]
+  [ ! -e "$REAL_OUT/README.html" ]
+  for p in "${content[@]}" "${stubs[@]}"; do
+    [ -s "$REAL_OUT/$p.html" ]
   done
-  # 6 pages x 6 nav links is the floor; a zero here means the scan saw nothing.
-  [ "$checked" -ge 36 ]
+  # N counts content pages; stubs are not pages
+  grep -qx "build-docs-site: built ${#content[@]} pages -> $REAL_OUT" "$BATS_FILE_TMPDIR/real.stdout"
+}
+
+@test "build-docs-site: real site — every local href, src and srcset resolves to a built file" {
+  need_pandoc
+  local content=() p nmd=0
+  mapfile -t content < <(real_content)
+  for p in "${content[@]}"; do
+    if [ -f "$SITE/$p.md" ]; then nmd=$((nmd + 1)); fi
+  done
+  # The builder's reader, restated: names case-blind after whitespace or at a
+  # line start; values double-quoted, single-quoted or bare; each srcset
+  # candidate's URL.
+  local re='(^|[[:space:]])(href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
+  local html a name v t checked=0 cands
+  for html in "$REAL_OUT"/*.html; do
+    while IFS= read -r a; do
+      a="${a#"${a%%[![:space:]]*}"}"
+      name="${a%%=*}"
+      v="${a#*=}"
+      v="${v#[\"\']}"
+      v="${v%[\"\']}"
+      cands=("$v")
+      if [ "${name,,}" = srcset ]; then IFS=',' read -ra cands <<< "$v"; fi
+      for t in "${cands[@]}"; do
+        t="${t#"${t%%[![:space:]]*}"}"
+        t="${t%%[[:space:]]*}"
+        case "$t" in [A-Za-z]*:*|'#'*) continue ;; esac
+        t="${t%%#*}"
+        t="${t%%\?*}"
+        case "/$t/" in //*|*/../*) echo "$html -> $t leaves the site" >&2; return 1 ;; esac
+        [ -f "$REAL_OUT/$t" ] || { echo "$html -> $t" >&2; return 1; }
+        checked=$((checked + 1))
+      done
+    done < <(grep -oiE "$re" "$html")
+  done
+  # every content page's nav links every content page: content² is the floor;
+  # a zero here means the scan saw nothing.
+  [ "$checked" -ge "$(( ${#content[@]} * ${#content[@]} ))" ]
   # the only surviving .md hrefs are forge blob URLs (footers + links leaving docs-site/)
   local stray
   stray="$(grep -rhoE 'href="[^"]*\.md[#"]' "$REAL_OUT" | grep -vcF 'href="https://github.com/mtibbits/devagent/blob/master/' || true)"
   [ "$stray" = "0" ]
-  [ "$(grep -rhoE 'href="[^"]*\.md[#"]' "$REAL_OUT" | wc -l)" -ge 6 ]
+  # every Markdown page's footer links its source on the forge
+  [ "$(grep -rhoE 'href="[^"]*\.md[#"]' "$REAL_OUT" | wc -l)" -ge "$nmd" ]
 }
 
 @test "build-docs-site: real site — the link that leaves docs-site/ goes to the forge blob" {
@@ -186,12 +250,14 @@ frame_of() {
   # the nav label is escaped by THIS script (sed), the <title> by pandoc — pin both
   # (index.md's body links the same page, and pandoc escapes that one)
   nav_of "$REAL_OUT/index.html" | grep -qF '>Multi-project &amp; concurrency</a>'
-  local html page
-  for html in "$REAL_OUT"/*.html; do
-    page="$(basename "$html")"
+  local content=() p html
+  mapfile -t content < <(real_content)
+  # content pages only (a moved-page stub has no nav); each nav links them all
+  for p in "${content[@]}"; do
+    html="$REAL_OUT/$p.html"
     [ "$(nav_of "$html" | grep -c 'aria-current="page"')" -eq 1 ]
-    grep -qF "<a href=\"$page\" aria-current=\"page\">" "$html"
-    [ "$(nav_of "$html" | grep -c '<a href=')" -eq 6 ]
+    grep -qF "<a href=\"$p.html\" aria-current=\"page\">" "$html"
+    [ "$(nav_of "$html" | grep -c '<a href=')" -eq "${#content[@]}" ]
   done
   # nav order is index.md's bullet list, not the alphabetical glob
   local navorder
