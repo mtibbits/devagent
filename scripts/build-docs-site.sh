@@ -43,14 +43,16 @@
 #      (<N> counts content pages; moved-page stubs are not pages)
 #   2  usage
 #   3  a required tool is missing or unusable: pandoc (absent, or older than
-#      3.x) or awk (the message names which)
+#      3.x), awk, or sort (the message names which)
 #   4  bad input: --src or --static dir missing, no pages, no index page,
 #      <x>.md and <x>.html both present, a README.html in --src, a hand-written
-#      page without its derived-from header, a malformed moved.txt line or one
+#      page without its derived-from header (or with a byte-order mark), a
+#      malformed moved.txt line or one
 #      naming a live page, the index's page list names no page or splits an
 #      <li> from its <a href>, --out not a directory, or --out not empty
 #   5  a page failed to render (includes a link or image the filter cannot
-#      classify, and a hand-written page with no <h1>)
+#      classify, and a hand-written page with no <h1> or with an entity in it
+#      other than &amp; &lt; &gt; &quot; &#39;)
 #   6  a rendered page links to a local file the build did not produce (by
 #      href, src or srcset; stubs included), to a root-absolute path, or out of
 #      the site with ..; or a moved.txt home is not a content page
@@ -125,6 +127,9 @@ for p in "${pages[@]}"; do
   [ "${kind[$p]}" = html ] || continue
   l=''
   IFS= read -r l < "$src/$p.html" || true
+  case "$l" in
+    $'\xEF\xBB\xBF'*) die 4 "$p.html: line 1 starts with a UTF-8 byte-order mark; save the file without one" ;;
+  esac
   [[ $l =~ $derived_re ]] || die 4 "$p.html: line 1 must be a '<!-- derived-from: ... -->' header"
 done
 
@@ -138,7 +143,10 @@ fence_awk='/^(```|~~~)/ { fence = !fence; next }'
 # compare case-blind; an opening tag is the name then ">", a space or a tab, so
 # <pre never matches <preview. A region may span lines and ends at its closer;
 # text after the closer is content. nc(line) returns the line minus region text.
+# The H1 reader keeps inline <code> text (a heading may name a command), so it
+# sets nc_re to the list without code.
 nc_awk='
+BEGIN { if (nc_re == "") nc_re = "<(pre|code|script|style|template|textarea)[> \t]" }
 function nc(line,    out, l, i, t) {
   out = ""
   while (line != "") {
@@ -151,7 +159,7 @@ function nc(line,    out, l, i, t) {
       continue
     }
     i = index(l, "<!--")
-    if (match(l, /<(pre|code|script|style|template|textarea)[> \t]/) && (!i || RSTART < i)) {
+    if (match(l, nc_re) && (!i || RSTART < i)) {
       t = substr(l, RSTART + 1, RLENGTH - 2)
       out = out substr(line, 1, RSTART - 1)
       line = substr(line, RSTART + RLENGTH - 1)
@@ -178,10 +186,11 @@ page_title() {
 }
 
 # html_h1 <file> — the first <h1>...</h1> outside non-content regions (it may
-# span lines), tags stripped, whitespace collapsed and trimmed. Entities are
-# left for html_unescape. Exits 1 when there is none or it is empty.
+# span lines; inline <code> text counts), <br> read as a space, other tags
+# stripped, whitespace collapsed and trimmed. Entities are left for
+# html_unescape. Exits 1 when there is none or it is empty.
 html_h1() {
-  awk "$nc_awk"'
+  awk -v nc_re='<(pre|script|style|template|textarea)[> \t]' "$nc_awk"'
        { buf = buf nc($0) "\n" }
        END {
          l = tolower(buf)
@@ -190,7 +199,7 @@ html_h1() {
          e = index(substr(l, st), "</h1>")
          if (!e) exit 1
          t = substr(buf, st, e + 4)
-         gsub(/<[^>]*>/, "", t); gsub(/[ \t\r\n]+/, " ", t)
+         gsub(/<[Bb][Rr]([ \t\/][^>]*)?>/, " ", t); gsub(/<[^>]*>/, "", t); gsub(/[ \t\r\n]+/, " ", t)
          sub(/^ /, "", t); sub(/ $/, "", t)
          if (t == "") exit 1
          print t
@@ -210,8 +219,8 @@ nav_label() {
 #               fences.
 #   index.html: '<li><a ... href="page.html">' lines outside non-content
 #               regions (href double-quoted, <li> and <a> on one line). A lone
-#               <li> whose next non-blank line opens an <a> prints
-#               "!split <line>" and stops.
+#               <li> whose next non-blank line opens an <a> with a page-shaped
+#               href prints "!split <line>" and stops.
 nav_entries() {
   case "$1" in
     *.html)
@@ -219,7 +228,7 @@ nav_entries() {
            { s = nc($0); l = tolower(s) }
            lone {
              if (l ~ /^[ \t]*$/) next
-             if (l ~ /^[ \t]*<a[ \t]/) { print "!split " lone; exit }
+             if (l ~ /^[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) { print "!split " lone; exit }
              lone = 0
            }
            match(l, /^[ \t]*<li([ \t][^>]*)?>[ \t]*<a([ \t][^>]*)?[ \t]href="(\.\/)?[a-z0-9_-]+\.html"/) {
@@ -323,12 +332,18 @@ mkdir -p "$out"
 # its label is a nav-label header's value when it has one, else the title.
 # Either way the label is escaped here, the <title> by pandoc.
 declare -A title=() label=()
+entity_re='(&[#A-Za-z0-9]+;)'
 for p in "${pages[@]}"; do
   if [ "${kind[$p]}" = md ]; then
     t="$(page_title "$src/$p.md")" || die 5 "no top-level '# ' heading in $src/$p.md"
     lbl="$t"
   else
     t="$(html_h1 "$src/$p.html")" || die 5 "no <h1> in $src/$p.html"
+    # html_unescape knows five entities; any other would reach the <title>
+    # still encoded, so refuse it rather than publish "&mdash;" as text.
+    e="${t//&amp;/}"; e="${e//&lt;/}"; e="${e//&gt;/}"; e="${e//&quot;/}"; e="${e//&#39;/}"
+    [[ ! $e =~ $entity_re ]] \
+      || die 5 "$src/$p.html: the <h1> uses ${BASH_REMATCH[1]}; write the character itself (only &amp; &lt; &gt; &quot; &#39; are decoded)"
     t="$(printf '%s\n' "$t" | html_unescape)"
     lbl="$(nav_label "$src/$p.html")"
     lbl="${lbl:-$t}"
@@ -427,18 +442,22 @@ built=("$out"/*.html)
   || die 5 "expected ${#pages[@]} pages and ${#moved[@]} stubs in $out, found ${#built[@]} .html files"
 
 # Link closure over the RENDERED output, so a raw <a href> or <img src> in a
-# page (which the Lua filter never sees) is checked too. Every href, src and
-# srcset is read: the attribute name case-blind, after whitespace or at a line
-# start (so data-src= is not read), its value double-quoted, single-quoted or
-# bare; each srcset candidate's URL counts. A target with a scheme, or a pure
+# page (which the Lua filter never sees) is checked too. Attributes are read
+# only inside tags (a tag may span lines): text, including code, reaches the
+# output escaped, so an "href=" or "src=" written in a snippet has no literal <
+# before it and is never read as a link. In a tag, every href, src and srcset
+# is read: the attribute name case-blind, after whitespace (so data-src= is not
+# read), its value double-quoted, single-quoted or bare; each srcset
+# candidate's URL counts. A target with a scheme, or a pure
 # #fragment, is skipped; ?query and #fragment are dropped from the rest. A
 # root-absolute path (/x) and a path with a .. segment are refused even when
 # they resolve on disk: under Pages' /devagent/ subpath both point elsewhere.
-attr_re='(^|[[:space:]])(href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
+tag_re='<[A-Za-z][^<>"'"'"']*("[^"]*"[^<>"'"'"']*|'"'"'[^'"'"']*'"'"'[^<>"'"'"']*)*>'
+attr_re='[[:space:]](href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
 bad=0
 for html in "${built[@]}"; do
   page="${html##*/}"
-  attrs="$(grep -oiE "$attr_re" "$html" || true)"
+  attrs="$(tr '\n' ' ' < "$html" | grep -oE "$tag_re" | grep -oiE "$attr_re" || true)"
   while IFS= read -r a; do
     [ -n "$a" ] || continue
     a="${a#"${a%%[![:space:]]*}"}"

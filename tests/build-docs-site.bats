@@ -6,8 +6,9 @@
 # Two subject families:
 #   REAL  — the tracked docs-site/ built once per file (setup_file); pins the
 #           page set by COUNT against the source globs and moved.txt, link
-#           closure over href, src and srcset computed here independently of
-#           the script's own check, the one link that leaves docs-site/,
+#           closure over href, src and srcset (the builder's tag-scoped reader
+#           restated, so its floor proves the real build was scanned), the one
+#           link that leaves docs-site/,
 #           per-page code-block and table-row counts against the markdown,
 #           titles, nav, and that the output fetches nothing. That last test
 #           is the 1.0 fetch ban; #1030 replaces it with an allowlist, and
@@ -173,10 +174,11 @@ real_stubs() {
   for p in "${content[@]}"; do
     if [ -f "$SITE/$p.md" ]; then nmd=$((nmd + 1)); fi
   done
-  # The builder's reader, restated: names case-blind after whitespace or at a
-  # line start; values double-quoted, single-quoted or bare; each srcset
-  # candidate's URL.
-  local re='(^|[[:space:]])(href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
+  # The builder's reader, restated: attributes only inside tags (a tag may
+  # span lines); names case-blind after whitespace; values double-quoted,
+  # single-quoted or bare; each srcset candidate's URL.
+  local tag_re='<[A-Za-z][^<>"'"'"']*("[^"]*"[^<>"'"'"']*|'"'"'[^'"'"']*'"'"'[^<>"'"'"']*)*>'
+  local re='[[:space:]](href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
   local html a name v t checked=0 cands
   for html in "$REAL_OUT"/*.html; do
     while IFS= read -r a; do
@@ -197,7 +199,7 @@ real_stubs() {
         [ -f "$REAL_OUT/$t" ] || { echo "$html -> $t" >&2; return 1; }
         checked=$((checked + 1))
       done
-    done < <(grep -oiE "$re" "$html")
+    done < <(tr '\n' ' ' < "$html" | grep -oE "$tag_re" | grep -oiE "$re")
   done
   # every content page's nav links every content page: content² is the floor;
   # a zero here means the scan saw nothing.
@@ -517,6 +519,17 @@ real_stubs() {
   [ ! -e "$FX/out" ]
 }
 
+@test "build-docs-site: hand-written page saved with a byte-order mark -> exit 4 naming the BOM" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "- [X](./x.html)"
+  printf '\xEF\xBB\xBF<!-- derived-from: fixture -->\n<h1>X</h1>\n' > "$FX/src/x.html"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"x.html: line 1 starts with a UTF-8 byte-order mark"* ]]
+  [ ! -e "$FX/out" ]
+}
+
 @test "build-docs-site: HTML index: list links inside <pre>, <code> and comments are not a nav -> exit 4" {
   fx_bin
   FX_PATH="$FX/bin"
@@ -571,6 +584,15 @@ real_stubs() {
   [[ "$output" == *"no <h1> in"*"bare.html"* ]]
 }
 
+@test "build-docs-site: hand-written <h1> with an entity the title reader cannot decode -> exit 5 naming it" {
+  need_pandoc
+  fx_page index "- [Dash](./dash.html)"
+  fx_html dash '<h1>Plan &mdash; ship</h1>'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"dash.html: the <h1> uses &mdash;"* ]]
+}
+
 @test "build-docs-site: HTML index nav order — a <pre> decoy, then the real list after </pre>" {
   need_pandoc
   fx_html index '<h1>Home</h1>' \
@@ -613,6 +635,7 @@ t3h_row() {
   t3h_row 3 "$probe" '<li><a class="card" href="other.html">O</a></li>'
   t3h_row 3 "$probe" '<LI><A HREF="other.html">O</A></LI>'
   t3h_row 4 'put <li> and its <a href> on one line' '<li>' '<a href="other.html">O</a></li>'
+  t3h_row 3 "$probe" "$e" '<li>' '<a href="https://x.test/">X</a></li>'
 }
 
 # t3i_row <title> <index body line...> — one fixture dir per row, a lone
@@ -635,6 +658,8 @@ t3i_row() {
   t3i_row Real '<pre>' '<h1>Fake</h1>' '</pre>' '<h1>Real</h1>'
   t3i_row Real '<script>var s = "<h1>Fake</h1>";</script>' '<h1>Real</h1>'
   t3i_row Upper '<H1 class="x">Upper</H1>'
+  t3i_row 'The next loop' '<h1>The <code>next</code> loop</h1>'
+  t3i_row 'Plan it. Ship it.' '<h1>Plan it.<br>Ship it.</h1>'
 }
 
 @test "build-docs-site: README.html in --src -> exit 4, nothing written" {
@@ -770,6 +795,20 @@ t4i_row() {
   t4i_row assets/n1.png '<img src=assets/n1.png alt="">'
   t4i_row assets/n2.png '<IMG SRC="assets/n2.png">'
   t4i_row n3.html "<a href='n3.html'>n3</a>"
+  t4i_row assets/n4.png $'<img\n  src="assets/n4.png" alt="">'
+}
+
+@test "build-docs-site: href= and src= written in code are text, not links" {
+  need_pandoc
+  fx_page index "- [Hand](./hand.html)" "" \
+    'The list uses `<li><a href="page.html">Title</a></li>`.' "" \
+    '```' '  export src=docs-site' '<img src="logo.png" alt="">' '```'
+  fx_html hand '<h1>Hand</h1>' \
+    '<p><code>&lt;img src=&quot;missing.png&quot;&gt;</code></p>' \
+    '<pre>srcset=a.png href=b.html</pre>'
+  run fx_build
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"built 2 pages -> $FX/out"* ]]
 }
 
 # ------------------------------------------------------- FIXTURE: moved-page stubs

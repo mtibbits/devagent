@@ -77,14 +77,18 @@ placeholder hook runs over every page; it changes nothing until a later
 child of #994 defines the placeholders.)
 
 - Line 1 is the same `<!-- derived-from: ... -->` header a Markdown page
-  carries. Without it the build exits 4.
+  carries. Without it, or with a UTF-8 byte-order mark before it, the build
+  exits 4.
 - The `<title>` and nav label come from the first `<h1>` that is not inside a
-  comment or a `<pre>`, `<code>`, `<script>`, `<style>`, `<template>` or
-  `<textarea>`, with tags stripped and entities decoded once. A page with no
-  `<h1>` exits 5.
+  comment or a `<pre>`, `<script>`, `<style>`, `<template>` or `<textarea>`.
+  Text inside an inline `<code>` counts, a `<br>` reads as a space, other tags
+  are stripped, and the entities `&amp;` `&lt;` `&gt;` `&quot;` `&#39;` are
+  decoded once. Any other entity (`&mdash;`, `&nbsp;`) in the `<h1>` exits 5:
+  write the character itself. A page with no `<h1>` exits 5.
 - A `<!-- nav-label: Short name -->` line in the header block (the run of
   `<!-- ... -->` lines from line 1) sets the nav label instead; the title still
-  comes from the `<h1>`.
+  comes from the `<h1>`. The label is plain text, not HTML: write `Q & A`, not
+  `Q &amp; A`.
 - `<name>.md` and `<name>.html` together exit 4: keep one. `README.*` is
   reserved for this file, so a `README.html` exits 4.
 
@@ -97,8 +101,8 @@ alphabetical (`LC_ALL=C`) order of base name across both kinds.
   or tilde code fence are examples and are ignored.
 - In an `index.html` each entry is one line holding `<li>` and then
   `<a ... href="page.html">`, with the `href` double-quoted (other attributes
-  may come first). A `<li>` alone on a line followed by its `<a href>` on the
-  next exits 4. Entries inside a comment or a `<pre>`, `<code>`, `<script>`,
+  may come first). A `<li>` alone on a line followed by an `<a href="page.html">`
+  on the next exits 4. Entries inside a comment or a `<pre>`, `<code>`, `<script>`,
   `<style>`, `<template>` or `<textarea>` are ignored.
 - A list that names no page exits 4, rather than publish an alphabetical nav.
 
@@ -106,8 +110,9 @@ alphabetical (`LC_ALL=C`) order of base name across both kinds.
 `scripts/docs-site/static/` (the template's own files) to `static/`, byte for
 byte; either may be absent. A Markdown page may show an image from
 `./assets/<path>`; any other image target fails the build (exit 5). Every
-`href`, `src` and `srcset` in the rendered output must name a file the build
-produced (exit 6). A root-absolute path (`/x`) and a path with a `..` segment
+`href`, `src` and `srcset` attribute of a tag in the rendered output must name
+a file the build produced (exit 6); the same words written in code or prose
+are text, not links. A root-absolute path (`/x`) and a path with a `..` segment
 are refused too, because the site is served under a subpath (`/devagent/`)
 where both point somewhere else.
 
@@ -128,9 +133,10 @@ contains `<script`, `<link `, `<img `, `<iframe`, ` src=`, `@import` or
 those strings until #1030 replaces the ban with an allowlist. Fixture builds
 in that suite are not subject to it.
 
-**Deploy hold.** The website 2.0 epic (#994) holds publishing:
-`DOCS_SITE_DEPLOY` is `false` until child 10 of that epic sets it back to
-`true`, after the operator approves a full private preview. While it is off,
+**Deploy hold.** The website 2.0 epic (#994) holds publishing: the repository
+variable `DOCS_SITE_DEPLOY` is set to `false` before #995 merges, and stays
+`false` until child 10 of that epic sets it back to `true`, after the operator
+approves a full private preview. While it is off,
 GitHub Pages keeps serving the last 1.0 deploy, and every push still builds
 the site and uploads it as the `docs-site` review artifact
 (`docs/pages-deployment.md` has the mechanism).
