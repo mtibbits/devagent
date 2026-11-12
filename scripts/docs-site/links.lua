@@ -54,15 +54,9 @@ local function rewrite(el)
     el.target = blob_base .. up
     return el
   end
-  local page, frag = t:match("^%./([%w_-]+)%.md(.*)$")
-  if page and (frag == "" or frag:match("^#")) then
+  local page, ext, frag = t:match("^%./([%w_-]+)%.(%a+)(.*)$")
+  if (ext == "md" or ext == "html") and (frag == "" or frag:match("^#")) then
     el.target = page .. ".html" .. frag
-    return el
-  end
-  -- a hand-written sibling page (#995)
-  local hpage, hfrag = t:match("^%./([%w_-]+)%.html(.*)$")
-  if hpage and (hfrag == "" or hfrag:match("^#")) then
-    el.target = hpage .. ".html" .. hfrag
     return el
   end
   local asset = asset_path(t)

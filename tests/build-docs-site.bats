@@ -58,10 +58,15 @@ setup_file() {
   bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
-setup() {
-  FX="$BATS_TEST_TMPDIR"
-  FX_BASH="$(command -v bash)"
+# fx_reset <dir> — point FX at a fresh fixture dir (src/ and static-empty/).
+fx_reset() {
+  FX="$1"
   mkdir -p "$FX/src" "$FX/static-empty"
+}
+
+setup() {
+  FX_BASH="$(command -v bash)"
+  fx_reset "$BATS_TEST_TMPDIR"
 }
 
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
@@ -585,8 +590,7 @@ real_stubs() {
 t3h_row() {
   local want="$1" token="$2"; shift 2
   t3h_n=$((t3h_n + 1))
-  FX="$BATS_TEST_TMPDIR/row$t3h_n"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_reset "$BATS_TEST_TMPDIR/row$t3h_n"
   fx_bin
   FX_PATH="$FX/bin"
   fx_html index '<h1>Home</h1>' "$@"
@@ -616,8 +620,7 @@ t3h_row() {
 t3i_row() {
   local want="$1"; shift
   t3i_n=$((t3i_n + 1))
-  FX="$BATS_TEST_TMPDIR/row$t3i_n"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_reset "$BATS_TEST_TMPDIR/row$t3i_n"
   fx_html index '<p>intro</p>' "$@"
   run fx_build
   [ "$status" -eq 0 ] || { echo "row $t3i_n: status $status: $output" >&2; return 1; }
@@ -741,8 +744,7 @@ t3i_row() {
   [ "$status" -eq 6 ]
   [[ "$output" == *"climbs out of the site with ../src/other.md"* ]]
   # row 2: the asset class does not accept a .. segment
-  FX="$BATS_TEST_TMPDIR/row2"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_reset "$BATS_TEST_TMPDIR/row2"
   fx_page index "- [Other](./other.md)" "" "[x](./assets/../other.md)"
   fx_page other "o"
   run fx_build
@@ -755,8 +757,7 @@ t3i_row() {
 t4i_row() {
   local want="$1" html="$2"
   t4i_n=$((t4i_n + 1))
-  FX="$BATS_TEST_TMPDIR/row$t4i_n"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_reset "$BATS_TEST_TMPDIR/row$t4i_n"
   fx_page index "$html"
   run fx_build
   [ "$status" -eq 6 ] || { echo "row $t4i_n: status $status: $output" >&2; return 1; }

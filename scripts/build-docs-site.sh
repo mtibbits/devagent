@@ -86,7 +86,6 @@ case "$blob_base" in
 esac
 [ -d "$src" ] || die 4 "source dir not found: $src"
 [ "$static_given" -eq 0 ] || [ -d "$static_dir" ] || die 4 "static dir not found: $static_dir"
-content_assets="$src/assets"
 # The nav derivation and the title readers are awk programs. Without awk they
 # would read as "no list" and exit 4 blaming the page; name the tool instead.
 command -v awk >/dev/null 2>&1 || die 3 "awk is not installed (the nav derivation needs it)"
@@ -244,11 +243,9 @@ html_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/
 # &amp; last, so "&amp;lt;" decodes once, to the literal text "&lt;".
 html_unescape() { sed -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&quot;/"/g' -e "s/&#39;/'/g" -e 's/&amp;/\&/g'; }
 
-# Nav order: index first, then pages in the order the index's own list names
-# them, then any page that list omits (LC_ALL=C order of base names, across
-# both kinds). Prose links are ignored: the list is the page's table of
-# contents. The order is read from the content, so there is no second list to
-# maintain.
+# Nav order (rule in the header): prose links are ignored, since the index's
+# list is its table of contents, and the order is read from the content, so
+# there is no second list to maintain.
 #
 # Everything down to the pandoc probe needs no pandoc, so its refusals are
 # testable in a lane that has none.
@@ -285,7 +282,6 @@ for p in "${pages[@]}"; do contains "$p" "${order[@]}" || order+=("$p"); done
 # not its own old name, not another line's old name (a stub to a stub).
 moved_re='^([A-Za-z0-9_-]+)[[:blank:]]+([A-Za-z0-9_-]+\.html(#[A-Za-z0-9_-]*)?|https://[^[:space:]"'"'"'<>]+)[[:blank:]]*$'
 declare -A moved=()
-stubs=()
 if [ -f "$src/moved.txt" ]; then
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -302,7 +298,6 @@ if [ -f "$src/moved.txt" ]; then
          [ "${kind[${hp%.html}]:-}" ] || die 6 "moved.txt:$n: $hp is not a content page this build produces" ;;
     esac
     moved[$old]="$home"
-    stubs+=("$old")
   done < "$src/moved.txt"
 fi
 
@@ -352,10 +347,12 @@ trap 'rm -rf "$work"' EXIT
 marker='<!--docs-site-body-->'
 printf '%s\n' "$marker" > "$work/marker.md"
 splice() {
-  local frame="$work/$1.frame.html" page="$src/$1.html" n at
-  n="$(grep -cxF -- "$marker" "$frame" || true)"
-  [ "$n" = 1 ] || die 5 "pandoc did not keep the body marker in $1.html"
-  at="$(grep -nxF -- "$marker" "$frame" | cut -d: -f1)"
+  local frame="$work/$1.frame.html" page="$src/$1.html" hits at
+  hits="$(grep -nxF -- "$marker" "$frame" || true)"
+  case "$hits" in
+    ''|*$'\n'*) die 5 "pandoc did not keep the body marker in $1.html" ;;
+  esac
+  at="${hits%%:*}"
   {
     head -n "$((at - 1))" "$frame"
     cat "$page"
@@ -395,7 +392,7 @@ done
 
 # Stubs: static HTML that loads nothing and asks not to be indexed. They are in
 # no nav and are not counted as pages.
-for old in "${stubs[@]}"; do
+for old in "${!moved[@]}"; do
   new="$(printf '%s' "${moved[$old]}" | html_escape)"
   printf '%s\n' \
     '<!DOCTYPE html>' \
@@ -411,11 +408,11 @@ for old in "${stubs[@]}"; do
     '</body>' \
     '</html>' > "$out/$old.html"
 done
-[ "${#stubs[@]}" -eq 0 ] || printf 'build-docs-site: wrote %d moved-page stubs\n' "${#stubs[@]}"
+[ "${#moved[@]}" -eq 0 ] || printf 'build-docs-site: wrote %d moved-page stubs\n' "${#moved[@]}"
 
 # The two asset folders, copied unchanged: the content side (<src>/assets/)
 # and the template side (--static). Either may be absent.
-if [ -d "$content_assets" ]; then cp -R "$content_assets" "$out/assets"; fi
+if [ -d "$src/assets" ]; then cp -R "$src/assets" "$out/assets"; fi
 if [ -d "$static_dir" ]; then cp -R "$static_dir" "$out/static"; fi
 
 # Placeholder seam: child 2 defines the build-time tokens. It runs once per
@@ -426,8 +423,8 @@ for p in "${pages[@]}"; do expand_placeholders "$out/$p.html"; done
 # Independent count: what landed on disk, not what the loops believe they
 # wrote. Every top-level .html is a content page or a stub.
 built=("$out"/*.html)
-[ "${#built[@]}" -eq "$(( ${#pages[@]} + ${#stubs[@]} ))" ] \
-  || die 5 "expected ${#pages[@]} pages and ${#stubs[@]} stubs in $out, found ${#built[@]} .html files"
+[ "${#built[@]}" -eq "$(( ${#pages[@]} + ${#moved[@]} ))" ] \
+  || die 5 "expected ${#pages[@]} pages and ${#moved[@]} stubs in $out, found ${#built[@]} .html files"
 
 # Link closure over the RENDERED output, so a raw <a href> or <img src> in a
 # page (which the Lua filter never sees) is checked too. Every href, src and
