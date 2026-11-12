@@ -16,6 +16,14 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Fixed: hook commands quote `${CLAUDE_PLUGIN_ROOT}` (#532).** Newer
+  Claude Code validators warn on an unquoted placeholder, a path with a space
+  would split it, and `claude plugin validate --strict` failed on those six
+  warnings. The #703 and #704 "missing gh" tests now hide `gh` alone rather
+  than dropping its whole PATH directory: on Ubuntu that directory is
+  `/usr/bin`, and with a venv `python3` ahead of it the skip probe passed
+  while `rm` and `mkdir` were gone.
+
 - **Changed: cleanup commits only the devDoc paths it owns (#749).** The
   devdoc commit carries the issue dir, plus `WBS.md` when it changed, and
   nothing else: another issue's dir, a capture, or a path another session
