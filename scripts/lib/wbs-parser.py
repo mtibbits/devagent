@@ -78,7 +78,7 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888, and
+also reads `_dep_ids`, `h_value` and `as_list`, #888, `split_dep`, #887, and
 `model_value`, `MODEL_TOKENS` and `MODEL_KEYS`, #890), `read_model_tokens` (#890),
 `priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
 the order pass
@@ -215,7 +215,7 @@ def as_list(v) -> list:
 def split_namespaced(entry: str) -> tuple[str, str] | None:
     """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
     halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
-    portfolio.py's `split_dep` and the satisfies/objective check call it."""
+    `split_dep` and the satisfies/objective check call it."""
     left, sep, right = entry.partition(":")
     if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
             and ID_TOKEN_RE.fullmatch(right)):
@@ -223,13 +223,27 @@ def split_namespaced(entry: str) -> tuple[str, str] | None:
     return None
 
 
+def split_dep(raw: str, project: str | None = None) -> dict:
+    """One `depends_on` entry as `{raw, scope, project, issue}` (#887; the one
+    classifier, portfolio.py's `split_dep` adds `resolved`). `<project>:<issue>`
+    is foreign unless its left half equals `project` exactly; anything else,
+    malformed included, is a local id with `issue` equal to `raw` and the
+    `project` argument (None when none is passed)."""
+    pair = split_namespaced(raw)
+    if pair is not None:
+        left, right = pair
+        scope = "local" if left == project else "foreign"
+        return {"raw": raw, "scope": scope, "project": left, "issue": right}
+    return {"raw": raw, "scope": "local", "project": project, "issue": raw}
+
+
 def _node_warnings(meta: dict) -> list[str]:
     """A node's parse warnings, unprefixed, in a fixed check order.
 
     The one producer: #888 (satisfies/objective/h), #890 (thinking/checking) and #887
     (<project>:<issue>) add their checks here (and any parameters they
-    need). The `h` rule (`h_value`), the `<namespace>:<id>` predicate
-    (`split_namespaced`) and the list-or-scalar reader (`as_list`) live in
+    need). The `h` rule (`h_value`), the `depends_on` classifier
+    (`split_dep`) and the list-or-scalar reader (`as_list`) live in
     this module, and portfolio.py calls them; neither file re-spells them.
     The order pass calls `priority_rank` alone, so a check added here
     reaches `wbs show`, not `wbs order` or `wbs update`.

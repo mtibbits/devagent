@@ -131,15 +131,10 @@ def as_list(v) -> list:
 
 
 def split_dep(raw: str, project: str) -> dict:
-    """One `depends_on` entry by #887's split rule (schema doc, Dependency split)."""
-    pair = wbs_parser.split_namespaced(raw)
-    if pair is not None:
-        left, right = pair
-        scope = "local" if left == project else "foreign"
-        return {"raw": raw, "scope": scope, "project": left, "issue": right,
-                "resolved": None}
-    return {"raw": raw, "scope": "local", "project": project, "issue": raw,
-            "resolved": None}
+    """One `depends_on` entry by #887's split rule (schema doc, Dependency
+    split). The rule lives in the parser (`wbs_parser.split_dep`); this adds
+    the portfolio's `resolved`, filled in later."""
+    return {**wbs_parser.split_dep(raw, project), "resolved": None}
 
 
 def node_deps(meta: dict, project: str) -> list[dict]:

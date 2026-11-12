@@ -546,8 +546,32 @@ def test_h_value(meta, want):
     ("-x:FR-1", None),
 ])
 def test_split_namespaced(entry, want):
-    # #888: the one `<namespace>:<id>` predicate; portfolio.py's split_dep calls it.
+    # #888: the one `<namespace>:<id>` predicate; split_dep calls it.
     assert wbs_parser.split_namespaced(entry) == want
+
+
+def _dep(raw, scope, project, issue):
+    return {"raw": raw, "scope": scope, "project": project, "issue": issue}
+
+
+@pytest.mark.parametrize("raw,project,want", [
+    ("Issue-8", None, _dep("Issue-8", "local", None, "Issue-8")),
+    ("beta:Issue-2", None, _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    ("alpha:Issue-9", "alpha", _dep("alpha:Issue-9", "local", "alpha", "Issue-9")),
+    ("alpha:Issue-9", None, _dep("alpha:Issue-9", "foreign", "alpha", "Issue-9")),
+    ("beta:Issue-2", "alpha", _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    (":Issue-1", "alpha", _dep(":Issue-1", "local", "alpha", ":Issue-1")),
+    ("a:b:c", "alpha", _dep("a:b:c", "local", "alpha", "a:b:c")),
+    ("devagent: Issue-726", "alpha",
+     _dep("devagent: Issue-726", "local", "alpha", "devagent: Issue-726")),
+    ("https://x", "alpha", _dep("https://x", "local", "alpha", "https://x")),
+    ("4.1", "alpha", _dep("4.1", "local", "alpha", "4.1")),
+])
+def test_split_dep_rule_in_parser(raw, project, want):
+    # #887: the one `depends_on` classifier; the portfolio's split_dep wraps it.
+    got = wbs_parser.split_dep(raw, project)
+    assert got == want
+    assert list(got) == ["raw", "scope", "project", "issue"]
 
 
 def _assigns_named(source, name):

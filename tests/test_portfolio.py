@@ -200,6 +200,12 @@ def test_split_dep_table(raw, project, want):
     assert pf.split_dep(raw, project) == want
 
 
+def test_split_dep_delegates_to_parser(monkeypatch):
+    # #887: one classifier; portfolio.split_dep only adds `resolved`.
+    monkeypatch.setattr(pf.wbs_parser, "split_dep", lambda raw, project: {"raw": "S"})
+    assert pf.split_dep("x", "alpha") == {"raw": "S", "resolved": None}
+
+
 def test_split_dep_key_order():
     # #887: the JSON byte order that dict == cannot see.
     assert list(pf.split_dep("beta:Issue-2", "alpha")) == [
