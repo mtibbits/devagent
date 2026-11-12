@@ -14,7 +14,10 @@ The project manifest arrives as indexed environment variables, set by
 scripts/portfolio.sh from config.toml (this module reads no TOML):
 PORTFOLIO_PROJECT_COUNT, and per project i (0-based) PORTFOLIO_NAME_<i>,
 PORTFOLIO_DEVDOC_<i>, PORTFOLIO_SOURCE_<i> and PORTFOLIO_WORKTREE_<i>, each
-path variable set only when configured (it may be empty).
+path variable set only when configured (it may be empty), and (#890)
+PORTFOLIO_MODEL_THINKING_<i>, PORTFOLIO_MODEL_CHECKING_<i> and
+PORTFOLIO_MODEL_DEFAULT_<i>, the project's step_models values, set only when
+the key exists.
 
 Standard library only (3.10+), like portfolio-check.py. docs/portfolio-schema.md
 is the contract; commands/portfolio.md is the user doc.
@@ -1108,9 +1111,12 @@ def read_manifest(env=None) -> list[ProjectInput]:
         name = env.get(f"PORTFOLIO_NAME_{i}")
         if not name:
             raise ManifestError(f"PORTFOLIO_NAME_{i} is not set")
+        step_models = {key: env[f"PORTFOLIO_MODEL_{key.upper()}_{i}"]
+                       for key in STEP_MODEL_KEYS
+                       if f"PORTFOLIO_MODEL_{key.upper()}_{i}" in env}
         out.append(ProjectInput(name, env.get(f"PORTFOLIO_DEVDOC_{i}"),
                                 env.get(f"PORTFOLIO_SOURCE_{i}"),
-                                env.get(f"PORTFOLIO_WORKTREE_{i}")))
+                                env.get(f"PORTFOLIO_WORKTREE_{i}"), step_models))
     return out
 
 

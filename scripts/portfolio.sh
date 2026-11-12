@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.1,
+# scripts/portfolio.sh — #726. Write one portfolio document (schema v1.2,
 # docs/portfolio-schema.md) over every configured project's WBS.md.
 # Usage: portfolio.sh [--out PATH | --ready]
 #
@@ -16,7 +16,11 @@
 # The projects reach scripts/lib/portfolio.py as indexed environment variables
 # (PORTFOLIO_PROJECT_COUNT, PORTFOLIO_NAME_<i>, and PORTFOLIO_DEVDOC_<i>,
 # PORTFOLIO_SOURCE_<i>, PORTFOLIO_WORKTREE_<i> when configured), so no path can
-# collide with a delimiter. Each project's own devdoc_dir is read: never the
+# collide with a delimiter. #890 adds PORTFOLIO_MODEL_THINKING_<i>,
+# PORTFOLIO_MODEL_CHECKING_<i> and PORTFOLIO_MODEL_DEFAULT_<i>, the project's raw
+# step_models.thinking/.checking/.default (set when the key exists, even empty;
+# a key whose value is not a string, e.g. a table, is exported as <unreadable>),
+# which the per-leaf `models` field falls back to. Each project's own devdoc_dir is read: never the
 # test-only override that maps every project to one devdoc.
 #
 # Exit: 0 written (or printed, under --ready); 1 config missing or invalid;
@@ -87,10 +91,32 @@ i=0
 while IFS= read -r p; do
   [[ -n "$p" ]] || continue
   export "PORTFOLIO_NAME_$i=$p"
-  for pair in devdoc_dir:DEVDOC source_dir:SOURCE worktree_root:WORKTREE; do
+  model_keys=""
+  for pair in devdoc_dir:DEVDOC source_dir:SOURCE worktree_root:WORKTREE \
+      step_models.thinking:MODEL_THINKING step_models.checking:MODEL_CHECKING \
+      step_models.default:MODEL_DEFAULT; do
     field="${pair%%:*}"
     var="PORTFOLIO_${pair##*:}_$i"
-    if v="$(config_get_project_field "$p" "$field")"; then
+    if [[ "$field" == step_models.* ]]; then
+      # Stderr-quiet, as step_models_tier reads them. _toml.py get also exits 1
+      # on a table or an array of tables, so a present key is told from an
+      # absent one: list-keys of the table names scalar and array keys, and
+      # list-keys of the key itself succeeds only on a table.
+      if v="$(config_get_project_field "$p" "$field" 2>/dev/null)"; then
+        export "$var=$v"
+      else
+        rc=$?
+        [[ $rc -eq 1 ]] || die "cannot read $field of project '$p' (rc $rc)"
+        if [[ -z "$model_keys" ]]; then
+          model_keys="$(_config_toml list-keys "$(config_path)" "project.$p.step_models" 2>/dev/null)" \
+            || model_keys=$'\n'
+        fi
+        if grep -Fxq -- "${field#step_models.}" <<< "$model_keys" \
+            || _config_toml list-keys "$(config_path)" "project.$p.$field" > /dev/null 2>&1; then
+          export "$var=<unreadable>"
+        fi
+      fi
+    elif v="$(config_get_project_field "$p" "$field")"; then
       export "$var=$v"
     else
       rc=$?

@@ -311,6 +311,7 @@ wbs_order_config() {
 # multi-token) stay checking-only, because the bare form itself is
 # checking-only — so an empty marker + a thinking step still falls through
 # silently, byte-identically to before #561.
+# The portfolio's models field resolves the same class-then-default rung (portfolio.py project_models; tests/portfolio.bats agreement test).
 step_models_tier() {
   local project="$1" step="$2" issue_dir="${3:-}" tier=""
   [[ -n "$project" && -n "$step" ]] || return 1

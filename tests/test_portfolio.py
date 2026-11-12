@@ -1352,8 +1352,13 @@ def test_manifest_from_env(monkeypatch):
     _manifest(monkeypatch, [("alpha", "/d/a"), ("delta", None), ("iota", "")])
     monkeypatch.setenv("PORTFOLIO_SOURCE_0", "/s/a")
     monkeypatch.setenv("PORTFOLIO_WORKTREE_0", "/w")
+    # #890: a set step_models var keeps its value, an empty one keeps "",
+    # an unset one leaves the key absent.
+    monkeypatch.setenv("PORTFOLIO_MODEL_THINKING_0", "sonnet")
+    monkeypatch.setenv("PORTFOLIO_MODEL_DEFAULT_0", "")
     assert pf.read_manifest() == [
-        pf.ProjectInput("alpha", "/d/a", "/s/a", "/w"),
+        pf.ProjectInput("alpha", "/d/a", "/s/a", "/w",
+                        {"thinking": "sonnet", "default": ""}),
         pf.ProjectInput("delta", None, None, None),
         pf.ProjectInput("iota", "", None, None),
     ]
