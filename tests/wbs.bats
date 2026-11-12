@@ -1243,6 +1243,16 @@ _wbs865_order() {
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
 }
 
+@test "WBS docs document the <project>:<issue> depends_on notation (#887)" {
+  local spec131
+  grep -qF '<project>:<issue>' "$REPO/templates/wbs_template.md"
+  spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
+  [[ "$spec131" == *"holds ':' but is not <project>:<issue>; read as a local id"* ]]
+  [[ "$spec131" == *'`depends_on` (#887)'* ]]
+  grep -qF "is not \`<project>:<issue>\`" "$REPO/commands/wbs.md"
+  awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$REPO/CHANGELOG.md" | grep -qF '<project>:<issue>'
+}
+
 @test "wbs.bats network shim catches a real backend call (#703 control)" {
   _with_dir_prefix
   unset DEVAGENT_ISSUE_BACKEND_DIR

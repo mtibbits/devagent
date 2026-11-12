@@ -16,6 +16,16 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
+  `depends_on` entry may name another configured project's issue as
+  `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the
+  project's own name as the bare id, and a foreign entry constrains nothing;
+  every writer keeps foreign entries byte-for-byte. `wbs show` warns once on an
+  entry that holds `:` but is not `<project>:<issue>`. `parse` gives each node
+  an additive `depends_on` field (`{raw, scope, project, issue}` per entry),
+  and the parser and the portfolio share one classifier (`split_dep`); the
+  portfolio document is unchanged.
+
 - **Fixed: hook commands quote `${CLAUDE_PLUGIN_ROOT}` (#532).** An install
   path with a space no longer splits a hook command into several words, and
   `claude plugin validate --strict` passes again on Claude Code 2.1.321 and
