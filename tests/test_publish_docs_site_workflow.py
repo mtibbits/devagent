@@ -169,3 +169,16 @@ def test_pages_concurrency_group_is_on_the_deploy_job_only(wf):
         "group": "pages", "cancel-in-progress": False,
     }
     assert "concurrency" not in wf["jobs"]["build"]
+
+
+def test_test_suite_lane_installs_pandoc():
+    # #841: the `test suite` lane must install pandoc, or most of
+    # tests/build-docs-site.bats skips there. The bats job's step, not the
+    # pytest job's same-named one.
+    with open(os.path.join(_REPO, ".github", "workflows", "test.yml"), encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    install = [s for s in _steps(doc["jobs"]["bats"]) if s.get("name") == "Install dependencies"]
+    assert len(install) == 1
+    lines = [ln for ln in install[0].get("run", "").splitlines() if "apt-get install" in ln]
+    assert lines, "no apt-get install line in the bats job's Install dependencies step"
+    assert any("pandoc" in ln.split() for ln in lines), lines

@@ -18,10 +18,10 @@
 # pandoc: the builder validates its input and derives the nav BEFORE it probes
 # for pandoc, so every refusal up to and including the probe is tested without
 # it (a stub stands in where a version is needed). Tests that render call
-# need_pandoc. tests/ runs in test.yml WITHOUT pandoc, so there the rendering
-# tests skip with a reason; publish-docs-site.yml installs pandoc, asserts it,
-# and runs this file with skips forbidden, so the lane that owns the site
-# always executes them. Locally, install pandoc 3.x.
+# need_pandoc, which skips only where pandoc is absent (a local run). In CI the
+# file runs un-skipped: test.yml's bats job installs pandoc (#841), and
+# publish-docs-site.yml installs pandoc, asserts it, and additionally runs this
+# file with skips forbidden. Locally, install pandoc 3.x.
 #
 # COUPLING: the REAL tests derive their expectations from docs-site/*.md (fence
 # and table-row counts, the install command lines, two H1s, and nav order from
