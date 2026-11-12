@@ -106,7 +106,7 @@ def test_hour_factors_pinned():
 
 
 def test_producer_keys_pinned():
-    assert pf.PRODUCER_KEYS == frozenset({"est_src", "satisfies", "h"})
+    assert pf.PRODUCER_KEYS == frozenset({"est_src", "satisfies", "h", "thinking", "checking"})
 
 
 @pytest.mark.parametrize("meta,want", [
@@ -263,7 +263,7 @@ def _example():
 
 
 def test_schema_version_matches_live_schema():
-    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.1"
+    assert pf.SCHEMA_VERSION == pf.pc.load_schema()["version"] == "1.2"
 
 
 def test_compat_both_directions():
@@ -285,6 +285,38 @@ def test_compat_both_directions():
     assert all(e.endswith(".ready_via_parent_row: unknown field") for e in errors), errors
 
 
+def test_compat_models_both_directions():
+    # #890: schema 1.2 adds optional projects[].nodes[].models (Issue-725's
+    # both-directions rule, with a mislabelled negative control).
+    old_schema = pf.pc.load_schema(FIXTURES / "schema-history" / "1.1.json")
+    new_doc = _example()
+    new_doc["schema_version"] = "1.2"
+    for p in new_doc["projects"]:
+        for n in p["nodes"]:
+            n["ready_via_parent_row"] = None
+            if n["leaf"]:
+                n["models"] = {"thinking": {"value": "opus", "source": "wbs"},
+                               "checking": None}
+    assert pf.pc.check(new_doc, old_schema) == []
+    assert pf.pc.check(new_doc) == []
+    assert pf.pc.check(_example()) == []
+    mislabelled = copy.deepcopy(new_doc)
+    mislabelled["schema_version"] = "1.1"
+    errors = pf.pc.check(mislabelled, old_schema)
+    assert errors
+    assert all(e.endswith(".models: unknown field") for e in errors), errors
+    # bad shapes on the live reader, each naming its path
+    for bad in ({"value": "opus", "source": "x"},
+                {"value": "opus", "source": "wbs", "why": "?"},
+                {"value": 3, "source": "wbs"}):
+        doc = copy.deepcopy(new_doc)
+        leaf = next(n for p in doc["projects"] for n in p["nodes"] if n["leaf"])
+        leaf["models"]["checking"] = bad
+        errors = pf.pc.check(doc)
+        assert errors, bad
+        assert any(".models.checking" in e for e in errors), (bad, errors)
+
+
 def test_rollup_matches_example():
     # #725 worked these figures independently of this producer.
     read = [p for p in _example()["projects"] if p["status"] == "read"]
@@ -293,7 +325,7 @@ def test_rollup_matches_example():
         assert pf.rollup(p["nodes"]) == p["rollup"], p["project"]
 
 
-# --- invariants I1–I16 ---------------------------------------------------------
+# --- invariants I1–I17 ---------------------------------------------------------
 
 def test_example_satisfies_invariants():
     assert pf.invariant_violations(_example()) == []
@@ -390,6 +422,22 @@ def _dflip(nid, i, key):
         dep[key] = not dep[key]
     return f
 
+
+def _meta(nid, key, value):
+    return _call(lambda d: _node(d, nid)["meta"].__setitem__(key, value))
+
+
+def _choice(value, source):
+    return {"value": value, "source": source}
+
+
+def _models(thinking=None, checking=None):
+    """A models object from (value, source) pairs; None stays null (#890)."""
+    def choice(pair):
+        return None if pair is None else _choice(*pair)
+    return {"thinking": choice(thinking), "checking": choice(checking)}
+
+
 # (tag, row id, mutation). The unmutated example is the control (it returns []).
 MUTATION_ROWS = [
     ("I1", "duplicate-id", _nset("n9", "id", "n1")),
@@ -456,12 +504,22 @@ MUTATION_ROWS = [
     ("I16", "resolved-only-on-uncomputed", _dset("n3", 0, "resolved", True)),
     ("I16", "via-parent-row-only-on-uncomputed", _nset("n6", "ready_via_parent_row", False)),
     ("I16", "computed-with-duplicate-id", _computed(_nset("n9", "id", "n1"))),
+    ("I17", "models-on-parent", _nset("n1", "models", {"thinking": None, "checking": None})),
+    ("I17", "models-missing-at-1.2", _set(("schema_version",), "1.2")),
+    ("I17", "wbs-value-differs", _many(_meta("n2", "thinking", "opus"),
+                                       _nset("n2", "models", _models(("sonnet", "wbs"))))),
+    ("I17", "project-source-with-legal-key",
+     _many(_meta("n2", "thinking", "opus"), _nset("n2", "models", _models(("opus", "project"))))),
+    ("I17", "value-not-a-token", _nset("n2", "models", _models(("gpt", "project")))),
 ]
 
 # Rows that must NOT fire.
 SURVIVE_ROWS = [
     ("I13", "hours-off-1e-12", _bump(RU + ("remaining", "low_hours"), 1e-12)),
     ("I16", "computed-clean", _computed()),
+    ("I17", "models-consistent", _many(_meta("n2", "thinking", "opus"),
+                                       _nset("n2", "models", _models(("opus", "wbs"),
+                                                                     ("haiku", "project"))))),
 ]
 
 
@@ -485,8 +543,8 @@ def test_invariant_must_not_fire(tag, row, mutate):
 def test_invariant_rows_total():
     tags = {t for t, _, _ in MUTATION_ROWS}
     assert tags == set(pf.INVARIANTS)
-    assert pf.INVARIANTS == tuple(f"I{i}" for i in range(1, 17))
-    assert len(MUTATION_ROWS) == 58
+    assert pf.INVARIANTS == tuple(f"I{i}" for i in range(1, 18))
+    assert len(MUTATION_ROWS) == 58 + 5
     assert len({(t, r) for t, r, _ in MUTATION_ROWS}) == len(MUTATION_ROWS)
 
 
@@ -735,9 +793,10 @@ def test_build_report_literal(tmp_path):
 def test_kinds_all_planted(tmp_path):
     _, doc = _build(tmp_path / "multi-build")
     ready = _ready_build(tmp_path / "ready-build")
-    kinds = {r["kind"] for d in (doc, ready) for r in d["parse_report"]}
+    models = _models_build(tmp_path / "models-build")
+    kinds = {r["kind"] for d in (doc, ready, models) for r in d["parse_report"]}
     assert kinds == set(pf.KINDS)
-    assert len(pf.KINDS) == len(set(pf.KINDS)) == 19
+    assert len(pf.KINDS) == len(set(pf.KINDS)) == 20
 
 
 def _walk_lines(tree):
@@ -1127,6 +1186,164 @@ def test_build_validates_ready_fixture(ready_doc):
 
 # --- write path and CLI --------------------------------------------------------
 
+# --- models (#890) ------------------------------------------------------------
+
+MODELS = FIXTURES / "models"
+# step_models per fixture project, as portfolio.sh exports them.
+MODELS_CONFIG = {"mu": {}, "nu": {"thinking": "sonnet", "9": "fable"},
+                 "xi": {"default": "haiku"},
+                 "omicron": {"thinking": "gpt", "default": "opus"}, "pi": {}}
+TOKENS = "sonnet opus haiku fable inherit"
+
+
+def _models_build(tmp_path):
+    root = tmp_path / "models"
+    shutil.copytree(MODELS, root)
+    projects = [pf.ProjectInput(name, str(root / name), step_models=sm)
+                for name, sm in MODELS_CONFIG.items()]
+    return pf.build_document(projects, GENERATED_AT)
+
+
+@pytest.fixture(scope="module")
+def models_doc(tmp_path_factory):
+    return _models_build(tmp_path_factory.mktemp("models-doc"))
+
+
+def _leaf(doc, project, text):
+    return next(n for n in _project(doc, project)["nodes"] if n["text"] == text)
+
+
+def _bad_models(doc, project):
+    return [r for r in doc["parse_report"]
+            if r["project"] == project and r["kind"] == "bad_model"]
+
+
+def test_models_fixture_validates(models_doc):
+    doc = models_doc
+    assert pf.pc.check(doc) == []
+    assert pf.invariant_violations(doc) == []
+
+
+def test_models_both_keys_from_wbs(models_doc):
+    doc = models_doc
+    assert _leaf(doc, "mu", "Both")["models"] == {
+        "thinking": _choice("opus", "wbs"), "checking": _choice("fable", "wbs")}
+
+
+def test_models_class_key_then_null_numeric_ignored(models_doc):
+    doc = models_doc
+    assert _leaf(doc, "nu", "Bare")["models"] == {
+        "thinking": _choice("sonnet", "project"), "checking": None}
+    assert _bad_models(doc, "nu") == []
+
+
+def test_models_default_only(models_doc):
+    doc = models_doc
+    assert _leaf(doc, "xi", "Bare")["models"] == {
+        "thinking": _choice("haiku", "project"), "checking": _choice("haiku", "project")}
+
+
+def test_models_inherit_from_wbs(models_doc):
+    doc = models_doc
+    assert _leaf(doc, "mu", "Inherit")["models"] == {
+        "thinking": _choice("inherit", "wbs"), "checking": None}
+
+
+@pytest.mark.parametrize("project,cls,want,shown", [
+    ("mu", "thinking", None, '"gpt"'),
+    ("xi", "checking", _choice("haiku", "project"), '["opus", "fable"]'),
+])
+def test_models_malformed_leaf_key_falls_through(models_doc, project, cls, want, shown):
+    doc = models_doc
+    leaf = _leaf(doc, project, "Malformed")
+    assert leaf["models"][cls] == want
+    bad = _bad_models(doc, project)
+    assert [(r["source_line"], r["message"]) for r in bad] == [
+        (leaf["source_line"],
+         f"{cls} {shown} is not one of: {TOKENS}; the key counts as absent")]
+
+
+def test_models_bad_config_value_does_not_fall_through(models_doc):
+    doc = models_doc
+    assert _leaf(doc, "omicron", "Bare")["models"] == {
+        "thinking": None, "checking": _choice("opus", "project")}
+    bad = _bad_models(doc, "omicron")
+    assert len(bad) == 1
+    assert bad[0]["source_line"] is None
+    assert "step_models.thinking" in bad[0]["message"]
+
+
+def test_models_absent_on_parent(models_doc):
+    doc = models_doc
+    parent = _leaf(doc, "mu", "Parent")
+    assert "models" not in parent
+    assert parent["meta"]["thinking"] == "opus" and parent["meta"]["checking"] == "fable"
+    assert all(r["source_line"] != parent["source_line"] for r in _bad_models(doc, "mu"))
+    # Improve B4: a parent's malformed key reports nothing in the portfolio.
+    pi_parent = _leaf(doc, "pi", "Parent")
+    assert "models" not in pi_parent
+    assert _leaf(doc, "pi", "Child")["models"]["checking"] == _choice("opus", "wbs")
+    assert _bad_models(doc, "pi") == []
+
+
+def _cfg_bad(key, cls, v):
+    return (f"step_models.{key} {json.dumps(v)} is not one of: {TOKENS}; "
+            f"models.{cls} is null")
+
+
+@pytest.mark.parametrize("step_models,want", [
+    # legal rows
+    ({"thinking": "sonnet"}, {"thinking": (_choice("sonnet", "project"), None),
+                              "checking": (None, None)}),
+    ({"thinking": "", "default": "opus"}, {"thinking": (_choice("opus", "project"), None),
+                                           "checking": (_choice("opus", "project"), None)}),
+    ({"default": "haiku"}, {"thinking": (_choice("haiku", "project"), None),
+                            "checking": (_choice("haiku", "project"), None)}),
+    ({"checking": "fable"}, {"thinking": (None, None),
+                             "checking": (_choice("fable", "project"), None)}),
+    ({"thinking": "inherit"}, {"thinking": (_choice("inherit", "project"), None),
+                               "checking": (None, None)}),
+    # bad rows: no fall-through
+    ({"thinking": "gpt", "default": "opus"},
+     {"thinking": (None, _cfg_bad("thinking", "thinking", "gpt")),
+      "checking": (_choice("opus", "project"), None)}),
+    ({"default": "gpt"}, {"thinking": (None, _cfg_bad("default", "thinking", "gpt")),
+                          "checking": (None, _cfg_bad("default", "checking", "gpt"))}),
+    # edge rows: TOML non-strings arrive in TOML form; {} resolves nothing
+    ({"thinking": "3"}, {"thinking": (None, _cfg_bad("thinking", "thinking", "3")),
+                         "checking": (None, None)}),
+    ({"checking": '["opus"]'}, {"thinking": (None, None),
+                                "checking": (None, _cfg_bad("checking", "checking", '["opus"]'))}),
+    ({}, {"thinking": (None, None), "checking": (None, None)}),
+    ({"9": "fable"}, {"thinking": (None, None), "checking": (None, None)}),
+    # Improve B2: a table value is exported as <unreadable>
+    ({"thinking": "<unreadable>", "default": "opus"},
+     {"thinking": (None, _cfg_bad("thinking", "thinking", "<unreadable>")),
+      "checking": (_choice("opus", "project"), None)}),
+    # Improve A3: a bad default no class reaches is silent
+    ({"thinking": "opus", "checking": "haiku", "default": "gpt"},
+     {"thinking": (_choice("opus", "project"), None),
+      "checking": (_choice("haiku", "project"), None)}),
+])
+def test_project_models_truth_table(step_models, want):
+    assert pf.project_models(step_models) == want
+
+
+def test_models_read_tokens_from_parser(monkeypatch):
+    # Delegation proof: project_models reads the parser's MODEL_TOKENS.
+    monkeypatch.setattr(pf.wbs_parser, "MODEL_TOKENS", ("zz",))
+    assert pf.project_models({"default": "zz"})["thinking"] == (_choice("zz", "project"), None)
+    assert pf.project_models({"default": "opus"})["thinking"][0] is None
+    meta_models, msgs = pf.leaf_models({"thinking": "zz"}, {"thinking": None, "checking": None})
+    assert meta_models["thinking"] == _choice("zz", "wbs") and msgs == []
+
+
+def test_bad_model_messages_pinned():
+    assert pf.LEAF_BAD == "{cls} {shown} is not one of: {tokens}; the key counts as absent"
+    assert pf.CONFIG_BAD == ("step_models.{key} {shown} is not one of: {tokens}; "
+                             "models.{cls} is null")
+
+
 def _manifest(monkeypatch, projects):
     for k in [k for k in os.environ if k.startswith("PORTFOLIO_")]:
         monkeypatch.delenv(k)
@@ -1141,8 +1358,13 @@ def test_manifest_from_env(monkeypatch):
     _manifest(monkeypatch, [("alpha", "/d/a"), ("delta", None), ("iota", "")])
     monkeypatch.setenv("PORTFOLIO_SOURCE_0", "/s/a")
     monkeypatch.setenv("PORTFOLIO_WORKTREE_0", "/w")
+    # #890: a set step_models var keeps its value, an empty one keeps "",
+    # an unset one leaves the key absent.
+    monkeypatch.setenv("PORTFOLIO_MODEL_THINKING_0", "sonnet")
+    monkeypatch.setenv("PORTFOLIO_MODEL_DEFAULT_0", "")
     assert pf.read_manifest() == [
-        pf.ProjectInput("alpha", "/d/a", "/s/a", "/w"),
+        pf.ProjectInput("alpha", "/d/a", "/s/a", "/w",
+                        {"thinking": "sonnet", "default": ""}),
         pf.ProjectInput("delta", None, None, None),
         pf.ProjectInput("iota", "", None, None),
     ]

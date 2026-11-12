@@ -348,3 +348,118 @@ EOF
   [ "$(printf '%s\n' "$line" | cut -f3)" = "?w" ]
   [ "$(printf '%s\n' "$line" | cut -f4)" = "No issue rdy-noissue" ]
 }
+
+# --- models (#890) ---------------------------------------------------------------
+
+_models_config() {
+  M="$T/models"
+  cp -R "$FIX/models" "$M"
+  cat > "$DA_HOME/config.toml" <<EOF
+[project.nu]
+devdoc_dir = "$M/nu"
+
+[project.nu.step_models]
+thinking = "sonnet"
+"9" = "fable"
+
+[project.xi]
+devdoc_dir = "$M/xi"
+
+[project.xi.step_models]
+default = "haiku"
+
+[project.omicron]
+devdoc_dir = "$M/omicron"
+
+[project.omicron.step_models]
+thinking = "gpt"
+default = "opus"
+EOF
+}
+
+# _bare <project>: a _q expression for that project's Bare leaf's models.
+_bare() {
+  printf 'next(n for p in d["projects"] if p["project"] == "%s" for n in p["nodes"] if n["text"] == "Bare")["models"]' "$1"
+}
+
+@test "portfolio: step_models reach the models field through config.sh (#890)" {
+  _models_config
+  local out="$T/p.json"
+  run bash "$PORTFOLIO" --out "$out"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  run python3 "$PLUGIN_ROOT/scripts/lib/portfolio-check.py" "$out"
+  [ "$status" -eq 0 ]
+  [ "$(_q "$out" "$(_bare nu)"'["thinking"] == {"value": "sonnet", "source": "project"}')" = True ]
+  [ "$(_q "$out" "$(_bare nu)"'["checking"] is None')" = True ]
+  [ "$(_q "$out" "$(_bare xi)"' == {c: {"value": "haiku", "source": "project"} for c in ("thinking", "checking")}')" = True ]
+  [ "$(_q "$out" "$(_bare omicron)"'["thinking"] is None')" = True ]
+  [ "$(_q "$out" 'sum(1 for r in d["parse_report"] if r["project"] == "omicron" and r["kind"] == "bad_model")')" = 1 ]
+}
+
+@test "portfolio: a table-valued step_models key gives null and one bad_model, silently (#890)" {
+  _models_config
+  local value out="$T/p.json" count=0
+  # a table, then an array of tables: _toml.py get exits 1 on both
+  for value in '{model = "opus"}' '[{model = "opus"}]'; do
+    printf '[project.nu]\ndevdoc_dir = "%s"\n\n[project.nu.step_models]\nthinking = %s\ndefault = "sonnet"\n' \
+      "$M/nu" "$value" > "$DA_HOME/config.toml"
+    run --separate-stderr bash "$PORTFOLIO" --out "$out"
+    [ "$status" -eq 0 ]
+    [ -z "$stderr" ]
+    [ "$(_q "$out" "$(_bare nu)"'["thinking"] is None')" = True ]
+    [ "$(_q "$out" "$(_bare nu)"'["checking"] == {"value": "sonnet", "source": "project"}')" = True ]
+    [ "$(_q "$out" '[r["message"].split(" is ")[0] for r in d["parse_report"] if r["kind"] == "bad_model"]')" = "['step_models.thinking \"<unreadable>\"']" ]
+    count=$((count + 1))
+  done
+  [ "$count" -eq 2 ]
+}
+
+# _tier_value <project> <step>: step_models_tier's answer as a value:
+# rc 0 its stdout, rc 2 inherit, rc 3 none.
+_tier_value() {
+  local v rc
+  v="$(step_models_tier "$1" "$2" 2>/dev/null)" && rc=0 || rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$v" ;;
+    2) echo inherit ;;
+    3) echo none ;;
+    *) echo "rc$rc" ;;
+  esac
+}
+
+# _model_value <doc> <project index> <class>: that project's one leaf's
+# models.<class> value, or none.
+_model_value() {
+  _q "$1" "(lambda m: 'none' if m is None else m['value'])(next(n for n in d['projects'][$2]['nodes'] if n['leaf'])['models']['$3'])" | tr -d '\r'
+}
+
+@test "portfolio: the models project rung agrees with step_models_tier (#890)" {
+  source "$PLUGIN_ROOT/scripts/lib/paths.sh"
+  source "$PLUGIN_ROOT/scripts/lib/io.sh"
+  source "$PLUGIN_ROOT/scripts/lib/config.sh"
+  local tables=('' 'thinking = "sonnet"' 'default = "haiku"'
+                $'thinking = ""\ndefault = "opus"' $'checking = "fable"\ndefault = "haiku"'
+                'thinking = "inherit"' $'"9" = "fable"\nthinking = "sonnet"')
+  local i out="$T/p.json" count=0 want_t want_c got_t got_c
+  mkdir -p "$T/one"
+  printf '%s\n' '# p WBS' '' '- [ ] L {issue: Issue-1}' > "$T/one/WBS.md"
+  # One project per table, so a single portfolio run covers every table.
+  : > "$DA_HOME/config.toml"
+  for i in "${!tables[@]}"; do
+    printf '[project.p%s]\ndevdoc_dir = "%s"\n\n' "$i" "$T/one" >> "$DA_HOME/config.toml"
+    [[ -z "${tables[i]}" ]] || printf '[project.p%s.step_models]\n%s\n\n' "$i" "${tables[i]}" >> "$DA_HOME/config.toml"
+  done
+  bash "$PORTFOLIO" --out "$out" > /dev/null
+  for i in "${!tables[@]}"; do
+    want_t="$(_tier_value "p$i" 2)"
+    want_c="$(_tier_value "p$i" 5)"
+    got_t="$(_model_value "$out" "$i" thinking)"
+    got_c="$(_model_value "$out" "$i" checking)"
+    echo "[${tables[i]}]: tier thinking=$want_t checking=$want_c; portfolio thinking=$got_t checking=$got_c"
+    [ "$got_t" = "$want_t" ]
+    [ "$got_c" = "$want_c" ]
+    count=$((count + 1))
+  done
+  [ "$count" -eq 7 ]
+}

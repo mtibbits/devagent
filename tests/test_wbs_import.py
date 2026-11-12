@@ -808,6 +808,18 @@ def test_merge_after_unterminated_last_line():
         assert parser.inserted_only(base, out)
 
 
+def test_merge_keeps_model_key_lines():
+    # #890 writer pin (green at HEAD by design): the merge keeps a hand line
+    # carrying thinking/checking byte-identical, and the merge path ran.
+    hand = "- [ ] Hand {issue: Issue-1, thinking: opus, checking: fable}"
+    base = f"# W\n\n{hand}\n"
+    m = wbs_import.build([src([rec("1"), rec("2"), rec("3")])])
+    out, stats = merged(base, m)
+    assert hand + "\n" in out.splitlines(keepends=True)
+    assert parser.inserted_only(base, out)
+    assert len(stats["added"]) == 2
+
+
 def test_merge_existing_lines_untouched(tmp_path):
     # preserve.md: 1, 2, 3 present; 4 under Leaf A (after its note), 7 under
     # the M1 container Epic one, 10 under Leaf D, 5 in a new Unparented
