@@ -49,7 +49,7 @@ setup_file() {
 setup() {
   FX="$BATS_TEST_TMPDIR"
   FX_BASH="$(command -v bash)"
-  mkdir -p "$FX/src"
+  mkdir -p "$FX/src" "$FX/static-empty"
 }
 
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
@@ -73,9 +73,11 @@ fx_page() {
 nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
 
 # fx_build [args...] — build the fixture source dir into $FX/out. FX_PATH, when
-# set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. Later
-# flags win: the script's parse loop keeps the last value.
-fx_build() { env PATH="${FX_PATH:-$PATH}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" "$@"; }
+# set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
+# passes --static "$FX/static-empty", so a fixture build never copies the
+# repo's own scripts/docs-site/static/. Later flags win: the script's parse
+# loop keeps the last value.
+fx_build() { env PATH="${FX_PATH:-$PATH}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
 
 # fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
 # real list, which names only zeta.
@@ -226,7 +228,8 @@ frame_of() {
 @test "build-docs-site: pandoc absent -> exit 3, nothing written" {
   fx_bin
   fx_page index "hello"
-  run env PATH="$FX/bin" "$(command -v bash)" "$BUILD" --src "$FX/src" --out "$FX/out"
+  FX_PATH="$FX/bin"
+  run fx_build
   [ "$status" -eq 3 ]
   [[ "$output" == *"pandoc is not installed"* ]]
   [ ! -e "$FX/out" ]
@@ -237,7 +240,8 @@ frame_of() {
   printf '#!%s\necho "pandoc 2.9.2.1"\n' "$(command -v bash)" > "$FX/bin/pandoc"
   chmod +x "$FX/bin/pandoc"
   fx_page index "hello"
-  run env PATH="$FX/bin" "$(command -v bash)" "$BUILD" --src "$FX/src" --out "$FX/out"
+  FX_PATH="$FX/bin"
+  run fx_build
   [ "$status" -eq 3 ]
   [[ "$output" == *"pandoc is too old"*"2.9.2.1"* ]]
   [ ! -e "$FX/out" ]
@@ -263,14 +267,14 @@ frame_of() {
 
 @test "build-docs-site: a source dir holding only README.md has no pages -> exit 4" {
   printf '# policy\n' > "$FX/src/README.md"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"no content pages"* ]]
 }
 
 @test "build-docs-site: pages but no index.md -> exit 4" {
   fx_page install "hello"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"no index.md"* ]]
 }
@@ -279,7 +283,7 @@ frame_of() {
   # "* " bullets: a list the derivation's grep does not see.
   fx_page index "* [Other](./other.md)"
   fx_page other "hello"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"page list names no page"* ]]
   [ ! -e "$FX/out" ]
@@ -322,7 +326,7 @@ frame_of() {
   need_pandoc
   fx_page index "hello"
   printf 'keep me\n' > "$FX/out"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"--out exists and is not a directory"* ]]
   [ "$(cat "$FX/out")" = "keep me" ]
@@ -333,7 +337,7 @@ frame_of() {
   fx_page index "hello"
   mkdir -p "$FX/out"
   printf 'keep me\n' > "$FX/out/.hidden-keep"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 4 ]
   [[ "$output" == *"--out is not empty"* ]]
   [ "$(cat "$FX/out/.hidden-keep")" = "keep me" ]
@@ -345,7 +349,7 @@ frame_of() {
   need_pandoc
   fx_page index "- [Bare](./bare.md)"
   printf '```\n# not a heading, inside a fence\n```\nno heading here\n' > "$FX/src/bare.md"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 5 ]
   [[ "$output" == *"no top-level '# ' heading"*"bare.md"* ]]
 }
@@ -353,7 +357,7 @@ frame_of() {
 @test "build-docs-site: a link the filter cannot classify -> exit 5 naming the target" {
   need_pandoc
   fx_page index "see [deep](sub/dir/page.md)"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 5 ]
   [[ "$output" == *"unclassified link target: sub/dir/page.md"* ]]
 }
@@ -361,7 +365,7 @@ frame_of() {
 @test "build-docs-site: a link that leaves docs-site/ with an empty --blob-base -> exit 5 naming it" {
   need_pandoc
   fx_page index "see [up](../LICENSE)"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out" --blob-base ""
+  run fx_build --blob-base ""
   [ "$status" -eq 5 ]
   [[ "$output" == *"no blob_base was given: ../LICENSE"* ]]
 }
@@ -369,7 +373,7 @@ frame_of() {
 @test "build-docs-site: a sibling link to a page that does not exist -> exit 6 naming it" {
   need_pandoc
   fx_page index "see [ghost](./ghost.md)"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 6 ]
   [[ "$output" == *"index.html links to ghost.html"* ]]
 }
@@ -377,7 +381,7 @@ frame_of() {
 @test "build-docs-site: a raw-HTML link the Lua filter never sees is still closed over -> exit 6" {
   need_pandoc
   fx_page index 'raw <a href="nowhere.html">link</a>'
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 6 ]
   [[ "$output" == *"links to nowhere.html"* ]]
 }
@@ -386,7 +390,7 @@ frame_of() {
   need_pandoc
   fx_page index "- [Other](./other.md)" "" "[frag](./other.md#part) and [up](../LICENSE) and [ext](https://example.org/x.md)"
   fx_page other "## part" "" "[home](./index.md)"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out" --blob-base "https://forge.example/blob/main/"
+  run fx_build --blob-base "https://forge.example/blob/main/"
   [ "$status" -eq 0 ]
   grep -qF 'href="other.html#part"' "$FX/out/index.html"
   grep -qF 'href="https://forge.example/blob/main/LICENSE"' "$FX/out/index.html"
@@ -400,7 +404,7 @@ frame_of() {
   fx_page zeta "z"
   fx_page alpha "a"
   fx_page mid "the list does not name this page"
-  run bash "$BUILD" --src "$FX/src" --out "$FX/out"
+  run fx_build
   [ "$status" -eq 0 ]
   local navorder
   navorder="$(nav_of "$FX/out/mid.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
@@ -516,7 +520,7 @@ t3h_row() {
   local want="$1" token="$2"; shift 2
   t3h_n=$((t3h_n + 1))
   FX="$BATS_TEST_TMPDIR/row$t3h_n"
-  mkdir -p "$FX/src"
+  mkdir -p "$FX/src" "$FX/static-empty"
   fx_bin
   FX_PATH="$FX/bin"
   fx_html index '<h1>Home</h1>' "$@"
@@ -547,7 +551,7 @@ t3i_row() {
   local want="$1"; shift
   t3i_n=$((t3i_n + 1))
   FX="$BATS_TEST_TMPDIR/row$t3i_n"
-  mkdir -p "$FX/src"
+  mkdir -p "$FX/src" "$FX/static-empty"
   fx_html index '<p>intro</p>' "$@"
   run fx_build
   [ "$status" -eq 0 ] || { echo "row $t3i_n: status $status: $output" >&2; return 1; }
@@ -588,4 +592,115 @@ t3i_row() {
   navorder="$(nav_of "$FX/out/mid.html" | grep -oE 'href="[a-z]+\.html"' | tr '\n' ' ')"
   [ "$navorder" = 'href="index.html" href="hand.html" href="alpha.html" href="beta.html" href="mid.html" ' ]
   article_of "$FX/out/index.html" | grep -qF 'href="hand.html"'
+}
+
+# ------------------------------------------------------- FIXTURE: asset folders
+
+@test "build-docs-site: --static with an empty or missing value is refused" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  run fx_build --static ""
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--static needs a value"* ]]
+  run fx_build --static "$FX/nope"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"static dir not found"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: both asset folders copy byte-identical" {
+  need_pandoc
+  fx_page index "hello"
+  mkdir -p "$FX/src/assets/img" "$FX/static"
+  printf '\x89PNG\r\n\x1a\n\0\0\xff\xfe\x80 end\r\n' > "$FX/src/assets/img/a.png"
+  printf 'body { color: #123; }\r\n\0\xc3\xa9\n' > "$FX/static/s.css"
+  run fx_build --static "$FX/static"
+  [ "$status" -eq 0 ]
+  cmp "$FX/src/assets/img/a.png" "$FX/out/assets/img/a.png"
+  cmp "$FX/static/s.css" "$FX/out/static/s.css"
+}
+
+@test "build-docs-site: src= to a missing local asset -> exit 6 naming it" {
+  need_pandoc
+  fx_page index '<img src="assets/missing.png" alt="">'
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"links to assets/missing.png"* ]]
+}
+
+@test "build-docs-site: srcset candidate to a missing asset -> exit 6 naming it" {
+  need_pandoc
+  fx_page index '<img src="assets/a.png" srcset="assets/a.png 1x, assets/b.png 2x" alt="">'
+  mkdir -p "$FX/src/assets"
+  printf 'a\n' > "$FX/src/assets/a.png"
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"links to assets/b.png"* ]]
+  [[ "$output" != *"links to assets/a.png"* ]]
+}
+
+@test "build-docs-site: a root-absolute local path -> exit 6" {
+  need_pandoc
+  fx_page index '<a href="/x.css">style</a>'
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"uses a root-absolute path /x.css"* ]]
+}
+
+@test "build-docs-site: Markdown image from the asset folder rewrites and builds" {
+  need_pandoc
+  fx_page index '![d](./assets/d.svg)'
+  mkdir -p "$FX/src/assets"
+  printf '<svg xmlns="http://www.w3.org/2000/svg"/>\n' > "$FX/src/assets/d.svg"
+  run fx_build
+  [ "$status" -eq 0 ]
+  grep -qF 'src="assets/d.svg"' "$FX/out/index.html"
+}
+
+@test "build-docs-site: Markdown image from another host -> exit 5" {
+  need_pandoc
+  fx_page index '![x](https://x.test/a.png)'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"unclassified image target: https://x.test/a.png"* ]]
+}
+
+@test "build-docs-site: a .. path that leaves the site -> exit 6" {
+  need_pandoc
+  # row 1: a raw link out of --out that happens to resolve on disk
+  fx_page index "- [Other](./other.md)" "" 'see <a href="../src/other.md">up</a>'
+  fx_page other "o"
+  run fx_build
+  [ "$status" -eq 6 ]
+  [[ "$output" == *"climbs out of the site with ../src/other.md"* ]]
+  # row 2: the asset class does not accept a .. segment
+  FX="$BATS_TEST_TMPDIR/row2"
+  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_page index "- [Other](./other.md)" "" "[x](./assets/../other.md)"
+  fx_page other "o"
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"unclassified link target"* ]]
+}
+
+# t4i_row <target> <raw html> — one fixture dir per row; the page must exit 6
+# naming the target.
+t4i_row() {
+  local want="$1" html="$2"
+  t4i_n=$((t4i_n + 1))
+  FX="$BATS_TEST_TMPDIR/row$t4i_n"
+  mkdir -p "$FX/src" "$FX/static-empty"
+  fx_page index "$html"
+  run fx_build
+  [ "$status" -eq 6 ] || { echo "row $t4i_n: status $status: $output" >&2; return 1; }
+  [[ "$output" == *"links to $want"* ]] || { echo "row $t4i_n: no 'links to $want' in: $output" >&2; return 1; }
+}
+
+@test "build-docs-site: closure parse-model edges" {
+  need_pandoc
+  t4i_n=0
+  t4i_row assets/n1.png '<img src=assets/n1.png alt="">'
+  t4i_row assets/n2.png '<IMG SRC="assets/n2.png">'
+  t4i_row n3.html "<a href='n3.html'>n3</a>"
 }

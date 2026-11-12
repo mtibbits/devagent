@@ -10,7 +10,8 @@
 # from the directory, never listed here.
 #
 # Usage: build-docs-site.sh [--src <dir>] [--out <dir>] [--blob-base <url>]
-#   --src        markdown source dir        (default: <repo>/docs-site)
+#                            [--static <dir>]
+#   --src        source dir                 (default: <repo>/docs-site)
 #   --out        output dir, must be absent or empty
 #                                           (default: <repo>/build-docs-site,
 #                                            which .gitignore's build-*/ covers)
@@ -18,6 +19,9 @@
 #                (default: https://github.com/mtibbits/devagent/blob/master/);
 #                no quotes, angle brackets or spaces — page.html interpolates
 #                it into an href unescaped, so the value is checked here
+#   --static     the template's own static files, copied to <out>/static/
+#                (default: <repo>/scripts/docs-site/static, skipped when
+#                absent; a dir given here must exist)
 #
 # Requires pandoc 3.x (CI installs the ubuntu-24.04 package). An older pandoc
 # is refused up front: its failures would otherwise be reported against a page.
@@ -38,8 +42,10 @@ die() { local rc="$1"; shift; printf 'build-docs-site: %s\n' "$*" >&2; exit "$rc
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo="$(cd "$here/.." && pwd -P)"
-assets="$here/docs-site"
+tmpl="$here/docs-site"
 src="$repo/docs-site"
+static_dir="$here/docs-site/static"
+static_given=0
 out="$repo/build-docs-site"
 blob_base="https://github.com/mtibbits/devagent/blob/master/"
 
@@ -48,6 +54,9 @@ while [ "$#" -gt 0 ]; do
     --src)       [ "$#" -ge 2 ] || die 2 "--src needs a value";       src="$2"; shift 2 ;;
     --out)       [ "$#" -ge 2 ] || die 2 "--out needs a value";       out="$2"; shift 2 ;;
     --blob-base) [ "$#" -ge 2 ] || die 2 "--blob-base needs a value"; blob_base="$2"; shift 2 ;;
+    # -ge 2 alone would accept --static "", which names no directory.
+    --static)    { [ "$#" -ge 2 ] && [ -n "$2" ]; } || die 2 "--static needs a value"
+                 static_dir="$2"; static_given=1; shift 2 ;;
     -h|--help)   awk 'NR == 1 { next } !/^#/ { exit } { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           die 2 "unknown argument: $1 (see --help)" ;;
   esac
@@ -57,6 +66,8 @@ case "$blob_base" in
   *[\"\'\<\>\ ]*) die 2 "--blob-base must not contain quotes, angle brackets or spaces: $blob_base" ;;
 esac
 [ -d "$src" ] || die 4 "source dir not found: $src"
+[ "$static_given" -eq 0 ] || [ -d "$static_dir" ] || die 4 "static dir not found: $static_dir"
+content_assets="$src/assets"
 # The nav derivation and the title readers are awk programs. Without awk they
 # would read as "no list" and exit 4 blaming the page; name the tool instead.
 command -v awk >/dev/null 2>&1 || die 3 "awk is not installed (the nav derivation needs it)"
@@ -324,8 +335,8 @@ for p in "${pages[@]}"; do
     input="$work/marker.md" dest="$work/$p.frame.html"
   fi
   pandoc --from=gfm --to=html5 --standalone --no-highlight \
-    --template="$assets/page.html" \
-    --lua-filter="$assets/links.lua" \
+    --template="$tmpl/page.html" \
+    --lua-filter="$tmpl/links.lua" \
     --include-before-body="$nav" \
     --metadata pagetitle="${title[$p]} | devAgent" \
     --metadata blob_base="$blob_base" \
@@ -334,6 +345,11 @@ for p in "${pages[@]}"; do
     || die 5 "pandoc failed on $src/$p.${kind[$p]}"
   [ "${kind[$p]}" = md ] || splice "$p"
 done
+
+# The two asset folders, copied unchanged: the content side (<src>/assets/)
+# and the template side (--static). Either may be absent.
+if [ -d "$content_assets" ]; then cp -R "$content_assets" "$out/assets"; fi
+if [ -d "$static_dir" ]; then cp -R "$static_dir" "$out/static"; fi
 
 # Placeholder seam: child 2 defines the build-time tokens. It runs once per
 # content page, after rendering and before the closure check. Identity today.
@@ -345,21 +361,63 @@ built=("$out"/*.html)
 [ "${#built[@]}" -eq "${#pages[@]}" ] \
   || die 5 "expected ${#pages[@]} pages in $out, found ${#built[@]}"
 
-# Link closure over the RENDERED output, so a raw <a href> in the markdown
-# (which the Lua filter never sees) is checked too.
+# Link closure over the RENDERED output, so a raw <a href> or <img src> in a
+# page (which the Lua filter never sees) is checked too. Every href, src and
+# srcset is read: the attribute name case-blind, after whitespace or at a line
+# start (so data-src= is not read), its value double-quoted, single-quoted or
+# bare; each srcset candidate's URL counts. A target with a scheme, or a pure
+# #fragment, is skipped; ?query and #fragment are dropped from the rest. A
+# root-absolute path (/x) and a path with a .. segment are refused even when
+# they resolve on disk: under Pages' /devagent/ subpath both point elsewhere.
+attr_re='(^|[[:space:]])(href|src|srcset)=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>"'"'"']+)'
 bad=0
 for html in "${built[@]}"; do
-  while IFS= read -r href; do
-    case "$href" in
-      [A-Za-z]*:*|'#'*) continue ;;
+  page="${html##*/}"
+  attrs="$(grep -oiE "$attr_re" "$html" || true)"
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    a="${a#"${a%%[![:space:]]*}"}"
+    name="${a%%=*}"
+    v="${a#*=}"
+    case "$v" in
+      \"*\") v="${v#\"}"; v="${v%\"}" ;;
+      \'*\') v="${v#\'}"; v="${v%\'}" ;;
     esac
-    target="${href%%#*}"
-    if [ ! -f "$out/$target" ]; then
-      printf 'build-docs-site: %s links to %s, which the build did not produce\n' \
-        "$(basename "$html")" "$target" >&2
-      bad=1
+    cands=()
+    if [ "${name,,}" = srcset ]; then
+      IFS=',' read -ra parts <<< "$v"
+      for c in "${parts[@]}"; do
+        c="${c#"${c%%[![:space:]]*}"}"
+        c="${c%%[[:space:]]*}"
+        if [ -n "$c" ]; then cands+=("$c"); fi
+      done
+    else
+      cands=("$v")
     fi
-  done < <(grep -oE 'href="[^"]*"' "$html" | sed -E 's/^href="//; s/"$//')
+    for target in "${cands[@]}"; do
+      case "$target" in
+        [A-Za-z]*:*|'#'*) continue ;;
+      esac
+      target="${target%%#*}"
+      target="${target%%\?*}"
+      case "$target" in
+        /*)
+          printf 'build-docs-site: %s uses a root-absolute path %s; use a relative path (the site is served under a subpath)\n' \
+            "$page" "$target" >&2
+          bad=1; continue ;;
+      esac
+      case "/$target/" in
+        */../*)
+          printf 'build-docs-site: %s climbs out of the site with %s\n' "$page" "$target" >&2
+          bad=1; continue ;;
+      esac
+      if [ ! -f "$out/$target" ]; then
+        printf 'build-docs-site: %s links to %s, which the build did not produce\n' \
+          "$page" "$target" >&2
+        bad=1
+      fi
+    done
+  done <<< "$attrs"
 done
 [ "$bad" -eq 0 ] || exit 6
 

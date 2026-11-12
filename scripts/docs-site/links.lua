@@ -13,7 +13,11 @@
 --   ./<page>.md[#frag]               <page>.html[#frag]
 --   ./<page>.html[#frag]             <page>.html[#frag]   (a hand-written page)
 --   ../<path>[#frag]                 <blob_base><path>[#frag]
+--   ./assets/<path>  (no .. segment)  assets/<path>
 --   anything else                    error
+--
+-- Images (![alt](src)) are classified too: ./assets/<path> (no .. segment)
+-- becomes assets/<path>; any other image target is a build error.
 
 local blob_base = nil
 
@@ -22,6 +26,16 @@ function Meta(meta)
     blob_base = pandoc.utils.stringify(meta.blob_base)
   end
   return nil
+end
+
+-- ./assets/<path> names a file in the content asset folder, which the build
+-- copies to assets/. A .. segment is not accepted: it would leave the folder.
+local function asset_path(t)
+  local rest = t:match("^%./assets/(.+)$")
+  if not rest or ("/" .. rest .. "/"):find("/%.%./") then
+    return nil
+  end
+  return "assets/" .. rest
 end
 
 local function rewrite(el)
@@ -48,12 +62,28 @@ local function rewrite(el)
     el.target = hpage .. ".html" .. hfrag
     return el
   end
+  local asset = asset_path(t)
+  if asset then
+    el.target = asset
+    return el
+  end
   error("build-docs-site: unclassified link target: " .. t)
+end
+
+-- An Image carries its target in el.src (el.target is nil there). The only
+-- image class is the content asset folder.
+local function image(el)
+  local asset = asset_path(el.src)
+  if asset then
+    el.src = asset
+    return el
+  end
+  error("build-docs-site: unclassified image target: " .. el.src)
 end
 
 -- Meta must run before Link so blob_base is known; pandoc's default order
 -- visits inlines first, so force two passes.
 return {
   { Meta = Meta },
-  { Link = rewrite },
+  { Link = rewrite, Image = image },
 }
