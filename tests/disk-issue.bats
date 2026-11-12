@@ -231,6 +231,24 @@ print("ok", len(cases))'
   [ "$output" = "$W/1.md:3: warning: \"state: closed\" is read as prose because a blank line is above it; delete the blank line if it is a header line" ]
 }
 
+@test "di: a minimal file's first prose line Note: x stays in the prompt" {
+  printf 'Title\n\nNote: x\nmore\n' > "$W/1.md"
+  run --separate-stderr di parse "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ "$(json_get "$output" '[o["prompt"], o["keys"]]')" = '["Note: x\nmore", {"state": "open"}]' ]
+  run --separate-stderr di check "$W/1.md"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "di: list into a reader that stops early prints no traceback" {
+  local i
+  for i in $(seq 1 2000); do printf 'T%s\n' "$i" > "$W/$i.md"; done
+  run bash -c 'set -o pipefail; python3 "$1" list "$2" 2>"$3" | head -n 1 >/dev/null' _ "$DI" "$W" "$BATS_TEST_TMPDIR/err"
+  [ ! -s "$BATS_TEST_TMPDIR/err" ]
+}
+
 @test "di: later status: green on CI never warns" {
   printf '# T\n\nThe build.\nstatus: green on CI\n' > "$W/1.md"
   run --separate-stderr di check "$W/1.md"
@@ -993,6 +1011,15 @@ print(json.dumps("\n".join(ls), ensure_ascii=False))' "$1"
   run --separate-stderr inj no-link -- create "$W" 2 T "$W/p"
   [ "$status" -eq 3 ]
   cmp "$W/2.md" "$FIX/full.md"
+  no_temp_left "$W"
+}
+
+@test "di: create without hard links leaves no empty file when the replace fails" {
+  printf 'x\n' > "$W/p"
+  run --separate-stderr inj no-link-replace-fails -- create "$W" 9 T "$W/p"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"$W/9.md: cannot write: Input/output error"* ]]
+  [ ! -e "$W/9.md" ]
   no_temp_left "$W"
 }
 

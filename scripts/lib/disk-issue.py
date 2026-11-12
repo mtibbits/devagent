@@ -525,9 +525,9 @@ def _rank(key: str) -> int:
 
 
 def render_set(iss: Issue, sets: dict, unsets: set, comment=None):
-    """New bytes for a fault-free `iss`, or None when nothing changes. `sets` holds trimmed values, written as given; `comment` is the
-    already-rendered entry text lines (Task 7) or None. Untouched lines are
-    copied byte for byte."""
+    """New bytes for a fault-free `iss`, or None when nothing changes. `sets`
+    holds trimmed values, written as given; `comment` is a (date, text lines)
+    entry or None. Untouched lines are copied byte for byte."""
     eol = iss.eol
     t = iss.title_idx
     header = [[iss.bodies[i].split(":", 1)[0], iss.lines[i]] for i in range(t + 1, iss.header_end)]
@@ -1031,6 +1031,7 @@ def cmd_create(args: list) -> int:
     base = f"{n}.md"
     final = os.path.join(folder, base)
     tmp = None
+    reserved = False
     try:
         tmp = _write_temp(folder, base, new, 0o666 & ~umask)
         try:
@@ -1044,7 +1045,8 @@ def cmd_create(args: list) -> int:
                 tmp = None
             else:
                 os.close(os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
-                os.replace(tmp, final)
+                reserved = True
+                _replace(tmp, final)
                 tmp = None
     except FileExistsError:
         raise Fail(EXIT_EXISTS, f"{final} exists")
@@ -1053,6 +1055,8 @@ def cmd_create(args: list) -> int:
     finally:
         if tmp is not None:
             _unlink_quiet(tmp)
+            if reserved:   # the empty name we reserved would read as a faulty issue
+                _unlink_quiet(final)
     _fsync_dir(folder)
     return EXIT_OK
 
@@ -1082,6 +1086,11 @@ def main(argv: list) -> int:
         if e.usage:
             _err(USAGE)
         return e.code
+    except BrokenPipeError:
+        # the reader stopped early (`list | head`); stay quiet, and keep the
+        # interpreter's final stdout flush from raising again
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return EXIT_IO
 
 
 if __name__ == "__main__":

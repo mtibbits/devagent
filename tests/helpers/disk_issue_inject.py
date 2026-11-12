@@ -107,6 +107,14 @@ def _no_link(mod):
     mod._link = link
 
 
+def _no_link_replace_fails(mod):
+    _no_link(mod)
+
+    def replace(tmp, path):
+        raise OSError(errno.EIO, "Input/output error")
+    mod._replace = replace
+
+
 def _no_subprocess(mod):
     import subprocess
 
@@ -126,6 +134,7 @@ MODES: dict = {
     "win-share": _win_share,
     "lock-wait": _lock_wait,
     "no-link": _no_link,
+    "no-link-replace-fails": _no_link_replace_fails,
     "no-subprocess": _no_subprocess,
 }
 
