@@ -57,6 +57,13 @@ then a `thinking` then `checking` value that is not one `MODEL_TOKENS` token
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
 
+Each parsed node also carries `depends_on` (additive, #887), after
+`parse_warnings`: one `{raw, scope, project, issue}` per entry (`split_dep`;
+the portfolio's Dep minus `resolved`), `[]` with none. `parse_text` and
+`parse_file` take `project=`, the configured project name: a `<project>:`
+prefix equal to it is local. Without it, every prefixed entry is foreign
+and a local entry's `project` is null. Hand-built nodes lack this field too.
+
 Every WBS.md write goes through `write_document` (an atomic temp + replace
 with a bounded retry on a sharing violation, #749): `write_markdown` is
 `prepare_write` (render plus an optional `check(old, new)` veto, writing
@@ -502,16 +509,17 @@ def _retry_windows_share(fn):
     return _TOML_LIB._retry_windows_share(fn)
 
 
-def parse_file(path: Path | str) -> dict:
+def parse_file(path: Path | str, *, project: str | None = None) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
     def _read() -> str:
         with open(path, encoding="utf-8", newline="") as f:
             return f.read()
-    return parse_text(_retry_windows_share(_read) if os.name == "nt" else _read())
+    return parse_text(_retry_windows_share(_read) if os.name == "nt" else _read(),
+                      project=project)
 
 
-def parse_text(text: str) -> dict:
+def parse_text(text: str, *, project: str | None = None) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
     kinds, bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
     root["exclusions"], root["exclusion_warnings"] = _exclusions(kinds, bodies)
@@ -546,6 +554,7 @@ def parse_text(text: str) -> dict:
             "children": [],
             "source_line": lineno,
             "parse_warnings": [f"line {lineno}: {w}" for w in _node_warnings(meta)],
+            "depends_on": [split_dep(raw, project) for raw in _dep_ids(meta)],
         }
         by_line[parents[lineno - 1]]["children"].append(node)
         by_line[lineno - 1] = node

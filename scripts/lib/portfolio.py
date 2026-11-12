@@ -973,7 +973,7 @@ def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
             report(None, "bad_model", message)
     captured = io.StringIO()
     with contextlib.redirect_stderr(captured):
-        tree = wbs_parser.parse_text(text)
+        tree = wbs_parser.parse_text(text, project=name)
     for line in captured.getvalue().splitlines():
         m = _LINE_RE.search(line)
         report(int(m.group(1)) if m else None, "parser_warning", line)

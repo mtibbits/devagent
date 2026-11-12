@@ -574,6 +574,69 @@ def test_split_dep_rule_in_parser(raw, project, want):
     assert list(got) == ["raw", "scope", "project", "issue"]
 
 
+def _deps_of(text, **kw):
+    """Each top-level node's `depends_on` field, by text (#887)."""
+    return {n["text"]: n["depends_on"]
+            for n in wbs_parser.parse_text(text, **kw)["children"]}
+
+
+def test_depends_on_field_scalar_and_list():
+    got = _deps_of(
+        "- [ ] a {issue: Issue-2, depends_on: devagent:Issue-726}\n"
+        "- [ ] b {issue: Issue-3, depends_on: [Issue-1, devagent:Issue-725]}\n"
+        '- [ ] c {issue: Issue-4, depends_on: "devagent:Issue-726"}\n')
+    one = [_dep("devagent:Issue-726", "foreign", "devagent", "Issue-726")]
+    assert got["a"] == one
+    assert got["c"] == one
+    assert got["b"] == [_dep("Issue-1", "local", None, "Issue-1"),
+                        _dep("devagent:Issue-725", "foreign", "devagent", "Issue-725")]
+
+
+def test_depends_on_field_own_project_prefix():
+    text = "- [ ] a {issue: Issue-3, depends_on: [P:Issue-1, Issue-2]}\n"
+    assert _deps_of(text, project="P")["a"] == [
+        _dep("P:Issue-1", "local", "P", "Issue-1"),
+        _dep("Issue-2", "local", "P", "Issue-2")]
+    assert _deps_of(text)["a"][0] == _dep("P:Issue-1", "foreign", "P", "Issue-1")
+
+
+def test_depends_on_field_absent_is_empty():
+    got = _deps_of("- [ ] a {issue: Issue-1}\n"
+                   "- [ ] b {issue: Issue-2, depends_on: }\n"
+                   "- [ ] c {issue: Issue-3, depends_on: []}\n")
+    assert got == {"a": [], "b": [], "c": []}
+
+
+def test_parse_file_passes_project(tmp_path):
+    text = "# t\n\n- [ ] a {issue: Issue-3, depends_on: [P:Issue-1, Q:Issue-2]}\n"
+    p = tmp_path / "WBS.md"
+    p.write_text(text, encoding="utf-8")
+    got = wbs_parser.parse_file(p, project="P")["children"][0]["depends_on"]
+    assert got == wbs_parser.parse_text(text, project="P")["children"][0]["depends_on"]
+    assert got[0]["scope"] == "local"
+
+
+def test_depends_on_field_matches_portfolio():
+    # A WIRING pin (#887): both sides share split_dep, so this catches only a
+    # resolved-stripping or project-passing slip. The hand-written literals
+    # above are the independent check of the classification.
+    spec = importlib.util.spec_from_file_location(
+        "portfolio_for_parser_tests", REPO / "scripts" / "lib" / "portfolio.py")
+    pf = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pf  # dataclasses resolve their module by name
+    spec.loader.exec_module(pf)
+    text = (REPO / "tests" / "fixtures" / "portfolio" / "multi" / "alpha"
+            / "WBS.md").read_text(encoding="utf-8")
+    scopes = []
+    for node in _walk(wbs_parser.parse_text(text, project="alpha")):
+        want = [{k: v for k, v in d.items() if k != "resolved"}
+                for d in pf.node_deps(node["meta"], "alpha")]
+        assert node["depends_on"] == want, node["text"]
+        scopes += [(d["scope"], d["raw"] != d["issue"]) for d in want]
+    assert ("foreign", True) in scopes
+    assert ("local", True) in scopes  # alpha:Issue-1, the own prefix
+
+
 def _assigns_named(source, name):
     """Module-level assignments to `name`, plain or annotated (#890)."""
     n_found = 0
@@ -927,7 +990,7 @@ def test_tree_without_source_text_renders_v1():
 
 NODE_KEYS = {
     "text", "state", "glyph", "depth", "meta", "meta_unknown_keys",
-    "children", "source_line", "parse_warnings",
+    "children", "source_line", "parse_warnings", "depends_on",
 }
 
 
