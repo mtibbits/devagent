@@ -87,46 +87,42 @@ else
   args=(build --out "${out:-$(devagent_home)/portfolio/portfolio.json}")
 fi
 
+cfg="$(config_path)"
 i=0
 while IFS= read -r p; do
   [[ -n "$p" ]] || continue
   export "PORTFOLIO_NAME_$i=$p"
-  model_table="" model_keys=""
-  for pair in devdoc_dir:DEVDOC source_dir:SOURCE worktree_root:WORKTREE \
-      step_models.thinking:MODEL_THINKING step_models.checking:MODEL_CHECKING \
-      step_models.default:MODEL_DEFAULT; do
+  for pair in devdoc_dir:DEVDOC source_dir:SOURCE worktree_root:WORKTREE; do
     field="${pair%%:*}"
     var="PORTFOLIO_${pair##*:}_$i"
-    if [[ "$field" == step_models.* ]]; then
-      # Stderr-quiet, as step_models_tier reads them. _toml.py get also exits 1
-      # on a table or an array of tables, so a present key is told from an
-      # absent one: list-keys of the table names scalar and array keys, and
-      # list-keys of the key itself succeeds only on a table.
-      if v="$(config_get_project_field "$p" "$field" 2>/dev/null)"; then
-        export "$var=$v"
-      else
-        rc=$?
-        [[ $rc -eq 1 ]] || die "cannot read $field of project '$p' (rc $rc)"
-        # The table itself is probed once per project; with no table, no key exists.
-        if [[ -z "$model_table" ]]; then
-          if model_keys="$(_config_toml list-keys "$(config_path)" "project.$p.step_models" 2>/dev/null)"; then
-            model_table=present
-          else
-            model_table=absent
-          fi
-        fi
-        if [[ "$model_table" == present ]] && { grep -Fxq -- "${field#step_models.}" <<< "$model_keys" \
-            || _config_toml list-keys "$(config_path)" "project.$p.$field" > /dev/null 2>&1; }; then
-          export "$var=<unreadable>"
-        fi
-      fi
-    elif v="$(config_get_project_field "$p" "$field")"; then
+    if v="$(config_get_project_field "$p" "$field")"; then
       export "$var=$v"
     else
       rc=$?
       [[ $rc -eq 1 ]] || die "cannot read $field of project '$p' (rc $rc)"
     fi
   done
+  # Stderr-quiet, as step_models_tier reads them. With no step_models table no
+  # key exists, so the table is probed first. _toml.py get also exits 1 on a
+  # table or an array of tables, so a present key is told from an absent one:
+  # list-keys of the table names scalar and array keys, and list-keys of the
+  # key itself succeeds only on a table.
+  if model_keys="$(_config_toml list-keys "$cfg" "project.$p.step_models" 2>/dev/null)"; then
+    for pair in thinking:THINKING checking:CHECKING default:DEFAULT; do
+      key="${pair%%:*}"
+      var="PORTFOLIO_MODEL_${pair##*:}_$i"
+      if v="$(config_get_project_field "$p" "step_models.$key" 2>/dev/null)"; then
+        export "$var=$v"
+      else
+        rc=$?
+        [[ $rc -eq 1 ]] || die "cannot read step_models.$key of project '$p' (rc $rc)"
+        if grep -Fxq -- "$key" <<< "$model_keys" \
+            || _config_toml list-keys "$cfg" "project.$p.step_models.$key" > /dev/null 2>&1; then
+          export "$var=<unreadable>"
+        fi
+      fi
+    done
+  fi
   i=$((i + 1))
 done <<< "$list"
 export PORTFOLIO_PROJECT_COUNT="$i"

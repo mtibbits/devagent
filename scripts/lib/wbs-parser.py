@@ -162,6 +162,7 @@ def read_model_tokens(text: str) -> tuple[str, ...]:
 
 
 MODEL_TOKENS = read_model_tokens(FLAGS_SH.read_text(encoding="utf-8"))
+MODEL_TOKEN_TEXT = " ".join(MODEL_TOKENS)
 
 
 def _shown(v) -> str:
@@ -201,7 +202,7 @@ def model_value(meta: dict, key: str) -> tuple[str | None, str | None]:
     v = meta[key]
     if isinstance(v, str) and v in MODEL_TOKENS:
         return v, None
-    return None, MODEL_WARNING.format(key, _shown(v), " ".join(MODEL_TOKENS))
+    return None, MODEL_WARNING.format(key, _shown(v), MODEL_TOKEN_TEXT)
 
 
 def as_list(v) -> list:

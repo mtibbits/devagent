@@ -289,13 +289,9 @@ def rollup(nodes: list[dict]) -> dict:
 # `default`, as step_models_tier's config rungs resolve them (config.sh; the
 # tests/portfolio.bats agreement test). An empty value is unset; a bad value
 # gives null and never falls through. Tokens: wbs_parser.MODEL_TOKENS.
-STEP_MODEL_KEYS: tuple[str, ...] = ("thinking", "checking", "default")
+STEP_MODEL_KEYS: tuple[str, ...] = (*wbs_parser.MODEL_KEYS, "default")
 LEAF_BAD = "{cls} {shown} is not one of: {tokens}; the key counts as absent"
 CONFIG_BAD = "step_models.{key} {shown} is not one of: {tokens}; models.{cls} is null"
-
-
-def _tokens() -> str:
-    return " ".join(wbs_parser.MODEL_TOKENS)
 
 
 def project_models(step_models) -> dict[str, tuple[dict | None, str | None]]:
@@ -313,8 +309,8 @@ def project_models(step_models) -> dict[str, tuple[dict | None, str | None]]:
         if v in wbs_parser.MODEL_TOKENS:
             out[cls] = ({"value": v, "source": "project"}, None)
         else:
-            out[cls] = (None, CONFIG_BAD.format(key=key, shown=_show(v), tokens=_tokens(),
-                                                cls=cls))
+            out[cls] = (None, CONFIG_BAD.format(key=key, shown=_show(v), cls=cls,
+                                                tokens=wbs_parser.MODEL_TOKEN_TEXT))
     return out
 
 
@@ -328,7 +324,8 @@ def leaf_models(meta: dict, rung: dict) -> tuple[dict, list[str]]:
         v, problem = wbs_parser.model_value(meta, cls)
         models[cls] = {"value": v, "source": "wbs"} if v is not None else rung[cls]
         if problem is not None:
-            messages.append(LEAF_BAD.format(cls=cls, shown=_show(meta[cls]), tokens=_tokens()))
+            messages.append(LEAF_BAD.format(cls=cls, shown=_show(meta[cls]),
+                                            tokens=wbs_parser.MODEL_TOKEN_TEXT))
     return models, messages
 
 
@@ -973,9 +970,9 @@ def _issue_entry(issue: str, node_ids: list[str], devdoc: Path, report) -> dict:
 
 
 def _build_read_project(name: str, devdoc: Path, text: str, next_id, report,
-                        step_models=None) -> dict:
+                        step_models) -> dict:
     rung: dict = {}
-    for cls, (choice, message) in project_models(step_models or {}).items():
+    for cls, (choice, message) in project_models(step_models).items():
         rung[cls] = choice
         if message is not None:
             report(None, "bad_model", message)
@@ -1111,9 +1108,11 @@ def read_manifest(env=None) -> list[ProjectInput]:
         name = env.get(f"PORTFOLIO_NAME_{i}")
         if not name:
             raise ManifestError(f"PORTFOLIO_NAME_{i} is not set")
-        step_models = {key: env[f"PORTFOLIO_MODEL_{key.upper()}_{i}"]
-                       for key in STEP_MODEL_KEYS
-                       if f"PORTFOLIO_MODEL_{key.upper()}_{i}" in env}
+        step_models = {}
+        for key in STEP_MODEL_KEYS:
+            v = env.get(f"PORTFOLIO_MODEL_{key.upper()}_{i}")
+            if v is not None:
+                step_models[key] = v
         out.append(ProjectInput(name, env.get(f"PORTFOLIO_DEVDOC_{i}"),
                                 env.get(f"PORTFOLIO_SOURCE_{i}"),
                                 env.get(f"PORTFOLIO_WORKTREE_{i}"), step_models))

@@ -427,10 +427,14 @@ def _meta(nid, key, value):
     return _call(lambda d: _node(d, nid)["meta"].__setitem__(key, value))
 
 
+def _choice(value, source):
+    return {"value": value, "source": source}
+
+
 def _models(thinking=None, checking=None):
     """A models object from (value, source) pairs; None stays null (#890)."""
     def choice(pair):
-        return None if pair is None else {"value": pair[0], "source": pair[1]}
+        return None if pair is None else _choice(*pair)
     return {"thinking": choice(thinking), "checking": choice(checking)}
 
 
@@ -1200,6 +1204,11 @@ def _models_build(tmp_path):
     return pf.build_document(projects, GENERATED_AT)
 
 
+@pytest.fixture(scope="module")
+def models_doc(tmp_path_factory):
+    return _models_build(tmp_path_factory.mktemp("models-doc"))
+
+
 def _leaf(doc, project, text):
     return next(n for n in _project(doc, project)["nodes"] if n["text"] == text)
 
@@ -1209,37 +1218,33 @@ def _bad_models(doc, project):
             if r["project"] == project and r["kind"] == "bad_model"]
 
 
-def _choice(value, source):
-    return {"value": value, "source": source}
-
-
-def test_models_fixture_validates(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_fixture_validates(models_doc):
+    doc = models_doc
     assert pf.pc.check(doc) == []
     assert pf.invariant_violations(doc) == []
 
 
-def test_models_both_keys_from_wbs(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_both_keys_from_wbs(models_doc):
+    doc = models_doc
     assert _leaf(doc, "mu", "Both")["models"] == {
         "thinking": _choice("opus", "wbs"), "checking": _choice("fable", "wbs")}
 
 
-def test_models_class_key_then_null_numeric_ignored(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_class_key_then_null_numeric_ignored(models_doc):
+    doc = models_doc
     assert _leaf(doc, "nu", "Bare")["models"] == {
         "thinking": _choice("sonnet", "project"), "checking": None}
     assert _bad_models(doc, "nu") == []
 
 
-def test_models_default_only(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_default_only(models_doc):
+    doc = models_doc
     assert _leaf(doc, "xi", "Bare")["models"] == {
         "thinking": _choice("haiku", "project"), "checking": _choice("haiku", "project")}
 
 
-def test_models_inherit_from_wbs(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_inherit_from_wbs(models_doc):
+    doc = models_doc
     assert _leaf(doc, "mu", "Inherit")["models"] == {
         "thinking": _choice("inherit", "wbs"), "checking": None}
 
@@ -1248,8 +1253,8 @@ def test_models_inherit_from_wbs(tmp_path):
     ("mu", "thinking", None, '"gpt"'),
     ("xi", "checking", _choice("haiku", "project"), '["opus", "fable"]'),
 ])
-def test_models_malformed_leaf_key_falls_through(tmp_path, project, cls, want, shown):
-    doc = _models_build(tmp_path)
+def test_models_malformed_leaf_key_falls_through(models_doc, project, cls, want, shown):
+    doc = models_doc
     leaf = _leaf(doc, project, "Malformed")
     assert leaf["models"][cls] == want
     bad = _bad_models(doc, project)
@@ -1258,8 +1263,8 @@ def test_models_malformed_leaf_key_falls_through(tmp_path, project, cls, want, s
          f"{cls} {shown} is not one of: {TOKENS}; the key counts as absent")]
 
 
-def test_models_bad_config_value_does_not_fall_through(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_bad_config_value_does_not_fall_through(models_doc):
+    doc = models_doc
     assert _leaf(doc, "omicron", "Bare")["models"] == {
         "thinking": None, "checking": _choice("opus", "project")}
     bad = _bad_models(doc, "omicron")
@@ -1268,8 +1273,8 @@ def test_models_bad_config_value_does_not_fall_through(tmp_path):
     assert "step_models.thinking" in bad[0]["message"]
 
 
-def test_models_absent_on_parent(tmp_path):
-    doc = _models_build(tmp_path)
+def test_models_absent_on_parent(models_doc):
+    doc = models_doc
     parent = _leaf(doc, "mu", "Parent")
     assert "models" not in parent
     assert parent["meta"]["thinking"] == "opus" and parent["meta"]["checking"] == "fable"

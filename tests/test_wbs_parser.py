@@ -627,9 +627,11 @@ def test_thinking_checking_are_known_meta_keys():
     assert wbs_parser.render_markdown(tree) == text
 
 
+_TOKS = "sonnet opus haiku fable inherit"
+
+
 def _model_warning(key, shown):
-    return (f"line 1: {key} '{shown}' is not one of: "
-            "sonnet opus haiku fable inherit")
+    return f"line 1: {key} '{shown}' is not one of: {_TOKS}"
 
 
 @pytest.mark.parametrize("body,key,value,want", [
@@ -657,9 +659,6 @@ def test_model_key_parse_warnings(body, key, value, want):
     assert node["parse_warnings"] == want
     assert node["meta"][key] == value
     assert node["meta_unknown_keys"] == []
-
-
-_TOKS = "sonnet opus haiku fable inherit"
 
 
 @pytest.mark.parametrize("meta,key,want", [
