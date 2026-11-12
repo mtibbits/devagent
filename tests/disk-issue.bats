@@ -540,7 +540,7 @@ TITLE_JSON='"Add a dark-mode toggle to the settings page"'
   printf '# Caf\xc3\xa9 \xe2\x80\x94 \xe6\x97\xa5\xe6\x9c\xac\r\n\r\nl\xc3\xa9\r\n' > "$W/1.md"
   di parse "$W/1.md" > "$W/out"
   di list "$W" >> "$W/out"
-  ! grep -q $'\r' "$W/out"
+  run ! grep -q $'\r' "$W/out"
   [ "$(grep -c 'Café — 日本' "$W/out")" -eq 2 ]
   [ "$(grep -c '"prompt":"lé"' "$W/out")" -eq 2 ]
 }
@@ -825,7 +825,7 @@ safe_fixture() { printf '# T\n\n## Prompt\nbody\n' > "$W/1.md"; cp "$W/1.md" "$W
   run --separate-stderr inj change-always -- set "$W/1.md" status=Done
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"$W/1.md: changed while being written; not overwritten"* ]]
-  ! grep -q 'status: Done' "$W/1.md"
+  run ! grep -q 'status: Done' "$W/1.md"
   [ "$(tail -n 2 "$W/1.md")" = "$(printf 'other session\nother session')" ]
   no_temp_left "$W"
 }
@@ -919,7 +919,7 @@ print(json.dumps("\n".join(ls), ensure_ascii=False))' "$1"
     [ "$status" -eq 0 ]
     n=$((n + 1))
   done
-  ! grep -q $'\r' "$W/issues/2.md"
+  run ! grep -q $'\r' "$W/issues/2.md"
 }
 
 @test "di: create refuses an unfenced ## Comments line, and an unfenced ## Prompt line, with exit 2" {
@@ -978,7 +978,10 @@ print(json.dumps("\n".join(ls), ensure_ascii=False))' "$1"
   run --separate-stderr di create "$W" 1 T "$W/p" state=shut
   [ "$status" -eq 2 ]
   [[ "$stderr" == *'state must be "open" or "closed", got "shut"'* ]]
-  [ -z "$(ls "$W" | grep -v '^p$')" ]
+  local f
+  for f in "$W"/* "$W"/.[!.]*; do
+    [ ! -e "$f" ] || [ "$f" = "$W/p" ]
+  done
 }
 
 @test "di: create without hard links still never overwrites" {
