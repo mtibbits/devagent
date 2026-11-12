@@ -182,6 +182,30 @@ def test_split_dep_reads_the_parser_rule(monkeypatch):
     assert pf.split_dep("beta:Issue-2", "alpha")["scope"] == "local"
 
 
+@pytest.mark.parametrize("raw,project,want", [
+    ("Issue-8", None, _dep("Issue-8", "local", None, "Issue-8")),
+    ("beta:Issue-2", None, _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    ("alpha:Issue-9", "alpha", _dep("alpha:Issue-9", "local", "alpha", "Issue-9")),
+    ("alpha:Issue-9", None, _dep("alpha:Issue-9", "foreign", "alpha", "Issue-9")),
+    ("beta:Issue-2", "alpha", _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    (":Issue-1", "alpha", _dep(":Issue-1", "local", "alpha", ":Issue-1")),
+    ("a:b:c", "alpha", _dep("a:b:c", "local", "alpha", "a:b:c")),
+    ("devagent: Issue-726", "alpha",
+     _dep("devagent: Issue-726", "local", "alpha", "devagent: Issue-726")),
+    ("https://x", "alpha", _dep("https://x", "local", "alpha", "https://x")),
+    ("4.1", "alpha", _dep("4.1", "local", "alpha", "4.1")),
+])
+def test_split_dep_table(raw, project, want):
+    # #887: the classification guard, committed against the pre-move code.
+    assert pf.split_dep(raw, project) == want
+
+
+def test_split_dep_key_order():
+    # #887: the JSON byte order that dict == cannot see.
+    assert list(pf.split_dep("beta:Issue-2", "alpha")) == [
+        "raw", "scope", "project", "issue", "resolved"]
+
+
 def test_as_list_reads_the_parser_rule(monkeypatch):
     monkeypatch.setattr(pf.wbs_parser, "as_list", lambda v: ["sentinel"])
     assert pf.as_list("x") == ["sentinel"]
