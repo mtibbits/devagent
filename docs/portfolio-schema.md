@@ -404,6 +404,7 @@ they do not know. A project's status is not repeated in the report.
 | `est_unparseable` | node | The estimate class is `unparseable`. |
 | `est_src_invalid` | node | `est_src` is present but not `confirmed` or `derived` (`est.src` reads as null). |
 | `h_malformed` | node | `h` is present but not one digit 0–4 (`h` reads as null). |
+| `bad_model` | node or null | A model value that is not one `model_token_allowlist` token (#890). At a leaf's line: its `thinking` or `checking` key, once per class (the key counts as absent and the project rung applies); a parent's key is not reported. With a null line: a project `step_models` value a class resolves to, once per (project, class); that class is null, with no fall-through to `default`, and a bad `default` no class reaches is not reported. |
 | `issue_malformed` | node | `issue` is present but not a string (the node carries no issue). |
 | `unknown_meta_key` | node | One per `meta_unknown_keys` key that the producer does not consume (`est_src`, `satisfies` and `h` are consumed). |
 | `meta_unreadable` | node | A metadata block the parser could not read as written: a key with no `:`, an empty key, an unmatched `[`, an unterminated quote, a key holding `,`, a value holding `: ` (a missing comma), a `{` that never closes, or a `{...}` block that is not at the end of the line or holds a brace. |
