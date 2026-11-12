@@ -9,6 +9,7 @@ Issue-565;578): every failure a test needs is injected here.
 """
 from __future__ import annotations
 
+import errno
 import importlib.util
 import os
 import sys
@@ -98,6 +99,12 @@ def _lock_wait(mod, seconds):
     mod._LOCK_WAIT_S = float(seconds)
 
 
+def _no_link(mod):
+    def link(src, dst):
+        raise OSError(errno.EPERM, "Operation not permitted")   # FAT, some network shares
+    mod._link = link
+
+
 MODES: dict = {
     "none": lambda mod: None,
     "kill-before-replace": _kill_before_replace,
@@ -106,6 +113,7 @@ MODES: dict = {
     "count-replace": _count_replace,
     "win-share": _win_share,
     "lock-wait": _lock_wait,
+    "no-link": _no_link,
 }
 
 

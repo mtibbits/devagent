@@ -953,8 +953,107 @@ def cmd_set(args: list) -> int:
     return EXIT_IO   # not reached
 
 
+_N_RE = re.compile(r"^[1-9][0-9]{0,17}$")
+
+
+def render_new(title: str, prompt: str, keys: dict) -> bytes:
+    """A new issue file: LF, no BOM, keys in KEYS order, state=open omitted."""
+    out = [f"# {title}\n"]
+    for key in KEYS:
+        if key in keys and not (key == "state" and keys[key] == "open"):
+            out.append(f"{key}: {keys[key]}\n")
+    out.append(f"\n{PROMPT_H}\n")
+    if prompt:
+        out += [ln + "\n" for ln in prompt.split("\n")]
+    return "".join(out).encode("utf-8")
+
+
+def _link(src: str, dst: str) -> None:
+    os.link(src, dst)
+
+
+def _read_prompt(path: str) -> str:
+    try:
+        raw = _read_bytes(path)
+    except OSError as e:
+        raise Fail(EXIT_IO, f"{path}: cannot read: {_strerror(e)}")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Fail(EXIT_USAGE, f"{path}: prompt is not valid UTF-8")
+    if text.startswith("﻿"):
+        text = text[1:]
+    return "\n".join(_trim_blank(text.replace("\r\n", "\n").split("\n")))
+
+
+def _readback_error(new: bytes) -> str:
+    back = read_issue(new)
+    if back.prompt_idx is not None and back.in_code:
+        for idx in range(back.prompt_idx + 1, len(back.bodies)):
+            h = _heading(back.bodies[idx])
+            if h and not back.in_code[idx]:
+                return (f'prompt line {idx - back.prompt_idx} reads as "{h}" outside a code fence; '
+                        "it could not be read back unchanged")
+    return "prompt could not be read back unchanged"
+
+
 def cmd_create(args: list) -> int:
-    raise Fail(EXIT_IO, "create: not implemented")
+    if len(args) < 4:
+        raise _usage_error("create needs <folder> <N> <title> <prompt-file>")
+    folder, n, title, prompt_file = args[:4]
+    if not _N_RE.match(n):
+        raise Fail(EXIT_USAGE, f'N must be an issue number of at most 18 digits, got "{n}"')
+    if "\r" in title or "\n" in title:
+        raise Fail(EXIT_USAGE, "title contains a line break")
+    title = title.strip(" \t")
+    if not title:
+        raise Fail(EXIT_USAGE, "empty title")
+    keys: dict = {}
+    _parse_kv(args[4:], keys)
+    normalised = {"state": "open"}
+    for key, value in keys.items():
+        try:
+            normalised[key] = _validate(key, value)
+        except ValueError as e:
+            raise Fail(EXIT_USAGE, str(e))
+    prompt = _read_prompt(prompt_file)
+
+    new = render_new(title, prompt, keys)
+    back = read_issue(new)
+    if back.faults or back.title != title or back.keys != normalised or back.prompt != prompt:
+        raise Fail(EXIT_USAGE, _readback_error(new))
+
+    if not os.path.isdir(folder):
+        raise Fail(EXIT_IO, f"{folder}: no such folder")
+    umask = os.umask(0)
+    os.umask(umask)
+    base = f"{n}.md"
+    final = os.path.join(folder, base)
+    tmp = None
+    try:
+        tmp = _write_temp(folder, base, new, 0o666 & ~umask)
+        try:
+            _link(tmp, final)            # never overwrites: FileExistsError
+        except FileExistsError:
+            raise
+        except OSError:
+            # no hard links here (FAT, some shares): reserve the name, then replace
+            if _IS_WINDOWS:
+                os.rename(tmp, final)    # refuses an existing target
+                tmp = None
+            else:
+                os.close(os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+                os.replace(tmp, final)
+                tmp = None
+    except FileExistsError:
+        raise Fail(EXIT_EXISTS, f"{final} exists")
+    except OSError as e:
+        raise Fail(EXIT_IO, f"{final}: cannot write: {_strerror(e)}")
+    finally:
+        if tmp is not None:
+            _unlink_quiet(tmp)
+    _fsync_dir(folder)
+    return EXIT_OK
 
 
 VERBS = {

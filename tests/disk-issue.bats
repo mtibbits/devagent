@@ -889,3 +889,108 @@ open(sys.argv[2], "w").close(); time.sleep(3)' "$W/.disk-issue.lock" "$BATS_TEST
   [[ "$stderr" == *"$W: another writer holds the lock"* ]]
   cmp "$W/1.md" "$W/orig"
 }
+
+# ---------------------------------------------------------------- Task 9: create
+
+# norm_prompt <file> — the create prompt rule, computed independently: drop a
+# BOM, CRLF to LF, no leading or trailing blank lines.
+norm_prompt() {
+  python3 -c '
+import json, sys
+t = open(sys.argv[1], "rb").read().decode("utf-8")
+t = t[1:] if t.startswith("﻿") else t
+ls = t.replace("\r\n", "\n").split("\n")
+while ls and not ls[0].strip(" \t"): ls.pop(0)
+while ls and not ls[-1].strip(" \t"): ls.pop()
+print(json.dumps("\n".join(ls), ensure_ascii=False))' "$1"
+}
+
+@test "di: create round-trips the epic draft prompt" {
+  cp "$FIX/epic-prompt.md" "$W/p-lf"
+  crlf "$FIX/epic-prompt.md" "$W/p-crlf"
+  mkdir "$W/issues"
+  local n=1 v
+  for v in lf crlf; do
+    run --separate-stderr di create "$W/issues" "$n" "Run issues from files on disk" "$W/p-$v"
+    [ "$status" -eq 0 ]
+    run --separate-stderr di parse "$W/issues/$n.md"
+    [ "$status" -eq 0 ]
+    [ "$(json_get "$output" 'o["prompt"]')" = "$(norm_prompt "$W/p-$v")" ]
+    [ "$(json_get "$output" '[o["title"], o["comments"]]')" = '["Run issues from files on disk", []]' ]
+    run --separate-stderr di check "$W/issues/$n.md"
+    [ "$status" -eq 0 ]
+    n=$((n + 1))
+  done
+  ! grep -q $'\r' "$W/issues/2.md"
+}
+
+@test "di: create refuses an unfenced ## Comments line, and an unfenced ## Prompt line, with exit 2" {
+  printf 'intro\n```\n## Comments\n```\n## Comments\nx\n' > "$W/p1"
+  printf 'intro\n\n## Prompt\n' > "$W/p2"
+  run --separate-stderr di create "$W" 1 T "$W/p1"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'prompt line 5 reads as "## Comments" outside a code fence; it could not be read back unchanged'* ]]
+  run --separate-stderr di create "$W" 1 T "$W/p2"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'prompt line 3 reads as "## Prompt" outside a code fence'* ]]
+  [ ! -e "$W/1.md" ]
+  no_temp_left "$W"
+}
+
+@test "di: create on an existing N exits 3 and leaves its bytes unchanged" {
+  cp "$FIX/full.md" "$W/7.md"
+  printf 'new\n' > "$W/p"
+  run --separate-stderr di create "$W" 7 Other "$W/p"
+  [ "$status" -eq 3 ]
+  [[ "$stderr" == *"$W/7.md exists"* ]]
+  cmp "$W/7.md" "$FIX/full.md"
+  no_temp_left "$W"
+}
+
+@test "di: create writes keys in canonical order and omits state=open" {
+  printf '\n\nbody\r\n\n' > "$W/p"
+  run --separate-stderr di create "$W" 3 "  A title " "$W/p" labels=x,y state=open parent=#1 status=Ready
+  [ "$status" -eq 0 ]
+  [ "$(cat "$W/3.md")" = "$(printf '# A title\nstatus: Ready\nparent: #1\nlabels: x,y\n\n## Prompt\nbody')" ]
+}
+
+@test "di: create mode follows the umask" {
+  skip_on_git_bash "file modes"
+  printf 'x\n' > "$W/p"
+  (umask 022; python3 "$DI" create "$W" 1 T "$W/p")
+  (umask 077; python3 "$DI" create "$W" 2 T "$W/p")
+  assert_file_mode "$W/1.md" 644
+  assert_file_mode "$W/2.md" 600
+}
+
+@test "di: create refuses a title with a line break, N=0, a 19-digit N, and a bad key value (exit 2 each)" {
+  printf 'x\n' > "$W/p"
+  run --separate-stderr di create "$W" 1 $'two\nlines' "$W/p"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"title contains a line break"* ]]
+  run --separate-stderr di create "$W" 1 "  " "$W/p"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"empty title"* ]]
+  run --separate-stderr di create "$W" 0 T "$W/p"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"N must be"* ]]
+  run --separate-stderr di create "$W" 1234567890123456789 T "$W/p"
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *"N must be"* ]]
+  run --separate-stderr di create "$W" 1 T "$W/p" state=shut
+  [ "$status" -eq 2 ]
+  [[ "$stderr" == *'state must be "open" or "closed", got "shut"'* ]]
+  [ -z "$(ls "$W" | grep -v '^p$')" ]
+}
+
+@test "di: create without hard links still never overwrites" {
+  printf 'x\n' > "$W/p"
+  cp "$FIX/full.md" "$W/2.md"
+  run --separate-stderr inj no-link -- create "$W" 1 T "$W/p"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$W/1.md")" = "$(printf '# T\n\n## Prompt\nx')" ]
+  run --separate-stderr inj no-link -- create "$W" 2 T "$W/p"
+  [ "$status" -eq 3 ]
+  cmp "$W/2.md" "$FIX/full.md"
+  no_temp_left "$W"
+}
