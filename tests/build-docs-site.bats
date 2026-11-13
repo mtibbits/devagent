@@ -1334,3 +1334,26 @@ svg_whole() {
     '<title>x</title>' '<style>nav a:hover { color: red; }</style>' '</head><body><p>x</p></body></html>'
   sc_row 0 index.html '' ''
 }
+
+# ------------------------------------------------- FETCH POLICY: through the build
+
+@test "build-docs-site: fetch policy — page.html carries the exact CSP meta before any <style>" {
+  local tmpl="$PLUGIN_ROOT/scripts/docs-site/page.html" at style
+  [ "$(grep -cxF "$CSP_META" "$tmpl")" -eq 1 ]
+  at="$(grep -nxF "$CSP_META" "$tmpl" | sed -n '1s/:.*//p')"
+  style="$(grep -n '<style' "$tmpl" | sed -n '1s/:.*//p')"
+  [ -n "$style" ]
+  [ "$at" -lt "$style" ]
+}
+
+@test "build-docs-site: fetch policy — a rendered page and a stub carry the exact CSP meta in <head>" {
+  need_pandoc
+  fx_stub_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  local p
+  for p in index old-a old-b; do
+    [ "$(grep -cxF "$CSP_META" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $(grep -cxF "$CSP_META" "$FX/out/$p.html") exact CSP lines" >&2; return 1; }
+    sed -n '/<head>/,/<\/head>/p' "$FX/out/$p.html" | grep -qxF "$CSP_META" || { echo "$p.html: the meta is not in <head>" >&2; return 1; }
+  done
+}
