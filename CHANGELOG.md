@@ -16,6 +16,19 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: cost-report --overhead, unattributed cost as per-project overhead
+  (#732, epic #729).** `cost-report.sh --overhead` places each
+  `(no project)/(no issue)` call by the first rule that applies: the
+  session's most recent hint (a typed `/devagent:<cmd>` naming a known
+  project and no issue, or Bash `DEVAGENT_PROJECT=<project>`), else the
+  project whose `source_dir`, `worktree_root` or `devdoc_dir` holds the
+  record's cwd, else `(unassigned) <cwd>`. Lines read
+  `<project>/(overhead): …; hint N, cwd N` and `(unassigned) <cwd>: …`, and
+  sum to the `(no project)/(no issue)` total; `--json` adds rules and
+  sources. Paths follow the spec's §8.1 containment rule (identity first,
+  then only the drive letter ignores case), not the issue's broader
+  "case-insensitively on Windows". Output without `--overhead` is unchanged.
+
 - **Added: the `starter` checklist tier (#989).** `docs-only` plus
   implement: pull, draft, branch, implement, document, commit, draftmr,
   review, preship, ship, mergetoall (skipped unless `all_prs_branch` is

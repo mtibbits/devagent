@@ -91,7 +91,10 @@ numbers are not available or honest).
    measured (<reason>)` and `- Workflow time: not measured (<reason>)`,
    quoting the `cost-report: hint:` line from stderr when there is one. Any
    other nonzero exit is also `not measured` for both, with stderr as the
-   reason.
+   reason. Per-issue cost excludes overhead: calls made outside any issue
+   (captures, crrf, reap, WBS and status work, planning), which
+   `cost-report.sh --overhead --project <project> --summary` reports per
+   project.
 
 ## Output format
 

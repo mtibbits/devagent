@@ -15,14 +15,27 @@ meta has none) through the Workflow tool call whose result names its run id.
 
 Transcripts are read from the current directory's dir under
 <CLAUDE_CONFIG_DIR or ~/.claude>/projects, from every dir there with
---project or --all-dirs, or from --transcripts, which overrides both.
---archive <dir> reads a scripts/archive-transcripts.sh archive
+--project, --all-dirs or --overhead, or from --transcripts, which overrides
+them. --archive <dir> reads a scripts/archive-transcripts.sh archive
 (<dir>/<host>/<cwd-slug>/<session>.jsonl.gz) and, alone, nothing live; the
-live dirs are added by --all-dirs, --project or --transcripts. A transcript is
+live dirs are added by --all-dirs, --project, --overhead or --transcripts. A transcript is
 read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
 every file read, so a session archived on two hosts and still live counts
 once; a session is its sessionId. --json prints one JSON object per (project,
-issue) with the transcript files it came from. Records stream, so memory does
+issue) with the transcript files it came from.
+
+--overhead (#732) reports the (no project)/(no issue) calls as overhead per
+project, each placed by the first rule that applies: the session's most
+recent earlier hint (a typed /devagent:<cmd> naming a known project and no
+issue, or a Bash call assigning DEVAGENT_PROJECT a known project; a hint
+never moves the pair), else the project whose source_dir, worktree_root
+(default <source_dir>-wt) or devdoc_dir holds the record's cwd (longest
+match, spec 8.1 path containment; a tie between projects is unassigned),
+else (unassigned) <cwd>. A subagent follows its launch's placement. Calls
+and totals sum to the (no project)/(no issue) pair; session counts can
+overlap across lines.
+
+Records stream, so memory does
 not grow with transcript size; under --time it grows by one 16-byte uuid key
 per user/assistant record (about 150 bytes with set overhead) and one span
 per busy run.
@@ -1073,7 +1086,8 @@ TIME_FLAGS = (("--idle-gap", "idle_gap"), ("--tool-gap", "tool_gap"), ("--attent
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--transcripts", action="append", type=Path,
-                    help="a Claude Code project transcript dir (repeatable); overrides --project and --all-dirs; "
+                    help="a Claude Code project transcript dir (repeatable); overrides --project, --all-dirs "
+                         "and --overhead; "
                          "default: the current directory's")
     ap.add_argument("--project", type=_nonempty,
                     help="report only this project (exact match); reads every transcript dir")
@@ -1082,7 +1096,7 @@ def main(argv: list[str]) -> int:
                     help="read every transcript dir under <CLAUDE_CONFIG_DIR or ~/.claude>/projects")
     ap.add_argument("--archive", type=Path,
                     help="read a scripts/archive-transcripts.sh archive (every host and cwd partition, "
-                         ".jsonl.gz); alone it reads no live dir, --all-dirs/--project/--transcripts add them")
+                         ".jsonl.gz); alone it reads no live dir, --all-dirs/--project/--overhead/--transcripts add them")
     out = ap.add_mutually_exclusive_group()
     out.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
     out.add_argument("--json", action="store_true",

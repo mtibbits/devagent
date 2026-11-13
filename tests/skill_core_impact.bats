@@ -50,3 +50,10 @@ setup() {
   grep -qF -- "- Workflow time (unattributed to a project, may include other projects' work): <time line> (<rule line>)" "$SKILL/SKILL.md"
   grep -qF -- '- Workflow time: not measured' "$SKILL/SKILL.md"
 }
+
+@test "core-impact step 6 says per-issue cost excludes overhead and names --overhead (#732)" {
+  x="$(awk '/^6\. \*\*Workflow cost\.\*\*/ { f = 1; print; next } f && (/^[0-9]+\. \*\*/ || /^## /) { exit } f { print }' "$SKILL/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  [ "${#x}" -ge 200 ]
+  printf '%s\n' "$x" | grep -qF -- 'excludes overhead'
+  printf '%s\n' "$x" | grep -qF -- 'cost-report.sh --overhead --project <project> --summary'
+}
