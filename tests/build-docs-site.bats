@@ -71,6 +71,58 @@ setup() {
   fx_reset "$BATS_TEST_TMPDIR"
 }
 
+# The fetch scanner and the site policy. CSP is one of the policy's four homes
+# (check-fetches.py's POLICY, page.html, the stub writer in build-docs-site.sh),
+# written out here and never read from the others, so a drift in any of them
+# fails a row.
+SCANNER="$PLUGIN_ROOT/scripts/docs-site/check-fetches.py"
+CSP="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+CSP_META="<meta http-equiv=\"Content-Security-Policy\" content=\"$CSP\">"
+OH='https://other.host'
+NS='http://www.w3.org/2000/svg'
+
+# scan — the scanner run directly on $FX/site (no build, no pandoc).
+scan() { python3 -I -X utf8 "$SCANNER" "$FX/site"; }
+
+# fx_sf <relpath> <line...> — a file under $FX/site, one argument per line.
+fx_sf() {
+  local rel="$1"; shift
+  mkdir -p "$(dirname "$FX/site/$rel")"
+  printf '%s\n' "$@" > "$FX/site/$rel"
+}
+
+# fx_doc <relpath> <body line...> — a document under $FX/site carrying the CSP meta.
+fx_doc() {
+  local rel="$1"; shift
+  fx_sf "$rel" '<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">' "$CSP_META" \
+    '</head><body>' "$@" '</body></html>'
+}
+
+# sc_new — a fresh fixture dir for the next row (one dir per row).
+sc_new() { sc_n=$((${sc_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$sc_n"; }
+
+# sc_row <want> <relpath> <needle> <token> — scan $FX/site. want 0: status 0 and
+# the ok line. want 3: status 3 and a line "check-fetches: <relpath>:<ln>: ..."
+# holding <token>, <ln> the first line of the planted file holding <needle>
+# (0 when <needle> is empty), so a violation elsewhere cannot satisfy the row.
+sc_row() {
+  local want="$1" rel="$2" needle="$3" token="$4" ln=0 l hit=0
+  run scan
+  [ "$status" -eq "$want" ] || { echo "row ${sc_n:-0} ($rel): status $status, want $want: $output" >&2; return 1; }
+  if [ "$want" -eq 0 ]; then
+    [[ "$output" == *"check-fetches: ok: "* ]] || { echo "row ${sc_n:-0}: no ok line: $output" >&2; return 1; }
+    return 0
+  fi
+  if [ -n "$needle" ]; then
+    ln="$(grep -nF -- "$needle" "$FX/site/$rel" | sed -n '1s/:.*//p')"
+    [ -n "$ln" ] || { echo "row ${sc_n:-0}: '$needle' is not in $rel" >&2; return 1; }
+  fi
+  for l in "${lines[@]}"; do
+    case "$l" in "check-fetches: $rel:$ln: "*"$token"*) hit=1 ;; esac
+  done
+  [ "$hit" -eq 1 ] || { echo "row ${sc_n:-0}: no 'check-fetches: $rel:$ln: ...$token' in: $output" >&2; return 1; }
+}
+
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
 # "no pandoc" (or a stub pandoc) is the only thing the probe can see.
 fx_bin() {
@@ -946,4 +998,75 @@ fx_stub_site() {
   [ "$status" -eq 0 ]
   run grep -lE "$re" "$FX/out/old-a.html" "$FX/out/old-b.html"
   [ "$status" -eq 1 ]
+}
+
+# ------------------------------------------------- SCANNER: check-fetches.py, run directly
+
+# usage_2 — the last scanner run exited 2 and ended with the usage line.
+usage_2() {
+  [ "$status" -eq 2 ] || { echo "status $status, want 2: $output" >&2; return 1; }
+  [[ "${lines[${#lines[@]}-1]}" == "usage: check-fetches.py"* ]] || { echo "no usage line last: $output" >&2; return 1; }
+}
+
+@test "build-docs-site: check-fetches — usage: no argument, two arguments, a flag, a missing dir and an empty dir exit 2" {
+  fx_doc index.html '<p>x</p>'
+  mkdir -p "$FX/empty"
+  run python3 -I -X utf8 "$SCANNER"
+  usage_2
+  run python3 -I -X utf8 "$SCANNER" "$FX/site" "$FX/site"
+  usage_2
+  run python3 -I -X utf8 "$SCANNER" --help
+  usage_2
+  run python3 -I -X utf8 "$SCANNER" "$FX/absent"
+  usage_2
+  run python3 -I -X utf8 "$SCANNER" "$FX/empty"
+  usage_2
+  # positive control: the same scanner on the planted site
+  run scan
+  [ "$status" -eq 0 ]
+}
+
+@test "build-docs-site: check-fetches — '--' admits an out-dir that starts with '-'" {
+  fx_doc index.html '<p>x</p>'
+  mv "$FX/site" "$FX/-site"
+  cd "$FX"
+  run python3 -I -X utf8 "$SCANNER" -- -site
+  [ "$status" -eq 0 ]
+  [ "$output" = "check-fetches: ok: 1 files: 1 scanned, 0 binary, 0 vendored" ]
+  run python3 -I -X utf8 "$SCANNER" -site
+  usage_2
+}
+
+@test "build-docs-site: check-fetches — counts every file once" {
+  fx_doc index.html '<p>x</p>'
+  fx_sf assets/a.png 'png'
+  fx_sf assets/f.woff2 'font'
+  fx_sf assets/s.css 'nav a:hover { color: red; }'
+  run scan
+  [ "$status" -eq 0 ]
+  [ "$output" = "check-fetches: ok: 4 files: 2 scanned, 2 binary, 0 vendored" ]
+}
+
+@test "build-docs-site: check-fetches — fail-closed file types" {
+  sc_n=0
+  sc_new; fx_sf assets/x.json '{}';       sc_row 3 assets/x.json '' '(.json)'
+  sc_new; fx_sf assets/.gitkeep '';       sc_row 3 assets/.gitkeep '' 'hidden'
+  sc_new; fx_sf assets/LICENSE 'MIT';     sc_row 3 assets/LICENSE '' '(no extension)'
+  sc_new; fx_sf assets/a.gltf '{}';       sc_row 3 assets/a.gltf '' '(.gltf)'
+  sc_new; fx_sf assets/t.js 'var a = 1;'; ln -s "$FX/site/assets/t.js" "$FX/site/assets/l.js"
+  sc_row 3 assets/l.js '' 'not a regular file'
+  sc_new; mkdir -p "$FX/site/assets"; printf 'a{}\n\xff\n' > "$FX/site/assets/b.css"
+  sc_row 3 assets/b.css '' 'not UTF-8 text'
+  sc_new; fx_sf real/x.css 'a{}'; mkdir -p "$FX/site/assets"; ln -s ../real "$FX/site/assets/ld"
+  sc_row 3 assets/ld '' 'not a regular file'
+  # every violation line is followed by the count line
+  [[ "$output" == *"check-fetches: 1 violation(s) in 1 file(s)"* ]]
+}
+
+@test "build-docs-site: check-fetches — \"private preview\" fails across a line break, any case" {
+  sc_n=0
+  sc_new; fx_sf assets/p.css '/* Private' '  Preview */'
+  sc_row 3 assets/p.css 'Private' 'the words "private preview" may not be published'
+  sc_new; fx_doc index.html '<p>A Private' 'preview build</p>'
+  sc_row 3 index.html 'Private' 'private preview'
 }
