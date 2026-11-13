@@ -262,7 +262,7 @@ def project_dirs(tables: dict[str, dict]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for name, t in tables.items():
         src = t.get("source_dir")
-        wt = t["worktree_root"] if "worktree_root" in t else (
+        wt = t.get("worktree_root") or (   # empty reads as unset, as in scripts/lib/trust.sh
             os.path.expanduser(src) + "-wt" if isinstance(src, str) and src else None)
         for v in (src, wt, t.get("devdoc_dir")):
             d = _norm(v) if isinstance(v, str) and v else ""
@@ -880,7 +880,8 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
                 if overhead is not None and pair == START[0]:
-                    place, _ = _place(*places.get(tool_use_id, (None, sub_cwd)), pdirs, cache)
+                    hint, cwd = places.get(tool_use_id, (None, None))
+                    place, _ = _place(hint, cwd or sub_cwd, pdirs, cache)
                     _charge_overhead(overhead, place, step, tape.session, origin)[1].sub += cost
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:

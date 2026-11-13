@@ -2218,3 +2218,20 @@ def test_under_identity_walks_physical_parents(tmp_path):
     except OSError:
         pytest.skip("no symlinks on this host")
     assert cr._under(str(alpha / "lnk"), str(alpha)) is False
+
+
+def test_project_dirs_empty_worktree_root_gets_the_default():
+    """An empty worktree_root reads as unset, as scripts/lib/trust.sh does (review minor 4)."""
+    _config_dirs({"alpha": {"source_dir": "/work/alpha", "worktree_root": ""}})
+    assert ("/work/alpha-wt", "alpha") in cr.project_dirs(cr._project_tables())
+
+
+def test_overhead_launched_subagent_without_launch_cwd_uses_its_own(tmp_path):
+    """A launch record with no cwd places its subagent by the subagent file's cwd (review minor 2)."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_call("c1", _usage(inp=1), _tool("a1", "Agent", description="x"))])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(out=10)), "/work/beta")])
+    ov = _collect_ov(d)[2]
+    assert sum(r.sub for r in ov[("project", "beta")].steps.values()) == 50
+    assert _ov(ov)["(unassigned) (no cwd)"] == (1, 1.0, (0, 0, 1))
