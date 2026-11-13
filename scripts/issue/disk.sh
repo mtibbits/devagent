@@ -169,6 +169,24 @@ elif mode == "comments":
     out(comments(recs[0]))
 elif mode == "state":
     out(recs[0]["keys"]["state"] + "\n")
+elif mode == "at-target":
+    # argv: <target status or ""> <stage>. Exit 0 when the issue is already at
+    # the stage target: the mapped status (if any), state closed for on_merge,
+    # and a comment entry for the stage. Otherwise print the keys a transition
+    # must still set (status, state), one per line, and exit 10.
+    r = recs[0]
+    t, stage = sys.argv[2], sys.argv[3]
+    k = r["keys"]
+    need = []
+    if t and k.get("status") != t:
+        need.append("status")
+    if stage == "on_merge" and k["state"] != "closed":
+        need.append("state")
+    logged = any(c["text"].startswith(stage + ":") for c in r["comments"])
+    if not need and logged:
+        sys.exit(0)
+    out("".join(n + "\n" for n in need))
+    sys.exit(10)
 else:
     sys.exit("disk.sh: unknown render mode " + mode)
 '
@@ -206,22 +224,25 @@ cmd_comment_list() {
 # One lock per issues folder, shared by create and transition: create's number
 # choice and its .last-number reservation, and transition's at-target check and
 # its write, each run under it, so two sessions never take one number or append
-# two entries for one stage. It is a directory (mkdir is atomic everywhere,
-# Git Bash included), dot-named so every verb and doctor ignore it, and always
-# taken OUTSIDE the module's own .disk-issue.lock. A held lock is waited on for
-# about ten seconds, then the verb exits 1; a stale lock is never broken
+# two entries for one stage. The lock is the file .disk.lock, created with the
+# shell's noclobber (an O_EXCL open, done by bash itself, Git Bash included):
+# an external `mkdir` is not a safe lock, because uutils coreutils' mkdir
+# (0.10, the default on some current Linux releases) lets two concurrent calls
+# both succeed. It is dot-named, so every verb and doctor ignore it, and it is
+# always taken OUTSIDE the module's own .disk-issue.lock. A held lock is waited
+# on for about ten seconds, then the verb exits 1; a stale lock is never broken
 # automatically, because a guessed age can break a live one.
 _DISK_LOCKED=0
 _disk_unlock() {
   if [ "$_DISK_LOCKED" = 1 ]; then
-    rmdir .disk.lock 2>/dev/null || true
+    rm -f .disk.lock 2>/dev/null || true
     _DISK_LOCKED=0
   fi
 }
 _disk_lock() {
   local i
   for ((i = 0; i < 100; i++)); do
-    if mkdir .disk.lock 2>/dev/null; then
+    if ( set -C; printf '%s\n' "$$" > .disk.lock ) 2>/dev/null; then
       _DISK_LOCKED=1
       trap _disk_unlock EXIT
       return 0
@@ -345,6 +366,62 @@ _disk_restore_last() {
   fi
 }
 
+# --- transition ------------------------------------------------------------
+# transition <dir> <N> <stage> [--project <p>]: map the stage to a status
+# through [project.<p>.issue_workflow] (or DEVAGENT_DISK_STATUS_<STAGE>) and
+# write `status: <mapped>` plus one comment entry in ONE module `set`, so it is
+# never left half done. on_merge also writes `state: closed`, even with no
+# status mapped. Entry texts (docs/disk-issues.md):
+#   <stage>: status <t>              a mapped stage other than on_merge
+#   on_merge: status <t>, closed     a mapped on_merge
+#   on_merge: closed                 an unmapped on_merge
+# An issue already at the target (the status, closed for on_merge, and an
+# entry for the stage) is not written. Another unmapped stage warns and
+# changes nothing. The check and the write run under .disk.lock, so two
+# sessions never append two entries for one stage.
+cmd_transition() {
+  local t rc=0 need entry
+  transition_args disk.sh "$@" || exit 2
+  _disk_is_num "$TA_NUM" || _disk_die 2 "transition: <N> must be an issue number"
+  case "$TA_STAGE" in
+    on_draft_start|on_ship|on_merge) ;;
+    quarantine) _disk_die 2 "transition quarantine is not supported on disk" ;;
+    *) _disk_die 2 "transition: unknown stage '$TA_STAGE'" ;;
+  esac
+  _disk_folder "$TA_REPO"
+  if t="$(stage_map_target disk "$TA_PROJECT" "$TA_STAGE")"; then :; else exit 1; fi
+  t="${t#"${t%%[!$' \t']*}"}"
+  t="${t%"${t##*[!$' \t']}"}"
+  [[ "$t" != *[$'\r\n']* ]] || _disk_die 1 "transition: the status mapped for $TA_STAGE contains a line break"
+  if [ -z "$t" ] && [ "$TA_STAGE" != on_merge ]; then
+    transition_unmapped disk "$TA_STAGE" "$TA_PROJECT"
+    exit 0
+  fi
+  _disk_lock
+  _disk_parse "$TA_NUM"
+  if need="$(printf '%s\n' "$DISK_JSON" | _disk_py at-target "$t" "$TA_STAGE")"; then
+    return 0
+  else
+    rc=$?
+  fi
+  [ "$rc" -eq 10 ] || exit 1
+  local args=()
+  [[ $'\n'"$need"$'\n' != *$'\nstatus\n'* ]] || args+=("status=$t")
+  [[ $'\n'"$need"$'\n' != *$'\nstate\n'* ]] || args+=("state=closed")
+  if [ "$TA_STAGE" = on_merge ]; then
+    entry="on_merge: ${t:+status $t, }closed"
+  else
+    entry="$TA_STAGE: status $t"
+  fi
+  rc=0
+  _disk_mod set "$TA_NUM.md" "${args[@]}" --comment "$entry" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    4) exit 5 ;;
+    *) exit 1 ;;
+  esac
+}
+
 main() {
   local verb="${1:-}"
   [ "$#" -eq 0 ] || shift
@@ -353,7 +430,8 @@ main() {
     state)        cmd_state "$@" ;;
     comment-list) cmd_comment_list "$@" ;;
     create)       cmd_create "$@" ;;
-    transition|state-list|state-class|issue-list|state-exists)
+    transition)   cmd_transition "$@" ;;
+    state-list|state-class|issue-list|state-exists)
       _disk_folder "${1:-}"
       bc_die_not_implemented disk "$verb" ;;
     events|comment-records|whoami)

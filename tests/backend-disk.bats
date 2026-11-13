@@ -445,11 +445,195 @@ issue_count() { find "$D" -maxdepth 1 -name '[1-9]*.md' | wc -l | tr -d ' '; }
 
 @test "disk: a held .disk.lock makes create exit 1 naming the lock, writing nothing" {
   body "x"
-  mkdir "$D/.disk.lock"
+  : > "$D/.disk.lock"
   run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"the issues folder named by issue_source.repo is locked (.disk.lock); remove it if no devagent command is running"* ]]
   [ "$(issue_count)" -eq 0 ]
   [ ! -e "$D/.last-number" ]
-  [ -d "$D/.disk.lock" ]
+  [ -f "$D/.disk.lock" ]
+}
+
+# ---------------------------------------------------------------- Task 4: transition
+
+# map_stages: the project p maps the three stages, as the skeleton does.
+map_stages() {
+  cat > "$DA_HOME/config.toml" <<'TOML'
+[project.p.issue_workflow]
+on_draft_start = "In Progress"
+on_ship        = "In Review"
+on_merge       = "Done"
+TOML
+}
+
+# set_log: a python3 shim that logs each module `set` argv (one line each) to
+# $SETLOG, then forwards it.
+set_log() {
+  SETLOG="$BATS_TEST_TMPDIR/setlog"
+  : > "$SETLOG"
+  py_shim "if [ \"\${2:-}\" = set ]; then printf '%s|' \"\${@:3}\" >> \"$SETLOG\"; echo >> \"$SETLOG\"; fi"
+}
+
+tr_disk() { DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr "$DISK" transition "$D" "$@"; }
+
+@test "disk: on_draft_start writes status and one entry in a single set" {
+  map_stages; set_log
+  cp "$FIX/minimal.md" "$D/1.md"
+  tr_disk 1 on_draft_start --project p
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$SETLOG")" -eq 1 ]
+  [ "$(cat "$SETLOG")" = '1.md|status=In Progress|--comment|on_draft_start: status In Progress|' ]
+  grep -qx 'status: In Progress' "$D/1.md"
+  grep -qx -- '- 2026-11-10 on_draft_start: status In Progress' "$D/1.md"
+  [ ! -e "$D/.disk.lock" ]
+}
+
+@test "disk: a mapped on_merge writes status, state and entry in one set" {
+  map_stages; set_log
+  cp "$FIX/minimal.md" "$D/1.md"
+  tr_disk 1 on_merge --project p
+  [ "$status" -eq 0 ]
+  [ "$(cat "$SETLOG")" = '1.md|status=Done|state=closed|--comment|on_merge: status Done, closed|' ]
+  grep -qx 'state: closed' "$D/1.md"
+  grep -qx 'status: Done' "$D/1.md"
+  grep -qx -- '- 2026-11-10 on_merge: status Done, closed' "$D/1.md"
+}
+
+@test "disk: an unmapped on_merge writes state: closed and \"on_merge: closed\"" {
+  set_log
+  cp "$FIX/minimal.md" "$D/1.md"
+  tr_disk 1 on_merge --project p
+  [ "$status" -eq 0 ]
+  [ "$(cat "$SETLOG")" = '1.md|state=closed|--comment|on_merge: closed|' ]
+  grep -qx 'state: closed' "$D/1.md"
+  run ! grep -q '^status:' "$D/1.md"
+  grep -qx -- '- 2026-11-10 on_merge: closed' "$D/1.md"
+}
+
+@test "disk: an unmapped on_ship warns and changes nothing" {
+  set_log
+  cp "$FIX/minimal.md" "$D/1.md"
+  cp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  tr_disk 1 on_ship --project p
+  [ "$status" -eq 0 ]
+  [[ "$stderr" == *"no tracker state mapped for 'on_ship'"* ]]
+  cmp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  [ ! -s "$SETLOG" ]
+}
+
+@test "disk: a transition already at its target leaves the bytes unchanged" {
+  map_stages; set_log
+  local stage
+  cp "$FIX/full.md" "$D/2.md"
+  # full.md is at every stage's identity except status (Done): on_merge is
+  # at its target; on_draft_start and on_ship carry their entries but not
+  # their status, so they are not.
+  cp "$D/2.md" "$BATS_TEST_TMPDIR/orig"
+  tr_disk 2 on_merge --project p
+  [ "$status" -eq 0 ]
+  cmp "$D/2.md" "$BATS_TEST_TMPDIR/orig"
+  [ ! -s "$SETLOG" ]
+  for stage in on_draft_start on_ship; do
+    : > "$SETLOG"
+    cp "$FIX/minimal.md" "$D/1.md"
+    tr_disk 1 "$stage" --project p
+    cp "$D/1.md" "$BATS_TEST_TMPDIR/once"
+    : > "$SETLOG"
+    tr_disk 1 "$stage" --project p
+    [ "$status" -eq 0 ]
+    cmp "$D/1.md" "$BATS_TEST_TMPDIR/once"
+    [ ! -s "$SETLOG" ] || { echo "$stage wrote again" >&2; false; }
+  done
+  # the status already set but no entry for the stage: one set, no status= change
+  printf '%s\n' '# T' 'status: In Review' '' '## Prompt' 'x' > "$D/3.md"
+  : > "$SETLOG"
+  tr_disk 3 on_ship --project p
+  [ "$status" -eq 0 ]
+  [ "$(cat "$SETLOG")" = '3.md|--comment|on_ship: status In Review|' ]
+}
+
+@test "disk: a transition on a file that fails check exits 5 and leaves it unchanged" {
+  map_stages; set_log
+  printf '%s\n' '# T' 'state: maybe' > "$D/7.md"
+  cp "$D/7.md" "$BATS_TEST_TMPDIR/orig"
+  tr_disk 7 on_ship --project p
+  [ "$status" -eq 5 ]
+  [[ "$stderr" == *"7.md:2:"* ]]
+  cmp "$D/7.md" "$BATS_TEST_TMPDIR/orig"
+  [ ! -s "$SETLOG" ]
+  no_mark
+}
+
+@test "disk: transition exits 4 for a missing file, 2 for wrong arguments, quarantine or an unknown stage, and 1 for a folder fault or an unreadable config" {
+  map_stages
+  cp "$FIX/minimal.md" "$D/1.md"
+  tr_disk 9 on_ship --project p
+  [ "$status" -eq 4 ]
+  no_mark
+  local a
+  for a in "1" "0|on_ship" "01|on_ship" "x|on_ship" "1|quarantine" "1|on_frob" "1|on_ship|--project" "1|on_ship|--bogus"; do
+    IFS='|' read -r -a args <<<"$a"
+    tr_disk "${args[@]}"
+    [ "$status" -eq 2 ] || { echo "$a: $status" >&2; false; }
+  done
+  tr_disk 1 quarantine --project p
+  [[ "$stderr" == *"transition quarantine is not supported on disk"* ]]
+  run --separate-stderr "$DISK" transition rel/issues 1 on_ship --project p
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"issue_source.repo"* ]]
+  cp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  printf '[project.p\nbroken = \n' > "$DA_HOME/config.toml"
+  tr_disk 1 on_ship --project p
+  [ "$status" -eq 1 ]
+  cmp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  no_mark
+}
+
+@test "disk: DEVAGENT_DISK_STATUS_ON_SHIP overrides issue_workflow" {
+  map_stages
+  cp "$FIX/minimal.md" "$D/1.md"
+  DEVAGENT_DISK_STATUS_ON_SHIP="Review: env" tr_disk 1 on_ship --project p
+  [ "$status" -eq 0 ]
+  grep -qx 'status: Review: env' "$D/1.md"
+  grep -qx -- '- 2026-11-10 on_ship: status Review: env' "$D/1.md"
+}
+
+@test "disk: an interrupted transition leaves the file unchanged, and the retry writes status, state and entry together" {
+  map_stages
+  cp "$FIX/minimal.md" "$D/1.md"
+  cp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  py_shim "if [ \"\${2:-}\" = set ]; then shift; exec \"\$REALPY\" \"$PLUGIN_ROOT/tests/helpers/disk_issue_inject.py\" kill-before-replace -- \"\$@\"; fi"
+  tr_disk 1 on_merge --project p
+  [ "$status" -eq 1 ]
+  cmp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  [ ! -e "$D/.disk.lock" ]
+  PATH="${PATH#"$BATS_TEST_TMPDIR/shim:"}"
+  tr_disk 1 on_merge --project p
+  [ "$status" -eq 0 ]
+  grep -qx 'state: closed' "$D/1.md"
+  grep -qx 'status: Done' "$D/1.md"
+  grep -qx -- '- 2026-11-10 on_merge: status Done, closed' "$D/1.md"
+}
+
+@test "disk: two on_merge transitions started together append one entry" {
+  map_stages
+  local i
+  for i in 1 2 3; do
+    cp "$FIX/minimal.md" "$D/$i.md"
+    "$DISK" transition "$D" "$i" on_merge --project p 2>/dev/null &
+    "$DISK" transition "$D" "$i" on_merge --project p 2>/dev/null &
+    wait %1 && wait %2
+    [ "$(grep -c 'on_merge:' "$D/$i.md")" -eq 1 ] || { cat "$D/$i.md" >&2; false; }
+  done
+}
+
+@test "disk: a held .disk.lock makes transition exit 1, writing nothing" {
+  map_stages
+  cp "$FIX/minimal.md" "$D/1.md"
+  cp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+  : > "$D/.disk.lock"
+  tr_disk 1 on_ship --project p
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"is locked (.disk.lock)"* ]]
+  cmp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
 }
