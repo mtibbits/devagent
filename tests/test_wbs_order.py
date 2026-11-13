@@ -44,7 +44,7 @@ def _counts(text, cl=False):
     return n, m
 
 
-PRIORITY_WARN = "line {}: priority '{}' is not P1, P2, P3 or P4; ignored"
+PRIORITY_WARN = "line {}: priority '{}' is not P0, P1, P2, P3 or P4; ignored"
 
 
 # --- Task 2: the rule ---------------------------------------------------------
@@ -320,6 +320,61 @@ def test_malformed_list_priority_renders_as_a_list():
     text = _doc("- [ ] E", "  - [ ] a {priority: [P1, P2]}", "  - [ ] b")
     _lines, warnings = _ord(text)
     assert warnings == [PRIORITY_WARN.format(2, "[P1, P2]")]
+
+
+P0_BEFORE_P1 = _case(
+    "p0_before_p1",
+    "- [ ] E",
+    "  - [ ] A {issue: A, priority: P1}",
+    "  - [ ] B {issue: B, priority: P0}",
+)
+P0_INHERITED = _case(
+    "p0_inherited",
+    "- [ ] E",
+    "  - [ ] D {issue: D, priority: P1}",
+    "  - [ ] C {issue: C, priority: P4, depends_on: D}",
+    "  - [ ] A {issue: A, priority: P4}",
+    "  - [ ] B {issue: B, priority: P0, depends_on: A}",
+)
+
+
+def test_p0_sorts_before_p1():
+    lines, warnings = _ord(P0_BEFORE_P1)
+    assert lines == [
+        "- [ ] E",
+        "  - [ ] B {issue: B, priority: P0}",
+        "  - [ ] A {issue: A, priority: P1}",
+    ]
+    assert warnings == []
+
+
+def test_sibling_a_p0_depends_on_inherits_p0():
+    # A and D each have one dependent, so fan-out ties; A rises above D (own
+    # P1, earlier position) only by inheriting P0 from B. Read as P1 (or at
+    # the old P1-P4 scale) the order is [E, D, A, B, C].
+    lines, warnings = _ord(P0_INHERITED)
+    assert lines == [
+        "- [ ] E",
+        "  - [ ] A {issue: A, priority: P4}",
+        "  - [ ] B {issue: B, priority: P0, depends_on: A}",
+        "  - [ ] D {issue: D, priority: P1}",
+        "  - [ ] C {issue: C, priority: P4, depends_on: D}",
+    ]
+    assert warnings == []
+
+
+def test_p0_is_rank_zero():
+    assert wbs_parser.priority_rank({"priority": "P0"}) == (0, None)
+
+
+@pytest.mark.parametrize("v", ["P5", "P-1", "p0", "P00"])
+def test_out_of_scale_priority_still_warns(v):
+    # a counts as P3, between P2 b and P4 c: read as P0/P1 it would rise
+    # above b, read as P5 it would fall below c.
+    text = _doc("- [ ] E", "  - [ ] b {priority: P2}", f"  - [ ] a {{priority: {v}}}", "  - [ ] c {priority: P4}")
+    lines, warnings = _ord(text)
+    assert lines == text.splitlines()
+    assert warnings == [PRIORITY_WARN.format(3, v)]
 
 
 FINISHED_SLOTS = _case(
