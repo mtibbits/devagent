@@ -53,10 +53,16 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
   issue's checklist. If the checklist omits branch (research), the baseline is
   N/A — do not halt.
 - imPlan.md lacks `## Definition of done` section **and** the draft step (2)
-  is present in the active revision block. If the checklist omits draft
-  (oneshot), the producing step is absent and the check is N/A — record
-  execution evidence (command output, service-answers proof) against the
-  issue body's acceptance criteria instead.
+  **and** the tighten step (7) are present in the active revision block. If
+  the active revision block omits draft (oneshot), the producing step is
+  absent and the check is N/A — record execution evidence (command output, service-answers
+  proof) against the issue body's acceptance criteria instead. If the active
+  block has no tighten row (e.g. starter, docs-only, research), tighten
+  produces the Definition of done and is absent, so the check is not
+  applicable: the plan's tasks and the issue's acceptance criteria are the
+  work statement, and the unticked acceptance-criteria boxes in the issue
+  body are not unchecked items. An active block with a tighten row
+  (standard, perf) still halts.
 
 ## Skipping policy
 

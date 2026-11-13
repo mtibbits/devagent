@@ -405,6 +405,18 @@ STUB
   [[ "$output" != *"checklist-perf.md has no mergemr row"* ]]
 }
 
+@test "doctor warns on a checklist-starter override with ship and no mergemr row (#989)" {
+  mkdir -p "$DA_HOME/fake-devdoc/templates"
+  # positive control: the plugin copy DOES carry the row the fixture strips
+  grep -q '^- \[ \] 20\. mergemr$' "$PLUGIN_ROOT/templates/checklist-starter.md"
+  grep -v '^- \[.\] 20\. mergemr$' "$PLUGIN_ROOT/templates/checklist-starter.md" \
+    > "$DA_HOME/fake-devdoc/templates/checklist-starter.md"
+  grep -q '^- \[ \] 18\. ship$' "$DA_HOME/fake-devdoc/templates/checklist-starter.md"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARN checklist-starter — checklist override $DA_HOME/fake-devdoc/templates/checklist-starter.md has no mergemr row; the merge step will not run or gate closeout (#885)"* ]]
+}
+
 @test "doctor does not warn on an oneshot override (no ship row) (#885)" {
   mkdir -p "$DA_HOME/fake-devdoc/templates"
   cp "$PLUGIN_ROOT/templates/checklist-oneshot.md" "$DA_HOME/fake-devdoc/templates/checklist-oneshot.md"

@@ -49,3 +49,8 @@ install_fixture_config() {
 skill_frontmatter() {
     awk '/^---$/{c++; next} c==1{print} c==2{exit}' "$1"
 }
+
+# #989: a checklist's row numbers in file order, space-joined.
+checklist_row_nums() {
+  grep -E '^- \[.\] +[0-9]+\.' "$1" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/' | tr '\n' ' ' | sed 's/ $//'
+}
