@@ -735,6 +735,7 @@ def _big_session(path, mb, filler=FILLER, stamp=False):
     n = itertools.count()
 
     def put(f, r):
+        r = {**r, "cwd": "/work/big"}   # a constant cwd: the per-bucket cwd field is exercised (#732)
         if stamp:
             r = _at(r, next(n) / 60)
         f.write(json.dumps(r) + "\n")
@@ -1840,3 +1841,74 @@ def test_dir_project_longest_match_and_boundaries(cwd, project):
     cache = {}
     assert cr._dir_project(cwd, dirs, cache) == project
     assert cr._dir_project(cwd, dirs, cache) == project   # cached answer agrees
+
+
+@pytest.mark.parametrize("cmd, values", [
+    ("DEVAGENT_PROJECT=beta bash x", ("beta",)),
+    ("export DEVAGENT_PROJECT=beta", ("beta",)),
+    ('export DEVAGENT_PROJECT="beta"; y', ("beta",)),
+    ("DEVAGENT_PROJECT='beta' z", ("beta",)),
+    ("(DEVAGENT_PROJECT=factor-ai bash s)", ("factor-ai",)),
+    ("DEVAGENT_PROJECT=alpha a; DEVAGENT_PROJECT=beta b", ("alpha", "beta")),
+    ('export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?name}"', ()),
+    ('if DEVAGENT_PROJECT="$project"', ()),
+    ("DEVAGENT_PROJECT=$P x", ()),
+    ("MY_DEVAGENT_PROJECT=beta x", ()),
+    ("DEVAGENT_PROJECT=beta$x y", ()),
+    ("echo $DEVAGENT_PROJECT", ()),
+    ("DEVAGENT_PROJECT=", ()),
+])
+def test_project_assign_shapes(cmd, values):
+    assert cr._assigned_projects(cmd) == values
+
+
+@pytest.mark.parametrize("name, args, hint", [
+    ("reap", "alpha", "alpha"),
+    ("catchup", "beta", "beta"),
+    ("next", "alpha --auto", "alpha"),
+    ("next", "alpha 7 --auto", "alpha"),
+    ("history", "--project beta", "beta"),
+    ("reap", "alpha Issue-4", None),
+    ("next", "alpha Issue-8 --auto", None),
+    ("pull", "alpha origin 7", None),
+    ("pull", "alpha", None),
+    ("wbs", "update alpha", "alpha"),
+    ("wbs", "init alpha", "alpha"),
+    ("auth", "status alpha", "alpha"),
+    ("capture", "alpha beta notes", "alpha"),
+    ("wbs", "update alpha Issue-3", None),
+    ("reap", "gamma", None),
+    ("where", "", None),
+])
+def test_typed_hint_shapes(name, args, hint):
+    assert cr._typed_hint(name, tuple(args.split()), {"alpha", "beta"}) == hint
+
+
+def test_scan_dispatch_and_hint_in_one_command():
+    recs = [
+        _bash_hint("m1", "n1", 'DEVAGENT_PROJECT=beta bash "x/scripts/next.sh" beta --auto', _usage(inp=1)),
+        _result("n1", "dispatch: beta/Issue-9 — step 2 (draft), skill-backed"),
+        _call("m2", _usage(inp=2)),
+    ]
+    tape = cr.scan(recs, set())
+    assert ("hint", ("beta",)) in tape.events
+    assert any(e[0] == "dispatch" and e[1:3] == ("beta", "Issue-9") for e in tape.events)
+    buckets, _, _, _ = cr.replay(tape, {"beta"})
+    assert [(pair, b.calls) for pair, _, b, _ in buckets] == [((NP, NI), 1), (("beta", "Issue-9"), 1)]
+
+
+def test_scan_buckets_split_on_cwd_and_replay_tags_hint():
+    recs = [
+        _in(_call("m1", _usage(inp=1)), "/a"),
+        _in(_call("m2", _usage(inp=2)), "/a"),
+        _in(_call("m3", _usage(inp=4)), "/b"),
+        _typed("reap", "alpha"),
+        _in(_call("m4", _usage(inp=8), _tool("t1", "Agent", description="x")), "/b"),
+        _call("m5", _usage(inp=16)),
+    ]
+    tape = cr.scan(recs, set())
+    buckets, launches, _, places = cr.replay(tape, {"alpha"})
+    assert [(b.calls, tag) for _, _, b, tag in buckets] == [
+        (2, (None, "/a")), (1, (None, "/b")), (1, ("alpha", "/b")), (1, ("alpha", None))]
+    assert places == {"t1": ("alpha", "/b")}
+    assert launches == {"t1": ((NP, NI), "reap")}

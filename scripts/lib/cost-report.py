@@ -95,6 +95,10 @@ ISSUE_TOKEN = re.compile(r"(?:^|/)([A-Za-z]+-\d+)/?$")
 RUN_ID = re.compile(r"Run ID: (wf_[0-9a-f]{8}-[0-9a-f]{3})")
 # Commands that drive steps rather than being one.
 DRIVERS = {"next"}
+# A Bash command setting DEVAGENT_PROJECT to a literal value; a $-expansion never matches.
+PROJECT_ASSIGN = re.compile(
+    r"""(?:^|[\s;&|(])DEVAGENT_PROJECT=(?:"([\w.-]+)"|'([\w.-]+)'|([\w.-]+)(?=$|[\s;&|)]))"""
+)
 NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
 NO_STEP = "(no step)"
@@ -508,10 +512,14 @@ class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
 
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
-            | ("launch", tool_use_id) | ("calls", Row) | ("time", TimeAcc)
+            | ("launch", tool_use_id, cwd) | ("calls", Row, cwd) | ("hint", (project, ...))
+            | ("time", TimeAcc)
+            cwd is the record's cwd (None when absent); a calls bucket holds one cwd. A
+            "hint" is the literal DEVAGENT_PROJECT values one Bash command assigns.
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
-    subs: [(toolUseId, cost, fresh)], one per subagent file with usage; fresh is
-          False when every one of its message ids was already counted elsewhere.
+    subs: [(toolUseId, cost, fresh, cwd)], one per subagent file with usage; fresh is
+          False when every one of its message ids was already counted elsewhere; cwd is
+          the file's first record cwd (None when none has one).
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
     A "time" event (under --time) holds the time of the records ticked before the
@@ -542,6 +550,7 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
     local: set[str] = set()
     clock = timing.clock(main=True) if timing else None
     row = tacc = None   # the open calls and time buckets; a pair-moving event closes both
+    row_cwd = None      # the open calls bucket's cwd; a new cwd opens a new bucket
 
     def move(e):
         nonlocal row, tacc
@@ -561,6 +570,7 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
         kind, msg = d.get("type"), d.get("message") or {}
         if not isinstance(msg, dict):
             continue
+        cwd = d.get("cwd") if isinstance(d.get("cwd"), str) else None
         if kind == "user":
             content = msg.get("content")
             blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
@@ -586,8 +596,13 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                 name, inp = b.get("name"), b.get("input")
                 if not isinstance(inp, dict):
                     inp = {}
-                if name == "Bash" and "next.sh" in str(inp.get("command", "")):
-                    next_calls.add(b.get("id"))
+                if name == "Bash":
+                    cmd = str(inp.get("command", ""))
+                    if "next.sh" in cmd:
+                        next_calls.add(b.get("id"))
+                    values = _assigned_projects(cmd)   # one command can be both a dispatch and a hint
+                    if values:
+                        move(("hint", values))
                 elif name == "Skill":
                     s = str(inp.get("skill", ""))
                     if s.startswith("devagent:"):
@@ -595,15 +610,15 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                         if n not in DRIVERS and not n.startswith("core-"):
                             move(("skill", n))
                 elif name in LAUNCH_TOOLS:
-                    move(("launch", b.get("id")))
+                    move(("launch", b.get("id"), cwd))
                     if name == "Workflow":
                         workflow_calls.add(b.get("id"))
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and isinstance(usage, dict) and usage and mid not in local:
                 local.add(mid)
-                if row is None:
-                    row = Row()
-                    ev.append(("calls", row))
+                if row is None or cwd != row_cwd:
+                    row, row_cwd = Row(), cwd
+                    ev.append(("calls", row, cwd))
                 if mid not in seen:
                     seen.add(mid)
                     row.add(1, context_size(usage), call_cost(usage))
@@ -644,12 +659,15 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
+        sub_cwd = None
         # Like last for cost, a subagent file's uuids join the shared set only once it reads whole.
         added: set = set()
         clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
             for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
                 msg = d.get("message") or {}
+                if sub_cwd is None and isinstance(d.get("cwd"), str):
+                    sub_cwd = d["cwd"]
                 if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and isinstance(msg.get("usage"), dict):
                     last[msg["id"]] = msg["usage"]
                 if clock is not None:
@@ -668,18 +686,12 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         if last:
             fresh = [u for mid, u in last.items() if mid not in seen]
             seen.update(last)
-            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh)))
+            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh), sub_cwd))
     return tape
 
 
-def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
-    """The (pair, step) after a typed /devagent:<name> <args>."""
-    if name in DRIVERS:
-        return pair, step
-    if name == "pull":
-        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
-            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
-        return pair, step                                 # any other shape, pull.sh rejects
+def _typed_names(args: tuple, known: set[str]):
+    """(project, issue) a typed command's args name: the project after --project or first, the last issue token."""
     project, used = None, None
     if "--project" in args:
         j = args.index("--project") + 1
@@ -692,6 +704,37 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
         m = ISSUE_TOKEN.search(a) if j != used and a not in known else None   # a project never doubles as the issue
         if m:
             issue = m.group(1)
+    return project, issue
+
+
+def _typed_hint(name: str, args: tuple, known: set[str]) -> str | None:
+    """The project a typed /devagent:<name> <args> hints: the first known project, when no issue is named.
+
+    A hint only places overhead; it never changes the pair. pull never hints.
+    """
+    if name == "pull" or _typed_names(args, known)[1] is not None:
+        return None
+    if "--project" in args:
+        j = args.index("--project") + 1
+        if j < len(args) and args[j] in known:
+            return args[j]
+    return next((a for a in args if a in known), None)
+
+
+def _assigned_projects(cmd: str) -> tuple[str, ...]:
+    """The literal values a Bash command assigns to DEVAGENT_PROJECT, in order."""
+    return tuple(next(g for g in m if g) for m in PROJECT_ASSIGN.findall(cmd))
+
+
+def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
+    """The (pair, step) after a typed /devagent:<name> <args>."""
+    if name in DRIVERS:
+        return pair, step
+    if name == "pull":
+        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
+            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
+        return pair, step                                 # any other shape, pull.sh rejects
+    project, issue = _typed_names(args, known)
     if issue is None:
         return pair, name
     if project is not None:
@@ -701,27 +744,33 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
 
 
 def replay(tape: Tape, known: set[str]):
-    """Run the pair state machine over a tape.
+    """Run the pair state machine over a tape, and beside it the project hint (#732).
 
-    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}, [(pair, TimeAcc)]).
+    Return ([(pair, step, Row, (hint, cwd))], {Agent tool_use id: (pair, step)},
+    [(pair, TimeAcc)], {Agent tool_use id: (hint, cwd)}). The hint never moves the pair.
     """
     pair, step = START
-    buckets, launches, timed = [], {}, []
+    hint = None
+    buckets, launches, timed, places = [], {}, [], {}
     for e in tape.events:
         kind = e[0]
         if kind == "calls":
-            buckets.append((pair, step, e[1]))
+            buckets.append((pair, step, e[1], (hint, e[2])))
         elif kind == "time":
             timed.append((pair, e[1]))
         elif kind == "dispatch":
             pair, step = (e[1], e[2]), e[3]
         elif kind == "typed":
             pair, step = _typed_pair(e[1], e[2], pair, step, known)
+            hint = _typed_hint(e[1], e[2], known) or hint
         elif kind == "skill":
             step = e[1]
+        elif kind == "hint":
+            hint = next((v for v in reversed(e[1]) if v in known), hint)
         elif kind == "launch":
             launches[e[1]] = (pair, step)
-    return buckets, launches, timed
+            places[e[1]] = (hint, e[2])
+    return buckets, launches, timed, places
 
 
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
@@ -766,14 +815,14 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
                 acc[pair].add_busy(start, end)
 
     for tape, where in tapes:
-        buckets, launches, timed = replay(tape, known)
+        buckets, launches, timed, places = replay(tape, known)
         origin = (*where, tape.session)
-        for pair, step, b in buckets:
+        for pair, step, b, _ in buckets:
             if b.calls:
                 rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
             sessions[pair].add(tape.session)
             sources.setdefault(pair, set()).add(origin)
-        for tool_use_id, cost, fresh in tape.subs:
+        for tool_use_id, cost, fresh, _ in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
