@@ -349,3 +349,18 @@ seed_red_lessons() {
     # <issue-dir>
     printf '%s\n' '# Lessons learned' '' '- **An untagged claim.**' > "$1/lessonsLearned.md"
 }
+
+# #989: a starter-tier Issue-1 built by the REAL producer (checklist-init.sh
+# --template starter), every row numbered <= N marked [x]. The test project
+# sets all_prs_branch, so row 19 scaffolds [ ] (not [-]) and is marked like
+# any other row; pull.bats owns the mergetoall flip.
+make_starter_issue() {
+    local n="$1" d="$DEVDOC_DIR/Issue-1" s
+    rm -f "$d/checklist.md"
+    ISSUE_ID=Issue-1 bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" \
+        --template starter --project "$TEST_PROJECT" "$d"
+    for s in $(grep -E '^- \[.\] +[0-9]+\.' "$d/checklist.md" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/'); do
+        [ "$s" -le "$n" ] || break
+        mark_step "$d/checklist.md" "$s" x
+    done
+}

@@ -97,7 +97,7 @@ auto_import_below_pct = 20     # wbs init --from-tracker imports
                                # (integer 0-100); at or above it /devagent:wbs
                                # asks how far back to go
 order_on_update = true         # wbs update sorts each parent's children by
-                               # dependency, then priority (P1-P4); false: off.
+                               # dependency, then priority (P0-P4); false: off.
                                # Preview with /devagent:wbs order --dry-run
 completed_last = false         # true: finished siblings follow the open ones
 

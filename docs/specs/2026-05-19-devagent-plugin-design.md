@@ -63,6 +63,7 @@ devAgent/
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
 │   ├── resolver-scope-triage.md     # #572: the 21 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
+│   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
 ├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy);
@@ -86,7 +87,8 @@ devAgent/
 │   │                        #   ci.sh — #782 MR CI read/line/gate,
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
-│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock)
+│   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
+│   │                        #   disk-issue.py — #1008 disk issue file reader/writer)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -937,9 +939,10 @@ hand-editing the marker (`revise.sh --retier` stays template-only).
 Executor convention (canonical statement; command docs carry the per-step
 mapping): a prerequisite whose producing step is absent from the issue's
 ACTIVE revision block is N/A, not a halt — branch produces the branch, draft
-produces imPlan.md. Compressed tiers only work because executors apply this
-rule; scope it to the active block, since after a retier earlier revision
-blocks may carry rows the current tier omits.
+produces imPlan.md, tighten produces the Definition of done. Compressed tiers
+only work because executors apply this rule; scope it to the active block,
+since after a retier earlier revision blocks may carry rows the current tier
+omits.
 
 | Tier | Rows | For |
 |---|---|---|
@@ -948,6 +951,7 @@ blocks may carry rows the current tier omits.
 | perf | standard minus 21 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 20, 24 | Documentation-only changes. |
 | research | 0, 2, 4, 5, 11, 23, 24 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| starter | 0, 2, 8, 9, 11, 12, 14, 15, 17, 18, 19, 20, 24 | A newcomer's first issues: docs-only plus implement (9). Keeps a written plan, a branch, a commit, a fresh-context review and preship, and a recorded ship and merge; drops the plan gauntlet (scope, improve, prune, tighten), quality, analyze, redmr and the closing bookkeeping (updatewbs, impact, lessonslearned). Hand-picked, unlike the reserved `simple`, which waits on skip data. |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 
@@ -2478,6 +2482,7 @@ v1 artifact list:
 | `checklist-docs-only` | checklist-init (docs-only template) |
 | `checklist-research` | checklist-init (research template) |
 | `checklist-oneshot` | checklist-init (one-shot operational-action template, #537) |
+| `checklist-starter` | checklist-init (newcomer starter template: docs-only plus implement, #989) |
 | `revision_block` | revise (the per-revision checklist block, #76) |
 | `intent_template` | draft (dispatched-planning `intent.md`, #284) |
 | `potholes` | draft/improve read the UNION of seed + workflow + project layers (#611: `template.sh show potholes`; `## Potholes considered`, #286), lessonslearned stages per layer via `promote-potholes.sh --add --layer`, cleanup drains each devdoc-resident layer with its own path-scoped commit (#586/#611); step 23 also stages `--retire` (line → `## Retired (mechanised)`, excluded from the READ union, included in the CHECK union) and `--amend` ops under one multi-token citation grammar `(<tok>[; <tok>]*).`, drained validate-all-then-write, `--drop <op>` for a stale op (#612); #613: the plugin seed is a curated public EXCERPT (≤ 100 bullets, ≤ 25 per section, line 1 `<!-- curated: ledger <devDoc sha> -->`, bare `(Issue-N)` devagent citations only; it keeps EVERY section heading, empty or not, because `--add` validates a section against the union of headings and the seed is the one file every project has), the private layers hold the full register, and `<devDoc>/templates/potholes-migration-ledger.tsv` records where every pre-#613 seed line went (`kept | merged-into F<n> | retired <mechanism>`; a retired line also carries `(devagent Issue-613)` as the retiring actor, the `_retire_result` shape); the seed changes only by PR — `--retire`/`--amend` refuse a seed line, naming its devdoc body-twin when one exists (a register distributed from this seed carries each seed line's twin in a private layer, differing only by citation form, and the union read shows the seed's spelling and hides it — the twin is the op target; an install with no private layers has no twins and gets the file-a-lesson remedy); the citation grammar `POTHOLES_ISSUE_RE` admits `Issue-N` and `Issue-Fork-N` only, so a tracker's `dir_prefix` must be `Issue-` or `Issue-Fork-`; `--apply` runs `potholes_file_check` over the whole temp copy, so a pre-existing contract violation in a layer file DEFERs the drain naming `<file>:<line>` |
@@ -2511,7 +2516,7 @@ Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
-`priority` (`P1` to `P4`, P1 the most urgent) ranks a node among its siblings (#803; see Ordering below).
+`priority` (`P0` to `P4`, P0 the most urgent) ranks a node among its siblings (#803, #889; see Ordering below).
 `satisfies` traces a leaf to the requirements it serves, and `objective`
 names the `satisfies` entries the leaf serves at objective only (#888). Each
 is a scalar or a `[list]` of `<namespace>:<id>` entries: one `:`, both halves
@@ -2642,8 +2647,8 @@ bare id, a foreign `<project>:<issue>` entry constrains nothing (#887), a
 node with `depends_on` and no `issue` still counts, and an id that names
 nothing in another sibling's subtree constrains nothing. A
 sibling's own priority is the most urgent `priority` among the open nodes
-under it, P3 when there is none. A value other than `P1` to `P4` counts as
-missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`.
+under it, P3 when there is none. A value other than `P0` to `P4` counts as
+missing and warns `line N: priority '<v>' is not P0, P1, P2, P3 or P4; ignored`.
 One rule decides it, `priority_rank` (#865): `parse_text` records the
 warning in the node's `parse_warnings` (N of the parsed text), and
 `wbs show` prints each once on stderr. `wbs update` and `wbs order` print

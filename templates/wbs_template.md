@@ -12,7 +12,7 @@
 > `wbs update` sets a leaf's glyph from its issue's tracker state, linked MRs, else its
 > checklist, records which in `status_src`, and writes `mr` (open, draft or merged) for an
 > open issue an MR closes. It changes only that glyph and those values, adds newly
-> active issues, then sorts each parent's children by depends_on, then priority (P1-P4),
+> active issues, then sorts each parent's children by depends_on, then priority (P0-P4),
 > moving whole lines; every line, this note included, keeps its bytes byte-for-byte.
 > `/devagent:wbs init --from-tracker` builds a new file from the tracker's issue history instead.
 

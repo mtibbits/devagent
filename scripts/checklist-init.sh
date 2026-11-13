@@ -16,7 +16,7 @@ source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
 usage() {
   cat <<USAGE
 usage: checklist-init.sh [--template <name>] [--project <p>] <issue-dir>
-   <name>: shipped defaults are standard | docs-only | research | perf
+   <name>: shipped defaults are standard | docs-only | research | perf | oneshot | starter
    (default: standard); with a project in scope, any name resolvable via the
    §12 template registry is legal (#120).
    <p>: the project whose template registry applies (#572 — an explicit

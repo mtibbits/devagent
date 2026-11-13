@@ -391,3 +391,49 @@ _revise_state() {
   run grep -qE '^(verified_head|preship_pin_head)[[:space:]]*=[[:space:]]*"[0-9a-f]' "$FIX_STATE_FILE"
   [ "$status" -eq 1 ]
 }
+
+@test "revise --retier starter appends the starter rows minus row 0 (#989)" {
+  retier_fixture
+  run_revise --retier starter volk Issue-676
+  [ "$status" -eq 0 ]
+  blk="$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md")"
+  [ "$(grep -cE '^- \[ \] +[0-9]+\.' <<<"$blk")" -eq 11 ]
+  grep -qE '^- \[-\] +19\. mergetoall' <<<"$blk"
+  grep -qE '^- \[ \] +2\. draft' <<<"$blk"
+  grep -qE '^- \[ \] +9\. implement' <<<"$blk"
+  [ "$(grep -cE '^- \[.\] +0\. pull' <<<"$blk")" -eq 0 ]
+  grep -q '^Template: starter$' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q 'retier: oneshot → starter' "$FIX_ISSUE_DIR/checklist.md"
+}
+
+retier_starter_fixture() {
+  # A starter-scaffolded issue mid-flight, rendered from the REAL template.
+  sed -e "s/{{ISSUE_ID}}/$FIX_ISSUE/" -e 's/{{CREATED_AT}}/2026-11-13 10:00/' \
+    "$DEVAGENT_ROOT/templates/checklist-starter.md" >"$FIX_ISSUE_DIR/checklist.md"
+  sed -i -E -e 's/^- \[ \] ( *(0|2|8)\. )/- [x] \1/' \
+            -e 's/^- \[ \] ( *9\. implement)/- [~] \1/' "$FIX_ISSUE_DIR/checklist.md"
+  cat >"$FIX_STATE_FILE" <<EOF
+active_issue   = "$FIX_ISSUE"
+issue_dir      = "$FIX_ISSUE_DIR"
+branch         = ""
+last_step      = 9
+last_step_name = "implement"
+revision       = 1
+updated_at     = "2026-11-13T10:32:00-04:00"
+EOF
+}
+
+@test "revise --retier standard on a starter issue logs starter → standard (#989 AC4)" {
+  retier_starter_fixture
+  grep -qE '^- \[~\]  9\. implement' "$FIX_ISSUE_DIR/checklist.md"
+  run_revise --retier standard volk Issue-676
+  [ "$status" -eq 0 ]
+  grep -q '^## Revision 2$' "$FIX_ISSUE_DIR/checklist.md"
+  [ "$(awk '/^## Revision 2$/{f=1} f' "$FIX_ISSUE_DIR/checklist.md" | grep -cE '^- \[ \] +[0-9]+\.')" -eq 21 ]
+  grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
+  grep -q 'retier: starter → standard' "$FIX_ISSUE_DIR/checklist.md"
+  # Revision 1's starter rows are kept as written.
+  r1="$(awk '/^## Revision 1$/{f=1} /^## Revision 2$/{f=0} f' "$FIX_ISSUE_DIR/checklist.md")"
+  grep -qE '^- \[x\]  8\. branch' <<<"$r1"
+  grep -qE '^- \[~\]  9\. implement' <<<"$r1"
+}

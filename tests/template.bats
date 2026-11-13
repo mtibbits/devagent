@@ -200,3 +200,18 @@ seed_layers() {   # workflow + project layer files with a shared heading and one
   [[ "$output" != *"# layer: workflow"* ]]
   [[ "$output" == *"layers=seed,project"* ]]
 }
+
+@test "template list includes checklist-oneshot and checklist-starter at the plugin layer (#989)" {
+  # Scoped like the #81 test: setup_phase9_env's plugin-templates fixture holds
+  # no checklist templates, so unscoped every checklist-* key reads MISSING.
+  run env -u DEVAGENT_PLUGIN_TEMPLATES -u DEVAGENT_REPO_ROOT -u DEVAGENT_TEST_DEVDOC \
+    bash "${DEVAGENT_REPO_ROOT}/scripts/template.sh" \
+    --project "${DEVAGENT_TEST_PROJECT}" list
+  [ "$status" -eq 0 ]
+  oneshot_line="$(grep -E '^checklist-oneshot ' <<<"$output")"
+  starter_line="$(grep -E '^checklist-starter ' <<<"$output")"
+  [ -n "$oneshot_line" ]
+  [ -n "$starter_line" ]
+  [[ "$oneshot_line" != *MISSING* ]]
+  [[ "$starter_line" != *MISSING* ]]
+}

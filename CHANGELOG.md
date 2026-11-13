@@ -16,6 +16,37 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the `starter` checklist tier (#989).** `docs-only` plus
+  implement: pull, draft, branch, implement, document, commit, draftmr,
+  review, preship, ship, mergetoall (skipped unless `all_prs_branch` is
+  set), mergemr and cleanup. Choose it per issue with `tier: starter` in
+  `## Workflow flags` before the first pull; no config default changes. A
+  later MR-feedback revise appends the standard-shaped revision block, as
+  for every non-standard tier.
+- **Fixed: implement and document no longer halt on a plan with no
+  `## Definition of done` when the active revision block has no tighten
+  row (#989).** Tighten writes that section, so on `docs-only`, `research`
+  and `starter` issues the plan's tasks and the issue's acceptance
+  criteria are the work statement; a tier with tighten (standard, perf)
+  still halts.
+- **Added: `priority: P0`, one WBS priority above P1 (#889).** The scale is
+  now P0 to P4, P0 the most urgent; a missing or malformed value still
+  counts as P3. `wbs order` and `wbs update` sort a P0 sibling ahead of P1
+  and pass it to the siblings it waits on, like any other priority; devagent
+  gives P0 no other meaning. A `WBS.md` with no `P0` orders exactly as
+  before. A `WBS.md` created from the old template keeps its note
+  `priority (P1-P4)` (notes are kept byte-for-byte); edit it to
+  `priority (P0-P4)` by hand.
+- **Changed: the WBS priority warning names P0 (#889).** It now reads
+  `line N: priority '<v>' is not P0, P1, P2, P3 or P4; ignored` (3.0.0 said
+  `is not P1, P2, P3 or P4`). Not breaking: no command, flag or file format
+  changes meaning; a script matching the old warning text must update.
+- **Added: disk issue file format reader and writer (#1008, epic #1007).**
+  `scripts/lib/disk-issue.py` is the one parser and writer for `<folder>/<N>.md`
+  issue files: `parse`, `list`, `check`, `set` and `create`, with pinned JSON
+  fields and exit codes. Writes are atomic, keep each file's line endings, BOM
+  and mode, never edit a faulty file, and never overwrite on `create`.
+  `docs/disk-issues.md` documents the format. No caller uses it yet.
 - **Changed: the docs-site build checks an allowlist of what the site may load
   instead of banning substrings (#1030).** After link closure the build runs
   `scripts/docs-site/check-fetches.py` over every built file. Each file is

@@ -36,12 +36,16 @@ First, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/quarantine-check.sh" $ARGUMENTS`
    contains no draft row (step 2): the producing step is absent, so the
    check is N/A (draft produces imPlan.md); the issue body's
    `## Proposed behavior` and acceptance criteria are then the work
-   statement.
+   statement. The check is also not applicable when the active revision
+   block contains no tighten row (step 7), as in the starter checklist:
+   tighten produces the Definition of done, so the plan's tasks and the
+   issue's acceptance criteria are the work statement. An active block
+   with a tighten row (standard, perf) still halts here.
 4. Invoke `superpowers:executing-plans` with `$ISSUE_DIR/imPlan.md`
    as the plan path — UNLESS the active revision block contains no draft
    row (step 2): there is no imPlan.md, so skip the executing-plans
    dispatch and execute directly against the issue body (per item 3's
-   carve-out). Pass `$NOTE` as additional context the executor
+   no-draft carve-out). Pass `$NOTE` as additional context the executor
    should consider (e.g., "skip task 4 — already merged upstream").
 
    **Fallback (superpowers absent):** if that Skill invocation errors
@@ -66,7 +70,9 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/checklist-log.sh" "$ISSUE_DIR" implement "Pl
 - Working tree is not on the issue's branch **and** the active revision
   block contains the branch step (8).
 - `imPlan.md` lacks Definition of done **and** the active revision block
-  contains the draft step (2).
+  contains the draft step (2) **and** the tighten step (7). With no
+  tighten row (e.g. starter) the check is not applicable; an active block
+  with a tighten row (standard, perf) still halts.
 - A task fails halfway through — surface the failure and let the
   operator decide whether to mark the step `[!]` stuck (via
   `/devagent:stuck`) or retry.
