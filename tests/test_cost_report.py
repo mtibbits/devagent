@@ -2081,3 +2081,127 @@ def test_overhead_does_not_change_rows(tmp_path):
     rows_a, sessions_a = cr.collect(dirs, None)
     rows_b, sessions_b = cr.collect(dirs, None, overhead={})
     assert _rows_equal(rows_a, rows_b) and sessions_a == sessions_b
+
+
+# Hand-computed from _overhead_fixture's inputs (each call's inp is a distinct power of two).
+OVH_SUMMARY = [
+    "alpha/(overhead): 0.0M input-token equivalents over 2 session(s), 4 calls, peak context 4K "
+    "(main 0.0M, subagents 0.0M); hint 2, cwd 2",
+    "beta/(overhead): 0.5M input-token equivalents over 3 session(s), 6 calls, peak context 262K "
+    "(main 0.5M, subagents 0.0M); hint 6, cwd 0",
+    "(unassigned) (no cwd): 1.0M input-token equivalents over 1 session(s), 1 calls, peak context 1048K "
+    "(main 1.0M, subagents 0.0M)",
+    "(unassigned) /home/op: 0.0M input-token equivalents over 1 session(s), 1 calls, peak context 8K "
+    "(main 0.0M, subagents 0.0M)",
+    "(unassigned) /work/devdoc: 0.5M input-token equivalents over 2 session(s), 2 calls, peak context 524K "
+    "(main 0.5M, subagents 0.0M)",
+]
+OVH_JSON_KEYS = {"calls", "cwd", "main", "peak_context", "project", "rules", "sessions", "sources", "subagents", "total"}
+
+
+def _lbl(line):
+    return line.split(": ", 1)[0]
+
+
+def test_cli_overhead_summary_lines(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", "--summary")
+    assert run.returncode == 0, run.stderr
+    got = run.stdout.splitlines()
+    assert {_lbl(x): x for x in got} == {_lbl(x): x for x in OVH_SUMMARY}
+    assert got == OVH_SUMMARY
+
+
+def test_cli_overhead_full_table(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead")
+    assert run.returncode == 0, run.stderr
+    lines = run.stdout.splitlines()
+    assert lines[0] == f"Token cost by step, from {d}" and lines[1].startswith("input-token equivalents, weighted")
+    headings = [ln for ln in lines if ln and not ln.startswith(" ") and ln not in lines[:2]]
+    assert headings == OVH_SUMMARY
+    i = lines.index(OVH_SUMMARY[0])
+    assert lines[i + 1].split() == ["step", "calls", "peak", "ctx", "main", "M", "sub", "M", "total", "M", "share"]
+    assert any(ln.split()[0] == "reap" for ln in lines[i + 2:lines.index(OVH_SUMMARY[1])] if ln.strip())
+
+
+def test_cli_overhead_project_filter(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--project", "alpha", "--overhead", "--summary")
+    assert run.returncode == 0 and run.stdout.splitlines() == [OVH_SUMMARY[0]]
+    none = _cli("--transcripts", d, "--project", "nobody", "--overhead")
+    assert none.returncode == 1 and none.stdout == ""
+    assert "cost-report: no overhead calls placed on project nobody" in none.stderr.splitlines()
+
+
+def test_cli_overhead_none_found(tmp_path):
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [*_dispatch("n1", "alpha", "Issue-4", 2, "draft", "d0"), _call("c1", _usage(inp=1))])
+    run = _cli("--transcripts", d, "--overhead")
+    assert (run.returncode, run.stdout) == (1, "")
+    assert "cost-report: no overhead calls" in run.stderr.splitlines()
+
+
+@pytest.mark.parametrize("extra, message", [
+    (("--issue", "4"), "--overhead does not take --issue"),
+    (("--time",), "--overhead does not take --time"),
+    (("--idle-gap", "5"), "--idle-gap needs --time"),
+])
+def test_cli_overhead_flag_conflicts(tmp_path, extra, message):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", *extra)
+    assert (run.returncode, run.stdout) == (2, "")
+    assert message in run.stderr
+
+
+def test_cli_overhead_json_shape_and_sum(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", "--json")
+    assert run.returncode == 0, run.stderr
+    objs = [json.loads(ln) for ln in run.stdout.splitlines()]
+    assert [(o["project"], o["cwd"]) for o in objs] == [
+        ("alpha", None), ("beta", None), ("(unassigned)", "(no cwd)"), ("(unassigned)", "/home/op"),
+        ("(unassigned)", "/work/devdoc")]
+    for o in objs:
+        assert set(o) == OVH_JSON_KEYS
+        assert set(o["rules"]) == {"cwd", "hint", "unassigned"} and sum(o["rules"].values()) == o["calls"]
+    no_issue = next(json.loads(ln) for ln in _cli("--transcripts", d, "--json").stdout.splitlines()
+                    if json.loads(ln)["project"] == NP)
+    assert sum(o["calls"] for o in objs) == no_issue["calls"]
+    assert sum(o["total"] for o in objs) == pytest.approx(no_issue["total"], abs=0.01 * len(objs))
+    assert objs[0]["rules"] == {"cwd": 2, "hint": 2, "unassigned": 0}
+    assert {s["session"] for s in objs[1]["sources"]} == {"B", "H", "W"}
+    assert _cli("--transcripts", d, "--overhead", "--json").stdout == run.stdout
+
+
+def test_cli_overhead_scans_every_dir(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    _write(root / _cwd_slug() / "S1.jsonl", [_typed("reap", "alpha"), _c("c1", 1)])
+    _write(root / "Y" / "S2.jsonl", [_typed("reap", "alpha"), _c("c2", 2)])
+    every = _cli("--overhead", "--summary")
+    assert every.returncode == 0, every.stderr
+    assert every.stdout.startswith("alpha/(overhead): 0.0M input-token equivalents over 2 session(s), 2 calls")
+    one = _cli("--overhead", "--summary", "--transcripts", root / "Y")
+    assert one.stdout.startswith("alpha/(overhead): 0.0M input-token equivalents over 1 session(s), 1 calls")
+
+
+def test_cli_overhead_archive(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    _gz(tmp_path / "A" / "h1" / "slug" / "S.jsonl.gz", [_typed("reap", "alpha"), _c("c1", 1), _c("c2", 2)])
+    run = _cli("--archive", tmp_path / "A", "--overhead", "--json")
+    assert run.returncode == 0, run.stderr
+    objs = [json.loads(ln) for ln in run.stdout.splitlines()]
+    assert [o["project"] for o in objs] == ["alpha"]
+    assert objs[0]["sources"] == [{"cwd_slug": "slug", "host": "h1", "session": "S"}]
+
+
+def test_cli_overhead_text_non_ascii_cwd(tmp_path, monkeypatch):
+    """A cwd the locale codec cannot encode must not kill the text report (improve S3)."""
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1, cwd="/work/ñ/ø")])
+    monkeypatch.setenv("PYTHONIOENCODING", "ascii")
+    run = subprocess.run([sys.executable, str(SCRIPT), "--transcripts", str(d), "--overhead", "--summary"],
+                         capture_output=True)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.decode("utf-8").startswith("(unassigned) /work/ñ/ø: ")

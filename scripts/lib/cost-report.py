@@ -926,13 +926,69 @@ def report(rows, sessions, source: str, summary: bool, times: dict | None = None
         if summary:
             out += lines
             continue
-        total = sum(r.main + r.sub for r in steps.values()) or 1.0
-        out += ["", *lines, f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
-        for step, r in steps.items():
-            out.append(
-                f"  {step:<22}{r.calls:>6}{r.peak // 1000:>9}K{_m(r.main):>9}{_m(r.sub):>8}"
-                f"{_m(r.main + r.sub):>9}{100 * (r.main + r.sub) / total:>6.0f}%"
-            )
+        out += ["", *lines, *_steps_block(steps)]
+    return "\n".join(out)
+
+
+def _steps_block(steps: dict[str, Row]) -> list[str]:
+    """The per-step table under a heading: the column header, then one row per step."""
+    total = sum(r.main + r.sub for r in steps.values()) or 1.0
+    out = [f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
+    for step, r in steps.items():
+        out.append(
+            f"  {step:<22}{r.calls:>6}{r.peak // 1000:>9}K{_m(r.main):>9}{_m(r.sub):>8}"
+            f"{_m(r.main + r.sub):>9}{100 * (r.main + r.sub) / total:>6.0f}%"
+        )
+    return out
+
+
+def _sources_json(sources) -> list[dict]:
+    return [{"cwd_slug": c, "host": h, "session": s} for c, h, s in sorted((c, h, s) for h, c, s in sources)]
+
+
+def _overhead_order(ov: dict):
+    """Project lines by name, then unassigned lines by cwd."""
+    return sorted(ov.items(), key=lambda kv: (kv[0][0] != "project", kv[0][1]))
+
+
+def overhead_heading(key: tuple, o: Overhead) -> str:
+    kind, name = key
+    if kind == "project":
+        return summary_line(f"{name}/(overhead)", o.steps, len(o.sessions)) + \
+            f"; hint {o.rules['hint']}, cwd {o.rules['cwd']}"
+    return summary_line(f"(unassigned) {name}", o.steps, len(o.sessions))
+
+
+def report_overhead(ov: dict, source: str, summary: bool) -> str:
+    """The --overhead text report, in report()'s shape: one line (or block) per project, then per unassigned cwd."""
+    out = [] if summary else [
+        f"Token cost by step, from {source}",
+        "input-token equivalents, weighted by price vs base input: cache read 0.1, "
+        "cache write 1.25 (5m) / 2 (1h), output 5",
+    ]
+    for key, o in _overhead_order(ov):
+        out += [overhead_heading(key, o)] if summary else ["", overhead_heading(key, o), *_steps_block(o.steps)]
+    return "\n".join(out)
+
+
+def report_overhead_json(ov: dict) -> str:
+    """One JSON object per --overhead line, keys sorted, figures rounded to 2 decimals."""
+    out = []
+    for (kind, name), o in _overhead_order(ov):
+        main = sum(r.main for r in o.steps.values())
+        sub = sum(r.sub for r in o.steps.values())
+        out.append(json.dumps({
+            "calls": sum(r.calls for r in o.steps.values()),
+            "cwd": None if kind == "project" else name,
+            "main": round(main, 2),
+            "peak_context": max((r.peak for r in o.steps.values()), default=0),
+            "project": name if kind == "project" else "(unassigned)",
+            "rules": dict(o.rules),
+            "sessions": len(o.sessions),
+            "sources": _sources_json(o.sources),
+            "subagents": round(sub, 2),
+            "total": round(main + sub, 2),
+        }, sort_keys=True))
     return "\n".join(out)
 
 
@@ -965,8 +1021,7 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
             "peak_context": max((r.peak for r in steps.values()), default=0),
             "project": pair[0],
             "sessions": len(sessions.get(pair, ())),
-            "sources": [{"cwd_slug": c, "host": h, "session": s}
-                        for c, h, s in sorted((c, h, s) for h, c, s in sources.get(pair, ()))],
+            "sources": _sources_json(sources.get(pair, ())),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
         }, sort_keys=True))
@@ -1033,6 +1088,9 @@ def main(argv: list[str]) -> int:
     out.add_argument("--json", action="store_true",
                      help="one JSON object per (project, issue) pair, with the transcript files it came from")
     ap.add_argument("--time", action="store_true", help="add agent and operator time per pair")
+    ap.add_argument("--overhead", action="store_true",
+                    help="report (no project)/(no issue) cost as per-project overhead: hint, then cwd, "
+                         "else (unassigned); reads every transcript dir")
     defaults = TimeRules()
     for flag, attr in TIME_FLAGS:
         ap.add_argument(flag, type=_minutes, metavar="MIN",
@@ -1041,10 +1099,14 @@ def main(argv: list[str]) -> int:
     given = {attr: 60 * getattr(a, attr) for _, attr in TIME_FLAGS if getattr(a, attr) is not None}
     if given and not a.time:
         ap.error(f"{next(f for f, attr in TIME_FLAGS if attr in given)} needs --time")
+    if a.overhead and a.issue:
+        ap.error("--overhead does not take --issue")
+    if a.overhead and a.time:
+        ap.error("--overhead does not take --time")
     rules = TimeRules(**given) if a.time else None
     times: dict = {}
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
-    every = (a.project or a.all_dirs) and not a.transcripts
+    every = (a.project or a.all_dirs or a.overhead) and not a.transcripts
     adirs: list[Path] = []
     if a.archive is not None:
         if not a.archive.is_dir():
@@ -1068,6 +1130,22 @@ def main(argv: list[str]) -> int:
         parts.append(f"archive {a.archive} ({len(adirs)} dirs)")
     source = "; ".join(parts)
     sources: dict = {}
+    if a.overhead:
+        ov: dict = {}
+        collect(dirs, None, hosts=hosts, sources=sources, overhead=ov)
+        if a.project:
+            ov = {k: v for k, v in ov.items() if k == ("project", a.project)}
+        if not ov:
+            print("cost-report: no overhead calls" + (f" placed on project {a.project}" if a.project else ""),
+                  file=sys.stderr)
+            return 1
+        if a.json:
+            print(report_overhead_json(ov))
+            return 0
+        if hasattr(sys.stdout, "reconfigure"):   # an (unassigned) cwd may not fit the locale codec
+            sys.stdout.reconfigure(encoding="utf-8")
+        print(report_overhead(ov, source, a.summary))
+        return 0
     if a.project and issue:
         # P/N first, then the (no project)/N calls that may be P's too.
         rows, sessions = collect(dirs, issue, hosts=hosts, sources=sources, timing=rules, times=times)
