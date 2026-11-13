@@ -106,7 +106,7 @@ def parse_leaf(
     A dir_prefix is required: a bare number or key names nothing, and a
     source with an empty dir_prefix is never matched. Prefixes are tried
     longest first, and the rest of the id must have the source backend's
-    shape: GitHub and GitLab take digits; Jira takes digits N as the key
+    shape: GitHub, GitLab and disk (#1009) take digits; Jira takes digits N as the key
     `<keyprefix>-N` (only with a key prefix), or a key verbatim; any other
     backend takes any rest.
     A rest of the wrong shape falls through to the next shorter prefix, so
@@ -121,7 +121,7 @@ def parse_leaf(
             continue
         rest = iid[len(prefix):]
         backend = src["backend"]
-        if backend in ("github", "gitlab"):
+        if backend in ("github", "gitlab", "disk"):
             if DIGITS_RE.fullmatch(rest):
                 return (src, rest)
         elif backend == "jira":

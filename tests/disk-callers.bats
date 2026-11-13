@@ -204,3 +204,109 @@ _folder_snap() { (cd "$FOLDER" && find . -exec cksum {} + 2>/dev/null | sort; ls
   [ "$status" -eq 0 ]
   [ -z "$stderr" ]
 }
+
+# ---------------------------------------------------------------- Task 7: callers
+
+# _file_disk [backend]: a project `dk` whose issue_source is a disk folder (or
+# <backend> with repo o/r), push_mr false, a capture draft, and only the env
+# /devagent:file is handed: the devdoc. No backend or repo env is exported.
+_file_disk() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  unset DEVAGENT_ISSUE_BACKEND DEVAGENT_REPO_ORIGIN DEVAGENT_REPO_FORK DEVAGENT_PERMISSION_PUSH_MR
+  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
+  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
+  mkdir -p "$FOLDER" "$DEVDOC/Captures/idea"
+  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  local backend="${1:-disk}" repo
+  repo="$FOLDER"; [ "$backend" = disk ] || repo="o/r"
+  printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR\"" "devdoc_dir = \"$DEVDOC\"" '' \
+    '[project.dk.permissions]' 'push_mr = false' '' \
+    '[project.dk.issue_source]' "backend = \"$backend\"" "repo = \"$repo\"" 'dir_prefix = "Issue-"' \
+    > "$DA_HOME/config.toml"
+  export DEVAGENT_DEVDOC_DIR="$DEVDOC"
+}
+
+@test "callers: file.sh on a disk project with push_mr=false and no --yes creates <N>.md and writes url = \"disk:<N>\", repo = \"disk\"" {
+  _file_disk
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$output" = "disk:1" ]
+  [ -f "$FOLDER/1.md" ]
+  grep -qx '# A captured idea' "$FOLDER/1.md"
+  local f="$DEVDOC/Captures/idea/filed.toml"
+  grep -qx 'issue_num = "1"' "$f"
+  grep -qx 'url = "disk:1"' "$f"
+  grep -qx 'repo = "disk"' "$f"
+  grep -qx 'backend = "disk"' "$f"
+  [ ! -e "$DEVDOC/Captures/idea/.pending" ]
+  run grep -rF "MARK-$$" "$DEVDOC/Captures/idea"
+  [ "$status" -eq 1 ]
+}
+
+@test "callers: file.sh still stops at the push_mr gate for github" {
+  _file_disk github
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"Permission gate: push_mr=false"* ]]
+  [ ! -e "$STUB_LOG" ]
+}
+
+@test "callers: file.sh refuses a disk id that is not a number" {
+  _file_disk
+  printf '#!/usr/bin/env bash\necho 1/2\n' > "$STUB_DIR/disk.sh"
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 3 ]
+  [ -e "$DEVDOC/Captures/idea/.pending" ]
+  [ ! -e "$DEVDOC/Captures/idea/filed.toml" ]
+}
+
+@test "callers: a disk create the format refuses exits 3 and clears .pending" {
+  _file_disk
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  printf '%s\n' '# A captured idea' '' '## Comments' 'not a comment' > "$DEVDOC/Captures/idea/draft.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 3 ]
+  [ ! -e "$DEVDOC/Captures/idea/.pending" ]
+  [ ! -e "$DEVDOC/Captures/idea/filed.toml" ]
+  [ -z "$(ls "$FOLDER")" ]
+  # a backend failure other than a refused prompt also clears it (nothing was written)
+  rm -rf "$FOLDER" "$BATS_TEST_TMPDIR/MARK-$$"
+  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 3 ]
+  [ ! -e "$DEVDOC/Captures/idea/.pending" ]
+}
+
+# ---------------------------------------------------------------- Task 8: end to end
+
+# _e2e: a project `dk` on a disk folder with the real backends, the gate open
+# and the skeleton's stage mapping. FOLDER's path holds a marker no record may
+# carry.
+_e2e() {
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
+  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
+  mkdir -p "$FOLDER" "$DEVDOC" "$BATS_TEST_TMPDIR/dk-src"
+  printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR/dk-src\"" "devdoc_dir = \"$DEVDOC\"" '' \
+    '[project.dk.permissions]' 'transition_issue = true' '' \
+    '[project.dk.issue_source]' 'backend = "disk"' "repo = \"$FOLDER\"" 'dir_prefix = "Issue-"' '' \
+    '[project.dk.issue_workflow]' 'on_draft_start = "In Progress"' 'on_ship = "In Review"' 'on_merge = "Done"' \
+    > "$DA_HOME/config.toml"
+}
+
+@test "e2e: pull on a disk project writes # disk#<N> — <title>, scaffolds the checklist, and logs fetched disk#<N>" {
+  _e2e
+  cp "$PLUGIN_ROOT/tests/fixtures/disk-issue/minimal.md" "$FOLDER/4.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" dk origin 4
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$(head -n 1 "$DEVDOC/Issue-4/issue.md")" = "# disk#4 — Add a dark-mode toggle to the settings page" ]
+  grep -qx -- '- URL: disk:4' "$DEVDOC/Issue-4/issue.md"
+  grep -qE '^- \[x\] +0\. pull' "$DEVDOC/Issue-4/checklist.md"
+  grep -q '  pull: fetched disk#4, scaffold created$' "$DEVDOC/Issue-4/checklist.md"
+  run grep -rlF "MARK-$$" "$DEVDOC/Issue-4"
+  [ "$status" -eq 1 ]
+}
