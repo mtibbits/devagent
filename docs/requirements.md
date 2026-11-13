@@ -524,6 +524,12 @@ tracker.
 - FR-139: devagent keeps a `WBS.md` node's `thinking` and `checking` keys
   as written, warns when a value is not one model token, and makes no
   workflow decision from them. {refines: SR-9}
+- FR-141: devagent reads a `WBS.md` `depends_on` entry written
+  `<project>:<issue>` as a dependency on another configured project's
+  issue and an entry prefixed with its own project as the bare id, orders
+  siblings only by dependencies in its own project, keeps every entry as
+  written, and warns when an entry holds `:` but is not
+  `<project>:<issue>`. {refines: SR-9}
 - FR-70: devagent's status report covers the time since the last pin in a
   dated file under the devdoc's `StatusReports/`, lists work done, stuck,
   idle and poorly scoped issues, failed red-teams, dispatch-lint rejects, a

@@ -373,7 +373,7 @@ def _load(name, path):
 mod = _load("wbs_parser", parser_path)
 trk = _load("wbs_tracker", os.environ["WBS_TRACKER_LIB"])
 
-tree = mod.parse_file(wbs_path)
+tree = mod.parse_file(wbs_path, project=os.environ["WBS_PROJECT"])
 
 
 def say(msg: str) -> None:
@@ -683,7 +683,8 @@ if not aborted and mr_status != "offline":
 
 try:
     report = mod.write_update(wbs_path, tree, order=os.environ["WBS_ORDER"] == "1",
-                              completed_last=os.environ["WBS_COMPLETED_LAST"] == "1")
+                              completed_last=os.environ["WBS_COMPLETED_LAST"] == "1",
+                              project=os.environ["WBS_PROJECT"])
 except OSError as e:
     # #749: write_document's replace still refused after its bounded retry
     # (a reader holding WBS.md), or any other write failure: nothing written.

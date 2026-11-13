@@ -1103,6 +1103,90 @@ _wbs865_show() {
   done
 }
 
+# #887: a `<project>:<issue>` depends_on entry. wbs show warns on a malformed
+# one; the order pass reads an own-project prefix as the bare id and a
+# foreign entry as absent; the writers keep foreign entries' bytes.
+@test "wbs show prints a malformed depends_on prefix warning once on stderr, stdout unchanged (#887)" {
+  printf '%s\n' '# T' '' '- [ ] Root' \
+    '  - [ ] a {issue: Issue-1, depends_on: [devagent: Issue-726, devagent: Issue-726]}' \
+    '  - [ ] b {issue: Issue-2, depends_on: gantry:Issue-71}' > "$TMPDEV/WBS.md"
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs show: line 4: depends_on entry 'devagent: Issue-726' holds ':' but is not <project>:<issue>; read as a local id" "$TMPROOT/err"
+}
+
+@test "wbs order and wbs update order an own-project prefix as the bare id and a foreign entry as absent (#887)" {
+  local cmd
+  for cmd in order "update --offline"; do
+    # Rebuilt each pass: the first command reorders the file.
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] T {issue: Issue-2, depends_on: testproj:Issue-3}' \
+      '  - [ ] S {issue: Issue-3}' '- [ ] F' \
+      '  - [ ] V {issue: Issue-4, depends_on: gantry:Issue-5}' \
+      '  - [ ] W {issue: Issue-5}' > "$TMPDEV/WBS.md"
+    # W's issue is the foreign entry's right half: a prefix-stripping bug moves it.
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] S {issue: Issue-3}' \
+      '  - [ ] T {issue: Issue-2, depends_on: testproj:Issue-3}' '- [ ] F' \
+      '  - [ ] V {issue: Issue-4, depends_on: gantry:Issue-5}' \
+      '  - [ ] W {issue: Issue-5}' > "$TMPDEV/expected"
+    run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+    [ "$status" -ne 0 ]
+    # shellcheck disable=SC2086
+    run bash "$REPO/scripts/wbs.sh" $cmd testproj
+    [ "$status" -eq 0 ]
+    cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  done
+}
+
+@test "wbs update keeps a line with a foreign depends_on byte-identical, reconciled and untouched (#887)" {
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+    '  - [ ] Leaf A {issue: Issue-1, depends_on: [gantry:Issue-71, Issue-9]}' \
+    '  - [ ] Leaf B {issue: Issue-2, depends_on: "devagent:Issue-726"}' \
+    > "$TMPDEV/WBS.md"
+  _wbs701_progress
+  cp "$TMPDEV/WBS.md" "$TMPDEV/WBS.input"
+  run bash "$REPO/scripts/wbs.sh" update testproj
+  [ "$status" -eq 0 ]
+  python3 "$REPO/tests/helpers/wbs_bytes.py" patch-leaf \
+    "$TMPDEV/WBS.input" "$TMPDEV/expected" "Leaf A" "~" checklist
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  # the reconcile really happened (not a vacuous byte-identical pass)
+  run cmp -s "$TMPDEV/WBS.input" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "wbs order moves a leaf carrying a foreign depends_on with its bytes kept (#887)" {
+  local s t
+  s='  - [ ] S {issue: Issue-1, depends_on: [gantry:Issue-71, Issue-9]}'
+  t='  - [ ] T {issue: Issue-2, priority: P1, depends_on: devagent:Issue-726}'
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$s" "$t" > "$TMPDEV/WBS.md"
+  printf '%s\n' '# testproj WBS' '' '- [ ] E' "$t" "$s" > "$TMPDEV/expected"
+  run cmp -s "$TMPDEV/expected" "$TMPDEV/WBS.md"
+  [ "$status" -ne 0 ]
+  run bash "$REPO/scripts/wbs.sh" order testproj
+  [ "$status" -eq 0 ]
+  cmp "$TMPDEV/expected" "$TMPDEV/WBS.md"
+}
+
+@test "wbs order and wbs update print no depends_on prefix warning (#887)" {
+  local cmd
+  for cmd in order "update --offline"; do
+    printf '%s\n' '# testproj WBS' '' '- [ ] E' \
+      '  - [ ] S {issue: Issue-1, priority: high, depends_on: [a:b:c]}' \
+      '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
+    # shellcheck disable=SC2086
+    bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cF 'depends_on entry' "$TMPROOT/err")" -eq 0 ]
+  done
+}
+
+@test "wbs-show.sh passes the resolved project to parse_file (#887)" {
+  grep -qF 'parse_file(src, project=os.environ["WBS_PROJECT"])' "$REPO/scripts/wbs-show.sh"
+}
+
 # #865 guards (green at HEAD): the order pass is the only printer for
 # wbs order and wbs update; neither reads node parse_warnings.
 _wbs865_order() {
@@ -1157,6 +1241,16 @@ _wbs865_order() {
   grep -qF '`thinking`' "$REPO/commands/wbs.md"
   [[ "$spec131" == *'**Ordering (#803).**'* ]]
   grep -qF '`order [--dry-run]`' "$REPO/commands/wbs.md"
+}
+
+@test "WBS docs document the <project>:<issue> depends_on notation (#887)" {
+  local spec131
+  grep -qF '<project>:<issue>' "$REPO/templates/wbs_template.md"
+  spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md")"
+  [[ "$spec131" == *"holds ':' but is not <project>:<issue>; read as a local id"* ]]
+  [[ "$spec131" == *'`depends_on` (#887)'* ]]
+  grep -qF "is not \`<project>:<issue>\`" "$REPO/commands/wbs.md"
+  awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$REPO/CHANGELOG.md" | grep -qF '<project>:<issue>'
 }
 
 @test "wbs.bats network shim catches a real backend call (#703 control)" {

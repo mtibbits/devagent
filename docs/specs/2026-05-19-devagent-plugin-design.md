@@ -2543,6 +2543,24 @@ warning that `wbs show` prints once:
 The rule (`model_value`) is also the portfolio's, which publishes each leaf's
 planned `models` (§13.4).
 
+`depends_on` (#887) is a scalar or a `[list]` of entries. An entry is an
+issue id in this project, or `<project>:<issue>` for an issue in another
+configured project (the `split_namespaced` rule: one `:`, both halves an
+`ID_TOKEN_RE` token), where `<project>` is the `[project.<name>]` table name
+and `<issue>` is written as that project's own `WBS.md` writes it. A prefix
+equal to this project's name is the local id. The comparison is exact and
+case-sensitive against the `[project.<name>]` table name, not the devdoc
+directory name: in project `revision`, whose devdoc directory is
+`reVision`, `reVision:Issue-1` is foreign and orders nothing. `parse`
+gives each node `depends_on`, one `{raw, scope, project, issue}` per entry
+(`split_dep`; also the portfolio's Dep, minus `resolved`). Without a
+project, every prefixed entry is foreign and a local entry's `project` is
+null. An entry holding `:` that is not `<project>:<issue>` is a local id
+that names nothing, and a node parse warning that `wbs show` prints once
+(`wbs update` and `wbs order` neither check nor print it):
+
+- `line N: depends_on entry '<e>' holds ':' but is not <project>:<issue>; read as a local id`
+
 `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
 from (#703, #704), and `mr` (`open`, `draft` or `merged`): the state of the
@@ -2619,9 +2637,11 @@ children of every non-root node in order; top-level nodes never move. A
 node is finished when its own glyph is `[x]` or `[-]`; any other glyph is
 open. Each sibling stands for itself and every node under it. Open sibling
 S comes after open sibling T when an open node under S has a `depends_on`
-entry naming the `issue` of an open node under T: ids match by exact
-string, a node with `depends_on` and no `issue` still counts, and an id
-that names nothing in another sibling's subtree constrains nothing. A
+entry naming the `issue` of an open node under T: a local entry's id
+matches by exact string, an own-project `<project>:` prefix counts as its
+bare id, a foreign `<project>:<issue>` entry constrains nothing (#887), a
+node with `depends_on` and no `issue` still counts, and an id that names
+nothing in another sibling's subtree constrains nothing. A
 sibling's own priority is the most urgent `priority` among the open nodes
 under it, P3 when there is none. A value other than `P1` to `P4` counts as
 missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`.
@@ -2671,7 +2691,7 @@ starting `<!--` that names a known key but does not parse is malformed
 (for `wbs-scope`, only when the comment's text starts with the key; see
 below). `wbs-parser.py` reads every directive, and `parse` exposes `exclusions`
 (`[[line, id], ...]`) and `exclusion_warnings`; each node also carries
-`parse_warnings` (#865). Like any comment a
+`parse_warnings` (#865) and `depends_on` (#887). Like any comment a
 directive line is kept byte-for-byte; the commands read it and never
 write one, except `--from-tracker`, which writes the scope line once.
 There are two keys. `wbs-exclude`: the line

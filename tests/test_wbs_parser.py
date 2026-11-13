@@ -546,8 +546,95 @@ def test_h_value(meta, want):
     ("-x:FR-1", None),
 ])
 def test_split_namespaced(entry, want):
-    # #888: the one `<namespace>:<id>` predicate; portfolio.py's split_dep calls it.
+    # #888: the one `<namespace>:<id>` predicate; split_dep calls it.
     assert wbs_parser.split_namespaced(entry) == want
+
+
+def _dep(raw, scope, project, issue):
+    return {"raw": raw, "scope": scope, "project": project, "issue": issue}
+
+
+@pytest.mark.parametrize("raw,project,want", [
+    ("Issue-8", None, _dep("Issue-8", "local", None, "Issue-8")),
+    ("beta:Issue-2", None, _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    ("alpha:Issue-9", "alpha", _dep("alpha:Issue-9", "local", "alpha", "Issue-9")),
+    ("alpha:Issue-9", None, _dep("alpha:Issue-9", "foreign", "alpha", "Issue-9")),
+    ("beta:Issue-2", "alpha", _dep("beta:Issue-2", "foreign", "beta", "Issue-2")),
+    (":Issue-1", "alpha", _dep(":Issue-1", "local", "alpha", ":Issue-1")),
+    ("a:b:c", "alpha", _dep("a:b:c", "local", "alpha", "a:b:c")),
+    ("devagent: Issue-726", "alpha",
+     _dep("devagent: Issue-726", "local", "alpha", "devagent: Issue-726")),
+    ("https://x", "alpha", _dep("https://x", "local", "alpha", "https://x")),
+    ("4.1", "alpha", _dep("4.1", "local", "alpha", "4.1")),
+])
+def test_split_dep_rule_in_parser(raw, project, want):
+    # #887: the one `depends_on` classifier; the portfolio's split_dep wraps it.
+    got = wbs_parser.split_dep(raw, project)
+    assert got == want
+    assert list(got) == ["raw", "scope", "project", "issue"]
+
+
+def _deps_of(text, **kw):
+    """Each top-level node's `depends_on` field, by text (#887)."""
+    return {n["text"]: n["depends_on"]
+            for n in wbs_parser.parse_text(text, **kw)["children"]}
+
+
+def test_depends_on_field_scalar_and_list():
+    got = _deps_of(
+        "- [ ] a {issue: Issue-2, depends_on: devagent:Issue-726}\n"
+        "- [ ] b {issue: Issue-3, depends_on: [Issue-1, devagent:Issue-725]}\n"
+        '- [ ] c {issue: Issue-4, depends_on: "devagent:Issue-726"}\n')
+    one = [_dep("devagent:Issue-726", "foreign", "devagent", "Issue-726")]
+    assert got["a"] == one
+    assert got["c"] == one
+    assert got["b"] == [_dep("Issue-1", "local", None, "Issue-1"),
+                        _dep("devagent:Issue-725", "foreign", "devagent", "Issue-725")]
+
+
+def test_depends_on_field_own_project_prefix():
+    text = "- [ ] a {issue: Issue-3, depends_on: [P:Issue-1, Issue-2]}\n"
+    assert _deps_of(text, project="P")["a"] == [
+        _dep("P:Issue-1", "local", "P", "Issue-1"),
+        _dep("Issue-2", "local", "P", "Issue-2")]
+    assert _deps_of(text)["a"][0] == _dep("P:Issue-1", "foreign", "P", "Issue-1")
+
+
+def test_depends_on_field_absent_is_empty():
+    got = _deps_of("- [ ] a {issue: Issue-1}\n"
+                   "- [ ] b {issue: Issue-2, depends_on: }\n"
+                   "- [ ] c {issue: Issue-3, depends_on: []}\n")
+    assert got == {"a": [], "b": [], "c": []}
+
+
+def test_parse_file_passes_project(tmp_path):
+    text = "# t\n\n- [ ] a {issue: Issue-3, depends_on: [P:Issue-1, Q:Issue-2]}\n"
+    p = tmp_path / "WBS.md"
+    p.write_text(text, encoding="utf-8")
+    got = wbs_parser.parse_file(p, project="P")["children"][0]["depends_on"]
+    assert got == wbs_parser.parse_text(text, project="P")["children"][0]["depends_on"]
+    assert got[0]["scope"] == "local"
+
+
+def test_depends_on_field_matches_portfolio():
+    # A WIRING pin (#887): both sides share split_dep, so this catches only a
+    # resolved-stripping or project-passing slip. The hand-written literals
+    # above are the independent check of the classification.
+    spec = importlib.util.spec_from_file_location(
+        "portfolio_for_parser_tests", REPO / "scripts" / "lib" / "portfolio.py")
+    pf = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pf  # dataclasses resolve their module by name
+    spec.loader.exec_module(pf)
+    text = (REPO / "tests" / "fixtures" / "portfolio" / "multi" / "alpha"
+            / "WBS.md").read_text(encoding="utf-8")
+    scopes = []
+    for node in _walk(wbs_parser.parse_text(text, project="alpha")):
+        want = [{k: v for k, v in d.items() if k != "resolved"}
+                for d in pf.node_deps(node["meta"], "alpha")]
+        assert node["depends_on"] == want, node["text"]
+        scopes += [(d["scope"], d["raw"] != d["issue"]) for d in want]
+    assert ("foreign", True) in scopes
+    assert ("local", True) in scopes  # alpha:Issue-1, the own prefix
 
 
 def _assigns_named(source, name):
@@ -749,13 +836,48 @@ def test_h_parse_warnings(body, value, want):
     assert node["meta_unknown_keys"] == []
 
 
+def _dep_warning(entry):
+    return (f"line 1: depends_on entry '{entry}' holds ':' but is not "
+            "<project>:<issue>; read as a local id")
+
+
+@pytest.mark.parametrize("body,warned", [
+    ("depends_on: [devagent: Issue-726]", ["devagent: Issue-726"]),
+    ("depends_on: devagent: Issue-726", ["devagent: Issue-726"]),
+    ("depends_on: https://x", ["https://x"]),
+    ("depends_on: a:b:c", ["a:b:c"]),
+    ("depends_on: :Issue-1", [":Issue-1"]),
+    # Grammar errors, not prefixes: the warning asserts no cause.
+    ("depends_on: [Issue-1, est: 1w", ["Issue-1, est: 1w"]),
+    ("depends_on: Issue-1 est: 1w", ["Issue-1 est: 1w"]),
+    ("depends_on: [a:b:c, a:b:c]", ["a:b:c"]),
+    ("depends_on: [Issue-1, a:b:c, devagent:Issue-725]", ["a:b:c"]),
+    ("depends_on: devagent:Issue-726", []),
+    ("depends_on: Issue-1", []),
+    ("depends_on: Issue-Fork-134", []),
+    ("depends_on: 4.1", []),
+    ("depends_on: [Issue-1, devagent:Issue-725]", []),
+])
+@pytest.mark.parametrize("project", [None, "devagent"])
+def test_dep_prefix_warnings(body, warned, project):
+    # #887; the project argument changes no warning
+    # (test_dep_prefix_warning_ignores_project's leg).
+    node = wbs_parser.parse_text(f"- [ ] a {{issue: I-1, {body}}}\n",
+                                 project=project)["children"][0]
+    assert node["parse_warnings"] == [_dep_warning(e) for e in warned]
+    assert not any("prefix" in w for w in node["parse_warnings"])
+    for e in warned:
+        dep = next(d for d in node["depends_on"] if d["raw"] == e)
+        assert (dep["scope"], dep["issue"]) == ("local", e)
+
+
 def test_parse_warning_check_order(capsys):
     # The check order is fixed (priority, satisfies, objective, h,
-    # thinking, checking; #890) whatever
+    # thinking, checking; #890; depends_on, #887) whatever
     # the key order on the line.
     node = wbs_parser.parse_text(
         "- [ ] a {h: 9, objective: [x], satisfies: [y, gantry:FR-1, z], "
-        "checking: y, thinking: x, priority: high}\n"
+        "depends_on: [x:y:z], checking: y, thinking: x, priority: high}\n"
     )["children"][0]
     assert node["parse_warnings"] == [
         "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
@@ -765,6 +887,7 @@ def test_parse_warning_check_order(capsys):
         "line 1: h '9' is not an integer from 0 to 4",
         _model_warning("thinking", "x"),
         _model_warning("checking", "y"),
+        _dep_warning("x:y:z"),
     ]
     assert capsys.readouterr() == ("", "")
 
@@ -903,7 +1026,7 @@ def test_tree_without_source_text_renders_v1():
 
 NODE_KEYS = {
     "text", "state", "glyph", "depth", "meta", "meta_unknown_keys",
-    "children", "source_line", "parse_warnings",
+    "children", "source_line", "parse_warnings", "depends_on",
 }
 
 
