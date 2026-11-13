@@ -117,7 +117,8 @@ n=-1 also failed the assertion. Extended to cover that case.
   acceptance criteria are the work statement, and the unticked
   acceptance-criteria boxes in the issue body are not unchecked items.
   A Definition of done that is present is still checked on every tier. An
-  active block with a tighten row (standard, perf) still halts.
+  active block with a tighten row (standard, perf) still halts on a missing
+  Definition of done (`commands/document.md` owns that halt).
 
 When the branch step (8) is absent from the issue's checklist (e.g. research),
 there is no `baseline_sha` and no diff baseline — that is N/A and expected, not a

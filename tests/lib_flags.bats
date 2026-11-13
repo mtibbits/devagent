@@ -83,7 +83,7 @@ EOF
   [ "$status" -ne 0 ]
 }
 
-@test "tier_allowlist is exactly the six legal tiers, starter last (#989)" {
+@test "tier_allowlist is exactly the legal tiers, starter last (#989)" {
   [ "$(tier_allowlist)" = 'oneshot standard perf docs-only research starter' ]
   tier_is_legal starter
 }
