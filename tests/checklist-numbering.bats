@@ -29,7 +29,7 @@ _rows() {
         [ "$rows" -ge 5 ] || _die "$(basename "$f"): only $rows rows parsed — selector broke"
     done
     # Issue-439: assert the SUBJECT COUNT so a renamed template cannot empty this guard.
-    [ "$n_templates" -eq 6 ] || _die "expected 6 templates, selected $n_templates"
+    [ "$n_templates" -eq 7 ] || _die "expected 7 templates, selected $n_templates"
 }
 
 @test "numbering: the standard template is contiguous 0..24" {

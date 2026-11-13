@@ -109,3 +109,14 @@ EOC
   [ "$status" -eq 0 ]
   grep -qE '^- \[ \] 19\. mergetoall[[:space:]]*$' "$ISSUE_DIR/checklist.md"
 }
+
+@test "checklist-init.sh --template starter writes the starter rows in order (#989 AC1)" {
+  ISSUE_DIR="$DA_HOME/Issue-989t"
+  run "$PLUGIN_ROOT/scripts/checklist-init.sh" --template starter "$ISSUE_DIR"
+  [ "$status" -eq 0 ]
+  f="$ISSUE_DIR/checklist.md"
+  grep -q '^Template: starter$' "$f"
+  nums="$(grep -E '^- \[.\] +[0-9]+\.' "$f" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/' | tr '\n' ' ' | sed 's/ $//')"
+  [ "$nums" = '0 2 8 9 11 12 14 15 17 18 19 20 24' ]
+  grep -qE '^- \[-\] 19\. mergetoall$' "$f"
+}
