@@ -24,7 +24,8 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    mirrors config `[project.<name>.permissions].push_mr` once exported),
    defaulting to `false`. When the gate is `false`, the script prints
    the plan and exits **4**; the operator re-invokes with `--yes`
-   to confirm. (An autonomous caller — `/devagent:crrf` — instead treats
+   to confirm. A disk target asks no gate (nothing leaves the machine) and
+   records `url = "disk:<N>"` and `repo = "disk"` (#1009). (An autonomous caller — `/devagent:crrf` — instead treats
    4 as halt-and-report and never passes `--yes`.)
 
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·

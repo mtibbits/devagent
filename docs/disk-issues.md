@@ -7,8 +7,8 @@ what it found (#1008, epic #1007).
 
 One module reads and writes these files: `scripts/lib/disk-issue.py`. Every
 devagent part that touches an issue file goes through it, so they all agree
-on what a file means. The disk issue backend that uses it is a later child of
-epic #1007 and is not built yet.
+on what a file means. The disk issue backend, `scripts/issue/disk.sh` (#1009),
+uses it for every read and write.
 
 ## File and folder
 
@@ -188,10 +188,9 @@ a faulty file is left untouched and the write fails with exit code 4.
   that save. Where a folder has no hard links, `create` reserves the name
   first; a crash at that moment leaves an empty `<N>.md`, which `check`
   reports as having no title line.
-- **When.** The disk issue backend, a later child of epic #1007, will log the
-  stage transitions (`on_draft_start`, `on_ship`, `on_merge`) as comments, as
-  in the full form above. Until it lands, nothing in devagent writes these
-  files on its own.
+- **When.** The disk issue backend (`scripts/issue/disk.sh`, #1009) writes
+  a new file on `create` and logs the stage transitions (`on_draft_start`,
+  `on_ship`, `on_merge`) as comments, as in the full form above.
 
 ## Checking and listing
 

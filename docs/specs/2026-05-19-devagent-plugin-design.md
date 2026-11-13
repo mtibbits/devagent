@@ -167,7 +167,7 @@ transition_issue   = true
 cleanup_on_merge   = false
 
 [project.volk.issue_source]              # tracker for new issues from upstream
-backend     = "github"                   # github | gitlab | jira | custom
+backend     = "github"                   # github | gitlab | jira | disk | custom
 repo        = "gnuradio/volk"
 dir_prefix  = "Issue-"
 
@@ -182,7 +182,7 @@ upstream    = "gnuradio/volk"
 fork        = "mtibbits/volk"
 
 [project.volk.issue_workflow]             # the tracker state each transition writes:
-on_draft_start = "In Progress"           #   a label on GitHub and GitLab, a status on JIRA
+on_draft_start = "In Progress"           #   a label on GitHub and GitLab, a status on JIRA and disk
 on_ship        = "In Review"             #   (#710; must already exist — devagent never creates it)
 on_merge       = "Done"
 # not_planned_resolutions = ["Won't Do"]   # jira: wbs update reads these done resolutions as [-] (§9.1)
@@ -512,7 +512,12 @@ one file, `policy.toml`; any other `*.toml` beside it is a defect. A policy
 under `devagent_home`, the plugin root, or any project's `devdoc_dir`,
 `source_dir` or `worktree_root` is a defect: the agent writes there.
 
-**Scope.** `scopes` lists exact repo keys. A project is in scope when the
+**Scope.** With a policy on the host, a project whose `issue_source` or
+`issue_source_fork` backend is `disk` refuses at every entry point
+(`disk-backend`, exit 9; doctor shows a `fail` row): a folder path never
+matches a scope key, and a disk folder has no events or signatures. The fix
+is to move the issues to GitHub, or to run without a policy (#1009).
+`scopes` lists exact repo keys. A project is in scope when the
 canonical key of its `issue_source` or `issue_source_fork` equals one; an
 owner-level prefix is not legal. A fresh `DA_HOME`, an alias project naming
 the same repo, trust-shaped config keys, a backend name in another case, or a
@@ -1907,8 +1912,8 @@ environment, so an unscoped devdoc cannot file onto a scoped repo.
 
 Two separate backend dimensions per project:
 
-- **Issue source** — where tickets live. Today: GitHub. Tomorrow:
-  GitLab, JIRA, a custom in-house tracker.
+- **Issue source** — where tickets live: GitHub, GitLab, JIRA, a folder
+  of `<N>.md` files on disk (#1009), or a custom in-house tracker.
 - **Code source** — where branches push and MRs file. Often the same
   as issue source; diverges when issues live in JIRA but code lives
   in GitHub/GitLab.
@@ -1968,7 +1973,8 @@ project — never an ambient `DEVAGENT_PROJECT` — with this precedence
 
 1. the per-stage env override, names unchanged:
    `DEVAGENT_GITHUB_LABEL_<STAGE>`, `DEVAGENT_GITLAB_LABELS_<STAGE>`,
-   `DEVAGENT_JIRA_STAGE_<STAGE>` (`<STAGE>` upper-cased, `-` as `_`). These
+   `DEVAGENT_JIRA_STAGE_<STAGE>`, `DEVAGENT_DISK_STATUS_<STAGE>`
+   (`<STAGE>` upper-cased, `-` as `_`). These
    are **process-global** operator and test seams: a stale one redirects
    every project's write, and `doctor` warns while one is set;
 2. `[project.<name>.github_labels].<stage>` (GitHub) or
@@ -1987,6 +1993,14 @@ with exit 2. Each writes natively, reading the issue first:
   PUTs `add_labels` with the other mapped stage labels the issue carries as
   `remove_labels`.
 - JIRA: POSTs the transition whose target status is the mapped one.
+- Disk (#1009): one atomic `set` through `scripts/lib/disk-issue.py`
+  writes `status: <mapped>` and appends one comment entry,
+  `<stage>: status <mapped>`. `on_merge` also writes `state: closed`, even
+  with no status mapped (entry `on_merge: status <mapped>, closed`, or
+  `on_merge: closed`), and an unmapped `on_merge` is recorded as landed,
+  so the merge marker is written once. An issue with the mapped status,
+  `state: closed` for `on_merge`, and an entry for the stage is at its
+  target and is not written. `quarantine` exits 2.
 
 An issue already in the target state is success with no write, and an
 absent stage label is never named for removal. devagent never creates a
@@ -2080,6 +2094,49 @@ unreadable JSON; `78` and `2` mean "no state lookup". The merge step
 (`mergemr.sh`, step 20) is its only caller: a dependency whose class is
 `done` is satisfied, `open`/`in_progress` waits `open, no PR`, anything else
 waits `closed: <reason>`.
+
+**The disk backend (#1009).** `scripts/issue/disk.sh` answers this contract
+from `<N>.md` files in one folder, with no account and no network; the file
+format is `docs/disk-issues.md`. `<repo>` is the folder, by an absolute path
+(`/…` or `~/…`; under Git Bash also `C:/…` and `C:\…`). The issue reference
+is `disk:<N>` wherever another backend gives a URL (the `URL:` line, the
+`url` and `parent` fields of `issue-list`, `filed.toml`), and records say
+`disk` where they would name the tracker repo. No message names the folder:
+messages name the config key `issue_source.repo`. A closed disk issue is
+always `done`; `state-class` never answers `in_progress`. `fetch` renders,
+for an issue with no comments:
+
+```
+# disk#4 — Add a dark-mode toggle to the settings page
+
+- State: open
+- Author: @local
+- Labels: 
+- URL: disk:4
+- Created: 2026-11-10
+
+---
+
+The settings page should have a switch that flips the site between light and dark.
+
+---
+
+## Comments (0)
+```
+
+Its exit codes, per verb (exit 2 is only ever "wrong arguments", because a
+caller reads 2 as "no such verb"; a folder fault is always 1):
+
+| Verb | 0 | 1 | 2 | 4 | 5 |
+|---|---|---|---|---|---|
+| `fetch`, `state`, `comment-list` | ok | folder fault | wrong arguments | no `<N>.md` | the file fails the format check |
+| `create` | ok | folder fault, or out of numbers | wrong arguments, missing body file, or a prompt the format refuses | | |
+| `transition` | ok, or already there | folder fault | wrong arguments, or the `quarantine` stage | no `<N>.md` | the file fails the format check, and it is not rewritten |
+| `state-list`, `issue-list` | ok | folder fault, or no folder argument | never | | a file fails the format check |
+| `state-class` | ok | folder fault, or wrong arguments | never | no `<N>.md` | the file fails the format check |
+| `state-exists` | the status exists | folder fault | wrong arguments | never | |
+
+`events`, `comment-records` and `whoami` exit 78.
 
 ### 9.2 Code backend contract (`scripts/code/<backend>.sh`)
 
@@ -2397,6 +2454,7 @@ on `<repo>`'s host, the id `events` reports for that account.
 - `issue/github.sh`, `code/github.sh` — wrap `gh`
 - `issue/gitlab.sh`, `code/gitlab.sh` — prefer `glab`, fall back to `curl` against REST v4
 - `issue/jira.sh` — `curl` against REST API
+- `issue/disk.sh` — wraps `scripts/lib/disk-issue.py` (#1009)
 - `issue/custom.sh`, `code/custom.sh` — stub printing helpful "not implemented; see README"
 
 ## 10. Auth subsystem

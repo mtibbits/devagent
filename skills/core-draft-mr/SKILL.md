@@ -50,6 +50,10 @@ re-typed.
    from `issue.md`) so the issue **auto-closes on merge** — this is the
    load-bearing line; without it the MR merges but the issue stays open.
    Use `Related: #NNN` for context-only links that should not close.
+   When `issue.md`'s `- URL:` line is `disk:<N>` (a disk issue, #1009),
+   write `Related: disk:<N>`, never `Closes #<N>`: the code host would
+   close its own, unrelated issue N. The `on_merge` transition closes the
+   disk issue file.
 4. **Fill Testing section.** How the change was verified — bullet list:
    - Tests added (from actualWork).
    - Analyzer results (one line per tool with finding counts from

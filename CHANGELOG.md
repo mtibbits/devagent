@@ -16,6 +16,13 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the disk issue backend (#1009, epic #1007).** With
+  `backend = "disk"` and `repo = "<absolute folder>"` under
+  `[project.<name>.issue_source]`, issues are `<N>.md` files in that folder
+  (format: `docs/disk-issues.md`), with no account and no network. `disk`
+  is now a built-in issue backend name, so a custom backend saved as
+  `scripts/issue/disk.sh` is replaced; rename it. Under a trust policy a
+  disk project is refused (exit 9).
 - **Added: `priority: P0`, one WBS priority above P1 (#889).** The scale is
   now P0 to P4, P0 the most urgent; a missing or malformed value still
   counts as P3. `wbs order` and `wbs update` sort a P0 sibling ahead of P1

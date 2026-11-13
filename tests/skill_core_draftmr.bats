@@ -26,3 +26,7 @@ setup() {
   [ -s "$FIXT/actualWork.md" ]
   [ -s "$FIXT/checklist.md" ]
 }
+
+@test "core-draft-mr writes Related: disk:<N>, never Closes #<N>, for a disk issue (#1009)" {
+  grep -qF 'write `Related: disk:<N>`, never `Closes #<N>`' "$SKILL/SKILL.md"
+}
