@@ -359,22 +359,8 @@ make_starter_issue() {
     rm -f "$d/checklist.md"
     ISSUE_ID=Issue-1 bash "$DEVAGENT_ROOT/scripts/checklist-init.sh" \
         --template starter --project "$TEST_PROJECT" "$d"
-    for s in 0 2 8 9 11 12 14 15 17 18 19 20 24; do
+    for s in $(grep -E '^- \[.\] +[0-9]+\.' "$d/checklist.md" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/'); do
         [ "$s" -le "$n" ] || break
         mark_step "$d/checklist.md" "$s" x
     done
-}
-
-# #989: one commit on the CURRENTLY checked-out <branch> in $SOURCE_DIR (it does
-# not check the branch out), with baseline_sha set to that commit's parent so
-# the branch is exactly one commit ahead. /usr/bin/git explicitly: a stubbed
-# git on PATH must not turn this into a no-op.
-_one_commit_ahead() {
-    local branch="$1" parent
-    [ "$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse --abbrev-ref HEAD)" = "$branch" ] \
-        || { echo "_one_commit_ahead: $branch is not checked out" >&2; return 1; }
-    parent="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse HEAD)"
-    ( cd "$SOURCE_DIR" && echo ahead > ahead.txt && /usr/bin/git add ahead.txt \
-      && /usr/bin/git -c user.email=t@example.com -c user.name=Test commit -q -m ahead )
-    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent"
 }

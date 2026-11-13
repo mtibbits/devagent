@@ -8,18 +8,13 @@ teardown() { teardown_tmp_devagent_home; }
 
 STARTER_ROWS='0 2 8 9 11 12 14 15 17 18 19 20 24'
 
-# Row numbers of a checklist file, in file order, space-joined.
-_row_nums() {
-  grep -E '^- \[.\] +[0-9]+\.' "$1" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/' | tr '\n' ' ' | sed 's/ $//'
-}
-
 # --- Task 2: template shape ---------------------------------------------------
 
 @test "checklist-starter carries exactly rows 0/2/8/9/11/12/14/15/17/18/19/20/24 (#989)" {
   tpl="$PLUGIN_ROOT/templates/checklist-starter.md"
   [ -f "$tpl" ]
   [ "$(grep -cE '^- \[.\] +[0-9]+\.' "$tpl")" -eq 13 ]
-  [ "$(_row_nums "$tpl")" = "$STARTER_ROWS" ]
+  [ "$(checklist_row_nums "$tpl")" = "$STARTER_ROWS" ]
   grep -qE '^- \[-\] 19\. mergetoall$' "$tpl"
   [ "$(grep -cE '^- \[ \] +[0-9]+\.' "$tpl")" -eq 12 ]
 }

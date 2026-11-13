@@ -408,6 +408,20 @@ EOF
     chmod +x "$DEVAGENT_STUB_BIN/git"
 }
 
+# #989: one commit on the CURRENTLY checked-out <branch> in $SOURCE_DIR (it does
+# not check the branch out), with baseline_sha set to that commit's parent so
+# the branch is exactly one commit ahead. /usr/bin/git explicitly: a stubbed
+# git on PATH must not turn this into a no-op.
+_one_commit_ahead() {
+    local branch="$1" parent
+    [ "$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse --abbrev-ref HEAD)" = "$branch" ] \
+        || { echo "_one_commit_ahead: $branch is not checked out" >&2; return 1; }
+    parent="$(cd "$SOURCE_DIR" && /usr/bin/git rev-parse HEAD)"
+    ( cd "$SOURCE_DIR" && echo ahead > ahead.txt && /usr/bin/git add ahead.txt \
+      && /usr/bin/git -c user.email=t@example.com -c user.name=Test commit -q -m ahead )
+    devagent_state_set "$HOME/.claude/devagent/state/$TEST_PROJECT.toml" baseline_sha "$parent"
+}
+
 @test "ship.sh refuses to push when tracked files are modified (#148)" {
     _install_real_git_except_push_stub
     echo "stranded review fix" >> "$SOURCE_DIR/a.txt"   # tracked, modified, uncommitted

@@ -116,8 +116,7 @@ EOC
   [ "$status" -eq 0 ]
   f="$ISSUE_DIR/checklist.md"
   grep -q '^Template: starter$' "$f"
-  nums="$(grep -E '^- \[.\] +[0-9]+\.' "$f" | sed -E 's/^- \[.\] +([0-9]+)\..*/\1/' | tr '\n' ' ' | sed 's/ $//')"
-  [ "$nums" = '0 2 8 9 11 12 14 15 17 18 19 20 24' ]
+  [ "$(checklist_row_nums "$f")" = '0 2 8 9 11 12 14 15 17 18 19 20 24' ]
   grep -qE '^- \[-\] 19\. mergetoall$' "$f"
 }
 

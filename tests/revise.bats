@@ -433,6 +433,7 @@ EOF
   grep -q '^Template: standard$' "$FIX_ISSUE_DIR/checklist.md"
   grep -q 'retier: starter → standard' "$FIX_ISSUE_DIR/checklist.md"
   # Revision 1's starter rows are kept as written.
-  awk '/^## Revision 1$/{f=1} /^## Revision 2$/{f=0} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^- \[x\]  8\. branch'
-  awk '/^## Revision 1$/{f=1} /^## Revision 2$/{f=0} f' "$FIX_ISSUE_DIR/checklist.md" | grep -qE '^- \[~\]  9\. implement'
+  r1="$(awk '/^## Revision 1$/{f=1} /^## Revision 2$/{f=0} f' "$FIX_ISSUE_DIR/checklist.md")"
+  grep -qE '^- \[x\]  8\. branch' <<<"$r1"
+  grep -qE '^- \[~\]  9\. implement' <<<"$r1"
 }

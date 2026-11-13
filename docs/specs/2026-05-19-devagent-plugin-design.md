@@ -938,9 +938,10 @@ hand-editing the marker (`revise.sh --retier` stays template-only).
 Executor convention (canonical statement; command docs carry the per-step
 mapping): a prerequisite whose producing step is absent from the issue's
 ACTIVE revision block is N/A, not a halt — branch produces the branch, draft
-produces imPlan.md, tighten produces the Definition of done. Compressed tiers only work because executors apply this
-rule; scope it to the active block, since after a retier earlier revision
-blocks may carry rows the current tier omits.
+produces imPlan.md, tighten produces the Definition of done. Compressed tiers
+only work because executors apply this rule; scope it to the active block,
+since after a retier earlier revision blocks may carry rows the current tier
+omits.
 
 | Tier | Rows | For |
 |---|---|---|
