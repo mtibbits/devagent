@@ -310,3 +310,98 @@ _e2e() {
   run grep -rlF "MARK-$$" "$DEVDOC/Issue-4"
   [ "$status" -eq 1 ]
 }
+
+@test "e2e: a ## Workflow flags block with tier: oneshot picks the oneshot checklist" {
+  _e2e
+  printf '%s\n' '# Small fix' '' '## Prompt' 'Intro.' '' '## Workflow flags' 'tier: oneshot' '' '## Motivation' 'Stuff.' > "$FOLDER/5.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" dk origin 5
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  grep -q '^Template: oneshot$' "$DEVDOC/Issue-5/checklist.md"
+}
+
+@test "e2e: the three stages through transition_fire leave status: Done, state: closed and three dated entries" {
+  _e2e
+  cp "$PLUGIN_ROOT/tests/fixtures/disk-issue/minimal.md" "$FOLDER/2.md"
+  DEVAGENT_DATE_OVERRIDE=2026-11-10 transition_fire draft dk Issue-2 on_draft_start disk "$FOLDER" 2
+  [ "$TRANSITION_OUTCOME" = landed ]
+  DEVAGENT_DATE_OVERRIDE=2026-11-10 transition_fire ship dk Issue-2 on_ship disk "$FOLDER" 2
+  [ "$TRANSITION_OUTCOME" = landed ]
+  DEVAGENT_DATE_OVERRIDE=2026-11-11 transition_fire sync dk Issue-2 on_merge disk "$FOLDER" 2
+  [ "$TRANSITION_OUTCOME" = landed ]
+  grep -vx 'parent: 3' "$PLUGIN_ROOT/tests/fixtures/disk-issue/full.md" > "$BATS_TEST_TMPDIR/want"
+  cmp "$BATS_TEST_TMPDIR/want" "$FOLDER/2.md"
+}
+
+@test "e2e: wbs init --from-tracker builds three epics of five leaves" {
+  _e2e
+  local i p
+  for i in 1 2 3; do
+    printf '%s\n' "# Epic: E$i" '' '## Prompt' "Epic $i." > "$FOLDER/$i.md"
+  done
+  for i in $(seq 4 18); do
+    p=$(( (i - 4) / 5 + 1 ))
+    if [ "$i" -eq 4 ]; then
+      printf '%s\n' "# Leaf $i" '' '## Prompt' 'Parent epic: my-epic disk:1' > "$FOLDER/$i.md"
+    else
+      printf '%s\n' "# Leaf $i" "parent: $p" '' '## Prompt' "Leaf $i." > "$FOLDER/$i.md"
+    fi
+  done
+  run --separate-stderr "$PLUGIN_ROOT/scripts/wbs-init.sh" dk --from-tracker --all
+  [ "$status" -eq 0 ] || { echo "$output $stderr" >&2; false; }
+  # per epic, the leaves indented under it
+  run python3 - "$DEVDOC/WBS.md" <<'PY'
+import re, sys
+counts, cur = {}, None
+for line in open(sys.argv[1], encoding="utf-8"):
+    m = re.match(r"^- \[.\] Epic: (E\d) ", line)
+    if m:
+        cur = m.group(1); counts[cur] = 0
+    elif re.match(r"^  - \[.\] .*\{issue: Issue-\d+", line) and cur:
+        counts[cur] += 1
+    elif re.match(r"^\S", line):
+        cur = None
+print(sorted(counts.items()))
+PY
+  [ "$output" = "[('E1', 5), ('E2', 5), ('E3', 5)]" ]
+  grep -q 'Leaf 4 {issue: Issue-4' "$DEVDOC/WBS.md"
+  run grep -F "MARK-$$" "$DEVDOC/WBS.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "e2e: a relative issue_source.repo: wbs update reports a failed tracker lookup, and wbs init --from-tracker fails with the folder error" {
+  _e2e
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.dk.issue_source.repo rel/issues
+  printf '%s\n' '# dk WBS' '' '- [ ] A {issue: Issue-1}' > "$DEVDOC/WBS.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/wbs-update.sh" dk
+  [[ "$output$stderr" == *"tracker lookup failed"* ]]
+  [[ "$output$stderr" != *"has no state-list"* ]]
+  rm "$DEVDOC/WBS.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/wbs-init.sh" dk --from-tracker --all
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"issue_source.repo must name"* ]]
+  [[ "$stderr" != *"has no issue-list"* ]]
+}
+
+@test "e2e: after pull and on_merge no file under Issue-<N>/, and after file.sh none under Captures/<slug>/, contains the folder path" {
+  _e2e
+  # shellcheck source=../scripts/lib/log.sh
+  source "$PLUGIN_ROOT/scripts/lib/log.sh"
+  # shellcheck source=../scripts/lib/merge-marker.sh
+  source "$PLUGIN_ROOT/scripts/lib/merge-marker.sh"
+  cp "$PLUGIN_ROOT/tests/fixtures/disk-issue/minimal.md" "$FOLDER/1.md"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" dk origin 1
+  [ "$status" -eq 0 ]
+  merge_marker_fire sync dk Issue-1 "$DEVDOC/Issue-1" ""
+  [ "$TRANSITION_OUTCOME" = landed ]
+  grep -q 'Issue-1 merged → on_merge landed: "Done" on disk$' "$DEVDOC/Issue-1/checklist.md"
+  [ "$(find "$DEVDOC/Issue-1" -type f | wc -l)" -ge 2 ]
+  run grep -rlF "MARK-$$" "$DEVDOC/Issue-1"
+  [ "$status" -eq 1 ]
+  mkdir -p "$DEVDOC/Captures/idea"
+  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  DEVAGENT_DEVDOC_DIR="$DEVDOC" run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 0 ]
+  [ "$(find "$DEVDOC/Captures/idea" -type f | wc -l)" -ge 2 ]
+  run grep -rlF "MARK-$$" "$DEVDOC/Captures/idea"
+  [ "$status" -eq 1 ]
+}
