@@ -82,15 +82,45 @@ _disk_is_abs() {
   esac
 }
 
+# _disk_pin_path: make every PATH entry absolute, against the caller's folder.
+# Each verb cds into the issues folder, where a relative entry (`.`, an empty
+# one) would otherwise find a file of that folder as python3, git, cat or mv.
+_disk_pin_path() {
+  [ -n "${PATH:-}" ] || return 0
+  local d out="" rest="$PATH:"
+  while [ -n "$rest" ]; do
+    d="${rest%%:*}"
+    rest="${rest#*:}"
+    [[ "$d" == /* ]] || d="$PWD${d:+/$d}"
+    out+="${out:+:}$d"
+  done
+  PATH="$out"
+}
+
 # _disk_folder <dir> [create]: check the issues folder and cd into it. A
-# setter-global — call it bare, never in $(…): it sets PY (python3's absolute
-# path, resolved BEFORE the cd so a `.` PATH entry never finds a file in the
-# issues folder) and DISK_PY (the module command, as an array). With `create`,
-# a missing folder is made (its parent must exist). Exits 1 on any fault.
+# setter-global — call it bare, never in $(…). Nothing in the issues folder is
+# ever run: BEFORE the cd it pins PATH (_disk_pin_path) and sets PY (python3's
+# absolute path), DISK_PY (the module command, as an array) and DISK_GIT
+# (git's absolute path, or empty; the renderer runs git by that path, because
+# a native Windows python looks a bare name up in the current folder first).
+# With `create`, a missing folder is made (its parent must exist). Exits 1 on
+# any fault.
 _disk_folder() {
-  local dir
+  local dir mod="${SCRIPT_DIR}/../lib/disk-issue.py"
+  _disk_pin_path
   PY="$(command -v python3 2>/dev/null)" || _disk_die 1 "python3 not found on PATH"
-  [[ "$PY" == /* ]] || PY="$PWD/$PY"
+  DISK_GIT="$(command -v git 2>/dev/null || true)"
+  # Under Git Bash these are MSYS paths (/c/...), which a native Windows
+  # python cannot open once MSYS path conversion is off (_disk_mod), so they
+  # get the same `cygpath -m` treatment as create's body file.
+  if command -v cygpath >/dev/null 2>&1; then
+    mod="$(cygpath -m "$mod")"
+    if [ -n "$DISK_GIT" ]; then
+      [ ! -f "$DISK_GIT.exe" ] || DISK_GIT="$DISK_GIT.exe"
+      DISK_GIT="$(cygpath -m "$DISK_GIT")"
+    fi
+  fi
+  DISK_PY=("$PY" "$mod")
   dir="$(expand_tilde "$1")"
   if [ -z "$dir" ] || ! _disk_is_abs "$dir"; then
     _disk_die 1 "issue_source.repo must name the issues folder by an absolute path"
@@ -102,12 +132,6 @@ _disk_folder() {
   if [ ! -d "$dir" ] || [ ! -r "$dir" ] || [ ! -x "$dir" ] || ! cd -- "$dir" 2>/dev/null; then
     _disk_die 1 "the issues folder named by issue_source.repo is missing or unreadable"
   fi
-  # Under Git Bash the module path is an MSYS path (/c/...), which a native
-  # Windows python cannot open once MSYS path conversion is off (_disk_mod),
-  # so it gets the same `cygpath -m` treatment as create's body file.
-  local mod="${SCRIPT_DIR}/../lib/disk-issue.py"
-  if command -v cygpath >/dev/null 2>&1; then mod="$(cygpath -m "$mod")"; fi
-  DISK_PY=("$PY" "$mod")
 }
 
 # _disk_mod <verb> <args…>: the format module, with MSYS path conversion off
@@ -115,7 +139,9 @@ _disk_folder() {
 _disk_mod() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${DISK_PY[@]}" "$@"; }
 
 # _disk_py <mode> [args…]: the renderer below, reading module JSON on stdin.
-_disk_py() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$PY" -I -c "$_DISK_PY" "$@"; }
+_disk_py() {
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' DISK_GIT="$DISK_GIT" "$PY" -I -c "$_DISK_PY" "$@"
+}
 
 # _disk_parse <N>: parse <N>.md into DISK_JSON (a setter-global; call it bare).
 # A missing file exits 4; a file that fails the check prints its faults and
@@ -170,10 +196,14 @@ def git_walk(paths):
     newest commit first. None outside a git work tree, or without git. A
     history git refuses to read (dubious ownership, a broken repo) exits 1:
     never a silent fallback to the modification date. Known limit: a prompt
-    line that reads `state: closed` can date a hand close."""
+    line that reads `state: closed` can date a hand close. git is run by the
+    absolute path disk.sh found before its cd (DISK_GIT), never by name."""
+    git = os.environ.get("DISK_GIT")
+    if not git:
+        return None
     env = dict(os.environ, LC_ALL="C", GIT_OPTIONAL_LOCKS="0")
     try:
-        p = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+        p = subprocess.run([git, "rev-parse", "--is-inside-work-tree"],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     except OSError:
         return None
@@ -183,7 +213,7 @@ def git_walk(paths):
         fail("cannot read the git history of the folder named by issue_source.repo")
     if p.stdout.strip() != b"true":
         return None
-    p = subprocess.run(["git", "-c", "core.quotePath=false", "log", "--no-renames",
+    p = subprocess.run([git, "-c", "core.quotePath=false", "log", "--no-renames",
                         "--date=short", "--format=%x00%cd", "-p", "--unified=0",
                         "--relative", "--"] + paths,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
@@ -242,12 +272,13 @@ if mode == "faults":
 elif mode == "fetch":
     r = recs[0]
     k = r["keys"]
+    created = dates(r, git_walk(["%d.md" % r["n"]]))[0]   # first: a git fault prints nothing
     out("# disk#%d \u2014 %s\n\n" % (r["n"], r["title"]))
     out("- State: %s\n" % k["state"])
     out("- Author: @local\n")
     out("- Labels: %s\n" % ", ".join(k.get("labels", [])))
     out("- URL: %s\n" % ref(r["n"]))
-    out("- Created: %s\n" % dates(r, git_walk(["%d.md" % r["n"]]))[0])
+    out("- Created: %s\n" % created)
     out("\n---\n\n%s\n\n---\n\n" % r["prompt"])
     out(comments(r))
 elif mode == "comments":
@@ -486,8 +517,9 @@ cmd_transition() {
     quarantine) _disk_die 2 "transition quarantine is not supported on disk" ;;
     *) _disk_die 2 "transition: unknown stage '$TA_STAGE'" ;;
   esac
-  _disk_folder "$TA_REPO"
+  # The config is read before the cd: a relative DA_HOME is the caller's.
   t="$(stage_map_target disk "$TA_PROJECT" "$TA_STAGE")" || exit 1
+  _disk_folder "$TA_REPO"
   t="${t#"${t%%[!$' \t']*}"}"
   t="${t%"${t##*[!$' \t']}"}"
   [[ "$t" != *[$'\r\n']* ]] || _disk_die 1 "transition: the status mapped for $TA_STAGE contains a line break"
@@ -535,7 +567,8 @@ _disk_list() {
 }
 
 # _disk_ip: the project's on_draft_start status (the per-call DEVAGENT_PROJECT
-# that `wbs update` sets), into DISK_IP; an unreadable config exits 1.
+# that `wbs update` sets), into DISK_IP; an unreadable config exits 1. Called
+# before _disk_folder: the config is read where the caller stands.
 _disk_ip() {
   DISK_IP="$(stage_map_target disk "${DEVAGENT_PROJECT:-}" on_draft_start)" || exit 1
 }
@@ -543,8 +576,8 @@ _disk_ip() {
 # state-list <dir>: one `<N>` TAB `<class>` line per issue, sorted by N.
 cmd_state_list() {
   [ "$#" -le 1 ] || _disk_die 1 "usage: state-list <dir>"
-  _disk_folder "${1:-}"
   _disk_ip
+  _disk_folder "${1:-}"
   _disk_list
   printf '%s\n' "$DISK_JSON" | _disk_py state-list "$DISK_IP"
 }
@@ -553,8 +586,8 @@ cmd_state_list() {
 # scripts/lib/wbs-import.py check enforces.
 cmd_issue_list() {
   [ "$#" -le 1 ] || _disk_die 1 "usage: issue-list <dir>"
-  _disk_folder "${1:-}"
   _disk_ip
+  _disk_folder "${1:-}"
   _disk_list
   printf '%s\n' "$DISK_JSON" | _disk_py issue-list "$DISK_IP"
 }

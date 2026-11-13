@@ -265,6 +265,42 @@ on_merge: status Done, closed'
   [ ! -e "$BATS_TEST_TMPDIR/decoy-ran" ]
 }
 
+@test "disk: with . on PATH no verb runs a python3, git, cat, mv, rm or cygpath planted in the issues folder" {
+  list_fixture
+  body "x"
+  local n
+  for n in python3 git cat mv rm cygpath; do
+    printf '#!/bin/sh\ntouch "%s/decoy-ran-%s"; exit 1\n' "$BATS_TEST_TMPDIR" "$n" > "$D/$n"
+    chmod +x "$D/$n"
+  done
+  PATH=".:$PATH" DEVAGENT_PROJECT=p run --separate-stderr "$DISK" state-list "$D"
+  [ "$status" -eq 0 ] || { echo "state-list: $status $stderr" >&2; false; }
+  PATH=".:$PATH" DEVAGENT_PROJECT=p run --separate-stderr "$DISK" issue-list "$D"
+  [ "$status" -eq 0 ] || { echo "issue-list: $status $stderr" >&2; false; }
+  PATH=".:$PATH" run --separate-stderr "$DISK" fetch "$D" 3
+  [ "$status" -eq 0 ] || { echo "fetch: $status $stderr" >&2; false; }
+  PATH=".:$PATH" run --separate-stderr "$DISK" transition "$D" 3 on_draft_start --project p
+  [ "$status" -eq 0 ] || { echo "transition: $status $stderr" >&2; false; }
+  grep -qx 'status: In Progress' "$D/3.md"
+  PATH=".:$PATH" run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ] || { echo "create: $status $stderr" >&2; false; }
+  [ "$output" = 4 ]
+  [ -z "$stderr" ]
+  [ ! -e "$D/.disk.lock" ]
+  run find "$BATS_TEST_TMPDIR" -maxdepth 1 -name 'decoy-ran-*'
+  [ -z "$output" ]
+}
+
+@test "disk: a relative DA_HOME is read from the caller's folder, not the issues folder" {
+  list_fixture
+  cd "$BATS_TEST_TMPDIR"
+  DA_HOME="$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1]))' "$DA_HOME")"
+  [[ "$DA_HOME" != /* ]]
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" state-list "$D"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'1\tdone\n2\tin_progress\n3\topen' ]
+}
+
 # ---------------------------------------------------------------- Task 3: create
 
 # body <text>: a prompt file in the test's temp dir, outside the issues folder.
@@ -743,6 +779,10 @@ git_at() {
   [ "$status" -eq 1 ]
   [ -z "$output" ]
   [[ "$stderr" == *"cannot read the git history of the folder named by issue_source.repo"* ]]
+  no_mark
+  GIT_TEST_ASSUME_DIFFERENT_OWNER=1 run --separate-stderr "$DISK" fetch "$D" 1
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
   no_mark
 }
 

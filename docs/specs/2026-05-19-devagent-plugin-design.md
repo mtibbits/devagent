@@ -516,7 +516,9 @@ under `devagent_home`, the plugin root, or any project's `devdoc_dir`,
 `issue_source_fork` backend is `disk` refuses at every entry point
 (`disk-backend`, exit 9; doctor shows a `fail` row): a folder path never
 matches a scope key, and a disk folder has no events or signatures. The fix
-is to move the issues to GitHub, or to run without a policy (#1009).
+is to move the issues to GitHub, or to run without a policy (#1009). Until
+then `sync --all` ends at such a project once it has a shipped MR (exit 9,
+as for any host refusal), so the projects listed after it are not checked.
 `scopes` lists exact repo keys. A project is in scope when the
 canonical key of its `issue_source` or `issue_source_fork` equals one; an
 owner-level prefix is not legal. A fresh `DA_HOME`, an alias project naming
@@ -2102,7 +2104,9 @@ format is `docs/disk-issues.md`. `<repo>` is the folder, by an absolute path
 is `disk:<N>` wherever another backend gives a URL (the `URL:` line, the
 `url` and `parent` fields of `issue-list`, `filed.toml`), and records say
 `disk` where they would name the tracker repo. No message names the folder:
-messages name the config key `issue_source.repo`. A closed disk issue is
+messages name the config key `issue_source.repo`. Nothing in the folder is
+ever run: `python3`, `git` and every other command are found before
+`disk.sh` changes into it, and the config is read there too. A closed disk issue is
 always `done`; `state-class` never answers `in_progress`. `fetch` renders,
 for an issue with no comments:
 
