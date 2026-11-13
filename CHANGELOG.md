@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: the `starter` checklist tier (#989).** `docs-only` plus
+  implement: pull, draft, branch, implement, document, commit, draftmr,
+  review, preship, ship, mergetoall (skipped unless `all_prs_branch` is
+  set), mergemr and cleanup. Choose it per issue with `tier: starter` in
+  `## Workflow flags` or `revise.sh --retier starter`; no config default
+  changes.
+- **Fixed: implement and document no longer halt on a plan with no
+  `## Definition of done` when the active revision block has no tighten
+  row (#989).** Tighten writes that section, so on `docs-only`, `research`
+  and `starter` issues the plan's tasks and the issue's acceptance
+  criteria are the work statement; a tier with tighten (standard, perf)
+  still halts.
 - **Added: `priority: P0`, one WBS priority above P1 (#889).** The scale is
   now P0 to P4, P0 the most urgent; a missing or malformed value still
   counts as P3. `wbs order` and `wbs update` sort a P0 sibling ahead of P1

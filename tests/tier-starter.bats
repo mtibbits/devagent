@@ -116,3 +116,29 @@ _flat() { awk "$2" "$1" | tr '\n' ' ' | tr -s ' '; }
   grep -qF -- 'draft produces imPlan.md' <<<"$x"
   grep -qF -- 'tighten produces the Definition of done' <<<"$x"
 }
+
+# --- Task 7: docs -------------------------------------------------------------
+
+@test "cleanup.md names starter among the closeout-omitting templates (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/commands/cleanup.md" '/^## Precondition \(#242/{f=1; next} /^## /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- '(research/docs-only/starter templates)' <<<"$x"
+}
+
+# Whole CHANGELOG bullets ("- **" line through the line before the next "- " or
+# blank line), one per output line, so ordinary wrapping cannot hide a token.
+_changelog_bullets() {
+  awk '/^## \[Unreleased\]/{f=1; next} !f{next}
+       /^- \*\*/{ if (b != "") print b; b=$0; next }
+       /^- / || /^$/ || /^#/{ if (b != "") print b; b=""; next }
+       b != ""{ sub(/^ +/, " "); b = b $0 }
+       END{ if (b != "") print b }' "$PLUGIN_ROOT/CHANGELOG.md" | tr -s ' '
+}
+
+@test "CHANGELOG (Unreleased or a released section) carries both #989 entries" {
+  u="$(_changelog_bullets)"
+  [ -n "$u" ]
+  grep -E '^- \*\*Added:' <<<"$u" | grep -F 'starter' | grep -qF '(#989)' \
+    || { echo "no Added entry"; return 1; }
+  grep -E '^- \*\*Fixed:' <<<"$u" | grep -qF '(#989)' || { echo "no Fixed entry"; return 1; }
+}
