@@ -51,6 +51,278 @@ CSS_EXT = {".css"}
 
 PREVIEW_RE = re.compile(r"private\s+preview", re.I)
 
+# ---------------------------------------------------------------- remote URLs
+#
+# remote(value, ctx, where) -> reason or None. ctx is one of
+#   attr  an attribute value whose URL a browser may fetch (src=, href= on
+#         <link>, background=, any attribute not listed below): no exemption
+#         but data: and blob:
+#   ns    an xmlns or xmlns:* value: exactly one of NAMESPACES passes
+#   nav   href= on <a> or <area>: navigation is not a fetch; only
+#         javascript: is refused
+#   js    a JS string literal or template chunk
+#   css   a CSS string or unquoted url() argument
+# The value is first normalised as a browser's URL parser does (WHATWG URL
+# preprocessing): leading and trailing C0 controls and spaces stripped, tab
+# and newline deleted, "\" read as "/".
+NAMESPACES = (
+    "http://www.w3.org/2000/svg",
+    "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/1999/xlink",
+    "http://www.w3.org/1998/Math/MathML",
+    "http://www.w3.org/XML/1998/namespace",
+    "http://www.w3.org/2000/xmlns/",
+)
+# In a JS string a namespace URI is deleted only where no URL continues it
+# (createElementNS("…/svg", …), an inline '<svg xmlns="…">'), so "…/svg/x"
+# keeps its URI and is refused.
+NS_IN_JS_RE = re.compile(
+    "(?:" + "|".join(re.escape(n) for n in NAMESPACES) + ")(?![A-Za-z0-9/._~%?#&=+-])")
+C0_SPACE = "".join(chr(i) for i in range(0x21))
+# Every alternative is left-anchored on a non-scheme character, so a long run
+# of scheme characters is matched once, not once per start position.
+SCHEME = r"(?<![A-Za-z0-9+.\-])"
+REMOTE_RE = re.compile(
+    SCHEME + r"[A-Za-z][A-Za-z0-9+.\-]*://"           # any <scheme>://
+    r"|" + SCHEME + r"(?:https?|wss?|ftp|file):"      # listed schemes, slashes optional
+    r"|" + SCHEME + r"javascript:", re.I)
+JS_RE = re.compile(SCHEME + r"javascript:", re.I)      # the nav-context check
+
+
+def normalise(value):
+    value = value.strip(C0_SPACE)
+    value = re.sub(r"[\t\n\r]", "", value)
+    return value.replace("\\", "/")
+
+
+def remote(value, ctx, where):
+    v = normalise(value)
+    if ctx == "nav":
+        return ("javascript: URL in %s" % where) if JS_RE.search(v) else None
+    if ctx in ("ns", "css") and v in NAMESPACES:
+        return None
+    if ctx == "js":
+        v = NS_IN_JS_RE.sub("", v)
+    elif v[:5].lower() == "data:" or v[:5].lower() == "blob:":
+        return None
+    if v.startswith("//"):
+        return "remote URL in %s" % where
+    m = REMOTE_RE.search(v)
+    if not m:
+        return None
+    if m.group(0).lower() == "javascript:":
+        return "javascript: URL in %s" % where
+    return "remote URL in %s" % where
+
+
+# ------------------------------------------------------------------ tokenizers
+#
+# Two hand tokenizers that find only boundaries: where strings, templates,
+# url() arguments and comments begin and end. They never decode escapes.
+# Each returns (tokens, errors): tokens are (value, line, kind), errors
+# (reason, line).
+JS_REGEX_AFTER = {
+    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+    "throw", "case", "do", "else", "yield", "await",
+}
+JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-￿][A-Za-z0-9_$\u0080-￿]*")
+JS_NUMBER_RE = re.compile(r"\.?[0-9][A-Za-z0-9_.]*")
+
+
+def _quoted(text, i, line, toks, errs, kind):
+    """A '…' or "…" literal opening at text[i]: a backslash skips the next
+    character (a line continuation included); a raw line break ends it as
+    unterminated. Returns (next index, line)."""
+    q, n, j, start = text[i], len(text), i + 1, line
+    while j < n:
+        ch = text[j]
+        if ch == "\\":
+            if text.startswith("\r\n", j + 1):
+                j += 3
+                line += 1
+                continue
+            if j + 1 < n and text[j + 1] in "\n\r":
+                line += 1
+            j += 2
+            continue
+        if ch == q:
+            toks.append((text[i + 1:j], start, kind))
+            return j + 1, line
+        if ch in "\n\r":
+            break
+        j += 1
+    errs.append(("unterminated string", start))
+    return n, line
+
+
+def js_tokens(text, line0=1):
+    toks, errs = [], []
+    i, n, line = 0, len(text), line0
+    regex_ok = True
+    depth = 0
+    tmpl = []  # one (outer brace depth, opening line) per open ${ … }
+
+    def template_chunk(j, line):
+        """Read a template chunk from text[j]; returns (index, line, ended)."""
+        start, k = line, j
+        while k < n:
+            ch = text[k]
+            if ch == "\\":
+                if k + 1 < n and text[k + 1] == "\n":
+                    line += 1
+                k += 2
+                continue
+            if ch == "`":
+                toks.append((text[j:k], start, "string"))
+                return k + 1, line, True
+            if ch == "$" and text.startswith("${", k):
+                toks.append((text[j:k], start, "string"))
+                return k + 2, line, False
+            if ch == "\n":
+                line += 1
+            k += 1
+        errs.append(("unterminated template", start))
+        return n, line, True
+
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            line += 1
+            i += 1
+            continue
+        if c.isspace():
+            i += 1
+            continue
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j < 0:
+                errs.append(("unterminated comment", line))
+                break
+            line += text.count("\n", i, j)
+            i = j + 2
+            continue
+        if c in "'\"":
+            i, line = _quoted(text, i, line, toks, errs, "string")
+            regex_ok = False
+            continue
+        if c == "`":
+            start = line
+            i, line, ended = template_chunk(i + 1, line)
+            if not ended:
+                tmpl.append((depth, start))
+                depth = 0
+                regex_ok = True
+            else:
+                regex_ok = False
+            continue
+        if c == "/" and regex_ok:
+            j, cls, start = i + 1, False, line
+            while j < n:
+                ch = text[j]
+                if ch == "\\":
+                    j += 2
+                    continue
+                if ch in "\n\r":
+                    j = n
+                    break
+                if cls:
+                    if ch == "]":
+                        cls = False
+                elif ch == "[":
+                    cls = True
+                elif ch == "/":
+                    break
+                j += 1
+            if j >= n:
+                errs.append(("unterminated regex", start))
+                break
+            i = j + 1
+            while i < n and (text[i].isalnum() or text[i] == "_"):
+                i += 1
+            regex_ok = False
+            continue
+        m = JS_IDENT_RE.match(text, i)
+        if m:
+            regex_ok = m.group(0) in JS_REGEX_AFTER
+            i = m.end()
+            continue
+        m = JS_NUMBER_RE.match(text, i)
+        if m:
+            regex_ok = False
+            i = m.end()
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            if depth == 0 and tmpl:
+                depth = tmpl.pop()[0]
+                i, line, ended = template_chunk(i + 1, line)
+                if not ended:
+                    tmpl.append((depth, line))
+                    depth = 0
+                    regex_ok = True
+                else:
+                    regex_ok = False
+                continue
+            depth = max(depth - 1, 0)
+        regex_ok = c not in ")]}"
+        i += 1
+    for _, start in tmpl:
+        errs.append(("unterminated template", start))
+    return toks, errs
+
+
+CSS_URL_RE = re.compile(r"url\(", re.I)
+
+
+def css_tokens(text, line0=1):
+    toks, errs = [], []
+    i, n, line = 0, len(text), line0
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            line += 1
+            i += 1
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j < 0:
+                errs.append(("unterminated comment", line))
+                break
+            line += text.count("\n", i, j)
+            i = j + 2
+            continue
+        if c in "'\"":
+            i, line = _quoted(text, i, line, toks, errs, "string")
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        if CSS_URL_RE.match(text, i) and (i == 0 or not re.match(r"[A-Za-z0-9_\-]", text[i - 1])):
+            j = i + 4
+            while j < n and text[j] in " \t\r\n\f":
+                j += 1
+            if j < n and text[j] in "'\"":
+                line += text.count("\n", i, j)
+                i = j  # a quoted argument is a string token
+                continue
+            start, k = line + text.count("\n", i, j), j
+            while k < n and text[k] != ")":
+                k += 2 if text[k] == "\\" else 1
+            if k >= n:
+                errs.append(("unterminated url()", start))
+                break
+            toks.append((text[j:k].strip(" \t\r\n\f"), start, "url()"))
+            line += text.count("\n", i, k)
+            i = k + 1
+            continue
+        i += 1
+    return toks, errs
+
 
 def usage_error(msg):
     sys.stderr.write("check-fetches: %s\n%s\n" % (msg, USAGE))
@@ -125,6 +397,28 @@ class Scan:
         if m:
             self.refuse(rel, line_at(text, m.start()),
                         'the words "private preview" may not be published')
+        if ext in JS_EXT:
+            self.js(rel, text, 1)
+        elif ext in CSS_EXT:
+            self.css(rel, text, 1, "")
+
+    def js(self, rel, text, line0, suffix=""):
+        toks, errs = js_tokens(text, line0)
+        for value, line, _ in toks:
+            r = remote(value, "js", "a JS string" + suffix)
+            if r:
+                self.refuse(rel, line, r)
+        for reason, line in errs:
+            self.refuse(rel, line, reason + " (JS)" + suffix)
+
+    def css(self, rel, text, line0, suffix):
+        toks, errs = css_tokens(text, line0)
+        for value, line, kind in toks:
+            r = remote(value, "css", ("a CSS url()" if kind == "url()" else "a CSS string") + suffix)
+            if r:
+                self.refuse(rel, line, r)
+        for reason, line in errs:
+            self.refuse(rel, line, reason + " (CSS)" + suffix)
 
     def report(self):
         if self.violations:

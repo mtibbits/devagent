@@ -1070,3 +1070,99 @@ usage_2() {
   sc_new; fx_doc index.html '<p>A Private' 'preview build</p>'
   sc_row 3 index.html 'Private' 'private preview'
 }
+
+# js_row <want> <token> <line...> — one row: assets/a.js holding the lines; the
+# needle is the first line.
+js_row() {
+  local want="$1" token="$2"; shift 2
+  sc_new; fx_sf assets/a.js "$@"
+  sc_row "$want" assets/a.js "$1" "$token"
+}
+
+# css_row <want> <token> <line...> — the same for assets/a.css.
+css_row() {
+  local want="$1" token="$2"; shift 2
+  sc_new; fx_sf assets/a.css "$@"
+  sc_row "$want" assets/a.css "$1" "$token"
+}
+
+@test "build-docs-site: check-fetches — JS: strings and template chunks with a remote URL are refused" {
+  local r='remote URL in a JS string'
+  sc_n=0
+  js_row 3 "$r" "fetch(\"$OH/x\");"
+  js_row 3 "$r" "img.src = '//other.host/i.png';"
+  js_row 3 "$r" 'var u = `https://${h}/x`;'
+  js_row 3 "$r" 'var u = `${a}ps://other.host`;'
+  js_row 3 "$r" 'var u = "\\other.host/x";'
+  js_row 3 "$r" 'var u = "http:other.host/x";'
+  js_row 3 "$r" $'var u = "ht\ttps://other.host/x";'
+  js_row 3 'javascript: URL in a JS string' 'location = "javascript:alert(1)";'
+  js_row 3 "$r" "var u = \"data:,$OH/x\";"
+  js_row 3 "$r" "var u = \"$NS https://other.host/x\";"
+}
+
+@test "build-docs-site: check-fetches — JS: a string extending a namespace URI is refused" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "var u = \"$NS/x\";"
+  js_row 3 'remote URL in a JS string' "var u = \"${NS}x\";"
+}
+
+@test "build-docs-site: check-fetches — JS: comments, regexes and non-URL colons pass" {
+  sc_n=0
+  js_row 0 '' "// $OH/x" 'var a = 1;'
+  js_row 0 '' "/* $OH */ var a = 1;"
+  js_row 0 '' 'var s = ["a:hover", "li:first-child", "Note: x"];'
+  js_row 0 '' 'x = a / b / c; s = "assets/x.png";'
+  js_row 0 '' "document.createElementNS(\"$NS\",\"rect\");"
+  js_row 0 '' 'el.setAttributeNS("http://www.w3.org/1999/xlink","href","#g");'
+  js_row 0 '' "var ns = [\"$NS\", \"http://www.w3.org/1999/xhtml\", \"http://www.w3.org/1999/xlink\"," \
+    '"http://www.w3.org/1998/Math/MathML", "http://www.w3.org/XML/1998/namespace", "http://www.w3.org/2000/xmlns/"];'
+  js_row 0 '' "el.innerHTML = '<svg xmlns=\"$NS\"><path d=\"M0 0\"/></svg>';"
+}
+
+@test "build-docs-site: check-fetches — JS: a data: SVG icon string keeps its namespace and passes" {
+  sc_n=0
+  js_row 0 '' "icon = \"data:image/svg+xml,<svg xmlns='$NS'><path d='M0 0'/></svg>\";"
+}
+
+@test "build-docs-site: check-fetches — a regex literal holding a quote does not hide a later string" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "var r = /'/; var u = \"$OH/x\";"
+  js_row 0 '' "var r = /'/; var u = \"assets/x\";"
+}
+
+@test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
+  sc_n=0
+  js_row 3 'unterminated string' 'var s = "abc' 'var t = 1;'
+  js_row 3 'unterminated template' 'var t = `abc' 'more'
+}
+
+@test "build-docs-site: check-fetches — a 100k-character run of scheme characters scans inside 2 s" {
+  mkdir -p "$FX/site/assets"
+  python3 -c 'import sys; open(sys.argv[1], "w").write("var s = \"" + "a" * 100000 + "\";\n")' "$FX/site/assets/big.js"
+  local t0 t1
+  t0="$(date +%s%N)"
+  run scan
+  t1="$(date +%s%N)"
+  [ "$status" -eq 0 ]
+  echo "scan took $(( (t1 - t0) / 1000000 )) ms" >&2
+  [ "$(( (t1 - t0) / 1000000 ))" -lt 2000 ]
+}
+
+@test "build-docs-site: check-fetches — CSS: url(), @import and image-set() to another host are refused" {
+  sc_n=0
+  css_row 3 'remote URL in a CSS string' "@import \"$OH/a.css\";"
+  css_row 3 'remote URL in a CSS url()' '@import url(//other.host/a.css);'
+  css_row 3 'remote URL in a CSS url()' "a { background: url($OH/x.png); }"
+  css_row 3 'remote URL in a CSS string' "a { background: image-set(\"$OH/x.png\" 1x); }"
+}
+
+@test "build-docs-site: check-fetches — CSS: selectors, comments and data: pass" {
+  sc_n=0
+  css_row 0 '' 'nav a:hover{color:red}'
+  css_row 0 '' "/* @import \"$OH/x\"; */"
+  css_row 0 '' 'a { background: url(data:image/png;base64,iVBORw0); }'
+  css_row 0 '' 'a { background: url("assets/x.png"); }'
+  css_row 0 '' 'body { font-family: "Segoe UI"; }'
+  css_row 0 '' "@namespace svg url($NS);"
+}
