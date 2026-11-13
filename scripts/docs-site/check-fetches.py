@@ -88,14 +88,14 @@ import re
 import stat
 import sys
 import xml.parsers.expat as expat
-from html.parser import HTMLParser
 
 USAGE = "usage: check-fetches.py [--] <out-dir>"
 
-# The site's Content-Security-Policy, byte for byte. It has four homes, edited
+# The site's Content-Security-Policy, byte for byte. It has three homes, edited
 # together in one reviewed change: this constant, the <meta> in
-# scripts/docs-site/page.html, the stub writer in scripts/build-docs-site.sh,
-# and CSP in tests/build-docs-site.bats (which never reads it from the others).
+# scripts/docs-site/page.html (which the stub writer in build-docs-site.sh
+# copies), and CSP in tests/build-docs-site.bats (which never reads it from
+# the others).
 POLICY = (
     "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
     "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
@@ -193,11 +193,11 @@ JS_REGEX_AFTER = {
 }
 JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*")
 JS_NUMBER_RE = re.compile(r"\.?[0-9][A-Za-z0-9_.]*")
-JS_LINE_END_RE = re.compile("[\n\r\u2028\u2029]")
 JS_LINE_ENDS = "\n\r\u2028\u2029"
+JS_LINE_END_RE = re.compile("[" + JS_LINE_ENDS + "]")
 
 
-def _quoted(text, i, line, toks, errs, kind):
+def _quoted(text, i, line, toks, errs):
     """A '…' or "…" literal opening at text[i]: a backslash skips the next
     character (a line continuation included); a raw line break ends it as
     unterminated. Returns (next index, line)."""
@@ -214,7 +214,7 @@ def _quoted(text, i, line, toks, errs, kind):
             j += 2
             continue
         if ch == q:
-            toks.append((text[i + 1:j], start, kind))
+            toks.append((text[i + 1:j], start, "string"))
             return j + 1, line
         if ch in "\n\r":
             break
@@ -223,12 +223,40 @@ def _quoted(text, i, line, toks, errs, kind):
     return n, line
 
 
+def _block_comment(text, i, line, errs):
+    """A /* … */ comment opening at text[i]. Returns (next index, line); an
+    unterminated one is an error and ends the text."""
+    j = text.find("*/", i + 2)
+    if j < 0:
+        errs.append(("unterminated comment", line))
+        return len(text), line
+    return j + 2, line + text.count("\n", i, j)
+
+
+def _pop_to(stack, tag):
+    """Drop stack back to before its last tag, if it holds one."""
+    if tag in stack:
+        del stack[len(stack) - 1 - stack[::-1].index(tag):]
+
+
 def js_tokens(text, line0=1):
     toks, errs = [], []
     i, n, line = 0, len(text), line0
     regex_ok = True
     depth = 0
     tmpl = []  # one (outer brace depth, opening line) per open ${ … }
+
+    def enter_chunk(j, line, open_line=None):
+        """Read a template chunk from text[j]. One that stops at "${" opens a
+        substitution, recorded at open_line (default: where the chunk stops).
+        Returns (index, line, regex_ok)."""
+        nonlocal depth
+        j, line, ended = template_chunk(j, line)
+        if ended:
+            return j, line, False
+        tmpl.append((depth, line if open_line is None else open_line))
+        depth = 0
+        return j, line, True
 
     def template_chunk(j, line):
         """Read a template chunk from text[j]; returns (index, line, ended)."""
@@ -270,15 +298,10 @@ def js_tokens(text, line0=1):
             i = n if m is None else m.start()
             continue
         if text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            if j < 0:
-                errs.append(("unterminated comment", line))
-                break
-            line += text.count("\n", i, j)
-            i = j + 2
+            i, line = _block_comment(text, i, line, errs)
             continue
         if c in "'\"":
-            i, line = _quoted(text, i, line, toks, errs, "string")
+            i, line = _quoted(text, i, line, toks, errs)
             regex_ok = False
             continue
         if c in "+-" and text.startswith(c + c, i):
@@ -286,14 +309,7 @@ def js_tokens(text, line0=1):
             i += 2
             continue
         if c == "`":
-            start = line
-            i, line, ended = template_chunk(i + 1, line)
-            if not ended:
-                tmpl.append((depth, start))
-                depth = 0
-                regex_ok = True
-            else:
-                regex_ok = False
+            i, line, regex_ok = enter_chunk(i + 1, line, line)
             continue
         if c == "/" and regex_ok:
             j, cls, start = i + 1, False, line
@@ -336,13 +352,7 @@ def js_tokens(text, line0=1):
         elif c == "}":
             if depth == 0 and tmpl:
                 depth = tmpl.pop()[0]
-                i, line, ended = template_chunk(i + 1, line)
-                if not ended:
-                    tmpl.append((depth, line))
-                    depth = 0
-                    regex_ok = True
-                else:
-                    regex_ok = False
+                i, line, regex_ok = enter_chunk(i + 1, line)
                 continue
             depth = max(depth - 1, 0)
         regex_ok = c not in ")]}"
@@ -365,15 +375,10 @@ def css_tokens(text, line0=1):
             i += 1
             continue
         if text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            if j < 0:
-                errs.append(("unterminated comment", line))
-                break
-            line += text.count("\n", i, j)
-            i = j + 2
+            i, line = _block_comment(text, i, line, errs)
             continue
         if c in "'\"":
-            i, line = _quoted(text, i, line, toks, errs, "string")
+            i, line = _quoted(text, i, line, toks, errs)
             continue
         if c == "\\":
             i += 2
@@ -409,8 +414,9 @@ RESOURCE_TAGS = {"script", "link", "style", "img"}
 # does not (it parses markup inside them), a comment it opens there can hide
 # markup the browser runs, so such a comment is refused.
 _RAW_IN_BROWSER = {"noscript", "textarea", "title", "xmp", "iframe", "noembed", "noframes"}
-COMMENT_HIDES_IN = _RAW_IN_BROWSER - set(getattr(HTMLParser, "CDATA_CONTENT_ELEMENTS", ())) \
-    - set(getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()))
+_RAW_IN_PARSER = set(getattr(_hp.HTMLParser, "CDATA_CONTENT_ELEMENTS", ())) \
+    | set(getattr(_hp.HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()))
+COMMENT_HIDES_IN = _RAW_IN_BROWSER - _RAW_IN_PARSER
 # Raw-source shapes a browser and html.parser end differently.
 COMMENT_DIVERGE_RE = re.compile(r"<!---?>|--!>")
 END_WS_RE = re.compile(r"</\s+(?:script|style)", re.I)
@@ -418,8 +424,7 @@ MARKED_RE = re.compile(r"<!\[")
 SCRIPT_BODY_RE = re.compile(r"<!--|<script", re.I)
 # Inside <svg>/<math> a browser parses markup in elements this parser reads as
 # text (title, textarea, xmp, script, style, …), so such a body may hold none.
-PARSED_AS_TEXT = set(getattr(HTMLParser, "CDATA_CONTENT_ELEMENTS", ("script", "style"))) \
-    | set(getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ())) | {"script", "style"}
+PARSED_AS_TEXT = _RAW_IN_PARSER | {"script", "style"}
 FOREIGN_MARKUP_RE = re.compile(r"<[A-Za-z/!?]")
 # Start tags that keep <head> open; any other start tag, or text that is not
 # whitespace, ends it in a browser (and a CSP meta after that point is ignored).
@@ -666,7 +671,7 @@ class Scan:
                          % (self.total, self.scanned, self.binary, self.vendored))
 
 
-class _Html(HTMLParser):
+class _Html(_hp.HTMLParser):
     """One .html/.htm file: element and attribute rules, the parse-divergence
     guards that need the parser, and the CSP rule."""
 
@@ -762,10 +767,8 @@ class _Html(HTMLParser):
             self.flush()
         if tag in FOREIGN_TAGS and self.foreign:
             self.foreign -= 1
-        if tag in self.raw:
-            del self.raw[len(self.raw) - 1 - self.raw[::-1].index(tag):]
-        if tag in self.inert:
-            del self.inert[len(self.inert) - 1 - self.inert[::-1].index(tag):]
+        _pop_to(self.raw, tag)
+        _pop_to(self.inert, tag)
         if tag == "title":
             self.in_title = False
         if tag == "head":

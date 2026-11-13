@@ -151,8 +151,8 @@ and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
   A document carries exactly one Content-Security-Policy `<meta>` with the
   site policy. It sits inside `<head>`, before any `<script>`, `<link>`,
   `<style>` or `<img>`. The policy is not quoted here: it is `POLICY` in
-  `check-fetches.py`, which names its four homes. A policy change edits all
-  four in one reviewed change. A deeper `.html` file without those tags is a
+  `check-fetches.py`, which names its three homes. A policy change edits all
+  three in one reviewed change. A deeper `.html` file without those tags is a
   fragment and needs no meta.
 - *Surfaces with no CSP.* An `.svg` file opened on its own runs its scripts
   with no policy, and a fragment has no policy of its own. So an `.svg` file

@@ -76,18 +76,49 @@ setup() {
   fx_reset "$BATS_TEST_TMPDIR"
 }
 
-# The fetch scanner and the site policy. CSP is one of the policy's four homes
-# (check-fetches.py's POLICY, page.html, the stub writer in build-docs-site.sh),
-# written out here and never read from the others, so a drift in any of them
-# fails a row.
+# The fetch scanner and the site policy. CSP is one of the policy's three homes
+# (check-fetches.py's POLICY, page.html, which the stub writer copies), written
+# out here and never read from the others, so a drift in any of them fails a
+# row.
 SCANNER="$PLUGIN_ROOT/scripts/docs-site/check-fetches.py"
 CSP="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
 CSP_META="<meta http-equiv=\"Content-Security-Policy\" content=\"$CSP\">"
 OH='https://other.host'
 NS='http://www.w3.org/2000/svg'
 
-# scan — the scanner run directly on $FX/site (no build, no pandoc).
-scan() { python3 -I -X utf8 "$SCANNER" "$FX/site"; }
+# scan — the scanner run directly on $FX/site (no build, no pandoc);
+# scan_args — the scanner with the given arguments.
+scan_args() { python3 -I -X utf8 "$SCANNER" "$@"; }
+scan() { scan_args "$FX/site"; }
+
+# The scanner with html.parser broken, so a scan crashes inside it:
+# python3 -c "$FAULT_PY" <scanner> <args...>.
+FAULT_PY='import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")'
+
+# The head of a document up to where its CSP meta goes.
+DOC_HEAD=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+
+# first_line <file> <needle> — set ln to the first line of <file> holding
+# <needle>; fail when none does.
+first_line() {
+  local -a fl
+  local k
+  mapfile -t fl < "$1"
+  for k in "${!fl[@]}"; do
+    [[ ${fl[k]} != *"$2"* ]] || { ln=$((k + 1)); return 0; }
+  done
+  return 1
+}
+
+# has_diag <relpath> <ln> <token> — an output line reads
+# "check-fetches: <relpath>:<ln>: ..." and holds <token>.
+has_diag() {
+  local l
+  for l in "${lines[@]}"; do
+    case "$l" in "check-fetches: $1:$2: "*"$3"*) return 0 ;; esac
+  done
+  return 1
+}
 
 # fx_sf <relpath> <line...> — a file under $FX/site, one argument per line.
 fx_sf() {
@@ -99,8 +130,7 @@ fx_sf() {
 # fx_doc <relpath> <body line...> — a document under $FX/site carrying the CSP meta.
 fx_doc() {
   local rel="$1"; shift
-  fx_sf "$rel" '<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">' "$CSP_META" \
-    '</head><body>' "$@" '</body></html>'
+  fx_sf "$rel" "${DOC_HEAD[@]}" "$CSP_META" '</head><body>' "$@" '</body></html>'
 }
 
 # sc_new — a fresh fixture dir for the next row (one dir per row).
@@ -111,7 +141,7 @@ sc_new() { sc_n=$((${sc_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$sc_n"; }
 # holding <token>, <ln> the first line of the planted file holding <needle>
 # (0 when <needle> is empty), so a violation elsewhere cannot satisfy the row.
 sc_row() {
-  local want="$1" rel="$2" needle="$3" token="$4" ln=0 l hit=0
+  local want="$1" rel="$2" needle="$3" token="$4" ln=0
   run scan
   [ "$status" -eq "$want" ] || { echo "row ${sc_n:-0} ($rel): status $status, want $want: $output" >&2; return 1; }
   if [ "$want" -eq 0 ]; then
@@ -119,13 +149,9 @@ sc_row() {
     return 0
   fi
   if [ -n "$needle" ]; then
-    ln="$(grep -nF -- "$needle" "$FX/site/$rel" | sed -n '1s/:.*//p')"
-    [ -n "$ln" ] || { echo "row ${sc_n:-0}: '$needle' is not in $rel" >&2; return 1; }
+    first_line "$FX/site/$rel" "$needle" || { echo "row ${sc_n:-0}: '$needle' is not in $rel" >&2; return 1; }
   fi
-  for l in "${lines[@]}"; do
-    case "$l" in "check-fetches: $rel:$ln: "*"$token"*) hit=1 ;; esac
-  done
-  [ "$hit" -eq 1 ] || { echo "row ${sc_n:-0}: no 'check-fetches: $rel:$ln: ...$token' in: $output" >&2; return 1; }
+  has_diag "$rel" "$ln" "$token" || { echo "row ${sc_n:-0}: no 'check-fetches: $rel:$ln: ...$token' in: $output" >&2; return 1; }
 }
 
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
@@ -1033,15 +1059,15 @@ usage_2() {
 @test "build-docs-site: check-fetches — usage: no argument, two arguments, a flag, a missing dir and an empty dir exit 2" {
   fx_doc index.html '<p>x</p>'
   mkdir -p "$FX/empty"
-  run python3 -I -X utf8 "$SCANNER"
+  run scan_args
   usage_2
-  run python3 -I -X utf8 "$SCANNER" "$FX/site" "$FX/site"
+  run scan_args "$FX/site" "$FX/site"
   usage_2
-  run python3 -I -X utf8 "$SCANNER" --help
+  run scan_args --help
   usage_2
-  run python3 -I -X utf8 "$SCANNER" "$FX/absent"
+  run scan_args "$FX/absent"
   usage_2
-  run python3 -I -X utf8 "$SCANNER" "$FX/empty"
+  run scan_args "$FX/empty"
   usage_2
   # positive control: the same scanner on the planted site
   run scan
@@ -1052,10 +1078,10 @@ usage_2() {
   fx_doc index.html '<p>x</p>'
   mv "$FX/site" "$FX/-site"
   cd "$FX"
-  run python3 -I -X utf8 "$SCANNER" -- -site
+  run scan_args -- -site
   [ "$status" -eq 0 ]
   [ "$output" = "check-fetches: ok: 1 files: 1 scanned, 0 binary, 0 vendored" ]
-  run python3 -I -X utf8 "$SCANNER" -site
+  run scan_args -site
   usage_2
 }
 
@@ -1093,20 +1119,16 @@ usage_2() {
   sc_row 3 index.html 'Private' 'private preview'
 }
 
-# js_row <want> <token> <line...> — one row: assets/a.js holding the lines; the
-# needle is the first line.
-js_row() {
-  local want="$1" token="$2"; shift 2
-  sc_new; fx_sf assets/a.js "$@"
-  sc_row "$want" assets/a.js "$1" "$token"
+# file_row <want> <token> <relpath> <needle> <line...> — one row: <relpath>
+# holding the lines. js_row / css_row <want> <token> <line...>: assets/a.js or
+# assets/a.css, the needle the first line.
+file_row() {
+  local want="$1" token="$2" rel="$3" needle="$4"; shift 4
+  sc_new; fx_sf "$rel" "$@"
+  sc_row "$want" "$rel" "$needle" "$token"
 }
-
-# css_row <want> <token> <line...> — the same for assets/a.css.
-css_row() {
-  local want="$1" token="$2"; shift 2
-  sc_new; fx_sf assets/a.css "$@"
-  sc_row "$want" assets/a.css "$1" "$token"
-}
+js_row() { file_row "$1" "$2" assets/a.js "$3" "${@:3}"; }
+css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
 
 @test "build-docs-site: check-fetches — JS: strings and template chunks with a remote URL are refused" {
   local r='remote URL in a JS string'
@@ -1204,11 +1226,7 @@ svg_row() {
   sc_new; fx_sf assets/d.svg "<svg xmlns=\"$NS\">" "$@" '</svg>'
   sc_row "$want" assets/d.svg "$needle" "$token"
 }
-svg_whole() {
-  local want="$1" token="$2" needle="$3"; shift 3
-  sc_new; fx_sf assets/d.svg "$@"
-  sc_row "$want" assets/d.svg "$needle" "$token"
-}
+svg_whole() { file_row "$1" "$2" assets/d.svg "$3" "${@:4}"; }
 
 @test "build-docs-site: check-fetches — attribute contexts refuse a remote URL anywhere in the value" {
   sc_n=0
@@ -1319,7 +1337,7 @@ svg_whole() {
 }
 
 @test "build-docs-site: check-fetches — CSP meta rule" {
-  local doc=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+  local doc=("${DOC_HEAD[@]}")
   sc_n=0
   # (a) no meta
   sc_new; fx_sf index.html "${doc[@]}" '</head><body><p>x</p></body></html>'
@@ -1424,7 +1442,7 @@ fault_py() {
   cat > "$1" <<EOF
 #!$(command -v bash)
 case " \$* " in *" -c "*) exec "$real_py" "\$@" ;; esac
-exec "$real_py" -I -X utf8 -c 'import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "\${@: -3}"
+exec "$real_py" -I -X utf8 -c '$FAULT_PY' "\${@: -3}"
 EOF
   chmod +x "$1"
 }
@@ -1442,7 +1460,7 @@ EOF
 
 @test "build-docs-site: check-fetches — a fault inside the scanner exits neither 0 nor 3" {
   fx_doc index.html '<p>x</p>'
-  run python3 -I -X utf8 -c 'import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$SCANNER" "$FX/site"
+  run python3 -I -X utf8 -c "$FAULT_PY" "$SCANNER" "$FX/site"
   [ "$status" -ne 0 ]
   [ "$status" -ne 3 ]
   [[ "$output" != *"check-fetches: ok:"* ]]
@@ -1459,16 +1477,12 @@ t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; mkdi
 # win); it must exit 7 and name <relpath> at the first built line holding
 # <needle>.
 t7_row() {
-  local rel="$1" needle="$2" ln l hit=0
+  local rel="$1" needle="$2" ln
   run fx_build --static "$FX/static"
   [ "$status" -eq 7 ] || { echo "row $t7_n ($rel): status $status, want 7: $output" >&2; return 1; }
   [[ "$output" == *"the built site breaks the fetch policy"* ]] || { echo "row $t7_n: no exit-7 message: $output" >&2; return 1; }
-  ln="$(grep -nF -- "$needle" "$FX/out/$rel" | sed -n '1s/:.*//p')"
-  [ -n "$ln" ] || { echo "row $t7_n: '$needle' is not in the built $rel" >&2; return 1; }
-  for l in "${lines[@]}"; do
-    case "$l" in "check-fetches: $rel:$ln: "*) hit=1 ;; esac
-  done
-  [ "$hit" -eq 1 ] || { echo "row $t7_n: no 'check-fetches: $rel:$ln: ' in: $output" >&2; return 1; }
+  first_line "$FX/out/$rel" "$needle" || { echo "row $t7_n: '$needle' is not in the built $rel" >&2; return 1; }
+  has_diag "$rel" "$ln" '' || { echo "row $t7_n: no 'check-fetches: $rel:$ln: ' in: $output" >&2; return 1; }
 }
 
 # t7_index <needle> <line> — a mutation row planted in the hand-written index.
@@ -1539,7 +1553,7 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
 }
 
 @test "build-docs-site: check-fetches — a CSP meta a browser ignores does not count" {
-  local doc=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+  local doc=("${DOC_HEAD[@]}")
   sc_n=0
   sc_new; fx_sf index.html "${doc[@]}" '<p>x</p>' "$CSP_META" '</head><body></body></html>'
   sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'

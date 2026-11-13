@@ -431,9 +431,9 @@ for p in "${pages[@]}"; do
 done
 
 # Stubs: static HTML that loads nothing under the site CSP and asks not to be
-# indexed. They are in no nav and are not counted as pages. The CSP line is the
-# policy's stub home (check-fetches.py's POLICY names all four); the fetch scan
-# refuses a stub whose line drifts from it.
+# indexed. They are in no nav and are not counted as pages. Their CSP line is
+# page.html's, copied; a stub without it fails the fetch scan (exit 7).
+csp_meta="$(grep -m1 -F 'http-equiv="Content-Security-Policy"' "$tmpl/page.html")" || csp_meta=''
 for old in "${!moved[@]}"; do
   new="$(printf '%s' "${moved[$old]}" | html_escape)"
   printf '%s\n' \
@@ -441,7 +441,7 @@ for old in "${!moved[@]}"; do
     '<html lang="en">' \
     '<head>' \
     '<meta charset="utf-8">' \
-    "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'\">" \
+    "$csp_meta" \
     '<meta name="viewport" content="width=device-width, initial-scale=1">' \
     '<meta name="robots" content="noindex">' \
     '<title>Page moved | devAgent</title>' \
