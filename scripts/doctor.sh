@@ -143,7 +143,7 @@ check_merge_step() {
       check "project.$project.permissions.merge_mr" warn '`merge_mr` no longer gates mergetoall; set `merge_to_all_prs` to keep that gate (or ignore this if you do not use mergetoall)'
     fi
   fi
-  for key in checklist-standard checklist-perf checklist-docs-only checklist-oneshot checklist-research revision_block; do
+  for key in checklist-standard checklist-perf checklist-docs-only checklist-oneshot checklist-research checklist-starter revision_block; do
     # §12 resolver (#425: no hand-built template path): skip the plugin layer.
     res="$(template_resolve "$project" "$key" 2>/dev/null || true)"
     [[ "$res" == *$'\nlayer=project' || "$res" == *$'\nlayer=devdoc' ]] || continue

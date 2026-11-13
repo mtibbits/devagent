@@ -16,6 +16,32 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: cost-report --overhead, unattributed cost as per-project overhead
+  (#732, epic #729).** `cost-report.sh --overhead` places each
+  `(no project)/(no issue)` call by the first rule that applies: the
+  session's most recent hint (a typed `/devagent:<cmd>` naming a known
+  project and no issue, or Bash `DEVAGENT_PROJECT=<project>`), else the
+  project whose `source_dir`, `worktree_root` or `devdoc_dir` holds the
+  record's cwd, else `(unassigned) <cwd>`. Lines read
+  `<project>/(overhead): …; hint N, cwd N` and `(unassigned) <cwd>: …`, and
+  sum to the `(no project)/(no issue)` total; `--json` adds rules and
+  sources. Paths follow the spec's §8.1 containment rule (identity first,
+  then only the drive letter ignores case), not the issue's broader
+  "case-insensitively on Windows". Output without `--overhead` is unchanged.
+
+- **Added: the `starter` checklist tier (#989).** `docs-only` plus
+  implement: pull, draft, branch, implement, document, commit, draftmr,
+  review, preship, ship, mergetoall (skipped unless `all_prs_branch` is
+  set), mergemr and cleanup. Choose it per issue with `tier: starter` in
+  `## Workflow flags` before the first pull; no config default changes. A
+  later MR-feedback revise appends the standard-shaped revision block, as
+  for every non-standard tier.
+- **Fixed: implement and document no longer halt on a plan with no
+  `## Definition of done` when the active revision block has no tighten
+  row (#989).** Tighten writes that section, so on `docs-only`, `research`
+  and `starter` issues the plan's tasks and the issue's acceptance
+  criteria are the work statement; a tier with tighten (standard, perf)
+  still halts.
 - **Added: the disk issue backend (#1009, epic #1007).** With
   `backend = "disk"` and `repo = "<absolute folder>"` under
   `[project.<name>.issue_source]`, issues are `<N>.md` files in that folder
@@ -46,6 +72,20 @@ the README's "Versioning & releases" section has the release procedure.
   fields and exit codes. Writes are atomic, keep each file's line endings, BOM
   and mode, never edit a faulty file, and never overwrite on `create`.
   `docs/disk-issues.md` documents the format. No caller uses it yet.
+- **Changed: the docs-site build checks an allowlist of what the site may load
+  instead of banning substrings (#1030).** After link closure the build runs
+  `scripts/docs-site/check-fetches.py` over every built file. Each file is
+  scanned, counted as a listed binary type, or refused. A remote URL is refused
+  in HTML and SVG attributes, inline and file JavaScript strings, and CSS
+  strings and `url()` (the scanner's header lists its known blind spots). So are `<iframe>`,
+  `<object>`, `<embed>`, scripts and handlers on surfaces with no CSP, and
+  markup that the scanner and a browser parse differently. Every page and
+  moved-page stub now carries the site's Content-Security-Policy `<meta>`, and
+  the scan requires it. New exit codes: 7 (the built site breaks the fetch
+  policy; one `check-fetches: <file>:<line>: <reason>` line each) and 8 (the
+  scan did not complete). Exit 3 now also names a python3 that is missing,
+  cannot run, is older than 3.8, or has an html.parser without the 2025
+  security fixes (`DEVAGENT_PYTHON` names another interpreter).
 - **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
   `depends_on` entry may name another configured project's issue as
   `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the

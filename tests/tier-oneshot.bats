@@ -69,7 +69,7 @@ teardown() { teardown_tmp_devagent_home; }
 @test "document.md carries the absent-draft-step carve-out (#537)" {
   f="$PLUGIN_ROOT/commands/document.md"
   grep -q "producing step is absent from the issue's checklist is N/A" "$f"
-  grep -qE "checklist omits draft" "$f"
+  grep -qE "active revision block omits draft" "$f"
 }
 
 # --- Task 5: end-to-end oneshot chain ----------------------------------------

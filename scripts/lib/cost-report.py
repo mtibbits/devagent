@@ -15,14 +15,27 @@ meta has none) through the Workflow tool call whose result names its run id.
 
 Transcripts are read from the current directory's dir under
 <CLAUDE_CONFIG_DIR or ~/.claude>/projects, from every dir there with
---project or --all-dirs, or from --transcripts, which overrides both.
---archive <dir> reads a scripts/archive-transcripts.sh archive
+--project, --all-dirs or --overhead, or from --transcripts, which overrides
+them. --archive <dir> reads a scripts/archive-transcripts.sh archive
 (<dir>/<host>/<cwd-slug>/<session>.jsonl.gz) and, alone, nothing live; the
-live dirs are added by --all-dirs, --project or --transcripts. A transcript is
+live dirs are added by --all-dirs, --project, --overhead or --transcripts. A transcript is
 read as .jsonl or .jsonl.gz. One API call (message id) is counted once across
 every file read, so a session archived on two hosts and still live counts
 once; a session is its sessionId. --json prints one JSON object per (project,
-issue) with the transcript files it came from. Records stream, so memory does
+issue) with the transcript files it came from.
+
+--overhead (#732) reports the (no project)/(no issue) calls as overhead per
+project, each placed by the first rule that applies: the session's most
+recent earlier hint (a typed /devagent:<cmd> naming a known project and no
+issue, or a Bash call assigning DEVAGENT_PROJECT a known project; a hint
+never moves the pair), else the project whose source_dir, worktree_root
+(default <source_dir>-wt) or devdoc_dir holds the record's cwd (longest
+match, spec 8.1 path containment; a tie between projects is unassigned),
+else (unassigned) <cwd>. A subagent follows its launch's placement. Calls
+and totals sum to the (no project)/(no issue) pair; session counts can
+overlap across lines.
+
+Records stream, so memory does
 not grow with transcript size; under --time it grows by one 16-byte uuid key
 per user/assistant record (about 150 bytes with set overhead) and one span
 per busy run.
@@ -95,6 +108,10 @@ ISSUE_TOKEN = re.compile(r"(?:^|/)([A-Za-z]+-\d+)/?$")
 RUN_ID = re.compile(r"Run ID: (wf_[0-9a-f]{8}-[0-9a-f]{3})")
 # Commands that drive steps rather than being one.
 DRIVERS = {"next"}
+# A Bash command setting DEVAGENT_PROJECT to a literal value; a $-expansion never matches.
+PROJECT_ASSIGN = re.compile(
+    r"""(?:^|[\s;&|(])DEVAGENT_PROJECT=(?:"([\w.-]+)"|'([\w.-]+)'|([\w.-]+)(?=$|[\s;&|)]))"""
+)
 NO_PROJECT = "(no project)"
 NO_ISSUE = "(no issue)"
 NO_STEP = "(no step)"
@@ -176,11 +193,11 @@ def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
             print(f"cost-report: truncated {path} ({e})", file=sys.stderr)
 
 
-def known_projects() -> set[str]:
+def _project_tables() -> dict[str, dict]:
     """The [project.<name>] tables of ${DA_HOME:-~/.claude/devagent}/config.toml (scripts/lib/paths.sh)."""
     path = Path(os.environ.get("DA_HOME") or Path.home() / ".claude" / "devagent") / "config.toml"
     if not path.is_file():
-        return set()
+        return {}
     try:
         spec = importlib.util.spec_from_file_location("_devagent_toml", Path(__file__).with_name("_toml.py"))
         toml = importlib.util.module_from_spec(spec)
@@ -189,9 +206,83 @@ def known_projects() -> set[str]:
     except (OSError, ValueError, ImportError) as e:  # unreadable, invalid TOML, or no TOML parser on this Python
         print(f"cost-report: cannot read {path} ({e}); known projects come from dispatch headers only",
               file=sys.stderr)
-        return set()
+        return {}
     tables = data.get("project")
-    return {k for k, v in tables.items() if isinstance(v, dict)} if isinstance(tables, dict) else set()
+    return {k: v for k, v in tables.items() if isinstance(v, dict)} if isinstance(tables, dict) else {}
+
+
+def known_projects() -> set[str]:
+    return set(_project_tables())
+
+
+_SLASH_DRIVE = re.compile(r"^/([A-Za-z])(/.*)?$")
+_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def _norm(path: str) -> str:
+    """Spec §8.1's string fallback (#950): \\ to /, /c/... to c:/..., fold only the drive letter, drop trailing /."""
+    p = os.path.expanduser(path).replace("\\", "/")
+    m = _SLASH_DRIVE.match(p)
+    if m:
+        p = f"{m.group(1)}:{m.group(2) or '/'}"
+    if _DRIVE.match(p):
+        p = p[0].lower() + p[1:]
+    q = p.rstrip("/")
+    if _DRIVE.fullmatch(q):
+        return q + "/"
+    return q or ("/" if p.startswith("/") else "")
+
+
+def _under(p: str, r: str) -> bool:
+    """Is path p under dir r, per spec §8.1: identity first when both are existing dirs, else _norm's strings."""
+    np_, nr = (_norm(p) if p else ""), (_norm(r) if r else "")
+    if not np_ or not nr:
+        return False
+    pp = np_ if os.path.isdir(np_) else p if os.path.isdir(p) else None
+    rr = nr if os.path.isdir(nr) else r if os.path.isdir(r) else None
+    if pp and rr:
+        # Walk physical parents, as hook_path_under does: realpath resolves .. and symlinks on disk.
+        try:
+            target, cur = os.stat(rr), os.path.realpath(pp)
+            for _ in range(64):
+                if os.path.samestat(os.stat(cur), target):
+                    return True
+                up = os.path.dirname(cur)
+                if up == cur:
+                    return False
+                cur = up
+        except OSError:
+            pass
+        return False
+    return np_ == nr or np_.startswith(nr if nr.endswith("/") else nr + "/")
+
+
+def project_dirs(tables: dict[str, dict]) -> list[tuple[str, str]]:
+    """(normalised dir, project) for each project's source_dir, worktree_root (default <source_dir>-wt) and devdoc_dir."""
+    out: list[tuple[str, str]] = []
+    for name, t in tables.items():
+        src = t.get("source_dir")
+        wt = t.get("worktree_root") or (   # empty reads as unset, as in scripts/lib/trust.sh
+            os.path.expanduser(src) + "-wt" if isinstance(src, str) and src else None)
+        for v in (src, wt, t.get("devdoc_dir")):
+            d = _norm(v) if isinstance(v, str) and v else ""
+            if d and (d, name) not in out:
+                out.append((d, name))
+    return out
+
+
+def _dir_project(cwd: str, dirs: list[tuple[str, str]], cache: dict) -> str | None:
+    """The project whose dir holds cwd, longest dir winning; a tie between two projects is None."""
+    if cwd not in cache:
+        best, who = -1, set()
+        for d, name in dirs:
+            if _under(cwd, d):
+                if len(d) > best:
+                    best, who = len(d), {name}
+                elif len(d) == best:
+                    who.add(name)
+        cache[cwd] = next(iter(who)) if len(who) == 1 else None
+    return cache[cwd]
 
 
 def _text(content) -> str:
@@ -436,10 +527,14 @@ class Tape:
     """One session reduced to the events that move the pair or the step, with the calls between them bucketed.
 
     events: ("dispatch", project, issue, step) | ("typed", name, args) | ("skill", step)
-            | ("launch", tool_use_id) | ("calls", Row) | ("time", TimeAcc)
+            | ("launch", tool_use_id, cwd) | ("calls", Row, cwd) | ("hint", (project, ...))
+            | ("time", TimeAcc)
+            cwd is the record's cwd (None when absent); a calls bucket holds one cwd. A
+            "hint" is the literal DEVAGENT_PROJECT values one Bash command assigns.
     dispatched: every project a next.sh dispatch header named (all hits, not only the last).
-    subs: [(toolUseId, cost, fresh)], one per subagent file with usage; fresh is
-          False when every one of its message ids was already counted elsewhere.
+    subs: [(toolUseId, cost, fresh, cwd)], one per subagent file with usage; fresh is
+          False when every one of its message ids was already counted elsewhere; cwd is
+          the file's first record cwd (None when none has one).
     session: the first sessionId in the file, else its session key.
     runs: {workflow run id: the Workflow tool_use id whose result named it} (first wins).
     A "time" event (under --time) holds the time of the records ticked before the
@@ -470,6 +565,7 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
     local: set[str] = set()
     clock = timing.clock(main=True) if timing else None
     row = tacc = None   # the open calls and time buckets; a pair-moving event closes both
+    row_cwd = None      # the open calls bucket's cwd; a new cwd opens a new bucket
 
     def move(e):
         nonlocal row, tacc
@@ -489,6 +585,7 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
         kind, msg = d.get("type"), d.get("message") or {}
         if not isinstance(msg, dict):
             continue
+        cwd = d.get("cwd") if isinstance(d.get("cwd"), str) else None
         if kind == "user":
             content = msg.get("content")
             blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
@@ -514,8 +611,13 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                 name, inp = b.get("name"), b.get("input")
                 if not isinstance(inp, dict):
                     inp = {}
-                if name == "Bash" and "next.sh" in str(inp.get("command", "")):
-                    next_calls.add(b.get("id"))
+                if name == "Bash":
+                    cmd = str(inp.get("command", ""))
+                    if "next.sh" in cmd:
+                        next_calls.add(b.get("id"))
+                    values = _assigned_projects(cmd)   # one command can be both a dispatch and a hint
+                    if values:
+                        move(("hint", values))
                 elif name == "Skill":
                     s = str(inp.get("skill", ""))
                     if s.startswith("devagent:"):
@@ -523,15 +625,15 @@ def scan(records: Iterable[dict], seen: set[str], timing: Timing | None = None) 
                         if n not in DRIVERS and not n.startswith("core-"):
                             move(("skill", n))
                 elif name in LAUNCH_TOOLS:
-                    move(("launch", b.get("id")))
+                    move(("launch", b.get("id"), cwd))
                     if name == "Workflow":
                         workflow_calls.add(b.get("id"))
             mid, usage = msg.get("id"), msg.get("usage")
             if mid and isinstance(usage, dict) and usage and mid not in local:
                 local.add(mid)
-                if row is None:
-                    row = Row()
-                    ev.append(("calls", row))
+                if row is None or cwd != row_cwd:
+                    row, row_cwd = Row(), cwd
+                    ev.append(("calls", row, cwd))
                 if mid not in seen:
                     seen.add(mid)
                     row.add(1, context_size(usage), call_cost(usage))
@@ -572,12 +674,15 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         except (OSError, ValueError, RecursionError):
             meta = {}
         last: dict[str, dict] = {}
+        sub_cwd = None
         # Like last for cost, a subagent file's uuids join the shared set only once it reads whole.
         added: set = set()
         clock, acc = (timing.clock(main=False, added=added), TimeAcc()) if timing else (None, None)
         try:
             for d in load(sub, SUB_MARKERS + TIME_MARKERS if timing else SUB_MARKERS):
                 msg = d.get("message") or {}
+                if sub_cwd is None and isinstance(d.get("cwd"), str):
+                    sub_cwd = d["cwd"]
                 if d.get("type") == "assistant" and isinstance(msg, dict) and msg.get("id") and isinstance(msg.get("usage"), dict):
                     last[msg["id"]] = msg["usage"]
                 if clock is not None:
@@ -596,18 +701,12 @@ def scan_session(path: Path, seen: set[str], timing: Timing | None = None) -> Ta
         if last:
             fresh = [u for mid, u in last.items() if mid not in seen]
             seen.update(last)
-            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh)))
+            tape.subs.append((tool_use_id, sum(map(call_cost, fresh)), bool(fresh), sub_cwd))
     return tape
 
 
-def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
-    """The (pair, step) after a typed /devagent:<name> <args>."""
-    if name in DRIVERS:
-        return pair, step
-    if name == "pull":
-        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
-            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
-        return pair, step                                 # any other shape, pull.sh rejects
+def _typed_names(args: tuple, known: set[str]):
+    """(project, issue) a typed command's args name: the project after --project or first, the last issue token."""
     project, used = None, None
     if "--project" in args:
         j = args.index("--project") + 1
@@ -620,6 +719,36 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
         m = ISSUE_TOKEN.search(a) if j != used and a not in known else None   # a project never doubles as the issue
         if m:
             issue = m.group(1)
+    return project, issue
+
+
+def _typed_hint(name: str, args: tuple, known: set[str]) -> str | None:
+    """The project a typed /devagent:<name> <args> hints: the first known project, when no issue is named.
+
+    A hint only places overhead; it never changes the pair. pull never hints.
+    """
+    project, issue = _typed_names(args, known)
+    if name == "pull" or issue is not None:
+        return None
+    return project or next((a for a in args if a in known), None)
+
+
+def _assigned_projects(cmd: str) -> tuple[str, ...]:
+    """The literal values a Bash command assigns to DEVAGENT_PROJECT, in order."""
+    if "DEVAGENT_PROJECT=" not in cmd:   # the common case: skip the regex on every other Bash command
+        return ()
+    return tuple(next(g for g in m if g) for m in PROJECT_ASSIGN.findall(cmd))
+
+
+def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
+    """The (pair, step) after a typed /devagent:<name> <args>."""
+    if name in DRIVERS:
+        return pair, step
+    if name == "pull":
+        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
+            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
+        return pair, step                                 # any other shape, pull.sh rejects
+    project, issue = _typed_names(args, known)
     if issue is None:
         return pair, name
     if project is not None:
@@ -629,32 +758,68 @@ def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str])
 
 
 def replay(tape: Tape, known: set[str]):
-    """Run the pair state machine over a tape.
+    """Run the pair state machine over a tape, and beside it the project hint (#732).
 
-    Return ([(pair, step, Row)], {Agent tool_use id: (pair, step)}, [(pair, TimeAcc)]).
+    Return ([(pair, step, Row, (hint, cwd))], {Agent tool_use id: (pair, step)},
+    [(pair, TimeAcc)], {Agent tool_use id: (hint, cwd)}). The hint never moves the pair.
     """
     pair, step = START
-    buckets, launches, timed = [], {}, []
+    hint = None
+    buckets, launches, timed, places = [], {}, [], {}
     for e in tape.events:
         kind = e[0]
         if kind == "calls":
-            buckets.append((pair, step, e[1]))
+            buckets.append((pair, step, e[1], (hint, e[2])))
         elif kind == "time":
             timed.append((pair, e[1]))
         elif kind == "dispatch":
             pair, step = (e[1], e[2]), e[3]
         elif kind == "typed":
             pair, step = _typed_pair(e[1], e[2], pair, step, known)
+            hint = _typed_hint(e[1], e[2], known) or hint
         elif kind == "skill":
             step = e[1]
+        elif kind == "hint":
+            hint = next((v for v in reversed(e[1]) if v in known), hint)
         elif kind == "launch":
             launches[e[1]] = (pair, step)
-    return buckets, launches, timed
+            places[e[1]] = (hint, e[2])
+    return buckets, launches, timed, places
+
+
+class Overhead:
+    """One overhead line's figures: per-step Rows, sessions, sources, and calls per placement rule."""
+    __slots__ = ("steps", "sessions", "sources", "rules")
+
+    def __init__(self):
+        self.steps: dict[str, Row] = {}
+        self.sessions: set[str] = set()
+        self.sources: set[tuple] = set()
+        self.rules = {"hint": 0, "cwd": 0, "unassigned": 0}
+
+
+def _charge_overhead(overhead: dict, place: tuple, step: str, session: str, origin: tuple):
+    """The Overhead slot for place, with session and origin recorded, and its Row for step."""
+    o = overhead.setdefault(place, Overhead())
+    o.sessions.add(session)
+    o.sources.add(origin)
+    return o, o.steps.setdefault(step, Row())
+
+
+def _place(hint: str | None, cwd: str | None, dirs: list[tuple[str, str]], cache: dict):
+    """Where an overhead call goes, first rule that applies: the session hint, the cwd's project, else unassigned."""
+    if hint is not None:
+        return ("project", hint), "hint"
+    project = _dir_project(cwd, dirs, cache) if cwd else None
+    if project is not None:
+        return ("project", project), "cwd"
+    return ("unassigned", _norm(cwd) if cwd else "(no cwd)"), "unassigned"
 
 
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
             hosts: dict | None = None, sources: dict | None = None,
-            timing: TimeRules | None = None, times: dict | None = None):
+            timing: TimeRules | None = None, times: dict | None = None,
+            overhead: dict | None = None):
     """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
@@ -664,7 +829,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     partition (absent: "local"); a dict passed as sources is filled
     {pair: {(host, cwd_slug, sessionId)}}. With timing, a dict passed as times
     is filled {pair: TimeAcc} under the same filters; one set of record uuids
-    spans every file, as message ids do.
+    spans every file, as message ids do. A dict passed as overhead is filled
+    {("project", P) | ("unassigned", cwd): Overhead} with the (no project)/(no issue)
+    calls, charged at the same sites and from the same Rows, so it sums to that pair.
     """
     hosts = hosts or {}
     sources = {} if sources is None else sources
@@ -679,7 +846,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
             tapes.append((scan_session(p, seen, clocks), (hosts.get(d, "local"), d.name)))
         except OSError as e:
             _skipped(p, e)
-    known = known_projects().union(*(t.dispatched for t, _ in tapes))
+    tables = _project_tables()
+    known = set(tables).union(*(t.dispatched for t, _ in tapes))
+    pdirs, cache = (project_dirs(tables), {}) if overhead is not None else ([], {})
     # A wait on a launched agent is not main busy when a subagent file under its id was read and is charged
     # through this tape's launches (its records carry the work); a nested agent's file is charged elsewhere.
     sub_ids = {i for t, _ in tapes for i, _ in t.sub_time if i is not None}
@@ -694,17 +863,26 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
                 acc[pair].add_busy(start, end)
 
     for tape, where in tapes:
-        buckets, launches, timed = replay(tape, known)
+        buckets, launches, timed, places = replay(tape, known)
         origin = (*where, tape.session)
-        for pair, step, b in buckets:
+        for pair, step, b, (hint, cwd) in buckets:
             if b.calls:
                 rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
+                if overhead is not None and pair == START[0]:
+                    place, rule = _place(hint, cwd, pdirs, cache)
+                    o, row = _charge_overhead(overhead, place, step, tape.session, origin)
+                    row.add(b.calls, b.peak, b.main)
+                    o.rules[rule] += b.calls
             sessions[pair].add(tape.session)
             sources.setdefault(pair, set()).add(origin)
-        for tool_use_id, cost, fresh in tape.subs:
+        for tool_use_id, cost, fresh, sub_cwd in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
+                if overhead is not None and pair == START[0]:
+                    hint, cwd = places.get(tool_use_id, (None, None))
+                    place, _ = _place(hint, cwd or sub_cwd, pdirs, cache)
+                    _charge_overhead(overhead, place, step, tape.session, origin)[1].sub += cost
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
             charge(pair, a, launches)
@@ -727,11 +905,14 @@ def _m(x: float) -> str:
     return f"{x / 1e6:.2f}"
 
 
+def _figures(steps: dict[str, Row]):
+    """(calls, peak context, main, sub) over a pair's or an overhead line's steps."""
+    return (sum(r.calls for r in steps.values()), max((r.peak for r in steps.values()), default=0),
+            sum(r.main for r in steps.values()), sum(r.sub for r in steps.values()))
+
+
 def summary_line(heading: str, steps: dict[str, Row], n_sessions: int) -> str:
-    main = sum(r.main for r in steps.values())
-    sub = sum(r.sub for r in steps.values())
-    calls = sum(r.calls for r in steps.values())
-    peak = max((r.peak for r in steps.values()), default=0)
+    calls, peak, main, sub = _figures(steps)
     return (
         f"{heading}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
         f"{n_sessions} session(s), {calls} calls, peak context {peak // 1000}K "
@@ -747,16 +928,18 @@ def time_line(pair: tuple, a: TimeAcc) -> str:
     )
 
 
+def _header(source: str) -> list[str]:
+    return [
+        f"Token cost by step, from {source}",
+        "input-token equivalents, weighted by price vs base input: cache read 0.1, "
+        "cache write 1.25 (5m) / 2 (1h), output 5",
+    ]
+
+
 def report(rows, sessions, source: str, summary: bool, times: dict | None = None,
            rules: TimeRules | None = None) -> str:
     """The text report; with rules (--time), the rule line heads it and each pair's time line follows its cost line."""
-    out = []
-    if not summary:
-        out.append(f"Token cost by step, from {source}")
-        out.append(
-            "input-token equivalents, weighted by price vs base input: cache read 0.1, "
-            "cache write 1.25 (5m) / 2 (1h), output 5"
-        )
+    out = [] if summary else _header(source)
     if rules is not None:
         out.append(rules.rule_line())
     for pair, steps in rows.items():
@@ -765,13 +948,64 @@ def report(rows, sessions, source: str, summary: bool, times: dict | None = None
         if summary:
             out += lines
             continue
-        total = sum(r.main + r.sub for r in steps.values()) or 1.0
-        out += ["", *lines, f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
-        for step, r in steps.items():
-            out.append(
-                f"  {step:<22}{r.calls:>6}{r.peak // 1000:>9}K{_m(r.main):>9}{_m(r.sub):>8}"
-                f"{_m(r.main + r.sub):>9}{100 * (r.main + r.sub) / total:>6.0f}%"
-            )
+        out += ["", *lines, *_steps_block(steps)]
+    return "\n".join(out)
+
+
+def _steps_block(steps: dict[str, Row]) -> list[str]:
+    """The per-step table under a heading: the column header, then one row per step."""
+    total = sum(r.main + r.sub for r in steps.values()) or 1.0
+    out = [f"  {'step':<22}{'calls':>6}{'peak ctx':>10}{'main M':>9}{'sub M':>8}{'total M':>9}{'share':>7}"]
+    for step, r in steps.items():
+        out.append(
+            f"  {step:<22}{r.calls:>6}{r.peak // 1000:>9}K{_m(r.main):>9}{_m(r.sub):>8}"
+            f"{_m(r.main + r.sub):>9}{100 * (r.main + r.sub) / total:>6.0f}%"
+        )
+    return out
+
+
+def _sources_json(sources) -> list[dict]:
+    return [{"cwd_slug": c, "host": h, "session": s} for c, h, s in sorted((c, h, s) for h, c, s in sources)]
+
+
+def _overhead_order(ov: dict):
+    """Project lines by name, then unassigned lines by cwd."""
+    return sorted(ov.items(), key=lambda kv: (kv[0][0] != "project", kv[0][1]))
+
+
+def overhead_heading(key: tuple, o: Overhead) -> str:
+    kind, name = key
+    if kind == "project":
+        return summary_line(f"{name}/(overhead)", o.steps, len(o.sessions)) + \
+            f"; hint {o.rules['hint']}, cwd {o.rules['cwd']}"
+    return summary_line(f"(unassigned) {name}", o.steps, len(o.sessions))
+
+
+def report_overhead(ov: dict, source: str, summary: bool) -> str:
+    """The --overhead text report, in report()'s shape: one line (or block) per project, then per unassigned cwd."""
+    out = [] if summary else _header(source)
+    for key, o in _overhead_order(ov):
+        out += [overhead_heading(key, o)] if summary else ["", overhead_heading(key, o), *_steps_block(o.steps)]
+    return "\n".join(out)
+
+
+def report_overhead_json(ov: dict) -> str:
+    """One JSON object per --overhead line, keys sorted, figures rounded to 2 decimals."""
+    out = []
+    for (kind, name), o in _overhead_order(ov):
+        calls, peak, main, sub = _figures(o.steps)
+        out.append(json.dumps({
+            "calls": calls,
+            "cwd": None if kind == "project" else name,
+            "main": round(main, 2),
+            "peak_context": peak,
+            "project": name if kind == "project" else "(unassigned)",
+            "rules": dict(o.rules),
+            "sessions": len(o.sessions),
+            "sources": _sources_json(o.sources),
+            "subagents": round(sub, 2),
+            "total": round(main + sub, 2),
+        }, sort_keys=True))
     return "\n".join(out)
 
 
@@ -782,8 +1016,7 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
     """
     out = []
     for pair, steps in rows.items():
-        main = sum(r.main for r in steps.values())
-        sub = sum(r.sub for r in steps.values())
+        calls, peak, main, sub = _figures(steps)
         extra = {}
         if rules is not None:
             a = (times or {}).get(pair) or TimeAcc()
@@ -798,14 +1031,13 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
             }
         out.append(json.dumps({
             **extra,
-            "calls": sum(r.calls for r in steps.values()),
+            "calls": calls,
             "issue": pair[1],
             "main": round(main, 2),
-            "peak_context": max((r.peak for r in steps.values()), default=0),
+            "peak_context": peak,
             "project": pair[0],
             "sessions": len(sessions.get(pair, ())),
-            "sources": [{"cwd_slug": c, "host": h, "session": s}
-                        for c, h, s in sorted((c, h, s) for h, c, s in sources.get(pair, ()))],
+            "sources": _sources_json(sources.get(pair, ())),
             "subagents": round(sub, 2),
             "total": round(main + sub, 2),
         }, sort_keys=True))
@@ -857,7 +1089,8 @@ TIME_FLAGS = (("--idle-gap", "idle_gap"), ("--tool-gap", "tool_gap"), ("--attent
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--transcripts", action="append", type=Path,
-                    help="a Claude Code project transcript dir (repeatable); overrides --project and --all-dirs; "
+                    help="a Claude Code project transcript dir (repeatable); overrides --project, --all-dirs "
+                         "and --overhead; "
                          "default: the current directory's")
     ap.add_argument("--project", type=_nonempty,
                     help="report only this project (exact match); reads every transcript dir")
@@ -866,12 +1099,15 @@ def main(argv: list[str]) -> int:
                     help="read every transcript dir under <CLAUDE_CONFIG_DIR or ~/.claude>/projects")
     ap.add_argument("--archive", type=Path,
                     help="read a scripts/archive-transcripts.sh archive (every host and cwd partition, "
-                         ".jsonl.gz); alone it reads no live dir, --all-dirs/--project/--transcripts add them")
+                         ".jsonl.gz); alone it reads no live dir, --all-dirs/--project/--overhead/--transcripts add them")
     out = ap.add_mutually_exclusive_group()
     out.add_argument("--summary", action="store_true", help="one line per (project, issue) pair")
     out.add_argument("--json", action="store_true",
                      help="one JSON object per (project, issue) pair, with the transcript files it came from")
     ap.add_argument("--time", action="store_true", help="add agent and operator time per pair")
+    ap.add_argument("--overhead", action="store_true",
+                    help="report (no project)/(no issue) cost as per-project overhead: hint, then cwd, "
+                         "else (unassigned); reads every transcript dir")
     defaults = TimeRules()
     for flag, attr in TIME_FLAGS:
         ap.add_argument(flag, type=_minutes, metavar="MIN",
@@ -880,10 +1116,14 @@ def main(argv: list[str]) -> int:
     given = {attr: 60 * getattr(a, attr) for _, attr in TIME_FLAGS if getattr(a, attr) is not None}
     if given and not a.time:
         ap.error(f"{next(f for f, attr in TIME_FLAGS if attr in given)} needs --time")
+    if a.overhead and a.issue:
+        ap.error("--overhead does not take --issue")
+    if a.overhead and a.time:
+        ap.error("--overhead does not take --time")
     rules = TimeRules(**given) if a.time else None
     times: dict = {}
     issue = f"Issue-{a.issue}" if a.issue and a.issue.isdigit() else a.issue
-    every = (a.project or a.all_dirs) and not a.transcripts
+    every = (a.project or a.all_dirs or a.overhead) and not a.transcripts
     adirs: list[Path] = []
     if a.archive is not None:
         if not a.archive.is_dir():
@@ -907,6 +1147,22 @@ def main(argv: list[str]) -> int:
         parts.append(f"archive {a.archive} ({len(adirs)} dirs)")
     source = "; ".join(parts)
     sources: dict = {}
+    if a.overhead:
+        ov: dict = {}
+        collect(dirs, None, hosts=hosts, sources=sources, overhead=ov)
+        if a.project:
+            ov = {k: v for k, v in ov.items() if k == ("project", a.project)}
+        if not ov:
+            print("cost-report: no overhead calls" + (f" placed on project {a.project}" if a.project else ""),
+                  file=sys.stderr)
+            return 1
+        if a.json:
+            print(report_overhead_json(ov))
+            return 0
+        if hasattr(sys.stdout, "reconfigure"):   # an (unassigned) cwd may not fit the locale codec
+            sys.stdout.reconfigure(encoding="utf-8")
+        print(report_overhead(ov, source, a.summary))
+        return 0
     if a.project and issue:
         # P/N first, then the (no project)/N calls that may be P's too.
         rows, sessions = collect(dirs, issue, hosts=hosts, sources=sources, timing=rules, times=times)

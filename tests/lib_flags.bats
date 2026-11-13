@@ -83,6 +83,11 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+@test "tier_allowlist is exactly the legal tiers, starter last (#989)" {
+  [ "$(tier_allowlist)" = 'oneshot standard perf docs-only research starter' ]
+  tier_is_legal starter
+}
+
 @test "flags_get ignores a Workflow-flags block inside an HTML comment (#537 redmr)" {
   MD3="$BATS_TEST_TMPDIR/commented.md"
   cat > "$MD3" <<'FIXTURE'

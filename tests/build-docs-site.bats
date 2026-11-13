@@ -11,9 +11,8 @@
 #           scanned), the one
 #           link that leaves docs-site/,
 #           per-page code-block and table-row counts against the markdown,
-#           titles, nav, and that the output fetches nothing. That last test
-#           is the 1.0 fetch ban; #1030 replaces it with an allowlist, and
-#           with it the stub leg that reads the ban's regex.
+#           titles, nav, and that the allowlist scan (check-fetches.py)
+#           accounts for every built file (#1030).
 #   FIXTURE — throwaway source dirs that drive each refusal BRANCH (exit 2-6)
 #           and each input kind: hand-written pages (derived-from header, H1
 #           and nav-label, marker splice, HTML-index nav), the asset folders
@@ -25,10 +24,16 @@
 #           pinned by a mutation row in the plan instead, and says so here.
 #           fx_build passes an empty --static, so a fixture build never copies
 #           the repo's own scripts/docs-site/static/.
+#   SCANNER — scripts/docs-site/check-fetches.py run directly on planted
+#           dirs (no pandoc): every rule's refusal and pass rows, each pinned
+#           to its status, file, line and a reason token. The "fetch policy"
+#           rows prove the wiring through the build: exit 3 for python,
+#           exit 7 for a policy break, exit 8 for a scan that did not complete.
 #
-# awk and pandoc: the builder probes for awk right after its argument checks
-# (exit 3 naming awk), then validates its input and derives the nav BEFORE it
-# probes for pandoc, so every refusal up to and including the probe is tested
+# awk, python3 and pandoc: the builder probes for awk right after its argument
+# checks (exit 3 naming awk), then validates its input and derives the nav
+# BEFORE it probes for python3 and then pandoc (python3 just before pandoc), so
+# every refusal up to and including the probes is tested
 # without it (fx_bin links only the tools that run before the probe; a stub
 # stands in where a version is needed). Tests that render call
 # need_pandoc, which skips only where pandoc is absent (a local run). In CI the
@@ -57,7 +62,7 @@ setup_file() {
   command -v pandoc >/dev/null 2>&1 || return 0
   REAL_OUT="$BATS_FILE_TMPDIR/site"
   export REAL_OUT
-  bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
+  env -u DEVAGENT_PYTHON bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
 # fx_reset <dir> — point FX at a fresh fixture dir (src/ and static-empty/).
@@ -71,12 +76,95 @@ setup() {
   fx_reset "$BATS_TEST_TMPDIR"
 }
 
+# The fetch scanner and the site policy. CSP is one of the policy's three homes
+# (check-fetches.py's POLICY, page.html, which the stub writer copies), written
+# out here and never read from the others, so a drift in any of them fails a
+# row.
+SCANNER="$PLUGIN_ROOT/scripts/docs-site/check-fetches.py"
+CSP="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+CSP_META="<meta http-equiv=\"Content-Security-Policy\" content=\"$CSP\">"
+OH='https://other.host'
+NS='http://www.w3.org/2000/svg'
+
+# scan — the scanner run directly on $FX/site (no build, no pandoc);
+# scan_args — the scanner with the given arguments.
+scan_args() { python3 -I -X utf8 "$SCANNER" "$@"; }
+scan() { scan_args "$FX/site"; }
+
+# The scanner with html.parser broken, so a scan crashes inside it:
+# python3 -c "$FAULT_PY" <scanner> <args...>.
+FAULT_PY='import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")'
+
+# The scanner with html.parser made to end raw text only at "</style>" (the
+# pre-2025 rule): python3 -c "$OLD_PARSER_PY" <scanner> <args...>.
+OLD_PARSER_PY='import re, runpy, sys, html.parser as h; o = h.HTMLParser.set_cdata_mode; h.HTMLParser.set_cdata_mode = lambda self, elem, *a, **k: (o(self, elem, *a, **k), setattr(self, "interesting", re.compile(r"</\s*%s\s*>" % self.cdata_elem, re.I)))[0]; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")'
+
+# The head of a document up to where its CSP meta goes.
+DOC_HEAD=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+
+# first_line <file> <needle> — set ln to the first line of <file> holding
+# <needle>; fail when none does.
+first_line() {
+  local -a fl
+  local k
+  mapfile -t fl < "$1"
+  for k in "${!fl[@]}"; do
+    [[ ${fl[k]} != *"$2"* ]] || { ln=$((k + 1)); return 0; }
+  done
+  return 1
+}
+
+# has_diag <relpath> <ln> <token> — an output line reads
+# "check-fetches: <relpath>:<ln>: ..." and holds <token>.
+has_diag() {
+  local l
+  for l in "${lines[@]}"; do
+    case "$l" in "check-fetches: $1:$2: "*"$3"*) return 0 ;; esac
+  done
+  return 1
+}
+
+# fx_sf <relpath> <line...> — a file under $FX/site, one argument per line.
+fx_sf() {
+  local rel="$1"; shift
+  mkdir -p "$(dirname "$FX/site/$rel")"
+  printf '%s\n' "$@" > "$FX/site/$rel"
+}
+
+# fx_doc <relpath> <body line...> — a document under $FX/site carrying the CSP meta.
+fx_doc() {
+  local rel="$1"; shift
+  fx_sf "$rel" "${DOC_HEAD[@]}" "$CSP_META" '</head><body>' "$@" '</body></html>'
+}
+
+# sc_new — a fresh fixture dir for the next row (one dir per row).
+sc_new() { sc_n=$((${sc_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$sc_n"; }
+
+# sc_row <want> <relpath> <needle> <token> — scan $FX/site. want 0: status 0 and
+# the ok line. want 3: status 3 and a line "check-fetches: <relpath>:<ln>: ..."
+# holding <token>, <ln> the first line of the planted file holding <needle>
+# (0 when <needle> is empty), so a violation elsewhere cannot satisfy the row.
+sc_row() {
+  local want="$1" rel="$2" needle="$3" token="$4" ln=0
+  run scan
+  [ "$status" -eq "$want" ] || { echo "row ${sc_n:-0} ($rel): status $status, want $want: $output" >&2; return 1; }
+  if [ "$want" -eq 0 ]; then
+    [[ "$output" == *"check-fetches: ok: "* ]] || { echo "row ${sc_n:-0}: no ok line: $output" >&2; return 1; }
+    return 0
+  fi
+  if [ -n "$needle" ]; then
+    first_line "$FX/site/$rel" "$needle" || { echo "row ${sc_n:-0}: '$needle' is not in $rel" >&2; return 1; }
+  fi
+  has_diag "$rel" "$ln" "$token" || { echo "row ${sc_n:-0}: no 'check-fetches: $rel:$ln: ...$token' in: $output" >&2; return 1; }
+}
+
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
-# "no pandoc" (or a stub pandoc) is the only thing the probe can see.
+# "no pandoc" (or a stub pandoc) is the only thing the probe can see. python3 is
+# probed just before pandoc, so it is linked too (a leg removes or replaces it).
 fx_bin() {
   local t
   mkdir -p "$FX/bin"
-  for t in dirname basename grep sed awk sort; do
+  for t in dirname basename grep sed awk sort python3; do
     ln -s "$(command -v "$t")" "$FX/bin/$t"
   done
 }
@@ -95,8 +183,9 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
 # set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
 # passes --static "$FX/static-empty", so a fixture build never copies the
 # repo's own scripts/docs-site/static/. Later flags win: the script's parse
-# loop keeps the last value.
-fx_build() { env PATH="${FX_PATH:-$PATH}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
+# loop keeps the last value. DEVAGENT_PYTHON is always REPLACED (by FX_PYTHON,
+# else empty, which the builder reads as python3), never inherited.
+fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
 
 # fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
 # real list, which names only zeta.
@@ -277,10 +366,23 @@ real_stubs() {
   [ "$navorder" = 'href="index.html" href="install.html" href="quickstart.html" href="workflow.html" href="configuration.html" href="concurrency.html" ' ]
 }
 
-@test "build-docs-site: real site — pages fetch nothing and carry no preview banner" {
+@test "build-docs-site: real site — the allowlist scan accounts for every built file; no preview wording" {
   need_pandoc
-  run grep -rlE '<script|<link |<img |<iframe| src=|@import|url\(' "$REAL_OUT"
-  [ "$status" -eq 1 ]
+  local content=() ok total
+  mapfile -t content < <(real_content)
+  # the build's OWN ok line, exactly once
+  [ "$(grep -cE '^check-fetches: ok: ' "$BATS_FILE_TMPDIR/real.stdout")" -eq 1 ]
+  ok="$(grep -E '^check-fetches: ok: ' "$BATS_FILE_TMPDIR/real.stdout")"
+  [[ "$ok" =~ ^check-fetches:\ ok:\ ([0-9]+)\ files:\ ([0-9]+)\ scanned,\ ([0-9]+)\ binary,\ ([0-9]+)\ vendored$ ]]
+  local t="${BASH_REMATCH[1]}" s="${BASH_REMATCH[2]}" b="${BASH_REMATCH[3]}" v="${BASH_REMATCH[4]}"
+  # an independent count of what landed on disk
+  total="$(find "$REAL_OUT" ! -type d | wc -l)"
+  echo "scan: $ok; find: $total" >&2
+  [ "$((s + b + v))" -eq "$total" ]
+  [ "$t" -eq "$total" ]
+  [ "$s" -ge "${#content[@]}" ]
+  # a pass leg the real build exercises: a CSS selector colon in the template
+  grep -qF 'a:hover' "$PLUGIN_ROOT/scripts/docs-site/page.html"
   run grep -rli 'private preview' "$REAL_OUT"
   [ "$status" -eq 1 ]
 }
@@ -333,6 +435,8 @@ real_stubs() {
   [ -n "$last" ]
   [ "${lines[${#lines[@]}-1]}" = "$last" ]
   [[ "$output" == *"  6  a rendered page links"* ]]
+  [[ "$output" == *"  7  the built site breaks the fetch policy"* ]]
+  [[ "$output" == *"  8  the fetch scan did not complete"* ]]
 }
 
 @test "build-docs-site: missing source dir -> exit 4" {
@@ -933,17 +1037,748 @@ fx_stub_site() {
   [ ! -e "$FX/out" ]
 }
 
-@test "build-docs-site: moved-page stubs pass the 1.0 fetch ban" {
-  # The ban regex is read from the ban test's own source, so this leg moves
-  # with it. #1030 must replace this leg when it rewrites the ban.
+@test "build-docs-site: fetch policy — moved-page stubs build under the scan" {
   need_pandoc
-  local re
-  re="$(sed -n "s/^  run grep -rlE '\(.*\)' \"\$REAL_OUT\"$/\1/p" "$BATS_TEST_FILENAME")"
-  [ -n "$re" ]
-  printf '<script>' | grep -qE "$re"
   fx_stub_site
   run fx_build
   [ "$status" -eq 0 ]
-  run grep -lE "$re" "$FX/out/old-a.html" "$FX/out/old-b.html"
-  [ "$status" -eq 1 ]
+  [[ "$output" == *"check-fetches: ok: "* ]]
+  # the same stub minus its CSP line is refused, so the scan does read stubs
+  mkdir -p "$FX/site"
+  grep -vxF "$CSP_META" "$FX/out/old-a.html" > "$FX/site/old-a.html"
+  [ "$(wc -l < "$FX/site/old-a.html")" -eq "$(( $(wc -l < "$FX/out/old-a.html") - 1 ))" ]
+  run scan
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"check-fetches: old-a.html:0: no Content-Security-Policy meta"* ]]
+}
+
+# ------------------------------------------------- SCANNER: check-fetches.py, run directly
+
+# usage_2 — the last scanner run exited 2 and ended with the usage line.
+usage_2() {
+  [ "$status" -eq 2 ] || { echo "status $status, want 2: $output" >&2; return 1; }
+  [[ "${lines[${#lines[@]}-1]}" == "usage: check-fetches.py"* ]] || { echo "no usage line last: $output" >&2; return 1; }
+}
+
+@test "build-docs-site: check-fetches — usage: no argument, two arguments, a flag, a missing dir and an empty dir exit 2" {
+  fx_doc index.html '<p>x</p>'
+  mkdir -p "$FX/empty"
+  run scan_args
+  usage_2
+  run scan_args "$FX/site" "$FX/site"
+  usage_2
+  run scan_args --help
+  usage_2
+  run scan_args "$FX/absent"
+  usage_2
+  run scan_args "$FX/empty"
+  usage_2
+  # positive control: the same scanner on the planted site
+  run scan
+  [ "$status" -eq 0 ]
+}
+
+@test "build-docs-site: check-fetches — '--' admits an out-dir that starts with '-'" {
+  fx_doc index.html '<p>x</p>'
+  mv "$FX/site" "$FX/-site"
+  cd "$FX"
+  run scan_args -- -site
+  [ "$status" -eq 0 ]
+  [ "$output" = "check-fetches: ok: 1 files: 1 scanned, 0 binary, 0 vendored" ]
+  run scan_args -site
+  usage_2
+}
+
+@test "build-docs-site: check-fetches — counts every file once" {
+  fx_doc index.html '<p>x</p>'
+  fx_sf assets/a.png 'png'
+  fx_sf assets/f.woff2 'font'
+  fx_sf assets/s.css 'nav a:hover { color: red; }'
+  run scan
+  [ "$status" -eq 0 ]
+  [ "$output" = "check-fetches: ok: 4 files: 2 scanned, 2 binary, 0 vendored" ]
+}
+
+@test "build-docs-site: check-fetches — fail-closed file types" {
+  sc_n=0
+  sc_new; fx_sf assets/x.json '{}';       sc_row 3 assets/x.json '' '(.json)'
+  sc_new; fx_sf assets/.gitkeep '';       sc_row 3 assets/.gitkeep '' 'hidden'
+  sc_new; fx_sf assets/LICENSE 'MIT';     sc_row 3 assets/LICENSE '' '(no extension)'
+  sc_new; fx_sf assets/a.gltf '{}';       sc_row 3 assets/a.gltf '' '(.gltf)'
+  sc_new; fx_sf assets/t.js 'var a = 1;'; ln -s "$FX/site/assets/t.js" "$FX/site/assets/l.js"
+  sc_row 3 assets/l.js '' 'not a regular file'
+  sc_new; mkdir -p "$FX/site/assets"; printf 'a{}\n\xff\n' > "$FX/site/assets/b.css"
+  sc_row 3 assets/b.css '' 'not UTF-8 text'
+  sc_new; fx_sf real/x.css 'a{}'; mkdir -p "$FX/site/assets"; ln -s ../real "$FX/site/assets/ld"
+  sc_row 3 assets/ld '' 'not a regular file'
+  # every violation line is followed by the count line
+  [[ "$output" == *"check-fetches: 1 violation(s) in 1 file(s)"* ]]
+}
+
+@test "build-docs-site: check-fetches — \"private preview\" fails across a line break, any case" {
+  sc_n=0
+  sc_new; fx_sf assets/p.css '/* Private' '  Preview */'
+  sc_row 3 assets/p.css 'Private' 'the words "private preview" may not be published'
+  sc_new; fx_doc index.html '<p>A Private' 'preview build</p>'
+  sc_row 3 index.html 'Private' 'private preview'
+}
+
+# file_row <want> <token> <relpath> <needle> <line...> — one row: <relpath>
+# holding the lines. js_row / css_row <want> <token> <line...>: assets/a.js or
+# assets/a.css, the needle the first line.
+file_row() {
+  local want="$1" token="$2" rel="$3" needle="$4"; shift 4
+  sc_new; fx_sf "$rel" "$@"
+  sc_row "$want" "$rel" "$needle" "$token"
+}
+js_row() { file_row "$1" "$2" assets/a.js "$3" "${@:3}"; }
+css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
+
+@test "build-docs-site: check-fetches — JS: strings and template chunks with a remote URL are refused" {
+  local r='remote URL in a JS string'
+  sc_n=0
+  js_row 3 "$r" "fetch(\"$OH/x\");"
+  js_row 3 "$r" "img.src = '//other.host/i.png';"
+  js_row 3 "$r" 'var u = `https://${h}/x`;'
+  js_row 3 "$r" 'var u = `${a}ps://other.host`;'
+  js_row 3 "$r" 'var u = "\\other.host/x";'
+  js_row 3 "$r" 'var u = "http:other.host/x";'
+  js_row 3 "$r" $'var u = "ht\ttps://other.host/x";'
+  js_row 3 'javascript: URL in a JS string' 'location = "javascript:alert(1)";'
+  js_row 3 "$r" "var u = \"data:,$OH/x\";"
+  js_row 3 "$r" "var u = \"$NS https://other.host/x\";"
+}
+
+@test "build-docs-site: check-fetches — JS: a string extending a namespace URI is refused" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "var u = \"$NS/x\";"
+  js_row 3 'remote URL in a JS string' "var u = \"${NS}x\";"
+}
+
+@test "build-docs-site: check-fetches — JS: comments, regexes and non-URL colons pass" {
+  sc_n=0
+  js_row 0 '' "// $OH/x" 'var a = 1;'
+  js_row 0 '' "/* $OH */ var a = 1;"
+  js_row 0 '' 'var s = ["a:hover", "li:first-child", "Note: x"];'
+  js_row 0 '' 'x = a / b / c; s = "assets/x.png";'
+  js_row 0 '' "document.createElementNS(\"$NS\",\"rect\");"
+  js_row 0 '' 'el.setAttributeNS("http://www.w3.org/1999/xlink","href","#g");'
+  js_row 0 '' "var ns = [\"$NS\", \"http://www.w3.org/1999/xhtml\", \"http://www.w3.org/1999/xlink\"," \
+    '"http://www.w3.org/1998/Math/MathML", "http://www.w3.org/XML/1998/namespace", "http://www.w3.org/2000/xmlns/"];'
+  js_row 0 '' "el.innerHTML = '<svg xmlns=\"$NS\"><path d=\"M0 0\"/></svg>';"
+}
+
+@test "build-docs-site: check-fetches — JS: a data: SVG icon string keeps its namespace and passes" {
+  sc_n=0
+  js_row 0 '' "icon = \"data:image/svg+xml,<svg xmlns='$NS'><path d='M0 0'/></svg>\";"
+}
+
+@test "build-docs-site: check-fetches — a regex literal holding a quote does not hide a later string" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "var r = /'/; var u = \"$OH/x\";"
+  js_row 0 '' "var r = /'/; var u = \"assets/x\";"
+  # where the token before a "/" does not decide regex or division (")", "}",
+  # of, await, yield, …), both readings are scanned, so the string either
+  # reading finds is checked, whichever way the guess went
+  local amb='remote URL in a JS string'
+  js_row 3 "$amb" "var of = 1; y = of / 2; fetch(\"$OH/x\") // \""
+  js_row 3 "$amb" "var await = 4; y = await / 2; fetch(\"$OH/x\") // \""
+  js_row 3 "$amb" "function* g() { yield /'/; fetch('$OH/x'); // '"
+  js_row 3 "$amb" "async function f() { await /'/; fetch('$OH/x'); // '"
+  js_row 3 "$amb" "for (const c of /'/.source) {} fetch('$OH/x'); // '"
+  js_row 3 "$amb" "if (x) /'/.test(s); var u = '$OH/x';"
+  js_row 3 "$amb" "if (x) { y(); } /'/.test(s); var u = '$OH/x';"
+  # the guess is trusted where the token decides it: default and extends are
+  # keywords (regex), a property name is an operand even across a comment
+  # (division), a keyword after a spread is a keyword
+  file_row 3 'remote URL in a JS string' assets/a.mjs 'export' "export default /'/.source; F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' "try { class A extends /'/ {} } catch (e) {} F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' "var r = o./**/in / '/' + F('$OH/x');"
+  js_row 3 'remote URL in a JS string' "y = o.in / 2; fetch(\"$OH/x\") // \""
+  js_row 3 'remote URL in a JS string' "var a = [...typeof /'/]; fetch('$OH/x'); // '"
+  # U+FEFF is JS whitespace, and an astral letter is an identifier
+  js_row 3 'remote URL in a JS string' "("$'\xef\xbb\xbf'"/'/.test(s)) + F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' $'\xf0\x9d\x91\xa5'" / '/' + F('$OH/x');"
+  # controls: a regex after return still holds its quote; both readings agree
+  # (no regex reading, or the same strings either way); parentheses settle
+  # of/await/yield; a property named of is an operand
+  js_row 0 '' 'function f(s) { return /"/.test(s); } var u = "assets/x";'
+  js_row 0 '' 'var w = (a + b) / 2 + "px", v = (a) / b / c;'
+  js_row 0 '' 'async function f() { await /* c */ /x/; } var u = "assets/x";'
+  js_row 0 '' 'function* g() { yield (/"/); } var y = (of) / 2 + o.of / 2; var u = "assets/x";'
+  # the documented over-refusal: a regex reading that leaves a string open
+  js_row 3 'one reading leaving a string open' "var y = (a)/2 + 'x/y';"
+  # no nested guess: a second undecided "/" met by the other reading before
+  # the two agree is refused; so is a line on which they never agree
+  file_row 3 'with another such "/" before the readings agree' assets/a.js 'if(a)' 'var a = 1, b = 1;' "if(a)/'/;if(b)/'//'//'+F('$OH/x');"
+  local pad
+  pad="$(printf '1+%.0s' $(seq 2100))"
+  js_row 3 'the readings not agreeing within 4000 characters' "if (a) /'/ + ${pad}1 + F('$OH/x');// '"
+  js_row 0 '' 'var r = (a) / 2 + (b) / 3 + (c) / 4;'
+  # line starts: "++"/"--" first on a line is prefix (a "/" next is a regex);
+  # a hashbang is a comment; Annex B "-->" after comments starts a comment
+  file_row 3 'remote URL in a JS string' assets/a.js 'lastIndex' 'var b = 1' "++/'/.lastIndex + F('$OH/x');// '"
+  file_row 3 'remote URL in a JS string' assets/a.js 'lastIndex' 'var b = 1' "--/'/.lastIndex + F('$OH/x');// '"
+  sc_new; fx_sf assets/a.js '#!/*' "F('$OH/x');" '/**/'
+  sc_row 3 assets/a.js 'F(' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js 'var a = 1;' '/**/ --> /*' "F('$OH/x');" '/**/'
+  sc_row 3 assets/a.js 'F(' 'remote URL in a JS string'
+  js_row 0 '' '#!/usr/bin/env node' 'var u = "assets/x";'
+}
+
+@test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
+  sc_n=0
+  js_row 3 'unterminated string' 'var s = "abc' 'var t = 1;'
+  js_row 3 'unterminated template' 'var t = `abc' 'more'
+}
+
+@test "build-docs-site: check-fetches — a 100k-character run of scheme characters scans inside 2 s" {
+  mkdir -p "$FX/site/assets"
+  python3 -c 'import sys; open(sys.argv[1], "w").write("var s = \"" + "a" * 100000 + "\";\n")' "$FX/site/assets/big.js"
+  local t0 t1
+  t0="$(date +%s%N)"
+  run scan
+  t1="$(date +%s%N)"
+  [ "$status" -eq 0 ]
+  echo "scan took $(( (t1 - t0) / 1000000 )) ms" >&2
+  [ "$(( (t1 - t0) / 1000000 ))" -lt 2000 ]
+}
+
+@test "build-docs-site: check-fetches — CSS: url(), @import and image-set() to another host are refused" {
+  sc_n=0
+  css_row 3 'remote URL in a CSS string' "@import \"$OH/a.css\";"
+  css_row 3 'remote URL in a CSS url()' '@import url(//other.host/a.css);'
+  css_row 3 'remote URL in a CSS url()' "a { background: url($OH/x.png); }"
+  css_row 3 'remote URL in a CSS string' "a { background: image-set(\"$OH/x.png\" 1x); }"
+}
+
+@test "build-docs-site: check-fetches — CSS: selectors, comments and data: pass" {
+  sc_n=0
+  css_row 0 '' 'nav a:hover{color:red}'
+  css_row 0 '' "/* @import \"$OH/x\"; */"
+  css_row 0 '' 'a { background: url(data:image/png;base64,iVBORw0); }'
+  css_row 0 '' 'a { background: url("assets/x.png"); }'
+  css_row 0 '' 'body { font-family: "Segoe UI"; }'
+  css_row 0 '' "@namespace svg url($NS);"
+}
+
+# html_row <want> <token> <needle> <body line...> — one row: index.html, a
+# document carrying the CSP meta, with the lines as its body.
+html_row() {
+  local want="$1" token="$2" needle="$3"; shift 3
+  sc_new; fx_doc index.html "$@"
+  sc_row "$want" index.html "$needle" "$token"
+}
+
+# svg_row <want> <token> <needle> <line...> — one row: assets/d.svg, the lines
+# wrapped in <svg xmlns="$NS">…</svg>. svg_whole: the lines are the whole file.
+svg_row() {
+  local want="$1" token="$2" needle="$3"; shift 3
+  sc_new; fx_sf assets/d.svg "<svg xmlns=\"$NS\">" "$@" '</svg>'
+  sc_row "$want" assets/d.svg "$needle" "$token"
+}
+svg_whole() { file_row "$1" "$2" assets/d.svg "$3" "${@:4}"; }
+
+@test "build-docs-site: check-fetches — attribute contexts refuse a remote URL anywhere in the value" {
+  sc_n=0
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="http:other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' $'<img src="ht\ttps://other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="   //other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="\\other.host/x" alt="">'
+  html_row 3 'remote URL in srcset= on <img>' '<img' '<img src="assets/a.png" srcset="assets/a.png 1x, //other.host/b.png 2x" alt="">'
+  html_row 3 'remote URL in ping= on <a>' '<a ' '<a href="x.html" ping="assets/p //other.host/p">x</a>'
+  html_row 3 'remote URL in fill= on <rect>' '<rect' "<svg><rect fill=\"url($OH/#g)\"/></svg>"
+  html_row 3 'remote URL in background= on <td>' '<td' "<table><tr><td background=\"$OH/bg.png\">x</td></tr></table>"
+  html_row 3 'remote URL in a CSS url()' '<p ' "<p style=\"background:url($OH/x.png)\">x</p>"
+  html_row 3 'remote URL in a JS string' '<button' "<button onclick=\"fetch('$OH/x')\">x</button>"
+  html_row 3 'javascript: URL in href= on <a>' '<a ' '<a href="javascript:alert(1)">x</a>'
+  html_row 3 'javascript: URL in href= on <a>' '<a ' '<a href="java&#9;script:alert(1)">x</a>'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="https&#58;//other.host/x" alt="">'
+}
+
+@test "build-docs-site: check-fetches — a multi-line tag reports the attribute's own line" {
+  sc_n=0
+  html_row 3 'remote URL in src= on <img>' 'src="https' '<img alt="see src"' "  src=\"$OH/x\">"
+}
+
+@test "build-docs-site: check-fetches — namespace URIs are exempt only as exact xmlns values" {
+  sc_n=0
+  html_row 3 'remote URL in xmlns= on <svg>' '<svg' "<svg xmlns=\"${NS}x\"></svg>"
+  html_row 3 'remote URL in xmlns= on <svg>' '<svg' "<svg xmlns=\"$NS/\"></svg>"
+  html_row 3 'remote URL in src= on <img>' '<img' "<img src=\"$NS\" alt=\"\">"
+  html_row 0 '' '' "<svg xmlns=\"$NS\" xmlns:n1=\"http://www.w3.org/1999/xhtml\" xmlns:n2=\"http://www.w3.org/1999/xlink\"" \
+    '  xmlns:n3="http://www.w3.org/1998/Math/MathML" xmlns:n4="http://www.w3.org/XML/1998/namespace"' \
+    '  xmlns:n5="http://www.w3.org/2000/xmlns/"></svg>'
+}
+
+@test "build-docs-site: check-fetches — refused elements" {
+  sc_n=0
+  html_row 3 '<iframe> is refused' '<iframe' '<iframe srcdoc="x"></iframe>'
+  html_row 3 '<object> is refused' '<object' '<object data="assets/a.svg"></object>'
+  html_row 3 '<embed> is refused' '<embed' '<embed>'
+  html_row 3 '<frame> is refused' '<frame' '<frame>'
+  html_row 3 '<script type="speculationrules"> is refused' '<script' \
+    '<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*"}}]}</script>'
+}
+
+@test "build-docs-site: check-fetches — SVG files are parsed as XML" {
+  sc_n=0
+  svg_row 3 'remote URL in href= on <script>' '<script' "<script href=\"$OH/s.js\"/>"
+  svg_row 3 'remote URL in href= on <feImage>' '<feImage' "<filter id=\"f\"><feImage href=\"$OH/i.png\"/></filter>"
+  svg_row 3 'remote URL in href= on <image>' '<image' "<image href=\"$OH/i.png\"/>"
+  svg_whole 3 'a DOCTYPE with an internal subset' '<!DOCTYPE' \
+    "<!DOCTYPE svg [<!ENTITY u \"$OH/x.png\">]><svg xmlns=\"$NS\"><image href=\"&u;\"/></svg>"
+  svg_whole 3 'a processing instruction (<?xml-stylesheet)' '<?xml-stylesheet' \
+    "<?xml-stylesheet href=\"$OH/x.css\" type=\"text/css\"?><svg xmlns=\"$NS\"/>"
+  svg_row 3 'remote URL in a JS string' 'fetch' "<script>fetch(&quot;$OH/x&quot;)</script>"
+  # not well-formed: one line, no newline, so expat's error line is line 1
+  sc_new; mkdir -p "$FX/site/assets"; printf '<svg xmlns="%s"><rect>' "$NS" > "$FX/site/assets/d.svg"
+  sc_row 3 assets/d.svg '<svg' 'not well-formed XML'
+  svg_whole 0 '' '' "<svg xmlns=\"$NS\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"><use href=\"#g\"/></svg>"
+}
+
+@test "build-docs-site: check-fetches — scripts and handlers on surfaces without a CSP are refused" {
+  sc_n=0
+  sc_new; fx_sf assets/i.svg "<svg xmlns=\"$NS\">" '<script>var a=1;</script>' '</svg>'
+  sc_row 3 assets/i.svg '<script' '<script> in an .svg file is refused (no CSP covers it)'
+  sc_new; fx_sf assets/i.svg "<svg xmlns=\"$NS\">" '<rect onclick="x()"/>' '</svg>'
+  sc_row 3 assets/i.svg '<rect' 'onclick= in an .svg file is refused (no CSP covers it)'
+  sc_new; fx_sf static/partial.html '<button onclick="go()">Go</button>'
+  sc_row 3 static/partial.html '<button' 'onclick= in a fragment is refused (no CSP covers it)'
+}
+
+@test "build-docs-site: check-fetches — HTML pass contexts" {
+  sc_n=0
+  html_row 0 '' '' '<a href="https://other.site/">x</a>'
+  html_row 0 '' '' '<img alt="Note: x" aria-label="Note: x" title="Note: x" src="data:image/png;base64,iVBORw0">'
+  html_row 0 '' '' '<img src="blob:https://site.example/1b2c" alt="">'
+  html_row 0 '' '' "<svg xmlns=\"$NS\"><rect width=\"8\" height=\"8\"/></svg>"
+  html_row 0 '' '' "<!-- <img src=\"$OH/x\"> -->"
+  html_row 0 '' '' "<p>see $OH/</p>"
+  html_row 0 '' '' "<script>// $OH" 'var a="a:hover";</script>'
+  html_row 0 '' '' "<style>/* $OH */ nav a:hover{}</style>"
+  html_row 0 '' '' '<script async src="static/a.js"></script><script type src="static/b.js"></script>' \
+    '<details open><summary>s</summary><input disabled></details>'
+  # an SVG script loading a local file, with an explicit end tag: the
+  # self-closing form is refused (see the parse-divergence shapes)
+  html_row 0 '' '' '<svg><script href="static/a.js"></script></svg>'
+}
+
+@test "build-docs-site: check-fetches — inline scripts: import map and module import" {
+  sc_n=0
+  html_row 3 'remote URL in a JS string' 'importmap' "<script type=\"importmap\">{\"imports\":{\"three\":\"$OH/three.js\"}}</script>"
+  html_row 3 'remote URL in a JS string' 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
+}
+
+@test "build-docs-site: check-fetches — parse-divergence shapes are refused" {
+  local cm='a comment the browser and the scanner may end differently'
+  sc_n=0
+  html_row 3 "$cm" '<!-->' "<!--><img src=\"$OH/x\">-->"
+  html_row 3 "$cm" '--!>' "<!-- x --!><img src=\"$OH/x\">"
+  html_row 3 'a <script> body that opens an HTML comment or a nested <script>' '<script>a' \
+    "<script>a<!--<script></script>fetch(\"$OH\")</script>-->"
+  html_row 3 'a self-closing <script/> or <style/>' '<script/>' "<script/>fetch(\"$OH/x\")</script>"
+  html_row 3 'a self-closing <script/> or <style/>' '<style/>' "<style/>@import \"$OH/a.css\";</style>"
+  # inside <svg>/<math> too: an HTML element breaks a browser out of <svg>,
+  # and Chromium's preload scanner reads <style/> as opening CSS even inside
+  # it; and an <svg> that once held HTML must not exempt a later <style/>
+  local sc='a self-closing <script/> or <style/>'
+  sc_new; fx_sf static/partial.html "<svg><p></p><style/>@import \"$OH/a.css\";</style>"
+  sc_row 3 static/partial.html '<svg' "$sc"
+  sc_new; fx_sf static/partial.html '<svg><foreignObject><div>hi</div></foreignObject></svg>' "<style/>@import \"$OH/a.css\";</style>"
+  sc_row 3 static/partial.html '<style/>' "$sc"
+  html_row 3 "$sc" '<svg><style/>' "<svg><style/>@import \"$OH/a.css\";</style></svg>"
+  html_row 3 "$sc" '<math><style/>' "<math><style/>@import \"$OH/a.css\";</style></math>"
+  html_row 3 'an end tag with whitespace after "</"' '</ script' '<script>x=1; // </ script>' "fetch(\"$OH\")</script>"
+  html_row 3 '"&" in a <script> or <style> body inside <svg> or <math>' '<svg><script>' \
+    "<svg><script>fetch(&quot;$OH/x&quot;)</script></svg>"
+  # raw-text elements a browser ends at their end tag: a comment the scanner
+  # opens inside one can hide markup the browser runs
+  html_row 3 'a comment inside <noscript>' '<noscript>' "<noscript><!--</noscript><script>fetch(\"$OH/x\")</script>-->"
+  html_row 3 'a "<![" section the browser and the scanner may end differently' '<![CDATA[' \
+    "<p><![CDATA[ x > <img src=\"$OH/x\"> ]]></p>"
+}
+
+@test "build-docs-site: check-fetches — CSP meta rule" {
+  local doc=("${DOC_HEAD[@]}")
+  sc_n=0
+  # (a) no meta
+  sc_new; fx_sf index.html "${doc[@]}" '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html '' 'no Content-Security-Policy meta'
+  # (b) a different policy: the site policy minus 'wasm-unsafe-eval'
+  local w=" 'wasm-unsafe-eval'" less
+  less="${CSP/"$w"/}"
+  [ "$less" != "$CSP" ]
+  sc_new; fx_sf index.html "${doc[@]}" "<meta http-equiv=\"Content-Security-Policy\" content=\"$less\">" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta does not carry the site policy'
+  # (c) after a stylesheet link
+  sc_new; fx_sf index.html "${doc[@]}" '<link rel="stylesheet" href="static/s.css">' "$CSP_META" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta comes after a <link>'
+  # (d) in <body>
+  sc_new; fx_sf index.html "${doc[@]}" '</head><body>' "$CSP_META" '<p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  # (e) two
+  sc_new; fx_sf index.html "${doc[@]}" "$CSP_META" "<meta content=\"$CSP\" http-equiv=\"Content-Security-Policy\">" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html '<meta content=' 'more than one Content-Security-Policy meta'
+  # (f) a document under an asset folder without it
+  sc_new; fx_sf assets/doc.html '<html><head></head><body></body></html>'
+  sc_row 3 assets/doc.html '' 'a document under an asset folder needs the Content-Security-Policy meta'
+  # (g) a fragment needs none
+  sc_new; fx_sf static/partial.html '<nav><a href="index.html">Home</a></nav>'
+  sc_row 0 static/partial.html '' ''
+  # (h) a document under an asset folder with it
+  sc_new; fx_doc assets/doc.html '<p>x</p>'
+  sc_row 0 assets/doc.html '' ''
+  # (i) page.html's shape: the meta before <style>
+  sc_new; fx_sf index.html "${doc[@]}" "$CSP_META" '<meta name="viewport" content="width=device-width, initial-scale=1">' \
+    '<title>x</title>' '<style>nav a:hover { color: red; }</style>' '</head><body><p>x</p></body></html>'
+  sc_row 0 index.html '' ''
+}
+
+# ------------------------------------------------- FETCH POLICY: through the build
+
+@test "build-docs-site: fetch policy — page.html carries the exact CSP meta before any <style>" {
+  local tmpl="$PLUGIN_ROOT/scripts/docs-site/page.html" at style
+  [ "$(grep -cxF "$CSP_META" "$tmpl")" -eq 1 ]
+  at="$(grep -nxF "$CSP_META" "$tmpl" | sed -n '1s/:.*//p')"
+  style="$(grep -n '<style' "$tmpl" | sed -n '1s/:.*//p')"
+  [ -n "$style" ]
+  [ "$at" -lt "$style" ]
+}
+
+@test "build-docs-site: fetch policy — a rendered page and a stub carry the exact CSP meta in <head>" {
+  need_pandoc
+  fx_stub_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  local p
+  for p in index old-a old-b; do
+    [ "$(grep -cxF "$CSP_META" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $(grep -cxF "$CSP_META" "$FX/out/$p.html") exact CSP lines" >&2; return 1; }
+    sed -n '/<head>/,/<\/head>/p' "$FX/out/$p.html" | grep -qxF "$CSP_META" || { echo "$p.html: the meta is not in <head>" >&2; return 1; }
+  done
+}
+
+@test "build-docs-site: fetch policy — python absent -> exit 3 naming it, nothing written" {
+  fx_bin
+  rm "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python is not installed: 'python3' not found"* ]]
+  [ ! -e "$FX/out" ]
+  # row 2: DEVAGENT_PYTHON names an interpreter that is not there
+  fx_reset "$BATS_TEST_TMPDIR/row2"
+  fx_page index "hello"
+  FX_PATH=""
+  FX_PYTHON="$FX/nope/python3"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python is not installed: '$FX/nope/python3' not found"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: fetch policy — a python that cannot run -> exit 3 naming it, nothing written" {
+  fx_bin
+  rm "$FX/bin/python3"
+  printf '#!%s\necho "Python was not found; run without arguments to install from the Microsoft Store"\nexit 49\n' \
+    "$(command -v bash)" > "$FX/bin/python3"
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python cannot run: 'python3'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: fetch policy — a python older than 3.8 -> exit 3 naming it, nothing written" {
+  local real_py
+  real_py="$(command -v python3)"
+  fx_bin
+  rm "$FX/bin/python3"
+  # the real interpreter, reporting 3.7, runs the probe's code
+  cat > "$FX/bin/python3" <<EOF
+#!$(command -v bash)
+exec "$real_py" -I -c 'import sys; sys.version_info = (3, 7, 17, "final", 0); exec(sys.argv[1])' "\${@: -1}"
+EOF
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python cannot run: 'python3' is not a working python3 3.8+"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: fetch policy — a python whose html.parser lacks the 2025 fixes -> exit 3 naming it, nothing written" {
+  local real_py
+  real_py="$(command -v python3)"
+  fx_bin
+  rm "$FX/bin/python3"
+  # the real interpreter for "-c" probes; any script runs under the pre-2025
+  # raw-text rule
+  cat > "$FX/bin/python3" <<EOF
+#!$(command -v bash)
+case " \$* " in *" -c "*) exec "$real_py" "\$@" ;; esac
+while [ "\${1#-}" != "\$1" ]; do [ "\$1" = -X ] && shift; shift; done
+exec "$real_py" -I -X utf8 -c '$OLD_PARSER_PY' "\$@"
+EOF
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python's html.parser is too old: 'python3'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fault_py <file> — an interpreter that runs the probes (any call holding -c or --self-test)
+# with the real python3, and the REAL scanner (its last three arguments:
+# scanner, --, out) with html.parser broken, so the scan crashes inside it.
+fault_py() {
+  local real_py
+  real_py="$(command -v python3)"
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<EOF
+#!$(command -v bash)
+case " \$* " in *" -c "*|*" --self-test "*) exec "$real_py" "\$@" ;; esac
+exec "$real_py" -I -X utf8 -c '$FAULT_PY' "\${@: -3}"
+EOF
+  chmod +x "$1"
+}
+
+@test "build-docs-site: fetch policy — a scanner crash -> exit 8, says the scan did not complete" {
+  need_pandoc
+  fx_page index "hello"
+  fault_py "$FX/py/python3"
+  FX_PYTHON="$FX/py/python3"
+  run fx_build
+  [ "$status" -eq 8 ]
+  [[ "$output" == *"the fetch scan did not complete (check-fetches exited 1)"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
+}
+
+@test "build-docs-site: check-fetches — an html.parser without the 2025 fixes: the scanner refuses to run (exit 4)" {
+  fx_doc index.html '<p>x</p>'
+  run python3 -I -X utf8 -c "$OLD_PARSER_PY" "$SCANNER" "$FX/site"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"lacks the 2025 fixes"* ]]
+  [[ "$output" != *"check-fetches: ok:"* ]]
+  # positive control: this python's own parser passes the self-test
+  run scan
+  [ "$status" -eq 0 ]
+}
+
+@test "build-docs-site: check-fetches — a fault inside the scanner exits neither 0 nor 3" {
+  fx_doc index.html '<p>x</p>'
+  run python3 -I -X utf8 -c "$FAULT_PY" "$SCANNER" "$FX/site"
+  [ "$status" -ne 0 ]
+  [ "$status" -ne 3 ]
+  [[ "$output" != *"check-fetches: ok:"* ]]
+  # positive control: the same site, unfaulted
+  run scan
+  [ "$status" -eq 0 ]
+}
+
+# t7_new — a fresh fixture dir for the next mutation row, with an empty
+# $FX/static the row may plant into.
+t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; mkdir -p "$FX/static" "$FX/src/assets"; }
+
+# t7_row <relpath> <needle> — build (with --static "$FX/static"; later flags
+# win); it must exit 7 and name <relpath> at the first built line holding
+# <needle>.
+t7_row() {
+  local rel="$1" needle="$2" ln
+  run fx_build --static "$FX/static"
+  [ "$status" -eq 7 ] || { echo "row $t7_n ($rel): status $status, want 7: $output" >&2; return 1; }
+  [[ "$output" == *"the built site breaks the fetch policy"* ]] || { echo "row $t7_n: no exit-7 message: $output" >&2; return 1; }
+  first_line "$FX/out/$rel" "$needle" || { echo "row $t7_n: '$needle' is not in the built $rel" >&2; return 1; }
+  has_diag "$rel" "$ln" '' || { echo "row $t7_n: no 'check-fetches: $rel:$ln: ' in: $output" >&2; return 1; }
+}
+
+# t7_index <needle> <line> — a mutation row planted in the hand-written index.
+t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1"; }
+
+@test "build-docs-site: fetch policy — mutation rows: the build exits 7 naming file and line" {
+  need_pandoc
+  t7_n=0
+  t7_index importmap "<script type=\"importmap\">{\"imports\":{\"three\":\"$OH/three.js\"}}</script>"
+  t7_index 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
+  t7_index '<img' "<img src=\"$OH/a.png\" alt=\"\">"
+  t7_index srcset "<img srcset=\"$OH/b.png 2x\" alt=\"\">"
+  t7_index '<link' "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
+  t7_index '<table' "<table background=\"$OH/bg.png\"><tr><td>x</td></tr></table>"
+  t7_index '<p style' "<p style=\"background:url($OH/x.png)\">x</p>"
+  t7_index '<iframe' '<iframe srcdoc="x"></iframe>'
+  t7_new; fx_html index '<h1>Home</h1>' '<object data="assets/a.svg"></object>'
+  printf '<svg xmlns="%s"/>\n' "$NS" > "$FX/src/assets/a.svg"
+  t7_row index.html '<object'
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'fetch("%s/api");\n' "$OH" > "$FX/static/app.js"
+  t7_row static/app.js fetch
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'new Image().src = "%s/i.png";\n' "$OH" > "$FX/static/app.js"
+  t7_row static/app.js Image
+  t7_new; fx_html index '<h1>Home</h1>'; printf "el.innerHTML = '<img src=\"%s/i.png\">';\n" "$OH" > "$FX/static/app.js"
+  t7_row static/app.js innerHTML
+  t7_new; fx_html index '<h1>Home</h1>'; printf '@import "%s/a.css";\n' "$OH" > "$FX/static/site.css"
+  t7_row static/site.css '@import'
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'a { background: image-set("%s/x.png" 1x); }\n' "$OH" > "$FX/static/site.css"
+  t7_row static/site.css image-set
+  t7_new; fx_html index '<h1>Home</h1>'; printf '<svg xmlns="%s">\n<script href="%s/s.js"/>\n</svg>\n' "$NS" "$OH" > "$FX/src/assets/d.svg"
+  t7_row assets/d.svg '<script'
+  t7_new; fx_html index '<h1>Home</h1>'
+  printf '<svg xmlns="%s">\n<filter id="f"><feImage href="%s/i.png"/></filter>\n</svg>\n' "$NS" "$OH" > "$FX/src/assets/d.svg"
+  t7_row assets/d.svg feImage
+}
+
+@test "build-docs-site: fetch policy — \"private preview\" in a page fails the build" {
+  need_pandoc
+  fx_page index "Private" "preview"
+  run fx_build
+  [ "$status" -eq 7 ]
+  [[ "$output" == *"check-fetches: index.html:"*'the words "private preview" may not be published'* ]]
+}
+
+# ------------------------------------------- SCANNER: final-review fail-open rows
+
+@test "build-docs-site: check-fetches — a namespace prefix does not hide an .svg element" {
+  sc_n=0
+  svg_whole 3 '<script> in an .svg file is refused' '<h:script' \
+    "<svg xmlns=\"$NS\" xmlns:h=\"http://www.w3.org/1999/xhtml\">" "<h:script>fetch(\"$OH/x\")</h:script>" '</svg>'
+  svg_whole 3 'remote URL in a CSS string' '@import' \
+    "<s:svg xmlns:s=\"$NS\">" "<s:style>@import \"$OH/a.css\";</s:style>" '</s:svg>'
+  svg_whole 3 'is refused' '<h:iframe' \
+    "<svg xmlns=\"$NS\" xmlns:h=\"http://www.w3.org/1999/xhtml\">" '<h:iframe src="x.html"/>' '</svg>'
+}
+
+@test "build-docs-site: check-fetches — markup inside raw-text elements in <svg> or <math> is refused" {
+  local mk='markup inside <'
+  sc_n=0
+  sc_new; fx_sf static/partial.html "<svg><title><img src=\"$OH/p.png\"></title></svg>"
+  sc_row 3 static/partial.html '<svg' "$mk"
+  html_row 3 "$mk" '<svg><textarea>' "<svg><textarea><img src=\"$OH/p.png\"></textarea></svg>"
+  html_row 3 "$mk" '<math>' "<math><title><img src=\"$OH/p.png\"></title></math>"
+  html_row 3 "$mk" '<svg><style>' '<svg><style><img src=//other.host/p.png></style></svg>'
+  html_row 3 "$mk" '<svg><script>' '<svg><script><img src=//other.host/p.png></script></svg>'
+  # a "/" ending an unquoted value does not self-close the tag, and a stray
+  # </math> does not close <svg> (both in a fragment, which has no CSP)
+  sc_new; fx_sf static/partial.html "<svg><style x=y/><img src=\"$OH/p.png\"></style></svg>"
+  sc_row 3 static/partial.html '<svg' "$mk"
+  sc_new; fx_sf static/partial.html '<svg width=8/><style><img src=//other.host/p.png></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
+  sc_new; fx_sf static/partial.html '<svg></math><style><img src=//other.host/p.png></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
+  # with an element open inside an integration point a browser ignores
+  # </svg> and </math>, so the <style> after them is still foreign; below the
+  # top level the scanner keeps the root open to the end of the file, so no
+  # stray end tag (</desc>, </mtext>, </title>) can end it early
+  local ip
+  for ip in '<svg><foreignObject>|</svg>' '<svg><desc>|</svg>' '<math><mi>|</math>' \
+            '<svg><foreignObject></desc>|</svg>' '<math><mi></mtext>|</math>' '<svg><desc></title>|</svg>'; do
+    sc_new; fx_sf static/partial.html "${ip%|*}<div>${ip#*|}</div><style><img src=\"$OH/p.png\"></style>${ip#*|}"
+    sc_row 3 static/partial.html "${ip%|*}" "$mk"
+  done
+  sc_new; fx_sf static/partial.html '<svg><foreignObject><div></svg></div></foreignObject><style><script>document.title = 1</script></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
+  # top level: the CSP backs fetches but not navigation, so where a browser may
+  # still be inside <svg>, a later <style> may hold no markup, and no <script>
+  # body may hold <meta (a refresh)
+  html_row 3 'markup inside a <style> after an inline <svg> or <math>' '<svg' \
+    '<svg><foreignObject><div></svg></div></foreignObject><style><meta http-equiv=refresh content=0;url=/x></style></svg>'
+  html_row 3 '(or holds <meta)' '<script>' "<script>var s = '<meta http-equiv=refresh content=0>';</script>"
+  # every element this parser reads as text, not only <style>; and an HTML
+  # tag that would break a still-open <svg> out into live HTML in a <script>
+  local el
+  for el in title textarea xmp noembed; do
+    html_row 3 "markup inside a <$el> after an inline <svg> or <math>" '<svg' \
+      "<svg><foreignObject><div></svg></div></foreignObject><$el><meta http-equiv=refresh content=0;url=/x></$el></svg>"
+  done
+  html_row 3 'an HTML tag inside a <script> after an inline <svg> or <math>' '<svg' \
+    '<svg><foreignObject><div></svg></div></foreignObject><script><p><link rel=preconnect href=/x></script></svg>'
+  html_row 0 '' '' '<svg><rect width="8" height="8"/></svg>' '<script>for (var i = 0; i<n; i++) { x(i<b); }</script>'
+  # controls: an icon's <title> holds only text, so <svg> ends at </svg>; a
+  # later <style> without markup and a script using && pass
+  html_row 0 '' '' '<svg><title>Icon</title><rect width="8" height="8"/></svg>' '<script>var ok = a && b;</script>'
+  html_row 0 '' '' '<svg><rect width="8" height="8"/></svg>' '<style>a > b { color: red; }</style>'
+  # the accessible-icon idiom, with an entity and a bare "<", still passes
+  html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
+}
+
+@test "build-docs-site: check-fetches — an element this parser reads as text inside <noscript> is refused" {
+  local r='inside <noscript>, which a browser reads as text'
+  sc_n=0
+  # a browser (scripting on) ends <noscript> at its own end tag, inside these
+  sc_new; fx_sf static/partial.html "<noscript><title></noscript><script>fetch(\"$OH/t\")</script></title></noscript>"
+  sc_row 3 static/partial.html '<noscript>' "<title> $r"
+  sc_new; fx_sf static/partial.html "<noscript><textarea></noscript><img src=\"$OH/p.png\"></textarea></noscript>"
+  sc_row 3 static/partial.html '<noscript>' "<textarea> $r"
+  sc_new; fx_sf static/partial.html '<noscript><style></noscript><img src=//other.host/p.png></style></noscript>'
+  sc_row 3 static/partial.html '<noscript>' "<style> $r"
+  # control: ordinary fallback markup in <noscript> passes
+  html_row 0 '' '' '<noscript><p>This page needs JavaScript.</p></noscript>'
+}
+
+@test "build-docs-site: check-fetches — a CSP meta a browser ignores does not count" {
+  local doc=("${DOC_HEAD[@]}")
+  sc_n=0
+  sc_new; fx_sf index.html "${doc[@]}" '<p>x</p>' "$CSP_META" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  sc_new; fx_sf index.html "${doc[@]}" 'hello' "$CSP_META" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  # content before <head> opens <body>; the later <head> is ignored
+  local before
+  for before in '<p>x</p>' 'hello' '<body>'; do
+    sc_new; fx_sf index.html '<!DOCTYPE html>' "<html lang=\"en\">$before<head>" "$CSP_META" '</head><body></body></html>'
+    sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  done
+  sc_new; fx_sf index.html "${doc[@]}" "<noscript>$CSP_META</noscript>" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'inside <noscript>'
+  sc_new; fx_sf index.html "${doc[@]}" "<template>$CSP_META</template>" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'inside <template>'
+  sc_new; fx_sf index.html "${doc[@]}" "<meta http-equiv=\" Content-Security-Policy\" content=\"$CSP\">" '</head><body></body></html>'
+  sc_row 3 index.html '' 'no Content-Security-Policy meta'
+  # control: whitespace and a comment in <head> before the meta keep it in <head>
+  sc_new; fx_sf index.html "${doc[@]}" '  <!-- policy -->' "$CSP_META" '<title>t</title>' '</head><body></body></html>'
+  sc_row 0 index.html '' ''
+}
+
+@test "build-docs-site: check-fetches — a protocol-relative URL inside a value is refused" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "el.innerHTML = '<img src=\"//other.host/p.png\">';"
+  svg_row 3 'remote URL in fill= on <rect>' '<rect' '<rect fill="url(//other.host/p.svg#g)"/>'
+  svg_row 3 'remote URL in values= on <animate>' '<animate' '<animate attributeName="href" values="a.png;//other.host/p.png"/>'
+  # three or more slashes start a host too (a URL parser with an http(s) base
+  # skips them all), in every context
+  js_row 3 'remote URL in a JS string' "fetch('///other.host/x');"
+  js_row 3 'remote URL in a JS string' "fetch('////other.host/x');"
+  sc_new; fx_sf static/partial.html '<img src="///other.host/p.png">'
+  sc_row 3 static/partial.html '<img' 'remote URL in src= on <img>'
+  svg_row 3 'remote URL in href= on <image>' '<image' '<image href="///other.host/p.png"/>'
+  css_row 3 'remote URL in a CSS url()' 'a { background: url(///other.host/p.png); }'
+  css_row 3 'remote URL in a CSS string' '@import "///other.host/a.css";'
+  html_row 3 'remote URL in content= on <meta>' 'refresh' '<meta http-equiv="refresh" content="0;url=///other.host/">'
+  # controls: "//" that starts no host
+  js_row 0 '' 'var s = "see // note", t = "a//b", u = "/// ", v = "a///b";'
+}
+
+@test "build-docs-site: check-fetches — JS line ends, HTML-like comments and postfix ++ do not hide a string" {
+  sc_n=0
+  sc_new; fx_sf assets/a.js $'// note\rimport("'"$OH"$'/x.js");'
+  sc_row 3 assets/a.js '// note' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js $'// note import("'"$OH"$'/x.js");'
+  sc_row 3 assets/a.js '// note' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js '<!-- /*' "fetch(\"$OH/x\");" '// */'
+  sc_row 3 assets/a.js 'fetch' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js 'var a = 1;' '--> /*' "fetch(\"$OH/x\");" '// */'
+  sc_row 3 assets/a.js 'fetch' 'remote URL in a JS string'
+  js_row 3 'remote URL in a JS string' "var y = i++ / 2 + '/' + '$OH/a.js';"
+  # in module code "<!--" and "-->" are operators, not comments
+  file_row 3 'remote URL in a JS string' assets/a.mjs 'fetch' 'let a = 0, b = 1;' "a <!-- b, fetch(\"$OH/x\");"
+  html_row 3 'remote URL in a JS string' 'fetch' '<script type="module">let a = 1;' "--> a; fetch(\"$OH/x\")" '</script>'
+  # controls: prefix ++ before a regex, and "-->" that is not at a line start
+  js_row 0 '' 'var r = ++i; var s = /ab+c/.test(t); var u = "assets/x";'
+  js_row 0 '' 'while (i --> 0) { s = "assets/x"; }'
 }

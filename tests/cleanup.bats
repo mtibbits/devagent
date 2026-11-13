@@ -1079,3 +1079,25 @@ EOF
     [[ "$output" == *"gave up after this run's shared lock deadline"* ]]
     assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 23 '~' cleanup
 }
+
+@test "cleanup closes a starter checklist with mergemr [x] and no updatewbs/impact/lessonslearned rows (#989)" {
+    # No _one_commit_ahead here: cleanup.sh reads neither commits-ahead nor
+    # baseline_sha; the AC's "one commit ahead" binds the ship limb (ship.bats).
+    make_starter_issue 20
+    run grep -cE '^- \[.\] +(21|22|23)\. ' "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$output" -eq 0 ]
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"closeout steps not terminal"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 x cleanup
+}
+
+@test "cleanup refuses a starter checklist while mergemr is [?], naming only mergemr (#989)" {
+    make_starter_issue 18
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 20 '?'
+    run "$DEVAGENT_ROOT/scripts/cleanup.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"closeout steps not terminal: mergemr:[?]"* ]]
+    [[ "$output" != *"updatewbs"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 24 ' ' cleanup
+}

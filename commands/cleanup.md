@@ -25,7 +25,7 @@ every entry must carry a tag in a `lessons-lint`-recognized shape, or reap and t
 register never see it, #525);
 updatewbs/impact are recoverable bookkeeping, but they are exactly the steps
 skipped when "the code is merged, I'm done" (Issue-78/79/80). Steps absent
-from the issue's checklist are not gated (research/docs-only templates).
+from the issue's checklist are not gated (research/docs-only/starter templates).
 
 ## Precondition (#594) — the lessons file lints clean
 

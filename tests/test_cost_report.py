@@ -97,8 +97,7 @@ def _subagent(session_path, name, tool_use_id, records):
 
 def _config(names):
     """Write DA_HOME/config.toml naming each project in its own [project.<name>] table."""
-    body = "".join(f'[project.{n}]\nsource_dir = "/x/{n}"\n\n' for n in names)
-    Path(os.environ["DA_HOME"], "config.toml").write_text(body, encoding="utf-8")
+    _config_dirs({n: {"source_dir": f"/x/{n}"} for n in names})
 
 
 def _cwd_slug():
@@ -735,6 +734,7 @@ def _big_session(path, mb, filler=FILLER, stamp=False):
     n = itertools.count()
 
     def put(f, r):
+        r = {**r, "cwd": "/work/big"}   # a constant cwd: the per-bucket cwd field is exercised (#732)
         if stamp:
             r = _at(r, next(n) / 60)
         f.write(json.dumps(r) + "\n")
@@ -1632,3 +1632,606 @@ def test_cli_time_archive(tmp_path):
     assert arc.returncode == 0 and liv.returncode == 0, (arc.stderr, liv.stderr)
     assert arc.stdout == liv.stdout
     assert ALPHA_TIME in arc.stdout.splitlines()
+
+
+# --- Issue-732: overhead ------------------------------------------------------
+
+def _config_dirs(projects):
+    """Write DA_HOME/config.toml: one [project.<name>] table per entry, with the given dir keys."""
+    body = ""
+    for name, keys in projects.items():
+        body += f"[project.{name}]\n"
+        for k, v in keys.items():
+            body += f"{k} = {json.dumps(v)}\n"
+        body += "\n"
+    Path(os.environ["DA_HOME"], "config.toml").write_text(body, encoding="utf-8")
+
+
+def _in(rec, cwd):
+    return {**rec, "cwd": cwd}
+
+
+def _bash_hint(mid, tid, command, usage):
+    """An assistant Bash call that has usage (one record: the tool_use is in its message's first record)."""
+    return _call(mid, usage, _tool(tid, "Bash", command=command))
+
+
+OVH_CONFIG = {
+    "alpha": {"source_dir": "/work/alpha", "devdoc_dir": "/work/devdoc/alpha"},
+    "beta": {"source_dir": "/work/beta", "devdoc_dir": "/work/devdoc/beta", "worktree_root": "/work/trees/beta"},
+}
+
+
+def _overhead_fixture(tmp_path):
+    """Sessions H, W, B, N, M exercising every overhead path; each call's inp is a distinct power of two."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "ovh"
+    inp = (2 ** i for i in itertools.count())
+
+    def c(mid, *tools):
+        return _call(mid, _usage(inp=next(inp)), *tools)
+
+    dd = "/work/devdoc"
+    h = [
+        c("h1"),
+        _typed("reap", "alpha"),
+        c("h2"),
+        c("h3", _tool("a1", "Agent", description="x")),
+        _typed("reap", "beta"),
+        c("h4"),
+        _bash_hint("h5", "b1", "DEVAGENT_PROJECT=gamma x", _usage(inp=next(inp))),
+        *_dispatch("n1", "alpha", "Issue-4", 2, "draft", "h6"),
+        c("h7"),
+        _typed("reap", "beta"),
+        c("h8"),
+        _bash_hint("h9", "n2", 'DEVAGENT_PROJECT=beta bash "x/scripts/next.sh" beta --auto', _usage(inp=next(inp))),
+        _result("n2", "dispatch: beta/Issue-9 — step 2 (draft), skill-backed"),
+        c("h10"),
+        c("h11"),
+    ]
+    _write(d / "H.jsonl", [_in(r, dd) for r in h], mtime=1000)
+    _subagent(d / "H.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(inp=next(inp))), dd)])
+    w = [_in(c("w1"), "/work/alpha-wt/issue-9"), _in(c("w2"), "/work/alpha-wt/issue-9"), _in(c("w3"), "/home/op")]
+    _write(d / "W.jsonl", w, mtime=2000)
+    _subagent(d / "W.jsonl", "agent-zz", "zz", [_in(_call("s2", _usage(inp=next(inp))), "/work/beta/x")])
+    b = [
+        _bash_hint("b1", "x1", "export DEVAGENT_PROJECT=beta", _usage(inp=next(inp))),
+        c("b2"),
+        _bash_hint("b3", "x2", 'export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?name}"', _usage(inp=next(inp))),
+        c("b4"),
+    ]
+    _write(d / "B.jsonl", [_in(r, dd) for r in b], mtime=3000)
+    _write(d / "N.jsonl", [_in(c("n1c"), dd)], mtime=4000)
+    _write(d / "M.jsonl", [c("m1")], mtime=5000)
+    return d
+
+
+# Captured at HEAD 978ca39 (before any cost-report.py change) by
+# analysis/2026-11-13-t1-overhead-golden-run.txt; never from new code.
+GOLDEN_OVH_FULL = (
+    'Token cost by step, from <DIR>\n'
+    'input-token equivalents, weighted by price vs base input: cache read 0.1, cache write 1.25 (5m) / 2 (1h), output 5\n'
+    '\n'
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  (no step)                 10     1048K     2.08    0.02     2.10   100%\n'
+    '  reap                       4        0K     0.00    0.00     0.00     0%\n'
+    '\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  draft                      1        0K     0.00    0.00     0.00    14%\n'
+    '  reap                       2        0K     0.00    0.00     0.00    86%\n'
+    '\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  draft                      2        0K     0.00    0.00     0.00   100%\n'
+)
+GOLDEN_OVH_SUMMARY = (
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+)
+GOLDEN_OVH_JSON = (
+    '{"calls": 14, "issue": "(no issue)", "main": 2078751.0, "peak_context": 1048576, "project": "(no project)", "sessions": 5, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "B"}, {"cwd_slug": "ovh", "host": "local", "session": "H"}, {"cwd_slug": "ovh", "host": "local", "session": "M"}, {"cwd_slug": "ovh", "host": "local", "session": "N"}, {"cwd_slug": "ovh", "host": "local", "session": "W"}], "subagents": 17408.0, "total": 2096159.0}\n'
+    '{"calls": 3, "issue": "Issue-4", "main": 224.0, "peak_context": 128, "project": "alpha", "sessions": 1, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "H"}], "subagents": 0.0, "total": 224.0}\n'
+    '{"calls": 2, "issue": "Issue-9", "main": 768.0, "peak_context": 512, "project": "beta", "sessions": 1, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "H"}], "subagents": 0.0, "total": 768.0}\n'
+)
+GOLDEN_OVH_TIME_SUMMARY = (
+    'time rule: idle_gap 5m, tool_gap 60m, attention_cap 15m\n'
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    '(no project)/(no issue) time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'alpha/Issue-4 time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'beta/Issue-9 time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+)
+
+
+def test_cli_output_without_overhead_is_unchanged(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    runs = [_cli("--transcripts", d, *f) for f in ((), ("--summary",), ("--json",), ("--summary", "--time"))]
+    assert [r.returncode for r in runs] == [0, 0, 0, 0], [r.stderr for r in runs]
+    assert runs[0].stdout.replace(str(d), "<DIR>") == GOLDEN_OVH_FULL
+    assert runs[1].stdout == GOLDEN_OVH_SUMMARY
+    assert runs[2].stdout == GOLDEN_OVH_JSON
+    assert runs[3].stdout == GOLDEN_OVH_TIME_SUMMARY
+
+
+def test_project_dirs_reads_source_devdoc_and_worktree_root():
+    _config_dirs({
+        "alpha": {"source_dir": "/work/alpha", "devdoc_dir": "/work/devdoc/alpha"},
+        "beta": {"source_dir": "/work/beta", "devdoc_dir": "/work/devdoc/beta", "worktree_root": "/work/trees/beta"},
+        "gamma": {"source_dir": "~/g"},
+        "delta": {"source_dir": 7},
+        "epsilon": {"source_dir": "/work/eps", "worktree_root": "/work/eps-wt"},
+    })
+    lst = cr.project_dirs(cr._project_tables())
+    g = os.path.expanduser("~/g")
+    assert set(lst) == {
+        ("/work/alpha", "alpha"), ("/work/alpha-wt", "alpha"), ("/work/devdoc/alpha", "alpha"),
+        ("/work/beta", "beta"), ("/work/trees/beta", "beta"), ("/work/devdoc/beta", "beta"),
+        (g, "gamma"), (g + "-wt", "gamma"),
+        ("/work/eps", "epsilon"), ("/work/eps-wt", "epsilon"),
+    }
+    assert len(lst) == len(set(lst))
+
+
+@pytest.mark.parametrize("path, expected", [
+    ("/work/a/", "/work/a"), ("/", "/"), ("/Work/A", "/Work/A"),
+    ("C:\\Programs\\src\\devDoc\\", "c:/Programs/src/devDoc"),
+    ("/c/Programs", "c:/Programs"), ("/C/x", "c:/x"),
+    ("/c", "c:/"), ("/c/", "c:/"), ("c:", "c:/"), ("c:/", "c:/"), ("C:\\", "c:/"),
+])
+def test_norm_paths(path, expected):
+    assert cr._norm(path) == expected
+
+
+@pytest.mark.parametrize("r", ["c:/x/proj", "C:/x/proj", "c:/x/proj/"])
+@pytest.mark.parametrize("p, under", [
+    ("C:\\x\\proj", True), ("c:\\x\\proj", True), ("/c/x/proj", True), ("/C/x/proj", True),
+    ("C:/x/proj/sub/", True), ("c:\\x\\proj\\sub", True),
+    ("c:/x/proj2", False), ("/d/x/proj", False), ("c:/x/Proj", False),
+])
+def test_under_spec_spellings(p, r, under):
+    assert cr._under(p, r) is under
+
+
+def test_under_roots_and_empty():
+    assert cr._under("c:/x/proj", "c:/") is True
+    assert cr._under("c:/x/proj", "/c") is True
+    assert cr._under("/anything", "/") is True
+    assert cr._under("", "/work") is False
+    assert cr._under("/work", "") is False
+
+
+def test_under_identity_first(tmp_path):
+    real = tmp_path / "real"
+    (real / "sub").mkdir(parents=True)
+    (tmp_path / "realx").mkdir()
+    (tmp_path / "link").symlink_to(real)
+    assert cr._under(str(tmp_path / "link" / "sub"), str(real)) is True   # identity: the string rule says no
+    assert cr._under(str(tmp_path / "realx"), str(real)) is False
+
+
+DIR_CONFIG = {
+    "alpha": {"source_dir": "/work/alpha"},
+    "beta": {"source_dir": "/work/alpha/vendor/beta"},
+    "gamma": {"source_dir": "/work/same"},
+    "delta": {"source_dir": "/work/same"},
+    "epsilon": {"source_dir": "/work/eps", "devdoc_dir": "/work/eps"},
+    "win": {"source_dir": "C:/Work/Alpha"},
+}
+
+
+@pytest.mark.parametrize("cwd, project", [
+    ("/work/alpha", "alpha"),
+    ("/work/alpha/src", "alpha"),
+    ("/work/alpha/vendor/beta/x", "beta"),
+    ("/work/alphabet", None),
+    ("/work", None),
+    ("/work/same/x", None),
+    ("/work/eps/x", "epsilon"),
+    ("c:\\Work\\Alpha\\x", "win"),
+    ("c:\\work\\alpha\\x", None),
+])
+def test_dir_project_longest_match_and_boundaries(cwd, project):
+    _config_dirs(DIR_CONFIG)
+    dirs = cr.project_dirs(cr._project_tables())
+    cache = {}
+    assert cr._dir_project(cwd, dirs, cache) == project
+    assert cr._dir_project(cwd, dirs, cache) == project   # cached answer agrees
+
+
+@pytest.mark.parametrize("cmd, values", [
+    ("DEVAGENT_PROJECT=beta bash x", ("beta",)),
+    ("export DEVAGENT_PROJECT=beta", ("beta",)),
+    ('export DEVAGENT_PROJECT="beta"; y', ("beta",)),
+    ("DEVAGENT_PROJECT='beta' z", ("beta",)),
+    ("(DEVAGENT_PROJECT=factor-ai bash s)", ("factor-ai",)),
+    ("DEVAGENT_PROJECT=alpha a; DEVAGENT_PROJECT=beta b", ("alpha", "beta")),
+    ('export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?name}"', ()),
+    ('if DEVAGENT_PROJECT="$project"', ()),
+    ("DEVAGENT_PROJECT=$P x", ()),
+    ("MY_DEVAGENT_PROJECT=beta x", ()),
+    ("DEVAGENT_PROJECT=beta$x y", ()),
+    ("echo $DEVAGENT_PROJECT", ()),
+    ("DEVAGENT_PROJECT=", ()),
+])
+def test_project_assign_shapes(cmd, values):
+    assert cr._assigned_projects(cmd) == values
+
+
+@pytest.mark.parametrize("name, args, hint", [
+    ("reap", "alpha", "alpha"),
+    ("catchup", "beta", "beta"),
+    ("next", "alpha --auto", "alpha"),
+    ("next", "alpha 7 --auto", "alpha"),
+    ("history", "--project beta", "beta"),
+    ("reap", "alpha Issue-4", None),
+    ("next", "alpha Issue-8 --auto", None),
+    ("pull", "alpha origin 7", None),
+    ("pull", "alpha", None),
+    ("wbs", "update alpha", "alpha"),
+    ("wbs", "init alpha", "alpha"),
+    ("auth", "status alpha", "alpha"),
+    ("capture", "alpha beta notes", "alpha"),
+    ("wbs", "update alpha Issue-3", None),
+    ("reap", "gamma", None),
+    ("where", "", None),
+])
+def test_typed_hint_shapes(name, args, hint):
+    assert cr._typed_hint(name, tuple(args.split()), {"alpha", "beta"}) == hint
+
+
+def test_scan_dispatch_and_hint_in_one_command():
+    recs = [
+        _bash_hint("m1", "n1", 'DEVAGENT_PROJECT=beta bash "x/scripts/next.sh" beta --auto', _usage(inp=1)),
+        _result("n1", "dispatch: beta/Issue-9 — step 2 (draft), skill-backed"),
+        _call("m2", _usage(inp=2)),
+    ]
+    tape = cr.scan(recs, set())
+    assert ("hint", ("beta",)) in tape.events
+    assert any(e[0] == "dispatch" and e[1:3] == ("beta", "Issue-9") for e in tape.events)
+    buckets, _, _, _ = cr.replay(tape, {"beta"})
+    assert [(pair, b.calls) for pair, _, b, _ in buckets] == [((NP, NI), 1), (("beta", "Issue-9"), 1)]
+
+
+def test_scan_buckets_split_on_cwd_and_replay_tags_hint():
+    recs = [
+        _in(_call("m1", _usage(inp=1)), "/a"),
+        _in(_call("m2", _usage(inp=2)), "/a"),
+        _in(_call("m3", _usage(inp=4)), "/b"),
+        _typed("reap", "alpha"),
+        _in(_call("m4", _usage(inp=8), _tool("t1", "Agent", description="x")), "/b"),
+        _call("m5", _usage(inp=16)),
+    ]
+    tape = cr.scan(recs, set())
+    buckets, launches, _, places = cr.replay(tape, {"alpha"})
+    assert [(b.calls, tag) for _, _, b, tag in buckets] == [
+        (2, (None, "/a")), (1, (None, "/b")), (1, ("alpha", "/b")), (1, ("alpha", None))]
+    assert places == {"t1": ("alpha", "/b")}
+    assert launches == {"t1": ((NP, NI), "reap")}
+
+
+def _ov(ov):
+    """{label: (calls, main + sub, (hint, cwd, unassigned))} for an overhead dict filled by collect."""
+    out = {}
+    for (kind, name), o in ov.items():
+        label = f"{name}/(overhead)" if kind == "project" else f"(unassigned) {name}"
+        steps = o.steps.values()
+        out[label] = (sum(r.calls for r in steps), sum(r.main + r.sub for r in steps),
+                      (o.rules["hint"], o.rules["cwd"], o.rules["unassigned"]))
+    return out
+
+
+def _collect_ov(*dirs):
+    ov = {}
+    rows, sessions = cr.collect(list(dirs), None, overhead=ov)
+    return rows, sessions, ov
+
+
+EW = "/work/elsewhere"
+
+
+def _c(mid, inp, *tools, cwd=EW):
+    return _in(_call(mid, _usage(inp=inp), *tools), cwd)
+
+
+def test_overhead_typed_hint_places_following_calls(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1), _typed("reap", "alpha"), _c("c2", 2), _c("c3", 4)])
+    rows, _, ov = _collect_ov(d)
+    assert _ov(ov) == {"alpha/(overhead)": (2, 6.0, (2, 0, 0)), f"(unassigned) {EW}": (1, 1.0, (0, 0, 1))}
+    assert rows[(NP, NI)]["reap"].calls == 2
+
+
+def _bash_session(project):
+    return [
+        _c("c1", 1),
+        _in(_bash_hint("c2", "t2", f"DEVAGENT_PROJECT={project} x", _usage(inp=2)), EW),
+        _c("c3", 4),
+        _in(_bash_hint("c4", "t4", "DEVAGENT_PROJECT=gamma y", _usage(inp=8)), EW),
+        _c("c5", 16),
+        _in(_bash_hint("c6", "t6", 'export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?n}"', _usage(inp=32)), EW),
+        _c("c7", 64),
+    ]
+
+
+def test_overhead_bash_hint_and_ignored_values(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", _bash_session("beta"))
+    assert _ov(_collect_ov(d)[2]) == {"beta/(overhead)": (6, 126.0, (6, 0, 0)), f"(unassigned) {EW}": (1, 1.0, (0, 0, 1))}
+    g = tmp_path / "g"
+    _write(g / "G.jsonl", _bash_session("gamma"))
+    assert _ov(_collect_ov(g)[2]) == {f"(unassigned) {EW}": (7, 127.0, (0, 0, 7))}
+
+
+def test_overhead_bash_hint_in_a_later_record_of_its_message(tmp_path):
+    """A message split over two records is counted at the first: the hint lands after its own call (improve B1)."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [
+        _c("c1", 1),
+        _c("m2", 2),
+        _in(_bash_hint("m2", "t2", "DEVAGENT_PROJECT=beta x", _usage(inp=2)), EW),
+        _c("c3", 4),
+    ])
+    assert _ov(_collect_ov(d)[2]) == {f"(unassigned) {EW}": (2, 3.0, (0, 0, 2)), "beta/(overhead)": (1, 4.0, (1, 0, 0))}
+
+
+def test_overhead_two_hints_split_at_the_second(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_typed("reap", "alpha"), _c("c1", 1), _c("c2", 2), _typed("reap", "beta"), _c("c3", 4)])
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (2, 0, 0)), "beta/(overhead)": (1, 4.0, (1, 0, 0))}
+
+
+def test_overhead_cwd_rule_worktree_root_and_devdoc_parent(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "X.jsonl", [_c("x1", 1, cwd="/work/alpha-wt/issue-9"), _c("x2", 2, cwd="/work/alpha-wt/issue-9")], mtime=1)
+    _write(d / "Y.jsonl", [_c("y1", 4, cwd="/work/devdoc")], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) /work/devdoc": (1, 4.0, (0, 0, 1))}
+
+
+def test_overhead_hint_never_changes_the_pair(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [*_dispatch("n1", "alpha", "Issue-4", 2, "draft", "d0"),
+                           _c("c1", 1), _typed("reap", "beta"), _c("c2", 2)])
+    rows, _, ov = _collect_ov(d)
+    assert set(rows) == {("alpha", "Issue-4")} and _calls(rows, ("alpha", "Issue-4")) == 2
+    assert ov == {}
+    p = tmp_path / "p"   # positive control: without the dispatch the hint places c2 on beta
+    _write(p / "S.jsonl", [_c("c1", 1), _typed("reap", "beta"), _c("c2", 2)])
+    assert _ov(_collect_ov(p)[2])["beta/(overhead)"] == (1, 2.0, (1, 0, 0))
+
+
+def test_overhead_hint_not_carried_across_sessions(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S1.jsonl", [_typed("reap", "alpha"), _c("c1", 1)], mtime=1)
+    _write(d / "S2.jsonl", [_c("c2", 2)], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (1, 1.0, (1, 0, 0)), f"(unassigned) {EW}": (1, 2.0, (0, 0, 1))}
+
+
+def test_overhead_subagent_follows_its_launch(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_typed("reap", "alpha"), _c("c1", 1, _tool("a1", "Agent", description="x"))])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(out=10)), "/work/beta")])
+    _subagent(d / "S.jsonl", "agent-zz", "zz", [_in(_call("s2", _usage(out=10)), "/work/beta/x")])
+    ov = _collect_ov(d)[2]
+    alpha, beta = ov[("project", "alpha")], ov[("project", "beta")]
+    assert sum(r.sub for r in alpha.steps.values()) == 50 and sum(r.calls for r in alpha.steps.values()) == 1
+    assert sum(r.sub for r in beta.steps.values()) == 50 and sum(r.calls for r in beta.steps.values()) == 0
+    assert beta.rules == {"hint": 0, "cwd": 0, "unassigned": 0}
+
+
+def test_overhead_cwd_change_inside_a_bucket(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1, cwd="/work/alpha"), _c("c2", 2, cwd="/work/alpha"), _c("c3", 4, cwd="/home/op")])
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) /home/op": (1, 4.0, (0, 0, 1))}
+
+
+def test_overhead_missing_cwd_is_no_cwd(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_call("c1", _usage(inp=1))])
+    assert _ov(_collect_ov(d)[2]) == {"(unassigned) (no cwd)": (1, 1.0, (0, 0, 1))}
+
+
+def test_overhead_windows_cwd_through_collect(tmp_path):
+    """Drive-letter cwds through scan, replay and placement, on any host (improve B9; spec 8.1 fallback)."""
+    _config_dirs({"alpha": {"source_dir": "C:/Work/Alpha"}})
+    d = tmp_path / "s"
+    _write(d / "S1.jsonl", [_c("c1", 1, cwd="C:\\Work\\Alpha\\x"), _c("c2", 2, cwd="C:\\Work\\Alpha\\x")], mtime=1)
+    _write(d / "S2.jsonl", [_c("c3", 4, cwd="c:\\work\\alpha\\x")], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) c:/work/alpha/x": (1, 4.0, (0, 0, 1))}
+
+
+def _ovh_with_copies(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    d2 = tmp_path / "ovh2"
+    d2.mkdir()
+    (d2 / "H.jsonl").write_bytes((d / "H.jsonl").read_bytes())
+    with gzip.open(d2 / "B.jsonl.gz", "wb") as f:
+        f.write((d / "B.jsonl").read_bytes())
+    return [d, d2]
+
+
+def test_overhead_sum_equals_no_project_no_issue(tmp_path):
+    rows, sessions, ov = _collect_ov(*_ovh_with_copies(tmp_path))
+    steps = [r for o in ov.values() for r in o.steps.values()]
+    np_ni = rows[(NP, NI)].values()
+    assert sum(r.calls for r in steps) == _calls(rows, (NP, NI))
+    assert sum(r.main for r in steps) == pytest.approx(sum(r.main for r in np_ni))
+    assert sum(r.sub for r in steps) == pytest.approx(sum(r.sub for r in np_ni))
+    assert set().union(*(o.sessions for o in ov.values())) <= sessions[(NP, NI)]
+    for o in ov.values():
+        assert sum(o.rules.values()) == sum(r.calls for r in o.steps.values())
+
+
+def test_overhead_does_not_change_rows(tmp_path):
+    dirs = _ovh_with_copies(tmp_path)
+    rows_a, sessions_a = cr.collect(dirs, None)
+    rows_b, sessions_b = cr.collect(dirs, None, overhead={})
+    assert _rows_equal(rows_a, rows_b) and sessions_a == sessions_b
+
+
+# Hand-computed from _overhead_fixture's inputs (each call's inp is a distinct power of two).
+OVH_SUMMARY = [
+    "alpha/(overhead): 0.0M input-token equivalents over 2 session(s), 4 calls, peak context 4K "
+    "(main 0.0M, subagents 0.0M); hint 2, cwd 2",
+    "beta/(overhead): 0.5M input-token equivalents over 3 session(s), 6 calls, peak context 262K "
+    "(main 0.5M, subagents 0.0M); hint 6, cwd 0",
+    "(unassigned) (no cwd): 1.0M input-token equivalents over 1 session(s), 1 calls, peak context 1048K "
+    "(main 1.0M, subagents 0.0M)",
+    "(unassigned) /home/op: 0.0M input-token equivalents over 1 session(s), 1 calls, peak context 8K "
+    "(main 0.0M, subagents 0.0M)",
+    "(unassigned) /work/devdoc: 0.5M input-token equivalents over 2 session(s), 2 calls, peak context 524K "
+    "(main 0.5M, subagents 0.0M)",
+]
+OVH_JSON_KEYS = {"calls", "cwd", "main", "peak_context", "project", "rules", "sessions", "sources", "subagents", "total"}
+
+
+def _lbl(line):
+    return line.split(": ", 1)[0]
+
+
+def test_cli_overhead_summary_lines(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", "--summary")
+    assert run.returncode == 0, run.stderr
+    got = run.stdout.splitlines()
+    assert {_lbl(x): x for x in got} == {_lbl(x): x for x in OVH_SUMMARY}
+    assert got == OVH_SUMMARY
+
+
+def test_cli_overhead_full_table(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead")
+    assert run.returncode == 0, run.stderr
+    lines = run.stdout.splitlines()
+    assert lines[0] == f"Token cost by step, from {d}" and lines[1].startswith("input-token equivalents, weighted")
+    headings = [ln for ln in lines if ln and not ln.startswith(" ") and ln not in lines[:2]]
+    assert headings == OVH_SUMMARY
+    i = lines.index(OVH_SUMMARY[0])
+    assert lines[i + 1].split() == ["step", "calls", "peak", "ctx", "main", "M", "sub", "M", "total", "M", "share"]
+    assert any(ln.split()[0] == "reap" for ln in lines[i + 2:lines.index(OVH_SUMMARY[1])] if ln.strip())
+
+
+def test_cli_overhead_project_filter(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--project", "alpha", "--overhead", "--summary")
+    assert run.returncode == 0 and run.stdout.splitlines() == [OVH_SUMMARY[0]]
+    none = _cli("--transcripts", d, "--project", "nobody", "--overhead")
+    assert none.returncode == 1 and none.stdout == ""
+    assert "cost-report: no overhead calls placed on project nobody" in none.stderr.splitlines()
+
+
+def test_cli_overhead_none_found(tmp_path):
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [*_dispatch("n1", "alpha", "Issue-4", 2, "draft", "d0"), _call("c1", _usage(inp=1))])
+    run = _cli("--transcripts", d, "--overhead")
+    assert (run.returncode, run.stdout) == (1, "")
+    assert "cost-report: no overhead calls" in run.stderr.splitlines()
+
+
+@pytest.mark.parametrize("extra, message", [
+    (("--issue", "4"), "--overhead does not take --issue"),
+    (("--time",), "--overhead does not take --time"),
+    (("--idle-gap", "5"), "--idle-gap needs --time"),
+])
+def test_cli_overhead_flag_conflicts(tmp_path, extra, message):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", *extra)
+    assert (run.returncode, run.stdout) == (2, "")
+    assert message in run.stderr
+
+
+def test_cli_overhead_json_shape_and_sum(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    run = _cli("--transcripts", d, "--overhead", "--json")
+    assert run.returncode == 0, run.stderr
+    objs = [json.loads(ln) for ln in run.stdout.splitlines()]
+    assert [(o["project"], o["cwd"]) for o in objs] == [
+        ("alpha", None), ("beta", None), ("(unassigned)", "(no cwd)"), ("(unassigned)", "/home/op"),
+        ("(unassigned)", "/work/devdoc")]
+    for o in objs:
+        assert set(o) == OVH_JSON_KEYS
+        assert set(o["rules"]) == {"cwd", "hint", "unassigned"} and sum(o["rules"].values()) == o["calls"]
+    no_issue = next(json.loads(ln) for ln in _cli("--transcripts", d, "--json").stdout.splitlines()
+                    if json.loads(ln)["project"] == NP)
+    assert sum(o["calls"] for o in objs) == no_issue["calls"]
+    assert sum(o["total"] for o in objs) == pytest.approx(no_issue["total"], abs=0.01 * len(objs))
+    assert objs[0]["rules"] == {"cwd": 2, "hint": 2, "unassigned": 0}
+    assert {s["session"] for s in objs[1]["sources"]} == {"B", "H", "W"}
+    assert _cli("--transcripts", d, "--overhead", "--json").stdout == run.stdout
+
+
+def test_cli_overhead_scans_every_dir(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    root = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects"
+    _write(root / _cwd_slug() / "S1.jsonl", [_typed("reap", "alpha"), _c("c1", 1)])
+    _write(root / "Y" / "S2.jsonl", [_typed("reap", "alpha"), _c("c2", 2)])
+    every = _cli("--overhead", "--summary")
+    assert every.returncode == 0, every.stderr
+    assert every.stdout.startswith("alpha/(overhead): 0.0M input-token equivalents over 2 session(s), 2 calls")
+    one = _cli("--overhead", "--summary", "--transcripts", root / "Y")
+    assert one.stdout.startswith("alpha/(overhead): 0.0M input-token equivalents over 1 session(s), 1 calls")
+
+
+def test_cli_overhead_archive(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    _gz(tmp_path / "A" / "h1" / "slug" / "S.jsonl.gz", [_typed("reap", "alpha"), _c("c1", 1), _c("c2", 2)])
+    run = _cli("--archive", tmp_path / "A", "--overhead", "--json")
+    assert run.returncode == 0, run.stderr
+    objs = [json.loads(ln) for ln in run.stdout.splitlines()]
+    assert [o["project"] for o in objs] == ["alpha"]
+    assert objs[0]["sources"] == [{"cwd_slug": "slug", "host": "h1", "session": "S"}]
+
+
+def test_cli_overhead_text_non_ascii_cwd(tmp_path, monkeypatch):
+    """A cwd the locale codec cannot encode must not kill the text report (improve S3)."""
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1, cwd="/work/ñ/ø")])
+    monkeypatch.setenv("PYTHONIOENCODING", "ascii")
+    run = subprocess.run([sys.executable, str(SCRIPT), "--transcripts", str(d), "--overhead", "--summary"],
+                         capture_output=True)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.decode("utf-8").startswith("(unassigned) /work/ñ/ø: ")
+
+
+def test_under_identity_walks_physical_parents(tmp_path):
+    """Spec 8.1: a P whose .. leaves R is not under R, nor is a symlinked subdir of R pointing outside it."""
+    alpha, out = tmp_path / "w" / "alpha", tmp_path / "out"
+    (tmp_path / "w" / "beta").mkdir(parents=True)
+    alpha.mkdir()
+    out.mkdir()
+    assert cr._under(str(alpha / ".." / "beta"), str(alpha)) is False
+    try:
+        (alpha / "lnk").symlink_to(out)
+    except OSError:
+        pytest.skip("no symlinks on this host")
+    assert cr._under(str(alpha / "lnk"), str(alpha)) is False
+
+
+def test_project_dirs_empty_worktree_root_gets_the_default():
+    """An empty worktree_root reads as unset, as scripts/lib/trust.sh does (review minor 4)."""
+    _config_dirs({"alpha": {"source_dir": "/work/alpha", "worktree_root": ""}})
+    assert ("/work/alpha-wt", "alpha") in cr.project_dirs(cr._project_tables())
+
+
+def test_overhead_launched_subagent_without_launch_cwd_uses_its_own(tmp_path):
+    """A launch record with no cwd places its subagent by the subagent file's cwd (review minor 2)."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_call("c1", _usage(inp=1), _tool("a1", "Agent", description="x"))])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(out=10)), "/work/beta")])
+    ov = _collect_ov(d)[2]
+    assert sum(r.sub for r in ov[("project", "beta")].steps.values()) == 50
+    assert _ov(ov)["(unassigned) (no cwd)"] == (1, 1.0, (0, 0, 1))
