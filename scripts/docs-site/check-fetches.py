@@ -61,12 +61,16 @@
 #   - text content a script reads and fetches passes;
 #   - the JS tokenizer guesses regex versus division from the token before a
 #     "/". Where that token does not decide it (")", "}", of, await, yield,
-#     let, async, static, get, set), the rest of its line (up to 4000
-#     characters) is read both ways: strings from either reading are scanned,
-#     and the "/" is refused if one reading leaves a string open at the end
-#     where the other does not. A guess is trusted after any other token (an
-#     identifier or a number: division; an operator or a keyword such as
-#     return: regex), and past the line a wrong guess can still hide a string;
+#     let, async, static, get, set), its line is read both ways until the
+#     readings agree: strings from either reading are scanned. The "/" is
+#     refused if one reading leaves a string open at the end of the line, if
+#     the other reading meets another such "/" before they agree (no nested
+#     guessing), or if they do not agree within 4000 characters. A guess is
+#     trusted after any other token (an identifier or a number: division; an
+#     operator or a keyword such as return: regex; "++"/"--" first on a line:
+#     prefix, so regex), and past the line a wrong guess can still hide a
+#     string. Line starts follow the lexical grammar for "#!" (first in the
+#     source) and Annex B's "-->" after whitespace and comments;
 #   - a data: URL in an attribute or CSS is exempt whole: its payload is not
 #     decoded, so a data: stylesheet's @import passes (in a JS string a data:
 #     URL is scanned like any other text);
@@ -84,9 +88,12 @@
 #     rules are not modelled, and nothing keyed on being inside <svg>/<math>
 #     relaxes a check. In a top-level document a browser may stay in <svg>/
 #     <math> past its end tag (an HTML element left open in <foreignObject>,
-#     <desc>, <mi>, …); so markup in any <style> after an inline <svg>/<math>
-#     is refused, and so is "<meta" in any <script> body (a refresh navigates,
-#     which the CSP does not govern).
+#     <desc>, <mi>, …), and a meta refresh or a preconnect there is not
+#     governed by the CSP. So after an inline <svg>/<math>, markup in any
+#     element this parser reads as text (<style>, <title>, <textarea>, <xmp>,
+#     <noembed>, …) is refused, and so is an HTML tag that ends foreign
+#     content (<p>, <div>, <meta>, …) in a <script>; "<meta" is refused in
+#     any <script> body.
 # Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
 # (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
 # no <script> (.svg, any namespace prefix) and no on*= handler (both). A worker
@@ -102,8 +109,13 @@
 #     leave a string open at the end of the line ("(a)/2 + 'x/y'"):
 #     parenthesize or split;
 #   - inline JS that builds a '<script', '<!--' or '<meta' string;
-#   - markup ("<" then a letter, "/", "!" or "?") in a <style> after an
-#     inline <svg> or <math> in a top-level document;
+#   - after an inline <svg> or <math> in a top-level document: markup ("<"
+#     then a letter, "/", "!" or "?") in a later <style>, <title>,
+#     <textarea>, <xmp> or <noembed>, and an HTML tag such as "<p " or
+#     "<b>" in a later <script> (a "<" comparison with a space or a short
+#     name such as "i<n" passes);
+#   - a "/" read as a regex or a division whose readings meet another such
+#     "/" before they agree, or do not agree within 4000 characters;
 #   - "&" in an inline <svg> or <math> <script> or <style>, and markup ("<"
 #     then a letter, "/", "!" or "?") in any element this parser reads as text
 #     inside <svg> or <math> (<title>, <textarea>, <script>, <style>, …);
@@ -332,6 +344,12 @@ def js_tokens(text, line0=1, module=False, start=0, regex_ok=True, dual=True,
     i, n, line = start, len(text) if end is None else end, line0
     sync = None
     last = None   # the last token: "dot", "close" (")" or "}"), "amb", or None
+    nl = False    # a line terminator since the last token
+    tokd = False  # a token has been read
+    if start == 0 and text.startswith("#!"):
+        # a hashbang comment (ES2023), first in the source only
+        m = JS_LINE_END_RE.search(text)
+        i = n if m is None else m.start()
     depth = 0
     tmpl = []  # one (outer brace depth, opening line) per open ${ … }
 
@@ -371,7 +389,7 @@ def js_tokens(text, line0=1, module=False, start=0, regex_ok=True, dual=True,
 
     while i < n:
         if record is not None or stop is not None:
-            state = (i, regex_ok, depth, tuple(tmpl))
+            state = (i, regex_ok, depth, tuple(tmpl), nl)
             if stop is not None and state in stop:
                 sync = state
                 break
@@ -380,46 +398,66 @@ def js_tokens(text, line0=1, module=False, start=0, regex_ok=True, dual=True,
         c = text[i]
         if c == "\n":
             line += 1
+            nl = True
             i += 1
             continue
         if c.isspace() or c in JS_EXTRA_SPACE:
+            nl = nl or c in JS_LINE_ENDS
             i += 1
             continue
         # A line comment: "//", and (Annex B, classic scripts only: in a module
-        # they are operators) "<!--" anywhere and "-->" first on its line. It
-        # ends at any JS line terminator.
+        # they are operators) "<!--" anywhere and "-->" first on its line (only
+        # whitespace and comments before it, Annex B B.1.1). It ends at any JS
+        # line terminator.
         if text.startswith("//", i) or (not module and (text.startswith("<!--", i) or (
-                text.startswith("-->", i)
-                and not text[max(text.rfind(t, 0, i) for t in JS_LINE_ENDS) + 1:i].strip()))):
+                text.startswith("-->", i) and (nl or not tokd)))):
             m = JS_LINE_END_RE.search(text, i)
             i = n if m is None else m.start()
             continue
         if text.startswith("/*", i):
+            j0 = i
             i, line = _block_comment(text, i, line, errs)
+            nl = nl or JS_LINE_END_RE.search(text, j0, i) is not None
             continue
-        if c == "/" and dual and last in ("close", "amb") and _regex_end(text, i) >= 0:
+        undecided = c == "/" and last in ("close", "amb") and _regex_end(text, i) >= 0
+        if undecided and stop is not None:
+            # the other reading meets an undecided "/" before the two agree:
+            # its reading is a guess too, so the outer "/" is refused
+            errs.append(("nested", line))
+            break
+        if undecided and dual:
             m = JS_LINE_END_RE.search(text, i)
-            wend = min(m.start() if m else n, i + JS_DUAL_WINDOW)
+            lend = m.start() if m else n
+            wend = min(lend, i + JS_DUAL_WINDOW)
             for w in (64, 512, wend - i):
                 rec = {}
                 guess = js_tokens(text, line, module, i, regex_ok, False, min(i + w, wend), record=rec)
                 other = js_tokens(text, line, module, i, not regex_ok, False, min(i + w, wend), stop=rec)
+                if any(e[0] == "nested" for e in other[1]):
+                    errs.append(('a "/" read as a regex or a division, with another such "/" before the readings agree', line))
+                    break
                 if other[2] is not None:
                     seen = guess[0][:rec[other[2]]]
                     toks.extend(t for t in other[0] if t not in seen)
                     break
                 if i + w >= wend:
                     toks.extend(t for t in other[0] if t not in guess[0])
-                    if any(e[0].startswith("unterminated") and e not in guess[1] for e in other[1]):
+                    if wend < lend:
+                        errs.append(('a "/" read as a regex or a division, the readings not agreeing within %d characters' % JS_DUAL_WINDOW, line))
+                    elif any(e[0].startswith("unterminated") and e not in guess[1] for e in other[1]):
                         errs.append(('a "/" that reads as a regex or a division, one reading leaving a string open', line))
                     break
+        after_nl, nl, tokd = nl, False, True
         prev, last = last, None
         if c in "'\"":
             i, line = _quoted(text, i, line, toks, errs)
             regex_ok = False
             continue
         if c in "+-" and text.startswith(c + c, i):
-            # postfix after an operand (a "/" next is division); prefix otherwise
+            # postfix after an operand (a "/" next is division); prefix otherwise,
+            # and always prefix after a line terminator (ASI: a "/" next is a regex)
+            if after_nl:
+                regex_ok = True
             i += 2
             continue
         if c == "`":
@@ -538,6 +576,12 @@ SCRIPT_BODY_RE = re.compile(r"<!--|<script|<meta", re.I)
 # text (title, textarea, xmp, script, style, …), so such a body may hold none.
 PARSED_AS_TEXT = _RAW_IN_PARSER | {"script", "style"}
 FOREIGN_MARKUP_RE = re.compile(r"<[A-Za-z/!?]")
+# Tags that end <svg>/<math> content in a browser (HTML "breakout" tags, plus
+# </br> and </p>), as a tag: the name then whitespace, "/" or ">".
+BREAKOUT_RE = re.compile(
+    r"<(?:b|big|blockquote|body|br|center|code|dd|div|dl|dt|em|embed|font|h[1-6]|"
+    r"head|hr|i|img|li|listing|menu|meta|nobr|ol|p|pre|ruby|s|small|span|strong|"
+    r"strike|sub|sup|table|tt|u|ul|var)[\s/>]|</(?:br|p)[\s/>]", re.I)
 # Start tags that keep <head> open; any other start tag, or text that is not
 # whitespace, ends it in a browser (and a CSP meta after that point is ignored).
 HEAD_OK = {"html", "head", "base", "basefont", "bgsound", "link", "meta", "noscript",
@@ -886,7 +930,7 @@ class _Html(_hp.HTMLParser):
             self.inert.append(tag)
         if tag == "title":
             self.in_title = True
-        if tag in ("script", "style") or (self.foreign and tag in PARSED_AS_TEXT):
+        if tag in ("script", "style") or (self.seen_foreign and tag in PARSED_AS_TEXT):
             self.pending = [tag, None, [], bool(self.foreign), stype == "module"]
 
     def handle_endtag(self, tag):
@@ -925,10 +969,15 @@ class _Html(_hp.HTMLParser):
         text = "".join(chunks)
         if in_foreign and FOREIGN_MARKUP_RE.search(text):
             self.refuse(line, "markup inside <%s> inside <svg> or <math> (a browser parses it as markup)" % tag)
-        elif tag == "style" and self.seen_foreign and FOREIGN_MARKUP_RE.search(text):
+        elif self.seen_foreign and tag != "script" and FOREIGN_MARKUP_RE.search(text):
             # in a top-level document the scanner ends <svg> at </svg>, where a
-            # browser may not; markup in a later <style> could then be live
-            self.refuse(line, "markup inside a <style> after an inline <svg> or <math> (a browser may still be inside it)")
+            # browser may not; markup in any later element this parser reads as
+            # text (<style>, <title>, <textarea>, <xmp>, …) could then be live
+            self.refuse(line, "markup inside a <%s> after an inline <svg> or <math> (a browser may still be inside it)" % tag)
+        elif self.seen_foreign and tag == "script" and BREAKOUT_RE.search(text):
+            # a <script> still inside <svg> holds markup: an HTML tag there
+            # breaks out of <svg>, and what follows is live HTML
+            self.refuse(line, "an HTML tag inside a <script> after an inline <svg> or <math> (a browser may still be inside it)")
         if tag not in ("script", "style"):
             return
         if tag == "script" and SCRIPT_BODY_RE.search(text):

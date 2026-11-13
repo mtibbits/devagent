@@ -178,8 +178,15 @@ and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
     `aria-label=`, `data-*=`, `<meta name=… content=…>`), including a mention like
     `file: x`: put the URL in link text or an `<a href>` instead;
   - a JS string that is just `"https:"`;
-  - inline JS that builds a `'<script'` or `'<!--'` string: split it, as in
-    `'<scr' + 'ipt'`.
+  - inline JS that builds a `'<script'`, `'<!--'` or `'<meta'` string: split
+    it, as in `'<scr' + 'ipt'`;
+  - after an inline `<svg>` or `<math>` in a page: markup in a later
+    `<style>`, `<title>` or `<textarea>`, and an HTML tag such as `<p ` or
+    `<b>` inside a later `<script>` string: build it from parts, or move the
+    `<svg>` after it;
+  - in JavaScript, a `/` right after `)`, `}`, `of`, `await` or `yield` that
+    could also start a regex holding a quote (`(a)/2 + 'x/y'`): parenthesize
+    or split the expression (the scanner's header has the exact rule).
 
 **Deploy hold.** The website 2.0 epic (#994) holds publishing: the repository
 variable `DOCS_SITE_DEPLOY` is set to `false` before #995 merges, and stays

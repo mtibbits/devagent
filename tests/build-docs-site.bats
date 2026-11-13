@@ -1208,6 +1208,22 @@ css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
   js_row 0 '' 'function* g() { yield (/"/); } var y = (of) / 2 + o.of / 2; var u = "assets/x";'
   # the documented over-refusal: a regex reading that leaves a string open
   js_row 3 'one reading leaving a string open' "var y = (a)/2 + 'x/y';"
+  # no nested guess: a second undecided "/" met by the other reading before
+  # the two agree is refused; so is a line on which they never agree
+  file_row 3 'with another such "/" before the readings agree' assets/a.js 'if(a)' 'var a = 1, b = 1;' "if(a)/'/;if(b)/'//'//'+F('$OH/x');"
+  local pad
+  pad="$(printf '1+%.0s' $(seq 2100))"
+  js_row 3 'the readings not agreeing within 4000 characters' "if (a) /'/ + ${pad}1 + F('$OH/x');// '"
+  js_row 0 '' 'var r = (a) / 2 + (b) / 3 + (c) / 4;'
+  # line starts: "++"/"--" first on a line is prefix (a "/" next is a regex);
+  # a hashbang is a comment; Annex B "-->" after comments starts a comment
+  file_row 3 'remote URL in a JS string' assets/a.js 'lastIndex' 'var b = 1' "++/'/.lastIndex + F('$OH/x');// '"
+  file_row 3 'remote URL in a JS string' assets/a.js 'lastIndex' 'var b = 1' "--/'/.lastIndex + F('$OH/x');// '"
+  sc_new; fx_sf assets/a.js '#!/*' "F('$OH/x');" '/**/'
+  sc_row 3 assets/a.js 'F(' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js 'var a = 1;' '/**/ --> /*' "F('$OH/x');" '/**/'
+  sc_row 3 assets/a.js 'F(' 'remote URL in a JS string'
+  js_row 0 '' '#!/usr/bin/env node' 'var u = "assets/x";'
 }
 
 @test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
@@ -1673,6 +1689,16 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   html_row 3 'markup inside a <style> after an inline <svg> or <math>' '<svg' \
     '<svg><foreignObject><div></svg></div></foreignObject><style><meta http-equiv=refresh content=0;url=/x></style></svg>'
   html_row 3 '(or holds <meta)' '<script>' "<script>var s = '<meta http-equiv=refresh content=0>';</script>"
+  # every element this parser reads as text, not only <style>; and an HTML
+  # tag that would break a still-open <svg> out into live HTML in a <script>
+  local el
+  for el in title textarea xmp noembed; do
+    html_row 3 "markup inside a <$el> after an inline <svg> or <math>" '<svg' \
+      "<svg><foreignObject><div></svg></div></foreignObject><$el><meta http-equiv=refresh content=0;url=/x></$el></svg>"
+  done
+  html_row 3 'an HTML tag inside a <script> after an inline <svg> or <math>' '<svg' \
+    '<svg><foreignObject><div></svg></div></foreignObject><script><p><link rel=preconnect href=/x></script></svg>'
+  html_row 0 '' '' '<svg><rect width="8" height="8"/></svg>' '<script>for (var i = 0; i<n; i++) { x(i<b); }</script>'
   # controls: an icon's <title> holds only text, so <svg> ends at </svg>; a
   # later <style> without markup and a script using && pass
   html_row 0 '' '' '<svg><title>Icon</title><rect width="8" height="8"/></svg>' '<script>var ok = a && b;</script>'
