@@ -955,7 +955,7 @@ _wbs865_show() {
   bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
   cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
   [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
-  grep -Fxq "wbs show: line 5: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err"
 }
 
 @test "wbs show --depth 1 still prints the warning once (#865)" {
@@ -964,11 +964,18 @@ _wbs865_show() {
   grep -q 'Sub' "$TMPROOT/out"
   [ "$(grep -c 'deep' "$TMPROOT/out")" -eq 0 ]
   [ "$(wc -l < "$TMPROOT/err")" -eq 1 ]
-  grep -Fxq "wbs show: line 5: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+  grep -Fxq "wbs show: line 5: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err"
 }
 
 @test "wbs show prints no warning for a valid priority (#865)" {
   _wbs865_show P1
+  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+  [ ! -s "$TMPROOT/err" ]
+}
+
+@test "wbs show prints no warning for priority P0 (#889)" {
+  _wbs865_show P0
   bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
   cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
   [ ! -s "$TMPROOT/err" ]
@@ -1053,7 +1060,7 @@ _wbs865_show() {
       '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
     # shellcheck disable=SC2086
     bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
-    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
     [ "$(grep -cE "satisfies entry|objective entry|h '" "$TMPROOT/err")" -eq 0 ]
   done
 }
@@ -1098,7 +1105,7 @@ _wbs865_show() {
       '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
     # shellcheck disable=SC2086
     bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
-    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
     [ "$(grep -cE "thinking '|checking '" "$TMPROOT/err")" -eq 0 ]
   done
 }
@@ -1178,7 +1185,7 @@ _wbs865_show() {
       '  - [ ] T {issue: Issue-2}' > "$TMPDEV/WBS.md"
     # shellcheck disable=SC2086
     bash "$REPO/scripts/wbs.sh" $cmd testproj > /dev/null 2> "$TMPROOT/err"
-    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+    [ "$(grep -cF "wbs ${cmd%% *}: line 4: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
     [ "$(grep -cF 'depends_on entry' "$TMPROOT/err")" -eq 0 ]
   done
 }
@@ -1198,15 +1205,15 @@ _wbs865_order() {
 @test "wbs order prints a malformed priority warning once (#865)" {
   _wbs865_order
   bash "$REPO/scripts/wbs.sh" order testproj 2> "$TMPROOT/err"
-  [ "$(grep -cF "priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
-  grep -Fxq "wbs order: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+  [ "$(grep -cF "priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs order: line 4: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err"
 }
 
 @test "wbs update prints a malformed priority warning once (#865)" {
   _wbs865_order
   bash "$REPO/scripts/wbs.sh" update testproj --offline 2> "$TMPROOT/err"
-  [ "$(grep -cF "priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
-  grep -Fxq "wbs update: line 4: priority 'high' is not P1, P2, P3 or P4; ignored" "$TMPROOT/err"
+  [ "$(grep -cF "priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err")" -eq 1 ]
+  grep -Fxq "wbs update: line 4: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err"
 }
 
 @test "wbs update is idempotent on a WBS with prose (#701)" {
@@ -1251,6 +1258,26 @@ _wbs865_order() {
   [[ "$spec131" == *'`depends_on` (#887)'* ]]
   grep -qF "is not \`<project>:<issue>\`" "$REPO/commands/wbs.md"
   awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' "$REPO/CHANGELOG.md" | grep -qF '<project>:<issue>'
+}
+
+@test "WBS docs state the P0 to P4 priority scale (#889)" {
+  local spec131
+  # Whitespace-normalised so a reflow cannot split a literal.
+  spec131="$(sed -n '/^### 13.1 /,/^### 13.2 /p' "$REPO/docs/specs/2026-05-19-devagent-plugin-design.md" | tr -s ' \n' '  ')"
+  [[ "$spec131" == *'`P0` to `P4`, P0 the most urgent'* ]]
+  [[ "$spec131" == *"is not P0, P1, P2, P3 or P4; ignored"* ]]
+  [[ "$spec131" != *'`P1` to `P4`'* ]]
+  [[ "$spec131" != *"is not P1, P2"* ]]
+  grep -qF 'priority (P0-P4)' "$REPO/templates/wbs_template.md"
+  [ "$(grep -cF 'P1-P4' "$REPO/templates/wbs_template.md")" -eq 0 ]
+  grep -qF '`priority: P0`-`P4`' "$REPO/commands/wbs.md"
+  [ "$(grep -cF '`priority: P1`-`P4`' "$REPO/commands/wbs.md")" -eq 0 ]
+  grep -qF '`priority: P0`-`P4`' "$REPO/scripts/wbs-order.sh"
+  [ "$(grep -cF '`priority: P1`-`P4`' "$REPO/scripts/wbs-order.sh")" -eq 0 ]
+  grep -qF 'priority (P0-P4)' "$REPO/docs-site/configuration.md"
+  [ "$(grep -cF 'P1-P4' "$REPO/docs-site/configuration.md")" -eq 0 ]
+  # [Unreleased] to the end, so a release cut keeps this green.
+  awk '/^## \[Unreleased\]/{f=1;next} f' "$REPO/CHANGELOG.md" | grep -qF 'priority: P0'
 }
 
 @test "wbs.bats network shim catches a real backend call (#703 control)" {
