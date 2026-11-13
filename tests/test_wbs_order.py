@@ -350,8 +350,8 @@ def test_p0_sorts_before_p1():
 
 def test_sibling_a_p0_depends_on_inherits_p0():
     # A and D each have one dependent, so fan-out ties; A rises above D (own
-    # P1, earlier position) only by inheriting P0 from B. Read as P1 (or at
-    # the old P1-P4 scale) the order is [E, D, A, B, C].
+    # P1, earlier position) only by inheriting P0 from B. Read as P1 (a
+    # P0-as-P1 mutant) the order is [E, D, A, B, C].
     lines, warnings = _ord(P0_INHERITED)
     assert lines == [
         "- [ ] E",
