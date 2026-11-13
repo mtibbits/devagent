@@ -1912,3 +1912,172 @@ def test_scan_buckets_split_on_cwd_and_replay_tags_hint():
         (2, (None, "/a")), (1, (None, "/b")), (1, ("alpha", "/b")), (1, ("alpha", None))]
     assert places == {"t1": ("alpha", "/b")}
     assert launches == {"t1": ((NP, NI), "reap")}
+
+
+def _ov(ov):
+    """{label: (calls, main + sub, (hint, cwd, unassigned))} for an overhead dict filled by collect."""
+    out = {}
+    for (kind, name), o in ov.items():
+        label = f"{name}/(overhead)" if kind == "project" else f"(unassigned) {name}"
+        steps = o.steps.values()
+        out[label] = (sum(r.calls for r in steps), sum(r.main + r.sub for r in steps),
+                      (o.rules["hint"], o.rules["cwd"], o.rules["unassigned"]))
+    return out
+
+
+def _collect_ov(*dirs):
+    ov = {}
+    rows, sessions = cr.collect(list(dirs), None, overhead=ov)
+    return rows, sessions, ov
+
+
+EW = "/work/elsewhere"
+
+
+def _c(mid, inp, *tools, cwd=EW):
+    return _in(_call(mid, _usage(inp=inp), *tools), cwd)
+
+
+def test_overhead_typed_hint_places_following_calls(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1), _typed("reap", "alpha"), _c("c2", 2), _c("c3", 4)])
+    rows, _, ov = _collect_ov(d)
+    assert _ov(ov) == {"alpha/(overhead)": (2, 6.0, (2, 0, 0)), f"(unassigned) {EW}": (1, 1.0, (0, 0, 1))}
+    assert rows[(NP, NI)]["reap"].calls == 2
+
+
+def _bash_session(project):
+    return [
+        _c("c1", 1),
+        _in(_bash_hint("c2", "t2", f"DEVAGENT_PROJECT={project} x", _usage(inp=2)), EW),
+        _c("c3", 4),
+        _in(_bash_hint("c4", "t4", "DEVAGENT_PROJECT=gamma y", _usage(inp=8)), EW),
+        _c("c5", 16),
+        _in(_bash_hint("c6", "t6", 'export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?n}"', _usage(inp=32)), EW),
+        _c("c7", 64),
+    ]
+
+
+def test_overhead_bash_hint_and_ignored_values(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", _bash_session("beta"))
+    assert _ov(_collect_ov(d)[2]) == {"beta/(overhead)": (6, 126.0, (6, 0, 0)), f"(unassigned) {EW}": (1, 1.0, (0, 0, 1))}
+    g = tmp_path / "g"
+    _write(g / "G.jsonl", _bash_session("gamma"))
+    assert _ov(_collect_ov(g)[2]) == {f"(unassigned) {EW}": (7, 127.0, (0, 0, 7))}
+
+
+def test_overhead_bash_hint_in_a_later_record_of_its_message(tmp_path):
+    """A message split over two records is counted at the first: the hint lands after its own call (improve B1)."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [
+        _c("c1", 1),
+        _c("m2", 2),
+        _in(_bash_hint("m2", "t2", "DEVAGENT_PROJECT=beta x", _usage(inp=2)), EW),
+        _c("c3", 4),
+    ])
+    assert _ov(_collect_ov(d)[2]) == {f"(unassigned) {EW}": (2, 3.0, (0, 0, 2)), "beta/(overhead)": (1, 4.0, (1, 0, 0))}
+
+
+def test_overhead_two_hints_split_at_the_second(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_typed("reap", "alpha"), _c("c1", 1), _c("c2", 2), _typed("reap", "beta"), _c("c3", 4)])
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (2, 0, 0)), "beta/(overhead)": (1, 4.0, (1, 0, 0))}
+
+
+def test_overhead_cwd_rule_worktree_root_and_devdoc_parent(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "X.jsonl", [_c("x1", 1, cwd="/work/alpha-wt/issue-9"), _c("x2", 2, cwd="/work/alpha-wt/issue-9")], mtime=1)
+    _write(d / "Y.jsonl", [_c("y1", 4, cwd="/work/devdoc")], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) /work/devdoc": (1, 4.0, (0, 0, 1))}
+
+
+def test_overhead_hint_never_changes_the_pair(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [*_dispatch("n1", "alpha", "Issue-4", 2, "draft", "d0"),
+                           _c("c1", 1), _typed("reap", "beta"), _c("c2", 2)])
+    rows, _, ov = _collect_ov(d)
+    assert set(rows) == {("alpha", "Issue-4")} and _calls(rows, ("alpha", "Issue-4")) == 2
+    assert ov == {}
+    p = tmp_path / "p"   # positive control: without the dispatch the hint places c2 on beta
+    _write(p / "S.jsonl", [_c("c1", 1), _typed("reap", "beta"), _c("c2", 2)])
+    assert _ov(_collect_ov(p)[2])["beta/(overhead)"] == (1, 2.0, (1, 0, 0))
+
+
+def test_overhead_hint_not_carried_across_sessions(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S1.jsonl", [_typed("reap", "alpha"), _c("c1", 1)], mtime=1)
+    _write(d / "S2.jsonl", [_c("c2", 2)], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (1, 1.0, (1, 0, 0)), f"(unassigned) {EW}": (1, 2.0, (0, 0, 1))}
+
+
+def test_overhead_subagent_follows_its_launch(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_typed("reap", "alpha"), _c("c1", 1, _tool("a1", "Agent", description="x"))])
+    _subagent(d / "S.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(out=10)), "/work/beta")])
+    _subagent(d / "S.jsonl", "agent-zz", "zz", [_in(_call("s2", _usage(out=10)), "/work/beta/x")])
+    ov = _collect_ov(d)[2]
+    alpha, beta = ov[("project", "alpha")], ov[("project", "beta")]
+    assert sum(r.sub for r in alpha.steps.values()) == 50 and sum(r.calls for r in alpha.steps.values()) == 1
+    assert sum(r.sub for r in beta.steps.values()) == 50 and sum(r.calls for r in beta.steps.values()) == 0
+    assert beta.rules == {"hint": 0, "cwd": 0, "unassigned": 0}
+
+
+def test_overhead_cwd_change_inside_a_bucket(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_c("c1", 1, cwd="/work/alpha"), _c("c2", 2, cwd="/work/alpha"), _c("c3", 4, cwd="/home/op")])
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) /home/op": (1, 4.0, (0, 0, 1))}
+
+
+def test_overhead_missing_cwd_is_no_cwd(tmp_path):
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "s"
+    _write(d / "S.jsonl", [_call("c1", _usage(inp=1))])
+    assert _ov(_collect_ov(d)[2]) == {"(unassigned) (no cwd)": (1, 1.0, (0, 0, 1))}
+
+
+def test_overhead_windows_cwd_through_collect(tmp_path):
+    """Drive-letter cwds through scan, replay and placement, on any host (improve B9; spec 8.1 fallback)."""
+    _config_dirs({"alpha": {"source_dir": "C:/Work/Alpha"}})
+    d = tmp_path / "s"
+    _write(d / "S1.jsonl", [_c("c1", 1, cwd="C:\\Work\\Alpha\\x"), _c("c2", 2, cwd="C:\\Work\\Alpha\\x")], mtime=1)
+    _write(d / "S2.jsonl", [_c("c3", 4, cwd="c:\\work\\alpha\\x")], mtime=2)
+    assert _ov(_collect_ov(d)[2]) == {"alpha/(overhead)": (2, 3.0, (0, 2, 0)), "(unassigned) c:/work/alpha/x": (1, 4.0, (0, 0, 1))}
+
+
+def _ovh_with_copies(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    d2 = tmp_path / "ovh2"
+    d2.mkdir()
+    (d2 / "H.jsonl").write_bytes((d / "H.jsonl").read_bytes())
+    with gzip.open(d2 / "B.jsonl.gz", "wb") as f:
+        f.write((d / "B.jsonl").read_bytes())
+    return [d, d2]
+
+
+def test_overhead_sum_equals_no_project_no_issue(tmp_path):
+    rows, sessions, ov = _collect_ov(*_ovh_with_copies(tmp_path))
+    steps = [r for o in ov.values() for r in o.steps.values()]
+    np_ni = rows[(NP, NI)].values()
+    assert sum(r.calls for r in steps) == _calls(rows, (NP, NI))
+    assert sum(r.main for r in steps) == pytest.approx(sum(r.main for r in np_ni))
+    assert sum(r.sub for r in steps) == pytest.approx(sum(r.sub for r in np_ni))
+    assert set().union(*(o.sessions for o in ov.values())) <= sessions[(NP, NI)]
+    for o in ov.values():
+        assert sum(o.rules.values()) == sum(r.calls for r in o.steps.values())
+
+
+def test_overhead_does_not_change_rows(tmp_path):
+    dirs = _ovh_with_copies(tmp_path)
+    rows_a, sessions_a = cr.collect(dirs, None)
+    rows_b, sessions_b = cr.collect(dirs, None, overhead={})
+    assert _rows_equal(rows_a, rows_b) and sessions_a == sessions_b

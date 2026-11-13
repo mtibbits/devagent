@@ -773,9 +773,31 @@ def replay(tape: Tape, known: set[str]):
     return buckets, launches, timed, places
 
 
+class Overhead:
+    """One overhead line's figures: per-step Rows, sessions, sources, and calls per placement rule."""
+    __slots__ = ("steps", "sessions", "sources", "rules")
+
+    def __init__(self):
+        self.steps: dict[str, Row] = {}
+        self.sessions: set[str] = set()
+        self.sources: set[tuple] = set()
+        self.rules = {"hint": 0, "cwd": 0, "unassigned": 0}
+
+
+def _place(hint: str | None, cwd: str | None, dirs: list[tuple[str, str]], cache: dict):
+    """Where an overhead call goes, first rule that applies: the session hint, the cwd's project, else unassigned."""
+    if hint is not None:
+        return ("project", hint), "hint"
+    project = _dir_project(cwd, dirs, cache) if cwd else None
+    if project is not None:
+        return ("project", project), "cwd"
+    return ("unassigned", _norm(cwd) if cwd else "(no cwd)"), "unassigned"
+
+
 def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | None = None, *,
             hosts: dict | None = None, sources: dict | None = None,
-            timing: TimeRules | None = None, times: dict | None = None):
+            timing: TimeRules | None = None, times: dict | None = None,
+            overhead: dict | None = None):
     """Return ({(project, issue): {step: Row}}, {(project, issue): {sessionId}}), each filter an exact match.
 
     Every session is scanned before any is replayed: a typed command names a
@@ -785,7 +807,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     partition (absent: "local"); a dict passed as sources is filled
     {pair: {(host, cwd_slug, sessionId)}}. With timing, a dict passed as times
     is filled {pair: TimeAcc} under the same filters; one set of record uuids
-    spans every file, as message ids do.
+    spans every file, as message ids do. A dict passed as overhead is filled
+    {("project", P) | ("unassigned", cwd): Overhead} with the (no project)/(no issue)
+    calls, charged at the same sites and from the same Rows, so it sums to that pair.
     """
     hosts = hosts or {}
     sources = {} if sources is None else sources
@@ -800,7 +824,9 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
             tapes.append((scan_session(p, seen, clocks), (hosts.get(d, "local"), d.name)))
         except OSError as e:
             _skipped(p, e)
-    known = known_projects().union(*(t.dispatched for t, _ in tapes))
+    tables = _project_tables()
+    known = set(tables).union(*(t.dispatched for t, _ in tapes))
+    pdirs, cache = (project_dirs(tables), {}) if overhead is not None else ([], {})
     # A wait on a launched agent is not main busy when a subagent file under its id was read and is charged
     # through this tape's launches (its records carry the work); a nested agent's file is charged elsewhere.
     sub_ids = {i for t, _ in tapes for i, _ in t.sub_time if i is not None}
@@ -817,15 +843,29 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     for tape, where in tapes:
         buckets, launches, timed, places = replay(tape, known)
         origin = (*where, tape.session)
-        for pair, step, b, _ in buckets:
+        def slot(place):
+            o = overhead.setdefault(place, Overhead())
+            o.sessions.add(tape.session)
+            o.sources.add(origin)
+            return o
+
+        for pair, step, b, (hint, cwd) in buckets:
             if b.calls:
                 rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
+                if overhead is not None and pair == START[0]:
+                    place, rule = _place(hint, cwd, pdirs, cache)
+                    o = slot(place)
+                    o.steps.setdefault(step, Row()).add(b.calls, b.peak, b.main)
+                    o.rules[rule] += b.calls
             sessions[pair].add(tape.session)
             sources.setdefault(pair, set()).add(origin)
-        for tool_use_id, cost, fresh, _ in tape.subs:
+        for tool_use_id, cost, fresh, sub_cwd in tape.subs:
             pair, step = launches.get(tool_use_id, START)
             if fresh:
                 rows[pair].setdefault(step, Row()).sub += cost
+                if overhead is not None and pair == START[0]:
+                    place, _ = _place(*places.get(tool_use_id, (None, sub_cwd)), pdirs, cache)
+                    slot(place).steps.setdefault(step, Row()).sub += cost
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
             charge(pair, a, launches)
