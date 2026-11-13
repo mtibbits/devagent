@@ -1166,3 +1166,171 @@ css_row() {
   css_row 0 '' 'body { font-family: "Segoe UI"; }'
   css_row 0 '' "@namespace svg url($NS);"
 }
+
+# html_row <want> <token> <needle> <body line...> — one row: index.html, a
+# document carrying the CSP meta, with the lines as its body.
+html_row() {
+  local want="$1" token="$2" needle="$3"; shift 3
+  sc_new; fx_doc index.html "$@"
+  sc_row "$want" index.html "$needle" "$token"
+}
+
+# svg_row <want> <token> <needle> <line...> — one row: assets/d.svg, the lines
+# wrapped in <svg xmlns="$NS">…</svg>. svg_whole: the lines are the whole file.
+svg_row() {
+  local want="$1" token="$2" needle="$3"; shift 3
+  sc_new; fx_sf assets/d.svg "<svg xmlns=\"$NS\">" "$@" '</svg>'
+  sc_row "$want" assets/d.svg "$needle" "$token"
+}
+svg_whole() {
+  local want="$1" token="$2" needle="$3"; shift 3
+  sc_new; fx_sf assets/d.svg "$@"
+  sc_row "$want" assets/d.svg "$needle" "$token"
+}
+
+@test "build-docs-site: check-fetches — attribute contexts refuse a remote URL anywhere in the value" {
+  sc_n=0
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="http:other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' $'<img src="ht\ttps://other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="   //other.host/x" alt="">'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="\\other.host/x" alt="">'
+  html_row 3 'remote URL in srcset= on <img>' '<img' '<img src="assets/a.png" srcset="assets/a.png 1x, //other.host/b.png 2x" alt="">'
+  html_row 3 'remote URL in ping= on <a>' '<a ' '<a href="x.html" ping="assets/p //other.host/p">x</a>'
+  html_row 3 'remote URL in fill= on <rect>' '<rect' "<svg><rect fill=\"url($OH/#g)\"/></svg>"
+  html_row 3 'remote URL in background= on <td>' '<td' "<table><tr><td background=\"$OH/bg.png\">x</td></tr></table>"
+  html_row 3 'remote URL in a CSS url()' '<p ' "<p style=\"background:url($OH/x.png)\">x</p>"
+  html_row 3 'remote URL in a JS string' '<button' "<button onclick=\"fetch('$OH/x')\">x</button>"
+  html_row 3 'javascript: URL in href= on <a>' '<a ' '<a href="javascript:alert(1)">x</a>'
+  html_row 3 'javascript: URL in href= on <a>' '<a ' '<a href="java&#9;script:alert(1)">x</a>'
+  html_row 3 'remote URL in src= on <img>' '<img' '<img src="https&#58;//other.host/x" alt="">'
+}
+
+@test "build-docs-site: check-fetches — a multi-line tag reports the attribute's own line" {
+  sc_n=0
+  html_row 3 'remote URL in src= on <img>' 'src="https' '<img alt="see src"' "  src=\"$OH/x\">"
+}
+
+@test "build-docs-site: check-fetches — namespace URIs are exempt only as exact xmlns values" {
+  sc_n=0
+  html_row 3 'remote URL in xmlns= on <svg>' '<svg' "<svg xmlns=\"${NS}x\"></svg>"
+  html_row 3 'remote URL in xmlns= on <svg>' '<svg' "<svg xmlns=\"$NS/\"></svg>"
+  html_row 3 'remote URL in src= on <img>' '<img' "<img src=\"$NS\" alt=\"\">"
+  html_row 0 '' '' "<svg xmlns=\"$NS\" xmlns:n1=\"http://www.w3.org/1999/xhtml\" xmlns:n2=\"http://www.w3.org/1999/xlink\"" \
+    '  xmlns:n3="http://www.w3.org/1998/Math/MathML" xmlns:n4="http://www.w3.org/XML/1998/namespace"' \
+    '  xmlns:n5="http://www.w3.org/2000/xmlns/"></svg>'
+}
+
+@test "build-docs-site: check-fetches — refused elements" {
+  sc_n=0
+  html_row 3 '<iframe> is refused' '<iframe' '<iframe srcdoc="x"></iframe>'
+  html_row 3 '<object> is refused' '<object' '<object data="assets/a.svg"></object>'
+  html_row 3 '<embed> is refused' '<embed' '<embed>'
+  html_row 3 '<frame> is refused' '<frame' '<frame>'
+  html_row 3 '<script type="speculationrules"> is refused' '<script' \
+    '<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*"}}]}</script>'
+}
+
+@test "build-docs-site: check-fetches — SVG files are parsed as XML" {
+  sc_n=0
+  svg_row 3 'remote URL in href= on <script>' '<script' "<script href=\"$OH/s.js\"/>"
+  svg_row 3 'remote URL in href= on <feImage>' '<feImage' "<filter id=\"f\"><feImage href=\"$OH/i.png\"/></filter>"
+  svg_row 3 'remote URL in href= on <image>' '<image' "<image href=\"$OH/i.png\"/>"
+  svg_whole 3 'a DOCTYPE with an internal subset' '<!DOCTYPE' \
+    "<!DOCTYPE svg [<!ENTITY u \"$OH/x.png\">]><svg xmlns=\"$NS\"><image href=\"&u;\"/></svg>"
+  svg_whole 3 'a processing instruction (<?xml-stylesheet)' '<?xml-stylesheet' \
+    "<?xml-stylesheet href=\"$OH/x.css\" type=\"text/css\"?><svg xmlns=\"$NS\"/>"
+  svg_row 3 'remote URL in a JS string' 'fetch' "<script>fetch(&quot;$OH/x&quot;)</script>"
+  # not well-formed: one line, no newline, so expat's error line is line 1
+  sc_new; mkdir -p "$FX/site/assets"; printf '<svg xmlns="%s"><rect>' "$NS" > "$FX/site/assets/d.svg"
+  sc_row 3 assets/d.svg '<svg' 'not well-formed XML'
+  svg_whole 0 '' '' "<svg xmlns=\"$NS\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"><use href=\"#g\"/></svg>"
+}
+
+@test "build-docs-site: check-fetches — scripts and handlers on surfaces without a CSP are refused" {
+  sc_n=0
+  sc_new; fx_sf assets/i.svg "<svg xmlns=\"$NS\">" '<script>var a=1;</script>' '</svg>'
+  sc_row 3 assets/i.svg '<script' '<script> in an .svg file is refused (no CSP covers it)'
+  sc_new; fx_sf assets/i.svg "<svg xmlns=\"$NS\">" '<rect onclick="x()"/>' '</svg>'
+  sc_row 3 assets/i.svg '<rect' 'onclick= in an .svg file is refused (no CSP covers it)'
+  sc_new; fx_sf static/partial.html '<button onclick="go()">Go</button>'
+  sc_row 3 static/partial.html '<button' 'onclick= in a fragment is refused (no CSP covers it)'
+}
+
+@test "build-docs-site: check-fetches — HTML pass contexts" {
+  sc_n=0
+  html_row 0 '' '' '<a href="https://other.site/">x</a>'
+  html_row 0 '' '' '<img alt="Note: x" aria-label="Note: x" title="Note: x" src="data:image/png;base64,iVBORw0">'
+  html_row 0 '' '' '<img src="blob:https://site.example/1b2c" alt="">'
+  html_row 0 '' '' "<svg xmlns=\"$NS\"><rect width=\"8\" height=\"8\"/></svg>"
+  html_row 0 '' '' "<!-- <img src=\"$OH/x\"> -->"
+  html_row 0 '' '' "<p>see $OH/</p>"
+  html_row 0 '' '' "<script>// $OH" 'var a="a:hover";</script>'
+  html_row 0 '' '' "<style>/* $OH */ nav a:hover{}</style>"
+  html_row 0 '' '' '<script async src="static/a.js"></script><script type src="static/b.js"></script>' \
+    '<details open><summary>s</summary><input disabled></details>'
+  html_row 0 '' '' '<svg><script href="static/a.js"/></svg>'
+}
+
+@test "build-docs-site: check-fetches — inline scripts: import map and module import" {
+  sc_n=0
+  html_row 3 'remote URL in a JS string' 'importmap' "<script type=\"importmap\">{\"imports\":{\"three\":\"$OH/three.js\"}}</script>"
+  html_row 3 'remote URL in a JS string' 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
+}
+
+@test "build-docs-site: check-fetches — parse-divergence shapes are refused" {
+  local cm='a comment the browser and the scanner may end differently'
+  sc_n=0
+  html_row 3 "$cm" '<!-->' "<!--><img src=\"$OH/x\">-->"
+  html_row 3 "$cm" '--!>' "<!-- x --!><img src=\"$OH/x\">"
+  html_row 3 'a <script> body that opens an HTML comment or a nested <script>' '<script>a' \
+    "<script>a<!--<script></script>fetch(\"$OH\")</script>-->"
+  html_row 3 'a self-closing <script/> or <style/> outside <svg> or <math>' '<script/>' "<script/>fetch(\"$OH/x\")</script>"
+  html_row 3 'a self-closing <script/> or <style/> outside <svg> or <math>' '<style/>' "<style/>@import \"$OH/a.css\";</style>"
+  html_row 3 'an end tag with whitespace after "</"' '</ script' '<script>x=1; // </ script>' "fetch(\"$OH\")</script>"
+  html_row 3 '"&" in a <script> or <style> body inside <svg> or <math>' '<svg><script>' \
+    "<svg><script>fetch(&quot;$OH/x&quot;)</script></svg>"
+  # raw-text elements a browser ends at their end tag: a comment the scanner
+  # opens inside one can hide markup the browser runs
+  html_row 3 'a comment inside <noscript>' '<noscript>' "<noscript><!--</noscript><script>fetch(\"$OH/x\")</script>-->"
+  html_row 3 'a "<![" section the browser and the scanner may end differently' '<![CDATA[' \
+    "<p><![CDATA[ x > <img src=\"$OH/x\"> ]]></p>"
+}
+
+@test "build-docs-site: check-fetches — CSP meta rule" {
+  local doc=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+  sc_n=0
+  # (a) no meta
+  sc_new; fx_sf index.html "${doc[@]}" '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html '' 'no Content-Security-Policy meta'
+  # (b) a different policy: the site policy minus 'wasm-unsafe-eval'
+  local w=" 'wasm-unsafe-eval'" less
+  less="${CSP/"$w"/}"
+  [ "$less" != "$CSP" ]
+  sc_new; fx_sf index.html "${doc[@]}" "<meta http-equiv=\"Content-Security-Policy\" content=\"$less\">" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta does not carry the site policy'
+  # (c) after a stylesheet link
+  sc_new; fx_sf index.html "${doc[@]}" '<link rel="stylesheet" href="static/s.css">' "$CSP_META" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta comes after a <link>'
+  # (d) in <body>
+  sc_new; fx_sf index.html "${doc[@]}" '</head><body>' "$CSP_META" '<p>x</p></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  # (e) two
+  sc_new; fx_sf index.html "${doc[@]}" "$CSP_META" "<meta content=\"$CSP\" http-equiv=\"Content-Security-Policy\">" \
+    '</head><body><p>x</p></body></html>'
+  sc_row 3 index.html '<meta content=' 'more than one Content-Security-Policy meta'
+  # (f) a document under an asset folder without it
+  sc_new; fx_sf assets/doc.html '<html><head></head><body></body></html>'
+  sc_row 3 assets/doc.html '' 'a document under an asset folder needs the Content-Security-Policy meta'
+  # (g) a fragment needs none
+  sc_new; fx_sf static/partial.html '<nav><a href="index.html">Home</a></nav>'
+  sc_row 0 static/partial.html '' ''
+  # (h) a document under an asset folder with it
+  sc_new; fx_doc assets/doc.html '<p>x</p>'
+  sc_row 0 assets/doc.html '' ''
+  # (i) page.html's shape: the meta before <style>
+  sc_new; fx_sf index.html "${doc[@]}" "$CSP_META" '<meta name="viewport" content="width=device-width, initial-scale=1">' \
+    '<title>x</title>' '<style>nav a:hover { color: red; }</style>' '</head><body><p>x</p></body></html>'
+  sc_row 0 index.html '' ''
+}

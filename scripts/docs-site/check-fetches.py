@@ -34,12 +34,27 @@
 #   5. a scanned file must be strict UTF-8;
 #   6. no scanned file may hold the words "private preview" (any case, any
 #      whitespace between).
+import html.parser as _hp
 import os
 import re
 import stat
 import sys
+import xml.parsers.expat as expat
+from html.parser import HTMLParser
 
 USAGE = "usage: check-fetches.py [--] <out-dir>"
+
+# The site's Content-Security-Policy, byte for byte. It has four homes, edited
+# together in one reviewed change: this constant, the <meta> in
+# scripts/docs-site/page.html, the stub writer in scripts/build-docs-site.sh,
+# and CSP in tests/build-docs-site.bats (which never reads it from the others).
+POLICY = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    "font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; "
+    "media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; "
+    "base-uri 'none'; form-action 'none'"
+)
 
 BINARY_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp",
@@ -324,6 +339,57 @@ def css_tokens(text, line0=1):
     return toks, errs
 
 
+# ---------------------------------------------------------------- markup rules
+REFUSED_TAGS = {"iframe", "frame", "object", "embed"}
+FOREIGN_TAGS = {"svg", "math"}
+DOC_TAGS = {"html", "head", "body", "script"}
+RESOURCE_TAGS = {"script", "link", "style", "img"}
+# Elements a browser reads as text to their end tag. Where this Python's parser
+# does not (it parses markup inside them), a comment it opens there can hide
+# markup the browser runs, so such a comment is refused.
+_RAW_IN_BROWSER = {"noscript", "textarea", "title", "xmp", "iframe", "noembed", "noframes"}
+COMMENT_HIDES_IN = _RAW_IN_BROWSER - set(getattr(HTMLParser, "CDATA_CONTENT_ELEMENTS", ())) \
+    - set(getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()))
+# Raw-source shapes a browser and html.parser end differently.
+COMMENT_DIVERGE_RE = re.compile(r"<!---?>|--!>")
+END_WS_RE = re.compile(r"</\s+(?:script|style)", re.I)
+MARKED_RE = re.compile(r"<!\[")
+SCRIPT_BODY_RE = re.compile(r"<!--|<script", re.I)
+HTML_WS = " \t\n\r\f"
+
+
+def srcset_urls(value):
+    """The URL of each srcset candidate (WHATWG: skip whitespace and commas;
+    the URL is the next non-whitespace run minus trailing commas; descriptors
+    run to the next comma outside parentheses)."""
+    urls, i, n = [], 0, len(value)
+    while True:
+        while i < n and (value[i] in HTML_WS or value[i] == ","):
+            i += 1
+        if i >= n:
+            return urls
+        j = i
+        while j < n and value[j] not in HTML_WS:
+            j += 1
+        url = value[i:j]
+        if url.endswith(","):
+            urls.append(url.rstrip(","))
+            i = j
+            continue
+        urls.append(url)
+        depth, k = 0, j
+        while k < n:
+            ch = value[k]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(depth - 1, 0)
+            elif ch == "," and depth == 0:
+                break
+            k += 1
+        i = k + 1
+
+
 def usage_error(msg):
     sys.stderr.write("check-fetches: %s\n%s\n" % (msg, USAGE))
     sys.exit(2)
@@ -401,6 +467,101 @@ class Scan:
             self.js(rel, text, 1)
         elif ext in CSS_EXT:
             self.css(rel, text, 1, "")
+        elif ext == ".svg":
+            self.svg(rel, text)
+        else:
+            self.html(rel, text)
+
+    def attr(self, rel, tag, name, value, line):
+        """One attribute, by its context (see remote())."""
+        n = name.lower()
+        where = "%s= on <%s>" % (name, tag)
+        if n == "style":
+            self.css(rel, value, line, " in " + where)
+            return
+        if n.startswith("on"):
+            self.js(rel, value, line, " in " + where)
+            return
+        if n in ("srcset", "imagesrcset"):
+            values, ctx = srcset_urls(value), "attr"
+        elif n == "ping":
+            values, ctx = value.split(), "attr"
+        elif n == "href" and tag.lower() in ("a", "area"):
+            values, ctx = [value], "nav"
+        elif n == "xmlns" or n.startswith("xmlns:"):
+            values, ctx = [value], "ns"
+        else:
+            values, ctx = [value], "attr"
+        for v in values:
+            r = remote(v, ctx, where)
+            if r:
+                self.refuse(rel, line, r)
+
+    def body(self, rel, tag, text, line):
+        """A <script> or <style> body."""
+        if tag == "style":
+            self.css(rel, text, line, "")
+        else:
+            self.js(rel, text, line)
+
+    def html(self, rel, text):
+        for rx, reason in ((COMMENT_DIVERGE_RE, "a comment the browser and the scanner may end differently"),
+                           (END_WS_RE, 'an end tag with whitespace after "</"'),
+                           (MARKED_RE, 'a "<![" section the browser and the scanner may end differently')):
+            for m in rx.finditer(text):
+                self.refuse(rel, line_at(text, m.start()), reason)
+        p = _Html(self, rel, top_level="/" not in rel)
+        p.feed(text)
+        p.close()
+        p.finish()
+
+    def svg(self, rel, text):
+        p = expat.ParserCreate()
+        p.ordered_attributes = True
+        pending = []  # the open <script>/<style>: [tag, line, chunks]
+
+        def start(name, attrs):
+            line = p.CurrentLineNumber
+            low = name.lower()
+            if low in REFUSED_TAGS:
+                self.refuse(rel, line, "<%s> is refused" % name)
+            if low == "script":
+                self.refuse(rel, line, "<script> in an .svg file is refused (no CSP covers it)")
+            for an, av in zip(attrs[0::2], attrs[1::2]):
+                if an.lower().startswith("on"):
+                    self.refuse(rel, line, "%s= in an .svg file is refused (no CSP covers it)" % an)
+                self.attr(rel, name, an, av, line)
+            if low in ("script", "style"):
+                pending[:] = [low, None, []]
+
+        def end(name):
+            if pending and name.lower() == pending[0]:
+                if pending[1] is not None:
+                    self.body(rel, pending[0], "".join(pending[2]), pending[1])
+                pending[:] = []
+
+        def chars(data):
+            if pending:
+                if pending[1] is None:
+                    pending[1] = p.CurrentLineNumber
+                pending[2].append(data)
+
+        def doctype(name, sysid, pubid, internal):
+            if internal:
+                self.refuse(rel, p.CurrentLineNumber, "a DOCTYPE with an internal subset")
+
+        def pi(target, data):
+            self.refuse(rel, p.CurrentLineNumber, "a processing instruction (<?%s)" % target)
+
+        p.StartElementHandler = start
+        p.EndElementHandler = end
+        p.CharacterDataHandler = chars
+        p.StartDoctypeDeclHandler = doctype
+        p.ProcessingInstructionHandler = pi
+        try:
+            p.Parse(text.encode("utf-8"), True)
+        except expat.ExpatError as e:
+            self.refuse(rel, e.lineno, "not well-formed XML: %s" % expat.ErrorString(e.code))
 
     def js(self, rel, text, line0, suffix=""):
         toks, errs = js_tokens(text, line0)
@@ -431,6 +592,144 @@ class Scan:
             sys.exit(3)
         sys.stdout.write("check-fetches: ok: %d files: %d scanned, %d binary, %d vendored\n"
                          % (self.total, self.scanned, self.binary, self.vendored))
+
+
+class _Html(HTMLParser):
+    """One .html/.htm file: element and attribute rules, the parse-divergence
+    guards that need the parser, and the CSP rule."""
+
+    def __init__(self, scan, rel, top_level):
+        super().__init__(convert_charrefs=True)
+        self.s, self.rel = scan, rel
+        self.is_doc = top_level
+        self.foreign = 0          # open <svg>/<math> depth
+        self.raw = []             # open elements in COMMENT_HIDES_IN
+        self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign]
+        self.on_attrs = []        # (line, name): refused at the end if a fragment
+        self.head = self.head_closed = False
+        self.first_resource = None
+        self.metas = []           # (line, content, in_head, after)
+
+    def refuse(self, line, reason):
+        self.s.refuse(self.rel, line, reason)
+
+    def attr_lines(self, count, line0):
+        """Each attribute's own line, from the tag text tokenized with the
+        parser's own patterns (k-th match = k-th attribute); the tag's line
+        when they do not line up."""
+        raw = self.get_starttag_text() or ""
+        tagfind = getattr(_hp, "tagfind_tolerant", None)
+        attrfind = getattr(_hp, "attrfind_tolerant", None)
+        if tagfind and attrfind:
+            m = tagfind.match(raw, 1)
+            lines, k = [], m.end() if m else len(raw)
+            while k < len(raw) and len(lines) < count:
+                am = attrfind.match(raw, k)
+                if not am or am.end() == k:
+                    break
+                lines.append(line0 + raw.count("\n", 0, am.start(1)))
+                k = am.end()
+            if len(lines) == count:
+                return lines
+        return [line0] * count
+
+    def handle_starttag(self, tag, attrs):
+        self.start(tag, attrs)
+
+    def handle_startendtag(self, tag, attrs):
+        self.start(tag, attrs)
+
+    def start(self, tag, attrs):
+        line0 = self.getpos()[0]
+        attrs = [(n, "" if v is None else v) for n, v in attrs]
+        closing = (self.get_starttag_text() or "").rstrip().endswith("/>")
+        if tag in DOC_TAGS:
+            self.is_doc = True
+        if tag == "head":
+            self.head = True
+        elif tag == "body":
+            self.head_closed = True
+        if tag == "meta":
+            equiv = next((v for n, v in attrs if n == "http-equiv"), "")
+            if equiv.strip().lower() == "content-security-policy":
+                content = next((v for n, v in attrs if n == "content"), None)
+                self.metas.append((line0, content, self.head and not self.head_closed,
+                                   self.first_resource))
+        if tag in RESOURCE_TAGS and self.first_resource is None:
+            self.first_resource = tag
+        if tag in REFUSED_TAGS:
+            self.refuse(line0, "<%s> is refused" % tag)
+        if tag == "script":
+            t = next((v for n, v in attrs if n == "type"), "")
+            if t.strip().lower() == "speculationrules":
+                self.refuse(line0, '<script type="speculationrules"> is refused')
+        if tag in ("script", "style") and closing and not self.foreign:
+            self.refuse(line0, "a self-closing <script/> or <style/> outside <svg> or <math>")
+        for (name, value), line in zip(attrs, self.attr_lines(len(attrs), line0)):
+            if name.startswith("on"):
+                self.on_attrs.append((line, name))
+            self.s.attr(self.rel, tag, name, value, line)
+        if closing:
+            return
+        if tag in FOREIGN_TAGS:
+            self.foreign += 1
+        if tag in COMMENT_HIDES_IN:
+            self.raw.append(tag)
+        if tag in ("script", "style"):
+            self.pending = [tag, None, [], self.foreign > 0]
+
+    def handle_endtag(self, tag):
+        if self.pending and tag == self.pending[0]:
+            self.flush()
+        if tag in FOREIGN_TAGS and self.foreign:
+            self.foreign -= 1
+        if tag in self.raw:
+            del self.raw[len(self.raw) - 1 - self.raw[::-1].index(tag):]
+        if tag == "head":
+            self.head_closed = True
+
+    def handle_data(self, data):
+        if self.pending:
+            if self.pending[1] is None:
+                self.pending[1] = self.getpos()[0]
+            self.pending[2].append(data)
+
+    def handle_comment(self, data):
+        if self.raw:
+            self.refuse(self.getpos()[0], "a comment inside <%s>, which a browser reads as text" % self.raw[-1])
+
+    def flush(self):
+        tag, line, chunks, in_foreign = self.pending
+        self.pending = None
+        if line is None:
+            return
+        text = "".join(chunks)
+        if tag == "script" and SCRIPT_BODY_RE.search(text):
+            self.refuse(line, "a <script> body that opens an HTML comment or a nested <script>")
+        if in_foreign and "&" in text:
+            self.refuse(line, '"&" in a <script> or <style> body inside <svg> or <math>')
+        self.s.body(self.rel, tag, text, line)
+
+    def finish(self):
+        if self.pending:
+            self.flush()
+        if not self.is_doc:
+            for line, name in self.on_attrs:
+                self.refuse(line, "%s= in a fragment is refused (no CSP covers it)" % name)
+            return
+        if not self.metas:
+            self.refuse(0, "a document under an asset folder needs the Content-Security-Policy meta"
+                        if "/" in self.rel else "no Content-Security-Policy meta")
+            return
+        line, content, in_head, after = self.metas[0]
+        for extra in self.metas[1:]:
+            self.refuse(extra[0], "more than one Content-Security-Policy meta")
+        if content != POLICY:
+            self.refuse(line, "the Content-Security-Policy meta does not carry the site policy")
+        if not in_head:
+            self.refuse(line, "the Content-Security-Policy meta is not inside <head>")
+        elif after:
+            self.refuse(line, "the Content-Security-Policy meta comes after a <%s>" % after)
 
 
 def main(argv):
