@@ -291,6 +291,29 @@ on_merge: status Done, closed'
   [ -z "$output" ]
 }
 
+@test "disk: with a relative PYTHONPATH no verb imports a json.py or tempfile.py planted in the issues folder" {
+  list_fixture
+  body "x"
+  local n pp
+  for n in json tempfile; do
+    printf 'open("%s/decoy-ran-%s", "w").close()\nraise SystemExit("planted %s.py ran")\n' \
+      "$BATS_TEST_TMPDIR" "$n" "$n" > "$D/$n.py"
+  done
+  for pp in . :; do
+    PYTHONPATH="$pp" DEVAGENT_PROJECT=p run --separate-stderr "$DISK" issue-list "$D"
+    [ "$status" -eq 0 ] || { echo "issue-list ($pp): $status $stderr" >&2; false; }
+    no_mark
+    PYTHONPATH="$pp" run --separate-stderr "$DISK" state "$D" 3
+    [ "$status" -eq 0 ] || { echo "state ($pp): $status $stderr" >&2; false; }
+    PYTHONPATH="$pp" run --separate-stderr "$DISK" transition "$D" 3 on_draft_start --project p
+    [ "$status" -eq 0 ] || { echo "transition ($pp): $status $stderr" >&2; false; }
+    PYTHONPATH="$pp" run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+    [ "$status" -eq 0 ] || { echo "create ($pp): $status $stderr" >&2; false; }
+  done
+  run find "$BATS_TEST_TMPDIR" -maxdepth 1 -name 'decoy-ran-*'
+  [ -z "$output" ]
+}
+
 @test "disk: a relative DA_HOME is read from the caller's folder, not the issues folder" {
   list_fixture
   cd "$BATS_TEST_TMPDIR"
@@ -311,8 +334,9 @@ body() { printf '%s\n' "$1" > "$BATS_TEST_TMPDIR/body.md"; }
 py_shim() {
   local realpy; realpy="$(command -v python3)"
   mkdir -p "$BATS_TEST_TMPDIR/shim"
-  { printf '#!/usr/bin/env bash\nREALPY=%q\n' "$realpy"; printf '%s\n' "$1"; printf 'exec "$REALPY" "$@"\n'; } \
-    > "$BATS_TEST_TMPDIR/shim/python3"
+  { printf '#!/usr/bin/env bash\nREALPY=%q\n' "$realpy"
+    printf '%s\n' 'iso=(); if [ "${1:-}" = -I ]; then iso=(-I); shift; fi' "$1" 'exec "$REALPY" "${iso[@]}" "$@"'
+  } > "$BATS_TEST_TMPDIR/shim/python3"
   chmod +x "$BATS_TEST_TMPDIR/shim/python3"
   export PATH="$BATS_TEST_TMPDIR/shim:$PATH"
 }
@@ -486,6 +510,28 @@ issue_count() { find "$D" -maxdepth 1 -name '[1-9]*.md' | wc -l | tr -d ' '; }
   [ "$(issue_count)" -eq 0 ]
   [ "$(cat "$D/.last-number")" = 3 ]
   [ ! -e "$D/.disk.lock" ]
+}
+
+@test "disk: create and transition in a folder that cannot be written exit 1 at once, naming no lock" {
+  is_git_bash && skip "Git Bash: no POSIX folder modes"
+  [ "$(id -u)" -ne 0 ] || skip "root writes any folder"
+  body "x"
+  map_stages
+  cp "$FIX/minimal.md" "$D/1.md"
+  chmod a-w "$D"
+  SECONDS=0
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  local c_status="$status" c_err="$stderr"
+  tr_disk 1 on_draft_start --project p
+  chmod u+w "$D"
+  [ "$SECONDS" -lt 5 ]
+  [ "$c_status" -eq 1 ]
+  [[ "$c_err" == *"the issues folder named by issue_source.repo is not writable"* ]]
+  [[ "$c_err" != *".disk.lock"* ]]
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"the issues folder named by issue_source.repo is not writable"* ]]
+  no_mark
+  [ "$(issue_count)" -eq 1 ]
 }
 
 @test "disk: a held .disk.lock makes create exit 1 naming the lock, writing nothing" {
@@ -749,6 +795,11 @@ git_at() {
   printf '%s\n' '# Sub' '' '## Prompt' 'x' > "$D/sub/5.md"
   git_at 2026-01-05 add issues/1.md issues/sub/5.md
   git_at 2026-01-05 commit -qm one
+  # a later 1.md in a subfolder named "x b" is not issue 1
+  mkdir "$D/x b"
+  printf '%s\n' '# Other' '' '## Prompt' 'x' > "$D/x b/1.md"
+  git_at 2026-01-10 add "issues/x b/1.md"
+  git_at 2026-01-10 commit -qm other
   git_at 2026-01-06 add issues/3.md
   git_at 2026-01-06 commit -qm three
   printf '%s\n' '# One' 'state: closed' '' '## Prompt' 'x' > "$D/1.md"
@@ -768,6 +819,12 @@ git_at() {
   [ "$(json_get "${lines[2]}" '[o["id"], o["created"], o["closed"]]')" = '["3", "2026-01-06", "2026-01-20"]' ]
   [ "$(json_get "${lines[3]}" '[o["id"], o["created"], o["closed"]]')" = '["4", "2026-03-03", "2026-03-03"]' ]
   # fetch carries the same created date
+  "$DISK" fetch "$D" 1 > "$BATS_TEST_TMPDIR/out"
+  grep -qx -- '- Created: 2026-01-05' "$BATS_TEST_TMPDIR/out"
+  # a user's git config does not change what the walk reads
+  git -C "$ROOT" config diff.noprefix true
+  git -C "$ROOT" config diff.mnemonicPrefix true
+  git -C "$ROOT" config color.ui always
   "$DISK" fetch "$D" 1 > "$BATS_TEST_TMPDIR/out"
   grep -qx -- '- Created: 2026-01-05' "$BATS_TEST_TMPDIR/out"
 }

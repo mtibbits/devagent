@@ -271,11 +271,32 @@ _file_disk() {
   grep -qx 'repo = "scratch/repo"' "$DEVDOC/Captures/idea/filed.toml"
 }
 
+@test "callers: a disk.sh in another backends dir is not exempt from the push_mr gate" {
+  _file_disk
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 4 ]
+  [[ "$stderr" == *"Permission gate: push_mr=false"* ]]
+  [ ! -e "$STUB_LOG" ]
+  _no_mark_in "$DEVDOC/Captures/idea"
+}
+
+@test "callers: file.sh --yes on a github project files to the config's repo" {
+  _file_disk github
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s"\necho 7\n' "$STUB_LOG" > "$STUB_DIR/github.sh"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin --yes
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$output" = "https://github.com/o/r/issues/7" ]
+  [[ "$(cat "$STUB_LOG")" == "create o/r "* ]]
+  grep -qx 'repo = "o/r"' "$DEVDOC/Captures/idea/filed.toml"
+}
+
 @test "callers: file.sh refuses a disk id that is not a number" {
   _file_disk
   printf '#!/usr/bin/env bash\necho 1/2\n' > "$STUB_DIR/disk.sh"
   export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR"
-  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin --yes
   [ "$status" -eq 3 ]
   [ -e "$DEVDOC/Captures/idea/.pending" ]
   [ ! -e "$DEVDOC/Captures/idea/filed.toml" ]

@@ -25,7 +25,9 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    defaulting to `false`. When the gate is `false`, the script prints
    the plan and exits **4**; the operator re-invokes with `--yes`
    to confirm. A disk target asks no gate (nothing leaves the machine) and
-   records `url = "disk:<N>"` and `repo = "disk"` (#1009). (An autonomous caller — `/devagent:crrf` — instead treats
+   records `url = "disk:<N>"` and `repo = "disk"` (#1009); that holds for
+   the plugin's own `disk.sh` only. (An autonomous caller — `/devagent:crrf` —
+   instead treats
    4 as halt-and-report and never passes `--yes`.)
 
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·

@@ -112,11 +112,17 @@ if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
   fi
 fi
 backend="${DEVAGENT_ISSUE_BACKEND:-github}"
-# A disk backend (any case) files into a folder on this machine: nothing leaves
-# it, so no push_mr gate is asked (under a policy, trust already refused it),
-# and no record ever names the folder (#1009).
+# A disk backend (any case) files into a folder on this machine, and no record
+# ever names the folder (#1009). Nothing leaves the machine, so no push_mr gate
+# is asked (under a policy, trust already refused it), but only when the script
+# that will run is this plugin's own disk.sh: one of that name in another
+# backends dir may send the issue anywhere, and is gated like any other.
 is_disk=0
-! issue_backend_is_disk "${backend}" || is_disk=1
+gate_exempt=0
+if issue_backend_is_disk "${backend}"; then
+  is_disk=1
+  [[ ! "${DEVAGENT_ISSUE_BACKEND_DIR:-}/${backend}.sh" -ef "$(plugin_root)/scripts/issue/disk.sh" ]] || gate_exempt=1
+fi
 
 if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
   [[ "${YES}" -ne 1 ]] || refuse yes-refused
@@ -125,7 +131,7 @@ if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
 fi
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
-if [[ "${is_disk}" -ne 1 && "${gate}" != "true" && "${YES}" -ne 1 ]]; then
+if [[ "${gate_exempt}" -ne 1 && "${gate}" != "true" && "${YES}" -ne 1 ]]; then
   case "${TARGET}" in
     origin) _repo="${DEVAGENT_REPO_ORIGIN:-<not set>}" ;;
     fork)   _repo="${DEVAGENT_REPO_FORK:-<not set>}" ;;

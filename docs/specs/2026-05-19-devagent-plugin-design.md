@@ -512,14 +512,7 @@ one file, `policy.toml`; any other `*.toml` beside it is a defect. A policy
 under `devagent_home`, the plugin root, or any project's `devdoc_dir`,
 `source_dir` or `worktree_root` is a defect: the agent writes there.
 
-**Scope.** With a policy on the host, a project whose `issue_source` or
-`issue_source_fork` backend is `disk` refuses at every entry point
-(`disk-backend`, exit 9; doctor shows a `fail` row): a folder path never
-matches a scope key, and a disk folder has no events or signatures. The fix
-is to move the issues to GitHub, or to run without a policy (#1009). Until
-then `sync --all` ends at such a project once it has a shipped MR (exit 9,
-as for any host refusal), so the projects listed after it are not checked.
-`scopes` lists exact repo keys. A project is in scope when the
+**Scope.** `scopes` lists exact repo keys. A project is in scope when the
 canonical key of its `issue_source` or `issue_source_fork` equals one; an
 owner-level prefix is not legal. A fresh `DA_HOME`, an alias project naming
 the same repo, trust-shaped config keys, a backend name in another case, or a
@@ -538,6 +531,14 @@ with an issue suffix `#<n>` (github/gitlab) or `-<n>` (jira): for example
 The key function itself gives a bare github repo `trackers.github.host`, else
 `github.com`, and never reads `GH_HOST`; scope matching (above) supplies
 `GH_HOST` as one more candidate host.
+
+**Disk projects.** With a policy on the host, a project whose `issue_source`
+or `issue_source_fork` backend is `disk` refuses at every entry point
+(`disk-backend`, exit 9; doctor shows a `fail` row): a folder path never
+matches a scope key, and a disk folder has no events or signatures. The fix
+is to move the issues to GitHub, or to run without a policy (#1009). Until
+then `sync --all` ends at such a project once it has a shipped MR (exit 9,
+as for any host refusal), so the projects listed after it are not checked.
 
 **Validation.** Fail closed: an unknown key, a wrong type, an identity entry
 that is not an immutable id (`github:`/`gitlab:` numeric user ids, `jira:`
@@ -820,7 +821,7 @@ Escape hatch for ambiguity: `--` separator stops positional consumption.
 | `/devagent:capture epic <text>` | script + skill | Force-type to epic |
 | `/devagent:scaffold <capture-slug>` | skill | Bin an epic capture into child issue drafts |
 | `/devagent:redissue <capture-slug>` | skill | Run the tier-split issue red-team (`redteam_issue_shared` + the triage tier's cumulative dimension parts, or a monolithic `redteam_issue` override) against the draft, write `redteam.md` |
-| `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate |
+| `/devagent:file <capture-slug> [origin\|fork]` | script | `issue/<backend>.sh create`; respects `permissions.push_mr`-style gate (a disk target asks none) |
 | `/devagent:crrf [topic hint]` | alias | Orchestrates capture → (scaffold) → redissue → adjudicate → file under one bounded autonomy grant; honors `permissions.push_mr` (#559) |
 | `/devagent:reap [project]` | script + skill | Harvest follow-ups into `Captures/`; idempotent via content hashes |
 
@@ -1908,7 +1909,11 @@ in the rest of §8. One exception: with any policy on the host, in scope or
 not, `capture/file.sh` files through the backend and repo configured for the
 project that owns `DEVAGENT_DEVDOC_DIR` (the project its scope was decided
 for), ignoring the `DEVAGENT_ISSUE_BACKEND*` and `DEVAGENT_REPO_*`
-environment, so an unscoped devdoc cannot file onto a scoped repo.
+environment, so an unscoped devdoc cannot file onto a scoped repo. With no
+policy and `DEVAGENT_ISSUE_BACKEND` unset, `capture/file.sh` takes the backend
+from that same project's config, for every backend, and fills in each repo
+variable and the backend dir that the environment leaves unset; an exported
+value wins (#1009).
 
 ## 9. Backend abstraction
 
@@ -2105,8 +2110,9 @@ is `disk:<N>` wherever another backend gives a URL (the `URL:` line, the
 `url` and `parent` fields of `issue-list`, `filed.toml`), and records say
 `disk` where they would name the tracker repo. No message names the folder:
 messages name the config key `issue_source.repo`. Nothing in the folder is
-ever run: `python3`, `git` and every other command are found before
-`disk.sh` changes into it, and the config is read there too. A closed disk issue is
+ever run: `python3`, `git` and every other command are found, and the config
+is read, before `disk.sh` changes into it, and python runs isolated (`-I`),
+so a relative `PATH` or `PYTHONPATH` entry finds nothing there. A closed disk issue is
 always `done`; `state-class` never answers `in_progress`. `fetch` renders,
 for an issue with no comments:
 

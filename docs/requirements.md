@@ -935,7 +935,8 @@ Partly delivered. A requirement here that is not built yet starts with
 ## External interfaces
 
 - EI-1: Issue-tracker backend contract (GitHub, GitLab, JIRA, a folder of
-  issue files on disk, or a custom backend): devagent fetches an issue and its comments as fixed Markdown,
+  issue files on disk, or a custom backend): devagent fetches an issue and
+  its comments as fixed Markdown,
   creates issues, moves an issue to a mapped stage, and reads its state,
   comments, change events and the account its credential belongs to. It
   reads success, usage error, auth failure, not found, malformed response and

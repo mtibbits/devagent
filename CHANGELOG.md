@@ -23,6 +23,11 @@ the README's "Versioning & releases" section has the release procedure.
   is now a built-in issue backend name, so a custom backend saved as
   `scripts/issue/disk.sh` is replaced; rename it. Under a trust policy a
   disk project is refused (exit 9).
+- **Changed: `/devagent:file` reads its backend from config (#1009).** With no
+  trust policy and `DEVAGENT_ISSUE_BACKEND` unset, `capture/file.sh` takes the
+  backend from the project that owns `DEVAGENT_DEVDOC_DIR`, and fills in the
+  repo and backend-dir variables the environment leaves unset. This holds for
+  every backend, not only disk; an exported value still wins.
 - **Added: `priority: P0`, one WBS priority above P1 (#889).** The scale is
   now P0 to P4, P0 the most urgent; a missing or malformed value still
   counts as P3. `wbs order` and `wbs update` sort a P0 sibling ahead of P1

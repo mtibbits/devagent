@@ -103,8 +103,9 @@ _disk_pin_path() {
 # absolute path), DISK_PY (the module command, as an array) and DISK_GIT
 # (git's absolute path, or empty; the renderer runs git by that path, because
 # a native Windows python looks a bare name up in the current folder first).
-# With `create`, a missing folder is made (its parent must exist). Exits 1 on
-# any fault.
+# Both python programs run isolated (-I), so a relative PYTHONPATH entry
+# imports nothing from the folder either. With `create`, a missing folder is
+# made (its parent must exist). Exits 1 on any fault.
 _disk_folder() {
   local dir mod="${SCRIPT_DIR}/../lib/disk-issue.py"
   _disk_pin_path
@@ -120,7 +121,7 @@ _disk_folder() {
       DISK_GIT="$(cygpath -m "$DISK_GIT")"
     fi
   fi
-  DISK_PY=("$PY" "$mod")
+  DISK_PY=("$PY" -I "$mod")
   dir="$(expand_tilde "$1")"
   if [ -z "$dir" ] || ! _disk_is_abs "$dir"; then
     _disk_die 1 "issue_source.repo must name the issues folder by an absolute path"
@@ -188,7 +189,7 @@ def fault_lines(recs):
     return ["%d.md:%d: %s" % (r["n"], f["line"], f["message"])
             for r in recs for f in r.get("faults", [])]
 
-ISSUE_RE = re.compile(r"^[1-9][0-9]*[.]md$")
+HEADER_RE = re.compile(r"^diff --git a/([1-9][0-9]*)[.]md b/\1[.]md$")
 
 def git_walk(paths):
     """Dates from one walk of the git history of the folder (the cwd):
@@ -197,7 +198,9 @@ def git_walk(paths):
     history git refuses to read (dubious ownership, a broken repo) exits 1:
     never a silent fallback to the modification date. Known limit: a prompt
     line that reads `state: closed` can date a hand close. git is run by the
-    absolute path disk.sh found before its cd (DISK_GIT), never by name."""
+    absolute path disk.sh found before its cd (DISK_GIT), never by name, and
+    the diff is asked for in one fixed form (no color, a/ and b/ prefixes, no
+    external diff or textconv), so no git config setting can change it."""
     git = os.environ.get("DISK_GIT")
     if not git:
         return None
@@ -215,6 +218,8 @@ def git_walk(paths):
         return None
     p = subprocess.run([git, "-c", "core.quotePath=false", "log", "--no-renames",
                         "--date=short", "--format=%x00%cd", "-p", "--unified=0",
+                        "--no-color", "--no-ext-diff", "--no-textconv",
+                        "--src-prefix=a/", "--dst-prefix=b/",
                         "--relative", "--"] + paths,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     if p.returncode != 0:
@@ -226,8 +231,8 @@ def git_walk(paths):
         if line.startswith("\0"):
             date, cur = line[1:], None
         elif line.startswith("diff --git "):
-            name = line.rsplit(" b/", 1)[-1]
-            cur = int(name[:-3]) if ISSUE_RE.match(name) else None   # a path with / is not an issue
+            m = HEADER_RE.match(line)   # a path with / is not an issue
+            cur = int(m.group(1)) if m else None
         elif cur is None or date is None:
             continue
         elif line.startswith("new file mode"):
@@ -359,7 +364,8 @@ _disk_read_one() {
 # both succeed. It is dot-named, so every verb and doctor ignore it, and it is
 # always taken OUTSIDE the module's own .disk-issue.lock. A held lock is waited
 # on for about ten seconds, then the verb exits 1; a stale lock is never broken
-# automatically, because a guessed age can break a live one.
+# automatically, because a guessed age can break a live one. A folder that
+# cannot be written fails at once: that is not a held lock.
 _DISK_LOCKED=0
 _disk_unlock() {
   if [ "$_DISK_LOCKED" = 1 ]; then
@@ -369,6 +375,7 @@ _disk_unlock() {
 }
 _disk_lock() {
   local i
+  [ -w . ] || _disk_die 1 "the issues folder named by issue_source.repo is not writable"
   for ((i = 0; i < 100; i++)); do
     if ( set -C; printf '%s\n' "$$" > .disk.lock ) 2>/dev/null; then
       _DISK_LOCKED=1

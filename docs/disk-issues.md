@@ -18,6 +18,15 @@ uses it for every read and write.
   subfolders, and every name that starts with a dot. The writer's temporary
   files (`.<N>.md.tmp-<random>`) and its lock file (`.disk-issue.lock`) start
   with a dot for this reason.
+- The disk issue backend keeps three more dot-named files in the folder
+  (#1009). `.last-number` holds the highest number `create` has given out, so
+  a number never comes round again after its file is deleted. If the folder is
+  under version control, commit `.last-number` with the issues: without it a
+  fresh clone can reuse a deleted number. `.last-number.tmp-<pid>` is its
+  temporary file. `.disk.lock` is held while `create` or `transition` runs.
+  Never commit it. If a killed command leaves one behind, every later
+  `create` and `transition` waits about ten seconds and then says so; remove
+  the file by hand once no devagent command is running.
 - A file is UTF-8 text. Lines may end in LF or CRLF, and the file may start
   with a UTF-8 byte order mark (BOM).
 
