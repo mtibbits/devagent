@@ -373,7 +373,7 @@ def _load(name, path):
 mod = _load("wbs_parser", parser_path)
 trk = _load("wbs_tracker", os.environ["WBS_TRACKER_LIB"])
 
-tree = mod.parse_file(wbs_path)
+tree = mod.parse_file(wbs_path, project=os.environ["WBS_PROJECT"])
 
 
 def say(msg: str) -> None:

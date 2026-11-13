@@ -258,9 +258,7 @@ def _node_warnings(meta: dict) -> list[str]:
     (`split_dep`) and the list-or-scalar reader (`as_list`) live in
     this module, and portfolio.py calls them; neither file re-spells them.
     The order pass calls `priority_rank` alone, so a check added here
-    reaches `wbs show`, not `wbs order` or `wbs update`. Check order:
-    priority, satisfies, objective, h, thinking, checking, then each
-    `depends_on` entry holding `:` that is not `<project>:<issue>` (#887).
+    reaches `wbs show`, not `wbs order` or `wbs update`.
     """
     out: list[str] = []
     _rank, problem = priority_rank(meta)
