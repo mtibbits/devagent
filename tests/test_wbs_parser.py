@@ -485,9 +485,9 @@ def test_malformed_priority_records_a_parse_warning(capsys):
     e = tree["children"][0]
     a, b, c = e["children"]
     assert a["parse_warnings"] == [
-        "line 3: priority 'high' is not P1, P2, P3 or P4; ignored"]
+        "line 3: priority 'high' is not P0, P1, P2, P3 or P4; ignored"]
     assert b["parse_warnings"] == [
-        "line 4: priority 'P9' is not P1, P2, P3 or P4; ignored"]
+        "line 4: priority 'P9' is not P0, P1, P2, P3 or P4; ignored"]
     assert c["parse_warnings"] == []
     assert e["parse_warnings"] == []
     assert a["meta"] == {"issue": "A", "priority": "high"}
@@ -510,13 +510,27 @@ def test_priority_parse_warning_edge_values():
     top = tree["children"][0]
     done, empty, listed = top["children"]
     assert top["parse_warnings"] == [
-        "line 1: priority 'P9' is not P1, P2, P3 or P4; ignored"]
+        "line 1: priority 'P9' is not P0, P1, P2, P3 or P4; ignored"]
     assert done["parse_warnings"] == [
-        "line 2: priority 'high' is not P1, P2, P3 or P4; ignored"]
+        "line 2: priority 'high' is not P0, P1, P2, P3 or P4; ignored"]
     assert empty["parse_warnings"] == [
-        "line 3: priority '' is not P1, P2, P3 or P4; ignored"]
+        "line 3: priority '' is not P0, P1, P2, P3 or P4; ignored"]
     assert listed["parse_warnings"] == [
-        "line 4: priority '[P1, P2]' is not P1, P2, P3 or P4; ignored"]
+        "line 4: priority '[P1, P2]' is not P0, P1, P2, P3 or P4; ignored"]
+
+
+def test_p0_records_no_parse_warning(capsys):
+    tree = wbs_parser.parse_text(
+        "- [ ] E\n"
+        "  - [ ] a {issue: A, priority: P0}\n"
+        "  - [ ] b {issue: B, priority: P5}\n"
+    )
+    a, b = tree["children"][0]["children"]
+    assert a["parse_warnings"] == []
+    assert a["meta"]["priority"] == "P0"
+    assert b["parse_warnings"] == [
+        "line 3: priority 'P5' is not P0, P1, P2, P3 or P4; ignored"]
+    assert capsys.readouterr() == ("", "")
 
 
 @pytest.mark.parametrize("meta,want", [
@@ -880,7 +894,7 @@ def test_parse_warning_check_order(capsys):
         "depends_on: [x:y:z], checking: y, thinking: x, priority: high}\n"
     )["children"][0]
     assert node["parse_warnings"] == [
-        "line 1: priority 'high' is not P1, P2, P3 or P4; ignored",
+        "line 1: priority 'high' is not P0, P1, P2, P3 or P4; ignored",
         _entry_warning("satisfies", "y"),
         _entry_warning("satisfies", "z"),
         _entry_warning("objective", "x"),
@@ -934,9 +948,9 @@ def test_collect_parse_warnings_in_line_order():
     tree["children"][0]["children"].append(
         {"text": "hand", "children": [], "meta": {"priority": "zz"}})
     assert wbs_parser.collect_parse_warnings(tree) == [
-        "line 3: priority 'd3' is not P1, P2, P3 or P4; ignored",
-        "line 4: priority 'd1' is not P1, P2, P3 or P4; ignored",
-        "line 5: priority 'd2' is not P1, P2, P3 or P4; ignored",
+        "line 3: priority 'd3' is not P0, P1, P2, P3 or P4; ignored",
+        "line 4: priority 'd1' is not P0, P1, P2, P3 or P4; ignored",
+        "line 5: priority 'd2' is not P0, P1, P2, P3 or P4; ignored",
     ]
 
 
