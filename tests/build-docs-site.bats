@@ -57,7 +57,7 @@ setup_file() {
   command -v pandoc >/dev/null 2>&1 || return 0
   REAL_OUT="$BATS_FILE_TMPDIR/site"
   export REAL_OUT
-  bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
+  env -u DEVAGENT_PYTHON bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
 # fx_reset <dir> — point FX at a fresh fixture dir (src/ and static-empty/).
@@ -124,11 +124,12 @@ sc_row() {
 }
 
 # fx_bin — a PATH holding only what the builder runs BEFORE its pandoc probe, so
-# "no pandoc" (or a stub pandoc) is the only thing the probe can see.
+# "no pandoc" (or a stub pandoc) is the only thing the probe can see. python3 is
+# probed just before pandoc, so it is linked too (a leg removes or replaces it).
 fx_bin() {
   local t
   mkdir -p "$FX/bin"
-  for t in dirname basename grep sed awk sort; do
+  for t in dirname basename grep sed awk sort python3; do
     ln -s "$(command -v "$t")" "$FX/bin/$t"
   done
 }
@@ -147,8 +148,9 @@ nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
 # set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
 # passes --static "$FX/static-empty", so a fixture build never copies the
 # repo's own scripts/docs-site/static/. Later flags win: the script's parse
-# loop keeps the last value.
-fx_build() { env PATH="${FX_PATH:-$PATH}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
+# loop keeps the last value. DEVAGENT_PYTHON is always REPLACED (by FX_PYTHON,
+# else empty, which the builder reads as python3), never inherited.
+fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
 
 # fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
 # real list, which names only zeta.
@@ -385,6 +387,8 @@ real_stubs() {
   [ -n "$last" ]
   [ "${lines[${#lines[@]}-1]}" = "$last" ]
   [[ "$output" == *"  6  a rendered page links"* ]]
+  [[ "$output" == *"  7  the built site breaks the fetch policy"* ]]
+  [[ "$output" == *"  8  the fetch scan did not complete"* ]]
 }
 
 @test "build-docs-site: missing source dir -> exit 4" {
@@ -1356,4 +1360,137 @@ svg_whole() {
     [ "$(grep -cxF "$CSP_META" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $(grep -cxF "$CSP_META" "$FX/out/$p.html") exact CSP lines" >&2; return 1; }
     sed -n '/<head>/,/<\/head>/p' "$FX/out/$p.html" | grep -qxF "$CSP_META" || { echo "$p.html: the meta is not in <head>" >&2; return 1; }
   done
+}
+
+@test "build-docs-site: fetch policy — python absent -> exit 3 naming it, nothing written" {
+  fx_bin
+  rm "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python is not installed: 'python3' not found"* ]]
+  [ ! -e "$FX/out" ]
+  # row 2: DEVAGENT_PYTHON names an interpreter that is not there
+  fx_reset "$BATS_TEST_TMPDIR/row2"
+  fx_page index "hello"
+  FX_PATH=""
+  FX_PYTHON="$FX/nope/python3"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python is not installed: '$FX/nope/python3' not found"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: fetch policy — a python that cannot run -> exit 3 naming it, nothing written" {
+  fx_bin
+  rm "$FX/bin/python3"
+  printf '#!%s\necho "Python was not found; run without arguments to install from the Microsoft Store"\nexit 49\n' \
+    "$(command -v bash)" > "$FX/bin/python3"
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python cannot run: 'python3'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fault_py <file> — an interpreter that runs the probe (any call holding -c)
+# with the real python3, and the REAL scanner (its last three arguments:
+# scanner, --, out) with html.parser broken, so the scan crashes inside it.
+fault_py() {
+  local real_py
+  real_py="$(command -v python3)"
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<EOF
+#!$(command -v bash)
+case " \$* " in *" -c "*) exec "$real_py" "\$@" ;; esac
+exec "$real_py" -I -X utf8 -c 'import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "\${@: -3}"
+EOF
+  chmod +x "$1"
+}
+
+@test "build-docs-site: fetch policy — a scanner crash -> exit 8, says the scan did not complete" {
+  need_pandoc
+  fx_page index "hello"
+  fault_py "$FX/py/python3"
+  FX_PYTHON="$FX/py/python3"
+  run fx_build
+  [ "$status" -eq 8 ]
+  [[ "$output" == *"the fetch scan did not complete (check-fetches exited 1)"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
+}
+
+@test "build-docs-site: check-fetches — a fault inside the scanner exits neither 0 nor 3" {
+  fx_doc index.html '<p>x</p>'
+  run python3 -I -X utf8 -c 'import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$SCANNER" "$FX/site"
+  [ "$status" -ne 0 ]
+  [ "$status" -ne 3 ]
+  [[ "$output" != *"check-fetches: ok:"* ]]
+  # positive control: the same site, unfaulted
+  run scan
+  [ "$status" -eq 0 ]
+}
+
+# t7_new — a fresh fixture dir for the next mutation row, with an empty
+# $FX/static the row may plant into.
+t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; mkdir -p "$FX/static" "$FX/src/assets"; }
+
+# t7_row <relpath> <needle> — build (with --static "$FX/static"; later flags
+# win); it must exit 7 and name <relpath> at the first built line holding
+# <needle>.
+t7_row() {
+  local rel="$1" needle="$2" ln l hit=0
+  run fx_build --static "$FX/static"
+  [ "$status" -eq 7 ] || { echo "row $t7_n ($rel): status $status, want 7: $output" >&2; return 1; }
+  [[ "$output" == *"the built site breaks the fetch policy"* ]] || { echo "row $t7_n: no exit-7 message: $output" >&2; return 1; }
+  ln="$(grep -nF -- "$needle" "$FX/out/$rel" | sed -n '1s/:.*//p')"
+  [ -n "$ln" ] || { echo "row $t7_n: '$needle' is not in the built $rel" >&2; return 1; }
+  for l in "${lines[@]}"; do
+    case "$l" in "check-fetches: $rel:$ln: "*) hit=1 ;; esac
+  done
+  [ "$hit" -eq 1 ] || { echo "row $t7_n: no 'check-fetches: $rel:$ln: ' in: $output" >&2; return 1; }
+}
+
+# t7_index <needle> <line> — a mutation row planted in the hand-written index.
+t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1"; }
+
+@test "build-docs-site: fetch policy — mutation rows: the build exits 7 naming file and line" {
+  need_pandoc
+  t7_n=0
+  t7_index importmap "<script type=\"importmap\">{\"imports\":{\"three\":\"$OH/three.js\"}}</script>"
+  t7_index 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
+  t7_index '<img' "<img src=\"$OH/a.png\" alt=\"\">"
+  t7_index srcset "<img srcset=\"$OH/b.png 2x\" alt=\"\">"
+  t7_index '<link' "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
+  t7_index '<table' "<table background=\"$OH/bg.png\"><tr><td>x</td></tr></table>"
+  t7_index '<p style' "<p style=\"background:url($OH/x.png)\">x</p>"
+  t7_index '<iframe' '<iframe srcdoc="x"></iframe>'
+  t7_new; fx_html index '<h1>Home</h1>' '<object data="assets/a.svg"></object>'
+  printf '<svg xmlns="%s"/>\n' "$NS" > "$FX/src/assets/a.svg"
+  t7_row index.html '<object'
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'fetch("%s/api");\n' "$OH" > "$FX/static/app.js"
+  t7_row static/app.js fetch
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'new Image().src = "%s/i.png";\n' "$OH" > "$FX/static/app.js"
+  t7_row static/app.js Image
+  t7_new; fx_html index '<h1>Home</h1>'; printf "el.innerHTML = '<img src=\"%s/i.png\">';\n" "$OH" > "$FX/static/app.js"
+  t7_row static/app.js innerHTML
+  t7_new; fx_html index '<h1>Home</h1>'; printf '@import "%s/a.css";\n' "$OH" > "$FX/static/site.css"
+  t7_row static/site.css '@import'
+  t7_new; fx_html index '<h1>Home</h1>'; printf 'a { background: image-set("%s/x.png" 1x); }\n' "$OH" > "$FX/static/site.css"
+  t7_row static/site.css image-set
+  t7_new; fx_html index '<h1>Home</h1>'; printf '<svg xmlns="%s">\n<script href="%s/s.js"/>\n</svg>\n' "$NS" "$OH" > "$FX/src/assets/d.svg"
+  t7_row assets/d.svg '<script'
+  t7_new; fx_html index '<h1>Home</h1>'
+  printf '<svg xmlns="%s">\n<filter id="f"><feImage href="%s/i.png"/></filter>\n</svg>\n' "$NS" "$OH" > "$FX/src/assets/d.svg"
+  t7_row assets/d.svg feImage
+}
+
+@test "build-docs-site: fetch policy — \"private preview\" in a page fails the build" {
+  need_pandoc
+  fx_page index "Private" "preview"
+  run fx_build
+  [ "$status" -eq 7 ]
+  [[ "$output" == *"check-fetches: index.html:"*'the words "private preview" may not be published'* ]]
 }

@@ -34,16 +34,19 @@
 #                (default: <repo>/scripts/docs-site/static, skipped when
 #                absent; a dir given here must exist)
 #
-# Requires pandoc 3.x (CI installs the ubuntu-24.04 package) and awk (the nav
-# and title readers; gawk and mawk both work). An older pandoc is refused up
-# front: its failures would otherwise be reported against a page.
+# Requires pandoc 3.x (CI installs the ubuntu-24.04 package), awk (the nav
+# and title readers; gawk and mawk both work) and python3 3.8+
+# (${DEVAGENT_PYTHON:-python3}, for scripts/docs-site/check-fetches.py). An
+# older pandoc is refused up front: its failures would otherwise be reported
+# against a page.
 #
 # Exit codes, distinct at the source so no caller parses prose:
 #   0  built; last stdout line is  build-docs-site: built <N> pages -> <out>
 #      (<N> counts content pages; moved-page stubs are not pages)
 #   2  usage
 #   3  a required tool is missing or unusable: pandoc (absent, or older than
-#      3.x), awk, or sort (the message names which)
+#      3.x), awk, sort, or python (absent, or present but unable to run; the
+#      message names the interpreter)
 #   4  bad input: --src or --static dir missing, no pages, no index page,
 #      <x>.md and <x>.html both present, a README.html in --src, a hand-written
 #      page without its derived-from header (or with a byte-order mark), a
@@ -56,6 +59,14 @@
 #   6  a rendered page links to a local file the build did not produce (by
 #      href, src or srcset; stubs included), to a root-absolute path, or out of
 #      the site with ..; or a moved.txt home is not a content page
+#   7  the built site breaks the fetch policy (scripts/docs-site/check-fetches.py,
+#      run after link closure): a remote URL where a fetch could happen, a
+#      missing or wrong Content-Security-Policy meta, a file type the scan
+#      cannot read, or the words
+#      "private preview"; stderr has one "check-fetches: <file>:<line>: <reason>"
+#      line per violation
+#   8  the fetch scan did not complete (the scanner crashed or exited with a
+#      status other than 0 or 3); the site was not checked
 # (--help prints this header: everything above the first non-comment line.)
 set -euo pipefail
 
@@ -316,6 +327,14 @@ if [ -f "$src/moved.txt" ]; then
   done < "$src/moved.txt"
 fi
 
+# python runs the fetch scan after link closure; probe it here, before anything
+# is written. This pins runnability only; the scanner's syntax sets the floor.
+py="${DEVAGENT_PYTHON:-python3}"
+command -v "$py" >/dev/null 2>&1 \
+  || die 3 "python is not installed: '$py' not found (the fetch scan needs python3 3.8+; DEVAGENT_PYTHON names another interpreter)"
+"$py" -I -c 'import sys, re, html.parser, xml.parsers.expat' >/dev/null 2>&1 \
+  || die 3 "python cannot run: '$py' is not a working python3 (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
+
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"
 # sed, not head: head closing the pipe early can SIGPIPE pandoc under pipefail.
@@ -544,5 +563,17 @@ for html in "${built[@]}"; do
   done <<< "$attrs"
 done
 [ "$bad" -eq 0 ] || exit 6
+
+# The fetch policy, over everything the build wrote (scripts/docs-site/
+# check-fetches.py; docs-site/README.md, "What the site may load"). Its exit
+# status is mapped, never its prose: 3 is a policy break, anything else means
+# the scan did not complete.
+scan_rc=0
+"$py" -I -X utf8 "$tmpl/check-fetches.py" -- "$out" || scan_rc=$?
+case "$scan_rc" in
+  0) ;;
+  3) die 7 "the built site breaks the fetch policy: each check-fetches line above names the file and line (docs-site/README.md, \"What the site may load\")" ;;
+  *) die 8 "the fetch scan did not complete (check-fetches exited $scan_rc); the site was not checked" ;;
+esac
 
 printf 'build-docs-site: built %d pages -> %s\n' "${#pages[@]}" "$out"
