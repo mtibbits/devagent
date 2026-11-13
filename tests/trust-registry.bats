@@ -78,10 +78,10 @@ _exit_rows() {
   for id in policy-defect whoami-failed whoami-unavailable whoami-unsupported not-worker \
             trusted-worker hardening-unmet gh-host-bare transition-off scope-unresolved \
             scope-unkeyable yes-refused user-ignored quarantine-unmapped \
-            quarantine-label-missing events-unsupported events-unavailable; do
+            quarantine-label-missing events-unsupported events-unavailable disk-backend; do
     [ -n "${TRUST_REFUSAL_DETAIL[$id]:-}" ] || { echo "no detail for $id" >&2; false; }
   done
-  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 17 ]
+  [ "${#TRUST_REFUSAL_DETAIL[@]}" -eq 18 ]
   for id in "${!TRUST_REFUSAL_DETAIL[@]}"; do
     want=9
     case "$id" in whoami-unavailable|events-unavailable) want=10 ;; esac

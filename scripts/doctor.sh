@@ -185,6 +185,11 @@ check_one_project() {
   require_field "$project" issue_source.backend
   require_field "$project" issue_source.repo
   require_field "$project" code_source.backend
+  # #1009: under a trust policy a disk project refuses at every entry point;
+  # doctor's trust block is host-level, so the per-project row says it here.
+  if [[ "${TRUST_HOST:-0}" == 1 ]] && _trust_disk_project "$project"; then
+    check "trust: disk issue backend" fail "$(_trust_detail disk-backend)"
+  fi
   if [[ -d "$src" ]]; then
     check "source_dir exists ($src)" ok
   else

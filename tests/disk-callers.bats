@@ -128,3 +128,79 @@ _unset_cfg() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/confi
   run merge_marker_present "$idir/checklist.md"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------- Task 6: trust
+
+# _trust_disk [backend-line…]: a project `dk` whose issue_source is a disk
+# folder (or as the lines given), a capture draft and a policy on the host
+# that scopes an unrelated GitHub repo. The env the entry points read is set.
+_trust_disk() {
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  unset DEVAGENT_ISSUE_BACKEND_DIR
+  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
+  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
+  mkdir -p "$FOLDER" "$DEVDOC/Captures/idea" "$BATS_TEST_TMPDIR/dk-src"
+  cp "$PLUGIN_ROOT/tests/fixtures/disk-issue/minimal.md" "$FOLDER/1.md"
+  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  local src_lines=("$@")
+  [ "${#src_lines[@]}" -gt 0 ] || src_lines=('[project.dk.issue_source]' 'backend = "disk"' "repo = \"$FOLDER\"" 'dir_prefix = "Issue-"')
+  {
+    printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR/dk-src\"" "devdoc_dir = \"$DEVDOC\"" ''
+    printf '%s\n' '[project.dk.permissions]' 'transition_issue = true' ''
+    printf '%s\n' "${src_lines[@]}"
+  } > "$DA_HOME/config.toml"
+  if [ "${TRUST_POLICY:-1}" = 1 ]; then
+    mkdir -p "$HOME/.config/devagent/trust"
+    printf '%s\n' 'scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]' \
+      > "$HOME/.config/devagent/trust/policy.toml"
+  fi
+  export DEVAGENT_DEVDOC_DIR="$DEVDOC" DEVAGENT_REPO_ORIGIN="$FOLDER"
+}
+
+# _folder_snap: the folder's names, sizes and checksums.
+_folder_snap() { (cd "$FOLDER" && find . -exec cksum {} + 2>/dev/null | sort; ls -la .) ; }
+
+@test "trust: pull, next and capture/file on a disk project exit 9 with the disk message and leave the folder unchanged" {
+  _trust_disk
+  local before ep n=0
+  before="$(_folder_snap)"
+  for ep in "pull.sh|dk|origin|1" "next.sh|dk" "capture/file.sh|--slug|idea|--target|origin"; do
+    IFS='|' read -r -a args <<<"$ep"
+    run --separate-stderr "$PLUGIN_ROOT/scripts/${args[0]}" "${args[@]:1}"
+    [ "$status" -eq 9 ] || { echo "$ep: $status $stderr" >&2; false; }
+    [[ "$stderr" == *"disk issue backend is not supported under a trust policy"* ]]
+    [ "$(_folder_snap)" = "$before" ]
+    n=$((n + 1))
+  done
+  [ "$n" -eq 3 ]
+  [ ! -e "$DEVDOC/Issue-1" ]
+  [ ! -e "$DEVDOC/Captures/idea/filed.toml" ]
+}
+
+@test "trust: a disk issue_source_fork alone, or backend = \"Disk\", also refuses" {
+  _trust_disk '[project.dk.issue_source]' 'backend = "github"' 'repo = "other/repo"' 'dir_prefix = "Issue-"' '' \
+    '[project.dk.issue_source_fork]' 'backend = "disk"' "repo = \"$BATS_TEST_TMPDIR/fork-issues\"" 'dir_prefix = "Issue-Fork-"'
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" dk
+  [ "$status" -eq 9 ]
+  [[ "$stderr" == *"disk issue backend is not supported under a trust policy"* ]]
+  _trust_disk '[project.dk.issue_source]' 'backend = "Disk"' "repo = \"$BATS_TEST_TMPDIR/x\"" 'dir_prefix = "Issue-"'
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" dk
+  [ "$status" -eq 9 ]
+  [[ "$stderr" == *"disk issue backend is not supported under a trust policy"* ]]
+}
+
+@test "trust: the same policy does not refuse a github project with the disk message" {
+  _trust_disk '[project.dk.issue_source]' 'backend = "github"' 'repo = "other/repo"' 'dir_prefix = "Issue-"'
+  run --separate-stderr "$PLUGIN_ROOT/scripts/next.sh" dk
+  [[ "$stderr" != *"disk issue backend"* ]]
+}
+
+@test "trust: with no policy a disk project passes the entry check" {
+  TRUST_POLICY=0 _trust_disk
+  # shellcheck source=../scripts/lib/trust.sh
+  source "$PLUGIN_ROOT/scripts/lib/trust.sh"
+  run --separate-stderr trust_entry_check pull dk origin
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+}

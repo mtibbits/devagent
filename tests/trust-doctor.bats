@@ -143,3 +143,17 @@ EOF
   run grep -c '\[auth\]' "$GH_STUB_ARGV_LOG"
   [ "$output" = 0 ]
 }
+
+@test "trust: doctor under a policy shows a fail row with the disk message for a disk project" {
+  trust_fixture_policy "$POL" "$VOLK" 'worker_identities = ["github:1001"]'
+  mkdir -p "$BATS_TEST_TMPDIR/issues"
+  printf '%s\n' '' '[project.dk]' "source_dir = \"$DA_HOME/fake-src\"" "devdoc_dir = \"$DA_HOME/fake-devdoc\"" \
+    '' '[project.dk.issue_source]' 'backend = "disk"' "repo = \"$BATS_TEST_TMPDIR/issues\"" 'dir_prefix = "Issue-"' \
+    '' '[project.dk.code_source]' 'backend = "github"' 'upstream = "o/r"' >> "$DA_HOME/config.toml"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" dk
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL trust: disk issue backend — disk issue backend is not supported under a trust policy"* ]]
+  # a github project under the same policy has no such row
+  run --separate-stderr "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [[ "$output" != *"disk issue backend"* ]]
+}
