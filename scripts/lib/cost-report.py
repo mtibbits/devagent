@@ -238,19 +238,21 @@ def _under(p: str, r: str) -> bool:
     np_, nr = (_norm(p) if p else ""), (_norm(r) if r else "")
     if not np_ or not nr:
         return False
-    pp, rr = (np_ if os.path.isdir(np_) else p), (nr if os.path.isdir(nr) else r)
-    if os.path.isdir(pp) and os.path.isdir(rr):
-        cur = pp   # walk physical parents (cur/..), as hook_path_under does: .. and symlinks resolve on disk
-        for _ in range(64):
-            try:
-                if os.path.samefile(cur, rr):
+    pp = np_ if os.path.isdir(np_) else p if os.path.isdir(p) else None
+    rr = nr if os.path.isdir(nr) else r if os.path.isdir(r) else None
+    if pp and rr:
+        # Walk physical parents, as hook_path_under does: realpath resolves .. and symlinks on disk.
+        try:
+            target, cur = os.stat(rr), os.path.realpath(pp)
+            for _ in range(64):
+                if os.path.samestat(os.stat(cur), target):
                     return True
-                up = os.path.join(cur, "..")
-                if os.path.samefile(up, cur):
+                up = os.path.dirname(cur)
+                if up == cur:
                     return False
-            except OSError:
-                return False
-            cur = up
+                cur = up
+        except OSError:
+            pass
         return False
     return np_ == nr or np_.startswith(nr if nr.endswith("/") else nr + "/")
 
@@ -725,17 +727,16 @@ def _typed_hint(name: str, args: tuple, known: set[str]) -> str | None:
 
     A hint only places overhead; it never changes the pair. pull never hints.
     """
-    if name == "pull" or _typed_names(args, known)[1] is not None:
+    project, issue = _typed_names(args, known)
+    if name == "pull" or issue is not None:
         return None
-    if "--project" in args:
-        j = args.index("--project") + 1
-        if j < len(args) and args[j] in known:
-            return args[j]
-    return next((a for a in args if a in known), None)
+    return project or next((a for a in args if a in known), None)
 
 
 def _assigned_projects(cmd: str) -> tuple[str, ...]:
     """The literal values a Bash command assigns to DEVAGENT_PROJECT, in order."""
+    if "DEVAGENT_PROJECT=" not in cmd:   # the common case: skip the regex on every other Bash command
+        return ()
     return tuple(next(g for g in m if g) for m in PROJECT_ASSIGN.findall(cmd))
 
 
@@ -797,6 +798,14 @@ class Overhead:
         self.rules = {"hint": 0, "cwd": 0, "unassigned": 0}
 
 
+def _charge_overhead(overhead: dict, place: tuple, step: str, session: str, origin: tuple):
+    """The Overhead slot for place, with session and origin recorded, and its Row for step."""
+    o = overhead.setdefault(place, Overhead())
+    o.sessions.add(session)
+    o.sources.add(origin)
+    return o, o.steps.setdefault(step, Row())
+
+
 def _place(hint: str | None, cwd: str | None, dirs: list[tuple[str, str]], cache: dict):
     """Where an overhead call goes, first rule that applies: the session hint, the cwd's project, else unassigned."""
     if hint is not None:
@@ -856,19 +865,13 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
     for tape, where in tapes:
         buckets, launches, timed, places = replay(tape, known)
         origin = (*where, tape.session)
-        def slot(place):
-            o = overhead.setdefault(place, Overhead())
-            o.sessions.add(tape.session)
-            o.sources.add(origin)
-            return o
-
         for pair, step, b, (hint, cwd) in buckets:
             if b.calls:
                 rows[pair].setdefault(step, Row()).add(b.calls, b.peak, b.main)
                 if overhead is not None and pair == START[0]:
                     place, rule = _place(hint, cwd, pdirs, cache)
-                    o = slot(place)
-                    o.steps.setdefault(step, Row()).add(b.calls, b.peak, b.main)
+                    o, row = _charge_overhead(overhead, place, step, tape.session, origin)
+                    row.add(b.calls, b.peak, b.main)
                     o.rules[rule] += b.calls
             sessions[pair].add(tape.session)
             sources.setdefault(pair, set()).add(origin)
@@ -878,7 +881,7 @@ def collect(dirs: list[Path], issue_filter: str | None, project_filter: str | No
                 rows[pair].setdefault(step, Row()).sub += cost
                 if overhead is not None and pair == START[0]:
                     place, _ = _place(*places.get(tool_use_id, (None, sub_cwd)), pdirs, cache)
-                    slot(place).steps.setdefault(step, Row()).sub += cost
+                    _charge_overhead(overhead, place, step, tape.session, origin)[1].sub += cost
             sources.setdefault(pair, set()).add(origin)
         for pair, a in timed:
             charge(pair, a, launches)
@@ -901,11 +904,14 @@ def _m(x: float) -> str:
     return f"{x / 1e6:.2f}"
 
 
+def _figures(steps: dict[str, Row]):
+    """(calls, peak context, main, sub) over a pair's or an overhead line's steps."""
+    return (sum(r.calls for r in steps.values()), max((r.peak for r in steps.values()), default=0),
+            sum(r.main for r in steps.values()), sum(r.sub for r in steps.values()))
+
+
 def summary_line(heading: str, steps: dict[str, Row], n_sessions: int) -> str:
-    main = sum(r.main for r in steps.values())
-    sub = sum(r.sub for r in steps.values())
-    calls = sum(r.calls for r in steps.values())
-    peak = max((r.peak for r in steps.values()), default=0)
+    calls, peak, main, sub = _figures(steps)
     return (
         f"{heading}: {(main + sub) / 1e6:.1f}M input-token equivalents over "
         f"{n_sessions} session(s), {calls} calls, peak context {peak // 1000}K "
@@ -921,16 +927,18 @@ def time_line(pair: tuple, a: TimeAcc) -> str:
     )
 
 
+def _header(source: str) -> list[str]:
+    return [
+        f"Token cost by step, from {source}",
+        "input-token equivalents, weighted by price vs base input: cache read 0.1, "
+        "cache write 1.25 (5m) / 2 (1h), output 5",
+    ]
+
+
 def report(rows, sessions, source: str, summary: bool, times: dict | None = None,
            rules: TimeRules | None = None) -> str:
     """The text report; with rules (--time), the rule line heads it and each pair's time line follows its cost line."""
-    out = []
-    if not summary:
-        out.append(f"Token cost by step, from {source}")
-        out.append(
-            "input-token equivalents, weighted by price vs base input: cache read 0.1, "
-            "cache write 1.25 (5m) / 2 (1h), output 5"
-        )
+    out = [] if summary else _header(source)
     if rules is not None:
         out.append(rules.rule_line())
     for pair, steps in rows.items():
@@ -974,11 +982,7 @@ def overhead_heading(key: tuple, o: Overhead) -> str:
 
 def report_overhead(ov: dict, source: str, summary: bool) -> str:
     """The --overhead text report, in report()'s shape: one line (or block) per project, then per unassigned cwd."""
-    out = [] if summary else [
-        f"Token cost by step, from {source}",
-        "input-token equivalents, weighted by price vs base input: cache read 0.1, "
-        "cache write 1.25 (5m) / 2 (1h), output 5",
-    ]
+    out = [] if summary else _header(source)
     for key, o in _overhead_order(ov):
         out += [overhead_heading(key, o)] if summary else ["", overhead_heading(key, o), *_steps_block(o.steps)]
     return "\n".join(out)
@@ -988,13 +992,12 @@ def report_overhead_json(ov: dict) -> str:
     """One JSON object per --overhead line, keys sorted, figures rounded to 2 decimals."""
     out = []
     for (kind, name), o in _overhead_order(ov):
-        main = sum(r.main for r in o.steps.values())
-        sub = sum(r.sub for r in o.steps.values())
+        calls, peak, main, sub = _figures(o.steps)
         out.append(json.dumps({
-            "calls": sum(r.calls for r in o.steps.values()),
+            "calls": calls,
             "cwd": None if kind == "project" else name,
             "main": round(main, 2),
-            "peak_context": max((r.peak for r in o.steps.values()), default=0),
+            "peak_context": peak,
             "project": name if kind == "project" else "(unassigned)",
             "rules": dict(o.rules),
             "sessions": len(o.sessions),
@@ -1012,8 +1015,7 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
     """
     out = []
     for pair, steps in rows.items():
-        main = sum(r.main for r in steps.values())
-        sub = sum(r.sub for r in steps.values())
+        calls, peak, main, sub = _figures(steps)
         extra = {}
         if rules is not None:
             a = (times or {}).get(pair) or TimeAcc()
@@ -1028,10 +1030,10 @@ def report_json(rows, sessions, sources, times: dict | None = None, rules: TimeR
             }
         out.append(json.dumps({
             **extra,
-            "calls": sum(r.calls for r in steps.values()),
+            "calls": calls,
             "issue": pair[1],
             "main": round(main, 2),
-            "peak_context": max((r.peak for r in steps.values()), default=0),
+            "peak_context": peak,
             "project": pair[0],
             "sessions": len(sessions.get(pair, ())),
             "sources": _sources_json(sources.get(pair, ())),

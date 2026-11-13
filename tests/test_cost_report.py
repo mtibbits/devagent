@@ -97,8 +97,7 @@ def _subagent(session_path, name, tool_use_id, records):
 
 def _config(names):
     """Write DA_HOME/config.toml naming each project in its own [project.<name>] table."""
-    body = "".join(f'[project.{n}]\nsource_dir = "/x/{n}"\n\n' for n in names)
-    Path(os.environ["DA_HOME"], "config.toml").write_text(body, encoding="utf-8")
+    _config_dirs({n: {"source_dir": f"/x/{n}"} for n in names})
 
 
 def _cwd_slug():
