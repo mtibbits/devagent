@@ -19,9 +19,9 @@ the README's "Versioning & releases" section has the release procedure.
 - **Changed: the docs-site build checks an allowlist of what the site may load
   instead of banning substrings (#1030).** After link closure the build runs
   `scripts/docs-site/check-fetches.py` over every built file. Each file is
-  scanned, counted as a listed binary type, or refused. A remote URL wherever a
-  browser could fetch it is refused, in HTML and SVG attributes, inline and
-  file JavaScript strings, and CSS strings and `url()`. So are `<iframe>`,
+  scanned, counted as a listed binary type, or refused. A remote URL is refused
+  in HTML and SVG attributes, inline and file JavaScript strings, and CSS
+  strings and `url()` (the scanner's header lists its known blind spots). So are `<iframe>`,
   `<object>`, `<embed>`, scripts and handlers on surfaces with no CSP, and
   markup that the scanner and a browser parse differently. Every page and
   moved-page stub now carries the site's Content-Security-Policy `<meta>`, and

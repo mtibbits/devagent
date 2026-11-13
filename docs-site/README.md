@@ -133,7 +133,7 @@ page, the stub itself, or another stub) exits 6.
 may load this site's own files by relative path, inline `<style>`, `<script>`
 and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
 
-- *Where the scan looks.* It checks every place a browser could fetch from:
+- *Where the scan looks.* It checks the places a browser fetches from:
   HTML and SVG attributes (`src`, `srcset`, `href` on `<link>`, `background`,
   SVG `href` and `xlink:href`, and the rest), inline `<script>` and `<style>`
   bodies, `style=` and `on*=` attributes, string literals and template chunks

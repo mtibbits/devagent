@@ -1512,3 +1512,71 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   [ "$status" -eq 7 ]
   [[ "$output" == *"check-fetches: index.html:"*'the words "private preview" may not be published'* ]]
 }
+
+# ------------------------------------------- SCANNER: final-review fail-open rows
+
+@test "build-docs-site: check-fetches — a namespace prefix does not hide an .svg element" {
+  sc_n=0
+  svg_whole 3 '<script> in an .svg file is refused' '<h:script' \
+    "<svg xmlns=\"$NS\" xmlns:h=\"http://www.w3.org/1999/xhtml\">" "<h:script>fetch(\"$OH/x\")</h:script>" '</svg>'
+  svg_whole 3 'remote URL in a CSS string' '@import' \
+    "<s:svg xmlns:s=\"$NS\">" "<s:style>@import \"$OH/a.css\";</s:style>" '</s:svg>'
+  svg_whole 3 'is refused' '<h:iframe' \
+    "<svg xmlns=\"$NS\" xmlns:h=\"http://www.w3.org/1999/xhtml\">" '<h:iframe src="x.html"/>' '</svg>'
+}
+
+@test "build-docs-site: check-fetches — markup inside raw-text elements in <svg> or <math> is refused" {
+  local mk='markup inside <'
+  sc_n=0
+  sc_new; fx_sf static/partial.html "<svg><title><img src=\"$OH/p.png\"></title></svg>"
+  sc_row 3 static/partial.html '<svg' "$mk"
+  html_row 3 "$mk" '<svg><textarea>' "<svg><textarea><img src=\"$OH/p.png\"></textarea></svg>"
+  html_row 3 "$mk" '<math>' "<math><title><img src=\"$OH/p.png\"></title></math>"
+  html_row 3 "$mk" '<svg><style>' '<svg><style><img src=//other.host/p.png></style></svg>'
+  html_row 3 "$mk" '<svg><script>' '<svg><script><img src=//other.host/p.png></script></svg>'
+  # the accessible-icon idiom, with an entity and a bare "<", still passes
+  html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
+}
+
+@test "build-docs-site: check-fetches — a CSP meta a browser ignores does not count" {
+  local doc=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
+  sc_n=0
+  sc_new; fx_sf index.html "${doc[@]}" '<p>x</p>' "$CSP_META" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  sc_new; fx_sf index.html "${doc[@]}" 'hello' "$CSP_META" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  sc_new; fx_sf index.html "${doc[@]}" "<noscript>$CSP_META</noscript>" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'inside <noscript>'
+  sc_new; fx_sf index.html "${doc[@]}" "<template>$CSP_META</template>" '</head><body></body></html>'
+  sc_row 3 index.html 'Content-Security-Policy' 'inside <template>'
+  sc_new; fx_sf index.html "${doc[@]}" "<meta http-equiv=\" Content-Security-Policy\" content=\"$CSP\">" '</head><body></body></html>'
+  sc_row 3 index.html '' 'no Content-Security-Policy meta'
+  # control: whitespace and a comment in <head> before the meta keep it in <head>
+  sc_new; fx_sf index.html "${doc[@]}" '  <!-- policy -->' "$CSP_META" '<title>t</title>' '</head><body></body></html>'
+  sc_row 0 index.html '' ''
+}
+
+@test "build-docs-site: check-fetches — a protocol-relative URL inside a value is refused" {
+  sc_n=0
+  js_row 3 'remote URL in a JS string' "el.innerHTML = '<img src=\"//other.host/p.png\">';"
+  svg_row 3 'remote URL in fill= on <rect>' '<rect' '<rect fill="url(//other.host/p.svg#g)"/>'
+  svg_row 3 'remote URL in values= on <animate>' '<animate' '<animate attributeName="href" values="a.png;//other.host/p.png"/>'
+  # controls: "//" that starts no host
+  js_row 0 '' 'var s = "see // note", t = "a//b", u = "///x";'
+}
+
+@test "build-docs-site: check-fetches — JS line ends, HTML-like comments and postfix ++ do not hide a string" {
+  sc_n=0
+  sc_new; fx_sf assets/a.js $'// note\rimport("'"$OH"$'/x.js");'
+  sc_row 3 assets/a.js '// note' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js $'// note import("'"$OH"$'/x.js");'
+  sc_row 3 assets/a.js '// note' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js '<!-- /*' "fetch(\"$OH/x\");" '// */'
+  sc_row 3 assets/a.js 'fetch' 'remote URL in a JS string'
+  sc_new; fx_sf assets/a.js 'var a = 1;' '--> /*' "fetch(\"$OH/x\");" '// */'
+  sc_row 3 assets/a.js 'fetch' 'remote URL in a JS string'
+  js_row 3 'remote URL in a JS string' "var y = i++ / 2 + '/' + '$OH/a.js';"
+  # controls: prefix ++ before a regex, and "-->" that is not at a line start
+  js_row 0 '' 'var r = ++i; var s = /ab+c/.test(t); var u = "assets/x";'
+  js_row 0 '' 'while (i --> 0) { s = "assets/x"; }'
+}

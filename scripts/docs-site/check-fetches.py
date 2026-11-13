@@ -48,23 +48,38 @@
 #   .css        every string and unquoted url() argument.
 # Text content and comments are not checked: they cannot fetch.
 #
-# Known blind spots, covered only by the CSP:
+# Known blind spots. In a document the CSP meta still blocks the fetch; on the
+# surfaces with no CSP (below) nothing does, so these are accepted there as
+# shapes nobody writes by accident:
 #   - JS and CSS escapes are not decoded: "https\x3a//other.host" and
 #     u\rl(//other.host) pass;
 #   - URLs assembled at run time ("https" + ":/" + "/" + host, atob(…)) pass;
 #   - text content a script reads and fetches passes;
 #   - the JS tokenizer guesses regex versus division after ")" and "}" as
 #     division: "if (x) /'/.test(s); var u = '//h'" can hide a string;
+#   - a data: URL in an attribute or CSS is exempt whole: its payload is not
+#     decoded, so a data: stylesheet's @import passes (in a JS string a data:
+#     URL is scanned like any other text);
+#   - a namespace URI exactly (xmlns values, CSS @namespace, a JS string) may
+#     name w3.org: fetch("http://www.w3.org/2000/svg") passes;
 #   - html.parser divergences from a browser other than the refused shapes.
+#     The guards are measured against parsers that carry the 2025 html.parser
+#     security fixes (python 3.10.12 Ubuntu, 3.13.14); an unpatched parser
+#     ends a script only at "</script>" with optional spaces, so
+#     "</script x>" can hide markup from it.
 # Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
 # (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
-# no <script> (.svg) and no on*= handler (both).
+# no <script> (.svg, any namespace prefix) and no on*= handler (both).
 # Known over-refusals (measured; rephrase rather than fight them):
 #   - a remote URL in an attribute that does not navigate: title=, alt=,
 #     aria-label=, data-*=, <meta content=…>, a "file: x" mention included;
 #   - a JS string that is just "https:";
 #   - inline JS that builds a '<script' or '<!--' string;
-#   - "&" in an inline <svg> or <math> <script> or <style>;
+#   - "&" in an inline <svg> or <math> <script> or <style>, and markup ("<"
+#     then a letter, "/", "!" or "?") in any element this parser reads as text
+#     inside <svg> or <math> (<title>, <textarea>, <script>, <style>, …);
+#   - "//" then a host character after a quote, space, "(", "=", "," or ";"
+#     in any string or attribute value ("see //h" in a title=);
 #   - a <![CDATA[ section in an .html file, inline SVG included;
 #   - a non-JS <script type> whose body has an unbalanced quote.
 import html.parser as _hp
@@ -135,6 +150,9 @@ REMOTE_RE = re.compile(
     r"|" + SCHEME + r"(?:https?|wss?|ftp|file):"      # listed schemes, slashes optional
     r"|" + SCHEME + r"javascript:", re.I)
 JS_RE = re.compile(SCHEME + r"javascript:", re.I)      # the nav-context check
+# "//host" after a delimiter, inside a value: markup or CSS built in a string
+# ('<img src="//h/x">'), url(//h/x), a values= list.
+PROTO_REL_RE = re.compile(r"(?:^|[\s\"'(=,;])//[^/\s]")
 
 
 def normalise(value):
@@ -153,7 +171,7 @@ def remote(value, ctx, where):
         v = NS_IN_JS_RE.sub("", v)
     elif v[:5].lower() == "data:" or v[:5].lower() == "blob:":
         return None
-    if v.startswith("//"):
+    if PROTO_REL_RE.search(v):
         return "remote URL in %s" % where
     m = REMOTE_RE.search(v)
     if not m:
@@ -173,8 +191,10 @@ JS_REGEX_AFTER = {
     "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
     "throw", "case", "do", "else", "yield", "await",
 }
-JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-￿][A-Za-z0-9_$\u0080-￿]*")
+JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*")
 JS_NUMBER_RE = re.compile(r"\.?[0-9][A-Za-z0-9_.]*")
+JS_LINE_END_RE = re.compile("[\n\r\u2028\u2029]")
+JS_LINE_ENDS = "\n\r\u2028\u2029"
 
 
 def _quoted(text, i, line, toks, errs, kind):
@@ -241,9 +261,13 @@ def js_tokens(text, line0=1):
         if c.isspace():
             i += 1
             continue
-        if text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
+        # A line comment: "//", and (Annex B, classic scripts) "<!--" anywhere
+        # and "-->" first on its line. It ends at any JS line terminator.
+        if text.startswith("//", i) or text.startswith("<!--", i) or (
+                text.startswith("-->", i)
+                and not text[max(text.rfind(t, 0, i) for t in JS_LINE_ENDS) + 1:i].strip()):
+            m = JS_LINE_END_RE.search(text, i)
+            i = n if m is None else m.start()
             continue
         if text.startswith("/*", i):
             j = text.find("*/", i + 2)
@@ -256,6 +280,10 @@ def js_tokens(text, line0=1):
         if c in "'\"":
             i, line = _quoted(text, i, line, toks, errs, "string")
             regex_ok = False
+            continue
+        if c in "+-" and text.startswith(c + c, i):
+            # postfix after an operand (a "/" next is division); prefix otherwise
+            i += 2
             continue
         if c == "`":
             start = line
@@ -388,6 +416,16 @@ COMMENT_DIVERGE_RE = re.compile(r"<!---?>|--!>")
 END_WS_RE = re.compile(r"</\s+(?:script|style)", re.I)
 MARKED_RE = re.compile(r"<!\[")
 SCRIPT_BODY_RE = re.compile(r"<!--|<script", re.I)
+# Inside <svg>/<math> a browser parses markup in elements this parser reads as
+# text (title, textarea, xmp, script, style, …), so such a body may hold none.
+PARSED_AS_TEXT = set(getattr(HTMLParser, "CDATA_CONTENT_ELEMENTS", ("script", "style"))) \
+    | set(getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ())) | {"script", "style"}
+FOREIGN_MARKUP_RE = re.compile(r"<[A-Za-z/!?]")
+# Start tags that keep <head> open; any other start tag, or text that is not
+# whitespace, ends it in a browser (and a CSP meta after that point is ignored).
+HEAD_OK = {"html", "head", "base", "basefont", "bgsound", "link", "meta", "noscript",
+           "script", "style", "template", "title"}
+INERT_TAGS = {"noscript", "template"}
 HTML_WS = " \t\n\r\f"
 
 
@@ -555,7 +593,8 @@ class Scan:
 
         def start(name, attrs):
             line = p.CurrentLineNumber
-            low = name.lower()
+            # no namespace processing: "h:script" is a script, whatever its prefix
+            low = name.rsplit(":", 1)[-1].lower()
             if low in REFUSED_TAGS:
                 self.refuse(rel, line, "<%s> is refused" % name)
             if low == "script":
@@ -568,7 +607,7 @@ class Scan:
                 pending[:] = [low, None, []]
 
         def end(name):
-            if pending and name.lower() == pending[0]:
+            if pending and name.rsplit(":", 1)[-1].lower() == pending[0]:
                 if pending[1] is not None:
                     self.body(rel, pending[0], "".join(pending[2]), pending[1])
                 pending[:] = []
@@ -640,8 +679,10 @@ class _Html(HTMLParser):
         self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign]
         self.on_attrs = []        # (line, name): refused at the end if a fragment
         self.head = self.head_closed = False
+        self.in_title = False
+        self.inert = []           # open <noscript>/<template>: a meta in them is ignored
         self.first_resource = None
-        self.metas = []           # (line, content, in_head, after)
+        self.metas = []           # (line, content, in_head, after, inert parent)
 
     def refuse(self, line, reason):
         self.s.refuse(self.rel, line, reason)
@@ -680,14 +721,15 @@ class _Html(HTMLParser):
             self.is_doc = True
         if tag == "head":
             self.head = True
-        elif tag == "body":
+        elif self.head and tag not in HEAD_OK:
             self.head_closed = True
         if tag == "meta":
             equiv = next((v for n, v in attrs if n == "http-equiv"), "")
-            if equiv.strip().lower() == "content-security-policy":
+            # an enumerated value: matched case-blind but never trimmed
+            if equiv.lower() == "content-security-policy":
                 content = next((v for n, v in attrs if n == "content"), None)
                 self.metas.append((line0, content, self.head and not self.head_closed,
-                                   self.first_resource))
+                                   self.first_resource, self.inert[-1] if self.inert else None))
         if tag in RESOURCE_TAGS and self.first_resource is None:
             self.first_resource = tag
         if tag in REFUSED_TAGS:
@@ -708,7 +750,11 @@ class _Html(HTMLParser):
             self.foreign += 1
         if tag in COMMENT_HIDES_IN:
             self.raw.append(tag)
-        if tag in ("script", "style"):
+        if tag in INERT_TAGS:
+            self.inert.append(tag)
+        if tag == "title":
+            self.in_title = True
+        if tag in ("script", "style") or (self.foreign and tag in PARSED_AS_TEXT):
             self.pending = [tag, None, [], self.foreign > 0]
 
     def handle_endtag(self, tag):
@@ -718,6 +764,10 @@ class _Html(HTMLParser):
             self.foreign -= 1
         if tag in self.raw:
             del self.raw[len(self.raw) - 1 - self.raw[::-1].index(tag):]
+        if tag in self.inert:
+            del self.inert[len(self.inert) - 1 - self.inert[::-1].index(tag):]
+        if tag == "title":
+            self.in_title = False
         if tag == "head":
             self.head_closed = True
 
@@ -726,6 +776,9 @@ class _Html(HTMLParser):
             if self.pending[1] is None:
                 self.pending[1] = self.getpos()[0]
             self.pending[2].append(data)
+        elif (self.head and not self.head_closed and not self.in_title and not self.inert
+              and data.strip(HTML_WS)):
+            self.head_closed = True
 
     def handle_comment(self, data):
         if self.raw:
@@ -737,6 +790,10 @@ class _Html(HTMLParser):
         if line is None:
             return
         text = "".join(chunks)
+        if in_foreign and FOREIGN_MARKUP_RE.search(text):
+            self.refuse(line, "markup inside <%s> inside <svg> or <math> (a browser parses it as markup)" % tag)
+        if tag not in ("script", "style"):
+            return
         if tag == "script" and SCRIPT_BODY_RE.search(text):
             self.refuse(line, "a <script> body that opens an HTML comment or a nested <script>")
         if in_foreign and "&" in text:
@@ -754,12 +811,14 @@ class _Html(HTMLParser):
             self.refuse(0, "a document under an asset folder needs the Content-Security-Policy meta"
                         if "/" in self.rel else "no Content-Security-Policy meta")
             return
-        line, content, in_head, after = self.metas[0]
+        line, content, in_head, after, inert = self.metas[0]
         for extra in self.metas[1:]:
             self.refuse(extra[0], "more than one Content-Security-Policy meta")
         if content != POLICY:
             self.refuse(line, "the Content-Security-Policy meta does not carry the site policy")
-        if not in_head:
+        if inert:
+            self.refuse(line, "the Content-Security-Policy meta is inside <%s>, where a browser ignores it" % inert)
+        elif not in_head:
             self.refuse(line, "the Content-Security-Policy meta is not inside <head>")
         elif after:
             self.refuse(line, "the Content-Security-Policy meta comes after a <%s>" % after)
