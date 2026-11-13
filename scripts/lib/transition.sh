@@ -12,7 +12,7 @@
 # Precedence of stage_map_target <backend> <project> <stage> (spec §9.1):
 #   1. the per-stage env override, DEVAGENT_GITHUB_LABEL_<STAGE> (github),
 #      DEVAGENT_GITLAB_LABELS_<STAGE> (gitlab), DEVAGENT_JIRA_STAGE_<STAGE>
-#      (jira); <STAGE> is the stage upper-cased with - as _. These are
+#      (jira), DEVAGENT_DISK_STATUS_<STAGE> (disk, #1009); <STAGE> is the stage upper-cased with - as _. These are
 #      PROCESS-GLOBAL operator/test seams: a stale one redirects every
 #      project's write (doctor warns while one is set).
 #   2. [project.<p>.github_labels].<stage> or [project.<p>.gitlab_labels].<stage>
@@ -23,7 +23,7 @@
 
 _TRANSITION_STAGES="on_draft_start on_ship on_merge"
 # The built-in backends, which map stages here; a custom backend maps for itself.
-_TRANSITION_BUILTINS="github gitlab jira"
+_TRANSITION_BUILTINS="github gitlab jira disk"
 
 # stage_map_builtin <backend>: 0 iff <backend> is a built-in backend.
 stage_map_builtin() { [[ " $_TRANSITION_BUILTINS " == *" $1 "* ]]; }
@@ -37,6 +37,7 @@ stage_map_env_var() {
     github) var="DEVAGENT_GITHUB_LABEL_${up}" ;;
     gitlab) var="DEVAGENT_GITLAB_LABELS_${up}" ;;
     jira)   var="DEVAGENT_JIRA_STAGE_${up}" ;;
+    disk)   var="DEVAGENT_DISK_STATUS_${up}" ;;
     *)      return 0 ;;
   esac
   [[ "$var" =~ ^[A-Z_][A-Z0-9_]*$ ]] && printf '%s' "$var"
@@ -150,9 +151,22 @@ stage_state_probe() {
 stage_map_kind() {
   case "$1" in
     github|gitlab) echo label ;;
-    jira)          echo status ;;
+    jira|disk)     echo status ;;
     *)             echo state ;;
   esac
+}
+
+# stage_map_closes <backend> <stage>: 0 iff that transition writes even with no
+# state mapped — the disk backend's on_merge, which always closes the issue
+# file (#1009). The one rule transition_fire and transition_plan_note share.
+stage_map_closes() { [ "${1,,}" = disk ] && [ "$2" = on_merge ]; }
+
+# issue_repo_label <backend> <repo>: how a record names the issue's tracker.
+# A disk project's repo is a folder on the user's machine, and the devdoc may
+# be pushed, so every record says `disk` instead (#1009); any other backend's
+# repo is printed as given.
+issue_repo_label() {
+  if [ "${1,,}" = disk ]; then printf '%s\n' disk; else printf '%s\n' "$2"; fi
 }
 
 # transition_args <b> <args…>: parse a built-in backend's
@@ -281,7 +295,8 @@ transition_fire() {
   if [ "$TRANSITION_RC" -ne 0 ]; then
     TRANSITION_OUTCOME=failed
     echo "warning: $stage transition failed for $project/$issue_arg (exit $TRANSITION_RC) — continuing per spec §11$suffix" >&2
-  elif [ -z "$TRANSITION_TARGET" ] && stage_map_builtin "$backend"; then
+  elif [ -z "$TRANSITION_TARGET" ] && stage_map_builtin "$backend" \
+       && ! stage_map_closes "$backend" "$stage"; then
     TRANSITION_OUTCOME=unmapped
   else
     TRANSITION_OUTCOME=landed
@@ -293,7 +308,7 @@ transition_fire() {
 # transition would do, for a plan line (ship's, D7) — decided in
 # transition_fire's order.
 transition_plan_note() {
-  local project="$1" stage="$2" backend="$3" repo="$4" issue_arg="${5:-}" t
+  local project="$1" stage="$2" backend="$3" repo="$4" issue_arg="${5:-}" t label
   if ! transition_gate_open "$project"; then
     echo "skipped (permissions.transition_issue not enabled)"
   elif [[ "$issue_arg" != Issue-Fork-* ]] && transition_fork_only "$project"; then
@@ -304,12 +319,15 @@ transition_plan_note() {
     echo "skipped (issue backend not executable)"
   else
     t="$(stage_map_target "$backend" "$project" "$stage" 2>/dev/null || true)"
+    label="$(issue_repo_label "$backend" "$repo")"
     if [ -n "$t" ]; then
-      echo "\"$t\" on $repo"
+      echo "\"$t\" on $label"
+    elif stage_map_closes "$backend" "$stage"; then
+      echo "close the issue file"
     elif stage_map_builtin "$backend"; then
       echo "skipped (no tracker state mapped)"
     else
-      echo "on $repo"
+      echo "on $label"
     fi
   fi
 }
