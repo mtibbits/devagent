@@ -202,6 +202,149 @@ cmd_comment_list() {
   printf '%s\n' "$DISK_JSON" | _disk_py comments
 }
 
+# --- the folder lock (.disk.lock) ------------------------------------------
+# One lock per issues folder, shared by create and transition: create's number
+# choice and its .last-number reservation, and transition's at-target check and
+# its write, each run under it, so two sessions never take one number or append
+# two entries for one stage. It is a directory (mkdir is atomic everywhere,
+# Git Bash included), dot-named so every verb and doctor ignore it, and always
+# taken OUTSIDE the module's own .disk-issue.lock. A held lock is waited on for
+# about ten seconds, then the verb exits 1; a stale lock is never broken
+# automatically, because a guessed age can break a live one.
+_DISK_LOCKED=0
+_disk_unlock() {
+  if [ "$_DISK_LOCKED" = 1 ]; then
+    rmdir .disk.lock 2>/dev/null || true
+    _DISK_LOCKED=0
+  fi
+}
+_disk_lock() {
+  local i
+  for ((i = 0; i < 100; i++)); do
+    if mkdir .disk.lock 2>/dev/null; then
+      _DISK_LOCKED=1
+      trap _disk_unlock EXIT
+      return 0
+    fi
+    sleep 0.1
+  done
+  _disk_die 1 "the issues folder named by issue_source.repo is locked (.disk.lock); remove it if no devagent command is running"
+}
+
+# --- create ----------------------------------------------------------------
+# Issue numbers share the module's name rule (^[1-9][0-9]*\.md$) and its
+# 18-digit cap. They are compared as strings, by length and then by text, so
+# no arithmetic ever runs on an unbounded operand.
+_disk_numgt() { (( ${#1} > ${#2} )) || { (( ${#1} == ${#2} )) && [[ "$1" > "$2" ]]; }; }
+
+# _disk_top: the largest issue file number in the folder (the cwd), or 0.
+_disk_top() {
+  local f n top=0
+  for f in [1-9]*.md; do
+    [[ "$f" =~ ^[1-9][0-9]*\.md$ ]] && [ -f "$f" ] || continue
+    n="${f%.md}"
+    if _disk_numgt "$n" "$top"; then top="$n"; fi
+  done
+  printf '%s' "$top"
+}
+
+# _disk_put_last <bytes>: replace .last-number with <bytes> (temp file, then
+# rename). A replace that Windows refuses (an indexer holding the file) is
+# retried for about a second; returns 1 if it never lands.
+_disk_put_last() {
+  local i tmp=".last-number.tmp-$$"
+  for ((i = 0; i < 10; i++)); do
+    if printf '%s' "$1" > "$tmp" 2>/dev/null && mv -f "$tmp" .last-number 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  rm -f "$tmp" 2>/dev/null || true
+  return 1
+}
+
+# create <dir> <title> <body-file> [--label X]…: write the next issue file and
+# print its bare number. N is one more than the larger of the highest <N>.md
+# and .last-number, decided under .disk.lock; .last-number is written BEFORE
+# the file, so deleting the top file never makes a number come round again.
+# The module's create never overwrites: a taken number (its exit 3) moves on
+# to the next one, up to 100 times. A failed create puts .last-number back.
+cmd_create() {
+  if [ "$#" -lt 3 ]; then
+    echo "disk.sh: usage: create <dir> <title> <body-file> [--label X]…" >&2
+    exit 2
+  fi
+  local dir="$1" title="$2" bodyf="$3" label labels="" kv=()
+  shift 3
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --label)
+        label="${2:-}"
+        if [ "$#" -lt 2 ] || [ -z "${label//[[:space:]]/}" ]; then
+          _disk_die 2 "create: --label needs a non-empty value"
+        fi
+        [[ "$label" != *,* ]] || _disk_die 2 "create: a label cannot contain a comma"
+        labels+="${labels:+, }$label"
+        shift 2 ;;
+      *) _disk_die 2 "create: unknown argument '$1'" ;;
+    esac
+  done
+  [ -z "$labels" ] || kv=("labels=$labels")
+  # A relative body file is the caller's, so it is resolved before the cd.
+  _disk_is_abs "$bodyf" || bodyf="$PWD/$bodyf"
+  [ -f "$bodyf" ] || _disk_die 2 "create: the body file does not exist"
+  if command -v cygpath >/dev/null 2>&1; then bodyf="$(cygpath -m "$bodyf")"; fi
+
+  _disk_folder "$dir" create
+  _disk_lock
+  local last=0 orig="" had=0 top n tries rc err warned=0
+  if [ -e .last-number ]; then
+    had=1
+    orig="$(cat .last-number 2>/dev/null && printf x)" \
+      || _disk_die 1 "cannot read .last-number in the folder named by issue_source.repo"
+    orig="${orig%x}"
+    last="${orig%$'\n'}"
+    [[ "$last" =~ ^[1-9][0-9]{0,17}$ ]] \
+      || _disk_die 1 ".last-number in the folder named by issue_source.repo is not an issue number"
+  fi
+  top="$(_disk_top)"
+  n="$last"
+  if _disk_numgt "$top" "$n"; then n="$top"; fi
+  for ((tries = 1; tries <= 100; tries++)); do
+    # n + 1 has more than 18 digits; checked on every retry, before the add.
+    if (( ${#n} > 18 )) || [ "$n" = 999999999999999999 ]; then
+      _disk_restore_last "$had" "$orig"
+      _disk_die 1 "out of issue numbers: the next number would have more than 18 digits"
+    fi
+    n=$((10#$n + 1))
+    if ! _disk_put_last "$n"$'\n' && [ "$warned" = 0 ]; then
+      warned=1
+      echo "disk.sh: warning: could not update .last-number in the folder named by issue_source.repo" >&2
+    fi
+    rc=0
+    err="$(_disk_mod create . "$n" "$title" "$bodyf" "${kv[@]}" 2>&1)" || rc=$?
+    case "$rc" in
+      0) printf '%s\n' "$n"; return 0 ;;
+      3) continue ;;
+    esac
+    _disk_restore_last "$had" "$orig"
+    [ -z "$err" ] || printf '%s\n' "$err" >&2
+    if [ "$rc" -eq 2 ]; then exit 2; fi
+    exit 1
+  done
+  _disk_restore_last "$had" "$orig"
+  _disk_die 1 "no free issue number after 100 tries"
+}
+
+# _disk_restore_last <had> <bytes>: put .last-number back as it was.
+_disk_restore_last() {
+  if [ "$1" = 1 ]; then
+    _disk_put_last "$2" || true
+  else
+    rm -f .last-number 2>/dev/null || true
+  fi
+}
+
 main() {
   local verb="${1:-}"
   [ "$#" -eq 0 ] || shift
@@ -209,7 +352,8 @@ main() {
     fetch)        cmd_fetch "$@" ;;
     state)        cmd_state "$@" ;;
     comment-list) cmd_comment_list "$@" ;;
-    create|transition|state-list|state-class|issue-list|state-exists)
+    create)       cmd_create "$@" ;;
+    transition|state-list|state-class|issue-list|state-exists)
       _disk_folder "${1:-}"
       bc_die_not_implemented disk "$verb" ;;
     events|comment-records|whoami)

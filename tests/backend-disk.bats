@@ -257,3 +257,199 @@ on_merge: status Done, closed'
   [ "$output" = "$FULL_FETCH" ]
   [ ! -e "$BATS_TEST_TMPDIR/decoy-ran" ]
 }
+
+# ---------------------------------------------------------------- Task 3: create
+
+# body <text>: a prompt file in the test's temp dir, outside the issues folder.
+body() { printf '%s\n' "$1" > "$BATS_TEST_TMPDIR/body.md"; }
+
+# py_shim <script-body>: a python3 first on PATH that runs <script-body> (with
+# $REALPY the real interpreter) and then forwards to the real one.
+py_shim() {
+  local realpy; realpy="$(command -v python3)"
+  mkdir -p "$BATS_TEST_TMPDIR/shim"
+  { printf '#!/usr/bin/env bash\nREALPY=%q\n' "$realpy"; printf '%s\n' "$1"; printf 'exec "$REALPY" "$@"\n'; } \
+    > "$BATS_TEST_TMPDIR/shim/python3"
+  chmod +x "$BATS_TEST_TMPDIR/shim/python3"
+  export PATH="$BATS_TEST_TMPDIR/shim:$PATH"
+}
+
+issue_count() { find "$D" -maxdepth 1 -name '[1-9]*.md' | wc -l | tr -d ' '; }
+
+@test "disk: the first create in an empty folder prints 1" {
+  body "Some prose."
+  run --separate-stderr "$DISK" create "$D" "First issue" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 1 ]
+  [ -f "$D/1.md" ]
+  [ "$(cat "$D/.last-number")" = 1 ]
+  [ ! -e "$D/.disk.lock" ]
+  run --separate-stderr python3 "$DI" parse "$D/1.md"
+  [ "$(json_get "$output" 'o["title"], o["prompt"]')" = '["First issue", "Some prose."]' ]
+}
+
+@test "disk: create resolves a relative body file against the caller's folder" {
+  body "Relative prose."
+  cd "$BATS_TEST_TMPDIR"
+  run --separate-stderr "$DISK" create "$D" "Rel" body.md
+  [ "$status" -eq 0 ]
+  [ "$output" = 1 ]
+  grep -qx 'Relative prose.' "$D/1.md"
+}
+
+@test "disk: create makes a missing folder whose parent exists; a missing parent exits 1" {
+  body "x"
+  rmdir "$D"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 1 ]
+  [ -f "$D/1.md" ]
+  run --separate-stderr "$DISK" create "$ROOT/no/such" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"cannot create the issues folder named by issue_source.repo; its parent folder must exist"* ]]
+  no_mark
+  [ ! -e "$ROOT/no" ]
+}
+
+@test "disk: create uses one more than the larger of the top file and .last-number" {
+  body "x"
+  cp "$FIX/minimal.md" "$D/9.md"
+  cp "$FIX/minimal.md" "$D/10.md"
+  printf '4\n' > "$D/.last-number"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$output" = 11 ]
+  printf '20\n' > "$D/.last-number"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$output" = 21 ]
+  [ "$(cat "$D/.last-number")" = 21 ]
+}
+
+@test "disk: deleting the top file and creating again gives a new number" {
+  body "x"
+  run "$DISK" create "$D" "A" "$BATS_TEST_TMPDIR/body.md"
+  [ "$output" = 1 ]
+  run "$DISK" create "$D" "B" "$BATS_TEST_TMPDIR/body.md"
+  [ "$output" = 2 ]
+  rm "$D/2.md"
+  run "$DISK" create "$D" "C" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 3 ]
+}
+
+@test "disk: two creates started together give two different numbers and two files" {
+  body "x"
+  local i a b
+  for i in 1 2 3 4 5; do
+    "$DISK" create "$D" "A$i" "$BATS_TEST_TMPDIR/body.md" > "$BATS_TEST_TMPDIR/a" &
+    "$DISK" create "$D" "B$i" "$BATS_TEST_TMPDIR/body.md" > "$BATS_TEST_TMPDIR/b" &
+    wait %1 && wait %2
+    a="$(cat "$BATS_TEST_TMPDIR/a")" b="$(cat "$BATS_TEST_TMPDIR/b")"
+    [ -n "$a" ] && [ -n "$b" ] && [ "$a" != "$b" ] || { echo "round $i: '$a' '$b'" >&2; false; }
+  done
+  [ "$(issue_count)" -eq 10 ]
+  [ "$(cat "$D/.last-number")" = 10 ]
+  [ ! -e "$D/.disk.lock" ]
+}
+
+@test "disk: a create whose number is taken retries the next one" {
+  body "x"
+  py_shim "if [ \"\${2:-}\" = create ]; then echo \"\$4\" >> \"$BATS_TEST_TMPDIR/creates\"; [ -e \"$BATS_TEST_TMPDIR/took\" ] || { touch \"$BATS_TEST_TMPDIR/took\"; cp \"$FIX/minimal.md\" \"\$4.md\"; }; fi"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 2 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/creates")" = $'1\n2' ]
+  [ "$(cat "$D/.last-number")" = 2 ]
+}
+
+@test "disk: 100 taken numbers exit 1 after exactly 100 create calls" {
+  body "x"
+  py_shim "if [ \"\${2:-}\" = create ]; then echo \"\$4\" >> \"$BATS_TEST_TMPDIR/creates\"; cp \"$FIX/minimal.md\" \"\$4.md\"; fi"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"no free issue number after 100 tries"* ]]
+  [ "$(wc -l < "$BATS_TEST_TMPDIR/creates")" -eq 100 ]
+  [ -z "$output" ]
+}
+
+@test "disk: out of numbers at 18 digits exits 1" {
+  body "x"
+  printf '999999999999999999\n' > "$D/.last-number"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"out of issue numbers: the next number would have more than 18 digits"* ]]
+  [ "$(issue_count)" -eq 0 ]
+  rm "$D/.last-number"
+  cp "$FIX/minimal.md" "$D/1234567890123456789.md"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"out of issue numbers"* ]]
+  # a retry that steps past 18 digits is out of numbers too
+  rm "$D/1234567890123456789.md"
+  printf '999999999999999998\n' > "$D/.last-number"
+  cp "$FIX/minimal.md" "$D/999999999999999999.md"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"out of issue numbers"* ]]
+}
+
+@test "disk: a .last-number that is not a number exits 1 and writes nothing" {
+  body "x"
+  local bad
+  for bad in "abc" "0" "01" "1234567890123456789" ""; do
+    printf '%s\n' "$bad" > "$D/.last-number"
+    run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+    [ "$status" -eq 1 ] || { echo "'$bad': $status" >&2; false; }
+    [[ "$stderr" == *".last-number in the folder named by issue_source.repo is not an issue number"* ]]
+    [ "$(issue_count)" -eq 0 ]
+    [ "$(cat "$D/.last-number")" = "$bad" ]
+  done
+}
+
+@test "disk: --label X --label Y writes labels: X, Y" {
+  body "x"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md" --label ui --label "dark mode"
+  [ "$status" -eq 0 ]
+  run --separate-stderr python3 "$DI" parse "$D/1.md"
+  [ "$(json_get "$output" 'o["keys"]["labels"]')" = '["ui", "dark mode"]' ]
+}
+
+@test "disk: a /-leading, non-ASCII title round-trips byte for byte" {
+  body "Ünïcode prose."
+  run --separate-stderr "$DISK" create "$D" "/devagent:file to a disk folder — café" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  head -n 1 "$D/1.md" | grep -qx '# /devagent:file to a disk folder — café'
+}
+
+@test "disk: a label with a comma, an empty --label, an unknown option or a missing body file exits 2, and a prompt with an unfenced ## Comments line exits 2" {
+  body "x"
+  printf '3\n' > "$D/.last-number"
+  local B="$BATS_TEST_TMPDIR/body.md"
+  local -a c
+  for c in "--label|a,b" "--label|" "--label" "--force" "stray"; do
+    IFS='|' read -r -a args <<<"$c"
+    run --separate-stderr "$DISK" create "$D" "T" "$B" "${args[@]}"
+    [ "$status" -eq 2 ] || { echo "$c: $status" >&2; false; }
+  done
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/nope.md"
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$DISK" create "$D" "T"
+  [ "$status" -eq 2 ]
+  printf '%s\n' 'prose' '## Comments' 'more' > "$B"
+  run --separate-stderr "$DISK" create "$D" "T" "$B"
+  [ "$status" -eq 2 ]
+  no_mark
+  [ "$(issue_count)" -eq 0 ]
+  [ "$(cat "$D/.last-number")" = 3 ]
+  [ ! -e "$D/.disk.lock" ]
+}
+
+@test "disk: a held .disk.lock makes create exit 1 naming the lock, writing nothing" {
+  body "x"
+  mkdir "$D/.disk.lock"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"the issues folder named by issue_source.repo is locked (.disk.lock); remove it if no devagent command is running"* ]]
+  [ "$(issue_count)" -eq 0 ]
+  [ ! -e "$D/.last-number" ]
+  [ -d "$D/.disk.lock" ]
+}
