@@ -6,7 +6,7 @@
 # The rule, the warnings and the permutation check live in
 # scripts/lib/wbs-parser.py (`order_text`, `permuted_only`, `order_file`):
 # within each set of siblings, in-set `depends_on` first, then the most
-# urgent inherited `priority: P1`-`P4` (P3 when none), then the number of
+# urgent inherited `priority: P0`-`P4` (P3 when none), then the number of
 # siblings waiting on it, then the current position. An own-project
 # `<project>:` prefix on a `depends_on` entry orders as the bare id, and a
 # foreign `<project>:<issue>` entry constrains nothing (#887). Top-level
