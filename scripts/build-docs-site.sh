@@ -46,8 +46,9 @@
 #      (<N> counts content pages; moved-page stubs are not pages)
 #   2  usage
 #   3  a required tool is missing or unusable: pandoc (absent, or older than
-#      3.x), awk, sort, or python (absent, or present but unable to run; the
-#      message names the interpreter)
+#      3.x), awk, sort, or python (absent, unable to run, older than 3.8, or
+#      with an html.parser that lacks the 2025 fixes; the message names the
+#      interpreter)
 #   4  bad input: --src or --static dir missing, no pages, no index page,
 #      <x>.md and <x>.html both present, a README.html in --src, a hand-written
 #      page without its derived-from header (or with a byte-order mark), a
@@ -66,9 +67,8 @@
 #      cannot read, or the words
 #      "private preview"; stderr has one "check-fetches: <file>:<line>: <reason>"
 #      line per violation
-#   8  the fetch scan did not complete (the scanner crashed, or exited with a
-#      status other than 0 or 3, e.g. 4 for a python whose html.parser lacks
-#      the 2025 fixes); the site was not checked
+#   8  the fetch scan did not complete (the scanner crashed or exited with a
+#      status other than 0 or 3); the site was not checked
 # (--help prints this header: everything above the first non-comment line.)
 set -euo pipefail
 
@@ -336,6 +336,8 @@ command -v "$py" >/dev/null 2>&1 \
   || die 3 "python is not installed: '$py' not found (the fetch scan needs python3 3.8+; DEVAGENT_PYTHON names another interpreter)"
 "$py" -I -c 'import sys, re, html.parser, xml.parsers.expat; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 \
   || die 3 "python cannot run: '$py' is not a working python3 3.8+ (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
+"$py" -I "$tmpl/check-fetches.py" --self-test >/dev/null 2>&1 \
+  || die 3 "python's html.parser is too old: '$py' lacks the 2025 html.parser security fixes the fetch scan relies on (DEVAGENT_PYTHON names another interpreter)"
 
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"

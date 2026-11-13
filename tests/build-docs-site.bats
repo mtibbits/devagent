@@ -1177,13 +1177,23 @@ css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
   sc_n=0
   js_row 3 'remote URL in a JS string' "var r = /'/; var u = \"$OH/x\";"
   js_row 0 '' "var r = /'/; var u = \"assets/x\";"
-  # "/" after a property name or an identifier spelled of/await/yield is
-  # division, so it does not open a regex that hides the string
-  js_row 3 'remote URL in a JS string' "var of = 1; y = of / 2; fetch(\"$OH/x\") // \""
+  # of, await and yield may be keywords (a "/" after them opens a regex) or
+  # names (it is division); either guess can hide a string, so the "/" is
+  # refused, in both directions
+  local amb='a "/" after of, await or yield'
+  js_row 3 "$amb" "var of = 1; y = of / 2; fetch(\"$OH/x\") // \""
+  js_row 3 "$amb" "var await = 4; y = await / 2; fetch(\"$OH/x\") // \""
+  js_row 3 "$amb" "function* g() { yield /'/; fetch('$OH/x'); // '"
+  js_row 3 "$amb" "async function f() { await /'/; fetch('$OH/x'); // '"
+  js_row 3 "$amb" "for (const c of /'/.source) {} fetch('$OH/x'); // '"
+  js_row 3 "$amb" 'async function f() { await /* c */ /x/; }'
+  # a property name is an operand (division); a keyword after a spread is not
   js_row 3 'remote URL in a JS string' "y = o.in / 2; fetch(\"$OH/x\") // \""
-  js_row 3 'remote URL in a JS string' "var await = 4; y = await / 2; fetch(\"$OH/x\") // \""
-  # control: a regex after return still holds its quote
+  js_row 3 'remote URL in a JS string' "var a = [...typeof /'/]; fetch('$OH/x'); // '"
+  # controls: a regex after return still holds its quote; parentheses settle
+  # of/await/yield; a property named of is an operand
   js_row 0 '' 'function f(s) { return /"/.test(s); } var u = "assets/x";'
+  js_row 0 '' 'function* g() { yield (/"/); } var y = (of) / 2 + o.of / 2; var u = "assets/x";'
 }
 
 @test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
@@ -1335,8 +1345,18 @@ svg_whole() { file_row "$1" "$2" assets/d.svg "$3" "${@:4}"; }
   html_row 3 "$cm" '--!>' "<!-- x --!><img src=\"$OH/x\">"
   html_row 3 'a <script> body that opens an HTML comment or a nested <script>' '<script>a' \
     "<script>a<!--<script></script>fetch(\"$OH\")</script>-->"
-  html_row 3 'a self-closing <script/> or <style/> outside <svg> or <math>' '<script/>' "<script/>fetch(\"$OH/x\")</script>"
-  html_row 3 'a self-closing <script/> or <style/> outside <svg> or <math>' '<style/>' "<style/>@import \"$OH/a.css\";</style>"
+  html_row 3 'a self-closing <script/> or <style/>' '<script/>' "<script/>fetch(\"$OH/x\")</script>"
+  html_row 3 'a self-closing <script/> or <style/>' '<style/>' "<style/>@import \"$OH/a.css\";</style>"
+  # inside <svg>/<math> too: an HTML element breaks a browser out of <svg>,
+  # and Chromium's preload scanner reads <style/> as opening CSS even inside
+  # it; and an <svg> that once held HTML must not exempt a later <style/>
+  local sc='a self-closing <script/> or <style/>'
+  sc_new; fx_sf static/partial.html "<svg><p></p><style/>@import \"$OH/a.css\";</style>"
+  sc_row 3 static/partial.html '<svg' "$sc"
+  sc_new; fx_sf static/partial.html '<svg><foreignObject><div>hi</div></foreignObject></svg>' "<style/>@import \"$OH/a.css\";</style>"
+  sc_row 3 static/partial.html '<style/>' "$sc"
+  html_row 3 "$sc" '<svg><style/>' "<svg><style/>@import \"$OH/a.css\";</style></svg>"
+  html_row 3 "$sc" '<math><style/>' "<math><style/>@import \"$OH/a.css\";</style></math>"
   html_row 3 'an end tag with whitespace after "</"' '</ script' '<script>x=1; // </ script>' "fetch(\"$OH\")</script>"
   html_row 3 '"&" in a <script> or <style> body inside <svg> or <math>' '<svg><script>' \
     "<svg><script>fetch(&quot;$OH/x&quot;)</script></svg>"
@@ -1462,7 +1482,29 @@ EOF
   [ ! -e "$FX/out" ]
 }
 
-# fault_py <file> — an interpreter that runs the probe (any call holding -c)
+@test "build-docs-site: fetch policy — a python whose html.parser lacks the 2025 fixes -> exit 3 naming it, nothing written" {
+  local real_py
+  real_py="$(command -v python3)"
+  fx_bin
+  rm "$FX/bin/python3"
+  # the real interpreter for "-c" probes; any script runs under the pre-2025
+  # raw-text rule
+  cat > "$FX/bin/python3" <<EOF
+#!$(command -v bash)
+case " \$* " in *" -c "*) exec "$real_py" "\$@" ;; esac
+while [ "\${1#-}" != "\$1" ]; do [ "\$1" = -X ] && shift; shift; done
+exec "$real_py" -I -X utf8 -c '$OLD_PARSER_PY' "\$@"
+EOF
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python's html.parser is too old: 'python3'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fault_py <file> — an interpreter that runs the probes (any call holding -c or --self-test)
 # with the real python3, and the REAL scanner (its last three arguments:
 # scanner, --, out) with html.parser broken, so the scan crashes inside it.
 fault_py() {
@@ -1471,7 +1513,7 @@ fault_py() {
   mkdir -p "$(dirname "$1")"
   cat > "$1" <<EOF
 #!$(command -v bash)
-case " \$* " in *" -c "*) exec "$real_py" "\$@" ;; esac
+case " \$* " in *" -c "*|*" --self-test "*) exec "$real_py" "\$@" ;; esac
 exec "$real_py" -I -X utf8 -c '$FAULT_PY' "\${@: -3}"
 EOF
   chmod +x "$1"
@@ -1598,15 +1640,19 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   sc_new; fx_sf static/partial.html '<svg></math><style><img src=//other.host/p.png></style></svg>'
   sc_row 3 static/partial.html '<svg' "$mk"
   # with an element open inside an integration point a browser ignores
-  # </svg> and </math>, so the <style> after them is still foreign
+  # </svg> and </math>, so the <style> after them is still foreign; below the
+  # top level the scanner keeps the root open to the end of the file, so no
+  # stray end tag (</desc>, </mtext>, </title>) can end it early
   local ip
-  for ip in '<svg><foreignObject>|</svg>' '<svg><desc>|</svg>' '<math><mi>|</math>'; do
+  for ip in '<svg><foreignObject>|</svg>' '<svg><desc>|</svg>' '<math><mi>|</math>' \
+            '<svg><foreignObject></desc>|</svg>' '<math><mi></mtext>|</math>' '<svg><desc></title>|</svg>'; do
     sc_new; fx_sf static/partial.html "${ip%|*}<div>${ip#*|}</div><style><img src=\"$OH/p.png\"></style>${ip#*|}"
     sc_row 3 static/partial.html "${ip%|*}" "$mk"
   done
   sc_new; fx_sf static/partial.html '<svg><foreignObject><div></svg></div></foreignObject><style><script>document.title = 1</script></style></svg>'
   sc_row 3 static/partial.html '<svg' "$mk"
-  # control: an icon's <title> holds only text, so <svg> ends at </svg>
+  # control (top level, where the CSP backs the scan): an icon's <title> holds
+  # only text, so <svg> ends at </svg>
   html_row 0 '' '' '<svg><title>Icon</title><rect width="8" height="8"/></svg>' '<script>var ok = a && b;</script>'
   # the accessible-icon idiom, with an entity and a bare "<", still passes
   html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
