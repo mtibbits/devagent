@@ -11,9 +11,8 @@
 #           scanned), the one
 #           link that leaves docs-site/,
 #           per-page code-block and table-row counts against the markdown,
-#           titles, nav, and that the output fetches nothing. That last test
-#           is the 1.0 fetch ban; #1030 replaces it with an allowlist, and
-#           with it the stub leg that reads the ban's regex.
+#           titles, nav, and that the allowlist scan (check-fetches.py)
+#           accounts for every built file (#1030).
 #   FIXTURE — throwaway source dirs that drive each refusal BRANCH (exit 2-6)
 #           and each input kind: hand-written pages (derived-from header, H1
 #           and nav-label, marker splice, HTML-index nav), the asset folders
@@ -25,10 +24,16 @@
 #           pinned by a mutation row in the plan instead, and says so here.
 #           fx_build passes an empty --static, so a fixture build never copies
 #           the repo's own scripts/docs-site/static/.
+#   SCANNER — scripts/docs-site/check-fetches.py run directly on planted
+#           dirs (no pandoc): every rule's refusal and pass rows, each pinned
+#           to its status, file, line and a reason token. The "fetch policy"
+#           rows prove the wiring through the build: exit 3 for python,
+#           exit 7 for a policy break, exit 8 for a scan that did not complete.
 #
-# awk and pandoc: the builder probes for awk right after its argument checks
-# (exit 3 naming awk), then validates its input and derives the nav BEFORE it
-# probes for pandoc, so every refusal up to and including the probe is tested
+# awk, python3 and pandoc: the builder probes for awk right after its argument
+# checks (exit 3 naming awk), then validates its input and derives the nav
+# BEFORE it probes for python3 and then pandoc (python3 just before pandoc), so
+# every refusal up to and including the probes is tested
 # without it (fx_bin links only the tools that run before the probe; a stub
 # stands in where a version is needed). Tests that render call
 # need_pandoc, which skips only where pandoc is absent (a local run). In CI the
@@ -331,10 +336,23 @@ real_stubs() {
   [ "$navorder" = 'href="index.html" href="install.html" href="quickstart.html" href="workflow.html" href="configuration.html" href="concurrency.html" ' ]
 }
 
-@test "build-docs-site: real site — pages fetch nothing and carry no preview banner" {
+@test "build-docs-site: real site — the allowlist scan accounts for every built file; no preview wording" {
   need_pandoc
-  run grep -rlE '<script|<link |<img |<iframe| src=|@import|url\(' "$REAL_OUT"
-  [ "$status" -eq 1 ]
+  local content=() ok total
+  mapfile -t content < <(real_content)
+  # the build's OWN ok line, exactly once
+  [ "$(grep -cE '^check-fetches: ok: ' "$BATS_FILE_TMPDIR/real.stdout")" -eq 1 ]
+  ok="$(grep -E '^check-fetches: ok: ' "$BATS_FILE_TMPDIR/real.stdout")"
+  [[ "$ok" =~ ^check-fetches:\ ok:\ ([0-9]+)\ files:\ ([0-9]+)\ scanned,\ ([0-9]+)\ binary,\ ([0-9]+)\ vendored$ ]]
+  local t="${BASH_REMATCH[1]}" s="${BASH_REMATCH[2]}" b="${BASH_REMATCH[3]}" v="${BASH_REMATCH[4]}"
+  # an independent count of what landed on disk
+  total="$(find "$REAL_OUT" ! -type d | wc -l)"
+  echo "scan: $ok; find: $total" >&2
+  [ "$((s + b + v))" -eq "$total" ]
+  [ "$t" -eq "$total" ]
+  [ "$s" -ge "${#content[@]}" ]
+  # a pass leg the real build exercises: a CSS selector colon in the template
+  grep -qF 'a:hover' "$PLUGIN_ROOT/scripts/docs-site/page.html"
   run grep -rli 'private preview' "$REAL_OUT"
   [ "$status" -eq 1 ]
 }
@@ -989,19 +1007,19 @@ fx_stub_site() {
   [ ! -e "$FX/out" ]
 }
 
-@test "build-docs-site: moved-page stubs pass the 1.0 fetch ban" {
-  # The ban regex is read from the ban test's own source, so this leg moves
-  # with it. #1030 must replace this leg when it rewrites the ban.
+@test "build-docs-site: fetch policy — moved-page stubs build under the scan" {
   need_pandoc
-  local re
-  re="$(sed -n "s/^  run grep -rlE '\(.*\)' \"\$REAL_OUT\"$/\1/p" "$BATS_TEST_FILENAME")"
-  [ -n "$re" ]
-  printf '<script>' | grep -qE "$re"
   fx_stub_site
   run fx_build
   [ "$status" -eq 0 ]
-  run grep -lE "$re" "$FX/out/old-a.html" "$FX/out/old-b.html"
-  [ "$status" -eq 1 ]
+  [[ "$output" == *"check-fetches: ok: "* ]]
+  # the same stub minus its CSP line is refused, so the scan does read stubs
+  mkdir -p "$FX/site"
+  grep -vxF "$CSP_META" "$FX/out/old-a.html" > "$FX/site/old-a.html"
+  [ "$(wc -l < "$FX/site/old-a.html")" -eq "$(( $(wc -l < "$FX/out/old-a.html") - 1 ))" ]
+  run scan
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"check-fetches: old-a.html:0: no Content-Security-Policy meta"* ]]
 }
 
 # ------------------------------------------------- SCANNER: check-fetches.py, run directly
