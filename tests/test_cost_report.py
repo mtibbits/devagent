@@ -1632,3 +1632,126 @@ def test_cli_time_archive(tmp_path):
     assert arc.returncode == 0 and liv.returncode == 0, (arc.stderr, liv.stderr)
     assert arc.stdout == liv.stdout
     assert ALPHA_TIME in arc.stdout.splitlines()
+
+
+# --- Issue-732: overhead ------------------------------------------------------
+
+def _config_dirs(projects):
+    """Write DA_HOME/config.toml: one [project.<name>] table per entry, with the given dir keys."""
+    body = ""
+    for name, keys in projects.items():
+        body += f"[project.{name}]\n"
+        for k, v in keys.items():
+            body += f"{k} = {json.dumps(v)}\n"
+        body += "\n"
+    Path(os.environ["DA_HOME"], "config.toml").write_text(body, encoding="utf-8")
+
+
+def _in(rec, cwd):
+    return {**rec, "cwd": cwd}
+
+
+def _bash_hint(mid, tid, command, usage):
+    """An assistant Bash call that has usage (one record: the tool_use is in its message's first record)."""
+    return _call(mid, usage, _tool(tid, "Bash", command=command))
+
+
+OVH_CONFIG = {
+    "alpha": {"source_dir": "/work/alpha", "devdoc_dir": "/work/devdoc/alpha"},
+    "beta": {"source_dir": "/work/beta", "devdoc_dir": "/work/devdoc/beta", "worktree_root": "/work/trees/beta"},
+}
+
+
+def _overhead_fixture(tmp_path):
+    """Sessions H, W, B, N, M exercising every overhead path; each call's inp is a distinct power of two."""
+    _config_dirs(OVH_CONFIG)
+    d = tmp_path / "ovh"
+    inp = (2 ** i for i in itertools.count())
+
+    def c(mid, *tools):
+        return _call(mid, _usage(inp=next(inp)), *tools)
+
+    dd = "/work/devdoc"
+    h = [
+        c("h1"),
+        _typed("reap", "alpha"),
+        c("h2"),
+        c("h3", _tool("a1", "Agent", description="x")),
+        _typed("reap", "beta"),
+        c("h4"),
+        _bash_hint("h5", "b1", "DEVAGENT_PROJECT=gamma x", _usage(inp=next(inp))),
+        *_dispatch("n1", "alpha", "Issue-4", 2, "draft", "h6"),
+        c("h7"),
+        _typed("reap", "beta"),
+        c("h8"),
+        _bash_hint("h9", "n2", 'DEVAGENT_PROJECT=beta bash "x/scripts/next.sh" beta --auto', _usage(inp=next(inp))),
+        _result("n2", "dispatch: beta/Issue-9 — step 2 (draft), skill-backed"),
+        c("h10"),
+        c("h11"),
+    ]
+    _write(d / "H.jsonl", [_in(r, dd) for r in h], mtime=1000)
+    _subagent(d / "H.jsonl", "agent-a1", "a1", [_in(_call("s1", _usage(inp=next(inp))), dd)])
+    w = [_in(c("w1"), "/work/alpha-wt/issue-9"), _in(c("w2"), "/work/alpha-wt/issue-9"), _in(c("w3"), "/home/op")]
+    _write(d / "W.jsonl", w, mtime=2000)
+    _subagent(d / "W.jsonl", "agent-zz", "zz", [_in(_call("s2", _usage(inp=next(inp))), "/work/beta/x")])
+    b = [
+        _bash_hint("b1", "x1", "export DEVAGENT_PROJECT=beta", _usage(inp=next(inp))),
+        c("b2"),
+        _bash_hint("b3", "x2", 'export DEVAGENT_PROJECT="${DEVAGENT_PROJECT:?name}"', _usage(inp=next(inp))),
+        c("b4"),
+    ]
+    _write(d / "B.jsonl", [_in(r, dd) for r in b], mtime=3000)
+    _write(d / "N.jsonl", [_in(c("n1c"), dd)], mtime=4000)
+    _write(d / "M.jsonl", [c("m1")], mtime=5000)
+    return d
+
+
+# Captured at HEAD 978ca39 (before any cost-report.py change) by
+# analysis/2026-11-13-t1-overhead-golden-run.txt; never from new code.
+GOLDEN_OVH_FULL = (
+    'Token cost by step, from <DIR>\n'
+    'input-token equivalents, weighted by price vs base input: cache read 0.1, cache write 1.25 (5m) / 2 (1h), output 5\n'
+    '\n'
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  (no step)                 10     1048K     2.08    0.02     2.10   100%\n'
+    '  reap                       4        0K     0.00    0.00     0.00     0%\n'
+    '\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  draft                      1        0K     0.00    0.00     0.00    14%\n'
+    '  reap                       2        0K     0.00    0.00     0.00    86%\n'
+    '\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    '  step                   calls  peak ctx   main M   sub M  total M  share\n'
+    '  draft                      2        0K     0.00    0.00     0.00   100%\n'
+)
+GOLDEN_OVH_SUMMARY = (
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+)
+GOLDEN_OVH_JSON = (
+    '{"calls": 14, "issue": "(no issue)", "main": 2078751.0, "peak_context": 1048576, "project": "(no project)", "sessions": 5, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "B"}, {"cwd_slug": "ovh", "host": "local", "session": "H"}, {"cwd_slug": "ovh", "host": "local", "session": "M"}, {"cwd_slug": "ovh", "host": "local", "session": "N"}, {"cwd_slug": "ovh", "host": "local", "session": "W"}], "subagents": 17408.0, "total": 2096159.0}\n'
+    '{"calls": 3, "issue": "Issue-4", "main": 224.0, "peak_context": 128, "project": "alpha", "sessions": 1, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "H"}], "subagents": 0.0, "total": 224.0}\n'
+    '{"calls": 2, "issue": "Issue-9", "main": 768.0, "peak_context": 512, "project": "beta", "sessions": 1, "sources": [{"cwd_slug": "ovh", "host": "local", "session": "H"}], "subagents": 0.0, "total": 768.0}\n'
+)
+GOLDEN_OVH_TIME_SUMMARY = (
+    'time rule: idle_gap 5m, tool_gap 60m, attention_cap 15m\n'
+    '(no project)/(no issue): 2.1M input-token equivalents over 5 session(s), 14 calls, peak context 1048K (main 2.1M, subagents 0.0M)\n'
+    '(no project)/(no issue) time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+    'alpha/Issue-4: 0.0M input-token equivalents over 1 session(s), 3 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'alpha/Issue-4 time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+    'beta/Issue-9: 0.0M input-token equivalents over 1 session(s), 2 calls, peak context 0K (main 0.0M, subagents 0.0M)\n'
+    'beta/Issue-9 time: agent wall 0.00h, agent busy 0.00h, operator 0.00h (0 operator events, 0 returns after absence, 0 by fallback)\n'
+)
+
+
+def test_cli_output_without_overhead_is_unchanged(tmp_path):
+    d = _overhead_fixture(tmp_path)
+    runs = [_cli("--transcripts", d, *f) for f in ((), ("--summary",), ("--json",), ("--summary", "--time"))]
+    assert [r.returncode for r in runs] == [0, 0, 0, 0], [r.stderr for r in runs]
+    assert runs[0].stdout.replace(str(d), "<DIR>") == GOLDEN_OVH_FULL
+    assert runs[1].stdout == GOLDEN_OVH_SUMMARY
+    assert runs[2].stdout == GOLDEN_OVH_JSON
+    assert runs[3].stdout == GOLDEN_OVH_TIME_SUMMARY
