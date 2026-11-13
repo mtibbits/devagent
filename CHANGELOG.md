@@ -16,6 +16,15 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
+  `depends_on` entry may name another configured project's issue as
+  `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the
+  project's own name as the bare id, and a foreign entry constrains nothing;
+  every writer keeps foreign entries byte-for-byte. `wbs show` warns once on an
+  entry that holds `:` but is not `<project>:<issue>`. `parse` gives each node
+  an additive `depends_on` field (`{raw, scope, project, issue}` per entry),
+  and the parser and the portfolio share one classifier (`split_dep`); the
+  portfolio document is unchanged.
 - **Changed: the docs-site build accepts hand-written pages, asset folders
   and moved-page stubs (#995; closes #840, #841).** A `docs-site/<name>.html`
   page gets the same template, nav and footer as a Markdown page, with its

@@ -53,9 +53,17 @@ malformed `priority` (`priority_rank`, the one rule the order pass also
 ranks by), each `satisfies` then `objective` entry that is not
 `<namespace>:<id>` (once per distinct entry), a malformed `h` (`h_value`; #888),
 then a `thinking` then `checking` value that is not one `MODEL_TOKENS` token
-(`model_value`; #890).
+(`model_value`; #890), then each `depends_on` entry holding `:` that is not
+`<project>:<issue>` (once per distinct entry; #887).
 The parser never prints them; `wbs show` does, once each. Nodes built by
 hand (wbs update, wbs import) lack the field, so readers use `.get`.
+
+Each parsed node also carries `depends_on` (additive, #887), after
+`parse_warnings`: one `{raw, scope, project, issue}` per entry (`split_dep`;
+the portfolio's Dep minus `resolved`), `[]` with none. `parse_text` and
+`parse_file` take `project=`, the configured project name: a `<project>:`
+prefix equal to it is local. Without it, every prefixed entry is foreign
+and a local entry's `project` is null. Hand-built nodes lack this field too.
 
 Every WBS.md write goes through `write_document` (an atomic temp + replace
 with a bounded retry on a sharing violation, #749): `write_markdown` is
@@ -78,7 +86,7 @@ The Python API (used by tests and by sibling scripts via importlib) is
 `render_nodes`, `prepare_write`, `write_markdown`, `write_document`,
 `inserted_only`, `leaves`, `dependency_edges`, `diagnose_text` (with
 `NEAR_MISS_RE`, `META_UNREADABLE` and `META_DUPLICATE_KEY`; #726; portfolio.py
-also reads `_dep_ids`, `h_value`, `split_namespaced` and `as_list`, #888, and
+also reads `_dep_ids`, `h_value` and `as_list`, #888, `split_dep`, #887, and
 `model_value`, `MODEL_TOKENS` and `MODEL_KEYS`, #890), `read_model_tokens` (#890),
 `priority_rank` and `collect_parse_warnings` (#865), `H_RE` (#888), and for
 the order pass
@@ -124,6 +132,10 @@ KNOWN_META_KEYS: frozenset[str] = frozenset(
 # #888: keys whose every entry must be `<namespace>:<id>` (`split_namespaced`).
 NAMESPACED_KEYS: tuple[str, ...] = ("satisfies", "objective")
 NAMESPACED_WARNING = "{} entry '{}' is not <namespace>:<id>"
+# #887: a `depends_on` entry holding ':' that `split_namespaced` refuses. It
+# names no cause: an unclosed '[' or a missing ',' trips it too.
+DEP_PREFIX_WARNING = ("depends_on entry '{}' holds ':' but is not "
+                      "<project>:<issue>; read as a local id")
 
 # The one priority rule (#865): `parse_text` records it per node and the
 # order pass (`_order`) ranks by it; neither spells it again.
@@ -215,7 +227,7 @@ def as_list(v) -> list:
 def split_namespaced(entry: str) -> tuple[str, str] | None:
     """`(namespace, id)` when `entry` is `<namespace>:<id>` (one ':' and both
     halves an `ID_TOKEN_RE` token), else None. The one predicate (#888):
-    portfolio.py's `split_dep` and the satisfies/objective check call it."""
+    `split_dep` and the satisfies/objective check call it."""
     left, sep, right = entry.partition(":")
     if (sep and ":" not in right and ID_TOKEN_RE.fullmatch(left)
             and ID_TOKEN_RE.fullmatch(right)):
@@ -223,13 +235,27 @@ def split_namespaced(entry: str) -> tuple[str, str] | None:
     return None
 
 
+def split_dep(raw: str, project: str | None = None) -> dict:
+    """One `depends_on` entry as `{raw, scope, project, issue}` (#887; the one
+    classifier, portfolio.py's `split_dep` adds `resolved`). `<project>:<issue>`
+    is foreign unless its left half equals `project` exactly; anything else,
+    malformed included, is a local id with `issue` equal to `raw` and the
+    `project` argument (None when none is passed)."""
+    pair = split_namespaced(raw)
+    if pair is not None:
+        left, right = pair
+        scope = "local" if left == project else "foreign"
+        return {"raw": raw, "scope": scope, "project": left, "issue": right}
+    return {"raw": raw, "scope": "local", "project": project, "issue": raw}
+
+
 def _node_warnings(meta: dict) -> list[str]:
     """A node's parse warnings, unprefixed, in a fixed check order.
 
     The one producer: #888 (satisfies/objective/h), #890 (thinking/checking) and #887
     (<project>:<issue>) add their checks here (and any parameters they
-    need). The `h` rule (`h_value`), the `<namespace>:<id>` predicate
-    (`split_namespaced`) and the list-or-scalar reader (`as_list`) live in
+    need). The `h` rule (`h_value`), the `depends_on` classifier
+    (`split_dep`) and the list-or-scalar reader (`as_list`) live in
     this module, and portfolio.py calls them; neither file re-spells them.
     The order pass calls `priority_rank` alone, so a check added here
     reaches `wbs show`, not `wbs order` or `wbs update`.
@@ -250,6 +276,9 @@ def _node_warnings(meta: dict) -> list[str]:
         _model, problem = model_value(meta, key)
         if problem is not None:
             out.append(problem)
+    for entry in dict.fromkeys(_dep_ids(meta)):
+        if ":" in entry and split_namespaced(entry) is None:
+            out.append(DEP_PREFIX_WARNING.format(entry))
     return out
 
 
@@ -488,16 +517,17 @@ def _retry_windows_share(fn):
     return _TOML_LIB._retry_windows_share(fn)
 
 
-def parse_file(path: Path | str) -> dict:
+def parse_file(path: Path | str, *, project: str | None = None) -> dict:
     # newline="" keeps CR bytes: Path.read_text translates line endings,
     # and its newline= parameter needs Python 3.13.
     def _read() -> str:
         with open(path, encoding="utf-8", newline="") as f:
             return f.read()
-    return parse_text(_retry_windows_share(_read) if os.name == "nt" else _read())
+    return parse_text(_retry_windows_share(_read) if os.name == "nt" else _read(),
+                      project=project)
 
 
-def parse_text(text: str) -> dict:
+def parse_text(text: str, *, project: str | None = None) -> dict:
     root: dict = {"title": "", "children": [], "source_text": text}
     kinds, bodies, unclosed_at = _classify_lines(text.splitlines(keepends=True))
     root["exclusions"], root["exclusion_warnings"] = _exclusions(kinds, bodies)
@@ -532,6 +562,7 @@ def parse_text(text: str) -> dict:
             "children": [],
             "source_line": lineno,
             "parse_warnings": [f"line {lineno}: {w}" for w in _node_warnings(meta)],
+            "depends_on": [split_dep(raw, project) for raw in _dep_ids(meta)],
         }
         by_line[parents[lineno - 1]]["children"].append(node)
         by_line[lineno - 1] = node
@@ -764,7 +795,8 @@ def write_markdown(
 
 
 def write_update(
-    path: Path | str, tree: dict, *, order: bool, completed_last: bool = False
+    path: Path | str, tree: dict, *, order: bool, completed_last: bool = False,
+    project: str | None = None,
 ) -> list[str]:
     """`wbs update`'s one write (#803): render, then order, then write.
 
@@ -782,7 +814,7 @@ def write_update(
         # A sort bug never blocks a status change: an exception skips the
         # order pass like a failed check does.
         try:
-            ordered, warnings, _n, _m = _order(final, completed_last)
+            ordered, warnings, _n, _m = _order(final, completed_last, project)
             ok, reason = (True, "") if ordered == final else permuted_only(final, ordered)
         except Exception as e:
             ok, reason = False, f"{type(e).__name__}: {e}"
@@ -796,7 +828,8 @@ def write_update(
 
 
 def order_file(
-    path: Path | str, *, completed_last: bool = False, dry_run: bool = False
+    path: Path | str, *, completed_last: bool = False, dry_run: bool = False,
+    project: str | None = None,
 ) -> tuple[int, list[str], str]:
     """`wbs order`'s run (#803): `(rc, report lines unprefixed, diff)`.
 
@@ -810,7 +843,7 @@ def order_file(
     except (OSError, UnicodeDecodeError) as e:
         return 1, [f"cannot read {dest}: {e}"], ""
     try:
-        ordered, report, n, m = _order(text, completed_last)
+        ordered, report, n, m = _order(text, completed_last, project)
         ok, reason = (True, "") if ordered == text else permuted_only(text, ordered)
     except Exception as e:
         return 1, [f"ordering skipped: {type(e).__name__}: {e}; nothing written"], ""
@@ -1195,13 +1228,18 @@ DEFAULT_PRIORITY = 3
 FINISHED_GLYPHS = frozenset("x-")
 
 
-def order_text(text: str, *, completed_last: bool = False) -> tuple[str, list[str]]:
+def order_text(
+    text: str, *, completed_last: bool = False, project: str | None = None
+) -> tuple[str, list[str]]:
     """`text` with each non-root node's children in order, and the warnings.
 
     The rule (spec §13.1): a node is finished when its own glyph is `[x]` or
     `[-]`. Within one set of siblings, open sibling S follows open sibling T
     when an open node under S (S included) has a `depends_on` entry naming
-    the `issue` of an open node under T; ids match by exact string. Among the
+    the `issue` of an open node under T. A local entry's id matches by exact
+    string, and an own-project `<project>:` prefix (`project=`, the
+    configured name; `split_dep`) counts as its bare id; a foreign
+    `<project>:<issue>` entry constrains nothing (#887). Among the
     siblings whose dependencies are placed, the next is the one with the
     most urgent effective priority (the most urgent `priority: P1`-`P4` of
     the open nodes under it or under any sibling depending on it,
@@ -1216,11 +1254,13 @@ def order_text(text: str, *, completed_last: bool = False) -> tuple[str, list[st
     form a dependency cycle. Each malformed `priority` warns once and counts
     as missing. Warning line numbers are those of the returned text.
     """
-    new, warnings, _n, _m = _order(text, completed_last)
+    new, warnings, _n, _m = _order(text, completed_last, project)
     return new, warnings
 
 
-def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
+def _order(
+    text: str, completed_last: bool, project: str | None = None
+) -> tuple[str, list[str], int, int]:
     """`order_text`, plus N (sets reordered) and M (sets of two or more
     siblings under a non-root parent, the ones left alone included)."""
     lines = text.splitlines(keepends=True)
@@ -1265,7 +1305,8 @@ def _order(text: str, completed_last: bool) -> tuple[str, list[str], int, int]:
         why = _left_alone(cs, kinds, ends, subtree)
         new = None
         if why is None:
-            new, cycle = _rank(cs, is_open, metas, prio, subtree, completed_last)
+            new, cycle = _rank(cs, is_open, metas, prio, subtree, completed_last,
+                               project)
             if new is None:
                 names = ", ".join(name(c) for c in cycle)
                 why = lambda L, names=names: f"dependency cycle among {names}"
@@ -1306,7 +1347,7 @@ def _left_alone(cs, kinds, ends, subtree):
     return None
 
 
-def _rank(cs, is_open, metas, prio, subtree, completed_last):
+def _rank(cs, is_open, metas, prio, subtree, completed_last, project):
     """The new order of the sibling set `cs`, or `(None, cycle)` where
     `cycle` is the siblings in any dependency cycle, in current order."""
     opens = [c for c in cs if is_open[c]]
@@ -1329,7 +1370,9 @@ def _rank(cs, is_open, metas, prio, subtree, completed_last):
         for d in subtree(c):
             if is_open[d]:
                 for dep in _dep_ids(metas[d]):
-                    needs[c] |= holders.get(dep, set()) - {c}
+                    e = split_dep(dep, project)
+                    if e["scope"] == "local":
+                        needs[c] |= holders.get(e["issue"], set()) - {c}
     dependents: dict[int, set[int]] = {c: set() for c in opens}
     for c in opens:
         for t in needs[c]:

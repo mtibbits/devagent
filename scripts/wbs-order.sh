@@ -7,8 +7,10 @@
 # scripts/lib/wbs-parser.py (`order_text`, `permuted_only`, `order_file`):
 # within each set of siblings, in-set `depends_on` first, then the most
 # urgent inherited `priority: P1`-`P4` (P3 when none), then the number of
-# siblings waiting on it, then the current position. Top-level nodes never
-# move; whole blocks move, every line's bytes kept. A set that a line
+# siblings waiting on it, then the current position. An own-project
+# `<project>:` prefix on a `depends_on` entry orders as the bare id, and a
+# foreign `<project>:<issue>` entry constrains nothing (#887). Top-level
+# nodes never move; whole blocks move, every line's bytes kept. A set that a line
 # separates, a broken subtree, mixed sibling depths or a dependency cycle is
 # left as it is, with one warning.
 #
@@ -96,6 +98,7 @@ env "${order_env[@]}" \
 WBS_PATH="$wbs" \
 PARSER_PATH="$parser" \
 WBS_DRY_RUN="$dry" \
+WBS_PROJECT="$project" \
 python3 <<'PY'
 import importlib.util
 import os
@@ -109,6 +112,7 @@ rc, report, diff = mod.order_file(
     os.environ["WBS_PATH"],
     completed_last=os.environ["WBS_COMPLETED_LAST"] == "1",
     dry_run=os.environ["WBS_DRY_RUN"] == "1",
+    project=os.environ["WBS_PROJECT"],
 )
 # The diff on stdout as UTF-8 bytes (`wbs order --dry-run > patch` is a
 # clean diff); report lines on stderr, ASCII only, as wbs update's `say`.

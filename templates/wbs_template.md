@@ -6,6 +6,7 @@
 >
 > Recognized keys (v1): issue, est, cost, owner, milestone, start, due, depends_on, status_src, mr, priority, satisfies, objective, h, thinking, checking
 > satisfies, objective: `<namespace>:<id>` or a [list] of them; h: 0-4 (operator attention); wbs show warns on other shapes.
+> depends_on: an issue here, or <project>:<issue> for another configured project's issue (orders nothing here); wbs show warns on a malformed prefix.
 > thinking, checking: one model token (model_token_allowlist in scripts/lib/flags.sh); a plan, not a setting; wbs show warns on other values.
 > Unrecognized keys are preserved verbatim.
 > `wbs update` sets a leaf's glyph from its issue's tracker state, linked MRs, else its

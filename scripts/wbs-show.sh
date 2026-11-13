@@ -4,8 +4,9 @@
 # levels below root (depth 1-based in parser, so --depth 1 means
 # "root + first level"). Optional --milestone X filters to subtrees
 # containing a node with meta.milestone == X. Each node parse warning
-# (a malformed `priority` or `h`, or a `satisfies`/`objective` entry that
-# is not `<namespace>:<id>`; #865, #888) prints once on stderr as
+# (a malformed `priority` or `h`, a `satisfies`/`objective` entry that
+# is not `<namespace>:<id>`, or a `depends_on` entry holding `:` that is
+# not `<project>:<issue>`; #865, #888, #887) prints once on stderr as
 # `wbs show: line N: ...`, whatever the filter; stdout is unchanged.
 set -euo pipefail
 
@@ -53,6 +54,7 @@ PARSER_PATH="$PLUGIN_ROOT/scripts/lib/wbs-parser.py" \
 SRC_PATH="$src" \
 DEPTH_S="$depth" \
 MILESTONE="$milestone" \
+WBS_PROJECT="$project" \
 python3 <<'PY'
 import importlib.util
 import os
@@ -68,7 +70,8 @@ spec = importlib.util.spec_from_file_location("wbs_parser", parser_path)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-tree = mod.parse_file(src)
+# #887: the configured name, so an own-project prefix parses as local.
+tree = mod.parse_file(src, project=os.environ["WBS_PROJECT"])
 
 # #865: each node parse warning once on stderr, before any filter (the
 # warnings describe the file, not the view). ASCII-replaced so a host
