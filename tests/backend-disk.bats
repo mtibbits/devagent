@@ -32,7 +32,9 @@ no_mark() {
 }
 
 # jq-free JSON field read: json_get <json> <python-expression over `o`>
-json_get() { python3 -c 'import json,sys; o=json.loads(sys.argv[1]); print(json.dumps(eval(sys.argv[2]), ensure_ascii=False))' "$1" "$2"; }
+# -X utf8: Windows python writes a pipe in the ANSI code page (cp1252), not
+# UTF-8, so a non-ASCII field would print as other bytes than the test's.
+json_get() { python3 -X utf8 -c 'import json,sys; o=json.loads(sys.argv[1]); print(json.dumps(eval(sys.argv[2]), ensure_ascii=False))' "$1" "$2"; }
 
 FULL_FETCH='# disk#2 — Add a dark-mode toggle to the settings page
 
@@ -875,6 +877,10 @@ git_at() {
 }
 
 @test "disk: under Git Bash the module path reaches python in its mixed form" {
+  # The shims stand in for Git Bash off Windows. Under real Git Bash they would
+  # convert an already-native path twice; there every other test in this file
+  # runs the module through the real cygpath instead.
+  is_git_bash && skip "simulates Git Bash; the real conversion runs in every other test here"
   # A cygpath shim maps /x to C:/x; a python3 shim refuses any MSYS-form
   # script path, as native Windows python would (it reads /c/... as C:\c\...).
   mkdir -p "$BATS_TEST_TMPDIR/msys"
