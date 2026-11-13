@@ -492,8 +492,7 @@ _trust_disk_project() {
   local s b
   for s in issue_source issue_source_fork; do
     b="$(config_get_project_field "$1" "$s.backend" 2>/dev/null || true)"
-    b="${b//$'\r'/}"
-    [ "${b,,}" != disk ] || return 0
+    ! issue_backend_is_disk "${b//$'\r'/}" || return 0
   done
   return 1
 }

@@ -368,7 +368,9 @@ issue_count() { find "$D" -maxdepth 1 -name '[1-9]*.md' | wc -l | tr -d ' '; }
 
 @test "disk: 100 taken numbers exit 1 after exactly 100 create calls" {
   body "x"
-  py_shim "if [ \"\${2:-}\" = create ]; then echo \"\$4\" >> \"$BATS_TEST_TMPDIR/creates\"; cp \"$FIX/minimal.md\" \"\$4.md\"; fi"
+  # The shim answers "taken" (the module's exit 3) itself: forwarding would
+  # start python 100 times to learn the same thing.
+  py_shim "if [ \"\${2:-}\" = create ]; then echo \"\$4\" >> \"$BATS_TEST_TMPDIR/creates\"; cp \"$FIX/minimal.md\" \"\$4.md\"; exit 3; fi"
   run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"no free issue number after 100 tries"* ]]

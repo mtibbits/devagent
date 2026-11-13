@@ -526,9 +526,9 @@ _fire_direct() {
     local folder="$DEVAGENT_TMP/MARK-$$/issues" cfg="$HOME/.claude/devagent/config.toml"
     mkdir -p "$folder"
     cp "$DEVAGENT_ROOT/tests/fixtures/disk-issue/minimal.md" "$folder/1.md"
-    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$cfg" "project.$TEST_PROJECT.issue_source.backend" disk
-    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" set "$cfg" "project.$TEST_PROJECT.issue_source.repo" "$folder"
-    python3 "$DEVAGENT_ROOT/scripts/lib/_toml.py" unset "$cfg" "project.$TEST_PROJECT.issue_workflow.on_merge"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.issue_source.backend" disk
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.issue_source.repo" "$folder"
+    devagent_config_unset "$cfg" "project.$TEST_PROJECT.issue_workflow.on_merge"
     export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_ROOT/scripts/issue"
     run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
     [ "$status" -eq 0 ]

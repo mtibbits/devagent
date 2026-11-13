@@ -123,11 +123,8 @@ _disk_py() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "$PY" -I -c "$_DISK_PY" 
 _disk_parse() {
   local n="$1" rc=0
   [ -f "$n.md" ] || _disk_die 4 "no issue $n in the folder named by issue_source.repo"
-  if DISK_JSON="$(_disk_mod parse "$n.md")"; then
-    return 0
-  else
-    rc=$?
-  fi
+  DISK_JSON="$(_disk_mod parse "$n.md")" || rc=$?
+  [ "$rc" -ne 0 ] || return 0
   if [ "$rc" -eq 4 ]; then
     printf '%s\n' "$DISK_JSON" | _disk_py faults >&2 || true
     _disk_die 5 "$n.md fails the format check; see docs/disk-issues.md"
@@ -157,6 +154,13 @@ def comments(r):
 def fail(msg):
     sys.stderr.write("disk.sh: " + msg + "\n")
     sys.exit(1)
+
+def ref(n):
+    return "disk:%d" % n
+
+def fault_lines(recs):
+    return ["%d.md:%d: %s" % (r["n"], f["line"], f["message"])
+            for r in recs for f in r.get("faults", [])]
 
 ISSUE_RE = re.compile(r"^[1-9][0-9]*[.]md$")
 
@@ -234,9 +238,7 @@ def klass(r, ip):
 mode = sys.argv[1]
 recs = records()
 if mode == "faults":
-    for r in recs:
-        for f in r.get("faults", []):
-            out("%d.md:%d: %s\n" % (r["n"], f["line"], f["message"]))
+    out("".join(ln + "\n" for ln in fault_lines(recs)))
 elif mode == "fetch":
     r = recs[0]
     k = r["keys"]
@@ -244,7 +246,7 @@ elif mode == "fetch":
     out("- State: %s\n" % k["state"])
     out("- Author: @local\n")
     out("- Labels: %s\n" % ", ".join(k.get("labels", [])))
-    out("- URL: disk:%d\n" % r["n"])
+    out("- URL: %s\n" % ref(r["n"]))
     out("- Created: %s\n" % dates(r, git_walk(["%d.md" % r["n"]]))[0])
     out("\n---\n\n%s\n\n---\n\n" % r["prompt"])
     out(comments(r))
@@ -253,8 +255,7 @@ elif mode == "comments":
 elif mode == "state":
     out(recs[0]["keys"]["state"] + "\n")
 elif mode == "list-faults":
-    lines = ["%d.md:%d: %s" % (r["n"], f["line"], f["message"])
-             for r in recs for f in r.get("faults", [])]
+    lines = fault_lines(recs)
     k = sum(1 for r in recs if r.get("faults"))
     out("".join(ln + "\n" for ln in lines))
     if lines:
@@ -276,8 +277,8 @@ elif mode == "issue-list":
                "state": k["state"], "class": klass(r, ip),
                "created": created, "closed": closed, "milestone": None,
                "labels": k.get("labels", []), "type": None,
-               "parent": ("disk:%d" % k["parent"]) if "parent" in k else None,
-               "blocked_by": [], "url": "disk:%d" % r["n"]}
+               "parent": ref(k["parent"]) if "parent" in k else None,
+               "blocked_by": [], "url": ref(r["n"])}
         buf.append(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
     out("".join(buf))
 elif mode == "at-target":
@@ -302,33 +303,18 @@ else:
     sys.exit("disk.sh: unknown render mode " + mode)
 '
 
-# _disk_one_args <verb> <args…>: the shared argument rule of the one-issue reads.
-_disk_one_args() {
-  [ "$#" -eq 3 ] && _disk_is_num "$3" || {
-    echo "disk.sh: usage: $1 <dir> <N>" >&2
+# _disk_read_one <verb> <mode> <dir> <N>: the one-issue reads (fetch, state,
+# comment-list), which differ only in the render mode.
+_disk_read_one() {
+  local verb="$1" mode="$2"
+  shift 2
+  [ "$#" -eq 2 ] && _disk_is_num "$2" || {
+    echo "disk.sh: usage: $verb <dir> <N>" >&2
     exit 2
   }
-}
-
-cmd_fetch() {
-  _disk_one_args fetch "$@"
   _disk_folder "$1"
   _disk_parse "$2"
-  printf '%s\n' "$DISK_JSON" | _disk_py fetch
-}
-
-cmd_state() {
-  _disk_one_args state "$@"
-  _disk_folder "$1"
-  _disk_parse "$2"
-  printf '%s\n' "$DISK_JSON" | _disk_py state
-}
-
-cmd_comment_list() {
-  _disk_one_args comment-list "$@"
-  _disk_folder "$1"
-  _disk_parse "$2"
-  printf '%s\n' "$DISK_JSON" | _disk_py comments
+  printf '%s\n' "$DISK_JSON" | _disk_py "$mode"
 }
 
 # --- the folder lock (.disk.lock) ------------------------------------------
@@ -501,21 +487,18 @@ cmd_transition() {
     *) _disk_die 2 "transition: unknown stage '$TA_STAGE'" ;;
   esac
   _disk_folder "$TA_REPO"
-  if t="$(stage_map_target disk "$TA_PROJECT" "$TA_STAGE")"; then :; else exit 1; fi
+  t="$(stage_map_target disk "$TA_PROJECT" "$TA_STAGE")" || exit 1
   t="${t#"${t%%[!$' \t']*}"}"
   t="${t%"${t##*[!$' \t']}"}"
   [[ "$t" != *[$'\r\n']* ]] || _disk_die 1 "transition: the status mapped for $TA_STAGE contains a line break"
-  if [ -z "$t" ] && [ "$TA_STAGE" != on_merge ]; then
+  if [ -z "$t" ] && ! stage_map_closes disk "$TA_STAGE"; then
     transition_unmapped disk "$TA_STAGE" "$TA_PROJECT"
     exit 0
   fi
   _disk_lock
   _disk_parse "$TA_NUM"
-  if need="$(printf '%s\n' "$DISK_JSON" | _disk_py at-target "$t" "$TA_STAGE")"; then
-    return 0
-  else
-    rc=$?
-  fi
+  need="$(printf '%s\n' "$DISK_JSON" | _disk_py at-target "$t" "$TA_STAGE")" || rc=$?
+  [ "$rc" -ne 0 ] || return 0
   [ "$rc" -eq 10 ] || exit 1
   local args=()
   [[ $'\n'"$need"$'\n' != *$'\nstatus\n'* ]] || args+=("status=$t")
@@ -542,7 +525,8 @@ cmd_transition() {
 # `wbs init --from-tracker` show), then exits 5; an unreadable folder exits 1.
 _disk_list() {
   local rc=0
-  if DISK_JSON="$(_disk_mod list . 2>/dev/null)"; then return 0; else rc=$?; fi
+  DISK_JSON="$(_disk_mod list . 2>/dev/null)" || rc=$?
+  [ "$rc" -ne 0 ] || return 0
   if [ "$rc" -eq 4 ] || { [ "$rc" -eq 1 ] && [[ "$DISK_JSON" == *'"faults":'* ]]; }; then
     printf '%s\n' "$DISK_JSON" | _disk_py list-faults >&2 || true
     exit 5
@@ -553,7 +537,7 @@ _disk_list() {
 # _disk_ip: the project's on_draft_start status (the per-call DEVAGENT_PROJECT
 # that `wbs update` sets), into DISK_IP; an unreadable config exits 1.
 _disk_ip() {
-  if DISK_IP="$(stage_map_target disk "${DEVAGENT_PROJECT:-}" on_draft_start)"; then :; else exit 1; fi
+  DISK_IP="$(stage_map_target disk "${DEVAGENT_PROJECT:-}" on_draft_start)" || exit 1
 }
 
 # state-list <dir>: one `<N>` TAB `<class>` line per issue, sorted by N.
@@ -572,9 +556,7 @@ cmd_issue_list() {
   _disk_folder "${1:-}"
   _disk_ip
   _disk_list
-  local out
-  if out="$(printf '%s\n' "$DISK_JSON" | _disk_py issue-list "$DISK_IP")"; then :; else exit 1; fi
-  [ -z "$out" ] || printf '%s\n' "$out"
+  printf '%s\n' "$DISK_JSON" | _disk_py issue-list "$DISK_IP"
 }
 
 # state-class <dir> <N>: `<class>` TAB `<reason>` for the merge step: the
@@ -598,9 +580,9 @@ main() {
   local verb="${1:-}"
   [ "$#" -eq 0 ] || shift
   case "$verb" in
-    fetch)        cmd_fetch "$@" ;;
-    state)        cmd_state "$@" ;;
-    comment-list) cmd_comment_list "$@" ;;
+    fetch)        _disk_read_one fetch fetch "$@" ;;
+    state)        _disk_read_one state state "$@" ;;
+    comment-list) _disk_read_one comment-list comments "$@" ;;
     create)       cmd_create "$@" ;;
     transition)   cmd_transition "$@" ;;
     state-list)   cmd_state_list "$@" ;;

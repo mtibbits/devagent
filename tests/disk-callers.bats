@@ -6,6 +6,7 @@
 bats_require_minimum_version 1.5.0
 
 load 'lib/bats-helpers'
+load 'lib/trust-fixture'
 
 setup() {
   setup_tmp_devagent_home
@@ -44,6 +45,33 @@ TOML
 teardown() { teardown_tmp_devagent_home; }
 
 _unset_cfg() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/config.toml" "$1"; }
+
+# _dk_project <permission-line> [toml-lines…]: a project `dk` over FOLDER (an
+# issues folder whose path holds a marker no record may carry) and DEVDOC. The
+# lines after the permission are the rest of the config; with none, its
+# issue_source is the disk folder.
+_dk_project() {
+  local perm="$1"
+  shift
+  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
+  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
+  mkdir -p "$FOLDER" "$DEVDOC" "$BATS_TEST_TMPDIR/dk-src"
+  [ "$#" -gt 0 ] || set -- '[project.dk.issue_source]' 'backend = "disk"' "repo = \"$FOLDER\"" 'dir_prefix = "Issue-"'
+  printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR/dk-src\"" "devdoc_dir = \"$DEVDOC\"" '' \
+    '[project.dk.permissions]' "$perm" '' "$@" > "$DA_HOME/config.toml"
+}
+
+# _draft: the capture draft that /devagent:file files.
+_draft() {
+  mkdir -p "$DEVDOC/Captures/idea"
+  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+}
+
+# _no_mark_in <path>: no file at or under <path> names the folder.
+_no_mark_in() {
+  run grep -rlF "MARK-$$" "$1"
+  [ "$status" -eq 1 ] || { echo "folder path leaked into: $output" >&2; return 1; }
+}
 
 # ---------------------------------------------------------------- Task 1: transition.sh
 
@@ -123,8 +151,7 @@ _unset_cfg() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/confi
   [ "$(grep -c 'Issue-1 merged → on_merge landed on disk$' "$idir/checklist.md")" -eq 1 ]
   run grep -c 'merged' "$idir/checklist.md"
   [ "$output" -eq 1 ]
-  run grep -F "MARK-$$" "$idir/checklist.md"
-  [ "$status" -eq 1 ]
+  _no_mark_in "$idir/checklist.md"
   run merge_marker_present "$idir/checklist.md"
   [ "$status" -eq 0 ]
 }
@@ -135,26 +162,12 @@ _unset_cfg() { python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" unset "$DA_HOME/confi
 # folder (or as the lines given), a capture draft and a policy on the host
 # that scopes an unrelated GitHub repo. The env the entry points read is set.
 _trust_disk() {
-  export HOME="$BATS_TEST_TMPDIR/home"
-  mkdir -p "$HOME"
+  trust_fixture_home
   unset DEVAGENT_ISSUE_BACKEND_DIR
-  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
-  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
-  mkdir -p "$FOLDER" "$DEVDOC/Captures/idea" "$BATS_TEST_TMPDIR/dk-src"
+  _dk_project 'transition_issue = true' "$@"
   cp "$PLUGIN_ROOT/tests/fixtures/disk-issue/minimal.md" "$FOLDER/1.md"
-  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
-  local src_lines=("$@")
-  [ "${#src_lines[@]}" -gt 0 ] || src_lines=('[project.dk.issue_source]' 'backend = "disk"' "repo = \"$FOLDER\"" 'dir_prefix = "Issue-"')
-  {
-    printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR/dk-src\"" "devdoc_dir = \"$DEVDOC\"" ''
-    printf '%s\n' '[project.dk.permissions]' 'transition_issue = true' ''
-    printf '%s\n' "${src_lines[@]}"
-  } > "$DA_HOME/config.toml"
-  if [ "${TRUST_POLICY:-1}" = 1 ]; then
-    mkdir -p "$HOME/.config/devagent/trust"
-    printf '%s\n' 'scopes = ["github:github.com/acme/widgets"]' 'worker_identities = ["github:1001"]' \
-      > "$HOME/.config/devagent/trust/policy.toml"
-  fi
+  _draft
+  [ "${TRUST_POLICY:-1}" != 1 ] || trust_fixture_policy "$HOME/.config/devagent/trust"
   export DEVAGENT_DEVDOC_DIR="$DEVDOC" DEVAGENT_REPO_ORIGIN="$FOLDER"
 }
 
@@ -211,19 +224,14 @@ _folder_snap() { (cd "$FOLDER" && find . -exec cksum {} + 2>/dev/null | sort; ls
 # <backend> with repo o/r), push_mr false, a capture draft, and only the env
 # /devagent:file is handed: the devdoc. No backend or repo env is exported.
 _file_disk() {
-  export HOME="$BATS_TEST_TMPDIR/home"
-  mkdir -p "$HOME"
+  trust_fixture_home
   unset DEVAGENT_ISSUE_BACKEND DEVAGENT_REPO_ORIGIN DEVAGENT_REPO_FORK DEVAGENT_PERMISSION_PUSH_MR
-  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
-  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
-  mkdir -p "$FOLDER" "$DEVDOC/Captures/idea"
-  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
-  local backend="${1:-disk}" repo
-  repo="$FOLDER"; [ "$backend" = disk ] || repo="o/r"
-  printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR\"" "devdoc_dir = \"$DEVDOC\"" '' \
-    '[project.dk.permissions]' 'push_mr = false' '' \
-    '[project.dk.issue_source]' "backend = \"$backend\"" "repo = \"$repo\"" 'dir_prefix = "Issue-"' \
-    > "$DA_HOME/config.toml"
+  if [ "${1:-disk}" = disk ]; then
+    _dk_project 'push_mr = false'
+  else
+    _dk_project 'push_mr = false' '[project.dk.issue_source]' "backend = \"$1\"" 'repo = "o/r"' 'dir_prefix = "Issue-"'
+  fi
+  _draft
   export DEVAGENT_DEVDOC_DIR="$DEVDOC"
 }
 
@@ -241,8 +249,7 @@ _file_disk() {
   grep -qx 'repo = "disk"' "$f"
   grep -qx 'backend = "disk"' "$f"
   [ ! -e "$DEVDOC/Captures/idea/.pending" ]
-  run grep -rF "MARK-$$" "$DEVDOC/Captures/idea"
-  [ "$status" -eq 1 ]
+  _no_mark_in "$DEVDOC/Captures/idea"
 }
 
 @test "callers: file.sh still stops at the push_mr gate for github" {
@@ -285,7 +292,7 @@ _file_disk() {
   [ -z "$(ls "$FOLDER")" ]
   # a backend failure other than a refused prompt also clears it (nothing was written)
   rm -rf "$FOLDER" "$BATS_TEST_TMPDIR/MARK-$$"
-  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  _draft
   run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
   [ "$status" -eq 3 ]
   [ ! -e "$DEVDOC/Captures/idea/.pending" ]
@@ -298,14 +305,9 @@ _file_disk() {
 # carry.
 _e2e() {
   unset DEVAGENT_ISSUE_BACKEND_DIR
-  FOLDER="$BATS_TEST_TMPDIR/MARK-$$/issues"
-  DEVDOC="$BATS_TEST_TMPDIR/devDoc/dk"
-  mkdir -p "$FOLDER" "$DEVDOC" "$BATS_TEST_TMPDIR/dk-src"
-  printf '%s\n' '[project.dk]' "source_dir = \"$BATS_TEST_TMPDIR/dk-src\"" "devdoc_dir = \"$DEVDOC\"" '' \
-    '[project.dk.permissions]' 'transition_issue = true' '' \
-    '[project.dk.issue_source]' 'backend = "disk"' "repo = \"$FOLDER\"" 'dir_prefix = "Issue-"' '' \
-    '[project.dk.issue_workflow]' 'on_draft_start = "In Progress"' 'on_ship = "In Review"' 'on_merge = "Done"' \
-    > "$DA_HOME/config.toml"
+  _dk_project 'transition_issue = true'
+  printf '%s\n' '' '[project.dk.issue_workflow]' 'on_draft_start = "In Progress"' 'on_ship = "In Review"' 'on_merge = "Done"' \
+    >> "$DA_HOME/config.toml"
 }
 
 @test "e2e: pull on a disk project writes # disk#<N> — <title>, scaffolds the checklist, and logs fetched disk#<N>" {
@@ -317,8 +319,7 @@ _e2e() {
   grep -qx -- '- URL: disk:4' "$DEVDOC/Issue-4/issue.md"
   grep -qE '^- \[x\] +0\. pull' "$DEVDOC/Issue-4/checklist.md"
   grep -q '  pull: fetched disk#4, scaffold created$' "$DEVDOC/Issue-4/checklist.md"
-  run grep -rlF "MARK-$$" "$DEVDOC/Issue-4"
-  [ "$status" -eq 1 ]
+  _no_mark_in "$DEVDOC/Issue-4"
 }
 
 @test "e2e: a ## Workflow flags block with tier: oneshot picks the oneshot checklist" {
@@ -374,8 +375,7 @@ print(sorted(counts.items()))
 PY
   [ "$output" = "[('E1', 5), ('E2', 5), ('E3', 5)]" ]
   grep -q 'Leaf 4 {issue: Issue-4' "$DEVDOC/WBS.md"
-  run grep -F "MARK-$$" "$DEVDOC/WBS.md"
-  [ "$status" -eq 1 ]
+  _no_mark_in "$DEVDOC/WBS.md"
 }
 
 @test "e2e: a relative issue_source.repo: wbs update reports a failed tracker lookup, and wbs init --from-tracker fails with the folder error" {
@@ -405,13 +405,10 @@ PY
   [ "$TRANSITION_OUTCOME" = landed ]
   grep -q 'Issue-1 merged → on_merge landed: "Done" on disk$' "$DEVDOC/Issue-1/checklist.md"
   [ "$(find "$DEVDOC/Issue-1" -type f | wc -l)" -ge 2 ]
-  run grep -rlF "MARK-$$" "$DEVDOC/Issue-1"
-  [ "$status" -eq 1 ]
-  mkdir -p "$DEVDOC/Captures/idea"
-  printf '# A captured idea\n\nBody.\n' > "$DEVDOC/Captures/idea/draft.md"
+  _no_mark_in "$DEVDOC/Issue-1"
+  _draft
   DEVAGENT_DEVDOC_DIR="$DEVDOC" run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
   [ "$status" -eq 0 ]
   [ "$(find "$DEVDOC/Captures/idea" -type f | wc -l)" -ge 2 ]
-  run grep -rlF "MARK-$$" "$DEVDOC/Captures/idea"
-  [ "$status" -eq 1 ]
+  _no_mark_in "$DEVDOC/Captures/idea"
 }

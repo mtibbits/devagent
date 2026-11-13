@@ -116,7 +116,7 @@ backend="${DEVAGENT_ISSUE_BACKEND:-github}"
 # it, so no push_mr gate is asked (under a policy, trust already refused it),
 # and no record ever names the folder (#1009).
 is_disk=0
-[[ "${backend,,}" != disk ]] || is_disk=1
+! issue_backend_is_disk "${backend}" || is_disk=1
 
 if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
   [[ "${YES}" -ne 1 ]] || refuse yes-refused
@@ -169,19 +169,16 @@ backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set
 # duplicate re-file (see the guard above). Cleared once filed.toml is written.
 : >"${pending}"
 
-if [[ "${is_disk}" -eq 1 ]]; then
+_rc=0
+issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")" || _rc=$?
+if [[ "${_rc}" -ne 0 ]]; then
+  [[ "${is_disk}" -eq 1 ]] || exit "${_rc}"
   # #1009: disk.sh exits 1 or 2 only when it wrote no issue file (a folder
   # fault, or a prompt the format refuses), so the marker is cleared and the
   # failure is a draft/state problem (3), never usage (2).
-  _rc=0
-  issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")" || _rc=$?
-  if [[ "${_rc}" -ne 0 ]]; then
-    [[ "${_rc}" -ne 1 && "${_rc}" -ne 2 ]] || rm -f "${pending}"
-    echo "disk create failed (exit ${_rc})" >&2
-    exit 3
-  fi
-else
-  issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")"
+  [[ "${_rc}" -ne 1 && "${_rc}" -ne 2 ]] || rm -f "${pending}"
+  echo "disk create failed (exit ${_rc})" >&2
+  exit 3
 fi
 [[ -n "${issue_num}" ]] || { echo "backend returned empty issue number" >&2; exit 3; }
 
@@ -214,13 +211,14 @@ EOF
 # #113: build the canonical URL from the active backend instead of hardcoding
 # github for every backend (which recorded dead links for gitlab/jira).
 case "${_shape}" in
-  disk)   url="disk:${issue_num}" repo="disk" ;;
+  disk)   url="disk:${issue_num}" ;;
   github) url="https://github.com/${repo}/issues/${issue_num}" ;;
   gitlab) url="${DEVAGENT_GITLAB_API:-https://gitlab.com/api/v4}"
           url="${url%/api/v4}/${repo}/-/issues/${issue_num}" ;;
   jira)   url="${DEVAGENT_JIRA_BASE:-https://jira.example}/browse/${issue_num}" ;;
   *)      url="https://github.com/${repo}/issues/${issue_num}" ;;
 esac
+repo="$(issue_repo_label "${backend}" "${repo}")"   # filed.toml names a disk repo `disk`
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat >"${filed}" <<TOML

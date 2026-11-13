@@ -12,7 +12,8 @@
 # Precedence of stage_map_target <backend> <project> <stage> (spec §9.1):
 #   1. the per-stage env override, DEVAGENT_GITHUB_LABEL_<STAGE> (github),
 #      DEVAGENT_GITLAB_LABELS_<STAGE> (gitlab), DEVAGENT_JIRA_STAGE_<STAGE>
-#      (jira), DEVAGENT_DISK_STATUS_<STAGE> (disk, #1009); <STAGE> is the stage upper-cased with - as _. These are
+#      (jira), DEVAGENT_DISK_STATUS_<STAGE> (disk, #1009); <STAGE> is the
+#      stage upper-cased with - as _. These are
 #      PROCESS-GLOBAL operator/test seams: a stale one redirects every
 #      project's write (doctor warns while one is set).
 #   2. [project.<p>.github_labels].<stage> or [project.<p>.gitlab_labels].<stage>
@@ -156,17 +157,22 @@ stage_map_kind() {
   esac
 }
 
+# issue_backend_is_disk <backend>: 0 iff <backend> names the disk backend, in
+# any case (#1009).
+issue_backend_is_disk() { [ "${1,,}" = disk ]; }
+
 # stage_map_closes <backend> <stage>: 0 iff that transition writes even with no
 # state mapped — the disk backend's on_merge, which always closes the issue
-# file (#1009). The one rule transition_fire and transition_plan_note share.
-stage_map_closes() { [ "${1,,}" = disk ] && [ "$2" = on_merge ]; }
+# file (#1009). The one rule transition_fire, transition_plan_note and
+# disk.sh's transition share.
+stage_map_closes() { issue_backend_is_disk "$1" && [ "$2" = on_merge ]; }
 
 # issue_repo_label <backend> <repo>: how a record names the issue's tracker.
 # A disk project's repo is a folder on the user's machine, and the devdoc may
 # be pushed, so every record says `disk` instead (#1009); any other backend's
 # repo is printed as given.
 issue_repo_label() {
-  if [ "${1,,}" = disk ]; then printf '%s\n' disk; else printf '%s\n' "$2"; fi
+  if issue_backend_is_disk "$1"; then printf '%s\n' disk; else printf '%s\n' "$2"; fi
 }
 
 # transition_args <b> <args…>: parse a built-in backend's
