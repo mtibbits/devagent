@@ -967,18 +967,14 @@ _wbs865_show() {
   grep -Fxq "wbs show: line 5: priority 'high' is not P0, P1, P2, P3 or P4; ignored" "$TMPROOT/err"
 }
 
-@test "wbs show prints no warning for a valid priority (#865)" {
-  _wbs865_show P1
-  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
-  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
-  [ ! -s "$TMPROOT/err" ]
-}
-
-@test "wbs show prints no warning for priority P0 (#889)" {
-  _wbs865_show P0
-  bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
-  cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
-  [ ! -s "$TMPROOT/err" ]
+@test "wbs show prints no warning for a valid priority, P0 included (#865, #889)" {
+  local p
+  for p in P1 P0; do
+    _wbs865_show "$p"
+    bash "$REPO/scripts/wbs.sh" show testproj > "$TMPROOT/out" 2> "$TMPROOT/err"
+    cmp "$TMPROOT/out" "$TMPDEV/WBS.md"
+    [ ! -s "$TMPROOT/err" ]
+  done
 }
 
 @test "wbs show prints malformed satisfies, objective and h warnings once each (#888)" {
