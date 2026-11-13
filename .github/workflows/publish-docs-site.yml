@@ -14,10 +14,10 @@
 # and the deploy job both read its output. Flip-day steps, in order, are in
 # docs/pages-deployment.md.
 #
-# With the gate off this workflow still earns its keep: it is the lane that has
-# pandoc, so it is where tests/build-docs-site.bats actually executes (test.yml
-# has no pandoc and skips most of that file), and it uploads the rendered site
-# as a plain artifact for review.
+# With the gate off this workflow still earns its keep: it runs
+# tests/build-docs-site.bats and additionally refuses any skip in it (test.yml's
+# `test suite` also installs pandoc and runs the file un-skipped, #841), and it
+# uploads the rendered site as a plain artifact for review.
 #
 # `paths:` keeps it off pushes that cannot change the site. The list is pinned
 # by tests/test_publish_docs_site_workflow.py; keep push and pull_request equal.

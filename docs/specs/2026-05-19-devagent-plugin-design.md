@@ -65,7 +65,7 @@ devAgent/
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
-├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
+├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── commands/                # one .md file per command-form slash command (57)
@@ -90,7 +90,7 @@ devAgent/
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
-│   ├── docs-site/           # #465: pandoc template + link filter for build-docs-site.sh
+│   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),

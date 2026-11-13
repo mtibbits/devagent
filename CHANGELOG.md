@@ -25,7 +25,17 @@ the README's "Versioning & releases" section has the release procedure.
   an additive `depends_on` field (`{raw, scope, project, issue}` per entry),
   and the parser and the portfolio share one classifier (`split_dep`); the
   portfolio document is unchanged.
-
+- **Changed: the docs-site build accepts hand-written pages, asset folders
+  and moved-page stubs (#995; closes #840, #841).** A `docs-site/<name>.html`
+  page gets the same template, nav and footer as a Markdown page, with its
+  body inserted byte for byte; `docs-site/assets/` and
+  `scripts/docs-site/static/` (or `--static`) are copied to the site; each
+  `docs-site/moved.txt` line writes a stub that links an old page name to its
+  new home. The link check now reads `src` and `srcset` too and refuses
+  root-absolute and `..` paths. The nav is read from the index's own list
+  outside code fences (#840), a missing awk exits 3 naming it, and the
+  `test suite` workflow installs pandoc so `tests/build-docs-site.bats` runs
+  there un-skipped (#841). The six 1.0 pages render unchanged.
 - **Fixed: hook commands quote `${CLAUDE_PLUGIN_ROOT}` (#532).** An install
   path with a space no longer splits a hook command into several words, and
   `claude plugin validate --strict` passes again on Claude Code 2.1.321 and

@@ -1,7 +1,9 @@
 # Publishing the onboarding site to GitHub Pages
 
 `docs-site/` is rendered by `scripts/build-docs-site.sh` and published by
-`.github/workflows/publish-docs-site.yml`. **Publishing is off by default.**
+`.github/workflows/publish-docs-site.yml`. **Publishing is off by default**,
+and during the website 2.0 work it is held off on purpose (the deploy hold in
+`docs-site/README.md`).
 The workflow's deploy half runs only when all three hold: the repository is
 `mtibbits/devagent`, the ref is `refs/heads/master`, and the repository variable
 `DOCS_SITE_DEPLOY` is exactly `true`. Until then every run stops after building
@@ -14,7 +16,8 @@ and open.
 bash scripts/build-docs-site.sh --out /tmp/devagent-site
 ```
 
-Needs pandoc 3.x. `--out` must be absent or empty; the script never deletes.
+Needs pandoc 3.x and awk. `--out` must be absent or empty; the script never
+deletes.
 Open `/tmp/devagent-site/index.html`.
 
 ## Turning publishing on (operator)
@@ -73,14 +76,20 @@ branches are still untested.
    `43f9e27`; the earlier `master` run (35308905744) had built and skipped the
    deploy with the gate off, which is the gate working.
 
-4. Check every page, from a checkout of `master`. The list comes from the
-   directory, so it cannot go stale:
+4. Check every page and every moved-page stub, from a checkout of `master`.
+   The list comes from the directory and `docs-site/moved.txt`, so it cannot
+   go stale:
 
    ```sh
    base="$(gh api repos/mtibbits/devagent/pages -q .html_url)"
    base="${base%/}/"
-   for f in docs-site/*.md; do
-     p="$(basename "$f" .md)"; [ "$p" = README ] && continue
+   {
+     for f in docs-site/*.md docs-site/*.html; do
+       [ -e "$f" ] || continue
+       p="$(basename "$f")"; p="${p%.*}"; [ "$p" = README ] || echo "$p"
+     done
+     awk '!/^[ \t]*(#|$)/ { print $1 }' docs-site/moved.txt
+   } | while read -r p; do
      printf '%s %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "${base}${p}.html")" "${p}.html"
    done
    ```
@@ -94,7 +103,9 @@ gh variable delete DOCS_SITE_DEPLOY -R mtibbits/devagent
 ```
 
 The published site stays up until Pages itself is disabled; this only stops new
-deploys.
+deploys. The website 2.0 deploy hold (`docs-site/README.md`) is the same
+switch, set rather than deleted:
+`gh variable set DOCS_SITE_DEPLOY --body false -R mtibbits/devagent`.
 
 ## After the flip (2026-09-18)
 
