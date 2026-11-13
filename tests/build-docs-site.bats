@@ -1329,7 +1329,9 @@ svg_whole() { file_row "$1" "$2" assets/d.svg "$3" "${@:4}"; }
   html_row 0 '' '' "<style>/* $OH */ nav a:hover{}</style>"
   html_row 0 '' '' '<script async src="static/a.js"></script><script type src="static/b.js"></script>' \
     '<details open><summary>s</summary><input disabled></details>'
-  html_row 0 '' '' '<svg><script href="static/a.js"/></svg>'
+  # an SVG script loading a local file, with an explicit end tag: the
+  # self-closing form is refused (see the parse-divergence shapes)
+  html_row 0 '' '' '<svg><script href="static/a.js"></script></svg>'
 }
 
 @test "build-docs-site: check-fetches — inline scripts: import map and module import" {
