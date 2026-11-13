@@ -240,17 +240,17 @@ def _under(p: str, r: str) -> bool:
         return False
     pp, rr = (np_ if os.path.isdir(np_) else p), (nr if os.path.isdir(nr) else r)
     if os.path.isdir(pp) and os.path.isdir(rr):
-        cur = pp
+        cur = pp   # walk physical parents (cur/..), as hook_path_under does: .. and symlinks resolve on disk
         for _ in range(64):
             try:
                 if os.path.samefile(cur, rr):
                     return True
+                up = os.path.join(cur, "..")
+                if os.path.samefile(up, cur):
+                    return False
             except OSError:
-                break
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                break
-            cur = parent
+                return False
+            cur = up
         return False
     return np_ == nr or np_.startswith(nr if nr.endswith("/") else nr + "/")
 

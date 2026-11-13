@@ -2205,3 +2205,17 @@ def test_cli_overhead_text_non_ascii_cwd(tmp_path, monkeypatch):
                          capture_output=True)
     assert run.returncode == 0, run.stderr
     assert run.stdout.decode("utf-8").startswith("(unassigned) /work/ñ/ø: ")
+
+
+def test_under_identity_walks_physical_parents(tmp_path):
+    """Spec 8.1: a P whose .. leaves R is not under R, nor is a symlinked subdir of R pointing outside it."""
+    alpha, out = tmp_path / "w" / "alpha", tmp_path / "out"
+    (tmp_path / "w" / "beta").mkdir(parents=True)
+    alpha.mkdir()
+    out.mkdir()
+    assert cr._under(str(alpha / ".." / "beta"), str(alpha)) is False
+    try:
+        (alpha / "lnk").symlink_to(out)
+    except OSError:
+        pytest.skip("no symlinks on this host")
+    assert cr._under(str(alpha / "lnk"), str(alpha)) is False
