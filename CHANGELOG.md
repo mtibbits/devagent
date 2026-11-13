@@ -16,6 +16,12 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: disk issue file format reader and writer (#1008, epic #1007).**
+  `scripts/lib/disk-issue.py` is the one parser and writer for `<folder>/<N>.md`
+  issue files: `parse`, `list`, `check`, `set` and `create`, with pinned JSON
+  fields and exit codes. Writes are atomic, keep each file's line endings, BOM
+  and mode, never edit a faulty file, and never overwrite on `create`.
+  `docs/disk-issues.md` documents the format. No caller uses it yet.
 - **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
   `depends_on` entry may name another configured project's issue as
   `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the
