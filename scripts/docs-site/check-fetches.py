@@ -69,7 +69,10 @@
 #     "</script x>" can hide markup from it.
 # Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
 # (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
-# no <script> (.svg, any namespace prefix) and no on*= handler (both).
+# no <script> (.svg, any namespace prefix) and no on*= handler (both). A worker
+# started from a script file takes its policy from its own response headers,
+# which Pages does not send, so nothing backs the scan of its script either (a
+# blob: worker inherits the page's policy).
 # Known over-refusals (measured; rephrase rather than fight them):
 #   - a remote URL in an attribute that does not navigate: title=, alt=,
 #     aria-label=, data-*=, <meta content=…>, a "file: x" mention included;
@@ -81,7 +84,11 @@
 #   - "//" then a host character after a quote, space, "(", "=", "," or ";"
 #     in any string or attribute value ("see //h" in a title=);
 #   - a <![CDATA[ section in an .html file, inline SVG included;
-#   - a non-JS <script type> whose body has an unbalanced quote.
+#   - a non-JS <script type> whose body has an unbalanced quote;
+#   - a <style>, <script>, <title> or <textarea> inside <noscript> (a
+#     <noscript><style> fallback included);
+#   - a CSP meta after any start tag other than <html> before <head>, even
+#     one a browser would put in an implied head (<html><meta charset><head>).
 import html.parser as _hp
 import os
 import re
@@ -239,7 +246,7 @@ def _pop_to(stack, tag):
         del stack[len(stack) - 1 - stack[::-1].index(tag):]
 
 
-def js_tokens(text, line0=1):
+def js_tokens(text, line0=1, module=False):
     toks, errs = [], []
     i, n, line = 0, len(text), line0
     regex_ok = True
@@ -289,11 +296,12 @@ def js_tokens(text, line0=1):
         if c.isspace():
             i += 1
             continue
-        # A line comment: "//", and (Annex B, classic scripts) "<!--" anywhere
-        # and "-->" first on its line. It ends at any JS line terminator.
-        if text.startswith("//", i) or text.startswith("<!--", i) or (
+        # A line comment: "//", and (Annex B, classic scripts only: in a module
+        # they are operators) "<!--" anywhere and "-->" first on its line. It
+        # ends at any JS line terminator.
+        if text.startswith("//", i) or (not module and (text.startswith("<!--", i) or (
                 text.startswith("-->", i)
-                and not text[max(text.rfind(t, 0, i) for t in JS_LINE_ENDS) + 1:i].strip()):
+                and not text[max(text.rfind(t, 0, i) for t in JS_LINE_ENDS) + 1:i].strip()))):
             m = JS_LINE_END_RE.search(text, i)
             i = n if m is None else m.start()
             continue
@@ -411,8 +419,9 @@ FOREIGN_TAGS = {"svg", "math"}
 DOC_TAGS = {"html", "head", "body", "script"}
 RESOURCE_TAGS = {"script", "link", "style", "img"}
 # Elements a browser reads as text to their end tag. Where this Python's parser
-# does not (it parses markup inside them), a comment it opens there can hide
-# markup the browser runs, so such a comment is refused.
+# does not (it parses markup inside them), a comment it opens there, or an
+# element it reads as text (<title>, <style>, …), can swallow the browser's end
+# tag and hide markup the browser runs, so both are refused.
 _RAW_IN_BROWSER = {"noscript", "textarea", "title", "xmp", "iframe", "noembed", "noframes"}
 _RAW_IN_PARSER = set(getattr(_hp.HTMLParser, "CDATA_CONTENT_ELEMENTS", ())) \
     | set(getattr(_hp.HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()))
@@ -540,7 +549,7 @@ class Scan:
             self.refuse(rel, line_at(text, m.start()),
                         'the words "private preview" may not be published')
         if ext in JS_EXT:
-            self.js(rel, text, 1)
+            self.js(rel, text, 1, module=ext == ".mjs")
         elif ext in CSS_EXT:
             self.css(rel, text, 1, "")
         elif ext == ".svg":
@@ -573,12 +582,12 @@ class Scan:
             if r:
                 self.refuse(rel, line, r)
 
-    def body(self, rel, tag, text, line):
+    def body(self, rel, tag, text, line, module=False):
         """A <script> or <style> body."""
         if tag == "style":
             self.css(rel, text, line, "")
         else:
-            self.js(rel, text, line)
+            self.js(rel, text, line, module=module)
 
     def html(self, rel, text):
         for rx, reason in ((COMMENT_DIVERGE_RE, "a comment the browser and the scanner may end differently"),
@@ -640,8 +649,8 @@ class Scan:
         except expat.ExpatError as e:
             self.refuse(rel, e.lineno, "not well-formed XML: %s" % expat.ErrorString(e.code))
 
-    def js(self, rel, text, line0, suffix=""):
-        toks, errs = js_tokens(text, line0)
+    def js(self, rel, text, line0, suffix="", module=False):
+        toks, errs = js_tokens(text, line0, module)
         for value, line, _ in toks:
             r = remote(value, "js", "a JS string" + suffix)
             if r:
@@ -679,9 +688,9 @@ class _Html(_hp.HTMLParser):
         super().__init__(convert_charrefs=True)
         self.s, self.rel = scan, rel
         self.is_doc = top_level
-        self.foreign = 0          # open <svg>/<math> depth
+        self.foreign = []         # open <svg>/<math> roots
         self.raw = []             # open elements in COMMENT_HIDES_IN
-        self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign]
+        self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign, module]
         self.on_attrs = []        # (line, name): refused at the end if a fragment
         self.head = self.head_closed = False
         self.in_title = False
@@ -713,21 +722,25 @@ class _Html(_hp.HTMLParser):
         return [line0] * count
 
     def handle_starttag(self, tag, attrs):
-        self.start(tag, attrs)
+        self.start(tag, attrs, False)
 
     def handle_startendtag(self, tag, attrs):
-        self.start(tag, attrs)
+        self.start(tag, attrs, True)
 
-    def start(self, tag, attrs):
+    def start(self, tag, attrs, closing):
+        """closing: the parser read the tag as self-closing, so it opens nothing
+        (<svg width=8/> is not: its last value is "8/")."""
         line0 = self.getpos()[0]
         attrs = [(n, "" if v is None else v) for n, v in attrs]
-        closing = (self.get_starttag_text() or "").rstrip().endswith("/>")
         if tag in DOC_TAGS:
             self.is_doc = True
         if tag == "head":
             self.head = True
-        elif self.head and tag not in HEAD_OK:
+        elif tag not in HEAD_OK if self.head else tag != "html":
+            # before <head>, any other start tag opens <body> in a browser
             self.head_closed = True
+        if self.raw and tag in PARSED_AS_TEXT:
+            self.refuse(line0, "<%s> inside <%s>, which a browser reads as text" % (tag, self.raw[-1]))
         if tag == "meta":
             equiv = next((v for n, v in attrs if n == "http-equiv"), "")
             # an enumerated value: matched case-blind but never trimmed
@@ -739,11 +752,13 @@ class _Html(_hp.HTMLParser):
             self.first_resource = tag
         if tag in REFUSED_TAGS:
             self.refuse(line0, "<%s> is refused" % tag)
-        if tag == "script":
-            t = next((v for n, v in attrs if n == "type"), "")
-            if t.strip().lower() == "speculationrules":
-                self.refuse(line0, '<script type="speculationrules"> is refused')
-        if tag in ("script", "style") and closing and not self.foreign:
+        stype = next((v for n, v in attrs if n == "type"), "").strip().lower() if tag == "script" else ""
+        if stype == "speculationrules":
+            self.refuse(line0, '<script type="speculationrules"> is refused')
+        # keyed on the tag text too, so a parser that reports <script/> as a
+        # start tag still trips it
+        slash = closing or (self.get_starttag_text() or "").rstrip().endswith("/>")
+        if tag in ("script", "style") and slash and not self.foreign:
             self.refuse(line0, "a self-closing <script/> or <style/> outside <svg> or <math>")
         for (name, value), line in zip(attrs, self.attr_lines(len(attrs), line0)):
             if name.startswith("on"):
@@ -752,7 +767,7 @@ class _Html(_hp.HTMLParser):
         if closing:
             return
         if tag in FOREIGN_TAGS:
-            self.foreign += 1
+            self.foreign.append(tag)
         if tag in COMMENT_HIDES_IN:
             self.raw.append(tag)
         if tag in INERT_TAGS:
@@ -760,13 +775,14 @@ class _Html(_hp.HTMLParser):
         if tag == "title":
             self.in_title = True
         if tag in ("script", "style") or (self.foreign and tag in PARSED_AS_TEXT):
-            self.pending = [tag, None, [], self.foreign > 0]
+            self.pending = [tag, None, [], bool(self.foreign), stype == "module"]
 
     def handle_endtag(self, tag):
         if self.pending and tag == self.pending[0]:
             self.flush()
-        if tag in FOREIGN_TAGS and self.foreign:
-            self.foreign -= 1
+        # a browser in foreign content ignores an end tag with no open match
+        # (a stray </math> inside <svg>)
+        _pop_to(self.foreign, tag)
         _pop_to(self.raw, tag)
         _pop_to(self.inert, tag)
         if tag == "title":
@@ -779,8 +795,9 @@ class _Html(_hp.HTMLParser):
             if self.pending[1] is None:
                 self.pending[1] = self.getpos()[0]
             self.pending[2].append(data)
-        elif (self.head and not self.head_closed and not self.in_title and not self.inert
+        elif (not self.head_closed and not self.in_title and not self.inert
               and data.strip(HTML_WS)):
+            # text before <head> or in it opens <body> in a browser
             self.head_closed = True
 
     def handle_comment(self, data):
@@ -788,7 +805,7 @@ class _Html(_hp.HTMLParser):
             self.refuse(self.getpos()[0], "a comment inside <%s>, which a browser reads as text" % self.raw[-1])
 
     def flush(self):
-        tag, line, chunks, in_foreign = self.pending
+        tag, line, chunks, in_foreign, module = self.pending
         self.pending = None
         if line is None:
             return
@@ -801,7 +818,7 @@ class _Html(_hp.HTMLParser):
             self.refuse(line, "a <script> body that opens an HTML comment or a nested <script>")
         if in_foreign and "&" in text:
             self.refuse(line, '"&" in a <script> or <style> body inside <svg> or <math>')
-        self.s.body(self.rel, tag, text, line)
+        self.s.body(self.rel, tag, text, line, module)
 
     def finish(self):
         if self.pending:

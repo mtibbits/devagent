@@ -328,12 +328,12 @@ if [ -f "$src/moved.txt" ]; then
 fi
 
 # python runs the fetch scan after link closure; probe it here, before anything
-# is written. This pins runnability only; the scanner's syntax sets the floor.
+# is written: it runs, imports what the scanner needs, and is 3.8 or later.
 py="${DEVAGENT_PYTHON:-python3}"
 command -v "$py" >/dev/null 2>&1 \
   || die 3 "python is not installed: '$py' not found (the fetch scan needs python3 3.8+; DEVAGENT_PYTHON names another interpreter)"
-"$py" -I -c 'import sys, re, html.parser, xml.parsers.expat' >/dev/null 2>&1 \
-  || die 3 "python cannot run: '$py' is not a working python3 (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
+"$py" -I -c 'import sys, re, html.parser, xml.parsers.expat; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 \
+  || die 3 "python cannot run: '$py' is not a working python3 3.8+ (a Windows Store python3 stub is found but cannot run; DEVAGENT_PYTHON names another interpreter)"
 
 command -v pandoc >/dev/null 2>&1 \
   || die 3 "pandoc is not installed (Debian/Ubuntu: sudo apt-get install pandoc)"

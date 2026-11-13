@@ -1432,6 +1432,25 @@ svg_whole() { file_row "$1" "$2" assets/d.svg "$3" "${@:4}"; }
   [ ! -e "$FX/out" ]
 }
 
+@test "build-docs-site: fetch policy — a python older than 3.8 -> exit 3 naming it, nothing written" {
+  local real_py
+  real_py="$(command -v python3)"
+  fx_bin
+  rm "$FX/bin/python3"
+  # the real interpreter, reporting 3.7, runs the probe's code
+  cat > "$FX/bin/python3" <<EOF
+#!$(command -v bash)
+exec "$real_py" -I -c 'import sys; sys.version_info = (3, 7, 17, "final", 0); exec(sys.argv[1])' "\${@: -1}"
+EOF
+  chmod +x "$FX/bin/python3"
+  fx_page index "hello"
+  FX_PATH="$FX/bin"
+  run fx_build
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"python cannot run: 'python3' is not a working python3 3.8+"* ]]
+  [ ! -e "$FX/out" ]
+}
+
 # fault_py <file> — an interpreter that runs the probe (any call holding -c)
 # with the real python3, and the REAL scanner (its last three arguments:
 # scanner, --, out) with html.parser broken, so the scan crashes inside it.
@@ -1548,8 +1567,30 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   html_row 3 "$mk" '<math>' "<math><title><img src=\"$OH/p.png\"></title></math>"
   html_row 3 "$mk" '<svg><style>' '<svg><style><img src=//other.host/p.png></style></svg>'
   html_row 3 "$mk" '<svg><script>' '<svg><script><img src=//other.host/p.png></script></svg>'
+  # a "/" ending an unquoted value does not self-close the tag, and a stray
+  # </math> does not close <svg> (both in a fragment, which has no CSP)
+  sc_new; fx_sf static/partial.html "<svg><style x=y/><img src=\"$OH/p.png\"></style></svg>"
+  sc_row 3 static/partial.html '<svg' "$mk"
+  sc_new; fx_sf static/partial.html '<svg width=8/><style><img src=//other.host/p.png></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
+  sc_new; fx_sf static/partial.html '<svg></math><style><img src=//other.host/p.png></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
   # the accessible-icon idiom, with an entity and a bare "<", still passes
   html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
+}
+
+@test "build-docs-site: check-fetches — an element this parser reads as text inside <noscript> is refused" {
+  local r='inside <noscript>, which a browser reads as text'
+  sc_n=0
+  # a browser (scripting on) ends <noscript> at its own end tag, inside these
+  sc_new; fx_sf static/partial.html "<noscript><title></noscript><script>fetch(\"$OH/t\")</script></title></noscript>"
+  sc_row 3 static/partial.html '<noscript>' "<title> $r"
+  sc_new; fx_sf static/partial.html "<noscript><textarea></noscript><img src=\"$OH/p.png\"></textarea></noscript>"
+  sc_row 3 static/partial.html '<noscript>' "<textarea> $r"
+  sc_new; fx_sf static/partial.html '<noscript><style></noscript><img src=//other.host/p.png></style></noscript>'
+  sc_row 3 static/partial.html '<noscript>' "<style> $r"
+  # control: ordinary fallback markup in <noscript> passes
+  html_row 0 '' '' '<noscript><p>This page needs JavaScript.</p></noscript>'
 }
 
 @test "build-docs-site: check-fetches — a CSP meta a browser ignores does not count" {
@@ -1559,6 +1600,12 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
   sc_new; fx_sf index.html "${doc[@]}" 'hello' "$CSP_META" '</head><body></body></html>'
   sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  # content before <head> opens <body>; the later <head> is ignored
+  local before
+  for before in '<p>x</p>' 'hello' '<body>'; do
+    sc_new; fx_sf index.html '<!DOCTYPE html>' "<html lang=\"en\">$before<head>" "$CSP_META" '</head><body></body></html>'
+    sc_row 3 index.html 'Content-Security-Policy' 'the Content-Security-Policy meta is not inside <head>'
+  done
   sc_new; fx_sf index.html "${doc[@]}" "<noscript>$CSP_META</noscript>" '</head><body></body></html>'
   sc_row 3 index.html 'Content-Security-Policy' 'inside <noscript>'
   sc_new; fx_sf index.html "${doc[@]}" "<template>$CSP_META</template>" '</head><body></body></html>'
@@ -1590,6 +1637,9 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   sc_new; fx_sf assets/a.js 'var a = 1;' '--> /*' "fetch(\"$OH/x\");" '// */'
   sc_row 3 assets/a.js 'fetch' 'remote URL in a JS string'
   js_row 3 'remote URL in a JS string' "var y = i++ / 2 + '/' + '$OH/a.js';"
+  # in module code "<!--" and "-->" are operators, not comments
+  file_row 3 'remote URL in a JS string' assets/a.mjs 'fetch' 'let a = 0, b = 1;' "a <!-- b, fetch(\"$OH/x\");"
+  html_row 3 'remote URL in a JS string' 'fetch' '<script type="module">let a = 1;' "--> a; fetch(\"$OH/x\")" '</script>'
   # controls: prefix ++ before a regex, and "-->" that is not at a line start
   js_row 0 '' 'var r = ++i; var s = /ab+c/.test(t); var u = "assets/x";'
   js_row 0 '' 'while (i --> 0) { s = "assets/x"; }'

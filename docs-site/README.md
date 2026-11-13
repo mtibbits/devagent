@@ -158,7 +158,10 @@ and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
   with no policy, and a fragment has no policy of its own. So an `.svg` file
   may hold no `<script>`, and neither an `.svg` file nor a fragment may hold
   an `on*=` handler. #996's partials wire `family.js` with
-  `addEventListener`.
+  `addEventListener`. A worker started from a script file (`new Worker(url)`,
+  a service worker) takes its policy from its own response headers, and Pages
+  sends none, so its script is scanned but nothing backs the scan; a `blob:`
+  worker inherits the page's policy.
 - *Refused outright.* `<iframe>`, `<frame>`, `<object>`, `<embed>`,
   `<script type="speculationrules">`, the words "private preview", and the
   markup shapes that the scanner and a browser parse differently (the
