@@ -60,7 +60,10 @@ backend env vars `file.sh` consumes:
   mirrors config `[project.<name>.permissions].push_mr`.
 - the tracker backend/repo vars from `[project.<name>.issue_source]`
   (and `issue_source_fork` for `--target fork`). With a trust policy on the
-  host these vars are overwritten from config, never read (#713).
+  host these vars are overwritten from config, never read (#713). With no
+  policy and `DEVAGENT_ISSUE_BACKEND` unset, the backend comes from the config
+  of the project that owns `DEVAGENT_DEVDOC_DIR`, and each repo var and the
+  backend dir left unset is filled from it too; an exported value wins (#1009).
 
 ## Non-goals
 

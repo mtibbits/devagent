@@ -26,11 +26,13 @@ Permission gate: DEVAGENT_PERMISSION_PUSH_MR=true|false
 
 Env:
   DEVAGENT_DEVDOC_DIR            required
-  DEVAGENT_ISSUE_BACKEND_DIR     required (path to issue/ backends)
-  DEVAGENT_ISSUE_BACKEND         optional (default: github)
-  DEVAGENT_REPO_ORIGIN           required if --target origin
-  DEVAGENT_REPO_FORK             required if --target fork
-  DEVAGENT_PERMISSION_PUSH_MR    true|false (default false)
+  DEVAGENT_ISSUE_BACKEND         optional; unset → from the config of the project
+                                 that owns DEVAGENT_DEVDOC_DIR, else github
+  DEVAGENT_ISSUE_BACKEND_DIR     path to issue/ backends (required unless the
+                                 backend came from config: then this plugin's)
+  DEVAGENT_REPO_ORIGIN           for --target origin (unset → from that config)
+  DEVAGENT_REPO_FORK             for --target fork (unset → from that config)
+  DEVAGENT_PERMISSION_PUSH_MR    true|false (default false; a disk target asks none)
 USAGE
 }
 
@@ -95,16 +97,17 @@ if [[ "${TRUST_HOST:-0}" == 1 ]]; then
   [[ -n "${DEVAGENT_ISSUE_BACKEND}" ]] || { echo "${_section}.backend not configured for ${TRUST_PROJECT}" >&2; exit 2; }
 fi
 # #1009: with no policy and no DEVAGENT_ISSUE_BACKEND handed in, the project
-# that owns DEVAGENT_DEVDOC_DIR names the backend and repos, as above, and the
-# backend dir defaults to this plugin's. Its push_mr gate is still the env's.
+# that owns DEVAGENT_DEVDOC_DIR names the backend, and fills in each repo and
+# the backend dir (this plugin's) that the env leaves unset: an exported value
+# still wins. Its push_mr gate is still the env's.
 if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
   _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
   if [[ -n "${_proj}" ]]; then
     _section=issue_source
     [[ "${TARGET}" == fork ]] && _section=issue_source_fork
     DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${_proj}" "${_section}.backend" 2>/dev/null || true)"
-    DEVAGENT_REPO_ORIGIN="$(config_get_project_field "${_proj}" issue_source.repo 2>/dev/null || true)"
-    DEVAGENT_REPO_FORK="$(config_get_project_field "${_proj}" issue_source_fork.repo 2>/dev/null || true)"
+    : "${DEVAGENT_REPO_ORIGIN:=$(config_get_project_field "${_proj}" issue_source.repo 2>/dev/null || true)}"
+    : "${DEVAGENT_REPO_FORK:=$(config_get_project_field "${_proj}" issue_source_fork.repo 2>/dev/null || true)}"
     : "${DEVAGENT_ISSUE_BACKEND_DIR:=$(plugin_root)/scripts/issue}"
   fi
 fi

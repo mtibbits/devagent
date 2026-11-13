@@ -857,3 +857,32 @@ git_at() {
   n=$((n + 1))
   [ "$n" -ge 20 ]
 }
+
+# ---------------------------------------------------------------- final review fixes
+
+@test "disk: a .last-number with CRLF (a Git for Windows checkout) is read as the number" {
+  body "x"
+  printf '5\r\n' > "$D/.last-number"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 6 ]
+  printf '7' > "$D/.last-number"
+  run --separate-stderr "$DISK" create "$D" "T" "$BATS_TEST_TMPDIR/body.md"
+  [ "$status" -eq 0 ]
+  [ "$output" = 8 ]
+}
+
+@test "disk: under Git Bash the module path reaches python in its mixed form" {
+  # A cygpath shim maps /x to C:/x; a python3 shim refuses any MSYS-form
+  # script path, as native Windows python would (it reads /c/... as C:\c\...).
+  mkdir -p "$BATS_TEST_TMPDIR/msys"
+  printf '#!/usr/bin/env bash\n[ "$1" = -m ] && shift; case "$1" in /*) printf "C:%%s\\n" "$1" ;; *) printf "%%s\\n" "$1" ;; esac\n' \
+    > "$BATS_TEST_TMPDIR/msys/cygpath"
+  chmod +x "$BATS_TEST_TMPDIR/msys/cygpath"
+  export PATH="$BATS_TEST_TMPDIR/msys:$PATH"
+  py_shim 'case "${1:-}" in C:/*) set -- "${1#C:}" "${@:2}" ;; /*disk-issue.py) echo "cannot open $1" >&2; exit 2 ;; esac'
+  cp "$FIX/full.md" "$D/2.md"
+  run --separate-stderr "$DISK" state "$D" 2
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$output" = closed ]
+}

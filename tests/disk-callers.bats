@@ -254,6 +254,16 @@ _file_disk() {
   [ ! -e "$STUB_LOG" ]
 }
 
+@test "callers: file.sh keeps an exported repo over the config's when it reads the backend from config" {
+  _file_disk github
+  export DEVAGENT_ISSUE_BACKEND_DIR="$STUB_DIR" DEVAGENT_PERMISSION_PUSH_MR=true DEVAGENT_REPO_ORIGIN=scratch/repo
+  printf '#!/usr/bin/env bash\necho "$*" >> "%s"\necho 7\n' "$STUB_LOG" > "$STUB_DIR/github.sh"
+  run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [[ "$(cat "$STUB_LOG")" == "create scratch/repo "* ]]
+  grep -qx 'repo = "scratch/repo"' "$DEVDOC/Captures/idea/filed.toml"
+}
+
 @test "callers: file.sh refuses a disk id that is not a number" {
   _file_disk
   printf '#!/usr/bin/env bash\necho 1/2\n' > "$STUB_DIR/disk.sh"

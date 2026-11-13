@@ -102,7 +102,12 @@ _disk_folder() {
   if [ ! -d "$dir" ] || [ ! -r "$dir" ] || [ ! -x "$dir" ] || ! cd -- "$dir" 2>/dev/null; then
     _disk_die 1 "the issues folder named by issue_source.repo is missing or unreadable"
   fi
-  DISK_PY=("$PY" "${SCRIPT_DIR}/../lib/disk-issue.py")
+  # Under Git Bash the module path is an MSYS path (/c/...), which a native
+  # Windows python cannot open once MSYS path conversion is off (_disk_mod),
+  # so it gets the same `cygpath -m` treatment as create's body file.
+  local mod="${SCRIPT_DIR}/../lib/disk-issue.py"
+  if command -v cygpath >/dev/null 2>&1; then mod="$(cygpath -m "$mod")"; fi
+  DISK_PY=("$PY" "$mod")
 }
 
 # _disk_mod <verb> <args…>: the format module, with MSYS path conversion off
@@ -431,6 +436,7 @@ cmd_create() {
       || _disk_die 1 "cannot read .last-number in the folder named by issue_source.repo"
     orig="${orig%x}"
     last="${orig%$'\n'}"
+    last="${last%$'\r'}"   # a Git for Windows checkout writes CRLF
     [[ "$last" =~ ^[1-9][0-9]{0,17}$ ]] \
       || _disk_die 1 ".last-number in the folder named by issue_source.repo is not an issue number"
   fi
