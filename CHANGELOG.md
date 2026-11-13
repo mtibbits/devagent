@@ -26,8 +26,8 @@ the README's "Versioning & releases" section has the release procedure.
   `priority (P0-P4)` by hand.
 - **Changed: the WBS priority warning names P0 (#889).** It now reads
   `line N: priority '<v>' is not P0, P1, P2, P3 or P4; ignored` (3.0.0 said
-  `is not P1, P2, P3 or P4`). Not breaking: only the message text changes,
-  and a script matching the old text must update.
+  `is not P1, P2, P3 or P4`). Not breaking: no command, flag or file format
+  changes meaning; a script matching the old warning text must update.
 - **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
   `depends_on` entry may name another configured project's issue as
   `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the
