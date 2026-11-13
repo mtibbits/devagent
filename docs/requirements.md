@@ -521,6 +521,9 @@ tracker.
 - FR-69: devagent keeps the `satisfies`, `objective` and `h` keys of a
   `WBS.md` node as written, validates and publishes them, and makes no
   workflow decision from them. {refines: SR-9}
+- FR-139: devagent keeps a `WBS.md` node's `thinking` and `checking` keys
+  as written, warns when a value is not one model token, and makes no
+  workflow decision from them. {refines: SR-9}
 - FR-70: devagent's status report covers the time since the last pin in a
   dated file under the devdoc's `StatusReports/`, lists work done, stuck,
   idle and poorly scoped issues, failed red-teams, dispatch-lint rejects, a
@@ -549,6 +552,10 @@ tracker.
   stderr. A leaf is ready only when it is pending, every dependency of the
   leaf and of its ancestors resolves to a done row, and no ancestor is
   parked, stuck, waiting or skipped.
+  {refines: SR-10}
+- FR-140: devagent's portfolio publishes each leaf's planned thinking and
+  checking model, from the leaf, else the project's `step_models` class
+  then default, and reports each value that is not a model token.
   {refines: SR-10}
 
 ### Harvesting follow-ups

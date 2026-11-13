@@ -587,13 +587,11 @@ EOF
 @test "a missing backend CLI is no-lookup, not failure (#703)" {
   _config github acme/testproj no
   unset DEVAGENT_ISSUE_BACKEND_DIR
-  local stripped
-  stripped="$(_path_without gh)"
-  # Probe before applying: where gh shares /usr/bin (GitHub runners), the
-  # stripped PATH also loses rm, and teardown runs under the test's PATH.
-  (PATH="$stripped"; command -v python3 >/dev/null) || skip "gh shares a PATH dir with python3 here"
-  PATH="$stripped"
-  export PATH
+  # Hide gh alone: a dir that holds gh (often /usr/bin) is shadowed by one that
+  # links everything else, so rm, mkdir and python3 stay. Dropping the whole dir
+  # lost them, and a python3 elsewhere on PATH (a venv) defeated the skip probe.
+  load 'lib/doctor-harness'
+  curated_path_without gh >/dev/null
   run command -v gh
   [ "$status" -ne 0 ]
   printf '%s\n' '# testproj WBS' '' '- [ ] One {issue: Issue-1, est: 1w}' > "$TMPDEV/WBS.md"

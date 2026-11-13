@@ -1,5 +1,7 @@
 # Runs the full bats and pytest test suites on every push/PR.
-# bats 1.10.0-1 and python3-pytest 7.4.4 ship on ubuntu-24.04 via apt.
+# bats 1.10.0-1 and python3-pytest 7.4.4 ship on ubuntu-24.04 via apt; the
+# bats job also installs pandoc (#841) so tests/build-docs-site.bats runs here
+# un-skipped.
 # Tests are hermetic: stubs replace gh/glab/curl; HOME is redirected
 # per test; fixture HTTP server runs on a random port.
 # claude plugin validate: the strict gate and the tag dry-run are the local
@@ -49,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bats parallel
+          sudo apt-get install -y --no-install-recommends bats parallel pandoc
           # GNU parallel prints a citation notice on every run until told
           # otherwise; the bats manual's remedy for --jobs is this marker file.
           mkdir -p ~/.parallel && touch ~/.parallel/will-cite

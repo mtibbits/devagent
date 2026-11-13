@@ -22,6 +22,32 @@ the README's "Versioning & releases" section has the release procedure.
   fields and exit codes. Writes are atomic, keep each file's line endings, BOM
   and mode, never edit a faulty file, and never overwrite on `create`.
   `docs/disk-issues.md` documents the format. No caller uses it yet.
+- **Changed: the docs-site build accepts hand-written pages, asset folders
+  and moved-page stubs (#995; closes #840, #841).** A `docs-site/<name>.html`
+  page gets the same template, nav and footer as a Markdown page, with its
+  body inserted byte for byte; `docs-site/assets/` and
+  `scripts/docs-site/static/` (or `--static`) are copied to the site; each
+  `docs-site/moved.txt` line writes a stub that links an old page name to its
+  new home. The link check now reads `src` and `srcset` too and refuses
+  root-absolute and `..` paths. The nav is read from the index's own list
+  outside code fences (#840), a missing awk exits 3 naming it, and the
+  `test suite` workflow installs pandoc so `tests/build-docs-site.bats` runs
+  there un-skipped (#841). The six 1.0 pages render unchanged.
+- **Fixed: hook commands quote `${CLAUDE_PLUGIN_ROOT}` (#532).** An install
+  path with a space no longer splits a hook command into several words, and
+  `claude plugin validate --strict` passes again on Claude Code 2.1.321 and
+  later, which warn on the unquoted form. (Also: the #703 and #704 "missing
+  gh" tests now hide `gh` alone, so they run on Ubuntu.)
+
+- **Added: WBS `thinking`/`checking` keys and the portfolio `models` field
+  (#890).** A `WBS.md` node may carry `thinking` and `checking`, each one
+  `model_token_allowlist` token, as the model its steps are planned to run
+  on; `wbs show` warns once on any other value. The portfolio document
+  (schema 1.2) publishes each leaf's planned model per class as the optional
+  `projects[].nodes[].models`, falling back to the project's `step_models`
+  class then `default`, and reports each bad value under the new `bad_model`
+  kind. A 1.1 reader still reads a 1.2 document. devagent makes no workflow
+  decision from the keys.
 
 - **Changed: cleanup commits only the devDoc paths it owns (#749).** The
   devdoc commit carries the issue dir, plus `WBS.md` when it changed, and

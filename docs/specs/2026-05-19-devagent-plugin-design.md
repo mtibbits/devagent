@@ -66,7 +66,7 @@ devAgent/
 │   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
-├── docs-site/               # #461: audience-facing onboarding pages (six + drift policy);
+├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── commands/                # one .md file per command-form slash command (57)
@@ -92,7 +92,7 @@ devAgent/
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
-│   ├── docs-site/           # #465: pandoc template + link filter for build-docs-site.sh
+│   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),
@@ -1112,7 +1112,9 @@ runs each step (surfacing #150; dispatch #151; per-issue override #291).
 Implemented in `scripts/lib/config.sh` (`step_models_tier`) and
 `scripts/step-model.sh`. The table is entirely optional — **absent, output
 is byte-identical to no tiering** (the resolver returns "no tier" and the
-step runs at the session model).
+step runs at the session model). The portfolio's per-leaf `models` field
+(#890) reads the `thinking`, `checking` and `default` keys only; numeric
+per-step keys are ignored there.
 
 Steps map to three fixed classes by canonical step number:
 
@@ -1746,7 +1748,8 @@ Gate set:
 
 Deterministic enforcement lives in `hooks/`: `hooks/hooks.json` registers the
 plugin's hooks (each `command` handler is a bash script under `hooks/`, invoked as
-`"${CLAUDE_PLUGIN_ROOT}"/hooks/<name>.sh` with a per-hook `timeout: 5`). The layout
+`"${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh"`, quoted so a path with a space stays one
+word, with a per-hook `timeout: 5`). The layout
 is settled by #352/#396; `hooks/lib/hook-common.sh` single-sources the shared
 conventions every guard child inherits (the guidance: *when a skill stops steering
 behavior, enforce with a hook*). Adding a hook EXTENDS `hooks.json`, never replaces it.
@@ -2507,7 +2510,7 @@ without changing the operator-facing format.
 
 Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
-`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`.
+`start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
 `priority` (`P1` to `P4`, P1 the most urgent) ranks a node among its siblings (#803; see Ordering below).
 `satisfies` traces a leaf to the requirements it serves, and `objective`
@@ -2526,6 +2529,19 @@ each distinct failing entry warns once:
 - `line N: h '<v>' is not an integer from 0 to 4`
 
 The `h` rule (`h_value`) is also the portfolio's (#726).
+
+`thinking` and `checking` (#890) name the model a leaf's thinking-class and
+checking-class steps are planned to run on: each is one token of
+`model_token_allowlist` (`scripts/lib/flags.sh`), `inherit` meaning the
+session model, and either key may appear alone. They record a plan:
+devagent never acts on them, and `meta` keeps them as written. A value that
+is not one token (matched case-sensitively, as written) is a node parse
+warning that `wbs show` prints once:
+
+- `line N: thinking '<v>' is not one of: <tokens>` (and likewise for `checking`)
+
+The rule (`model_value`) is also the portfolio's, which publishes each leaf's
+planned `models` (§13.4).
 
 `wbs update` writes
 `status_src` (`tracker`, `checklist` or `mr`): where a leaf's glyph came
@@ -2859,7 +2875,10 @@ and `WBS.md`, writes the document owner-only under `devagent_home` (never
 under a devdoc, source checkout or worktree root), and lists everything the
 parser reads silently in `parse_report`. It writes (or, under `--ready`,
 prints) only when the document passes both the structural checker and its own
-cross-field invariants I1–I16; the checker's exit 0 alone is not correctness.
+cross-field invariants I1–I17; the checker's exit 0 alone is not correctness.
+Since schema 1.2 (#890) the document also publishes each leaf's planned
+`models`, from its `thinking`/`checking` keys, else the project's
+`step_models`; it records the plan, not the model a step ran on.
 
 #727 fills the readiness fields (`ready`, `ready_via_parent_row`,
 `depends_on[].resolved`) by the rule in `commands/portfolio.md`, and
