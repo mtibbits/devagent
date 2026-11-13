@@ -20,6 +20,8 @@
 #      0 for a reason about the whole file.
 #   2  usage, or <out-dir> missing, not a directory, or holding no files; the
 #      last stderr line is the usage line
+#   4  this python's html.parser lacks the 2025 fixes (a start-up self-test),
+#      so the guards below do not hold; nothing was scanned
 #   any other status (Python's uncaught-exception 1 included): the scan did
 #      not complete. There is no broad except: a fault is never a pass.
 #
@@ -56,7 +58,9 @@
 #   - URLs assembled at run time ("https" + ":/" + "/" + host, atob(…)) pass;
 #   - text content a script reads and fetches passes;
 #   - the JS tokenizer guesses regex versus division after ")" and "}" as
-#     division: "if (x) /'/.test(s); var u = '//h'" can hide a string;
+#     division: "if (x) /'/.test(s); var u = '//h'" can hide a string (after
+#     a property name, of, await or yield it also guesses division, which
+#     scans a regex as code: an over-refusal at worst);
 #   - a data: URL in an attribute or CSS is exempt whole: its payload is not
 #     decoded, so a data: stylesheet's @import passes (in a JS string a data:
 #     URL is scanned like any other text);
@@ -64,9 +68,13 @@
 #     name w3.org: fetch("http://www.w3.org/2000/svg") passes;
 #   - html.parser divergences from a browser other than the refused shapes.
 #     The guards are measured against parsers that carry the 2025 html.parser
-#     security fixes (python 3.10.12 Ubuntu, 3.13.14); an unpatched parser
+#     security fixes (python 3.10.12 Ubuntu, 3.13.14). An unpatched parser
 #     ends a script only at "</script>" with optional spaces, so
-#     "</script x>" can hide markup from it.
+#     "</script x>" could hide markup from it: the scanner refuses to run on
+#     one (exit 4). The tree model is the parser's tokens plus: open <svg>/
+#     <math> roots as a stack (sticky after a start tag in an integration
+#     point), <head> closing rules, and the raw-text elements listed below;
+#     a browser's other tree-construction rules are not modelled.
 # Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
 # (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
 # no <script> (.svg, any namespace prefix) and no on*= handler (both). A worker
@@ -88,7 +96,11 @@
 #   - a <style>, <script>, <title> or <textarea> inside <noscript> (a
 #     <noscript><style> fallback included);
 #   - a CSP meta after any start tag other than <html> before <head>, even
-#     one a browser would put in an implied head (<html><meta charset><head>).
+#     one a browser would put in an implied head (<html><meta charset><head>);
+#   - after an element opened inside <foreignObject>, <desc>, <title>, <mi>,
+#     <mo>, <mn>, <ms>, <mtext> or <annotation-xml>, the rest of the file is
+#     treated as inside <svg>/<math> (markup or "&" in a later <style> or
+#     <script> body is refused).
 import html.parser as _hp
 import os
 import re
@@ -194,9 +206,11 @@ def remote(value, ctx, where):
 # url() arguments and comments begin and end. They never decode escapes.
 # Each returns (tokens, errors): tokens are (value, line, kind), errors
 # (reason, line).
+# Reserved words after which a "/" starts a regex. Not of, await or yield: they
+# can be identifiers, and reading a regex as division only scans more text.
 JS_REGEX_AFTER = {
-    "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
-    "throw", "case", "do", "else", "yield", "await",
+    "return", "typeof", "instanceof", "in", "new", "delete", "void",
+    "throw", "case", "do", "else",
 }
 JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*")
 JS_NUMBER_RE = re.compile(r"\.?[0-9][A-Za-z0-9_.]*")
@@ -347,7 +361,11 @@ def js_tokens(text, line0=1, module=False):
             continue
         m = JS_IDENT_RE.match(text, i)
         if m:
-            regex_ok = m.group(0) in JS_REGEX_AFTER
+            # a property name (o.in, o?.do) is an operand whatever its spelling
+            k = i - 1
+            while k >= 0 and text[k].isspace():
+                k -= 1
+            regex_ok = m.group(0) in JS_REGEX_AFTER and not (k >= 0 and text[k] == ".")
             i = m.end()
             continue
         m = JS_NUMBER_RE.match(text, i)
@@ -416,6 +434,12 @@ def css_tokens(text, line0=1):
 # ---------------------------------------------------------------- markup rules
 REFUSED_TAGS = {"iframe", "frame", "object", "embed"}
 FOREIGN_TAGS = {"svg", "math"}
+# Children of these parse as HTML in a browser. While an HTML element opened in
+# one is open, a browser ignores </svg> and </math>; the scanner does not model
+# which are open, so after any start tag in one, its foreign root stays open to
+# the end of the file (an over-refusal, never a miss).
+INTEGRATION_TAGS = {"foreignobject", "desc", "title",
+                    "mi", "mo", "mn", "ms", "mtext", "annotation-xml"}
 DOC_TAGS = {"html", "head", "body", "script"}
 RESOURCE_TAGS = {"script", "link", "style", "img"}
 # Elements a browser reads as text to their end tag. Where this Python's parser
@@ -689,6 +713,8 @@ class _Html(_hp.HTMLParser):
         self.s, self.rel = scan, rel
         self.is_doc = top_level
         self.foreign = []         # open <svg>/<math> roots
+        self.integration = 0      # open INTEGRATION_TAGS inside them
+        self.sticky = False       # a start tag inside one: foreign to the end of the file
         self.raw = []             # open elements in COMMENT_HIDES_IN
         self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign, module]
         self.on_attrs = []        # (line, name): refused at the end if a fragment
@@ -764,8 +790,12 @@ class _Html(_hp.HTMLParser):
             if name.startswith("on"):
                 self.on_attrs.append((line, name))
             self.s.attr(self.rel, tag, name, value, line)
+        if self.integration:
+            self.sticky = True
         if closing:
             return
+        if self.foreign and tag in INTEGRATION_TAGS:
+            self.integration += 1
         if tag in FOREIGN_TAGS:
             self.foreign.append(tag)
         if tag in COMMENT_HIDES_IN:
@@ -780,9 +810,14 @@ class _Html(_hp.HTMLParser):
     def handle_endtag(self, tag):
         if self.pending and tag == self.pending[0]:
             self.flush()
+        if self.foreign and tag in INTEGRATION_TAGS and self.integration:
+            self.integration -= 1
         # a browser in foreign content ignores an end tag with no open match
         # (a stray </math> inside <svg>)
-        _pop_to(self.foreign, tag)
+        if not self.sticky:
+            _pop_to(self.foreign, tag)
+            if not self.foreign:
+                self.integration = 0
         _pop_to(self.raw, tag)
         _pop_to(self.inert, tag)
         if tag == "title":
@@ -844,6 +879,21 @@ class _Html(_hp.HTMLParser):
             self.refuse(line, "the Content-Security-Policy meta comes after a <%s>" % after)
 
 
+def parser_has_2025_fixes():
+    """A browser ends a raw-text element at "</style x>"; an html.parser without
+    the 2025 fixes reads on to "</style>" and would hide the markup between."""
+    seen = []
+
+    class Probe(_hp.HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            seen.append(tag)
+
+    p = Probe(convert_charrefs=True)
+    p.feed("<style></style x><b>")
+    p.close()
+    return "b" in seen
+
+
 def main(argv):
     args = argv[1:]
     if args and args[0] == "--":
@@ -855,6 +905,11 @@ def main(argv):
     root = args[0]
     if not os.path.isdir(root):
         usage_error("not a directory: %s" % root)
+    if not parser_has_2025_fixes():
+        sys.stderr.write("check-fetches: this python's html.parser ends <style> only at "
+                         "</style> (it lacks the 2025 fixes); the parse-divergence guards "
+                         "assume a parser that ends it at </style x> as a browser does\n")
+        sys.exit(4)
     scan = Scan(root)
     scan.walk()
     if scan.total == 0:

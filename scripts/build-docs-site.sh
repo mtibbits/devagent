@@ -35,8 +35,9 @@
 #                absent; a dir given here must exist)
 #
 # Requires pandoc 3.x (CI installs the ubuntu-24.04 package), awk (the nav
-# and title readers; gawk and mawk both work) and python3 3.8+
-# (${DEVAGENT_PYTHON:-python3}, for scripts/docs-site/check-fetches.py). An
+# and title readers; gawk and mawk both work) and python3 3.8+ with the 2025
+# html.parser fixes (${DEVAGENT_PYTHON:-python3}, for
+# scripts/docs-site/check-fetches.py, which tests for them). An
 # older pandoc is refused up front: its failures would otherwise be reported
 # against a page.
 #
@@ -65,8 +66,9 @@
 #      cannot read, or the words
 #      "private preview"; stderr has one "check-fetches: <file>:<line>: <reason>"
 #      line per violation
-#   8  the fetch scan did not complete (the scanner crashed or exited with a
-#      status other than 0 or 3); the site was not checked
+#   8  the fetch scan did not complete (the scanner crashed, or exited with a
+#      status other than 0 or 3, e.g. 4 for a python whose html.parser lacks
+#      the 2025 fixes); the site was not checked
 # (--help prints this header: everything above the first non-comment line.)
 set -euo pipefail
 

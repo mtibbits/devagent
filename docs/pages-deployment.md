@@ -16,8 +16,9 @@ and open.
 bash scripts/build-docs-site.sh --out /tmp/devagent-site
 ```
 
-Needs pandoc 3.x, awk and python3 3.8+ (`DEVAGENT_PYTHON` names another
-interpreter). `--out` must be absent or empty; the script never deletes.
+Needs pandoc 3.x, awk and python3 3.8+ whose html.parser carries the 2025
+security fixes (`DEVAGENT_PYTHON` names another interpreter; the scan exits 8
+on one without them). `--out` must be absent or empty; the script never deletes.
 A build that breaks the site's fetch policy exits 7, and one whose fetch scan
 did not complete exits 8 (`docs-site/README.md`, "What the site may load").
 Open `/tmp/devagent-site/index.html` (checked under the site CSP on

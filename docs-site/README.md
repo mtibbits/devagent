@@ -168,7 +168,9 @@ and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
   scanner's header lists them).
 - *Exit codes.* A violation makes the build exit 7, with one
   `check-fetches: <file>:<line>: <reason>` line per violation. Exit 8 means
-  the scan did not complete, so the site was not checked.
+  the scan did not complete, so the site was not checked. That includes a
+  python whose html.parser lacks the 2025 security fixes: the scanner tests
+  for them at start-up and refuses to scan without them.
 - *Over-refusals to rephrase.* Some safe text is refused anyway. Rephrase it
   rather than fight the scanner:
   - a remote URL in an attribute that does not navigate (`title=`, `alt=`,

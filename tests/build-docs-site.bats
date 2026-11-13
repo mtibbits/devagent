@@ -95,6 +95,10 @@ scan() { scan_args "$FX/site"; }
 # python3 -c "$FAULT_PY" <scanner> <args...>.
 FAULT_PY='import runpy, sys, html.parser as h; h.HTMLParser.goahead = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")'
 
+# The scanner with html.parser made to end raw text only at "</style>" (the
+# pre-2025 rule): python3 -c "$OLD_PARSER_PY" <scanner> <args...>.
+OLD_PARSER_PY='import re, runpy, sys, html.parser as h; o = h.HTMLParser.set_cdata_mode; h.HTMLParser.set_cdata_mode = lambda self, elem, *a, **k: (o(self, elem, *a, **k), setattr(self, "interesting", re.compile(r"</\s*%s\s*>" % self.cdata_elem, re.I)))[0]; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")'
+
 # The head of a document up to where its CSP meta goes.
 DOC_HEAD=('<!DOCTYPE html>' '<html lang="en"><head>' '<meta charset="utf-8">')
 
@@ -1173,6 +1177,13 @@ css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
   sc_n=0
   js_row 3 'remote URL in a JS string' "var r = /'/; var u = \"$OH/x\";"
   js_row 0 '' "var r = /'/; var u = \"assets/x\";"
+  # "/" after a property name or an identifier spelled of/await/yield is
+  # division, so it does not open a regex that hides the string
+  js_row 3 'remote URL in a JS string' "var of = 1; y = of / 2; fetch(\"$OH/x\") // \""
+  js_row 3 'remote URL in a JS string' "y = o.in / 2; fetch(\"$OH/x\") // \""
+  js_row 3 'remote URL in a JS string' "var await = 4; y = await / 2; fetch(\"$OH/x\") // \""
+  # control: a regex after return still holds its quote
+  js_row 0 '' 'function f(s) { return /"/.test(s); } var u = "assets/x";'
 }
 
 @test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
@@ -1477,6 +1488,17 @@ EOF
   [[ "$output" != *"built 1 pages"* ]]
 }
 
+@test "build-docs-site: check-fetches — an html.parser without the 2025 fixes: the scanner refuses to run (exit 4)" {
+  fx_doc index.html '<p>x</p>'
+  run python3 -I -X utf8 -c "$OLD_PARSER_PY" "$SCANNER" "$FX/site"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"lacks the 2025 fixes"* ]]
+  [[ "$output" != *"check-fetches: ok:"* ]]
+  # positive control: this python's own parser passes the self-test
+  run scan
+  [ "$status" -eq 0 ]
+}
+
 @test "build-docs-site: check-fetches — a fault inside the scanner exits neither 0 nor 3" {
   fx_doc index.html '<p>x</p>'
   run python3 -I -X utf8 -c "$FAULT_PY" "$SCANNER" "$FX/site"
@@ -1575,6 +1597,17 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   sc_row 3 static/partial.html '<svg' "$mk"
   sc_new; fx_sf static/partial.html '<svg></math><style><img src=//other.host/p.png></style></svg>'
   sc_row 3 static/partial.html '<svg' "$mk"
+  # with an element open inside an integration point a browser ignores
+  # </svg> and </math>, so the <style> after them is still foreign
+  local ip
+  for ip in '<svg><foreignObject>|</svg>' '<svg><desc>|</svg>' '<math><mi>|</math>'; do
+    sc_new; fx_sf static/partial.html "${ip%|*}<div>${ip#*|}</div><style><img src=\"$OH/p.png\"></style>${ip#*|}"
+    sc_row 3 static/partial.html "${ip%|*}" "$mk"
+  done
+  sc_new; fx_sf static/partial.html '<svg><foreignObject><div></svg></div></foreignObject><style><script>document.title = 1</script></style></svg>'
+  sc_row 3 static/partial.html '<svg' "$mk"
+  # control: an icon's <title> holds only text, so <svg> ends at </svg>
+  html_row 0 '' '' '<svg><title>Icon</title><rect width="8" height="8"/></svg>' '<script>var ok = a && b;</script>'
   # the accessible-icon idiom, with an entity and a bare "<", still passes
   html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
 }
