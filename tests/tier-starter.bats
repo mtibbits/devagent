@@ -53,3 +53,10 @@ _row_nums() {
   next="$(grep -A1 -E '^\| starter \| ' "$spec" | sed -n 2p)"
   [[ "$next" == '| simple | RESERVED'* ]]
 }
+
+# --- Task 4: spec §12 registry ---------------------------------------------------
+
+@test "spec §12 registry carries checklist-starter (#989)" {
+  spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  grep -qE '^\| `checklist-starter` \| checklist-init' "$spec"
+}

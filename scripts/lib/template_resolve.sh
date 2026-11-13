@@ -42,6 +42,8 @@ DEVAGENT_TEMPLATE_KEYS=(
   checklist-perf
   checklist-docs-only
   checklist-research
+  checklist-oneshot
+  checklist-starter
   revision_block
   intent_template
   potholes

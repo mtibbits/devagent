@@ -120,3 +120,9 @@ EOC
   [ "$nums" = '0 2 8 9 11 12 14 15 17 18 19 20 24' ]
   grep -qE '^- \[-\] 19\. mergetoall$' "$f"
 }
+
+@test "checklist-init.sh usage names oneshot and starter (#989)" {
+  run "$PLUGIN_ROOT/scripts/checklist-init.sh" --help
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"| oneshot | starter"* ]]
+}
