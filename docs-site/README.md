@@ -128,12 +128,52 @@ whose old name is still a content page, is `README`, or repeats an old name,
 exits 4; a new home that is not a content page this build produces (a missing
 page, the stub itself, or another stub) exits 6.
 
-**The fetch ban is still in force.** On the real build,
-`tests/build-docs-site.bats` fails if any rendered file, assets included,
-contains `<script`, `<link `, `<img `, `<iframe`, ` src=`, `@import` or
-`url(`, or the words "private preview". So no tracked page or asset may carry
-those strings until #1030 replaces the ban with an allowlist. Fixture builds
-in that suite are not subject to it.
+**What the site may load.** After link closure, every build runs
+`scripts/docs-site/check-fetches.py` over everything it wrote (#1030). A page
+may load this site's own files by relative path, inline `<style>`, `<script>`
+and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
+
+- *Where the scan looks.* It checks every place a browser could fetch from:
+  HTML and SVG attributes (`src`, `srcset`, `href` on `<link>`, `background`,
+  SVG `href` and `xlink:href`, and the rest), inline `<script>` and `<style>`
+  bodies, `style=` and `on*=` attributes, string literals and template chunks
+  in `.js`/`.mjs`, and strings and `url()` in `.css`. The scanner's header
+  lists the contexts and its known blind spots. `href` on `<a>` and `<area>`
+  is navigation, not a fetch: only `javascript:` is refused there.
+- *Files.* `.html`, `.htm`, `.svg`, `.js`, `.mjs` and `.css` files are
+  scanned and must be UTF-8. Files of the listed binary types (`.png .jpg
+  .jpeg .gif .webp .avif .ico .bmp .woff .woff2 .ttf .otf .glb .bin`) are
+  counted and never opened. Any other file type is refused, and so are a
+  hidden file, a file with no extension, and a symlink. (#1003 adds the
+  vendored folder. Until then the "vendored" count is always 0.)
+- *Documents and fragments.* Every top-level `.html` file is a document. So
+  is a deeper one that has an `<html>`, `<head>`, `<body>` or `<script>` tag.
+  A document carries exactly one Content-Security-Policy `<meta>` with the
+  site policy. It sits inside `<head>`, before any `<script>`, `<link>`,
+  `<style>` or `<img>`. The policy is not quoted here: it is `POLICY` in
+  `check-fetches.py`, which names its four homes. A policy change edits all
+  four in one reviewed change. A deeper `.html` file without those tags is a
+  fragment and needs no meta.
+- *Surfaces with no CSP.* An `.svg` file opened on its own runs its scripts
+  with no policy, and a fragment has no policy of its own. So an `.svg` file
+  may hold no `<script>`, and neither an `.svg` file nor a fragment may hold
+  an `on*=` handler. #996's partials wire `family.js` with
+  `addEventListener`.
+- *Refused outright.* `<iframe>`, `<frame>`, `<object>`, `<embed>`,
+  `<script type="speculationrules">`, the words "private preview", and the
+  markup shapes that the scanner and a browser parse differently (the
+  scanner's header lists them).
+- *Exit codes.* A violation makes the build exit 7, with one
+  `check-fetches: <file>:<line>: <reason>` line per violation. Exit 8 means
+  the scan did not complete, so the site was not checked.
+- *Over-refusals to rephrase.* Some safe text is refused anyway. Rephrase it
+  rather than fight the scanner:
+  - a remote URL in an attribute that does not navigate (`title=`, `alt=`,
+    `aria-label=`, `data-*=`, `<meta content=…>`), including a mention like
+    `file: x`: put the URL in link text or an `<a href>` instead;
+  - a JS string that is just `"https:"`;
+  - inline JS that builds a `'<script'` or `'<!--'` string: split it, as in
+    `'<scr' + 'ipt'`.
 
 **Deploy hold.** The website 2.0 epic (#994) holds publishing: the repository
 variable `DOCS_SITE_DEPLOY` is set to `false` before #995 merges, and stays

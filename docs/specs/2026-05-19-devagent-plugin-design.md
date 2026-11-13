@@ -90,7 +90,8 @@ devAgent/
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
-│   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh
+│   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh;
+│   │                        #   fetch-policy scanner check-fetches.py (#1030)
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),

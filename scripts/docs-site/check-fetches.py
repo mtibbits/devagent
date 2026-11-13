@@ -34,6 +34,39 @@
 #   5. a scanned file must be strict UTF-8;
 #   6. no scanned file may hold the words "private preview" (any case, any
 #      whitespace between).
+#
+# Scan contexts (remote() has the per-context rules):
+#   .html/.htm  html.parser: every attribute value (style= as CSS, on*= as JS,
+#               srcset/imagesrcset per candidate, ping per token, href on <a>
+#               and <area> as navigation, xmlns as a namespace), <script> bodies
+#               as JS (import maps included), <style> bodies as CSS; refused
+#               elements; the parse-divergence guards; the CSP rule.
+#   .svg        expat (entities expanded, script and style text decoded): the
+#               same attribute rules; no DOCTYPE internal subset, no processing
+#               instruction, well-formed XML only.
+#   .js/.mjs    every string literal and static template chunk.
+#   .css        every string and unquoted url() argument.
+# Text content and comments are not checked: they cannot fetch.
+#
+# Known blind spots, covered only by the CSP:
+#   - JS and CSS escapes are not decoded: "https\x3a//other.host" and
+#     u\rl(//other.host) pass;
+#   - URLs assembled at run time ("https" + ":/" + "/" + host, atob(…)) pass;
+#   - text content a script reads and fetches passes;
+#   - the JS tokenizer guesses regex versus division after ")" and "}" as
+#     division: "if (x) /'/.test(s); var u = '//h'" can hide a string;
+#   - html.parser divergences from a browser other than the refused shapes.
+# Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
+# (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
+# no <script> (.svg) and no on*= handler (both).
+# Known over-refusals (measured; rephrase rather than fight them):
+#   - a remote URL in an attribute that does not navigate: title=, alt=,
+#     aria-label=, data-*=, <meta content=…>, a "file: x" mention included;
+#   - a JS string that is just "https:";
+#   - inline JS that builds a '<script' or '<!--' string;
+#   - "&" in an inline <svg> or <math> <script> or <style>;
+#   - a <![CDATA[ section in an .html file, inline SVG included;
+#   - a non-JS <script type> whose body has an unbalanced quote.
 import html.parser as _hp
 import os
 import re
