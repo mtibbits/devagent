@@ -735,3 +735,20 @@ _target_repo() {
     [[ "$output" == *"fork_only=true requires code_source.fork to be set"* ]]
     [[ "$output" != *"target="* ]]
 }
+
+@test "ship on a starter checklist refuses while preship is pending and passes once it is [x] (#989)" {
+    _install_real_git_except_push_stub
+    _one_commit_ahead feat/1-x
+    make_starter_issue 15
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 17 ' ' preship
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"preship is non-terminal (preship:[ ])"* ]]
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 ' ' ship
+    devagent_refute_logged "gh pr create"
+    mark_step "$DEVDOC_DIR/Issue-1/checklist.md" 17 x
+    run "$DEVAGENT_ROOT/scripts/ship.sh" "$TEST_PROJECT" Issue-1
+    [ "$status" -eq 0 ]
+    devagent_assert_logged "gh pr create --repo acme/testproj"
+    assert_step "$DEVDOC_DIR/Issue-1/checklist.md" 18 x ship
+}
