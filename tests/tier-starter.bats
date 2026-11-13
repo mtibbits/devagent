@@ -91,7 +91,7 @@ _flat() { awk "$2" "$1" | tr '\n' ' ' | tr -s ' '; }
   grep -qF -- 'no tighten row' <<<"$x"
   grep -qF -- '**and** the tighten step (7)' <<<"$x"
   grep -qF -- 'with a tighten row (standard, perf) still halts' <<<"$x"
-  grep -qF -- 'checklist omits draft' <<<"$x"
+  grep -qF -- 'active revision block omits draft' <<<"$x"
   grep -qF -- 'are not unchecked items' <<<"$x"
 }
 

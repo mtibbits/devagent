@@ -20,8 +20,9 @@ the README's "Versioning & releases" section has the release procedure.
   implement: pull, draft, branch, implement, document, commit, draftmr,
   review, preship, ship, mergetoall (skipped unless `all_prs_branch` is
   set), mergemr and cleanup. Choose it per issue with `tier: starter` in
-  `## Workflow flags` or `revise.sh --retier starter`; no config default
-  changes.
+  `## Workflow flags` before the first pull; no config default changes. A
+  later MR-feedback revise appends the standard-shaped revision block, as
+  for every non-standard tier.
 - **Fixed: implement and document no longer halt on a plan with no
   `## Definition of done` when the active revision block has no tighten
   row (#989).** Tighten writes that section, so on `docs-only`, `research`
