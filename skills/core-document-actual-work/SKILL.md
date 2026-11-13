@@ -110,7 +110,14 @@ n=-1 also failed the assertion. Extended to cover that case.
   AND not justifiable as "discovered" — surfaces possible scope creep.
 - A planned task has no corresponding commit (was it really skipped?
   is the diff comparison broken?).
-- The plan's Definition of done has unchecked items.
+- The plan's Definition of done has unchecked items. When the plan has
+  no `## Definition of done` and the active revision block has no tighten
+  row (e.g. starter, docs-only, research), this is not applicable: tighten
+  produces the Definition of done, so the plan's tasks and the issue's
+  acceptance criteria are the work statement, and the unticked
+  acceptance-criteria boxes in the issue body are not unchecked items.
+  A Definition of done that is present is still checked on every tier. An
+  active block with a tighten row (standard, perf) still halts.
 
 When the branch step (8) is absent from the issue's checklist (e.g. research),
 there is no `baseline_sha` and no diff baseline — that is N/A and expected, not a

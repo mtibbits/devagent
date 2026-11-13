@@ -60,3 +60,59 @@ _row_nums() {
   spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
   grep -qE '^\| `checklist-starter` \| checklist-init' "$spec"
 }
+
+# --- Task 6: Definition-of-done not-applicable clause at the four sites ------
+
+# _flat <file> <awk-program>: extract a section and flatten whitespace.
+_flat() { awk "$2" "$1" | tr '\n' ' ' | tr -s ' '; }
+
+@test "DoD clause — implement item 3: N/A with no tighten row, halts with one, no-draft clause kept (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/commands/implement.md" '/^3\. Verify `imPlan.md`/{f=1} /^4\. /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- 'no tighten row' <<<"$x"
+  grep -qF -- 'tighten produces the Definition of done' <<<"$x"
+  grep -qF -- 'with a tighten row (standard, perf) still halts' <<<"$x"
+  grep -qF -- 'contains no draft row (step 2)' <<<"$x"
+}
+
+@test "DoD clause — implement item 4 re-points to the no-draft carve-out (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/commands/implement.md" '/^4\. Invoke/{f=1} /^5\. /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- "per item 3's no-draft carve-out" <<<"$x"
+}
+
+@test "DoD clause — implement halt list (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/commands/implement.md" '/^## Halt and ask if/{f=1; next} /^## /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- 'no tighten row' <<<"$x"
+  grep -qF -- '**and** the tighten step (7)' <<<"$x"
+  grep -qF -- 'with a tighten row (standard, perf) still halts' <<<"$x"
+  grep -qF -- 'contains the draft step (2)' <<<"$x"
+}
+
+@test "DoD clause — document halt list (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/commands/document.md" '/^## Halt and ask if/{f=1; next} /^## /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- 'no tighten row' <<<"$x"
+  grep -qF -- '**and** the tighten step (7)' <<<"$x"
+  grep -qF -- 'with a tighten row (standard, perf) still halts' <<<"$x"
+  grep -qF -- 'checklist omits draft' <<<"$x"
+  grep -qF -- 'are not unchecked items' <<<"$x"
+}
+
+@test "DoD clause — document skill bullet (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/skills/core-document-actual-work/SKILL.md" '/^## Halt and ask if/{f=1; next} /^## /{f=0} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- 'Definition of done has unchecked items' <<<"$x"
+  grep -qF -- 'no tighten row' <<<"$x"
+  grep -qF -- 'with a tighten row (standard, perf) still halts' <<<"$x"
+  grep -qF -- 'are not unchecked items' <<<"$x"
+  grep -qF -- 'A Definition of done that is present is still checked' <<<"$x"
+}
+
+@test "spec executor convention names tighten as the Definition-of-done producer (#989)" {
+  x="$(_flat "$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md" '/^Executor convention/{f=1} f && /^$/{exit} f')"
+  [ "${#x}" -ge 40 ]
+  grep -qF -- 'draft produces imPlan.md' <<<"$x"
+  grep -qF -- 'tighten produces the Definition of done' <<<"$x"
+}
