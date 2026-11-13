@@ -758,3 +758,42 @@ EOF
   grep -qE '^- \[x\]  1\. pull' "$DEVDOC/Issue-7/checklist.md"
   grep -qE '^- \[ \]  2\. draft' "$DEVDOC/Issue-7/checklist.md"
 }
+
+@test "pull with tier: starter in Workflow flags scaffolds checklist-starter (#989)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: starter\n\nDo it."'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 789
+  [ "$status" -eq 0 ]
+  f="$DEVDOC/Issue-789/checklist.md"
+  grep -q '^Template: starter$' "$f"
+  [ "$(grep -cE '^- \[.\] +[0-9]+\.' "$f")" -eq 13 ]
+  grep -qE '^- \[x\] +0\. pull' "$f"
+  grep -qE '^- \[ \]  9\. implement' "$f"
+  grep -qE '^- \[-\] 19\. mergetoall' "$f"
+}
+
+@test "pull with tier: starter flips mergetoall when all_prs_branch is set (#989 AC2)" {
+  cat > "$DA_HOME/config.toml" <<CFG
+[project.volk]
+source_dir = "$BATS_TEST_TMPDIR/volk"
+devdoc_dir = "$DEVDOC"
+all_prs_branch = "dev/all-prs"
+
+[project.volk.issue_source]
+backend = "github"
+repo = "gnuradio/volk"
+dir_prefix = "Issue-"
+CFG
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: starter\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 790
+  [ "$status" -eq 0 ]
+  grep -q '^Template: starter$' "$DEVDOC/Issue-790/checklist.md"
+  grep -qE '^- \[ \] 19\. mergetoall' "$DEVDOC/Issue-790/checklist.md"
+}
+
+@test "an unknown tier's legal list ends in starter (#989 AC3)" {
+  export GH_STUB_BODY_JSON='"## Workflow flags\ntier: bogus\n"'
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 791
+  [ "$status" -ne 0 ]
+  grep -qE 'legal tiers: oneshot standard perf docs-only research starter$' <<<"$output"
+  [ ! -f "$DEVDOC/Issue-791/checklist.md" ]
+}

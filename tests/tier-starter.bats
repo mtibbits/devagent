@@ -44,3 +44,12 @@ _row_nums() {
   ISSUE_ID="Issue-999" checklist_init "$d" starter
   grep -q '^Template: starter$' "$d/checklist.md"
 }
+
+# --- Task 3: spec tier table ---------------------------------------------------
+
+@test "spec tier table carries the starter row beside the reserved simple row (#989)" {
+  spec="$PLUGIN_ROOT/docs/specs/2026-05-19-devagent-plugin-design.md"
+  [ "$(grep -cE '^\| starter \| 0, 2, 8, 9, 11, 12, 14, 15, 17, 18, 19, 20, 24 \|' "$spec")" -eq 1 ]
+  next="$(grep -A1 -E '^\| starter \| ' "$spec" | sed -n 2p)"
+  [[ "$next" == '| simple | RESERVED'* ]]
+}

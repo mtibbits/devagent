@@ -949,6 +949,7 @@ blocks may carry rows the current tier omits.
 | perf | standard minus 21 (updatewbs; impact stays) | Performance work. |
 | docs-only | 0, 2, 8, 11, 12, 14, 15, 17, 18, 19, 20, 24 | Documentation-only changes. |
 | research | 0, 2, 4, 5, 11, 23, 24 | Research-shaped issues (the research TEMPLATE, distinct from the #535 research STEP flag). |
+| starter | 0, 2, 8, 9, 11, 12, 14, 15, 17, 18, 19, 20, 24 | A newcomer's first issues: docs-only plus implement (9). Keeps a written plan, a branch, a commit, a fresh-context review and preship, and a recorded ship and merge; drops the plan gauntlet (scope, improve, prune, tighten), quality, analyze, redmr and the closing bookkeeping (updatewbs, impact, lessonslearned). Hand-picked, unlike the reserved `simple`, which waits on skip data. |
 | simple | RESERVED | Waits for skip-glyph data: `[-]` marks already measure which steps operators actually skip; a few weeks of data names the skip-set. |
 | ultra | RESERVED | Research + multi-spike + redraft loopback; waits for a first issue that genuinely needs it — the revise machinery already expresses it manually. |
 

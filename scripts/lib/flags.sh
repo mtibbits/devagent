@@ -111,7 +111,7 @@ flags_get() {
 # Note (#537 improve): flags_get is key-scoped and never enumerates the
 # block, so the grammar's unknown-key WARN pass is deliberately deferred to
 # #535's block-level validator — recorded, not reinterpreted.
-tier_allowlist() { printf 'oneshot standard perf docs-only research'; }
+tier_allowlist() { printf 'oneshot standard perf docs-only research starter'; }
 
 # tier_is_legal <value> — values are space-free by construction.
 tier_is_legal() { [[ " $(tier_allowlist) " == *" ${1:-} "* ]]; }
