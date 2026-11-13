@@ -59,10 +59,14 @@
 #     u\rl(//other.host) pass;
 #   - URLs assembled at run time ("https" + ":/" + "/" + host, atob(…)) pass;
 #   - text content a script reads and fetches passes;
-#   - the JS tokenizer guesses regex versus division after ")" and "}" as
-#     division: "if (x) /'/.test(s); var u = '//h'" can hide a string (a "/"
-#     after of, await or yield, which may be keywords or names, is refused;
-#     after a property name, o.in or o?.do, it is division);
+#   - the JS tokenizer guesses regex versus division from the token before a
+#     "/". Where that token does not decide it (")", "}", of, await, yield,
+#     let, async, static, get, set), the rest of its line (up to 4000
+#     characters) is read both ways: strings from either reading are scanned,
+#     and the "/" is refused if one reading leaves a string open at the end
+#     where the other does not. A guess is trusted after any other token (an
+#     identifier or a number: division; an operator or a keyword such as
+#     return: regex), and past the line a wrong guess can still hide a string;
 #   - a data: URL in an attribute or CSS is exempt whole: its payload is not
 #     decoded, so a data: stylesheet's @import passes (in a JS string a data:
 #     URL is scanned like any other text);
@@ -78,10 +82,11 @@
 #     first root lasts to the end of the file), <head> closing rules, and the
 #     raw-text elements listed below. A browser's other tree-construction
 #     rules are not modelled, and nothing keyed on being inside <svg>/<math>
-#     relaxes a check;
-#   - in a top-level document, where a browser stays in <svg>/<math> past
-#     its end tag (an HTML element left open in <foreignObject>, <desc>,
-#     <mi>, …), markup in a later <style> body is read as CSS text.
+#     relaxes a check. In a top-level document a browser may stay in <svg>/
+#     <math> past its end tag (an HTML element left open in <foreignObject>,
+#     <desc>, <mi>, …); so markup in any <style> after an inline <svg>/<math>
+#     is refused, and so is "<meta" in any <script> body (a refresh navigates,
+#     which the CSP does not govern).
 # Surfaces with no CSP: an .svg file opened on its own, and an .html fragment
 # (a deeper file with no <html>, <head>, <body> or <script> tag). They may carry
 # no <script> (.svg, any namespace prefix) and no on*= handler (both). A worker
@@ -90,16 +95,20 @@
 # blob: worker inherits the page's policy).
 # Known over-refusals (measured; rephrase rather than fight them):
 #   - a remote URL in an attribute that does not navigate: title=, alt=,
-#     aria-label=, data-*=, <meta content=…>, a "file: x" mention included;
+#     aria-label=, data-*=, <meta name=… content=…>, a "file: x" mention
+#     included (a <meta http-equiv=refresh> navigates: rightly refused);
 #   - a JS string that is just "https:";
-#   - a "/" after of, await or yield (x = of / 2; yield /re/): put the
-#     operand in parentheses;
-#   - inline JS that builds a '<script' or '<!--' string;
+#   - a "/" after ")", "}", of, await, yield, … whose regex reading would
+#     leave a string open at the end of the line ("(a)/2 + 'x/y'"):
+#     parenthesize or split;
+#   - inline JS that builds a '<script', '<!--' or '<meta' string;
+#   - markup ("<" then a letter, "/", "!" or "?") in a <style> after an
+#     inline <svg> or <math> in a top-level document;
 #   - "&" in an inline <svg> or <math> <script> or <style>, and markup ("<"
 #     then a letter, "/", "!" or "?") in any element this parser reads as text
 #     inside <svg> or <math> (<title>, <textarea>, <script>, <style>, …);
-#   - "//" then a host character after a quote, space, "(", "=", "," or ";"
-#     in any string or attribute value ("see //h" in a title=);
+#   - two or more "/" then a host character after a quote, space, "(", "=",
+#     "," or ";" in any string or attribute value ("see //h" in a title=);
 #   - a <![CDATA[ section in an .html file, inline SVG included;
 #   - a non-JS <script type> whose body has an unbalanced quote;
 #   - a <style>, <script>, <title> or <textarea> inside <noscript> (a
@@ -179,8 +188,9 @@ REMOTE_RE = re.compile(
     r"|" + SCHEME + r"javascript:", re.I)
 JS_RE = re.compile(SCHEME + r"javascript:", re.I)      # the nav-context check
 # "//host" after a delimiter, inside a value: markup or CSS built in a string
-# ('<img src="//h/x">'), url(//h/x), a values= list.
-PROTO_REL_RE = re.compile(r"(?:^|[\s\"'(=,;])//[^/\s]")
+# ('<img src="//h/x">'), url(//h/x), a values= list. Any number of slashes past
+# two: a URL parser with an http(s) base skips them all ("///h/x" is h).
+PROTO_REL_RE = re.compile(r"(?:^|[\s\"'(=,;])/{2,}[^/\s]")
 
 
 def normalise(value):
@@ -218,13 +228,19 @@ def remote(value, ctx, where):
 # Reserved words after which a "/" starts a regex.
 JS_REGEX_AFTER = {
     "return", "typeof", "instanceof", "in", "new", "delete", "void",
-    "throw", "case", "do", "else",
+    "throw", "case", "do", "else", "default", "extends",
 }
-# Words that are keywords in some contexts and identifiers in others, so a "/"
-# after one may be a regex or a division; either guess can hide a string, so
-# such a "/" is refused.
-JS_SLASH_AMBIGUOUS = {"of", "await", "yield"}
-JS_IDENT_RE = re.compile(r"[A-Za-z_$\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*")
+# Words that are keywords in some contexts and names in others, so whether a
+# "/" after one starts a regex is not decided by the word alone.
+JS_SLASH_AMBIGUOUS = {"of", "await", "yield", "let", "async", "static", "get", "set"}
+JS_IDENT_RE = re.compile("[A-Za-z_$\u0080-\U0010ffff][A-Za-z0-9_$\u0080-\U0010ffff]*")
+# How far past an undecided "/" both readings are compared (the rest of its
+# line, at most this many characters).
+JS_DUAL_WINDOW = 4000
+# Whitespace to JS that str.isspace() does not cover.
+JS_EXTRA_SPACE = "\ufeff"
+
+
 JS_NUMBER_RE = re.compile(r"\.?[0-9][A-Za-z0-9_.]*")
 JS_LINE_ENDS = "\n\r\u2028\u2029"
 JS_LINE_END_RE = re.compile("[" + JS_LINE_ENDS + "]")
@@ -272,11 +288,50 @@ def _pop_to(stack, tag):
         del stack[len(stack) - 1 - stack[::-1].index(tag):]
 
 
-def js_tokens(text, line0=1, module=False):
+def _regex_end(text, i):
+    """The index just past a regex literal opening at text[i] ("/"), or -1
+    when it does not end on its line."""
+    j, n, cls = i + 1, len(text), False
+    while j < n:
+        ch = text[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if ch in "\n\r\u2028\u2029":
+            return -1
+        if cls:
+            if ch == "]":
+                cls = False
+        elif ch == "[":
+            cls = True
+        elif ch == "/":
+            j += 1
+            while j < n and (text[j].isalnum() or text[j] == "_"):
+                j += 1
+            return j
+        j += 1
+    return -1
+
+
+def js_tokens(text, line0=1, module=False, start=0, regex_ok=True, dual=True,
+              end=None, record=None, stop=None):
+    """Tokens and errors from text[start:]. A "/" whose reading (regex or
+    division) depends on context the tokenizer does not track (after ")",
+    "}" or a JS_SLASH_AMBIGUOUS word) is read both ways to the end of its line
+    when dual and a regex reading is possible: the other reading's strings
+    are scanned too, and the "/" is refused if that reading leaves a string,
+    template or regex open where the guess does not (it could carry hidden
+    text onto later lines). The two readings stop where they reach the same
+    point in the same state: from there they read alike.
+
+    end, record and stop serve that comparison: read only to end; record
+    each token start's state in record (state -> tokens so far); stop at the
+    first state found in stop. With either, a third value is returned: the
+    state stopped at, or None."""
     toks, errs = [], []
-    i, n, line = 0, len(text), line0
-    regex_ok = True
-    ambiguous = False  # the last token is a JS_SLASH_AMBIGUOUS word
+    i, n, line = start, len(text) if end is None else end, line0
+    sync = None
+    last = None   # the last token: "dot", "close" (")" or "}"), "amb", or None
     depth = 0
     tmpl = []  # one (outer brace depth, opening line) per open ${ … }
 
@@ -315,12 +370,19 @@ def js_tokens(text, line0=1, module=False):
         return n, line, True
 
     while i < n:
+        if record is not None or stop is not None:
+            state = (i, regex_ok, depth, tuple(tmpl))
+            if stop is not None and state in stop:
+                sync = state
+                break
+            if record is not None:
+                record.setdefault(state, len(toks))
         c = text[i]
         if c == "\n":
             line += 1
             i += 1
             continue
-        if c.isspace():
+        if c.isspace() or c in JS_EXTRA_SPACE:
             i += 1
             continue
         # A line comment: "//", and (Annex B, classic scripts only: in a module
@@ -335,9 +397,23 @@ def js_tokens(text, line0=1, module=False):
         if text.startswith("/*", i):
             i, line = _block_comment(text, i, line, errs)
             continue
-        if c == "/" and ambiguous:
-            errs.append(('a "/" after of, await or yield (a regex or a division?)', line))
-        ambiguous = False
+        if c == "/" and dual and last in ("close", "amb") and _regex_end(text, i) >= 0:
+            m = JS_LINE_END_RE.search(text, i)
+            wend = min(m.start() if m else n, i + JS_DUAL_WINDOW)
+            for w in (64, 512, wend - i):
+                rec = {}
+                guess = js_tokens(text, line, module, i, regex_ok, False, min(i + w, wend), record=rec)
+                other = js_tokens(text, line, module, i, not regex_ok, False, min(i + w, wend), stop=rec)
+                if other[2] is not None:
+                    seen = guess[0][:rec[other[2]]]
+                    toks.extend(t for t in other[0] if t not in seen)
+                    break
+                if i + w >= wend:
+                    toks.extend(t for t in other[0] if t not in guess[0])
+                    if any(e[0].startswith("unterminated") and e not in guess[1] for e in other[1]):
+                        errs.append(('a "/" that reads as a regex or a division, one reading leaving a string open', line))
+                    break
+        prev, last = last, None
         if c in "'\"":
             i, line = _quoted(text, i, line, toks, errs)
             regex_ok = False
@@ -350,42 +426,21 @@ def js_tokens(text, line0=1, module=False):
             i, line, regex_ok = enter_chunk(i + 1, line, line)
             continue
         if c == "/" and regex_ok:
-            j, cls, start = i + 1, False, line
-            while j < n:
-                ch = text[j]
-                if ch == "\\":
-                    j += 2
-                    continue
-                if ch in "\n\r":
-                    j = n
-                    break
-                if cls:
-                    if ch == "]":
-                        cls = False
-                elif ch == "[":
-                    cls = True
-                elif ch == "/":
-                    break
-                j += 1
-            if j >= n:
-                errs.append(("unterminated regex", start))
+            j = _regex_end(text, i)
+            if j < 0:
+                errs.append(("unterminated regex", line))
                 break
-            i = j + 1
-            while i < n and (text[i].isalnum() or text[i] == "_"):
-                i += 1
+            i = j
             regex_ok = False
             continue
         m = JS_IDENT_RE.match(text, i)
         if m:
-            # a property name (o.in, o?.do, not ...typeof) is an operand,
-            # whatever its spelling
-            k = i - 1
-            while k >= 0 and text[k].isspace():
-                k -= 1
-            prop = k >= 0 and text[k] == "." and not text.endswith("..", 0, k)
+            # a property name (o.in, o?.do, o./**/in; not ...typeof) is an
+            # operand, whatever its spelling
             word = m.group(0)
+            prop = prev == "dot"
             regex_ok = word in JS_REGEX_AFTER and not prop
-            ambiguous = word in JS_SLASH_AMBIGUOUS and not prop
+            last = "amb" if word in JS_SLASH_AMBIGUOUS and not prop else None
             i = m.end()
             continue
         m = JS_NUMBER_RE.match(text, i)
@@ -401,10 +456,17 @@ def js_tokens(text, line0=1, module=False):
                 i, line, regex_ok = enter_chunk(i + 1, line)
                 continue
             depth = max(depth - 1, 0)
+        if c == "." and text[i - 1:i] != "." and text[i + 1:i + 2] != ".":
+            last = "dot"
+        elif c in ")}":
+            last = "close"
         regex_ok = c not in ")]}"
         i += 1
-    for _, start in tmpl:
-        errs.append(("unterminated template", start))
+    if sync is None:
+        for _, start in tmpl:
+            errs.append(("unterminated template", start))
+    if record is not None or stop is not None:
+        return toks, errs, sync
     return toks, errs
 
 
@@ -468,7 +530,10 @@ COMMENT_HIDES_IN = _RAW_IN_BROWSER - _RAW_IN_PARSER
 COMMENT_DIVERGE_RE = re.compile(r"<!---?>|--!>")
 END_WS_RE = re.compile(r"</\s+(?:script|style)", re.I)
 MARKED_RE = re.compile(r"<!\[")
-SCRIPT_BODY_RE = re.compile(r"<!--|<script", re.I)
+# <meta in a script body: if a browser reads the body as markup (an <svg>
+# it is still inside), a <meta http-equiv=refresh> navigates, which the CSP
+# does not govern.
+SCRIPT_BODY_RE = re.compile(r"<!--|<script|<meta", re.I)
 # Inside <svg>/<math> a browser parses markup in elements this parser reads as
 # text (title, textarea, xmp, script, style, …), so such a body may hold none.
 PARSED_AS_TEXT = _RAW_IN_PARSER | {"script", "style"}
@@ -732,6 +797,7 @@ class _Html(_hp.HTMLParser):
         # (no CSP behind the scan) the first root stays open to the end of the
         # file. Being "foreign" only adds checks, never removes one.
         self.foreign = []
+        self.seen_foreign = False  # an <svg>/<math> root has opened
         self.raw = []             # open elements in COMMENT_HIDES_IN
         self.pending = None       # the open <script>/<style>: [tag, line, chunks, in_foreign, module]
         self.on_attrs = []        # (line, name): refused at the end if a fragment
@@ -813,6 +879,7 @@ class _Html(_hp.HTMLParser):
             return
         if tag in FOREIGN_TAGS:
             self.foreign.append(tag)
+            self.seen_foreign = True
         if tag in COMMENT_HIDES_IN:
             self.raw.append(tag)
         if tag in INERT_TAGS:
@@ -858,10 +925,14 @@ class _Html(_hp.HTMLParser):
         text = "".join(chunks)
         if in_foreign and FOREIGN_MARKUP_RE.search(text):
             self.refuse(line, "markup inside <%s> inside <svg> or <math> (a browser parses it as markup)" % tag)
+        elif tag == "style" and self.seen_foreign and FOREIGN_MARKUP_RE.search(text):
+            # in a top-level document the scanner ends <svg> at </svg>, where a
+            # browser may not; markup in a later <style> could then be live
+            self.refuse(line, "markup inside a <style> after an inline <svg> or <math> (a browser may still be inside it)")
         if tag not in ("script", "style"):
             return
         if tag == "script" and SCRIPT_BODY_RE.search(text):
-            self.refuse(line, "a <script> body that opens an HTML comment or a nested <script>")
+            self.refuse(line, "a <script> body that opens an HTML comment or a nested <script> (or holds <meta)")
         if in_foreign and "&" in text:
             self.refuse(line, '"&" in a <script> or <style> body inside <svg> or <math>')
         self.s.body(self.rel, tag, text, line, module)

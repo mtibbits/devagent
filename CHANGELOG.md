@@ -27,8 +27,9 @@ the README's "Versioning & releases" section has the release procedure.
   moved-page stub now carries the site's Content-Security-Policy `<meta>`, and
   the scan requires it. New exit codes: 7 (the built site breaks the fetch
   policy; one `check-fetches: <file>:<line>: <reason>` line each) and 8 (the
-  scan did not complete). Exit 3 now also names a python3 that is missing or
-  cannot run (`DEVAGENT_PYTHON` names another interpreter).
+  scan did not complete). Exit 3 now also names a python3 that is missing,
+  cannot run, is older than 3.8, or has an html.parser without the 2025
+  security fixes (`DEVAGENT_PYTHON` names another interpreter).
 - **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
   `depends_on` entry may name another configured project's issue as
   `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the

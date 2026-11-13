@@ -1177,23 +1177,37 @@ css_row() { file_row "$1" "$2" assets/a.css "$3" "${@:3}"; }
   sc_n=0
   js_row 3 'remote URL in a JS string' "var r = /'/; var u = \"$OH/x\";"
   js_row 0 '' "var r = /'/; var u = \"assets/x\";"
-  # of, await and yield may be keywords (a "/" after them opens a regex) or
-  # names (it is division); either guess can hide a string, so the "/" is
-  # refused, in both directions
-  local amb='a "/" after of, await or yield'
+  # where the token before a "/" does not decide regex or division (")", "}",
+  # of, await, yield, …), both readings are scanned, so the string either
+  # reading finds is checked, whichever way the guess went
+  local amb='remote URL in a JS string'
   js_row 3 "$amb" "var of = 1; y = of / 2; fetch(\"$OH/x\") // \""
   js_row 3 "$amb" "var await = 4; y = await / 2; fetch(\"$OH/x\") // \""
   js_row 3 "$amb" "function* g() { yield /'/; fetch('$OH/x'); // '"
   js_row 3 "$amb" "async function f() { await /'/; fetch('$OH/x'); // '"
   js_row 3 "$amb" "for (const c of /'/.source) {} fetch('$OH/x'); // '"
-  js_row 3 "$amb" 'async function f() { await /* c */ /x/; }'
-  # a property name is an operand (division); a keyword after a spread is not
+  js_row 3 "$amb" "if (x) /'/.test(s); var u = '$OH/x';"
+  js_row 3 "$amb" "if (x) { y(); } /'/.test(s); var u = '$OH/x';"
+  # the guess is trusted where the token decides it: default and extends are
+  # keywords (regex), a property name is an operand even across a comment
+  # (division), a keyword after a spread is a keyword
+  file_row 3 'remote URL in a JS string' assets/a.mjs 'export' "export default /'/.source; F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' "try { class A extends /'/ {} } catch (e) {} F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' "var r = o./**/in / '/' + F('$OH/x');"
   js_row 3 'remote URL in a JS string' "y = o.in / 2; fetch(\"$OH/x\") // \""
   js_row 3 'remote URL in a JS string' "var a = [...typeof /'/]; fetch('$OH/x'); // '"
-  # controls: a regex after return still holds its quote; parentheses settle
+  # U+FEFF is JS whitespace, and an astral letter is an identifier
+  js_row 3 'remote URL in a JS string' "("$'\xef\xbb\xbf'"/'/.test(s)) + F('$OH/x');// '"
+  js_row 3 'remote URL in a JS string' $'\xf0\x9d\x91\xa5'" / '/' + F('$OH/x');"
+  # controls: a regex after return still holds its quote; both readings agree
+  # (no regex reading, or the same strings either way); parentheses settle
   # of/await/yield; a property named of is an operand
   js_row 0 '' 'function f(s) { return /"/.test(s); } var u = "assets/x";'
+  js_row 0 '' 'var w = (a + b) / 2 + "px", v = (a) / b / c;'
+  js_row 0 '' 'async function f() { await /* c */ /x/; } var u = "assets/x";'
   js_row 0 '' 'function* g() { yield (/"/); } var y = (of) / 2 + o.of / 2; var u = "assets/x";'
+  # the documented over-refusal: a regex reading that leaves a string open
+  js_row 3 'one reading leaving a string open' "var y = (a)/2 + 'x/y';"
 }
 
 @test "build-docs-site: check-fetches — JS: unterminated string or template fails closed" {
@@ -1653,9 +1667,16 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   done
   sc_new; fx_sf static/partial.html '<svg><foreignObject><div></svg></div></foreignObject><style><script>document.title = 1</script></style></svg>'
   sc_row 3 static/partial.html '<svg' "$mk"
-  # control (top level, where the CSP backs the scan): an icon's <title> holds
-  # only text, so <svg> ends at </svg>
+  # top level: the CSP backs fetches but not navigation, so where a browser may
+  # still be inside <svg>, a later <style> may hold no markup, and no <script>
+  # body may hold <meta (a refresh)
+  html_row 3 'markup inside a <style> after an inline <svg> or <math>' '<svg' \
+    '<svg><foreignObject><div></svg></div></foreignObject><style><meta http-equiv=refresh content=0;url=/x></style></svg>'
+  html_row 3 '(or holds <meta)' '<script>' "<script>var s = '<meta http-equiv=refresh content=0>';</script>"
+  # controls: an icon's <title> holds only text, so <svg> ends at </svg>; a
+  # later <style> without markup and a script using && pass
   html_row 0 '' '' '<svg><title>Icon</title><rect width="8" height="8"/></svg>' '<script>var ok = a && b;</script>'
+  html_row 0 '' '' '<svg><rect width="8" height="8"/></svg>' '<style>a > b { color: red; }</style>'
   # the accessible-icon idiom, with an entity and a bare "<", still passes
   html_row 0 '' '' '<svg><title>Icon &amp; label, a < b</title><rect width="8" height="8"/></svg>'
 }
@@ -1703,8 +1724,18 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   js_row 3 'remote URL in a JS string' "el.innerHTML = '<img src=\"//other.host/p.png\">';"
   svg_row 3 'remote URL in fill= on <rect>' '<rect' '<rect fill="url(//other.host/p.svg#g)"/>'
   svg_row 3 'remote URL in values= on <animate>' '<animate' '<animate attributeName="href" values="a.png;//other.host/p.png"/>'
+  # three or more slashes start a host too (a URL parser with an http(s) base
+  # skips them all), in every context
+  js_row 3 'remote URL in a JS string' "fetch('///other.host/x');"
+  js_row 3 'remote URL in a JS string' "fetch('////other.host/x');"
+  sc_new; fx_sf static/partial.html '<img src="///other.host/p.png">'
+  sc_row 3 static/partial.html '<img' 'remote URL in src= on <img>'
+  svg_row 3 'remote URL in href= on <image>' '<image' '<image href="///other.host/p.png"/>'
+  css_row 3 'remote URL in a CSS url()' 'a { background: url(///other.host/p.png); }'
+  css_row 3 'remote URL in a CSS string' '@import "///other.host/a.css";'
+  html_row 3 'remote URL in content= on <meta>' 'refresh' '<meta http-equiv="refresh" content="0;url=///other.host/">'
   # controls: "//" that starts no host
-  js_row 0 '' 'var s = "see // note", t = "a//b", u = "///x";'
+  js_row 0 '' 'var s = "see // note", t = "a//b", u = "/// ", v = "a///b";'
 }
 
 @test "build-docs-site: check-fetches — JS line ends, HTML-like comments and postfix ++ do not hide a string" {

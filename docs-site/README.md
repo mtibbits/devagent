@@ -175,7 +175,7 @@ and SVG, and `data:` and `blob:` URLs. It may load nothing from another host.
 - *Over-refusals to rephrase.* Some safe text is refused anyway. Rephrase it
   rather than fight the scanner:
   - a remote URL in an attribute that does not navigate (`title=`, `alt=`,
-    `aria-label=`, `data-*=`, `<meta content=…>`), including a mention like
+    `aria-label=`, `data-*=`, `<meta name=… content=…>`), including a mention like
     `file: x`: put the URL in link text or an `<a href>` instead;
   - a JS string that is just `"https:"`;
   - inline JS that builds a `'<script'` or `'<!--'` string: split it, as in
