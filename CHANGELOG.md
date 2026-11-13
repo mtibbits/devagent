@@ -47,6 +47,20 @@ the README's "Versioning & releases" section has the release procedure.
   fields and exit codes. Writes are atomic, keep each file's line endings, BOM
   and mode, never edit a faulty file, and never overwrite on `create`.
   `docs/disk-issues.md` documents the format. No caller uses it yet.
+- **Changed: the docs-site build checks an allowlist of what the site may load
+  instead of banning substrings (#1030).** After link closure the build runs
+  `scripts/docs-site/check-fetches.py` over every built file. Each file is
+  scanned, counted as a listed binary type, or refused. A remote URL is refused
+  in HTML and SVG attributes, inline and file JavaScript strings, and CSS
+  strings and `url()` (the scanner's header lists its known blind spots). So are `<iframe>`,
+  `<object>`, `<embed>`, scripts and handlers on surfaces with no CSP, and
+  markup that the scanner and a browser parse differently. Every page and
+  moved-page stub now carries the site's Content-Security-Policy `<meta>`, and
+  the scan requires it. New exit codes: 7 (the built site breaks the fetch
+  policy; one `check-fetches: <file>:<line>: <reason>` line each) and 8 (the
+  scan did not complete). Exit 3 now also names a python3 that is missing,
+  cannot run, is older than 3.8, or has an html.parser without the 2025
+  security fixes (`DEVAGENT_PYTHON` names another interpreter).
 - **Added: cross-project `depends_on` entries in `WBS.md` (#887).** A
   `depends_on` entry may name another configured project's issue as
   `<project>:<issue>`. `wbs order` and `wbs update` read a prefix equal to the

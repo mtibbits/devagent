@@ -16,9 +16,14 @@ and open.
 bash scripts/build-docs-site.sh --out /tmp/devagent-site
 ```
 
-Needs pandoc 3.x and awk. `--out` must be absent or empty; the script never
-deletes.
-Open `/tmp/devagent-site/index.html`.
+Needs pandoc 3.x, awk and python3 3.8+ whose html.parser carries the 2025
+security fixes (`DEVAGENT_PYTHON` names another interpreter; the build exits 3
+on one without them). `--out` must be absent or empty; the script never deletes.
+A build that breaks the site's fetch policy exits 7, and one whose fetch scan
+did not complete exits 8 (`docs-site/README.md`, "What the site may load").
+Open `/tmp/devagent-site/index.html` (checked under the site CSP on
+2026-11-12: Edge 157 loads the site's own CSS, JS and images from `file://`;
+Firefox 160 applies no meta CSP to `file://` pages).
 
 ## Turning publishing on (operator)
 
