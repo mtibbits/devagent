@@ -33,6 +33,10 @@ run_backend_suite() {
   run_backend_suite custom
 }
 
+@test "contract: disk backend" {
+  run_backend_suite disk
+}
+
 @test "contract: every issue backend answers issue-list without a repo with 1 or 78, never 2 (#706)" {
   local f n=0
   for f in "${BATS_DIR}/../scripts/issue/"*.sh; do
@@ -41,7 +45,7 @@ run_backend_suite() {
     [ "$status" -eq 1 ] || [ "$status" -eq 78 ] || {
       echo "$(basename "$f") issue-list without a repo: status $status" >&2; false; }
   done
-  [ "$n" -eq 4 ]
+  [ "$n" -eq 5 ]
 }
 
 @test "contract: every issue backend answers events, comment-records and whoami without args as its status allows (#712)" {
@@ -53,13 +57,13 @@ run_backend_suite() {
       run "$f" "$v"
       case "$b" in
         github.sh) [ "$status" -eq 1 ] ;;
-        custom.sh) [ "$status" -eq 78 ] ;;
+        custom.sh|disk.sh) [ "$status" -eq 78 ] ;;
         # Not implemented yet (#900): unknown verb, or a stub's 78.
         *) [ "$status" -eq 2 ] || [ "$status" -eq 78 ] ;;
       esac || { echo "$b $v without args: status $status" >&2; false; }
     done
   done
-  [ "$n" -eq 4 ]
+  [ "$n" -eq 5 ]
 }
 
 @test "contract: every issue backend's events --kinds is 78, 2 or D-g-well-formed (#712)" {
@@ -82,10 +86,10 @@ run_backend_suite() {
         kinds="$(printf '%s\n' "$output" | cut -f1 | tr '\n' ' ')"
         [ "$kinds" = "$order " ]
         ;;
-      custom.sh) [ "$status" -eq 78 ] ;;
+      custom.sh|disk.sh) [ "$status" -eq 78 ] ;;
       *) [ "$status" -eq 2 ] || [ "$status" -eq 78 ] \
            || { echo "$b events --kinds: status $status" >&2; false; } ;;
     esac
   done
-  [ "$n" -eq 4 ]
+  [ "$n" -eq 5 ]
 }
