@@ -40,6 +40,7 @@ FULL_FETCH='# disk#2 — Add a dark-mode toggle to the settings page
 - Author: @local
 - Labels: 
 - URL: disk:2
+- Created: 2026-11-01
 
 ---
 
@@ -125,11 +126,13 @@ on_merge: status Done, closed'
 
 @test "disk: /x and ~/x give the same state-list output" {
   cp "$FIX/full.md" "$D/2.md"
-  run --separate-stderr "$DISK" fetch "$D" 2
+  cp "$FIX/minimal.md" "$D/5.md"
+  run --separate-stderr "$DISK" state-list "$D"
   [ "$status" -eq 0 ]
+  [ "$output" = $'2\tdone\n5\topen' ]
   local abs="$output"
   # shellcheck disable=SC2088
-  HOME="$ROOT" run --separate-stderr "$DISK" fetch '~/issues' 2
+  HOME="$ROOT" run --separate-stderr "$DISK" state-list '~/issues'
   [ "$status" -eq 0 ]
   [ "$output" = "$abs" ]
 }
@@ -164,6 +167,7 @@ on_merge: status Done, closed'
 
 @test "disk: fetch prints the pinned shape" {
   cp "$FIX/full.md" "$D/2.md"
+  touch -d '2026-11-01 12:00' "$D/2.md"
   run --separate-stderr "$DISK" fetch "$D" 2
   [ "$status" -eq 0 ]
   [ "$output" = "$FULL_FETCH" ]
@@ -247,6 +251,7 @@ on_merge: status Done, closed'
   mkdir -p "$P"
   cp -R "$PLUGIN_ROOT/scripts" "$P/scripts"
   cp "$FIX/full.md" "$D/2.md"
+  touch -d '2026-11-01 12:00' "$D/2.md"
   run --separate-stderr "$P/scripts/issue/disk.sh" fetch "$D" 2
   [ "$status" -eq 0 ]
   [ "$output" = "$FULL_FETCH" ]
@@ -636,4 +641,219 @@ tr_disk() { DEVAGENT_DATE_OVERRIDE=2026-11-10 run --separate-stderr "$DISK" tran
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"is locked (.disk.lock)"* ]]
   cmp "$D/1.md" "$BATS_TEST_TMPDIR/orig"
+}
+
+# ---------------------------------------------------------------- Task 5: list verbs
+
+# list_fixture: a closed, an in-progress (by a case-only status match) and an
+# open issue, plus the names every list verb ignores.
+list_fixture() {
+  cp "$FIX/full.md" "$D/1.md"                      # closed, parent: 3
+  printf '%s\n' '# Second' 'status: in progress' 'labels: ui, dark mode' '' '## Prompt' 'Ünïcode body.' > "$D/2.md"
+  cp "$FIX/minimal.md" "$D/3.md"
+  printf '3\n' > "$D/.last-number"
+  printf 'not an issue\n' > "$D/README.md"
+  cp "$FIX/minimal.md" "$D/.x.md"
+  touch -d '2026-03-03 12:00' "$D/1.md" "$D/2.md" "$D/3.md"
+  cat > "$DA_HOME/config.toml" <<'TOML'
+[project.p.issue_workflow]
+on_draft_start = "In Progress"
+TOML
+}
+
+@test "disk: state-list prints done, in_progress and open sorted by N and passes wbs-tracker.py check" {
+  list_fixture
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" state-list "$D"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'1\tdone\n2\tin_progress\n3\topen' ]
+  run --separate-stderr bash -c 'DEVAGENT_PROJECT=p "$1" state-list "$2" | python3 "$3/scripts/lib/wbs-tracker.py" check' _ "$DISK" "$D" "$PLUGIN_ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = 3 ]
+  # no on_draft_start mapping (or no project): no issue is in progress
+  run --separate-stderr "$DISK" state-list "$D"
+  [ "$output" = $'1\tdone\n2\topen\n3\topen' ]
+  DEVAGENT_PROJECT=other run --separate-stderr "$DISK" state-list "$D"
+  [ "$output" = $'1\tdone\n2\topen\n3\topen' ]
+}
+
+@test "disk: issue-list passes wbs-import.py check and carries the pinned fields" {
+  list_fixture
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" issue-list "$D"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 3 ]
+  run --separate-stderr bash -c 'DEVAGENT_PROJECT=p "$1" issue-list "$2" | python3 "$3/scripts/lib/wbs-import.py" check' _ "$DISK" "$D" "$PLUGIN_ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = 3 ]
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" issue-list "$D"
+  [ "$(json_get "${lines[0]}" 'list(o)')" = '["id", "title", "body", "state", "class", "created", "closed", "milestone", "labels", "type", "parent", "blocked_by", "url"]' ]
+  [ "$(json_get "${lines[0]}" '[o["id"], o["state"], o["class"], o["parent"], o["url"], o["closed"], o["milestone"], o["type"], o["blocked_by"]]')" = '["1", "closed", "done", "disk:3", "disk:1", "2026-11-11", null, null, []]' ]
+  [ "$(json_get "${lines[1]}" '[o["id"], o["title"], o["body"], o["state"], o["class"], o["labels"], o["parent"], o["closed"], o["created"]]')" = '["2", "Second", "Ünïcode body.", "open", "in_progress", ["ui", "dark mode"], null, null, "2026-03-03"]' ]
+  [ "$(json_get "${lines[2]}" '[o["class"], o["labels"], o["url"]]')" = '["open", [], "disk:3"]' ]
+  run --separate-stderr "$DISK" issue-list "$D"
+  [ "$(json_get "${lines[1]}" 'o["class"]')" = '"open"' ]
+}
+
+# git_at <date> <args…>: git with every date pinned and a fixed identity.
+git_at() {
+  GIT_AUTHOR_DATE="$1T12:00:00Z" GIT_COMMITTER_DATE="$1T12:00:00Z" \
+    git -C "$ROOT" -c user.name=t -c user.email=t@example.com "${@:2}"
+}
+
+@test "disk: issue-list dates come from the git walk, the on_merge entry and the mtime" {
+  git -C "$ROOT" init -q
+  # 1: added 2026-01-05, closed by hand 2026-02-07
+  printf '%s\n' '# One' '' '## Prompt' 'x' > "$D/1.md"
+  # 3: added 2026-01-06, closed by on_merge (entry 2026-01-20), committed 2026-01-21
+  printf '%s\n' '# Three' '' '## Prompt' 'x' > "$D/3.md"
+  mkdir "$D/sub"
+  printf '%s\n' '# Sub' '' '## Prompt' 'x' > "$D/sub/5.md"
+  git_at 2026-01-05 add issues/1.md issues/sub/5.md
+  git_at 2026-01-05 commit -qm one
+  git_at 2026-01-06 add issues/3.md
+  git_at 2026-01-06 commit -qm three
+  printf '%s\n' '# One' 'state: closed' '' '## Prompt' 'x' > "$D/1.md"
+  git_at 2026-02-07 commit -qam close-one
+  printf '%s\n' '# Three' 'state: closed' '' '## Prompt' 'x' '' '## Comments' '- 2026-01-20 on_merge: closed' > "$D/3.md"
+  git_at 2026-01-21 commit -qam close-three
+  # 2: untracked, open; 4: untracked, closed by hand
+  printf '%s\n' '# Two' '' '## Prompt' 'x' > "$D/2.md"
+  printf '%s\n' '# Four' 'state: closed' '' '## Prompt' 'x' > "$D/4.md"
+  touch -d '2026-03-03 12:00' "$D/2.md" "$D/4.md"
+  touch -d '2026-04-04 12:00' "$D/1.md" "$D/3.md"
+  run --separate-stderr "$DISK" issue-list "$D"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 4 ]
+  [ "$(json_get "${lines[0]}" '[o["id"], o["created"], o["closed"]]')" = '["1", "2026-01-05", "2026-02-07"]' ]
+  [ "$(json_get "${lines[1]}" '[o["id"], o["created"], o["closed"]]')" = '["2", "2026-03-03", null]' ]
+  [ "$(json_get "${lines[2]}" '[o["id"], o["created"], o["closed"]]')" = '["3", "2026-01-06", "2026-01-20"]' ]
+  [ "$(json_get "${lines[3]}" '[o["id"], o["created"], o["closed"]]')" = '["4", "2026-03-03", "2026-03-03"]' ]
+  # fetch carries the same created date
+  "$DISK" fetch "$D" 1 > "$BATS_TEST_TMPDIR/out"
+  grep -qx -- '- Created: 2026-01-05' "$BATS_TEST_TMPDIR/out"
+}
+
+@test "disk: a git history the folder cannot read exits 1, never falling back to the mtime" {
+  git -C "$ROOT" init -q
+  cp "$FIX/minimal.md" "$D/1.md"
+  GIT_TEST_ASSUME_DIFFERENT_OWNER=1 run --separate-stderr "$DISK" issue-list "$D"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"cannot read the git history of the folder named by issue_source.repo"* ]]
+  no_mark
+}
+
+@test "disk: state-list and issue-list exit 5 on a faulty file with empty stdout and a last stderr line naming <N>.md" {
+  list_fixture
+  printf '%s\n' '# T' 'state: maybe' > "$D/7.md"
+  local v
+  for v in state-list issue-list; do
+    run --separate-stderr "$DISK" "$v" "$D"
+    [ "$status" -eq 5 ] || { echo "$v: $status" >&2; false; }
+    [ -z "$output" ]
+    [[ "${stderr##*$'\n'}" == "1 issue file(s) in issue_source.repo fail the format check; first: 7.md:2: "* ]]
+    no_mark
+  done
+}
+
+@test "disk: an unreadable issue file exits 5 naming it; an unreadable folder exits 1" {
+  is_git_bash && skip "Git Bash: no POSIX file modes"
+  [ "$(id -u)" -ne 0 ] || skip "root reads any file"
+  list_fixture
+  chmod 000 "$D/2.md"
+  run --separate-stderr "$DISK" state-list "$D"
+  chmod 644 "$D/2.md"
+  [ "$status" -eq 5 ]
+  [[ "${stderr##*$'\n'}" == *"first: 2.md:1: cannot read: "* ]]
+  chmod 300 "$D"
+  run --separate-stderr "$DISK" state-list "$D"
+  chmod 755 "$D"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"the issues folder named by issue_source.repo is missing or unreadable"* ]]
+  no_mark
+}
+
+@test "disk: state-list, issue-list and state-class never exit 2" {
+  list_fixture
+  local a
+  for a in "state-list" "issue-list" "state-list|$D|x" "issue-list|$D|x" "state-class" "state-class|$D" \
+           "state-class|$D|x" "state-class|$D|0" "state-class|$D|1|x"; do
+    IFS='|' read -r -a args <<<"$a"
+    run --separate-stderr "$DISK" "${args[@]}"
+    [ "$status" -eq 1 ] || { echo "$a: $status" >&2; false; }
+  done
+}
+
+@test "disk: state-class prints done\\tcompleted and open\\t-; 4 missing; 5 faulty" {
+  list_fixture
+  printf '%s\n' '# T' 'state: maybe' > "$D/7.md"
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" state-class "$D" 1
+  [ "$status" -eq 0 ]
+  [ "$output" = $'done\tcompleted' ]
+  DEVAGENT_PROJECT=p run --separate-stderr "$DISK" state-class "$D" 2
+  [ "$output" = $'open\t-' ]
+  run --separate-stderr "$DISK" state-class "$D" 9
+  [ "$status" -eq 4 ]
+  run --separate-stderr "$DISK" state-class "$D" 7
+  [ "$status" -eq 5 ]
+  [ -z "$output" ]
+}
+
+@test "disk: state-exists exits 0 for any status, 2 for an empty one, 1 for a folder fault" {
+  run --separate-stderr "$DISK" state-exists "$D" "Anything at all"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  run --separate-stderr "$DISK" state-exists "$D" ""
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$DISK" state-exists "$D"
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$DISK" state-exists "$D" a b
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$DISK" state-exists "$ROOT/missing" Done
+  [ "$status" -eq 1 ]
+  no_mark
+}
+
+@test "disk: an empty folder lists nothing and exits 0" {
+  local v
+  for v in state-list issue-list; do
+    run --separate-stderr "$DISK" "$v" "$D"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+  done
+}
+
+@test "disk: no verb's stdout or stderr names the folder" {
+  list_fixture
+  printf '%s\n' '# T' 'state: maybe' > "$D/7.md"
+  printf 'x\n' > "$BATS_TEST_TMPDIR/body.md"
+  local n=0 c
+  # positive control: a planted leak is seen
+  output="leak: $D" stderr=""
+  run ! no_mark
+  for c in "fetch|$D|1" "fetch|$D|7" "fetch|$D|9" "state|$D|7" "comment-list|$D|9" \
+           "create|$D|T|$BATS_TEST_TMPDIR/body.md" "create|$D/new|T|$BATS_TEST_TMPDIR/body.md" \
+           "create|$ROOT/a/b|T|$BATS_TEST_TMPDIR/body.md" "create|$D|T|$BATS_TEST_TMPDIR/body.md|--label|a,b" \
+           "transition|$D|3|on_ship|--project|p" "transition|$D|7|on_draft_start|--project|p" \
+           "transition|$D|9|on_merge|--project|p" "state-list|$D" "issue-list|$D" "state-class|$D|7" \
+           "state-class|$D|9" "state-exists|$D|x" "state-list|$ROOT/missing" "issue-list|rel"; do
+    IFS='|' read -r -a args <<<"$c"
+    DEVAGENT_PROJECT=p run --separate-stderr "$DISK" "${args[@]}"
+    no_mark || { echo "leak from: $c" >&2; false; }
+    n=$((n + 1))
+  done
+  # a folder that cannot be searched
+  if ! is_git_bash && [ "$(id -u)" -ne 0 ]; then
+    chmod 600 "$D"
+    run --separate-stderr "$DISK" fetch "$D" 1
+    chmod 755 "$D"
+    [ "$status" -eq 1 ]
+    no_mark
+    n=$((n + 1))
+  fi
+  # a folder in a git work tree git refuses (dubious ownership)
+  git -C "$ROOT" init -q
+  GIT_TEST_ASSUME_DIFFERENT_OWNER=1 run --separate-stderr "$DISK" issue-list "$D"
+  no_mark
+  n=$((n + 1))
+  [ "$n" -ge 20 ]
 }

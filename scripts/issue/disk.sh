@@ -133,7 +133,7 @@ _disk_parse() {
 # One embedded program renders the module's JSON (stdin, UTF-8) as LF-only
 # UTF-8 text, so the output bytes never depend on the platform's locale.
 _DISK_PY='
-import json, sys
+import datetime, json, os, re, subprocess, sys
 
 def out(s):
     sys.stdout.buffer.write(s.encode("utf-8"))
@@ -149,6 +149,83 @@ def comments(r):
         s += "\n" + "\n\n".join("### @local \u00b7 %s\n\n%s" % (c["date"], c["text"]) for c in cs) + "\n"
     return s
 
+def fail(msg):
+    sys.stderr.write("disk.sh: " + msg + "\n")
+    sys.exit(1)
+
+ISSUE_RE = re.compile(r"^[1-9][0-9]*[.]md$")
+
+def git_walk(paths):
+    """Dates from one walk of the git history of the folder (the cwd):
+    ({N: date the file was added}, {N: date a commit added `state: closed`}),
+    newest commit first. None outside a git work tree, or without git. A
+    history git refuses to read (dubious ownership, a broken repo) exits 1:
+    never a silent fallback to the modification date. Known limit: a prompt
+    line that reads `state: closed` can date a hand close."""
+    env = dict(os.environ, LC_ALL="C", GIT_OPTIONAL_LOCKS="0")
+    try:
+        p = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    except OSError:
+        return None
+    if p.returncode != 0:
+        if b"not a git repository" in p.stderr:
+            return None
+        fail("cannot read the git history of the folder named by issue_source.repo")
+    if p.stdout.strip() != b"true":
+        return None
+    p = subprocess.run(["git", "-c", "core.quotePath=false", "log", "--no-renames",
+                        "--date=short", "--format=%x00%cd", "-p", "--unified=0",
+                        "--relative", "--"] + paths,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    if p.returncode != 0:
+        fail("cannot read the git history of the folder named by issue_source.repo")
+    added, closed = {}, {}
+    date, cur = None, None
+    for line in p.stdout.decode("utf-8", "replace").split("\n"):
+        line = line.rstrip("\r")
+        if line.startswith("\0"):
+            date, cur = line[1:], None
+        elif line.startswith("diff --git "):
+            name = line.rsplit(" b/", 1)[-1]
+            cur = int(name[:-3]) if ISSUE_RE.match(name) else None   # a path with / is not an issue
+        elif cur is None or date is None:
+            continue
+        elif line.startswith("new file mode"):
+            added.setdefault(cur, date)
+        elif line == "+state: closed":
+            closed.setdefault(cur, date)
+    return added, closed
+
+def mtime(n):
+    try:
+        return datetime.date.fromtimestamp(os.stat("%d.md" % n).st_mtime).isoformat()
+    except OSError:
+        return datetime.date.today().isoformat()
+
+def dates(r, walk):
+    """(created, closed) of one record: created is the commit that added the
+    file, else the modification date; closed (null while open) is the last
+    on_merge entry, else the commit that added `state: closed`, else the
+    modification date."""
+    n = r["n"]
+    added, hand = walk if walk else ({}, {})
+    created = added.get(n) or mtime(n)
+    if r["keys"]["state"] != "closed":
+        return created, None
+    merged = [c["date"] for c in r["comments"] if c["text"].startswith("on_merge:")]
+    return created, (merged[-1] if merged else hand.get(n) or mtime(n))
+
+def klass(r, ip):
+    """The one class rule state-list, issue-list and state-class share: closed
+    is done; open with the on_draft_start status (case-insensitive, and only
+    when one is mapped) is in_progress; any other open issue is open."""
+    if r["keys"]["state"] == "closed":
+        return "done"
+    if ip and r["keys"].get("status", "").casefold() == ip.casefold():
+        return "in_progress"
+    return "open"
+
 mode = sys.argv[1]
 recs = records()
 if mode == "faults":
@@ -163,12 +240,41 @@ elif mode == "fetch":
     out("- Author: @local\n")
     out("- Labels: %s\n" % ", ".join(k.get("labels", [])))
     out("- URL: disk:%d\n" % r["n"])
+    out("- Created: %s\n" % dates(r, git_walk(["%d.md" % r["n"]]))[0])
     out("\n---\n\n%s\n\n---\n\n" % r["prompt"])
     out(comments(r))
 elif mode == "comments":
     out(comments(recs[0]))
 elif mode == "state":
     out(recs[0]["keys"]["state"] + "\n")
+elif mode == "list-faults":
+    lines = ["%d.md:%d: %s" % (r["n"], f["line"], f["message"])
+             for r in recs for f in r.get("faults", [])]
+    k = sum(1 for r in recs if r.get("faults"))
+    out("".join(ln + "\n" for ln in lines))
+    if lines:
+        out("%d issue file(s) in issue_source.repo fail the format check; first: %s\n" % (k, lines[0]))
+elif mode == "state-list":
+    ip = sys.argv[2].strip(" \t")
+    out("".join("%d\t%s\n" % (r["n"], klass(r, ip)) for r in recs))
+elif mode == "state-class":
+    r = recs[0]
+    out("done\tcompleted\n" if klass(r, "") == "done" else "open\t-\n")
+elif mode == "issue-list":
+    ip = sys.argv[2].strip(" \t")
+    walk = git_walk(["."]) if recs else None
+    buf = []
+    for r in recs:
+        k = r["keys"]
+        created, closed = dates(r, walk)
+        rec = {"id": str(r["n"]), "title": r["title"], "body": r["prompt"],
+               "state": k["state"], "class": klass(r, ip),
+               "created": created, "closed": closed, "milestone": None,
+               "labels": k.get("labels", []), "type": None,
+               "parent": ("disk:%d" % k["parent"]) if "parent" in k else None,
+               "blocked_by": [], "url": "disk:%d" % r["n"]}
+        buf.append(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
+    out("".join(buf))
 elif mode == "at-target":
     # argv: <target status or ""> <stage>. Exit 0 when the issue is already at
     # the stage target: the mapped status (if any), state closed for on_merge,
@@ -422,6 +528,66 @@ cmd_transition() {
   esac
 }
 
+# --- the list verbs ---------------------------------------------------------
+# _disk_list: every issue of the folder (the cwd), as the module's JSON Lines,
+# into DISK_JSON (a setter-global; call it bare). One module `list` call. A
+# faulty or unreadable issue file prints one `<N>.md:<line>: <message>` line
+# per fault and a last summary line (the line `wbs update` and
+# `wbs init --from-tracker` show), then exits 5; an unreadable folder exits 1.
+_disk_list() {
+  local rc=0
+  if DISK_JSON="$(_disk_mod list . 2>/dev/null)"; then return 0; else rc=$?; fi
+  if [ "$rc" -eq 4 ] || { [ "$rc" -eq 1 ] && [[ "$DISK_JSON" == *'"faults":'* ]]; }; then
+    printf '%s\n' "$DISK_JSON" | _disk_py list-faults >&2 || true
+    exit 5
+  fi
+  _disk_die 1 "the issues folder named by issue_source.repo is missing or unreadable"
+}
+
+# _disk_ip: the project's on_draft_start status (the per-call DEVAGENT_PROJECT
+# that `wbs update` sets), into DISK_IP; an unreadable config exits 1.
+_disk_ip() {
+  if DISK_IP="$(stage_map_target disk "${DEVAGENT_PROJECT:-}" on_draft_start)"; then :; else exit 1; fi
+}
+
+# state-list <dir>: one `<N>` TAB `<class>` line per issue, sorted by N.
+cmd_state_list() {
+  [ "$#" -le 1 ] || _disk_die 1 "usage: state-list <dir>"
+  _disk_folder "${1:-}"
+  _disk_ip
+  _disk_list
+  printf '%s\n' "$DISK_JSON" | _disk_py state-list "$DISK_IP"
+}
+
+# issue-list <dir>: one JSON Lines record per issue, in the contract
+# scripts/lib/wbs-import.py check enforces.
+cmd_issue_list() {
+  [ "$#" -le 1 ] || _disk_die 1 "usage: issue-list <dir>"
+  _disk_folder "${1:-}"
+  _disk_ip
+  _disk_list
+  local out
+  if out="$(printf '%s\n' "$DISK_JSON" | _disk_py issue-list "$DISK_IP")"; then :; else exit 1; fi
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# state-class <dir> <N>: `<class>` TAB `<reason>` for the merge step: the
+# shared rule with no in-progress status (as github's gh_class("")), so an
+# open issue is `open`; the reason is never empty.
+cmd_state_class() {
+  [ "$#" -eq 2 ] && _disk_is_num "$2" || _disk_die 1 "usage: state-class <dir> <N>"
+  _disk_folder "$1"
+  _disk_parse "$2"
+  printf '%s\n' "$DISK_JSON" | _disk_py state-class
+}
+
+# state-exists <dir> <status>: a disk status is free text, so any non-empty
+# status exists.
+cmd_state_exists() {
+  [ "$#" -eq 2 ] && [ -n "$2" ] || _disk_die 2 "usage: state-exists <dir> <status>"
+  _disk_folder "$1"
+}
+
 main() {
   local verb="${1:-}"
   [ "$#" -eq 0 ] || shift
@@ -431,9 +597,10 @@ main() {
     comment-list) cmd_comment_list "$@" ;;
     create)       cmd_create "$@" ;;
     transition)   cmd_transition "$@" ;;
-    state-list|state-class|issue-list|state-exists)
-      _disk_folder "${1:-}"
-      bc_die_not_implemented disk "$verb" ;;
+    state-list)   cmd_state_list "$@" ;;
+    issue-list)   cmd_issue_list "$@" ;;
+    state-class)  cmd_state_class "$@" ;;
+    state-exists) cmd_state_exists "$@" ;;
     events|comment-records|whoami)
       bc_die_not_implemented disk "$verb" ;;
     *) usage ;;
