@@ -2512,7 +2512,7 @@ Each leaf or node can carry an inline `{key: value, …}` metadata block.
 Recognized keys (v1): `issue`, `est`, `cost`, `owner`, `milestone`,
 `start`, `due`, `depends_on`, `status_src`, `mr`, `priority`, `satisfies`, `objective`, `h`, `thinking`, `checking`.
 Unrecognized keys are preserved verbatim for forward compatibility.
-`priority` (`P1` to `P4`, P1 the most urgent) ranks a node among its siblings (#803; see Ordering below).
+`priority` (`P0` to `P4`, P0 the most urgent) ranks a node among its siblings (#803, #889; see Ordering below).
 `satisfies` traces a leaf to the requirements it serves, and `objective`
 names the `satisfies` entries the leaf serves at objective only (#888). Each
 is a scalar or a `[list]` of `<namespace>:<id>` entries: one `:`, both halves
@@ -2643,8 +2643,8 @@ bare id, a foreign `<project>:<issue>` entry constrains nothing (#887), a
 node with `depends_on` and no `issue` still counts, and an id that names
 nothing in another sibling's subtree constrains nothing. A
 sibling's own priority is the most urgent `priority` among the open nodes
-under it, P3 when there is none. A value other than `P1` to `P4` counts as
-missing and warns `line N: priority '<v>' is not P1, P2, P3 or P4; ignored`.
+under it, P3 when there is none. A value other than `P0` to `P4` counts as
+missing and warns `line N: priority '<v>' is not P0, P1, P2, P3 or P4; ignored`.
 One rule decides it, `priority_rank` (#865): `parse_text` records the
 warning in the node's `parse_warnings` (N of the parsed text), and
 `wbs show` prints each once on stderr. `wbs update` and `wbs order` print

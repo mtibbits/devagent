@@ -139,8 +139,8 @@ DEP_PREFIX_WARNING = ("depends_on entry '{}' holds ':' but is not "
 
 # The one priority rule (#865): `parse_text` records it per node and the
 # order pass (`_order`) ranks by it; neither spells it again.
-PRIORITY_RE = re.compile(r"P[1-4]")
-PRIORITY_WARNING = "priority '{}' is not P1, P2, P3 or P4; ignored"
+PRIORITY_RE = re.compile(r"P[0-4]")
+PRIORITY_WARNING = "priority '{}' is not P0, P1, P2, P3 or P4; ignored"
 
 
 # The one `h` rule (#888): one digit 0-4 as written. portfolio.py's `read_h`
@@ -183,7 +183,7 @@ def _shown(v) -> str:
 
 
 def priority_rank(meta: dict) -> tuple[int | None, str | None]:
-    """(rank 1-4, None) for a valid `priority`; (None, None) when absent;
+    """(rank 0-4, None) for a valid `priority`; (None, None) when absent;
     (None, PRIORITY_WARNING.format(shown)) when malformed, where `shown` is
     `[a, b]` for a list value and the value as written otherwise ('' included)."""
     if "priority" not in meta:
@@ -1241,7 +1241,7 @@ def order_text(
     configured name; `split_dep`) counts as its bare id; a foreign
     `<project>:<issue>` entry constrains nothing (#887). Among the
     siblings whose dependencies are placed, the next is the one with the
-    most urgent effective priority (the most urgent `priority: P1`-`P4` of
+    most urgent effective priority (the most urgent `priority: P0`-`P4` of
     the open nodes under it or under any sibling depending on it,
     transitively; P3 when none), then the most transitive dependents, then
     its current position. Finished siblings keep their slots, or with
