@@ -1755,3 +1755,88 @@ def test_cli_output_without_overhead_is_unchanged(tmp_path):
     assert runs[1].stdout == GOLDEN_OVH_SUMMARY
     assert runs[2].stdout == GOLDEN_OVH_JSON
     assert runs[3].stdout == GOLDEN_OVH_TIME_SUMMARY
+
+
+def test_project_dirs_reads_source_devdoc_and_worktree_root():
+    _config_dirs({
+        "alpha": {"source_dir": "/work/alpha", "devdoc_dir": "/work/devdoc/alpha"},
+        "beta": {"source_dir": "/work/beta", "devdoc_dir": "/work/devdoc/beta", "worktree_root": "/work/trees/beta"},
+        "gamma": {"source_dir": "~/g"},
+        "delta": {"source_dir": 7},
+        "epsilon": {"source_dir": "/work/eps", "worktree_root": "/work/eps-wt"},
+    })
+    lst = cr.project_dirs(cr._project_tables())
+    g = os.path.expanduser("~/g")
+    assert set(lst) == {
+        ("/work/alpha", "alpha"), ("/work/alpha-wt", "alpha"), ("/work/devdoc/alpha", "alpha"),
+        ("/work/beta", "beta"), ("/work/trees/beta", "beta"), ("/work/devdoc/beta", "beta"),
+        (g, "gamma"), (g + "-wt", "gamma"),
+        ("/work/eps", "epsilon"), ("/work/eps-wt", "epsilon"),
+    }
+    assert len(lst) == len(set(lst))
+
+
+@pytest.mark.parametrize("path, expected", [
+    ("/work/a/", "/work/a"), ("/", "/"), ("/Work/A", "/Work/A"),
+    ("C:\\Programs\\src\\devDoc\\", "c:/Programs/src/devDoc"),
+    ("/c/Programs", "c:/Programs"), ("/C/x", "c:/x"),
+    ("/c", "c:/"), ("/c/", "c:/"), ("c:", "c:/"), ("c:/", "c:/"), ("C:\\", "c:/"),
+])
+def test_norm_paths(path, expected):
+    assert cr._norm(path) == expected
+
+
+@pytest.mark.parametrize("r", ["c:/x/proj", "C:/x/proj", "c:/x/proj/"])
+@pytest.mark.parametrize("p, under", [
+    ("C:\\x\\proj", True), ("c:\\x\\proj", True), ("/c/x/proj", True), ("/C/x/proj", True),
+    ("C:/x/proj/sub/", True), ("c:\\x\\proj\\sub", True),
+    ("c:/x/proj2", False), ("/d/x/proj", False), ("c:/x/Proj", False),
+])
+def test_under_spec_spellings(p, r, under):
+    assert cr._under(p, r) is under
+
+
+def test_under_roots_and_empty():
+    assert cr._under("c:/x/proj", "c:/") is True
+    assert cr._under("c:/x/proj", "/c") is True
+    assert cr._under("/anything", "/") is True
+    assert cr._under("", "/work") is False
+    assert cr._under("/work", "") is False
+
+
+def test_under_identity_first(tmp_path):
+    real = tmp_path / "real"
+    (real / "sub").mkdir(parents=True)
+    (tmp_path / "realx").mkdir()
+    (tmp_path / "link").symlink_to(real)
+    assert cr._under(str(tmp_path / "link" / "sub"), str(real)) is True   # identity: the string rule says no
+    assert cr._under(str(tmp_path / "realx"), str(real)) is False
+
+
+DIR_CONFIG = {
+    "alpha": {"source_dir": "/work/alpha"},
+    "beta": {"source_dir": "/work/alpha/vendor/beta"},
+    "gamma": {"source_dir": "/work/same"},
+    "delta": {"source_dir": "/work/same"},
+    "epsilon": {"source_dir": "/work/eps", "devdoc_dir": "/work/eps"},
+    "win": {"source_dir": "C:/Work/Alpha"},
+}
+
+
+@pytest.mark.parametrize("cwd, project", [
+    ("/work/alpha", "alpha"),
+    ("/work/alpha/src", "alpha"),
+    ("/work/alpha/vendor/beta/x", "beta"),
+    ("/work/alphabet", None),
+    ("/work", None),
+    ("/work/same/x", None),
+    ("/work/eps/x", "epsilon"),
+    ("c:\\Work\\Alpha\\x", "win"),
+    ("c:\\work\\alpha\\x", None),
+])
+def test_dir_project_longest_match_and_boundaries(cwd, project):
+    _config_dirs(DIR_CONFIG)
+    dirs = cr.project_dirs(cr._project_tables())
+    cache = {}
+    assert cr._dir_project(cwd, dirs, cache) == project
+    assert cr._dir_project(cwd, dirs, cache) == project   # cached answer agrees

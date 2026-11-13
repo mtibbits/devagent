@@ -176,11 +176,11 @@ def load(path: Path, markers: tuple = MARKERS) -> Iterator[dict]:
             print(f"cost-report: truncated {path} ({e})", file=sys.stderr)
 
 
-def known_projects() -> set[str]:
+def _project_tables() -> dict[str, dict]:
     """The [project.<name>] tables of ${DA_HOME:-~/.claude/devagent}/config.toml (scripts/lib/paths.sh)."""
     path = Path(os.environ.get("DA_HOME") or Path.home() / ".claude" / "devagent") / "config.toml"
     if not path.is_file():
-        return set()
+        return {}
     try:
         spec = importlib.util.spec_from_file_location("_devagent_toml", Path(__file__).with_name("_toml.py"))
         toml = importlib.util.module_from_spec(spec)
@@ -189,9 +189,81 @@ def known_projects() -> set[str]:
     except (OSError, ValueError, ImportError) as e:  # unreadable, invalid TOML, or no TOML parser on this Python
         print(f"cost-report: cannot read {path} ({e}); known projects come from dispatch headers only",
               file=sys.stderr)
-        return set()
+        return {}
     tables = data.get("project")
-    return {k for k, v in tables.items() if isinstance(v, dict)} if isinstance(tables, dict) else set()
+    return {k: v for k, v in tables.items() if isinstance(v, dict)} if isinstance(tables, dict) else {}
+
+
+def known_projects() -> set[str]:
+    return set(_project_tables())
+
+
+_SLASH_DRIVE = re.compile(r"^/([A-Za-z])(/.*)?$")
+_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def _norm(path: str) -> str:
+    """Spec §8.1's string fallback (#950): \\ to /, /c/... to c:/..., fold only the drive letter, drop trailing /."""
+    p = os.path.expanduser(path).replace("\\", "/")
+    m = _SLASH_DRIVE.match(p)
+    if m:
+        p = f"{m.group(1)}:{m.group(2) or '/'}"
+    if _DRIVE.match(p):
+        p = p[0].lower() + p[1:]
+    q = p.rstrip("/")
+    if _DRIVE.fullmatch(q):
+        return q + "/"
+    return q or ("/" if p.startswith("/") else "")
+
+
+def _under(p: str, r: str) -> bool:
+    """Is path p under dir r, per spec §8.1: identity first when both are existing dirs, else _norm's strings."""
+    np_, nr = (_norm(p) if p else ""), (_norm(r) if r else "")
+    if not np_ or not nr:
+        return False
+    pp, rr = (np_ if os.path.isdir(np_) else p), (nr if os.path.isdir(nr) else r)
+    if os.path.isdir(pp) and os.path.isdir(rr):
+        cur = pp
+        for _ in range(64):
+            try:
+                if os.path.samefile(cur, rr):
+                    return True
+            except OSError:
+                break
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
+        return False
+    return np_ == nr or np_.startswith(nr if nr.endswith("/") else nr + "/")
+
+
+def project_dirs(tables: dict[str, dict]) -> list[tuple[str, str]]:
+    """(normalised dir, project) for each project's source_dir, worktree_root (default <source_dir>-wt) and devdoc_dir."""
+    out: list[tuple[str, str]] = []
+    for name, t in tables.items():
+        src = t.get("source_dir")
+        wt = t["worktree_root"] if "worktree_root" in t else (
+            os.path.expanduser(src) + "-wt" if isinstance(src, str) and src else None)
+        for v in (src, wt, t.get("devdoc_dir")):
+            d = _norm(v) if isinstance(v, str) and v else ""
+            if d and (d, name) not in out:
+                out.append((d, name))
+    return out
+
+
+def _dir_project(cwd: str, dirs: list[tuple[str, str]], cache: dict) -> str | None:
+    """The project whose dir holds cwd, longest dir winning; a tie between two projects is None."""
+    if cwd not in cache:
+        best, who = -1, set()
+        for d, name in dirs:
+            if _under(cwd, d):
+                if len(d) > best:
+                    best, who = len(d), {name}
+                elif len(d) == best:
+                    who.add(name)
+        cache[cwd] = next(iter(who)) if len(who) == 1 else None
+    return cache[cwd]
 
 
 def _text(content) -> str:
