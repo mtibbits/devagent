@@ -202,3 +202,18 @@ def test_header_names_the_rejected_alternatives(header):
 def test_checkout_depth_one(wf):
     for job in _jobs(wf).values():
         assert _checkout(job).get("with", {}).get("fetch-depth") == 1
+
+
+def test_header_records_parallelism(wf, header):
+    # P1 measured serial against concurrent, cold, in one push (#1096 Task 8). The
+    # line names both times, the run, and the choice; the choice must match the
+    # Run step.
+    pat = re.compile(r"^# Parallelism: serial \d+m\d{2}s, concurrent \(xargs -P 2\) "
+                     r"\d+m\d{2}s \(run \d+\) -> (serial|concurrent)$")
+    hits = [m for m in map(pat.match, header) if m]
+    assert len(hits) == 1
+    runs = " ".join(_runs(_named_job(wf)["steps"]))
+    if hits[0].group(1) == "concurrent":
+        assert f"{HELPER} run --jobs 2 " in runs
+    else:
+        assert "--jobs" not in runs
