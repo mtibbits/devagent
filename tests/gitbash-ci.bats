@@ -125,6 +125,12 @@ fileline() {
   [[ "$output" == 100755\ * ]]
 }
 
+@test "select: the live tests/ tree has at least one tagged file and no malformed tag" {
+  run --separate-stderr "$H" select "$PLUGIN_ROOT/tests"
+  [ "$status" -eq 0 ] || { echo "rc $status: $stderr"; return 1; }
+  [ -n "$output" ]
+}
+
 # ---------------------------------------------------------------- summarize
 
 @test "summarize: a passing file reports its counts and OK" {
