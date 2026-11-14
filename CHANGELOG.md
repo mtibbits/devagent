@@ -16,6 +16,18 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Added: a Git Bash CI job for `gitbash`-tagged test files (#1096).**
+  `.github/workflows/gitbash.yml` runs every bats file carrying the column-0
+  line `# bats file_tags=gitbash` under real Git Bash on a pinned
+  `windows-2025` runner, with bats 1.14.0 cloned at its release tag and
+  checked against its commit. The check run is named
+  `Git Bash tagged files`. `scripts/ci/gitbash-tagged.sh` selects the files
+  (no `bats --filter-tags`), runs each in its own bats invocation and fails
+  the job on a failed test, a skip without a reason, a file whose every
+  test skipped, an empty tag list or a malformed tag line. README's
+  "Running the test suite" documents the tag; the platform statements in
+  README, CONTRIBUTING, the install page and QA-7 now say CI runs the
+  tagged files on Windows.
 - **Added: cost-report --overhead, unattributed cost as per-project overhead
   (#732, epic #729).** `cost-report.sh --overhead` places each
   `(no project)/(no issue)` call by the first rule that applies: the

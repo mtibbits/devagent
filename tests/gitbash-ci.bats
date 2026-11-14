@@ -134,8 +134,7 @@ fileline() {
 @test "select: the README's documented tag line selects" {
   local sect tagl
   sect="$(sed -n '/^## Running the test suite$/,/^## /p' "$PLUGIN_ROOT/README.md")"
-  tagl="$(printf '%s
-' "$sect" | grep -oE '`# bats [^`]*`' | head -n 1)"
+  tagl="$(printf '%s\n' "$sect" | grep -oE '`# bats [^`]*`' | head -n 1)"
   tagl="${tagl//\`/}"
   [ -n "$tagl" ] || { echo "no backticked tag line in README's Running the test suite"; return 1; }
   tagfile r.bats "$tagl"

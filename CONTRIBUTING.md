@@ -26,11 +26,13 @@ rather than repeating it.
 
 ## Platforms
 
-Linux and WSL are where the suite is green, and where CI runs
-(`ubuntu-24.04`). The suite needs a filesystem where `chmod` really changes a
-mode and a UTF-8 locale; native Git Bash on Windows provides neither by
-default, so it can run the plugin and individual scripts but is not a
-supported environment for the suite. On Windows, develop in a WSL clone on a
+Linux and WSL are where the suite is green, and where CI runs the full suite
+(`ubuntu-24.04`); the `gitbash`-tagged test files also run under Git Bash on
+Windows (`windows-2025`, `.github/workflows/gitbash.yml`). The suite needs a
+filesystem where `chmod` really changes a mode and a UTF-8 locale; native Git
+Bash on Windows provides neither by default, so it can run the plugin and
+individual scripts, but the full suite needs a filesystem where `chmod` works, which Git Bash's default
+`noacl` mounts are not; the `gitbash`-tagged files run on Windows CI. On Windows, develop in a WSL clone on a
 native Linux filesystem, not under `/mnt/c`. The README section named above
 explains the mechanism behind both requirements.
 Every suite-count artifact records the platform it was produced on
