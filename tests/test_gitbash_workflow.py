@@ -194,6 +194,13 @@ def test_checkout_depth_one(wf):
         assert _checkout(job).get("with", {}).get("fetch-depth") == 1
 
 
+def test_header_records_last_green_run(header):
+    # P5 (#1096 Task 8): the Time AC. The run, the head it measured, and the job time.
+    pat = re.compile(r"^# Last green run: https://github\.com/mtibbits/devagent/actions/runs/\d+ "
+                     r"@ [0-9a-f]{40} in \d+m\d{2}s$")
+    assert len([line for line in header if pat.match(line)]) == 1
+
+
 def test_header_records_parallelism(wf, header):
     # P1 measured serial against concurrent, cold, in one push (#1096 Task 8). The
     # line names both times, the run, and the choice; the choice must match the

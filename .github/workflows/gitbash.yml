@@ -43,9 +43,9 @@
 # DEVAGENT_* interpreter override is set: the tests run against the
 # interpreters a Git Bash user has. Not every skip here is about file modes:
 # shellcheck is not installed, so preship-evidence.bats's two real-producer
-# tests skip, and Git Bash's default MSYS symlink mode copies, so
-# commit-guard.bats's real-symlink tests skip. Those paths have no Windows
-# coverage from this job.
+# tests skip, and Git Bash's default MSYS symlink mode copies, so the
+# real-symlink tests in commit-guard.bats and evidence-stamp.bats skip. Those
+# paths have no Windows coverage from this job.
 #
 # Why no `bats --filter-tags`: bats would source every file in tests/ to read
 # its tags, on a host where process start is slow. The helper selects with one
@@ -57,7 +57,11 @@
 #   (disk-issue.bats was left out afterwards, #1104).
 #   GNU parallel is absent from the runner's Git Bash, so `bats --jobs` cannot
 #   run there; the helper's `run --jobs 2` runs two per-file bats processes at
-#   once (xargs -P 2) and prints their TAP afterwards in list order.
+#   once (xargs -P 2), prints a `done:` line as each file finishes, and prints
+#   their TAP afterwards in list order.
+#
+# Last green run: https://github.com/mtibbits/devagent/actions/runs/43622037992 @ 05c93d4545ade82550b28fb3944f7106a5edd728 in 13m39s
+#   The job's time on that run. The run of this header-only commit is not counted.
 #
 # For #987 (the user-path job): a sibling job copies these steps verbatim:
 # Confirm Git Bash, the workflow env (LC_ALL/LANG), Install bats 1.14.0, Ensure
