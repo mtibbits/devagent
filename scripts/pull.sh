@@ -25,6 +25,8 @@ source "$PLUGIN_ROOT/scripts/lib/artifact.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/flags.sh"
 # shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/transition.sh"   # issue_repo_label (#1009)
+# shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
@@ -288,7 +290,8 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
 
   # Mark step 0 done; log
   checklist_mark_by_name "$issue_dir/checklist.md" pull x
-  log_append "$issue_dir" "pull" "fetched ${repo}#${num}, scaffold created"
+  # #1009: a disk repo is a folder on this machine; the log names it `disk`.
+  log_append "$issue_dir" "pull" "fetched $(issue_repo_label "$backend" "$repo")#${num}, scaffold created"
   # #713: under a trust policy in scope, the run record names the policy.
   if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
     local trust_rec

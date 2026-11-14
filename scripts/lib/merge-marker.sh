@@ -10,7 +10,9 @@
 # written only when nothing is left to retry (#710; pre-#710
 # `merged → on_merge fired` lines still match, and nothing is backfilled):
 #   landed      <issue> merged → on_merge landed: "<state>" on <repo>
-#               (… landed on <repo>: a custom backend that maps for itself)
+#               (… landed on <repo>: a custom backend that maps for itself, or
+#               a disk on_merge with no status mapped, which still closes the
+#               file; a disk <repo> is written as `disk`, #1009)
 #   no-tracker  <issue> merged → on_merge skipped: no issue tracker configured
 #   fork-only   <issue> merged → on_merge skipped: fork_only (upstream tracker not targeted)
 # gated, unmapped, no-backend and failed write NO marker, so the next run
@@ -53,7 +55,7 @@ merge_marker_fire() {
         "$suffix"
     case "$TRANSITION_OUTCOME" in
         landed)
-            log_append "$issue_dir" sync "$issue_arg merged → on_merge landed${TRANSITION_TARGET:+: \"$TRANSITION_TARGET\"} on $issue_repo" ;;
+            log_append "$issue_dir" sync "$issue_arg merged → on_merge landed${TRANSITION_TARGET:+: \"$TRANSITION_TARGET\"} on $(issue_repo_label "$issue_backend" "$issue_repo")" ;;
         no-tracker)
             log_append "$issue_dir" sync "$issue_arg merged → on_merge skipped: no issue tracker configured" ;;
         fork-only)

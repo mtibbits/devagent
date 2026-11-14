@@ -169,9 +169,20 @@ def test_parent_line_no_backtracking_on_long_whitespace():
     ("https://gitlab.com/g/p/-/work_items/9", ("g/p", "9")),
     ("https://acme.atlassian.net/browse/PROJ-4", (None, "PROJ-4")),
     ("https://example.com/docs/page", None),
+    ("disk:3", ("disk:", "3")),
+    ("disk:0", None),
+    ("disk:x", None),
+    ("disk:03", None),
 ])
 def test_parse_ref(url, want):
     assert wbs_import.parse_ref(url) == want
+
+
+def test_parent_line_disk_token():
+    # #1009: crrf's form `Parent epic: <slug> disk:<N>`; a leading #N still wins
+    assert wbs_import.parent_line("Parent epic: my-epic disk:1")[:2] == ("url", "disk:1")
+    assert wbs_import.parent_line("Parent epic: #2 disk:1")[:2] == ("num", "2")
+    assert wbs_import.parent_line("Parent epic: disk:7.")[:2] == ("url", "disk:7")
 
 
 # --- structure ---------------------------------------------------------------
@@ -1641,3 +1652,52 @@ def test_no_writer_bypasses_write_document():
     assert _dest_redirects('echo > "$destdir/x"\n', "dest") == []
     assert _dest_redirects('echo > "$wbs_dir/x"\n', "wbs") == []
     assert _dest_redirects('cp "$t" "$destdir/x"\n', "dest") == []
+
+
+# --- #1009: the disk reference ---------------------------------------------------
+def drec(id_, **kw):
+    return rec(id_, url=f"disk:{id_}", **kw)
+
+
+def test_disk_parent_resolves_in_own_source():
+    # a disk origin and a github fork both hold id 1: disk:1 binds to the disk node
+    disk = src([drec("1", title="Epic: e"), drec("2", parent="disk:1")],
+               backend="disk", repo="/abs/MARK/issues")
+    fork = src([rec("1")], name="fork", repo="me/r", prefix="Issue-F")
+    m = wbs_import.build([disk, fork])
+    assert m.by_id[(0, "2")].parent is m.by_id[(0, "1")]
+    assert m.unresolved == []
+    # the Parent epic: line fallback resolves the same way
+    disk = src([drec("1", title="Epic: e"), drec("2", body="Parent epic: my-epic disk:1")],
+               backend="disk", repo="/abs/MARK/issues")
+    m = wbs_import.build([disk, fork])
+    assert m.by_id[(0, "2")].parent is m.by_id[(0, "1")]
+
+
+def test_disk_ref_from_github_source_is_foreign():
+    gh = src([rec("1"), rec("2", parent="disk:1")])
+    m = wbs_import.build([gh])
+    assert m.by_id[(0, "2")].parent is None
+    assert m.unresolved == [{"issue": "Issue-2", "line": "parent: disk:1", "reason": "foreign"}]
+
+
+def test_disk_blocked_by_resolves():
+    disk = src([drec("1"), drec("2", blocked_by=["disk:1", "disk:9"])],
+               backend="disk", repo="/abs/MARK/issues")
+    m = wbs_import.build([disk])
+    assert m.by_id[(0, "2")].blockers == [m.by_id[(0, "1")]]
+    assert m.dropped_deps == 1
+
+
+def test_import_note_names_disk_not_the_folder(tmp_path):
+    (tmp_path / "t.md").write_text("# WBS {{PROJECT}}\n", encoding="utf-8")
+    dest = tmp_path / "WBS.md"
+    env = {"WBS_IMP_ORIGIN_FILE": _jsonl(tmp_path / "o.jsonl", [drec("1"), drec("2")]),
+           "WBS_IMP_ORIGIN_BACKEND": "disk", "WBS_IMP_ORIGIN_REPO": "/abs/MARK/issues",
+           "WBS_IMP_ORIGIN_PREFIX": "Issue-", "WBS_IMP_RANGE": "all", "WBS_IMP_PROJECT": "p",
+           "WBS_IMP_TEMPLATE": str(tmp_path / "t.md"), "WBS_IMP_DEST": str(dest),
+           "DEVDOC_DIR": str(tmp_path)}
+    assert wbs_import.run(env) == 0
+    text = dest.read_text(encoding="utf-8")
+    assert "MARK" not in text
+    assert "issues from disk" in text

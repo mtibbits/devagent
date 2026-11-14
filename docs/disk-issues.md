@@ -7,8 +7,8 @@ what it found (#1008, epic #1007).
 
 One module reads and writes these files: `scripts/lib/disk-issue.py`. Every
 devagent part that touches an issue file goes through it, so they all agree
-on what a file means. The disk issue backend that uses it is a later child of
-epic #1007 and is not built yet.
+on what a file means. The disk issue backend, `scripts/issue/disk.sh` (#1009),
+uses it for every read and write.
 
 ## File and folder
 
@@ -18,6 +18,15 @@ epic #1007 and is not built yet.
   subfolders, and every name that starts with a dot. The writer's temporary
   files (`.<N>.md.tmp-<random>`) and its lock file (`.disk-issue.lock`) start
   with a dot for this reason.
+- The disk issue backend keeps three more dot-named files in the folder
+  (#1009). `.last-number` holds the highest number `create` has given out, so
+  a number never comes round again after its file is deleted. If the folder is
+  under version control, commit `.last-number` with the issues: without it a
+  fresh clone can reuse a deleted number. `.last-number.tmp-<pid>` is its
+  temporary file. `.disk.lock` is held while `create` or `transition` runs.
+  Never commit it. If a killed command leaves one behind, every later
+  `create` and `transition` waits about ten seconds and then says so; remove
+  the file by hand once no devagent command is running.
 - A file is UTF-8 text. Lines may end in LF or CRLF, and the file may start
   with a UTF-8 byte order mark (BOM).
 
@@ -188,10 +197,9 @@ a faulty file is left untouched and the write fails with exit code 4.
   that save. Where a folder has no hard links, `create` reserves the name
   first; a crash at that moment leaves an empty `<N>.md`, which `check`
   reports as having no title line.
-- **When.** The disk issue backend, a later child of epic #1007, will log the
-  stage transitions (`on_draft_start`, `on_ship`, `on_merge`) as comments, as
-  in the full form above. Until it lands, nothing in devagent writes these
-  files on its own.
+- **When.** The disk issue backend (`scripts/issue/disk.sh`, #1009) writes
+  a new file on `create` and logs the stage transitions (`on_draft_start`,
+  `on_ship`, `on_merge`) as comments, as in the full form above.
 
 ## Checking and listing
 

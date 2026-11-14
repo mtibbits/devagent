@@ -40,6 +40,7 @@ declare -gA TRUST_REFUSAL_DETAIL=(
   [quarantine-label-missing]='the quarantine label %s is not on %s; a deleted or renamed label stops the queue'
   [events-unsupported]='the %s backend has no events verb (exit %s)'
   [events-unavailable]='events for %s could not run (exit %s)'
+  [disk-backend]='disk issue backend is not supported under a trust policy'
 )
 declare -gA TRUST_REFUSAL_CODE=(
   [whoami-unavailable]=10

@@ -24,7 +24,10 @@ Args: `<capture-slug> [origin|fork]` (default: `origin`)
    mirrors config `[project.<name>.permissions].push_mr` once exported),
    defaulting to `false`. When the gate is `false`, the script prints
    the plan and exits **4**; the operator re-invokes with `--yes`
-   to confirm. (An autonomous caller — `/devagent:crrf` — instead treats
+   to confirm. A disk target asks no gate (nothing leaves the machine) and
+   records `url = "disk:<N>"` and `repo = "disk"` (#1009); that holds for
+   the plugin's own `disk.sh` only. (An autonomous caller — `/devagent:crrf` —
+   instead treats
    4 as halt-and-report and never passes `--yes`.)
 
    Exit map (#559 — rc-precise, pinned by `tests/file.bats`): `0` filed ·
@@ -59,7 +62,10 @@ backend env vars `file.sh` consumes:
   mirrors config `[project.<name>.permissions].push_mr`.
 - the tracker backend/repo vars from `[project.<name>.issue_source]`
   (and `issue_source_fork` for `--target fork`). With a trust policy on the
-  host these vars are overwritten from config, never read (#713).
+  host these vars are overwritten from config, never read (#713). With no
+  policy and `DEVAGENT_ISSUE_BACKEND` unset, the backend comes from the config
+  of the project that owns `DEVAGENT_DEVDOC_DIR`, and each repo var and the
+  backend dir left unset is filled from it too; an exported value wins (#1009).
 
 ## Non-goals
 

@@ -207,6 +207,10 @@ GITLAB_REF_RE = re.compile(
     r"^https?://[^/\s]+/(?P<repo>\S+?)/-/(?:issues|work_items)/(?P<n>[0-9]+)/?(?:[?#]\S*)?$")
 JIRA_REF_RE = re.compile(
     r"^https?://[^/\s]+/browse/(?P<key>[A-Z][A-Z0-9_]*-[0-9]+)/?(?:[?#]\S*)?$")
+# #1009: a disk issue's reference. It names issue N of the record's OWN disk
+# source (a disk source has no URL), so it resolves only from a disk record.
+DISK_REF_RE = re.compile(r"^disk:(?P<n>[1-9][0-9]*)$")
+DISK = "disk:"   # parse_ref's repo sentinel for a disk reference
 
 _parser = None
 
@@ -222,7 +226,10 @@ def _value_form(val: str, jira: bool) -> tuple[str, str]:
     """The value's reference, by the first rule that fits: a leading `#N`
     (or, on Jira, a leading key), a markdown link's URL, the first URL
     token, a leading `owner/repo#N`; else one slug-like token (slug) or
-    anything else (other). Trailing prose and punctuation are ignored."""
+    anything else (other). Trailing prose and punctuation are ignored.
+    A `disk:<N>` token counts as a URL (#1009), so crrf's
+    `Parent epic: <slug> disk:<N>` resolves; in a non-disk source it is
+    unresolved as `foreign` (before #1009: slug-only or unrecognised-form)."""
     toks = val.split()
     first = toks[0].rstrip(TRAILING)
     m = NUM_RE.fullmatch(first)
@@ -235,7 +242,7 @@ def _value_form(val: str, jira: bool) -> tuple[str, str]:
         return ("url", m.group(1))
     for tok in toks:
         tok = tok.lstrip("<(").rstrip(TRAILING)
-        if URL_RE.fullmatch(tok):
+        if URL_RE.fullmatch(tok) or DISK_REF_RE.fullmatch(tok):
             return ("url", tok)
     if REPO_NUM_RE.fullmatch(first):
         return ("ref", first)
@@ -278,7 +285,8 @@ def parent_line(body: str, jira: bool = False) -> tuple[str, str, str] | None:
 
 def parse_ref(url: str) -> tuple[str | None, str] | None:
     """An issue URL as (repo, id): GitHub and GitLab give the repo path and
-    the number, Jira gives (None, key). The host is not compared (GHES,
+    the number, Jira gives (None, key), a disk reference `disk:<N>` gives
+    (DISK, N) (#1009). The host is not compared (GHES,
     self-hosted GitLab). None for any other URL."""
     m = GITHUB_REF_RE.match(url) or GITLAB_REF_RE.match(url)
     if m:
@@ -286,6 +294,9 @@ def parse_ref(url: str) -> tuple[str | None, str] | None:
     m = JIRA_REF_RE.match(url)
     if m:
         return (None, m.group("key"))
+    m = DISK_REF_RE.match(url)
+    if m:
+        return (DISK, m.group("n"))
     return None
 
 
@@ -349,16 +360,21 @@ def is_epic(rec: dict) -> bool:
     return re.match(r"\s*Epic:", rec.get("title") or "") is not None
 
 
-def _resolve_url(model: Model, url: str) -> tuple[Node | None, str]:
+def _resolve_url(model: Model, url: str, home: Node | None = None) -> tuple[Node | None, str]:
     ref = parse_ref(url)
     if ref is None:
         return (None, "unrecognised-form")
-    return _resolve_ref(model, ref)
+    return _resolve_ref(model, ref, home)
 
 
-def _resolve_ref(model: Model, ref: tuple[str | None, str]) -> tuple[Node | None, str]:
+def _resolve_ref(model: Model, ref: tuple[str | None, str],
+                 home: Node | None = None) -> tuple[Node | None, str]:
+    """`home` is the node whose line names the reference: a `disk:<N>`
+    resolves only within home's own disk source, and is foreign elsewhere."""
     repo, rid = ref
-    if repo is None:
+    if repo == DISK:
+        sis = [home.si] if home is not None and home.source["backend"] == "disk" else []
+    elif repo is None:
         sis = [i for i, s in enumerate(model.sources) if s["backend"] == "jira"]
     else:
         sis = [i for i, s in enumerate(model.sources)
@@ -374,7 +390,7 @@ def _resolve_line(model: Model, node: Node, kind: str, value: str) -> tuple[Node
         hit = _node_for(model, node.si, value)
         return (hit, "" if hit else "not-found")
     if kind == "url":
-        return _resolve_url(model, value)
+        return _resolve_url(model, value, node)
     if kind == "ref":
         m = REPO_NUM_RE.fullmatch(value)
         return _resolve_ref(model, (m.group("repo"), m.group("n")))
@@ -386,7 +402,7 @@ def _parent_attempts(model: Model, node: Node) -> Iterator[tuple[str, Node | Non
     native parent that resolves leaves the body unparsed."""
     native = node.rec.get("parent")
     if native:
-        yield (f"parent: {native}", *_resolve_url(model, native))
+        yield (f"parent: {native}", *_resolve_url(model, native, node))
     pl = parent_line(node.rec["body"], jira=node.source["backend"] == "jira")
     if pl:
         kind, value, raw = pl
@@ -437,7 +453,7 @@ def build(sources: list[dict]) -> Model:
 
     for node in model.nodes:
         for url in node.rec["blocked_by"]:
-            hit, _why = _resolve_url(model, url)
+            hit, _why = _resolve_url(model, url, node)
             if hit is None:
                 model.dropped_deps += 1
             elif hit is not node and hit not in node.blockers:
@@ -1064,7 +1080,10 @@ def run(env) -> int:
         return _run_merge(model, selected, Path(env["WBS_IMP_DEST"]), env.get("DEVDOC_DIR", ""))
     template = Path(env["WBS_IMP_TEMPLATE"]).read_bytes().decode("utf-8")
     preamble = template_preamble(template.replace("\r\n", "\n"), project)
-    froms = ", ".join(f"{s['backend']} {s['repo']}" for s in sources)
+    # #1009: a disk source's repo is a folder on the user's machine and WBS.md
+    # may be pushed, so the note names it `disk`.
+    froms = ", ".join("disk" if s["backend"].lower() == "disk" else f"{s['backend']} {s['repo']}"
+                      for s in sources)
     note = (f"wbs init --from-tracker {datetime.date.today().isoformat()} {rng}: "
             f"{len(selected)} issues from {froms}")
     doc = render(model, selected, preamble, env.get("DEVDOC_DIR", ""), note,

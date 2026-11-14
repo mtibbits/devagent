@@ -934,8 +934,9 @@ Partly delivered. A requirement here that is not built yet starts with
 
 ## External interfaces
 
-- EI-1: Issue-tracker backend contract (GitHub, GitLab, JIRA or a custom
-  backend): devagent fetches an issue and its comments as fixed Markdown,
+- EI-1: Issue-tracker backend contract (GitHub, GitLab, JIRA, a folder of
+  issue files on disk, or a custom backend): devagent fetches an issue and
+  its comments as fixed Markdown,
   creates issues, moves an issue to a mapped stage, and reads its state,
   comments, change events and the account its credential belongs to. It
   reads success, usage error, auth failure, not found, malformed response and
@@ -1045,7 +1046,8 @@ From the design spec's permission gates and gates under trust:
   `merge_to_all_prs` (mergetoall), `commit_devdoc` (the devdoc commits of
   cleanup and the status report) and `transition_issue` (every tracker
   transition). The spec also lists `cleanup_on_merge`, for a cleanup after
-  sync, which no step performs.
+  sync, which no step performs. `/devagent:file` to a disk folder asks no
+  `push_mr`: nothing leaves the machine.
 - CON-10: `merge_mr` never prompts: devagent merges only when it is exactly
   `true`, so no answer at a terminal and no yes-flag can open it.
 - CON-11: `transition_issue = false` never prompts: devagent skips the

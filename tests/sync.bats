@@ -521,3 +521,25 @@ _fire_direct() {
         [ "$via_fn" = "$want" ]
     done
 }
+
+@test "sync: a disk project's unmapped on_merge closes the file and writes the marker once (#1009)" {
+    local folder="$DEVAGENT_TMP/MARK-$$/issues" cfg="$HOME/.claude/devagent/config.toml"
+    mkdir -p "$folder"
+    cp "$DEVAGENT_ROOT/tests/fixtures/disk-issue/minimal.md" "$folder/1.md"
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.issue_source.backend" disk
+    devagent_config_set "$cfg" "project.$TEST_PROJECT.issue_source.repo" "$folder"
+    devagent_config_unset "$cfg" "project.$TEST_PROJECT.issue_workflow.on_merge"
+    export DEVAGENT_ISSUE_BACKEND_DIR="$DEVAGENT_ROOT/scripts/issue"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    grep -qx 'state: closed' "$folder/1.md"
+    [ "$(grep -c 'on_merge:' "$folder/1.md")" -eq 1 ]
+    [ "$(grep -c '  sync: Issue-1 merged → on_merge landed on disk$' "$DEVDOC_DIR/Issue-1/checklist.md")" -eq 1 ]
+    cp "$folder/1.md" "$DEVAGENT_TMP/after-first"
+    run "$DEVAGENT_ROOT/scripts/sync.sh" "$TEST_PROJECT"
+    [ "$status" -eq 0 ]
+    cmp "$DEVAGENT_TMP/after-first" "$folder/1.md"
+    [ "$(grep -c '  sync: .* merged' "$DEVDOC_DIR/Issue-1/checklist.md")" -eq 1 ]
+    run grep -F "MARK-$$" "$DEVDOC_DIR/Issue-1/checklist.md"
+    [ "$status" -eq 1 ]
+}

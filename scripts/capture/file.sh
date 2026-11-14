@@ -26,11 +26,13 @@ Permission gate: DEVAGENT_PERMISSION_PUSH_MR=true|false
 
 Env:
   DEVAGENT_DEVDOC_DIR            required
-  DEVAGENT_ISSUE_BACKEND_DIR     required (path to issue/ backends)
-  DEVAGENT_ISSUE_BACKEND         optional (default: github)
-  DEVAGENT_REPO_ORIGIN           required if --target origin
-  DEVAGENT_REPO_FORK             required if --target fork
-  DEVAGENT_PERMISSION_PUSH_MR    true|false (default false)
+  DEVAGENT_ISSUE_BACKEND         optional; unset → from the config of the project
+                                 that owns DEVAGENT_DEVDOC_DIR, else github
+  DEVAGENT_ISSUE_BACKEND_DIR     path to issue/ backends (required unless the
+                                 backend came from config: then this plugin's)
+  DEVAGENT_REPO_ORIGIN           for --target origin (unset → from that config)
+  DEVAGENT_REPO_FORK             for --target fork (unset → from that config)
+  DEVAGENT_PERMISSION_PUSH_MR    true|false (default false; a disk target asks none)
 USAGE
 }
 
@@ -94,6 +96,34 @@ if [[ "${TRUST_HOST:-0}" == 1 ]]; then
   DEVAGENT_REPO_FORK="$(config_get_project_field "${TRUST_PROJECT}" issue_source_fork.repo 2>/dev/null || true)"
   [[ -n "${DEVAGENT_ISSUE_BACKEND}" ]] || { echo "${_section}.backend not configured for ${TRUST_PROJECT}" >&2; exit 2; }
 fi
+# #1009: with no policy and no DEVAGENT_ISSUE_BACKEND handed in, the project
+# that owns DEVAGENT_DEVDOC_DIR names the backend, and fills in each repo and
+# the backend dir (this plugin's) that the env leaves unset: an exported value
+# still wins. Its push_mr gate is still the env's.
+if [[ "${TRUST_HOST:-0}" != 1 && -z "${DEVAGENT_ISSUE_BACKEND:-}" ]]; then
+  _proj="$(trust_project_for_devdoc "${DEVAGENT_DEVDOC_DIR:-}")"
+  if [[ -n "${_proj}" ]]; then
+    _section=issue_source
+    [[ "${TARGET}" == fork ]] && _section=issue_source_fork
+    DEVAGENT_ISSUE_BACKEND="$(config_get_project_field "${_proj}" "${_section}.backend" 2>/dev/null || true)"
+    : "${DEVAGENT_REPO_ORIGIN:=$(config_get_project_field "${_proj}" issue_source.repo 2>/dev/null || true)}"
+    : "${DEVAGENT_REPO_FORK:=$(config_get_project_field "${_proj}" issue_source_fork.repo 2>/dev/null || true)}"
+    : "${DEVAGENT_ISSUE_BACKEND_DIR:=$(plugin_root)/scripts/issue}"
+  fi
+fi
+backend="${DEVAGENT_ISSUE_BACKEND:-github}"
+# A disk backend (any case) files into a folder on this machine, and no record
+# ever names the folder (#1009). Nothing leaves the machine, so no push_mr gate
+# is asked (under a policy, trust already refused it), but only when the script
+# that will run is this plugin's own disk.sh: one of that name in another
+# backends dir may send the issue anywhere, and is gated like any other.
+is_disk=0
+gate_exempt=0
+if issue_backend_is_disk "${backend}"; then
+  is_disk=1
+  [[ ! "${DEVAGENT_ISSUE_BACKEND_DIR:-}/${backend}.sh" -ef "$(plugin_root)/scripts/issue/disk.sh" ]] || gate_exempt=1
+fi
+
 if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
   [[ "${YES}" -ne 1 ]] || refuse yes-refused
   gate_name="file"
@@ -101,7 +131,7 @@ if [[ "${TRUST_IN_SCOPE:-0}" == 1 ]]; then
 fi
 
 gate="${DEVAGENT_PERMISSION_PUSH_MR:-false}"
-if [[ "${gate}" != "true" && "${YES}" -ne 1 ]]; then
+if [[ "${gate_exempt}" -ne 1 && "${gate}" != "true" && "${YES}" -ne 1 ]]; then
   case "${TARGET}" in
     origin) _repo="${DEVAGENT_REPO_ORIGIN:-<not set>}" ;;
     fork)   _repo="${DEVAGENT_REPO_FORK:-<not set>}" ;;
@@ -137,7 +167,6 @@ esac
 title="$(devagent_draft_h1 "${draft}")"
 [[ -n "${title}" ]] || { echo "draft has no H1 title" >&2; exit 3; }
 
-backend="${DEVAGENT_ISSUE_BACKEND:-github}"
 backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set}/${backend}.sh"
 [[ -x "${backend_script}" ]] || { echo "backend not executable: ${backend_script}" >&2; exit 3; }
 
@@ -146,7 +175,17 @@ backend_script="${DEVAGENT_ISSUE_BACKEND_DIR:?DEVAGENT_ISSUE_BACKEND_DIR not set
 # duplicate re-file (see the guard above). Cleared once filed.toml is written.
 : >"${pending}"
 
-issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")"
+_rc=0
+issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")" || _rc=$?
+if [[ "${_rc}" -ne 0 ]]; then
+  [[ "${is_disk}" -eq 1 ]] || exit "${_rc}"
+  # #1009: disk.sh exits 1 or 2 only when it wrote no issue file (a folder
+  # fault, or a prompt the format refuses), so the marker is cleared and the
+  # failure is a draft/state problem (3), never usage (2).
+  [[ "${_rc}" -ne 1 && "${_rc}" -ne 2 ]] || rm -f "${pending}"
+  echo "disk create failed (exit ${_rc})" >&2
+  exit 3
+fi
 [[ -n "${issue_num}" ]] || { echo "backend returned empty issue number" >&2; exit 3; }
 
 # #199: validate the identifier's SHAPE at the consumer boundary (defense-in-depth
@@ -156,8 +195,11 @@ issue_num="$("${backend_script}" create "${repo}" "${title}" "${draft}")"
 # closed instead. The .pending marker is intentionally NOT cleared here: the remote
 # create already ran, so the issue may exist, and #113's marker must keep blocking a
 # silent duplicate re-file.
-case "${backend}" in
+_shape="${backend}"
+[[ "${is_disk}" -ne 1 ]] || _shape=disk
+case "${_shape}" in
   github|gitlab) [[ "${issue_num}" =~ ^[0-9]+$ ]] ;;
+  disk)          [[ "${issue_num}" =~ ^[1-9][0-9]*$ ]] ;;
   jira)          [[ "${issue_num}" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] ;;
   *)             # custom/unknown: reject a URL-shaped value, accept an opaque token
                  [[ "${issue_num}" != *[/:[:space:]]* && "${issue_num}" != http* ]] ;;
@@ -165,7 +207,7 @@ esac || {
   cat >&2 <<EOF
 backend '${backend}' returned a malformed issue identifier:
   '${issue_num}'
-Expected a bare issue id (numeric for github/gitlab; KEY-123 for jira). Refusing to
+Expected a bare issue id (numeric for github/gitlab/disk; KEY-123 for jira). Refusing to
 write a corrupt filed.toml. The remote issue may already have been created — verify
 the tracker, then re-run with --refile if appropriate (.pending marker left in place).
 EOF
@@ -174,13 +216,15 @@ EOF
 
 # #113: build the canonical URL from the active backend instead of hardcoding
 # github for every backend (which recorded dead links for gitlab/jira).
-case "${backend}" in
+case "${_shape}" in
+  disk)   url="disk:${issue_num}" ;;
   github) url="https://github.com/${repo}/issues/${issue_num}" ;;
   gitlab) url="${DEVAGENT_GITLAB_API:-https://gitlab.com/api/v4}"
           url="${url%/api/v4}/${repo}/-/issues/${issue_num}" ;;
   jira)   url="${DEVAGENT_JIRA_BASE:-https://jira.example}/browse/${issue_num}" ;;
   *)      url="https://github.com/${repo}/issues/${issue_num}" ;;
 esac
+repo="$(issue_repo_label "${backend}" "${repo}")"   # filed.toml names a disk repo `disk`
 
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat >"${filed}" <<TOML

@@ -483,6 +483,20 @@ trust_entry_check_devdoc() {
   trust_entry_check "$1" "$project"
 }
 
+# _trust_disk_project <project>: 0 iff the project's issue_source or
+# issue_source_fork uses the disk backend (#1009). Trust has no events or
+# signatures for a folder of files, and a folder path never matches a scope
+# key, so under a policy every entry point of such a project refuses
+# (disk-backend, exit 9): move the issues to GitHub, or run without a policy.
+_trust_disk_project() {
+  local s b
+  for s in issue_source issue_source_fork; do
+    b="$(config_get_project_field "$1" "$s.backend" 2>/dev/null || true)"
+    ! issue_backend_is_disk "${b//$'\r'/}" || return 0
+  done
+  return 1
+}
+
 # trust_entry_check <caller> <project> [origin|fork]
 #
 # Call bare, once per entry point. Returns 0 (no policy, out of scope, or
@@ -506,6 +520,9 @@ trust_entry_check() {
   [ "$TRUST_HOST" = 1 ] || return 0
   trust_load
   [ -n "$project" ] || refuse scope-unresolved "$caller"
+  # #1009: a folder path never matches a scope key, so a disk project would
+  # read as out of scope; trust fails closed for it instead.
+  _trust_disk_project "$project" && refuse disk-backend
   trust_project_scope "$project" "$source" || return 0
   TRUST_IN_SCOPE=1
 
