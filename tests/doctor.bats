@@ -483,3 +483,55 @@ STUB
   [[ "$output" == *"WARN transcript archive — [archive].transcripts_dir is inside a git work tree ("* ]]
   [ ! -e "$t" ]
 }
+
+# _dis_key <value> — insert default_issue_source inside [project.volk], after
+# the default_baseline line (never appended: an append lands in a sub-table).
+_dis_key() {
+  sed -i "/^default_baseline = /a default_issue_source = \"$1\"" "$DA_HOME/config.toml"
+}
+
+_add_fork_source() {
+  cat >> "$DA_HOME/config.toml" <<'TOML'
+
+[project.volk.issue_source_fork]
+backend    = "github"
+repo       = "mtibbits/volk"
+dir_prefix = "Issue-Fork-"
+TOML
+}
+
+@test "doctor FAILs default_issue_source = \"upstream\" naming the key (#1099)" {
+  _dis_key upstream
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"  FAIL project.volk.default_issue_source — must be \"origin\" or \"fork\", got: 'upstream'"* ]]
+}
+
+@test "doctor FAILs default_issue_source = \"fork\" with no fork source (#1099)" {
+  _dis_key fork
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'  FAIL project.volk.default_issue_source — is "fork" but [project.volk.issue_source_fork] has no backend configured'* ]]
+}
+
+@test "doctor WARNs both sources with no default_issue_source (#1099)" {
+  _add_fork_source
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'  WARN project.volk.default_issue_source — unset while both [project.volk.issue_source] and [project.volk.issue_source_fork] are configured: a flagless /devagent:pull reads origin, and adding or removing a source changes that; set default_issue_source = "origin" or "fork"'* ]]
+}
+
+@test "doctor OKs a valid default_issue_source (#1099)" {
+  _dis_key fork
+  _add_fork_source
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"  OK   project.volk.default_issue_source (fork)"* ]]
+  [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
+}
+
+@test "doctor is silent on default_issue_source for a single-source project (#1099)" {
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" != *default_issue_source* ]]
+}

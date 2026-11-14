@@ -21,6 +21,8 @@ DEVAGENT_ROOT="$PLUGIN_ROOT"
 source "$PLUGIN_ROOT/scripts/lib/template_resolve.sh"   # #611: potholes.sh (private-name predicate)
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"   # #713: the trust block
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/issue-source.sh"   # #1099: default_issue_source
 
 declare -i ERRORS=0
 
@@ -173,6 +175,32 @@ check_transition_env() {
   done
 }
 
+# check_default_issue_source <project> (#1099): the same resolver pull.sh dies
+# through, so doctor's FAIL and pull's die share one predicate (#585). OK when
+# the key is set and valid; FAIL on a bad key or an unreadable config; WARN
+# when both sources are configured and no key is set; silent otherwise (D5).
+check_default_issue_source() {
+  local project="$1" rc=0 o=0 f=0 label detail
+  label="project.$project.default_issue_source"
+  issue_source_default "$project" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    # Drop the "[project.<p>] default_issue_source " prefix: the label names it.
+    detail="${ISRC_ERR#"[project.$project] default_issue_source "}"
+    [[ "$detail" != "= "* ]] || detail="is ${detail#= }"
+    check "$label" fail "$detail"
+    return
+  fi
+  if [[ "$ISRC_RULE" == key ]]; then
+    check "$label ($ISRC_DEFAULT)" ok
+    return
+  fi
+  issue_source_configured "$project" origin || o=$?
+  issue_source_configured "$project" fork || f=$?
+  if [[ "$o" -eq 0 && "$f" -eq 0 ]]; then
+    check "$label" warn "unset while both [project.$project.issue_source] and [project.$project.issue_source_fork] are configured: a flagless /devagent:pull reads origin, and adding or removing a source changes that; set default_issue_source = \"origin\" or \"fork\""
+  fi
+}
+
 check_one_project() {
   local project="$1"
   echo "[project: $project]"
@@ -185,6 +213,7 @@ check_one_project() {
   require_field "$project" issue_source.backend
   require_field "$project" issue_source.repo
   require_field "$project" code_source.backend
+  check_default_issue_source "$project"
   # #1009: under a trust policy a disk project refuses at every entry point;
   # doctor's trust block is host-level, so the per-project row says it here.
   if [[ "${TRUST_HOST:-0}" == 1 ]] && _trust_disk_project "$project"; then
