@@ -209,3 +209,5 @@ _norm_is() {
   run hook_path_under /c/Users "$G"
   [ "$status" -eq 1 ]
 }
+
+@test "planted failure for #1096, removed before merge" { false; }
