@@ -38,13 +38,21 @@
 # selects nothing there: it is inert on Linux. python3: devagent and the tagged
 # tests call `python3` by name; the `Ensure python3` step uses the image's
 # python3 if it runs, else copies python.exe to python3.exe beside it, and says
-# which it did (recorded after the first run). No DEVAGENT_* interpreter
-# override is set: the tests run against the interpreters a Git Bash user has.
+# which it did. On the first run (43609115577, image win25-vs2026
+# 20261103.298.1) the image's python3 3.12.10 ran, so no shim was made. No
+# DEVAGENT_* interpreter override is set: the tests run against the
+# interpreters a Git Bash user has.
 #
 # Why no `bats --filter-tags`: bats would source every file in tests/ to read
 # its tags, on a host where process start is slow. The helper selects with one
-# grep instead and hands bats one tagged file per invocation, in list order, so
-# each file's TAP has its own plan and counts.
+# grep instead and hands bats one tagged file per invocation, so each file's
+# TAP has its own plan and counts.
+#
+# Parallelism: serial 18m16s, concurrent (xargs -P 2) 14m42s (run 43609115577) -> concurrent
+#   Both were timed cold, in two jobs of one push, over the same seven files.
+#   GNU parallel is absent from the runner's Git Bash, so `bats --jobs` cannot
+#   run there; the helper's `run --jobs 2` runs two per-file bats processes at
+#   once (xargs -P 2) and prints their TAP afterwards in list order.
 #
 # For #987 (the user-path job): a sibling job copies these steps verbatim:
 # Confirm Git Bash, the workflow env (LC_ALL/LANG), Install bats 1.14.0, Ensure
@@ -127,72 +135,5 @@ jobs:
       - name: Run tagged files
         run: |
           mapfile -t files < "$RUNNER_TEMP/gitbash-files.txt"
-          scripts/ci/gitbash-tagged.sh run "$RUNNER_TEMP/tap" "${files[@]}"
+          scripts/ci/gitbash-tagged.sh run --jobs 2 "$RUNNER_TEMP/tap" "${files[@]}"
 
-  # TEMPORARY (#1096 P1, removed at P2): times two concurrent per-file bats
-  # processes against the serial job above, cold, on its own runner.
-  probe-concurrent:
-    name: "gitbash probe: concurrent (removed before merge)"
-    runs-on: windows-2025
-    timeout-minutes: 30
-    steps:
-      - name: Confirm Git Bash
-        run: |
-          s="$(uname -s)"; printf 'uname -s: %s\nbash: %s\n' "$s" "$(command -v bash)"
-          case "$s" in MINGW*|MSYS*) ;; *) echo "::error::not Git Bash (uname -s = $s)"; exit 1 ;; esac
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Install bats 1.14.0
-        run: |
-          git -c core.autocrlf=false clone --quiet --depth 1 --branch v1.14.0 \
-            https://github.com/bats-core/bats-core.git "$RUNNER_TEMP/bats-src"
-          test "$(git -C "$RUNNER_TEMP/bats-src" rev-parse HEAD)" = eb7f42f8d608ac693d7a4b67474f6714ea68cfc5
-          bash "$RUNNER_TEMP/bats-src/install.sh" "$RUNNER_TEMP/bats"
-          cygpath -w "$RUNNER_TEMP/bats/bin" >> "$GITHUB_PATH"
-
-      - name: Ensure python3
-        run: |
-          if python3 -c 'import sys' >/dev/null 2>&1; then echo "python3: provided by the image"
-          else
-            py="$(command -v python)" && python -c 'import sys' \
-              || { echo "::error::no working python3 and no working python"; exit 1; }
-            d="$(dirname "$py")"; cp "$d/python.exe" "$d/python3.exe"
-            echo "python3: shim $d/python3.exe (copy of python.exe)"
-          fi
-          python3 -c 'import sys; print(sys.version)' || { echo "::error::python3 still does not run"; exit 1; }
-
-      - name: Tool versions and locale
-        run: |
-          for t in bash git python3 jq bats; do
-            p="$(command -v "$t")" || { echo "::error::$t not on PATH"; exit 1; }
-            v="$("$t" --version 2>&1)" || { echo "::error::$t --version failed"; exit 1; }
-            v="${v%%$'\n'*}"; v="${v//$'\r'/}"
-            printf '%-8s %s  (%s)\n' "$t" "$v" "$p"
-          done
-          printf 'uname -r: %s\nimage: %s %s\n' "$(uname -r)" "${ImageOS:-?}" "${ImageVersion:-?}"
-          . scripts/lib/utf8-locale.sh
-          utf8_locale_is_utf8 "$LC_ALL" || { echo "::error::LC_ALL=$LC_ALL is not a UTF-8 locale here (#565)"; exit 1; }
-
-      - name: Select tagged files
-        run: |
-          scripts/ci/gitbash-tagged.sh select tests > "$RUNNER_TEMP/gitbash-files.txt"
-          cat "$RUNNER_TEMP/gitbash-files.txt"
-
-      - name: Time concurrent runs
-        run: |
-          command -v parallel || echo "GNU parallel: absent"
-          mkdir -p "$RUNNER_TEMP/ptap"
-          s=$SECONDS
-          xargs -P 2 -n 1 -a "$RUNNER_TEMP/gitbash-files.txt" bash -c \
-            'bats --formatter tap "$1" > "$RUNNER_TEMP/ptap/$(basename "$1").tap" 2>&1; echo "$1 rc=$?"' _ || true
-          d=$((SECONDS - s)); printf 'concurrent (xargs -P 2): %dm%02ds\n' $((d / 60)) $((d % 60))
-          if command -v parallel >/dev/null; then
-            mapfile -t files < "$RUNNER_TEMP/gitbash-files.txt"
-            s=$SECONDS
-            bats --jobs 2 --no-parallelize-within-files "${files[@]}" > /dev/null 2>&1 || true
-            d=$((SECONDS - s)); printf 'bats --jobs 2: %dm%02ds\n' $((d / 60)) $((d % 60))
-          fi
