@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0   # run --separate-stderr
 load 'lib/bats-helpers'
 
 setup() {
@@ -1032,4 +1033,34 @@ CFG
     esac
   done < "$table"
   [ "$rows" -eq 21 ]
+}
+
+@test "a successful pull prints exactly \"pulled <id>\" on stdout (#1099)" {
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork
+  [ "$status" -eq 0 ]
+  [ "$output" = "pulled Issue-Fork-42" ]
+}
+
+@test "a flagless pull prints the default's id on stdout (#1099)" {
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 0 ]
+  [ "$output" = "pulled Issue-42" ]
+}
+
+@test "an old-form fork pull prints its id on stdout (#1099)" {
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk fork 42
+  [ "$status" -eq 0 ]
+  [ "$output" = "pulled Issue-Fork-42" ]
+}
+
+@test "an old-form origin pull prints its id on stdout (#1099)" {
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk origin 42
+  [ "$status" -eq 0 ]
+  [ "$output" = "pulled Issue-42" ]
+}
+
+@test "a failed pull prints nothing on stdout (#1099)" {
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --auto
+  [ "$status" -eq 1 ]
+  [ "$output" = "" ]
 }

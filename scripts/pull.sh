@@ -419,6 +419,10 @@ quarantine_pull_guard "$project" "$issue_id" "$issue_dir"
 
   info "pulled ${repo}#${num} into ${issue_dir}"
   checklist_print_next_hint "$issue_dir/checklist.md"
+  # #1099: the one stdout line, a machine-read contract
+  # (^pulled (Issue-[A-Za-z-]*[0-9]+)$). It is the dir's own issue_id, so it
+  # cannot disagree with the dir; every other line goes to stderr.
+  printf 'pulled %s\n' "$issue_id"
 }
 
 main "$@"
