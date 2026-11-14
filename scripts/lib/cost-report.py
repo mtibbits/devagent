@@ -7,8 +7,9 @@ step running when it was made. The pair is set, project and issue together,
 by a next.sh `dispatch:` header, a typed `/devagent:pull <project> <N>
 [--origin|--fork]` (the older positional source token too), or a typed command
 naming a known project and an issue; a typed issue with no project keeps the
-pair only for the same issue, else it is `(no project)`. The step is the last header's, or a step invoked directly (a
-typed /devagent:<step>, or a Skill call to devagent:<step>). A subagent is
+pair only for the same issue, else it is `(no project)`. The step is the last
+header's, or a step invoked directly (a typed /devagent:<step>, or a Skill
+call to devagent:<step>). A subagent is
 charged to the pair and step that launched it, through the toolUseId in its
 .meta.json; a workflow agent (subagents/workflows/<run>/agent-*.jsonl, whose
 meta has none) through the Workflow tool call whose result names its run id.

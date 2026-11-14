@@ -72,8 +72,9 @@ in `skills/capture/SKILL.md`.
 /devagent:pull myproj 42
 ```
 
-Fetches issue #42 from the project's default tracker (origin unless
-`default_issue_source` says otherwise; add `--fork` for a fork tracker) and
+Fetches issue #42 from the project's default tracker (`default_issue_source`
+when set, else the project's only tracker, else origin; add `--fork` for a
+fork tracker) and
 scaffolds its workflow directory, including the checklist that tracks it
 through the 25-step loop.
 

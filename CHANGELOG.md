@@ -24,8 +24,9 @@ the README's "Versioning & releases" section has the release procedure.
   anywhere after `<project>`. A bad key stops a flagless pull naming it, and
   `/devagent:doctor` reports the key: OK when valid, FAIL when bad, WARN when
   both sources are configured and it is unset. The positional
-  `<project> origin|fork <N>` form is still accepted, unchanged and
-  unadvertised, so automation that sends it keeps working. Every successful
+  `<project> origin|fork <N>` form is still accepted and unadvertised, so
+  automation that sends it keeps working; only a source flag after its
+  number is new (a usage error). Every successful
   pull now prints one stdout line, `pulled <id>` (a machine-read contract,
   `commands/pull.md`); the pull trust golden was re-captured for it
   (`tests/fixtures/trust-golden/pull.*`, only `pull.out` gained the line).

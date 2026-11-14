@@ -49,8 +49,8 @@ main() {
 
   if [[ "${ISRC_REST[0]:-}" == "origin" || "${ISRC_REST[0]:-}" == "fork" ]]; then
     # Legacy positional form, kept for existing automation (#1099): the
-    # source token, then the number; anything after the number is ignored,
-    # exactly as before.
+    # source token, then the number; anything after the number is ignored as
+    # before, except a source flag, which take_flag already made a usage error.
     [[ -z "$ISRC_FLAG" ]] \
       || die "the origin|fork token and --origin/--fork cannot be combined; drop one — $PULL_USAGE"
     source="${ISRC_REST[0]}"
