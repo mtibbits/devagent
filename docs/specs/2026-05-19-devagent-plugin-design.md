@@ -69,6 +69,9 @@ devAgent/
 ├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
+├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
+│                            #   gitbash.yml (#1096: the gitbash-tagged bats files under Git Bash
+│                            #   on a pinned Windows runner; check name `Git Bash tagged files`)
 ├── commands/                # one .md file per command-form slash command (57)
 ├── skills/                  # core-* internal skills (`user-invocable: false`), PLUS the
 │                            #   user-invocable slash-command skills next/capture/ship
@@ -94,6 +97,8 @@ devAgent/
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh;
 │   │                        #   fetch-policy scanner check-fetches.py (#1030)
+│   ├── ci/                  # #1096: gitbash-tagged.sh — selection, run loop and TAP rules
+│   │                        #   behind .github/workflows/gitbash.yml
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
 │   │   cleanup.sh, sync.sh, statusreport.sh, portfolio.sh, doctor.sh,
 │   │   migrate-checklist-numbering.sh (#558/#885 in-flight upgrade),

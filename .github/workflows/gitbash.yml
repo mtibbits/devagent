@@ -1,0 +1,148 @@
+# Runs every `gitbash`-tagged bats file under real Git Bash on a pinned Windows
+# runner (#1096). A tagged file carries the column-0 line `# bats file_tags=gitbash`
+# (README, "Running the test suite"). Selection, the per-file run loop and every
+# rule that fails the job live in scripts/ci/gitbash-tagged.sh, which
+# tests/gitbash-ci.bats drives against planted fixtures on the Linux shards; this
+# file is a thin caller, and tests/test_gitbash_workflow.py pins its shape.
+#
+# The check-run name `Git Bash tagged files` (the job's name, not the workflow's)
+# is a CONTRACT: #1097 reads it at merge time. Rename it only together with that
+# reader.
+#
+# Events that produce a run (for a consumer telling "no run yet" from "no run ever"):
+#   - pull_request (opened, synchronize, reopened), any base branch, draft or not:
+#     one run each time a head is pushed to an open PR, merge-forwards included.
+#     It is reported against the head SHA but measures the head merged into the
+#     base at that moment (refs/pull/N/merge). A PR with a merge conflict has no
+#     merge ref and gets no run. A later push to the BASE alone starts no new run;
+#     the next push to the head does.
+#   - push to master: one run per push, measuring the head of the push (its
+#     `after` SHA). The other commits of a multi-commit push get no push run.
+#   Nothing else: no paths filter, no schedule, no workflow_dispatch, never
+#   pull_request_target, no concurrency group (a later push cancels nothing).
+#   A head commit whose message carries [skip ci] (or [ci skip], [no ci],
+#   [skip actions], [actions skip]) or a `skip-checks: true` trailer
+#   gets no run, and a first-time contributor's
+#   fork PR waits for maintainer approval. So a SHA not yet pushed to an open,
+#   conflict-free PR or to master has "no run yet"; a SHA only ever pushed
+#   elsewhere never gets one. A failed run with zero steps executed (a runner
+#   or billing refusal) carries no verdict: read it as no run, never as green.
+#
+# Runner: windows-2025, pinned (never windows-latest: a floating image changes
+# the tools under a green result). Its `shell: bash` is Git for Windows' bash;
+# the first step proves it (uname -s MINGW*/MSYS*) before any repo code runs.
+#
+# Tools: bats 1.14.0, cloned at its release tag and checked against the tag's
+# commit, whereas the Linux shards in test.yml use apt's bats 1.10.0. That version
+# parses `# bats file_tags=` but, with no --filter-tags in test.yml, the line
+# selects nothing there: it is inert on Linux. python3: devagent and the tagged
+# tests call `python3` by name; the `Ensure python3` step uses the image's
+# python3 if it runs, else copies python.exe to python3.exe beside it, and says
+# which it did. On the first run (43609115577, image win25-vs2026
+# 20261103.298.1) the image's python3 3.12.10 ran, so no shim was made. No
+# DEVAGENT_* interpreter override is set: the tests run against the
+# interpreters a Git Bash user has. Not every skip here is about file modes:
+# shellcheck is not installed, so preship-evidence.bats's two real-producer
+# tests skip, and Git Bash's default MSYS symlink mode copies, so the
+# real-symlink tests in commit-guard.bats and evidence-stamp.bats skip. Those
+# paths have no Windows coverage from this job.
+#
+# Why no `bats --filter-tags`: bats would source every file in tests/ to read
+# its tags, on a host where process start is slow. The helper selects with one
+# grep instead and hands bats one tagged file per invocation, so each file's
+# TAP has its own plan and counts.
+#
+# Parallelism: serial 18m16s, concurrent (xargs -P 2) 14m42s (run 43609115577) -> concurrent
+#   Both were timed cold, in two jobs of one push, over the same seven files
+#   (disk-issue.bats was left out afterwards, #1104).
+#   GNU parallel is absent from the runner's Git Bash, so `bats --jobs` cannot
+#   run there; the helper's `run --jobs 2` runs two per-file bats processes at
+#   once (xargs -P 2), prints a `done:` line as each file finishes, and prints
+#   their TAP afterwards in list order.
+#
+# Last green run: https://github.com/mtibbits/devagent/actions/runs/43622037992 @ 05c93d4545ade82550b28fb3944f7106a5edd728 in 13m39s
+#   The job's time on that run. The run of this header-only commit is not counted.
+#
+# For #987 (the user-path job): a sibling job copies these steps verbatim:
+# Confirm Git Bash, the workflow env (LC_ALL/LANG), Install bats 1.14.0, Ensure
+# python3, Tool versions and locale. A composite action can be extracted when
+# two jobs share them.
+name: git bash
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  LC_ALL: C.UTF-8
+  LANG: C.UTF-8
+
+jobs:
+  tagged:
+    name: Git Bash tagged files
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Confirm Git Bash
+        run: |
+          s="$(uname -s)"; printf 'uname -s: %s\nbash: %s\n' "$s" "$(command -v bash)"
+          case "$s" in MINGW*|MSYS*) ;; *) echo "::error::not Git Bash (uname -s = $s)"; exit 1 ;; esac
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # core.autocrlf=false: the runner's system gitconfig turns it on, and a
+      # CRLF bats does not run. A moved tag fails the job at the rev-parse.
+      - name: Install bats 1.14.0
+        run: |
+          git -c core.autocrlf=false clone --quiet --depth 1 --branch v1.14.0 \
+            https://github.com/bats-core/bats-core.git "$RUNNER_TEMP/bats-src"
+          test "$(git -C "$RUNNER_TEMP/bats-src" rev-parse HEAD)" = eb7f42f8d608ac693d7a4b67474f6714ea68cfc5
+          bash "$RUNNER_TEMP/bats-src/install.sh" "$RUNNER_TEMP/bats"
+          cygpath -w "$RUNNER_TEMP/bats/bin" >> "$GITHUB_PATH"
+
+      - name: Ensure python3
+        run: |
+          if python3 -c 'import sys' >/dev/null 2>&1; then echo "python3: provided by the image"
+          else
+            py="$(command -v python)" && python -c 'import sys' \
+              || { echo "::error::no working python3 and no working python"; exit 1; }
+            d="$(dirname "$py")"; cp "$d/python.exe" "$d/python3.exe"   # beside its DLLs; works for bash and CreateProcess
+            echo "python3: shim $d/python3.exe (copy of python.exe)"
+          fi
+          python3 -c 'import sys; print(sys.version)' || { echo "::error::python3 still does not run (an earlier PATH entry wins?)"; exit 1; }
+
+      - name: Tool versions and locale
+        run: |
+          for t in bash git python3 jq bats; do
+            p="$(command -v "$t")" || { echo "::error::$t not on PATH"; exit 1; }
+            v="$("$t" --version 2>&1)" || { echo "::error::$t --version failed"; exit 1; }
+            v="${v%%$'\n'*}"; v="${v//$'\r'/}"
+            printf '%-8s %s  (%s)\n' "$t" "$v" "$p"
+          done
+          printf 'uname -r: %s\nimage: %s %s\n' "$(uname -r)" "${ImageOS:-?}" "${ImageVersion:-?}"
+          . scripts/lib/utf8-locale.sh
+          utf8_locale_is_utf8 "$LC_ALL" || { echo "::error::LC_ALL=$LC_ALL is not a UTF-8 locale here (#565)"; exit 1; }
+          echo "locale: $LC_ALL is UTF-8"
+
+      - name: Select tagged files
+        run: |
+          scripts/ci/gitbash-tagged.sh select tests > "$RUNNER_TEMP/gitbash-files.txt"
+          cat "$RUNNER_TEMP/gitbash-files.txt"
+          echo "count: $(wc -l < "$RUNNER_TEMP/gitbash-files.txt")"
+
+      - name: Run tagged files
+        run: |
+          mapfile -t files < "$RUNNER_TEMP/gitbash-files.txt"
+          scripts/ci/gitbash-tagged.sh run --jobs 2 "$RUNNER_TEMP/tap" "${files[@]}"
+

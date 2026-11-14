@@ -859,8 +859,9 @@ Partly delivered. A requirement here that is not built yet starts with
   trust policy needs.
 - QA-7: Portability across hosts: devagent runs on Linux and WSL, and its
   scripts behave the same under any POSIX awk and normalise CRLF output and
-  backslash paths before matching; native Git Bash runs the plugin but not
-  its test suite.
+  backslash paths before matching; native Git Bash runs the plugin, but
+  the full suite needs a filesystem where `chmod` works, which Git Bash's
+  default `noacl` mounts are not; the `gitbash`-tagged files run on Windows CI.
 - QA-8: Safe concurrency: every state write holds an exclusive lock across
   read, modify and write and lands by atomic rename in the same directory,
   so a reader sees the old state or the new, never a mix or a truncated
