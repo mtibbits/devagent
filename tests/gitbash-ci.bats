@@ -131,6 +131,19 @@ fileline() {
   [ -n "$output" ]
 }
 
+@test "select: the README's documented tag line selects" {
+  local sect tagl
+  sect="$(sed -n '/^## Running the test suite$/,/^## /p' "$PLUGIN_ROOT/README.md")"
+  tagl="$(printf '%s
+' "$sect" | grep -oE '`# bats [^`]*`' | head -n 1)"
+  tagl="${tagl//\`/}"
+  [ -n "$tagl" ] || { echo "no backticked tag line in README's Running the test suite"; return 1; }
+  tagfile r.bats "$tagl"
+  run --separate-stderr "$H" select "$D"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$D/r.bats" ]
+}
+
 # ---------------------------------------------------------------- summarize
 
 @test "summarize: a passing file reports its counts and OK" {
