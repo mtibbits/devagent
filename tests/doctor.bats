@@ -484,10 +484,10 @@ STUB
   [ ! -e "$t" ]
 }
 
-# _dis_key <value> — insert default_issue_source inside [project.volk], after
-# the default_baseline line (never appended: an append lands in a sub-table).
+# _dis_key <value> — set default_issue_source inside [project.volk] through the
+# TOML helper (never an append, which lands in a sub-table; never sed -i, #335).
 _dis_key() {
-  sed -i "/^default_baseline = /a default_issue_source = \"$1\"" "$DA_HOME/config.toml"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.default_issue_source "$1"
 }
 
 _add_fork_source() {
