@@ -485,15 +485,17 @@ def test_dispatch_call_is_charged_to_the_prior_pair(tmp_path):
     assert set(rows) == {(NP, NI), ("alpha", "Issue-4")}
 
 
-def test_pull_with_trailing_argument_sets_nothing(tmp_path):
+def test_pull_with_trailing_argument_attributes_like_pull_sh(tmp_path):
+    # #1099: pull.sh's positional form always ignored what follows the number (it
+    # read only $1..$3), so this pull succeeded; cost-report now charges it too.
     rows, _ = cr.collect([_one(tmp_path, [
         *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
         _call("c1", _usage(inp=1)),
         _typed("pull", "beta origin 7 extra"),
         _call("c2", _usage(inp=1)),
     ])], None)
-    assert _calls(rows, ("alpha", "Issue-4")) == 2
-    assert not any(k[1] == "Issue-7" for k in rows)
+    assert _calls(rows, ("alpha", "Issue-4")) == 1
+    assert _calls(rows, ("beta", "Issue-7")) == 1
 
 
 def test_unreadable_records_are_skipped(tmp_path):
@@ -517,7 +519,7 @@ def test_unreadable_records_are_skipped(tmp_path):
 # must-not-trip case per shape found in the laptop-dad census (Task 4b).
 REAL_SHAPES = [
     ("pull", "beta origin 7", ("beta", "Issue-7")),
-    ("pull", "beta 7", ("alpha", "Issue-4")),
+    ("pull", "beta 7", ("beta", "Issue-7")),               # #1099: the tokenless form pulls; #730's no-op reversed
     ("pull", "beta fork 7", ("beta", "Issue-7")),
     ("pull", "beta upstream 7", ("alpha", "Issue-4")),
     ("resume", "beta Issue-8", ("beta", "Issue-8")),
@@ -563,6 +565,58 @@ def test_real_typed_shapes(tmp_path, cmd, args, expected):
         assert set(rows) == {prior, expected}
         assert _calls(rows, prior) == 1
         assert _calls(rows, expected) == 1
+
+
+PULL_FORMS = Path(__file__).resolve().parent / "fixtures" / "pull-forms.tsv"
+
+
+def _pull_forms():
+    """The rows of the shared pull argv table (#1099); tests/pull.bats reads the same file."""
+    rows = []
+    for line in PULL_FORMS.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        args, outcome = line.split("\t")
+        rows.append((args, outcome))
+    return rows
+
+
+def test_pull_forms_table_is_whole():
+    assert len(_pull_forms()) == 21
+
+
+@pytest.mark.parametrize("args,outcome", _pull_forms(), ids=[a for a, _ in _pull_forms()])
+def test_pull_form_matches_pull_sh(tmp_path, args, outcome):
+    _config(["alpha", "beta"])
+    prior = ("alpha", "Issue-4")
+    rows, _ = cr.collect([_one(tmp_path, [
+        *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
+        _call("c1", _usage(inp=1)),
+        _typed("pull", args),
+        _call("c2", _usage(inp=1)),
+    ])], None)
+    if outcome == "reject":
+        assert set(rows) == {prior}
+    else:
+        n = outcome.split()[1]
+        assert set(rows) == {prior, ("volk", f"Issue-{n}")}
+
+
+@pytest.mark.parametrize("args", ["beta 7", "beta 7 --fork", "beta 7 --origin", "beta --fork 7"])
+def test_new_form_pull_keys_like_old_form(tmp_path, args):
+    _config(["alpha", "beta"])
+    keys = {}
+    for i, a in enumerate((args, "beta fork 7", "beta origin 7")):
+        d = tmp_path / f"r{i}"
+        d.mkdir()
+        rows, _ = cr.collect([_one(d, [
+            *_dispatch("b1", "alpha", "Issue-4", 9, "implement", "d1"),
+            _call("c1", _usage(inp=1)),
+            _typed("pull", a),
+            _call("c2", _usage(inp=1)),
+        ])], None)
+        keys[a] = set(rows) - {("alpha", "Issue-4")}
+    assert keys[args] == keys["beta fork 7"] == keys["beta origin 7"] == {("beta", "Issue-7")}
 
 
 # --- Task 3: CLI, filters, transcript dirs ----------------------------------

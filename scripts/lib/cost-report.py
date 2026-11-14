@@ -4,14 +4,16 @@
 Every API call in a session transcript records its token usage. This charges
 each call to the session's current (project, issue) pair and to the devAgent
 step running when it was made. The pair is set, project and issue together,
-by a next.sh `dispatch:` header, a typed `/devagent:pull <project>
-origin|fork <N>`, or a typed command naming a known project and an issue; a
-typed issue with no project keeps the pair only for the same issue, else it is
-`(no project)`. The step is the last header's, or a step invoked directly (a
+by a next.sh `dispatch:` header, a typed `/devagent:pull <project> <N>
+[--origin|--fork]` (the older positional source token too), or a typed command
+naming a known project and an issue; a typed issue with no project keeps the
+pair only for the same issue, else it is `(no project)`. The step is the last header's, or a step invoked directly (a
 typed /devagent:<step>, or a Skill call to devagent:<step>). A subagent is
 charged to the pair and step that launched it, through the toolUseId in its
 .meta.json; a workflow agent (subagents/workflows/<run>/agent-*.jsonl, whose
 meta has none) through the Workflow tool call whose result names its run id.
+Since #1099 a tokenless pull attributes, reversing #730's no-op: a past
+transcript's failed tokenless pull now charges to `Issue-N`.
 
 Transcripts are read from the current directory's dir under
 <CLAUDE_CONFIG_DIR or ~/.claude>/projects, from every dir there with
@@ -740,14 +742,46 @@ def _assigned_projects(cmd: str) -> tuple[str, ...]:
     return tuple(next(g for g in m if g) for m in PROJECT_ASSIGN.findall(cmd))
 
 
+PULL_FLAGS = ("--origin", "--fork")
+
+
+def _pull_issue(args: tuple) -> str | None:
+    """The issue number a typed pull names, or None for any shape pull.sh rejects (#1099).
+
+    pull.sh's grammar: <project> <N> [--origin|--fork], the flag anywhere after the
+    project; or the legacy <project> origin|fork <N>, which ignores anything after
+    the number (it read only $1..$3) but not a source flag.
+    tests/fixtures/pull-forms.tsv pins both readers to the same answers.
+    """
+    if not args or args[0].startswith("-"):
+        return None
+    tail = args[1:]
+    if any(a.startswith(("--origin=", "--fork=")) for a in tail):
+        return None
+    flags = [a for a in tail if a in PULL_FLAGS]
+    rest = [a for a in tail if a not in PULL_FLAGS]
+    if len(flags) > 1:
+        return None
+    if rest and rest[0] in ("origin", "fork"):
+        if flags:
+            return None
+        n = rest[1] if len(rest) > 1 else ""
+    elif len(rest) == 1 and not rest[0].startswith("-"):
+        n = rest[0]
+    else:
+        return None
+    return n if re.fullmatch(r"[0-9]+", n) else None
+
+
 def _typed_pair(name: str, args: tuple, pair: tuple, step: str, known: set[str]):
     """The (pair, step) after a typed /devagent:<name> <args>."""
     if name in DRIVERS:
         return pair, step
     if name == "pull":
-        if len(args) == 3 and args[1] in ("origin", "fork") and re.fullmatch(r"[0-9]+", args[2]):
-            return (args[0], f"Issue-{args[2]}"), name   # the Issue- dir_prefix default
-        return pair, step                                 # any other shape, pull.sh rejects
+        n = _pull_issue(args)
+        if n is not None:
+            return (args[0], f"Issue-{n}"), name   # the Issue- dir_prefix default, either source (#891)
+        return pair, step                          # a shape pull.sh rejects
     project, issue = _typed_names(args, known)
     if issue is None:
         return pair, name
