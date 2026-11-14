@@ -1,0 +1,25 @@
+# tests/fixtures/pull-forms.tsv — pull argv shapes and their outcome (#1099).
+# Read by tests/pull.bats and tests/test_cost_report.py; a row change binds both.
+# Columns (tab-separated): <argv after pull.sh>	<default N | origin N | fork N | reject>
+# The pull.bats fixture has both sources and no default_issue_source, so default = origin.
+volk 42	default 42
+volk 42 --origin	origin 42
+volk 42 --fork	fork 42
+volk --fork 42	fork 42
+volk --origin 42	origin 42
+volk origin 42	origin 42
+volk fork 42	fork 42
+volk origin 42 note	origin 42
+volk origin 42 --fork	reject
+volk fork 42 --origin	reject
+volk 42 --fork --origin	reject
+volk 42 --fork --fork	reject
+volk 42 --fork=x	reject
+volk 42 --origin=	reject
+--fork volk 42	reject
+volk 42 --auto	reject
+volk 42 extra	reject
+volk upstream 42	reject
+volk origin abc	reject
+volk	reject
+volk 42 7	reject

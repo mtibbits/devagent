@@ -994,3 +994,42 @@ CFG
   grep -qE 'legal tiers: oneshot standard perf docs-only research starter$' <<<"$output"
   [ ! -f "$DEVDOC/Issue-791/checklist.md" ]
 }
+
+@test "pull-forms table: pull.sh accepts and rejects every row (#1099)" {
+  local table="$PLUGIN_ROOT/tests/fixtures/pull-forms.tsv"
+  local rows=0 args outcome n st
+  local -a argv
+  while IFS=$'\t' read -r args outcome; do
+    [[ -z "$args" || "$args" == \#* ]] && continue
+    rows=$((rows + 1))
+    # Per-row reset: an earlier row's dir or state never satisfies a later row.
+    rm -rf "$DEVDOC"/Issue-*
+    rm -f "$DA_HOME/state/volk.toml"
+    read -ra argv <<<"$args"
+    st=0
+    "$PLUGIN_ROOT/scripts/pull.sh" "${argv[@]}" >/dev/null 2>&1 || st=$?
+    case "$outcome" in
+      "default "*|"origin "*)
+        n="${outcome#* }"
+        [ "$st" -eq 0 ] || { echo "row: $args (status $st)" >&2; return 1; }
+        [ -d "$DEVDOC/Issue-$n" ] || { echo "row: $args" >&2; return 1; }
+        grep -q "gnuradio/volk#$n" "$DEVDOC/Issue-$n/issue.md" || { echo "row: $args" >&2; return 1; }
+        ;;
+      "fork "*)
+        n="${outcome#* }"
+        [ "$st" -eq 0 ] || { echo "row: $args (status $st)" >&2; return 1; }
+        [ -d "$DEVDOC/Issue-Fork-$n" ] || { echo "row: $args" >&2; return 1; }
+        grep -q "mtibbits/volk#$n" "$DEVDOC/Issue-Fork-$n/issue.md" || { echo "row: $args" >&2; return 1; }
+        ;;
+      reject)
+        [ "$st" -eq 1 ] || { echo "row: $args (status $st)" >&2; return 1; }
+        [ -z "$(find "$DEVDOC" -maxdepth 1 -name 'Issue-*')" ] || { echo "row: $args" >&2; return 1; }
+        ;;
+      *)
+        echo "row: $args — unknown outcome '$outcome'" >&2
+        return 1
+        ;;
+    esac
+  done < "$table"
+  [ "$rows" -eq 21 ]
+}
