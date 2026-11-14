@@ -120,7 +120,7 @@ def test_timeout_30(wf):
         assert job.get("timeout-minutes") == 30, jid
 
 
-def test_triggers_match_test_yml(wf):
+def test_triggers_are_pull_request_and_master_push(wf):
     on = wf["_on"]
     assert set(on) == {"pull_request", "push"}
     assert on["push"] == {"branches": ["master"]}

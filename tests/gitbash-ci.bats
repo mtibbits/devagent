@@ -75,6 +75,21 @@ fileline() {
   [[ "$stderr" == *"NO TAGGED FILES"* ]]
 }
 
+@test "select: exit 2 when the directory does not exist" {
+  run --separate-stderr "$H" select "$BATS_TEST_TMPDIR/no-such-dir"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *"not a directory"* ]]
+}
+
+@test "select: a code line naming the tag is neither a tag nor malformed" {
+  tagfile a.bats "$(tagline "$T")"
+  tagfile c.bats "run grep -c \"$K=$T\" README.md"
+  run --separate-stderr "$H" select "$D"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$D/a.bats" ]
+}
+
 @test "select: exit 4 on every malformed spelling, naming file and line" {
   local s i=0
   local -a bad=(
@@ -209,6 +224,19 @@ fileline() {
   [[ "$(fileline x.bats)" == *"FAIL ("*"bats rc=1"* ]]
 }
 
+@test "summarize: a missing or empty rc record fails as no rc recorded" {
+  mktap x.bats 0 '1..1' 'ok 1 a'
+  rm -f "$O/x.bats.rc"
+  run "$H" summarize "$O" x.bats
+  [ "$status" -eq 1 ]
+  [[ "$(fileline x.bats)" == *" rc=? FAIL ("*"no rc recorded"* ]]
+
+  : > "$O/x.bats.rc"
+  run "$H" summarize "$O" x.bats
+  [ "$status" -eq 1 ]
+  [[ "$(fileline x.bats)" == *" rc=? FAIL ("*"no rc recorded"* ]]
+}
+
 @test "summarize: CRLF TAP counts the same as LF" {
   local lf
   mktap x.bats 0 '1..3' 'ok 1 a' 'ok 2 b # skip needs modes' 'ok 3 c'
@@ -282,6 +310,9 @@ stub_bats() {
   [ "$(printf '%s\n' "${lines[@]}" | grep -E '^gitbash-tagged: ' | cut -d' ' -f2)" = \
     "$(printf '%s\n' "$D/a.bats" "$D/b.bats" "$D/c.bats" '3')" ]
   [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 3 file(s), 0 failed" ]
+  # Each file prints a done line as it finishes; the slow a.bats finishes last.
+  [ "$(printf '%s\n' "${lines[@]}" | grep -c '^done: ')" -eq 3 ]
+  [[ "$(printf '%s\n' "${lines[@]}" | grep '^done: ' | tail -n 1)" =~ ^done:\ "$D/a.bats"\ rc=0\ [0-9]+s$ ]]
 }
 
 @test "run --jobs 2: a failing file still fails the verdict" {

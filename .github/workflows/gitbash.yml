@@ -17,7 +17,7 @@
 #     merge ref and gets no run. A later push to the BASE alone starts no new run;
 #     the next push to the head does.
 #   - push to master: one run per push, measuring the head of the push (its
-#     `after` SHA). The other commits of a multi-commit push get no run, ever.
+#     `after` SHA). The other commits of a multi-commit push get no push run.
 #   Nothing else: no paths filter, no schedule, no workflow_dispatch, never
 #   pull_request_target, no concurrency group (a later push cancels nothing).
 #   A head commit whose message carries [skip ci] (or [ci skip], [no ci],

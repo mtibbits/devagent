@@ -18,8 +18,11 @@
 #       <outdir>/<basename>.tap and its rc to <outdir>/<basename>.rc; print the
 #       TAP and "time: <file> <s>s". Never stops at a failing file. Then print
 #       "time: total <s>s" and summarize. rc is summarize's. With --jobs N (N > 1)
-#       the files run N at a time (xargs -P N, one bats per file) and the TAP and
-#       time lines print afterwards, still in list order.
+#       the files run N at a time (xargs -P N, one bats per file), each printing
+#       "done: <file> rc=<rc> <s>s" as it finishes (so a hung run shows which file
+#       never did), and the TAP and time lines print afterwards, still in list order.
+#       Records are keyed by basename: the files passed to run and summarize must
+#       have distinct basenames.
 #   gitbash-tagged.sh summarize <outdir> <file>...
 #       One line per file, in order, then the verdict line:
 #         gitbash-tagged: <file> ran=R passed=P skipped=S failed=F rc=RC OK
@@ -60,10 +63,12 @@ cmd_select() {
   local files=("$dir"/*.bats)
   shopt -u nullglob
 
-  # Malformed detector: any line naming the key and the value (any case) that the
-  # selection regex rejects. Per file, never -H: a drive-letter dir puts ':' in a path.
+  # Malformed detector: any comment line naming the key and the value (any case)
+  # that the selection regex rejects. bats reads tags only from comments, so a code
+  # line naming both is not a tag. Per file, never -H: a drive-letter dir puts ':'
+  # in a path.
   for f in "${files[@]}"; do
-    hits="$(grep -niE 'file_tags.*gitbash' -- "$f")"; rc=$?
+    hits="$(grep -niE '^[[:space:]]*#.*file_tags.*gitbash' -- "$f")"; rc=$?
     case "$rc" in
       0) ;;
       1) continue ;;
@@ -90,13 +95,15 @@ cmd_select() {
 
 # _one <outdir> <file>: run one file, recording <basename>.tap, .rc and .secs.
 # Always returns 0: the recorded rc is the verdict's input, never this status.
+# Sets ONE_RC and ONE_SECS for the _one verb's done line.
 cmd_one() {
-  local out="$1" f="$2" b s rc
+  local out="$1" f="$2" b s
   b="${f##*/}"
   s="$SECONDS"
-  bats --formatter tap "$f" > "$out/$b.tap" 2>&1; rc=$?
-  printf '%s\n' "$rc" > "$out/$b.rc"
-  printf '%s\n' "$((SECONDS - s))" > "$out/$b.secs"
+  bats --formatter tap "$f" > "$out/$b.tap" 2>&1; ONE_RC=$?
+  ONE_SECS=$((SECONDS - s))
+  printf '%s\n' "$ONE_RC" > "$out/$b.rc"
+  printf '%s\n' "$ONE_SECS" > "$out/$b.secs"
   return 0
 }
 
@@ -214,7 +221,8 @@ verb="$1"; shift
 case "$verb" in
   select)    cmd_select "$@" ;;
   run)       cmd_run "$@" ;;
-  _one)      [ $# -eq 2 ] || usage; cmd_one "$@" ;;
+  _one)      [ $# -eq 2 ] || usage; cmd_one "$@"
+             printf 'done: %s rc=%s %ss\n' "$2" "$ONE_RC" "$ONE_SECS" ;;
   summarize) cmd_summarize "$@" ;;
   *)         usage ;;
 esac
