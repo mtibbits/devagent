@@ -99,10 +99,207 @@ EOF
   grep -q "USER-EDIT" "$DEVDOC/Issue-676/checklist.md"
 }
 
-@test "pull rejects missing origin|fork token" {
+@test "pull <p> <N> with both sources and no key reads issue_source (#1099)" {
   run "$PLUGIN_ROOT/scripts/pull.sh" volk 676
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"origin|fork"* ]]
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-676" ]
+  grep -q "gnuradio/volk#676" "$DEVDOC/Issue-676/issue.md"
+}
+
+# _volk_cfg <project-table-extra> <origin:0|1> <fork:0|1> — a whole config;
+# any default_issue_source line goes inside [project.volk], never appended.
+_volk_cfg() {
+  local extra="$1" origin="$2" fork="$3"
+  {
+    printf '[project.volk]\nsource_dir = "%s"\ndevdoc_dir = "%s"\n' "$BATS_TEST_TMPDIR/volk" "$DEVDOC"
+    [[ -z "$extra" ]] || printf '%s\n' "$extra"
+    if [[ "$origin" == 1 ]]; then
+      printf '\n[project.volk.issue_source]\nbackend = "github"\nrepo = "gnuradio/volk"\ndir_prefix = "Issue-"\n'
+    fi
+    if [[ "$fork" == 1 ]]; then
+      printf '\n[project.volk.issue_source_fork]\nbackend = "github"\nrepo = "mtibbits/volk"\ndir_prefix = "Issue-Fork-"\n'
+    fi
+  } > "$DA_HOME/config.toml"
+}
+
+# _no_issue_dir — a rejected pull scaffolds nothing.
+_no_issue_dir() {
+  local n
+  n="$(find "$DEVDOC" -maxdepth 1 -name 'Issue-*' | wc -l)"
+  [ "$n" -eq 0 ]
+}
+
+PULL_USAGE_TEXT='usage: pull.sh <project> <issue-num> [--origin|--fork]'
+
+@test "pull <p> <N> --fork with both sources and no key reads issue_source_fork (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-Fork-42" ]
+  grep -q "mtibbits/volk#42" "$DEVDOC/Issue-Fork-42/issue.md"
+}
+
+@test "pull <p> <N> on an origin-only project scaffolds Issue-N from issue_source (#1099)" {
+  _volk_cfg "" 1 0
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-42" ]
+  grep -q "gnuradio/volk#42" "$DEVDOC/Issue-42/issue.md"
+}
+
+@test "pull <p> <N> on a fork-only project reads issue_source_fork (#1099)" {
+  _volk_cfg "" 0 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-Fork-42" ]
+  grep -q "mtibbits/volk#42" "$DEVDOC/Issue-Fork-42/issue.md"
+}
+
+@test "default_issue_source = \"fork\": pull volk 42 scaffolds Issue-Fork-42 (#1099)" {
+  _volk_cfg 'default_issue_source = "fork"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-Fork-42" ]
+  grep -q "mtibbits/volk#42" "$DEVDOC/Issue-Fork-42/issue.md"
+}
+
+@test "default_issue_source = \"fork\": pull volk 42 --origin scaffolds Issue-42 (#1099)" {
+  _volk_cfg 'default_issue_source = "fork"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --origin
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-42" ]
+  grep -q "gnuradio/volk#42" "$DEVDOC/Issue-42/issue.md"
+}
+
+@test "usage: the origin|fork token with a source flag is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 42 --fork
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot be combined"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: --origin with --fork is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --origin --fork
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"at most one of --origin, --fork"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: a repeated --fork is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork --fork
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"at most one of --origin, --fork"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: --fork=x is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork=x
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"take no value"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: an empty --origin= is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --origin=
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"take no value"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: a flag before <project> is rejected without a project lookup (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" --fork volk 42
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot come before <project>"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  [[ "$output" != *"not found in config.toml"* ]]
+  _no_issue_dir
+}
+
+@test "usage: an unknown flag is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --auto
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unknown flag: '--auto'"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "usage: an extra positional after <issue-num> is rejected (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 extra
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"expected <issue-num> [--origin|--fork], got: '42 extra'"* ]]
+  [[ "$output" == *"$PULL_USAGE_TEXT"* ]]
+  _no_issue_dir
+}
+
+@test "--fork on an origin-only project exits 1 naming issue_source_fork (#1099)" {
+  _volk_cfg "" 1 0
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"issue_source_fork.backend not configured for volk"* ]]
+  _no_issue_dir
+}
+
+@test "bad key: default_issue_source = \"upstream\" exits 1 naming the key (#1099)" {
+  _volk_cfg 'default_issue_source = "upstream"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"default_issue_source must be \"origin\" or \"fork\", got: 'upstream'"* ]]
+  _no_issue_dir
+}
+
+@test "bad key: default_issue_source = \"fork\" on an origin-only project exits 1 (#1099)" {
+  _volk_cfg 'default_issue_source = "fork"' 1 0
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'default_issue_source = "fork" but [project.volk.issue_source_fork] has no backend configured'* ]]
+  _no_issue_dir
+}
+
+@test "bad key: an empty default_issue_source exits 1 naming the key (#1099)" {
+  _volk_cfg 'default_issue_source = ""' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"default_issue_source must be \"origin\" or \"fork\", got: ''"* ]]
+  _no_issue_dir
+}
+
+@test "a bad default_issue_source does not stop a flagged pull (D2, #1099)" {
+  _volk_cfg 'default_issue_source = "upstream"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --origin
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-42" ]
+}
+
+@test "a bad default_issue_source does not stop an old-form pull (D2, #1099)" {
+  _volk_cfg 'default_issue_source = "upstream"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 42
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-42" ]
+}
+
+@test "a bad number is reported before a bad default_issue_source (#1099)" {
+  _volk_cfg 'default_issue_source = "upstream"' 1 1
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk notanumber
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"issue number must be numeric, got: 'notanumber'"* ]]
+  [[ "$output" != *"default_issue_source"* ]]
+}
+
+@test "old form with the number missing keeps its error text (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"issue number must be numeric, got: '<none>'"* ]]
+}
+
+@test "old form tolerates a trailing note as before (#1099)" {
+  run "$PLUGIN_ROOT/scripts/pull.sh" volk origin 676 some note
+  [ "$status" -eq 0 ]
+  [ -d "$DEVDOC/Issue-676" ]
+  grep -q "gnuradio/volk#676" "$DEVDOC/Issue-676/issue.md"
 }
 
 @test "pull rejects non-numeric issue number" {

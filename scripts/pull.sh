@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/pull.sh — workflow step 0: fetch issue, scaffold Issue dir.
 # Spec §3.5, §6.3 row 0.
-# Usage: pull.sh <project> <origin|fork> <issue-num>
+# Usage: pull.sh <project> <issue-num> [--origin|--fork]
+# The source defaults to [project.<p>] default_issue_source, else the only
+# configured source, else origin (#1099; scripts/lib/issue-source.sh).
 
 set -euo pipefail
 
@@ -30,25 +32,56 @@ source "$PLUGIN_ROOT/scripts/lib/transition.sh"   # issue_repo_label (#1009)
 source "$PLUGIN_ROOT/scripts/lib/trust.sh"
 # shellcheck source=/dev/null
 source "$PLUGIN_ROOT/scripts/lib/quarantine.sh"
+# shellcheck source=/dev/null
+source "$PLUGIN_ROOT/scripts/lib/issue-source.sh"
+
+PULL_USAGE="usage: pull.sh <project> <issue-num> [--origin|--fork]"
 
 main() {
   local project="${1:-}"
-  local source="${2:-}"
-  local num="${3:-}"
+  local source="" num=""
 
-  [[ -n "$project" ]] || die "project required"
+  [[ -n "$project" ]] || die "project required — $PULL_USAGE"
+  [[ "$project" != -* ]] \
+    || die "a flag cannot come before <project>, got: '$project' — $PULL_USAGE"
   config_require_project "$project"
-  [[ "$source" == "origin" || "$source" == "fork" ]] \
-    || die "second arg must be origin|fork, got: '${source:-<none>}'"
-  [[ "$num" =~ ^[0-9]+$ ]] \
-    || die "issue number must be numeric, got: '${num:-<none>}'"
+  issue_source_take_flag "${@:2}" || die "$ISRC_ERR — $PULL_USAGE"
+
+  if [[ "${ISRC_REST[0]:-}" == "origin" || "${ISRC_REST[0]:-}" == "fork" ]]; then
+    # Legacy positional form, kept for existing automation (#1099): the
+    # source token, then the number; anything after the number is ignored,
+    # exactly as before.
+    [[ -z "$ISRC_FLAG" ]] \
+      || die "the origin|fork token and --origin/--fork cannot be combined; drop one — $PULL_USAGE"
+    source="${ISRC_REST[0]}"
+    num="${ISRC_REST[1]:-}"
+    [[ "$num" =~ ^[0-9]+$ ]] \
+      || die "issue number must be numeric, got: '${num:-<none>}'"
+  else
+    local tok
+    for tok in "${ISRC_REST[@]}"; do
+      [[ "$tok" != -* ]] || die "unknown flag: '$tok' — $PULL_USAGE"
+    done
+    [[ "${#ISRC_REST[@]}" -eq 1 ]] \
+      || die "expected <issue-num> [--origin|--fork], got: '${ISRC_REST[*]}' — $PULL_USAGE"
+    num="${ISRC_REST[0]}"
+    # The number is checked before the default is read, so a bad key never
+    # hides a bad number.
+    [[ "$num" =~ ^[0-9]+$ ]] \
+      || die "issue number must be numeric, got: '${num:-<none>}'"
+    source="$ISRC_FLAG"
+    if [[ -z "$source" ]]; then
+      issue_source_default "$project" || die "$ISRC_ERR"
+      source="$ISRC_DEFAULT"
+    fi
+  fi
 
   local section
-  if [[ "$source" == "origin" ]]; then
-    section="issue_source"
-  else
-    section="issue_source_fork"
-  fi
+  case "$source" in
+    origin) section="issue_source" ;;
+    fork)   section="issue_source_fork" ;;
+    *)      die "internal: unresolved source '$source'" ;;
+  esac
 
   local backend repo dir_prefix devdoc
   backend="$(config_get_project_field "$project" "${section}.backend" 2>/dev/null || true)"
