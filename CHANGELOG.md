@@ -16,6 +16,27 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+- **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
+  its source from config (#1099).** A flagless pull reads the new
+  `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
+  project's only configured issue source (its `backend` is set), else
+  `origin`. `--origin`/`--fork` pick a source for one pull and may come
+  anywhere after `<project>`. A bad key stops a flagless pull naming it, and
+  `/devagent:doctor` reports the key: OK when valid, FAIL when bad, WARN when
+  both sources are configured and it is unset. The positional
+  `<project> origin|fork <N>` form is still accepted, unchanged and
+  unadvertised, so automation that sends it keeps working. Every successful
+  pull now prints one stdout line, `pulled <id>` (a machine-read contract,
+  `commands/pull.md`); the pull trust golden was re-captured for it
+  (`tests/fixtures/trust-golden/pull.*`, only `pull.out` gained the line).
+  `/devagent:file`'s documented default target and `/devagent:crrf`'s filing
+  target follow the same rule. cost-report keys a new-form pull like the old
+  form, and a tokenless pull now attributes, reversing #730's no-op; a
+  positional pull with a trailing note now attributes too, as pull.sh always
+  accepted it. Upgrade: a fork-first project with both trackers sets
+  `default_issue_source = "fork"` once. `scripts/lib/issue-source.sh` holds
+  the flag parse and the default, for #1098 to reuse.
+
 - **Added: cost-report --overhead, unattributed cost as per-project overhead
   (#732, epic #729).** `cost-report.sh --overhead` places each
   `(no project)/(no issue)` call by the first rule that applies: the

@@ -69,12 +69,13 @@ in `skills/capture/SKILL.md`.
 ## 5. Pull the issue
 
 ```
-/devagent:pull myproj origin 42
+/devagent:pull myproj 42
 ```
 
-Fetches issue #42 from the project's origin tracker and scaffolds its
-workflow directory, including the checklist that tracks it through the
-25-step loop.
+Fetches issue #42 from the project's default tracker (origin unless
+`default_issue_source` says otherwise; add `--fork` for a fork tracker) and
+scaffolds its workflow directory, including the checklist that tracks it
+through the 25-step loop.
 
 ## 6. Run the loop
 

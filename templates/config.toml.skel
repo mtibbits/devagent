@@ -166,6 +166,17 @@ branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf
 #                                        #   green-at-baseline in .devagent-born-red-allow
 #                                        #   ("<file> :: <test> — <reason>"). bats+pytest.
 #
+# default_issue_source = "fork"         # (#1099) the tracker a flagless
+#                                        #   `/devagent:pull <project> <N>` reads:
+#                                        #   "origin" ([…issue_source]) or "fork"
+#                                        #   ([…issue_source_fork]). Unset: the
+#                                        #   project's only configured source, else
+#                                        #   "origin". Any other value, or a source
+#                                        #   with no backend, stops a flagless pull
+#                                        #   and fails /devagent:doctor. --origin /
+#                                        #   --fork override it for one pull;
+#                                        #   /devagent:file's default target follows it.
+#
 # Fork-side tracker (Issue-Fork-NNN), when issues are filed on the fork:
 # [project.{{PROJECT}}.issue_source_fork]
 # backend    = "github"

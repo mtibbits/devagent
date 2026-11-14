@@ -36,6 +36,9 @@ devdoc_dir       = "/home/you/src/devDoc/myproj" # per-issue artifacts
 default_baseline = "origin/main"               # branch step's base
 fork_first       = false                       # branch/push via a fork
 ship_as_draft    = false                       # open MRs as drafts
+# default_issue_source = "origin"              # #1099: the tracker a flagless /devagent:pull reads,
+                                               # "origin" or "fork"; unset = the only configured
+                                               # source, else origin. --origin/--fork override it
 analyze          = "none"                      # step-13 analyzer family; default when absent: cmake
                                                # legal: cmake | shellcheck | none; shellcheck needs
                                                # shellcheck on PATH, tested against

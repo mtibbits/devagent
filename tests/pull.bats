@@ -1064,3 +1064,19 @@ CFG
   [ "$status" -eq 1 ]
   [ "$output" = "" ]
 }
+
+@test "docs show only the new pull form (#1099)" {
+  # No tracked doc, script or template spells the positional origin|fork form
+  # (register Issue-461/583). The guard and its positive control read one regex.
+  local re='(/devagent:pull|pull\.sh"?) +[^ ]+ +<?(origin|fork)\b'
+  run git -C "$PLUGIN_ROOT" grep -nE "$re" -- '*.md' 'scripts/*' 'templates/*' ':!docs/plans/**' ':!CHANGELOG.md'
+  [ "$status" -eq 1 ]
+  run bash -c 'printf "%s\n" "/devagent:pull myproj origin 42" | grep -cE "$1"' _ "$re"
+  [ "$output" = "1" ]
+}
+
+@test "file.md documents default_issue_source as its default target (#1099)" {
+  grep -qF 'default_issue_source' "$PLUGIN_ROOT/commands/file.md"
+  run grep -F '(default: `origin`)' "$PLUGIN_ROOT/commands/file.md"
+  [ "$status" -eq 1 ]
+}

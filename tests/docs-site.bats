@@ -142,12 +142,12 @@ PAGES=(index.md install.md quickstart.md workflow.md configuration.md concurrenc
   # Review findings 2-4 + preship class: a fenced /devagent:<verb> line must
   # satisfy the verb's own usage — init takes <project> (init.sh exits 2
   # bare with the shipped empty default_project seed; preship blocker), pull
-  # takes <project> origin|fork <num> (commands/pull.md), file takes <slug>
+  # takes <project> <num> [--origin|--fork] (commands/pull.md), file takes <slug>
   # (commands/file.md), capture takes text (skills/capture/SKILL.md). Pin
   # the runnable forms, forbid the bare regressions, and keep the
   # push_mr-gate warning present.
   grep -qF '/devagent:init myproj' "$SITE/quickstart.md"
-  grep -qF '/devagent:pull myproj origin 42' "$SITE/quickstart.md"
+  grep -qF '/devagent:pull myproj 42' "$SITE/quickstart.md"
   grep -qF '/devagent:file <slug>' "$SITE/quickstart.md"
   grep -qF 'permissions.push_mr' "$SITE/quickstart.md"
   run grep -E '^/devagent:(init|pull|file|capture) *$' "$SITE/quickstart.md"

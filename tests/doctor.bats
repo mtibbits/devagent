@@ -518,7 +518,7 @@ TOML
   _add_fork_source
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
-  [[ "$output" == *'  WARN project.volk.default_issue_source — unset while both [project.volk.issue_source] and [project.volk.issue_source_fork] are configured: a flagless /devagent:pull reads origin, and adding or removing a source changes that; set default_issue_source = "origin" or "fork"'* ]]
+  [[ "$output" == *'  WARN project.volk.default_issue_source — unset while both [project.volk.issue_source] and [project.volk.issue_source_fork] are configured: a flagless /devagent:pull falls back to origin, and adding or removing a source changes that; set default_issue_source = "origin" or "fork"'* ]]
 }
 
 @test "doctor OKs a valid default_issue_source (#1099)" {

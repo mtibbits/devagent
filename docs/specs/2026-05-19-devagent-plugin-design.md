@@ -88,7 +88,8 @@ devAgent/
 │   │                        #   portfolio-schema.json + portfolio-check.py — #725,
 │   │                        #   portfolio.py — #726 portfolio producer,
 │   │                        #   devdoc-repo.sh — #749 devDoc owned-path commits + repository lock,
-│   │                        #   disk-issue.py — #1008 disk issue file reader/writer)
+│   │                        #   disk-issue.py — #1008 disk issue file reader/writer,
+│   │                        #   issue-source.sh — #1099 --origin/--fork flag parse + default issue source)
 │   ├── issue/               # tracker backends: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── code/                # forge backends: github.sh, gitlab.sh, custom.sh
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
@@ -154,6 +155,7 @@ fork_first       = true
 ship_as_draft    = true                  # always open MRs as draft on this project
 include_coauthor = false                 # strip Co-Authored-By from commit msg + PR body (default true)
 default_baseline = "origin/main"
+default_issue_source = "fork"           # #1099: a flagless /devagent:pull reads issue_source_fork; --origin overrides for one pull; unset = the only configured source, else origin
 all_prs_branch   = "dev/all-prs"
 branch_prefix_map = { bug = "fix", feature = "feat", docs = "docs", perf = "perf", chore = "chore" }
 # merge_method   = "squash"              # #885: how step 20 merges — squash | merge | rebase

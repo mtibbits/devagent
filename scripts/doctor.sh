@@ -197,7 +197,7 @@ check_default_issue_source() {
   issue_source_configured "$project" origin || o=$?
   issue_source_configured "$project" fork || f=$?
   if [[ "$o" -eq 0 && "$f" -eq 0 ]]; then
-    check "$label" warn "unset while both [project.$project.issue_source] and [project.$project.issue_source_fork] are configured: a flagless /devagent:pull reads origin, and adding or removing a source changes that; set default_issue_source = \"origin\" or \"fork\""
+    check "$label" warn "unset while both [project.$project.issue_source] and [project.$project.issue_source_fork] are configured: a flagless /devagent:pull falls back to origin, and adding or removing a source changes that; set default_issue_source = \"origin\" or \"fork\""
   fi
 }
 
