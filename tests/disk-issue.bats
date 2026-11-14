@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# bats file_tags=gitbash
 # tests/disk-issue.bats — #1008: the disk issue file format reader and writer
 # (scripts/lib/disk-issue.py) and its reference page (docs/disk-issues.md).
 bats_require_minimum_version 1.5.0   # run --separate-stderr wherever stdout or stderr is pinned
