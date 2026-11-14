@@ -259,3 +259,47 @@ fileline() {
   [[ "$(fileline "$D/b.bats")" == *" OK" ]]
   [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
 }
+
+# stub_bats: a binstub bats on STUB_BIN that logs its argv, sleeps 2s on a.bats (so
+# under --jobs the first file finishes last), and fails any *fail*.bats.
+stub_bats() {
+  STUB_BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$STUB_BIN"
+  export STUB_LOG="$BATS_TEST_TMPDIR/bats-argv.log"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" >> "$STUB_LOG"' \
+    'f="${!#}"' \
+    'case "$f" in *a.bats) sleep 2 ;; esac' \
+    'case "$f" in' \
+    '  *fail*.bats) printf "1..1\nnot ok 1 planted\n"; exit 1 ;;' \
+    '  *) printf "1..1\nok 1 %s\n" "${f##*/}" ;;' \
+    'esac' > "$STUB_BIN/bats"
+  chmod +x "$STUB_BIN/bats"
+}
+
+@test "run --jobs 2: every file runs once and output is in list order" {
+  local n
+  stub_bats
+  for n in a b c; do tagfile "$n.bats" "$(tagline "$T")"; done
+  PATH="$STUB_BIN:$PATH" run "$H" run --jobs 2 "$O" "$D/a.bats" "$D/b.bats" "$D/c.bats"
+  [ "$status" -eq 0 ]
+  [ "$(sort "$STUB_LOG")" = "$(printf '%s\n' "--formatter tap $D/a.bats" "--formatter tap $D/b.bats" "--formatter tap $D/c.bats")" ]
+  # a.bats finished last, yet its TAP and time line come first: output follows the list.
+  [ "$(printf '%s\n' "${lines[@]}" | grep -E '^(ok 1 |time: )' | sed -E 's/ [0-9]+s$/ Ns/')" = \
+    "$(printf '%s\n' 'ok 1 a.bats' "time: $D/a.bats Ns" 'ok 1 b.bats' "time: $D/b.bats Ns" \
+                     'ok 1 c.bats' "time: $D/c.bats Ns" 'time: total Ns')" ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -E '^gitbash-tagged: ' | cut -d' ' -f2)" = \
+    "$(printf '%s\n' "$D/a.bats" "$D/b.bats" "$D/c.bats" '3')" ]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 3 file(s), 0 failed" ]
+}
+
+@test "run --jobs 2: a failing file still fails the verdict" {
+  stub_bats
+  tagfile a.bats "$(tagline "$T")"
+  tagfile fail.bats "$(tagline "$T")"
+  PATH="$STUB_BIN:$PATH" run "$H" run --jobs 2 "$O" "$D/a.bats" "$D/fail.bats"
+  [ "$status" -eq 1 ]
+  [[ "$(fileline "$D/a.bats")" == *" OK" ]]
+  [[ "$(fileline "$D/fail.bats")" == *" FAIL ("*"failed=1"* ]]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
+}
