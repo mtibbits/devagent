@@ -18,6 +18,8 @@ teardown() { teardown_tmp_devagent_home; }
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
   [ "$status" -eq 0 ]
   [[ "$output" == *"OK"* ]]
+  # #1099: a single-source project says nothing about default_issue_source.
+  [[ "$output" != *default_issue_source* ]]
 }
 
 @test "doctor flags a missing source_dir" {
@@ -528,10 +530,4 @@ TOML
   [ "$status" -eq 0 ]
   [[ "$output" == *"  OK   project.volk.default_issue_source (fork)"* ]]
   [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
-}
-
-@test "doctor is silent on default_issue_source for a single-source project (#1099)" {
-  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
-  [ "$status" -eq 0 ]
-  [[ "$output" != *default_issue_source* ]]
 }

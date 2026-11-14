@@ -766,7 +766,7 @@ def _pull_issue(args: tuple) -> str | None:
         if flags:
             return None
         n = rest[1] if len(rest) > 1 else ""
-    elif len(rest) == 1 and not rest[0].startswith("-"):
+    elif len(rest) == 1:
         n = rest[0]
     else:
         return None

@@ -32,12 +32,8 @@ issue_source_section() {
 }
 
 issue_source_configured() {
-  local project="$1" src="$2" section backend rc=0
-  case "$src" in
-    origin) section="issue_source" ;;
-    fork)   section="issue_source_fork" ;;
-    *)      return 1 ;;
-  esac
+  local project="$1" section backend rc=0
+  section="$(issue_source_section "$2")" || return 1
   backend="$(config_get_project_field "$project" "${section}.backend" 2>/dev/null)" || rc=$?
   [[ "$rc" -eq 0 || "$rc" -eq 1 ]] || return 2
   backend="${backend//$'\r'/}"
@@ -50,30 +46,30 @@ issue_source_take_flag() {
   ISRC_FLAG=""
   ISRC_REST=()
   ISRC_ERR=""
-  local arg first=""
+  local arg
   for arg in "$@"; do
     case "$arg" in
       --origin|--fork)
-        if [[ -n "$first" ]]; then
-          ISRC_FLAG=""
-          ISRC_REST=()
-          ISRC_ERR="at most one of --origin, --fork may be given, got: '${first}' and '${arg}'"
-          return 2
+        if [[ -n "$ISRC_FLAG" ]]; then
+          ISRC_ERR="at most one of --origin, --fork may be given, got: '--${ISRC_FLAG}' and '${arg}'"
+          break
         fi
-        first="$arg"
         ISRC_FLAG="${arg#--}"
         ;;
       --origin=*|--fork=*)
-        ISRC_FLAG=""
-        ISRC_REST=()
         ISRC_ERR="--origin and --fork take no value, got: '${arg}'"
-        return 2
+        break
         ;;
       *)
         ISRC_REST+=("$arg")
         ;;
     esac
   done
+  if [[ -n "$ISRC_ERR" ]]; then
+    ISRC_FLAG=""
+    ISRC_REST=()
+    return 2
+  fi
   return 0
 }
 

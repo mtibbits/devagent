@@ -998,7 +998,7 @@ CFG
 
 @test "pull-forms table: pull.sh accepts and rejects every row (#1099)" {
   local table="$PLUGIN_ROOT/tests/fixtures/pull-forms.tsv"
-  local rows=0 args outcome n st
+  local rows=0 args outcome n st out id repo
   local -a argv
   while IFS=$'\t' read -r args outcome; do
     [[ -z "$args" || "$args" == \#* ]] && continue
@@ -1008,55 +1008,29 @@ CFG
     rm -f "$DA_HOME/state/volk.toml"
     read -ra argv <<<"$args"
     st=0
-    "$PLUGIN_ROOT/scripts/pull.sh" "${argv[@]}" >/dev/null 2>&1 || st=$?
+    out="$("$PLUGIN_ROOT/scripts/pull.sh" "${argv[@]}" 2>/dev/null)" || st=$?
+    n="${outcome#* }"
     case "$outcome" in
-      "default "*|"origin "*)
-        n="${outcome#* }"
-        [ "$st" -eq 0 ] || { echo "row: $args (status $st)" >&2; return 1; }
-        [ -d "$DEVDOC/Issue-$n" ] || { echo "row: $args" >&2; return 1; }
-        grep -q "gnuradio/volk#$n" "$DEVDOC/Issue-$n/issue.md" || { echo "row: $args" >&2; return 1; }
-        ;;
-      "fork "*)
-        n="${outcome#* }"
-        [ "$st" -eq 0 ] || { echo "row: $args (status $st)" >&2; return 1; }
-        [ -d "$DEVDOC/Issue-Fork-$n" ] || { echo "row: $args" >&2; return 1; }
-        grep -q "mtibbits/volk#$n" "$DEVDOC/Issue-Fork-$n/issue.md" || { echo "row: $args" >&2; return 1; }
-        ;;
+      "default "*|"origin "*) id="Issue-$n" repo="gnuradio/volk" ;;
+      "fork "*)               id="Issue-Fork-$n" repo="mtibbits/volk" ;;
       reject)
         [ "$st" -eq 1 ] || { echo "row: $args (status $st)" >&2; return 1; }
+        [ -z "$out" ] || { echo "row: $args (stdout '$out')" >&2; return 1; }
         [ -z "$(find "$DEVDOC" -maxdepth 1 -name 'Issue-*')" ] || { echo "row: $args" >&2; return 1; }
+        continue
         ;;
       *)
         echo "row: $args — unknown outcome '$outcome'" >&2
         return 1
         ;;
     esac
+    # Every accepted row prints exactly its "pulled <id>" stdout line.
+    [ "$st" -eq 0 ] || { echo "row: $args (status $st)" >&2; return 1; }
+    [ "$out" = "pulled $id" ] || { echo "row: $args (stdout '$out')" >&2; return 1; }
+    [ -d "$DEVDOC/$id" ] || { echo "row: $args" >&2; return 1; }
+    grep -q "$repo#$n" "$DEVDOC/$id/issue.md" || { echo "row: $args" >&2; return 1; }
   done < "$table"
   [ "$rows" -eq 21 ]
-}
-
-@test "a successful pull prints exactly \"pulled <id>\" on stdout (#1099)" {
-  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk 42 --fork
-  [ "$status" -eq 0 ]
-  [ "$output" = "pulled Issue-Fork-42" ]
-}
-
-@test "a flagless pull prints the default's id on stdout (#1099)" {
-  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk 42
-  [ "$status" -eq 0 ]
-  [ "$output" = "pulled Issue-42" ]
-}
-
-@test "an old-form fork pull prints its id on stdout (#1099)" {
-  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk fork 42
-  [ "$status" -eq 0 ]
-  [ "$output" = "pulled Issue-Fork-42" ]
-}
-
-@test "an old-form origin pull prints its id on stdout (#1099)" {
-  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" volk origin 42
-  [ "$status" -eq 0 ]
-  [ "$output" = "pulled Issue-42" ]
 }
 
 @test "a failed pull prints nothing on stdout (#1099)" {

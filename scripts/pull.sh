@@ -55,8 +55,6 @@ main() {
       || die "the origin|fork token and --origin/--fork cannot be combined; drop one — $PULL_USAGE"
     source="${ISRC_REST[0]}"
     num="${ISRC_REST[1]:-}"
-    [[ "$num" =~ ^[0-9]+$ ]] \
-      || die "issue number must be numeric, got: '${num:-<none>}'"
   else
     local tok
     for tok in "${ISRC_REST[@]}"; do
@@ -65,23 +63,20 @@ main() {
     [[ "${#ISRC_REST[@]}" -eq 1 ]] \
       || die "expected <issue-num> [--origin|--fork], got: '${ISRC_REST[*]}' — $PULL_USAGE"
     num="${ISRC_REST[0]}"
-    # The number is checked before the default is read, so a bad key never
-    # hides a bad number.
-    [[ "$num" =~ ^[0-9]+$ ]] \
-      || die "issue number must be numeric, got: '${num:-<none>}'"
     source="$ISRC_FLAG"
-    if [[ -z "$source" ]]; then
-      issue_source_default "$project" || die "$ISRC_ERR"
-      source="$ISRC_DEFAULT"
-    fi
+  fi
+  [[ "$num" =~ ^[0-9]+$ ]] \
+    || die "issue number must be numeric, got: '${num:-<none>}'"
+  # The number is checked before the default is read, so a bad key never
+  # hides a bad number.
+  if [[ -z "$source" ]]; then
+    issue_source_default "$project" || die "$ISRC_ERR"
+    source="$ISRC_DEFAULT"
   fi
 
   local section
-  case "$source" in
-    origin) section="issue_source" ;;
-    fork)   section="issue_source_fork" ;;
-    *)      die "internal: unresolved source '$source'" ;;
-  esac
+  section="$(issue_source_section "$source")" \
+    || die "internal: unresolved source '$source'"
 
   local backend repo dir_prefix devdoc
   backend="$(config_get_project_field "$project" "${section}.backend" 2>/dev/null || true)"

@@ -180,7 +180,7 @@ check_transition_env() {
 # the key is set and valid; FAIL on a bad key or an unreadable config; WARN
 # when both sources are configured and no key is set; silent otherwise (D5).
 check_default_issue_source() {
-  local project="$1" rc=0 o=0 f=0 label detail
+  local project="$1" rc=0 label detail
   label="project.$project.default_issue_source"
   issue_source_default "$project" || rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -194,9 +194,9 @@ check_default_issue_source() {
     check "$label ($ISRC_DEFAULT)" ok
     return
   fi
-  issue_source_configured "$project" origin || o=$?
-  issue_source_configured "$project" fork || f=$?
-  if [[ "$o" -eq 0 && "$f" -eq 0 ]]; then
+  # "fallback" is both sources or neither, so one probe tells them apart.
+  [[ "$ISRC_RULE" == fallback ]] || return 0
+  if issue_source_configured "$project" origin; then
     check "$label" warn "unset while both [project.$project.issue_source] and [project.$project.issue_source_fork] are configured: a flagless /devagent:pull falls back to origin, and adding or removing a source changes that; set default_issue_source = \"origin\" or \"fork\""
   fi
 }
