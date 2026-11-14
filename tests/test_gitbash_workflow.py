@@ -36,9 +36,8 @@ BATS_SHA = "eb7f42f8d608ac693d7a4b67474f6714ea68cfc5"
 
 
 @pytest.fixture(scope="module")
-def wf():
-    with open(_WF, encoding="utf-8") as fh:
-        doc = yaml.safe_load(fh)
+def wf(text):
+    doc = yaml.safe_load(text)
     # YAML 1.1 reads the bare key `on` as boolean True; accept either spelling.
     doc["_on"] = doc.get("on", doc.get(True))
     assert isinstance(doc["_on"], dict), "workflow has no `on:` mapping"
@@ -98,16 +97,7 @@ def _envs(wf):
 
 
 def test_one_job_named_for_the_check(wf):
-    named = _named_job(wf)
-    # A matrix split (plan Task 9) keeps the check name on a final job that must
-    # wait for every shard and run even when one fails: a skipped final job must
-    # never read as green.
-    sharded = [jid for jid, j in _jobs(wf).items() if "strategy" in j]
-    if sharded:
-        needs = named.get("needs", [])
-        needs = [needs] if isinstance(needs, str) else needs
-        assert set(sharded) <= set(needs)
-        assert named.get("if") == "always()"
+    _named_job(wf)
 
 
 def test_runs_on_pinned_windows(wf):

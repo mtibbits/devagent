@@ -234,32 +234,6 @@ fileline() {
 
 # ---------------------------------------------------------------------- run
 
-@test "run: invokes bats once per file in list order with the TAP formatter, and carries on past a failure" {
-  local bin="$BATS_TEST_TMPDIR/bin"
-  mkdir -p "$bin"
-  export STUB_LOG="$BATS_TEST_TMPDIR/bats-argv.log"
-  printf '%s\n' '#!/usr/bin/env bash' \
-    'printf "%s\n" "$*" >> "$STUB_LOG"' \
-    'case "${!#}" in' \
-    '  *a.bats) printf "1..1\nnot ok 1 planted\n"; exit 1 ;;' \
-    '  *) printf "1..1\nok 1 fine\n" ;;' \
-    'esac' > "$bin/bats"
-  chmod +x "$bin/bats"
-  tagfile a.bats "$(tagline "$T")"
-  tagfile b.bats "$(tagline "$T")"
-  PATH="$bin:$PATH" run "$H" run "$O" "$D/a.bats" "$D/b.bats"
-  [ "$status" -eq 1 ]
-  [ "$(cat "$STUB_LOG")" = "$(printf '%s\n' "--formatter tap $D/a.bats" "--formatter tap $D/b.bats")" ]
-  [[ "$output" == *"not ok 1 planted"* ]]
-  [[ "$output" == *"ok 1 fine"* ]]
-  [[ "$output" =~ time:\ "$D/a.bats"\ [0-9]+s ]]
-  [[ "$output" =~ time:\ "$D/b.bats"\ [0-9]+s ]]
-  [[ "$output" =~ time:\ total\ [0-9]+s ]]
-  [[ "$(fileline "$D/a.bats")" == *" FAIL ("* ]]
-  [[ "$(fileline "$D/b.bats")" == *" OK" ]]
-  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
-}
-
 # stub_bats: a binstub bats on STUB_BIN that logs its argv, sleeps 2s on a.bats (so
 # under --jobs the first file finishes last), and fails any *fail*.bats.
 stub_bats() {
@@ -275,6 +249,23 @@ stub_bats() {
     '  *) printf "1..1\nok 1 %s\n" "${f##*/}" ;;' \
     'esac' > "$STUB_BIN/bats"
   chmod +x "$STUB_BIN/bats"
+}
+
+@test "run: invokes bats once per file in list order with the TAP formatter, and carries on past a failure" {
+  stub_bats
+  tagfile fail.bats "$(tagline "$T")"
+  tagfile b.bats "$(tagline "$T")"
+  PATH="$STUB_BIN:$PATH" run "$H" run "$O" "$D/fail.bats" "$D/b.bats"
+  [ "$status" -eq 1 ]
+  [ "$(cat "$STUB_LOG")" = "$(printf '%s\n' "--formatter tap $D/fail.bats" "--formatter tap $D/b.bats")" ]
+  [[ "$output" == *"not ok 1 planted"* ]]
+  [[ "$output" == *"ok 1 b.bats"* ]]
+  [[ "$output" =~ time:\ "$D/fail.bats"\ [0-9]+s ]]
+  [[ "$output" =~ time:\ "$D/b.bats"\ [0-9]+s ]]
+  [[ "$output" =~ time:\ total\ [0-9]+s ]]
+  [[ "$(fileline "$D/fail.bats")" == *" FAIL ("* ]]
+  [[ "$(fileline "$D/b.bats")" == *" OK" ]]
+  [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
 }
 
 @test "run --jobs 2: every file runs once and output is in list order" {
@@ -295,11 +286,11 @@ stub_bats() {
 
 @test "run --jobs 2: a failing file still fails the verdict" {
   stub_bats
-  tagfile a.bats "$(tagline "$T")"
+  tagfile ok.bats "$(tagline "$T")"
   tagfile fail.bats "$(tagline "$T")"
-  PATH="$STUB_BIN:$PATH" run "$H" run --jobs 2 "$O" "$D/a.bats" "$D/fail.bats"
+  PATH="$STUB_BIN:$PATH" run "$H" run --jobs 2 "$O" "$D/ok.bats" "$D/fail.bats"
   [ "$status" -eq 1 ]
-  [[ "$(fileline "$D/a.bats")" == *" OK" ]]
+  [[ "$(fileline "$D/ok.bats")" == *" OK" ]]
   [[ "$(fileline "$D/fail.bats")" == *" FAIL ("*"failed=1"* ]]
   [ "${lines[${#lines[@]}-1]}" = "gitbash-tagged: 2 file(s), 1 failed" ]
 }

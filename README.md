@@ -410,9 +410,8 @@ checkout under `/mnt/c`, and not native Git Bash**, whose default `/etc/fstab`
 mounts are `noacl`. Give the WSL clone its own `~/.claude/devagent/config.toml`
 with a WSL `source_dir`; the devdoc tree can stay shared via `/mnt/c`. Git Bash
 is fine for individual scripts (a preship check there attests the WSL tree,
-below), but the full suite needs a filesystem where `chmod` works, which Git Bash's default
-`noacl` mounts are not; the `gitbash`-tagged files run on Windows CI. That is a
-property of the mount, not a defect to repair. Run the suite in the WSL clone on the
+below), but not for the full suite; the `gitbash`-tagged files run on Windows
+CI. That `noacl` limit is a property of the mount, not a defect to repair. Run the suite in the WSL clone on the
 issue's branch, never a detached SHA: `git fetch origin && git checkout <branch>`
 the first time, and `git merge --ff-only origin/<branch>` after that.
 

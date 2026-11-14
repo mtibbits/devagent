@@ -44,7 +44,6 @@ SELECT_RE='^# bats file_tags=(.*,)? *gitbash *(,|$)'
 
 plan_re='^1\.\.([0-9]+)$'
 result_re='^(ok|not ok) [0-9]+( |$)'
-fail_re='^not ok [0-9]+( |$)'
 skip_re='^ok [0-9]+ .* # skip( |$)'
 bare_skip_re='^ok ([0-9]+) .* # skip[[:space:]]*$'
 
@@ -93,7 +92,7 @@ cmd_select() {
 # Always returns 0: the recorded rc is the verdict's input, never this status.
 cmd_one() {
   local out="$1" f="$2" b s rc
-  b="$(basename -- "$f")"
+  b="${f##*/}"
   s="$SECONDS"
   bats --formatter tap "$f" > "$out/$b.tap" 2>&1; rc=$?
   printf '%s\n' "$rc" > "$out/$b.rc"
@@ -103,11 +102,13 @@ cmd_one() {
 
 # report <outdir> <file>: print one file's recorded TAP and time line.
 report() {
-  local out="$1" f="$2" b
-  b="$(basename -- "$f")"
-  printf -- '--- %s (bats rc=%s)\n' "$f" "$(cat -- "$out/$b.rc" 2>/dev/null || echo '?')"
+  local out="$1" f="$2" b rc='?' secs='?'
+  b="${f##*/}"
+  [ -f "$out/$b.rc" ] && read -r rc < "$out/$b.rc"
+  [ -f "$out/$b.secs" ] && read -r secs < "$out/$b.secs"
+  printf -- '--- %s (bats rc=%s)\n' "$f" "$rc"
   cat -- "$out/$b.tap" 2>/dev/null || echo "(no TAP recorded)"
-  printf 'time: %s %ss\n' "$f" "$(cat -- "$out/$b.secs" 2>/dev/null || echo '?')"
+  printf 'time: %s %ss\n' "$f" "$secs"
 }
 
 cmd_run() {
@@ -121,10 +122,12 @@ cmd_run() {
   shift
   mkdir -p -- "$out" || die 2 "cannot create $out"
   # A stale record from an earlier run must never stand in for a missing one.
+  local -a stale=()
   for f in "$@"; do
-    b="$(basename -- "$f")"
-    rm -f -- "$out/$b.tap" "$out/$b.rc" "$out/$b.secs"
+    b="${f##*/}"
+    stale+=("$out/$b.tap" "$out/$b.rc" "$out/$b.secs")
   done
+  rm -f -- "${stale[@]}"
   if [ "$jobs" -eq 1 ]; then
     for f in "$@"; do cmd_one "$out" "$f"; report "$out" "$f"; done
   else
@@ -145,13 +148,13 @@ cmd_summarize() {
   shift
   for f in "$@"; do
     nfiles=$((nfiles + 1))
-    b="$(basename -- "$f")"
+    b="${f##*/}"
     tap="$out/$b.tap"
     reasons=(); bare=()
     plan=""; ran=0; failed=0; skipped=0
 
     rcv="?"
-    [ -f "$out/$b.rc" ] && rcv="$(tr -d '\r\n\t ' < "$out/$b.rc")"
+    [ -f "$out/$b.rc" ] && { read -r rcv < "$out/$b.rc"; rcv="${rcv//[$'\r\t ']/}"; }
     if ! [[ $rcv =~ ^[0-9]+$ ]]; then
       reasons+=("no rc recorded"); rcv="?"
     elif [ "$rcv" -ne 0 ]; then
@@ -162,18 +165,19 @@ cmd_summarize() {
       reasons+=("no TAP output")
     else
       while IFS= read -r line || [ -n "$line" ]; do
+        line="${line//$'\r'/}"
         if [[ $line =~ $plan_re ]]; then
           [ -n "$plan" ] || plan="${BASH_REMATCH[1]}"
         elif [[ $line =~ $result_re ]]; then
           ran=$((ran + 1))
-          if [[ $line =~ $fail_re ]]; then
+          if [ "${BASH_REMATCH[1]}" = "not ok" ]; then
             failed=$((failed + 1))
           elif [[ $line =~ $skip_re ]]; then
             skipped=$((skipped + 1))
             [[ $line =~ $bare_skip_re ]] && bare+=("${BASH_REMATCH[1]}")
           fi
         fi
-      done < <(tr -d '\r' < "$tap")
+      done < "$tap"
       [ "$failed" -eq 0 ] || reasons+=("failed=$failed")
       if [ -z "$plan" ]; then
         reasons+=("no plan line")
@@ -211,6 +215,6 @@ case "$verb" in
   select)    cmd_select "$@" ;;
   run)       cmd_run "$@" ;;
   _one)      [ $# -eq 2 ] || usage; cmd_one "$@" ;;
-  summarize) cmd_summarize "$@"; exit $? ;;
+  summarize) cmd_summarize "$@" ;;
   *)         usage ;;
 esac

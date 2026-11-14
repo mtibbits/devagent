@@ -49,7 +49,8 @@
 # TAP has its own plan and counts.
 #
 # Parallelism: serial 18m16s, concurrent (xargs -P 2) 14m42s (run 43609115577) -> concurrent
-#   Both were timed cold, in two jobs of one push, over the same seven files.
+#   Both were timed cold, in two jobs of one push, over the same seven files
+#   (disk-issue.bats was left out afterwards, #1104).
 #   GNU parallel is absent from the runner's Git Bash, so `bats --jobs` cannot
 #   run there; the helper's `run --jobs 2` runs two per-file bats processes at
 #   once (xargs -P 2) and prints their TAP afterwards in list order.

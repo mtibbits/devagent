@@ -31,9 +31,8 @@ Linux and WSL are where the suite is green, and where CI runs the full suite
 Windows (`windows-2025`, `.github/workflows/gitbash.yml`). The suite needs a
 filesystem where `chmod` really changes a mode and a UTF-8 locale; native Git
 Bash on Windows provides neither by default, so it can run the plugin and
-individual scripts, but the full suite needs a filesystem where `chmod` works, which Git Bash's default
-`noacl` mounts are not; the `gitbash`-tagged files run on Windows CI. On Windows, develop in a WSL clone on a
-native Linux filesystem, not under `/mnt/c`. The README section named above
+individual scripts but not the full suite. On Windows, develop in a WSL clone
+on a native Linux filesystem, not under `/mnt/c`. The README section named above
 explains the mechanism behind both requirements.
 Every suite-count artifact records the platform it was produced on
 (`platform:`). The maintainer who runs preship can set `evidence_platforms` in
