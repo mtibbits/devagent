@@ -13,11 +13,13 @@
 #       rc 4  malformed tag line(s), each on stderr as "<file>:<line>: <text>"
 #       The malformed check runs before the empty check, and before selection:
 #       a typo in one file fails the job even when other files are tagged.
-#   gitbash-tagged.sh run <outdir> <file>...
-#       For each file in order: bats --formatter tap <file>, its output to
+#   gitbash-tagged.sh run [--jobs N] <outdir> <file>...
+#       For each file: bats --formatter tap <file>, its output to
 #       <outdir>/<basename>.tap and its rc to <outdir>/<basename>.rc; print the
 #       TAP and "time: <file> <s>s". Never stops at a failing file. Then print
-#       "time: total <s>s" and summarize. rc is summarize's.
+#       "time: total <s>s" and summarize. rc is summarize's. With --jobs N (N > 1)
+#       the files run N at a time (xargs -P N, one bats per file) and the TAP and
+#       time lines print afterwards, still in list order.
 #   gitbash-tagged.sh summarize <outdir> <file>...
 #       One line per file, in order, then the verdict line:
 #         gitbash-tagged: <file> ran=R passed=P skipped=S failed=F rc=RC OK
@@ -48,7 +50,7 @@ bare_skip_re='^ok ([0-9]+) .* # skip[[:space:]]*$'
 
 die() { local rc="$1"; shift; printf 'gitbash-tagged: %s\n' "$*" >&2; exit "$rc"; }
 usage() {
-  die 2 "usage: gitbash-tagged.sh select <dir> | run <outdir> <file>... | summarize <outdir> <file>..."
+  die 2 "usage: gitbash-tagged.sh select <dir> | run [--jobs N] <outdir> <file>... | summarize <outdir> <file>..."
 }
 
 cmd_select() {
@@ -87,20 +89,50 @@ cmd_select() {
   esac
 }
 
+# _one <outdir> <file>: run one file, recording <basename>.tap, .rc and .secs.
+# Always returns 0: the recorded rc is the verdict's input, never this status.
+cmd_one() {
+  local out="$1" f="$2" b s rc
+  b="$(basename -- "$f")"
+  s="$SECONDS"
+  bats --formatter tap "$f" > "$out/$b.tap" 2>&1; rc=$?
+  printf '%s\n' "$rc" > "$out/$b.rc"
+  printf '%s\n' "$((SECONDS - s))" > "$out/$b.secs"
+  return 0
+}
+
+# report <outdir> <file>: print one file's recorded TAP and time line.
+report() {
+  local out="$1" f="$2" b
+  b="$(basename -- "$f")"
+  printf -- '--- %s (bats rc=%s)\n' "$f" "$(cat -- "$out/$b.rc" 2>/dev/null || echo '?')"
+  cat -- "$out/$b.tap" 2>/dev/null || echo "(no TAP recorded)"
+  printf 'time: %s %ss\n' "$f" "$(cat -- "$out/$b.secs" 2>/dev/null || echo '?')"
+}
+
 cmd_run() {
+  local jobs=1
+  if [ "${1:-}" = --jobs ]; then
+    [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || usage
+    jobs="$2"; shift 2
+  fi
   [ $# -ge 2 ] || usage
-  local out="$1" f b s rc t0="$SECONDS"
+  local out="$1" f b t0="$SECONDS"
   shift
   mkdir -p -- "$out" || die 2 "cannot create $out"
+  # A stale record from an earlier run must never stand in for a missing one.
   for f in "$@"; do
     b="$(basename -- "$f")"
-    s="$SECONDS"
-    bats --formatter tap "$f" > "$out/$b.tap" 2>&1; rc=$?
-    printf '%s\n' "$rc" > "$out/$b.rc"
-    printf -- '--- %s (bats rc=%s)\n' "$f" "$rc"
-    cat -- "$out/$b.tap"
-    printf 'time: %s %ss\n' "$f" "$((SECONDS - s))"
+    rm -f -- "$out/$b.tap" "$out/$b.rc" "$out/$b.secs"
   done
+  if [ "$jobs" -eq 1 ]; then
+    for f in "$@"; do cmd_one "$out" "$f"; report "$out" "$f"; done
+  else
+    # N files at a time; output is printed afterwards in LIST order. A child that
+    # records nothing is caught by summarize (no rc recorded / no TAP output).
+    printf '%s\0' "$@" | xargs -0 -n 1 -P "$jobs" "${BASH:-bash}" "$0" _one "$out"
+    for f in "$@"; do report "$out" "$f"; done
+  fi
   printf 'time: total %ss\n' "$((SECONDS - t0))"
   cmd_summarize "$out" "$@"
 }
@@ -178,6 +210,7 @@ verb="$1"; shift
 case "$verb" in
   select)    cmd_select "$@" ;;
   run)       cmd_run "$@" ;;
+  _one)      [ $# -eq 2 ] || usage; cmd_one "$@" ;;
   summarize) cmd_summarize "$@"; exit $? ;;
   *)         usage ;;
 esac
