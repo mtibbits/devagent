@@ -315,6 +315,27 @@ stub_bats() {
   [[ "$(printf '%s\n' "${lines[@]}" | grep '^done: ' | tail -n 1)" =~ ^done:\ "$D/a.bats"\ rc=0\ [0-9]+s$ ]]
 }
 
+@test "run: --jobs must be a positive integer" {
+  tagfile a.bats "$(tagline "$T")"
+  run --separate-stderr "$H" run --jobs 0 "$O" "$D/a.bats"
+  [ "$status" -eq 2 ]
+  run --separate-stderr "$H" run --jobs x "$O" "$D/a.bats"
+  [ "$status" -eq 2 ]
+}
+
+@test "run --jobs 2: a stale record never stands in for a child that recorded nothing" {
+  local bin="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$bin"
+  # The stub kills its parent (the per-file worker) before it can record an rc.
+  printf '%s\n' '#!/usr/bin/env bash' 'kill -9 "$PPID"' > "$bin/bats"
+  chmod +x "$bin/bats"
+  tagfile dies.bats "$(tagline "$T")"
+  mktap dies.bats 0 '1..1' 'ok 1 stale'
+  PATH="$bin:$PATH" run "$H" run --jobs 2 "$O" "$D/dies.bats"
+  [ "$status" -eq 1 ]
+  [[ "$(fileline "$D/dies.bats")" == *" rc=? FAIL ("*"no rc recorded"* ]]
+}
+
 @test "run --jobs 2: a failing file still fails the verdict" {
   stub_bats
   tagfile ok.bats "$(tagline "$T")"

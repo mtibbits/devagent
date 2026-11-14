@@ -25,8 +25,8 @@
 #   gets no run, and a first-time contributor's
 #   fork PR waits for maintainer approval. So a SHA not yet pushed to an open,
 #   conflict-free PR or to master has "no run yet"; a SHA only ever pushed
-#   elsewhere never gets one. A failed run with zero steps executed is a runner
-#   or billing refusal, not a verdict.
+#   elsewhere never gets one. A failed run with zero steps executed (a runner
+#   or billing refusal) carries no verdict: read it as no run, never as green.
 #
 # Runner: windows-2025, pinned (never windows-latest: a floating image changes
 # the tools under a green result). Its `shell: bash` is Git for Windows' bash;
@@ -41,7 +41,11 @@
 # which it did. On the first run (43609115577, image win25-vs2026
 # 20261103.298.1) the image's python3 3.12.10 ran, so no shim was made. No
 # DEVAGENT_* interpreter override is set: the tests run against the
-# interpreters a Git Bash user has.
+# interpreters a Git Bash user has. Not every skip here is about file modes:
+# shellcheck is not installed, so preship-evidence.bats's two real-producer
+# tests skip, and Git Bash's default MSYS symlink mode copies, so
+# commit-guard.bats's real-symlink tests skip. Those paths have no Windows
+# coverage from this job.
 #
 # Why no `bats --filter-tags`: bats would source every file in tests/ to read
 # its tags, on a host where process start is slow. The helper selects with one

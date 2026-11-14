@@ -614,11 +614,12 @@ The `Git Bash tagged files` job in `.github/workflows/gitbash.yml` runs every ta
 file on a pinned Windows runner, one bats invocation per file. Add the tag when a test
 exercises behaviour that differs under Git Bash (drive-letter paths, MSYS path
 rewriting, a native Windows `python3`, CRLF), and only when the whole file passes in
-that job. A tagged file keeps skipping mode-dependent tests under Git Bash, each with
-a reason (the `is_git_bash` pattern in `tests/backend-disk.bats`). The job fails on a
-skip without a reason, on a file whose every test skipped, and on any other spelling
-of the tag line (an indented line, `#bats`, a different case, `gitbash2`), so a typo
-cannot silently drop a file from the run. On Linux the line is inert: `test.yml`
+that job. A tagged file keeps skipping, each with a reason, the tests that cannot run
+there: POSIX file modes (the `is_git_bash` pattern in `tests/backend-disk.bats`), real
+symlinks, or a tool the runner lacks. The job fails on a skip without a reason, on a
+file whose every test skipped, and on any other spelling of `gitbash` on a `file_tags`
+comment line (an indented line, `#bats`, a different case, `gitbash2`), so such a
+misspelling cannot silently drop a file from the run. On Linux the line is inert: `test.yml`
 passes no `--filter-tags`.
 
 ### Writing a new test file
