@@ -107,6 +107,14 @@ issue_source_default() {
     ISRC_ERR="could not read [project.${project}] default_issue_source (config rc ${rc})"
     return 2
   fi
+  # `get` is rc 1 for a table as well as for an absent key; get-list tells
+  # them apart (rc 3 wrong type), so a table-valued key fails, never falls back.
+  crc=0
+  config_get_project_list "$project" default_issue_source >/dev/null 2>&1 || crc=$?
+  if [[ "$crc" -eq 3 ]]; then
+    ISRC_ERR="[project.${project}] default_issue_source must be \"origin\" or \"fork\", got a table"
+    return 1
+  fi
 
   local o=0 f=0
   issue_source_configured "$project" origin || o=$?

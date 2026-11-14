@@ -176,6 +176,16 @@ EOF
   [ "$ISRC_ERR" = '[project.volk] default_issue_source = "origin" but [project.volk.issue_source] has no backend configured' ]
 }
 
+@test "default: a table-valued key is rc 1 naming the key, never a fallback" {
+  local rc=0
+  _cfg 'default_issue_source = { v = "fork" }' 1 1
+  issue_source_default volk 2>/dev/null || rc=$?
+  [ "$rc" -eq 1 ]
+  [ "$ISRC_DEFAULT" = "" ]
+  [ "$ISRC_RULE" = "" ]
+  [ "$ISRC_ERR" = '[project.volk] default_issue_source must be "origin" or "fork", got a table' ]
+}
+
 @test "default: a key misplaced under [issue_source_fork] is not read" {
   _cfg "" 1 1
   # Appending lands the key in the fork sub-table — the misplaced shape.

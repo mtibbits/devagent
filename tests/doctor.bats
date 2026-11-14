@@ -516,6 +516,15 @@ TOML
   [[ "$output" == *'  FAIL project.volk.default_issue_source — is "fork" but [project.volk.issue_source_fork] has no backend configured'* ]]
 }
 
+@test "doctor FAILs a table-valued default_issue_source (#1099)" {
+  _add_fork_source
+  printf '\n[project.volk.default_issue_source]\nv = "fork"\n' >> "$DA_HOME/config.toml"
+  run "$PLUGIN_ROOT/scripts/doctor.sh" volk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'  FAIL project.volk.default_issue_source — must be "origin" or "fork", got a table'* ]]
+  [[ "$output" != *"WARN project.volk.default_issue_source"* ]]
+}
+
 @test "doctor WARNs both sources with no default_issue_source (#1099)" {
   _add_fork_source
   run "$PLUGIN_ROOT/scripts/doctor.sh" volk
