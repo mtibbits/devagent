@@ -3,6 +3,7 @@
 # #359 preship-evidence.sh — verification #4. Reads mr.md + suite-count artifact +
 # git; no bats/pytest execution, so no nesting concern.
 load 'helpers/common'
+bats_require_minimum_version 1.5.0   # #1122: run --separate-stderr
 
 # Baseline = the seed commit; add one more commit so baseline..HEAD has changes.
 setup() {
@@ -829,4 +830,182 @@ _art894() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"Evidence files: git diff $bad..HEAD failed — cannot count (#894)"* ]]
     [[ "$output" != *"files mismatch"* ]]
+}
+
+# ---- #1122: --attestable-exit ----------------------------------------------------
+# The opt-in flag exits 4, not 1, when EVERY failure is an absent attestation (TREE
+# UNATTESTED or UPSTREAM UNATTESTED raised because no --attest-tree / --attest-upstream
+# was supplied). Every other failure, a refuted attestation included, stays 1, and stderr
+# never changes. Without the flag nothing changes (the 64 tests above are unedited).
+F1122=/nonexistent/other-env/devagent                    # a VALUE, never created
+P1122='os=MINGW64_NT-10.0-26200 kernel=3.6.9-b4195d69.x86_64 fs=ntfs modes=no-op'   # undeclared below
+# _art1122 <tree> <upstream> [dirty] [platform]: the ONE writer for this block. <tree> is
+# `here` (SOURCE_DIR's canonical path, so the tree rung reads checked) or a literal; mr.md's
+# Evidence matches a 1/1 bats artifact at HEAD, so each case fails only on its own rungs.
+_art1122() {
+    local t="$1"; [ "$t" = here ] && t="$(cd "$SOURCE_DIR" && pwd -P)"
+    {   printf 'head: %s  dirty: %s\ntree: %s\n' "$HEAD_SHA" "${3:-no}" "$t"
+        printf 'bats: 1/1 notok=0\npytest: (none)\nbranch: main\nupstream: %s\n' "$2"
+        [ -z "${4:-}" ] || printf 'platform: %s\n' "$4"
+    } > "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt"
+    { echo '## Summary'; echo x; echo '## Evidence'
+      echo "suite: 1/1 bats @ $HEAD_SHA"; echo "files: 1 changed"
+      [ -z "${4:-}" ] || echo "platform: $4"; } > "$DEVDOC_DIR/Issue-1/mr.md"
+}
+# _declare1122: evidence_platforms = ["os=Linux fs=ext4"] in this test's project table.
+_declare1122() {
+    local cfg="$HOME/.claude/devagent/config.toml"
+    awk -v hdr="[project.$TEST_PROJECT]" \
+        '{ print } $0 == hdr { print "evidence_platforms = [\"os=Linux fs=ext4\"]" }' "$cfg" > "$cfg.new"
+    mv "$cfg.new" "$cfg"
+    [ "$(grep -c '^evidence_platforms = ' "$cfg")" -eq 1 ]
+}
+# _side1122: a commit HEAD does not contain (parentless), for the "behind" crossing.
+_side1122() { git -C "$SOURCE_DIR" commit-tree "$HEAD_SHA^{tree}" -m side; }
+_pe1122() { run --separate-stderr "$DEVAGENT_ROOT/scripts/preship-evidence.sh" "$TEST_PROJECT" Issue-1 "$@"; }
+# _case1122 <name>: build one case's fixture and set CASE_ARGS (its attestation flags).
+_case1122() {
+    CASE_ARGS=()
+    case "$1" in
+        tree-absent)      _art1122 "$F1122" '(no-origin)' ;;
+        upstream-absent)  _art1122 here '(unreachable)' ;;
+        both-absent)      _art1122 "$F1122" '(unreachable)' ;;
+        tree-dirty)       _art1122 "$F1122" '(no-origin)' yes ;;
+        tree-platform)    _declare1122; _art1122 "$F1122" '(no-origin)' no "$P1122" ;;
+        platform)         _declare1122; _art1122 here '(no-origin)' no "$P1122" ;;
+        no-artifact)      _art1122 here '(no-origin)'; rm "$DEVDOC_DIR/Issue-1/analysis/2026-07-09-suite-count.txt" ;;
+        match)            _art1122 here '(no-origin)' ;;
+        no-block)         _declare1122; _art1122 here '(no-origin)' no "$P1122"
+                          { echo '## Summary'; echo 'no evidence block here'; } > "$DEVDOC_DIR/Issue-1/mr.md" ;;
+        refuted-tree)     _art1122 "$F1122" '(no-origin)'; CASE_ARGS=(--attest-tree "head=$BASELINE dirty=no path=$F1122") ;;
+        attest-dirty)     _art1122 "$F1122" '(no-origin)'; CASE_ARGS=(--attest-tree "head=$HEAD_SHA dirty=yes path=$F1122") ;;
+        refuted-upstream) _art1122 here '(unreachable)'; CASE_ARGS=(--attest-upstream "head=$BASELINE upstream=(unpushed)") ;;
+        behind)           _art1122 here '(unreachable)'; CASE_ARGS=(--attest-upstream "head=$HEAD_SHA upstream=$(_side1122)") ;;
+        *) echo "unknown case $1" >&2; return 1 ;;
+    esac
+}
+
+@test "#1122: --attestable-exit: TREE absent → rc 4, naming TREE UNATTESTED" {
+    _case1122 tree-absent
+    _pe1122 --attestable-exit
+    [ "$status" -eq 4 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — the artifact records tree '$F1122'"* ]]
+    [ "$(grep -c '^  - ' <<<"$stderr")" -eq 1 ]
+}
+
+@test "#1122: --attestable-exit: UPSTREAM absent → rc 4, naming UPSTREAM UNATTESTED" {
+    _case1122 upstream-absent
+    _pe1122 --attestable-exit
+    [ "$status" -eq 4 ]
+    [[ "$stderr" == *"  - UPSTREAM UNATTESTED — the artifact records upstream: (unreachable)"* ]]
+    [ "$(grep -c '^  - ' <<<"$stderr")" -eq 1 ]
+}
+
+@test "#1122: --attestable-exit: TREE and UPSTREAM both absent → rc 4, both named" {
+    _case1122 both-absent
+    _pe1122 --attestable-exit
+    [ "$status" -eq 4 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — "* ]]
+    [[ "$stderr" == *"  - UPSTREAM UNATTESTED — "* ]]
+    [ "$(grep -c '^  - ' <<<"$stderr")" -eq 2 ]
+}
+
+@test "#1122: --attestable-exit: TREE absent plus a dirty artifact → rc 1" {
+    _case1122 tree-dirty
+    _pe1122 --attestable-exit
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — "* ]]
+    [[ "$stderr" == *"dirty"* ]]
+    [ "$(grep -c '^  - ' <<<"$stderr")" -eq 2 ]
+}
+
+@test "#1122: --attestable-exit: TREE absent beside PLATFORM UNATTESTED → rc 1, both tags on stderr" {
+    _case1122 tree-platform
+    _pe1122 --attestable-exit
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — "* ]]
+    [[ "$stderr" == *"PLATFORM UNATTESTED"* ]]
+}
+
+@test "#1122: --attestable-exit: PLATFORM UNATTESTED alone → rc 1" {
+    _case1122 platform
+    _pe1122 --attestable-exit
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"PLATFORM UNATTESTED"* ]]
+    [[ "$stderr" != *"TREE UNATTESTED"* ]]
+    [[ "$stderr" != *"UPSTREAM UNATTESTED"* ]]
+}
+
+@test "#1122: --attestable-exit: no artifact → rc 1, naming the missing artifact" {
+    _case1122 no-artifact
+    _pe1122 --attestable-exit
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"no suite-count artifact"* ]]
+}
+
+@test "#1122: --attestable-exit: a match → rc 0; --attestable-exit=x is an unknown option → rc 1" {
+    _case1122 match
+    _pe1122 --attestable-exit
+    [ "$status" -eq 0 ]
+    [[ "$stderr" == *"preship-evidence: PASS"* ]]
+    _pe1122 --attestable-exit=x
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"unknown option '--attestable-exit=x'"* ]]
+}
+
+@test "#1122: --attestable-exit: the #149 exit → rc 1 with its own message, never an unbound variable" {
+    _case1122 no-block
+    _pe1122 --attestable-exit
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"mr.md has no '## Evidence' block, and"* ]]
+    [[ "$stderr" != *"unbound variable"* ]]
+}
+
+@test "#1122: --attestable-exit crossing: a refuted --attest-tree (wrong head) → rc 1, the entry starts with its tag" {
+    _case1122 refuted-tree
+    _pe1122 --attestable-exit "${CASE_ARGS[@]}"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — --attest-tree names head $BASELINE"* ]]
+}
+
+@test "#1122: --attestable-exit crossing: an --attest-tree reporting dirty=yes → rc 1, the entry starts with its tag" {
+    _case1122 attest-dirty
+    _pe1122 --attestable-exit "${CASE_ARGS[@]}"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - TREE UNATTESTED — --attest-tree reports dirty=yes"* ]]
+}
+
+@test "#1122: --attestable-exit crossing: a refuted --attest-upstream (wrong head) → rc 1, the entry starts with its tag" {
+    _case1122 refuted-upstream
+    _pe1122 --attestable-exit "${CASE_ARGS[@]}"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - UPSTREAM UNATTESTED — --attest-upstream names head $BASELINE"* ]]
+}
+
+@test "#1122: --attestable-exit crossing: an attested upstream the producing tree is behind → rc 1, the entry starts with its tag" {
+    _case1122 behind
+    _pe1122 --attestable-exit "${CASE_ARGS[@]}"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"  - UPSTREAM UNATTESTED — --attest-upstream reports origin's"* ]]
+    [[ "$stderr" == *"the producing tree is behind"* ]]
+}
+
+@test "#1122: --attestable-exit changes the exit only: stderr and stdout byte-equal to the flag-less run; the flag-less rc is today's" {
+    # name, flag-less rc (today's, unchanged), with-flag rc
+    local row name rc0 rc1 out0 err0
+    for row in 'tree-absent 1 4' 'upstream-absent 1 4' 'both-absent 1 4' 'tree-dirty 1 1' \
+               'tree-platform 1 1' 'platform 1 1' 'no-artifact 1 1' 'match 0 0' 'no-block 1 1' \
+               'refuted-tree 1 1' 'attest-dirty 1 1' 'refuted-upstream 1 1' 'behind 1 1'; do
+        read -r name rc0 rc1 <<<"$row"
+        _case1122 "$name"
+        _pe1122 "${CASE_ARGS[@]+"${CASE_ARGS[@]}"}"
+        [ "$status" -eq "$rc0" ] || { echo "$name: flag-less rc $status, want $rc0"; return 1; }
+        out0="$output"; err0="$stderr"
+        _pe1122 --attestable-exit "${CASE_ARGS[@]+"${CASE_ARGS[@]}"}"
+        [ "$status" -eq "$rc1" ] || { echo "$name: with-flag rc $status, want $rc1"; echo "$stderr"; return 1; }
+        [ "$stderr" = "$err0" ] || { echo "$name: stderr differs"; diff <(echo "$err0") <(echo "$stderr"); return 1; }
+        [ "$output" = "$out0" ] || { echo "$name: stdout differs"; return 1; }
+        # Each row starts from a pristine config (the platform rows declare).
+        sed -i '/^evidence_platforms = /d' "$HOME/.claude/devagent/config.toml"
+    done
 }
