@@ -29,6 +29,44 @@ the README's "Versioning & releases" section has the release procedure.
   custom backend saved as `scripts/code/local.sh` is replaced; rename it.
   `bc_urlenc` joins `scripts/lib/backend-common.sh` (#793's encoder).
 
+- **Added: capture-time model-tier proposals (#1101).** `/devagent:capture`
+  now writes `Captures/<slug>/tiers.toml` for an issue draft whose body argues
+  for a model tier other than the project's (keys `thinking`, `checking`,
+  `reason_thinking`, `reason_checking`; an epic gets none), and
+  `/devagent:crrf` runs that step on each promoted child. `file.sh` validates
+  the file before the gate (an invalid one exits 3, nothing created) and
+  turns only a departure from the project's class tier (`step_models.<class>`,
+  else `default`; the project is the one that owns the devdoc) into a
+  `tier:impl-<token>` / `tier:check-<token>` label, which the first pull
+  writes into the per-issue marker. The gate plan lists the labels on a
+  `labels:` line; after filing, one `file.sh: tier <class>=<token>: <outcome>`
+  line per class goes to stderr (stdout is still the URL alone). github,
+  gitlab and custom backends look each label up with `state-exists` first: a
+  missing label is left off and reported, and
+  github and gitlab print its create command (never run, #87); jira and disk
+  take it unchecked. Until #1042, a missing GitHub label reads
+  `label missing` when a similar label exists and `lookup failed` when none
+  does; both leave it off. The crrf manifest gains a Tier proposal column.
+  pull.sh and the backends are unchanged. Known gap: a labelled class's
+  marker line overrides that class's `step_models.<N>` pins. The capture path
+  refuses a multi-token value that `model_token_is_legal` still accepts
+  (`"fable inherit"`); the source fix is #1117.
+
+- **Added: the docs site is built on a shared family template (#996).**
+  Four family files under `scripts/docs-site/static/`, all `family v1.0`,
+  are what the devagent, Gantry and Journeyman sites copy byte for byte:
+  `family.css` (the palette as separate light and dark sets, the type scale,
+  the graph-paper grid), `family.js` (the animation setting: the first page
+  view plays once, a footer control turns animations on or off,
+  `prefers-reduced-motion` always wins; it exports `familyAnimationsOn()` and
+  `familyPlayOnce(name)` under the storage key `mtibbits-family-v1`), and
+  the `family-topbar.html` and `family-footer.html` partials. The build
+  inserts the partials into every page as plain HTML and fills two
+  build-time placeholders, `{{live:<key>|<label>}}` and `{{count:<key>}}`,
+  from `docs-site/live.txt` (which family sites are live; Gantry and Learn
+  show "coming"). An unknown or zero placeholder fails the build (exit 5); a
+  malformed `live.txt` or a missing family file exits 4.
+
 ## [3.1.0] — 2026-11-14
 
 A minor release: new options and features, with no change that breaks an

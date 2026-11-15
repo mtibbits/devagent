@@ -66,7 +66,8 @@ devAgent/
 │   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
 │   └── pages-deployment.md          # #465: how docs-site/ is built and published; flip-day runbook
-├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy);
+├── docs-site/               # #461: audience-facing onboarding pages (content + moved.txt + drift policy;
+│                            #   live.txt, #996: live family sites and count sources);
 │                            #   rendered by scripts/build-docs-site.sh, published by
 │                            #   .github/workflows/publish-docs-site.yml (#465; deploy gated off)
 ├── .github/workflows/       # CI: test.yml, shellcheck*.yml, publish-docs-site.yml (#465),
@@ -98,7 +99,9 @@ devAgent/
 │   │                        #   local.sh — #1016 git only, no forge (§9.2)
 │   ├── auth/                # PAT/SSH lifecycle: github.sh, gitlab.sh, jira.sh, custom.sh
 │   ├── docs-site/           # #465: pandoc template, link filter, static/ template assets for build-docs-site.sh;
-│   │                        #   fetch-policy scanner check-fetches.py (#1030)
+│   │                        #   fetch-policy scanner check-fetches.py (#1030); #996: the family files in
+│   │                        #   static/ (family.css, family.js, top bar and footer partials) and the
+│   │                        #   placeholder filler fill-placeholders.py
 │   ├── ci/                  # #1096: gitbash-tagged.sh — selection, run loop and TAP rules
 │   │                        #   behind .github/workflows/gitbash.yml
 │   ├── pull.sh, branch.sh, commit.sh, ship.sh, mergetoall.sh,
@@ -448,6 +451,7 @@ Captures/2026-05-19-corn-planting/
 ├── draft.md                             # the captured issue or epic
 ├── redteam.md                           # populated by /devagent:redissue
 ├── filed.toml                           # populated by /devagent:file: issue_num, url
+├── tiers.toml                           # #1101 model-tier proposal (thinking/checking); /devagent:file labels departures
 └── (for epics) children/
     ├── 01-prepare-soil.md
     ├── 02-plant-seed.md
@@ -1200,7 +1204,9 @@ A step's tier is resolved in this order (first hit wins):
    in precedence order: an explicit body key (§6.3) > the body `tier:` shim >
    a recognized forge LABEL (below) > nothing, leaving the config rungs to
    resolve. Hand-editing is the documented post-scaffold path, and an existing
-   marker is never stomped.
+   marker is never stomped. Upstream of that,
+   `file.sh` applies a capture's departing `tiers.toml` proposal as these
+   labels at create (#1101).
 
    **Label channel** (#561). At first scaffold `pull.sh` also derives steering
    from the issue's forge labels — the same label set the backends already fetch

@@ -21,6 +21,11 @@ security fixes (`DEVAGENT_PYTHON` names another interpreter; the build exits 3
 on one without them). `--out` must be absent or empty; the script never deletes.
 A build that breaks the site's fetch policy exits 7, and one whose fetch scan
 did not complete exits 8 (`docs-site/README.md`, "What the site may load").
+A malformed `docs-site/live.txt` or a family file missing from
+`scripts/docs-site/static/` exits 4; a placeholder that cannot be filled
+exits 5; a placeholder fill that did not complete also exits 8
+(`docs-site/README.md`, "Live settings and placeholders"). The publish lane
+sets up node too: one of its tests runs `family.js` under node.
 Open `/tmp/devagent-site/index.html` (checked under the site CSP on
 2026-11-12: Edge 157 loads the site's own CSS, JS and images from `file://`;
 Firefox 160 applies no meta CSP to `file://` pages).

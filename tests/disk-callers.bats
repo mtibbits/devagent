@@ -433,3 +433,22 @@ PY
   [ "$(find "$DEVDOC/Captures/idea" -type f | wc -l)" -ge 2 ]
   _no_mark_in "$DEVDOC/Captures/idea"
 }
+
+# #1101: a capture's tiers.toml reaches the disk issue as a labels key, and the
+# first pull turns the label into the per-issue marker (the round trip through
+# the real disk.sh and pull.sh; the label logic itself is tests/file-tiers.bats).
+@test "tiers e2e: a disk filing writes the labels key and a first pull writes checking: fable" {
+  _e2e
+  printf '%s\n' '' '[project.dk.step_models]' 'thinking = "opus"' 'checking = "opus"' >> "$DA_HOME/config.toml"
+  _draft
+  printf '%s\n' 'thinking = "opus"' 'checking = "fable"' > "$DEVDOC/Captures/idea/tiers.toml"
+  DEVAGENT_DEVDOC_DIR="$DEVDOC" run --separate-stderr "$PLUGIN_ROOT/scripts/capture/file.sh" --slug idea --target origin
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$output" = "disk:1" ]
+  grep -qx 'labels: tier:check-fable' "$FOLDER/1.md"
+  [[ "$stderr" == *"file.sh: tier checking=fable: applied as tier:check-fable"* ]]
+  [ ! -e "$DEVDOC/Issue-1/.devagent-step-models" ]
+  run --separate-stderr "$PLUGIN_ROOT/scripts/pull.sh" dk origin 1
+  [ "$status" -eq 0 ] || { echo "$stderr" >&2; false; }
+  [ "$(cat "$DEVDOC/Issue-1/.devagent-step-models")" = "checking: fable" ]
+}
