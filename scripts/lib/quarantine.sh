@@ -32,7 +32,7 @@ QUARANTINE_GUARD_POINTS=(
   checklist-unstuck promote-potholes migrate-checklist-numbering depends step-model
   analyze analyze-static analyze-shellcheck analyze-sanitizers born-red
   oneshot-zerodiff preship-evidence preship-verified-head rebaseline rederive
-  record-scope run-suite evidence-stamp quarantine-check
+  record-scope run-suite evidence-stamp quarantine-check claims-check
 )
 
 # The scripts the census sweep reaches that act on no issue dir's work: they

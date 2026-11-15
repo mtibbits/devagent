@@ -61,7 +61,7 @@ devAgent/
 │   ├── specs/2026-05-19-devagent-plugin-design.md   (this file)
 │   ├── draft-dispatch-contract.md   # #441: the #284 planner dispatch contract, loaded conditionally by commands/draft.md's stub
 │   ├── checking-dispatch-contract.md # #528: the checking-class dispatch contract, single-sourced from the improve/redmr/preship pointer stubs
-│   ├── resolver-scope-triage.md     # #572: the 21 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
+│   ├── resolver-scope-triage.md     # #572: the 22 resolving scripts triaged PROTECTED/EXEMPT for the wrong-scope guard (sweep-tested)
 │   ├── portfolio-schema.md          # #725: the versioned portfolio JSON contract (fields, version rules, checker)
 │   ├── disk-issues.md               # #1008: the disk issue file format (<N>.md), its writer rules, JSON fields, exit codes
 │   ├── requirements.md              # #915: devagent's requirements in Gantry's format (IDs for satisfies:)
