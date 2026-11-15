@@ -12,6 +12,8 @@ Args: `<capture-slug>`
 
 1. Locate `<devdoc>/Captures/<slug>/draft.md`. Abort if missing. Also note
    `Captures/<slug>/tiers.toml` when present (the draft's model-tier proposal).
+   If an issue draft (not an epic) has none and its body was written outside
+   the capture run, run the capture skill's **Propose model tiers** step first.
 2. Resolve the red-team prompt (#443 — tier-split, loaded per the triage gate):
    - **Monolith override first.** Resolve `redteam_issue` via the artifact order
      (project paths → devdoc templates → plugin templates). The plugin ships NO

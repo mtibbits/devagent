@@ -152,8 +152,9 @@ The Tier proposal cell lists each proposed class with its token, its reason
 and `file.sh`'s outcome, copied from its `file.sh: tier …` line:
 `applied as <label>`, `matches project tier`,
 `not applied (label missing)`, `not applied (lookup failed)` or
-`not applied (no project)`. An unfiled draft reads the gate plan's `labels:`
-line instead: `would apply as <label>`, `matches project tier` or
+`not applied (no project)`. An unfiled draft's cell is derived from its
+`tiers.toml` and the gate plan's `labels:` line, which lists only the departing
+labels: `would apply as <label>`, `matches project tier` or
 `not applied (no project)`. A draft with no or an empty `tiers.toml` reads
 `none (no proposal)`. A `matches project tier` outcome means the proposal
 was redundant: the skill proposes a class only to depart from the project.

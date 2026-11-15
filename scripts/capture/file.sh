@@ -23,7 +23,9 @@ Usage: file.sh --slug <slug> --target {origin|fork} [--yes] [--refile]
 
 Reads <devdoc>/Captures/<slug>/draft.md, calls
 $DEVAGENT_ISSUE_BACKEND_DIR/<backend>.sh create <repo> <title> <body-file>,
-writes returned issue number + URL to filed.toml.
+writes returned issue number + URL to filed.toml. An optional
+Captures/<slug>/tiers.toml is validated first (invalid → exit 3); a proposed
+tier that departs from the project's is passed to create as --label.
 
 Permission gate: DEVAGENT_PERMISSION_PUSH_MR=true|false
   false (default) → must pass --yes to proceed

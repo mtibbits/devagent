@@ -90,6 +90,24 @@ _tier_lines() { grep '^file\.sh: tier ' <<<"$stderr" || true; }
   [ ! -e "$STUB_LOG" ]
 }
 
+@test "tiers: no tiers.toml keeps the gate plan byte-identical (D7)" {
+  export DEVAGENT_PERMISSION_PUSH_MR=false
+  _file
+  [ "$status" -eq 4 ]
+  local want
+  want="Permission gate: push_mr=false
+
+Plan:
+  backend: github
+  repo:    o/r
+  title:   A captured idea
+  body:    $DRAFT
+
+Re-run with --yes to proceed, or set
+[project.<name>.permissions].push_mr = true in config.toml."
+  [ "$stderr" = "$want" ]
+}
+
 @test "tiers: an invalid tiers.toml exits 3 before any backend call, with no .pending" {
   local -a bodies=(
     'checking = "gpt"|checking must be one model token (sonnet opus haiku fable), got: '"'gpt'"
