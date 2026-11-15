@@ -532,3 +532,28 @@ _sums() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha25
   _mhead "$R" feat; [ "$status" -eq 2 ]                       # unreadable record: cannot tell
   [ "$n" -eq 6 ]
 }
+
+# --- a head rewritten after create-mr (review: Important 2) --------------------
+
+@test "local: an amended head merged by hand reads open until create-mr runs again" {
+  _mk "$R"
+  git -C "$R" checkout -q feat
+  git -C "$R" commit -q --amend --allow-empty -m "feat, amended"
+  git -C "$R" checkout -q main
+  git -C "$R" merge -q --no-ff -m m feat
+  _state_is "$REF" open
+  run --separate-stderr "$LOCAL" create-mr "$R" t /dev/null feat main
+  [ "$status" -eq 0 ]
+  _state_is "$REF" merged
+}
+
+@test "local: a rebased head fast-forwarded and deleted reads closed" {
+  _mk "$R"
+  git -C "$R" commit -q --allow-empty -m "main moves"
+  git -C "$R" rebase -q main feat
+  git -C "$R" checkout -q main
+  git -C "$R" merge -q --ff-only feat
+  _state_is "$REF" open
+  git -C "$R" branch -q -d feat
+  _state_is "$REF" closed
+}

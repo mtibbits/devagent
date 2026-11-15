@@ -110,8 +110,15 @@ _issue_branch() {
     git -C "$SOURCE_DIR" add f1.txt
     git -C "$SOURCE_DIR" commit -q -m f1
     git -C "$SOURCE_DIR" checkout -q main
-    devagent_state_set "$STATE" branch feat/1-x
+    _set_branch feat/1-x
     devagent_state_set "$STATE" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse main)"
+}
+
+# _set_branch <name>: the state's branch as branch.sh writes it: the issue's
+# [context.Issue-1] table (which ship reads first) and the top-level mirror.
+_set_branch() {
+    devagent_state_set "$STATE" context.Issue-1.branch "$1"
+    devagent_state_set "$STATE" branch "$1"
 }
 
 # _shipped_by_hand: a record made by local.sh create-mr, its reference as mr_url,
@@ -260,7 +267,7 @@ _stack_child() {
     git -C "$SOURCE_DIR" checkout -q -b feat/1-x
     echo c > "$SOURCE_DIR/c.txt"; git -C "$SOURCE_DIR" add c.txt; git -C "$SOURCE_DIR" commit -q -m c
     git -C "$SOURCE_DIR" checkout -q main
-    devagent_state_set "$STATE" branch feat/1-x
+    _set_branch feat/1-x
     devagent_state_set "$STATE" baseline_sha "$(git -C "$SOURCE_DIR" rev-parse feat/0-p)"
     echo "MR body" > "$ISSUE_DIR/mr.md"
     echo "Issue 1 title" > "$ISSUE_DIR/.devagent-title"
@@ -299,13 +306,14 @@ _stack_child() {
     [[ "$output" == *"a merged or closed local MR exists for this branch; ship from a new branch"* ]]
     [ "$(_mr_url)" = "$url" ]
     cmp "$rec" "$DEVAGENT_TMP/rec.copy"
-    # The way out, as §9.2 and skills/ship/SKILL.md write it: a new branch, named
-    # as the state's branch by hand, then ship again.
+    # The way out, as §9.2 and skills/ship/SKILL.md write it: a new branch, set as
+    # `branch` under the issue's [context.<issue>] table (and the top-level
+    # mirror) by hand, then ship again.
     git -C "$SOURCE_DIR" branch feat/1-x-2 feat/1-x
     git -C "$SOURCE_DIR" checkout -q feat/1-x-2
     echo more > "$SOURCE_DIR/more.txt"; git -C "$SOURCE_DIR" add more.txt; git -C "$SOURCE_DIR" commit -q -m more
     git -C "$SOURCE_DIR" checkout -q main
-    devagent_state_set "$STATE" branch feat/1-x-2
+    _set_branch feat/1-x-2
     _ship_run
     _assert_local_ship feat/1-x-2
 }

@@ -56,8 +56,9 @@ on the next ship invocation.
 With `code_source.backend = "local"` (#1016) nothing is pushed and
 `push_mr` is not asked: ship prints its plan and records a local MR in the
 repo's git dir. `--draft` does not apply. After a hand merge a re-ship
-refuses; ship from a new branch: create it, set the state file's `branch`
-to it by hand, and run ship again.
+refuses; ship from a new branch: create it, set `branch` to it by hand in
+the state file's `[context.<issue>]` table and top-level mirror, and run
+ship again.
 
 ## Run the script
 

@@ -2378,13 +2378,18 @@ fails the verb, never reading as open or closed. A second `create-mr` on an
 `closed` one it exits 1 with `a merged or closed local MR exists for this
 branch; ship from a new branch`, leaving the record as it was. To ship from
 a new branch: create it (`git branch <new> <old>`, then commit), set
-`branch = "<new>"` in the project's state file by hand, and run
-`/devagent:ship` again.
+`branch = "<new>"` by hand in the project's state file, under the issue's
+`[context.<issue>]` table (which ship reads) and in the top-level mirror,
+and run `/devagent:ship` again.
 
 Limits. A hand `git merge --squash` leaves no ancestry, so the MR stays
 `open` while the head branch is kept; once the branch is deleted it reads
 `closed` and mergemr stops `[!]`. Mark step 20 `[x]` with
-`/devagent:checklist-mark` before deleting a squashed branch. A stacked
+`/devagent:checklist-mark` before deleting a squashed branch. A head
+rewritten after ship (a rebase or an amend) has a tip the record does not
+name, so its hand merge also reads `open`, and `closed` once the branch is
+deleted: re-ship after a rewrite, before merging, so `head_sha` is the tip.
+A stacked
 child merged by hand into the default branch also stays `open`, because
 ancestry is checked against its recorded parent base: mark the step by hand,
 or re-ship once the parent is merged, which rewrites `base`. On a clone that
