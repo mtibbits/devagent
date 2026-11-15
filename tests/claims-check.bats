@@ -1067,3 +1067,22 @@ _state() {
     _has 'claims rc=3'
     [ -s "$BATS_TEST_TMPDIR/devagent-claims-Issue-1.out" ]
 }
+
+# ---- Task 12: the writer and the checker count alike --------------------------------------
+@test "the writer's count command and claims-check count the same on a fixture" {
+    local cmd n
+    cmd="$(grep -oF "grep -cE '^[[:blank:]]*@test[[:blank:]]' <file>" "$DEVAGENT_ROOT/skills/core-draft-mr/SKILL.md" | head -1)"
+    [ -n "$cmd" ]
+    mkdir -p "$SOURCE_DIR/tests"
+    printf '%s\n' '#!/usr/bin/env bats' '@test "a" {' '}' '  @test "indented" {' '}' '	@test "tab" {' '}' \
+        '# @test "a comment"' '@testing x' 'x @test "mid-line"' '@test	"tab after"' > "$SOURCE_DIR/tests/w.bats"
+    _commit w
+    n="$(cd "$SOURCE_DIR" && bash -c "${cmd//<file>/tests/w.bats}")"
+    [ "$n" -eq 4 ]                                                       # the planted shapes: 4 real
+    _body "- \`tests/w.bats\` ($n tests)"
+    _ccr
+    [ "$status" -eq 0 ]; [ "$output" = "$(_sum 1 0 0 0 0 0 0 0 0)" ]
+    _body "- \`tests/w.bats\` ($((n + 1)) tests)"
+    _ccr
+    [ "$status" -eq 3 ]; _has "claimed $((n + 1)), found $n (at HEAD)"
+}
