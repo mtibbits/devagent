@@ -244,3 +244,29 @@ _wbs_cfg() {
   [ "$output" = "WBS_ORDER=1 WBS_COMPLETED_LAST=0" ]
   [ "$stderr" = "wbs update: [project.toy.wbs] unknown key 'order_on_updates' ignored" ]
 }
+
+@test "#1016 code_backend_is_local takes only the exact name local, CR stripped" {
+  local n=0 v
+  for v in local $'local\r'; do
+    run code_backend_is_local "$v"; [ "$status" -eq 0 ] || { echo "'$v': $status" >&2; false; }; n=$((n + 1))
+  done
+  for v in Local LOCAL github '' locale ' local'; do
+    run code_backend_is_local "$v"; [ "$status" -eq 1 ] || { echo "'$v': $status" >&2; false; }; n=$((n + 1))
+  done
+  [ "$n" -eq 8 ]
+}
+
+@test "#1016 config_code_is_local reads code_source.backend, and a missing key is quietly not local" {
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.code_source.backend '"local"'
+  run --separate-stderr config_code_is_local volk
+  [ "$status" -eq 0 ]
+  run --separate-stderr config_code_is_local nosuch
+  [ "$status" -eq 1 ]
+  [ -z "$stderr" ]
+  # Under set -e the absent key neither kills the caller nor prints.
+  run --separate-stderr bash -c 'set -euo pipefail; . "$1/scripts/lib/paths.sh"; . "$1/scripts/lib/io.sh"; . "$1/scripts/lib/config.sh"
+    if config_code_is_local nosuch; then echo local; else echo other; fi' _ "$PLUGIN_ROOT"
+  [ "$status" -eq 0 ]
+  [ "$output" = other ]
+  [ -z "$stderr" ]
+}
