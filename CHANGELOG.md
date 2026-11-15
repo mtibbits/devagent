@@ -16,6 +16,17 @@ the README's "Versioning & releases" section has the release procedure.
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-11-14
+
+A minor release: new options and features, with no change that breaks an
+existing project's `config.toml`, devdoc layout or command contract. Added:
+the disk issue backend, the `starter` checklist tier, the `P0` WBS
+priority, cross-project `depends_on`, `cost-report --overhead`, and a Git Bash
+CI job. One default moved: a `/devagent:pull` with no source flag now reads
+`default_issue_source` (#1099). A project with both trackers configured that
+pulls from its fork first should set `default_issue_source = "fork"` once.
+The old positional `<project> origin|fork <N>` form still works.
+
 - **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
   its source from config (#1099).** A flagless pull reads the new
   `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
