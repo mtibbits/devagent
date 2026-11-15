@@ -61,6 +61,9 @@ The slash command parses this block and calls `capture.sh` per row.
 - Do not author the issue body. `capture.sh` fills the template.
 - Do not invent a project name. Use whatever `DEVAGENT_PROJECT` is.
 - Do not file the issue. Filing is `/devagent:file`.
+- Do not propose model tiers in this block. Capture's
+  *Propose model tiers* step does it after the draft body is written
+  (an epic gets none).
 - Do not silently expand a single capture into many. If you see
   multi-epic, surface the recommendation and let the operator decide.
 

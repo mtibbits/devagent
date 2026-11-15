@@ -10,7 +10,8 @@ Args: `<capture-slug>`
 
 ## Behavior
 
-1. Locate `<devdoc>/Captures/<slug>/draft.md`. Abort if missing.
+1. Locate `<devdoc>/Captures/<slug>/draft.md`. Abort if missing. Also note
+   `Captures/<slug>/tiers.toml` when present (the draft's model-tier proposal).
 2. Resolve the red-team prompt (#443 — tier-split, loaded per the triage gate):
    - **Monolith override first.** Resolve `redteam_issue` via the artifact order
      (project paths → devdoc templates → plugin templates). The plugin ships NO
@@ -23,12 +24,13 @@ Args: `<capture-slug>`
      parts: Light → `redteam_issue_light`; Standard → `+redteam_issue_standard`;
      Full → `+redteam_issue_full`. Each dimension lives in exactly one part; a
      Light run never loads the Standard/Full dimension bodies (the token saving).
-3. Invoke the **core-redissue** skill with `draft_path` and the resolved prompt
+3. Invoke the **core-redissue** skill with `draft_path` (and `tiers_path` when
+   `tiers.toml` exists) and the resolved prompt
    (the whole monolith override, or shared + the selected cumulative tier parts).
 4. The skill writes findings to `<devdoc>/Captures/<slug>/redteam.md`
    structured with `### Blocking`, `### Recommended`, `### Nits`,
    and a one-line `Verdict: ship | revise | split` footer.
-5. Report the path and verdict. Do NOT modify `draft.md` itself —
+5. Report the path and verdict. Do NOT modify `draft.md` or `tiers.toml` —
    the operator decides whether to revise based on the findings.
 
 ## Env contract

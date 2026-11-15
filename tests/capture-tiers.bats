@@ -273,3 +273,38 @@ x = "y"'
   run tiers_label checking fable
   [ "$output" = "tier:check-fable" ]
 }
+
+# ---- Task 4: the propose step's one home (skills/capture/SKILL.md) -------------
+
+@test "capture SKILL documents the propose step" {
+  local s="$PLUGIN_ROOT/skills/capture/SKILL.md" k
+  run grep -c '^## Propose model tiers$' "$s"
+  [ "$output" = "1" ]
+  for k in thinking checking reason_thinking reason_checking; do
+    grep -q "^$k = \"" "$s"
+  done
+  grep -q 'never `inherit`' "$s"
+  grep -q 'An epic draft gets no tier proposal' "$s"
+  grep -q 'model_token_allowlist' "$s"
+  grep -qi 'reaped' "$s"
+}
+
+@test "capture SKILL anchors the propose step after the draft body is written, rerun on revise" {
+  local s="$PLUGIN_ROOT/skills/capture/SKILL.md" body propose
+  grep -q 'after the draft body is written' "$s"
+  grep -qi 'revise' "$s"
+  body="$(grep -n 'after the draft body is written' "$s" | head -n 1 | cut -d: -f1)"
+  propose="$(grep -n '^## Propose model tiers$' "$s" | cut -d: -f1)"
+  [ "$body" -lt "$propose" ]
+}
+
+@test "capture SKILL proposes only an argued departure" {
+  local s="$PLUGIN_ROOT/skills/capture/SKILL.md"
+  grep -q 'omit the key' "$s"
+  grep -q 'step_models' "$s"
+}
+
+@test "capture SKILL hard-codes no model token list" {
+  run grep -cE 'sonnet[ ,`]+opus[ ,`]+haiku[ ,`]+fable' "$PLUGIN_ROOT/skills/capture/SKILL.md"
+  [ "$output" = "0" ]
+}

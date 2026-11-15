@@ -14,6 +14,8 @@ user-invocable: false
   composed `redteam_issue_shared` + the cumulative tier parts for the triage tier —
   Light/Standard/Full — per the §12 registry: project paths → devdoc override →
   plugin default). Either way it is the complete prompt for the chosen tier.
+- `tiers_path` — optional; absolute path to `Captures/<slug>/tiers.toml`, the
+  draft's model-tier proposal (#1101).
 
 ## Procedure
 
@@ -24,11 +26,14 @@ user-invocable: false
    severity taxonomy, summary counts, and verdict vocabulary, nothing
    else. If a resolved template (including a project override)
    specifies a different output format, this skill's output contract wins.
-3. Group findings by severity:
+3. With `tiers_path`, review the proposal as part of the draft, at the usual
+   severities: each token is legal (`model_token_allowlist`) and not
+   `inherit`, and each reason is grounded in the draft's scope and checks.
+4. Group findings by severity:
    - **Blocking** — must be addressed before filing.
    - **Recommended** — should be addressed; not a hard stop.
    - **Nits** — wording, formatting, micro-improvements.
-4. End with `Verdict: ship | revise | split`.
+5. End with `Verdict: ship | revise | split`.
    - `ship` — zero blocking findings; recommended/nits acceptable
    - `revise` — one or more blocking findings, single issue still viable
    - `split` — capture is structurally multiple issues
@@ -61,7 +66,7 @@ Verdict: ship | revise | split
 
 ## Anti-patterns
 
-- Do not edit `draft.md`. The operator owns the draft.
+- Do not edit `draft.md` or `tiers.toml`. The operator owns the draft.
 - Do not invent acceptance criteria not present in the draft just to
   give yourself something to find.
 - Do not write `Verdict: ship` if any Blocking finding exists.
