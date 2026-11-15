@@ -14,7 +14,8 @@ Reference material does not live here. The configuration and multi-project
 reference is `docs/configuration.md` and `docs/concurrency.md`, rendered by
 GitHub next to the spec and `docs/requirements.md`; `reference.md` links all
 four, and `moved.txt` keeps their 1.0 site URLs (`configuration.html`,
-`concurrency.html`) working as stubs.
+`concurrency.html`) working as stubs. The two documents keep their line-1
+`derived-from` header, and `tests/docs-site.bats` still checks it.
 
 ## Derivation rule
 
@@ -58,7 +59,7 @@ match README, the workflow table derives from the checklist template, every
 backend verb is documented, the version homes agree), never a page's
 sentence. The checks are functions in `tests/lib/docs-site-checks.bash`, each
 taking its subject files, and every fact has a mutation leg that breaks a copy
-and watches the same check fail. The test file's header lists the facts; the
+and watches the same check fail. The test file's `@test` names list the facts; the
 library's PAGE PINS block lists the few that can only be checked through a
 sentence today, each with the issue that owns its page. Anything the suite
 does not pin is held only by the derivation rule above and by review.

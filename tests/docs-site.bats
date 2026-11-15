@@ -113,7 +113,7 @@ temp_root() {
 @test "docs-site: every content page's line-1 derive header names existing sources" {
   local -a pages
   mapfile -t pages < <(content_pages; reference_docs)
-  [ "${#pages[@]}" -ge 2 ]
+  [ "$(content_pages | grep -c .)" -ge 1 ]
   holds check_derived_from "$PLUGIN_ROOT" "${pages[@]}"
 }
 
@@ -143,6 +143,7 @@ temp_root() {
 @test "docs-site: the audit step-count typo never appears in a page or reference document" {
   local -a pages
   mapfile -t pages < <(content_pages; reference_docs)
+  [ "$(content_pages | grep -c .)" -ge 1 ]
   holds check_absent -F '21-step' "${pages[@]}"
 }
 
@@ -150,6 +151,7 @@ temp_root() {
   local -a pages
   local f
   mapfile -t pages < <(content_pages; reference_docs)
+  [ "$(content_pages | grep -c .)" -ge 1 ]
   holds check_absent -iE 'permanent(ly)?[ -]+numbered|permanent (step )?ids?' "${pages[@]}" "$README"
   for f in "$WEB/index.md" "$WEB/workflow.md" "$README"; do
     holds check_numbering_claim "$TEMPLATE" "$f"
@@ -286,6 +288,13 @@ temp_root() {
   grep -A1 -F 'claude plugin install superpowers@claude-plugins-official' "$f" \
     | grep -qF 'claude plugin marketplace add anthropics/claude-plugins-official'
   breaks 'directly before' check_install_block "$f"
+  # A command gone, and the shared comment line gone.
+  f="$(fresh "$WEB/install.md")"
+  drop "$f" 'claude plugin install devagent@devagent'
+  breaks 'no devagent install command' check_install_block "$f"
+  f="$(fresh "$WEB/install.md")"
+  drop "$f" '# Not configured on a fresh install'
+  breaks 'no fresh-install comment line' check_install_block "$f"
 }
 
 @test "mutation: userConfig notice" {
@@ -390,7 +399,7 @@ temp_root() {
   # A tool the page no longer names.
   page="$(fresh "$WEB/install.md")"
   edit "$page" '**`jq`**' '**jq**'
-  breaks '`jq`' check_prereqs_trace "$page" "$readme"
+  breaks 'toolchain list does not name `jq`' check_prereqs_trace "$page" "$readme"
 }
 
 @test "mutation: platform tokens" {

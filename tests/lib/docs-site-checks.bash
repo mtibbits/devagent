@@ -22,13 +22,16 @@
 #   #998 (landing, index.md -> index.html): site_pages reads index.md only and
 #        returns 2 naming #998 on an index.html; check_step_headline and
 #        check_numbering_claim read the index; a check_install_block home if the
-#        landing shows the commands; README.md:14; tests/skills-no-bang-exec.bats:58.
-#   #999 (install): check_platform_tokens; the bash-floor presence; the user
-#        statement region of the shellcheck version ("You need:" .. "- Contributors
-#        additionally", which #999 moves to CONTRIBUTING.md); the install-block,
-#        userConfig, grant and version homes; tests/generic-templates.bats:106.
+#        landing shows the commands; README.md's docs-site/index.md pointer;
+#        tests/skills-no-bang-exec.bats:58.
+#   #999 (install): check_platform_tokens; the bash-floor presence; the "You
+#        need:" .. "- Contributors additionally" region, which #999 moves to
+#        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region
+#        names all ten PREREQ_TOOLS) and the shellcheck user statement in
+#        check_shellcheck_homes; the install-block, userConfig, grant and version
+#        homes; tests/generic-templates.bats:106.
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
-#        quickstart; check_command_arity's floor of >= 1 subject page.
+#        quickstart; check_command_arity's subject floor (>= 1 /devagent: line).
 #   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
 #        /devagent:mergemr and WAITING (#885).
 #   #1002: none beyond its bullet in the one list.
@@ -396,7 +399,11 @@ check_bash_floor() {
   [ "$(printf '%s\n' "$p" | wc -l)" -eq 1 ] || { echo "$page: several bash floors: $(tr '\n' ' ' <<<"$p")" >&2; return 1; }
   [ "$p" = "$r" ] || { echo "bash floor: page $p, README $r" >&2; return 1; }
   grep -nE 'bash`? ≥ 4\b[^.]' "$page" >/dev/null || rc=$?
-  [ "$rc" -eq 1 ] || { echo "$page: a stale 'bash ≥ 4' remains" >&2; return 1; }
+  case "$rc" in
+    1) ;;
+    0) echo "$page: a stale 'bash ≥ 4' remains" >&2; return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 # check_cc_version_homes <root> <path>... — every live Claude Code version home
