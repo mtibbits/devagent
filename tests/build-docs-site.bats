@@ -1891,7 +1891,7 @@ family_versioned() {
   { cat "$css"; printf '@media print { :root { --family-light-x: #000000; } }\n'; } > "$d/t2.css"
   fc_row 1 '--family-light-x is defined inside @media print' tokens "$d/t2.css"
   sed 's/--family-ink: var(--family-light-ink);/--family-ink: #000000;/' "$css" > "$d/t3.css"
-  ! cmp -s "$css" "$d/t3.css"
+  ! cmp -s "$css" "$d/t3.css" || return 1
   fc_row 1 '--family-ink is not var(--family-light-ink) at the top level' tokens "$d/t3.css"
   # literals: an uppercase hex, a spaced rgba(), a custom property, a
   # non-family var(), an undefined family var(); a family var() passes
@@ -1920,7 +1920,7 @@ family_versioned() {
   gr="${gr##* }"
   [ -n "$gr" ]
   sed -E "s/(--family-light-ink-soft: )#[0-9A-Fa-f]{6}/\\1$gr/" "$css" > "$d/c1.css"
-  ! cmp -s "$css" "$d/c1.css"
+  ! cmp -s "$css" "$d/c1.css" || return 1
   fc_row 1 'light ink-soft on ground is 1.00:1, below 4.5:1' contrast "$d/c1.css"
   printf '<style>\nnav { background: var(--family-board); }\n</style>\n' > "$d/b1.html"
   fc_row 1 'b1.html:2: nav paints --family-board behind text' contrast "$css" "$d/b1.html"
@@ -1999,13 +1999,13 @@ need_node() {
 @test "build-docs-site: family-check — contract reddens on a header that differs from the code" {
   local d="$BATS_TEST_TMPDIR" js="$FAMILY_STATIC/family.js"
   sed -E '1,/\*\//s/(key: )mtibbits-family-v1/\1mtibbits-family-v9/' "$js" > "$d/k.js"
-  ! cmp -s "$js" "$d/k.js"
+  ! cmp -s "$js" "$d/k.js" || return 1
   fc_row 1 'header key mtibbits-family-v9 is not a string literal in the code' contract "$d/k.js"
   sed -E '1,/\*\//s/(exports: .*)$/\1, familyNope/' "$js" > "$d/e.js"
-  ! cmp -s "$js" "$d/e.js"
+  ! cmp -s "$js" "$d/e.js" || return 1
   fc_row 1 'header exports familyNope, which the code never assigns on window' contract "$d/e.js"
   grep -vE '^ \* +control:' "$js" > "$d/c.js"
-  ! cmp -s "$js" "$d/c.js"
+  ! cmp -s "$js" "$d/c.js" || return 1
   fc_row 1 "the header names no 'control:' line" contract "$d/c.js"
   fc_row 0 '' contract "$js"
 }
@@ -2149,7 +2149,7 @@ fp_settings_row() {
 @test "build-docs-site: fill-placeholders — --check refuses a settings file missing a key the partials use" {
   sc_n=0; sc_new
   grep -v '^live learn ' "$LIVE_TXT" > "$FX/live.txt"
-  ! cmp -s "$LIVE_TXT" "$FX/live.txt"
+  ! cmp -s "$LIVE_TXT" "$FX/live.txt" || return 1
   run fp --settings "$FX/live.txt" --check
   [ "$status" -eq 4 ]
   [[ $output == *"fill-placeholders: $FX/live.txt:0: missing required key 'learn' (used by family-topbar.html)"* ]]
@@ -2223,7 +2223,7 @@ fp_settings_row() {
   cp "$LIVE_TXT" "$d/docs-site/live.txt"
   fc_row 0 '' contract "$d/docs-site/live.txt" "$FILLER"
   sed 's/<small>coming<\/small>/<small>soon<\/small>/' "$LIVE_TXT" > "$d/docs-site/live.txt"
-  ! cmp -s "$LIVE_TXT" "$d/docs-site/live.txt"
+  ! cmp -s "$LIVE_TXT" "$d/docs-site/live.txt" || return 1
   fc_row 1 'renders as' contract "$d/docs-site/live.txt" "$FILLER"
 }
 
@@ -2358,8 +2358,8 @@ fx_fill_site() {
       [ "$(grep -cxF -- "$l1" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $part line 1 not exactly once" >&2; return 1; }
     done
     [ "$(grep -c '{{' "$FX/out/$p.html" || true)" -eq 0 ]
-    ! grep -qxF '<!--family-topbar-->' "$FX/out/$p.html"
-    ! grep -qxF '<!--family-footer-->' "$FX/out/$p.html"
+    ! grep -qxF '<!--family-topbar-->' "$FX/out/$p.html" || return 1
+    ! grep -qxF '<!--family-footer-->' "$FX/out/$p.html" || return 1
   done
 }
 
@@ -2405,8 +2405,8 @@ region_of() {
 # expect_region <partial> — the partial's lines 2 to its end, each live
 # placeholder rendered from docs-site/live.txt.
 expect_region() {
-  local sedargs=() kind k state url
-  while read -r kind k state url; do
+  local sedargs=() k state url
+  while read -r _ k state url; do
     if [ "$state" = yes ]; then
       sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<a href=\"$url\">\\1</a>#g")
     else
@@ -2448,11 +2448,11 @@ expect_region() {
   # today's settings (child 11 flips these when the sites go live)
   grep -qE '^live gantry no ' "$LIVE_TXT"
   grep -qE '^live learn no ' "$LIVE_TXT"
-  local content=() p kind k state url label li yes=0 no=0 region
+  local content=() p k state url label li yes=0 no=0 region
   mapfile -t content < <(real_content)
   for p in "${content[@]}"; do
     region="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html")"
-    while read -r kind k state url; do
+    while read -r _ k state url; do
       label="$(sed -n "s/.*{{live:$k|\\([^}]*\\)}}.*/\\1/p" "$FAMILY_STATIC/family-topbar.html")"
       [ -n "$label" ]
       li="$(printf '%s\n' "$region" | grep -F '<li>' | grep -F -e ">$label<" -e ">$label <small>")"
