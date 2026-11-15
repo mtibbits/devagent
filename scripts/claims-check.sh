@@ -184,7 +184,7 @@ RE_JOINT='^([[:space:]]|,|&|[+])*(and)?([[:space:]]|,|&|[+])*$'
 RE_EARLIER='(baseline|pre-branch|before|previously|earlier|was|were)'
 RE_PARTIAL='(-k |--filter|subset|partial|only )'
 # A per-file count in a sentence that also counts skips or xfails is a pass count, not the
-# file's size (review 4): NOT CHECKED, never compared with @test blocks or collected ids.
+# file's size (the final code review's fourth finding): NOT CHECKED, never compared with @test blocks or collected ids.
 RE_SKIPS='(skip|xfail|xpass|deselect)'
 RE_AT='(^|[^[:alnum:]])([Aa]t|@)[[:space:]]+`?([^`[:space:],;:)]+)`?'
 RE_HEX='^[0-9a-f]{7,40}$'
