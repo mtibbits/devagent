@@ -123,7 +123,12 @@ if [ -n "$preship_open" ]; then
 fi
 
 code_backend="$(config_get_project_field "$project" code_source.backend)"
-upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
+# #1016: the local code backend pushes nothing and has no forge, so it needs no
+# upstream; code_backend_is_local (lib/config.sh) is the one test for it.
+code_local=0
+code_backend_is_local "$code_backend" && code_local=1
+upstream_repo=""
+[ "$code_local" = 1 ] || upstream_repo="$(config_get_project_field "$project" code_source.upstream)"
 
 # config_code_target_repo (lib/config.sh, #885) is the one home of the PR-target
 # rule: it dies when fork_only=true has no code_source.fork, and sets
@@ -248,7 +253,11 @@ mr_body="$issue_dir/mr.md"
 
 # Permission gate.
 target_repo_for_plan="$upstream_repo"
-if [ "$fork_only" = "true" ]; then
+push_to_for_plan="$push_remote"
+if [ "$code_local" = 1 ]; then
+    push_to_for_plan="not applicable (local)"
+    target_repo_for_plan="$target_repo"
+elif [ "$fork_only" = "true" ]; then
     target_repo_for_plan="$fork_repo (fork only — upstream not targeted)"
 elif [ "$fork_first" = "true" ] && [ -n "$fork_repo" ]; then
     target_repo_for_plan="$fork_repo (fork)"
@@ -259,14 +268,20 @@ on_ship_note="$(transition_plan_note "$project" on_ship "$issue_backend" "$issue
 plan="$(cat <<EOF
 ship plan
   branch:     $branch
-  push to:    $push_remote
+  push to:    $push_to_for_plan
   MR repo:    $target_repo_for_plan
   base:       $base_branch
   draft?:     $ship_as_draft_proj
   issue:      $issue_arg → on_ship: ${on_ship_note}${ff_plan}
 EOF
 )"
-permission_gate "$project" push_mr "$plan"
+# #1016: nothing leaves the machine on the local code backend, so push_mr is not
+# asked; the plan is printed at every local ship instead.
+if [ "$code_local" = 1 ]; then
+    echo "$plan" >&2
+else
+    permission_gate "$project" push_mr "$plan"
+fi
 
 # Push branch.
 source_dir="$(config_get_project_field "$project" source_dir)"
