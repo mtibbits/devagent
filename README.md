@@ -10,9 +10,10 @@ revision, WBS, and status-report subsystems on top of the core loop.
 
 See `docs/specs/2026-05-19-devagent-plugin-design.md` for the design spec and
 `docs/plans/` for the incremental build history. The configuration and
-multi-project reference is `docs/configuration.md` and `docs/concurrency.md`. New to devAgent? Start with
-the onboarding site at https://mtibbits.github.io/devagent/ (source:
-`docs-site/`, beginning at `docs-site/index.md`).
+multi-project reference is `docs/configuration.md` and `docs/concurrency.md`.
+New to devAgent? Start with the onboarding site at
+https://mtibbits.github.io/devagent/ (source: `docs-site/`, beginning at
+`docs-site/index.md`).
 
 ## Install
 

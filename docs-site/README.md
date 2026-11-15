@@ -1,11 +1,12 @@
 # docs-site — content-drift policy
 
-This directory holds the devAgent onboarding site: its content pages
-(Markdown `*.md` pages, and hand-written `*.html` pages, which the build also
-accepts: the index plus the pages its own list names, the one page list, see
-"Nav source" below), `moved.txt` (old page names and their new homes), `live.txt`
-(which family sites are live, and the counts pages may show) and, when one
-exists, an `assets/` folder. Nothing generated is committed.
+This directory holds the devAgent onboarding site: its content pages,
+`moved.txt` (old page names and their new homes), `live.txt` (which family
+sites are live, and the counts pages may show) and, when one exists, an
+`assets/` folder. The content pages are the index plus the pages its own list
+names (the one page list; see "Nav source" below), as Markdown `*.md` or
+hand-written `*.html`, which the build also accepts. Nothing generated is
+committed.
 `scripts/build-docs-site.sh` renders the pages at publish time. This file is
 the site's maintenance policy, not one of the pages: the build leaves
 `README.*` out of the published site (its content is public-safe either way).

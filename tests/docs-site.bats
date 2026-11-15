@@ -309,8 +309,8 @@ temp_root() {
   local f
   f="$(fresh "$WEB/install.md")"
   holds check_verified_version "$f"
-  edit "$f" '2.1.223' '2.1.224'
-  breaks '2.1.223' check_verified_version "$f"
+  edit "$f" "$VERIFIED_CC" "${VERIFIED_CC%.*}.999"
+  breaks "$VERIFIED_CC" check_verified_version "$f"
 }
 
 @test "mutation: permission grant" {
@@ -325,30 +325,35 @@ temp_root() {
 }
 
 @test "mutation: step headline" {
-  local f
+  local f n
+  n="$(_step_n "$TEMPLATE")"
   f="$(fresh "$README")"
   holds check_step_headline "$TEMPLATE" "$f"
-  edit "$f" '25-step workflow' '24-step workflow'
-  breaks '25-step workflow' check_step_headline "$TEMPLATE" "$f"
+  edit "$f" "${n}-step workflow" "$((n - 1))-step workflow"
+  breaks "${n}-step workflow" check_step_headline "$TEMPLATE" "$f"
 }
 
 @test "mutation: numbering claim" {
-  local f
+  local f n
+  n="$(_step_n "$TEMPLATE")"
   f="$(fresh "$WEB/workflow.md")"
   holds check_numbering_claim "$TEMPLATE" "$f"
-  edit "$f" 'numbered 0–24 in' 'numbered 0–23 in'
-  breaks 'numbered 0–24 in' check_numbering_claim "$TEMPLATE" "$f"
+  edit "$f" "numbered 0–$((n - 1)) in" "numbered 0–$((n - 2)) in"
+  breaks "numbered 0–$((n - 1)) in" check_numbering_claim "$TEMPLATE" "$f"
 }
 
 @test "mutation: step table" {
-  local f
+  local f num cmd
+  # A mid-table step, read from the template (not a literal row).
+  read -r num cmd < <(template_steps "$TEMPLATE" | sed -n 14p)
+  [ -n "$cmd" ]
   f="$(fresh "$WEB/workflow.md")"
   holds check_step_table "$TEMPLATE" "$f"
-  drop "$f" '| 13 | `analyze`'
-  breaks 'step 13' check_step_table "$TEMPLATE" "$f"
+  drop "$f" "| $num | \`$cmd\`"
+  breaks "step $num" check_step_table "$TEMPLATE" "$f"
   f="$(fresh "$WEB/workflow.md")"
-  edit "$f" '| 13 | `analyze`' '| 13 | `analyse`'
-  breaks 'step 13' check_step_table "$TEMPLATE" "$f"
+  edit "$f" "| $num | \`$cmd\`" "| $num | \`${cmd}x\`"
+  breaks "step $num" check_step_table "$TEMPLATE" "$f"
 }
 
 @test "mutation: backend verbs" {
@@ -433,11 +438,13 @@ temp_root() {
 }
 
 @test "mutation: bash floor" {
-  local f guard="$PLUGIN_ROOT/scripts/lib/potholes.sh"
+  local f guard="$PLUGIN_ROOT/scripts/lib/potholes.sh" floor
+  floor="$(grep -oE 'bash >= [0-9]+\.[0-9]+' "$guard" | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  [ -n "$floor" ]
   f="$(fresh "$WEB/install.md")"
   holds check_bash_floor "$f" "$README" "$guard"
-  edit "$f" '≥ 4.4' '≥ 4.3'
-  breaks 'page 4.3' check_bash_floor "$f" "$README" "$guard"
+  edit "$f" "≥ $floor" "≥ ${floor%.*}.0"
+  breaks "page ${floor%.*}.0" check_bash_floor "$f" "$README" "$guard"
   f="$(fresh "$WEB/install.md")"
   plant "$f" 'Some features need bash ≥ 5.0.'
   breaks 'several bash floors' check_bash_floor "$f" "$README" "$guard"

@@ -22,18 +22,22 @@
 #   #998 (landing, index.md -> index.html): site_pages reads index.md only and
 #        returns 2 naming #998 on an index.html; check_step_headline and
 #        check_numbering_claim read the index; a check_install_block home if the
-#        landing shows the commands; README.md's docs-site/index.md pointer;
-#        tests/skills-no-bang-exec.bats:58.
+#        landing shows the commands; README.md's docs-site/index.md pointer; the
+#        comment in tests/skills-no-bang-exec.bats naming docs-site/index.md; the
+#        permanent-ID mutation leg, which edits a copy of index.md.
 #   #999 (install): check_platform_tokens; the bash-floor presence; the "You
 #        need:" .. "- Contributors additionally" region, which #999 moves to
-#        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region
-#        names all ten PREREQ_TOOLS) and the shellcheck user statement in
-#        check_shellcheck_homes; the install-block, userConfig, grant and version
-#        homes; tests/generic-templates.bats:106.
+#        CONTRIBUTING.md and which two checks read: check_prereqs_trace (the region,
+#        through the contributors bullet's wrapped lines, names all ten
+#        PREREQ_TOOLS) and the shellcheck user statement in check_shellcheck_homes;
+#        the install-block, userConfig, grant and version homes; the comment in
+#        tests/generic-templates.bats naming docs-site/install.md's tool list.
 #   #1000 (replaces Quickstart): check_quickstart_forms; a moved.txt line for
-#        quickstart; check_command_arity's subject floor (>= 1 /devagent: line).
+#        quickstart; check_command_arity's subject floor (>= 1 /devagent: line);
+#        the arity mutation leg, which edits a copy of quickstart.md.
 #   #1001 (how it works): the "| N | `cmd`" row shape; "numbered 0-24 in";
-#        /devagent:mergemr and WAITING (#885).
+#        /devagent:mergemr and WAITING (#885); the 21-step mutation leg, which
+#        edits a copy of workflow.md.
 #   #1002: none beyond its bullet in the one list.
 
 # #338: every loaded setup layer sources the shared hermetic-env guard (#322).
@@ -57,6 +61,8 @@ REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-de
 # The forge home of a repo file: the build's own default --blob-base, read from
 # scripts/build-docs-site.sh so the two cannot drift.
 BLOB_BASE="$(sed -n 's/^blob_base="\(.*\)"$/\1/p' "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh")"
+[[ "$BLOB_BASE" == https://*/ ]] \
+  || echo "docs-site-checks: cannot read blob_base=\"https://.../\" from scripts/build-docs-site.sh (got '$BLOB_BASE')" >&2
 
 # _need <file>... — return 2 (with a reason) unless every file is readable.
 _need() {
@@ -311,9 +317,14 @@ check_absent() {
 PREREQ_TOOLS=(bash python3 jq git gh glab curl tomli bats shellcheck)
 
 # _you_need_region <page> <with-contributors 0|1> — the install page's
-# "You need:" list, optionally through its "- Contributors additionally" line.
+# "You need:" list, optionally through its "- Contributors additionally" bullet
+# (with its wrapped lines, so a reflow cannot drop a tool).
 _you_need_region() {
-  awk -v c="$2" '/You need:$/{f=1; next} /^- Contributors additionally/{ if (f && c) print; exit } f' "$1"
+  awk -v c="$2" '
+    /You need:$/ { f = 1; next }
+    /^- Contributors additionally/ { if (!f || !c) exit; print; g = 1; next }
+    g { if (/^$/ || /^- /) exit; print; next }
+    f' "$1"
 }
 
 # check_prereqs_trace <page> <readme> — the page's toolchain (the backticked

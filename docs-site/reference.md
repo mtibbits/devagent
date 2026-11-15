@@ -12,3 +12,5 @@ The detail behind the site lives on GitHub, next to the code.
   devAgent is built, and why it is built that way.
 - [Requirements](../docs/requirements.md) — what devAgent must do, each
   requirement with its own ID.
+
+[← devAgent onboarding](./index.md)
