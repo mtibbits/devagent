@@ -421,3 +421,26 @@ _view_without() {
   [ "$MV_OK" = 0 ]
   [ "$MV_ERR" = "stub has no mr-view" ]
 }
+
+# ---- #1016: the local code backend has no CI --------------------------------
+
+@test "#1016 a local backend reads notapplicable and its script is never run" {
+  local marker="$BATS_TEST_TMPDIR/local-called"
+  printf '#!/usr/bin/env bash\necho "$*" >> %q\nexit 0\n' "$marker" > "$BATS_TEST_TMPDIR/code/local.sh"
+  chmod +x "$BATS_TEST_TMPDIR/code/local.sh"
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.code_source.backend '"local"'
+  ci_read volk Issue-676 "local:%2Fx%2F.git#feat"
+  [ "$CI_RESULT" = notapplicable ]
+  [ "$CI_LINE" = "CI not applicable: local code backend" ]
+  [ -z "$CI_HEAD" ]
+  [ ! -e "$marker" ]
+  ci_read_view volk Issue-676 "local:%2Fx%2F.git#feat"
+  [ "$CI_RESULT" = notapplicable ]
+  [ ! -e "$marker" ]
+}
+
+@test "#1016 ci_verdict: notapplicable proceeds" {
+  CI_RESULT=notapplicable
+  ci_verdict
+  [ "$CI_VERDICT" = proceed ]
+}

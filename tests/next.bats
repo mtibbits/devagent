@@ -745,6 +745,30 @@ _ci_count() { grep -c '^CI ' <<<"$output" || true; }
   grep -qxF "CI NOT CHECKED: custom has no mr-checks" <<<"$output"
 }
 
+@test "#1016 next prints CI not applicable: local code backend once and never calls mr-checks (AC 8)" {
+  _ci_window red "" local
+  local marker="$BATS_TEST_TMPDIR/local-called"
+  mkdir -p "$BATS_TEST_TMPDIR/code"
+  printf '#!/usr/bin/env bash\necho "$*" >> %q\nexit 2\n' "$marker" > "$BATS_TEST_TMPDIR/code/local.sh"
+  chmod +x "$BATS_TEST_TMPDIR/code/local.sh"
+  export DEVAGENT_CODE_BACKEND_DIR="$BATS_TEST_TMPDIR/code"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [ "$(grep -cxF "CI not applicable: local code backend" <<<"$output")" -eq 1 ]
+  [ "$(_ci_count)" -eq 1 ]
+  [ ! -e "$marker" ]
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$(grep -c '  ci: ' "$DEVDOC/Issue-676/checklist.md")" -eq 1 ]
+  # ci_gate = "block" does not hold the step.
+  python3 "$PLUGIN_ROOT/scripts/lib/_toml.py" set "$DA_HOME/config.toml" project.volk.ci_gate '"block"'
+  local before; before="$(_ci_rows)"
+  run "$PLUGIN_ROOT/scripts/next.sh" volk
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"→ Run /devagent:updatewbs volk"* ]]
+  [ "$(_ci_rows)" = "$before" ]
+  [ ! -e "$marker" ]
+}
+
 @test "#782 the CI line comes directly before the PHASE BREAK lines" {
   _ci_window pending
   run "$PLUGIN_ROOT/scripts/next.sh" volk --auto --chained

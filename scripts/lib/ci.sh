@@ -131,13 +131,18 @@ _ci_call() {
 # _ci_fetch <project> <url> <verb> <knob> <default>: one bounded read of the code
 # backend's <verb> on <url> (_ci_call). Sets _CI_OUT to its stdout and returns 0; on
 # any failure sets CI_RESULT/CI_LINE (notchecked or unknown) and _CI_REASON (the bare
-# reason) and returns 1.
+# reason) and returns 1; so does the local code backend, notapplicable (#1016).
 _ci_fetch() {
   local project="$1" url="$2" verb="$3" knob="$4" def="$5" backend script last
   _CI_OUT=""; _CI_REASON=""
   backend="$(config_get_project_field "$project" code_source.backend 2>/dev/null || true)"
   backend="${backend//$'\r'/}"
   script="${DEVAGENT_CODE_BACKEND_DIR:-$(plugin_root)/scripts/code}/$backend.sh"
+  # #1016: the local code backend has no CI; it is never asked.
+  if code_backend_is_local "$backend"; then
+    CI_RESULT=notapplicable; CI_LINE="CI not applicable: local code backend"; _CI_REASON="local code backend"
+    return 1
+  fi
   if [ -z "$backend" ]; then
     CI_RESULT=notchecked; CI_LINE="CI NOT CHECKED: (none) has no $verb"; _CI_REASON="(none) has no $verb"
     return 1
@@ -265,8 +270,9 @@ _ci_parse() {
 }
 
 # ci_read <project> <issue> <mr_url>: sets CI_RESULT (red|pending|green|none|merged|
-# closed|notchecked|unknown), CI_LINE, CI_HEAD and CI_SEEN_AT from the backend's
-# mr-checks, bounded by DEVAGENT_CI_READ_SECS (default 20). Never dies; returns 0.
+# closed|notchecked|notapplicable|unknown), CI_LINE, CI_HEAD and CI_SEEN_AT from the
+# backend's mr-checks, bounded by DEVAGENT_CI_READ_SECS (default 20). Never dies;
+# returns 0. notapplicable is the local code backend (#1016), which is not called.
 # A failed or unparseable read is `unknown`, never `none` or `green` (register
 # Issue-243): the gate holds on it.
 ci_read() {
@@ -346,7 +352,7 @@ ci_verdict() {
       else
         CI_VERDICT=hold
       fi ;;
-    green|notchecked|merged|closed) CI_VERDICT=proceed ;;
+    green|notchecked|notapplicable|merged|closed) CI_VERDICT=proceed ;;
     *) CI_VERDICT=hold ;;
   esac
 }
