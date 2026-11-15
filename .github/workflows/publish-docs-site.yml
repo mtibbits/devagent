@@ -34,14 +34,22 @@ on:
       - 'scripts/build-docs-site.sh'
       - 'scripts/docs-site/**'
       - 'tests/build-docs-site.bats'
+      - 'tests/lib/family-check.py'
+      - 'tests/lib/family-js-test.js'
       - '.github/workflows/publish-docs-site.yml'
+      # a count placeholder's source (docs-site/live.txt's count lines, #996)
+      - 'docs/requirements.md'
   pull_request:
     paths:
       - 'docs-site/**'
       - 'scripts/build-docs-site.sh'
       - 'scripts/docs-site/**'
       - 'tests/build-docs-site.bats'
+      - 'tests/lib/family-check.py'
+      - 'tests/lib/family-js-test.js'
       - '.github/workflows/publish-docs-site.yml'
+      # a count placeholder's source (docs-site/live.txt's count lines, #996)
+      - 'docs/requirements.md'
   workflow_dispatch:
 
 permissions:
@@ -75,6 +83,12 @@ jobs:
 
       - name: pandoc version
         run: pandoc --version | head -1
+
+      # The family.js leg runs the real script under node (#996); this lane
+      # forbids skips, so node is pinned rather than taken from the image.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       # This is the lane that owns the site, so a skip here is a failure: it
       # would mean the pandoc-gated tests ran nowhere.

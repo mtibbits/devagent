@@ -1,0 +1,45 @@
+# docs-site/live.txt — devagent's live settings (family v1.0 format)
+#
+# Which family sites are live, and the counts pages may show. The build reads
+# this file (scripts/build-docs-site.sh, through
+# scripts/docs-site/fill-placeholders.py); no script in the browser does.
+# Each family site keeps its own copy in this format.
+#
+# Lines (trailing whitespace is ignored; any other line is an error, exit 4):
+#   # comment, or a blank line
+#   live <key> yes|no <url>     a family site; <url> is https://... or a page
+#                               of this site (<name>.html, optional #fragment)
+#   count <key> <path> <regex>  a number pages may show: the lines of <path>
+#                               (relative to this file) that match the Python
+#                               regex <regex> (re.search, one line at a time)
+# <key> is [a-z0-9][a-z0-9-]*, and a key may appear once within its kind.
+#
+# Required: a live line for each key the family partials use. In family v1.0
+# that is devagent, gantry and learn. Adding or removing one changes the
+# family's major version (v2.0), as does any change to this format or to the
+# placeholder syntax; a minor version only adds what an older copy can ignore.
+#
+# Placeholders, in any page (Markdown or hand-written) and in the partials:
+#   {{live:<key>|<label>}}  the label as a link when <key> is live, else the
+#                           label marked "coming", with no link
+#   {{count:<key>}}         the count, in decimal
+# A placeholder for an unknown key, a count whose file is missing, or a count
+# of zero fails the build (exit 5): a blank or a zero is never published. In a
+# Markdown table cell, write \| for the |. A label is plain text: no markup, no
+# < > or ". A placeholder may not sit in a page title (the H1) or inside a tag
+# (an attribute value). There is no escape: v1.0 fills them everywhere, code
+# included.
+#
+# Rendered examples (the build's tests run each through the filler):
+#   example: {{live:devagent|devagent}} -> <a href="index.html">devagent</a>
+#   example: {{live:gantry|Gantry}} -> <span class="family-coming">Gantry <small>coming</small></span>
+#   example: {{count:requirements}} -> <N>
+# (<N> stands for the number.)
+#
+# The smallest valid file is the three live lines alone.
+#
+# Child 11 of devagent#994 flips gantry and learn to yes when those sites go live.
+live devagent yes index.html
+live gantry no https://mtibbits.github.io/gantry/
+live learn no https://mtibbits.github.io/journeyman/
+count requirements ../docs/requirements.md ^- [A-Z][A-Z0-9]*-[1-9][0-9]*:

@@ -22,8 +22,9 @@
 #           fixture is the post-render count (exit 5 "expected N pages and M
 #           stubs"): nothing outside the script can make it fire, so it is
 #           pinned by a mutation row in the plan instead, and says so here.
-#           fx_build passes an empty --static, so a fixture build never copies
-#           the repo's own scripts/docs-site/static/.
+#           fx_build passes the repo's own scripts/docs-site/static/ as
+#           --static, read-only (the family files are required); a leg that
+#           plants or removes a static file calls fx_static_copy first.
 #   SCANNER — scripts/docs-site/check-fetches.py run directly on planted
 #           dirs (no pandoc): every rule's refusal and pass rows, each pinned
 #           to its status, file, line and a reason token. The "fetch policy"
@@ -65,10 +66,21 @@ setup_file() {
   env -u DEVAGENT_PYTHON bash "$BUILD" --src "$SITE" --out "$REAL_OUT" > "$BATS_FILE_TMPDIR/real.stdout" 2> "$BATS_FILE_TMPDIR/real.stderr"
 }
 
-# fx_reset <dir> — point FX at a fresh fixture dir (src/ and static-empty/).
+# fx_reset <dir> — point FX at a fresh fixture dir: src/, holding the three
+# live lines of devagent's docs-site/live.txt (the build requires the file).
 fx_reset() {
   FX="$1"
-  mkdir -p "$FX/src" "$FX/static-empty"
+  mkdir -p "$FX/src"
+  printf '%s\n' 'live devagent yes index.html' 'live gantry no https://mtibbits.github.io/gantry/' \
+    'live learn no https://mtibbits.github.io/journeyman/' > "$FX/src/live.txt"
+}
+
+# fx_static_copy — copy the repo's static dir to $FX/static and build from
+# the copy (FX_STATIC), for a leg that plants or removes a static file.
+fx_static_copy() {
+  mkdir -p "$FX/static"
+  cp -R "$PLUGIN_ROOT/scripts/docs-site/static/." "$FX/static/"
+  FX_STATIC="$FX/static"
 }
 
 setup() {
@@ -177,15 +189,16 @@ fx_page() {
 
 # nav_of <html> — the <nav> block only. The theme CSS names aria-current and
 # page bodies link sibling pages, so nav assertions must not see the whole file.
-nav_of() { sed -n '/<nav/,/<\/nav>/p' "$1"; }
+nav_of() { sed -n '/<nav aria-label="Pages">/,/<\/nav>/p' "$1"; }
 
 # fx_build [args...] — build the fixture source dir into $FX/out. FX_PATH, when
 # set (pandoc-free legs set it to "$FX/bin" after fx_bin), replaces PATH. It
-# passes --static "$FX/static-empty", so a fixture build never copies the
-# repo's own scripts/docs-site/static/. Later flags win: the script's parse
-# loop keeps the last value. DEVAGENT_PYTHON is always REPLACED (by FX_PYTHON,
-# else empty, which the builder reads as python3), never inherited.
-fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "$FX/static-empty" "$@"; }
+# passes --static "$FX_STATIC" when a leg set it (fx_static_copy), else the
+# repo's own scripts/docs-site/static/, which a build only reads. Later flags
+# win: the script's parse loop keeps the last value. DEVAGENT_PYTHON is always
+# REPLACED (by FX_PYTHON, else empty, which the builder reads as python3),
+# never inherited.
+fx_build() { env PATH="${FX_PATH:-$PATH}" DEVAGENT_PYTHON="${FX_PYTHON:-}" "$FX_BASH" "$BUILD" --src "$FX/src" --out "$FX/out" --static "${FX_STATIC:-$PLUGIN_ROOT/scripts/docs-site/static}" "$@"; }
 
 # fx_fixture_b — #840's Fixture B: a fenced decoy bullet naming alpha above the
 # real list, which names only zeta.
@@ -241,13 +254,14 @@ real_stubs() {
   [ "${#content[@]}" -ge 2 ]
   local html=("$REAL_OUT"/*.html) all=("$REAL_OUT"/*) extra=0
   [ "${#html[@]}" -eq "$(( ${#content[@]} + ${#stubs[@]} ))" ]
-  # the asset folders appear exactly when their sources exist
+  # the content-side asset folder appears exactly when its source exists; the
+  # template side (static/) always does, holding the four family files
   if [ -d "$SITE/assets" ]; then extra=$((extra + 1)); [ -d "$REAL_OUT/assets" ]; else [ ! -e "$REAL_OUT/assets" ]; fi
-  if [ -d "$PLUGIN_ROOT/scripts/docs-site/static" ]; then
-    extra=$((extra + 1)); [ -d "$REAL_OUT/static" ]
-  else
-    [ ! -e "$REAL_OUT/static" ]
-  fi
+  extra=$((extra + 1))
+  local f
+  for f in family.css family.js family-topbar.html family-footer.html; do
+    [ -f "$REAL_OUT/static/$f" ]
+  done
   [ "${#all[@]}" -eq "$(( ${#html[@]} + extra ))" ]
   [ ! -e "$REAL_OUT/README.html" ]
   for p in "${content[@]}" "${stubs[@]}"; do
@@ -816,10 +830,11 @@ t3i_row() {
 @test "build-docs-site: both asset folders copy byte-identical" {
   need_pandoc
   fx_page index "hello"
-  mkdir -p "$FX/src/assets/img" "$FX/static"
+  fx_static_copy
+  mkdir -p "$FX/src/assets/img"
   printf '\x89PNG\r\n\x1a\n\0\0\xff\xfe\x80 end\r\n' > "$FX/src/assets/img/a.png"
   printf 'body { color: #123; }\r\n\0\xc3\xa9\n' > "$FX/static/s.css"
-  run fx_build --static "$FX/static"
+  run fx_build
   [ "$status" -eq 0 ]
   cmp "$FX/src/assets/img/a.png" "$FX/out/assets/img/a.png"
   cmp "$FX/static/s.css" "$FX/out/static/s.css"
@@ -1537,6 +1552,7 @@ EOF
 }
 
 # fault_py <file> — an interpreter that runs the probes (any call holding -c or --self-test)
+# and the placeholder filler (a call naming fill-placeholders.py)
 # with the real python3, and the REAL scanner (its last three arguments:
 # scanner, --, out) with html.parser broken, so the scan crashes inside it.
 fault_py() {
@@ -1545,7 +1561,7 @@ fault_py() {
   mkdir -p "$(dirname "$1")"
   cat > "$1" <<EOF
 #!$(command -v bash)
-case " \$* " in *" -c "*|*" --self-test "*) exec "$real_py" "\$@" ;; esac
+case " \$* " in *" -c "*|*" --self-test "*|*fill-placeholders.py*) exec "$real_py" "\$@" ;; esac
 exec "$real_py" -I -X utf8 -c '$FAULT_PY' "\${@: -3}"
 EOF
   chmod +x "$1"
@@ -1584,9 +1600,9 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-# t7_new — a fresh fixture dir for the next mutation row, with an empty
-# $FX/static the row may plant into.
-t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; mkdir -p "$FX/static" "$FX/src/assets"; }
+# t7_new — a fresh fixture dir for the next mutation row, with a copy of the
+# static dir ($FX/static, family files included) the row may plant into.
+t7_new() { t7_n=$((${t7_n:-0} + 1)); fx_reset "$BATS_TEST_TMPDIR/row$t7_n"; fx_static_copy; mkdir -p "$FX/src/assets"; }
 
 # t7_row <relpath> <needle> — build (with --static "$FX/static"; later flags
 # win); it must exit 7 and name <relpath> at the first built line holding
@@ -1610,7 +1626,8 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   t7_index 'import x' "<script type=\"module\">import x from \"$OH/m.js\";</script>"
   t7_index '<img' "<img src=\"$OH/a.png\" alt=\"\">"
   t7_index srcset "<img srcset=\"$OH/b.png 2x\" alt=\"\">"
-  t7_index '<link' "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
+  # (the needle is the URL: the template carries its own <link> to family.css)
+  t7_index "$OH/s.css" "<link rel=\"stylesheet\" href=\"$OH/s.css\">"
   t7_index '<table' "<table background=\"$OH/bg.png\"><tr><td>x</td></tr></table>"
   t7_index '<p style' "<p style=\"background:url($OH/x.png)\">x</p>"
   t7_index '<iframe' '<iframe srcdoc="x"></iframe>'
@@ -1781,4 +1798,787 @@ t7_index() { t7_new; fx_html index '<h1>Home</h1>' "$2"; t7_row index.html "$1";
   # controls: prefix ++ before a regex, and "-->" that is not at a line start
   js_row 0 '' 'var r = ++i; var s = /ab+c/.test(t); var u = "assets/x";'
   js_row 0 '' 'while (i --> 0) { s = "assets/x"; }'
+}
+
+# ------------------------------------------------ FAMILY: the shared family files (#996)
+#
+# scripts/docs-site/static/ holds the family files other sites copy byte for
+# byte. tests/lib/family-check.py reads them (and page.html) and prints one
+# "family-check: <file>:<line>: <reason>" line per violation, then
+# "family-check: <sub>: <N> subjects, <V> violations"; every leg pins the
+# subject count too, so a check that silently reads nothing cannot pass.
+
+FAMILY_STATIC="$PLUGIN_ROOT/scripts/docs-site/static"
+FAMILY_CHECK="$PLUGIN_ROOT/tests/lib/family-check.py"
+PAGE_TMPL="$PLUGIN_ROOT/scripts/docs-site/page.html"
+
+fc() { python3 -I -X utf8 "$FAMILY_CHECK" "$@"; }
+
+# fc_count <sub> — set fc_n to the <N> of the "family-check: <sub>: <N>
+# subjects, 0 violations" line in $output; fails when there is no clean one.
+fc_count() {
+  [[ $output =~ family-check:\ $1:\ ([0-9]+)\ subjects,\ 0\ violations ]] || { echo "no clean $1 count line in: $output" >&2; return 1; }
+  fc_n="${BASH_REMATCH[1]}"
+}
+
+# fc_row <want> <token> <sub> <file>... — family-check <sub> on planted files.
+# want 1: status 1 and output holding <token>. want 0: status 0 and a clean
+# count line.
+fc_row() {
+  local want="$1" token="$2"; shift 2
+  run fc "$@"
+  [ "$status" -eq "$want" ] || { echo "family-check $* : status $status, want $want: $output" >&2; return 1; }
+  if [ "$want" -eq 1 ]; then
+    [[ $output == *"$token"* ]] || { echo "family-check $* : no '$token' in: $output" >&2; return 1; }
+  else
+    [[ $output == *", 0 violations"* ]] || { echo "family-check $* : not clean: $output" >&2; return 1; }
+  fi
+}
+
+# family_versioned — the files whose line 1 names the family version; each
+# task that adds a family file adds it here.
+family_versioned() {
+  printf '%s\n' "$FAMILY_STATIC/family.css" "$FAMILY_STATIC/family.js" \
+    "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html" "$PLUGIN_ROOT/docs-site/live.txt"
+}
+
+@test "build-docs-site: family files — each header names the same family version" {
+  local f=()
+  mapfile -t f < <(family_versioned)
+  [ "${#f[@]}" -ge 1 ]
+  run fc header "${f[@]}"
+  [ "$status" -eq 0 ]
+  fc_count header
+  [ "$fc_n" -eq "${#f[@]}" ]
+}
+
+@test "build-docs-site: family files — the palette reads per theme (light and dark sets)" {
+  run fc tokens "$FAMILY_STATIC/family.css"
+  [ "$status" -eq 0 ]
+  fc_count tokens
+  [ "$fc_n" -eq 12 ]
+}
+
+@test "build-docs-site: family files — page.html holds no token, colour literal or setting" {
+  run fc literals "$FAMILY_STATIC/family.css" "$PAGE_TMPL"
+  [ "$status" -eq 0 ]
+  fc_count literals
+  [ "$fc_n" -ge 24 ]
+}
+
+@test "build-docs-site: family files — WCAG AA for the listed pairs, both themes" {
+  run fc contrast "$FAMILY_STATIC/family.css" "$PAGE_TMPL"
+  [ "$status" -eq 0 ]
+  fc_count contrast
+  # 2 themes x (ink, accent-ink, ink-soft) x (ground, worst grid pixel, nav-bg)
+  [ "$fc_n" -eq 18 ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -cE '^(light|dark) (ink|accent-ink|ink-soft)/(ground|grid|nav-bg) #[0-9A-F]{6} #[0-9A-F]{6} [0-9]+\.[0-9]{2}$')" -eq 18 ]
+}
+
+@test "build-docs-site: family-check — every subcommand reddens on a planted violation" {
+  local d="$BATS_TEST_TMPDIR" css="$FAMILY_STATIC/family.css"
+  # header: no version; two different versions; one version passes
+  printf '/* family v1.0: a */\n' > "$d/a.css"
+  printf '/* family v1.1: b */\n' > "$d/b.css"
+  printf '/* no version */\n' > "$d/c.css"
+  fc_row 1 'c.css:1: line 1 names no family version' header "$d/c.css"
+  fc_row 1 'family version v1.1 differs from v1.0' header "$d/a.css" "$d/b.css"
+  fc_row 0 '' header "$d/a.css" "$d/a.css"
+  # tokens: a dark twin missing; a theme literal inside @media; an active
+  # token that is not var()
+  grep -v -e '--family-dark-line:' "$css" > "$d/t1.css"
+  fc_row 1 'dark twin missing: --family-light-line' tokens "$d/t1.css"
+  { cat "$css"; printf '@media print { :root { --family-light-x: #000000; } }\n'; } > "$d/t2.css"
+  fc_row 1 '--family-light-x is defined inside @media print' tokens "$d/t2.css"
+  sed 's/--family-ink: var(--family-light-ink);/--family-ink: #000000;/' "$css" > "$d/t3.css"
+  ! cmp -s "$css" "$d/t3.css" || return 1
+  fc_row 1 '--family-ink is not var(--family-light-ink) at the top level' tokens "$d/t3.css"
+  # literals: an uppercase hex, a spaced rgba(), a custom property, a
+  # non-family var(), an undefined family var(); a family var() passes
+  local lc rg gr
+  lc="$(grep -m1 -oE -e '--family-light-ink: #[0-9A-Fa-f]{6}' "$css")"
+  lc="${lc##* }"
+  [ -n "$lc" ]
+  printf '<style>\nbody { color: %s; }\n</style>\n' "${lc^^}" > "$d/p1.html"
+  fc_row 1 "p1.html:2: holds family colour ${lc,,}" literals "$css" "$d/p1.html"
+  rg="$(grep -m1 -oE -e '--family-light-grid-minor: rgba\([^)]*\)' "$css")"
+  rg="${rg#*: }"
+  [ -n "$rg" ]
+  printf '<style>\nmain { color: %s; }\n</style>\n' "$(printf '%s' "$rg" | sed 's/(/( /; s/,/ , /g; s/)/ )/')" > "$d/p2.html"
+  fc_row 1 'holds family colour rgba(' literals "$css" "$d/p2.html"
+  printf '<style>\n:root { --ink: red; }\n</style>\n' > "$d/p3.html"
+  fc_row 1 'p3.html:2: defines custom property --ink' literals "$css" "$d/p3.html"
+  printf '<style>\nbody { color: var(--ink); }\n</style>\n' > "$d/p4.html"
+  fc_row 1 'p4.html:2: var(--ink) is not a family token' literals "$css" "$d/p4.html"
+  printf '<style>\nbody { color: var(--family-nope); }\n</style>\n' > "$d/p5.html"
+  fc_row 1 'var(--family-nope) is not defined in' literals "$css" "$d/p5.html"
+  printf '<style>\nbody { color: var(--family-ink); }\n</style>\n' > "$d/p6.html"
+  fc_row 0 '' literals "$css" "$d/p6.html"
+  # contrast: ink-soft equal to ground; text on --family-board; body may
+  # paint the board
+  gr="$(grep -m1 -oE -e '--family-light-ground: #[0-9A-Fa-f]{6}' "$css")"
+  gr="${gr##* }"
+  [ -n "$gr" ]
+  sed -E "s/(--family-light-ink-soft: )#[0-9A-Fa-f]{6}/\\1$gr/" "$css" > "$d/c1.css"
+  ! cmp -s "$css" "$d/c1.css" || return 1
+  fc_row 1 'light ink-soft on ground is 1.00:1, below 4.5:1' contrast "$d/c1.css"
+  printf '<style>\nnav { background: var(--family-board); }\n</style>\n' > "$d/b1.html"
+  fc_row 1 'b1.html:2: nav paints --family-board behind text' contrast "$css" "$d/b1.html"
+  printf '<style>\nbody { background: var(--family-board); }\n</style>\n' > "$d/b2.html"
+  fc_row 0 '' contrast "$css" "$d/b2.html"
+  # scope: a bare nav rule, a p under a family class, a family class;
+  # scoped selectors pass
+  printf '%s\n' '<header class="family-topbar"><nav><ul class="family-sites"><li>{{live:a|A}}</li></ul></nav></header>' > "$d/top.html"
+  printf '%s\n' '<div class="family-footer"><p><button type="button">x</button></p></div>' > "$d/foot.html"
+  printf '<style>\nnav { width: 1px; }\n</style>\n' > "$d/s1.html"
+  fc_row 1 "s1.html:2: 'nav' reaches family markup (<nav> in" scope "$d/s1.html" "$d/top.html" "$d/foot.html"
+  printf '<style>\n.family-footer p { margin: 0; }\n</style>\n' > "$d/s2.html"
+  fc_row 1 "'.family-footer p' reaches family markup" scope "$d/s2.html" "$d/top.html" "$d/foot.html"
+  printf '<style>\n.family-coming { color: red; }\n</style>\n' > "$d/s3.html"
+  fc_row 1 "'.family-coming' styles family markup" scope "$d/s3.html" "$d/top.html" "$d/foot.html"
+  # a universal subject under a scoping ancestor still reaches; only a bare * is exempt
+  printf '<style>
+* { margin: 0; }
+div * { color: red; }
+</style>
+' > "$d/s5.html"
+  fc_row 1 "s5.html:3: 'div *' reaches family markup" scope "$d/s5.html" "$d/top.html" "$d/foot.html"
+  printf '%s\n' '<style>' 'nav[aria-label="Pages"] a:hover { color: red; }' 'article p, main > footer > a { margin: 0; }' \
+    '@media (prefers-reduced-motion: no-preference) { .family-motion nav[aria-label="Pages"] a { color: red; } }' '</style>' > "$d/s4.html"
+  fc_row 0 '' scope "$d/s4.html" "$d/top.html" "$d/foot.html"
+  # with the template's markers, the page's own ancestors of the partials
+  # (main, footer.site-footer) scope nothing: rules under them still reach
+  # the footer partial. Child and class scoping that cannot reach it pass.
+  local frame='<body>
+<!--family-topbar-->
+<div class="layout"><main class="family-sheet"><article><p>x</p></article>
+<footer>Built from <a href="x">x</a></footer>
+<footer class="site-footer">
+<!--family-footer-->
+<p class="site-links"><a href="r">r</a></p>
+</footer></main></div></body>'
+  local sel
+  for sel in 'main p' '.site-footer li' 'main > footer div' 'main a' '.family-sheet ul'; do
+    printf '<style>\n%s { color: red; }\n</style>\n%s\n' "$sel" "$frame" > "$d/s5.html"
+    fc_row 1 "'$sel' reaches family markup" scope "$d/s5.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  done
+  printf '<style>\n%s\n</style>\n%s\n' 'article p, main > footer > a, .site-links a, main > footer, * { margin: 0; }' "$frame" > "$d/s6.html"
+  fc_row 0 '' scope "$d/s6.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  # usage
+  run fc nosuch "$css"
+  [ "$status" -eq 2 ]
+  run fc tokens
+  [ "$status" -eq 2 ]
+}
+
+# need_node — the family.js leg runs the real script under node (no npm).
+need_node() {
+  command -v node >/dev/null 2>&1 \
+    || skip "node not installed — the publish docs site lane runs this leg and forbids skips; install node locally"
+}
+
+@test "build-docs-site: family.js — the animation setting (node, stub storage)" {
+  need_node
+  echo "# node $(node --version)" >&3
+  run node "$PLUGIN_ROOT/tests/lib/family-js-test.js" "$FAMILY_STATIC/family.js"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  # the last line counts the cases; every case printed "ok", and an emptied
+  # case list cannot pass
+  [[ ${lines[${#lines[@]} - 1]} =~ ^cases:\ ([0-9]+)$ ]]
+  local n="${BASH_REMATCH[1]}"
+  [ "$n" -ge 22 ]
+  [ "$(printf '%s\n' "${lines[@]}" | grep -c '^ok ')" -eq "$n" ]
+  # the header's contract is what the code does (B7): key, class and control
+  # as observed on a first view, exports as observed after loading
+  local obs exports
+  obs="$(printf '%s\n' "${lines[@]}" | sed -n 's/^observed //p')"
+  exports="$(printf '%s\n' "${lines[@]}" | sed -n 's/^exports: //p')"
+  [ -n "$obs" ] && [ -n "$exports" ]
+  run fc contract "$FAMILY_STATIC/family.js"
+  [ "$status" -eq 0 ]
+  fc_count contract
+  [ "$fc_n" -eq 4 ]
+  local hdr
+  hdr="$(printf '%s\n' "${lines[@]}" | sed -n 's/^header //p')"
+  [ "$hdr" = "$obs exports=$exports" ] || { echo "header: $hdr / observed: $obs exports=$exports" >&2; return 1; }
+}
+
+@test "build-docs-site: family-check — contract reddens on a header that differs from the code" {
+  local d="$BATS_TEST_TMPDIR" js="$FAMILY_STATIC/family.js"
+  sed -E '1,/\*\//s/(key: )mtibbits-family-v1/\1mtibbits-family-v9/' "$js" > "$d/k.js"
+  ! cmp -s "$js" "$d/k.js" || return 1
+  fc_row 1 'header key mtibbits-family-v9 is not a string literal in the code' contract "$d/k.js"
+  sed -E '1,/\*\//s/(exports: .*)$/\1, familyNope/' "$js" > "$d/e.js"
+  ! cmp -s "$js" "$d/e.js" || return 1
+  fc_row 1 'header exports familyNope, which the code never assigns on window' contract "$d/e.js"
+  grep -vE '^ \* +control:' "$js" > "$d/c.js"
+  ! cmp -s "$js" "$d/c.js" || return 1
+  fc_row 1 "the header names no 'control:' line" contract "$d/c.js"
+  fc_row 0 '' contract "$js"
+}
+
+# ---------------------------------------- FAMILY: live settings and placeholders (#996)
+#
+# scripts/docs-site/fill-placeholders.py, run directly on planted files (no
+# pandoc, no build). One fixture dir per row (sc_new), so a row cannot see an
+# earlier row's files.
+
+FILLER="$PLUGIN_ROOT/scripts/docs-site/fill-placeholders.py"
+LIVE_TXT="$PLUGIN_ROOT/docs-site/live.txt"
+
+fp() { python3 -I -X utf8 "$FILLER" "$@"; }
+
+# fp_settings <line>... — $FX/live.txt holding the lines.
+fp_settings() { printf '%s\n' "$@" > "$FX/live.txt"; }
+
+# fp_std — the fixture settings most rows use: home live, gantry not live, a
+# count over $FX/data.md with 3 matching lines.
+fp_std() {
+  fp_settings '# fixture' 'live home yes index.html' 'live gantry no https://example.invalid/g/' 'count n data.md ^x'
+  printf 'x1\nx2\ny\nx3\n' > "$FX/data.md"
+}
+
+# fp_fail_row <placeholder text> <reason token> — the page holding the text
+# exits 5 naming the page and the reason, and is left unchanged.
+fp_fail_row() {
+  sc_new; fp_std
+  printf '<p>%s</p>\n' "$1" > "$FX/a.html"
+  cp "$FX/a.html" "$FX/a.orig"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 5 ] || { echo "row $sc_n ($1): status $status, want 5: $output" >&2; return 1; }
+  [[ $output == *"fill-placeholders: $FX/a.html: "*"$2"* ]] || { echo "row $sc_n ($1): no '$2' naming the page in: $output" >&2; return 1; }
+  cmp -s "$FX/a.html" "$FX/a.orig" || { echo "row $sc_n ($1): the page was rewritten" >&2; return 1; }
+}
+
+# fp_settings_row <bad line> [<want line no>] — settings holding a good line
+# then the bad one exit 4 naming the settings file and the bad line.
+fp_settings_row() {
+  sc_new
+  fp_settings 'live home yes index.html' "$1"
+  printf 'x\n' > "$FX/d.md"
+  printf '<p>{{live:home|Home}}</p>\n' > "$FX/a.html"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 4 ] || { echo "row $sc_n ($1): status $status, want 4: $output" >&2; return 1; }
+  [[ $output == *"fill-placeholders: $FX/live.txt:${2:-2}: "* ]] || { echo "row $sc_n ($1): no '$FX/live.txt:${2:-2}:' in: $output" >&2; return 1; }
+  [[ $output == *"${3:-}"* ]] || { echo "row $sc_n ($1): no '${3:-}' in: $output" >&2; return 1; }
+}
+
+@test "build-docs-site: fill-placeholders — live yes, live no and count render byte-exact" {
+  sc_n=0; sc_new; fp_std
+  printf '<p>\xc3\xa9 {{live:home|Home}}\r\n{{live:gantry|Gantry}}\r\nn={{count:n}}.</p>\r\n' > "$FX/a.html"
+  printf '<p>\xc3\xa9 <a href="index.html">Home</a>\r\n<span class="family-coming">Gantry <small>coming</small></span>\r\nn=3.</p>\r\n' > "$FX/want.html"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fill-placeholders: filled 3 placeholders in 1 files" ]
+  cmp "$FX/a.html" "$FX/want.html"
+}
+
+@test "build-docs-site: fill-placeholders — a label wrapped across lines is normalised" {
+  sc_n=0; sc_new; fp_std
+  printf '<p>{{live:gantry|The Gantry\nsite}} and {{live:home|  Home \t page }}</p>\n' > "$FX/a.html"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FX/a.html")" = '<p><span class="family-coming">The Gantry site <small>coming</small></span> and <a href="index.html">Home page</a></p>' ]
+}
+
+@test "build-docs-site: fill-placeholders — \${{ x }} and lone braces are text" {
+  sc_n=0; sc_new; fp_std
+  printf '%s\n' 'run: ${{ github.ref }} {{ x }}' 'a { b } {{' '}} {} { {x} }' > "$FX/a.html"
+  cp "$FX/a.html" "$FX/a.orig"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fill-placeholders: filled 0 placeholders in 1 files" ]
+  cmp "$FX/a.html" "$FX/a.orig"
+}
+
+@test "build-docs-site: fill-placeholders — each placeholder failure exits 5 naming the file" {
+  sc_n=0
+  fp_fail_row '{{nope:x}}' 'unknown placeholder {{nope:x}}'
+  fp_fail_row '{{live:zzz|Z}}' 'unknown placeholder {{live:zzz|Z}}'
+  fp_fail_row '{{live:home}}' 'unknown placeholder {{live:home}}'
+  fp_fail_row '{{live:home| }}' 'unknown placeholder {{live:home|}}'
+  fp_fail_row '{{x}}' 'unknown placeholder {{x}}'
+  fp_fail_row '{{}}' 'unknown placeholder {{}}'
+  # an unclosed placeholder cannot swallow markup up to a later "}}"
+  fp_fail_row 'See {{live:gantry|Gantry</p><h2 id="x">Next</h2><p>Use <code>a}}</code>' 'unclosed placeholder starting {{live:'
+  # a label is plain text: markup in it is refused, not inserted
+  fp_fail_row '{{live:gantry|<em>Gantry</em>}}' 'unclosed placeholder starting {{live:'
+  # a placeholder inside a tag (an attribute value) would write broken HTML
+  fp_fail_row '<img alt="{{live:home|Home}}" src="a.png">' 'placeholder inside a tag: {{live:home|Home}}'
+  # one inside a comment is refused too, and says where it is
+  fp_fail_row '<!-- {{live:home|Home}} -->' 'placeholder inside an HTML comment: {{live:home|Home}}'
+  # a ">" earlier in the comment or in a quoted value does not end it
+  fp_fail_row '<!-- a > b {{live:home|Home}} -->' 'placeholder inside an HTML comment: {{live:home|Home}}'
+  fp_fail_row '<span title="a>b {{live:home|Home}}">x</span>' 'placeholder inside a tag: {{live:home|Home}}'
+  fp_fail_row '{{count:zzz}}' 'unknown placeholder {{count:zzz}}'
+  fp_fail_row 'ok {{live:gantry|G' 'unclosed placeholder starting {{live:'
+  fp_fail_row 'ok {{count:n' 'unclosed placeholder starting {{count:'
+  # a missing count source, and a zero count
+  sc_new; fp_std
+  printf '%s\n' 'count m missing.md ^x' 'count z data.md ^nomatch' >> "$FX/live.txt"
+  printf '<p>{{count:m}}</p>\n' > "$FX/a.html"
+  run fp --settings "$FX/live.txt" "$FX/a.html"
+  [ "$status" -eq 5 ]
+  [[ $output == *"fill-placeholders: $FX/a.html: count source not found: missing.md (count m)"* ]]
+  printf '<p>{{count:z}}</p>\n' > "$FX/b.html"
+  run fp --settings "$FX/live.txt" "$FX/b.html"
+  [ "$status" -eq 5 ]
+  [[ $output == *"fill-placeholders: $FX/b.html: count z is zero in data.md; a zero is never published"* ]]
+  # one bad file in a set rewrites none of them
+  printf '<p>{{live:home|Home}}</p>\n' > "$FX/c.html"
+  cp "$FX/c.html" "$FX/c.orig"
+  run fp --settings "$FX/live.txt" "$FX/c.html" "$FX/b.html"
+  [ "$status" -eq 5 ]
+  cmp "$FX/c.html" "$FX/c.orig"
+}
+
+@test "build-docs-site: fill-placeholders — each settings refusal exits 4 naming the line" {
+  sc_n=0
+  fp_settings_row 'frob x' 2 "expected 'live <key> yes|no <url>' or 'count <key> <path> <regex>'"
+  fp_settings_row 'live Bad yes index.html'
+  fp_settings_row 'live a maybe index.html'
+  fp_settings_row 'live a yes http://x.example/'
+  fp_settings_row 'live a yes https://x.example/"q'
+  fp_settings_row 'live a yes'
+  fp_settings_row 'count c /x ^a' 2 'count path must be relative to this file: /x'
+  fp_settings_row 'count c C:/x ^a' 2 'count path must be relative to this file: C:/x'
+  fp_settings_row 'count c d.md (' 2 'count regex does not compile:'
+  fp_settings_row 'live home no index.html' 2 'home is listed twice'
+  # a missing file is line 0
+  sc_new
+  printf '<p>x</p>\n' > "$FX/a.html"
+  run fp --settings "$FX/none.txt" "$FX/a.html"
+  [ "$status" -eq 4 ]
+  [[ $output == *"fill-placeholders: $FX/none.txt:0: not found"* ]]
+  # comments, blank lines and trailing spaces are fine; --check counts each kind
+  sc_new
+  printf '%s\n' '# c' '' '   ' 'live devagent yes index.html   ' 'live gantry no https://x.example/' 'live learn no https://y.example/' 'count n d.md ^x # not a comment' > "$FX/live.txt"
+  run fp --settings "$FX/live.txt" --check
+  [ "$status" -eq 0 ]
+  [ "$output" = "fill-placeholders: settings ok: 3 live, 1 count" ]
+}
+
+@test "build-docs-site: fill-placeholders — --check refuses a settings file missing a key the partials use" {
+  sc_n=0; sc_new
+  grep -v '^live learn ' "$LIVE_TXT" > "$FX/live.txt"
+  ! cmp -s "$LIVE_TXT" "$FX/live.txt" || return 1
+  run fp --settings "$FX/live.txt" --check
+  [ "$status" -eq 4 ]
+  [[ $output == *"fill-placeholders: $FX/live.txt:0: missing required key 'learn' (used by family-topbar.html)"* ]]
+  # the real file passes
+  run fp --settings "$LIVE_TXT" --check
+  [ "$status" -eq 0 ]
+  [[ $output == "fill-placeholders: settings ok: "*" live, "*" count" ]]
+}
+
+@test "build-docs-site: fill-placeholders — usage exits 2" {
+  run fp "$BATS_TEST_TMPDIR/a.html"
+  [ "$status" -eq 2 ]
+  [[ $output == *"--settings is required"* ]]
+  run fp --settings "$LIVE_TXT" --frob "$BATS_TEST_TMPDIR/a.html"
+  [ "$status" -eq 2 ]
+  [[ $output == *"unknown argument: --frob"* ]]
+  run fp --settings "$LIVE_TXT"
+  [ "$status" -eq 2 ]
+  run fp --settings "$LIVE_TXT" --check "$BATS_TEST_TMPDIR/a.html"
+  [ "$status" -eq 2 ]
+}
+
+@test "build-docs-site: family partials — standalone fragments once filled" {
+  local p n=0
+  for p in family-topbar.html family-footer.html; do
+    cp "$FAMILY_STATIC/$p" "$BATS_TEST_TMPDIR/$p"
+    run fp --settings "$LIVE_TXT" "$BATS_TEST_TMPDIR/$p"
+    [ "$status" -eq 0 ]
+    n=$((n + 1))
+  done
+  run fc fragment "$FAMILY_STATIC/family.css" "$BATS_TEST_TMPDIR/family-topbar.html" "$BATS_TEST_TMPDIR/family-footer.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count fragment
+  [ "$fc_n" -eq "$n" ]
+}
+
+@test "build-docs-site: family files — page.html rules do not reach family markup" {
+  run fc scope "$PAGE_TMPL" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count scope
+  [ "$fc_n" -ge 40 ]
+}
+
+@test "build-docs-site: live.txt — each header example renders as written" {
+  run fc contract "$LIVE_TXT" "$FILLER"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count contract
+  # one example of each output: live yes, live no, count
+  [ "$fc_n" -ge 3 ]
+}
+
+@test "build-docs-site: family-check — fragment and live.txt contract redden on a planted violation" {
+  local d="$BATS_TEST_TMPDIR" css="$FAMILY_STATIC/family.css"
+  printf '<div class="family-footer">{{live:a|A}}</div>\n' > "$d/f1.html"
+  fc_row 1 'f1.html:1: a placeholder is left' fragment "$css" "$d/f1.html"
+  printf '<div class="family-footer"><script>x()</script></div>\n' > "$d/f2.html"
+  fc_row 1 'f2.html:1: <script> is not allowed in a fragment' fragment "$css" "$d/f2.html"
+  printf '<div class="family-footer"><p class="nope">x</p></div>\n' > "$d/f3.html"
+  fc_row 1 "f3.html:1: class 'nope' is not defined in family.css" fragment "$css" "$d/f3.html"
+  printf '<div class="family-footer"><p>x</div>\n' > "$d/f4.html"
+  fc_row 1 'f4.html:1: </div> closes <p>' fragment "$css" "$d/f4.html"
+  printf '<div class="family-footer"></div>\n<div class="family-footer"></div>\n' > "$d/f5.html"
+  fc_row 1 '2 root elements (want 1)' fragment "$css" "$d/f5.html"
+  printf '<div class="family-footer" onclick="x()"></div>\n' > "$d/f6.html"
+  fc_row 1 'f6.html:1: onclick= is not allowed in a fragment' fragment "$css" "$d/f6.html"
+  printf '<!-- c -->\n<div class="family-footer"><p>x<br></p></div>\n' > "$d/f7.html"
+  fc_row 0 '' fragment "$css" "$d/f7.html"
+  # a wrong example output (the copy keeps its count sources beside it)
+  mkdir -p "$d/docs-site" "$d/docs"
+  cp "$PLUGIN_ROOT/docs/requirements.md" "$d/docs/"
+  cp "$LIVE_TXT" "$d/docs-site/live.txt"
+  fc_row 0 '' contract "$d/docs-site/live.txt" "$FILLER"
+  sed 's/<small>coming<\/small>/<small>soon<\/small>/' "$LIVE_TXT" > "$d/docs-site/live.txt"
+  ! cmp -s "$LIVE_TXT" "$d/docs-site/live.txt" || return 1
+  fc_row 1 'renders as' contract "$d/docs-site/live.txt" "$FILLER"
+}
+
+# ------------------------------------------ FAMILY: through the build (#996)
+
+@test "build-docs-site: build — no live.txt -> exit 4, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  rm "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"no live settings file: $FX/src/live.txt (the top bar and placeholders read it)"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: build — malformed live.txt -> exit 4 naming the line, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  printf 'live devagent maybe index.html\n' >> "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"fill-placeholders: $FX/src/live.txt:4: expected"* ]]
+  [[ "$output" == *"the live settings file is malformed"* ]]
+  [ ! -e "$FX/out" ]
+  # a live.txt missing a key the partials use is malformed too
+  grep -v '^live learn ' "$FX/src/live.txt" | grep -v maybe > "$FX/l" && mv "$FX/l" "$FX/src/live.txt"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"missing required key 'learn'"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+@test "build-docs-site: build — a static dir missing family.js -> exit 4 naming it, nothing written" {
+  fx_bin
+  FX_PATH="$FX/bin"
+  fx_page index "hello"
+  fx_static_copy
+  rm "$FX/static/family.js"
+  run fx_build
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"$FX/static: missing family file family.js (the template links or inserts it)"* ]]
+  [ ! -e "$FX/out" ]
+}
+
+# fx_fill_site — an index.md and a hand-written page, each holding a live
+# placeholder, a not-live one and a count over $FX/data.md (2 matching lines).
+fx_fill_site() {
+  printf 'count fx ../data.md ^x\n' >> "$FX/src/live.txt"
+  printf 'x1\ny\nx2\n' > "$FX/data.md"
+  fx_page index '- [Hand](./hand.html)' '' '{{live:devagent|Home}}' '' '{{live:gantry|Gantry}}' '' 'n={{count:fx}}.'
+  fx_html hand '<h1>Hand</h1>' '<p><a href="index.html">x</a></p>' '<p>{{live:devagent|Home}}</p>' \
+    '<p>{{live:gantry|Gantry}}</p>' '<p>n={{count:fx}}.</p>'
+}
+
+@test "build-docs-site: build — placeholders fill in Markdown and hand-written pages" {
+  need_pandoc
+  fx_fill_site
+  run fx_build
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  local p
+  for p in index hand; do
+    article_of "$FX/out/$p.html" | grep -qF '<a href="index.html">Home</a>'
+    article_of "$FX/out/$p.html" | grep -qF '<span class="family-coming">Gantry <small>coming</small></span>'
+    article_of "$FX/out/$p.html" | grep -qxF '<p>n=2.</p>'
+  done
+  # no placeholder is left in any page (the partials under static/ are
+  # published as written, for other sites to copy)
+  [ "$(cat "$FX"/out/*.html | grep -c '{{' || true)" -eq 0 ]
+}
+
+@test "build-docs-site: build — an unknown placeholder -> exit 5 naming page and placeholder" {
+  need_pandoc
+  fx_page index 'see {{live:nope|X}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"fill-placeholders: $FX/out/index.html: unknown placeholder {{live:nope|X}}"* ]]
+  [[ "$output" == *"a placeholder could not be filled"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
+}
+
+@test "build-docs-site: build — a zero count -> exit 5" {
+  need_pandoc
+  printf 'count z ../data.md ^nomatch\n' >> "$FX/src/live.txt"
+  printf 'x\n' > "$FX/data.md"
+  fx_page index 'n={{count:z}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"count z is zero in ../data.md; a zero is never published"* ]]
+}
+
+@test "build-docs-site: build — a missing count source -> exit 5" {
+  need_pandoc
+  printf 'count m ../missing.md ^x\n' >> "$FX/src/live.txt"
+  fx_page index 'n={{count:m}}'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"count source not found: ../missing.md (count m)"* ]]
+}
+
+@test "build-docs-site: build — a placeholder in a page title (H1) -> exit 5 naming the page" {
+  need_pandoc
+  printf '# Home {{live:gantry|Gantry}}\n\nx\n' > "$FX/src/index.md"
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.md: placeholder in the page title (H1) — titles feed <title> and the nav"* ]]
+  # the titles are read before any page renders: no page is written
+  [ -z "$(find "$FX/out" -name '*.html' 2>/dev/null)" ]
+  # a hand-written page's <h1> and its nav-label header are refused too
+  rm -rf "$FX/out" "$FX/src/index.md"
+  fx_html index '<h1>Home {{count:x}}</h1>'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: placeholder in the page title (H1)"* ]]
+  rm -rf "$FX/out"
+  printf '%s\n' '<!-- derived-from: fixture -->' '<!-- nav-label: Go {{live:gantry|G}} -->' '<h1>Home</h1>' > "$FX/src/index.html"
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: placeholder in the nav label"* ]]
+}
+
+@test "build-docs-site: build — every page carries both partials once, placeholders filled" {
+  need_pandoc
+  fx_fill_site
+  run fx_build
+  [ "$status" -eq 0 ]
+  local p part l1
+  for p in index hand; do
+    for part in family-topbar.html family-footer.html; do
+      l1="$(sed -n 1p "$FAMILY_STATIC/$part")"
+      [ "$(grep -cxF -- "$l1" "$FX/out/$p.html")" -eq 1 ] || { echo "$p.html: $part line 1 not exactly once" >&2; return 1; }
+    done
+    [ "$(grep -c '{{' "$FX/out/$p.html" || true)" -eq 0 ]
+    ! grep -qxF '<!--family-topbar-->' "$FX/out/$p.html" || return 1
+    ! grep -qxF '<!--family-footer-->' "$FX/out/$p.html" || return 1
+  done
+}
+
+@test "build-docs-site: build — a body line equal to a marker -> exit 5 naming it" {
+  need_pandoc
+  fx_html index '<h1>Home</h1>' '<!--family-footer-->'
+  run fx_build
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"index.html: expected one <!--family-footer--> line, found 2"* ]]
+}
+
+@test "build-docs-site: build — a filler crash -> exit 8, says the fill did not complete" {
+  need_pandoc
+  fx_page index "hello"
+  local real_py
+  real_py="$(command -v python3)"
+  mkdir -p "$FX/py"
+  printf '#!%s\ncase " $* " in *fill-placeholders.py*) case " $* " in *" --check "*) ;; *) exec "%s" -c "import sys; sys.exit(9)" ;; esac ;; esac\nexec "%s" "$@"\n' \
+    "$(command -v bash)" "$real_py" "$real_py" > "$FX/py/python3"
+  chmod +x "$FX/py/python3"
+  FX_PYTHON="$FX/py/python3"
+  run fx_build
+  [ "$status" -eq 8 ]
+  [[ "$output" == *"the placeholder fill did not complete (fill-placeholders exited 9)"* ]]
+  [[ "$output" != *"built 1 pages"* ]]
+}
+
+# ------------------------------------------ FAMILY: the real site (#996)
+#
+# The expectations below come from the partials and docs-site/live.txt
+# directly (a sed over each live line, in the rendered formats), never from
+# the filler, so a filler bug cannot agree with itself.
+
+# region_of <html> <partial> — the lines of <html> that the partial's lines 2
+# to its end landed on (line 1, the version comment, is left out).
+region_of() {
+  local first n
+  first="$(sed -n 2p "$2")"
+  n=$(( $(wc -l < "$2") - 1 ))
+  awk -v f="$first" -v n="$n" 'c == 0 && !done && $0 == f { c = n } c > 0 { print; c--; if (c == 0) done = 1 }' "$1"
+}
+
+# expect_region <partial> — the partial's lines 2 to its end, each live
+# placeholder rendered from docs-site/live.txt.
+expect_region() {
+  local sedargs=() k state url
+  while read -r _ k state url; do
+    if [ "$state" = yes ]; then
+      sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<a href=\"$url\">\\1</a>#g")
+    else
+      sedargs+=(-e "s#{{live:$k|\\([^}]*\\)}}#<span class=\"family-coming\">\\1 <small>coming</small></span>#g")
+    fi
+  done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  [ "${#sedargs[@]}" -gt 0 ] || return 1
+  sed -n '2,$p' "$1" | sed "${sedargs[@]}"
+}
+
+@test "build-docs-site: real site — every page carries the same top bar and shared footer, filled from live.txt" {
+  need_pandoc
+  local content=() p part want got n=0
+  mapfile -t content < <(real_content)
+  [ "${#content[@]}" -ge 2 ]
+  for part in family-topbar.html family-footer.html; do
+    want="$(expect_region "$FAMILY_STATIC/$part")"
+    [ -n "$want" ]
+    [[ $want != *'{{'* ]]
+    for p in "${content[@]}"; do
+      got="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/$part")"
+      [ "$got" = "$want" ] || { echo "$p.html: the $part region is not the expected markup:" >&2; diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") >&2; return 1; }
+      n=$((n + 1))
+    done
+  done
+  [ "$n" -eq $(( 2 * ${#content[@]} )) ]
+  # plain HTML: each region is markup, outside <noscript>, <script>,
+  # <template> and comments
+  for p in "${content[@]}"; do
+    run fc placement "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html" "$FAMILY_STATIC/family-footer.html"
+    [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+    fc_count placement
+    [ "$fc_n" -eq 2 ]
+  done
+}
+
+@test "build-docs-site: real site — live.txt renders both ways: not live without a link, live with one" {
+  need_pandoc
+  # today's settings (child 11 flips these when the sites go live)
+  grep -qE '^live gantry no ' "$LIVE_TXT"
+  grep -qE '^live learn no ' "$LIVE_TXT"
+  local content=() p k state url label li yes=0 no=0 region
+  mapfile -t content < <(real_content)
+  for p in "${content[@]}"; do
+    region="$(region_of "$REAL_OUT/$p.html" "$FAMILY_STATIC/family-topbar.html")"
+    while read -r _ k state url; do
+      label="$(sed -n "s/.*{{live:$k|\\([^}]*\\)}}.*/\\1/p" "$FAMILY_STATIC/family-topbar.html")"
+      [ -n "$label" ]
+      li="$(printf '%s\n' "$region" | grep -F '<li>' | grep -F -e ">$label<" -e ">$label <small>")"
+      [ "$(printf '%s\n' "$li" | wc -l)" -eq 1 ] || { echo "$p.html: no single <li> for $label: $li" >&2; return 1; }
+      if [ "$state" = no ]; then
+        [[ $li != *'href='* ]] || { echo "$p.html: $k is not live but links: $li" >&2; return 1; }
+        [[ $li == *'class="family-coming"'* ]]
+        no=$((no + 1))
+      else
+        [ "$(grep -o 'href=' <<< "$li" | wc -l)" -eq 1 ]
+        [[ $li == *"href=\"$url\""* ]] || { echo "$p.html: $k is live but its <li> lacks href=\"$url\": $li" >&2; return 1; }
+        yes=$((yes + 1))
+      fi
+    done < <(grep -E '^live[[:space:]]' "$LIVE_TXT")
+  done
+  [ "$yes" -ge "${#content[@]}" ]
+  [ "$no" -ge "${#content[@]}" ]
+}
+
+@test "build-docs-site: real site — no animation or transition applies outside .family-motion" {
+  need_pandoc
+  local content=() css=() html=()
+  mapfile -t content < <(real_content)
+  mapfile -t css < <(find "$REAL_OUT" -name '*.css' | LC_ALL=C sort)
+  html=("$REAL_OUT"/*.html)
+  [ "${#css[@]}" -ge 1 ]
+  [ -f "$REAL_OUT/static/family.css" ]
+  run fc motion "${css[@]}" "${html[@]}"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count motion
+  [ "$fc_n" -ge $(( 1 + ${#content[@]} )) ]
+  # 1.0's nav transition is still there, gated
+  grep -qF '.family-motion nav[aria-label="Pages"] a { transition: color 120ms ease; }' "$PAGE_TMPL"
+}
+
+@test "build-docs-site: real site — nothing is hidden by default; text, top bar and footer are in the HTML" {
+  need_pandoc
+  local content=() p
+  mapfile -t content < <(real_content)
+  run fc hidden "$REAL_OUT"/*.html
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  fc_count hidden
+  [ "$fc_n" -ge "${#content[@]}" ]
+  for p in "${content[@]}"; do
+    [ -n "$(article_of "$REAL_OUT/$p.html" | tr -d '[:space:]')" ]
+    grep -qF '<header class="family-topbar">' "$REAL_OUT/$p.html"
+    grep -qF '<div class="family-footer">' "$REAL_OUT/$p.html"
+  done
+}
+
+@test "build-docs-site: real site — every count in live.txt resolves to a positive number" {
+  local d="$BATS_TEST_TMPDIR" keys=() k
+  mapfile -t keys < <(awk '$1 == "count" { print $2 }' "$LIVE_TXT")
+  [ "${#keys[@]}" -ge 1 ]
+  : > "$d/probe.html"
+  for k in "${keys[@]}"; do printf '%s={{count:%s}}\n' "$k" "$k" >> "$d/probe.html"; done
+  run fp --settings "$LIVE_TXT" "$d/probe.html"
+  [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }
+  for k in "${keys[@]}"; do
+    grep -qE "^$k=[1-9][0-9]*\$" "$d/probe.html" || { echo "count $k: $(grep "^$k=" "$d/probe.html")" >&2; return 1; }
+  done
+}
+
+@test "build-docs-site: real site — the family files publish byte-identical under static/" {
+  need_pandoc
+  local f
+  for f in family.css family.js family-topbar.html family-footer.html; do
+    cmp "$FAMILY_STATIC/$f" "$REAL_OUT/static/$f"
+  done
+}
+
+@test "build-docs-site: family-check — placement, motion and hidden redden on a planted violation" {
+  local d="$BATS_TEST_TMPDIR" top="$FAMILY_STATIC/family-topbar.html" foot="$FAMILY_STATIC/family-footer.html"
+  # placement: inside <noscript>; inside a comment; twice; a plain page passes
+  local tb fb
+  tb="$(sed -n '2,$p' "$top")"
+  fb="$(sed -n '2,$p' "$foot")"
+  printf '<body>\n<noscript>\n%s\n</noscript>\n%s\n</body>\n' "$tb" "$fb" > "$d/pl1.html"
+  fc_row 1 '<header class="family-topbar"> sits inside <noscript>' placement "$d/pl1.html" "$top" "$foot"
+  printf '<body>\n<!--\n%s\n-->\n%s\n</body>\n' "$tb" "$fb" > "$d/pl2.html"
+  fc_row 1 '<header class="family-topbar"> occurs 0 times' placement "$d/pl2.html" "$top" "$foot"
+  printf '<body>\n<template>\n%s\n</template>\n%s\n</body>\n' "$fb" "$tb" > "$d/pl3.html"
+  fc_row 1 '<div class="family-footer"> sits inside <template>' placement "$d/pl3.html" "$top" "$foot"
+  printf '<body>\n%s\n%s\n%s\n</body>\n' "$tb" "$tb" "$fb" > "$d/pl4.html"
+  fc_row 1 '<header class="family-topbar"> occurs 2 times' placement "$d/pl4.html" "$top" "$foot"
+  printf '<body>\n%s\n<main>x</main>\n%s\n</body>\n' "$tb" "$fb" > "$d/pl5.html"
+  fc_row 0 '' placement "$d/pl5.html" "$top" "$foot"
+  # motion: an ungated transition; an ungated animation in style=; a mixed
+  # selector list; gated rules and @keyframes bodies pass
+  printf 'a { transition: color 1s; }\n' > "$d/m1.css"
+  fc_row 1 "transition: color 1s in 'a' applies outside .family-motion" motion "$d/m1.css"
+  printf '<p style="color: red; animation: spin 1s">x</p>\n' > "$d/m2.html"
+  fc_row 1 'animation: spin 1s in style= on <p> applies outside .family-motion' motion "$d/m2.html"
+  printf '.family-motion a, b { transition-duration: 1s; }\n' > "$d/m3.css"
+  fc_row 1 'transition-duration: 1s in' motion "$d/m3.css"
+  printf '<style>\nnav a { transition: color 1s; }\n</style>\n' > "$d/m4.html"
+  fc_row 1 'm4.html:2: transition: color 1s' motion "$d/m4.html"
+  printf '%s\n' '.family-motion a { transition: color 1s; }' 'html.family-motion .x { animation: spin 1s; }' \
+    '@keyframes spin { from { transform: rotate(0); } to { transform: rotate(1turn); } }' \
+    '@media (prefers-reduced-motion: no-preference) { .family-motion nav a { transition: color 1s; } }' > "$d/m5.css"
+  fc_row 0 '' motion "$d/m5.css"
+  # hidden: a hidden attribute; style= display:none; a top-level rule in a
+  # linked copy of family.css; a rule under @media passes
+  printf '<p hidden>x</p>\n' > "$d/h1.html"
+  fc_row 1 'h1.html:1: <p> carries the hidden attribute' hidden "$d/h1.html"
+  printf '<div style="display: none">x</div>\n' > "$d/h2.html"
+  fc_row 1 'style= on <div> hides it' hidden "$d/h2.html"
+  mkdir -p "$d/static"
+  { cat "$FAMILY_STATIC/family.css"; printf '.family-footer { display: none; }\n'; } > "$d/static/family.css"
+  printf '<link rel="stylesheet" href="static/family.css">\n<p>x</p>\n' > "$d/h3.html"
+  fc_row 1 "'.family-footer' hides by default (display: none), outside any @media" hidden "$d/h3.html"
+  printf '<style>\n@media (max-width: 1px) { .x { display: none; } }\n.y { visibility: hidden }\n</style>\n' > "$d/h4.html"
+  fc_row 1 "'.y' hides by default (visibility: hidden)" hidden "$d/h4.html"
+  cp "$FAMILY_STATIC/family.css" "$d/static/family.css"
+  printf '<link rel="stylesheet" href="static/family.css">\n<style>\n@media (max-width: 1px) { .x { display: none; } }\n</style>\n<p>x</p>\n' > "$d/h5.html"
+  fc_row 0 '' hidden "$d/h5.html"
 }

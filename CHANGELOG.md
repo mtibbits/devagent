@@ -38,6 +38,33 @@ the README's "Versioning & releases" section has the release procedure.
   marker line overrides that class's `step_models.<N>` pins. The capture path
   refuses a multi-token value that `model_token_is_legal` still accepts
   (`"fable inherit"`); the source fix is #1117.
+
+- **Added: the docs site is built on a shared family template (#996).**
+  Four family files under `scripts/docs-site/static/`, all `family v1.0`,
+  are what the devagent, Gantry and Journeyman sites copy byte for byte:
+  `family.css` (the palette as separate light and dark sets, the type scale,
+  the graph-paper grid), `family.js` (the animation setting: the first page
+  view plays once, a footer control turns animations on or off,
+  `prefers-reduced-motion` always wins; it exports `familyAnimationsOn()` and
+  `familyPlayOnce(name)` under the storage key `mtibbits-family-v1`), and
+  the `family-topbar.html` and `family-footer.html` partials. The build
+  inserts the partials into every page as plain HTML and fills two
+  build-time placeholders, `{{live:<key>|<label>}}` and `{{count:<key>}}`,
+  from `docs-site/live.txt` (which family sites are live; Gantry and Learn
+  show "coming"). An unknown or zero placeholder fails the build (exit 5); a
+  malformed `live.txt` or a missing family file exits 4.
+
+## [3.1.0] — 2026-11-14
+
+A minor release: new options and features, with no change that breaks an
+existing project's `config.toml`, devdoc layout or command contract. Added:
+the disk issue backend, the `starter` checklist tier, the `P0` WBS
+priority, cross-project `depends_on`, `cost-report --overhead`, and a Git Bash
+CI job. One default moved: a `/devagent:pull` with no source flag now reads
+`default_issue_source` (#1099). A project with both trackers configured that
+pulls from its fork first should set `default_issue_source = "fork"` once.
+The old positional `<project> origin|fork <N>` form still works.
+
 - **Changed: `/devagent:pull <project> <issue-num> [--origin|--fork]` takes
   its source from config (#1099).** A flagless pull reads the new
   `[project.<p>] default_issue_source` (`"origin"` or `"fork"`), else the
