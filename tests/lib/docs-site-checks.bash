@@ -45,9 +45,14 @@ STEP_COUNT=25
 # trigger for re-running the plugin-root-grant-automatch smoke rung (#548).
 VERIFIED_CC=2.1.223
 # The reference documents that left the site for docs/ (#997), repo-relative.
-REFERENCE_DOCS=(docs/configuration.md docs/concurrency.md)
-# The forge home of a repo file, as the build's links.lua renders it.
-BLOB_BASE='https://github.com/mtibbits/devagent/blob/master/'
+CONFIG_REL=docs/configuration.md
+CONCURRENCY_REL=docs/concurrency.md
+REFERENCE_DOCS=("$CONFIG_REL" "$CONCURRENCY_REL")
+# Every document docs-site/reference.md links: the moved ones plus the spec.
+REFERENCE_LINKS=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
+# The forge home of a repo file: the build's own default --blob-base, read from
+# scripts/build-docs-site.sh so the two cannot drift.
+BLOB_BASE="$(sed -n 's/^blob_base="\(.*\)"$/\1/p' "$(dirname "${BASH_SOURCE[0]}")/../../scripts/build-docs-site.sh")"
 
 # _need <file>... — return 2 (with a reason) unless every file is readable.
 _need() {
@@ -62,6 +67,22 @@ _has() {
   grep -qF -- "$2" "$1" && return 0
   echo "$1: $3" >&2
   return 1
+}
+
+# site_content <site-dir> — the content pages (*.md and *.html other than
+# README.*), full paths.
+site_content() {
+  local f
+  for f in "$1"/*.md "$1"/*.html; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in README.*) continue ;; esac
+    printf '%s\n' "$f"
+  done
+}
+
+# moved_pairs <site-dir> — moved.txt's data lines as "<old> <home>".
+moved_pairs() {
+  awk '!/^[ \t]*(#|$)/ { print $1, $2 }' "$1/moved.txt"
 }
 
 # site_pages <site-dir> — the names index.md's top-level list links, in list
@@ -97,12 +118,9 @@ check_page_set() {
   listed="$(site_pages "$dir")" || return 2
   want[index]=1
   while IFS= read -r p; do [ -n "$p" ] && want[$p]=1; done <<<"$listed"
-  for f in "$dir"/*.md "$dir"/*.html; do
-    [ -e "$f" ] || continue
-    b="${f##*/}"
-    case "$b" in README.*) continue ;; esac
-    have[${b%.*}]=1
-  done
+  while IFS= read -r f; do
+    b="${f##*/}"; have[${b%.*}]=1
+  done < <(site_content "$dir")
   for p in "${!have[@]}"; do
     [ -n "${want[$p]:-}" ] || { echo "$dir: page $p is not in index.md's list (the one page list)" >&2; bad=1; }
   done
@@ -132,7 +150,7 @@ check_reference_stubs() {
         rel="${home#"$BLOB_BASE"}"; rel="${rel%%#*}"
         [ -e "$root/$rel" ] || { echo "$dir/moved.txt: $old's home $rel does not exist" >&2; return 1; } ;;
     esac
-  done < <(awk '!/^[ \t]*(#|$)/' "$dir/moved.txt")
+  done < <(moved_pairs "$dir")
 }
 
 # check_reference_links <page> <doc>... — the page links each root-relative
@@ -287,28 +305,30 @@ check_absent() {
 # The prerequisite tools README names (#579). The install page's own list is
 # derived from its "You need:" region; every tool there must be in README.
 PREREQ_TOOLS=(bash python3 jq git gh glab curl tomli bats shellcheck)
-# RECORDED EXEMPTION: `tomllib` is the stdlib module the `tomli` fallback stands
-# in for, named to explain the fallback; it is not something to install.
-PREREQ_NOT_TOOLS=(tomllib)
+
+# _you_need_region <page> <with-contributors 0|1> — the install page's
+# "You need:" list, optionally through its "- Contributors additionally" line.
+_you_need_region() {
+  awk -v c="$2" '/You need:$/{f=1; next} /^- Contributors additionally/{ if (f && c) print; exit } f' "$1"
+}
 
 # check_prereqs_trace <page> <readme> — the page's toolchain (the backticked
 # single words in its "You need:" region, through the contributors line) names
 # every PREREQ_TOOLS entry, README names each, every page tool is in README, and
 # neither side claims the repo is private.
 check_prereqs_trace() {
-  local page="$1" readme="$2" region tools t x skip f rc
+  local page="$1" readme="$2" region tools t f rc
   _need "$page" "$readme" || return 2
-  region="$(awk '/You need:$/{f=1; next} f; /^- Contributors additionally/{exit}' "$page")"
+  region="$(_you_need_region "$page" 1)"
   [ -n "$region" ] || { echo "$page: no 'You need:' region" >&2; return 1; }
   tools="$(grep -oE '`[a-z][a-z0-9]*`' <<<"$region" | tr -d '`' | sort -u)"
   for t in "${PREREQ_TOOLS[@]}"; do
     grep -qx -- "$t" <<<"$tools" || { echo "$page: the toolchain list does not name \`$t\`" >&2; return 1; }
-    _has "$readme" "\`$t\`" "does not name the prerequisite \`$t\`" || return 1
   done
   while IFS= read -r t; do
-    [ -n "$t" ] || continue
-    skip=0; for x in "${PREREQ_NOT_TOOLS[@]}"; do [ "$t" = "$x" ] && skip=1; done
-    [ "$skip" -eq 1 ] && continue
+    # RECORDED EXEMPTION: `tomllib` is the stdlib module the `tomli` fallback
+    # stands in for, named to explain the fallback; it is not something to install.
+    case "$t" in ''|tomllib) continue ;; esac
     _has "$readme" "\`$t\`" "does not name \`$t\`, which $page lists as a prerequisite" || return 1
   done <<<"$tools"
   for f in "$page" "$readme"; do
@@ -485,7 +505,7 @@ check_shellcheck_homes() {
   [ "$n" -eq 1 ] || { echo "$install: $n '- Contributors additionally' lines, want 1" >&2; return 1; }
   for region in \
       "$(awk '/^\*\*Prerequisites\.\*\*/{f=1} f && /^$/{exit} f' "$root/README.md")" \
-      "$(awk '/You need:$/{f=1; next} /^- Contributors additionally/{exit} f' "$root/$install")"; do
+      "$(_you_need_region "$root/$install" 0)"; do
     [ -n "$region" ] || { echo "a user statement region is empty" >&2; return 1; }
     vals="$(_mz_live <<<"$region")" || return 2
     [ "$(grep -c . <<<"$vals" || true)" -eq 1 ] || {

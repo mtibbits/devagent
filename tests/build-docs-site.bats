@@ -238,18 +238,15 @@ frame_of() {
 # docs-site/*.md and *.html, minus README.*.
 real_content() {
   local f b
-  for f in "$SITE"/*.md "$SITE"/*.html; do
-    [ -e "$f" ] || continue
-    b="${f##*/}"
-    b="${b%.*}"
-    [ "$b" = README ] || printf '%s\n' "$b"
-  done
+  while IFS= read -r f; do
+    b="${f##*/}"; printf '%s\n' "${b%.*}"
+  done < <(site_content "$SITE")
 }
 
 # real_stubs — the old names docs-site/moved.txt lists (its data lines).
 real_stubs() {
   [ -f "$SITE/moved.txt" ] || return 0
-  awk '!/^[ \t]*(#|$)/ { print $1 }' "$SITE/moved.txt"
+  moved_pairs "$SITE" | cut -d' ' -f1
 }
 
 @test "build-docs-site: real site — one html per content page and stub, README not published" {
@@ -390,7 +387,7 @@ real_stubs() {
   need_pandoc
   local pairs=() content=() line old home p
   # the <old> <home> pairs, read from moved.txt itself (comments and blanks skipped)
-  mapfile -t pairs < <(awk '!/^[ \t]*(#|$)/ { print $1, $2 }' "$SITE/moved.txt")
+  mapfile -t pairs < <(moved_pairs "$SITE")
   [ "${#pairs[@]}" -ge 2 ]
   mapfile -t content < <(real_content)
   for line in "${pairs[@]}"; do
@@ -406,7 +403,7 @@ real_stubs() {
 
 @test "build-docs-site: real site — the reference page links the four reference documents on the forge" {
   need_pandoc
-  local d docs=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
+  local d docs=("${REFERENCE_LINKS[@]}")
   [ "${#docs[@]}" -eq 4 ]
   [ -s "$REAL_OUT/reference.html" ] || { echo "no reference.html" >&2; return 1; }
   for d in "${docs[@]}"; do

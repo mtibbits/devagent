@@ -26,22 +26,12 @@ load 'lib/bats-helpers'
 load 'lib/docs-site-checks'
 
 WEB="$PLUGIN_ROOT/docs-site"
-# The reference documents' paths, one per line (no tests/ line names the site
-# variable and a reference document together).
-CONFIG_REL=docs/configuration.md
 CONFIG_DOC="$PLUGIN_ROOT/$CONFIG_REL"
 TEMPLATE="$PLUGIN_ROOT/templates/checklist-standard.md"
 README="$PLUGIN_ROOT/README.md"
 
 # content_pages — every content page of the site, full paths.
-content_pages() {
-  local f
-  for f in "$WEB"/*.md "$WEB"/*.html; do
-    [ -e "$f" ] || continue
-    case "${f##*/}" in README.*) continue ;; esac
-    printf '%s\n' "$f"
-  done
-}
+content_pages() { site_content "$WEB"; }
 
 # reference_docs — REFERENCE_DOCS as full paths.
 reference_docs() {
@@ -80,7 +70,6 @@ drop() {
   grep -qF -- "$lit" "$f" || { echo "drop: '$lit' not in $f" >&2; return 1; }
   grep -vF -- "$lit" "$f" >"$f.tmp" || true
   mv "$f.tmp" "$f"
-  ! grep -qF -- "$lit" "$f"
 }
 
 # plant <file> <line> — append a line; fail if it is not there after.
@@ -89,9 +78,9 @@ plant() {
   grep -qF -- "$2" "$1"
 }
 
-# fresh <src> [name] — a pristine temp copy of <src>; prints its path.
+# fresh <src> — a pristine temp copy of <src>; prints its path.
 fresh() {
-  local dst="$BATS_TEST_TMPDIR/${2:-${1##*/}}"
+  local dst="$BATS_TEST_TMPDIR/${1##*/}"
   cp "$1" "$dst"
   printf '%s\n' "$dst"
 }
@@ -118,8 +107,7 @@ temp_root() {
 }
 
 @test "docs-site: the reference page links the four reference documents" {
-  holds check_reference_links "$WEB/reference.md" "${REFERENCE_DOCS[@]}" \
-    docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md
+  holds check_reference_links "$WEB/reference.md" "${REFERENCE_LINKS[@]}"
 }
 
 @test "docs-site: every content page's line-1 derive header names existing sources" {
@@ -236,7 +224,7 @@ temp_root() {
   rm "$d/extra.md"; holds check_page_set "$d"
   rm "$d/workflow.md"
   breaks 'workflow' check_page_set "$d"
-  cp -r "$WEB/." "$d/"; rm "$d/README.md"
+  cp "$WEB/workflow.md" "$d/"; rm "$d/README.md"
   breaks 'README' check_page_set "$d"
 }
 
@@ -252,7 +240,7 @@ temp_root() {
   [[ "$(head -1 "$p")" != *derived-from* ]]
   breaks 'line 1' check_derived_from "$PLUGIN_ROOT" "$p"
   # A reference document in docs/ carries the same header.
-  p="$(fresh "$PLUGIN_ROOT/${REFERENCE_DOCS[1]}")"
+  p="$(fresh "$PLUGIN_ROOT/$CONCURRENCY_REL")"
   holds check_derived_from "$PLUGIN_ROOT" "$p"
   sed -i '1d' "$p"
   [[ "$(head -1 "$p")" != *derived-from* ]]
@@ -265,7 +253,7 @@ temp_root() {
   local d="$BATS_TEST_TMPDIR/web" t
   mkdir -p "$d"; cp "$WEB/moved.txt" "$d/"
   holds check_reference_stubs "$d" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
-  drop "$d/moved.txt" "concurrency $BLOB_BASE${REFERENCE_DOCS[1]}"
+  drop "$d/moved.txt" "concurrency $BLOB_BASE$CONCURRENCY_REL"
   breaks "concurrency $BLOB_BASE" check_reference_stubs "$d" "$PLUGIN_ROOT" "${REFERENCE_DOCS[@]}"
   # A stub whose forge home is gone.
   cp "$WEB/moved.txt" "$d/"
@@ -278,11 +266,11 @@ temp_root() {
 }
 
 @test "mutation: reference links" {
-  local f docs=("${REFERENCE_DOCS[@]}" docs/specs/2026-05-19-devagent-plugin-design.md docs/requirements.md)
+  local f
   f="$(fresh "$WEB/reference.md")"
-  holds check_reference_links "$f" "${docs[@]}"
+  holds check_reference_links "$f" "${REFERENCE_LINKS[@]}"
   edit "$f" '](../docs/requirements.md)' '](https://example.com/requirements)'
-  breaks 'docs/requirements.md' check_reference_links "$f" "${docs[@]}"
+  breaks 'docs/requirements.md' check_reference_links "$f" "${REFERENCE_LINKS[@]}"
 }
 
 @test "mutation: install block" {
